@@ -1,4 +1,4 @@
-name: ldsc_py3
+name: ldsc-py3-Jerry
 channels:
 - bioconda
 dependencies:

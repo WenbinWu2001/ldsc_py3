@@ -18,6 +18,7 @@ from subprocess import call
 from itertools import product
 import time, sys, traceback, argparse
 from functools import reduce
+from contextlib import contextmanager
 #import gzip
 import logging
 
@@ -47,6 +48,17 @@ np.set_printoptions(precision=4)
 
 
 
+@contextmanager
+def log_timer(logger, label):
+    start = time.perf_counter()
+    try:
+        yield
+    finally:
+        elapsed = time.perf_counter() - start
+        logger.info(f"{label} completed in {elapsed:.2f}s")
+
+
+
 def sec_to_str(t):
     '''Convert seconds to days:hours:minutes:seconds'''
     [d, h, m, s, n] = reduce(lambda ll, b : divmod(ll[0], b) + ll[1:], [(t, 1), 60, 60, 24])
@@ -70,39 +82,27 @@ def _remove_dtype(x):
     return x
 
 
-# class Logger(object):
-#     '''
-#     Lightweight logging.
-#     TODO: replace with logging module
+class Logger(object):
+    '''Simple logger that mirrors messages to stdout and a file.'''
 
-#     '''
-#     def __init__(self, fh):
-#         self.log_fh = open(fh, 'wb')
+    def __init__(self, fh):
+        self.file_handle = fh
+        self.log_fh = open(self.file_handle, 'a', encoding='utf-8')
 
-#     def log(self, msg):
-#         '''
-#         Print to log file and stdout with a single command.
+    def log(self, msg):
+        print(msg, file=self.log_fh)
+        self.log_fh.flush()
+        print(msg)
 
-#         '''
-#         ##does change below still print to file?
-#         #print(msg, file=self.log_fh)
-#         print(msg)
+    def close(self):
+        self.log_fh.close()
 
-# class Logger3(object):
-#     def __init__(self, fh):
-#         self.file_handle = fh
+    def __enter__(self):
+        return self
 
-#     def __enter__(self):
-#         self.log_fh = open(self.file_handle, 'a', encoding='utf-8')  # Open the file
-#         return self
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
 
-#     def log(self, msg):
-#         print(msg, file=self.log_fh)
-#         print(msg)
-
-#     def __exit__(self, exc_type, exc_value, traceback):
-#         self.log_fh.close()  # Close the file when exiting the 'with' block
-        
 
 def __filter__(fname, noun, verb, merge_obj):
     merged_list = None
@@ -671,7 +671,8 @@ if __name__ == '__main__':
                 args.pq_exp = 1
 
 
-            ldscore(args)
+            with log_timer(logger, 'ldscore'):
+                ldscore(args)
         # summary statistics
         elif (args.h2 or args.rg or args.h2_cts) and (args.ref_ld or args.ref_ld_chr) and (args.w_ld or args.w_ld_chr):
             if args.h2 is not None and args.rg is not None:
@@ -693,11 +694,14 @@ if __name__ == '__main__':
                     raise ValueError('Must set either --frqfile and --ref-ld or --frqfile-chr and --ref-ld-chr')
 
             if args.rg:
-                sumstats.estimate_rg(args)
+                with log_timer(logger, 'estimate_rg'):
+                    sumstats.estimate_rg(args)
             elif args.h2:
-                sumstats.estimate_h2(args)
+                with log_timer(logger, 'estimate_h2'):
+                    sumstats.estimate_h2(args)
             elif args.h2_cts:
-                sumstats.cell_type_specific(args)
+                with log_timer(logger, 'cell_type_specific'):
+                    sumstats.cell_type_specific(args)
 
             # bad flags
         else:

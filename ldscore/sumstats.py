@@ -17,26 +17,10 @@ import copy
 import os
 import time
 import logging
-from functools import wraps
 #import glob
 
 sumstats_logger = logging.getLogger('LDSC.sumstats')
 
-
-def timed(logger, label):
-    def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            start = time.perf_counter()
-            try:
-                return func(*args, **kwargs)
-            finally:
-                elapsed = time.perf_counter() - start
-                logger.info(f"{label} completed in {elapsed:.2f}s")
-
-        return wrapper
-
-    return decorator
 
 _N_CHR = 22
 # complementary bases
@@ -270,7 +254,6 @@ def _read_ld_sumstats(args, fh, alleles=False, dropna=True):
     ref_ld_cnames = ref_ld.columns[1:len(ref_ld.columns)]
     return M_annot, w_ld_cname, ref_ld_cnames, sumstats, novar_cols
 
-@timed(sumstats_logger, 'cell_type_specific')
 def cell_type_specific(args):
     '''Cell type specific analysis'''
     args = copy.deepcopy(args)
@@ -334,7 +317,6 @@ def cell_type_specific(args):
     sumstats_logger.info('Results printed to '+args.out+'.cell_type_results.txt')
 
 
-@timed(sumstats_logger, 'estimate_h2')
 def estimate_h2(args):
     '''Estimate h2 and partitioned h2.'''
     args = copy.deepcopy(args)
@@ -398,7 +380,6 @@ def estimate_h2(args):
     return hsqhat
 
 
-@timed(sumstats_logger, 'estimate_rg')
 def estimate_rg(args):
     '''Estimate rg between trait 1 and a list of other traits.'''
     args = copy.deepcopy(args)

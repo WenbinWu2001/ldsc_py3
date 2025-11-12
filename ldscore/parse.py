@@ -124,10 +124,13 @@ def l2_parser(fh, compression):
 
 def annot_parser(fh, compression, frqfile_full=None, compression_frq=None):
     '''Parse annot files'''
-    df_annot = read_csv(fh, header=0, compression=compression).drop(['SNP','CHR', 'BP', 'CM'], axis=1, errors='ignore').astype(float)
+    df_annot = read_csv(fh, header=0, compression=compression)
     if frqfile_full is not None:
         df_frq = frq_parser(frqfile_full, compression_frq)
-        df_annot = df_annot[(.95 > df_frq.FRQ) & (df_frq.FRQ > 0.05)]
+        # Create boolean mask using values to avoid index alignment issues
+        frq_filter = (.95 > df_frq.FRQ.values) & (df_frq.FRQ.values > 0.05)
+        df_annot = df_annot[frq_filter]
+    df_annot = df_annot.drop(['SNP','CHR', 'BP', 'CM'], axis=1, errors='ignore').astype(float)
     return df_annot
 
 
@@ -188,7 +191,7 @@ def annot(fh_list, num=None, frqfile=None):
     annot_compression = []
     if num is not None:  # 22 files, one for each chromosome
         ##below: fh_list was fh but is not defined inside annot()
-        chrs = get_present_chrs(fh_list, num+1)
+        chrs = get_present_chrs(fh_list[0], num+1)
         for i, fh in enumerate(fh_list):
             first_fh = sub_chr(fh, chrs[0]) + annot_suffix[i]
             annot_s, annot_comp_single = which_compression(first_fh)

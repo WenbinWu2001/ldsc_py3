@@ -20,7 +20,6 @@ except AttributeError:
     raise ImportError('LDSC requires pandas version >= 0.17.0')
 
 null_values = {
-
     'LOG_ODDS': 0,
     'BETA': 0,
     'OR': 1,

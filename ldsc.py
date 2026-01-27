@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 from subprocess import call
 from itertools import product
-import time, sys, traceback, argparse
+import time, sys, traceback, argparse, os
 from functools import reduce
 #import gzip
 import logging
@@ -71,12 +71,25 @@ def _remove_dtype(x):
     return x
 
 
+def _resolve_log_path(path):
+    if os.path.exists(path):
+        ts = time.strftime('%Y%m%d_%H%M%S')
+        if path.endswith('.log'):
+            alt = path[:-4] + '.' + ts + '.log'
+        else:
+            alt = path + '.' + ts + '.log'
+        print('WARNING: log file exists at {P}; writing to {A} to avoid concatenation.'.format(
+            P=path, A=alt), file=sys.stderr)
+        return alt
+    return path
+
+
 class Logger(object):
     '''Simple logger that mirrors messages to stdout and a file.'''
 
     def __init__(self, fh):
-        self.file_handle = fh
-        self.log_fh = open(self.file_handle, 'a', encoding='utf-8')
+        self.file_handle = _resolve_log_path(fh)
+        self.log_fh = open(self.file_handle, 'w', encoding='utf-8')
 
     def log(self, msg):
         print(msg, file=self.log_fh)
@@ -613,9 +626,10 @@ if __name__ == '__main__':
     #right now logger doesn't go to out folder
     #should logger be in __main__ or at top of script?    
     #log = Logger(args.out+'.log')
+    log_path = _resolve_log_path(args.out + '_LDSC.log')
     logger = logging.getLogger('LDSC')
     logger.setLevel(logging.DEBUG)
-    fh = logging.FileHandler(args.out + '_LDSC.log')
+    fh = logging.FileHandler(log_path, mode='w')
     fh.setLevel(logging.DEBUG)
 
     ch = logging.StreamHandler()

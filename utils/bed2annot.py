@@ -1,3 +1,4 @@
+# TODO: change batch to default false and change --no-batch to --batch
 """Create LDSC `.annot` files from one or more BED annotations.
 
 This module converts interval-based BED annotations into chromosome-specific
@@ -18,7 +19,7 @@ Inputs
 - `snp_identifier` (optional): how `restrict_snps_path` should be interpreted;
   supported modes are `chr_pos` (default) and `rsID`.
 - `batch` (optional): if `True` (default), write one combined output per chromosome with
-  one column per BED file; otherwise write one output directory per BED file.
+  one column per BED file; otherwise write one output directory per BED file. 
 
 Identifier modes
 - `chr_pos`: restriction is matched by chromosome and 1-based position. If the

@@ -49,9 +49,10 @@ Output modes
 
 Example usage
 - Python:
+  `from ldsc_py3_Jerry.utils.run_bed_to_annot import run_bed_to_annot`
   `run_bed_to_annot(bed_files=["annotations/Hippocampus_PP1.bed"], baseline_annot_dir="resources/baseline_v1.2", output_dir="results/bed_to_annot")`
 - CLI:
-  `python -m ldsc_py3_Jerry.utils.bed_to_annot --bed-files annotations/Hippocampus_PP1.bed --baseline-annot-dir resources/baseline_v1.2 --output-dir results/bed_to_annot`
+  `python ldsc_py3_Jerry/utils/run_bed_to_annot.py --bed-files annotations/Hippocampus_PP1.bed --baseline-annot-dir resources/baseline_v1.2 --output-dir results/bed_to_annot`
 
 TODO: update test file.
 """

@@ -1,4 +1,5 @@
 """
+TODO: standardize the format of documentation: Inputs (arg), outputs (arg)
 Description
 -----------
 New LD-score estimation core for SNP-level annotation files with support for
@@ -45,18 +46,17 @@ available via a flag.
 Example Usage
 -------------
 Python
-    from ldsc_py3_Jerry.ldscore.ldscore_new import build_parser, run_ldscore
+    from ldsc_py3_Jerry.ldscore.ldscore_new import run_ldscore
 
-    args = build_parser().parse_args([
-        "--out", "results/example",
-        "--baseline-annot-chr", "data/baseline.@",
-        "--query-annot", "data/query.annot.gz",
-        "--r2-table-chr", "data/r2/chr@",
-        "--snp-identifier", "rsID",
-        "--r2-bias-mode", "unbiased",
-        "--ld-wind-cm", "1",
-    ])
-    run_ldscore(args)
+    run_ldscore(
+        out="results/example",
+        baseline_annot_chr="data/baseline.@",
+        query_annot="data/query.annot.gz",
+        r2_table_chr="data/r2/chr@",
+        snp_identifier="rsID",
+        r2_bias_mode="unbiased",
+        ld_wind_cm=1,
+    )
 
 CLI
     python -m ldsc_py3_Jerry.ldsc_new \
@@ -1085,9 +1085,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 # Top-level workflow.
-def run_ldscore(args: argparse.Namespace) -> list[ChromComputationResult]:
+def run_ldscore_from_args(args: argparse.Namespace) -> list[ChromComputationResult]:
     """
-    Execute the end-to-end LD-score workflow.
+    Execute the end-to-end LD-score workflow from parsed CLI-style arguments.
 
     Main steps:
     1. Validate CLI arguments and discover the chromosomes to process.
@@ -1134,11 +1134,74 @@ def run_ldscore(args: argparse.Namespace) -> list[ChromComputationResult]:
     return results
 
 
+def run_ldscore(
+    *,
+    out: str,
+    query_annot: str | None = None,
+    query_annot_chr: str | None = None,
+    baseline_annot: str | None = None,
+    baseline_annot_chr: str | None = None,
+    bfile: str | None = None,
+    bfile_chr: str | None = None,
+    r2_table: str | None = None,
+    r2_table_chr: str | None = None,
+    snp_identifier: str = "chr_pos",
+    genome_build: str | None = None,
+    r2_bias_mode: str | None = None,
+    r2_sample_size: float | None = None,
+    regression_snps: str | None = None,
+    frqfile: str | None = None,
+    frqfile_chr: str | None = None,
+    ld_wind_snps: int | None = None,
+    ld_wind_kb: float | None = None,
+    ld_wind_cm: float | None = None,
+    maf: float | None = None,
+    chunk_size: int = 50,
+    per_chr_output: bool = False,
+    yes_really: bool = False,
+    log_level: str = "INFO",
+) -> list[ChromComputationResult]:
+    """
+    Execute the end-to-end LD-score workflow through a normal Python API.
+
+    This is the package-level function entrypoint. It mirrors the CLI options
+    with keyword arguments and writes the same outputs as the command-line path.
+    """
+    args = argparse.Namespace(
+        out=out,
+        query_annot=query_annot,
+        query_annot_chr=query_annot_chr,
+        baseline_annot=baseline_annot,
+        baseline_annot_chr=baseline_annot_chr,
+        bfile=bfile,
+        bfile_chr=bfile_chr,
+        r2_table=r2_table,
+        r2_table_chr=r2_table_chr,
+        snp_identifier=snp_identifier,
+        genome_build=genome_build,
+        r2_bias_mode=r2_bias_mode,
+        r2_sample_size=r2_sample_size,
+        regression_snps=regression_snps,
+        frqfile=frqfile,
+        frqfile_chr=frqfile_chr,
+        ld_wind_snps=ld_wind_snps,
+        ld_wind_kb=ld_wind_kb,
+        ld_wind_cm=ld_wind_cm,
+        maf=maf,
+        chunk_size=chunk_size,
+        per_chr_output=per_chr_output,
+        yes_really=yes_really,
+        log_level=log_level,
+    )
+    configure_logging(log_level)
+    return run_ldscore_from_args(args)
+
+
 def main(argv: Sequence[str] | None = None) -> list[ChromComputationResult]:
     parser = build_parser()
     args = parser.parse_args(argv)
     configure_logging(args.log_level)
-    return run_ldscore(args)
+    return run_ldscore_from_args(args)
 
 
 if __name__ == "__main__":

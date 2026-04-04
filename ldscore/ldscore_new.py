@@ -42,6 +42,32 @@ Outputs retain `CM` and `MAF` when available. Missing values are written as
 `NA`. Multi-chromosome output is aggregated by default; per-chromosome output is
 available via a flag.
 
+Example Usage
+-------------
+Python
+    from ldsc_py3_Jerry.ldscore.ldscore_new import build_parser, run_ldscore
+
+    args = build_parser().parse_args([
+        "--out", "results/example",
+        "--baseline-annot-chr", "data/baseline.@",
+        "--query-annot", "data/query.annot.gz",
+        "--r2-table-chr", "data/r2/chr@",
+        "--snp-identifier", "rsID",
+        "--r2-bias-mode", "unbiased",
+        "--ld-wind-cm", "1",
+    ])
+    run_ldscore(args)
+
+CLI
+    python -m ldsc_py3_Jerry.ldsc_new \
+        --out results/example \
+        --baseline-annot-chr data/baseline.@ \
+        --query-annot data/query.annot.gz \
+        --r2-table-chr data/r2/chr@ \
+        --snp-identifier rsID \
+        --r2-bias-mode unbiased \
+        --ld-wind-cm 1
+
 Computation Overview
 --------------------
 1. Load query and baseline SNP-level annotation files chromosome by chromosome.

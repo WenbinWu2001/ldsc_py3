@@ -1,9 +1,9 @@
 """
-TODO: standardize the format of documentation: Inputs (arg), outputs (arg)
 Description
 -----------
 New LD-score estimation core for SNP-level annotation files with support for
-either PLINK genotypes or parquet `R2` tables as the reference panel.
+either PLINK genotypes or sorted per-chromosome parquet `R2` tables as the
+reference panel.
 
 This module consumes SNP-level `.annot` / `.annot.gz` inputs only. It does not
 perform BED-to-SNP projection; that remains the responsibility of
@@ -16,20 +16,45 @@ Supported Inputs
   one or more annotation columns.
 - Reference-panel input may be either:
   - PLINK genotype files (`.bed/.bim/.fam`), or
-  - parquet `R2` tables containing unordered SNP pairs.
+  - one per-chromosome sorted parquet `R2` file.
 - Optional frequency metadata may be provided to populate `MAF` in outputs and
   to enable `.M_5_50` generation when parquet input is used.
 - Optional regression SNP lists may be provided to define the SNP set used for
   `w_ld`. If omitted, the retained reference SNP set is used.
 
+Sorted Parquet `R2` Format
+--------------------------
+- Runtime parquet input is assumed to already be normalized and sorted.
+- The source table is expected to contain the pairwise columns:
+  - `chr`
+  - `rsID_1`, `rsID_2`
+  - `hg38_bp1`, `hg38_bp2`
+  - `hg19_bp_1`, `hg19_bp_2`
+  - `hg38_Uniq_ID_1`, `hg38_Uniq_ID_2`
+  - `hg19_Uniq_ID_1`, `hg19_Uniq_ID_2`
+  - `R2`, `Dprime`, `+/-corr`
+- The normalized sorted parquet created by this module preserves those source
+  columns and adds helper columns:
+  - `pair_chr`
+  - `bp1`
+  - `bp2`
+- Pair orientation is canonicalized by the selected build so `bp1 <= bp2`.
+- Rows are sorted by `(bp1, bp2)`.
+- Exact duplicate normalized pairs with the same `R2` are dropped. Duplicate
+  normalized pairs with different `R2` raise an error.
+- In `chr_pos` mode, retained reference SNP rows must have unique chromosome
+  positions. If two retained SNPs share the same `CHR` and `BP`, matching to
+  the `R2` table is ambiguous and the code fails fast.
+
 Identifier and Genome-Build Rules
 ---------------------------------
 - Supported SNP identifier modes in v1 are `chr_pos` and `rsID`.
 - No allele matching is attempted in v1.
-- In `chr_pos` mode, parquet matching uses the selected genome build to choose
-  the appropriate position columns from the parquet table. Annotation `BP`
-  values must already be in the same build.
-- In `rsID` mode, genome build is ignored for matching.
+- In `chr_pos` mode, retained reference SNP rows are matched by chromosome and
+  position and must be unique within each chromosome.
+- The sorted parquet helper is build-specific at normalization time. When the
+  sorted parquet is used at runtime, the selected `genome_build` is assumed to
+  match the build intended for the LD-score run.
 
 Outputs
 -------
@@ -52,7 +77,7 @@ Python
         out="results/example",
         baseline_annot_chr="data/baseline.@",
         query_annot="data/query.annot.gz",
-        r2_table_chr="data/r2/chr@",
+        r2_table_chr="data/r2/chr@_sorted",
         snp_identifier="rsID",
         r2_bias_mode="unbiased",
         ld_wind_cm=1,
@@ -63,10 +88,16 @@ CLI
         --out results/example \
         --baseline-annot-chr data/baseline.@ \
         --query-annot data/query.annot.gz \
-        --r2-table-chr data/r2/chr@ \
+        --r2-table-chr data/r2/chr@_sorted \
         --snp-identifier rsID \
         --r2-bias-mode unbiased \
         --ld-wind-cm 1
+
+Preprocessing helper
+--------------------
+- Use `convert_r2_table_to_sorted_parquet(source_path, genome_build, output_path)`
+  to convert a common tabular `R2` file into the normalized sorted parquet
+  format required by `run_ldscore(...)`.
 
 Computation Overview
 --------------------
@@ -77,10 +108,10 @@ Computation Overview
 4. Intersect annotation SNPs with SNPs actually present in the reference panel.
 5. Compute LD scores per chromosome:
    - PLINK mode reuses the original genotype-block implementation.
-   - parquet mode constructs a symmetric sparse `R2` matrix directly from the
-     filtered pair list.
-6. Compute all partitioned LD-score columns in one pass and compute `w_ld` as a
-   separate one-column non-partitioned LD score over the regression SNP set.
+   - parquet mode follows the old LDSC sliding-block accumulation workflow and
+     fills block-local dense `R2` matrices from the sorted parquet file.
+6. Compute all partitioned LD-score columns and `w_ld` from the same block
+   traversal.
 7. Aggregate chromosome results and write LDSC-compatible outputs.
 
 Raw-vs-Unbiased `R2` Handling
@@ -94,15 +125,16 @@ Raw-vs-Unbiased `R2` Handling
 
   where `n` is the LD reference sample size.
 - If `R2` is already unbiased, it is used as-is.
-- The diagonal is always added internally as `r_jj^2 = 1` for every retained
-  SNP.
+- Each unordered SNP pair contributes to two symmetric matrix entries in the
+  block-local dense matrices.
+- The diagonal is always added internally as `r_jj^2 = 1`.
 
 Window Rules
 ------------
 - `--ld-wind-snps`, `--ld-wind-kb`, and `--ld-wind-cm` follow the same semantics
   as the original codebase.
-- In parquet mode, window definitions are used to filter pair rows directly;
-  the code does not build PLINK-style moving genotype chunks.
+- In parquet mode, `block_left` and the old sliding-block iteration determine
+  the query bounds and accumulation order.
 - `--ld-wind-cm` requires non-missing CM coordinates for retained SNPs.
 
 MAF and `.M_5_50` Rules
@@ -118,6 +150,7 @@ Current Limitations
 - v1 supports only `chr_pos` and `rsID` matching.
 - v1 does not attempt allele-aware reconciliation between annotations and
   parquet pairs.
+- Runtime parquet input must already be a normalized sorted parquet file.
 - parquet input requires `pyarrow` at runtime.
 - Per-query partitioned LDSC wrappers are intentionally out of scope for this
   module; this module computes LD scores only.
@@ -126,8 +159,7 @@ Dependencies
 ------------
 - `numpy`
 - `pandas`
-- `scipy`
-- `pyarrow` for parquet mode
+- `pyarrow` for sorted parquet conversion and runtime queries
 """
 
 from __future__ import annotations
@@ -142,7 +174,6 @@ from typing import Iterable, Sequence
 
 import numpy as np
 import pandas as pd
-from scipy import sparse
 
 try:
     import ldscore.parse as legacy_parse
@@ -158,6 +189,24 @@ BP_ALIASES = ("BP", "POS", "POSITION")
 SNP_ALIASES = ("SNP", "RSID", "RS_ID", "MARKER", "MARKERNAME")
 CM_ALIASES = ("CM", "CMBP", "CENTIMORGAN")
 MAF_ALIASES = ("MAF", "FRQ", "FREQ", "FREQUENCY")
+R2_SOURCE_COLUMNS = (
+    "chr",
+    "rsID_1",
+    "rsID_2",
+    "hg38_bp1",
+    "hg38_bp2",
+    "hg19_bp_1",
+    "hg19_bp_2",
+    "hg38_Uniq_ID_1",
+    "hg38_Uniq_ID_2",
+    "hg19_Uniq_ID_1",
+    "hg19_Uniq_ID_2",
+    "R2",
+    "Dprime",
+    "+/-corr",
+)
+R2_HELPER_COLUMNS = ("pair_chr", "bp1", "bp2")
+SORTED_R2_REQUIRED_COLUMNS = R2_SOURCE_COLUMNS + R2_HELPER_COLUMNS
 
 
 @dataclass
@@ -348,6 +397,190 @@ def resolve_frequency_files(args: argparse.Namespace, chrom: str | None = None) 
 def read_text_table(path: str) -> pd.DataFrame:
     compression = "gzip" if path.endswith(".gz") else None
     return pd.read_csv(path, sep=r"\s+", compression=compression)
+
+
+def get_r2_build_columns(genome_build: str) -> tuple[str, str]:
+    if genome_build == "hg19":
+        return "hg19_bp_1", "hg19_bp_2"
+    if genome_build == "hg38":
+        return "hg38_bp1", "hg38_bp2"
+    raise ValueError(f"Unsupported genome build: {genome_build}")
+
+
+def get_pyarrow_modules():
+    try:
+        import pyarrow.dataset as ds
+    except ImportError as exc:
+        raise ImportError(
+            "pyarrow is required for sorted parquet R2 input. Install pyarrow and retry."
+        ) from exc
+    return ds
+
+
+def read_common_tabular_r2(path: str) -> pd.DataFrame:
+    lower = path.lower()
+    if lower.endswith(".parquet"):
+        try:
+            return pd.read_parquet(path)
+        except ImportError as exc:
+            raise ImportError(
+                "Reading parquet R2 input requires pyarrow or fastparquet."
+            ) from exc
+    if lower.endswith(".csv") or lower.endswith(".csv.gz"):
+        return pd.read_csv(path)
+    if lower.endswith(".tsv") or lower.endswith(".tsv.gz"):
+        return pd.read_csv(path, sep="\t")
+    return pd.read_csv(path, sep=None, engine="python")
+
+
+def validate_r2_source_columns(df: pd.DataFrame, path: str) -> None:
+    missing = [col for col in R2_SOURCE_COLUMNS if col not in df.columns]
+    if missing:
+        raise ValueError(f"{path} is missing required R2 columns: {missing}")
+
+
+def canonicalize_r2_pairs(df: pd.DataFrame, genome_build: str) -> pd.DataFrame:
+    df = df.copy()
+    left_bp_col, right_bp_col = get_r2_build_columns(genome_build)
+    df["pair_chr"] = df["chr"].map(normalize_chromosome)
+
+    paired_columns = (
+        ("rsID_1", "rsID_2"),
+        ("hg38_bp1", "hg38_bp2"),
+        ("hg19_bp_1", "hg19_bp_2"),
+        ("hg38_Uniq_ID_1", "hg38_Uniq_ID_2"),
+        ("hg19_Uniq_ID_1", "hg19_Uniq_ID_2"),
+    )
+    swap = pd.to_numeric(df[left_bp_col], errors="raise") > pd.to_numeric(df[right_bp_col], errors="raise")
+    for left_col, right_col in paired_columns:
+        left_values = df.loc[swap, left_col].copy()
+        df.loc[swap, left_col] = df.loc[swap, right_col].to_numpy()
+        df.loc[swap, right_col] = left_values.to_numpy()
+
+    df["bp1"] = pd.to_numeric(df[left_bp_col], errors="raise").astype(np.int64)
+    df["bp2"] = pd.to_numeric(df[right_bp_col], errors="raise").astype(np.int64)
+    return df
+
+
+def deduplicate_normalized_r2_pairs(df: pd.DataFrame) -> pd.DataFrame:
+    pair_key_columns = [
+        "pair_chr",
+        "rsID_1",
+        "rsID_2",
+        "hg38_bp1",
+        "hg38_bp2",
+        "hg19_bp_1",
+        "hg19_bp_2",
+        "hg38_Uniq_ID_1",
+        "hg38_Uniq_ID_2",
+        "hg19_Uniq_ID_1",
+        "hg19_Uniq_ID_2",
+    ]
+    duplicated = df.duplicated(subset=pair_key_columns, keep=False)
+    if not duplicated.any():
+        return df
+
+    dup_df = df.loc[duplicated, pair_key_columns + ["R2"]].copy()
+    nunique = dup_df.groupby(pair_key_columns, dropna=False)["R2"].nunique(dropna=False)
+    inconsistent = nunique[nunique > 1]
+    if len(inconsistent) > 0:
+        raise ValueError("Duplicate normalized R2 pairs detected with conflicting R2 values.")
+
+    return df.drop_duplicates(subset=pair_key_columns, keep="first").reset_index(drop=True)
+
+
+def convert_r2_table_to_sorted_parquet(source_path: str, genome_build: str, output_path: str) -> str:
+    """
+    Convert a common tabular pairwise-R2 file into the normalized sorted parquet
+    format required by the runtime parquet LD-score path.
+    """
+    source_path = os.path.expanduser(os.path.expandvars(source_path))
+    output_path = os.path.expanduser(os.path.expandvars(output_path))
+    df = read_common_tabular_r2(source_path)
+    validate_r2_source_columns(df, source_path)
+    df = canonicalize_r2_pairs(df, genome_build)
+    df = deduplicate_normalized_r2_pairs(df)
+    chroms = df["pair_chr"].dropna().map(normalize_chromosome).unique().tolist()
+    if len(chroms) != 1:
+        raise ValueError("Each sorted parquet R2 file must contain exactly one chromosome.")
+    df = df.sort_values(by=["bp1", "bp2"], kind="mergesort").reset_index(drop=True)
+    parent = os.path.dirname(output_path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    try:
+        df.to_parquet(output_path, index=False)
+    except ImportError as exc:
+        raise ImportError(
+            "Writing sorted parquet R2 files requires pyarrow or fastparquet."
+        ) from exc
+    return output_path
+
+
+def validate_retained_identifier_uniqueness(metadata: pd.DataFrame, identifier_mode: str, chrom: str) -> None:
+    if identifier_mode == "chr_pos":
+        duplicated = metadata.duplicated(subset=["CHR", "BP"], keep=False)
+        if duplicated.any():
+            raise ValueError(
+                f"Chromosome {chrom} has duplicate retained SNP positions. "
+                "This is ambiguous in chr_pos mode."
+            )
+        return
+
+    duplicated = metadata["SNP"].duplicated(keep=False)
+    if duplicated.any():
+        raise ValueError(
+            f"Chromosome {chrom} has duplicate retained SNP IDs. "
+            "This is ambiguous in rsID mode."
+        )
+
+
+def read_sorted_r2_presence(args: argparse.Namespace, chrom: str) -> set[object]:
+    files = resolve_parquet_files(args, chrom=chrom)
+    if not files:
+        raise FileNotFoundError(f"No sorted parquet R2 files resolved for chromosome {chrom}.")
+
+    ds = get_pyarrow_modules()
+    dataset = ds.dataset(files, format="parquet")
+    columns = ["pair_chr"]
+    if args.snp_identifier == "rsID":
+        columns.extend(["rsID_1", "rsID_2"])
+    else:
+        columns.extend(["bp1", "bp2"])
+    filter_expr = ds.field("pair_chr") == normalize_chromosome(chrom)
+    table = dataset.to_table(columns=columns, filter=filter_expr)
+    pairs = table.to_pandas()
+    if args.snp_identifier == "rsID":
+        return set(pairs["rsID_1"].astype(str)).union(set(pairs["rsID_2"].astype(str)))
+    return set(pd.to_numeric(pairs["bp1"], errors="raise").astype(np.int64)).union(
+        set(pd.to_numeric(pairs["bp2"], errors="raise").astype(np.int64))
+    )
+
+
+def filter_reference_to_present_r2(
+    metadata: pd.DataFrame,
+    annotations: pd.DataFrame,
+    regression_keys: set[str] | None,
+    present_values: set[object],
+    identifier_mode: str,
+    chrom: str,
+) -> tuple[pd.DataFrame, pd.DataFrame, set[str] | None]:
+    metadata = metadata.copy()
+    if identifier_mode == "rsID":
+        keep = metadata["SNP"].astype(str).isin(present_values)
+    else:
+        keep = metadata["BP"].astype(np.int64).isin(present_values)
+    removed = int((~keep).sum())
+    if removed:
+        LOGGER.warning(
+            "Dropping %d annotated SNPs on chromosome %s because they are absent from the R2 table.",
+            removed,
+            chrom,
+        )
+    metadata = metadata.loc[keep].reset_index(drop=True)
+    annotations = annotations.loc[keep].reset_index(drop=True)
+    if regression_keys is not None:
+        regression_keys = regression_keys.intersection(set(identifier_keys(metadata, identifier_mode)))
+    return metadata, annotations, regression_keys
 
 
 # Annotation loading and normalization.
@@ -638,155 +871,237 @@ def check_whole_chromosome_window(block_left: np.ndarray, args: argparse.Namespa
         )
 
 
-def get_pyarrow_dataset():
-    try:
-        import pyarrow.dataset as ds
-    except ImportError as exc:
-        raise ImportError(
-            "pyarrow is required for parquet R2 input. Install pyarrow and retry."
-        ) from exc
-    return ds
-
-
 # Parquet R2 adapter.
-def read_parquet_pairs(args: argparse.Namespace, chrom: str) -> pd.DataFrame:
-    """Read one chromosome of parquet R2 pairs and derive the active SNP keys."""
-    files = resolve_parquet_files(args, chrom=chrom)
-    if not files:
-        raise FileNotFoundError(f"No parquet R2 files resolved for chromosome {chrom}.")
+class SortedR2BlockReader:
+    """
+    Query block-local dense R2 matrices from a normalized sorted per-chromosome
+    parquet table.
 
-    ds = get_pyarrow_dataset()
-    dataset = ds.dataset(files, format="parquet")
-    columns = ["chr", "R2"]
-    if args.snp_identifier == "rsID":
-        columns.extend(["rsID_1", "rsID_2"])
-    else:
-        if args.genome_build == "hg19":
-            columns.extend(["hg19_bp_1", "hg19_bp_2"])
+    The runtime parquet contract is path-based. This reader assumes the file
+    already contains `pair_chr`, `bp1`, and `bp2`, and that pair orientation has
+    been canonicalized so `bp1 <= bp2`.
+    """
+
+    def __init__(
+        self,
+        paths: Sequence[str],
+        chrom: str,
+        metadata: pd.DataFrame,
+        identifier_mode: str,
+        r2_bias_mode: str,
+        r2_sample_size: float | None,
+    ) -> None:
+        if not paths:
+            raise FileNotFoundError(f"No sorted parquet R2 files resolved for chromosome {chrom}.")
+        validate_retained_identifier_uniqueness(metadata, identifier_mode, chrom)
+
+        ds = get_pyarrow_modules()
+        self.dataset = ds.dataset(list(paths), format="parquet")
+        self.ds = ds
+        self.chrom = normalize_chromosome(chrom)
+        self.identifier_mode = identifier_mode
+        self.r2_bias_mode = r2_bias_mode
+        self.r2_sample_size = r2_sample_size
+        self.bp = metadata["BP"].to_numpy(dtype=np.int64)
+        self.m = len(metadata)
+        self.query_columns = ["pair_chr", "bp1", "bp2", "R2"]
+        if self.identifier_mode == "rsID":
+            self.query_columns.extend(["rsID_1", "rsID_2"])
+            self.index_map = {str(snp): idx for idx, snp in enumerate(metadata["SNP"].astype(str))}
         else:
-            columns.extend(["hg38_bp1", "hg38_bp2"])
-    table = dataset.to_table(columns=columns)
-    pairs = table.to_pandas()
-    pairs["chr"] = pairs["chr"].map(normalize_chromosome)
-    pairs = pairs.loc[pairs["chr"] == normalize_chromosome(chrom)].reset_index(drop=True)
-    if len(pairs) == 0:
-        return pairs
+            self.index_map = {int(bp): idx for idx, bp in enumerate(metadata["BP"].astype(np.int64))}
 
-    pairs["R2"] = pd.to_numeric(pairs["R2"], errors="raise").astype(np.float32)
-    if args.snp_identifier == "rsID":
-        pairs["key1"] = pairs["rsID_1"].astype(str)
-        pairs["key2"] = pairs["rsID_2"].astype(str)
-    else:
-        bp1 = "hg19_bp_1" if args.genome_build == "hg19" else "hg38_bp1"
-        bp2 = "hg19_bp_2" if args.genome_build == "hg19" else "hg38_bp2"
-        pairs["key1"] = pairs["chr"] + ":" + pd.to_numeric(pairs[bp1], errors="raise").astype(np.int64).astype(str)
-        pairs["key2"] = pairs["chr"] + ":" + pd.to_numeric(pairs[bp2], errors="raise").astype(np.int64).astype(str)
+        missing_columns = sorted(set(self.query_columns) - set(self.dataset.schema.names))
+        if missing_columns:
+            raise ValueError(
+                "Sorted parquet R2 input is missing required normalized columns: "
+                + ", ".join(missing_columns)
+            )
 
-    return pairs.loc[:, ["key1", "key2", "R2"]]
+        self._last_query_key: tuple[int, int] | None = None
+        self._last_query_rows: pd.DataFrame | None = None
 
+    def _transform_r2(self, values: np.ndarray) -> np.ndarray:
+        values = values.astype(np.float32, copy=False)
+        if self.r2_bias_mode == "raw":
+            if self.r2_sample_size is None:
+                raise ValueError("--r2-sample-size is required when --r2-bias-mode raw.")
+            denom = self.r2_sample_size - 2
+            if denom <= 0:
+                raise ValueError("--r2-sample-size must be greater than 2 for raw R2 correction.")
+            values = values - (1.0 - values) / denom
+        return values
 
-def filter_reference_to_present_pairs(
-    metadata: pd.DataFrame,
-    annotations: pd.DataFrame,
-    regression_keys: set[str] | None,
-    pairs: pd.DataFrame,
-    identifier_mode: str,
-    chrom: str,
-) -> tuple[pd.DataFrame, pd.DataFrame, set[str] | None]:
-    metadata = metadata.copy()
-    metadata["_key"] = identifier_keys(metadata, identifier_mode)
-    present = set(pairs["key1"]).union(set(pairs["key2"]))
-    keep = metadata["_key"].isin(present)
-    removed = int((~keep).sum())
-    if removed:
-        LOGGER.warning(
-            "Dropping %d annotated SNPs on chromosome %s because they are absent from the parquet R2 table.",
-            removed,
-            chrom,
+    def _query_union_rows(self, bp_min: int, bp_max: int) -> pd.DataFrame:
+        key = (int(bp_min), int(bp_max))
+        if self._last_query_key == key and self._last_query_rows is not None:
+            return self._last_query_rows.copy()
+
+        filter_expr = (
+            (self.ds.field("pair_chr") == self.chrom)
+            & (self.ds.field("bp1") >= int(bp_min))
+            & (self.ds.field("bp2") <= int(bp_max))
         )
-    metadata = metadata.loc[keep].reset_index(drop=True)
-    annotations = annotations.loc[keep].reset_index(drop=True)
-    if regression_keys is not None:
-        regression_keys = regression_keys.intersection(set(metadata["_key"]))
-    return metadata, annotations, regression_keys
+        table = self.dataset.to_table(columns=self.query_columns, filter=filter_expr)
+        rows = table.to_pandas()
+        if len(rows) == 0:
+            rows = pd.DataFrame(columns=self.query_columns + ["i", "j", "R2"])
+        else:
+            rows["R2"] = self._transform_r2(pd.to_numeric(rows["R2"], errors="raise").to_numpy(dtype=np.float32))
+            if self.identifier_mode == "rsID":
+                rows["i"] = rows["rsID_1"].astype(str).map(self.index_map)
+                rows["j"] = rows["rsID_2"].astype(str).map(self.index_map)
+            else:
+                rows["i"] = pd.to_numeric(rows["bp1"], errors="raise").astype(np.int64).map(self.index_map)
+                rows["j"] = pd.to_numeric(rows["bp2"], errors="raise").astype(np.int64).map(self.index_map)
+            rows = rows.dropna(subset=["i", "j"]).copy()
+            rows["i"] = rows["i"].astype(np.int64)
+            rows["j"] = rows["j"].astype(np.int64)
+
+        self._last_query_key = key
+        self._last_query_rows = rows.copy()
+        return rows
+
+    def _deduplicate_pairs(self, pair_rows: pd.DataFrame, context: str) -> pd.DataFrame:
+        if len(pair_rows) == 0:
+            return pair_rows
+        pair_rows = pair_rows.copy()
+        pair_rows["lo"] = np.minimum(pair_rows["i"], pair_rows["j"])
+        pair_rows["hi"] = np.maximum(pair_rows["i"], pair_rows["j"])
+        duplicated = pair_rows.duplicated(subset=["lo", "hi"], keep=False)
+        if not duplicated.any():
+            return pair_rows
+
+        dup_df = pair_rows.loc[duplicated, ["lo", "hi", "R2"]]
+        nunique = dup_df.groupby(["lo", "hi"], dropna=False)["R2"].nunique(dropna=False)
+        if (nunique > 1).any():
+            raise ValueError(f"Duplicate unordered SNP pairs with conflicting R2 values detected in {context}.")
+        return pair_rows.drop_duplicates(subset=["lo", "hi"], keep="first").reset_index(drop=True)
+
+    def cross_block_matrix(self, l_A: int, b: int, l_B: int, c: int) -> np.ndarray:
+        if b <= 0 or c <= 0:
+            return np.zeros((max(b, 0), max(c, 0)), dtype=np.float32)
+
+        a_start, a_stop = l_A, l_A + b
+        b_start, b_stop = l_B, l_B + c
+        union_min = int(self.bp[min(a_start, b_start)])
+        union_max = int(self.bp[max(a_stop - 1, b_stop - 1)])
+        rows = self._deduplicate_pairs(
+            self._query_union_rows(union_min, union_max),
+            context=f"cross-block query {self.chrom}:{l_A}:{b}:{l_B}:{c}",
+        )
+
+        matrix = np.zeros((b, c), dtype=np.float32)
+        if len(rows) > 0:
+            i = rows["i"].to_numpy(dtype=np.int64)
+            j = rows["j"].to_numpy(dtype=np.int64)
+            values = rows["R2"].to_numpy(dtype=np.float32)
+
+            left_i = (a_start <= i) & (i < a_stop) & (b_start <= j) & (j < b_stop)
+            if left_i.any():
+                matrix[i[left_i] - a_start, j[left_i] - b_start] = values[left_i]
+
+            left_j = (a_start <= j) & (j < a_stop) & (b_start <= i) & (i < b_stop)
+            if left_j.any():
+                matrix[j[left_j] - a_start, i[left_j] - b_start] = values[left_j]
+
+        overlap_start = max(a_start, b_start)
+        overlap_stop = min(a_stop, b_stop)
+        for idx in range(overlap_start, overlap_stop):
+            matrix[idx - a_start, idx - b_start] = 1.0
+
+        return matrix
+
+    def within_block_matrix(self, l_B: int, c: int) -> np.ndarray:
+        if c <= 0:
+            return np.zeros((0, 0), dtype=np.float32)
+
+        b_start, b_stop = l_B, l_B + c
+        bp_min = int(self.bp[b_start])
+        bp_max = int(self.bp[b_stop - 1])
+        rows = self._deduplicate_pairs(
+            self._query_union_rows(bp_min, bp_max),
+            context=f"within-block query {self.chrom}:{l_B}:{c}",
+        )
+
+        matrix = np.zeros((c, c), dtype=np.float32)
+        if len(rows) > 0:
+            i = rows["i"].to_numpy(dtype=np.int64)
+            j = rows["j"].to_numpy(dtype=np.int64)
+            values = rows["R2"].to_numpy(dtype=np.float32)
+            keep = (b_start <= i) & (i < b_stop) & (b_start <= j) & (j < b_stop)
+            if keep.any():
+                i = i[keep] - b_start
+                j = j[keep] - b_start
+                values = values[keep]
+                matrix[i, j] = values
+                matrix[j, i] = values
+
+        np.fill_diagonal(matrix, 1.0)
+        return matrix
 
 
-def parquet_to_sparse_r2(
-    pairs: pd.DataFrame,
-    metadata: pd.DataFrame,
-    args: argparse.Namespace,
-) -> sparse.csr_matrix:
+def ld_score_var_blocks_from_r2_reader(
+    block_left: np.ndarray,
+    c: int,
+    annot: np.ndarray,
+    block_reader: SortedR2BlockReader,
+) -> np.ndarray:
     """
-    Convert filtered parquet pairs into a symmetric sparse R2 matrix.
-
-    Main steps:
-    1. Map SNP identifiers onto reference-table row indices.
-    2. Drop non-reference pairs and self-pairs from the parquet rows.
-    3. Enforce the requested LD window directly on pair coordinates.
-    4. Apply raw-to-unbiased correction when requested.
-    5. Add the diagonal and symmetrize the matrix.
+    Mirror the old LDSC sliding-block accumulation while sourcing block-local
+    dense R2 matrices from a sorted parquet reader instead of genotype blocks.
     """
-    if len(metadata) == 0:
-        return sparse.csr_matrix((0, 0), dtype=np.float32)
+    m = annot.shape[0]
+    n_a = annot.shape[1]
+    block_sizes = np.array(np.arange(m) - block_left)
+    block_sizes = np.ceil(block_sizes / c) * c
+    cor_sum = np.zeros((m, n_a), dtype=np.float64)
 
-    metadata = metadata.copy()
-    keys = metadata["_key"].tolist()
-    key_to_index = {key: idx for idx, key in enumerate(keys)}
-
-    pair_df = pairs.copy()
-    pair_df["i"] = pair_df["key1"].map(key_to_index)
-    pair_df["j"] = pair_df["key2"].map(key_to_index)
-    pair_df = pair_df.dropna(subset=["i", "j"]).copy()
-    pair_df["i"] = pair_df["i"].astype(np.int64)
-    pair_df["j"] = pair_df["j"].astype(np.int64)
-    pair_df = pair_df.loc[pair_df["i"] != pair_df["j"]].reset_index(drop=True)
-    pair_df["lo"] = np.minimum(pair_df["i"], pair_df["j"])
-    pair_df["hi"] = np.maximum(pair_df["i"], pair_df["j"])
-
-    if len(pair_df) == 0:
-        diag = sparse.identity(len(metadata), dtype=np.float32, format="csr")
-        return diag
-
-    coords, max_dist = build_window_coordinates(metadata.drop(columns="_key"), args)
-    i = pair_df["i"].to_numpy(dtype=np.int64)
-    j = pair_df["j"].to_numpy(dtype=np.int64)
-    if args.ld_wind_snps is not None:
-        keep = np.abs(i - j) <= max_dist
+    b = np.nonzero(block_left > 0)
+    if np.any(b):
+        b = b[0][0]
     else:
-        keep = np.abs(coords[i] - coords[j]) <= max_dist
-    pair_df = pair_df.loc[keep].reset_index(drop=True)
+        b = m
+    b = int(np.ceil(b / c) * c)
+    if b > m:
+        c = 1
+        b = m
 
-    if pair_df.duplicated(subset=["lo", "hi"]).any():
-        raise ValueError("Duplicate unordered SNP pairs detected in parquet input after key mapping.")
+    l_A = 0
+    for l_B in range(0, b, c):
+        rfuncAB = block_reader.cross_block_matrix(l_A, b, l_B, c)
+        cor_sum[l_A:l_A + b, :] += np.dot(rfuncAB, annot[l_B:l_B + c, :])
 
-    data = pair_df["R2"].to_numpy(dtype=np.float32)
-    if args.r2_bias_mode == "raw":
-        if args.r2_sample_size is None:
-            raise ValueError("--r2-sample-size is required when --r2-bias-mode raw.")
-        denom = args.r2_sample_size - 2
-        if denom <= 0:
-            raise ValueError("--r2-sample-size must be greater than 2 for raw R2 correction.")
-        data = data - (1.0 - data) / denom
+    b0 = b
+    md = int(c * np.floor(m / c))
+    end = md + 1 if md != m else md
+    for l_B in range(b0, end, c):
+        old_b = b
+        b = int(block_sizes[l_B])
+        if l_B > b0 and b > 0:
+            l_A += old_b - b + c
+        elif l_B == b0 and b > 0:
+            l_A = b0 - b
+        elif b == 0:
+            l_A = l_B
 
-    rows = pair_df["lo"].to_numpy(dtype=np.int64)
-    cols = pair_df["hi"].to_numpy(dtype=np.int64)
-    diag_idx = np.arange(len(metadata), dtype=np.int64)
-    full_rows = np.concatenate([rows, cols, diag_idx])
-    full_cols = np.concatenate([cols, rows, diag_idx])
-    full_data = np.concatenate([data, data, np.ones(len(metadata), dtype=np.float32)])
-    matrix = sparse.coo_matrix((full_data, (full_rows, full_cols)), shape=(len(metadata), len(metadata)), dtype=np.float32)
-    return matrix.tocsr()
+        chunk_width = c
+        if l_B == md:
+            chunk_width = m - md
 
+        p1 = np.all(annot[l_A:l_A + b, :] == 0)
+        p2 = np.all(annot[l_B:l_B + chunk_width, :] == 0)
+        if p1 and p2:
+            continue
 
-def compute_ld_scores_from_sparse(
-    r2_matrix: sparse.csr_matrix,
-    annotations: pd.DataFrame,
-    regression_mask: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray]:
-    annot_matrix = annotations.to_numpy(dtype=np.float32, copy=True)
-    ld_scores = r2_matrix.dot(annot_matrix)
-    w_ld = r2_matrix.dot(regression_mask.astype(np.float32).reshape(-1, 1))
-    return np.asarray(ld_scores, dtype=np.float32), np.asarray(w_ld, dtype=np.float32)
+        rfuncAB = block_reader.cross_block_matrix(l_A, b, l_B, chunk_width)
+        cor_sum[l_A:l_A + b, :] += np.dot(rfuncAB, annot[l_B:l_B + chunk_width, :])
+        cor_sum[l_B:l_B + chunk_width, :] += np.dot(annot[l_A:l_A + b, :].T, rfuncAB).T
+
+        rfuncBB = block_reader.within_block_matrix(l_B, chunk_width)
+        cor_sum[l_B:l_B + chunk_width, :] += np.dot(rfuncBB, annot[l_B:l_B + chunk_width, :])
+
+    return np.asarray(cor_sum, dtype=np.float32)
 
 
 def compute_counts(metadata: pd.DataFrame, annotations: pd.DataFrame) -> tuple[np.ndarray, np.ndarray | None]:
@@ -814,35 +1129,52 @@ def compute_chrom_from_parquet(
     regression_keys: set[str] | None,
 ) -> ChromComputationResult:
     """
-    Compute all LD-score outputs for one chromosome from parquet R2 input.
+    Compute all LD-score outputs for one chromosome from sorted parquet R2 input.
 
     Main steps:
     1. Merge optional CM/MAF metadata and apply any MAF filter.
     2. Intersect annotation SNPs with SNPs actually present in the R2 table.
     3. Validate the LD window against the retained SNP coordinates.
-    4. Build the sparse R2 matrix and multiply by annotation/regression vectors.
+    4. Query block-local dense R2 matrices from the sorted parquet file while
+       following the old LDSC sliding-block traversal.
     5. Return chromosome-level LD scores plus M and M_5_50 counts.
     """
     metadata = merge_frequency_metadata(bundle.metadata.copy(), args, chrom=chrom, identifier_mode=args.snp_identifier)
     metadata, annotations = apply_maf_filter(metadata, bundle.annotations.copy(), args.maf, context="parquet mode")
-    pairs = read_parquet_pairs(args, chrom=chrom)
-    metadata, annotations, regression_keys = filter_reference_to_present_pairs(
-        metadata, annotations, regression_keys, pairs, args.snp_identifier, chrom
+    present_values = read_sorted_r2_presence(args, chrom=chrom)
+    metadata, annotations, regression_keys = filter_reference_to_present_r2(
+        metadata, annotations, regression_keys, present_values, args.snp_identifier, chrom
     )
     if len(metadata) == 0:
         raise ValueError(f"No retained annotation SNPs remain on chromosome {chrom} after parquet intersection.")
 
-    metadata["_key"] = identifier_keys(metadata, args.snp_identifier)
-    coords, _ = build_window_coordinates(metadata.drop(columns="_key"), args)
+    validate_retained_identifier_uniqueness(metadata, args.snp_identifier, chrom)
+    coords, max_dist = build_window_coordinates(metadata, args)
     block_left = get_block_lefts(
         coords,
-        args.ld_wind_snps if args.ld_wind_snps is not None else (args.ld_wind_kb * 1000 if args.ld_wind_kb is not None else args.ld_wind_cm),
+        max_dist,
     )
     check_whole_chromosome_window(block_left, args, chrom)
-    regression_mask = regression_mask_from_keys(metadata.drop(columns="_key"), regression_keys, args.snp_identifier)
-    r2_matrix = parquet_to_sparse_r2(pairs, metadata, args)
-    ld_scores, w_ld = compute_ld_scores_from_sparse(r2_matrix, annotations, regression_mask)
-    out_metadata = metadata.drop(columns="_key").reset_index(drop=True)
+    regression_mask = regression_mask_from_keys(metadata, regression_keys, args.snp_identifier).reshape(-1, 1)
+    annot_matrix = annotations.to_numpy(dtype=np.float32, copy=True)
+    combined_annot = np.c_[annot_matrix, regression_mask]
+    block_reader = SortedR2BlockReader(
+        paths=resolve_parquet_files(args, chrom=chrom),
+        chrom=chrom,
+        metadata=metadata,
+        identifier_mode=args.snp_identifier,
+        r2_bias_mode=args.r2_bias_mode,
+        r2_sample_size=args.r2_sample_size,
+    )
+    combined_scores = ld_score_var_blocks_from_r2_reader(
+        block_left=block_left,
+        c=args.chunk_size,
+        annot=combined_annot,
+        block_reader=block_reader,
+    )
+    ld_scores = combined_scores[:, :annot_matrix.shape[1]]
+    w_ld = combined_scores[:, annot_matrix.shape[1]:]
+    out_metadata = metadata.reset_index(drop=True)
     if "MAF" not in out_metadata.columns:
         out_metadata["MAF"] = np.nan
     M, M_5_50 = compute_counts(out_metadata, annotations)
@@ -1055,7 +1387,7 @@ def validate_args(args: argparse.Namespace) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Estimate LDSC-compatible LD scores from SNP-level annotation files using PLINK or parquet R2 input.",
+        description="Estimate LDSC-compatible LD scores from SNP-level annotation files using PLINK or sorted parquet R2 input.",
     )
     parser.add_argument("--out", required=True, help="Output prefix.")
     parser.add_argument("--query-annot", default=None, help="Comma-separated SNP-level query annotation files or prefixes.")
@@ -1064,11 +1396,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--baseline-annot-chr", default=None, help="Comma-separated chromosome-pattern prefixes for baseline annotation files.")
     parser.add_argument("--bfile", default=None, help="PLINK prefix for the reference panel.")
     parser.add_argument("--bfile-chr", default=None, help="Chromosome-pattern PLINK prefix for the reference panel.")
-    parser.add_argument("--r2-table", default=None, help="Comma-separated parquet R2 files or prefixes.")
-    parser.add_argument("--r2-table-chr", default=None, help="Comma-separated chromosome-pattern prefixes for parquet R2 files.")
+    parser.add_argument("--r2-table", default=None, help="Comma-separated sorted parquet R2 files or prefixes.")
+    parser.add_argument("--r2-table-chr", default=None, help="Comma-separated chromosome-pattern prefixes for sorted parquet R2 files.")
     parser.add_argument("--snp-identifier", choices=("chr_pos", "rsID"), default="chr_pos", help="Identifier mode used to match annotations to the reference panel.")
-    parser.add_argument("--genome-build", choices=("hg19", "hg38"), default=None, help="Genome build used for chr_pos parquet matching.")
-    parser.add_argument("--r2-bias-mode", choices=("raw", "unbiased"), default=None, help="Whether parquet R2 values are raw sample r^2 or already unbiased.")
+    parser.add_argument("--genome-build", choices=("hg19", "hg38"), default=None, help="Genome build assumed for the sorted parquet R2 file and chr_pos matching.")
+    parser.add_argument("--r2-bias-mode", choices=("raw", "unbiased"), default=None, help="Whether sorted parquet R2 values are raw sample r^2 or already unbiased.")
     parser.add_argument("--r2-sample-size", default=None, type=float, help="LD reference sample size used to correct raw parquet R2 values.")
     parser.add_argument("--regression-snps", default=None, help="Optional SNP list defining the regression SNP set for w_ld.")
     parser.add_argument("--frqfile", default=None, help="Optional frequency/metadata file for MAF and CM.")

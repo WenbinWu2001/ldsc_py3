@@ -61,7 +61,24 @@ This should become the main structural rule for the refactored package.
 | Adapter / IO layer | file-format specific readers/writers | PLINK reader, parquet-R2 reader, `.annot` parser, `.sumstats` parser | high-level feature decisions |
 | Numerical kernel layer | performance-sensitive math | LD-score accumulation, WLS/IRWLS, jackknife, regression formulas | file reading, path handling |
 
-### 2.1 Recommendation on exposed methods
+### 2.1 CLI-first design principle
+
+The design should favor **CLI usage first, Python API second**.
+
+That means:
+- every major feature should have one clear CLI entry point
+- CLI arguments should map cleanly onto validated config dataclasses
+- internal service classes should support the CLI, not compete with it
+- Python users should still have access to the same workflows through thin wrapper functions
+
+Recommended pattern:
+- CLI parses arguments
+- CLI builds config dataclasses and source/spec objects
+- workflow service runs
+- result object is returned and optionally written
+
+This matches the current reality of the codebase much better than a package-first design.
+### 2.2 Recommendation on exposed methods
 
 Answer to your question: **No, not all methods should be exposed to users.**
 
@@ -73,14 +90,14 @@ Use three visibility levels:
 | Protected/internal | single leading underscore | internal package use |
 | Private implementation detail | local helper functions or nested helpers | only the module that defines them |
 
-### 2.2 Recommendation on helper functions
+### 2.3 Recommendation on helper functions
 
 Answer to your question: **store helper functions by layer, not by convenience.**
 
 | Helper type | Best location |
 | --- | --- |
 | file parsing / path resolution | adapter or IO modules |
-| dataframe alignment / identifier normalization | domain-adjacent workflow modules |
+| dataframe alignment / SNP identifier normalization | domain-adjacent workflow modules |
 | numerical formulas / matrix helpers | numerical kernel modules |
 | formatting / logging / CLI glue | public API or CLI modules |
 
@@ -98,7 +115,7 @@ Support two user-facing identifier modes only:
 - `rsID`
 - `chr_pos`
 
-Internally, create a **canonical key** column for every workflow.
+Internally, create a **canonical SNP identifier** column for every workflow.
 
 ### 3.2 Required columns by mode
 
@@ -134,11 +151,16 @@ Your note about a unified format is correct. The practical rule should be:
 
 ### 3.5 Internal recommendation
 
-Always derive one internal key column, for example:
-- `key = SNP` for `rsID`
-- `key = f"{CHR}:{BP}"` for `chr_pos`
+Always derive one internal SNP identifier column, for example:
+- `snp_id = SNP` for `rsID`
+- `snp_id = f"{CHR}:{BP}"` for `chr_pos`
 
-All internal merges should use that key after validation.
+All internal merges should use that canonical SNP identifier after validation.
+
+Recommendation on naming:
+- avoid `key` in public class fields and public method names
+- prefer `snp_id`, `reference_snps`, `regression_snps`, or `snp_identifiers`
+- if the identifier mode is `chr_pos`, those SNP identifiers are still the retained SNP labels for the workflow
 
 **Mapping from current implementation**
 - `ldscore.ldscore_new.identifier_keys()`
@@ -254,7 +276,7 @@ Keep `AnnotationBundle` as a dataclass.
 
 Keep methods light:
 - `validate()`
-- `reference_keys()`
+- `reference_snps()`
 - `has_full_baseline_cover()`
 - `annotation_matrix(include_query: bool = True)`
 - `summary()`
@@ -430,28 +452,57 @@ Store instead:
 
 ---
 
-## 5.5 `LDScoreRequest`
+## 5.5 Why Not `LDScoreRequest`
 
-This class is also missing from the current draft and should be added.
+### Recommendation
 
-### Role
+Do **not** introduce `LDScoreRequest` as a first-class target object unless future complexity clearly demands it.
 
-Represents one LD-score computation request after configs and inputs are validated.
+### Why I changed this
 
-### Suggested fields
+Your concern is valid: in this codebase, `LDScoreRequest` would mostly be a bundle of arguments passed once into `LDScoreCalculator`.
+
+That usually adds one more layer to read without adding much real structure.
+
+For this project, the simpler design is:
+- keep `AnnotationBundle`
+- keep `RefPanel`
+- keep `LDScoreConfig` and `CommonConfig`
+- pass them directly into `LDScoreCalculator.run(...)`
+- keep output path information in a small `OutputSpec` dataclass or as explicit function arguments
+
+### Recommended replacement
+
+Use a small `OutputSpec` dataclass instead.
+
+Suggested fields:
 
 | Field | Type |
 | --- | --- |
-| `annotation_bundle` | `AnnotationBundle` |
-| `ref_panel` | `RefPanel` |
-| `regression_keys` | `set[str] \| None` |
-| `config` | `LDScoreConfig` |
-| `common_config` | `CommonConfig` |
 | `out_prefix` | `str` |
+| `write_per_chrom` | `bool` |
+| `write_annotation_manifest` | `bool` |
 
-### Why it helps
+### Recommended calculator signature
 
-This prevents `LDScoreCalculator.run(...)` from having a huge argument list.
+```python
+result = LDScoreCalculator().run(
+    annotation_bundle=bundle,
+    ref_panel=ref_panel,
+    ldscore_config=ldscore_config,
+    common_config=common_config,
+    output_spec=output_spec,
+    regression_snps=regression_snps,
+)
+```
+
+### When `LDScoreRequest` would become justified
+
+Only introduce it later if one of these becomes important:
+- job queuing
+- caching and replay
+- distributed execution
+- a large number of optional run-time switches that are awkward in a direct signature
 
 ### Current-to-target mapping
 
@@ -481,7 +532,7 @@ That is too much for one class.
 ### Recommendation
 
 Replace it with:
-- `LDScoreRequest` for inputs
+- direct validated inputs (`AnnotationBundle`, `RefPanel`, configs, optional `OutputSpec`)
 - `LDScoreCalculator` for computation
 - `LDScoreResult` for outputs
 
@@ -496,8 +547,8 @@ Replace it with:
 | `M_5_50` | `np.ndarray \| None` | common-SNP counts |
 | `baseline_columns` | `list[str]` | baseline annotation columns |
 | `query_columns` | `list[str]` | query annotation columns |
-| `reference_keys` | `set[str]` | retained reference SNP universe |
-| `regression_keys` | `set[str]` | retained regression SNP subset |
+| `reference_snps` | `set[str]` | retained reference SNP identifiers under the selected identifier mode |
+| `regression_snps` | `set[str]` | retained regression SNP identifiers; must be a subset of `reference_snps` |
 | `per_chrom_results` | `list[ChromLDScoreResult] \| None` | optional chromosome-level outputs |
 | `output_paths` | `dict[str, str]` | written files |
 
@@ -533,14 +584,14 @@ That gives you:
 
 ### Role
 
-Service class that computes LD scores from `LDScoreRequest`.
+Service class that computes LD scores from validated inputs.
 
 ### Suggested public methods
 
 | Method | Purpose |
 | --- | --- |
-| `run(request)` | main public entry point |
-| `compute_chromosome(chrom, request)` | backend-independent chromosome step |
+| `run(annotation_bundle, ref_panel, ldscore_config, common_config, output_spec=None, regression_snps=None)` | main public entry point |
+| `compute_chromosome(chrom, annotation_bundle, ref_panel, ldscore_config, common_config, regression_snps=None)` | backend-independent chromosome step |
 | `write_outputs(result, out_prefix)` | emit LDSC-compatible files |
 
 ### Suggested internal methods
@@ -601,7 +652,7 @@ Use a dataclass.
 ### Required columns
 
 At minimum:
-- `SNP` or canonical key representation
+- `SNP` or canonical SNP identifier representation
 - `Z`
 - `N`
 - optional `A1`, `A2`
@@ -610,7 +661,7 @@ At minimum:
 ### Suggested methods
 
 - `validate()`
-- `canonical_keys()`
+- `snp_identifiers()`
 - `subset_to(keys)`
 - `align_to_metadata(metadata)`
 - `summary()`
@@ -839,8 +890,14 @@ Compute LDSC-compatible reference LD scores and regression-weight LD scores from
 ### Recommended public API
 
 ```python
-request = LDScoreRequest(...)
-result = LDScoreCalculator().run(request)
+result = LDScoreCalculator().run(
+    annotation_bundle=bundle,
+    ref_panel=ref_panel,
+    ldscore_config=ldscore_config,
+    common_config=common_config,
+    output_spec=output_spec,
+    regression_snps=regression_snps,
+)
 ```
 
 ### Mapping from current implementation
@@ -943,9 +1000,27 @@ rg = runner.estimate_rg(sumstats1, sumstats2, ldscore_result)
 
 ## 7. Public API Recommendation
 
-If the goal is easiest usage for users, the public interface should be very small.
+If the goal is easiest usage for users, the public interface should be **CLI-first and small**.
 
-### 7.1 Recommended user-facing classes/functions
+### 7.1 Primary public interface: CLI
+
+For this project, the main public interface should be command-line commands, not direct class construction.
+
+Recommended primary commands:
+- `ldsc annotate ...`
+- `ldsc ldscore ...`
+- `ldsc munge-sumstats ...`
+- `ldsc regress h2 ...`
+- `ldsc regress partitioned-h2 ...`
+- `ldsc regress rg ...`
+
+Each command should:
+- expose concrete argument names using `snp`, `annotation`, `reference-panel`, `regression-snps`, `window`, `output`
+- build the corresponding config dataclasses internally
+- call the workflow services
+- write user-readable output files and logs
+
+### 7.2 Secondary public interface: Python API
 
 | Public item | Purpose |
 | --- | --- |
@@ -956,7 +1031,7 @@ If the goal is easiest usage for users, the public interface should be very smal
 | `RegressionRunner.estimate_*` | run regressions |
 | workflow-specific config dataclasses | explicit parameter containers |
 
-### 7.2 Recommended internal-only classes/functions
+### 7.3 Recommended internal-only classes/functions
 
 | Internal item | Why internal |
 | --- | --- |
@@ -978,7 +1053,7 @@ This is included because the document will be used for refactoring planning.
    - `RefPanelSpec`
    - `AnnotationSourceSpec`
    - `AnnotationBundle`
-   - `LDScoreRequest`
+   - `OutputSpec`
    - `LDScoreResult`
    - `SumstatsTable`
 3. Wrap current new LD-score code behind `RefPanelLoader` and `LDScoreCalculator`.

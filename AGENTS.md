@@ -20,8 +20,8 @@ python munge_sumstats.py -h
 
 - keep it simple.
 
-- always ask if you have questions or unclear about the specifications.
-
+- always ask if you have questions or unclear about the specifications. Ask if you need more capabilities, info, clarification, instructions. etc. from me.
+  
 - Avoid AI tools name (like Codex, Claude, Grok, Gemini, ...) in code comments or git commit message (including authorship) or PR body.
 
 - Record only significant and recurring mistakes. Ignore minor, one-off errors. When a meaningful pattern of errors is observed, document the correction and update this file to prevent future occurrences.

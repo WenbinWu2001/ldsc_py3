@@ -7,9 +7,9 @@ import traceback
 import gzip
 import bz2
 import argparse
+from functools import reduce
 from scipy.stats import chi2
 from ldscore import sumstats
-from ldsc import MASTHEAD, Logger, sec_to_str
 import time
 np.seterr(invalid='ignore')
 
@@ -18,6 +18,44 @@ try:
     x.sort_values(by='A')
 except AttributeError:
     raise ImportError('LDSC requires pandas version >= 0.17.0')
+
+__version__ = '2.0.1'
+MASTHEAD = "*********************************************************************\n"
+MASTHEAD += "* LD Score Regression (LDSC)\n"
+MASTHEAD += "* Version {V}\n".format(V=__version__)
+MASTHEAD += "* (C) 2014-2019 Brendan Bulik-Sullivan and Hilary Finucane\n"
+MASTHEAD += "* Broad Institute of MIT and Harvard / MIT Department of Mathematics\n"
+MASTHEAD += "* Performance enhancement and python3 adaption by Anthony Abrantes 2024\n"
+MASTHEAD += "* University of North Carolina-Chapel Hill\n"
+MASTHEAD += "* GNU General Public License v3\n"
+MASTHEAD += "*********************************************************************\n"
+
+
+def sec_to_str(t):
+    [d, h, m, s, n] = reduce(lambda ll, b: divmod(ll[0], b) + ll[1:], [(t, 1), 60, 60, 24])
+    f = ''
+    if d > 0:
+        f += '{D}d:'.format(D=d)
+    if h > 0:
+        f += '{H}h:'.format(H=h)
+    if m > 0:
+        f += '{M}m:'.format(M=m)
+
+    f += '{S}s'.format(S=s)
+    return f
+
+
+class Logger(object):
+    def __init__(self, fh):
+        self.log_fh = open(fh, 'w', encoding='utf-8')
+
+    def log(self, msg):
+        print(msg, file=self.log_fh)
+        self.log_fh.flush()
+        print(msg)
+
+    def close(self):
+        self.log_fh.close()
 
 null_values = {
     'LOG_ODDS': 0,
@@ -123,7 +161,8 @@ numeric_cols = ['P', 'N', 'N_CAS', 'N_CON', 'Z', 'OR', 'BETA', 'LOG_ODDS', 'INFO
 def read_header(fh):
     '''Read the first line of a file and returns a list with the column names.'''
     (openfunc, compression) = get_compression(fh)
-    return [x.rstrip('\n') for x in openfunc(fh).readline().split()]
+    with openfunc(fh) as handle:
+        return [x.rstrip('\n') for x in handle.readline().split()]
 
 
 def get_cname_map(flag, default, ignore):
@@ -142,8 +181,9 @@ def get_cname_map(flag, default, ignore):
     '''
     clean_ignore = [clean_header(x) for x in ignore]
     cname_map = {x: flag[x] for x in flag if x not in clean_ignore}
+    used_targets = set(cname_map.values())
     cname_map.update(
-        {x: default[x] for x in default if x not in clean_ignore + list(flag.keys())})
+        {x: default[x] for x in default if x not in clean_ignore + list(flag.keys()) and default[x] not in used_targets})
     return cname_map
 
 
@@ -224,6 +264,15 @@ def filter_frq(frq, log, args):
 def filter_alleles(a):
     '''Remove alleles that do not describe strand-unambiguous SNPs'''
     return a.isin(sumstats.VALID_SNPS)
+
+
+def filter_signed_sumstats(x, null_value, log):
+    '''Remove signed statistics that equal the declared null value.'''
+    ii = x != null_value
+    removed = (~ii).sum()
+    if removed > 0:
+        log.log('Removed {N} SNPs with null signed summary statistics.'.format(N=removed))
+    return ii
 
 
 def parse_dat(dat_gen, convert_colname, merge_alleles, log, args):
@@ -735,6 +784,10 @@ def munge_sumstats(args, p=True):
         log.log('\nConversion finished at {T}'.format(T=time.ctime()))
         log.log('Total time elapsed: {T}'.format(
             T=sec_to_str(round(time.time() - START_TIME, 2))))
+        log.close()
+
+def main(argv=None):
+    return munge_sumstats(parser.parse_args(argv), p=True)
 
 if __name__ == '__main__':
-    munge_sumstats(parser.parse_args(), p=True)
+    main()

@@ -231,8 +231,8 @@ class CountProducer(ArtifactProducer):
         count_map = getattr(result, "snp_count_totals", {})
         for key, values in count_map.items():
             suffix = _count_suffix(key)
-            frame = pd.DataFrame(np.atleast_2d(values))
-            artifacts.append(Artifact(f"{self.name}.{key}", _artifact_filename(output_spec, suffix), frame, "dataframe"))
+            payload = "\t".join(str(value) for value in np.asarray(values).tolist())
+            artifacts.append(Artifact(f"{self.name}.{key}", _artifact_filename(output_spec, suffix, compressed=False), payload, "text"))
         return artifacts
 
 
@@ -247,7 +247,7 @@ class AnnotationManifestProducer(ArtifactProducer):
 
     def build(self, result: Any, run_summary: RunSummary, output_spec: OutputSpec, artifact_config: ArtifactConfig | None = None) -> list[Artifact]:
         manifest = self._formatter.build_annotation_manifest(result)
-        return [Artifact(self.name, _artifact_filename(output_spec, ".annotation_manifest.tsv", compressed=False), manifest, "dataframe")]
+        return [Artifact(self.name, _artifact_filename(output_spec, ".annotation_groups.tsv", compressed=False), manifest, "dataframe")]
 
 
 class SummaryTSVProducer(ArtifactProducer):

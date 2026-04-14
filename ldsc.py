@@ -8,7 +8,6 @@ LDSC is a command line tool for estimating
     3. genetic covariance / correlation
 
 '''
-import ldscore.ldscore as ld
 import ldscore.parse as ps
 import ldscore.sumstats as sumstats
 import ldscore.regressions as reg
@@ -148,6 +147,7 @@ def ldscore(args):
     chr snp bp cm <annotations>
 
     '''
+    import ldscore.ldscore as ld
 
     if args.bfile:
         snp_file, snp_obj = args.bfile+'.bim', ps.PlinkBIMFile
@@ -617,10 +617,8 @@ parser.add_argument('--samp-prev',default=None,
 parser.add_argument('--pop-prev',default=None,
     help='Population prevalence of binary phenotype (for conversion to liability scale).')
 
-if __name__ == '__main__':
-
-
-    args = parser.parse_args()
+def main(argv=None):
+    args = parser.parse_args(argv)
     if args.out is None:
         raise ValueError('--out is required.')
     #right now logger doesn't go to out folder
@@ -694,12 +692,11 @@ if __name__ == '__main__':
                 if not ((args.frqfile and args.ref_ld) or (args.frqfile_chr and args.ref_ld_chr)):
                     raise ValueError('Must set either --frqfile and --ref-ld or --frqfile-chr and --ref-ld-chr')
 
-            if args.rg:
-                sumstats.estimate_rg(args)
-            elif args.h2:
-                sumstats.estimate_h2(args)
-            elif args.h2_cts:
-                sumstats.cell_type_specific(args)
+            try:
+                from ldscore.regression_workflow import RegressionRunner
+            except ImportError:  # pragma: no cover - package import fallback
+                from .ldscore.regression_workflow import RegressionRunner
+            RegressionRunner().run_legacy_from_args(args)
 
             # bad flags
         else:
@@ -714,3 +711,6 @@ if __name__ == '__main__':
         logger.info('Analysis finished at {T}'.format(T=time.ctime()) )
         time_elapsed = round(time.time()-start_time,2)
         logger.info('Total time elapsed: {T}'.format(T=sec_to_str(time_elapsed)))
+
+if __name__ == '__main__':
+    main()

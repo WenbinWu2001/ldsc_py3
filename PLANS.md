@@ -28,10 +28,10 @@ Restructure `ldsc_py3_Jerry` into the layered, CLI-first design defined by `arch
 - [x] Milestone 2: Build the flexible output module with registry-based artifact producers.
 - [x] Milestone 3: Build the annotation module and migrate annotation-generation entry points.
 - [x] Milestone 4: Build the reference-panel module and loaders for PLINK and parquet R2.
-- [ ] Milestone 5: Build the LD-score calculation module and cut over LD-score entry points.
-- [ ] Milestone 6: Build the summary-statistics munging module and cut over `munge_sumstats.py`.
-- [ ] Milestone 7: Build the regression module, preserve legacy defaults, and add batch partitioned h2.
-- [ ] Milestone 8: Cut over remaining CLIs, clean compatibility wrappers, and run full validation.
+- [x] Milestone 5: Build the LD-score calculation module and cut over LD-score entry points.
+- [x] Milestone 6: Build the summary-statistics munging module and cut over `munge_sumstats.py`.
+- [x] Milestone 7: Build the regression module, preserve legacy defaults, and add batch partitioned h2.
+- [x] Milestone 8: Cut over remaining CLIs, clean compatibility wrappers, and run full validation.
 
 ## Plan of Work
 
@@ -50,6 +50,11 @@ Current local state:
 - The registry-based output layer now exists in `ldscore/output.py`.
 - The shared annotation workflow now exists in `ldscore/annotation.py`, and `make_annot.py` plus `utils/run_bed_to_annot.py` are now thin wrappers around it.
 - The lazy reference-panel adapters now exist in `ldscore/ref_panel.py`.
+- The LD-score workflow layer now exists in `ldscore/ldscore_workflow.py`, and `ldsc_new.py` now routes through it.
+- The summary-statistics workflow layer now exists in `ldscore/sumstats_munger.py`; `munge_sumstats.py` now has a stable `main(...)` entry and no longer imports the LD-score genotype backend indirectly.
+- The regression workflow layer now exists in `ldscore/regression_workflow.py`, including explicit `RegressionDataset` assembly, preserved `M_5_50` default handling, and batch partitioned-h2 looping over query annotations.
+- `ldsc.py` now exposes `main(...)` and routes summary-statistics regression commands through `RegressionRunner`, while keeping the legacy `--l2` path as a compatibility fallback for old genotype-side modes that are broader than the new SNP-level LD-score workflow.
+- Full local test status is green under `python3 -m unittest discover -s tests -p 'test*.py' -v` with 127 tests passing and 12 dependency-gated skips.
 
 ### Milestone 0: Freeze legacy behavior with tests
 

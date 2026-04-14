@@ -543,11 +543,14 @@ Suggested fields:
 | `write_summary_json` | `bool` |
 | `write_summary_tsv` | `bool` |
 | `write_run_metadata` | `bool` |
+| `enabled_artifacts` | `list[str] \| None` |
 
 Design note:
 - always include `CM` and `MAF` in exported tables when available
 - if missing, write `NA`
 - do not make `include_cm` and `include_maf` separate user options unless there is a real downstream need; default clean usage matters more than option count
+- `enabled_artifacts=None` should mean “use the clean built-in default artifact set”
+- keep artifact-specific plotting or summary options out of `OutputSpec`; if needed later, add a separate advanced artifact config rather than bloating the core output config
 
 ### Recommended calculator signature
 
@@ -1012,11 +1015,17 @@ Since you plan to build a richer output and post-processing suite, this layer sh
 | Class | Type | Role |
 | --- | --- | --- |
 | `OutputSpec` | dataclass | user-facing output configuration for what artifacts to write and how to organize them |
+| `ArtifactConfig` | optional dataclass | advanced per-artifact config for future summary/plot/report options without bloating `OutputSpec` |
 | `RunSummary` | dataclass | compact derived summary for reporting and machine-readable metadata |
 | `OutputManager` | service class | coordinates output writing and path construction |
+| `ArtifactProducer` | protocol/service interface | pluggable artifact builder for one output type or one group of related outputs |
 | `ResultWriter` | service/helper | writes primary artifacts such as LD-score tables, count files, manifests |
 | `ResultFormatter` | service/helper | builds clean user-facing summary tables and manifests |
 | `PostProcessor` | optional service layer | later-stage downstream organization, dashboard inputs, plots, combined reports |
+
+Design rule:
+- keep `OutputManager` stable and extensible
+- future plots, summaries, and reports should be added through registered `ArtifactProducer` implementations rather than by turning `OutputManager` into a large hardcoded dispatcher
 
 ### `OutputSpec` recommended fields
 
@@ -1037,11 +1046,14 @@ Since you plan to build a richer output and post-processing suite, this layer sh
 | `write_summary_json` | `bool` | machine-readable summary |
 | `write_summary_tsv` | `bool` | compact human-readable summary |
 | `write_run_metadata` | `bool` | provenance/config dump |
+| `enabled_artifacts` | `list[str] \| None` | optional explicit list of registered artifacts to emit; `None` means use the clean built-in defaults |
 
 Design defaults:
 - include metadata columns such as `CM` and `MAF` whenever available
 - fill unavailable metadata with `NA`
 - keep the default artifact set clean and small for ordinary users
+- do not put plot-specific or report-specific tuning options directly into `OutputSpec`
+- if future artifacts need extra options, store them in a separate advanced `ArtifactConfig`
 
 ### `RunSummary` recommended contents
 
@@ -1054,20 +1066,45 @@ Design defaults:
 | `output_paths` | actual written artifacts |
 | `config_snapshot` | compact provenance record |
 
+### `ArtifactProducer` recommended interface
+
+Each producer should define:
+- `name`: stable artifact name used in config/registration
+- `supports(result)`: whether the producer can handle the given result type
+- `build(result, run_summary, output_spec, artifact_config=None)`: create the artifact content or artifact object
+- `write(...)` or return a standardized artifact object for `ResultWriter` to serialize
+
+Built-in producers should cover:
+- LD-score tables
+- regression-weight tables
+- count files
+- annotation manifest
+- run summary TSV/JSON
+- run metadata dump
+
+Future producers can cover:
+- partitioned-h2 query summary tables
+- batch partitioned-h2 combined summary tables
+- plots
+- combined reports
+- dashboard-ready derived tables
+
 ### Recommended output working streamline
 
 1. A workflow service returns a raw result object such as `LDScoreResult` or a regression result.
-2. `ResultFormatter` derives user-facing tables from that raw result.
+2. `ResultFormatter` derives built-in user-facing tables from that raw result.
 3. `RunSummary` is built from the raw result plus the formatter outputs.
-4. `OutputManager` decides which artifacts are written based on `OutputSpec`.
-5. `ResultWriter` writes primary machine-readable artifacts.
-6. `PostProcessor` can later add higher-level summaries, plots, or combined reports without changing the core computation classes.
+4. `OutputManager` resolves which registered artifact producers are enabled by `OutputSpec`.
+5. Each enabled `ArtifactProducer` builds one artifact or one related group of artifacts from the result, summary, and config.
+6. `ResultWriter` writes primary machine-readable artifacts and any producer outputs that need file serialization.
+7. `PostProcessor` can later register higher-level summary, plot, or report producers without changing the core computation classes.
 
 For LD-score outputs specifically:
 - `OutputManager` should be able to write either per-chromosome artifacts from `chromosome_results` or one combined artifact set from the aggregated `LDScoreResult`
 - the default user-facing regression workflow should consume the combined cross-chromosome result
+- future partitioned-h2 summaries and plots should be added as registered producers, not as special-case branches in the core writer
 
-### Default output policy
+### Default output behavior
 
 Keep the default output set small, readable, and directly useful:
 - one main machine-readable result per feature
@@ -1088,6 +1125,7 @@ This same principle should guide the post-processing layer:
 - default outputs should be concise
 - detailed technical artifacts should still be available
 - result formatting should be separated from raw result storage
+- extensibility should come from registration and composition, not from hardcoded one-off branches in the output core
 
 ---
 
@@ -1208,7 +1246,7 @@ Compute LDSC-compatible reference LD scores and regression-weight LD scores from
 5. The final combined `LDScoreResult` should be built only after aggregating all chromosome-level results.
 6. `w_ld` should be computed in the same chromosome traversal as the main LD-score columns by appending an internal regression-mask column.
 7. `compute_m5_50` should only create an extra common-SNP count artifact when MAF is available; it should not redefine the main retained SNP universe or the main LD-score calculation.
-8. Regression SNPs are not automatically redefined to `MAF > 0.05`; if a future workflow wants a different regression SNP policy, it should be an explicit separate option.
+8. Regression SNPs are not automatically redefined to `MAF > 0.05`; if a future workflow wants a different regression SNP config, it should be an explicit separate option.
 
 ### Recommended public API
 
@@ -1248,7 +1286,7 @@ This feature should preserve the **current legacy LDSC workflow and behavior**. 
 | optional column-name hints | optional | same role as current header-mapping flags |
 | optional merge-alleles file | optional | preserve current allele harmonization behavior |
 | QC thresholds | optional | preserve current INFO, MAF, p-value, N-related filtering behavior |
-| shared `CommonConfig` | yes | provides the global SNP identifier policy and logging defaults |
+| shared `CommonConfig` | yes | provides the global SNP identifier config and logging defaults |
 | `MungeConfig` | yes | workflow-specific munging options |
 
 ### Outputs

@@ -23,11 +23,11 @@ Restructure `ldsc_py3_Jerry` into the layered, CLI-first design defined by `arch
 
 ## Progress
 
-- [ ] Milestone 0: Freeze legacy behavior with local fixtures and parity tests.
-- [ ] Milestone 1: Add shared config, identifier, and domain scaffolding without changing behavior.
-- [ ] Milestone 2: Build the flexible output module with registry-based artifact producers.
-- [ ] Milestone 3: Build the annotation module and migrate annotation-generation entry points.
-- [ ] Milestone 4: Build the reference-panel module and loaders for PLINK and parquet R2.
+- [x] Milestone 0: Freeze legacy behavior with local fixtures and parity tests.
+- [x] Milestone 1: Add shared config, identifier, and domain scaffolding without changing behavior.
+- [x] Milestone 2: Build the flexible output module with registry-based artifact producers.
+- [x] Milestone 3: Build the annotation module and migrate annotation-generation entry points.
+- [x] Milestone 4: Build the reference-panel module and loaders for PLINK and parquet R2.
 - [ ] Milestone 5: Build the LD-score calculation module and cut over LD-score entry points.
 - [ ] Milestone 6: Build the summary-statistics munging module and cut over `munge_sumstats.py`.
 - [ ] Milestone 7: Build the regression module, preserve legacy defaults, and add batch partitioned h2.
@@ -38,6 +38,18 @@ Restructure `ldsc_py3_Jerry` into the layered, CLI-first design defined by `arch
 The restructuring must be incremental and behavior-preserving. Do not perform a big-bang rewrite. First create a local test harness and copied fixtures inside this repository so the refactor does not depend on the sibling `ldsc_py2_Bulik` tree at runtime. Then add new workflow-facing modules alongside the existing scripts and legacy kernels. Only after tests exist for a feature should its CLI or legacy workflow entry point be redirected to the new module.
 
 When the design documents conflict with the current implementation, follow the design documents for public interfaces, class boundaries, config names, and workflow structure. When the current code conflicts only at an internal implementation detail, prefer reusing the current numerical code until parity is proven, then clean it up later if needed. Each milestone below must end with passing tests and one isolated commit before the next milestone begins.
+
+Current local state:
+
+- Local fixtures now exist under `tests/fixtures/legacy/`.
+- The baseline local oracle includes parse, IRWLS, jackknife, LD-score helper, munging-helper, config, identifier, output-module, annotation-module, and ref-panel tests.
+- Full local test status is currently green under `python3 -m unittest discover -s tests -p 'test*.py' -v`.
+- The LD-score runtime dependency `bitarray` is not installed in this environment, so LD-score-heavy legacy tests are currently skipped instead of failing the whole suite.
+- `pybedtools` and `pyarrow` are also not installed in this environment, so BED-projection and parquet-reader integration coverage is currently dependency-gated in the test suite.
+- Shared config and identifier scaffolding now exists in `ldscore/config.py` and `ldscore/identifiers.py`.
+- The registry-based output layer now exists in `ldscore/output.py`.
+- The shared annotation workflow now exists in `ldscore/annotation.py`, and `make_annot.py` plus `utils/run_bed_to_annot.py` are now thin wrappers around it.
+- The lazy reference-panel adapters now exist in `ldscore/ref_panel.py`.
 
 ### Milestone 0: Freeze legacy behavior with tests
 

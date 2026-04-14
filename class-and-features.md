@@ -112,16 +112,21 @@ This must be decided early because it affects annotations, reference panels, res
 ### 3.1 Recommendation
 
 Support two user-facing identifier modes only:
-- `rsID`
+- `rsid`
 - `chr_pos`
 
 Internally, create a **canonical SNP identifier** column for every workflow.
+
+Command-line and file-reading recommendation:
+- for the user-facing config value, assume the command-line input is simply `rsid`
+- when reading files, be flexible about capitalization and common SNP-column aliases
+- reuse the current style of column-name inference so headers such as `rsid`, `rsID`, `RSID`, `snpid`, `SNPID`, `snp_id`, `SNP`, and similar variants can all be recognized as the SNP identifier column
 
 ### 3.2 Required columns by mode
 
 | Identifier mode | Required columns | Matching rule | Uniqueness rule |
 | --- | --- | --- | --- |
-| `rsID` | `SNP` | exact string match on SNP ID | retained rows must have unique `SNP` |
+| `rsid` | `SNP` | exact string match on SNP ID | retained rows must have unique `SNP` |
 | `chr_pos` | `CHR`, `BP` | exact chromosome + 1-based base-pair position | retained rows must have unique `(CHR, BP)` within chromosome |
 
 ### 3.3 Unified metadata rule
@@ -145,14 +150,14 @@ Your note about a unified format is correct. The practical rule should be:
 
 | Restriction input type | Allowed formats | Interpretation |
 | --- | --- | --- |
-| SNP list in `rsID` mode | one-column SNP list or table with inferable SNP column | matched to `SNP` |
+| SNP list in `rsid` mode | one-column SNP list or table with inferable SNP column | matched to `SNP` |
 | SNP list in `chr_pos` mode | table with inferable `CHR` and `BP` columns, or BED-like file | matched to `(CHR, BP)` |
 | BED interval restriction | allowed only in workflows that explicitly support interval projection | should not be silently treated as SNP IDs |
 
 ### 3.5 Internal recommendation
 
 Always derive one internal SNP identifier column, for example:
-- `snp_id = SNP` for `rsID`
+- `snp_id = SNP` for `rsid`
 - `snp_id = f"{CHR}:{BP}"` for `chr_pos`
 
 All internal merges should use that canonical SNP identifier after validation.
@@ -163,9 +168,13 @@ Recommendation on naming:
 - if the identifier mode is `chr_pos`, those SNP identifiers are still the retained SNP labels for the workflow
 
 **Mapping from current implementation**
+- the current implementation already has useful column-name inference logic for SNP-like headers; the refactor should keep that flexibility while standardizing the stored config value as `rsid`
 - `ldscore.ldscore_new.identifier_keys()`
 - `ldscore.ldscore_new.normalize_chromosome()`
 - `ldscore.ldscore_new.validate_retained_identifier_uniqueness()`
+- `munge_sumstats.default_cnames`
+- `munge_sumstats.clean_header()`
+- `munge_sumstats.get_cname_map()`
 - `utils.run_bed_to_annot.build_restrict_resource()`
 - `utils.run_bed_to_annot.build_restrict_mask()`
 
@@ -204,11 +213,18 @@ A single global config becomes hard to reason about because:
 
 | Field | Type | Purpose |
 | --- | --- | --- |
-| `snp_identifier` | `Literal["rsID", "chr_pos"]` | matching mode |
+| `snp_identifier` | `Literal["rsid", "chr_pos"]` | global SNP identifier mode used across annotations, reference panel loading, sumstats alignment, and output labeling |
 | `genome_build` | `Literal["hg19", "hg38"] \| None` | required for build-specific files when needed |
-| `restrict_snps_path` | `str \| None` | optional global SNP restriction resource |
+| `global_snp_restriction_path` | `str \| None` | optional global SNP restriction resource applied to annotation SNPs, reference SNPs, and regression SNPs |
 | `log_level` | `str` | logging verbosity |
 | `fail_on_missing_metadata` | `bool` | strictness on missing `CM`, `MAF`, etc. |
+
+`global_snp_restriction_path` should be interpreted as a **global constraint on SNP universe**, not as a local filter used by only one feature.
+
+That means the following sets are all intersected with it:
+- baseline annotation SNPs
+- retained reference SNPs used to sum R2 for LD-score computation
+- regression SNPs used for regression-weight LD scores
 
 #### `LDScoreConfig` (dataclass)
 
@@ -219,14 +235,19 @@ A single global config becomes hard to reason about because:
 | `ld_wind_cm` | `float \| None` | genetic-distance window |
 | `maf_min` | `float \| None` | SNP filter threshold |
 | `chunk_size` | `int` | chunking / block processing size |
-| `compute_m5_50` | `bool` | whether `.M_5_50` should be emitted when possible |
-| `whole_chromosome_ok` | `bool` | equivalent of `--yes-really` behavior |
+| `compute_m5_50` | `bool` | whether to compute and emit the extra common-SNP count artifact analogous to `.M_5_50` when MAF is available |
+| `whole_chromosome_ok` | `bool` | allow LD-score computation to proceed when the chosen window effectively spans a whole chromosome; this is a safety override, not a numerical option |
+
+`whole_chromosome_ok` is only a guardrail. It does **not** change the LD-score formula. It only controls whether the run is allowed to continue when the chosen window is so large that nearly the whole chromosome would be traversed.
+
+`compute_m5_50` should affect **counts only**, not the main LD-score computation. The main LD scores and regression weights should still be computed on the retained SNP universe after the normal filters. The extra common-SNP artifact should record how many retained reference SNPs per annotation also satisfy `MAF > 0.05` when MAF is available.
 
 #### `RegressionConfig` (dataclass)
 
 | Field | Type | Purpose |
 | --- | --- | --- |
 | `n_blocks` | `int` | jackknife block count |
+| `use_m_5_50` | `bool` | whether regression should use the common-SNP count vector analogous to legacy `.M_5_50`; this should default to `True` to preserve the original LDSC behavior |
 | `use_intercept` | `bool` | whether intercept is estimated |
 | `intercept_h2` | `float \| list[float] \| None` | constrained intercept for h2 |
 | `intercept_gencov` | `float \| list[float] \| None` | constrained intercept for covariance |
@@ -240,6 +261,14 @@ A single global config becomes hard to reason about because:
 - legacy parser in `ldsc.py`
 - parser in `munge_sumstats.py`
 - parser in `utils/run_bed_to_annot.py`
+
+### 4.4 Avoid repeating global config inside domain classes
+
+Since `snp_identifier` and `genome_build` are global workflow settings, do **not** repeat them as normal stored fields on every class unless there is a concrete reason to snapshot them for provenance.
+
+Recommendation:
+- `AnnotationBundle`, `RefPanelSpec`, and `SumstatsTable` should assume they are validated under one `CommonConfig`
+- if provenance is needed, store a small immutable `config_snapshot` or `provenance` record at write time rather than duplicating the same field across many classes
 
 ---
 
@@ -268,7 +297,6 @@ Keep `AnnotationBundle` as a dataclass.
 | `query_annotations` | `pd.DataFrame` | aligned query annotation columns |
 | `baseline_columns` | `list[str]` | ordered baseline column names |
 | `query_columns` | `list[str]` | ordered query column names |
-| `identifier_mode` | `str` | `rsID` or `chr_pos` |
 | `chromosomes` | `list[str]` | chromosomes represented |
 | `source_summary` | `dict[str, object]` | bookkeeping for traceability |
 
@@ -301,7 +329,7 @@ Suggested responsibilities:
 - project BED inputs to SNP-level annotations
 - combine baseline + query annotations
 - enforce identical row order / identifier alignment
-- apply optional restriction set
+- apply the global SNP restriction from `CommonConfig`
 
 ### Current-to-target mapping
 
@@ -378,7 +406,6 @@ Create `RefPanelSpec` as a dataclass.
 | `sample_size` | `int \| None` | needed for raw-to-unbiased R2 correction |
 | `maf_metadata_paths` | `list[str]` | optional frequency metadata |
 | `chromosomes` | `list[str] \| None` | explicit chromosome scope |
-| `identifier_mode` | `str` | `rsID` or `chr_pos` |
 | `genome_build` | `str \| None` | build-specific interpretation |
 
 ### Current-to-target mapping
@@ -400,12 +427,13 @@ Represents a validated reference panel interface after the source has been resol
 
 ### Important design decision
 
-Answer to your question: **store the path/spec and lightweight metadata, not the full raw data object, as the long-lived class state.**
+Answer to your question: **store the path/spec and lightweight metadata access strategy, not the full raw data object, as the long-lived class state.**
 
 Reason:
 - PLINK and parquet R2 backends can be very large
 - eager loading will waste memory
 - many workflows only need chromosome-wise or block-wise access
+- even metadata tables can be large enough that always embedding them in the long-lived object is wasteful
 
 ### Recommendation
 
@@ -417,7 +445,7 @@ Use an abstract base class or protocol-like interface.
 | --- | --- |
 | `available_chromosomes()` | list chromosomes with usable reference data |
 | `load_metadata(chrom)` | return SNP metadata for one chromosome |
-| `filter_to_keys(chrom, keys)` | reduce to requested SNP universe |
+| `filter_to_snps(chrom, snps)` | reduce to requested SNP universe |
 | `build_reader(chrom)` | create backend-specific reader used by LD-score calculation |
 | `summary()` | backend and coverage summary |
 
@@ -426,10 +454,12 @@ Use an abstract base class or protocol-like interface.
 #### `PlinkRefPanel`
 - stores PLINK prefixes and optional include/keep filters
 - lazily constructs `PlinkBEDFile` readers
+- may cache chromosome-level SNP metadata DataFrames after first load if repeated access is common
 
 #### `ParquetR2RefPanel`
 - stores parquet paths and optional frequency metadata
 - lazily constructs `SortedR2BlockReader`
+- may cache compact metadata indexes or memory-light DataFrames per chromosome
 
 ### What should not be stored permanently
 
@@ -438,8 +468,25 @@ Avoid storing the whole raw matrix / all pairwise R2 rows as a long-lived attrib
 Store instead:
 - source paths
 - backend type
-- optional metadata caches
+- optional chromosome-level metadata caches
 - backend-specific lightweight readers created per chromosome
+
+Practical suggestion on metadata:
+- do not eagerly store one giant metadata table on `RefPanel`
+- expose `load_metadata(chrom)` and allow lazy caching per chromosome
+- if the workflow later needs fully materialized retained metadata, store that on `LDScoreResult`, not on `RefPanel`
+
+Recommended backend-specific metadata strategy:
+
+| Backend | Preferred metadata strategy | Why |
+| --- | --- | --- |
+| `PlinkRefPanel` | read `.bim` metadata per chromosome and optionally cache the chromosome-level DataFrame in memory | `.bim` access is simple and chromosome filtering is cheap |
+| `ParquetR2RefPanel` | keep path-based sidecar metadata resources per chromosome; load only requested columns and optionally cache a compact index/DataFrame | parquet metadata and frequency sidecars can be large, so path-first access scales better |
+
+Practical rule:
+- `RefPanel` owns metadata access
+- `LDScoreResult` owns fully materialized retained metadata actually used in a run
+- `OutputManager` decides whether that retained metadata is written to disk
 
 ### Current-to-target mapping
 
@@ -475,13 +522,32 @@ For this project, the simpler design is:
 
 Use a small `OutputSpec` dataclass instead.
 
+`OutputSpec` is the part of the old “request object” idea that is actually useful: it says what artifacts to write, where to write them, and how to organize them. It should not carry runtime data or numerical algorithm settings.
+
 Suggested fields:
 
 | Field | Type |
 | --- | --- |
 | `out_prefix` | `str` |
+| `output_dir` | `str \| None` |
+| `artifact_layout` | `Literal["flat", "by_chrom", "run_dir"]` |
+| `write_ldscore` | `bool` |
+| `write_w_ld` | `bool` |
+| `write_counts` | `bool` |
 | `write_per_chrom` | `bool` |
+| `aggregate_across_chromosomes` | `bool` |
 | `write_annotation_manifest` | `bool` |
+| `compression` | `Literal["gzip", "none"]` |
+| `overwrite` | `bool` |
+| `log_path` | `str \| None` |
+| `write_summary_json` | `bool` |
+| `write_summary_tsv` | `bool` |
+| `write_run_metadata` | `bool` |
+
+Design note:
+- always include `CM` and `MAF` in exported tables when available
+- if missing, write `NA`
+- do not make `include_cm` and `include_maf` separate user options unless there is a real downstream need; default clean usage matters more than option count
 
 ### Recommended calculator signature
 
@@ -540,17 +606,38 @@ Replace it with:
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `metadata` | `pd.DataFrame` | retained reference SNP table |
-| `ld_scores` | `pd.DataFrame` | reference LD-score columns |
-| `w_ld` | `pd.DataFrame` | regression-weight LD scores |
-| `M` | `np.ndarray` | annotation counts |
-| `M_5_50` | `np.ndarray \| None` | common-SNP counts |
+| `reference_metadata` | `pd.DataFrame` | fully materialized retained reference SNP metadata aggregated across chromosomes in final genomic order and aligned row-for-row with `ld_scores` |
+| `ld_scores` | `pd.DataFrame` | reference LD-score columns aggregated across chromosomes and aligned row-for-row with `reference_metadata` |
+| `regression_metadata` | `pd.DataFrame` | retained regression SNP metadata aggregated across chromosomes in final genomic order and aligned row-for-row with `w_ld` |
+| `w_ld` | `pd.DataFrame` | regression-weight LD-score columns aggregated across chromosomes and aligned row-for-row with `regression_metadata` |
+| `snp_count_totals` | `dict[str, np.ndarray]` | named SNP-count arrays obtained by summing the chromosome-specific count arrays across chromosomes |
 | `baseline_columns` | `list[str]` | baseline annotation columns |
 | `query_columns` | `list[str]` | query annotation columns |
 | `reference_snps` | `set[str]` | retained reference SNP identifiers under the selected identifier mode |
 | `regression_snps` | `set[str]` | retained regression SNP identifiers; must be a subset of `reference_snps` |
-| `per_chrom_results` | `list[ChromLDScoreResult] \| None` | optional chromosome-level outputs |
+| `chromosome_results` | `list[ChromLDScoreResult]` | chromosome-level LD-score results produced during the run and then aggregated into the combined result used by regression |
 | `output_paths` | `dict[str, str]` | written files |
+
+### Internal helper result: `ChromLDScoreResult`
+
+Define one small chromosome-level result object and treat it as a first-class intermediate in the LD-score pipeline.
+
+Suggested fields:
+- `chrom`
+- `reference_snps`
+- `regression_snps`
+- `reference_metadata`
+- `ld_scores`
+- `regression_metadata`
+- `w_ld`
+- `snp_count_totals`
+
+Practical meaning:
+- it is the chromosome-local version of `LDScoreResult`
+- it is the natural unit of LD-score computation because the current pipeline operates chromosome by chromosome for efficiency
+- it exists so `OutputManager` can either write one combined artifact set or one artifact set per chromosome
+- the final combined `LDScoreResult` is built by concatenating and summing these chromosome-level results in genomic order
+- it should not be the main user-facing result type
 
 ### Suggested methods
 
@@ -560,6 +647,18 @@ Light methods only:
 - `to_weight_table()`
 - `summary()`
 
+Alignment invariants:
+- `reference_metadata` and `ld_scores` must have the same number of rows and the same SNP order
+- `regression_metadata` and `w_ld` must have the same number of rows and the same SNP order
+- `regression_snps` must correspond exactly to the SNPs represented by `regression_metadata`
+- if `w_ld` is derived from a regression mask within the reference universe, preserve the explicit regression metadata table anyway so downstream users do not have to reconstruct it
+- `chromosome_results` should together cover exactly the SNPs represented in the combined result, with no cross-chromosome duplication
+
+Important structural rule:
+- LD-score calculation is a chromosome-wise workflow
+- combined `LDScoreResult` exists mainly as the post-aggregation object used by downstream regression and by aggregate output writing
+- chromosome-specific `ld_scores`, `w_ld`, and SNP-count totals remain first-class intermediate results, not temporary implementation details
+
 ### Answer to your question about output attributes
 
 **Yes, the final LD-score outputs should exist as attributes, but on a result object, not on the calculator itself.**
@@ -568,6 +667,13 @@ That gives you:
 - easy reuse for regression workflows
 - easy testing
 - clear separation between “computation engine” and “result data”
+
+Naming note:
+- storing `M` and `M_5_50` as bare field names is too legacy-oriented
+- prefer a named dictionary such as `snp_count_totals`
+- example keys:
+  - `all_reference_snp_counts`
+  - `common_reference_snp_counts_maf_gt_0_05`
 
 ### Current-to-target mapping
 
@@ -591,7 +697,7 @@ Service class that computes LD scores from validated inputs.
 | Method | Purpose |
 | --- | --- |
 | `run(annotation_bundle, ref_panel, ldscore_config, common_config, output_spec=None, regression_snps=None)` | main public entry point |
-| `compute_chromosome(chrom, annotation_bundle, ref_panel, ldscore_config, common_config, regression_snps=None)` | backend-independent chromosome step |
+| `compute_chromosome(chrom, annotation_bundle, ref_panel, ldscore_config, common_config, regression_snps=None)` | backend-independent chromosome step producing one `ChromLDScoreResult` |
 | `write_outputs(result, out_prefix)` | emit LDSC-compatible files |
 
 ### Suggested internal methods
@@ -600,9 +706,14 @@ Service class that computes LD scores from validated inputs.
 | --- | --- |
 | `_compute_from_plink(...)` | PLINK backend |
 | `_compute_from_parquet(...)` | parquet backend |
+| `_partition_annotation_rows_by_chrom(...)` | split aligned annotation rows into chromosome-specific bundles |
+| `_partition_regression_snps_by_chrom(...)` | partition requested regression SNPs to the chromosome-specific retained SNP universes |
 | `_build_reference_universe(...)` | intersect annotation SNPs with ref-panel presence |
+| `_build_regression_mask(...)` | build a boolean mask on the retained reference SNP universe for regression SNPs |
+| `_augment_annotation_matrix_with_regression_mask(...)` | append an internal mask column so `w_ld` is computed in the same LD-score traversal as the main annotation columns |
 | `_build_regression_subset(...)` | enforce regression SNP subset rule |
-| `_compute_counts(...)` | produce `.M` and `.M_5_50` |
+| `_compute_counts(...)` | produce named SNP count arrays for all retained reference SNPs and optional common-SNP subsets |
+| `_aggregate_chromosome_results(...)` | combine chromosome-specific outputs into the final `LDScoreResult` used by regression |
 
 ### Reference-SNP universe rule
 
@@ -614,6 +725,27 @@ Your statement is correct, but I recommend expressing it more strictly:
 4. Define regression SNPs as a subset of the retained reference SNP universe.
 
 This rule should be enforced by validation, not left as an informal convention.
+
+Recommended algorithm detail:
+- partition the aligned annotation rows by chromosome before LD-score computation
+- if a global regression SNP list is supplied, partition it automatically to per-chromosome subsets after matching against the retained per-chromosome SNP universe
+- add one internal annotation-like mask column corresponding to the retained regression SNP set
+- compute reference LD-score columns and regression-weight LD scores in the same per-chromosome traversal
+- do not require a second separate LD-score pass just to obtain `w_ld`
+- emit one `ChromLDScoreResult` per chromosome
+- after chromosome-wise computation, aggregate the ordinary annotation-derived LD-score columns, regression-weight LD scores, and SNP-count totals into the final combined `LDScoreResult`
+- after computation, split the ordinary annotation-derived LD-score columns from the regression-mask-derived `w_ld` column in `LDScoreResult`
+
+Current implementation note:
+- the parquet backend already follows this design by appending a regression-mask column before one joint LD-score traversal
+- the PLINK backend still computes `w_ld` in a second kernel call
+- the refactor should unify both backends behind the same higher-level behavior
+- the current pipeline already computes chromosome by chromosome and then aggregates results; the refactor should make that structure explicit in the public design rather than hiding it
+
+Practical rule for regression SNP partitioning:
+- if `snp_identifier == "chr_pos"`, chromosome partitioning is direct from the identifier itself
+- if `snp_identifier == "rsid"`, partitioning should be done after matching the requested regression SNPs against chromosome-specific retained metadata/reference-panel rows
+- users should pass one global regression-SNP input; the calculator should partition it automatically
 
 ### Current-to-target mapping
 
@@ -644,10 +776,10 @@ Use a dataclass.
 | Field | Type |
 | --- | --- |
 | `data` | `pd.DataFrame` |
-| `identifier_mode` | `str` |
 | `has_alleles` | `bool` |
 | `source_path` | `str \| None` |
 | `trait_name` | `str \| None` |
+| `provenance` | `dict[str, object]` |
 
 ### Required columns
 
@@ -662,9 +794,15 @@ At minimum:
 
 - `validate()`
 - `snp_identifiers()`
-- `subset_to(keys)`
+- `subset_to(snps)`
 - `align_to_metadata(metadata)`
 - `summary()`
+
+Validation rules should follow the old codebase behavior as closely as possible:
+- preserve the existing LDSC-required columns and semantics
+- preserve allele requirements for workflows that need them
+- preserve the existing assumptions around `Z`, `N`, and optional `A1/A2`
+- avoid introducing new sumstats features at this stage
 
 ### Current-to-target mapping
 
@@ -682,12 +820,15 @@ At minimum:
 
 Service class for converting raw GWAS summary statistics into `SumstatsTable`.
 
+This should follow the legacy LDSC workflow closely and deliberately avoid new feature additions in the first restructuring pass.
+
 ### Suggested public methods
 
 | Method | Purpose |
 | --- | --- |
-| `run(config)` | full munging workflow |
+| `run(raw_source, munge_config, common_config)` | full munging workflow using the legacy pipeline behavior |
 | `write_output(sumstats, out_prefix)` | write LDSC-ready `.sumstats.gz` |
+| `build_run_summary(sumstats)` | create a compact summary of what was removed and retained |
 
 ### Suggested internal methods
 
@@ -698,6 +839,13 @@ Service class for converting raw GWAS summary statistics into `SumstatsTable`.
 | `_process_n(...)` | sample-size handling |
 | `_restore_signed_z(...)` | sign logic |
 | `_merge_alleles(...)` | allele harmonization |
+| `_validate_against_legacy_schema(...)` | ensure outputs still match the current LDSC expectations |
+
+Suggested behavior:
+- keep the same logical pipeline as `munge_sumstats.py`
+- preserve legacy-compatible output schema
+- move complexity into internal helpers, not new user-visible options
+- keep the CLI surface simple and mostly familiar
 
 ### Current-to-target mapping
 
@@ -709,6 +857,52 @@ Service class for converting raw GWAS summary statistics into `SumstatsTable`.
 | chunk processing | `parse_dat()` |
 | sample-size handling | `process_n()` |
 | allele merge | `allele_merge()` |
+
+### Recommended supporting classes
+
+To keep the munging workflow explicit without changing behavior, add these lightweight supporting objects.
+
+#### `RawSumstatsSpec`
+
+| Field | Type | Purpose |
+| --- | --- | --- |
+| `path` | `str` | raw summary-statistics file |
+| `compression` | `Literal["auto", "gzip", "bz2", "none"]` | input compression handling |
+| `trait_name` | `str \| None` | optional trait label for downstream summaries |
+| `column_hints` | `dict[str, str]` | optional explicit column-name overrides corresponding to legacy CLI flags |
+
+#### `MungeConfig`
+
+| Field | Type | Purpose |
+| --- | --- | --- |
+| `out_prefix` | `str` | output prefix |
+| `N` | `float \| None` | fixed sample size override |
+| `N_cas` | `float \| None` | fixed case count override |
+| `N_con` | `float \| None` | fixed control count override |
+| `info_min` | `float` | INFO filter threshold |
+| `maf_min` | `float` | MAF filter threshold |
+| `n_min` | `float \| None` | minimum sample size threshold |
+| `nstudy_min` | `float \| None` | minimum number-of-studies threshold |
+| `chunk_size` | `int` | chunked reading size |
+| `merge_alleles_path` | `str \| None` | optional allele-reference file |
+| `signed_sumstats_spec` | `str \| None` | legacy signed-stat specification such as `OR,1` or `Z,0` |
+| `ignore_columns` | `list[str]` | legacy ignore-list equivalent |
+| `no_alleles` | `bool` | skip allele requirement |
+| `a1_inc` | `bool` | treat `A1` as increasing allele |
+| `keep_maf` | `bool` | preserve MAF column in output when available |
+| `daner` | `bool` | legacy Daner format handling |
+| `daner_n` | `bool` | legacy Daner-with-Nca/Nco handling |
+
+#### `MungeRunSummary`
+
+| Field | Type | Purpose |
+| --- | --- | --- |
+| `n_input_rows` | `int` | total rows read |
+| `n_retained_rows` | `int` | rows remaining after munging |
+| `drop_counts` | `dict[str, int]` | counts removed by each QC step |
+| `inferred_columns` | `dict[str, str]` | final raw-to-canonical column mapping |
+| `used_n_rule` | `str` | how sample size was determined |
+| `output_paths` | `dict[str, str]` | written artifacts |
 
 ---
 
@@ -727,15 +921,33 @@ Represents the merged, regression-ready dataset built from `SumstatsTable` and `
 | `merged` | `pd.DataFrame` |
 | `ref_ld_columns` | `list[str]` |
 | `weight_column` | `str` |
-| `M` | `np.ndarray` |
-| `novar_mask` | `np.ndarray \| None` |
+| `reference_snp_count_totals` | `dict[str, np.ndarray]` |
+| `count_key_used_for_regression` | `str` |
+| `retained_ld_columns` | `list[str]` |
+| `dropped_zero_variance_ld_columns` | `list[str]` |
 | `trait_names` | `list[str]` |
+| `chromosomes_aggregated` | `list[str]` |
 
 ### Why it is useful
 
 It gives a clean handoff between:
 - IO and alignment logic
 - regression kernels
+
+Important scope rule:
+- `RegressionDataset` is built only after all chromosome-level LD-score results are combined
+- regression itself is not run chromosome by chromosome
+- chromosome-specific computation belongs to `LDScoreCalculator`, while regression consumes the aggregated cross-chromosome result
+
+Count-config rule:
+- preserve the original LDSC default by using the common-SNP count vector corresponding to `.M_5_50` for regression unless the user explicitly requests otherwise
+- `count_key_used_for_regression` should therefore default to something like `common_reference_snp_counts_maf_gt_0_05`
+- using that count vector does **not** mean the LD scores themselves were computed only on common SNPs; it means the regression scaling/count input follows the legacy default
+
+Naming correction:
+- `novar_mask` is too implementation-oriented and too vague for this design document
+- prefer explicit fields such as `retained_ld_columns` and `dropped_zero_variance_ld_columns`
+- in the current code, `novar_cols` is a boolean mask/Series marking LD-score columns with zero variance that are removed before regression; the target design should expose the dropped column names directly instead
 
 ### Current-to-target mapping
 
@@ -758,7 +970,8 @@ Service class wrapping the regression suite.
 | Method | Purpose |
 | --- | --- |
 | `estimate_h2(dataset, config)` | single-trait h2 |
-| `estimate_partitioned_h2(dataset, annotation_bundle, config)` | partitioned h2 |
+| `estimate_partitioned_h2(dataset, annotation_bundle, config)` | partitioned h2 for one query annotation or one already-selected query set |
+| `estimate_partitioned_h2_batch(dataset, annotation_bundle, config)` | loop over multiple query annotations, run one partitioned LDSC model per query annotation, and combine/save the results |
 | `estimate_rg(dataset1, dataset2, config)` | genetic correlation |
 | `estimate_cell_type_specific(...)` | future extension |
 
@@ -772,6 +985,13 @@ Instead, `RegressionRunner` should:
 - convert outputs into result objects or tables
 - write or return summaries
 
+Required new refactor feature:
+- when users provide multiple query annotations, `RegressionRunner` should support a batch partitioned-h2 mode
+- this mode should loop over query annotations one at a time against the fixed baseline model
+- each loop iteration should run one partitioned LDSC regression
+- the runner should then combine the per-query results into one clean summary table and save any requested detailed artifacts
+- this is **not implemented in the old codebase** and should be treated as explicit new work during the restructuring
+
 ### Current-to-target mapping
 
 | Target responsibility | Current implementation |
@@ -780,6 +1000,94 @@ Instead, `RegressionRunner` should:
 | rg workflow | `ldscore.sumstats.estimate_rg()` |
 | cts workflow | `ldscore.sumstats.cell_type_specific()` |
 | estimators | `ldscore.regressions.Hsq`, `Gencov`, `RG` |
+
+---
+
+## 5.12 Output And Post-Processing Layer
+
+Since you plan to build a richer output and post-processing suite, this layer should be part of the design now.
+
+### Recommended classes
+
+| Class | Type | Role |
+| --- | --- | --- |
+| `OutputSpec` | dataclass | user-facing output configuration for what artifacts to write and how to organize them |
+| `RunSummary` | dataclass | compact derived summary for reporting and machine-readable metadata |
+| `OutputManager` | service class | coordinates output writing and path construction |
+| `ResultWriter` | service/helper | writes primary artifacts such as LD-score tables, count files, manifests |
+| `ResultFormatter` | service/helper | builds clean user-facing summary tables and manifests |
+| `PostProcessor` | optional service layer | later-stage downstream organization, dashboard inputs, plots, combined reports |
+
+### `OutputSpec` recommended fields
+
+| Field | Type | Purpose |
+| --- | --- | --- |
+| `out_prefix` | `str` | main output prefix |
+| `output_dir` | `str \| None` | optional base directory |
+| `artifact_layout` | `Literal["flat", "by_chrom", "run_dir"]` | output directory organization |
+| `write_ldscore` | `bool` | write reference LD-score table |
+| `write_w_ld` | `bool` | write regression-weight LD-score table |
+| `write_counts` | `bool` | write SNP count artifacts |
+| `write_annotation_manifest` | `bool` | write baseline/query annotation manifest |
+| `write_per_chrom` | `bool` | emit chromosome-split artifacts |
+| `aggregate_across_chromosomes` | `bool` | emit aggregated artifacts |
+| `compression` | `Literal["gzip", "none"]` | output compression |
+| `overwrite` | `bool` | whether existing files may be replaced |
+| `log_path` | `str \| None` | optional explicit log path |
+| `write_summary_json` | `bool` | machine-readable summary |
+| `write_summary_tsv` | `bool` | compact human-readable summary |
+| `write_run_metadata` | `bool` | provenance/config dump |
+
+Design defaults:
+- include metadata columns such as `CM` and `MAF` whenever available
+- fill unavailable metadata with `NA`
+- keep the default artifact set clean and small for ordinary users
+
+### `RunSummary` recommended contents
+
+| Field | Purpose |
+| --- | --- |
+| `n_reference_snps` | retained reference SNP count |
+| `n_regression_snps` | retained regression SNP count |
+| `chromosomes_processed` | chromosomes included in the run |
+| `count_artifacts_available` | whether common-SNP counts and total counts were emitted |
+| `output_paths` | actual written artifacts |
+| `config_snapshot` | compact provenance record |
+
+### Recommended output working streamline
+
+1. A workflow service returns a raw result object such as `LDScoreResult` or a regression result.
+2. `ResultFormatter` derives user-facing tables from that raw result.
+3. `RunSummary` is built from the raw result plus the formatter outputs.
+4. `OutputManager` decides which artifacts are written based on `OutputSpec`.
+5. `ResultWriter` writes primary machine-readable artifacts.
+6. `PostProcessor` can later add higher-level summaries, plots, or combined reports without changing the core computation classes.
+
+For LD-score outputs specifically:
+- `OutputManager` should be able to write either per-chromosome artifacts from `chromosome_results` or one combined artifact set from the aggregated `LDScoreResult`
+- the default user-facing regression workflow should consume the combined cross-chromosome result
+
+### Default output policy
+
+Keep the default output set small, readable, and directly useful:
+- one main machine-readable result per feature
+- one compact human-readable summary when applicable
+- optional detailed artifacts for debugging, provenance, or downstream pipelines
+
+Do not make users turn on many switches just to get the normal outputs they care about.
+
+### Output design rule for downstream analyses
+
+Default outputs should favor what most users care about first.
+
+Example:
+- if multiple query pathways are tested in partitioned heritability, the default user-facing summary should be one clean table with one row per query pathway and only the key query-pathway results
+- baseline-category details can still be written as secondary artifacts, but should not dominate the default display
+
+This same principle should guide the post-processing layer:
+- default outputs should be concise
+- detailed technical artifacts should still be available
+- result formatting should be separated from raw result storage
 
 ---
 
@@ -799,7 +1107,7 @@ Convert user-supplied annotation sources into aligned SNP-level annotation table
 | query SNP-level `.annot` files | optional | same row universe required |
 | BED files | optional | should be converted via `AnnotationBuilder`, not stored in `AnnotationBundle` |
 | gene-set files | optional | only if you choose to support them explicitly |
-| optional restriction set | optional | applied after row-universe validation |
+| global SNP restriction from `CommonConfig` | optional | applied after row-universe validation and treated as a global SNP-universe constraint |
 
 ### Outputs
 
@@ -832,9 +1140,9 @@ Load and validate a reference panel from either PLINK or normalized sorted parqu
 | Input | Required | Notes |
 | --- | --- | --- |
 | PLINK prefix or parquet-R2 files | yes | exactly one backend |
-| identifier mode | yes | must match annotation workflow |
+| global SNP identifier mode from `CommonConfig` | yes | must match annotation workflow |
 | genome build | conditional | needed when build-dependent files are used |
-| optional MAF/frequency metadata | optional | required for `.M_5_50` in parquet mode |
+| optional MAF/frequency metadata | optional | required in parquet mode if you want the common-SNP count artifact analogous to `.M_5_50` |
 
 ### Outputs
 
@@ -874,7 +1182,17 @@ Compute LDSC-compatible reference LD scores and regression-weight LD scores from
 ### Outputs
 
 - `LDScoreResult`
-- on disk: `.l2.ldscore.gz`, `.w.l2.ldscore.gz`, `.l2.M`, optional `.l2.M_5_50`, annotation manifest
+- on disk through `OutputManager`: legacy-compatible LDSC artifacts by default, plus optional clean summaries and manifests
+
+### Recommended working streamline
+
+1. Load aligned annotation rows from `AnnotationBundle`.
+2. Partition annotation rows by chromosome.
+3. For each chromosome, intersect with reference-panel availability and apply the global SNP restriction from `CommonConfig`.
+4. If a global regression SNP list is provided, partition it automatically to chromosome-specific retained SNP subsets.
+5. For each chromosome, build one internal regression-mask column and compute chromosome-specific `ld_scores`, `w_ld`, and SNP-count totals.
+6. Store those chromosome-level outputs as `ChromLDScoreResult` objects.
+7. Aggregate all chromosome-level outputs into the final combined `LDScoreResult` used by regression and by aggregate output writing.
 
 ### Important design rules
 
@@ -885,7 +1203,12 @@ Compute LDSC-compatible reference LD scores and regression-weight LD scores from
 
 2. Regression SNPs must be a subset of retained reference SNPs.
 
-3. The result object should carry the final retained universes and the file-ready outputs.
+3. If regression SNPs are provided as one global input, they should be partitioned automatically into chromosome-specific subsets during LD-score computation.
+4. `ChromLDScoreResult` should carry chromosome-specific retained universes and file-ready outputs.
+5. The final combined `LDScoreResult` should be built only after aggregating all chromosome-level results.
+6. `w_ld` should be computed in the same chromosome traversal as the main LD-score columns by appending an internal regression-mask column.
+7. `compute_m5_50` should only create an extra common-SNP count artifact when MAF is available; it should not redefine the main retained SNP universe or the main LD-score calculation.
+8. Regression SNPs are not automatically redefined to `MAF > 0.05`; if a future workflow wants a different regression SNP policy, it should be an explicit separate option.
 
 ### Recommended public API
 
@@ -915,29 +1238,52 @@ result = LDScoreCalculator().run(
 
 Normalize raw GWAS summary statistics into a simple, validated LDSC-ready table.
 
+This feature should preserve the **current legacy LDSC workflow and behavior**. No feature additions are planned in this stage.
+
 ### Inputs
 
-- raw summary-statistics file
-- optional column-name hints
-- optional merge-alleles file
-- QC thresholds
+| Input | Required | Notes |
+| --- | --- | --- |
+| raw summary-statistics file | yes | same role as current `--sumstats` input |
+| optional column-name hints | optional | same role as current header-mapping flags |
+| optional merge-alleles file | optional | preserve current allele harmonization behavior |
+| QC thresholds | optional | preserve current INFO, MAF, p-value, N-related filtering behavior |
+| shared `CommonConfig` | yes | provides the global SNP identifier policy and logging defaults |
+| `MungeConfig` | yes | workflow-specific munging options |
 
 ### Outputs
 
 - `SumstatsTable`
 - `.sumstats.gz`
 - log/summary report
+- optional `MungeRunSummary`
 
 ### Recommended public API
 
 ```python
-sumstats = SumstatsMunger(common_config, munge_config).run(raw_source)
+sumstats = SumstatsMunger().run(raw_source, munge_config, common_config)
 ```
+
+### Recommended working streamline
+
+1. Read the raw header and infer canonical column names using legacy LDSC rules plus any explicit user hints.
+2. Read the input in chunks.
+3. Apply chunk-level QC and filtering for missing values, INFO, MAF, p-value bounds, SNP/allele validity, and optional allele-merge restrictions.
+4. Concatenate retained rows and determine sample size using the same priority rules as the current codebase.
+5. Restore or derive the final signed statistic / `Z` representation following the legacy munging behavior.
+6. Build `SumstatsTable`, write `.sumstats.gz`, and emit `MungeRunSummary`.
 
 ### Mapping from current implementation
 
 - `munge_sumstats.py`
 - `ldscore.parse.sumstats()`
+
+### Recommended design rule
+
+Until later development stages, keep the munging feature intentionally conservative:
+- preserve the old codebase pipeline
+- preserve current output schema
+- reorganize structure, not behavior
 
 ---
 
@@ -960,17 +1306,28 @@ Run heritability, partitioned heritability, and cross-trait genetic correlation 
 | Feature | Output |
 | --- | --- |
 | heritability | `HeritabilityResult` or equivalent summary object |
-| partitioned heritability | partitioned result table + summary object |
+| partitioned heritability | query-focused summary table by default, plus optional detailed baseline-category artifacts; when multiple query annotations are provided, produce one combined results table with one row per query annotation |
 | genetic correlation | `GeneticCorrelationResult` or equivalent summary object |
 
 ### Important practical recommendation
 
 Keep one shared regression backbone.
 
+Legacy-default count config:
+- preserve the original LDSC default and use `M_5_50`-style common-SNP counts in regression by default
+- only switch to all-SNP counts analogous to `.M` if the user explicitly requests that override
+- this default should be represented explicitly in `RegressionConfig` and in the selected `count_key_used_for_regression`
+
 Your note is correct:
 - heritability and partitioned heritability should share the same base workflow
-- partitioned h2 should loop over query annotation sets against a fixed baseline model when needed
+- partitioned h2 should loop over query annotations or query annotation sets against a fixed baseline model when needed
 - cell-type-specific regression should be treated as a later specialization of the same pattern
+
+Required new feature for the refactor:
+- if users provide multiple query annotations, the code should automatically run one partitioned LDSC regression per query annotation
+- each run should use the same baseline model and the same aggregated cross-chromosome LD-score inputs
+- the outputs from those runs should then be combined into one saved summary table
+- this feature is a planned addition for the refactored codebase and is **not present in the old implementation**
 
 ### Important rule on “all SNPs” baseline
 
@@ -984,8 +1341,24 @@ If the annotation design used for regression does not span the full SNP universe
 runner = RegressionRunner(common_config, regression_config)
 h2 = runner.estimate_h2(sumstats, ldscore_result)
 part = runner.estimate_partitioned_h2(sumstats, ldscore_result, annotation_bundle)
+part_batch = runner.estimate_partitioned_h2_batch(sumstats, ldscore_result, annotation_bundle)
 rg = runner.estimate_rg(sumstats1, sumstats2, ldscore_result)
 ```
+
+### Recommended working streamline
+
+1. Build `RegressionDataset` by merging munged summary statistics with reference LD scores and regression-weight LD scores.
+2. Remove zero-variance LD-score columns and record which columns were dropped.
+3. Confirm that the LD-score inputs already represent the combined cross-chromosome result assembled from chromosome-specific LD-score runs.
+4. Select the appropriate SNP-count vector from `reference_snp_count_totals` for the regression being run; by default this should be the common-SNP count vector corresponding to `.M_5_50`.
+5. For ordinary partitioned h2 with one query annotation, call the existing numerical estimator class through `RegressionRunner`.
+6. For batch partitioned h2 with multiple query annotations, loop over query annotations one at a time, run one partitioned LDSC model per query annotation, and collect the per-query outputs.
+7. Combine the per-query outputs into one clean summary table with one row per query annotation, then optionally emit richer detailed artifacts through the output layer.
+8. For h2 and rg, call the existing numerical estimator classes (`Hsq`, `Gencov`, `RG`) through `RegressionRunner`.
+
+Important note on interpretation:
+- in this refactor we intentionally preserve the legacy/default LDSC behavior of using `M_5_50` in regression
+- this should be documented as a regression count input choice, not as a statement that LD scores were computed only from SNPs with `MAF > 0.05`
 
 ### Mapping from current implementation
 
@@ -1069,7 +1442,7 @@ This is included because the document will be used for refactoring planning.
 
 - `AnnotationBundle` should hold **aligned SNP-level annotations**, not raw BED files.
 - `RefPanel` should hold **paths/specs and lightweight metadata**, not large raw matrices as persistent state.
-- `LDScore` should be split into **request + calculator + result**, not one mixed class.
+- `LDScore` should be split into **validated inputs + calculator + result**, not one mixed class.
 - `config` should be replaced by **explicit immutable workflow config dataclasses**, not one global mutable object.
 - `Sumstats` should not be fully skipped in the design; at least define the domain object and workflow boundary now.
 

@@ -1,0 +1,131 @@
+from pathlib import Path
+import importlib
+import sys
+import tempfile
+import unittest
+
+import pandas as pd
+
+SRC = Path(__file__).resolve().parents[1] / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+from ldsc.config import CommonConfig, RefPanelConfig
+from ldsc._kernel.ref_panel import ParquetR2RefPanel, PlinkRefPanel, RefPanelLoader, RefPanelSpec
+
+
+FIXTURES = Path(__file__).resolve().parent / "fixtures" / "legacy" / "reference_test"
+
+
+def _has_module(name: str) -> bool:
+    try:
+        importlib.import_module(name)
+        return True
+    except Exception:
+        return False
+
+
+class RefPanelLoaderTest(unittest.TestCase):
+    def test_loader_selects_plink_backend(self):
+        loader = RefPanelLoader(CommonConfig(snp_identifier="rsid"), RefPanelConfig())
+        spec = RefPanelSpec(backend="plink", bfile_prefix=str(FIXTURES / "plink"))
+        panel = loader.load(spec)
+        self.assertIsInstance(panel, PlinkRefPanel)
+
+    def test_loader_selects_parquet_backend(self):
+        loader = RefPanelLoader(CommonConfig(snp_identifier="chr_pos"), RefPanelConfig())
+        spec = RefPanelSpec(backend="parquet_r2", chromosomes=("1",), maf_metadata_paths=())
+        panel = loader.load(spec)
+        self.assertIsInstance(panel, ParquetR2RefPanel)
+
+
+class PlinkRefPanelTest(unittest.TestCase):
+    def test_available_chromosomes_and_metadata(self):
+        panel = PlinkRefPanel(
+            CommonConfig(snp_identifier="rsid"),
+            RefPanelSpec(backend="plink", bfile_prefix=str(FIXTURES / "plink")),
+        )
+        self.assertEqual(panel.available_chromosomes(), ["9"])
+        metadata = panel.load_metadata("9")
+        self.assertEqual(list(metadata.columns), ["CHR", "SNP", "CM", "BP"])
+        self.assertGreater(len(metadata), 0)
+
+    def test_filter_to_snps_rsid(self):
+        panel = PlinkRefPanel(
+            CommonConfig(snp_identifier="rsid"),
+            RefPanelSpec(backend="plink", bfile_prefix=str(FIXTURES / "plink")),
+        )
+        filtered = panel.filter_to_snps("9", {"rs185444096", "rs7341907"})
+        self.assertEqual(set(filtered["SNP"]), {"rs185444096", "rs7341907"})
+
+    def test_duplicate_rsid_raises(self):
+        panel = PlinkRefPanel(
+            CommonConfig(snp_identifier="rsid"),
+            RefPanelSpec(backend="plink", bfile_prefix=str(FIXTURES / "plink2")),
+        )
+        with self.assertRaises(ValueError):
+            panel.load_metadata("1")
+
+    def test_global_restriction_applies(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            restrict = Path(tmpdir) / "restrict.txt"
+            restrict.write_text("rs7341907\n", encoding="utf-8")
+            panel = PlinkRefPanel(
+                CommonConfig(snp_identifier="rsid", global_snp_restriction_path=str(restrict)),
+                RefPanelSpec(backend="plink", bfile_prefix=str(FIXTURES / "plink")),
+            )
+            metadata = panel.load_metadata("9")
+            self.assertEqual(set(metadata["SNP"]), {"rs7341907"})
+
+    @unittest.skipUnless(_has_module("bitarray"), "bitarray is not installed")
+    def test_build_reader(self):
+        panel = PlinkRefPanel(
+            CommonConfig(snp_identifier="rsid"),
+            RefPanelSpec(backend="plink", bfile_prefix=str(FIXTURES / "plink")),
+        )
+        reader = panel.build_reader("1")
+        self.assertIsNotNone(reader)
+
+
+class ParquetRefPanelTest(unittest.TestCase):
+    def test_sidecar_metadata_loading(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            meta = Path(tmpdir) / "meta.tsv"
+            meta.write_text(
+                "CHR\tBP\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n1\t20\trs2\t0.2\t0.8\n2\t30\trs3\t0.3\t0.4\n",
+                encoding="utf-8",
+            )
+            panel = ParquetR2RefPanel(
+                CommonConfig(snp_identifier="chr_pos"),
+                RefPanelSpec(backend="parquet_r2", maf_metadata_paths=(str(meta),)),
+            )
+            self.assertEqual(panel.available_chromosomes(), ["1", "2"])
+            metadata = panel.load_metadata("1")
+            self.assertEqual(metadata["CHR"].tolist(), ["1", "1"])
+            self.assertEqual(metadata["MAF"].round(3).tolist(), [0.2, 0.2])
+
+    def test_filter_to_snps_chr_pos(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            meta = Path(tmpdir) / "meta.tsv"
+            meta.write_text(
+                "CHR\tBP\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n1\t20\trs2\t0.2\t0.3\n",
+                encoding="utf-8",
+            )
+            panel = ParquetR2RefPanel(
+                CommonConfig(snp_identifier="chr_pos"),
+                RefPanelSpec(backend="parquet_r2", maf_metadata_paths=(str(meta),), chromosomes=("1",)),
+            )
+            filtered = panel.filter_to_snps("1", {"1:20"})
+            self.assertEqual(filtered["BP"].tolist(), [20])
+
+    @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
+    def test_build_reader(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            meta = Path(tmpdir) / "meta.tsv"
+            meta.write_text("CHR\tBP\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n", encoding="utf-8")
+            panel = ParquetR2RefPanel(
+                CommonConfig(snp_identifier="chr_pos"),
+                RefPanelSpec(backend="parquet_r2", maf_metadata_paths=(str(meta),), r2_table_paths=(str(Path(tmpdir) / "missing.parquet"),)),
+            )
+            with self.assertRaises(Exception):
+                panel.build_reader("1")

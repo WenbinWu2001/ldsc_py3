@@ -1,0 +1,801 @@
+"""Annotation domain objects and builders for SNP-level LDSC inputs."""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import glob
+import gzip
+import logging
+import os
+import re
+import sys
+import tempfile
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Iterator, Sequence
+
+import numpy as np
+import pandas as pd
+
+from ..config import AnnotationBuildConfig, CommonConfig
+from .identifiers import (
+    build_snp_id_series,
+    clean_header,
+    infer_chr_bp_columns,
+    infer_snp_column,
+    normalize_chromosome,
+    normalize_snp_identifier_mode,
+    read_global_snp_restriction,
+    validate_unique_snp_ids,
+)
+
+
+LOGGER = logging.getLogger("LDSC.annotation")
+REQUIRED_ANNOT_COLUMNS = ("CHR", "BP", "SNP", "CM")
+CHR_ALIASES = ("chr", "chrom", "chromosome")
+BP_ALIASES = ("bp", "pos", "position", "base_pair", "basepair")
+SNP_ALIASES = ("snp", "snpid", "rsid", "rs_id", "markername", "marker")
+
+
+@dataclass(frozen=True)
+class AnnotationSourceSpec:
+    baseline_annot_paths: tuple[str, ...] = field(default_factory=tuple)
+    query_annot_paths: tuple[str, ...] = field(default_factory=tuple)
+    bed_paths: tuple[str, ...] = field(default_factory=tuple)
+    gene_set_paths: tuple[str, ...] = field(default_factory=tuple)
+    allow_missing_query: bool = True
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "baseline_annot_paths", tuple(str(path) for path in self.baseline_annot_paths))
+        object.__setattr__(self, "query_annot_paths", tuple(str(path) for path in self.query_annot_paths))
+        object.__setattr__(self, "bed_paths", tuple(str(path) for path in self.bed_paths))
+        object.__setattr__(self, "gene_set_paths", tuple(str(path) for path in self.gene_set_paths))
+
+
+@dataclass(frozen=True)
+class AnnotationBundle:
+    metadata: pd.DataFrame
+    baseline_annotations: pd.DataFrame
+    query_annotations: pd.DataFrame
+    baseline_columns: list[str]
+    query_columns: list[str]
+    chromosomes: list[str]
+    source_summary: dict[str, object]
+
+    def validate(self, snp_identifier: str = "rsid") -> None:
+        snp_identifier = normalize_snp_identifier_mode(snp_identifier)
+        if len(self.metadata) != len(self.baseline_annotations):
+            raise ValueError("metadata and baseline_annotations must have the same number of rows.")
+        if len(self.metadata) != len(self.query_annotations):
+            raise ValueError("metadata and query_annotations must have the same number of rows.")
+        if list(self.baseline_annotations.columns) != list(self.baseline_columns):
+            raise ValueError("baseline_annotations columns do not match baseline_columns.")
+        if list(self.query_annotations.columns) != list(self.query_columns):
+            raise ValueError("query_annotations columns do not match query_columns.")
+        validate_unique_snp_ids(self.metadata, snp_identifier, context="AnnotationBundle.metadata")
+
+    def reference_snps(self, snp_identifier: str = "rsid") -> set[str]:
+        return set(build_snp_id_series(self.metadata, snp_identifier))
+
+    def has_full_baseline_cover(self) -> bool:
+        return bool(self.baseline_columns) and len(self.metadata) == len(self.baseline_annotations)
+
+    def annotation_matrix(self, include_query: bool = True) -> pd.DataFrame:
+        if include_query:
+            return pd.concat([self.baseline_annotations, self.query_annotations], axis=1)
+        return self.baseline_annotations.copy()
+
+    def summary(self) -> dict[str, object]:
+        return {
+            "n_rows": len(self.metadata),
+            "baseline_columns": list(self.baseline_columns),
+            "query_columns": list(self.query_columns),
+            "chromosomes": list(self.chromosomes),
+            "source_summary": dict(self.source_summary),
+        }
+
+
+@dataclass(frozen=True)
+class _BaselineRow:
+    chrom: str
+    bp: int
+    snp: str
+    cm: str
+
+
+@dataclass(frozen=True)
+class _RestrictResource:
+    mode: str
+    bed_path: Path | None = None
+    snp_ids: frozenset[str] | None = None
+
+
+class AnnotationBuilder:
+    def __init__(self, common_config: CommonConfig, build_config: AnnotationBuildConfig | None = None) -> None:
+        self.common_config = common_config
+        self.build_config = build_config or AnnotationBuildConfig()
+
+    def run(self, source_spec: AnnotationSourceSpec, chrom: str | None = None) -> AnnotationBundle:
+        baseline_files = [self._resolve_annotation_path(path) for path in source_spec.baseline_annot_paths]
+        query_files = [self._resolve_annotation_path(path) for path in source_spec.query_annot_paths]
+        if not baseline_files:
+            raise ValueError("AnnotationSourceSpec must include at least one baseline annotation file.")
+
+        metadata: pd.DataFrame | None = None
+        baseline_blocks: list[pd.DataFrame] = []
+        query_blocks: list[pd.DataFrame] = []
+        baseline_columns: list[str] = []
+        query_columns: list[str] = []
+        seen_columns: set[str] = set()
+
+        for group_name, files in (("baseline", baseline_files), ("query", query_files)):
+            for path in files:
+                file_metadata, annotations = self.parse_annotation_file(path, chrom=chrom)
+                if len(file_metadata) == 0:
+                    continue
+                if metadata is None:
+                    metadata = file_metadata
+                else:
+                    self._ensure_aligned_rows(metadata, file_metadata, path)
+                    metadata = self._merge_missing_metadata(metadata, file_metadata)
+
+                duplicate_columns = sorted(set(annotations.columns) & seen_columns)
+                if duplicate_columns:
+                    raise ValueError(f"Duplicate annotation column names detected: {duplicate_columns}")
+                seen_columns.update(annotations.columns)
+
+                if group_name == "baseline":
+                    baseline_blocks.append(annotations)
+                    baseline_columns.extend(annotations.columns.tolist())
+                else:
+                    query_blocks.append(annotations)
+                    query_columns.extend(annotations.columns.tolist())
+
+        if metadata is None:
+            raise ValueError("No annotation rows were loaded from the supplied sources.")
+
+        baseline_df = self._concat_or_empty(baseline_blocks, index=metadata.index)
+        query_df = self._concat_or_empty(query_blocks, index=metadata.index)
+
+        metadata, baseline_df, query_df = self._apply_global_restriction(metadata, baseline_df, query_df)
+        chromosomes = sorted(metadata["CHR"].astype(str).map(normalize_chromosome).unique().tolist(), key=_chrom_sort_key)
+        bundle = AnnotationBundle(
+            metadata=metadata.reset_index(drop=True),
+            baseline_annotations=baseline_df.reset_index(drop=True),
+            query_annotations=query_df.reset_index(drop=True),
+            baseline_columns=baseline_columns,
+            query_columns=query_columns,
+            chromosomes=chromosomes,
+            source_summary={
+                "baseline_annot_paths": list(source_spec.baseline_annot_paths),
+                "query_annot_paths": list(source_spec.query_annot_paths),
+                "bed_paths": list(source_spec.bed_paths),
+                "gene_set_paths": list(source_spec.gene_set_paths),
+            },
+        )
+        bundle.validate(self.common_config.snp_identifier)
+        return bundle
+
+    def parse_annotation_file(self, path: str | Path, chrom: str | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
+        df = _read_text_table(str(path))
+        missing = [column for column in REQUIRED_ANNOT_COLUMNS if column not in df.columns]
+        if missing:
+            raise ValueError(f"{path} is missing required annotation columns: {missing}")
+
+        metadata = df.loc[:, list(REQUIRED_ANNOT_COLUMNS)].copy()
+        metadata["CHR"] = metadata["CHR"].map(normalize_chromosome)
+        metadata["BP"] = pd.to_numeric(metadata["BP"], errors="raise").astype(np.int64)
+        metadata["SNP"] = metadata["SNP"].astype(str)
+        metadata["CM"] = pd.to_numeric(metadata["CM"], errors="coerce")
+        if "MAF" in df.columns:
+            metadata["MAF"] = pd.to_numeric(df["MAF"], errors="coerce")
+
+        if chrom is not None:
+            keep = metadata["CHR"] == normalize_chromosome(chrom)
+            metadata = metadata.loc[keep].reset_index(drop=True)
+            df = df.loc[keep].reset_index(drop=True)
+
+        if len(metadata) == 0:
+            return metadata, pd.DataFrame(index=metadata.index)
+
+        annotation_columns = [
+            column for column in df.columns if column not in list(REQUIRED_ANNOT_COLUMNS) + ["MAF"]
+        ]
+        if not annotation_columns:
+            raise ValueError(f"{path} does not contain any annotation columns.")
+        annotations = df.loc[:, annotation_columns].astype(np.float32).reset_index(drop=True)
+        metadata = metadata.reset_index(drop=True)
+        return metadata, annotations
+
+    def project_bed_annotations(
+        self,
+        bed_files: Sequence[str | Path],
+        baseline_annot_dir: str | Path,
+        output_dir: str | Path,
+        batch: bool | None = None,
+        log_level: str | None = None,
+    ) -> Path:
+        batch = self.build_config.batch_mode if batch is None else batch
+        _configure_logging(log_level or self.common_config.log_level)
+
+        bed_paths = _expand_bed_paths([str(path) for path in bed_files])
+        baseline_dir = Path(baseline_annot_dir).expanduser().resolve()
+        if not baseline_dir.is_dir():
+            raise NotADirectoryError(f"Baseline annotation directory not found: {baseline_dir}")
+        baseline_paths = _list_baseline_annots(baseline_dir)
+
+        output_path = Path(output_dir).expanduser().resolve()
+        output_path.mkdir(parents=True, exist_ok=True)
+
+        restrict_path = None
+        if self.common_config.global_snp_restriction_path is not None:
+            restrict_path = Path(self.common_config.global_snp_restriction_path).expanduser().resolve()
+            if not restrict_path.is_file():
+                raise FileNotFoundError(f"Restriction file not found: {restrict_path}")
+
+        with tempfile.TemporaryDirectory(prefix="bed2annot_") as tmpdir:
+            tempdir = Path(tmpdir)
+            normalized_beds = []
+            for bed_path in bed_paths:
+                normalized_path = tempdir / bed_path.name
+                _write_normalized_bed(bed_path, normalized_path)
+                normalized_beds.append(normalized_path)
+
+            restrict_resource = _build_restrict_resource(
+                restrict_path,
+                self.common_config.snp_identifier,
+                tempdir,
+            )
+            for baseline_path in baseline_paths:
+                _process_baseline_file(
+                    baseline_path=baseline_path,
+                    bed_paths=normalized_beds,
+                    output_dir=output_path,
+                    batch=batch,
+                    restrict_resource=restrict_resource,
+                    tempdir=tempdir,
+                )
+
+        return output_path
+
+    def make_single_annotation_file(
+        self,
+        bimfile: str | Path,
+        annot_file: str | Path,
+        bed_for_annot,
+    ) -> Path:
+        pybedtools = _get_pybedtools()
+        bimfile = Path(bimfile).expanduser().resolve()
+        annot_file = Path(annot_file).expanduser().resolve()
+
+        df_bim = pd.read_csv(
+            bimfile,
+            sep=r"\s+",
+            usecols=[0, 1, 2, 3],
+            names=["CHR", "SNP", "CM", "BP"],
+            header=None,
+        )
+        iter_bim = [[_to_bed_chromosome(chrom), int(bp) - 1, int(bp)] for chrom, bp in np.array(df_bim[["CHR", "BP"]])]
+        bim_bed = pybedtools.BedTool(iter_bim)
+        annot_bed = bim_bed.intersect(bed_for_annot)
+        bp = [feature.start + 1 for feature in annot_bed]
+        df_int = pd.DataFrame({"BP": bp, "ANNOT": 1})
+        df_annot = pd.merge(df_bim, df_int, how="left", on="BP")
+        df_annot.fillna(0, inplace=True)
+        df_annot = df_annot[["ANNOT"]].astype(int)
+        annot_file.parent.mkdir(parents=True, exist_ok=True)
+        if str(annot_file).endswith(".gz"):
+            with gzip.open(annot_file, "wt") as handle:
+                df_annot.to_csv(handle, sep="\t", index=False)
+        else:
+            df_annot.to_csv(annot_file, sep="\t", index=False)
+        return annot_file
+
+    def _resolve_annotation_path(self, path: str | Path) -> str:
+        path = str(path)
+        if os.path.exists(path):
+            return path
+        matches = sorted(glob.glob(path))
+        if matches:
+            return matches[0]
+        for suffix in ("", ".annot", ".annot.gz", ".txt", ".txt.gz", ".tsv", ".tsv.gz"):
+            candidate = path + suffix
+            if os.path.exists(candidate):
+                return candidate
+        raise FileNotFoundError(f"Could not resolve annotation path or prefix: {path}")
+
+    def _ensure_aligned_rows(self, reference: pd.DataFrame, current: pd.DataFrame, path: str) -> None:
+        ref_keys = build_snp_id_series(reference, self.common_config.snp_identifier)
+        cur_keys = build_snp_id_series(current, self.common_config.snp_identifier)
+        if len(reference) != len(current) or not ref_keys.equals(cur_keys):
+            raise ValueError(f"Annotation SNP rows do not match across files: {path}")
+        if not reference.loc[:, ["CHR", "BP", "SNP"]].equals(current.loc[:, ["CHR", "BP", "SNP"]]):
+            raise ValueError(f"Annotation metadata mismatch across files: {path}")
+
+    def _merge_missing_metadata(self, reference: pd.DataFrame, current: pd.DataFrame) -> pd.DataFrame:
+        merged = reference.copy()
+        if "MAF" in current.columns:
+            if "MAF" not in merged.columns:
+                merged["MAF"] = np.nan
+            missing_maf = merged["MAF"].isna() & current["MAF"].notna()
+            if missing_maf.any():
+                merged.loc[missing_maf, "MAF"] = current.loc[missing_maf, "MAF"].to_numpy()
+        missing_cm = merged["CM"].isna() & current["CM"].notna()
+        if missing_cm.any():
+            merged.loc[missing_cm, "CM"] = current.loc[missing_cm, "CM"].to_numpy()
+        return merged
+
+    def _concat_or_empty(self, frames: list[pd.DataFrame], index: pd.Index) -> pd.DataFrame:
+        if frames:
+            return pd.concat(frames, axis=1)
+        return pd.DataFrame(index=index)
+
+    def _apply_global_restriction(
+        self,
+        metadata: pd.DataFrame,
+        baseline_df: pd.DataFrame,
+        query_df: pd.DataFrame,
+    ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        restrict_path = self.common_config.global_snp_restriction_path
+        if restrict_path is None:
+            return metadata, baseline_df, query_df
+        restriction = read_global_snp_restriction(restrict_path, self.common_config.snp_identifier)
+        snp_ids = build_snp_id_series(metadata, self.common_config.snp_identifier)
+        keep = snp_ids.isin(restriction)
+        return (
+            metadata.loc[keep].reset_index(drop=True),
+            baseline_df.loc[keep].reset_index(drop=True),
+            query_df.loc[keep].reset_index(drop=True),
+        )
+
+
+def run_bed_to_annot(
+    bed_files: Sequence[str | Path],
+    baseline_annot_dir: str | Path,
+    output_dir: str | Path,
+    restrict_snps_path: str | Path | None = None,
+    snp_identifier: str = "chr_pos",
+    batch: bool = True,
+    log_level: str = "INFO",
+) -> Path:
+    common_config = CommonConfig(
+        snp_identifier=normalize_snp_identifier_mode(snp_identifier),
+        global_snp_restriction_path=None if restrict_snps_path is None else str(restrict_snps_path),
+        log_level=log_level,
+    )
+    build_config = AnnotationBuildConfig(query_bed_paths=tuple(str(path) for path in bed_files), batch_mode=batch)
+    return AnnotationBuilder(common_config, build_config).project_bed_annotations(
+        bed_files=bed_files,
+        baseline_annot_dir=baseline_annot_dir,
+        output_dir=output_dir,
+        batch=batch,
+        log_level=log_level,
+    )
+
+
+def gene_set_to_bed(args):
+    pybedtools = _get_pybedtools()
+    gene_set = pd.read_csv(args.gene_set_file, header=None, names=["GENE"])
+    all_genes = pd.read_csv(args.gene_coord_file, delim_whitespace=True)
+    df = pd.merge(gene_set, all_genes, on="GENE", how="inner")
+    df["START"] = np.maximum(1, df["START"] - args.windowsize)
+    df["END"] = df["END"] + args.windowsize
+    intervals = [
+        [_to_bed_chromosome(chrom), int(start) - 1, int(end)]
+        for chrom, start, end in np.array(df[["CHR", "START", "END"]])
+    ]
+    return pybedtools.BedTool(intervals).sort().merge()
+
+
+def make_annot_files(args, bed_for_annot):
+    builder = AnnotationBuilder(CommonConfig(snp_identifier="rsid"))
+    return builder.make_single_annotation_file(args.bimfile, args.annot_file, bed_for_annot)
+
+
+def parse_bed_to_annot_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Convert BED annotations into LDSC .annot.gz files.")
+    parser.add_argument("--bed-files", nargs="+", required=True, help="BED files, comma-separated lists, or glob patterns.")
+    parser.add_argument("--baseline-annot-dir", required=True, help="Directory containing chromosome-specific baseline .annot files.")
+    parser.add_argument("--output-dir", required=True, help="Destination directory for generated .annot.gz files.")
+    parser.add_argument("--restrict-snps-path", default=None, help="Optional SNP restriction file matched by --snp-identifier.")
+    parser.add_argument("--snp-identifier", default="chr_pos", help="How to interpret --restrict-snps-path when provided.")
+    parser.add_argument("--no-batch", dest="batch", action="store_false", default=True, help="Write one output directory per BED file instead of combined output.")
+    parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"), help="Logging verbosity.")
+    return parser.parse_args(argv)
+
+
+def main_bed_to_annot(argv: Sequence[str] | None = None) -> int:
+    args = parse_bed_to_annot_args(argv)
+    run_bed_to_annot(
+        bed_files=args.bed_files,
+        baseline_annot_dir=args.baseline_annot_dir,
+        output_dir=args.output_dir,
+        restrict_snps_path=args.restrict_snps_path,
+        snp_identifier=args.snp_identifier,
+        batch=args.batch,
+        log_level=args.log_level,
+    )
+    return 0
+
+
+def parse_make_annot_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--gene-set-file", type=str, help="a file of gene names, one line per gene.")
+    parser.add_argument(
+        "--gene-coord-file",
+        type=str,
+        default="ENSG_coord.txt",
+        help="a file with columns GENE, CHR, START, and END.",
+    )
+    parser.add_argument("--windowsize", type=int, help="how many base pairs to add around the transcribed region to make the annotation?")
+    parser.add_argument("--bed-file", type=str, help="the UCSC bed file with the regions that make up your annotation")
+    parser.add_argument(
+        "--nomerge",
+        action="store_true",
+        default=False,
+        help="don't merge the bed file before constructing the annotation.",
+    )
+    parser.add_argument("--bimfile", type=str, help="plink bim file for the dataset you will use to compute LD scores.")
+    parser.add_argument("--annot-file", type=str, help="the name of the annot file to output.")
+    return parser.parse_args(argv)
+
+
+def main_make_annot(argv: Sequence[str] | None = None) -> int:
+    args = parse_make_annot_args(argv)
+    pybedtools = _get_pybedtools()
+    if args.gene_set_file is not None:
+        bed_for_annot = gene_set_to_bed(args)
+    else:
+        bed_for_annot = pybedtools.BedTool(args.bed_file).sort()
+        if not args.nomerge:
+            bed_for_annot = bed_for_annot.merge()
+    make_annot_files(args, bed_for_annot)
+    return 0
+
+
+def _configure_logging(level: str) -> None:
+    logging.basicConfig(level=getattr(logging, level.upper()), format="%(levelname)s: %(message)s")
+
+
+def _get_pybedtools():
+    try:
+        import pybedtools
+    except ImportError as exc:  # pragma: no cover - dependency check
+        raise SystemExit(
+            "pybedtools is required for BED-based annotation projection. Install pybedtools and bedtools, then retry."
+        ) from exc
+    return pybedtools
+
+
+def _read_text_table(path: str) -> pd.DataFrame:
+    compression = "gzip" if str(path).endswith(".gz") else None
+    return pd.read_csv(path, sep=r"\s+", compression=compression)
+
+
+def _chrom_sort_key(chrom: str) -> tuple[int, str]:
+    chrom = normalize_chromosome(chrom)
+    if chrom.isdigit():
+        return (int(chrom), chrom)
+    special = {"X": 23, "Y": 24, "MT": 25, "M": 25}
+    return (special.get(chrom, 99), chrom)
+
+
+def _to_bed_chromosome(chrom: object) -> str:
+    return "chr" + normalize_chromosome(chrom)
+
+
+def _split_delimited_line(line: str, delimiter: str | None) -> list[str]:
+    line = line.rstrip("\n")
+    if delimiter == ",":
+        return next(csv.reader([line]))
+    if delimiter == "\t":
+        return line.split("\t")
+    return re.split(r"\s+", line.strip())
+
+
+def _detect_delimiter(path: Path) -> str | None:
+    if path.name.lower().endswith(".csv") or path.name.lower().endswith(".csv.gz"):
+        return ","
+    opener = gzip.open if path.suffix.lower() == ".gz" else open
+    with opener(path, "rt") as handle:
+        for line in handle:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if "\t" in line:
+                return "\t"
+            if "," in line:
+                return ","
+            return None
+    raise ValueError(f"{path} does not contain any readable data rows.")
+
+
+def _iter_text_lines(path: Path) -> Iterator[str]:
+    opener = gzip.open if path.suffix.lower() == ".gz" else open
+    with opener(path, "rt") as handle:
+        for line in handle:
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#"):
+                yield line.rstrip("\n")
+
+
+def _infer_column_index(header: Sequence[str], aliases: Sequence[str], label: str, path: Path) -> int:
+    normalized = [re.sub(r"[^a-z0-9]+", "", column.lower()) for column in header]
+    alias_set = {re.sub(r"[^a-z0-9]+", "", alias.lower()) for alias in aliases}
+    for idx, column_name in enumerate(normalized):
+        if column_name in alias_set or any(column_name.endswith(alias) for alias in alias_set):
+            return idx
+    raise ValueError(f"Could not infer a {label} column in {path}. Header columns were: {', '.join(header)}")
+
+
+def _expand_bed_paths(patterns: Sequence[str]) -> list[Path]:
+    paths: list[Path] = []
+    for item in patterns:
+        for token in item.split(","):
+            token = token.strip()
+            if not token:
+                continue
+            expanded = sorted(Path(match).resolve() for match in glob.glob(token))
+            if expanded:
+                paths.extend(path for path in expanded if path.is_file())
+            else:
+                path = Path(token).expanduser().resolve()
+                if not path.is_file():
+                    raise FileNotFoundError(f"BED file not found: {token}")
+                paths.append(path)
+    unique_paths = []
+    seen = set()
+    for path in paths:
+        if path not in seen:
+            unique_paths.append(path)
+            seen.add(path)
+    if not unique_paths:
+        raise ValueError("No BED files were resolved from --bed-files.")
+    stems = [path.stem for path in unique_paths]
+    duplicates = sorted({stem for stem in stems if stems.count(stem) > 1})
+    if duplicates:
+        raise ValueError(
+            "BED basenames must be unique because they become annotation names. "
+            f"Duplicate names: {', '.join(duplicates)}"
+        )
+    return unique_paths
+
+
+def _list_baseline_annots(baseline_dir: Path) -> list[Path]:
+    paths = sorted(
+        path
+        for path in baseline_dir.iterdir()
+        if path.is_file() and (path.name.endswith(".annot") or path.name.endswith(".annot.gz"))
+    )
+    if not paths:
+        raise ValueError(f"No .annot or .annot.gz files found in {baseline_dir}")
+    return paths
+
+
+def _read_baseline_annot(path: Path) -> list[_BaselineRow]:
+    delimiter = _detect_delimiter(path)
+    opener = gzip.open if path.suffix.lower() == ".gz" else open
+    with opener(path, "rt") as handle:
+        reader = csv.reader(handle, delimiter=delimiter) if delimiter else None
+        if reader is None:
+            header_line = next(handle).rstrip("\n")
+            header = re.split(r"\s+", header_line.strip())
+            rows_iter = handle
+        else:
+            header = next(reader)
+            rows_iter = reader
+
+        if tuple(header[:4]) != REQUIRED_ANNOT_COLUMNS:
+            raise ValueError(f"{path} must begin with columns {REQUIRED_ANNOT_COLUMNS}; got {tuple(header[:4])}")
+
+        rows: list[_BaselineRow] = []
+        if reader is None:
+            for line in rows_iter:
+                fields = re.split(r"\s+", line.strip())
+                if not fields or len(fields) < 4:
+                    continue
+                rows.append(_BaselineRow(chrom=fields[0], bp=int(fields[1]), snp=fields[2], cm=fields[3]))
+        else:
+            for fields in rows_iter:
+                if not fields or len(fields) < 4:
+                    continue
+                rows.append(_BaselineRow(chrom=fields[0], bp=int(fields[1]), snp=fields[2], cm=fields[3]))
+    if not rows:
+        raise ValueError(f"{path} does not contain any SNP rows.")
+    return rows
+
+
+def _write_baseline_bed(rows: Sequence[_BaselineRow], path: Path) -> Path:
+    with path.open("w", encoding="utf-8") as handle:
+        for row in rows:
+            start = row.bp - 1
+            if start < 0:
+                raise ValueError(f"Invalid BP={row.bp} for SNP {row.snp} in baseline template.")
+            handle.write(f"{_to_bed_chromosome(row.chrom)}\t{start}\t{row.bp}\t{row.snp}\n")
+    return path
+
+
+def _write_normalized_bed(in_path: Path, out_path: Path) -> Path:
+    with (gzip.open(in_path, "rt") if in_path.suffix.lower() == ".gz" else open(in_path, "rt")) as src:
+        with out_path.open("w", encoding="utf-8") as dst:
+            for line in src:
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#"):
+                    continue
+                fields = _split_delimited_line(line, None)
+                if len(fields) < 3:
+                    raise ValueError(f"BED file {in_path} has a row with fewer than three columns: {line!r}")
+                chrom = _to_bed_chromosome(fields[0])
+                dst.write("\t".join([chrom] + fields[1:]) + "\n")
+    return out_path
+
+
+def _is_bed_path(path: Path) -> bool:
+    name = path.name.lower()
+    return name.endswith(".bed") or name.endswith(".bed.gz")
+
+
+def _load_restrict_snp_ids(path: Path) -> set[str]:
+    lines = list(_iter_text_lines(path))
+    if not lines:
+        raise ValueError(f"Restriction file {path} is empty.")
+    delimiter = _detect_delimiter(path)
+    first_fields = _split_delimited_line(lines[0], delimiter)
+    first_norm = [re.sub(r"[^a-z0-9]+", "", field.lower()) for field in first_fields]
+    alias_norm = {re.sub(r"[^a-z0-9]+", "", alias.lower()) for alias in SNP_ALIASES}
+    has_header = any(field in alias_norm for field in first_norm)
+
+    if not has_header and len(first_fields) == 1:
+        return {line.strip() for line in lines if line.strip()}
+
+    header = first_fields
+    snp_idx = _infer_column_index(header, SNP_ALIASES, "SNP", path)
+    snp_ids = set()
+    for line in lines[1:]:
+        fields = _split_delimited_line(line, delimiter)
+        if len(fields) <= snp_idx:
+            continue
+        value = fields[snp_idx].strip()
+        if value:
+            snp_ids.add(value)
+    return snp_ids
+
+
+def _write_restrict_table_as_bed(in_path: Path, out_path: Path) -> Path:
+    lines = list(_iter_text_lines(in_path))
+    if not lines:
+        raise ValueError(f"Restriction file {in_path} is empty.")
+    delimiter = _detect_delimiter(in_path)
+    header = _split_delimited_line(lines[0], delimiter)
+    chr_idx = _infer_column_index(header, CHR_ALIASES, "chromosome", in_path)
+    bp_idx = _infer_column_index(header, BP_ALIASES, "position", in_path)
+    with out_path.open("w", encoding="utf-8") as handle:
+        for line in lines[1:]:
+            fields = _split_delimited_line(line, delimiter)
+            if len(fields) <= max(chr_idx, bp_idx):
+                continue
+            chrom = _to_bed_chromosome(fields[chr_idx])
+            bp = int(fields[bp_idx])
+            start = bp - 1
+            if start < 0:
+                raise ValueError(f"Invalid restriction BP={bp} in {in_path}")
+            handle.write(f"{chrom}\t{start}\t{bp}\n")
+    return out_path
+
+
+def _build_restrict_resource(restrict_path: Path | None, snp_identifier: str, tempdir: Path) -> _RestrictResource | None:
+    if restrict_path is None:
+        return None
+    if normalize_snp_identifier_mode(snp_identifier) == "rsid":
+        snp_ids = _load_restrict_snp_ids(restrict_path)
+        return _RestrictResource(mode="rsid", snp_ids=frozenset(snp_ids))
+    restrict_bed_path = tempdir / "restrict_snps.normalized.bed"
+    if _is_bed_path(restrict_path):
+        _write_normalized_bed(restrict_path, restrict_bed_path)
+    else:
+        _write_restrict_table_as_bed(restrict_path, restrict_bed_path)
+    return _RestrictResource(mode="chr_pos", bed_path=restrict_bed_path)
+
+
+def _validate_and_convert_intersection(results, baseline_rows: Sequence[_BaselineRow], sanity_mode: str) -> list[bool]:
+    mask: list[bool] = []
+    for idx, feature in enumerate(results):
+        if idx >= len(baseline_rows):
+            raise ValueError("Intersection returned more rows than the baseline SNP template.")
+        row = baseline_rows[idx]
+        fields = feature.fields
+        overlap_count = int(fields[-1])
+        if fields[3] != row.snp:
+            raise ValueError(
+                f"Intersection row order mismatch at index {idx}: expected SNP {row.snp}, got {fields[3]}"
+            )
+        if sanity_mode == "chr_pos":
+            feature_chr = _to_bed_chromosome(fields[0])
+            feature_bp = int(fields[2])
+            if feature_chr != _to_bed_chromosome(row.chrom) or feature_bp != row.bp:
+                raise ValueError(
+                    f"Intersection coordinate mismatch at index {idx}: expected ({row.chrom}, {row.bp}), got ({fields[0]}, {fields[2]})"
+                )
+        mask.append(overlap_count > 0)
+    if len(mask) != len(baseline_rows):
+        raise ValueError(f"Intersection returned {len(mask)} rows for a baseline template with {len(baseline_rows)} rows.")
+    return mask
+
+
+def _build_restrict_mask(baseline_rows: Sequence[_BaselineRow], baseline_bed, restrict_resource: _RestrictResource | None) -> list[bool]:
+    if restrict_resource is None:
+        return [True] * len(baseline_rows)
+    if restrict_resource.mode == "rsid":
+        assert restrict_resource.snp_ids is not None
+        return [row.snp in restrict_resource.snp_ids for row in baseline_rows]
+    assert restrict_resource.bed_path is not None
+    results = baseline_bed.intersect(str(restrict_resource.bed_path), c=True, wa=True)
+    return _validate_and_convert_intersection(results, baseline_rows, sanity_mode="chr_pos")
+
+
+def _compute_bed_overlap_mask(baseline_rows: Sequence[_BaselineRow], baseline_bed, bed_path: Path) -> list[bool]:
+    results = baseline_bed.intersect(str(bed_path), c=True, wa=True)
+    return _validate_and_convert_intersection(results, baseline_rows, sanity_mode="rsid")
+
+
+def _combine_masks(left: Sequence[bool], right: Sequence[bool]) -> list[int]:
+    if len(left) != len(right):
+        raise ValueError("Mask length mismatch while combining BED and restriction masks.")
+    return [int(a and b) for a, b in zip(left, right)]
+
+
+def _write_annot_file(out_path: Path, rows: Sequence[_BaselineRow], annotation_names: Sequence[str], masks: Sequence[Sequence[int]]) -> None:
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with gzip.open(out_path, "wt") as handle:
+        handle.write("\t".join([*REQUIRED_ANNOT_COLUMNS, *annotation_names]) + "\n")
+        for idx, row in enumerate(rows):
+            annot_values = [str(mask[idx]) for mask in masks]
+            handle.write("\t".join([row.chrom, str(row.bp), row.snp, row.cm, *annot_values]) + "\n")
+
+
+def _baseline_output_name(path: Path) -> str:
+    if path.name.endswith(".annot.gz"):
+        stem = path.name[: -len(".annot.gz")]
+    elif path.name.endswith(".annot"):
+        stem = path.name[: -len(".annot")]
+    else:
+        stem = path.stem
+    return f"{stem}.annot.gz"
+
+
+def _process_baseline_file(
+    baseline_path: Path,
+    bed_paths: Sequence[Path],
+    output_dir: Path,
+    batch: bool,
+    restrict_resource: _RestrictResource | None,
+    tempdir: Path,
+) -> None:
+    rows = _read_baseline_annot(baseline_path)
+    baseline_bed_path = _write_baseline_bed(rows, tempdir / f"{baseline_path.name}.snps.bed")
+    pybedtools = _get_pybedtools()
+    baseline_bed = pybedtools.BedTool(str(baseline_bed_path))
+    restrict_mask = _build_restrict_mask(rows, baseline_bed, restrict_resource)
+
+    if batch:
+        annotation_names = [path.stem for path in bed_paths]
+        masks = []
+        for bed_path in bed_paths:
+            overlap_mask = _compute_bed_overlap_mask(rows, baseline_bed, bed_path)
+            masks.append(_combine_masks(overlap_mask, restrict_mask))
+        output_name = _baseline_output_name(baseline_path)
+        _write_annot_file(output_dir / output_name, rows, annotation_names, masks)
+    else:
+        for bed_path in bed_paths:
+            overlap_mask = _compute_bed_overlap_mask(rows, baseline_bed, bed_path)
+            final_mask = _combine_masks(overlap_mask, restrict_mask)
+            bed_output_dir = output_dir / bed_path.stem
+            output_name = _baseline_output_name(baseline_path)
+            _write_annot_file(bed_output_dir / output_name, rows, [bed_path.stem], [final_mask])
+
+    pybedtools.cleanup(remove_all=True)
+
+
+if __name__ == "__main__":  # pragma: no cover
+    raise SystemExit(main_bed_to_annot())

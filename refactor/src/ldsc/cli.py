@@ -1,4 +1,16 @@
-"""Unified CLI for the refactored LDSC package."""
+"""Unified CLI for the refactored LDSC package.
+
+Core functionality:
+    Provide one command surface for annotation building, LD-score calculation,
+    summary-statistics munging, and regression workflows.
+
+Overview
+--------
+The refactored package intentionally exposes a single command, ``ldsc``, with
+subcommands grouped by user task rather than by historical script name. This
+module owns only argument parsing and dispatch. Scientific work remains in the
+public workflow modules.
+"""
 
 from __future__ import annotations
 
@@ -10,7 +22,14 @@ from . import annotation_builder, ldscore_calculator, regression_runner, sumstat
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="ldsc", description="Refactored LDSC command line interface.")
+    """Build the top-level ``ldsc`` command parser.
+
+    Returns
+    -------
+    argparse.ArgumentParser
+        Parser whose subcommands mirror the supported public workflows.
+    """
+    parser = argparse.ArgumentParser(prog="ldsc", description="LDSC command line interface.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     annotate_parser = subparsers.add_parser("annotate", help="Build SNP-level annotations.")
@@ -37,6 +56,19 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None):
+    """Run the unified command-line interface.
+
+    Parameters
+    ----------
+    argv : sequence of str or None, optional
+        Explicit argument vector. Default is ``None``, which reads arguments
+        from ``sys.argv``.
+
+    Returns
+    -------
+    object
+        Workflow-specific result object returned by the dispatched subcommand.
+    """
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command == "annotate":
@@ -55,6 +87,7 @@ def main(argv: Sequence[str] | None = None):
 
 
 def _run_annotate(args: argparse.Namespace):
+    """Dispatch the ``annotate`` subcommand to the appropriate workflow."""
     if args.bed_files:
         return annotation_builder.main_bed_to_annot(_namespace_to_argv(args, exclude={"command", "gene_set_file", "gene_coord_file", "windowsize", "bed_file", "nomerge", "bimfile", "annot_file"}))
     return annotation_builder.main_make_annot(
@@ -63,6 +96,7 @@ def _run_annotate(args: argparse.Namespace):
 
 
 def _add_annotate_arguments(parser: argparse.ArgumentParser) -> None:
+    """Register annotation-building arguments on a subparser."""
     parser.add_argument("--bed-files", nargs="+", default=None, help="BED files, comma-separated lists, or glob patterns.")
     parser.add_argument("--baseline-annot-dir", default=None, help="Directory containing chromosome-specific baseline .annot files.")
     parser.add_argument("--output-dir", default=None, help="Destination directory for generated .annot.gz files.")
@@ -80,6 +114,11 @@ def _add_annotate_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def _copy_actions(target: argparse.ArgumentParser, source: argparse.ArgumentParser) -> None:
+    """Clone option actions from ``source`` onto ``target``.
+
+    This keeps the unified CLI aligned with the feature parsers defined in the
+    workflow modules without duplicating every flag definition in two places.
+    """
     for action in source._actions:
         if action.dest == "help":
             continue
@@ -107,6 +146,7 @@ def _copy_actions(target: argparse.ArgumentParser, source: argparse.ArgumentPars
 
 
 def _namespace_to_argv(args: argparse.Namespace, exclude: set[str] | None = None) -> list[str]:
+    """Convert a parsed namespace back into a flat argument vector."""
     exclude = exclude or set()
     argv: list[str] = []
     for key, value in vars(args).items():

@@ -214,6 +214,7 @@ SORTED_R2_REQUIRED_COLUMNS = R2_SOURCE_COLUMNS + R2_HELPER_COLUMNS
 
 @dataclass
 class AnnotationBundle:
+    """Per-chromosome annotation payload consumed by the LD-score backends."""
     metadata: pd.DataFrame
     annotations: pd.DataFrame
     baseline_columns: list[str]
@@ -222,6 +223,7 @@ class AnnotationBundle:
 
 @dataclass
 class ChromComputationResult:
+    """Chromosome-level LD-score outputs before cross-chromosome aggregation."""
     chrom: str
     metadata: pd.DataFrame
     ld_scores: np.ndarray
@@ -235,6 +237,7 @@ class ChromComputationResult:
 
 # Basic configuration and shared helpers.
 def configure_logging(level: str) -> None:
+    """Configure the module logger for CLI-style execution."""
     logging.basicConfig(
         level=getattr(logging, level.upper()),
         format="%(levelname)s: %(message)s",
@@ -242,6 +245,7 @@ def configure_logging(level: str) -> None:
 
 
 def get_legacy_ld_module():
+    """Return the bitarray-backed LD kernel or raise a dependency error."""
     if ba is None:
         raise ImportError(
             "PLINK reference-panel mode requires the internal bitarray-backed LD kernel. "
@@ -251,6 +255,7 @@ def get_legacy_ld_module():
 
 
 def split_arg_list(value: str | None) -> list[str]:
+    """Split a comma-delimited CLI argument into normalized path tokens."""
     if not value:
         return []
     out = []
@@ -262,6 +267,7 @@ def split_arg_list(value: str | None) -> list[str]:
 
 
 def normalize_chromosome(value: object) -> str:
+    """Normalize chromosome labels by removing ``chr`` prefixes and uppercasing symbols."""
     text = str(value).strip()
     if not text:
         raise ValueError("Encountered an empty chromosome label.")
@@ -271,6 +277,7 @@ def normalize_chromosome(value: object) -> str:
 
 
 def chrom_sort_key(chrom: object) -> tuple[int, object]:
+    """Return the stable chromosome ordering used by the LD-score kernel."""
     normalized = normalize_chromosome(chrom)
     try:
         return (0, int(normalized))
@@ -280,6 +287,7 @@ def chrom_sort_key(chrom: object) -> tuple[int, object]:
 
 
 def find_column(columns: Iterable[str], aliases: Sequence[str]) -> str | None:
+    """Return the first column whose normalized name matches one of ``aliases``."""
     normalized = {str(col).strip().upper(): col for col in columns}
     for alias in aliases:
         if alias in normalized:
@@ -288,6 +296,12 @@ def find_column(columns: Iterable[str], aliases: Sequence[str]) -> str | None:
 
 
 def get_block_lefts(coords: np.ndarray, max_dist: float) -> np.ndarray:
+    """
+    Compute the standard LDSC ``block_left`` window start array.
+
+    ``block_left[i]`` stores the first index retained in the LD window centered
+    on SNP ``i`` for the chosen distance metric.
+    """
     M = len(coords)
     j = 0
     block_left = np.zeros(M)
@@ -299,6 +313,7 @@ def get_block_lefts(coords: np.ndarray, max_dist: float) -> np.ndarray:
 
 
 def getBlockLefts(coords, max_dist):
+    """Backward-compatible alias for :func:`get_block_lefts`."""
     return get_block_lefts(coords, max_dist)
 
 
@@ -562,6 +577,7 @@ else:
 
 
 def identifier_keys(df: pd.DataFrame, mode: str) -> pd.Series:
+    """Build the canonical SNP identifier series used for matching within the kernel."""
     if mode == "rsID":
         return df["SNP"].astype(str)
     if mode != "chr_pos":
@@ -572,6 +588,7 @@ def identifier_keys(df: pd.DataFrame, mode: str) -> pd.Series:
 
 
 def sort_frame_by_genomic_position(df: pd.DataFrame) -> pd.DataFrame:
+    """Sort a metadata-like frame by chromosome, base-pair coordinate, and SNP name."""
     sort_df = df.copy()
     sort_df["_chrom_key"] = sort_df["CHR"].map(chrom_sort_key)
     sort_df = sort_df.sort_values(by=["_chrom_key", "BP", "SNP"], kind="mergesort")
@@ -579,6 +596,7 @@ def sort_frame_by_genomic_position(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def resolve_prefixed_file(token: str, suffixes: Sequence[str]) -> list[str]:
+    """Resolve one explicit path, glob, or filename prefix into concrete files."""
     if os.path.exists(token):
         return [token]
 
@@ -595,6 +613,7 @@ def resolve_prefixed_file(token: str, suffixes: Sequence[str]) -> list[str]:
 
 
 def resolve_annotation_files(spec: str | None) -> list[str]:
+    """Resolve comma-delimited annotation inputs into concrete file paths."""
     files: list[str] = []
     for token in split_arg_list(spec):
         files.extend(resolve_prefixed_file(token, ("", ".annot", ".annot.gz", ".txt", ".txt.gz", ".tsv", ".tsv.gz")))
@@ -602,6 +621,7 @@ def resolve_annotation_files(spec: str | None) -> list[str]:
 
 
 def resolve_chr_files(spec: str | None, chrom: str, suffixes: Sequence[str]) -> list[str]:
+    """Resolve chromosome-pattern file prefixes for one chromosome."""
     files: list[str] = []
     for token in split_arg_list(spec):
         chrom_token = legacy_parse.sub_chr(token, chrom)
@@ -610,6 +630,7 @@ def resolve_chr_files(spec: str | None, chrom: str, suffixes: Sequence[str]) -> 
 
 
 def resolve_optional_chr_files(spec: str | None, chrom: str, suffixes: Sequence[str]) -> list[str]:
+    """Resolve chromosome-pattern file prefixes while ignoring missing chromosomes."""
     files: list[str] = []
     for token in split_arg_list(spec):
         chrom_token = legacy_parse.sub_chr(token, chrom)
@@ -621,6 +642,7 @@ def resolve_optional_chr_files(spec: str | None, chrom: str, suffixes: Sequence[
 
 
 def resolve_parquet_files(args: argparse.Namespace, chrom: str | None = None) -> list[str]:
+    """Resolve the sorted parquet R2 files participating in one LD-score run."""
     if chrom is not None and args.r2_table_chr:
         return resolve_chr_files(args.r2_table_chr, chrom, ("", ".parquet"))
     if args.r2_table:
@@ -632,6 +654,7 @@ def resolve_parquet_files(args: argparse.Namespace, chrom: str | None = None) ->
 
 
 def resolve_bfile_prefix(args: argparse.Namespace, chrom: str | None = None) -> str | None:
+    """Resolve the PLINK prefix for the requested chromosome, if any."""
     prefix = None
     if chrom is not None and args.bfile_chr:
         prefix = legacy_parse.sub_chr(args.bfile_chr, chrom)
@@ -647,6 +670,7 @@ def resolve_bfile_prefix(args: argparse.Namespace, chrom: str | None = None) -> 
 
 
 def resolve_frequency_files(args: argparse.Namespace, chrom: str | None = None) -> list[str]:
+    """Resolve optional frequency or metadata files for one chromosome."""
     files: list[str] = []
     if chrom is not None and args.frqfile_chr:
         return resolve_optional_chr_files(args.frqfile_chr, chrom, ("", ".frq", ".frq.gz", ".txt", ".txt.gz", ".tsv", ".tsv.gz"))
@@ -656,11 +680,13 @@ def resolve_frequency_files(args: argparse.Namespace, chrom: str | None = None) 
 
 
 def read_text_table(path: str) -> pd.DataFrame:
+    """Read a whitespace-delimited kernel input table with optional gzip compression."""
     compression = "gzip" if path.endswith(".gz") else None
     return pd.read_csv(path, sep=r"\s+", compression=compression)
 
 
 def get_r2_build_columns(genome_build: str) -> tuple[str, str]:
+    """Return the source R2-table coordinate columns for the selected build."""
     if genome_build == "hg19":
         return "hg19_bp_1", "hg19_bp_2"
     if genome_build == "hg38":
@@ -669,6 +695,7 @@ def get_r2_build_columns(genome_build: str) -> tuple[str, str]:
 
 
 def get_pyarrow_modules():
+    """Import the pyarrow dataset module or raise a user-facing dependency error."""
     try:
         import pyarrow.dataset as ds
     except ImportError as exc:
@@ -679,6 +706,7 @@ def get_pyarrow_modules():
 
 
 def read_common_tabular_r2(path: str) -> pd.DataFrame:
+    """Read one pairwise-R2 source file from parquet, CSV, TSV, or inferred text."""
     lower = path.lower()
     if lower.endswith(".parquet"):
         try:
@@ -695,12 +723,14 @@ def read_common_tabular_r2(path: str) -> pd.DataFrame:
 
 
 def validate_r2_source_columns(df: pd.DataFrame, path: str) -> None:
+    """Validate that a source R2 table contains the required legacy columns."""
     missing = [col for col in R2_SOURCE_COLUMNS if col not in df.columns]
     if missing:
         raise ValueError(f"{path} is missing required R2 columns: {missing}")
 
 
 def canonicalize_r2_pairs(df: pd.DataFrame, genome_build: str) -> pd.DataFrame:
+    """Orient pairwise-R2 rows so the selected build always satisfies ``bp1 <= bp2``."""
     df = df.copy()
     left_bp_col, right_bp_col = get_r2_build_columns(genome_build)
     df["pair_chr"] = df["chr"].map(normalize_chromosome)
@@ -724,6 +754,7 @@ def canonicalize_r2_pairs(df: pd.DataFrame, genome_build: str) -> pd.DataFrame:
 
 
 def deduplicate_normalized_r2_pairs(df: pd.DataFrame) -> pd.DataFrame:
+    """Drop exact duplicate normalized pairs and reject conflicting duplicate R2 rows."""
     pair_key_columns = [
         "pair_chr",
         "rsID_1",
@@ -778,6 +809,7 @@ def convert_r2_table_to_sorted_parquet(source_path: str, genome_build: str, outp
 
 
 def validate_retained_identifier_uniqueness(metadata: pd.DataFrame, identifier_mode: str, chrom: str) -> None:
+    """Reject ambiguous retained SNP identifiers before parquet matching begins."""
     if identifier_mode == "chr_pos":
         duplicated = metadata.duplicated(subset=["CHR", "BP"], keep=False)
         if duplicated.any():
@@ -796,6 +828,7 @@ def validate_retained_identifier_uniqueness(metadata: pd.DataFrame, identifier_m
 
 
 def read_sorted_r2_presence(args: argparse.Namespace, chrom: str) -> set[object]:
+    """Read the SNP identifiers or positions present in one sorted parquet chromosome source."""
     files = resolve_parquet_files(args, chrom=chrom)
     if not files:
         raise FileNotFoundError(f"No sorted parquet R2 files resolved for chromosome {chrom}.")
@@ -825,6 +858,7 @@ def filter_reference_to_present_r2(
     identifier_mode: str,
     chrom: str,
 ) -> tuple[pd.DataFrame, pd.DataFrame, set[str] | None]:
+    """Restrict annotation SNPs to those that are actually present in the R2 source."""
     metadata = metadata.copy()
     if identifier_mode == "rsID":
         keep = metadata["SNP"].astype(str).isin(present_values)
@@ -846,6 +880,7 @@ def filter_reference_to_present_r2(
 
 # Annotation loading and normalization.
 def parse_annotation_file(path: str, chrom: str | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Parse one SNP-level annotation table into normalized metadata and values."""
     df = read_text_table(path)
     missing = [col for col in REQUIRED_ANNOT_COLUMNS if col not in df.columns]
     if missing:
@@ -967,6 +1002,7 @@ def combine_annotation_groups(
 
 
 def read_identifier_list(path: str, mode: str) -> set[str]:
+    """Read a SNP list file into the canonical identifier set for ``mode``."""
     df = read_text_table(path)
     if df.shape[1] == 1:
         col = df.columns[0]
@@ -992,12 +1028,14 @@ def read_identifier_list(path: str, mode: str) -> set[str]:
 
 
 def load_regression_keys(args: argparse.Namespace) -> set[str] | None:
+    """Load the optional regression SNP universe from CLI arguments."""
     if not args.regression_snps:
         return None
     return read_identifier_list(args.regression_snps, args.snp_identifier)
 
 
 def parse_frequency_metadata(path: str, chrom: str | None, identifier_mode: str) -> pd.DataFrame:
+    """Parse an optional frequency metadata file into ``_key``/``CM``/``MAF`` columns."""
     df = read_text_table(path)
     chr_col = find_column(df.columns, CHROM_ALIASES)
     bp_col = find_column(df.columns, BP_ALIASES)
@@ -1039,6 +1077,7 @@ def merge_frequency_metadata(
     chrom: str,
     identifier_mode: str,
 ) -> pd.DataFrame:
+    """Merge optional CM and MAF metadata onto the retained reference SNP table."""
     files = resolve_frequency_files(args, chrom=chrom)
     if not files:
         return metadata
@@ -1070,6 +1109,7 @@ def apply_maf_filter(
     maf_min: float | None,
     context: str,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Apply the optional MAF threshold to metadata and annotation rows together."""
     if maf_min is None:
         return metadata, annotations
     if "MAF" not in metadata.columns or metadata["MAF"].isna().all():
@@ -1085,6 +1125,7 @@ def apply_maf_filter(
 
 
 def chromosome_set_from_annotation_inputs(args: argparse.Namespace) -> list[str]:
+    """Discover the chromosome set implied by the supplied annotation inputs."""
     chromosomes: set[str] = set()
     all_files = (
         resolve_annotation_files(args.query_annot)
@@ -1110,6 +1151,7 @@ def chromosome_set_from_annotation_inputs(args: argparse.Namespace) -> list[str]
 
 
 def build_window_coordinates(metadata: pd.DataFrame, args: argparse.Namespace) -> tuple[np.ndarray, float]:
+    """Build the coordinate array and maximum distance for the active LD window mode."""
     selectors = np.array([args.ld_wind_snps is not None, args.ld_wind_kb is not None, args.ld_wind_cm is not None], dtype=bool)
     if selectors.sum() != 1:
         raise ValueError("Must specify exactly one of --ld-wind-snps, --ld-wind-kb, or --ld-wind-cm.")
@@ -1124,6 +1166,7 @@ def build_window_coordinates(metadata: pd.DataFrame, args: argparse.Namespace) -
 
 
 def check_whole_chromosome_window(block_left: np.ndarray, args: argparse.Namespace, chrom: str) -> None:
+    """Guard against accidental whole-chromosome windows unless explicitly allowed."""
     if len(block_left) == 0:
         return
     if block_left[-1] == 0 and not args.yes_really:
@@ -1366,6 +1409,13 @@ def ld_score_var_blocks_from_r2_reader(
 
 
 def compute_counts(metadata: pd.DataFrame, annotations: pd.DataFrame) -> tuple[np.ndarray, np.ndarray | None]:
+    """
+    Compute LDSC-style annotation count vectors ``M`` and optional ``M_5_50``.
+
+    ``M`` is the column-wise sum over the retained reference SNP universe.
+    ``M_5_50`` is the same sum restricted to rows with ``MAF > 0.05`` when MAF
+    metadata is available.
+    """
     annot_matrix = annotations.to_numpy(dtype=np.float32, copy=False)
     M = np.asarray(annot_matrix.sum(axis=0), dtype=np.float64)
     if "MAF" not in metadata.columns or metadata["MAF"].isna().all():
@@ -1376,6 +1426,7 @@ def compute_counts(metadata: pd.DataFrame, annotations: pd.DataFrame) -> tuple[n
 
 
 def regression_mask_from_keys(metadata: pd.DataFrame, regression_keys: set[str] | None, identifier_mode: str) -> np.ndarray:
+    """Build the binary mask column used to compute regression-weight LD scores."""
     if regression_keys is None:
         return np.ones(len(metadata), dtype=np.float32)
     keys = identifier_keys(metadata, identifier_mode)
@@ -1541,6 +1592,7 @@ def compute_chrom_from_plink(
 
 
 def result_to_dataframe(result: ChromComputationResult) -> pd.DataFrame:
+    """Materialize one chromosome result as a standard ``.l2.ldscore`` table."""
     df = result.metadata.copy()
     for idx, column in enumerate(result.ldscore_columns):
         df[column + "L2"] = result.ld_scores[:, idx]
@@ -1548,6 +1600,7 @@ def result_to_dataframe(result: ChromComputationResult) -> pd.DataFrame:
 
 
 def weight_result_to_dataframe(result: ChromComputationResult) -> pd.DataFrame:
+    """Materialize one chromosome regression-weight result as a one-column table."""
     df = result.metadata.copy()
     df["L2"] = np.ravel(result.w_ld)
     return df
@@ -1555,6 +1608,7 @@ def weight_result_to_dataframe(result: ChromComputationResult) -> pd.DataFrame:
 
 # Output assembly.
 def write_ldscore_file(df: pd.DataFrame, path: str) -> None:
+    """Write one LDSC-compatible LD-score table, preserving metadata columns first."""
     out = df.copy()
     out = out.loc[:, [col for col in ["CHR", "SNP", "BP", "CM", "MAF"] if col in out.columns] + [col for col in out.columns if col not in ANNOT_META_COLUMNS]]
     with gzip.open(path, "wt") as handle:
@@ -1562,17 +1616,25 @@ def write_ldscore_file(df: pd.DataFrame, path: str) -> None:
 
 
 def write_counts(path: str, counts: np.ndarray) -> None:
+    """Write one LDSC ``.M``-style count vector to disk."""
     with open(path, "w", encoding="utf-8") as handle:
         handle.write("\t".join(str(x) for x in counts))
 
 
 def write_annotation_groups(path: str, baseline_columns: Sequence[str], query_columns: Sequence[str]) -> None:
+    """Write the baseline/query annotation-group manifest used by downstream tools."""
     rows = [{"annotation": col, "group": "baseline"} for col in baseline_columns]
     rows.extend({"annotation": col, "group": "query"} for col in query_columns)
     pd.DataFrame(rows).to_csv(path, sep="\t", index=False)
 
 
 def aggregate_results(results: Sequence[ChromComputationResult]) -> tuple[pd.DataFrame, pd.DataFrame, np.ndarray, np.ndarray | None]:
+    """
+    Combine chromosome-level results into one genome-wide LD-score output set.
+
+    Returns the aggregated reference LD-score table, regression-weight table,
+    and the chromosome-summed ``M`` / ``M_5_50`` vectors.
+    """
     ld_frames = [result_to_dataframe(result) for result in results]
     weight_frames = [weight_result_to_dataframe(result) for result in results]
     ld_df = pd.concat(ld_frames, axis=0, ignore_index=True)
@@ -1619,6 +1681,7 @@ def emit_outputs(results: Sequence[ChromComputationResult], args: argparse.Names
 
 
 def validate_args(args: argparse.Namespace) -> None:
+    """Validate top-level LD-score CLI arguments before any heavy work starts."""
     if not (args.query_annot or args.query_annot_chr or args.baseline_annot or args.baseline_annot_chr):
         raise ValueError("At least one of query or baseline annotation inputs must be supplied.")
     if bool(args.r2_table or args.r2_table_chr) == bool(args.bfile or args.bfile_chr):
@@ -1647,6 +1710,7 @@ def validate_args(args: argparse.Namespace) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Build the standalone LD-score kernel CLI parser."""
     parser = argparse.ArgumentParser(
         description="Estimate LDSC-compatible LD scores from SNP-level annotation files using PLINK or sorted parquet R2 input.",
     )
@@ -1791,6 +1855,7 @@ def run_ldscore(
 
 
 def main(argv: Sequence[str] | None = None) -> list[ChromComputationResult]:
+    """CLI entrypoint for the standalone LD-score kernel module."""
     parser = build_parser()
     args = parser.parse_args(argv)
     configure_logging(args.log_level)

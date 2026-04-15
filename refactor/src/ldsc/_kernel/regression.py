@@ -156,6 +156,12 @@ def h2_obs_to_liab(h2_obs, P, K):
 
 
 class LD_Score_Regression(object):
+    """Base class for LD-score regression estimators.
+
+    This class owns the weighted least-squares fit, jackknife variance
+    estimation, coefficient-to-category transforms, and intercept handling that
+    are shared by heritability and covariance estimators.
+    """
 
     def __init__(self, y, x, w, N, M, n_blocks, intercept=None, slow=False, step1_ii=None, old_weights=False):
         for i in [y, x, w, M, N]:
@@ -352,6 +358,7 @@ class LD_Score_Regression(object):
 
 
 class Hsq(LD_Score_Regression):
+    """Single-trait heritability estimator."""
 
     __null_intercept__ = 1
 
@@ -554,6 +561,7 @@ class Hsq(LD_Score_Regression):
 
 
 class Gencov(LD_Score_Regression):
+    """Cross-trait genetic covariance estimator."""
     __null_intercept__ = 0
 
     def __init__(self, z1, z2, x, w, N1, N2, M, hsq1, hsq2, intercept_hsq1, intercept_hsq2,
@@ -696,6 +704,7 @@ class Gencov(LD_Score_Regression):
 
 
 class RG(object):
+    """Combine two heritability fits and one covariance fit into ``r_g``."""
 
     def __init__(self, z1, z2, x, w, N1, N2, M, intercept_hsq1=None, intercept_hsq2=None,
                  intercept_gencov=None, n_blocks=200, slow=False, twostep=None):

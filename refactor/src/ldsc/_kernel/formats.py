@@ -1,9 +1,36 @@
-'''
-(c) 2014 Brendan Bulik-Sullivan and Hilary Finucane
+"""
+formats.py
 
-This module contains functions for parsing various ldsc-defined file formats.
+Core functionality:
+    Parse the legacy LDSC on-disk file formats used by the regression kernel.
 
-'''
+Overview
+--------
+This module is the compatibility layer for the original LDSC text formats such
+as ``.sumstats``, ``.l2.ldscore``, ``.M``, and ``.annot``. The refactored
+workflow still depends on these parsers when reproducing legacy regression
+behavior, so the functions here remain intentionally file-format oriented
+rather than domain-model oriented.
+
+Key Functions
+-------------
+sumstats :
+    Read a munged summary-statistics file into the columns expected by the
+    regression stack.
+ldscore :
+    Read one or more ``.l2.ldscore`` files into one SNP-aligned table.
+M_fromlist :
+    Read and horizontally concatenate one or more ``.M`` or ``.M_5_50`` count
+    vectors.
+
+Design Notes
+------------
+- This module preserves the old filename conventions and compression
+  auto-detection behavior because the regression stack still consumes those
+  artifacts directly.
+- Parsing functions prefer permissive whitespace-delimited reads to remain
+  compatible with historical LDSC outputs.
+"""
 
 from __future__ import division
 import numpy as np
@@ -18,6 +45,7 @@ def series_eq(x, y):
 
 
 def read_csv(fh, **kwargs):
+    """Read a whitespace-delimited LDSC text file with legacy missing-value rules."""
     return pd.read_csv(fh, sep='\s+', na_values='.', **kwargs)
 
 
@@ -250,6 +278,14 @@ def annot(fh_list, num=None, frqfile=None):
 
 
 def __ID_List_Factory__(colnames, keepcol, fname_end, header=None, usecols=None):
+    """
+    Build a small file-reader class for one LDSC identifier-list format.
+
+    The returned class mirrors the historical ``parse.py`` behavior used by the
+    LD kernel: it reads one file into ``self.df`` and, when requested, exposes
+    a one-column ``IDList`` table that can be left-joined against an external
+    list to obtain retained row indices.
+    """
 
     class IDContainer(object):
 

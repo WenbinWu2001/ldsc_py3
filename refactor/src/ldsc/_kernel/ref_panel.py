@@ -25,6 +25,7 @@ from .identifiers import (
 
 @dataclass(frozen=True)
 class RefPanelSpec:
+    """Immutable description of a reference-panel backend and its sources."""
     backend: str
     bfile_prefix: str | None = None
     r2_table_paths: tuple[str, ...] = field(default_factory=tuple)
@@ -43,6 +44,7 @@ class RefPanelSpec:
 
 
 class RefPanel(ABC):
+    """Abstract chromosome-scoped reference-panel interface."""
     def __init__(self, common_config: CommonConfig, spec: RefPanelSpec) -> None:
         self.common_config = common_config
         self.spec = spec
@@ -50,22 +52,27 @@ class RefPanel(ABC):
 
     @abstractmethod
     def available_chromosomes(self) -> list[str]:
+        """Return chromosomes available from the backend."""
         raise NotImplementedError
 
     @abstractmethod
     def load_metadata(self, chrom: str) -> pd.DataFrame:
+        """Load SNP metadata for ``chrom``."""
         raise NotImplementedError
 
     @abstractmethod
     def build_reader(self, chrom: str, **kwargs: Any) -> Any:
+        """Build a backend-specific reader for ``chrom``."""
         raise NotImplementedError
 
     def filter_to_snps(self, chrom: str, snps: set[str] | list[str]) -> pd.DataFrame:
+        """Subset chromosome metadata to the requested SNP identifiers."""
         metadata = self.load_metadata(chrom)
         keep = build_snp_id_series(metadata, self.common_config.snp_identifier).isin(set(snps))
         return metadata.loc[keep].reset_index(drop=True)
 
     def summary(self) -> dict[str, Any]:
+        """Summarize backend type and source paths."""
         return {
             "backend": self.spec.backend,
             "chromosomes": self.available_chromosomes(),
@@ -91,6 +98,7 @@ class RefPanel(ABC):
 
 
 class PlinkRefPanel(RefPanel):
+    """PLINK-backed reference-panel adapter."""
     def available_chromosomes(self) -> list[str]:
         df = self._read_bim_table()
         chromosomes = sorted(df["CHR"].astype(str).map(normalize_chromosome).unique().tolist(), key=_chrom_sort_key)
@@ -151,6 +159,7 @@ class PlinkRefPanel(RefPanel):
 
 
 class ParquetR2RefPanel(RefPanel):
+    """Sorted-parquet-R2-backed reference-panel adapter."""
     def available_chromosomes(self) -> list[str]:
         if self.spec.chromosomes is not None:
             return sorted(set(self.spec.chromosomes), key=_chrom_sort_key)
@@ -199,11 +208,13 @@ class ParquetR2RefPanel(RefPanel):
 
 
 class RefPanelLoader:
+    """Instantiate the backend requested by a :class:`RefPanelSpec`."""
     def __init__(self, common_config: CommonConfig, ref_panel_config: RefPanelConfig | None = None) -> None:
         self.common_config = common_config
         self.ref_panel_config = ref_panel_config or RefPanelConfig()
 
     def load(self, ref_panel_spec: RefPanelSpec) -> RefPanel:
+        """Return a concrete reference-panel adapter for ``ref_panel_spec``."""
         backend = ref_panel_spec.backend
         if backend == "plink":
             return PlinkRefPanel(self.common_config, ref_panel_spec)
@@ -213,6 +224,7 @@ class RefPanelLoader:
 
 
 def _chrom_sort_key(chrom: str) -> tuple[int, str]:
+    """Return a stable chromosome sort key matching the package-wide ordering."""
     chrom = normalize_chromosome(chrom)
     if chrom.isdigit():
         return (int(chrom), chrom)
@@ -221,6 +233,7 @@ def _chrom_sort_key(chrom: str) -> tuple[int, str]:
 
 
 def _read_metadata_table(path: str | Path, chrom: str | None, common_config: CommonConfig) -> pd.DataFrame:
+    """Read one reference-panel metadata table into the normalized column set."""
     df = pd.read_csv(path, sep=r"\s+", compression="gzip" if str(path).endswith(".gz") else None)
     snp_identifier = normalize_snp_identifier_mode(common_config.snp_identifier)
 
@@ -267,6 +280,7 @@ def _read_metadata_table(path: str | Path, chrom: str | None, common_config: Com
 
 
 def _find_optional_column(columns, aliases: tuple[str, ...]) -> str | None:
+    """Return the first optional column whose uppercased name matches ``aliases``."""
     normalized_aliases = {alias.upper() for alias in aliases}
     for column in columns:
         if column.upper() in normalized_aliases:

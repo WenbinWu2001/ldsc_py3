@@ -26,6 +26,7 @@ _LDSCORE_SUFFIX_COLUMNS = ("CHR", "SNP", "BP", "CM", "MAF")
 
 @dataclass(frozen=True)
 class _LegacyChromResult:
+    """Compatibility record for chromosome outputs produced by the kernel."""
     chrom: str
     metadata: pd.DataFrame
     ld_scores: np.ndarray
@@ -39,6 +40,13 @@ class _LegacyChromResult:
 
 @dataclass(frozen=True)
 class ChromLDScoreResult:
+    """Chromosome-specific LD-score outputs with aligned metadata tables.
+
+    The LD-score pipeline is executed chromosome by chromosome for efficiency.
+    This dataclass keeps the reference LD scores, regression-weight LD scores,
+    and count vectors for one chromosome while preserving the row-order
+    guarantees needed by the aggregated result.
+    """
     chrom: str
     reference_metadata: pd.DataFrame
     ld_scores: pd.DataFrame
@@ -52,18 +60,22 @@ class ChromLDScoreResult:
     output_paths: dict[str, str] = field(default_factory=dict)
 
     def validate(self) -> None:
+        """Check metadata/value alignment for the chromosome result."""
         if len(self.reference_metadata) != len(self.ld_scores):
             raise ValueError("reference_metadata and ld_scores must have the same number of rows.")
         if len(self.regression_metadata) != len(self.w_ld):
             raise ValueError("regression_metadata and w_ld must have the same number of rows.")
 
     def to_ldscore_table(self) -> pd.DataFrame:
+        """Return ``reference_metadata`` and ``ld_scores`` as one table."""
         return pd.concat([self.reference_metadata.reset_index(drop=True), self.ld_scores.reset_index(drop=True)], axis=1)
 
     def to_weight_table(self) -> pd.DataFrame:
+        """Return ``regression_metadata`` and ``w_ld`` as one table."""
         return pd.concat([self.regression_metadata.reset_index(drop=True), self.w_ld.reset_index(drop=True)], axis=1)
 
     def summary(self) -> dict[str, Any]:
+        """Return a compact summary of chromosome-level retained rows."""
         return {
             "chrom": self.chrom,
             "n_reference_rows": len(self.reference_metadata),
@@ -74,6 +86,30 @@ class ChromLDScoreResult:
 
 @dataclass(frozen=True)
 class LDScoreResult:
+    """Aggregated cross-chromosome LD-score result used by regression.
+
+    Parameters
+    ----------
+    reference_metadata : pandas.DataFrame
+        Metadata aligned row-for-row with ``ld_scores``.
+    ld_scores : pandas.DataFrame
+        Aggregated LD-score columns for retained reference SNPs.
+    regression_metadata : pandas.DataFrame
+        Metadata aligned row-for-row with ``w_ld``.
+    w_ld : pandas.DataFrame
+        Regression-weight LD-score table.
+    snp_count_totals : dict of str to ndarray
+        Named count vectors such as all-reference counts and common-SNP counts.
+    baseline_columns, query_columns : list of str
+        Annotation-column names carried through the run.
+    reference_snps, regression_snps : set of str
+        Retained SNP identifiers in the reference and regression universes.
+    chromosome_results : list of ChromLDScoreResult
+        Per-chromosome intermediate results used to build this aggregate.
+    output_paths : dict of str to str, optional
+        Paths written by the output layer, when available. Default is an empty
+        dict.
+    """
     reference_metadata: pd.DataFrame
     ld_scores: pd.DataFrame
     regression_metadata: pd.DataFrame
@@ -87,18 +123,22 @@ class LDScoreResult:
     output_paths: dict[str, str] = field(default_factory=dict)
 
     def validate(self) -> None:
+        """Check metadata/value alignment for the aggregated result."""
         if len(self.reference_metadata) != len(self.ld_scores):
             raise ValueError("reference_metadata and ld_scores must have the same number of rows.")
         if len(self.regression_metadata) != len(self.w_ld):
             raise ValueError("regression_metadata and w_ld must have the same number of rows.")
 
     def to_ldscore_table(self) -> pd.DataFrame:
+        """Return the aggregated reference LD-score table."""
         return pd.concat([self.reference_metadata.reset_index(drop=True), self.ld_scores.reset_index(drop=True)], axis=1)
 
     def to_weight_table(self) -> pd.DataFrame:
+        """Return the aggregated regression-weight table."""
         return pd.concat([self.regression_metadata.reset_index(drop=True), self.w_ld.reset_index(drop=True)], axis=1)
 
     def summary(self) -> dict[str, Any]:
+        """Return a compact cross-chromosome summary."""
         return {
             "n_reference_rows": len(self.reference_metadata),
             "n_regression_rows": len(self.regression_metadata),
@@ -108,7 +148,12 @@ class LDScoreResult:
 
 
 class LDScoreCalculator:
-    """Orchestrate chromosome-wise LD-score calculation around the legacy kernels."""
+    """Orchestrate chromosome-wise LD-score calculation.
+
+    This service assembles annotation and reference-panel inputs, delegates the
+    heavy computation to the internal LD-score kernel, aggregates chromosome
+    outputs, and optionally hands the result to the output layer.
+    """
 
     def __init__(self, output_manager: OutputManager | None = None) -> None:
         self.output_manager = output_manager or OutputManager()
@@ -123,6 +168,35 @@ class LDScoreCalculator:
         regression_snps: set[str] | None = None,
         config_snapshot: dict[str, Any] | None = None,
     ) -> LDScoreResult:
+        """Compute and aggregate LD scores across all chromosomes.
+
+        Parameters
+        ----------
+        annotation_bundle : AnnotationBundle
+            Aligned SNP-level baseline and query annotations.
+        ref_panel : RefPanel
+            Reference-panel adapter that supplies chromosome readers and
+            metadata.
+        ldscore_config : LDScoreConfig
+            LD-window and retained-SNP settings.
+        common_config : CommonConfig
+            Shared identifier and restriction settings.
+        output_spec : OutputSpec or None, optional
+            If provided, write outputs after the aggregate result is built.
+            Default is ``None``, which keeps the result in memory only.
+        regression_snps : set of str or None, optional
+            Optional regression SNP universe used to define the weight table.
+            Default is ``None``, which uses the retained reference SNP universe.
+        config_snapshot : dict or None, optional
+            Optional run metadata forwarded to the output layer. Default is
+            ``None``.
+
+        Returns
+        -------
+        LDScoreResult
+            Aggregated cross-chromosome result with aligned metadata and output
+            paths if writing was requested.
+        """
         chromosome_results: list[ChromLDScoreResult] = []
         for chrom in _chromosomes_from_bundle(annotation_bundle):
             chrom_bundle = _slice_annotation_bundle(annotation_bundle, chrom)
@@ -151,6 +225,7 @@ class LDScoreCalculator:
         common_config: CommonConfig,
         regression_snps: set[str] | None = None,
     ) -> ChromLDScoreResult:
+        """Compute LD scores for one chromosome."""
         args = _namespace_from_configs(
             chrom=chrom,
             ref_panel=ref_panel,
@@ -241,10 +316,12 @@ class LDScoreCalculator:
         output_spec: OutputSpec,
         config_snapshot: dict[str, Any] | None = None,
     ):
+        """Write a previously computed result through the output layer."""
         return self.output_manager.write_outputs(result, output_spec, config_snapshot=config_snapshot)
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Build the feature parser for LD-score calculation."""
     parser = argparse.ArgumentParser(
         description="Estimate LDSC-compatible LD scores from SNP-level annotation files using PLINK or sorted parquet R2 input.",
     )
@@ -276,6 +353,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
+    """Run LD-score calculation from a parsed CLI namespace."""
     normalized_args, common_config = _normalize_run_args(args)
     kernel_ldscore.validate_args(normalized_args)
     regression_snps = _load_regression_snps(normalized_args.regression_snps, common_config)
@@ -324,6 +402,11 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
 
 
 def run_ldscore(**kwargs) -> LDScoreResult:
+    """Convenience wrapper around :func:`run_ldscore_from_args`.
+
+    Keyword arguments are interpreted as CLI-equivalent option names without the
+    leading ``--``.
+    """
     parser = build_parser()
     defaults = vars(parser.parse_args(["--out", "placeholder"]))
     defaults.update(kwargs)
@@ -332,12 +415,14 @@ def run_ldscore(**kwargs) -> LDScoreResult:
 
 
 def main(argv: Sequence[str] | None = None) -> LDScoreResult:
+    """Command-line entry point for the LD-score workflow."""
     parser = build_parser()
     args = parser.parse_args(argv)
     return run_ldscore_from_args(args)
 
 
 def _normalize_run_args(args: argparse.Namespace) -> tuple[argparse.Namespace, CommonConfig]:
+    """Normalize CLI-style args and derive the shared ``CommonConfig`` object."""
     normalized_mode = normalize_snp_identifier_mode(args.snp_identifier)
     legacy_mode = "rsID" if normalized_mode == "rsid" else "chr_pos"
     normalized_args = argparse.Namespace(**vars(args))
@@ -351,12 +436,14 @@ def _normalize_run_args(args: argparse.Namespace) -> tuple[argparse.Namespace, C
 
 
 def _load_regression_snps(path: str | None, common_config: CommonConfig) -> set[str] | None:
+    """Load the optional global regression SNP universe using the active identifier mode."""
     if not path:
         return None
     return read_global_snp_restriction(path, common_config.snp_identifier)
 
 
 def _output_spec_from_args(args: argparse.Namespace) -> OutputSpec:
+    """Translate LD-score CLI arguments into the standard output configuration."""
     out_path = Path(args.out)
     return OutputSpec(
         out_prefix=out_path.name,
@@ -370,6 +457,7 @@ def _output_spec_from_args(args: argparse.Namespace) -> OutputSpec:
 
 
 def _replace_result_output_paths(result: LDScoreResult, output_paths: dict[str, str]) -> LDScoreResult:
+    """Return ``result`` with updated artifact-path metadata after writing outputs."""
     return LDScoreResult(
         reference_metadata=result.reference_metadata,
         ld_scores=result.ld_scores,
@@ -386,6 +474,7 @@ def _replace_result_output_paths(result: LDScoreResult, output_paths: dict[str, 
 
 
 def _sort_paired_frames(metadata_frames: Sequence[pd.DataFrame], value_frames: Sequence[pd.DataFrame]) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Co-sort metadata and value frames after cross-chromosome concatenation."""
     merged_frames = []
     value_columns = list(value_frames[0].columns)
     for metadata, values in zip(metadata_frames, value_frames):
@@ -400,6 +489,7 @@ def _sort_paired_frames(metadata_frames: Sequence[pd.DataFrame], value_frames: S
 
 
 def _chromosomes_from_bundle(annotation_bundle) -> list[str]:
+    """Infer the chromosome processing order from an annotation bundle."""
     chromosomes = getattr(annotation_bundle, "chromosomes", None)
     if chromosomes:
         return list(chromosomes)
@@ -407,6 +497,7 @@ def _chromosomes_from_bundle(annotation_bundle) -> list[str]:
 
 
 def _slice_annotation_bundle(annotation_bundle, chrom: str):
+    """Return the per-chromosome view of an annotation bundle."""
     keep = annotation_bundle.metadata["CHR"].astype(str) == str(chrom)
     return type(annotation_bundle)(
         metadata=annotation_bundle.metadata.loc[keep].reset_index(drop=True),
@@ -420,6 +511,7 @@ def _slice_annotation_bundle(annotation_bundle, chrom: str):
 
 
 def _namespace_from_configs(chrom: str, ref_panel, ldscore_config: LDScoreConfig, common_config: CommonConfig) -> argparse.Namespace:
+    """Build the legacy-kernel namespace expected by the chromosome backends."""
     spec = getattr(ref_panel, "spec", None)
     backend = getattr(spec, "backend", None)
     return argparse.Namespace(

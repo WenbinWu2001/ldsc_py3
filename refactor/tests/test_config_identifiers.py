@@ -33,7 +33,7 @@ from ldsc._kernel.identifiers import (
 class CommonConfigTest(unittest.TestCase):
     def test_defaults(self):
         config = CommonConfig()
-        self.assertEqual(config.snp_identifier, "rsid")
+        self.assertEqual(config.snp_identifier, "chr_pos")
         self.assertEqual(config.log_level, "INFO")
         self.assertFalse(config.fail_on_missing_metadata)
 

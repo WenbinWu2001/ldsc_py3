@@ -1,4 +1,16 @@
-"""Workflow-layer wrappers for legacy summary-statistics munging."""
+"""Workflow wrapper for LDSC summary-statistics munging.
+
+Core functionality:
+    Expose a typed, package-level interface to the legacy-compatible munging
+    implementation.
+
+Overview
+--------
+This module converts the historical munging script behavior into explicit
+    Python dataclasses and a small service object. The underlying parsing,
+    column inference, and QC filters remain in the internal kernel so numerical
+    behavior stays aligned with established LDSC outputs.
+"""
 
 from __future__ import annotations
 
@@ -37,6 +49,22 @@ munge_sumstats = kernel_munge.munge_sumstats
 
 @dataclass(frozen=True)
 class RawSumstatsSpec:
+    """Specification for one raw GWAS summary-statistics source.
+
+    Parameters
+    ----------
+    path : str
+        Path to the raw summary-statistics file.
+    compression : str, optional
+        Compression mode hint. Default is ``"auto"``, which delegates
+        detection to the kernel.
+    trait_name : str or None, optional
+        Optional trait label propagated to downstream summaries. Default is
+        ``None``.
+    column_hints : dict of str to str, optional
+        Mapping from canonical LDSC field names to source column names.
+        Default is an empty dict.
+    """
     path: str
     compression: str = "auto"
     trait_name: str | None = None
@@ -45,6 +73,22 @@ class RawSumstatsSpec:
 
 @dataclass(frozen=True)
 class SumstatsTable:
+    """In-memory LDSC-ready summary-statistics table.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        Munged table containing at least ``SNP``, ``Z``, and ``N``.
+    has_alleles : bool
+        Whether allele columns are expected to be present and validated.
+    source_path : str or None
+        Original data source path, if known.
+    trait_name : str or None
+        Optional trait label for regression summaries.
+    provenance : dict, optional
+        Lightweight run metadata retained for debugging and output summaries.
+        Default is an empty dict.
+    """
     data: pd.DataFrame
     has_alleles: bool
     source_path: str | None
@@ -52,6 +96,7 @@ class SumstatsTable:
     provenance: dict[str, Any] = field(default_factory=dict)
 
     def validate(self) -> None:
+        """Validate the minimum LDSC-ready table contract."""
         required = {"SNP", "Z", "N"}
         missing = required - set(self.data.columns)
         if missing:
@@ -60,9 +105,11 @@ class SumstatsTable:
             raise ValueError("SumstatsTable.has_alleles=True requires A1 and A2 columns.")
 
     def snp_identifiers(self) -> pd.Series:
+        """Return the SNP identifier column as a string series."""
         return self.data["SNP"].astype(str)
 
     def subset_to(self, snps: set[str] | list[str]) -> "SumstatsTable":
+        """Return a copy restricted to ``snps`` while preserving metadata."""
         keep = self.data["SNP"].astype(str).isin(set(snps))
         return SumstatsTable(
             data=self.data.loc[keep].reset_index(drop=True),
@@ -73,6 +120,7 @@ class SumstatsTable:
         )
 
     def align_to_metadata(self, metadata: pd.DataFrame) -> "SumstatsTable":
+        """Inner-join the table to ``metadata`` on ``SNP`` and preserve order."""
         merged = pd.merge(metadata.loc[:, ["SNP"]], self.data, how="inner", on="SNP", sort=False)
         return SumstatsTable(
             data=merged.reset_index(drop=True),
@@ -83,6 +131,7 @@ class SumstatsTable:
         )
 
     def summary(self) -> dict[str, Any]:
+        """Summarize the retained rows and provenance fields."""
         return {
             "n_rows": len(self.data),
             "has_alleles": self.has_alleles,
@@ -93,6 +142,7 @@ class SumstatsTable:
 
 @dataclass(frozen=True)
 class MungeRunSummary:
+    """Compact summary of one munging run."""
     n_input_rows: int
     n_retained_rows: int
     drop_counts: dict[str, int]
@@ -102,7 +152,7 @@ class MungeRunSummary:
 
 
 class SumstatsMunger:
-    """Service wrapper around the legacy munging workflow."""
+    """Run legacy-compatible munging through a typed workflow interface."""
 
     def __init__(self) -> None:
         self._last_summary: MungeRunSummary | None = None
@@ -113,6 +163,24 @@ class SumstatsMunger:
         munge_config: MungeConfig,
         common_config: CommonConfig | None = None,
     ) -> SumstatsTable:
+        """Munge one raw summary-statistics file into LDSC-ready form.
+
+        Parameters
+        ----------
+        raw_source : RawSumstatsSpec
+            Raw file path and optional column hints.
+        munge_config : MungeConfig
+            Munging thresholds and output settings.
+        common_config : CommonConfig or None, optional
+            Reserved for future shared validation. It is currently accepted to keep
+            the workflow interface consistent with the rest of the package. Default
+            is ``None``.
+
+        Returns
+        -------
+        SumstatsTable
+            Validated, in-memory table suitable for the regression workflow.
+        """
         del common_config  # reserved for future shared validation
         args = self._build_args(raw_source, munge_config)
         data = kernel_munge.munge_sumstats(args, p=True)
@@ -142,17 +210,20 @@ class SumstatsMunger:
         return table
 
     def write_output(self, sumstats: SumstatsTable, out_prefix: str) -> str:
+        """Write a munged table to ``<out_prefix>.sumstats.gz``."""
         output_path = out_prefix + ".sumstats.gz"
         columns = [col for col in ("SNP", "N", "Z", "A1", "A2", "FRQ") if col in sumstats.data.columns]
         sumstats.data.to_csv(output_path, sep="\t", index=False, columns=columns, float_format="%.3f", compression="gzip")
         return output_path
 
     def build_run_summary(self, _sumstats: SumstatsTable | None = None) -> MungeRunSummary:
+        """Return the summary captured from the most recent call to :meth:`run`."""
         if self._last_summary is None:
             raise ValueError("No munging run has been executed yet.")
         return self._last_summary
 
     def _build_args(self, raw_source: RawSumstatsSpec, munge_config: MungeConfig) -> argparse.Namespace:
+        """Translate dataclass configuration into the legacy parser namespace."""
         args = parser.parse_args("")
         args.sumstats = raw_source.path
         args.out = munge_config.out_prefix
@@ -180,15 +251,18 @@ class SumstatsMunger:
 
 
 def main(argv: list[str] | None = None):
+    """Run the historical munging parser and kernel entrypoint."""
     args = parser.parse_args(argv)
     return kernel_munge.munge_sumstats(args, p=True)
 
 
 def kernel_parser():
+    """Expose the legacy parser for CLI action cloning."""
     return parser
 
 
 def _count_data_rows(path: str) -> int:
+    """Count non-header rows in an input summary-statistics file."""
     openfunc, _compression = kernel_munge.get_compression(path)
     with openfunc(path) as handle:
         count = sum(1 for _ in handle)
@@ -196,6 +270,7 @@ def _count_data_rows(path: str) -> int:
 
 
 def _infer_used_n_rule(args: argparse.Namespace) -> str:
+    """Summarize which sample-size rule the current munging run will apply."""
     if getattr(args, "N", None) is not None:
         return "fixed_N"
     if getattr(args, "N_cas", None) is not None and getattr(args, "N_con", None) is not None:

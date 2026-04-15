@@ -1,4 +1,17 @@
 #!/usr/bin/env python
+"""Legacy-compatible summary-statistics munging kernel.
+
+Core functionality:
+    Parse heterogeneous GWAS summary-statistics files, infer canonical LDSC
+    columns, apply quality-control filters, and emit LDSC-ready outputs.
+
+Overview
+--------
+This module contains the low-level munging implementation reused by the public
+``ldsc.sumstats_munger`` workflow wrapper. It stays close to the historical
+LDSC behavior so filtering semantics and output formats remain stable while the
+rest of the refactored package gains a cleaner public interface.
+"""
 import pandas as pd
 import numpy as np
 #import os
@@ -32,6 +45,7 @@ MASTHEAD += "*******************************************************************
 
 
 def sec_to_str(t):
+    """Format elapsed seconds as a compact human-readable duration."""
     [d, h, m, s, n] = reduce(lambda ll, b: divmod(ll[0], b) + ll[1:], [(t, 1), 60, 60, 24])
     f = ''
     if d > 0:
@@ -46,6 +60,7 @@ def sec_to_str(t):
 
 
 class Logger(object):
+    """Minimal file-plus-stdout logger used by the munging kernel."""
     def __init__(self, fh):
         self.log_fh = open(fh, 'w', encoding='utf-8')
 
@@ -569,6 +584,21 @@ parser.add_argument('--keep-maf', default=False, action='store_true',
 
 # set p = False for testing in order to prevent printing
 def munge_sumstats(args, p=True):
+    """Run the historical LDSC munging pipeline.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed legacy-style munging arguments.
+    p : bool, optional
+        Historical flag controlling whether the processed table is returned for
+        programmatic reuse. Default is ``True``.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Munged summary-statistics table when ``p`` is true.
+    """
     if args.out is None:
         raise ValueError('The --out flag is required.')
 
@@ -787,6 +817,7 @@ def munge_sumstats(args, p=True):
         log.close()
 
 def main(argv=None):
+    """CLI entry point for the munging kernel."""
     return munge_sumstats(parser.parse_args(argv), p=True)
 
 if __name__ == '__main__':

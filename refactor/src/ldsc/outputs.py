@@ -19,6 +19,7 @@ CompressionMode = str
 
 @dataclass(frozen=True)
 class OutputSpec:
+    """Configuration for artifact emission and on-disk layout."""
     out_prefix: str
     output_dir: str | None = None
     artifact_layout: ArtifactLayout = "flat"
@@ -47,11 +48,13 @@ class OutputSpec:
 
 @dataclass(frozen=True)
 class ArtifactConfig:
+    """Optional advanced settings for artifact-specific producers."""
     options: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
 class RunSummary:
+    """Compact run metadata derived from a workflow result."""
     n_reference_snps: int
     n_regression_snps: int
     chromosomes_processed: list[str]
@@ -62,6 +65,7 @@ class RunSummary:
 
 @dataclass(frozen=True)
 class Artifact:
+    """In-memory artifact payload prior to serialization."""
     name: str
     relative_path: str
     payload: Any
@@ -69,10 +73,12 @@ class Artifact:
 
 
 class ArtifactProducer(ABC):
+    """Extension interface for output producers."""
     name: str
 
     @abstractmethod
     def supports(self, result: Any) -> bool:
+        """Return ``True`` if the producer can emit artifacts for ``result``."""
         raise NotImplementedError
 
     @abstractmethod
@@ -83,6 +89,7 @@ class ArtifactProducer(ABC):
         output_spec: OutputSpec,
         artifact_config: ArtifactConfig | None = None,
     ) -> list[Artifact]:
+        """Build artifacts from ``result`` and ``run_summary``."""
         raise NotImplementedError
 
 
@@ -95,6 +102,7 @@ class ResultFormatter:
         output_spec: OutputSpec,
         config_snapshot: dict[str, Any] | None = None,
     ) -> RunSummary:
+        """Summarize row counts, chromosomes, and count-vector keys."""
         ref_meta = getattr(result, "reference_metadata", None)
         reg_meta = getattr(result, "regression_metadata", None)
         chromosomes = getattr(result, "chromosome_results", None) or []
@@ -109,6 +117,7 @@ class ResultFormatter:
         )
 
     def build_annotation_manifest(self, result: Any) -> pd.DataFrame:
+        """Build a baseline/query manifest from result column names."""
         baseline = list(getattr(result, "baseline_columns", []))
         query = list(getattr(result, "query_columns", []))
         rows = (
@@ -118,6 +127,7 @@ class ResultFormatter:
         return pd.DataFrame(rows, columns=["column", "group"])
 
     def build_summary_table(self, run_summary: RunSummary) -> pd.DataFrame:
+        """Convert a :class:`RunSummary` into a one-row table."""
         row = {
             "n_reference_snps": run_summary.n_reference_snps,
             "n_regression_snps": run_summary.n_regression_snps,
@@ -131,6 +141,7 @@ class ResultWriter:
     """Serialize artifact payloads to disk."""
 
     def write(self, artifact: Artifact, root: Path, overwrite: bool = False) -> str:
+        """Write ``artifact`` below ``root`` and return the written path."""
         path = root / artifact.relative_path
         path.parent.mkdir(parents=True, exist_ok=True)
         if path.exists() and not overwrite:
@@ -163,6 +174,7 @@ class ResultWriter:
 
 
 class LDScoreTableProducer(ArtifactProducer):
+    """Producer for reference LD-score tables."""
     name = "ldscore"
 
     def supports(self, result: Any) -> bool:
@@ -191,6 +203,7 @@ class LDScoreTableProducer(ArtifactProducer):
 
 
 class WeightLDProducer(ArtifactProducer):
+    """Producer for regression-weight LD-score tables."""
     name = "w_ld"
 
     def supports(self, result: Any) -> bool:
@@ -221,6 +234,7 @@ class WeightLDProducer(ArtifactProducer):
 
 
 class CountProducer(ArtifactProducer):
+    """Producer for count-vector artifacts such as ``.M`` and ``.M_5_50``."""
     name = "counts"
 
     def supports(self, result: Any) -> bool:
@@ -237,6 +251,7 @@ class CountProducer(ArtifactProducer):
 
 
 class AnnotationManifestProducer(ArtifactProducer):
+    """Producer for the baseline/query annotation manifest."""
     name = "annotation_manifest"
 
     def __init__(self, formatter: ResultFormatter):
@@ -251,6 +266,7 @@ class AnnotationManifestProducer(ArtifactProducer):
 
 
 class SummaryTSVProducer(ArtifactProducer):
+    """Producer for a compact TSV run summary."""
     name = "summary_tsv"
 
     def __init__(self, formatter: ResultFormatter):
@@ -265,6 +281,7 @@ class SummaryTSVProducer(ArtifactProducer):
 
 
 class SummaryJSONProducer(ArtifactProducer):
+    """Producer for a JSON-serialized run summary."""
     name = "summary_json"
 
     def supports(self, result: Any) -> bool:
@@ -275,6 +292,7 @@ class SummaryJSONProducer(ArtifactProducer):
 
 
 class RunMetadataProducer(ArtifactProducer):
+    """Producer for JSON run metadata."""
     name = "run_metadata"
 
     def supports(self, result: Any) -> bool:
@@ -305,12 +323,15 @@ class OutputManager:
             self.register_producer(producer)
 
     def register_producer(self, producer: ArtifactProducer) -> None:
+        """Register or replace an artifact producer by name."""
         self._registry[producer.name] = producer
 
     def available_artifacts(self) -> list[str]:
+        """Return registered artifact names."""
         return sorted(self._registry.keys())
 
     def resolve_enabled_artifacts(self, output_spec: OutputSpec) -> list[str]:
+        """Resolve enabled artifact names implied by ``output_spec``."""
         if output_spec.enabled_artifacts is not None:
             unknown = sorted(set(output_spec.enabled_artifacts) - set(self._registry.keys()))
             if unknown:
@@ -340,6 +361,7 @@ class OutputManager:
         output_spec: OutputSpec,
         config_snapshot: dict[str, Any] | None = None,
     ) -> RunSummary:
+        """Delegate run-summary construction to :class:`ResultFormatter`."""
         return self.formatter.build_run_summary(result, output_spec, config_snapshot=config_snapshot)
 
     def write_outputs(
@@ -349,6 +371,7 @@ class OutputManager:
         artifact_config: ArtifactConfig | None = None,
         config_snapshot: dict[str, Any] | None = None,
     ) -> RunSummary:
+        """Build and write all enabled artifacts for ``result``."""
         root = _output_root(output_spec)
         run_summary = self.build_run_summary(result, output_spec, config_snapshot=config_snapshot)
         output_paths: dict[str, str] = {}
@@ -377,10 +400,12 @@ class PostProcessor:
         self.output_manager = output_manager or OutputManager()
 
     def register_producer(self, producer: ArtifactProducer) -> None:
+        """Register an additional producer on the attached output manager."""
         self.output_manager.register_producer(producer)
 
 
 def _default_producers(formatter: ResultFormatter) -> list[ArtifactProducer]:
+    """Return the built-in artifact producers used by the default output manager."""
     return [
         LDScoreTableProducer(),
         WeightLDProducer(),
@@ -393,6 +418,7 @@ def _default_producers(formatter: ResultFormatter) -> list[ArtifactProducer]:
 
 
 def _output_root(output_spec: OutputSpec) -> Path:
+    """Resolve the filesystem root for the current artifact layout."""
     if output_spec.output_dir is None:
         return Path(".")
     if output_spec.artifact_layout == "run_dir":
@@ -401,6 +427,7 @@ def _output_root(output_spec: OutputSpec) -> Path:
 
 
 def _artifact_filename(output_spec: OutputSpec, suffix: str, chrom: str | None = None, compressed: bool | None = None) -> str:
+    """Build one artifact-relative filename from the configured layout rules."""
     compressed = output_spec.compression == "gzip" if compressed is None else compressed
     prefix = Path(output_spec.out_prefix).name
     if chrom is None or output_spec.artifact_layout == "flat":
@@ -414,6 +441,7 @@ def _artifact_filename(output_spec: OutputSpec, suffix: str, chrom: str | None =
 
 
 def _count_suffix(key: str) -> str:
+    """Map an internal count key to the legacy-compatible output suffix."""
     if key == "all_reference_snp_counts":
         return ".l2.M"
     if key == "common_reference_snp_counts_maf_gt_0_05":
@@ -422,6 +450,7 @@ def _count_suffix(key: str) -> str:
 
 
 def _to_serializable(value: Any) -> Any:
+    """Recursively convert workflow objects into JSON-serializable structures."""
     if is_dataclass(value):
         return _to_serializable(asdict(value))
     if isinstance(value, pd.DataFrame):

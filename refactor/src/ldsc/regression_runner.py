@@ -25,6 +25,7 @@ ALL_COUNT_KEY = "all_reference_snp_counts"
 
 @dataclass(frozen=True)
 class RegressionDataset:
+    """Merged regression-ready dataset built from sumstats and LD-score tables."""
     merged: pd.DataFrame
     ref_ld_columns: list[str]
     weight_column: str
@@ -36,6 +37,7 @@ class RegressionDataset:
     chromosomes_aggregated: list[str]
 
     def validate(self) -> None:
+        """Validate that the merged table contains the required LDSC columns."""
         required = {"SNP", self.weight_column, "Z", "N"}
         missing = required - set(self.merged.columns)
         if missing:
@@ -43,7 +45,7 @@ class RegressionDataset:
 
 
 class RegressionRunner:
-    """Build regression datasets and dispatch legacy estimator kernels."""
+    """Assemble LDSC regression datasets and dispatch estimator kernels."""
 
     def __init__(
         self,
@@ -59,6 +61,12 @@ class RegressionRunner:
         ldscore_result: LDScoreResult,
         config: RegressionConfig | None = None,
     ) -> RegressionDataset:
+        """Merge sumstats, LD scores, and weights into a regression dataset.
+
+        Zero-variance LD-score columns are dropped here so the estimator kernel
+        receives only informative regressors. The selected count vector is
+        carried alongside the merged table for later use by ``Hsq`` and ``RG``.
+        """
         config = config or self.regression_config
         ref_ld_frame = pd.concat(
             [
@@ -120,6 +128,7 @@ class RegressionRunner:
         dataset: RegressionDataset,
         config: RegressionConfig | None = None,
     ):
+        """Estimate single-trait heritability from a prepared dataset."""
         config = config or self.regression_config
         merged = dataset.merged
         n_snp = len(merged)
@@ -161,6 +170,7 @@ class RegressionRunner:
         annotation_bundle,
         config: RegressionConfig | None = None,
     ) -> pd.DataFrame:
+        """Estimate partitioned heritability for one selected query annotation."""
         del annotation_bundle  # grouping metadata is carried by the selected columns
         dataset = self.build_dataset(sumstats_table, ldscore_result, config=config)
         hsq = self.estimate_h2(dataset, config=config)
@@ -195,6 +205,7 @@ class RegressionRunner:
         annotation_bundle,
         config: RegressionConfig | None = None,
     ) -> pd.DataFrame:
+        """Loop over query annotations and concatenate partitioned-h2 summaries."""
         rows = []
         for query_column in annotation_bundle.query_columns:
             subset_result = _subset_ldscore_result(ldscore_result, baseline_columns=ldscore_result.baseline_columns, query_columns=[query_column])
@@ -211,6 +222,7 @@ class RegressionRunner:
         ldscore_result: LDScoreResult,
         config: RegressionConfig | None = None,
     ):
+        """Estimate genetic correlation between two munged summary-stat tables."""
         config = config or self.regression_config
         dataset_1 = self.build_dataset(sumstats_table_1, ldscore_result, config=config)
         merged = pd.merge(
@@ -246,6 +258,7 @@ class RegressionRunner:
         )
 
 def _select_count_key(count_totals: dict[str, np.ndarray], use_m_5_50: bool) -> str:
+    """Pick the regression count vector key, preferring LDSC's common-SNP default."""
     if use_m_5_50 and COMMON_COUNT_KEY in count_totals:
         return COMMON_COUNT_KEY
     if ALL_COUNT_KEY in count_totals:
@@ -254,6 +267,7 @@ def _select_count_key(count_totals: dict[str, np.ndarray], use_m_5_50: bool) -> 
 
 
 def _select_intercept(value, index: int, use_intercept: bool, default_when_disabled: float):
+    """Resolve fixed-intercept config into the scalar expected by the kernel."""
     if not use_intercept:
         return default_when_disabled
     if value is None:
@@ -264,6 +278,7 @@ def _select_intercept(value, index: int, use_intercept: bool, default_when_disab
 
 
 def _subset_ldscore_result(ldscore_result: LDScoreResult, baseline_columns: list[str], query_columns: list[str]) -> LDScoreResult:
+    """Return a copy of ``ldscore_result`` restricted to the requested columns."""
     selected_columns = baseline_columns + query_columns
     selected_index = [ldscore_result.ld_scores.columns.get_loc(column) for column in selected_columns]
     snp_count_totals = {
@@ -286,12 +301,14 @@ def _subset_ldscore_result(ldscore_result: LDScoreResult, baseline_columns: list
 
 
 def add_h2_arguments(parser) -> None:
+    """Register heritability CLI arguments on ``parser``."""
     _add_common_regression_arguments(parser, include_h2_intercept=True)
     parser.add_argument("--sumstats", required=True, help="Munged .sumstats(.gz) file.")
     parser.add_argument("--trait-name", default=None, help="Optional trait label for summaries.")
 
 
 def add_partitioned_h2_arguments(parser) -> None:
+    """Register partitioned-heritability CLI arguments on ``parser``."""
     _add_common_regression_arguments(parser, include_h2_intercept=True)
     parser.add_argument("--sumstats", required=True, help="Munged .sumstats(.gz) file.")
     parser.add_argument("--trait-name", default=None, help="Optional trait label for summaries.")
@@ -308,6 +325,7 @@ def add_partitioned_h2_arguments(parser) -> None:
 
 
 def add_rg_arguments(parser) -> None:
+    """Register genetic-correlation CLI arguments on ``parser``."""
     _add_common_regression_arguments(parser, include_h2_intercept=False)
     parser.add_argument("--sumstats-1", required=True, help="First munged .sumstats(.gz) file.")
     parser.add_argument("--sumstats-2", required=True, help="Second munged .sumstats(.gz) file.")
@@ -318,6 +336,7 @@ def add_rg_arguments(parser) -> None:
 
 
 def run_h2_from_args(args):
+    """Run single-trait heritability estimation from parsed CLI arguments."""
     runner, config = _runner_from_args(args)
     sumstats_table = _load_sumstats_table(args.sumstats, getattr(args, "trait_name", None))
     ldscore_result = _load_ldscore_result_from_files(
@@ -350,6 +369,7 @@ def run_h2_from_args(args):
 
 
 def run_partitioned_h2_from_args(args):
+    """Run batch partitioned heritability from parsed CLI arguments."""
     runner, config = _runner_from_args(args)
     sumstats_table = _load_sumstats_table(args.sumstats, getattr(args, "trait_name", None))
     ldscore_result = _load_ldscore_result_from_files(
@@ -369,6 +389,7 @@ def run_partitioned_h2_from_args(args):
 
 
 def run_rg_from_args(args):
+    """Run genetic-correlation estimation from parsed CLI arguments."""
     runner, config = _runner_from_args(args)
     sumstats_table_1 = _load_sumstats_table(args.sumstats_1, getattr(args, "trait_name_1", None))
     sumstats_table_2 = _load_sumstats_table(args.sumstats_2, getattr(args, "trait_name_2", None))
@@ -396,6 +417,7 @@ def run_rg_from_args(args):
 
 
 def _add_common_regression_arguments(parser, include_h2_intercept: bool) -> None:
+    """Add the file and model options shared by all regression subcommands."""
     parser.add_argument("--ldscore", required=True, help="Reference LD-score table (.l2.ldscore[.gz]).")
     parser.add_argument("--w-ld", required=True, help="Regression-weight LD-score table (.w.l2.ldscore[.gz]).")
     parser.add_argument("--counts", required=True, help="Annotation count vector file (.M or .M_5_50).")
@@ -415,6 +437,7 @@ def _add_common_regression_arguments(parser, include_h2_intercept: bool) -> None
 
 
 def _runner_from_args(args) -> tuple[RegressionRunner, RegressionConfig]:
+    """Build the regression workflow objects from parsed CLI arguments."""
     config = RegressionConfig(
         n_blocks=args.n_blocks,
         use_m_5_50=(args.count_kind == "m_5_50"),
@@ -429,11 +452,13 @@ def _runner_from_args(args) -> tuple[RegressionRunner, RegressionConfig]:
 
 
 def _read_table(path: str) -> pd.DataFrame:
+    """Read a whitespace-delimited LDSC artifact table with gzip support."""
     compression = "gzip" if str(path).endswith(".gz") else "infer"
     return pd.read_csv(path, sep=r"\s+", compression=compression)
 
 
 def _read_count_vector(path: str) -> np.ndarray:
+    """Read one count-vector artifact such as ``.l2.M`` or ``.l2.M_5_50``."""
     text = Path(path).read_text(encoding="utf-8").strip()
     if not text:
         raise ValueError(f"Count file is empty: {path}")
@@ -441,6 +466,7 @@ def _read_count_vector(path: str) -> np.ndarray:
 
 
 def _load_sumstats_table(path: str, trait_name: str | None) -> SumstatsTable:
+    """Load one munged sumstats file and wrap it in ``SumstatsTable``."""
     df = _read_table(path)
     table = SumstatsTable(
         data=df.reset_index(drop=True),
@@ -460,6 +486,12 @@ def _load_ldscore_result_from_files(
     annotation_manifest_path: str | None = None,
     explicit_query_columns: str | None = None,
 ) -> LDScoreResult:
+    """
+    Rebuild an ``LDScoreResult`` from previously written LD-score artifacts.
+
+    This keeps the regression CLI file-driven while reusing the in-memory
+    workflow objects defined by the refactored package.
+    """
     ld_table = _read_table(ldscore_path)
     weight_table = _read_table(weight_path)
     metadata_columns = [column for column in ["CHR", "SNP", "BP", "CM", "MAF"] if column in ld_table.columns]
@@ -501,6 +533,7 @@ def _resolve_annotation_groups(
     annotation_manifest_path: str | None,
     explicit_query_columns: str | None,
 ) -> tuple[list[str], list[str]]:
+    """Resolve baseline/query columns from a manifest or explicit query list."""
     if annotation_manifest_path:
         manifest = _read_table(annotation_manifest_path)
         if not {"column", "group"}.issubset(manifest.columns):
@@ -516,6 +549,7 @@ def _resolve_annotation_groups(
 
 
 def _maybe_write_dataframe(df: pd.DataFrame, out_prefix: str | None, suffix: str) -> None:
+    """Write a summary table only when the caller requested an output prefix."""
     if not out_prefix:
         return
     path = Path(out_prefix + suffix)

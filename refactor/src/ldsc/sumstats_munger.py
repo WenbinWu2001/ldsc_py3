@@ -7,21 +7,24 @@ Core functionality:
 Overview
 --------
 This module converts the historical munging script behavior into explicit
-    Python dataclasses and a small service object. The underlying parsing,
-    column inference, and QC filters remain in the internal kernel so numerical
-    behavior stays aligned with established LDSC outputs.
+Python dataclasses and a small service object. The public workflow boundary
+accepts path-like inputs, normalizes them once, and then passes primitive
+values into the internal kernel so numerical behavior stays aligned with
+established LDSC outputs.
 """
 
 from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass, field
+from os import PathLike
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
-from .config import CommonConfig, MungeConfig
+from .config import CommonConfig, MungeConfig, _normalize_required_path
+from .path_resolution import normalize_path_token, resolve_scalar_path
 from ._kernel import sumstats_munger as kernel_munge
 
 
@@ -53,8 +56,10 @@ class RawSumstatsSpec:
 
     Parameters
     ----------
-    path : str
-        Path to the raw summary-statistics file.
+    path : str or os.PathLike[str]
+        Path token for the raw summary-statistics file. This may be a literal
+        path or an exact-one glob pattern; resolution happens in the workflow
+        layer before the kernel is called.
     compression : str, optional
         Compression mode hint. Default is ``"auto"``, which delegates
         detection to the kernel.
@@ -65,10 +70,13 @@ class RawSumstatsSpec:
         Mapping from canonical LDSC field names to source column names.
         Default is an empty dict.
     """
-    path: str
+    path: str | PathLike[str]
     compression: str = "auto"
     trait_name: str | None = None
     column_hints: dict[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "path", _normalize_required_path(self.path))
 
 
 @dataclass(frozen=True)
@@ -182,29 +190,32 @@ class SumstatsMunger:
             Validated, in-memory table suitable for the regression workflow.
         """
         del common_config  # reserved for future shared validation
+        source_path = resolve_scalar_path(raw_source.path, label="raw sumstats")
+        out_prefix = normalize_path_token(munge_config.out_prefix)
+        Path(out_prefix).parent.mkdir(parents=True, exist_ok=True)
         args = self._build_args(raw_source, munge_config)
         data = kernel_munge.munge_sumstats(args, p=True)
         table = SumstatsTable(
             data=data.reset_index(drop=True),
             has_alleles=(not munge_config.no_alleles),
-            source_path=raw_source.path,
+            source_path=source_path,
             trait_name=raw_source.trait_name,
             provenance={
-                "sumstats_path": raw_source.path,
-                "out_prefix": munge_config.out_prefix,
+                "sumstats_path": source_path,
+                "out_prefix": out_prefix,
                 "column_hints": dict(raw_source.column_hints),
             },
         )
         table.validate()
         self._last_summary = MungeRunSummary(
-            n_input_rows=_count_data_rows(raw_source.path),
+            n_input_rows=_count_data_rows(source_path),
             n_retained_rows=len(table.data),
             drop_counts={},
             inferred_columns=dict(raw_source.column_hints),
             used_n_rule=_infer_used_n_rule(args),
             output_paths={
-                "sumstats_gz": munge_config.out_prefix + ".sumstats.gz",
-                "log": munge_config.out_prefix + ".log",
+                "sumstats_gz": out_prefix + ".sumstats.gz",
+                "log": out_prefix + ".log",
             },
         )
         return table
@@ -212,6 +223,7 @@ class SumstatsMunger:
     def write_output(self, sumstats: SumstatsTable, out_prefix: str) -> str:
         """Write a munged table to ``<out_prefix>.sumstats.gz``."""
         output_path = out_prefix + ".sumstats.gz"
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         columns = [col for col in ("SNP", "N", "Z", "A1", "A2", "FRQ") if col in sumstats.data.columns]
         sumstats.data.to_csv(output_path, sep="\t", index=False, columns=columns, float_format="%.3f", compression="gzip")
         return output_path
@@ -225,8 +237,8 @@ class SumstatsMunger:
     def _build_args(self, raw_source: RawSumstatsSpec, munge_config: MungeConfig) -> argparse.Namespace:
         """Translate dataclass configuration into the legacy parser namespace."""
         args = parser.parse_args("")
-        args.sumstats = raw_source.path
-        args.out = munge_config.out_prefix
+        args.sumstats = resolve_scalar_path(raw_source.path, label="raw sumstats")
+        args.out = normalize_path_token(munge_config.out_prefix)
         args.N = munge_config.N
         args.N_cas = munge_config.N_cas
         args.N_con = munge_config.N_con
@@ -235,7 +247,11 @@ class SumstatsMunger:
         args.n_min = munge_config.n_min
         args.nstudy_min = munge_config.nstudy_min
         args.chunksize = munge_config.chunk_size
-        args.merge_alleles = munge_config.merge_alleles_path
+        args.merge_alleles = (
+            None
+            if munge_config.merge_alleles_path is None
+            else resolve_scalar_path(munge_config.merge_alleles_path, label="merge-alleles file")
+        )
         args.signed_sumstats = munge_config.signed_sumstats_spec
         args.ignore = ",".join(munge_config.ignore_columns) if munge_config.ignore_columns else None
         args.no_alleles = munge_config.no_alleles
@@ -253,6 +269,10 @@ class SumstatsMunger:
 def main(argv: list[str] | None = None):
     """Run the historical munging parser and kernel entrypoint."""
     args = parser.parse_args(argv)
+    args.sumstats = resolve_scalar_path(args.sumstats, label="raw sumstats")
+    args.out = normalize_path_token(args.out)
+    if getattr(args, "merge_alleles", None):
+        args.merge_alleles = resolve_scalar_path(args.merge_alleles, label="merge-alleles file")
     return kernel_munge.munge_sumstats(args, p=True)
 
 

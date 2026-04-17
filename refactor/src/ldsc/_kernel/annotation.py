@@ -2,22 +2,26 @@
 annotation.py
 
 Core functionality:
-    Load aligned SNP-level annotation tables and project region-level BED inputs
-    into LDSC ``.annot.gz`` files.
+    Load SNP-level annotation tables into validated ``AnnotationBundle``
+    objects and project region-level BED inputs into LDSC ``.annot.gz`` files.
 
 Overview
 --------
-This module is the annotation-side kernel for the refactored codebase. It owns
+This module is the annotation-side execution kernel for the refactored codebase. It owns
 two related jobs: reading already materialized SNP-level annotation tables into
- an ``AnnotationBundle`` that the LD-score workflow can consume, and converting
+an ``AnnotationBundle`` that the LD-score workflow can consume, and converting
  BED or gene-set intervals into chromosome-matched ``.annot.gz`` outputs using
- baseline annotation templates.
+baseline annotation templates. The loading path supports both single-table
+inputs, where every file must share the same SNP row universe, and LDSC-style
+chromosome-sharded inputs such as ``baseline.1.annot.gz`` through
+``baseline.22.annot.gz``, which are validated per chromosome and then
+aggregated into one bundle.
 
 Key Functions
 -------------
 AnnotationBuilder.run :
     Build one aligned SNP-level annotation bundle from baseline and query
-    annotation tables.
+    annotation tables, with automatic aggregation of chromosome-sharded files.
 run_bed_to_annot :
     Project one or more BED files onto a directory of baseline templates.
 make_annot_files :
@@ -27,6 +31,8 @@ Design Notes
 ------------
 - All annotation tables are normalized to the same required metadata columns:
   ``CHR``, ``BP``, ``SNP``, and ``CM``.
+- When filenames cleanly encode one chromosome shard each, bundles are built
+  independently per chromosome and concatenated in stable genomic order.
 - Global SNP restriction is applied after alignment so baseline, query, and
   metadata rows remain synchronized.
 - BED projection relies on ``pybedtools`` for interval intersection but keeps
@@ -38,7 +44,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import glob
 import gzip
 import logging
 import os
@@ -46,13 +51,21 @@ import re
 import sys
 import tempfile
 from dataclasses import dataclass, field
+from os import PathLike
 from pathlib import Path
 from typing import Iterator, Sequence
 
 import numpy as np
 import pandas as pd
 
-from ..config import AnnotationBuildConfig, CommonConfig
+from ..config import AnnotationBuildConfig, CommonConfig, _normalize_path_tuple
+from ..path_resolution import (
+    ANNOTATION_SUFFIXES,
+    normalize_path_token,
+    resolve_file_group,
+    resolve_scalar_path,
+    split_cli_path_tokens,
+)
 from .identifiers import (
     build_snp_id_series,
     clean_header,
@@ -74,18 +87,25 @@ SNP_ALIASES = ("snp", "snpid", "rsid", "rs_id", "markername", "marker")
 
 @dataclass(frozen=True)
 class AnnotationSourceSpec:
-    """Describe the raw annotation inputs needed to build an ``AnnotationBundle``."""
-    baseline_annot_paths: tuple[str, ...] = field(default_factory=tuple)
-    query_annot_paths: tuple[str, ...] = field(default_factory=tuple)
-    bed_paths: tuple[str, ...] = field(default_factory=tuple)
-    gene_set_paths: tuple[str, ...] = field(default_factory=tuple)
+    """Describe the raw annotation input tokens needed to build a bundle.
+
+    Annotation fields accept one token or a sequence of tokens. Each token may
+    be an exact path, a standard Python glob pattern, an explicit chromosome
+    suite placeholder using ``@``, or a legacy bare prefix such as
+    ``baseline.``. Resolution happens inside the workflow layer; the stored
+    dataclass values remain normalized strings until :meth:`AnnotationBuilder.run`.
+    """
+    baseline_annot_paths: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
+    query_annot_paths: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
+    bed_paths: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
+    gene_set_paths: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
     allow_missing_query: bool = True
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "baseline_annot_paths", tuple(str(path) for path in self.baseline_annot_paths))
-        object.__setattr__(self, "query_annot_paths", tuple(str(path) for path in self.query_annot_paths))
-        object.__setattr__(self, "bed_paths", tuple(str(path) for path in self.bed_paths))
-        object.__setattr__(self, "gene_set_paths", tuple(str(path) for path in self.gene_set_paths))
+        object.__setattr__(self, "baseline_annot_paths", _normalize_path_tuple(self.baseline_annot_paths))
+        object.__setattr__(self, "query_annot_paths", _normalize_path_tuple(self.query_annot_paths))
+        object.__setattr__(self, "bed_paths", _normalize_path_tuple(self.bed_paths))
+        object.__setattr__(self, "gene_set_paths", _normalize_path_tuple(self.gene_set_paths))
 
 
 @dataclass(frozen=True)
@@ -172,7 +192,9 @@ class AnnotationBuilder:
 
     The builder keeps the annotation-side validation rules in one place:
     resolving input paths, enforcing row alignment across baseline and query
-    tables, and applying the global SNP restriction consistently.
+    tables, automatically aggregating chromosome-sharded annotation files when
+    their filenames encode one chromosome each, and applying the global SNP
+    restriction consistently.
     """
 
     def __init__(self, common_config: CommonConfig, build_config: AnnotationBuildConfig | None = None) -> None:
@@ -182,6 +204,14 @@ class AnnotationBuilder:
     def run(self, source_spec: AnnotationSourceSpec, chrom: str | None = None) -> AnnotationBundle:
         """
         Build one aligned SNP-level annotation bundle.
+
+        This method accepts two input layouts. In the single-universe layout,
+        every baseline and query file is interpreted as another annotation block
+        over the same SNP rows, so all files must have identical SNP identifiers
+        in identical order. In the chromosome-sharded layout, resolved filenames
+        such as ``baseline.1.annot.gz`` and ``query.1.annot.gz`` are grouped by
+        chromosome, each chromosome is validated independently, and the per-
+        chromosome bundles are concatenated into one aggregate bundle.
 
         Parameters
         ----------
@@ -194,13 +224,60 @@ class AnnotationBuilder:
         Returns
         -------
         AnnotationBundle
-            Metadata plus dense baseline/query annotation blocks sharing one row
-            order and one SNP universe.
+            Metadata plus dense baseline/query annotation blocks. For
+            single-universe inputs, all rows come from one shared SNP universe.
+            For chromosome-sharded inputs, rows are aggregated across the
+            detected chromosome shards in stable chromosome order.
+
+        Raises
+        ------
+        ValueError
+            If no baseline annotation files are provided, if row alignment fails
+            within one annotation universe, if shard detection reveals a mixed
+            whole-genome/per-chromosome layout, if multiple files map
+            ambiguously to the same chromosome shard, or if baseline and query
+            chromosome shards do not cover the same chromosomes.
         """
-        baseline_files = [self._resolve_annotation_path(path) for path in source_spec.baseline_annot_paths]
-        query_files = [self._resolve_annotation_path(path) for path in source_spec.query_annot_paths]
-        if not baseline_files:
+        if not source_spec.baseline_annot_paths:
             raise ValueError("AnnotationSourceSpec must include at least one baseline annotation file.")
+        baseline_files = resolve_file_group(
+            source_spec.baseline_annot_paths,
+            suffixes=ANNOTATION_SUFFIXES,
+            label="baseline annotation",
+            allow_chromosome_suite=True,
+        )
+        query_files = (
+            []
+            if not source_spec.query_annot_paths
+            else resolve_file_group(
+                source_spec.query_annot_paths,
+                suffixes=ANNOTATION_SUFFIXES,
+                label="query annotation",
+                allow_chromosome_suite=True,
+            )
+        )
+
+        sharded_baseline = self._detect_chromosome_shards(baseline_files, group_name="baseline")
+        if sharded_baseline is not None:
+            sharded_query = self._detect_chromosome_shards(query_files, group_name="query") if query_files else {}
+            return self._run_sharded_inputs(
+                source_spec,
+                sharded_baseline,
+                sharded_query,
+                chrom=chrom,
+                has_query_inputs=bool(query_files),
+            )
+
+        return self._run_single_universe(source_spec, baseline_files, query_files, chrom=chrom)
+
+    def _run_single_universe(
+        self,
+        source_spec: AnnotationSourceSpec,
+        baseline_files: Sequence[str],
+        query_files: Sequence[str],
+        chrom: str | None = None,
+    ) -> AnnotationBundle:
+        """Build one bundle when all inputs should share one SNP row universe."""
 
         metadata: pd.DataFrame | None = None
         baseline_blocks: list[pd.DataFrame] = []
@@ -240,6 +317,88 @@ class AnnotationBuilder:
 
         metadata, baseline_df, query_df = self._apply_global_restriction(metadata, baseline_df, query_df)
         chromosomes = sorted(metadata["CHR"].astype(str).map(normalize_chromosome).unique().tolist(), key=_chrom_sort_key)
+        return self._build_bundle(
+            metadata=metadata,
+            baseline_df=baseline_df,
+            query_df=query_df,
+            baseline_columns=baseline_columns,
+            query_columns=query_columns,
+            chromosomes=chromosomes,
+            source_spec=source_spec,
+        )
+
+    def _run_sharded_inputs(
+        self,
+        source_spec: AnnotationSourceSpec,
+        baseline_by_chrom: dict[str, str],
+        query_by_chrom: dict[str, str],
+        chrom: str | None,
+        has_query_inputs: bool,
+    ) -> AnnotationBundle:
+        """Build and aggregate one bundle per chromosome shard."""
+        if chrom is not None:
+            chrom_key = normalize_chromosome(chrom)
+            baseline_by_chrom = {chrom_key: baseline_by_chrom[chrom_key]} if chrom_key in baseline_by_chrom else {}
+            query_by_chrom = {chrom_key: query_by_chrom[chrom_key]} if chrom_key in query_by_chrom else {}
+
+        if not baseline_by_chrom:
+            raise ValueError("No annotation rows were loaded from the supplied sources.")
+        if has_query_inputs and set(query_by_chrom) != set(baseline_by_chrom):
+            raise ValueError(
+                "Query annotation chromosome shards must match the baseline chromosome shards exactly."
+            )
+
+        bundles: list[AnnotationBundle] = []
+        for chrom_key in sorted(baseline_by_chrom, key=_chrom_sort_key):
+            chrom_source_spec = AnnotationSourceSpec(
+                baseline_annot_paths=(baseline_by_chrom[chrom_key],),
+                query_annot_paths=(() if not has_query_inputs else (query_by_chrom[chrom_key],)),
+                bed_paths=source_spec.bed_paths,
+                gene_set_paths=source_spec.gene_set_paths,
+                allow_missing_query=source_spec.allow_missing_query,
+            )
+            bundles.append(
+                self._run_single_universe(
+                    chrom_source_spec,
+                    (baseline_by_chrom[chrom_key],),
+                    (() if not has_query_inputs else (query_by_chrom[chrom_key],)),
+                    chrom=chrom_key,
+                )
+            )
+
+        baseline_columns = bundles[0].baseline_columns
+        query_columns = bundles[0].query_columns
+        for bundle in bundles[1:]:
+            if bundle.baseline_columns != baseline_columns or bundle.query_columns != query_columns:
+                raise ValueError(
+                    "Per-chromosome annotation shards must expose the same baseline and query annotation columns."
+                )
+
+        metadata = pd.concat([bundle.metadata for bundle in bundles], axis=0, ignore_index=True)
+        baseline_df = pd.concat([bundle.baseline_annotations for bundle in bundles], axis=0, ignore_index=True)
+        query_df = pd.concat([bundle.query_annotations for bundle in bundles], axis=0, ignore_index=True)
+        chromosomes = [chrom_key for chrom_key in sorted(baseline_by_chrom, key=_chrom_sort_key)]
+        return self._build_bundle(
+            metadata=metadata,
+            baseline_df=baseline_df,
+            query_df=query_df,
+            baseline_columns=baseline_columns,
+            query_columns=query_columns,
+            chromosomes=chromosomes,
+            source_spec=source_spec,
+        )
+
+    def _build_bundle(
+        self,
+        metadata: pd.DataFrame,
+        baseline_df: pd.DataFrame,
+        query_df: pd.DataFrame,
+        baseline_columns: list[str],
+        query_columns: list[str],
+        chromosomes: list[str],
+        source_spec: AnnotationSourceSpec,
+    ) -> AnnotationBundle:
+        """Construct, validate, and return an ``AnnotationBundle``."""
         bundle = AnnotationBundle(
             metadata=metadata.reset_index(drop=True),
             baseline_annotations=baseline_df.reset_index(drop=True),
@@ -256,6 +415,34 @@ class AnnotationBuilder:
         )
         bundle.validate(self.common_config.snp_identifier)
         return bundle
+
+    def _detect_chromosome_shards(self, files: Sequence[str], group_name: str) -> dict[str, str] | None:
+        """Return a chromosome-to-file mapping when inputs are cleanly sharded."""
+        if not files:
+            return None
+
+        shard_map: dict[str, str] = {}
+        saw_unsharded = False
+        saw_sharded = False
+        for path in files:
+            chrom = _annotation_shard_chromosome(path)
+            if chrom is None:
+                saw_unsharded = True
+                continue
+            saw_sharded = True
+            if chrom in shard_map:
+                raise ValueError(
+                    f"Ambiguous {group_name} annotation chromosome shards: multiple files map to chromosome {chrom}."
+                )
+            shard_map[chrom] = path
+
+        if saw_sharded and saw_unsharded:
+            raise ValueError(
+                f"Mixed whole-genome and per-chromosome {group_name} annotation inputs are not supported."
+            )
+        if saw_sharded:
+            return shard_map
+        return None
 
     def parse_annotation_file(self, path: str | Path, chrom: str | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
         """Read one SNP-level annotation file into normalized metadata and values."""
@@ -291,7 +478,7 @@ class AnnotationBuilder:
 
     def project_bed_annotations(
         self,
-        bed_files: Sequence[str | Path],
+        bed_files: str | PathLike[str] | Sequence[str | PathLike[str]],
         baseline_annot_dir: str | Path,
         output_dir: str | Path,
         batch: bool | None = None,
@@ -302,24 +489,37 @@ class AnnotationBuilder:
 
         This method uses each baseline annotation file as the SNP template,
         computes one binary mask per BED input, optionally intersects that mask
-        with the global SNP restriction, and writes LDSC-compatible outputs in
-        either batch or one-directory-per-BED mode.
+        with the global SNP restriction, and writes LDSC-compatible query shard
+        files named ``query.<chrom>.annot.gz`` in either batch or
+        one-directory-per-BED mode.
         """
         batch = self.build_config.batch_mode if batch is None else batch
         _configure_logging(log_level or self.common_config.log_level)
 
-        bed_paths = _expand_bed_paths([str(path) for path in bed_files])
-        baseline_dir = Path(baseline_annot_dir).expanduser().resolve()
+        bed_paths = [Path(path) for path in resolve_file_group(bed_files, label="BED file")]
+        stems = [path.stem for path in bed_paths]
+        duplicates = sorted({stem for stem in stems if stems.count(stem) > 1})
+        if duplicates:
+            raise ValueError(
+                "BED basenames must be unique because they become annotation names. "
+                f"Duplicate names: {', '.join(duplicates)}"
+            )
+        baseline_dir = Path(resolve_scalar_path(baseline_annot_dir, label="baseline annotation directory"))
         if not baseline_dir.is_dir():
             raise NotADirectoryError(f"Baseline annotation directory not found: {baseline_dir}")
         baseline_paths = _list_baseline_annots(baseline_dir)
 
-        output_path = Path(output_dir).expanduser().resolve()
+        output_path = Path(normalize_path_token(output_dir))
         output_path.mkdir(parents=True, exist_ok=True)
 
         restrict_path = None
         if self.common_config.global_snp_restriction_path is not None:
-            restrict_path = Path(self.common_config.global_snp_restriction_path).expanduser().resolve()
+            restrict_path = Path(
+                resolve_scalar_path(
+                    self.common_config.global_snp_restriction_path,
+                    label="global SNP restriction",
+                )
+            )
             if not restrict_path.is_file():
                 raise FileNotFoundError(f"Restriction file not found: {restrict_path}")
 
@@ -355,8 +555,8 @@ class AnnotationBuilder:
         bed_for_annot,
     ) -> Path:
         pybedtools = _get_pybedtools()
-        bimfile = Path(bimfile).expanduser().resolve()
-        annot_file = Path(annot_file).expanduser().resolve()
+        bimfile = Path(resolve_scalar_path(bimfile, label="PLINK BIM file"))
+        annot_file = Path(normalize_path_token(annot_file))
 
         df_bim = pd.read_csv(
             bimfile,
@@ -382,17 +582,7 @@ class AnnotationBuilder:
         return annot_file
 
     def _resolve_annotation_path(self, path: str | Path) -> str:
-        path = str(path)
-        if os.path.exists(path):
-            return path
-        matches = sorted(glob.glob(path))
-        if matches:
-            return matches[0]
-        for suffix in ("", ".annot", ".annot.gz", ".txt", ".txt.gz", ".tsv", ".tsv.gz"):
-            candidate = path + suffix
-            if os.path.exists(candidate):
-                return candidate
-        raise FileNotFoundError(f"Could not resolve annotation path or prefix: {path}")
+        return resolve_scalar_path(path, suffixes=ANNOTATION_SUFFIXES, label="annotation")
 
     def _ensure_aligned_rows(self, reference: pd.DataFrame, current: pd.DataFrame, path: str) -> None:
         ref_keys = build_snp_id_series(reference, self.common_config.snp_identifier)
@@ -440,7 +630,7 @@ class AnnotationBuilder:
 
 
 def run_bed_to_annot(
-    bed_files: Sequence[str | Path],
+    bed_files: str | PathLike[str] | Sequence[str | PathLike[str]],
     baseline_annot_dir: str | Path,
     output_dir: str | Path,
     restrict_snps_path: str | Path | None = None,
@@ -459,7 +649,7 @@ def run_bed_to_annot(
         global_snp_restriction_path=None if restrict_snps_path is None else str(restrict_snps_path),
         log_level=log_level,
     )
-    build_config = AnnotationBuildConfig(query_bed_paths=tuple(str(path) for path in bed_files), batch_mode=batch)
+    build_config = AnnotationBuildConfig(query_bed_paths=bed_files, batch_mode=batch)
     return AnnotationBuilder(common_config, build_config).project_bed_annotations(
         bed_files=bed_files,
         baseline_annot_dir=baseline_annot_dir,
@@ -507,7 +697,7 @@ def main_bed_to_annot(argv: Sequence[str] | None = None) -> int:
     """CLI entrypoint for BED-to-annotation projection."""
     args = parse_bed_to_annot_args(argv)
     run_bed_to_annot(
-        bed_files=args.bed_files,
+        bed_files=split_cli_path_tokens(args.bed_files),
         baseline_annot_dir=args.baseline_annot_dir,
         output_dir=args.output_dir,
         restrict_snps_path=args.restrict_snps_path,
@@ -577,6 +767,18 @@ def _read_text_table(path: str) -> pd.DataFrame:
     return pd.read_csv(path, sep=r"\s+", compression=compression)
 
 
+def _annotation_shard_chromosome(path: str | Path) -> str | None:
+    """Extract the chromosome token from one LDSC-style shard filename."""
+    match = re.match(
+        r"^.+\.(?P<chrom>\d+|X|Y|M|MT)\.(?:annot|txt|tsv)(?:\.gz)?$",
+        Path(path).name,
+        flags=re.IGNORECASE,
+    )
+    if match is None:
+        return None
+    return normalize_chromosome(match.group("chrom"))
+
+
 def _chrom_sort_key(chrom: str) -> tuple[int, str]:
     """Return the stable chromosome ordering used by annotation workflows."""
     chrom = normalize_chromosome(chrom)
@@ -637,40 +839,6 @@ def _infer_column_index(header: Sequence[str], aliases: Sequence[str], label: st
         if column_name in alias_set or any(column_name.endswith(alias) for alias in alias_set):
             return idx
     raise ValueError(f"Could not infer a {label} column in {path}. Header columns were: {', '.join(header)}")
-
-
-def _expand_bed_paths(patterns: Sequence[str]) -> list[Path]:
-    """Resolve CLI BED arguments, globs, and comma lists into unique paths."""
-    paths: list[Path] = []
-    for item in patterns:
-        for token in item.split(","):
-            token = token.strip()
-            if not token:
-                continue
-            expanded = sorted(Path(match).resolve() for match in glob.glob(token))
-            if expanded:
-                paths.extend(path for path in expanded if path.is_file())
-            else:
-                path = Path(token).expanduser().resolve()
-                if not path.is_file():
-                    raise FileNotFoundError(f"BED file not found: {token}")
-                paths.append(path)
-    unique_paths = []
-    seen = set()
-    for path in paths:
-        if path not in seen:
-            unique_paths.append(path)
-            seen.add(path)
-    if not unique_paths:
-        raise ValueError("No BED files were resolved from --bed-files.")
-    stems = [path.stem for path in unique_paths]
-    duplicates = sorted({stem for stem in stems if stems.count(stem) > 1})
-    if duplicates:
-        raise ValueError(
-            "BED basenames must be unique because they become annotation names. "
-            f"Duplicate names: {', '.join(duplicates)}"
-        )
-    return unique_paths
 
 
 def _list_baseline_annots(baseline_dir: Path) -> list[Path]:
@@ -878,15 +1046,19 @@ def _write_annot_file(out_path: Path, rows: Sequence[_BaselineRow], annotation_n
             handle.write("\t".join([row.chrom, str(row.bp), row.snp, row.cm, *annot_values]) + "\n")
 
 
-def _baseline_output_name(path: Path) -> str:
-    """Derive the output filename for one baseline template projection."""
+def _query_output_name(path: Path) -> str:
+    """Derive the output filename for one projected query annotation shard."""
+    chrom = _annotation_shard_chromosome(path)
+    if chrom is not None:
+        return f"query.{chrom}.annot.gz"
+
     if path.name.endswith(".annot.gz"):
         stem = path.name[: -len(".annot.gz")]
     elif path.name.endswith(".annot"):
         stem = path.name[: -len(".annot")]
     else:
         stem = path.stem
-    return f"{stem}.annot.gz"
+    return f"query.{stem}.annot.gz"
 
 
 def _process_baseline_file(
@@ -910,14 +1082,14 @@ def _process_baseline_file(
         for bed_path in bed_paths:
             overlap_mask = _compute_bed_overlap_mask(rows, baseline_bed, bed_path)
             masks.append(_combine_masks(overlap_mask, restrict_mask))
-        output_name = _baseline_output_name(baseline_path)
+        output_name = _query_output_name(baseline_path)
         _write_annot_file(output_dir / output_name, rows, annotation_names, masks)
     else:
         for bed_path in bed_paths:
             overlap_mask = _compute_bed_overlap_mask(rows, baseline_bed, bed_path)
             final_mask = _combine_masks(overlap_mask, restrict_mask)
             bed_output_dir = output_dir / bed_path.stem
-            output_name = _baseline_output_name(baseline_path)
+            output_name = _query_output_name(baseline_path)
             _write_annot_file(bed_output_dir / output_name, rows, [bed_path.stem], [final_mask])
 
     pybedtools.cleanup(remove_all=True)

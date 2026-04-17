@@ -22,8 +22,10 @@ Design Notes
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path
+from os import PathLike
 from typing import Literal
+
+from .path_resolution import normalize_optional_path_token, normalize_path_token, normalize_path_tokens
 
 
 SNPIdentifierMode = Literal["rsid", "chr_pos"]
@@ -34,22 +36,23 @@ CompressionMode = Literal["auto", "gzip", "bz2", "none"]
 R2BiasMode = Literal["raw", "unbiased"]
 
 
-def _normalize_optional_path(path: str | Path | None) -> str | None:
+def _normalize_optional_path(path: str | PathLike[str] | None) -> str | None:
     """Return ``path`` as a string or ``None``.
 
     This helper keeps the public config dataclasses tolerant of both ``Path``
     and ``str`` inputs while preserving ``None`` for omitted optional fields.
     """
-    if path is None:
-        return None
-    return str(path)
+    return normalize_optional_path_token(path)
 
 
-def _normalize_path_tuple(values: tuple[str | Path, ...] | list[str | Path] | None) -> tuple[str, ...]:
-    """Convert a sequence of path-like objects to a string tuple."""
-    if not values:
-        return ()
-    return tuple(str(value) for value in values)
+def _normalize_required_path(path: str | PathLike[str]) -> str:
+    """Return a required path-like value as a plain string."""
+    return normalize_path_token(path)
+
+
+def _normalize_path_tuple(values) -> tuple[str, ...]:
+    """Convert one or many path-like objects to a string tuple of tokens."""
+    return normalize_path_tokens(values)
 
 
 def _normalize_log_level(level: str) -> LogLevel:
@@ -73,7 +76,7 @@ class CommonConfig:
         from chromosome and base-pair position.
     genome_build : {"hg19", "hg38"} or None, optional
         Genome-build context for ``chr_pos`` workflows. Default is ``None``.
-    global_snp_restriction_path : str or None, optional
+    global_snp_restriction_path : str or os.PathLike[str] or None, optional
         Optional path to a SNP list or table that restricts the SNP universe used
         by annotation, reference-panel, and regression workflows. Default is
         ``None``.
@@ -85,7 +88,7 @@ class CommonConfig:
     """
     snp_identifier: SNPIdentifierMode = "chr_pos"
     genome_build: GenomeBuild | None = None
-    global_snp_restriction_path: str | None = None
+    global_snp_restriction_path: str | PathLike[str] | None = None
     log_level: LogLevel = "INFO"
     fail_on_missing_metadata: bool = False
 
@@ -106,14 +109,14 @@ class AnnotationBuildConfig:
 
     Parameters
     ----------
-    baseline_annotation_paths : tuple of str, optional
+    baseline_annotation_paths : str, os.PathLike[str], or sequence of those, optional
         Baseline annotation files to align and combine. Default is ``()``.
-    query_annotation_paths : tuple of str, optional
+    query_annotation_paths : str, os.PathLike[str], or sequence of those, optional
         Query annotation files to align with the baseline. Default is ``()``.
-    query_bed_paths : tuple of str, optional
+    query_bed_paths : str, os.PathLike[str], or sequence of those, optional
         BED inputs that should be projected to SNP-level annotations. Default is
         ``()``.
-    out_prefix : str or None, optional
+    out_prefix : str or os.PathLike[str] or None, optional
         Output prefix used by file-writing helpers. Default is ``None``.
     batch_mode : bool, optional
         If ``True``, write one output directory per BED input in the batch
@@ -122,10 +125,10 @@ class AnnotationBuildConfig:
         Output compression preference for generated annotation files. Default is
         ``"gzip"``.
     """
-    baseline_annotation_paths: tuple[str, ...] = field(default_factory=tuple)
-    query_annotation_paths: tuple[str, ...] = field(default_factory=tuple)
-    query_bed_paths: tuple[str, ...] = field(default_factory=tuple)
-    out_prefix: str | None = None
+    baseline_annotation_paths: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
+    query_annotation_paths: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
+    query_bed_paths: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
+    out_prefix: str | PathLike[str] | None = None
     batch_mode: bool = True
     compression: CompressionMode = "gzip"
 
@@ -147,13 +150,13 @@ class RefPanelConfig:
     backend : {"auto", "plink", "parquet_r2"}, optional
         Backend family used to supply LD reference information. Default is
         ``"auto"``.
-    plink_prefix, plink_prefix_chr : str or None, optional
+    plink_prefix, plink_prefix_chr : str or os.PathLike[str] or None, optional
         PLINK ``.bed/.bim/.fam`` prefix or chromosome-pattern prefix. Default is
         ``None`` for both fields.
-    parquet_r2_paths, parquet_r2_paths_chr : tuple of str, optional
+    parquet_r2_paths, parquet_r2_paths_chr : str, os.PathLike[str], or sequence of those, optional
         Sorted parquet R2 tables or chromosome-pattern prefixes. Default is
         ``()`` for both fields.
-    frequency_paths, frequency_paths_chr : tuple of str, optional
+    frequency_paths, frequency_paths_chr : str, os.PathLike[str], or sequence of those, optional
         Sidecar frequency or metadata files aligned to the reference panel.
         Default is ``()`` for both fields.
     r2_bias_mode : {"raw", "unbiased"} or None, optional
@@ -164,12 +167,12 @@ class RefPanelConfig:
         ``None``.
     """
     backend: RefPanelBackend = "auto"
-    plink_prefix: str | None = None
-    plink_prefix_chr: str | None = None
-    parquet_r2_paths: tuple[str, ...] = field(default_factory=tuple)
-    parquet_r2_paths_chr: tuple[str, ...] = field(default_factory=tuple)
-    frequency_paths: tuple[str, ...] = field(default_factory=tuple)
-    frequency_paths_chr: tuple[str, ...] = field(default_factory=tuple)
+    plink_prefix: str | PathLike[str] | None = None
+    plink_prefix_chr: str | PathLike[str] | None = None
+    parquet_r2_paths: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
+    parquet_r2_paths_chr: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
+    frequency_paths: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
+    frequency_paths_chr: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
     r2_bias_mode: R2BiasMode | None = None
     r2_sample_size: float | None = None
 
@@ -247,7 +250,7 @@ class MungeConfig:
     exposing the options through an explicit Python object rather than a script
     namespace.
     """
-    out_prefix: str
+    out_prefix: str | PathLike[str]
     N: float | None = None
     N_cas: float | None = None
     N_con: float | None = None
@@ -256,7 +259,7 @@ class MungeConfig:
     n_min: float | None = None
     nstudy_min: float | None = None
     chunk_size: int = int(5e6)
-    merge_alleles_path: str | None = None
+    merge_alleles_path: str | PathLike[str] | None = None
     signed_sumstats_spec: str | None = None
     ignore_columns: tuple[str, ...] = field(default_factory=tuple)
     no_alleles: bool = False
@@ -272,7 +275,7 @@ class MungeConfig:
             raise ValueError("maf_min must lie in [0, 0.5].")
         if self.chunk_size <= 0:
             raise ValueError("chunk_size must be positive.")
-        object.__setattr__(self, "out_prefix", str(self.out_prefix))
+        object.__setattr__(self, "out_prefix", _normalize_required_path(self.out_prefix))
         object.__setattr__(self, "merge_alleles_path", _normalize_optional_path(self.merge_alleles_path))
         object.__setattr__(self, "ignore_columns", tuple(self.ignore_columns))
 

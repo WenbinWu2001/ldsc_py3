@@ -10,6 +10,7 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from ldsc._kernel import annotation as kernel_annotation
 from ldsc import annotation_builder
 from ldsc.annotation_builder import AnnotationBuilder, AnnotationSourceSpec, run_bed_to_annot
 from ldsc.config import AnnotationBuildConfig, CommonConfig
@@ -23,7 +24,8 @@ def _write_annot(path: Path, rows: list[tuple], annotation_columns: dict[str, li
     df = pd.DataFrame(rows, columns=["CHR", "BP", "SNP", "CM"])
     for column, values in annotation_columns.items():
         df[column] = values
-    df.to_csv(path, sep="\t", index=False)
+    compression = "gzip" if path.suffix == ".gz" else None
+    df.to_csv(path, sep="\t", index=False, compression=compression)
 
 
 class AnnotationBuilderTest(unittest.TestCase):
@@ -116,8 +118,225 @@ class AnnotationBuilderTest(unittest.TestCase):
         self.assertEqual(list(annotations.columns), ["C1", "C2", "C3"])
         self.assertEqual(len(metadata), 3)
 
+    def test_run_auto_bundles_per_chromosome_files(self):
+        builder = AnnotationBuilder(CommonConfig(snp_identifier="rsid"), AnnotationBuildConfig())
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            base1 = tmpdir / "baseline.1.annot.gz"
+            base2 = tmpdir / "baseline.2.annot.gz"
+            query1 = tmpdir / "baseline_query.1.annot.gz"
+            query2 = tmpdir / "baseline_query.2.annot.gz"
+            rows1 = [("1", 10, "rs1", 0.1), ("1", 20, "rs2", 0.2)]
+            rows2 = [("2", 30, "rs3", 0.3), ("2", 40, "rs4", 0.4)]
+            _write_annot(base1, rows1, {"base_a": [1, 0]})
+            _write_annot(base2, rows2, {"base_a": [0, 1]})
+            _write_annot(query1, rows1, {"query_a": [0, 1]})
+            _write_annot(query2, rows2, {"query_a": [1, 0]})
+
+            bundle = builder.run(
+                AnnotationSourceSpec(
+                    baseline_annot_paths=(str(base1), str(base2)),
+                    query_annot_paths=(str(query1), str(query2)),
+                )
+            )
+
+            self.assertEqual(bundle.chromosomes, ["1", "2"])
+            self.assertEqual(bundle.baseline_columns, ["base_a"])
+            self.assertEqual(bundle.query_columns, ["query_a"])
+            self.assertEqual(bundle.reference_snps("rsid"), {"rs1", "rs2", "rs3", "rs4"})
+            self.assertEqual(bundle.annotation_matrix().shape, (4, 2))
+
+    def test_run_accepts_single_glob_tokens_for_annotation_groups(self):
+        builder = AnnotationBuilder(CommonConfig(snp_identifier="rsid"), AnnotationBuildConfig())
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            base1 = tmpdir / "baseline.1.annot.gz"
+            base2 = tmpdir / "baseline.2.annot.gz"
+            query1 = tmpdir / "query.1.annot.gz"
+            query2 = tmpdir / "query.2.annot.gz"
+            rows1 = [("1", 10, "rs1", 0.1), ("1", 20, "rs2", 0.2)]
+            rows2 = [("2", 30, "rs3", 0.3), ("2", 40, "rs4", 0.4)]
+            _write_annot(base1, rows1, {"base_a": [1, 0]})
+            _write_annot(base2, rows2, {"base_a": [0, 1]})
+            _write_annot(query1, rows1, {"query_a": [0, 1]})
+            _write_annot(query2, rows2, {"query_a": [1, 0]})
+
+            bundle = builder.run(
+                AnnotationSourceSpec(
+                    baseline_annot_paths=str(tmpdir / "baseline.*.annot.gz"),
+                    query_annot_paths=str(tmpdir / "query.*.annot.gz"),
+                )
+            )
+
+            self.assertEqual(bundle.chromosomes, ["1", "2"])
+            self.assertEqual(bundle.reference_snps("rsid"), {"rs1", "rs2", "rs3", "rs4"})
+
+    def test_run_accepts_legacy_suite_tokens_for_annotation_groups(self):
+        builder = AnnotationBuilder(CommonConfig(snp_identifier="rsid"), AnnotationBuildConfig())
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            base1 = tmpdir / "baseline.1.annot.gz"
+            base2 = tmpdir / "baseline.2.annot.gz"
+            rows1 = [("1", 10, "rs1", 0.1)]
+            rows2 = [("2", 20, "rs2", 0.2)]
+            _write_annot(base1, rows1, {"base_a": [1]})
+            _write_annot(base2, rows2, {"base_a": [0]})
+
+            bundle = builder.run(
+                AnnotationSourceSpec(
+                    baseline_annot_paths=str(tmpdir / "baseline.@"),
+                )
+            )
+
+            self.assertEqual(bundle.chromosomes, ["1", "2"])
+            self.assertEqual(bundle.reference_snps("rsid"), {"rs1", "rs2"})
+
+    def test_run_prefers_compressed_suite_shards_over_stale_plain_shards(self):
+        builder = AnnotationBuilder(CommonConfig(snp_identifier="rsid"), AnnotationBuildConfig())
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            base1 = tmpdir / "baseline.1.annot.gz"
+            base2 = tmpdir / "baseline.2.annot.gz"
+            query1_plain = tmpdir / "query.1.annot"
+            query1_gz = tmpdir / "query.1.annot.gz"
+            query2_gz = tmpdir / "query.2.annot.gz"
+            rows1 = [("1", 10, "rs1", 0.1)]
+            rows2 = [("2", 20, "rs2", 0.2)]
+            _write_annot(base1, rows1, {"base_a": [1]})
+            _write_annot(base2, rows2, {"base_a": [0]})
+            _write_annot(query1_plain, rows1, {"query_a": [1]})
+            _write_annot(query1_gz, rows1, {"query_a": [1], "query_b": [0]})
+            _write_annot(query2_gz, rows2, {"query_a": [0], "query_b": [1]})
+
+            bundle = builder.run(
+                AnnotationSourceSpec(
+                    baseline_annot_paths=str(tmpdir / "baseline.@"),
+                    query_annot_paths=str(tmpdir / "query.@"),
+                )
+            )
+
+            self.assertEqual(bundle.chromosomes, ["1", "2"])
+            self.assertEqual(bundle.query_columns, ["query_a", "query_b"])
+
+    def test_run_auto_bundles_baseline_only_per_chromosome_files(self):
+        builder = AnnotationBuilder(CommonConfig(snp_identifier="rsid"), AnnotationBuildConfig())
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            base1 = tmpdir / "baseline.1.annot.gz"
+            base2 = tmpdir / "baseline.2.annot.gz"
+            rows1 = [("1", 10, "rs1", 0.1), ("1", 20, "rs2", 0.2)]
+            rows2 = [("2", 30, "rs3", 0.3)]
+            _write_annot(base1, rows1, {"base_a": [1, 0]})
+            _write_annot(base2, rows2, {"base_a": [0]})
+
+            bundle = builder.run(
+                AnnotationSourceSpec(
+                    baseline_annot_paths=(str(base1), str(base2)),
+                )
+            )
+
+            self.assertEqual(bundle.chromosomes, ["1", "2"])
+            self.assertEqual(bundle.query_columns, [])
+            self.assertEqual(bundle.reference_snps("rsid"), {"rs1", "rs2", "rs3"})
+
+    def test_run_rejects_mixed_whole_genome_and_per_chromosome_inputs(self):
+        builder = AnnotationBuilder(CommonConfig(snp_identifier="rsid"), AnnotationBuildConfig())
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            base_all = tmpdir / "baseline.annot.gz"
+            base1 = tmpdir / "baseline.1.annot.gz"
+            rows_all = [("1", 10, "rs1", 0.1), ("2", 20, "rs2", 0.2)]
+            rows1 = [("1", 10, "rs1", 0.1)]
+            _write_annot(base_all, rows_all, {"base_a": [1, 0]})
+            _write_annot(base1, rows1, {"base_b": [1]})
+
+            with self.assertRaisesRegex(ValueError, "mixed|chromosome|shard"):
+                builder.run(
+                    AnnotationSourceSpec(
+                        baseline_annot_paths=(str(base_all), str(base1)),
+                    )
+                )
+
+    def test_run_rejects_missing_query_chromosome_shard(self):
+        builder = AnnotationBuilder(CommonConfig(snp_identifier="rsid"), AnnotationBuildConfig())
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            base1 = tmpdir / "baseline.1.annot.gz"
+            base2 = tmpdir / "baseline.2.annot.gz"
+            query1 = tmpdir / "baseline_query.1.annot.gz"
+            rows1 = [("1", 10, "rs1", 0.1)]
+            rows2 = [("2", 20, "rs2", 0.2)]
+            _write_annot(base1, rows1, {"base_a": [1]})
+            _write_annot(base2, rows2, {"base_a": [0]})
+            _write_annot(query1, rows1, {"query_a": [1]})
+
+            with self.assertRaisesRegex(ValueError, "query|chromosome|shard"):
+                builder.run(
+                    AnnotationSourceSpec(
+                        baseline_annot_paths=(str(base1), str(base2)),
+                        query_annot_paths=(str(query1),),
+                    )
+                )
+
+    def test_run_rejects_ambiguous_duplicate_shards(self):
+        builder = AnnotationBuilder(CommonConfig(snp_identifier="rsid"), AnnotationBuildConfig())
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            base1a = tmpdir / "baseline.1.annot.gz"
+            base1b = tmpdir / "baseline_extra.1.annot.gz"
+            rows = [("1", 10, "rs1", 0.1), ("1", 20, "rs2", 0.2)]
+            _write_annot(base1a, rows, {"base_a": [1, 0]})
+            _write_annot(base1b, rows, {"base_b": [0, 1]})
+
+            with self.assertRaisesRegex(ValueError, "ambiguous|duplicate|chromosome"):
+                builder.run(
+                    AnnotationSourceSpec(
+                        baseline_annot_paths=(str(base1a), str(base1b)),
+                    )
+                )
+
+    def test_run_still_raises_for_row_mismatch_within_chromosome_shard(self):
+        builder = AnnotationBuilder(CommonConfig(snp_identifier="rsid"), AnnotationBuildConfig())
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            base1 = tmpdir / "baseline.1.annot.gz"
+            base2 = tmpdir / "baseline.2.annot.gz"
+            query1 = tmpdir / "baseline_query.1.annot.gz"
+            query2 = tmpdir / "baseline_query.2.annot.gz"
+            rows1 = [("1", 10, "rs1", 0.1), ("1", 20, "rs2", 0.2)]
+            rows2 = [("2", 30, "rs3", 0.3)]
+            bad_rows1 = [("1", 20, "rs2", 0.2), ("1", 10, "rs1", 0.1)]
+            _write_annot(base1, rows1, {"base_a": [1, 0]})
+            _write_annot(base2, rows2, {"base_a": [0]})
+            _write_annot(query1, bad_rows1, {"query_a": [1, 0]})
+            _write_annot(query2, rows2, {"query_a": [1]})
+
+            with self.assertRaisesRegex(ValueError, "Annotation SNP rows do not match"):
+                builder.run(
+                    AnnotationSourceSpec(
+                        baseline_annot_paths=(str(base1), str(base2)),
+                        query_annot_paths=(str(query1), str(query2)),
+                    )
+                )
+
 
 class AnnotationWrapperTest(unittest.TestCase):
+    def test_query_output_name_uses_query_prefix_for_sharded_templates(self):
+        self.assertEqual(
+            kernel_annotation._query_output_name(Path("baseline.1.annot.gz")),
+            "query.1.annot.gz",
+        )
+        self.assertEqual(
+            kernel_annotation._query_output_name(Path("baseline.X.annot")),
+            "query.X.annot.gz",
+        )
+
+    def test_query_output_name_preserves_template_identity_when_chromosome_missing(self):
+        self.assertEqual(
+            kernel_annotation._query_output_name(Path("custom_template.annot.gz")),
+            "query.custom_template.annot.gz",
+        )
+
     def test_make_annot_wrapper_calls_main(self):
         with mock.patch.object(annotation_builder, "main_make_annot", return_value=7) as patched:
             rc = annotation_builder.main_make_annot(["--help"])

@@ -1,15 +1,29 @@
-"""Reference-panel specifications and lazy backend adapters."""
+"""Reference-panel specifications and workflow-to-kernel backend adapters.
+
+The public reference-panel specs accept normalized token strings, including
+glob patterns and chromosome-suite prefixes, but this module resolves those
+tokens to concrete primitive strings before the execution kernel sees them.
+"""
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from os import PathLike
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
-from ..config import CommonConfig, RefPanelConfig
+from ..config import CommonConfig, RefPanelConfig, _normalize_optional_path, _normalize_path_tuple
+from ..path_resolution import (
+    FREQUENCY_SUFFIXES,
+    PARQUET_SUFFIXES,
+    resolve_chromosome_group,
+    resolve_file_group,
+    resolve_plink_prefix,
+    resolve_plink_prefix_group,
+)
 from . import formats as legacy_parse
 from . import ldscore as kernel_ldscore
 from .identifiers import (
@@ -25,20 +39,26 @@ from .identifiers import (
 
 @dataclass(frozen=True)
 class RefPanelSpec:
-    """Immutable description of a reference-panel backend and its sources."""
+    """Immutable description of a reference-panel backend and its sources.
+
+    The public spec accepts path-like inputs and normalizes them to primitive
+    strings. Resolution is deferred until workflow execution so callers may use
+    exact paths, standard Python globs, explicit ``@`` chromosome-suite
+    placeholders, or legacy bare prefixes in suite-capable fields.
+    """
     backend: str
-    bfile_prefix: str | None = None
-    r2_table_paths: tuple[str, ...] = field(default_factory=tuple)
+    bfile_prefix: str | PathLike[str] | None = None
+    r2_table_paths: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
     sample_size: int | None = None
-    maf_metadata_paths: tuple[str, ...] = field(default_factory=tuple)
+    maf_metadata_paths: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
     chromosomes: tuple[str, ...] | None = None
     genome_build: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "backend", self.backend)
-        object.__setattr__(self, "bfile_prefix", None if self.bfile_prefix is None else str(self.bfile_prefix))
-        object.__setattr__(self, "r2_table_paths", tuple(str(path) for path in self.r2_table_paths))
-        object.__setattr__(self, "maf_metadata_paths", tuple(str(path) for path in self.maf_metadata_paths))
+        object.__setattr__(self, "bfile_prefix", _normalize_optional_path(self.bfile_prefix))
+        object.__setattr__(self, "r2_table_paths", _normalize_path_tuple(self.r2_table_paths))
+        object.__setattr__(self, "maf_metadata_paths", _normalize_path_tuple(self.maf_metadata_paths))
         if self.chromosomes is not None:
             object.__setattr__(self, "chromosomes", tuple(normalize_chromosome(chrom) for chrom in self.chromosomes))
 
@@ -100,7 +120,7 @@ class RefPanel(ABC):
 class PlinkRefPanel(RefPanel):
     """PLINK-backed reference-panel adapter."""
     def available_chromosomes(self) -> list[str]:
-        df = self._read_bim_table()
+        df = self._read_bim_table(chrom=None)
         chromosomes = sorted(df["CHR"].astype(str).map(normalize_chromosome).unique().tolist(), key=_chrom_sort_key)
         return chromosomes
 
@@ -109,7 +129,7 @@ class PlinkRefPanel(RefPanel):
         if chrom in self._metadata_cache:
             return self._metadata_cache[chrom].copy()
 
-        df = self._read_bim_table()
+        df = self._read_bim_table(chrom=chrom)
         df["CHR"] = df["CHR"].map(normalize_chromosome)
         df["SNP"] = df["SNP"].astype(str)
         df["CM"] = pd.to_numeric(df["CM"], errors="coerce")
@@ -123,7 +143,7 @@ class PlinkRefPanel(RefPanel):
         return metadata
 
     def build_reader(self, chrom: str, keep_snps: set[str] | list[str] | None = None, keep_indivs: list[int] | None = None, maf_min: float | None = None):
-        prefix = self.spec.bfile_prefix
+        prefix = None if self.spec.bfile_prefix is None else resolve_plink_prefix(self.spec.bfile_prefix, chrom=chrom)
         if prefix is None:
             raise ValueError("PlinkRefPanel requires bfile_prefix.")
         bim = legacy_parse.PlinkBIMFile(prefix + ".bim")
@@ -145,17 +165,29 @@ class PlinkRefPanel(RefPanel):
             mafMin=maf_min,
         )
 
-    def _read_bim_table(self) -> pd.DataFrame:
-        prefix = self.spec.bfile_prefix
-        if prefix is None:
-            raise ValueError("PlinkRefPanel requires bfile_prefix.")
-        return pd.read_csv(
-            prefix + ".bim",
-            sep=r"\s+",
-            header=None,
-            names=["CHR", "SNP", "CM", "BP", "A1", "A2"],
-            usecols=[0, 1, 2, 3],
+    def _read_bim_table(self, chrom: str | None) -> pd.DataFrame:
+        prefixes = (
+            []
+            if self.spec.bfile_prefix is None
+            else resolve_plink_prefix_group(
+                (self.spec.bfile_prefix,),
+                chrom=chrom,
+                allow_chromosome_suite=(chrom is None),
+            )
         )
+        if not prefixes:
+            raise ValueError("PlinkRefPanel requires bfile_prefix.")
+        frames = [
+            pd.read_csv(
+                prefix + ".bim",
+                sep=r"\s+",
+                header=None,
+                names=["CHR", "SNP", "CM", "BP", "A1", "A2"],
+                usecols=[0, 1, 2, 3],
+            )
+            for prefix in prefixes
+        ]
+        return pd.concat(frames, axis=0, ignore_index=True)
 
 
 class ParquetR2RefPanel(RefPanel):
@@ -165,7 +197,12 @@ class ParquetR2RefPanel(RefPanel):
             return sorted(set(self.spec.chromosomes), key=_chrom_sort_key)
 
         chromosomes: set[str] = set()
-        for path in self.spec.maf_metadata_paths:
+        for path in resolve_file_group(
+            self.spec.maf_metadata_paths,
+            suffixes=FREQUENCY_SUFFIXES,
+            label="reference metadata",
+            allow_chromosome_suite=True,
+        ):
             df = _read_metadata_table(path, chrom=None, common_config=self.common_config)
             chromosomes.update(df["CHR"].map(normalize_chromosome).unique().tolist())
         if chromosomes:
@@ -179,7 +216,14 @@ class ParquetR2RefPanel(RefPanel):
         if not self.spec.maf_metadata_paths:
             raise ImportError("ParquetR2RefPanel.load_metadata requires metadata sidecar files.")
 
-        frames = [_read_metadata_table(path, chrom=chrom, common_config=self.common_config) for path in self.spec.maf_metadata_paths]
+        resolved_paths = resolve_chromosome_group(
+            self.spec.maf_metadata_paths,
+            chrom=chrom,
+            suffixes=FREQUENCY_SUFFIXES,
+            label="reference metadata",
+            required=False,
+        )
+        frames = [_read_metadata_table(path, chrom=chrom, common_config=self.common_config) for path in resolved_paths]
         frames = [frame for frame in frames if len(frame) > 0]
         if not frames:
             raise ValueError(f"No parquet metadata rows found for chromosome {chrom}.")
@@ -198,12 +242,19 @@ class ParquetR2RefPanel(RefPanel):
     ):
         metadata = metadata if metadata is not None else self.load_metadata(chrom)
         return kernel_ldscore.SortedR2BlockReader(
-            paths=list(self.spec.r2_table_paths),
+            paths=resolve_chromosome_group(
+                self.spec.r2_table_paths,
+                chrom=chrom,
+                suffixes=PARQUET_SUFFIXES,
+                label="parquet R2",
+                required=False,
+            ),
             chrom=chrom,
             metadata=metadata,
             identifier_mode=self.common_config.snp_identifier,
             r2_bias_mode="unbiased" if r2_bias_mode is None else r2_bias_mode,
             r2_sample_size=r2_sample_size if r2_sample_size is not None else self.spec.sample_size,
+            genome_build=self.spec.genome_build or self.common_config.genome_build,
         )
 
 

@@ -5,6 +5,3 @@ __pycache__/
 .Rhistory
 .Rproj.user
 .worktrees/
-
-resources/examples/
-tutorials/

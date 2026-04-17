@@ -24,7 +24,9 @@ Supported Inputs
 
 Sorted Parquet `R2` Format
 --------------------------
-- Runtime parquet input is assumed to already be normalized and sorted.
+- Runtime parquet input may be either:
+  - normalized sorted parquet with helper columns `pair_chr`, `bp1`, `bp2`, or
+  - raw pairwise parquet carrying the legacy source columns listed below.
 - The source table is expected to contain the pairwise columns:
   - `chr`
   - `rsID_1`, `rsID_2`
@@ -150,7 +152,8 @@ Current Limitations
 - v1 supports only `chr_pos` and `rsID` matching.
 - v1 does not attempt allele-aware reconciliation between annotations and
   parquet pairs.
-- Runtime parquet input must already be a normalized sorted parquet file.
+- Runtime parquet input may be either normalized sorted parquet or raw parquet
+  with the legacy pairwise schema.
 - parquet input requires `pyarrow` at runtime.
 - Per-query partitioned LDSC wrappers are intentionally out of scope for this
   module; this module computes LD scores only.
@@ -705,6 +708,25 @@ def get_pyarrow_modules():
     return ds
 
 
+def _parquet_schema_layout(schema_names: Sequence[str]) -> str:
+    """Classify a runtime parquet schema as normalized, raw, or unsupported."""
+    schema_names = set(schema_names)
+    if set(R2_HELPER_COLUMNS).issubset(schema_names):
+        return "normalized"
+    if set(R2_SOURCE_COLUMNS).issubset(schema_names):
+        return "raw"
+    return "unsupported"
+
+
+def _require_runtime_genome_build(genome_build: str | None) -> str:
+    """Require a build whenever raw parquet rows must be canonicalized at runtime."""
+    if genome_build in {"hg19", "hg38"}:
+        return genome_build
+    raise ValueError(
+        "Raw parquet R2 input requires genome_build='hg19' or 'hg38' so runtime normalization can choose the coordinate columns."
+    )
+
+
 def read_common_tabular_r2(path: str) -> pd.DataFrame:
     """Read one pairwise-R2 source file from parquet, CSV, TSV, or inferred text."""
     lower = path.lower()
@@ -828,26 +850,52 @@ def validate_retained_identifier_uniqueness(metadata: pd.DataFrame, identifier_m
 
 
 def read_sorted_r2_presence(args: argparse.Namespace, chrom: str) -> set[object]:
-    """Read the SNP identifiers or positions present in one sorted parquet chromosome source."""
+    """Read the SNP identifiers or positions present in one parquet chromosome source."""
     files = resolve_parquet_files(args, chrom=chrom)
     if not files:
         raise FileNotFoundError(f"No sorted parquet R2 files resolved for chromosome {chrom}.")
 
     ds = get_pyarrow_modules()
     dataset = ds.dataset(files, format="parquet")
-    columns = ["pair_chr"]
-    if args.snp_identifier == "rsID":
-        columns.extend(["rsID_1", "rsID_2"])
+    layout = _parquet_schema_layout(dataset.schema.names)
+    normalized_chrom = normalize_chromosome(chrom)
+    if layout == "normalized":
+        columns = ["pair_chr"]
+        if args.snp_identifier == "rsID":
+            columns.extend(["rsID_1", "rsID_2"])
+        else:
+            columns.extend(["bp1", "bp2"])
+        filter_expr = ds.field("pair_chr") == normalized_chrom
+        table = dataset.to_table(columns=columns, filter=filter_expr)
+    elif layout == "raw":
+        genome_build = _require_runtime_genome_build(getattr(args, "genome_build", None))
+        left_bp_col, right_bp_col = get_r2_build_columns(genome_build)
+        columns = ["chr"]
+        if args.snp_identifier == "rsID":
+            columns.extend(["rsID_1", "rsID_2"])
+        else:
+            columns.extend([left_bp_col, right_bp_col])
+        filter_expr = ds.field("chr") == normalized_chrom
+        table = dataset.to_table(columns=columns, filter=filter_expr)
     else:
-        columns.extend(["bp1", "bp2"])
-    filter_expr = ds.field("pair_chr") == normalize_chromosome(chrom)
-    table = dataset.to_table(columns=columns, filter=filter_expr)
+        raise ValueError(
+            "Parquet R2 input must contain either normalized helper columns "
+            "`pair_chr`, `bp1`, `bp2` or the raw legacy pairwise columns."
+        )
     pairs = table.to_pandas()
+    if layout == "raw" and len(pairs) > 0:
+        pairs = pairs.loc[pairs["chr"].map(normalize_chromosome) == normalized_chrom].reset_index(drop=True)
     if args.snp_identifier == "rsID":
         return set(pairs["rsID_1"].astype(str)).union(set(pairs["rsID_2"].astype(str)))
-    return set(pd.to_numeric(pairs["bp1"], errors="raise").astype(np.int64)).union(
-        set(pd.to_numeric(pairs["bp2"], errors="raise").astype(np.int64))
-    )
+    if layout == "normalized":
+        left_series = pd.to_numeric(pairs["bp1"], errors="raise").astype(np.int64)
+        right_series = pd.to_numeric(pairs["bp2"], errors="raise").astype(np.int64)
+    else:
+        genome_build = _require_runtime_genome_build(getattr(args, "genome_build", None))
+        left_bp_col, right_bp_col = get_r2_build_columns(genome_build)
+        left_series = pd.to_numeric(pairs[left_bp_col], errors="raise").astype(np.int64)
+        right_series = pd.to_numeric(pairs[right_bp_col], errors="raise").astype(np.int64)
+    return set(left_series).union(set(right_series))
 
 
 def filter_reference_to_present_r2(
@@ -1194,6 +1242,7 @@ class SortedR2BlockReader:
         identifier_mode: str,
         r2_bias_mode: str,
         r2_sample_size: float | None,
+        genome_build: str | None = None,
     ) -> None:
         if not paths:
             raise FileNotFoundError(f"No sorted parquet R2 files resolved for chromosome {chrom}.")
@@ -1206,20 +1255,39 @@ class SortedR2BlockReader:
         self.identifier_mode = identifier_mode
         self.r2_bias_mode = r2_bias_mode
         self.r2_sample_size = r2_sample_size
+        self.genome_build = genome_build
         self.bp = metadata["BP"].to_numpy(dtype=np.int64)
         self.m = len(metadata)
         self.query_columns = ["pair_chr", "bp1", "bp2", "R2"]
+        self._runtime_layout = _parquet_schema_layout(self.dataset.schema.names)
+        self._raw_bp_columns: tuple[str, str] | None = None
         if self.identifier_mode == "rsID":
             self.query_columns.extend(["rsID_1", "rsID_2"])
             self.index_map = {str(snp): idx for idx, snp in enumerate(metadata["SNP"].astype(str))}
         else:
             self.index_map = {int(bp): idx for idx, bp in enumerate(metadata["BP"].astype(np.int64))}
 
-        missing_columns = sorted(set(self.query_columns) - set(self.dataset.schema.names))
-        if missing_columns:
+        if self._runtime_layout == "normalized":
+            missing_columns = sorted(set(self.query_columns) - set(self.dataset.schema.names))
+            if missing_columns:
+                raise ValueError(
+                    "Sorted parquet R2 input is missing required normalized columns: "
+                    + ", ".join(missing_columns)
+                )
+        elif self._runtime_layout == "raw":
+            self.genome_build = _require_runtime_genome_build(self.genome_build)
+            self._raw_bp_columns = get_r2_build_columns(self.genome_build)
+            self.query_columns = list(R2_SOURCE_COLUMNS)
+            missing_columns = sorted(set(R2_SOURCE_COLUMNS) - set(self.dataset.schema.names))
+            if missing_columns:
+                raise ValueError(
+                    "Raw parquet R2 input is missing required legacy columns: "
+                    + ", ".join(missing_columns)
+                )
+        else:
             raise ValueError(
-                "Sorted parquet R2 input is missing required normalized columns: "
-                + ", ".join(missing_columns)
+                "Parquet R2 input must contain either normalized helper columns "
+                "`pair_chr`, `bp1`, `bp2` or the raw legacy pairwise columns."
             )
 
         self._last_query_key: tuple[int, int] | None = None
@@ -1241,16 +1309,40 @@ class SortedR2BlockReader:
         if self._last_query_key == key and self._last_query_rows is not None:
             return self._last_query_rows.copy()
 
-        filter_expr = (
-            (self.ds.field("pair_chr") == self.chrom)
-            & (self.ds.field("bp1") >= int(bp_min))
-            & (self.ds.field("bp2") <= int(bp_max))
-        )
-        table = self.dataset.to_table(columns=self.query_columns, filter=filter_expr)
+        if self._runtime_layout == "normalized":
+            filter_expr = (
+                (self.ds.field("pair_chr") == self.chrom)
+                & (self.ds.field("bp1") >= int(bp_min))
+                & (self.ds.field("bp2") <= int(bp_max))
+            )
+            table = self.dataset.to_table(columns=self.query_columns, filter=filter_expr)
+        else:
+            left_bp_col, right_bp_col = self._raw_bp_columns
+            filter_expr = (
+                (self.ds.field("chr") == self.chrom)
+                & (self.ds.field(left_bp_col) >= int(bp_min))
+                & (self.ds.field(left_bp_col) <= int(bp_max))
+                & (self.ds.field(right_bp_col) >= int(bp_min))
+                & (self.ds.field(right_bp_col) <= int(bp_max))
+            )
+            table = self.dataset.to_table(columns=self.query_columns, filter=filter_expr)
         rows = table.to_pandas()
         if len(rows) == 0:
-            rows = pd.DataFrame(columns=self.query_columns + ["i", "j", "R2"])
+            base_columns = ["pair_chr", "bp1", "bp2", "R2"]
+            if self.identifier_mode == "rsID":
+                base_columns.extend(["rsID_1", "rsID_2"])
+            rows = pd.DataFrame(columns=base_columns + ["i", "j"])
         else:
+            if self._runtime_layout == "raw":
+                left_bp_col, right_bp_col = self._raw_bp_columns
+                rows = rows.loc[rows["chr"].map(normalize_chromosome) == self.chrom].copy()
+                keep = (
+                    pd.to_numeric(rows[left_bp_col], errors="raise").between(int(bp_min), int(bp_max))
+                    & pd.to_numeric(rows[right_bp_col], errors="raise").between(int(bp_min), int(bp_max))
+                )
+                rows = rows.loc[keep].reset_index(drop=True)
+                if len(rows) > 0:
+                    rows = canonicalize_r2_pairs(rows, self.genome_build)
             rows["R2"] = self._transform_r2(pd.to_numeric(rows["R2"], errors="raise").to_numpy(dtype=np.float32))
             if self.identifier_mode == "rsID":
                 rows["i"] = rows["rsID_1"].astype(str).map(self.index_map)
@@ -1477,6 +1569,7 @@ def compute_chrom_from_parquet(
         identifier_mode=args.snp_identifier,
         r2_bias_mode=args.r2_bias_mode,
         r2_sample_size=args.r2_sample_size,
+        genome_build=args.genome_build,
     )
     combined_scores = ld_score_var_blocks_from_r2_reader(
         block_left=block_left,

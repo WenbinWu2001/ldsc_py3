@@ -44,6 +44,17 @@ Subcommands:
 from ldsc import AnnotationBuilder, LDScoreCalculator, RegressionRunner, SumstatsMunger
 ```
 
+## Input Path Tokens
+
+Public workflow APIs accept normalized string tokens for inputs:
+
+- exact paths
+- Python glob patterns such as `annotations/*.annot.gz`
+- explicit chromosome suites using `@`, for example `baseline.@`
+- legacy bare prefixes such as `baseline.`
+
+Inputs are resolved before the internal kernel runs. Output paths such as `out_prefix` stay literal destinations.
+
 ## Verification
 
 ```bash

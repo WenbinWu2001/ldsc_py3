@@ -52,3 +52,58 @@ class SumstatsMungerTest(unittest.TestCase):
             rc = munge_sumstats.__dict__["main"](["--help"])
         patched.assert_called_once()
         self.assertEqual(rc, 11)
+
+    def test_run_creates_parent_directory_for_out_prefix(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "SNP A1 A2 P OR N\n"
+                "rs1 A G 0.05 1.0 1000\n",
+                encoding="utf-8",
+            )
+            raw = RawSumstatsSpec(path=str(raw_path), trait_name="trait")
+            nested_prefix = tmpdir / "nested" / "dir" / "munged"
+            config = MungeConfig(out_prefix=str(nested_prefix))
+
+            table = SumstatsMunger().run(raw, config, CommonConfig(snp_identifier="rsid"))
+
+            self.assertEqual(len(table.data), 1)
+            self.assertTrue((tmpdir / "nested" / "dir" / "munged.sumstats.gz").exists())
+            self.assertTrue((tmpdir / "nested" / "dir" / "munged.log").exists())
+
+    def test_run_accepts_path_objects_for_input_and_output(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "SNP A1 A2 P OR N\n"
+                "rs1 A G 0.05 1.0 1000\n",
+                encoding="utf-8",
+            )
+            raw = RawSumstatsSpec(path=raw_path, trait_name="trait")
+            out_prefix = tmpdir / "nested" / "mdd2025"
+
+            table = SumstatsMunger().run(raw, MungeConfig(out_prefix=out_prefix), CommonConfig(snp_identifier="rsid"))
+
+            self.assertEqual(len(table.data), 1)
+            self.assertEqual(table.source_path, str(raw_path))
+            self.assertTrue((tmpdir / "nested" / "mdd2025.sumstats.gz").exists())
+            self.assertTrue((tmpdir / "nested" / "mdd2025.log").exists())
+
+    def test_run_resolves_glob_pattern_for_single_sumstats_input(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "trait.raw.tsv"
+            raw_path.write_text(
+                "SNP A1 A2 P OR N\n"
+                "rs1 A G 0.05 1.0 1000\n",
+                encoding="utf-8",
+            )
+            raw = RawSumstatsSpec(path=str(tmpdir / "trait.*.tsv"), trait_name="trait")
+            out_prefix = tmpdir / "out" / "munged"
+
+            table = SumstatsMunger().run(raw, MungeConfig(out_prefix=out_prefix), CommonConfig(snp_identifier="rsid"))
+
+            self.assertEqual(table.source_path, str(raw_path))
+            self.assertTrue((tmpdir / "out" / "munged.sumstats.gz").exists())

@@ -6,11 +6,14 @@ import gzip
 import json
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass, field, is_dataclass
+from os import PathLike
 from pathlib import Path
 from typing import Any, Iterable
 
 import numpy as np
 import pandas as pd
+
+from .config import _normalize_optional_path, _normalize_required_path
 
 
 ArtifactLayout = str
@@ -20,8 +23,8 @@ CompressionMode = str
 @dataclass(frozen=True)
 class OutputSpec:
     """Configuration for artifact emission and on-disk layout."""
-    out_prefix: str
-    output_dir: str | None = None
+    out_prefix: str | PathLike[str]
+    output_dir: str | PathLike[str] | None = None
     artifact_layout: ArtifactLayout = "flat"
     write_ldscore: bool = True
     write_w_ld: bool = True
@@ -31,7 +34,7 @@ class OutputSpec:
     aggregate_across_chromosomes: bool = True
     compression: CompressionMode = "gzip"
     overwrite: bool = False
-    log_path: str | None = None
+    log_path: str | PathLike[str] | None = None
     write_summary_json: bool = True
     write_summary_tsv: bool = True
     write_run_metadata: bool = True
@@ -42,6 +45,9 @@ class OutputSpec:
             raise ValueError("artifact_layout must be 'flat', 'by_chrom', or 'run_dir'.")
         if self.compression not in {"gzip", "none"}:
             raise ValueError("compression must be 'gzip' or 'none'.")
+        object.__setattr__(self, "out_prefix", _normalize_required_path(self.out_prefix))
+        object.__setattr__(self, "output_dir", _normalize_optional_path(self.output_dir))
+        object.__setattr__(self, "log_path", _normalize_optional_path(self.log_path))
         if not self.out_prefix:
             raise ValueError("out_prefix is required.")
 

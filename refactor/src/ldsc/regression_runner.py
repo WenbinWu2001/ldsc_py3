@@ -1,4 +1,10 @@
-"""Workflow-layer regression adapters and dataset assembly."""
+"""Workflow-layer regression adapters and dataset assembly.
+
+Regression file inputs stay at the workflow boundary. Public callers may pass
+literal paths or exact-one input tokens such as globs; those tokens are
+resolved before tabular artifacts are loaded, while output prefixes remain
+literal destinations.
+"""
 
 from __future__ import annotations
 
@@ -14,6 +20,7 @@ import pandas as pd
 from scipy import stats
 
 from .config import CommonConfig, RegressionConfig
+from .path_resolution import normalize_path_token, resolve_scalar_path
 from ._kernel import regression as reg
 from .ldscore_calculator import LDScoreResult
 from .sumstats_munger import SumstatsTable
@@ -453,26 +460,29 @@ def _runner_from_args(args) -> tuple[RegressionRunner, RegressionConfig]:
 
 def _read_table(path: str) -> pd.DataFrame:
     """Read a whitespace-delimited LDSC artifact table with gzip support."""
-    compression = "gzip" if str(path).endswith(".gz") else "infer"
-    return pd.read_csv(path, sep=r"\s+", compression=compression)
+    resolved = resolve_scalar_path(path, label="tabular artifact")
+    compression = "gzip" if str(resolved).endswith(".gz") else "infer"
+    return pd.read_csv(resolved, sep=r"\s+", compression=compression)
 
 
 def _read_count_vector(path: str) -> np.ndarray:
     """Read one count-vector artifact such as ``.l2.M`` or ``.l2.M_5_50``."""
-    text = Path(path).read_text(encoding="utf-8").strip()
+    resolved = resolve_scalar_path(path, label="count vector")
+    text = Path(resolved).read_text(encoding="utf-8").strip()
     if not text:
-        raise ValueError(f"Count file is empty: {path}")
+        raise ValueError(f"Count file is empty: {resolved}")
     return np.asarray([float(value) for value in text.split()], dtype=np.float64)
 
 
 def _load_sumstats_table(path: str, trait_name: str | None) -> SumstatsTable:
     """Load one munged sumstats file and wrap it in ``SumstatsTable``."""
-    df = _read_table(path)
+    resolved = resolve_scalar_path(path, label="munged sumstats")
+    df = _read_table(resolved)
     table = SumstatsTable(
         data=df.reset_index(drop=True),
         has_alleles={"A1", "A2"}.issubset(df.columns),
-        source_path=path,
-        trait_name=trait_name or Path(path).name,
+        source_path=resolved,
+        trait_name=trait_name or Path(resolved).name,
     )
     table.validate()
     return table
@@ -535,7 +545,7 @@ def _resolve_annotation_groups(
 ) -> tuple[list[str], list[str]]:
     """Resolve baseline/query columns from a manifest or explicit query list."""
     if annotation_manifest_path:
-        manifest = _read_table(annotation_manifest_path)
+        manifest = _read_table(resolve_scalar_path(annotation_manifest_path, label="annotation manifest"))
         if not {"column", "group"}.issubset(manifest.columns):
             raise ValueError("Annotation manifest must contain 'column' and 'group' columns.")
         baseline = manifest.loc[manifest["group"] == "baseline", "column"].astype(str).tolist()
@@ -552,6 +562,6 @@ def _maybe_write_dataframe(df: pd.DataFrame, out_prefix: str | None, suffix: str
     """Write a summary table only when the caller requested an output prefix."""
     if not out_prefix:
         return
-    path = Path(out_prefix + suffix)
+    path = Path(normalize_path_token(out_prefix) + suffix)
     path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(path, sep="\t", index=False)

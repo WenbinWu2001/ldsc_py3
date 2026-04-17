@@ -4,6 +4,8 @@
 
 The package reads SNP-level annotations, PLINK or parquet-R2 reference inputs, and munged GWAS summary statistics; computes LD scores chromosome by chromosome; aggregates those results across chromosomes; then runs LDSC regressions on the combined tables. Output writing is routed through a separate artifact layer so the core workflows stay independent of file layout and future post-processing features.
 
+Public inputs use one shared token language before execution begins. Workflow entry points accept literal paths, standard Python glob patterns, explicit chromosome-suite placeholders using `@`, and legacy bare prefixes such as `baseline.`. Those tokens are normalized and resolved in the workflow layer, while the internal kernel continues to receive only concrete primitive strings. Output paths are different: they are normalized but treated as literal destinations, never as discovery tokens.
+
 ## Package Shape
 
 ```text
@@ -14,6 +16,7 @@ refactor/
 │       ├── __init__.py
 │       ├── cli.py
 │       ├── config.py
+│       ├── path_resolution.py
 │       ├── outputs.py
 │       ├── annotation_builder.py
 │       ├── ldscore_calculator.py
@@ -44,7 +47,7 @@ refactor/
 | Layer | Location | Responsibility |
 | --- | --- | --- |
 | Public CLI | `src/ldsc/cli.py` | single command surface and subcommand dispatch |
-| Public workflow modules | `src/ldsc/*.py` | validated user-facing services, dataclasses, and file-driven entry helpers |
+| Public workflow modules | `src/ldsc/*.py` | validated user-facing services, dataclasses, shared path resolution, and file-driven entry helpers |
 | Internal kernel | `src/ldsc/_kernel/*.py` | numerical kernels, low-level readers, and compatibility logic |
 | Tests | `tests/` | parity checks, API smoke tests, and workflow coverage |
 | Tutorials and docs | `tutorials/`, `*.md` | usage examples and project guidance |
@@ -85,11 +88,22 @@ This replaces the previous split between root-level wrapper scripts.
 
 ## Data Flow
 
+### Input token resolution
+
+1. Public dataclasses normalize `PathLike` inputs to strings and expand `~` and environment variables.
+2. `ldsc.path_resolution` interprets those strings as one of four input-token forms:
+   - exact path
+   - Python glob pattern
+   - explicit chromosome suite using `@`
+   - legacy bare prefix used in suite-capable contexts
+3. Workflow modules resolve tokens into concrete paths before calling any kernel routine.
+4. Output prefixes and directories are normalized in the same place but are never glob-expanded.
+
 ### Annotation and LD-score path
 
-1. `ldsc annotate` or `AnnotationBuilder` resolves `.annot`, BED, or gene-set inputs.
-2. `ldsc.ldscore_calculator` loads and validates chromosome-specific annotation groups.
-3. `ldsc._kernel.ref_panel` opens PLINK or parquet-R2 reference metadata.
+1. `ldsc annotate` or `AnnotationBuilder` resolves `.annot`, BED, or gene-set tokens into concrete files.
+2. `ldsc.ldscore_calculator` resolves annotation, reference-panel, and optional frequency tokens chromosome by chromosome.
+3. `ldsc._kernel.ref_panel` opens concrete PLINK or parquet-R2 reference inputs.
 4. `ldsc._kernel.ldscore` computes one chromosome at a time.
 5. `LDScoreCalculator` aggregates chromosome results into one `LDScoreResult`.
 6. `OutputManager` writes `.l2.ldscore`, `.w.l2.ldscore`, `.M`, `.M_5_50`, and manifest artifacts.
@@ -106,6 +120,8 @@ This replaces the previous split between root-level wrapper scripts.
 
 - `src/ldsc/` is the only public Python import surface.
 - `src/ldsc/_kernel/` is internal-only and may change without user-facing API guarantees.
+- All path discovery happens before the kernel runs. Kernel code may assume primitive concrete strings and should not perform user-facing glob or suite expansion.
+- Input tokens and output destinations are different contracts. Inputs may expand; outputs stay literal.
 - `refactor/` must not import from `legacy/`.
 - LD-score calculation remains chromosome-wise; regression consumes only the aggregated cross-chromosome result.
 - Regression preserves the original LDSC default of using `.M_5_50` when available.

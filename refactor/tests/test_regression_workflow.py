@@ -1,6 +1,8 @@
 from dataclasses import replace
+import gzip
 from pathlib import Path
 import sys
+import tempfile
 import unittest
 from unittest import mock
 
@@ -15,6 +17,7 @@ from ldsc.config import CommonConfig, RegressionConfig
 
 try:
     from ldsc.ldscore_calculator import LDScoreResult
+    from ldsc import regression_runner
     from ldsc.regression_runner import RegressionRunner
     from ldsc.sumstats_munger import SumstatsTable
     from ldsc.annotation_builder import AnnotationBundle
@@ -108,3 +111,47 @@ class RegressionWorkflowTest(unittest.TestCase):
             result = runner.estimate_partitioned_h2_batch(table, ldscore_result, annotation_bundle)
         self.assertEqual(patched.call_count, 2)
         self.assertEqual(result["query_annotation"].tolist(), ["query1", "query2"])
+
+    def test_run_h2_from_args_resolves_scalar_glob_inputs(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
+                handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
+            with gzip.open(tmpdir / "trait.l2.ldscore.gz", "wt", encoding="utf-8") as handle:
+                handle.write("CHR\tSNP\tBP\tCM\tbase\n1\trs1\t10\t0.1\t1.0\n")
+            with gzip.open(tmpdir / "trait.w.l2.ldscore.gz", "wt", encoding="utf-8") as handle:
+                handle.write("CHR\tSNP\tBP\tCM\tL2\n1\trs1\t10\t0.1\t2.0\n")
+            (tmpdir / "trait.l2.M_5_50").write_text("5\n", encoding="utf-8")
+            args = type(
+                "Args",
+                (),
+                {
+                    "sumstats": str(tmpdir / "trait*.sumstats.gz"),
+                    "trait_name": "trait",
+                    "ldscore": str(tmpdir / "trait.l2*.ldscore.gz"),
+                    "w_ld": str(tmpdir / "trait.w*.ldscore.gz"),
+                    "counts": str(tmpdir / "*.l2.M_5_50"),
+                    "count_kind": "m_5_50",
+                    "out": None,
+                    "n_blocks": 200,
+                    "no_intercept": False,
+                    "intercept_h2": None,
+                    "two_step_cutoff": None,
+                    "chisq_max": None,
+                },
+            )()
+
+            with mock.patch.object(regression_runner.RegressionRunner, "estimate_h2", return_value=mock.Mock(
+                tot=np.array([0.1]),
+                tot_se=np.array([0.01]),
+                intercept=np.array([1.0]),
+                intercept_se=0.01,
+                mean_chisq=np.array([1.1]),
+                lambda_gc=np.array([1.0]),
+                ratio=0.0,
+                ratio_se=0.0,
+            )) as patched:
+                summary = regression_runner.run_h2_from_args(args)
+
+            patched.assert_called_once()
+            self.assertEqual(summary.loc[0, "trait_name"], "trait")

@@ -9,12 +9,21 @@ The implemented code follows the hybrid model chosen earlier:
 | Concern | Current pattern |
 | --- | --- |
 | validated config | frozen dataclass |
+| path token resolution | shared workflow helper module |
 | aligned in-memory workflow state | frozen dataclass |
 | orchestration | service/workflow class |
 | numerical methods | internal kernel module |
 | output writing | output manager plus artifact producers |
 
 The package is CLI-first, but the public Python API is intentionally usable without touching `_kernel`.
+
+Public path handling follows one rule across features:
+
+- input fields accept normalized token strings
+- tokens may be exact paths, Python globs, explicit `@` chromosome suites, or legacy bare prefixes
+- workflow code resolves tokens before execution
+- kernel code receives only concrete strings
+- output paths are normalized but never glob-resolved
 
 ## 2. Layer Model
 
@@ -28,6 +37,8 @@ The package is CLI-first, but the public Python API is intentionally usable with
 ## 3. Public Configuration Classes
 
 Defined in `ldsc.config`.
+
+Path-bearing config fields store normalized strings, not `Path` objects. Plural fields accept either one token or a sequence of tokens.
 
 ### `CommonConfig`
 
@@ -43,9 +54,9 @@ Defined in `ldsc.config`.
 
 | Field | Meaning |
 | --- | --- |
-| `baseline_annotation_paths` | baseline `.annot` inputs |
-| `query_annotation_paths` | query `.annot` inputs |
-| `query_bed_paths` | BED inputs for projection workflows |
+| `baseline_annotation_paths` | baseline annotation tokens |
+| `query_annotation_paths` | query annotation tokens |
+| `query_bed_paths` | BED input tokens |
 | `out_prefix` | output prefix |
 | `batch_mode` | one output directory per BED source |
 | `compression` | output compression |
@@ -55,9 +66,9 @@ Defined in `ldsc.config`.
 | Field | Meaning |
 | --- | --- |
 | `backend` | `auto`, `plink`, or `parquet_r2` |
-| `plink_prefix` / `plink_prefix_chr` | PLINK reference input |
-| `parquet_r2_paths` / `parquet_r2_paths_chr` | parquet R2 inputs |
-| `frequency_paths` / `frequency_paths_chr` | metadata / frequency sidecars |
+| `plink_prefix` / `plink_prefix_chr` | PLINK prefix tokens |
+| `parquet_r2_paths` / `parquet_r2_paths_chr` | parquet R2 tokens |
+| `frequency_paths` / `frequency_paths_chr` | metadata / frequency sidecar tokens |
 | `r2_bias_mode` | raw or unbiased R2 handling |
 | `r2_sample_size` | reference sample size for parquet corrections |
 
@@ -86,6 +97,11 @@ Representative fields:
 - `info_min`, `maf_min`, `n_min`, `nstudy_min`
 - `out_prefix`, `chunk_size`, `merge_alleles_path`
 - `signed_sumstats_spec`, `ignore_columns`, `no_alleles`, `a1_inc`, `keep_maf`, `daner`, `daner_n`
+
+Important path behavior:
+
+- raw sumstats and merge-alleles inputs use exact-one resolution
+- `out_prefix` remains a literal destination
 
 ### `RegressionConfig`
 
@@ -120,11 +136,17 @@ Implemented default:
 
 | Field | Meaning |
 | --- | --- |
-| `baseline_annot_paths` | baseline `.annot` paths |
-| `query_annot_paths` | query `.annot` paths |
-| `bed_paths` | BED paths |
-| `gene_set_paths` | gene-set paths |
+| `baseline_annot_paths` | baseline annotation tokens |
+| `query_annot_paths` | query annotation tokens |
+| `bed_paths` | BED tokens |
+| `gene_set_paths` | gene-set tokens |
 | `allow_missing_query` | whether empty query input is allowed |
+
+Token behavior:
+
+- one field may contain one token or a sequence of tokens
+- `run()` resolves globs and chromosome suites internally
+- chromosome-sharded `.annot` files are auto-bundled after resolution
 
 #### `AnnotationBundle`
 
@@ -179,12 +201,18 @@ Reference-panel classes are re-exported from `ldsc`.
 | Field | Meaning |
 | --- | --- |
 | `backend` | `plink` or `parquet_r2` |
-| `bfile_prefix` | PLINK prefix |
-| `r2_table_paths` | parquet R2 paths |
+| `bfile_prefix` | PLINK prefix token |
+| `r2_table_paths` | parquet R2 tokens |
 | `sample_size` | reference sample size |
-| `maf_metadata_paths` | frequency / metadata sidecars |
+| `maf_metadata_paths` | frequency / metadata sidecar tokens |
 | `chromosomes` | explicit chromosome set when needed |
 | `genome_build` | build metadata |
+
+Reference-panel token behavior:
+
+- suite tokens may be used in the same public fields as literal paths
+- metadata-only PLINK prefixes are accepted for metadata-loading workflows
+- per-chromosome concrete paths are resolved before reader construction
 
 #### `RefPanel`
 
@@ -297,6 +325,7 @@ Important workflow behavior:
 
 - the pipeline is chromosome-wise for computational efficiency
 - a global regression-SNP input is partitioned internally by chromosome
+- public LD-score inputs are resolved in the workflow layer rather than by the kernel
 - `M` and `M_5_50` are stored as named count arrays in `snp_count_totals`
 - regression later defaults to the common-SNP count key when available
 
@@ -321,7 +350,7 @@ Count keys currently used:
 
 | Field | Meaning |
 | --- | --- |
-| `path` | raw summary-stat file |
+| `path` | raw summary-stat input token |
 | `compression` | compression mode or `auto` |
 | `trait_name` | optional trait label |
 | `column_hints` | explicit column-name hints |
@@ -422,6 +451,7 @@ File-driven entry helpers:
 Implemented default:
 
 - when multiple query annotations are provided, `estimate_partitioned_h2_batch()` loops over them one at a time and concatenates a clean summary table with one row per query annotation
+- scalar artifacts such as sumstats, ldscore, weights, and counts are exact-one resolved before loading
 
 This feature was not present in the older code path and is now explicit in the refactor.
 
@@ -460,6 +490,10 @@ Key fields:
 - `write_summary_tsv`
 - `write_run_metadata`
 - `enabled_artifacts`
+
+Important path rule:
+
+- output configuration accepts path-like values but treats them as literal destinations, not discovery tokens
 
 #### `ArtifactConfig`
 

@@ -1,4 +1,10 @@
-"""Workflow-layer LD-score orchestration and result objects."""
+"""Workflow-layer LD-score orchestration and result objects.
+
+This module is the public boundary for LD-score path handling. Callers may
+provide exact paths, glob patterns, explicit chromosome-suite tokens using
+``@``, or legacy bare prefixes. The workflow resolves those tokens into
+concrete per-chromosome files before calling the primitive-only kernel.
+"""
 
 from __future__ import annotations
 
@@ -12,6 +18,17 @@ import pandas as pd
 
 from .config import CommonConfig, LDScoreConfig
 from .outputs import OutputManager, OutputSpec
+from .path_resolution import (
+    ANNOTATION_SUFFIXES,
+    FREQUENCY_SUFFIXES,
+    PARQUET_SUFFIXES,
+    normalize_path_token,
+    resolve_chromosome_group,
+    resolve_file_group,
+    resolve_plink_prefix,
+    resolve_scalar_path,
+    split_cli_path_tokens,
+)
 from ._kernel import ldscore as kernel_ldscore
 from ._kernel.identifiers import build_snp_id_series, normalize_snp_identifier_mode, read_global_snp_restriction
 
@@ -326,21 +343,21 @@ def build_parser() -> argparse.ArgumentParser:
         description="Estimate LDSC-compatible LD scores from SNP-level annotation files using PLINK or sorted parquet R2 input.",
     )
     parser.add_argument("--out", required=True, help="Output prefix.")
-    parser.add_argument("--query-annot", default=None, help="Comma-separated SNP-level query annotation files or prefixes.")
-    parser.add_argument("--query-annot-chr", default=None, help="Comma-separated chromosome-pattern prefixes for query annotation files.")
-    parser.add_argument("--baseline-annot", default=None, help="Comma-separated SNP-level baseline annotation files or prefixes.")
-    parser.add_argument("--baseline-annot-chr", default=None, help="Comma-separated chromosome-pattern prefixes for baseline annotation files.")
-    parser.add_argument("--bfile", default=None, help="PLINK prefix for the reference panel.")
-    parser.add_argument("--bfile-chr", default=None, help="Chromosome-pattern PLINK prefix for the reference panel.")
-    parser.add_argument("--r2-table", default=None, help="Comma-separated sorted parquet R2 files or prefixes.")
-    parser.add_argument("--r2-table-chr", default=None, help="Comma-separated chromosome-pattern prefixes for sorted parquet R2 files.")
+    parser.add_argument("--query-annot", default=None, help="Comma-separated query annotation tokens: exact paths, globs, or suite prefixes.")
+    parser.add_argument("--query-annot-chr", default=None, help="Comma-separated chromosome-suite query annotation tokens; `@` is preferred.")
+    parser.add_argument("--baseline-annot", default=None, help="Comma-separated baseline annotation tokens: exact paths, globs, or suite prefixes.")
+    parser.add_argument("--baseline-annot-chr", default=None, help="Comma-separated chromosome-suite baseline annotation tokens; `@` is preferred.")
+    parser.add_argument("--bfile", default=None, help="PLINK prefix token for the reference panel.")
+    parser.add_argument("--bfile-chr", default=None, help="Chromosome-suite PLINK prefix token; `@` is preferred.")
+    parser.add_argument("--r2-table", default=None, help="Comma-separated parquet R2 tokens: exact paths, globs, or suite prefixes.")
+    parser.add_argument("--r2-table-chr", default=None, help="Comma-separated chromosome-suite parquet R2 tokens; `@` is preferred.")
     parser.add_argument("--snp-identifier", default="chr_pos", help="Identifier mode used to match annotations to the reference panel.")
     parser.add_argument("--genome-build", choices=("hg19", "hg38"), default=None, help="Genome build for chr_pos matching.")
     parser.add_argument("--r2-bias-mode", choices=("raw", "unbiased"), default=None, help="Whether parquet R2 values are raw or already unbiased.")
     parser.add_argument("--r2-sample-size", default=None, type=float, help="LD reference sample size used to correct raw parquet R2 values.")
     parser.add_argument("--regression-snps", default=None, help="Optional SNP list defining the regression SNP set for w_ld.")
-    parser.add_argument("--frqfile", default=None, help="Optional frequency or metadata file for MAF and CM.")
-    parser.add_argument("--frqfile-chr", default=None, help="Chromosome-pattern frequency or metadata file prefix.")
+    parser.add_argument("--frqfile", default=None, help="Optional frequency or metadata token for MAF and CM.")
+    parser.add_argument("--frqfile-chr", default=None, help="Chromosome-suite frequency or metadata token; `@` is preferred.")
     parser.add_argument("--ld-wind-snps", default=None, type=int, help="LD window size in SNPs.")
     parser.add_argument("--ld-wind-kb", default=None, type=float, help="LD window size in kilobases.")
     parser.add_argument("--ld-wind-cm", default=None, type=float, help="LD window size in centiMorgans.")
@@ -357,34 +374,133 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
     normalized_args, common_config = _normalize_run_args(args)
     kernel_ldscore.validate_args(normalized_args)
     regression_snps = _load_regression_snps(normalized_args.regression_snps, common_config)
+    baseline_tokens = split_cli_path_tokens(normalized_args.baseline_annot)
+    baseline_chr_tokens = split_cli_path_tokens(normalized_args.baseline_annot_chr)
+    query_tokens = split_cli_path_tokens(normalized_args.query_annot)
+    query_chr_tokens = split_cli_path_tokens(normalized_args.query_annot_chr)
+    baseline_files = (
+        []
+        if not baseline_tokens
+        else resolve_file_group(
+            baseline_tokens,
+            suffixes=ANNOTATION_SUFFIXES,
+            label="baseline annotation",
+            allow_chromosome_suite=True,
+        )
+    )
+    query_files = (
+        []
+        if not query_tokens
+        else resolve_file_group(
+            query_tokens,
+            suffixes=ANNOTATION_SUFFIXES,
+            label="query annotation",
+            allow_chromosome_suite=True,
+        )
+    )
+    r2_tokens = split_cli_path_tokens(normalized_args.r2_table)
+    r2_chr_tokens = split_cli_path_tokens(normalized_args.r2_table_chr)
+    r2_files = (
+        []
+        if not r2_tokens
+        else resolve_file_group(
+            r2_tokens,
+            suffixes=PARQUET_SUFFIXES,
+            label="parquet R2",
+            allow_chromosome_suite=True,
+        )
+    )
+    freq_tokens = split_cli_path_tokens(normalized_args.frqfile)
+    freq_chr_tokens = split_cli_path_tokens(normalized_args.frqfile_chr)
+    freq_files = (
+        []
+        if not freq_tokens
+        else resolve_file_group(
+            freq_tokens,
+            suffixes=FREQUENCY_SUFFIXES,
+            label="frequency or metadata",
+            allow_chromosome_suite=True,
+        )
+    )
     chromosome_results: list[ChromLDScoreResult] = []
     calculator = LDScoreCalculator()
 
-    for chrom in kernel_ldscore.chromosome_set_from_annotation_inputs(normalized_args):
-        baseline_files = kernel_ldscore.resolve_optional_chr_files(
-            normalized_args.baseline_annot_chr,
-            chrom,
-            ("", ".annot", ".annot.gz", ".txt", ".txt.gz", ".tsv", ".tsv.gz"),
+    for chrom in _chromosome_set_from_annotation_inputs(
+        baseline_files=baseline_files,
+        query_files=query_files,
+        baseline_chr_tokens=baseline_chr_tokens,
+        query_chr_tokens=query_chr_tokens,
+    ):
+        chrom_baseline_files = (
+            resolve_chromosome_group(
+                baseline_chr_tokens,
+                chrom=chrom,
+                suffixes=ANNOTATION_SUFFIXES,
+                label="baseline annotation",
+                required=False,
+            )
+            if baseline_chr_tokens
+            else []
         )
-        baseline_files += kernel_ldscore.resolve_annotation_files(normalized_args.baseline_annot)
-        query_files = kernel_ldscore.resolve_optional_chr_files(
-            normalized_args.query_annot_chr,
-            chrom,
-            ("", ".annot", ".annot.gz", ".txt", ".txt.gz", ".tsv", ".tsv.gz"),
+        chrom_baseline_files += baseline_files
+        chrom_query_files = (
+            resolve_chromosome_group(
+                query_chr_tokens,
+                chrom=chrom,
+                suffixes=ANNOTATION_SUFFIXES,
+                label="query annotation",
+                required=False,
+            )
+            if query_chr_tokens
+            else []
         )
-        query_files += kernel_ldscore.resolve_annotation_files(normalized_args.query_annot)
+        chrom_query_files += query_files
         bundle = kernel_ldscore.combine_annotation_groups(
-            baseline_files=baseline_files,
-            query_files=query_files,
+            baseline_files=chrom_baseline_files,
+            query_files=chrom_query_files,
             chrom=chrom,
             identifier_mode=normalized_args.snp_identifier,
         )
         if bundle is None:
             continue
+        chrom_args = argparse.Namespace(**vars(normalized_args))
         if normalized_args.r2_table or normalized_args.r2_table_chr:
-            legacy_result = kernel_ldscore.compute_chrom_from_parquet(chrom, bundle, normalized_args, regression_snps)
+            chrom_r2_files = (
+                resolve_chromosome_group(
+                    r2_chr_tokens,
+                    chrom=chrom,
+                    suffixes=PARQUET_SUFFIXES,
+                    label="parquet R2",
+                    required=False,
+                )
+                if r2_chr_tokens
+                else []
+            )
+            chrom_r2_files += r2_files
+            chrom_freq_files = (
+                resolve_chromosome_group(
+                    freq_chr_tokens,
+                    chrom=chrom,
+                    suffixes=FREQUENCY_SUFFIXES,
+                    label="frequency or metadata",
+                    required=False,
+                )
+                if freq_chr_tokens
+                else []
+            )
+            chrom_freq_files += freq_files
+            chrom_args.r2_table = ",".join(chrom_r2_files) or None
+            chrom_args.r2_table_chr = None
+            chrom_args.frqfile = ",".join(chrom_freq_files) or None
+            chrom_args.frqfile_chr = None
+            chrom_args.bfile = None
+            chrom_args.bfile_chr = None
+            legacy_result = kernel_ldscore.compute_chrom_from_parquet(chrom, bundle, chrom_args, regression_snps)
         else:
-            legacy_result = kernel_ldscore.compute_chrom_from_plink(chrom, bundle, normalized_args, regression_snps)
+            bfile_token = normalized_args.bfile if normalized_args.bfile is not None else normalized_args.bfile_chr
+            chrom_args.bfile = None if bfile_token is None else resolve_plink_prefix(bfile_token, chrom=chrom)
+            chrom_args.bfile_chr = None
+            legacy_result = kernel_ldscore.compute_chrom_from_plink(chrom, bundle, chrom_args, regression_snps)
         chromosome_results.append(
             calculator._wrap_legacy_chrom_result(
                 legacy_result,
@@ -427,6 +543,7 @@ def _normalize_run_args(args: argparse.Namespace) -> tuple[argparse.Namespace, C
     legacy_mode = "rsID" if normalized_mode == "rsid" else "chr_pos"
     normalized_args = argparse.Namespace(**vars(args))
     normalized_args.snp_identifier = legacy_mode
+    normalized_args.out = normalize_path_token(args.out)
     common_config = CommonConfig(
         snp_identifier=normalized_mode,
         genome_build=getattr(args, "genome_build", None),
@@ -439,12 +556,12 @@ def _load_regression_snps(path: str | None, common_config: CommonConfig) -> set[
     """Load the optional global regression SNP universe using the active identifier mode."""
     if not path:
         return None
-    return read_global_snp_restriction(path, common_config.snp_identifier)
+    return read_global_snp_restriction(resolve_scalar_path(path, label="regression SNP list"), common_config.snp_identifier)
 
 
 def _output_spec_from_args(args: argparse.Namespace) -> OutputSpec:
     """Translate LD-score CLI arguments into the standard output configuration."""
-    out_path = Path(args.out)
+    out_path = Path(normalize_path_token(args.out))
     return OutputSpec(
         out_prefix=out_path.name,
         output_dir=str(out_path.parent),
@@ -514,22 +631,47 @@ def _namespace_from_configs(chrom: str, ref_panel, ldscore_config: LDScoreConfig
     """Build the legacy-kernel namespace expected by the chromosome backends."""
     spec = getattr(ref_panel, "spec", None)
     backend = getattr(spec, "backend", None)
+    bfile = None
+    r2_table = None
+    frqfile = None
+    if backend == "plink" and getattr(spec, "bfile_prefix", None) is not None:
+        bfile = resolve_plink_prefix(spec.bfile_prefix, chrom=chrom)
+    if backend == "parquet_r2" and getattr(spec, "r2_table_paths", ()):
+        r2_table = ",".join(
+            resolve_chromosome_group(
+                getattr(spec, "r2_table_paths", ()),
+                chrom=chrom,
+                suffixes=PARQUET_SUFFIXES,
+                label="parquet R2",
+                required=False,
+            )
+        ) or None
+    if getattr(spec, "maf_metadata_paths", ()):
+        frqfile = ",".join(
+            resolve_chromosome_group(
+                getattr(spec, "maf_metadata_paths", ()),
+                chrom=chrom,
+                suffixes=FREQUENCY_SUFFIXES,
+                label="frequency or metadata",
+                required=False,
+            )
+        ) or None
     return argparse.Namespace(
         out=None,
         query_annot=None,
         query_annot_chr=None,
         baseline_annot=None,
         baseline_annot_chr=None,
-        bfile=getattr(spec, "bfile_prefix", None) if backend == "plink" else None,
+        bfile=bfile,
         bfile_chr=None,
-        r2_table=",".join(getattr(spec, "r2_table_paths", ())) if backend == "parquet_r2" else None,
+        r2_table=r2_table,
         r2_table_chr=None,
         snp_identifier="rsID" if common_config.snp_identifier == "rsid" else "chr_pos",
-        genome_build=getattr(spec, "genome_build", common_config.genome_build),
+        genome_build=(getattr(spec, "genome_build", None) or common_config.genome_build),
         r2_bias_mode=getattr(spec, "r2_bias_mode", None),
         r2_sample_size=getattr(spec, "sample_size", None),
         regression_snps=None,
-        frqfile=",".join(getattr(spec, "maf_metadata_paths", ())) or None,
+        frqfile=frqfile,
         frqfile_chr=None,
         ld_wind_snps=ldscore_config.ld_wind_snps,
         ld_wind_kb=ldscore_config.ld_wind_kb,
@@ -540,3 +682,46 @@ def _namespace_from_configs(chrom: str, ref_panel, ldscore_config: LDScoreConfig
         yes_really=ldscore_config.whole_chromosome_ok,
         log_level=common_config.log_level,
     )
+
+
+def _chromosome_set_from_annotation_inputs(
+    *,
+    baseline_files: Sequence[str],
+    query_files: Sequence[str],
+    baseline_chr_tokens: Sequence[str],
+    query_chr_tokens: Sequence[str],
+) -> list[str]:
+    """Discover the chromosome set implied by workflow-resolved annotation inputs."""
+    chromosomes: set[str] = set()
+    for path in list(baseline_files) + list(query_files):
+        df = kernel_ldscore.read_text_table(path)
+        if "CHR" not in df.columns:
+            raise ValueError(f"{path} is missing CHR.")
+        chromosomes.update(df["CHR"].map(kernel_ldscore.normalize_chromosome).unique().tolist())
+
+    suite_tokens = list(baseline_chr_tokens) + list(query_chr_tokens)
+    if suite_tokens:
+        for chrom in [str(i) for i in range(1, 23)] + ["X", "Y", "MT", "M"]:
+            files = []
+            if query_chr_tokens:
+                files += resolve_chromosome_group(
+                    query_chr_tokens,
+                    chrom=chrom,
+                    suffixes=ANNOTATION_SUFFIXES,
+                    label="query annotation",
+                    required=False,
+                )
+            if baseline_chr_tokens:
+                files += resolve_chromosome_group(
+                    baseline_chr_tokens,
+                    chrom=chrom,
+                    suffixes=ANNOTATION_SUFFIXES,
+                    label="baseline annotation",
+                    required=False,
+                )
+            if files:
+                chromosomes.add(kernel_ldscore.normalize_chromosome(chrom))
+
+    if not chromosomes:
+        raise ValueError("No annotation chromosomes could be resolved from the supplied inputs.")
+    return sorted(chromosomes, key=kernel_ldscore.chrom_sort_key)

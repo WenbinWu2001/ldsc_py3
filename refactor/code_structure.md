@@ -11,6 +11,7 @@ refactor/
 │   ├── __init__.py
 │   ├── cli.py
 │   ├── config.py
+│   ├── path_resolution.py
 │   ├── outputs.py
 │   ├── annotation_builder.py
 │   ├── ldscore_calculator.py
@@ -40,7 +41,7 @@ refactor/
 | Layer | Files | Responsibility |
 | --- | --- | --- |
 | CLI | `src/ldsc/cli.py` | top-level command dispatch |
-| Public workflow/config | `src/ldsc/config.py`, `annotation_builder.py`, `ldscore_calculator.py`, `sumstats_munger.py`, `regression_runner.py`, `outputs.py` | user-visible services, dataclasses, and output config |
+| Public workflow/config | `src/ldsc/config.py`, `path_resolution.py`, `annotation_builder.py`, `ldscore_calculator.py`, `sumstats_munger.py`, `regression_runner.py`, `outputs.py` | user-visible services, dataclasses, shared path resolution, and output config |
 | Internal kernel | `src/ldsc/_kernel/*.py` | low-level readers, numerical kernels, compatibility helpers |
 | Verification | `tests/` | parity and API checks |
 | User guidance | `tutorials/`, `README.md`, design docs | usage examples and maintenance guidance |
@@ -86,6 +87,31 @@ Main classes:
 - `MungeConfig`
 - `RegressionConfig`
 
+Path handling contract:
+
+- public dataclasses normalize `PathLike` values to strings
+- plural path-bearing fields accept either one token or a sequence of tokens
+- tokens stay unresolved here; file discovery happens later in workflow modules
+
+### `src/ldsc/path_resolution.py`
+
+Purpose:
+
+- define the shared public input-token language for filesystem inputs
+- expand `~` and environment variables
+- resolve exact paths, glob patterns, explicit `@` chromosome suites, and legacy bare prefixes
+- keep output destinations literal by separating normalization from discovery
+
+Main helpers:
+
+- `normalize_path_token()`
+- `normalize_path_tokens()`
+- `split_cli_path_tokens()`
+- `resolve_scalar_path()`
+- `resolve_file_group()`
+- `resolve_chromosome_group()`
+- `resolve_plink_prefix()`
+
 ### `src/ldsc/annotation_builder.py`
 
 Purpose:
@@ -130,9 +156,9 @@ Input streamline:
 
 1. Parse CLI or keyword arguments.
 2. Normalize identifier mode and load optional regression SNP restriction.
-3. Resolve chromosome annotation files.
+3. Resolve public annotation, PLINK, parquet, and frequency tokens into concrete chromosome-specific paths.
 4. Build one annotation bundle per chromosome.
-5. Dispatch to `_kernel.ldscore.compute_chrom_from_plink()` or `compute_chrom_from_parquet()`.
+5. Dispatch to `_kernel.ldscore.compute_chrom_from_plink()` or `compute_chrom_from_parquet()` with primitive string paths only.
 6. Wrap each chromosome as `ChromLDScoreResult`.
 7. Aggregate to `LDScoreResult`.
 8. Write outputs if requested.
@@ -185,6 +211,7 @@ Important functions:
 Current regression data contract:
 
 - inputs are already aggregated across chromosomes
+- scalar file inputs use exact-one resolution before loading
 - one count vector is selected for regression, defaulting to `.M_5_50`
 - zero-variance LD-score columns are dropped before fitting
 - batch partitioned-h2 loops over query annotations one at a time and concatenates the summary rows
@@ -229,6 +256,7 @@ Purpose:
 - project BED inputs onto SNP rows
 
 Defines the actual `AnnotationBuilder`, `AnnotationBundle`, and `AnnotationSourceSpec` implementations used by the public wrapper.
+It also accepts workflow-resolved input tokens for annotation families and performs chromosome-shard bundling after resolution.
 
 ### `src/ldsc/_kernel/formats.py`
 
@@ -270,7 +298,6 @@ This module consolidates the reused parts of the older PLINK genotype kernel and
 Key contents:
 
 - annotation combination helpers
-- chromosome file resolution
 - PLINK readers and block LD logic
 - parquet R2 block readers and per-chromosome computation
 - sorting and aggregation helpers used by the workflow layer
@@ -314,6 +341,7 @@ Helper modules:
 | `tests/test_ldscore_workflow.py` | LD-score workflow/result assembly |
 | `tests/test_sumstats_munger.py` | public munging wrapper |
 | `tests/test_regression_workflow.py` | regression dataset assembly and batch partitioned-h2 |
+| `tests/test_path_resolution.py` | shared path token resolution and compatibility rules |
 | `tests/*_legacy.py` | parity-oriented coverage for reused kernel logic |
 
 ## Dead Code Status

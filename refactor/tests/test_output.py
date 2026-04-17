@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
+import os
 import sys
 import tempfile
 import unittest
@@ -68,6 +69,23 @@ def make_fake_result() -> FakeResult:
 
 
 class OutputManagerTest(unittest.TestCase):
+    def test_output_spec_normalizes_pathlike_fields(self):
+        spec = OutputSpec(
+            out_prefix=Path("results") / "example",
+            output_dir=Path("artifacts"),
+            log_path=Path("logs") / "run.log",
+        )
+        self.assertEqual(spec.out_prefix, "results/example")
+        self.assertEqual(spec.output_dir, "artifacts")
+        self.assertEqual(spec.log_path, "logs/run.log")
+
+    def test_output_spec_expands_env_vars_but_does_not_glob_resolve(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            os.environ["LDSC_OUTPUT_ROOT"] = tmpdir
+            spec = OutputSpec(out_prefix="$LDSC_OUTPUT_ROOT/results/*.out", output_dir="$LDSC_OUTPUT_ROOT/artifacts")
+            self.assertEqual(spec.out_prefix, str(Path(tmpdir) / "results" / "*.out"))
+            self.assertEqual(spec.output_dir, str(Path(tmpdir) / "artifacts"))
+
     def test_default_outputs(self):
         result = make_fake_result()
         manager = OutputManager()

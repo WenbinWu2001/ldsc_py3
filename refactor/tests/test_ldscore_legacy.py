@@ -1,9 +1,12 @@
 from pathlib import Path
+import importlib
 import sys
+import tempfile
 import unittest
 
 import numpy as np
 from numpy.testing import assert_array_almost_equal, assert_array_equal
+import pandas as pd
 
 SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
@@ -21,6 +24,14 @@ except ModuleNotFoundError:
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "legacy"
 PLINK_FIXTURES = FIXTURES / "plink_test"
+
+
+def _has_module(name: str) -> bool:
+    try:
+        importlib.import_module(name)
+        return True
+    except Exception:
+        return False
 
 
 @unittest.skipIf(ld is None or ba is None, "bitarray dependency is not installed")
@@ -122,3 +133,58 @@ class PlinkBedFileTest(unittest.TestCase):
         bed._currentSNP -= width
         y = bed.nextSNPs(width, minorRef=True)
         assert_array_equal(x, -y)
+
+
+@unittest.skipIf(ld is None, "ldscore kernel is not available")
+@unittest.skipUnless(_has_module("pyarrow"), "pyarrow dependency is not installed")
+class RawParquetRuntimeTest(unittest.TestCase):
+    def test_raw_parquet_presence_and_reader_support_hg19(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "raw_chr1.parquet"
+            pd.DataFrame(
+                {
+                    "chr": ["1"],
+                    "rsID_1": ["rs2"],
+                    "rsID_2": ["rs1"],
+                    "hg38_bp1": [120],
+                    "hg38_bp2": [100],
+                    "hg19_bp_1": [20],
+                    "hg19_bp_2": [10],
+                    "hg38_Uniq_ID_1": ["1:120"],
+                    "hg38_Uniq_ID_2": ["1:100"],
+                    "hg19_Uniq_ID_1": ["1:20"],
+                    "hg19_Uniq_ID_2": ["1:10"],
+                    "R2": [0.4],
+                    "Dprime": [0.5],
+                    "+/-corr": ["+"],
+                }
+            ).to_parquet(path, index=False)
+
+            args = ld.argparse.Namespace(
+                r2_table=str(path),
+                r2_table_chr=None,
+                snp_identifier="rsID",
+                genome_build="hg19",
+            )
+            self.assertEqual(ld.read_sorted_r2_presence(args, chrom="1"), {"rs1", "rs2"})
+
+            metadata = pd.DataFrame(
+                {
+                    "CHR": ["1", "1"],
+                    "SNP": ["rs1", "rs2"],
+                    "BP": [10, 20],
+                    "CM": [0.1, 0.2],
+                }
+            )
+            reader = ld.SortedR2BlockReader(
+                paths=[str(path)],
+                chrom="1",
+                metadata=metadata,
+                identifier_mode="rsID",
+                r2_bias_mode="unbiased",
+                r2_sample_size=None,
+                genome_build="hg19",
+            )
+            matrix = reader.within_block_matrix(l_B=0, c=2)
+            expected = np.array([[1.0, 0.4], [0.4, 1.0]], dtype=np.float32)
+            assert_array_almost_equal(matrix, expected)

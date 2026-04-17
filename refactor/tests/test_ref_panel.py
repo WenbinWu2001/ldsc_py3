@@ -118,6 +118,28 @@ class ParquetRefPanelTest(unittest.TestCase):
             filtered = panel.filter_to_snps("1", {"1:20"})
             self.assertEqual(filtered["BP"].tolist(), [20])
 
+    def test_sidecar_metadata_loading_accepts_suite_tokens(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            meta1 = tmpdir / "meta.1.tsv"
+            meta2 = tmpdir / "meta.2.tsv"
+            meta1.write_text(
+                "CHR\tBP\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n",
+                encoding="utf-8",
+            )
+            meta2.write_text(
+                "CHR\tBP\tSNP\tCM\tMAF\n2\t20\trs2\t0.2\t0.3\n",
+                encoding="utf-8",
+            )
+            panel = ParquetR2RefPanel(
+                CommonConfig(snp_identifier="chr_pos"),
+                RefPanelSpec(backend="parquet_r2", maf_metadata_paths=str(tmpdir / "meta.@")),
+            )
+
+            self.assertEqual(panel.available_chromosomes(), ["1", "2"])
+            metadata = panel.load_metadata("2")
+            self.assertEqual(metadata["BP"].tolist(), [20])
+
     @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
     def test_build_reader(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -129,3 +151,25 @@ class ParquetRefPanelTest(unittest.TestCase):
             )
             with self.assertRaises(Exception):
                 panel.build_reader("1")
+
+    def test_plink_prefix_accepts_suite_token(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            prefix = tmpdir / "panel.1"
+            (tmpdir / "panel.1.bed").write_text("", encoding="utf-8")
+            (tmpdir / "panel.1.bim").write_text(
+                "1 rs1 0.1 10 A G\n",
+                encoding="utf-8",
+            )
+            (tmpdir / "panel.1.fam").write_text(
+                "f i 0 0 0 -9\n",
+                encoding="utf-8",
+            )
+            panel = PlinkRefPanel(
+                CommonConfig(snp_identifier="rsid"),
+                RefPanelSpec(backend="plink", bfile_prefix=str(tmpdir / "panel.@")),
+            )
+
+            self.assertEqual(panel.available_chromosomes(), ["1"])
+            metadata = panel.load_metadata("1")
+            self.assertEqual(metadata["SNP"].tolist(), ["rs1"])

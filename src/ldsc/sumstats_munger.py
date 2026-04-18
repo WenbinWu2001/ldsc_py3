@@ -2,7 +2,8 @@
 
 Core functionality:
     Expose a typed, package-level interface to the legacy-compatible munging
-    implementation.
+    implementation and provide a public loader for curated ``.sumstats.gz``
+    artifacts.
 
 Overview
 --------
@@ -23,6 +24,11 @@ from typing import Any
 
 import pandas as pd
 
+from .column_inference import (
+    INTERNAL_SUMSTATS_ARTIFACT_SPEC_MAP,
+    resolve_optional_column,
+    resolve_required_column,
+)
 from .config import CommonConfig, MungeConfig, _normalize_required_path
 from .path_resolution import normalize_path_token, resolve_scalar_path
 from ._kernel import sumstats_munger as kernel_munge
@@ -157,6 +163,47 @@ class MungeRunSummary:
     inferred_columns: dict[str, str]
     used_n_rule: str
     output_paths: dict[str, str]
+
+
+def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> SumstatsTable:
+    """Load one curated LDSC ``.sumstats`` artifact into a ``SumstatsTable``.
+
+    Parameters
+    ----------
+    path : str or os.PathLike[str]
+        Path token for the curated summary-statistics artifact. This may be a
+        literal path or an exact-one glob pattern. Resolution happens at the
+        workflow layer before the artifact is parsed.
+    trait_name : str or None, optional
+        Optional trait label propagated into downstream regression summaries.
+        When omitted, the resolved filename is used. Default is ``None``.
+
+    Returns
+    -------
+    SumstatsTable
+        Validated in-memory table with canonical LDSC columns such as ``SNP``,
+        ``N``, and ``Z``.
+
+    Raises
+    ------
+    ValueError
+        If ``path`` does not resolve to exactly one file or if the curated
+        artifact is missing required LDSC columns.
+    """
+    resolved = resolve_scalar_path(path, label="munged sumstats")
+    df = _read_curated_sumstats_artifact(resolved)
+    resolved_columns = _resolve_curated_sumstats_columns(list(df.columns), context=resolved)
+    df = df.loc[:, list(resolved_columns.values())].rename(
+        columns={actual: canonical for canonical, actual in resolved_columns.items()}
+    )
+    table = SumstatsTable(
+        data=df.reset_index(drop=True),
+        has_alleles={"A1", "A2"}.issubset(df.columns),
+        source_path=resolved,
+        trait_name=trait_name or Path(resolved).name,
+    )
+    table.validate()
+    return table
 
 
 class SumstatsMunger:
@@ -296,6 +343,25 @@ def _infer_used_n_rule(args: argparse.Namespace) -> str:
     if getattr(args, "N_cas", None) is not None and getattr(args, "N_con", None) is not None:
         return "fixed_case_control_N"
     return "input_columns"
+
+
+def _read_curated_sumstats_artifact(path: str) -> pd.DataFrame:
+    """Read one curated whitespace-delimited ``.sumstats`` artifact."""
+    compression = "gzip" if str(path).endswith(".gz") else "infer"
+    return pd.read_csv(path, sep=r"\s+", compression=compression)
+
+
+def _resolve_curated_sumstats_columns(columns: list[str], *, context: str) -> dict[str, str]:
+    """Resolve canonical internal sumstats artifact columns from ``columns``."""
+    resolved = {
+        canonical: resolve_required_column(columns, INTERNAL_SUMSTATS_ARTIFACT_SPEC_MAP[canonical], context=context)
+        for canonical in ("SNP", "N", "Z")
+    }
+    for canonical in ("A1", "A2", "FRQ"):
+        actual = resolve_optional_column(columns, INTERNAL_SUMSTATS_ARTIFACT_SPEC_MAP[canonical], context=context)
+        if actual is not None:
+            resolved[canonical] = actual
+    return resolved
 
 
 _COLUMN_HINT_ATTRS = {

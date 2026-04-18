@@ -113,7 +113,7 @@ This replaces the previous split between root-level wrapper scripts.
 
 ### Munging and regression path
 
-1. `ldsc munge-sumstats` or `SumstatsMunger` normalizes raw summary statistics into LDSC-compatible `.sumstats.gz`.
+1. `ldsc munge-sumstats` or `SumstatsMunger` normalizes raw summary statistics into LDSC-compatible `.sumstats.gz`, and `load_sumstats()` reloads curated `.sumstats(.gz)` artifacts back into a `SumstatsTable`.
 2. `RegressionRunner` loads the munged sumstats, combined LD-score tables, weight tables, and count vector.
 3. `RegressionRunner` builds a `RegressionDataset`, drops zero-variance LD-score columns, and selects the count vector used for regression.
 4. `ldsc._kernel.regression` runs `Hsq`, `RG`, and related estimator code.

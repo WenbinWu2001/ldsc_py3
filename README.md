@@ -40,7 +40,7 @@ Subcommands:
 ## Python API
 
 ```python
-from ldsc import AnnotationBuilder, LDScoreCalculator, RegressionRunner, SumstatsMunger
+from ldsc import AnnotationBuilder, LDScoreCalculator, RegressionRunner, SumstatsMunger, load_sumstats
 ```
 
 ## Input Path Tokens

@@ -13,7 +13,7 @@ Path-token rules:
 ## Python API
 
 ```python
-from ldsc import CommonConfig, MungeConfig, RawSumstatsSpec, RegressionConfig, RegressionRunner, SumstatsMunger, run_ldscore
+from ldsc import CommonConfig, MungeConfig, RawSumstatsSpec, RegressionConfig, RegressionRunner, SumstatsMunger, load_sumstats, run_ldscore
 
 common = CommonConfig(snp_identifier="rsid")
 
@@ -29,6 +29,9 @@ sumstats = SumstatsMunger().run(
     ),
     common,
 )
+
+# If you already have a curated .sumstats.gz artifact on disk, load it directly:
+# sumstats = load_sumstats("tutorial_outputs/trait.sumstats.gz", trait_name="trait")
 
 ldscore_result = run_ldscore(
     out="tutorial_outputs/trait_ldscores",

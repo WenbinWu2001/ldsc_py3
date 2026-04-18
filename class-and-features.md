@@ -392,10 +392,15 @@ Main methods:
 - `write_output()`
 - `build_run_summary()`
 
+Related public helper:
+
+- `load_sumstats()`
+
 Behavior:
 
 - this intentionally follows the old munging workflow without adding new features
 - the refactor goal here is cleaner structure, not altered munging semantics
+- curated `.sumstats(.gz)` artifacts can be loaded directly into `SumstatsTable` without re-running munging
 
 ## 8. Regression Feature
 

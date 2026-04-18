@@ -54,7 +54,7 @@ ldsc_py3_restructured/
 | BED or gene-set to `.annot` | `ldsc annotate` | `ldsc.annotation_builder` | `ldsc._kernel.annotation` | `.annot`, `.annot.gz` |
 | LD-score calculation from PLINK | `ldsc ldscore` | `ldsc.ldscore_calculator` | `ldsc._kernel.ldscore` | `.l2.ldscore(.gz)`, `.w.l2.ldscore(.gz)`, `.M`, optional `.M_5_50` |
 | LD-score calculation from parquet R2 | `ldsc ldscore` | `ldsc.ldscore_calculator` | `ldsc._kernel.ldscore` | same as above |
-| Summary-statistics munging | `ldsc munge-sumstats` | `ldsc.sumstats_munger` | `ldsc._kernel.sumstats_munger` | `.sumstats.gz`, `.log` |
+| Summary-statistics munging and curated artifact loading | `ldsc munge-sumstats` | `ldsc.sumstats_munger` | `ldsc._kernel.sumstats_munger` | `.sumstats.gz`, `.log` |
 | Heritability | `ldsc h2` | `ldsc.regression_runner` | `ldsc._kernel.regression` | summary TSV |
 | Partitioned heritability | `ldsc partitioned-h2` | `ldsc.regression_runner` | `ldsc._kernel.regression` | summary TSV with one row per query annotation |
 | Genetic correlation | `ldsc rg` | `ldsc.regression_runner` | `ldsc._kernel.regression` | summary TSV |

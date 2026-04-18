@@ -33,6 +33,7 @@ from ldsc import (
     RegressionConfig,
     RegressionRunner,
     SumstatsMunger,
+    load_sumstats,
     run_bed_to_annot,
 )
 
@@ -66,6 +67,9 @@ sumstats = SumstatsMunger().run(
     ),
     common,
 )
+
+# If you already have a curated .sumstats.gz artifact on disk, load it directly:
+# sumstats = load_sumstats("tutorial_outputs/trait.sumstats.gz", trait_name="trait")
 
 ref_panel = RefPanelLoader(common).load(
     RefPanelSpec(

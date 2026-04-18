@@ -21,7 +21,6 @@ from scipy import stats
 
 from .column_inference import (
     INTERNAL_LDSCORE_ARTIFACT_SPEC_MAP,
-    INTERNAL_SUMSTATS_ARTIFACT_SPEC_MAP,
     resolve_optional_column,
     resolve_required_column,
 )
@@ -29,7 +28,7 @@ from .config import CommonConfig, RegressionConfig
 from .path_resolution import normalize_path_token, resolve_scalar_path
 from ._kernel import regression as reg
 from .ldscore_calculator import LDScoreResult
-from .sumstats_munger import SumstatsTable
+from .sumstats_munger import SumstatsTable, load_sumstats
 
 
 COMMON_COUNT_KEY = "common_reference_snp_counts_maf_gt_0_05"
@@ -501,27 +500,8 @@ def _resolve_internal_columns(
 
 
 def _load_sumstats_table(path: str, trait_name: str | None) -> SumstatsTable:
-    """Load one munged sumstats file and wrap it in ``SumstatsTable``."""
-    resolved = resolve_scalar_path(path, label="munged sumstats")
-    df = _read_table(resolved)
-    resolved_columns = _resolve_internal_columns(
-        list(df.columns),
-        INTERNAL_SUMSTATS_ARTIFACT_SPEC_MAP,
-        required=("SNP", "N", "Z"),
-        optional=("A1", "A2", "FRQ"),
-        context=resolved,
-    )
-    df = df.loc[:, list(resolved_columns.values())].rename(
-        columns={actual: canonical for canonical, actual in resolved_columns.items()}
-    )
-    table = SumstatsTable(
-        data=df.reset_index(drop=True),
-        has_alleles={"A1", "A2"}.issubset(df.columns),
-        source_path=resolved,
-        trait_name=trait_name or Path(resolved).name,
-    )
-    table.validate()
-    return table
+    """Load one curated sumstats artifact through the public workflow helper."""
+    return load_sumstats(path, trait_name=trait_name)
 
 
 def _load_ldscore_result_from_files(

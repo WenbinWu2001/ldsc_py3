@@ -14,14 +14,32 @@ if str(SRC) not in sys.path:
 from ldsc.config import CommonConfig, MungeConfig
 
 try:
+    import ldsc
     from ldsc.sumstats_munger import RawSumstatsSpec, SumstatsMunger
 except ImportError:
+    ldsc = None
     RawSumstatsSpec = None
     SumstatsMunger = None
 
 
 @unittest.skipIf(SumstatsMunger is None, "sumstats_munger module is not available")
 class SumstatsMungerTest(unittest.TestCase):
+    def test_load_sumstats_reads_curated_sumstats_gz_with_exact_one_glob(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            sumstats_path = tmpdir / "trait.v1.sumstats.gz"
+            with gzip.open(sumstats_path, "wt", encoding="utf-8") as handle:
+                handle.write("SNP\tZ\tN\tA1\tA2\tFRQ\nrs1\t1.5\t1000\tA\tG\t0.2\n")
+
+            self.assertTrue(hasattr(ldsc, "load_sumstats"))
+            table = ldsc.load_sumstats(str(tmpdir / "trait*.sumstats.gz"), trait_name="trait")
+
+            self.assertEqual(table.source_path, str(sumstats_path))
+            self.assertEqual(table.trait_name, "trait")
+            self.assertTrue(table.has_alleles)
+            self.assertEqual(table.data.columns.tolist(), ["SNP", "N", "Z", "A1", "A2", "FRQ"])
+            self.assertEqual(table.data.loc[0, "SNP"], "rs1")
+
     def test_run_munges_and_writes_output(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)

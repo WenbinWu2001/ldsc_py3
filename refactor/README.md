@@ -1,6 +1,6 @@
-# Refactor Codebase
+# ldsc_py3_restructured
 
-This directory is the active refactored LDSC package.
+This repository is the active refactored LDSC package.
 
 ## Structure
 
@@ -13,7 +13,6 @@ This directory is the active refactored LDSC package.
 ## Install
 
 ```bash
-cd refactor
 pip install -e .
 ```
 

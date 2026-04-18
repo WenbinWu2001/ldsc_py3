@@ -3,7 +3,6 @@
 Current repository structure:
 
 - `refactor/`: active refactored codebase
-- `legacy/`: preserved legacy codebase
 
 Active implementation and design planning should live in:
 

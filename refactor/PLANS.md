@@ -12,7 +12,7 @@ Summary:
 - moved internal compute code to `src/ldsc/_kernel/`
 - replaced the old split script surface with one `ldsc` CLI and subcommands
 - removed the old root wrappers and the old `refactor/ldscore/` package
-- kept the refactor tree self-sufficient with no imports from `legacy/`
+- kept the refactor tree self-sufficient with no dependencies on sibling trees or root-level wrappers
 - kept the local parity-oriented test suite green
 
 Resulting command surface:
@@ -80,5 +80,5 @@ python -m unittest discover -s tests -p 'test*.py' -v
 Acceptance standard for future changes:
 
 - keep public imports under `ldsc`
-- do not reintroduce imports from `legacy/`
+- keep the package self-sufficient without cross-tree imports or repository-root wrappers
 - preserve LDSC-compatible file outputs unless a planned format change is explicit

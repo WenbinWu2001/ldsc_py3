@@ -1,7 +1,7 @@
 # Build Commands
 
 ```bash
-cd /Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_Jerry_workspace/ldsc_py3_Jerry/.worktrees/restructure/refactor
+cd /Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured
 conda env create -f environment.yml
 conda activate ldsc-py3-Jerry
 pip install -e .
@@ -20,7 +20,7 @@ python -m unittest discover -s tests -p 'test*.py' -v
   - `ldsc.regression_runner`
   - `ldsc.outputs`
 - Keep one CLI surface: `ldsc` with subcommands `annotate`, `ldscore`, `munge-sumstats`, `h2`, `partitioned-h2`, and `rg`.
-- Do not reintroduce imports from `legacy/`. `refactor/` must stay self-sufficient.
+- Keep the package self-sufficient. Do not add imports that depend on sibling trees or repository-root wrappers.
 - Preserve existing file-format contracts for `.annot`, `.sumstats.gz`, `.l2.ldscore(.gz)`, `.w.l2.ldscore(.gz)`, `.M`, and `.M_5_50` unless a coordinated format change is intentional.
 - LD-score computation remains chromosome-wise. Regression consumes only the aggregated cross-chromosome result.
 - Preserve the original LDSC regression default of using `.M_5_50`-style common-SNP counts when available.
@@ -77,8 +77,8 @@ For complex features or significant refactors, write or update an ExecPlan in `P
 
 # Resources
 
-- code repo: /Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_Jerry_workspace/ldsc_py3_Jerry/.worktrees/restructure/refactor
-- public package: /Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_Jerry_workspace/ldsc_py3_Jerry/.worktrees/restructure/refactor/src/ldsc
-- internal kernel: /Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_Jerry_workspace/ldsc_py3_Jerry/.worktrees/restructure/refactor/src/ldsc/_kernel
-- design docs: /Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_Jerry_workspace/ldsc_py3_Jerry/.worktrees/restructure/refactor/architecture.md, /Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_Jerry_workspace/ldsc_py3_Jerry/.worktrees/restructure/refactor/class-and-features.md, /Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_Jerry_workspace/ldsc_py3_Jerry/.worktrees/restructure/refactor/code_structure.md, /Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_Jerry_workspace/ldsc_py3_Jerry/.worktrees/restructure/refactor/PLANS.md
-- tests: /Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_Jerry_workspace/ldsc_py3_Jerry/.worktrees/restructure/refactor/tests
+- code repo: /Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured
+- public package: /Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc
+- internal kernel: /Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/_kernel
+- design docs: /Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/architecture.md, /Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/class-and-features.md, /Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/code_structure.md, /Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/PLANS.md
+- tests: /Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/tests

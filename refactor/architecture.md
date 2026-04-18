@@ -122,7 +122,7 @@ This replaces the previous split between root-level wrapper scripts.
 - `src/ldsc/_kernel/` is internal-only and may change without user-facing API guarantees.
 - All path discovery happens before the kernel runs. Kernel code may assume primitive concrete strings and should not perform user-facing glob or suite expansion.
 - Input tokens and output destinations are different contracts. Inputs may expand; outputs stay literal.
-- `refactor/` must not import from `legacy/`.
+- `refactor/` must stay self-sufficient and must not depend on sibling trees or repository-root wrappers.
 - LD-score calculation remains chromosome-wise; regression consumes only the aggregated cross-chromosome result.
 - Regression preserves the original LDSC default of using `.M_5_50` when available.
 - Output extensibility goes through artifact producers rather than adding feature-specific branches throughout the workflows.

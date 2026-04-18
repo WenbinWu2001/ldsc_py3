@@ -12,7 +12,7 @@ perform BED-to-SNP projection; that remains the responsibility of
 Supported Inputs
 ----------------
 - Query and baseline annotation inputs are provided separately. Each file must
-  contain SNP-level rows with required metadata columns `CHR BP SNP CM`, plus
+  contain SNP-level rows with required metadata columns `CHR POS SNP CM`, plus
   one or more annotation columns.
 - Reference-panel input may be either:
   - PLINK genotype files (`.bed/.bim/.fam`), or
@@ -25,27 +25,26 @@ Supported Inputs
 Sorted Parquet `R2` Format
 --------------------------
 - Runtime parquet input may be either:
-  - normalized sorted parquet with helper columns `pair_chr`, `bp1`, `bp2`, or
+  - normalized sorted parquet with helper columns `chr`, `pos1`, `pos2`, or
   - raw pairwise parquet carrying the legacy source columns listed below.
 - The source table is expected to contain the pairwise columns:
   - `chr`
   - `rsID_1`, `rsID_2`
-  - `hg38_bp1`, `hg38_bp2`
-  - `hg19_bp_1`, `hg19_bp_2`
+  - `hg38_pos1`, `hg38_pos2`
+  - `hg19_pos_1`, `hg19_pos_2`
   - `hg38_Uniq_ID_1`, `hg38_Uniq_ID_2`
   - `hg19_Uniq_ID_1`, `hg19_Uniq_ID_2`
   - `R2`, `Dprime`, `+/-corr`
 - The normalized sorted parquet created by this module preserves those source
   columns and adds helper columns:
-  - `pair_chr`
-  - `bp1`
-  - `bp2`
-- Pair orientation is canonicalized by the selected build so `bp1 <= bp2`.
-- Rows are sorted by `(bp1, bp2)`.
+  - `pos1`
+  - `pos2`
+- Pair orientation is canonicalized by the selected build so `pos1 <= pos2`.
+- Rows are sorted by `(pos1, pos2)`.
 - Exact duplicate normalized pairs with the same `R2` are dropped. Duplicate
   normalized pairs with different `R2` raise an error.
 - In `chr_pos` mode, retained reference SNP rows must have unique chromosome
-  positions. If two retained SNPs share the same `CHR` and `BP`, matching to
+  positions. If two retained SNPs share the same `CHR` and `POS`, matching to
   the `R2` table is ambiguous and the code fails fast.
 
 Identifier and Genome-Build Rules
@@ -179,6 +178,7 @@ from typing import Iterable, Sequence
 import numpy as np
 import pandas as pd
 
+from ..config import normalize_genome_build
 from . import formats as legacy_parse
 
 try:  # pragma: no cover - optional dependency
@@ -188,21 +188,21 @@ except ImportError:  # pragma: no cover - optional dependency
 
 
 LOGGER = logging.getLogger("LDSC.new")
-REQUIRED_ANNOT_COLUMNS = ("CHR", "BP", "SNP", "CM")
-ANNOT_META_COLUMNS = ("CHR", "SNP", "BP", "CM", "MAF")
+REQUIRED_ANNOT_COLUMNS = ("CHR", "POS", "SNP", "CM")
+ANNOT_META_COLUMNS = ("CHR", "SNP", "POS", "CM", "MAF")
 CHROM_ALIASES = ("CHR", "CHROM", "CHROMOSOME")
-BP_ALIASES = ("BP", "POS", "POSITION")
+POS_ALIASES = ("POS", "BP", "POSITION")
 SNP_ALIASES = ("SNP", "RSID", "RS_ID", "MARKER", "MARKERNAME")
 CM_ALIASES = ("CM", "CMBP", "CENTIMORGAN")
 MAF_ALIASES = ("MAF", "FRQ", "FREQ", "FREQUENCY")
-R2_SOURCE_COLUMNS = (
+R2_CANONICAL_SOURCE_COLUMNS = (
     "chr",
     "rsID_1",
     "rsID_2",
-    "hg38_bp1",
-    "hg38_bp2",
-    "hg19_bp_1",
-    "hg19_bp_2",
+    "hg38_pos1",
+    "hg38_pos2",
+    "hg19_pos_1",
+    "hg19_pos_2",
     "hg38_Uniq_ID_1",
     "hg38_Uniq_ID_2",
     "hg19_Uniq_ID_1",
@@ -211,8 +211,28 @@ R2_SOURCE_COLUMNS = (
     "Dprime",
     "+/-corr",
 )
-R2_HELPER_COLUMNS = ("pair_chr", "bp1", "bp2")
-SORTED_R2_REQUIRED_COLUMNS = R2_SOURCE_COLUMNS + R2_HELPER_COLUMNS
+R2_SOURCE_COLUMN_ALIASES = {
+    "chr": ("chr",),
+    "rsID_1": ("rsID_1",),
+    "rsID_2": ("rsID_2",),
+    "hg38_pos1": ("hg38_pos1", "hg38_bp1"),
+    "hg38_pos2": ("hg38_pos2", "hg38_bp2"),
+    "hg19_pos_1": ("hg19_pos_1", "hg19_bp_1"),
+    "hg19_pos_2": ("hg19_pos_2", "hg19_bp_2"),
+    "hg38_Uniq_ID_1": ("hg38_Uniq_ID_1",),
+    "hg38_Uniq_ID_2": ("hg38_Uniq_ID_2",),
+    "hg19_Uniq_ID_1": ("hg19_Uniq_ID_1",),
+    "hg19_Uniq_ID_2": ("hg19_Uniq_ID_2",),
+    "R2": ("R2",),
+    "Dprime": ("Dprime",),
+    "+/-corr": ("+/-corr",),
+}
+R2_HELPER_COLUMNS = ("pos1", "pos2")
+R2_HELPER_COLUMN_ALIASES = {
+    "pos1": ("pos1", "bp1"),
+    "pos2": ("pos2", "bp2"),
+}
+SORTED_R2_REQUIRED_COLUMNS = R2_CANONICAL_SOURCE_COLUMNS + R2_HELPER_COLUMNS
 
 
 @dataclass
@@ -341,7 +361,7 @@ class __GenotypeArrayInMemory__(object):
         self.keep_snps = keep_snps
         self.keep_indivs = keep_indivs
         self.df = np.array(snp_list.df[["CHR", "SNP", "BP", "CM"]])
-        self.colnames = ["CHR", "SNP", "BP", "CM"]
+        self.colnames = ["CHR", "SNP", "POS", "CM"]
         self.mafMin = mafMin if mafMin is not None else 0
         self._currentSNP = 0
         (self.nru, self.geno) = self.__read__(fname, self.m, n)
@@ -585,16 +605,22 @@ def identifier_keys(df: pd.DataFrame, mode: str) -> pd.Series:
         return df["SNP"].astype(str)
     if mode != "chr_pos":
         raise ValueError(f"Unsupported identifier mode: {mode}")
+    pos_col = find_column(df.columns, POS_ALIASES)
+    if pos_col is None:
+        raise ValueError("chr_pos mode requires a POS-like column.")
     chrom = df["CHR"].map(normalize_chromosome)
-    bp = df["BP"].astype(np.int64).astype(str)
-    return chrom + ":" + bp
+    pos = df[pos_col].astype(np.int64).astype(str)
+    return chrom + ":" + pos
 
 
 def sort_frame_by_genomic_position(df: pd.DataFrame) -> pd.DataFrame:
-    """Sort a metadata-like frame by chromosome, base-pair coordinate, and SNP name."""
+    """Sort a metadata-like frame by chromosome, position, and SNP name."""
+    pos_col = find_column(df.columns, POS_ALIASES)
+    if pos_col is None:
+        raise KeyError("No POS-like column available for genomic sorting.")
     sort_df = df.copy()
     sort_df["_chrom_key"] = sort_df["CHR"].map(chrom_sort_key)
-    sort_df = sort_df.sort_values(by=["_chrom_key", "BP", "SNP"], kind="mergesort")
+    sort_df = sort_df.sort_values(by=["_chrom_key", pos_col, "SNP"], kind="mergesort")
     return sort_df.drop(columns="_chrom_key").reset_index(drop=True)
 
 
@@ -688,13 +714,49 @@ def read_text_table(path: str) -> pd.DataFrame:
     return pd.read_csv(path, sep=r"\s+", compression=compression)
 
 
-def get_r2_build_columns(genome_build: str) -> tuple[str, str]:
+def _resolve_schema_column(schema_names: Iterable[str], aliases: Sequence[str]) -> str | None:
+    """Return the first schema column matching one of ``aliases``."""
+    normalized = {str(name): str(name) for name in schema_names}
+    for alias in aliases:
+        if alias in normalized:
+            return normalized[alias]
+    return None
+
+
+def normalize_r2_source_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Rename raw pairwise-R2 source columns to the canonical POS-based schema."""
+    rename_map: dict[str, str] = {}
+    for canonical, aliases in R2_SOURCE_COLUMN_ALIASES.items():
+        actual = _resolve_schema_column(df.columns, aliases)
+        if actual is None:
+            raise ValueError(f"Missing required R2 column aliases for {canonical}: {aliases}")
+        rename_map[actual] = canonical
+    return df.rename(columns=rename_map)
+
+
+def _resolve_helper_columns(schema_names: Iterable[str]) -> tuple[str, str] | None:
+    """Resolve normalized parquet helper position columns from schema aliases."""
+    pos1 = _resolve_schema_column(schema_names, R2_HELPER_COLUMN_ALIASES["pos1"])
+    pos2 = _resolve_schema_column(schema_names, R2_HELPER_COLUMN_ALIASES["pos2"])
+    if pos1 is None or pos2 is None or "chr" not in set(schema_names):
+        return None
+    return pos1, pos2
+
+
+def get_r2_build_columns(genome_build: str, schema_names: Iterable[str] | None = None) -> tuple[str, str]:
     """Return the source R2-table coordinate columns for the selected build."""
+    genome_build = _require_runtime_genome_build(genome_build)
     if genome_build == "hg19":
-        return "hg19_bp_1", "hg19_bp_2"
-    if genome_build == "hg38":
-        return "hg38_bp1", "hg38_bp2"
-    raise ValueError(f"Unsupported genome build: {genome_build}")
+        aliases = (("hg19_pos_1", "hg19_bp_1"), ("hg19_pos_2", "hg19_bp_2"))
+    else:
+        aliases = (("hg38_pos1", "hg38_bp1"), ("hg38_pos2", "hg38_bp2"))
+    if schema_names is None:
+        return aliases[0][0], aliases[1][0]
+    left = _resolve_schema_column(schema_names, aliases[0])
+    right = _resolve_schema_column(schema_names, aliases[1])
+    if left is None or right is None:
+        raise ValueError(f"Could not resolve source position columns for genome build {genome_build}.")
+    return left, right
 
 
 def get_pyarrow_modules():
@@ -711,19 +773,24 @@ def get_pyarrow_modules():
 def _parquet_schema_layout(schema_names: Sequence[str]) -> str:
     """Classify a runtime parquet schema as normalized, raw, or unsupported."""
     schema_names = set(schema_names)
-    if set(R2_HELPER_COLUMNS).issubset(schema_names):
+    if _resolve_helper_columns(schema_names) is not None:
         return "normalized"
-    if set(R2_SOURCE_COLUMNS).issubset(schema_names):
+    try:
+        _ = [(_resolve_schema_column(schema_names, aliases) is not None) for aliases in R2_SOURCE_COLUMN_ALIASES.values()]
+    except Exception:
+        return "unsupported"
+    if all(_resolve_schema_column(schema_names, aliases) is not None for aliases in R2_SOURCE_COLUMN_ALIASES.values()):
         return "raw"
     return "unsupported"
 
 
 def _require_runtime_genome_build(genome_build: str | None) -> str:
     """Require a build whenever raw parquet rows must be canonicalized at runtime."""
-    if genome_build in {"hg19", "hg38"}:
-        return genome_build
+    normalized = normalize_genome_build(genome_build)
+    if normalized in {"hg19", "hg38"}:
+        return normalized
     raise ValueError(
-        "Raw parquet R2 input requires genome_build='hg19' or 'hg38' so runtime normalization can choose the coordinate columns."
+        "Raw parquet R2 input requires genome_build='hg19'/'hg37'/'GRCh37' or 'hg38'/'GRCh38' so runtime normalization can choose the coordinate columns."
     )
 
 
@@ -746,45 +813,49 @@ def read_common_tabular_r2(path: str) -> pd.DataFrame:
 
 def validate_r2_source_columns(df: pd.DataFrame, path: str) -> None:
     """Validate that a source R2 table contains the required legacy columns."""
-    missing = [col for col in R2_SOURCE_COLUMNS if col not in df.columns]
+    missing = [
+        canonical
+        for canonical, aliases in R2_SOURCE_COLUMN_ALIASES.items()
+        if _resolve_schema_column(df.columns, aliases) is None
+    ]
     if missing:
         raise ValueError(f"{path} is missing required R2 columns: {missing}")
 
 
 def canonicalize_r2_pairs(df: pd.DataFrame, genome_build: str) -> pd.DataFrame:
-    """Orient pairwise-R2 rows so the selected build always satisfies ``bp1 <= bp2``."""
-    df = df.copy()
-    left_bp_col, right_bp_col = get_r2_build_columns(genome_build)
-    df["pair_chr"] = df["chr"].map(normalize_chromosome)
+    """Orient pairwise-R2 rows so the selected build always satisfies ``pos1 <= pos2``."""
+    df = normalize_r2_source_columns(df.copy())
+    left_pos_col, right_pos_col = get_r2_build_columns(genome_build, df.columns)
+    df["chr"] = df["chr"].map(normalize_chromosome)
 
     paired_columns = (
         ("rsID_1", "rsID_2"),
-        ("hg38_bp1", "hg38_bp2"),
-        ("hg19_bp_1", "hg19_bp_2"),
+        ("hg38_pos1", "hg38_pos2"),
+        ("hg19_pos_1", "hg19_pos_2"),
         ("hg38_Uniq_ID_1", "hg38_Uniq_ID_2"),
         ("hg19_Uniq_ID_1", "hg19_Uniq_ID_2"),
     )
-    swap = pd.to_numeric(df[left_bp_col], errors="raise") > pd.to_numeric(df[right_bp_col], errors="raise")
+    swap = pd.to_numeric(df[left_pos_col], errors="raise") > pd.to_numeric(df[right_pos_col], errors="raise")
     for left_col, right_col in paired_columns:
         left_values = df.loc[swap, left_col].copy()
         df.loc[swap, left_col] = df.loc[swap, right_col].to_numpy()
         df.loc[swap, right_col] = left_values.to_numpy()
 
-    df["bp1"] = pd.to_numeric(df[left_bp_col], errors="raise").astype(np.int64)
-    df["bp2"] = pd.to_numeric(df[right_bp_col], errors="raise").astype(np.int64)
+    df["pos1"] = pd.to_numeric(df[left_pos_col], errors="raise").astype(np.int64)
+    df["pos2"] = pd.to_numeric(df[right_pos_col], errors="raise").astype(np.int64)
     return df
 
 
 def deduplicate_normalized_r2_pairs(df: pd.DataFrame) -> pd.DataFrame:
     """Drop exact duplicate normalized pairs and reject conflicting duplicate R2 rows."""
     pair_key_columns = [
-        "pair_chr",
+        "chr",
         "rsID_1",
         "rsID_2",
-        "hg38_bp1",
-        "hg38_bp2",
-        "hg19_bp_1",
-        "hg19_bp_2",
+        "hg38_pos1",
+        "hg38_pos2",
+        "hg19_pos_1",
+        "hg19_pos_2",
         "hg38_Uniq_ID_1",
         "hg38_Uniq_ID_2",
         "hg19_Uniq_ID_1",
@@ -814,10 +885,10 @@ def convert_r2_table_to_sorted_parquet(source_path: str, genome_build: str, outp
     validate_r2_source_columns(df, source_path)
     df = canonicalize_r2_pairs(df, genome_build)
     df = deduplicate_normalized_r2_pairs(df)
-    chroms = df["pair_chr"].dropna().map(normalize_chromosome).unique().tolist()
+    chroms = df["chr"].dropna().map(normalize_chromosome).unique().tolist()
     if len(chroms) != 1:
         raise ValueError("Each sorted parquet R2 file must contain exactly one chromosome.")
-    df = df.sort_values(by=["bp1", "bp2"], kind="mergesort").reset_index(drop=True)
+    df = df.sort_values(by=["pos1", "pos2"], kind="mergesort").reset_index(drop=True)
     parent = os.path.dirname(output_path)
     if parent:
         os.makedirs(parent, exist_ok=True)
@@ -833,7 +904,7 @@ def convert_r2_table_to_sorted_parquet(source_path: str, genome_build: str, outp
 def validate_retained_identifier_uniqueness(metadata: pd.DataFrame, identifier_mode: str, chrom: str) -> None:
     """Reject ambiguous retained SNP identifiers before parquet matching begins."""
     if identifier_mode == "chr_pos":
-        duplicated = metadata.duplicated(subset=["CHR", "BP"], keep=False)
+        duplicated = metadata.duplicated(subset=["CHR", "POS"], keep=False)
         if duplicated.any():
             raise ValueError(
                 f"Chromosome {chrom} has duplicate retained SNP positions. "
@@ -860,27 +931,28 @@ def read_sorted_r2_presence(args: argparse.Namespace, chrom: str) -> set[object]
     layout = _parquet_schema_layout(dataset.schema.names)
     normalized_chrom = normalize_chromosome(chrom)
     if layout == "normalized":
-        columns = ["pair_chr"]
-        if args.snp_identifier == "rsID":
-            columns.extend(["rsID_1", "rsID_2"])
-        else:
-            columns.extend(["bp1", "bp2"])
-        filter_expr = ds.field("pair_chr") == normalized_chrom
-        table = dataset.to_table(columns=columns, filter=filter_expr)
-    elif layout == "raw":
-        genome_build = _require_runtime_genome_build(getattr(args, "genome_build", None))
-        left_bp_col, right_bp_col = get_r2_build_columns(genome_build)
+        helper_pos1, helper_pos2 = _resolve_helper_columns(dataset.schema.names)
         columns = ["chr"]
         if args.snp_identifier == "rsID":
             columns.extend(["rsID_1", "rsID_2"])
         else:
-            columns.extend([left_bp_col, right_bp_col])
+            columns.extend([helper_pos1, helper_pos2])
+        filter_expr = ds.field("chr") == normalized_chrom
+        table = dataset.to_table(columns=columns, filter=filter_expr)
+    elif layout == "raw":
+        genome_build = _require_runtime_genome_build(getattr(args, "genome_build", None))
+        left_pos_col, right_pos_col = get_r2_build_columns(genome_build, dataset.schema.names)
+        columns = ["chr"]
+        if args.snp_identifier == "rsID":
+            columns.extend(["rsID_1", "rsID_2"])
+        else:
+            columns.extend([left_pos_col, right_pos_col])
         filter_expr = ds.field("chr") == normalized_chrom
         table = dataset.to_table(columns=columns, filter=filter_expr)
     else:
         raise ValueError(
             "Parquet R2 input must contain either normalized helper columns "
-            "`pair_chr`, `bp1`, `bp2` or the raw legacy pairwise columns."
+            "`chr`, `pos1`, `pos2` or the raw legacy pairwise columns."
         )
     pairs = table.to_pandas()
     if layout == "raw" and len(pairs) > 0:
@@ -888,13 +960,13 @@ def read_sorted_r2_presence(args: argparse.Namespace, chrom: str) -> set[object]
     if args.snp_identifier == "rsID":
         return set(pairs["rsID_1"].astype(str)).union(set(pairs["rsID_2"].astype(str)))
     if layout == "normalized":
-        left_series = pd.to_numeric(pairs["bp1"], errors="raise").astype(np.int64)
-        right_series = pd.to_numeric(pairs["bp2"], errors="raise").astype(np.int64)
+        left_series = pd.to_numeric(pairs[helper_pos1], errors="raise").astype(np.int64)
+        right_series = pd.to_numeric(pairs[helper_pos2], errors="raise").astype(np.int64)
     else:
         genome_build = _require_runtime_genome_build(getattr(args, "genome_build", None))
-        left_bp_col, right_bp_col = get_r2_build_columns(genome_build)
-        left_series = pd.to_numeric(pairs[left_bp_col], errors="raise").astype(np.int64)
-        right_series = pd.to_numeric(pairs[right_bp_col], errors="raise").astype(np.int64)
+        left_pos_col, right_pos_col = get_r2_build_columns(genome_build, pairs.columns)
+        left_series = pd.to_numeric(pairs[left_pos_col], errors="raise").astype(np.int64)
+        right_series = pd.to_numeric(pairs[right_pos_col], errors="raise").astype(np.int64)
     return set(left_series).union(set(right_series))
 
 
@@ -911,7 +983,7 @@ def filter_reference_to_present_r2(
     if identifier_mode == "rsID":
         keep = metadata["SNP"].astype(str).isin(present_values)
     else:
-        keep = metadata["BP"].astype(np.int64).isin(present_values)
+        keep = metadata["POS"].astype(np.int64).isin(present_values)
     removed = int((~keep).sum())
     if removed:
         LOGGER.warning(
@@ -930,13 +1002,23 @@ def filter_reference_to_present_r2(
 def parse_annotation_file(path: str, chrom: str | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Parse one SNP-level annotation table into normalized metadata and values."""
     df = read_text_table(path)
-    missing = [col for col in REQUIRED_ANNOT_COLUMNS if col not in df.columns]
-    if missing:
-        raise ValueError(f"{path} is missing required annotation columns: {missing}")
+    chr_col = find_column(df.columns, CHROM_ALIASES)
+    pos_col = find_column(df.columns, POS_ALIASES)
+    snp_col = find_column(df.columns, SNP_ALIASES)
+    cm_col = find_column(df.columns, CM_ALIASES)
+    if None in {chr_col, pos_col, snp_col, cm_col}:
+        raise ValueError(f"{path} is missing required annotation metadata columns.")
 
-    meta = df.loc[:, list(REQUIRED_ANNOT_COLUMNS)].copy()
+    meta = pd.DataFrame(
+        {
+            "CHR": df[chr_col],
+            "POS": df[pos_col],
+            "SNP": df[snp_col],
+            "CM": df[cm_col],
+        }
+    )
     meta["CHR"] = meta["CHR"].map(normalize_chromosome)
-    meta["BP"] = pd.to_numeric(meta["BP"], errors="raise").astype(np.int64)
+    meta["POS"] = pd.to_numeric(meta["POS"], errors="raise").astype(np.int64)
     meta["SNP"] = meta["SNP"].astype(str)
     meta["CM"] = pd.to_numeric(meta["CM"], errors="coerce")
     if "MAF" in df.columns:
@@ -953,16 +1035,16 @@ def parse_annotation_file(path: str, chrom: str | None = None) -> tuple[pd.DataF
         return meta, pd.DataFrame(index=meta.index)
 
     meta = sort_frame_by_genomic_position(meta)
-    annotation_columns = [col for col in df.columns if col not in list(REQUIRED_ANNOT_COLUMNS) + ["MAF"]]
+    annotation_columns = [col for col in df.columns if col not in {chr_col, pos_col, snp_col, cm_col, "MAF"}]
     if not annotation_columns:
         raise ValueError(f"{path} does not contain any annotation columns.")
 
     sorted_df = df.copy()
-    sorted_df["CHR"] = sorted_df["CHR"].map(normalize_chromosome)
-    sorted_df["BP"] = pd.to_numeric(sorted_df["BP"], errors="raise").astype(np.int64)
-    sorted_df["SNP"] = sorted_df["SNP"].astype(str)
-    sorted_df["_chrom_key"] = sorted_df["CHR"].map(chrom_sort_key)
-    sorted_df = sorted_df.sort_values(by=["_chrom_key", "BP", "SNP"], kind="mergesort").drop(columns="_chrom_key")
+    sorted_df["_CHR"] = sorted_df[chr_col].map(normalize_chromosome)
+    sorted_df["_POS"] = pd.to_numeric(sorted_df[pos_col], errors="raise").astype(np.int64)
+    sorted_df["_SNP"] = sorted_df[snp_col].astype(str)
+    sorted_df["_chrom_key"] = sorted_df["_CHR"].map(chrom_sort_key)
+    sorted_df = sorted_df.sort_values(by=["_chrom_key", "_POS", "_SNP"], kind="mergesort").drop(columns="_chrom_key")
     annotations = sorted_df.loc[:, annotation_columns].astype(np.float32).reset_index(drop=True)
     meta = meta.reset_index(drop=True)
     if len(meta) != len(annotations):
@@ -1008,7 +1090,7 @@ def combine_annotation_groups(
                     raise ValueError(
                         f"Annotation SNP rows do not match across files for chromosome {chrom}: {path}"
                     )
-                same_core = reference.loc[:, ["CHR", "BP", "SNP"]].equals(meta.loc[:, ["CHR", "BP", "SNP"]])
+                same_core = reference.loc[:, ["CHR", "POS", "SNP"]].equals(meta.loc[:, ["CHR", "POS", "SNP"]])
                 if not same_core:
                     raise ValueError(
                         f"Annotation metadata mismatch across files for chromosome {chrom}: {path}"
@@ -1058,21 +1140,21 @@ def read_identifier_list(path: str, mode: str) -> set[str]:
         if mode == "chr_pos":
             if values.str.contains(":").all():
                 return set(values.map(lambda x: normalize_chromosome(x.split(":")[0]) + ":" + str(int(x.split(":")[1]))))
-            raise ValueError(f"{path} must contain CHR:BP values in chr_pos mode when only one column is supplied.")
+            raise ValueError(f"{path} must contain CHR:POS values in chr_pos mode when only one column is supplied.")
         return set(values)
 
     snp_col = find_column(df.columns, SNP_ALIASES)
     chr_col = find_column(df.columns, CHROM_ALIASES)
-    bp_col = find_column(df.columns, BP_ALIASES)
+    pos_col = find_column(df.columns, POS_ALIASES)
     if mode == "rsID":
         if snp_col is None:
             raise ValueError(f"{path} must contain a SNP column in rsID mode.")
         return set(df[snp_col].astype(str))
-    if chr_col is None or bp_col is None:
-        raise ValueError(f"{path} must contain CHR and BP columns in chr_pos mode.")
+    if chr_col is None or pos_col is None:
+        raise ValueError(f"{path} must contain CHR and POS columns in chr_pos mode.")
     chrom = df[chr_col].map(normalize_chromosome)
-    bp = pd.to_numeric(df[bp_col], errors="raise").astype(np.int64).astype(str)
-    return set(chrom + ":" + bp)
+    pos = pd.to_numeric(df[pos_col], errors="raise").astype(np.int64).astype(str)
+    return set(chrom + ":" + pos)
 
 
 def load_regression_keys(args: argparse.Namespace) -> set[str] | None:
@@ -1086,7 +1168,7 @@ def parse_frequency_metadata(path: str, chrom: str | None, identifier_mode: str)
     """Parse an optional frequency metadata file into ``_key``/``CM``/``MAF`` columns."""
     df = read_text_table(path)
     chr_col = find_column(df.columns, CHROM_ALIASES)
-    bp_col = find_column(df.columns, BP_ALIASES)
+    pos_col = find_column(df.columns, POS_ALIASES)
     snp_col = find_column(df.columns, SNP_ALIASES)
     cm_col = find_column(df.columns, CM_ALIASES)
     maf_col = find_column(df.columns, MAF_ALIASES)
@@ -1104,11 +1186,11 @@ def parse_frequency_metadata(path: str, chrom: str | None, identifier_mode: str)
             raise ValueError(f"{path} must contain a SNP column in rsID mode.")
         out["_key"] = df[snp_col].astype(str)
     else:
-        if chr_col is None or bp_col is None:
-            raise ValueError(f"{path} must contain CHR and BP columns in chr_pos mode.")
+        if chr_col is None or pos_col is None:
+            raise ValueError(f"{path} must contain CHR and POS columns in chr_pos mode.")
         chrom_norm = df[chr_col].map(normalize_chromosome)
-        bp = pd.to_numeric(df[bp_col], errors="raise").astype(np.int64).astype(str)
-        out["_key"] = chrom_norm + ":" + bp
+        pos = pd.to_numeric(df[pos_col], errors="raise").astype(np.int64).astype(str)
+        out["_key"] = chrom_norm + ":" + pos
 
     if cm_col is not None:
         out["CM"] = pd.to_numeric(df[cm_col], errors="coerce")
@@ -1207,7 +1289,7 @@ def build_window_coordinates(metadata: pd.DataFrame, args: argparse.Namespace) -
     if args.ld_wind_snps is not None:
         return np.arange(len(metadata), dtype=float), float(args.ld_wind_snps)
     if args.ld_wind_kb is not None:
-        return metadata["BP"].to_numpy(dtype=float), float(args.ld_wind_kb) * 1000.0
+        return metadata["POS"].to_numpy(dtype=float), float(args.ld_wind_kb) * 1000.0
     if metadata["CM"].isna().any():
         raise ValueError("--ld-wind-cm requires non-missing CM values for all retained SNPs.")
     return metadata["CM"].to_numpy(dtype=float), float(args.ld_wind_cm)
@@ -1230,8 +1312,8 @@ class SortedR2BlockReader:
     parquet table.
 
     The runtime parquet contract is path-based. This reader assumes the file
-    already contains `pair_chr`, `bp1`, and `bp2`, and that pair orientation has
-    been canonicalized so `bp1 <= bp2`.
+    already contains `chr`, `pos1`, and `pos2`, and that pair orientation has
+    been canonicalized so `pos1 <= pos2`.
     """
 
     def __init__(
@@ -1256,16 +1338,16 @@ class SortedR2BlockReader:
         self.r2_bias_mode = r2_bias_mode
         self.r2_sample_size = r2_sample_size
         self.genome_build = genome_build
-        self.bp = metadata["BP"].to_numpy(dtype=np.int64)
+        self.pos = metadata["POS"].to_numpy(dtype=np.int64)
         self.m = len(metadata)
-        self.query_columns = ["pair_chr", "bp1", "bp2", "R2"]
+        self.query_columns = ["chr", "pos1", "pos2", "R2"]
         self._runtime_layout = _parquet_schema_layout(self.dataset.schema.names)
-        self._raw_bp_columns: tuple[str, str] | None = None
+        self._raw_pos_columns: tuple[str, str] | None = None
         if self.identifier_mode == "rsID":
             self.query_columns.extend(["rsID_1", "rsID_2"])
             self.index_map = {str(snp): idx for idx, snp in enumerate(metadata["SNP"].astype(str))}
         else:
-            self.index_map = {int(bp): idx for idx, bp in enumerate(metadata["BP"].astype(np.int64))}
+            self.index_map = {int(pos): idx for idx, pos in enumerate(metadata["POS"].astype(np.int64))}
 
         if self._runtime_layout == "normalized":
             missing_columns = sorted(set(self.query_columns) - set(self.dataset.schema.names))
@@ -1276,9 +1358,13 @@ class SortedR2BlockReader:
                 )
         elif self._runtime_layout == "raw":
             self.genome_build = _require_runtime_genome_build(self.genome_build)
-            self._raw_bp_columns = get_r2_build_columns(self.genome_build)
-            self.query_columns = list(R2_SOURCE_COLUMNS)
-            missing_columns = sorted(set(R2_SOURCE_COLUMNS) - set(self.dataset.schema.names))
+            self._raw_pos_columns = get_r2_build_columns(self.genome_build, self.dataset.schema.names)
+            self.query_columns = list(R2_CANONICAL_SOURCE_COLUMNS)
+            missing_columns = [
+                canonical
+                for canonical, aliases in R2_SOURCE_COLUMN_ALIASES.items()
+                if _resolve_schema_column(self.dataset.schema.names, aliases) is None
+            ]
             if missing_columns:
                 raise ValueError(
                     "Raw parquet R2 input is missing required legacy columns: "
@@ -1287,7 +1373,7 @@ class SortedR2BlockReader:
         else:
             raise ValueError(
                 "Parquet R2 input must contain either normalized helper columns "
-                "`pair_chr`, `bp1`, `bp2` or the raw legacy pairwise columns."
+                "`chr`, `pos1`, `pos2` or the raw legacy pairwise columns."
             )
 
         self._last_query_key: tuple[int, int] | None = None
@@ -1304,41 +1390,42 @@ class SortedR2BlockReader:
             values = values - (1.0 - values) / denom
         return values
 
-    def _query_union_rows(self, bp_min: int, bp_max: int) -> pd.DataFrame:
-        key = (int(bp_min), int(bp_max))
+    def _query_union_rows(self, pos_min: int, pos_max: int) -> pd.DataFrame:
+        key = (int(pos_min), int(pos_max))
         if self._last_query_key == key and self._last_query_rows is not None:
             return self._last_query_rows.copy()
 
         if self._runtime_layout == "normalized":
+            helper_pos1, helper_pos2 = _resolve_helper_columns(self.dataset.schema.names)
             filter_expr = (
-                (self.ds.field("pair_chr") == self.chrom)
-                & (self.ds.field("bp1") >= int(bp_min))
-                & (self.ds.field("bp2") <= int(bp_max))
+                (self.ds.field("chr") == self.chrom)
+                & (self.ds.field(helper_pos1) >= int(pos_min))
+                & (self.ds.field(helper_pos2) <= int(pos_max))
             )
             table = self.dataset.to_table(columns=self.query_columns, filter=filter_expr)
         else:
-            left_bp_col, right_bp_col = self._raw_bp_columns
+            left_pos_col, right_pos_col = self._raw_pos_columns
             filter_expr = (
                 (self.ds.field("chr") == self.chrom)
-                & (self.ds.field(left_bp_col) >= int(bp_min))
-                & (self.ds.field(left_bp_col) <= int(bp_max))
-                & (self.ds.field(right_bp_col) >= int(bp_min))
-                & (self.ds.field(right_bp_col) <= int(bp_max))
+                & (self.ds.field(left_pos_col) >= int(pos_min))
+                & (self.ds.field(left_pos_col) <= int(pos_max))
+                & (self.ds.field(right_pos_col) >= int(pos_min))
+                & (self.ds.field(right_pos_col) <= int(pos_max))
             )
             table = self.dataset.to_table(columns=self.query_columns, filter=filter_expr)
         rows = table.to_pandas()
         if len(rows) == 0:
-            base_columns = ["pair_chr", "bp1", "bp2", "R2"]
+            base_columns = ["chr", "pos1", "pos2", "R2"]
             if self.identifier_mode == "rsID":
                 base_columns.extend(["rsID_1", "rsID_2"])
             rows = pd.DataFrame(columns=base_columns + ["i", "j"])
         else:
             if self._runtime_layout == "raw":
-                left_bp_col, right_bp_col = self._raw_bp_columns
+                left_pos_col, right_pos_col = self._raw_pos_columns
                 rows = rows.loc[rows["chr"].map(normalize_chromosome) == self.chrom].copy()
                 keep = (
-                    pd.to_numeric(rows[left_bp_col], errors="raise").between(int(bp_min), int(bp_max))
-                    & pd.to_numeric(rows[right_bp_col], errors="raise").between(int(bp_min), int(bp_max))
+                    pd.to_numeric(rows[left_pos_col], errors="raise").between(int(pos_min), int(pos_max))
+                    & pd.to_numeric(rows[right_pos_col], errors="raise").between(int(pos_min), int(pos_max))
                 )
                 rows = rows.loc[keep].reset_index(drop=True)
                 if len(rows) > 0:
@@ -1348,8 +1435,8 @@ class SortedR2BlockReader:
                 rows["i"] = rows["rsID_1"].astype(str).map(self.index_map)
                 rows["j"] = rows["rsID_2"].astype(str).map(self.index_map)
             else:
-                rows["i"] = pd.to_numeric(rows["bp1"], errors="raise").astype(np.int64).map(self.index_map)
-                rows["j"] = pd.to_numeric(rows["bp2"], errors="raise").astype(np.int64).map(self.index_map)
+                rows["i"] = pd.to_numeric(rows["pos1"], errors="raise").astype(np.int64).map(self.index_map)
+                rows["j"] = pd.to_numeric(rows["pos2"], errors="raise").astype(np.int64).map(self.index_map)
             rows = rows.dropna(subset=["i", "j"]).copy()
             rows["i"] = rows["i"].astype(np.int64)
             rows["j"] = rows["j"].astype(np.int64)
@@ -1380,8 +1467,8 @@ class SortedR2BlockReader:
 
         a_start, a_stop = l_A, l_A + b
         b_start, b_stop = l_B, l_B + c
-        union_min = int(self.bp[min(a_start, b_start)])
-        union_max = int(self.bp[max(a_stop - 1, b_stop - 1)])
+        union_min = int(self.pos[min(a_start, b_start)])
+        union_max = int(self.pos[max(a_stop - 1, b_stop - 1)])
         rows = self._deduplicate_pairs(
             self._query_union_rows(union_min, union_max),
             context=f"cross-block query {self.chrom}:{l_A}:{b}:{l_B}:{c}",
@@ -1413,10 +1500,10 @@ class SortedR2BlockReader:
             return np.zeros((0, 0), dtype=np.float32)
 
         b_start, b_stop = l_B, l_B + c
-        bp_min = int(self.bp[b_start])
-        bp_max = int(self.bp[b_stop - 1])
+        pos_min = int(self.pos[b_start])
+        pos_max = int(self.pos[b_stop - 1])
         rows = self._deduplicate_pairs(
-            self._query_union_rows(bp_min, bp_max),
+            self._query_union_rows(pos_min, pos_max),
             context=f"within-block query {self.chrom}:{l_B}:{c}",
         )
 
@@ -1618,10 +1705,10 @@ def compute_chrom_from_plink(
 
     bim = legacy_parse.PlinkBIMFile(prefix + ".bim")
     fam = legacy_parse.PlinkFAMFile(prefix + ".fam")
-    panel_df = bim.df.loc[:, ["CHR", "SNP", "CM", "BP"]].copy()
+    panel_df = bim.df.loc[:, ["CHR", "SNP", "CM", "BP"]].copy().rename(columns={"BP": "POS"})
     panel_df["CHR"] = panel_df["CHR"].map(normalize_chromosome)
     panel_df["SNP"] = panel_df["SNP"].astype(str)
-    panel_df["BP"] = pd.to_numeric(panel_df["BP"], errors="raise").astype(np.int64)
+    panel_df["POS"] = pd.to_numeric(panel_df["POS"], errors="raise").astype(np.int64)
     panel_df["CM"] = pd.to_numeric(panel_df["CM"], errors="coerce")
     panel_df = panel_df.loc[panel_df["CHR"] == normalize_chromosome(chrom)].copy()
     if len(panel_df) == 0:
@@ -1653,9 +1740,11 @@ def compute_chrom_from_plink(
     geno = legacy_ld.PlinkBEDFile(prefix + ".bed", len(fam.IDList), bim, keep_snps=keep_snps, mafMin=args.maf)
 
     geno_meta = pd.DataFrame(geno.df, columns=geno.colnames)
+    if "BP" in geno_meta.columns:
+        geno_meta = geno_meta.rename(columns={"BP": "POS"})
     geno_meta["CHR"] = geno_meta["CHR"].map(normalize_chromosome)
     geno_meta["SNP"] = geno_meta["SNP"].astype(str)
-    geno_meta["BP"] = pd.to_numeric(geno_meta["BP"], errors="raise").astype(np.int64)
+    geno_meta["POS"] = pd.to_numeric(geno_meta["POS"], errors="raise").astype(np.int64)
     geno_meta["CM"] = pd.to_numeric(geno_meta["CM"], errors="coerce")
     geno_meta["MAF"] = pd.to_numeric(geno_meta["MAF"], errors="coerce")
     geno_meta["_key"] = identifier_keys(geno_meta, args.snp_identifier)
@@ -1703,7 +1792,7 @@ def weight_result_to_dataframe(result: ChromComputationResult) -> pd.DataFrame:
 def write_ldscore_file(df: pd.DataFrame, path: str) -> None:
     """Write one LDSC-compatible LD-score table, preserving metadata columns first."""
     out = df.copy()
-    out = out.loc[:, [col for col in ["CHR", "SNP", "BP", "CM", "MAF"] if col in out.columns] + [col for col in out.columns if col not in ANNOT_META_COLUMNS]]
+    out = out.loc[:, [col for col in ["CHR", "SNP", "POS", "CM", "MAF"] if col in out.columns] + [col for col in out.columns if col not in ANNOT_META_COLUMNS]]
     with gzip.open(path, "wt") as handle:
         out.to_csv(handle, sep="\t", index=False, na_rep="NA", float_format="%.6g")
 
@@ -1817,7 +1906,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--r2-table", default=None, help="Comma-separated sorted parquet R2 files or prefixes.")
     parser.add_argument("--r2-table-chr", default=None, help="Comma-separated chromosome-pattern prefixes for sorted parquet R2 files.")
     parser.add_argument("--snp-identifier", choices=("chr_pos", "rsID"), default="chr_pos", help="Identifier mode used to match annotations to the reference panel.")
-    parser.add_argument("--genome-build", choices=("hg19", "hg38"), default=None, help="Genome build assumed for the sorted parquet R2 file and chr_pos matching.")
+    parser.add_argument(
+        "--genome-build",
+        choices=("hg19", "hg37", "GRCh37", "hg38", "GRCh38"),
+        default=None,
+        help="Genome build assumed for the sorted parquet R2 file and chr_pos matching. Aliases normalize to canonical hg19/hg38.",
+    )
     parser.add_argument("--r2-bias-mode", choices=("raw", "unbiased"), default=None, help="Whether sorted parquet R2 values are raw sample r^2 or already unbiased.")
     parser.add_argument("--r2-sample-size", default=None, type=float, help="LD reference sample size used to correct raw parquet R2 values.")
     parser.add_argument("--regression-snps", default=None, help="Optional SNP list defining the regression SNP set for w_ld.")

@@ -28,7 +28,7 @@ from . import formats as legacy_parse
 from . import ldscore as kernel_ldscore
 from .identifiers import (
     build_snp_id_series,
-    infer_chr_bp_columns,
+    infer_chr_pos_columns,
     infer_snp_column,
     normalize_chromosome,
     normalize_snp_identifier_mode,
@@ -133,8 +133,8 @@ class PlinkRefPanel(RefPanel):
         df["CHR"] = df["CHR"].map(normalize_chromosome)
         df["SNP"] = df["SNP"].astype(str)
         df["CM"] = pd.to_numeric(df["CM"], errors="coerce")
-        df["BP"] = pd.to_numeric(df["BP"], errors="raise").astype(int)
-        metadata = df.loc[df["CHR"] == chrom, ["CHR", "SNP", "CM", "BP"]].reset_index(drop=True)
+        df["POS"] = pd.to_numeric(df["POS"], errors="raise").astype(int)
+        metadata = df.loc[df["CHR"] == chrom, ["CHR", "SNP", "CM", "POS"]].reset_index(drop=True)
         if len(metadata) == 0:
             raise ValueError(f"No PLINK metadata rows found for chromosome {chrom}.")
         metadata = self._apply_global_restriction(metadata)
@@ -182,7 +182,7 @@ class PlinkRefPanel(RefPanel):
                 prefix + ".bim",
                 sep=r"\s+",
                 header=None,
-                names=["CHR", "SNP", "CM", "BP", "A1", "A2"],
+                names=["CHR", "SNP", "CM", "POS", "A1", "A2"],
                 usecols=[0, 1, 2, 3],
             )
             for prefix in prefixes
@@ -292,7 +292,7 @@ def _read_metadata_table(path: str | Path, chrom: str | None, common_config: Com
     bp_col = None
     snp_col = None
     try:
-        chr_col, bp_col = infer_chr_bp_columns(df.columns)
+        chr_col, pos_col = infer_chr_pos_columns(df.columns)
     except ValueError:
         pass
     try:
@@ -302,14 +302,14 @@ def _read_metadata_table(path: str | Path, chrom: str | None, common_config: Com
 
     if snp_identifier == "rsid" and snp_col is None:
         raise ValueError(f"{path} must contain a SNP column in rsid mode.")
-    if snp_identifier == "chr_pos" and (chr_col is None or bp_col is None):
-        raise ValueError(f"{path} must contain CHR and BP columns in chr_pos mode.")
+    if snp_identifier == "chr_pos" and (chr_col is None or pos_col is None):
+        raise ValueError(f"{path} must contain CHR and POS columns in chr_pos mode.")
 
     out = pd.DataFrame(index=df.index)
     if chr_col is not None:
         out["CHR"] = df[chr_col].map(normalize_chromosome)
-    if bp_col is not None:
-        out["BP"] = pd.to_numeric(df[bp_col], errors="raise").astype(int)
+    if pos_col is not None:
+        out["POS"] = pd.to_numeric(df[pos_col], errors="raise").astype(int)
     if snp_col is not None:
         out["SNP"] = df[snp_col].astype(str)
 

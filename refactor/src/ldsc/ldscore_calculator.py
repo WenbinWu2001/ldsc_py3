@@ -38,7 +38,7 @@ from ._kernel.identifiers import build_snp_id_series, normalize_snp_identifier_m
 ldscore_new = kernel_ldscore
 
 
-_LDSCORE_SUFFIX_COLUMNS = ("CHR", "SNP", "BP", "CM", "MAF")
+_LDSCORE_SUFFIX_COLUMNS = ("CHR", "SNP", "POS", "BP", "CM", "MAF")
 
 
 @dataclass(frozen=True)
@@ -352,7 +352,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--r2-table", default=None, help="Comma-separated parquet R2 tokens: exact paths, globs, or suite prefixes.")
     parser.add_argument("--r2-table-chr", default=None, help="Comma-separated chromosome-suite parquet R2 tokens; `@` is preferred.")
     parser.add_argument("--snp-identifier", default="chr_pos", help="Identifier mode used to match annotations to the reference panel.")
-    parser.add_argument("--genome-build", choices=("hg19", "hg38"), default=None, help="Genome build for chr_pos matching.")
+    parser.add_argument(
+        "--genome-build",
+        choices=("hg19", "hg37", "GRCh37", "hg38", "GRCh38"),
+        default=None,
+        help="Genome build for chr_pos matching. Aliases normalize to canonical hg19/hg38.",
+    )
     parser.add_argument("--r2-bias-mode", choices=("raw", "unbiased"), default=None, help="Whether parquet R2 values are raw or already unbiased.")
     parser.add_argument("--r2-sample-size", default=None, type=float, help="LD reference sample size used to correct raw parquet R2 values.")
     parser.add_argument("--regression-snps", default=None, help="Optional SNP list defining the regression SNP set for w_ld.")

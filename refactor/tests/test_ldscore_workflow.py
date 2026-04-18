@@ -19,8 +19,10 @@ from ldsc.outputs import OutputSpec
 
 try:
     from ldsc import ldscore_calculator as ldscore_workflow
+    from ldsc._kernel import ldscore as kernel_ldscore
 except ImportError:
     ldscore_workflow = None
+    kernel_ldscore = None
 
 
 @unittest.skipIf(ldscore_workflow is None, "ldscore_workflow module is not available")
@@ -30,7 +32,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             {
                 "CHR": [chrom],
                 "SNP": [f"rs{chrom}"],
-                "BP": [bp],
+                "POS": [bp],
                 "CM": [0.1],
                 "MAF": [0.2],
             }
@@ -76,7 +78,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 {
                     "CHR": ["1"],
                     "SNP": ["rs1"],
-                    "BP": [10],
+                    "POS": [10],
                     "CM": [0.1],
                     "MAF": [0.2],
                 }
@@ -181,7 +183,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 {
                     "CHR": ["1"],
                     "SNP": ["rs1"],
-                    "BP": [10],
+                    "POS": [10],
                     "CM": [0.1],
                     "MAF": [0.2],
                 }
@@ -241,3 +243,40 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
             combine_kwargs = combine_groups.call_args.kwargs
             self.assertEqual(combine_kwargs["baseline_files"], [str(tmpdir / "baseline.1.annot.gz")])
+
+
+@unittest.skipIf(kernel_ldscore is None, "ldscore kernel is not available")
+class LDScoreParquetNormalizationTest(unittest.TestCase):
+    def test_canonicalize_r2_pairs_renames_bp_aliases_to_pos_columns(self):
+        df = pd.DataFrame(
+            {
+                "chr": ["1"],
+                "rsID_1": ["rs2"],
+                "rsID_2": ["rs1"],
+                "hg38_bp1": [120],
+                "hg38_bp2": [100],
+                "hg19_bp_1": [20],
+                "hg19_bp_2": [10],
+                "hg38_Uniq_ID_1": ["1:120"],
+                "hg38_Uniq_ID_2": ["1:100"],
+                "hg19_Uniq_ID_1": ["1:20"],
+                "hg19_Uniq_ID_2": ["1:10"],
+                "R2": [0.4],
+                "Dprime": [0.5],
+                "+/-corr": ["+"],
+            }
+        )
+
+        out = kernel_ldscore.canonicalize_r2_pairs(df, "GRCh37")
+
+        self.assertEqual(out["chr"].tolist(), ["1"])
+        self.assertEqual(out["pos1"].tolist(), [10])
+        self.assertEqual(out["pos2"].tolist(), [20])
+        self.assertIn("hg19_pos_1", out.columns)
+        self.assertIn("hg19_pos_2", out.columns)
+        self.assertNotIn("pair_chr", out.columns)
+
+    def test_require_runtime_genome_build_accepts_aliases(self):
+        self.assertEqual(kernel_ldscore._require_runtime_genome_build("hg37"), "hg19")
+        self.assertEqual(kernel_ldscore._require_runtime_genome_build("GRCh37"), "hg19")
+        self.assertEqual(kernel_ldscore._require_runtime_genome_build("GRCh38"), "hg38")

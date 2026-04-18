@@ -16,6 +16,7 @@ from ldsc.config import (
     MungeConfig,
     RefPanelConfig,
     RegressionConfig,
+    normalize_genome_build,
 )
 from ldsc.sumstats_munger import RawSumstatsSpec
 from ldsc._kernel.annotation import AnnotationSourceSpec
@@ -47,6 +48,14 @@ class CommonConfigTest(unittest.TestCase):
             CommonConfig(genome_build="hg18")
         with self.assertRaises(ValueError):
             CommonConfig(log_level="trace")
+
+    def test_normalizes_genome_build_aliases(self):
+        self.assertEqual(CommonConfig(genome_build="hg37").genome_build, "hg19")
+        self.assertEqual(CommonConfig(genome_build="GRCh37").genome_build, "hg19")
+        self.assertEqual(CommonConfig(genome_build="GRCh38").genome_build, "hg38")
+        self.assertEqual(normalize_genome_build("hg37"), "hg19")
+        self.assertEqual(normalize_genome_build("GRCh37"), "hg19")
+        self.assertEqual(normalize_genome_build("GRCh38"), "hg38")
 
 
 class WorkflowConfigTest(unittest.TestCase):
@@ -197,6 +206,10 @@ class IdentifierHelpersTest(unittest.TestCase):
     def test_build_snp_id_series(self):
         rsid_df = pd.DataFrame({"SNP": ["rs1", "rs2"]})
         self.assertEqual(build_snp_id_series(rsid_df, "rsid").tolist(), ["rs1", "rs2"])
+        chr_pos_df = pd.DataFrame({"CHR": ["chr1", "2"], "POS": [10, 20]})
+        self.assertEqual(build_snp_id_series(chr_pos_df, "chr_pos").tolist(), ["1:10", "2:20"])
+
+    def test_build_snp_id_series_accepts_bp_alias(self):
         chr_pos_df = pd.DataFrame({"CHR": ["chr1", "2"], "BP": [10, 20]})
         self.assertEqual(build_snp_id_series(chr_pos_df, "chr_pos").tolist(), ["1:10", "2:20"])
 

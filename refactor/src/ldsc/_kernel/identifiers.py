@@ -26,8 +26,8 @@ Design Notes
 ------------
 - Header inference is intentionally permissive to preserve legacy behavior for
   user-provided files with inconsistent capitalization or separators.
-- ``chr_pos`` mode always uses normalized chromosome labels and 1-based base
-  pair coordinates encoded as ``CHR:BP`` strings.
+- ``chr_pos`` mode always uses normalized chromosome labels and 1-based
+  position coordinates encoded as ``CHR:POS`` strings.
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ import pandas as pd
 
 SNP_COLUMN_ALIASES = ("SNP", "SNPID", "SNP_ID", "RSID", "RS_ID", "RS", "MARKERNAME", "MARKER")
 CHR_COLUMN_ALIASES = ("CHR", "CHROM", "CHROMOSOME")
-BP_COLUMN_ALIASES = ("BP", "POS", "POSITION", "BASE_PAIR", "BASEPAIR")
+POS_COLUMN_ALIASES = ("POS", "BP", "POSITION", "BASE_PAIR", "BASEPAIR")
 
 
 def clean_header(header: str) -> str:
@@ -78,13 +78,13 @@ def normalize_chromosome(value: object) -> str:
     return text.upper()
 
 
-def build_chr_pos_snp_id(chrom: object, bp: object) -> str:
-    """Build the canonical ``CHR:BP`` identifier used in ``chr_pos`` mode."""
+def build_chr_pos_snp_id(chrom: object, pos: object) -> str:
+    """Build the canonical ``CHR:POS`` identifier used in ``chr_pos`` mode."""
     chrom_norm = normalize_chromosome(chrom)
-    bp_int = int(bp)
-    if bp_int <= 0:
-        raise ValueError(f"Base-pair position must be positive; got {bp!r}.")
-    return f"{chrom_norm}:{bp_int}"
+    pos_int = int(pos)
+    if pos_int <= 0:
+        raise ValueError(f"Position must be positive; got {pos!r}.")
+    return f"{chrom_norm}:{pos_int}"
 
 
 def build_snp_id_series(df: pd.DataFrame, mode: str) -> pd.Series:
@@ -109,9 +109,9 @@ def build_snp_id_series(df: pd.DataFrame, mode: str) -> pd.Series:
     if mode == "rsid":
         snp_col = infer_snp_column(df.columns)
         return df[snp_col].astype(str)
-    chr_col, bp_col = infer_chr_bp_columns(df.columns)
+    chr_col, pos_col = infer_chr_pos_columns(df.columns)
     return pd.Series(
-        [build_chr_pos_snp_id(chrom, bp) for chrom, bp in zip(df[chr_col], df[bp_col])],
+        [build_chr_pos_snp_id(chrom, pos) for chrom, pos in zip(df[chr_col], df[pos_col])],
         index=df.index,
         name="snp_id",
     )
@@ -133,12 +133,17 @@ def infer_snp_column(header: Iterable[str]) -> str:
     return infer_column(header, SNP_COLUMN_ALIASES, "SNP identifier")
 
 
-def infer_chr_bp_columns(header: Iterable[str]) -> tuple[str, str]:
-    """Infer chromosome and base-pair columns from a table header."""
+def infer_chr_pos_columns(header: Iterable[str]) -> tuple[str, str]:
+    """Infer chromosome and position columns from a table header."""
     return (
         infer_column(header, CHR_COLUMN_ALIASES, "chromosome"),
-        infer_column(header, BP_COLUMN_ALIASES, "base-pair position"),
+        infer_column(header, POS_COLUMN_ALIASES, "position"),
     )
+
+
+def infer_chr_bp_columns(header: Iterable[str]) -> tuple[str, str]:
+    """Backward-compatible alias for :func:`infer_chr_pos_columns`."""
+    return infer_chr_pos_columns(header)
 
 
 def validate_unique_snp_ids(df: pd.DataFrame, mode: str, context: str = "table") -> None:
@@ -208,7 +213,7 @@ def _read_rsid_restriction(path: Path) -> set[str]:
 
 
 def _read_chr_pos_restriction(path: Path) -> set[str]:
-    """Read a ``CHR``/``BP`` restriction file into canonical ``CHR:BP`` IDs."""
+    """Read a ``CHR``/``POS`` restriction file into canonical ``CHR:POS`` IDs."""
     lines = _non_comment_lines(path)
     if not lines:
         return set()
@@ -218,7 +223,7 @@ def _read_chr_pos_restriction(path: Path) -> set[str]:
         for line in lines:
             fields = re.split(r"\s+", line.strip())
             if len(fields) < 2:
-                raise ValueError(f"chr_pos restriction rows must contain CHR and BP: {line!r}")
+                raise ValueError(f"chr_pos restriction rows must contain CHR and POS: {line!r}")
             values.add(build_chr_pos_snp_id(fields[0], fields[1]))
         return values
 
@@ -226,16 +231,16 @@ def _read_chr_pos_restriction(path: Path) -> set[str]:
     rows = list(reader)
     header = rows[0]
     try:
-        chr_col, bp_col = infer_chr_bp_columns(header)
+        chr_col, pos_col = infer_chr_pos_columns(header)
         chr_idx = header.index(chr_col)
-        bp_idx = header.index(bp_col)
+        pos_idx = header.index(pos_col)
         data_rows = rows[1:]
     except ValueError:
-        chr_idx, bp_idx = 0, 1
+        chr_idx, pos_idx = 0, 1
         data_rows = rows
     values = set()
     for row in data_rows:
         if not row:
             continue
-        values.add(build_chr_pos_snp_id(row[chr_idx], row[bp_idx]))
+        values.add(build_chr_pos_snp_id(row[chr_idx], row[pos_idx]))
     return values

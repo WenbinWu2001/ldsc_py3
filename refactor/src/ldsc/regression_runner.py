@@ -504,13 +504,17 @@ def _load_ldscore_result_from_files(
     """
     ld_table = _read_table(ldscore_path)
     weight_table = _read_table(weight_path)
-    metadata_columns = [column for column in ["CHR", "SNP", "BP", "CM", "MAF"] if column in ld_table.columns]
-    weight_metadata_columns = [column for column in ["CHR", "SNP", "BP", "CM", "MAF"] if column in weight_table.columns]
+    metadata_columns = [column for column in ["CHR", "SNP", "POS", "BP", "CM", "MAF"] if column in ld_table.columns]
+    weight_metadata_columns = [column for column in ["CHR", "SNP", "POS", "BP", "CM", "MAF"] if column in weight_table.columns]
     if "SNP" not in metadata_columns or "SNP" not in weight_metadata_columns:
         raise ValueError("Both ldscore and w-ld tables must include an SNP column.")
 
     reference_metadata = ld_table.loc[:, metadata_columns].reset_index(drop=True)
     regression_metadata = weight_table.loc[:, weight_metadata_columns].reset_index(drop=True)
+    if "BP" in reference_metadata.columns and "POS" not in reference_metadata.columns:
+        reference_metadata = reference_metadata.rename(columns={"BP": "POS"})
+    if "BP" in regression_metadata.columns and "POS" not in regression_metadata.columns:
+        regression_metadata = regression_metadata.rename(columns={"BP": "POS"})
     ld_scores = ld_table.drop(columns=metadata_columns).reset_index(drop=True)
     w_ld = weight_table.drop(columns=weight_metadata_columns).reset_index(drop=True)
     if w_ld.shape[1] != 1:

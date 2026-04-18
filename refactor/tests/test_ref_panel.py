@@ -47,7 +47,7 @@ class PlinkRefPanelTest(unittest.TestCase):
         )
         self.assertEqual(panel.available_chromosomes(), ["9"])
         metadata = panel.load_metadata("9")
-        self.assertEqual(list(metadata.columns), ["CHR", "SNP", "CM", "BP"])
+        self.assertEqual(list(metadata.columns), ["CHR", "SNP", "CM", "POS"])
         self.assertGreater(len(metadata), 0)
 
     def test_filter_to_snps_rsid(self):
@@ -116,7 +116,7 @@ class ParquetRefPanelTest(unittest.TestCase):
                 RefPanelSpec(backend="parquet_r2", maf_metadata_paths=(str(meta),), chromosomes=("1",)),
             )
             filtered = panel.filter_to_snps("1", {"1:20"})
-            self.assertEqual(filtered["BP"].tolist(), [20])
+            self.assertEqual(filtered["POS"].tolist(), [20])
 
     def test_sidecar_metadata_loading_accepts_suite_tokens(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -138,7 +138,7 @@ class ParquetRefPanelTest(unittest.TestCase):
 
             self.assertEqual(panel.available_chromosomes(), ["1", "2"])
             metadata = panel.load_metadata("2")
-            self.assertEqual(metadata["BP"].tolist(), [20])
+            self.assertEqual(metadata["POS"].tolist(), [20])
 
     @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
     def test_build_reader(self):

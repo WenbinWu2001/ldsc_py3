@@ -114,9 +114,24 @@ class AnnotationBuilderTest(unittest.TestCase):
     def test_parse_fixture_annotation(self):
         builder = AnnotationBuilder(CommonConfig(snp_identifier="rsid"), AnnotationBuildConfig())
         metadata, annotations = builder.parse_annotation_file(ANNOT_FIXTURE)
-        self.assertEqual(list(metadata.columns), ["CHR", "BP", "SNP", "CM"])
+        self.assertEqual(list(metadata.columns), ["CHR", "POS", "SNP", "CM"])
         self.assertEqual(list(annotations.columns), ["C1", "C2", "C3"])
         self.assertEqual(len(metadata), 3)
+
+    def test_parse_annotation_file_normalizes_bp_header_to_pos(self):
+        builder = AnnotationBuilder(CommonConfig(snp_identifier="rsid"), AnnotationBuildConfig())
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "legacy_bp.annot"
+            path.write_text(
+                "CHR\tBP\tSNP\tCM\tbase_a\n1\t10\trs1\t0.1\t1\n",
+                encoding="utf-8",
+            )
+
+            metadata, annotations = builder.parse_annotation_file(path)
+
+            self.assertEqual(list(metadata.columns), ["CHR", "POS", "SNP", "CM"])
+            self.assertEqual(metadata["POS"].tolist(), [10])
+            self.assertEqual(list(annotations.columns), ["base_a"])
 
     def test_run_auto_bundles_per_chromosome_files(self):
         builder = AnnotationBuilder(CommonConfig(snp_identifier="rsid"), AnnotationBuildConfig())

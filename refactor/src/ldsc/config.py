@@ -30,6 +30,7 @@ from .path_resolution import normalize_optional_path_token, normalize_path_token
 
 SNPIdentifierMode = Literal["rsid", "chr_pos"]
 GenomeBuild = Literal["hg19", "hg38"]
+GenomeBuildInput = Literal["hg19", "hg37", "hg38", "GRCh37", "GRCh38"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
 RefPanelBackend = Literal["auto", "plink", "parquet_r2"]
 CompressionMode = Literal["auto", "gzip", "bz2", "none"]
@@ -64,6 +65,18 @@ def _normalize_log_level(level: str) -> LogLevel:
     return normalized  # type: ignore[return-value]
 
 
+def normalize_genome_build(genome_build: str | None) -> GenomeBuild | None:
+    """Normalize flexible user-facing genome-build labels to canonical values."""
+    if genome_build is None:
+        return None
+    normalized = genome_build.strip().lower()
+    if normalized in {"hg19", "hg37", "grch37"}:
+        return "hg19"
+    if normalized in {"hg38", "grch38"}:
+        return "hg38"
+    raise ValueError("genome_build must be None, 'hg19', 'hg37', 'GRCh37', 'hg38', or 'GRCh38'.")
+
+
 @dataclass(frozen=True)
 class CommonConfig:
     """Shared configuration used across the refactored workflows.
@@ -74,7 +87,7 @@ class CommonConfig:
         Global SNP identifier mode. Default is ``"chr_pos"``. ``"rsid"``
         expects an explicit SNP column, while ``"chr_pos"`` builds identifiers
         from chromosome and base-pair position.
-    genome_build : {"hg19", "hg38"} or None, optional
+    genome_build : {"hg19", "hg37", "GRCh37", "hg38", "GRCh38"} or None, optional
         Genome-build context for ``chr_pos`` workflows. Default is ``None``.
     global_snp_restriction_path : str or os.PathLike[str] or None, optional
         Optional path to a SNP list or table that restricts the SNP universe used
@@ -87,7 +100,7 @@ class CommonConfig:
         tolerating partial metadata tables. Default is ``False``.
     """
     snp_identifier: SNPIdentifierMode = "chr_pos"
-    genome_build: GenomeBuild | None = None
+    genome_build: GenomeBuildInput | None = None
     global_snp_restriction_path: str | PathLike[str] | None = None
     log_level: LogLevel = "INFO"
     fail_on_missing_metadata: bool = False
@@ -95,8 +108,7 @@ class CommonConfig:
     def __post_init__(self) -> None:
         if self.snp_identifier not in {"rsid", "chr_pos"}:
             raise ValueError("snp_identifier must be 'rsid' or 'chr_pos'.")
-        if self.genome_build not in {None, "hg19", "hg38"}:
-            raise ValueError("genome_build must be None, 'hg19', or 'hg38'.")
+        object.__setattr__(self, "genome_build", normalize_genome_build(self.genome_build))
         object.__setattr__(self, "log_level", _normalize_log_level(self.log_level))
         object.__setattr__(
             self, "global_snp_restriction_path", _normalize_optional_path(self.global_snp_restriction_path)

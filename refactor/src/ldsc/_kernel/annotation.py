@@ -30,7 +30,7 @@ make_annot_files :
 Design Notes
 ------------
 - All annotation tables are normalized to the same required metadata columns:
-  ``CHR``, ``BP``, ``SNP``, and ``CM``.
+  ``CHR``, ``POS``, ``SNP``, and ``CM``.
 - When filenames cleanly encode one chromosome shard each, bundles are built
   independently per chromosome and concatenated in stable genomic order.
 - Global SNP restriction is applied after alignment so baseline, query, and
@@ -69,7 +69,8 @@ from ..path_resolution import (
 from .identifiers import (
     build_snp_id_series,
     clean_header,
-    infer_chr_bp_columns,
+    infer_chr_pos_columns,
+    infer_column,
     infer_snp_column,
     normalize_chromosome,
     normalize_snp_identifier_mode,
@@ -79,10 +80,11 @@ from .identifiers import (
 
 
 LOGGER = logging.getLogger("LDSC.annotation")
-REQUIRED_ANNOT_COLUMNS = ("CHR", "BP", "SNP", "CM")
+REQUIRED_ANNOT_COLUMNS = ("CHR", "POS", "SNP", "CM")
 CHR_ALIASES = ("chr", "chrom", "chromosome")
-BP_ALIASES = ("bp", "pos", "position", "base_pair", "basepair")
+POS_ALIASES = ("pos", "bp", "position", "base_pair", "basepair")
 SNP_ALIASES = ("snp", "snpid", "rsid", "rs_id", "markername", "marker")
+CM_ALIASES = ("cm", "cmbp", "centimorgan")
 
 
 @dataclass(frozen=True)
@@ -173,7 +175,7 @@ class AnnotationBundle:
 class _BaselineRow:
     """Minimal metadata for one baseline SNP row during BED projection."""
     chrom: str
-    bp: int
+    pos: int
     snp: str
     cm: str
 
@@ -447,13 +449,19 @@ class AnnotationBuilder:
     def parse_annotation_file(self, path: str | Path, chrom: str | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
         """Read one SNP-level annotation file into normalized metadata and values."""
         df = _read_text_table(str(path))
-        missing = [column for column in REQUIRED_ANNOT_COLUMNS if column not in df.columns]
-        if missing:
-            raise ValueError(f"{path} is missing required annotation columns: {missing}")
-
-        metadata = df.loc[:, list(REQUIRED_ANNOT_COLUMNS)].copy()
+        chr_col, pos_col = infer_chr_pos_columns(df.columns)
+        snp_col = infer_snp_column(df.columns)
+        cm_col = infer_column(df.columns, CM_ALIASES, "centiMorgan")
+        metadata = pd.DataFrame(
+            {
+                "CHR": df[chr_col],
+                "POS": df[pos_col],
+                "SNP": df[snp_col],
+                "CM": df[cm_col],
+            }
+        )
         metadata["CHR"] = metadata["CHR"].map(normalize_chromosome)
-        metadata["BP"] = pd.to_numeric(metadata["BP"], errors="raise").astype(np.int64)
+        metadata["POS"] = pd.to_numeric(metadata["POS"], errors="raise").astype(np.int64)
         metadata["SNP"] = metadata["SNP"].astype(str)
         metadata["CM"] = pd.to_numeric(metadata["CM"], errors="coerce")
         if "MAF" in df.columns:
@@ -468,7 +476,7 @@ class AnnotationBuilder:
             return metadata, pd.DataFrame(index=metadata.index)
 
         annotation_columns = [
-            column for column in df.columns if column not in list(REQUIRED_ANNOT_COLUMNS) + ["MAF"]
+            column for column in df.columns if column not in {chr_col, pos_col, snp_col, cm_col, "MAF"}
         ]
         if not annotation_columns:
             raise ValueError(f"{path} does not contain any annotation columns.")
@@ -562,15 +570,15 @@ class AnnotationBuilder:
             bimfile,
             sep=r"\s+",
             usecols=[0, 1, 2, 3],
-            names=["CHR", "SNP", "CM", "BP"],
+            names=["CHR", "SNP", "CM", "POS"],
             header=None,
         )
-        iter_bim = [[_to_bed_chromosome(chrom), int(bp) - 1, int(bp)] for chrom, bp in np.array(df_bim[["CHR", "BP"]])]
+        iter_bim = [[_to_bed_chromosome(chrom), int(pos) - 1, int(pos)] for chrom, pos in np.array(df_bim[["CHR", "POS"]])]
         bim_bed = pybedtools.BedTool(iter_bim)
         annot_bed = bim_bed.intersect(bed_for_annot)
-        bp = [feature.start + 1 for feature in annot_bed]
-        df_int = pd.DataFrame({"BP": bp, "ANNOT": 1})
-        df_annot = pd.merge(df_bim, df_int, how="left", on="BP")
+        pos = [feature.start + 1 for feature in annot_bed]
+        df_int = pd.DataFrame({"POS": pos, "ANNOT": 1})
+        df_annot = pd.merge(df_bim, df_int, how="left", on="POS")
         df_annot.fillna(0, inplace=True)
         df_annot = df_annot[["ANNOT"]].astype(int)
         annot_file.parent.mkdir(parents=True, exist_ok=True)
@@ -589,7 +597,7 @@ class AnnotationBuilder:
         cur_keys = build_snp_id_series(current, self.common_config.snp_identifier)
         if len(reference) != len(current) or not ref_keys.equals(cur_keys):
             raise ValueError(f"Annotation SNP rows do not match across files: {path}")
-        if not reference.loc[:, ["CHR", "BP", "SNP"]].equals(current.loc[:, ["CHR", "BP", "SNP"]]):
+        if not reference.loc[:, ["CHR", "POS", "SNP"]].equals(current.loc[:, ["CHR", "POS", "SNP"]]):
             raise ValueError(f"Annotation metadata mismatch across files: {path}")
 
     def _merge_missing_metadata(self, reference: pd.DataFrame, current: pd.DataFrame) -> pd.DataFrame:
@@ -867,8 +875,10 @@ def _read_baseline_annot(path: Path) -> list[_BaselineRow]:
             header = next(reader)
             rows_iter = reader
 
-        if tuple(header[:4]) != REQUIRED_ANNOT_COLUMNS:
-            raise ValueError(f"{path} must begin with columns {REQUIRED_ANNOT_COLUMNS}; got {tuple(header[:4])}")
+        chr_idx = _infer_column_index(header, CHR_ALIASES, "chromosome", path)
+        pos_idx = _infer_column_index(header, POS_ALIASES, "position", path)
+        snp_idx = _infer_column_index(header, SNP_ALIASES, "SNP", path)
+        cm_idx = _infer_column_index(header, CM_ALIASES, "centiMorgan", path)
 
         rows: list[_BaselineRow] = []
         if reader is None:
@@ -876,12 +886,26 @@ def _read_baseline_annot(path: Path) -> list[_BaselineRow]:
                 fields = re.split(r"\s+", line.strip())
                 if not fields or len(fields) < 4:
                     continue
-                rows.append(_BaselineRow(chrom=fields[0], bp=int(fields[1]), snp=fields[2], cm=fields[3]))
+                rows.append(
+                    _BaselineRow(
+                        chrom=fields[chr_idx],
+                        pos=int(fields[pos_idx]),
+                        snp=fields[snp_idx],
+                        cm=fields[cm_idx],
+                    )
+                )
         else:
             for fields in rows_iter:
                 if not fields or len(fields) < 4:
                     continue
-                rows.append(_BaselineRow(chrom=fields[0], bp=int(fields[1]), snp=fields[2], cm=fields[3]))
+                rows.append(
+                    _BaselineRow(
+                        chrom=fields[chr_idx],
+                        pos=int(fields[pos_idx]),
+                        snp=fields[snp_idx],
+                        cm=fields[cm_idx],
+                    )
+                )
     if not rows:
         raise ValueError(f"{path} does not contain any SNP rows.")
     return rows
@@ -891,10 +915,10 @@ def _write_baseline_bed(rows: Sequence[_BaselineRow], path: Path) -> Path:
     """Write baseline SNP rows as single-base BED intervals for overlap queries."""
     with path.open("w", encoding="utf-8") as handle:
         for row in rows:
-            start = row.bp - 1
+            start = row.pos - 1
             if start < 0:
-                raise ValueError(f"Invalid BP={row.bp} for SNP {row.snp} in baseline template.")
-            handle.write(f"{_to_bed_chromosome(row.chrom)}\t{start}\t{row.bp}\t{row.snp}\n")
+                raise ValueError(f"Invalid POS={row.pos} for SNP {row.snp} in baseline template.")
+            handle.write(f"{_to_bed_chromosome(row.chrom)}\t{start}\t{row.pos}\t{row.snp}\n")
     return path
 
 
@@ -948,25 +972,25 @@ def _load_restrict_snp_ids(path: Path) -> set[str]:
 
 
 def _write_restrict_table_as_bed(in_path: Path, out_path: Path) -> Path:
-    """Convert a ``CHR``/``BP`` restriction table into BED intervals."""
+    """Convert a ``CHR``/``POS`` restriction table into BED intervals."""
     lines = list(_iter_text_lines(in_path))
     if not lines:
         raise ValueError(f"Restriction file {in_path} is empty.")
     delimiter = _detect_delimiter(in_path)
     header = _split_delimited_line(lines[0], delimiter)
     chr_idx = _infer_column_index(header, CHR_ALIASES, "chromosome", in_path)
-    bp_idx = _infer_column_index(header, BP_ALIASES, "position", in_path)
+    pos_idx = _infer_column_index(header, POS_ALIASES, "position", in_path)
     with out_path.open("w", encoding="utf-8") as handle:
         for line in lines[1:]:
             fields = _split_delimited_line(line, delimiter)
-            if len(fields) <= max(chr_idx, bp_idx):
+            if len(fields) <= max(chr_idx, pos_idx):
                 continue
             chrom = _to_bed_chromosome(fields[chr_idx])
-            bp = int(fields[bp_idx])
-            start = bp - 1
+            pos = int(fields[pos_idx])
+            start = pos - 1
             if start < 0:
-                raise ValueError(f"Invalid restriction BP={bp} in {in_path}")
-            handle.write(f"{chrom}\t{start}\t{bp}\n")
+                raise ValueError(f"Invalid restriction POS={pos} in {in_path}")
+            handle.write(f"{chrom}\t{start}\t{pos}\n")
     return out_path
 
 
@@ -1000,10 +1024,10 @@ def _validate_and_convert_intersection(results, baseline_rows: Sequence[_Baselin
             )
         if sanity_mode == "chr_pos":
             feature_chr = _to_bed_chromosome(fields[0])
-            feature_bp = int(fields[2])
-            if feature_chr != _to_bed_chromosome(row.chrom) or feature_bp != row.bp:
+            feature_pos = int(fields[2])
+            if feature_chr != _to_bed_chromosome(row.chrom) or feature_pos != row.pos:
                 raise ValueError(
-                    f"Intersection coordinate mismatch at index {idx}: expected ({row.chrom}, {row.bp}), got ({fields[0]}, {fields[2]})"
+                    f"Intersection coordinate mismatch at index {idx}: expected ({row.chrom}, {row.pos}), got ({fields[0]}, {fields[2]})"
                 )
         mask.append(overlap_count > 0)
     if len(mask) != len(baseline_rows):
@@ -1043,7 +1067,7 @@ def _write_annot_file(out_path: Path, rows: Sequence[_BaselineRow], annotation_n
         handle.write("\t".join([*REQUIRED_ANNOT_COLUMNS, *annotation_names]) + "\n")
         for idx, row in enumerate(rows):
             annot_values = [str(mask[idx]) for mask in masks]
-            handle.write("\t".join([row.chrom, str(row.bp), row.snp, row.cm, *annot_values]) + "\n")
+            handle.write("\t".join([row.chrom, str(row.pos), row.snp, row.cm, *annot_values]) + "\n")
 
 
 def _query_output_name(path: Path) -> str:

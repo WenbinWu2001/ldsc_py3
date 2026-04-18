@@ -5,6 +5,9 @@ Goal: run partitioned LDSC in the refactored package by building query annotatio
 The examples below assume chromosome-pattern inputs such as `annotations/baseline.1.annot.gz`, `r2/reference.1.parquet`, and `r2/reference_metadata.1.tsv.gz`.
 The bundled `baseline_v1.2` annotations are hg19-based, so the parquet example
 uses `genome_build="hg19"` to align raw parquet coordinates to the annotation bundle.
+The workflow also accepts `hg37` and `GRCh37` as aliases for `hg19`, and
+`GRCh38` as an alias for `hg38`; outputs always normalize back to canonical
+`hg19` or `hg38`.
 
 Path-token rules used in this tutorial:
 
@@ -131,6 +134,6 @@ ldsc partitioned-h2 \
 The default CLI summary is intentionally query-focused: one output table with one row per query annotation.
 
 For the Python workflow-layer API, the annotation bundle already provides SNP metadata such as
-`CHR`, `BP`, `SNP`, and `CM`, so the partitioned example only needs the parquet `R2` tables.
+`CHR`, `POS`, `SNP`, and `CM`, so the partitioned example only needs the parquet `R2` tables.
 If your workflow depends on separate frequency metadata such as `MAF`, load that through the
 reference panel spec as well.

@@ -1,29 +1,61 @@
-# ldsc_py3_Jerry
+# ldsc_py3_restructured
 
-This worktree is organized around the active refactored codebase under `refactor/`.
+This repository is the active refactored LDSC package.
 
-## Refactor Codebase
+## Structure
 
-Path:
+- `src/ldsc/`: public package surface
+- `src/ldsc/_kernel/`: internal compute and file-format modules
+- `tests/`: local parity and workflow tests
+- `tutorials/`: package-level usage examples
+- `architecture.md`, `code_structure.md`, `class-and-features.md`: active design and navigation docs
 
-- `refactor/`
-
-Contains:
-
-- the active workflow/domain refactor
-- current design docs
-- current `PLANS.md`
-- current test suite
-
-Typical commands:
+## Install
 
 ```bash
-cd refactor
 pip install -e .
-python ldsc_new.py -h
-python -m unittest discover -s tests -p 'test*.py' -v
 ```
 
-## Repo-Level Rule
+## CLI
 
-Do not add active code back to the repository root. Keep code, docs, tests, and plans inside `refactor/`.
+```bash
+ldsc --help
+```
+
+Equivalent development entrypoint:
+
+```bash
+python -m ldsc.cli --help
+```
+
+Subcommands:
+
+- `ldsc annotate`
+- `ldsc ldscore`
+- `ldsc munge-sumstats`
+- `ldsc h2`
+- `ldsc partitioned-h2`
+- `ldsc rg`
+
+## Python API
+
+```python
+from ldsc import AnnotationBuilder, LDScoreCalculator, RegressionRunner, SumstatsMunger
+```
+
+## Input Path Tokens
+
+Public workflow APIs accept normalized string tokens for inputs:
+
+- exact paths
+- Python glob patterns such as `annotations/*.annot.gz`
+- explicit chromosome suites using `@`, for example `baseline.@`
+- legacy bare prefixes such as `baseline.`
+
+Inputs are resolved before the internal kernel runs. Output paths such as `out_prefix` stay literal destinations.
+
+## Verification
+
+```bash
+python -m unittest discover -s tests -p 'test*.py' -v
+```

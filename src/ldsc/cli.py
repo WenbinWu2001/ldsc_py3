@@ -18,7 +18,9 @@ import argparse
 from pathlib import Path
 from typing import Sequence
 
-from . import annotation_builder, ldscore_calculator, regression_runner, sumstats_munger
+from . import annotation_builder, ldscore_calculator, regression_runner
+
+from . import sumstats_munger
 
 
 def build_parser() -> argparse.ArgumentParser:

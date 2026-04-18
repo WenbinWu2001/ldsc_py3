@@ -31,6 +31,18 @@ Resulting package split:
 
 ## Current Follow-Up Work
 
+### Completed: Centralize Alias and Naming Inference
+
+Status: complete
+
+Summary:
+
+- made `src/ldsc/column_inference.py` the single source of truth for column alias families, legacy header normalization, SNP identifier mode aliases, and genome-build aliases
+- moved raw-sumstats alias inference, annotation/reference metadata inference, restriction-table inference, and internal artifact strictness onto shared context-specific `ColumnSpec` families
+- normalized canonical runtime SNP identifier mode to `rsid` / `chr_pos`
+- kept internal package-written artifacts strict while preserving permissive legacy-style ingestion for raw user inputs
+- updated workflow and regression tests to cover the shared registry and strict internal header requirements
+
 ### 1. Stabilize the public CLI
 
 Goals:

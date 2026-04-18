@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from os import PathLike
 from typing import Literal
 
+from .column_inference import normalize_genome_build
 from .path_resolution import normalize_optional_path_token, normalize_path_token, normalize_path_tokens
 
 
@@ -63,19 +64,6 @@ def _normalize_log_level(level: str) -> LogLevel:
     if normalized not in allowed:
         raise ValueError(f"log_level must be one of {sorted(allowed)}; got {level!r}.")
     return normalized  # type: ignore[return-value]
-
-
-def normalize_genome_build(genome_build: str | None) -> GenomeBuild | None:
-    """Normalize flexible user-facing genome-build labels to canonical values."""
-    if genome_build is None:
-        return None
-    normalized = genome_build.strip().lower()
-    if normalized in {"hg19", "hg37", "grch37"}:
-        return "hg19"
-    if normalized in {"hg38", "grch38"}:
-        return "hg38"
-    raise ValueError("genome_build must be None, 'hg19', 'hg37', 'GRCh37', 'hg38', or 'GRCh38'.")
-
 
 @dataclass(frozen=True)
 class CommonConfig:

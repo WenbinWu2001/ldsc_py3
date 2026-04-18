@@ -16,11 +16,7 @@ from typing import Any
 import pandas as pd
 
 from ..column_inference import (
-    CHR_COLUMN_SPEC,
-    CM_COLUMN_SPEC,
-    MAF_COLUMN_SPEC,
-    POS_COLUMN_SPEC,
-    SNP_COLUMN_SPEC,
+    REFERENCE_METADATA_SPEC_MAP,
     resolve_optional_column,
     resolve_required_column,
 )
@@ -300,12 +296,12 @@ def _read_metadata_table(path: str | Path, chrom: str | None, common_config: Com
     pos_col = None
     snp_col = None
     try:
-        chr_col = resolve_required_column(df.columns, CHR_COLUMN_SPEC, context=context)
-        pos_col = resolve_required_column(df.columns, POS_COLUMN_SPEC, context=context)
+        chr_col = resolve_required_column(df.columns, REFERENCE_METADATA_SPEC_MAP["CHR"], context=context)
+        pos_col = resolve_required_column(df.columns, REFERENCE_METADATA_SPEC_MAP["POS"], context=context)
     except ValueError:
         pass
     try:
-        snp_col = resolve_required_column(df.columns, SNP_COLUMN_SPEC, context=context)
+        snp_col = resolve_required_column(df.columns, REFERENCE_METADATA_SPEC_MAP["SNP"], context=context)
     except ValueError:
         pass
 
@@ -322,8 +318,8 @@ def _read_metadata_table(path: str | Path, chrom: str | None, common_config: Com
     if snp_col is not None:
         out["SNP"] = df[snp_col].astype(str)
 
-    cm_col = resolve_optional_column(df.columns, CM_COLUMN_SPEC, context=context)
-    maf_col = resolve_optional_column(df.columns, MAF_COLUMN_SPEC, context=context)
+    cm_col = resolve_optional_column(df.columns, REFERENCE_METADATA_SPEC_MAP["CM"], context=context)
+    maf_col = resolve_optional_column(df.columns, REFERENCE_METADATA_SPEC_MAP["MAF"], context=context)
     if cm_col is not None:
         out["CM"] = pd.to_numeric(df[cm_col], errors="coerce")
     else:

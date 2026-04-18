@@ -13,12 +13,18 @@ import math
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Sequence
 
 import numpy as np
 import pandas as pd
 from scipy import stats
 
+from .column_inference import (
+    INTERNAL_LDSCORE_ARTIFACT_SPEC_MAP,
+    INTERNAL_SUMSTATS_ARTIFACT_SPEC_MAP,
+    resolve_optional_column,
+    resolve_required_column,
+)
 from .config import CommonConfig, RegressionConfig
 from .path_resolution import normalize_path_token, resolve_scalar_path
 from ._kernel import regression as reg
@@ -474,10 +480,40 @@ def _read_count_vector(path: str) -> np.ndarray:
     return np.asarray([float(value) for value in text.split()], dtype=np.float64)
 
 
+def _resolve_internal_columns(
+    columns: Sequence[str],
+    spec_map: dict[str, Any],
+    *,
+    required: Sequence[str],
+    optional: Sequence[str] = (),
+    context: str,
+) -> dict[str, str]:
+    """Resolve canonical-only internal artifact columns from ``columns``."""
+    resolved = {
+        canonical: resolve_required_column(columns, spec_map[canonical], context=context)
+        for canonical in required
+    }
+    for canonical in optional:
+        actual = resolve_optional_column(columns, spec_map[canonical], context=context)
+        if actual is not None:
+            resolved[canonical] = actual
+    return resolved
+
+
 def _load_sumstats_table(path: str, trait_name: str | None) -> SumstatsTable:
     """Load one munged sumstats file and wrap it in ``SumstatsTable``."""
     resolved = resolve_scalar_path(path, label="munged sumstats")
     df = _read_table(resolved)
+    resolved_columns = _resolve_internal_columns(
+        list(df.columns),
+        INTERNAL_SUMSTATS_ARTIFACT_SPEC_MAP,
+        required=("SNP", "N", "Z"),
+        optional=("A1", "A2", "FRQ"),
+        context=resolved,
+    )
+    df = df.loc[:, list(resolved_columns.values())].rename(
+        columns={actual: canonical for canonical, actual in resolved_columns.items()}
+    )
     table = SumstatsTable(
         data=df.reset_index(drop=True),
         has_alleles={"A1", "A2"}.issubset(df.columns),
@@ -504,19 +540,29 @@ def _load_ldscore_result_from_files(
     """
     ld_table = _read_table(ldscore_path)
     weight_table = _read_table(weight_path)
-    metadata_columns = [column for column in ["CHR", "SNP", "POS", "BP", "CM", "MAF"] if column in ld_table.columns]
-    weight_metadata_columns = [column for column in ["CHR", "SNP", "POS", "BP", "CM", "MAF"] if column in weight_table.columns]
-    if "SNP" not in metadata_columns or "SNP" not in weight_metadata_columns:
-        raise ValueError("Both ldscore and w-ld tables must include an SNP column.")
+    reference_columns = _resolve_internal_columns(
+        list(ld_table.columns),
+        INTERNAL_LDSCORE_ARTIFACT_SPEC_MAP,
+        required=("CHR", "SNP", "POS", "CM"),
+        optional=("MAF",),
+        context=ldscore_path,
+    )
+    weight_columns = _resolve_internal_columns(
+        list(weight_table.columns),
+        INTERNAL_LDSCORE_ARTIFACT_SPEC_MAP,
+        required=("CHR", "SNP", "POS", "CM"),
+        optional=("MAF",),
+        context=weight_path,
+    )
 
-    reference_metadata = ld_table.loc[:, metadata_columns].reset_index(drop=True)
-    regression_metadata = weight_table.loc[:, weight_metadata_columns].reset_index(drop=True)
-    if "BP" in reference_metadata.columns and "POS" not in reference_metadata.columns:
-        reference_metadata = reference_metadata.rename(columns={"BP": "POS"})
-    if "BP" in regression_metadata.columns and "POS" not in regression_metadata.columns:
-        regression_metadata = regression_metadata.rename(columns={"BP": "POS"})
-    ld_scores = ld_table.drop(columns=metadata_columns).reset_index(drop=True)
-    w_ld = weight_table.drop(columns=weight_metadata_columns).reset_index(drop=True)
+    reference_metadata = ld_table.loc[:, list(reference_columns.values())].rename(
+        columns={actual: canonical for canonical, actual in reference_columns.items()}
+    ).reset_index(drop=True)
+    regression_metadata = weight_table.loc[:, list(weight_columns.values())].rename(
+        columns={actual: canonical for canonical, actual in weight_columns.items()}
+    ).reset_index(drop=True)
+    ld_scores = ld_table.drop(columns=list(reference_columns.values())).reset_index(drop=True)
+    w_ld = weight_table.drop(columns=list(weight_columns.values())).reset_index(drop=True)
     if w_ld.shape[1] != 1:
         raise ValueError("The regression-weight table must contain exactly one non-metadata column.")
 

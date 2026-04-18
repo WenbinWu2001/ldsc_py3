@@ -22,6 +22,12 @@ import bz2
 import argparse
 from functools import reduce
 from scipy.stats import chi2
+from ..column_inference import (
+    RAW_SUMSTATS_REQUIRED_OR_OPTIONAL_SPECS,
+    RAW_SUMSTATS_SIGNED_STAT_SPECS,
+    build_cleaned_alias_lookup,
+    clean_header,
+)
 from . import regression as sumstats
 import time
 np.seterr(invalid='ignore')
@@ -79,79 +85,9 @@ null_values = {
     'Z': 0
 }
 
-default_cnames = {
-
-    # RS NUMBER
-    'SNP': 'SNP',
-    'MARKERNAME': 'SNP',
-    'SNPID': 'SNP',
-    'RS': 'SNP',
-    'RSID': 'SNP',
-    'RS_NUMBER': 'SNP',
-    'RS_NUMBERS': 'SNP',
-    # NUMBER OF STUDIES
-    'NSTUDY': 'NSTUDY',
-    'N_STUDY': 'NSTUDY',
-    'NSTUDIES': 'NSTUDY',
-    'N_STUDIES': 'NSTUDY',
-    # P-VALUE
-    'P': 'P',
-    'PVALUE': 'P',
-    'P_VALUE':  'P',
-    'PVAL': 'P',
-    'P_VAL': 'P',
-    'GC_PVALUE': 'P',
-    # ALLELE 1
-    'A1': 'A1',
-    'ALLELE1': 'A1',
-    'ALLELE_1': 'A1',
-    'EFFECT_ALLELE': 'A1',
-    'REFERENCE_ALLELE': 'A1',
-    'INC_ALLELE': 'A1',
-    'EA': 'A1',
-    # ALLELE 2
-    'A2': 'A2',
-    'ALLELE2': 'A2',
-    'ALLELE_2': 'A2',
-    'OTHER_ALLELE': 'A2',
-    'NON_EFFECT_ALLELE': 'A2',
-    'DEC_ALLELE': 'A2',
-    'NEA': 'A2',
-    # N
-    'N': 'N',
-    'NCASE': 'N_CAS',
-    'CASES_N': 'N_CAS',
-    'N_CASE': 'N_CAS',
-    'N_CASES': 'N_CAS',
-    'N_CONTROLS': 'N_CON',
-    'N_CAS': 'N_CAS',
-    'N_CON': 'N_CON',
-    'N_CASE': 'N_CAS',
-    'NCONTROL': 'N_CON',
-    'CONTROLS_N': 'N_CON',
-    'N_CONTROL': 'N_CON',
-    'WEIGHT': 'N',  # metal does this. possibly risky.
-    # SIGNED STATISTICS
-    'ZSCORE': 'Z',
-    'Z-SCORE': 'Z',
-    'GC_ZSCORE': 'Z',
-    'Z': 'Z',
-    'OR': 'OR',
-    'B': 'BETA',
-    'BETA': 'BETA',
-    'LOG_ODDS': 'LOG_ODDS',
-    'EFFECTS': 'BETA',
-    'EFFECT': 'BETA',
-    'SIGNED_SUMSTAT': 'SIGNED_SUMSTAT',
-    # INFO
-    'INFO': 'INFO',
-    # MAF
-    'EAF': 'FRQ',
-    'FRQ': 'FRQ',
-    'MAF': 'FRQ',
-    'FRQ_U': 'FRQ',
-    'F_U': 'FRQ',
-}
+default_cnames = build_cleaned_alias_lookup(
+    RAW_SUMSTATS_REQUIRED_OR_OPTIONAL_SPECS + RAW_SUMSTATS_SIGNED_STAT_SPECS
+)
 
 describe_cname = {
     'SNP': 'Variant ID (e.g., rs number)',
@@ -217,17 +153,6 @@ def get_compression(fh):
         compression = None
 
     return openfunc, compression
-
-
-def clean_header(header):
-    '''
-    For cleaning file headers.
-    - convert to uppercase
-    - replace dashes '-' with underscores '_'
-    - replace dots '.' (as in R) with underscores '_'
-    - remove newlines ('\n')
-    '''
-    return header.upper().replace('-', '_').replace('.', '_').replace('\n', '')
 
 
 def filter_pvals(P, log, args):

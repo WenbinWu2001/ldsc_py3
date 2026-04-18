@@ -141,7 +141,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 result = ldscore_workflow.run_ldscore_from_args(args)
             called_args = validate_args.call_args[0][0]
             self.assertEqual(called_args.out, args.out)
-            self.assertEqual(called_args.snp_identifier, "rsID")
+            self.assertEqual(called_args.snp_identifier, "rsid")
             self.assertEqual(result.reference_metadata["SNP"].tolist(), ["rs1"])
             self.assertIn("ldscore", result.output_paths)
             self.assertTrue(Path(result.output_paths["ldscore"]).exists())

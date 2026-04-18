@@ -10,6 +10,7 @@ ldsc_py3_restructured/
 ├── src/ldsc/
 │   ├── __init__.py
 │   ├── cli.py
+│   ├── column_inference.py
 │   ├── config.py
 │   ├── path_resolution.py
 │   ├── outputs.py
@@ -41,7 +42,7 @@ ldsc_py3_restructured/
 | Layer | Files | Responsibility |
 | --- | --- | --- |
 | CLI | `src/ldsc/cli.py` | top-level command dispatch |
-| Public workflow/config | `src/ldsc/config.py`, `path_resolution.py`, `annotation_builder.py`, `ldscore_calculator.py`, `sumstats_munger.py`, `regression_runner.py`, `outputs.py` | user-visible services, dataclasses, shared path resolution, and output config |
+| Public workflow/config | `src/ldsc/config.py`, `column_inference.py`, `path_resolution.py`, `annotation_builder.py`, `ldscore_calculator.py`, `sumstats_munger.py`, `regression_runner.py`, `outputs.py` | user-visible services, dataclasses, shared path resolution, centralized naming inference, and output config |
 | Internal kernel | `src/ldsc/_kernel/*.py` | low-level readers, numerical kernels, compatibility helpers |
 | Verification | `tests/` | parity and API checks |
 | User guidance | `tutorials/`, `README.md`, design docs | usage examples and maintenance guidance |
@@ -92,6 +93,31 @@ Path handling contract:
 - public dataclasses normalize `PathLike` values to strings
 - plural path-bearing fields accept either one token or a sequence of tokens
 - tokens stay unresolved here; file discovery happens later in workflow modules
+
+### `src/ldsc/column_inference.py`
+
+Purpose:
+
+- define the single naming and alias registry for the package
+- centralize legacy header cleaning and canonical column/token resolution
+- normalize SNP identifier modes and genome-build aliases
+
+Main contents:
+
+- `clean_header()`
+- `normalize_column_token()`
+- `normalize_snp_identifier_mode()`
+- `normalize_genome_build()`
+- context-specific `ColumnSpec` families for raw sumstats, annotation metadata, reference metadata, restriction tables, internal artifacts, and parquet R2 schemas
+- `resolve_required_column()`
+- `resolve_optional_column()`
+- `resolve_required_columns()`
+
+Usage rule:
+
+- external human-authored inputs should resolve through the permissive context family for that schema
+- package-written artifacts should resolve through the strict canonical-only family for that schema
+- kernels should not keep private alias tables or duplicate normalizers
 
 ### `src/ldsc/path_resolution.py`
 

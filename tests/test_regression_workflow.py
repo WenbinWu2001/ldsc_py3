@@ -118,9 +118,9 @@ class RegressionWorkflowTest(unittest.TestCase):
             with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
                 handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
             with gzip.open(tmpdir / "trait.l2.ldscore.gz", "wt", encoding="utf-8") as handle:
-                handle.write("CHR\tSNP\tBP\tCM\tbase\n1\trs1\t10\t0.1\t1.0\n")
+                handle.write("CHR\tSNP\tPOS\tCM\tbase\n1\trs1\t10\t0.1\t1.0\n")
             with gzip.open(tmpdir / "trait.w.l2.ldscore.gz", "wt", encoding="utf-8") as handle:
-                handle.write("CHR\tSNP\tBP\tCM\tL2\n1\trs1\t10\t0.1\t2.0\n")
+                handle.write("CHR\tSNP\tPOS\tCM\tL2\n1\trs1\t10\t0.1\t2.0\n")
             (tmpdir / "trait.l2.M_5_50").write_text("5\n", encoding="utf-8")
             args = type(
                 "Args",
@@ -155,3 +155,23 @@ class RegressionWorkflowTest(unittest.TestCase):
 
             patched.assert_called_once()
             self.assertEqual(summary.loc[0, "trait_name"], "trait")
+
+    def test_load_ldscore_result_from_files_requires_canonical_internal_headers(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            ldscore_path = tmpdir / "trait.l2.ldscore.gz"
+            weight_path = tmpdir / "trait.w.l2.ldscore.gz"
+            counts_path = tmpdir / "trait.l2.M_5_50"
+            with gzip.open(ldscore_path, "wt", encoding="utf-8") as handle:
+                handle.write("CHR\tSNP\tBP\tCM\tbase\n1\trs1\t10\t0.1\t1.0\n")
+            with gzip.open(weight_path, "wt", encoding="utf-8") as handle:
+                handle.write("CHR\tSNP\tBP\tCM\tL2\n1\trs1\t10\t0.1\t2.0\n")
+            counts_path.write_text("5\n", encoding="utf-8")
+
+            with self.assertRaises(ValueError):
+                regression_runner._load_ldscore_result_from_files(
+                    ldscore_path=str(ldscore_path),
+                    weight_path=str(weight_path),
+                    counts_path=str(counts_path),
+                    count_kind="m_5_50",
+                )

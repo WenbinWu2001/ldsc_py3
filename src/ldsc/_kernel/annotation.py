@@ -59,14 +59,14 @@ import numpy as np
 import pandas as pd
 
 from ..column_inference import (
-    CHR_COLUMN_ALIASES,
+    ANNOTATION_METADATA_SPEC_MAP,
     CHR_COLUMN_SPEC,
-    CM_COLUMN_ALIASES,
     CM_COLUMN_SPEC,
-    POS_COLUMN_ALIASES,
+    RESTRICTION_CHRPOS_SPEC_MAP,
+    RESTRICTION_RSID_SPEC_MAP,
     POS_COLUMN_SPEC,
-    SNP_COLUMN_ALIASES,
     SNP_COLUMN_SPEC,
+    resolve_optional_column,
     resolve_required_column,
 )
 from ..config import AnnotationBuildConfig, CommonConfig, _normalize_path_tuple
@@ -79,7 +79,6 @@ from ..path_resolution import (
 )
 from .identifiers import (
     build_snp_id_series,
-    clean_header,
     normalize_chromosome,
     normalize_snp_identifier_mode,
     read_global_snp_restriction,
@@ -470,8 +469,9 @@ class AnnotationBuilder:
         metadata["POS"] = pd.to_numeric(metadata["POS"], errors="raise").astype(np.int64)
         metadata["SNP"] = metadata["SNP"].astype(str)
         metadata["CM"] = pd.to_numeric(metadata["CM"], errors="coerce")
-        if "MAF" in df.columns:
-            metadata["MAF"] = pd.to_numeric(df["MAF"], errors="coerce")
+        maf_col = resolve_optional_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["MAF"], context=context)
+        if maf_col is not None:
+            metadata["MAF"] = pd.to_numeric(df[maf_col], errors="coerce")
 
         if chrom is not None:
             keep = metadata["CHR"] == normalize_chromosome(chrom)
@@ -845,16 +845,8 @@ def _iter_text_lines(path: Path) -> Iterator[str]:
                 yield line.rstrip("\n")
 
 
-def _infer_column_index(header: Sequence[str], aliases: Sequence[str], label: str, path: Path) -> int:
+def _infer_column_index(header: Sequence[str], spec, path: Path) -> int:
     """Infer the index of a named column family from a parsed header row."""
-    spec = {
-        tuple(CHR_COLUMN_ALIASES): CHR_COLUMN_SPEC,
-        tuple(POS_COLUMN_ALIASES): POS_COLUMN_SPEC,
-        tuple(SNP_COLUMN_ALIASES): SNP_COLUMN_SPEC,
-        tuple(CM_COLUMN_ALIASES): CM_COLUMN_SPEC,
-    }.get(tuple(aliases))
-    if spec is None:
-        raise ValueError(f"Unsupported alias family for {label}: {aliases}")
     column = resolve_required_column(header, spec, context=str(path))
     return list(header).index(column)
 
@@ -885,10 +877,10 @@ def _read_baseline_annot(path: Path) -> list[_BaselineRow]:
             header = next(reader)
             rows_iter = reader
 
-        chr_idx = _infer_column_index(header, CHR_COLUMN_ALIASES, "chromosome", path)
-        pos_idx = _infer_column_index(header, POS_COLUMN_ALIASES, "position", path)
-        snp_idx = _infer_column_index(header, SNP_COLUMN_ALIASES, "SNP", path)
-        cm_idx = _infer_column_index(header, CM_COLUMN_ALIASES, "centiMorgan", path)
+        chr_idx = _infer_column_index(header, ANNOTATION_METADATA_SPEC_MAP["CHR"], path)
+        pos_idx = _infer_column_index(header, ANNOTATION_METADATA_SPEC_MAP["POS"], path)
+        snp_idx = _infer_column_index(header, ANNOTATION_METADATA_SPEC_MAP["SNP"], path)
+        cm_idx = _infer_column_index(header, ANNOTATION_METADATA_SPEC_MAP["CM"], path)
 
         rows: list[_BaselineRow] = []
         if reader is None:
@@ -956,28 +948,9 @@ def _is_bed_path(path: Path) -> bool:
 
 def _load_restrict_snp_ids(path: Path) -> set[str]:
     """Read a global SNP restriction file interpreted in ``rsid`` mode."""
-    lines = list(_iter_text_lines(path))
-    if not lines:
+    snp_ids = read_global_snp_restriction(path, "rsid")
+    if not snp_ids:
         raise ValueError(f"Restriction file {path} is empty.")
-    delimiter = _detect_delimiter(path)
-    first_fields = _split_delimited_line(lines[0], delimiter)
-    first_norm = [re.sub(r"[^a-z0-9]+", "", field.lower()) for field in first_fields]
-    alias_norm = {re.sub(r"[^a-z0-9]+", "", alias.lower()) for alias in SNP_COLUMN_ALIASES}
-    has_header = any(field in alias_norm for field in first_norm)
-
-    if not has_header and len(first_fields) == 1:
-        return {line.strip() for line in lines if line.strip()}
-
-    header = first_fields
-    snp_idx = _infer_column_index(header, SNP_COLUMN_ALIASES, "SNP", path)
-    snp_ids = set()
-    for line in lines[1:]:
-        fields = _split_delimited_line(line, delimiter)
-        if len(fields) <= snp_idx:
-            continue
-        value = fields[snp_idx].strip()
-        if value:
-            snp_ids.add(value)
     return snp_ids
 
 
@@ -988,8 +961,8 @@ def _write_restrict_table_as_bed(in_path: Path, out_path: Path) -> Path:
         raise ValueError(f"Restriction file {in_path} is empty.")
     delimiter = _detect_delimiter(in_path)
     header = _split_delimited_line(lines[0], delimiter)
-    chr_idx = _infer_column_index(header, CHR_COLUMN_ALIASES, "chromosome", in_path)
-    pos_idx = _infer_column_index(header, POS_COLUMN_ALIASES, "position", in_path)
+    chr_idx = _infer_column_index(header, RESTRICTION_CHRPOS_SPEC_MAP["CHR"], in_path)
+    pos_idx = _infer_column_index(header, RESTRICTION_CHRPOS_SPEC_MAP["POS"], in_path)
     with out_path.open("w", encoding="utf-8") as handle:
         for line in lines[1:]:
             fields = _split_delimited_line(line, delimiter)

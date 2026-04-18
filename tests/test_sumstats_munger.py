@@ -107,3 +107,22 @@ class SumstatsMungerTest(unittest.TestCase):
 
             self.assertEqual(table.source_path, str(raw_path))
             self.assertTrue((tmpdir / "out" / "munged.sumstats.gz").exists())
+
+    def test_run_accepts_id_and_ncas_ncon_header_aliases(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "#CHROM\tPOS\tID\tEA\tNEA\tBETA\tSE\tPVAL\tFCAS\tFCON\tIMPINFO\tNEFF\tNCAS\tNCON\tHETI\tHETDF\tHETPVAL\n"
+                "1\t123\trs1\tA\tG\t0.1\t0.01\t0.05\t0.2\t0.8\t0.95\t1000\t400\t600\t0\t1\t0.9\n",
+                encoding="utf-8",
+            )
+
+            table = SumstatsMunger().run(
+                RawSumstatsSpec(path=raw_path, trait_name="trait"),
+                MungeConfig(out_prefix=tmpdir / "munged"),
+                CommonConfig(snp_identifier="rsid"),
+            )
+
+            self.assertEqual(table.data["SNP"].tolist(), ["rs1"])
+            self.assertEqual(table.data["N"].tolist(), [1000.0])

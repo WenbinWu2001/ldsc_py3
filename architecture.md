@@ -4,6 +4,8 @@ This repository is the active Python 3 LDSC package. Its package root is `src/ld
 
 The package reads SNP-level annotations, PLINK or parquet-R2 reference inputs, and munged GWAS summary statistics; computes LD scores chromosome by chromosome; aggregates those results across chromosomes; then runs LDSC regressions on the combined tables. Output writing is routed through a separate artifact layer so the core workflows stay independent of file layout and future post-processing features.
 
+Name and alias inference is centralized in `src/ldsc/column_inference.py`. That module is the single source of truth for column alias families, legacy header cleaning, SNP identifier mode normalization, and genome-build normalization. Workflow and kernel code should consume context-specific spec families from that registry instead of maintaining local alias tables.
+
 Public inputs use one shared token language before execution begins. Workflow entry points accept literal paths, standard Python glob patterns, explicit chromosome-suite placeholders using `@`, and legacy bare prefixes such as `baseline.`. Those tokens are normalized and resolved in the workflow layer, while the internal kernel continues to receive only concrete primitive strings. Output paths are different: they are normalized but treated as literal destinations, never as discovery tokens.
 
 ## Package Shape
@@ -15,6 +17,7 @@ ldsc_py3_restructured/
 │   └── ldsc/
 │       ├── __init__.py
 │       ├── cli.py
+│       ├── column_inference.py
 │       ├── config.py
 │       ├── path_resolution.py
 │       ├── outputs.py
@@ -47,7 +50,7 @@ ldsc_py3_restructured/
 | Layer | Location | Responsibility |
 | --- | --- | --- |
 | Public CLI | `src/ldsc/cli.py` | single command surface and subcommand dispatch |
-| Public workflow modules | `src/ldsc/*.py` | validated user-facing services, dataclasses, shared path resolution, and file-driven entry helpers |
+| Public workflow modules | `src/ldsc/*.py` | validated user-facing services, dataclasses, shared path resolution, naming/alias inference, and file-driven entry helpers |
 | Internal kernel | `src/ldsc/_kernel/*.py` | numerical kernels, low-level readers, and compatibility logic |
 | Tests | `tests/` | parity checks, API smoke tests, and workflow coverage |
 | Tutorials and docs | `tutorials/`, `*.md` | usage examples and project guidance |
@@ -120,6 +123,7 @@ This replaces the previous split between root-level wrapper scripts.
 
 - `src/ldsc/` is the only public Python import surface.
 - `src/ldsc/_kernel/` is internal-only and may change without user-facing API guarantees.
+- `src/ldsc/column_inference.py` owns alias and naming inference for columns, SNP identifier modes, and genome builds.
 - All path discovery happens before the kernel runs. Kernel code may assume primitive concrete strings and should not perform user-facing glob or suite expansion.
 - Input tokens and output destinations are different contracts. Inputs may expand; outputs stay literal.
 - The repository root must stay self-sufficient and must not depend on sibling trees or wrapper packages outside `src/ldsc/`.
@@ -132,6 +136,7 @@ This replaces the previous split between root-level wrapper scripts.
 | Goal | Start here |
 | --- | --- |
 | add or adjust CLI options | `src/ldsc/cli.py` |
+| change alias tables, header normalization, or identifier/build normalization | `src/ldsc/column_inference.py` |
 | change annotation loading or BED projection | `src/ldsc/annotation_builder.py`, then `src/ldsc/_kernel/annotation.py` |
 | change LD-score orchestration or result objects | `src/ldsc/ldscore_calculator.py` |
 | change PLINK/parquet LD-score math | `src/ldsc/_kernel/ldscore.py` |

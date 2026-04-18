@@ -49,7 +49,7 @@ Sorted Parquet `R2` Format
 
 Identifier and Genome-Build Rules
 ---------------------------------
-- Supported SNP identifier modes in v1 are `chr_pos` and `rsID`.
+- Supported SNP identifier modes in v1 are `chr_pos` and `rsid`.
 - No allele matching is attempted in v1.
 - In `chr_pos` mode, retained reference SNP rows are matched by chromosome and
   position and must be unique within each chromosome.
@@ -79,7 +79,7 @@ Python
         baseline_annot_chr="data/baseline.@",
         query_annot="data/query.annot.gz",
         r2_table_chr="data/r2/chr@_sorted",
-        snp_identifier="rsID",
+        snp_identifier="rsid",
         r2_bias_mode="unbiased",
         ld_wind_cm=1,
     )
@@ -90,7 +90,7 @@ CLI
         --baseline-annot-chr data/baseline.@ \
         --query-annot data/query.annot.gz \
         --r2-table-chr data/r2/chr@_sorted \
-        --snp-identifier rsID \
+        --snp-identifier rsid \
         --r2-bias-mode unbiased \
         --ld-wind-cm 1
 
@@ -148,7 +148,7 @@ MAF and `.M_5_50` Rules
 
 Current Limitations
 -------------------
-- v1 supports only `chr_pos` and `rsID` matching.
+- v1 supports only `chr_pos` and `rsid` matching.
 - v1 does not attempt allele-aware reconciliation between annotations and
   parquet pairs.
 - Runtime parquet input may be either normalized sorted parquet or raw parquet
@@ -179,6 +179,7 @@ import numpy as np
 import pandas as pd
 
 from ..column_inference import (
+    ANNOTATION_METADATA_SPEC_MAP,
     CHR_COLUMN_ALIASES,
     CHR_COLUMN_SPEC,
     CM_COLUMN_ALIASES,
@@ -187,16 +188,21 @@ from ..column_inference import (
     MAF_COLUMN_SPEC,
     POS_COLUMN_ALIASES,
     POS_COLUMN_SPEC,
+    REFERENCE_METADATA_SPEC_MAP,
     R2_HELPER_COLUMN_SPECS,
+    RESTRICTION_CHRPOS_SPEC_MAP,
+    RESTRICTION_RSID_SPEC_MAP,
     R2_SOURCE_COLUMN_SPECS,
     SNP_COLUMN_ALIASES,
     SNP_COLUMN_SPEC,
+    normalize_genome_build,
+    normalize_snp_identifier_mode,
     resolve_optional_column,
     resolve_required_column,
     resolve_required_columns,
 )
-from ..config import normalize_genome_build
 from . import formats as legacy_parse
+from .identifiers import build_snp_id_series, read_global_snp_restriction
 
 try:  # pragma: no cover - optional dependency
     import bitarray as ba
@@ -588,16 +594,7 @@ else:
 
 def identifier_keys(df: pd.DataFrame, mode: str) -> pd.Series:
     """Build the canonical SNP identifier series used for matching within the kernel."""
-    if mode == "rsID":
-        return df["SNP"].astype(str)
-    if mode != "chr_pos":
-        raise ValueError(f"Unsupported identifier mode: {mode}")
-    pos_col = find_column(df.columns, POS_ALIASES)
-    if pos_col is None:
-        raise ValueError("chr_pos mode requires a POS-like column.")
-    chrom = df["CHR"].map(normalize_chromosome)
-    pos = df[pos_col].astype(np.int64).astype(str)
-    return chrom + ":" + pos
+    return build_snp_id_series(df, normalize_snp_identifier_mode(mode))
 
 
 def sort_frame_by_genomic_position(df: pd.DataFrame) -> pd.DataFrame:
@@ -890,7 +887,7 @@ def validate_retained_identifier_uniqueness(metadata: pd.DataFrame, identifier_m
     if duplicated.any():
         raise ValueError(
             f"Chromosome {chrom} has duplicate retained SNP IDs. "
-            "This is ambiguous in rsID mode."
+            "This is ambiguous in rsid mode."
         )
 
 
@@ -907,7 +904,7 @@ def read_sorted_r2_presence(args: argparse.Namespace, chrom: str) -> set[object]
     if layout == "normalized":
         helper_pos1, helper_pos2 = _resolve_helper_columns(dataset.schema.names, context="normalized parquet R2 schema")
         columns = ["chr"]
-        if args.snp_identifier == "rsID":
+        if args.snp_identifier == "rsid":
             columns.extend(["rsID_1", "rsID_2"])
         else:
             columns.extend([helper_pos1, helper_pos2])
@@ -917,7 +914,7 @@ def read_sorted_r2_presence(args: argparse.Namespace, chrom: str) -> set[object]
         genome_build = _require_runtime_genome_build(getattr(args, "genome_build", None))
         left_pos_col, right_pos_col = get_r2_build_columns(genome_build, dataset.schema.names)
         columns = ["chr"]
-        if args.snp_identifier == "rsID":
+        if args.snp_identifier == "rsid":
             columns.extend(["rsID_1", "rsID_2"])
         else:
             columns.extend([left_pos_col, right_pos_col])
@@ -931,7 +928,7 @@ def read_sorted_r2_presence(args: argparse.Namespace, chrom: str) -> set[object]
     pairs = table.to_pandas()
     if layout == "raw" and len(pairs) > 0:
         pairs = pairs.loc[pairs["chr"].map(normalize_chromosome) == normalized_chrom].reset_index(drop=True)
-    if args.snp_identifier == "rsID":
+    if args.snp_identifier == "rsid":
         return set(pairs["rsID_1"].astype(str)).union(set(pairs["rsID_2"].astype(str)))
     if layout == "normalized":
         left_series = pd.to_numeric(pairs[helper_pos1], errors="raise").astype(np.int64)
@@ -954,7 +951,7 @@ def filter_reference_to_present_r2(
 ) -> tuple[pd.DataFrame, pd.DataFrame, set[str] | None]:
     """Restrict annotation SNPs to those that are actually present in the R2 source."""
     metadata = metadata.copy()
-    if identifier_mode == "rsID":
+    if normalize_snp_identifier_mode(identifier_mode) == "rsid":
         keep = metadata["SNP"].astype(str).isin(present_values)
     else:
         keep = metadata["POS"].astype(np.int64).isin(present_values)
@@ -976,12 +973,12 @@ def filter_reference_to_present_r2(
 def parse_annotation_file(path: str, chrom: str | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Parse one SNP-level annotation table into normalized metadata and values."""
     df = read_text_table(path)
-    chr_col = find_column(df.columns, CHROM_ALIASES)
-    pos_col = find_column(df.columns, POS_ALIASES)
-    snp_col = find_column(df.columns, SNP_ALIASES)
-    cm_col = find_column(df.columns, CM_ALIASES)
-    if None in {chr_col, pos_col, snp_col, cm_col}:
-        raise ValueError(f"{path} is missing required annotation metadata columns.")
+    context = path
+    chr_col = resolve_required_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["CHR"], context=context)
+    pos_col = resolve_required_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["POS"], context=context)
+    snp_col = resolve_required_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["SNP"], context=context)
+    cm_col = resolve_required_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["CM"], context=context)
+    maf_col = resolve_optional_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["MAF"], context=context)
 
     meta = pd.DataFrame(
         {
@@ -995,8 +992,8 @@ def parse_annotation_file(path: str, chrom: str | None = None) -> tuple[pd.DataF
     meta["POS"] = pd.to_numeric(meta["POS"], errors="raise").astype(np.int64)
     meta["SNP"] = meta["SNP"].astype(str)
     meta["CM"] = pd.to_numeric(meta["CM"], errors="coerce")
-    if "MAF" in df.columns:
-        meta["MAF"] = pd.to_numeric(df["MAF"], errors="coerce")
+    if maf_col is not None:
+        meta["MAF"] = pd.to_numeric(df[maf_col], errors="coerce")
 
     if chrom is not None:
         keep = meta["CHR"] == normalize_chromosome(chrom)
@@ -1009,7 +1006,7 @@ def parse_annotation_file(path: str, chrom: str | None = None) -> tuple[pd.DataF
         return meta, pd.DataFrame(index=meta.index)
 
     meta = sort_frame_by_genomic_position(meta)
-    annotation_columns = [col for col in df.columns if col not in {chr_col, pos_col, snp_col, cm_col, "MAF"}]
+    annotation_columns = [col for col in df.columns if col not in {chr_col, pos_col, snp_col, cm_col, maf_col}]
     if not annotation_columns:
         raise ValueError(f"{path} does not contain any annotation columns.")
 
@@ -1107,28 +1104,7 @@ def combine_annotation_groups(
 
 def read_identifier_list(path: str, mode: str) -> set[str]:
     """Read a SNP list file into the canonical identifier set for ``mode``."""
-    df = read_text_table(path)
-    if df.shape[1] == 1:
-        col = df.columns[0]
-        values = df[col].astype(str).str.strip()
-        if mode == "chr_pos":
-            if values.str.contains(":").all():
-                return set(values.map(lambda x: normalize_chromosome(x.split(":")[0]) + ":" + str(int(x.split(":")[1]))))
-            raise ValueError(f"{path} must contain CHR:POS values in chr_pos mode when only one column is supplied.")
-        return set(values)
-
-    snp_col = find_column(df.columns, SNP_ALIASES)
-    chr_col = find_column(df.columns, CHROM_ALIASES)
-    pos_col = find_column(df.columns, POS_ALIASES)
-    if mode == "rsID":
-        if snp_col is None:
-            raise ValueError(f"{path} must contain a SNP column in rsID mode.")
-        return set(df[snp_col].astype(str))
-    if chr_col is None or pos_col is None:
-        raise ValueError(f"{path} must contain CHR and POS columns in chr_pos mode.")
-    chrom = df[chr_col].map(normalize_chromosome)
-    pos = pd.to_numeric(df[pos_col], errors="raise").astype(np.int64).astype(str)
-    return set(chrom + ":" + pos)
+    return read_global_snp_restriction(path, normalize_snp_identifier_mode(mode))
 
 
 def load_regression_keys(args: argparse.Namespace) -> set[str] | None:
@@ -1141,11 +1117,13 @@ def load_regression_keys(args: argparse.Namespace) -> set[str] | None:
 def parse_frequency_metadata(path: str, chrom: str | None, identifier_mode: str) -> pd.DataFrame:
     """Parse an optional frequency metadata file into ``_key``/``CM``/``MAF`` columns."""
     df = read_text_table(path)
-    chr_col = find_column(df.columns, CHROM_ALIASES)
-    pos_col = find_column(df.columns, POS_ALIASES)
-    snp_col = find_column(df.columns, SNP_ALIASES)
-    cm_col = find_column(df.columns, CM_ALIASES)
-    maf_col = find_column(df.columns, MAF_ALIASES)
+    identifier_mode = normalize_snp_identifier_mode(identifier_mode)
+    context = path
+    chr_col = resolve_optional_column(df.columns, REFERENCE_METADATA_SPEC_MAP["CHR"], context=context)
+    pos_col = resolve_optional_column(df.columns, REFERENCE_METADATA_SPEC_MAP["POS"], context=context)
+    snp_col = resolve_optional_column(df.columns, REFERENCE_METADATA_SPEC_MAP["SNP"], context=context)
+    cm_col = resolve_optional_column(df.columns, REFERENCE_METADATA_SPEC_MAP["CM"], context=context)
+    maf_col = resolve_optional_column(df.columns, REFERENCE_METADATA_SPEC_MAP["MAF"], context=context)
 
     if chrom is not None and chr_col is not None:
         keep = df[chr_col].map(normalize_chromosome) == normalize_chromosome(chrom)
@@ -1155,9 +1133,9 @@ def parse_frequency_metadata(path: str, chrom: str | None, identifier_mode: str)
         return pd.DataFrame(columns=["_key", "CM", "MAF"])
 
     out = pd.DataFrame(index=df.index)
-    if identifier_mode == "rsID":
+    if identifier_mode == "rsid":
         if snp_col is None:
-            raise ValueError(f"{path} must contain a SNP column in rsID mode.")
+            raise ValueError(f"{path} must contain a SNP column in rsid mode.")
         out["_key"] = df[snp_col].astype(str)
     else:
         if chr_col is None or pos_col is None:
@@ -1318,7 +1296,7 @@ class SortedR2BlockReader:
         self._runtime_layout = _parquet_schema_layout(self.dataset.schema.names)
         self._raw_pos_columns: tuple[str, str] | None = None
         self._raw_query_columns: list[str] | None = None
-        if self.identifier_mode == "rsID":
+        if self.identifier_mode == "rsid":
             self.query_columns.extend(["rsID_1", "rsID_2"])
             self.index_map = {str(snp): idx for idx, snp in enumerate(metadata["SNP"].astype(str))}
         else:
@@ -1382,7 +1360,7 @@ class SortedR2BlockReader:
         rows = table.to_pandas()
         if len(rows) == 0:
             base_columns = ["chr", "pos_1", "pos_2", "R2"]
-            if self.identifier_mode == "rsID":
+            if self.identifier_mode == "rsid":
                 base_columns.extend(["rsID_1", "rsID_2"])
             rows = pd.DataFrame(columns=base_columns + ["i", "j"])
         else:
@@ -1397,7 +1375,7 @@ class SortedR2BlockReader:
                 if len(rows) > 0:
                     rows = canonicalize_r2_pairs(rows, self.genome_build)
             rows["R2"] = self._transform_r2(pd.to_numeric(rows["R2"], errors="raise").to_numpy(dtype=np.float32))
-            if self.identifier_mode == "rsID":
+            if self.identifier_mode == "rsid":
                 rows["i"] = rows["rsID_1"].astype(str).map(self.index_map)
                 rows["j"] = rows["rsID_2"].astype(str).map(self.index_map)
             else:
@@ -1830,6 +1808,8 @@ def emit_outputs(results: Sequence[ChromComputationResult], args: argparse.Names
 
 def validate_args(args: argparse.Namespace) -> None:
     """Validate top-level LD-score CLI arguments before any heavy work starts."""
+    args.snp_identifier = normalize_snp_identifier_mode(args.snp_identifier)
+    args.genome_build = normalize_genome_build(args.genome_build)
     if not (args.query_annot or args.query_annot_chr or args.baseline_annot or args.baseline_annot_chr):
         raise ValueError("At least one of query or baseline annotation inputs must be supplied.")
     if bool(args.r2_table or args.r2_table_chr) == bool(args.bfile or args.bfile_chr):
@@ -1838,8 +1818,6 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("Cannot set both --r2-table and --r2-table-chr.")
     if args.bfile_chr and args.bfile:
         raise ValueError("Cannot set both --bfile and --bfile-chr.")
-    if args.snp_identifier not in {"chr_pos", "rsID"}:
-        raise ValueError("--snp-identifier must be one of: chr_pos, rsID.")
     if args.r2_table or args.r2_table_chr:
         if args.r2_bias_mode is None:
             raise ValueError("--r2-bias-mode is required in parquet mode.")
@@ -1871,10 +1849,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--bfile-chr", default=None, help="Chromosome-pattern PLINK prefix for the reference panel.")
     parser.add_argument("--r2-table", default=None, help="Comma-separated sorted parquet R2 files or prefixes.")
     parser.add_argument("--r2-table-chr", default=None, help="Comma-separated chromosome-pattern prefixes for sorted parquet R2 files.")
-    parser.add_argument("--snp-identifier", choices=("chr_pos", "rsID"), default="chr_pos", help="Identifier mode used to match annotations to the reference panel.")
+    parser.add_argument("--snp-identifier", default="chr_pos", help="Identifier mode used to match annotations to the reference panel.")
     parser.add_argument(
         "--genome-build",
-        choices=("hg19", "hg37", "GRCh37", "hg38", "GRCh38"),
         default=None,
         help="Genome build assumed for the sorted parquet R2 file and chr_pos matching. Aliases normalize to canonical hg19/hg38.",
     )

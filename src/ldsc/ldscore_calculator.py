@@ -16,6 +16,7 @@ from typing import Any, Sequence
 import numpy as np
 import pandas as pd
 
+from .column_inference import normalize_snp_identifier_mode
 from .config import CommonConfig, LDScoreConfig
 from .outputs import OutputManager, OutputSpec
 from .path_resolution import (
@@ -30,7 +31,7 @@ from .path_resolution import (
     split_cli_path_tokens,
 )
 from ._kernel import ldscore as kernel_ldscore
-from ._kernel.identifiers import build_snp_id_series, normalize_snp_identifier_mode, read_global_snp_restriction
+from ._kernel.identifiers import build_snp_id_series, read_global_snp_restriction
 
 
 # Temporary compatibility alias while tests and call sites finish moving from the
@@ -545,9 +546,8 @@ def main(argv: Sequence[str] | None = None) -> LDScoreResult:
 def _normalize_run_args(args: argparse.Namespace) -> tuple[argparse.Namespace, CommonConfig]:
     """Normalize CLI-style args and derive the shared ``CommonConfig`` object."""
     normalized_mode = normalize_snp_identifier_mode(args.snp_identifier)
-    legacy_mode = "rsID" if normalized_mode == "rsid" else "chr_pos"
     normalized_args = argparse.Namespace(**vars(args))
-    normalized_args.snp_identifier = legacy_mode
+    normalized_args.snp_identifier = normalized_mode
     normalized_args.out = normalize_path_token(args.out)
     common_config = CommonConfig(
         snp_identifier=normalized_mode,
@@ -671,7 +671,7 @@ def _namespace_from_configs(chrom: str, ref_panel, ldscore_config: LDScoreConfig
         bfile_chr=None,
         r2_table=r2_table,
         r2_table_chr=None,
-        snp_identifier="rsID" if common_config.snp_identifier == "rsid" else "chr_pos",
+        snp_identifier=common_config.snp_identifier,
         genome_build=(getattr(spec, "genome_build", None) or common_config.genome_build),
         r2_bias_mode=getattr(spec, "r2_bias_mode", None),
         r2_sample_size=getattr(spec, "sample_size", None),

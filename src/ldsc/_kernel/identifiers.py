@@ -15,7 +15,7 @@ paths in, and receive normalized identifier series or restriction sets back.
 Key Functions
 -------------
 normalize_snp_identifier_mode :
-    Collapse flexible user input such as ``rsID`` or ``snp_id`` into one
+    Collapse flexible user input such as ``rsid`` or ``snp_id`` into one
     internal identifier mode.
 build_snp_id_series :
     Construct the canonical SNP identifier series for a metadata table.
@@ -41,35 +41,15 @@ from typing import Iterable
 import pandas as pd
 
 from ..column_inference import (
-    CHR_COLUMN_ALIASES,
     CHR_COLUMN_SPEC,
-    POS_COLUMN_ALIASES,
     POS_COLUMN_SPEC,
-    SNP_COLUMN_ALIASES,
+    RESTRICTION_CHRPOS_SPEC_MAP,
+    RESTRICTION_RSID_SPEC_MAP,
     SNP_COLUMN_SPEC,
+    clean_header,
+    normalize_snp_identifier_mode,
     resolve_required_column,
 )
-
-
-def clean_header(header: str) -> str:
-    """Normalize a raw column header into the alias-matching form."""
-    return header.upper().replace("-", "_").replace(".", "_").replace("\n", "").strip()
-
-
-def normalize_snp_identifier_mode(value: str) -> str:
-    """
-    Normalize flexible user-facing SNP identifier labels into one internal mode.
-
-    Accepted spellings include variants such as ``rsid``, ``rsID``, ``snp``,
-    ``snp_id``, and ``chr_pos``. The return value is always one of the internal
-    modes used throughout the refactored codebase.
-    """
-    normalized = re.sub(r"[^a-z0-9]+", "", value.lower())
-    if normalized in {"rsid", "rs", "snp", "snpid"}:
-        return "rsid"
-    if normalized in {"chrpos", "position", "chrompos", "chromosomeposition"}:
-        return "chr_pos"
-    raise ValueError(f"Unsupported snp_identifier mode: {value!r}")
 
 
 def normalize_chromosome(value: object) -> str:
@@ -124,32 +104,34 @@ def build_snp_id_series(df: pd.DataFrame, mode: str) -> pd.Series:
 
 def infer_column(header: Iterable[str], aliases: Iterable[str], label: str) -> str:
     """Infer the first header entry matching the supplied alias family."""
-    spec = {
-        tuple(SNP_COLUMN_ALIASES): SNP_COLUMN_SPEC,
-        tuple(CHR_COLUMN_ALIASES): CHR_COLUMN_SPEC,
-        tuple(POS_COLUMN_ALIASES): POS_COLUMN_SPEC,
-    }.get(tuple(aliases))
+    header = list(header)
+    cleaned_aliases = {clean_header(alias) for alias in aliases}
+    spec = None
+    if clean_header(SNP_COLUMN_SPEC.canonical) in cleaned_aliases:
+        spec = SNP_COLUMN_SPEC
+    elif clean_header(CHR_COLUMN_SPEC.canonical) in cleaned_aliases:
+        spec = CHR_COLUMN_SPEC
+    elif clean_header(POS_COLUMN_SPEC.canonical) in cleaned_aliases:
+        spec = POS_COLUMN_SPEC
     if spec is not None:
         return resolve_required_column(header, spec)
-    header = list(header)
-    alias_set = {clean_header(alias) for alias in aliases}
     for column in header:
         normalized = clean_header(column)
-        if normalized in alias_set or any(normalized.endswith(alias) for alias in alias_set):
+        if normalized in cleaned_aliases or any(normalized.endswith(alias) for alias in cleaned_aliases):
             return column
     raise ValueError(f"Could not infer a {label} column from: {', '.join(header)}")
 
 
 def infer_snp_column(header: Iterable[str]) -> str:
     """Infer the SNP identifier column from a table header."""
-    return resolve_required_column(header, SNP_COLUMN_SPEC)
+    return resolve_required_column(header, RESTRICTION_RSID_SPEC_MAP["SNP"])
 
 
 def infer_chr_pos_columns(header: Iterable[str]) -> tuple[str, str]:
     """Infer chromosome and position columns from a table header."""
     return (
-        resolve_required_column(header, CHR_COLUMN_SPEC),
-        resolve_required_column(header, POS_COLUMN_SPEC),
+        resolve_required_column(header, RESTRICTION_CHRPOS_SPEC_MAP["CHR"]),
+        resolve_required_column(header, RESTRICTION_CHRPOS_SPEC_MAP["POS"]),
     )
 
 
@@ -233,7 +215,12 @@ def _read_chr_pos_restriction(path: Path) -> set[str]:
     if delimiter is None:
         values = set()
         for line in lines:
-            fields = re.split(r"\s+", line.strip())
+            stripped = line.strip()
+            if ":" in stripped and len(re.split(r"\s+", stripped)) == 1:
+                chrom, pos = stripped.split(":", 1)
+                values.add(build_chr_pos_snp_id(chrom, pos))
+                continue
+            fields = re.split(r"\s+", stripped)
             if len(fields) < 2:
                 raise ValueError(f"chr_pos restriction rows must contain CHR and POS: {line!r}")
             values.add(build_chr_pos_snp_id(fields[0], fields[1]))

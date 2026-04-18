@@ -190,7 +190,7 @@ class IdentifierHelpersTest(unittest.TestCase):
             self.assertEqual(normalize_snp_identifier_mode(value), "chr_pos")
 
     def test_infer_snp_column_aliases(self):
-        for header in [["rsid"], ["rsID"], ["SNPID"], ["snp_id"], ["SNP"]]:
+        for header in [["rsid"], ["rsID"], ["SNPID"], ["snp_id"], ["SNP"], ["id"]]:
             self.assertEqual(infer_snp_column(header), header[0])
 
     def test_infer_chr_bp_columns(self):
@@ -229,7 +229,7 @@ class RestrictionReadersTest(unittest.TestCase):
     def test_read_global_snp_restriction_rsid_table(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "restrict.tsv"
-            path.write_text("snp_id\tother\nrs1\ta\nrs2\tb\n", encoding="utf-8")
+            path.write_text("id\tother\nrs1\ta\nrs2\tb\n", encoding="utf-8")
             self.assertEqual(read_global_snp_restriction(path, "rsID"), {"rs1", "rs2"})
 
     def test_read_global_snp_restriction_chr_pos_table(self):

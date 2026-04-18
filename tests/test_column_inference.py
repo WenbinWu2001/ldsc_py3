@@ -7,6 +7,7 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from ldsc import column_inference as ci
 from ldsc.column_inference import (
     POS_COLUMN_SPEC,
     R2_HELPER_COLUMN_SPECS,
@@ -17,6 +18,74 @@ from ldsc.column_inference import (
 
 
 class ColumnInferenceTest(unittest.TestCase):
+    def _spec_by_canonical(self, specs, canonical):
+        for spec in specs:
+            if spec.canonical == canonical:
+                return spec
+        self.fail(f"Missing ColumnSpec for canonical field {canonical!r}")
+
+    def test_registry_exposes_shared_normalizers(self):
+        self.assertIsNotNone(getattr(ci, "clean_header", None))
+        self.assertEqual(ci.clean_header("foo-bar.foo_BaR\n"), "FOO_BAR_FOO_BAR")
+
+        self.assertIsNotNone(getattr(ci, "normalize_snp_identifier_mode", None))
+        for value in ["rsid", "rsID", "SNPID", "snp_id", "snp"]:
+            self.assertEqual(ci.normalize_snp_identifier_mode(value), "rsid")
+        for value in ["chr_pos", "ChrPos", "chrom_pos"]:
+            self.assertEqual(ci.normalize_snp_identifier_mode(value), "chr_pos")
+
+        self.assertIsNotNone(getattr(ci, "normalize_genome_build", None))
+        self.assertEqual(ci.normalize_genome_build("hg37"), "hg19")
+        self.assertEqual(ci.normalize_genome_build("GRCh37"), "hg19")
+        self.assertEqual(ci.normalize_genome_build("GRCh38"), "hg38")
+
+    def test_raw_sumstats_families_cover_legacy_and_current_aliases(self):
+        specs = getattr(ci, "RAW_SUMSTATS_REQUIRED_OR_OPTIONAL_SPECS", None)
+        self.assertIsNotNone(specs)
+
+        snp_spec = self._spec_by_canonical(specs, "SNP")
+        self.assertEqual(resolve_required_column(["rs_number"], snp_spec), "rs_number")
+        self.assertEqual(resolve_required_column(["snp_id"], snp_spec), "snp_id")
+        self.assertEqual(resolve_required_column(["id"], snp_spec), "id")
+
+        n_spec = self._spec_by_canonical(specs, "N")
+        self.assertEqual(resolve_required_column(["weight"], n_spec), "weight")
+
+        n_cas_spec = self._spec_by_canonical(specs, "N_CAS")
+        self.assertEqual(resolve_required_column(["ncas"], n_cas_spec), "ncas")
+
+        n_con_spec = self._spec_by_canonical(specs, "N_CON")
+        self.assertEqual(resolve_required_column(["ncon"], n_con_spec), "ncon")
+
+        frq_spec = self._spec_by_canonical(specs, "FRQ")
+        self.assertEqual(resolve_required_column(["frq_u"], frq_spec), "frq_u")
+
+        signed_specs = getattr(ci, "RAW_SUMSTATS_SIGNED_STAT_SPECS", None)
+        self.assertIsNotNone(signed_specs)
+        beta_spec = self._spec_by_canonical(signed_specs, "BETA")
+        self.assertEqual(resolve_required_column(["effects"], beta_spec), "effects")
+
+    def test_external_and_internal_families_have_different_strictness(self):
+        annotation_specs = getattr(ci, "ANNOTATION_METADATA_SPECS", None)
+        self.assertIsNotNone(annotation_specs)
+        annotation_pos = self._spec_by_canonical(annotation_specs, "POS")
+        self.assertEqual(resolve_required_column(["BP"], annotation_pos), "BP")
+
+        restriction_specs = getattr(ci, "RESTRICTION_RSID_SPECS", None)
+        self.assertIsNotNone(restriction_specs)
+        restriction_snp = self._spec_by_canonical(restriction_specs, "SNP")
+        self.assertEqual(resolve_required_column(["rs_id"], restriction_snp), "rs_id")
+        self.assertEqual(resolve_required_column(["id"], restriction_snp), "id")
+
+        internal_specs = getattr(ci, "INTERNAL_LDSCORE_ARTIFACT_SPECS", None)
+        self.assertIsNotNone(internal_specs)
+        internal_snp = self._spec_by_canonical(internal_specs, "SNP")
+        internal_pos = self._spec_by_canonical(internal_specs, "POS")
+        with self.assertRaises(ValueError):
+            resolve_required_column(["CHR", "rsid", "POS", "CM"], internal_snp)
+        with self.assertRaises(ValueError):
+            resolve_required_column(["CHR", "SNP", "BP", "CM"], internal_pos)
+
     def test_resolve_required_column_warns_when_alias_maps_to_canonical_field(self):
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")

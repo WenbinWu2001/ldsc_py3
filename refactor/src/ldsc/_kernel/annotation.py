@@ -58,6 +58,17 @@ from typing import Iterator, Sequence
 import numpy as np
 import pandas as pd
 
+from ..column_inference import (
+    CHR_COLUMN_ALIASES,
+    CHR_COLUMN_SPEC,
+    CM_COLUMN_ALIASES,
+    CM_COLUMN_SPEC,
+    POS_COLUMN_ALIASES,
+    POS_COLUMN_SPEC,
+    SNP_COLUMN_ALIASES,
+    SNP_COLUMN_SPEC,
+    resolve_required_column,
+)
 from ..config import AnnotationBuildConfig, CommonConfig, _normalize_path_tuple
 from ..path_resolution import (
     ANNOTATION_SUFFIXES,
@@ -69,9 +80,6 @@ from ..path_resolution import (
 from .identifiers import (
     build_snp_id_series,
     clean_header,
-    infer_chr_pos_columns,
-    infer_column,
-    infer_snp_column,
     normalize_chromosome,
     normalize_snp_identifier_mode,
     read_global_snp_restriction,
@@ -81,10 +89,6 @@ from .identifiers import (
 
 LOGGER = logging.getLogger("LDSC.annotation")
 REQUIRED_ANNOT_COLUMNS = ("CHR", "POS", "SNP", "CM")
-CHR_ALIASES = ("chr", "chrom", "chromosome")
-POS_ALIASES = ("pos", "bp", "position", "base_pair", "basepair")
-SNP_ALIASES = ("snp", "snpid", "rsid", "rs_id", "markername", "marker")
-CM_ALIASES = ("cm", "cmbp", "centimorgan")
 
 
 @dataclass(frozen=True)
@@ -449,9 +453,11 @@ class AnnotationBuilder:
     def parse_annotation_file(self, path: str | Path, chrom: str | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
         """Read one SNP-level annotation file into normalized metadata and values."""
         df = _read_text_table(str(path))
-        chr_col, pos_col = infer_chr_pos_columns(df.columns)
-        snp_col = infer_snp_column(df.columns)
-        cm_col = infer_column(df.columns, CM_ALIASES, "centiMorgan")
+        context = str(path)
+        chr_col = resolve_required_column(df.columns, CHR_COLUMN_SPEC, context=context)
+        pos_col = resolve_required_column(df.columns, POS_COLUMN_SPEC, context=context)
+        snp_col = resolve_required_column(df.columns, SNP_COLUMN_SPEC, context=context)
+        cm_col = resolve_required_column(df.columns, CM_COLUMN_SPEC, context=context)
         metadata = pd.DataFrame(
             {
                 "CHR": df[chr_col],
@@ -841,12 +847,16 @@ def _iter_text_lines(path: Path) -> Iterator[str]:
 
 def _infer_column_index(header: Sequence[str], aliases: Sequence[str], label: str, path: Path) -> int:
     """Infer the index of a named column family from a parsed header row."""
-    normalized = [re.sub(r"[^a-z0-9]+", "", column.lower()) for column in header]
-    alias_set = {re.sub(r"[^a-z0-9]+", "", alias.lower()) for alias in aliases}
-    for idx, column_name in enumerate(normalized):
-        if column_name in alias_set or any(column_name.endswith(alias) for alias in alias_set):
-            return idx
-    raise ValueError(f"Could not infer a {label} column in {path}. Header columns were: {', '.join(header)}")
+    spec = {
+        tuple(CHR_COLUMN_ALIASES): CHR_COLUMN_SPEC,
+        tuple(POS_COLUMN_ALIASES): POS_COLUMN_SPEC,
+        tuple(SNP_COLUMN_ALIASES): SNP_COLUMN_SPEC,
+        tuple(CM_COLUMN_ALIASES): CM_COLUMN_SPEC,
+    }.get(tuple(aliases))
+    if spec is None:
+        raise ValueError(f"Unsupported alias family for {label}: {aliases}")
+    column = resolve_required_column(header, spec, context=str(path))
+    return list(header).index(column)
 
 
 def _list_baseline_annots(baseline_dir: Path) -> list[Path]:
@@ -875,10 +885,10 @@ def _read_baseline_annot(path: Path) -> list[_BaselineRow]:
             header = next(reader)
             rows_iter = reader
 
-        chr_idx = _infer_column_index(header, CHR_ALIASES, "chromosome", path)
-        pos_idx = _infer_column_index(header, POS_ALIASES, "position", path)
-        snp_idx = _infer_column_index(header, SNP_ALIASES, "SNP", path)
-        cm_idx = _infer_column_index(header, CM_ALIASES, "centiMorgan", path)
+        chr_idx = _infer_column_index(header, CHR_COLUMN_ALIASES, "chromosome", path)
+        pos_idx = _infer_column_index(header, POS_COLUMN_ALIASES, "position", path)
+        snp_idx = _infer_column_index(header, SNP_COLUMN_ALIASES, "SNP", path)
+        cm_idx = _infer_column_index(header, CM_COLUMN_ALIASES, "centiMorgan", path)
 
         rows: list[_BaselineRow] = []
         if reader is None:
@@ -952,14 +962,14 @@ def _load_restrict_snp_ids(path: Path) -> set[str]:
     delimiter = _detect_delimiter(path)
     first_fields = _split_delimited_line(lines[0], delimiter)
     first_norm = [re.sub(r"[^a-z0-9]+", "", field.lower()) for field in first_fields]
-    alias_norm = {re.sub(r"[^a-z0-9]+", "", alias.lower()) for alias in SNP_ALIASES}
+    alias_norm = {re.sub(r"[^a-z0-9]+", "", alias.lower()) for alias in SNP_COLUMN_ALIASES}
     has_header = any(field in alias_norm for field in first_norm)
 
     if not has_header and len(first_fields) == 1:
         return {line.strip() for line in lines if line.strip()}
 
     header = first_fields
-    snp_idx = _infer_column_index(header, SNP_ALIASES, "SNP", path)
+    snp_idx = _infer_column_index(header, SNP_COLUMN_ALIASES, "SNP", path)
     snp_ids = set()
     for line in lines[1:]:
         fields = _split_delimited_line(line, delimiter)
@@ -978,8 +988,8 @@ def _write_restrict_table_as_bed(in_path: Path, out_path: Path) -> Path:
         raise ValueError(f"Restriction file {in_path} is empty.")
     delimiter = _detect_delimiter(in_path)
     header = _split_delimited_line(lines[0], delimiter)
-    chr_idx = _infer_column_index(header, CHR_ALIASES, "chromosome", in_path)
-    pos_idx = _infer_column_index(header, POS_ALIASES, "position", in_path)
+    chr_idx = _infer_column_index(header, CHR_COLUMN_ALIASES, "chromosome", in_path)
+    pos_idx = _infer_column_index(header, POS_COLUMN_ALIASES, "position", in_path)
     with out_path.open("w", encoding="utf-8") as handle:
         for line in lines[1:]:
             fields = _split_delimited_line(line, delimiter)

@@ -40,10 +40,15 @@ from typing import Iterable
 
 import pandas as pd
 
-
-SNP_COLUMN_ALIASES = ("SNP", "SNPID", "SNP_ID", "RSID", "RS_ID", "RS", "MARKERNAME", "MARKER")
-CHR_COLUMN_ALIASES = ("CHR", "CHROM", "CHROMOSOME")
-POS_COLUMN_ALIASES = ("POS", "BP", "POSITION", "BASE_PAIR", "BASEPAIR")
+from ..column_inference import (
+    CHR_COLUMN_ALIASES,
+    CHR_COLUMN_SPEC,
+    POS_COLUMN_ALIASES,
+    POS_COLUMN_SPEC,
+    SNP_COLUMN_ALIASES,
+    SNP_COLUMN_SPEC,
+    resolve_required_column,
+)
 
 
 def clean_header(header: str) -> str:
@@ -119,6 +124,13 @@ def build_snp_id_series(df: pd.DataFrame, mode: str) -> pd.Series:
 
 def infer_column(header: Iterable[str], aliases: Iterable[str], label: str) -> str:
     """Infer the first header entry matching the supplied alias family."""
+    spec = {
+        tuple(SNP_COLUMN_ALIASES): SNP_COLUMN_SPEC,
+        tuple(CHR_COLUMN_ALIASES): CHR_COLUMN_SPEC,
+        tuple(POS_COLUMN_ALIASES): POS_COLUMN_SPEC,
+    }.get(tuple(aliases))
+    if spec is not None:
+        return resolve_required_column(header, spec)
     header = list(header)
     alias_set = {clean_header(alias) for alias in aliases}
     for column in header:
@@ -130,14 +142,14 @@ def infer_column(header: Iterable[str], aliases: Iterable[str], label: str) -> s
 
 def infer_snp_column(header: Iterable[str]) -> str:
     """Infer the SNP identifier column from a table header."""
-    return infer_column(header, SNP_COLUMN_ALIASES, "SNP identifier")
+    return resolve_required_column(header, SNP_COLUMN_SPEC)
 
 
 def infer_chr_pos_columns(header: Iterable[str]) -> tuple[str, str]:
     """Infer chromosome and position columns from a table header."""
     return (
-        infer_column(header, CHR_COLUMN_ALIASES, "chromosome"),
-        infer_column(header, POS_COLUMN_ALIASES, "position"),
+        resolve_required_column(header, CHR_COLUMN_SPEC),
+        resolve_required_column(header, POS_COLUMN_SPEC),
     )
 
 

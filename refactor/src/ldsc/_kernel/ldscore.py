@@ -25,22 +25,22 @@ Supported Inputs
 Sorted Parquet `R2` Format
 --------------------------
 - Runtime parquet input may be either:
-  - normalized sorted parquet with helper columns `chr`, `pos1`, `pos2`, or
+  - normalized sorted parquet with helper columns `chr`, `pos_1`, `pos_2`, or
   - raw pairwise parquet carrying the legacy source columns listed below.
 - The source table is expected to contain the pairwise columns:
   - `chr`
   - `rsID_1`, `rsID_2`
-  - `hg38_pos1`, `hg38_pos2`
+  - `hg38_pos_1`, `hg38_pos_2`
   - `hg19_pos_1`, `hg19_pos_2`
   - `hg38_Uniq_ID_1`, `hg38_Uniq_ID_2`
   - `hg19_Uniq_ID_1`, `hg19_Uniq_ID_2`
   - `R2`, `Dprime`, `+/-corr`
 - The normalized sorted parquet created by this module preserves those source
   columns and adds helper columns:
-  - `pos1`
-  - `pos2`
-- Pair orientation is canonicalized by the selected build so `pos1 <= pos2`.
-- Rows are sorted by `(pos1, pos2)`.
+  - `pos_1`
+  - `pos_2`
+- Pair orientation is canonicalized by the selected build so `pos_1 <= pos_2`.
+- Rows are sorted by `(pos_1, pos_2)`.
 - Exact duplicate normalized pairs with the same `R2` are dropped. Duplicate
   normalized pairs with different `R2` raise an error.
 - In `chr_pos` mode, retained reference SNP rows must have unique chromosome
@@ -178,6 +178,23 @@ from typing import Iterable, Sequence
 import numpy as np
 import pandas as pd
 
+from ..column_inference import (
+    CHR_COLUMN_ALIASES,
+    CHR_COLUMN_SPEC,
+    CM_COLUMN_ALIASES,
+    CM_COLUMN_SPEC,
+    MAF_COLUMN_ALIASES,
+    MAF_COLUMN_SPEC,
+    POS_COLUMN_ALIASES,
+    POS_COLUMN_SPEC,
+    R2_HELPER_COLUMN_SPECS,
+    R2_SOURCE_COLUMN_SPECS,
+    SNP_COLUMN_ALIASES,
+    SNP_COLUMN_SPEC,
+    resolve_optional_column,
+    resolve_required_column,
+    resolve_required_columns,
+)
 from ..config import normalize_genome_build
 from . import formats as legacy_parse
 
@@ -190,48 +207,13 @@ except ImportError:  # pragma: no cover - optional dependency
 LOGGER = logging.getLogger("LDSC.new")
 REQUIRED_ANNOT_COLUMNS = ("CHR", "POS", "SNP", "CM")
 ANNOT_META_COLUMNS = ("CHR", "SNP", "POS", "CM", "MAF")
-CHROM_ALIASES = ("CHR", "CHROM", "CHROMOSOME")
-POS_ALIASES = ("POS", "BP", "POSITION")
-SNP_ALIASES = ("SNP", "RSID", "RS_ID", "MARKER", "MARKERNAME")
-CM_ALIASES = ("CM", "CMBP", "CENTIMORGAN")
-MAF_ALIASES = ("MAF", "FRQ", "FREQ", "FREQUENCY")
-R2_CANONICAL_SOURCE_COLUMNS = (
-    "chr",
-    "rsID_1",
-    "rsID_2",
-    "hg38_pos1",
-    "hg38_pos2",
-    "hg19_pos_1",
-    "hg19_pos_2",
-    "hg38_Uniq_ID_1",
-    "hg38_Uniq_ID_2",
-    "hg19_Uniq_ID_1",
-    "hg19_Uniq_ID_2",
-    "R2",
-    "Dprime",
-    "+/-corr",
-)
-R2_SOURCE_COLUMN_ALIASES = {
-    "chr": ("chr",),
-    "rsID_1": ("rsID_1",),
-    "rsID_2": ("rsID_2",),
-    "hg38_pos1": ("hg38_pos1", "hg38_bp1"),
-    "hg38_pos2": ("hg38_pos2", "hg38_bp2"),
-    "hg19_pos_1": ("hg19_pos_1", "hg19_bp_1"),
-    "hg19_pos_2": ("hg19_pos_2", "hg19_bp_2"),
-    "hg38_Uniq_ID_1": ("hg38_Uniq_ID_1",),
-    "hg38_Uniq_ID_2": ("hg38_Uniq_ID_2",),
-    "hg19_Uniq_ID_1": ("hg19_Uniq_ID_1",),
-    "hg19_Uniq_ID_2": ("hg19_Uniq_ID_2",),
-    "R2": ("R2",),
-    "Dprime": ("Dprime",),
-    "+/-corr": ("+/-corr",),
-}
-R2_HELPER_COLUMNS = ("pos1", "pos2")
-R2_HELPER_COLUMN_ALIASES = {
-    "pos1": ("pos1", "bp1"),
-    "pos2": ("pos2", "bp2"),
-}
+CHROM_ALIASES = CHR_COLUMN_ALIASES
+POS_ALIASES = POS_COLUMN_ALIASES
+SNP_ALIASES = SNP_COLUMN_ALIASES
+CM_ALIASES = CM_COLUMN_ALIASES
+MAF_ALIASES = MAF_COLUMN_ALIASES
+R2_CANONICAL_SOURCE_COLUMNS = tuple(spec.canonical for spec in R2_SOURCE_COLUMN_SPECS)
+R2_HELPER_COLUMNS = tuple(spec.canonical for spec in R2_HELPER_COLUMN_SPECS)
 SORTED_R2_REQUIRED_COLUMNS = R2_CANONICAL_SOURCE_COLUMNS + R2_HELPER_COLUMNS
 
 
@@ -311,10 +293,15 @@ def chrom_sort_key(chrom: object) -> tuple[int, object]:
 
 def find_column(columns: Iterable[str], aliases: Sequence[str]) -> str | None:
     """Return the first column whose normalized name matches one of ``aliases``."""
-    normalized = {str(col).strip().upper(): col for col in columns}
-    for alias in aliases:
-        if alias in normalized:
-            return normalized[alias]
+    spec = {
+        tuple(CHROM_ALIASES): CHR_COLUMN_SPEC,
+        tuple(POS_ALIASES): POS_COLUMN_SPEC,
+        tuple(SNP_ALIASES): SNP_COLUMN_SPEC,
+        tuple(CM_ALIASES): CM_COLUMN_SPEC,
+        tuple(MAF_ALIASES): MAF_COLUMN_SPEC,
+    }.get(tuple(aliases))
+    if spec is not None:
+        return resolve_optional_column(columns, spec)
     return None
 
 
@@ -714,49 +701,42 @@ def read_text_table(path: str) -> pd.DataFrame:
     return pd.read_csv(path, sep=r"\s+", compression=compression)
 
 
-def _resolve_schema_column(schema_names: Iterable[str], aliases: Sequence[str]) -> str | None:
-    """Return the first schema column matching one of ``aliases``."""
-    normalized = {str(name): str(name) for name in schema_names}
-    for alias in aliases:
-        if alias in normalized:
-            return normalized[alias]
-    return None
+def _resolve_r2_source_columns(schema_names: Iterable[str], context: str | None = None) -> dict[str, str]:
+    """Resolve raw R2 source columns from an on-disk schema into canonical slots."""
+    return resolve_required_columns(schema_names, R2_SOURCE_COLUMN_SPECS, context=context)
 
 
 def normalize_r2_source_columns(df: pd.DataFrame) -> pd.DataFrame:
     """Rename raw pairwise-R2 source columns to the canonical POS-based schema."""
-    rename_map: dict[str, str] = {}
-    for canonical, aliases in R2_SOURCE_COLUMN_ALIASES.items():
-        actual = _resolve_schema_column(df.columns, aliases)
-        if actual is None:
-            raise ValueError(f"Missing required R2 column aliases for {canonical}: {aliases}")
-        rename_map[actual] = canonical
+    rename_map = {
+        actual: canonical
+        for canonical, actual in _resolve_r2_source_columns(df.columns).items()
+        if actual != canonical
+    }
     return df.rename(columns=rename_map)
 
 
-def _resolve_helper_columns(schema_names: Iterable[str]) -> tuple[str, str] | None:
+def _resolve_helper_columns(schema_names: Iterable[str], context: str | None = None) -> tuple[str, str] | None:
     """Resolve normalized parquet helper position columns from schema aliases."""
-    pos1 = _resolve_schema_column(schema_names, R2_HELPER_COLUMN_ALIASES["pos1"])
-    pos2 = _resolve_schema_column(schema_names, R2_HELPER_COLUMN_ALIASES["pos2"])
-    if pos1 is None or pos2 is None or "chr" not in set(schema_names):
+    chr_col = resolve_optional_column(schema_names, R2_SOURCE_COLUMN_SPECS[0], context=context)
+    pos_1 = resolve_optional_column(schema_names, R2_HELPER_COLUMN_SPECS[0], context=context)
+    pos_2 = resolve_optional_column(schema_names, R2_HELPER_COLUMN_SPECS[1], context=context)
+    if chr_col is None or pos_1 is None or pos_2 is None:
         return None
-    return pos1, pos2
+    return pos_1, pos_2
 
 
 def get_r2_build_columns(genome_build: str, schema_names: Iterable[str] | None = None) -> tuple[str, str]:
     """Return the source R2-table coordinate columns for the selected build."""
     genome_build = _require_runtime_genome_build(genome_build)
     if genome_build == "hg19":
-        aliases = (("hg19_pos_1", "hg19_bp_1"), ("hg19_pos_2", "hg19_bp_2"))
+        canonical = ("hg19_pos_1", "hg19_pos_2")
     else:
-        aliases = (("hg38_pos1", "hg38_bp1"), ("hg38_pos2", "hg38_bp2"))
+        canonical = ("hg38_pos_1", "hg38_pos_2")
     if schema_names is None:
-        return aliases[0][0], aliases[1][0]
-    left = _resolve_schema_column(schema_names, aliases[0])
-    right = _resolve_schema_column(schema_names, aliases[1])
-    if left is None or right is None:
-        raise ValueError(f"Could not resolve source position columns for genome build {genome_build}.")
-    return left, right
+        return canonical
+    mapping = _resolve_r2_source_columns(schema_names)
+    return mapping[canonical[0]], mapping[canonical[1]]
 
 
 def get_pyarrow_modules():
@@ -772,16 +752,13 @@ def get_pyarrow_modules():
 
 def _parquet_schema_layout(schema_names: Sequence[str]) -> str:
     """Classify a runtime parquet schema as normalized, raw, or unsupported."""
-    schema_names = set(schema_names)
     if _resolve_helper_columns(schema_names) is not None:
         return "normalized"
     try:
-        _ = [(_resolve_schema_column(schema_names, aliases) is not None) for aliases in R2_SOURCE_COLUMN_ALIASES.values()]
+        _resolve_r2_source_columns(schema_names)
     except Exception:
         return "unsupported"
-    if all(_resolve_schema_column(schema_names, aliases) is not None for aliases in R2_SOURCE_COLUMN_ALIASES.values()):
-        return "raw"
-    return "unsupported"
+    return "raw"
 
 
 def _require_runtime_genome_build(genome_build: str | None) -> str:
@@ -813,24 +790,21 @@ def read_common_tabular_r2(path: str) -> pd.DataFrame:
 
 def validate_r2_source_columns(df: pd.DataFrame, path: str) -> None:
     """Validate that a source R2 table contains the required legacy columns."""
-    missing = [
-        canonical
-        for canonical, aliases in R2_SOURCE_COLUMN_ALIASES.items()
-        if _resolve_schema_column(df.columns, aliases) is None
-    ]
-    if missing:
-        raise ValueError(f"{path} is missing required R2 columns: {missing}")
+    try:
+        _resolve_r2_source_columns(df.columns, context=path)
+    except ValueError as exc:
+        raise ValueError(f"{path} is missing required R2 columns.") from exc
 
 
 def canonicalize_r2_pairs(df: pd.DataFrame, genome_build: str) -> pd.DataFrame:
-    """Orient pairwise-R2 rows so the selected build always satisfies ``pos1 <= pos2``."""
+    """Orient pairwise-R2 rows so the selected build always satisfies ``pos_1 <= pos_2``."""
     df = normalize_r2_source_columns(df.copy())
     left_pos_col, right_pos_col = get_r2_build_columns(genome_build, df.columns)
     df["chr"] = df["chr"].map(normalize_chromosome)
 
     paired_columns = (
         ("rsID_1", "rsID_2"),
-        ("hg38_pos1", "hg38_pos2"),
+        ("hg38_pos_1", "hg38_pos_2"),
         ("hg19_pos_1", "hg19_pos_2"),
         ("hg38_Uniq_ID_1", "hg38_Uniq_ID_2"),
         ("hg19_Uniq_ID_1", "hg19_Uniq_ID_2"),
@@ -841,8 +815,8 @@ def canonicalize_r2_pairs(df: pd.DataFrame, genome_build: str) -> pd.DataFrame:
         df.loc[swap, left_col] = df.loc[swap, right_col].to_numpy()
         df.loc[swap, right_col] = left_values.to_numpy()
 
-    df["pos1"] = pd.to_numeric(df[left_pos_col], errors="raise").astype(np.int64)
-    df["pos2"] = pd.to_numeric(df[right_pos_col], errors="raise").astype(np.int64)
+    df["pos_1"] = pd.to_numeric(df[left_pos_col], errors="raise").astype(np.int64)
+    df["pos_2"] = pd.to_numeric(df[right_pos_col], errors="raise").astype(np.int64)
     return df
 
 
@@ -852,8 +826,8 @@ def deduplicate_normalized_r2_pairs(df: pd.DataFrame) -> pd.DataFrame:
         "chr",
         "rsID_1",
         "rsID_2",
-        "hg38_pos1",
-        "hg38_pos2",
+        "hg38_pos_1",
+        "hg38_pos_2",
         "hg19_pos_1",
         "hg19_pos_2",
         "hg38_Uniq_ID_1",
@@ -888,7 +862,7 @@ def convert_r2_table_to_sorted_parquet(source_path: str, genome_build: str, outp
     chroms = df["chr"].dropna().map(normalize_chromosome).unique().tolist()
     if len(chroms) != 1:
         raise ValueError("Each sorted parquet R2 file must contain exactly one chromosome.")
-    df = df.sort_values(by=["pos1", "pos2"], kind="mergesort").reset_index(drop=True)
+    df = df.sort_values(by=["pos_1", "pos_2"], kind="mergesort").reset_index(drop=True)
     parent = os.path.dirname(output_path)
     if parent:
         os.makedirs(parent, exist_ok=True)
@@ -931,7 +905,7 @@ def read_sorted_r2_presence(args: argparse.Namespace, chrom: str) -> set[object]
     layout = _parquet_schema_layout(dataset.schema.names)
     normalized_chrom = normalize_chromosome(chrom)
     if layout == "normalized":
-        helper_pos1, helper_pos2 = _resolve_helper_columns(dataset.schema.names)
+        helper_pos1, helper_pos2 = _resolve_helper_columns(dataset.schema.names, context="normalized parquet R2 schema")
         columns = ["chr"]
         if args.snp_identifier == "rsID":
             columns.extend(["rsID_1", "rsID_2"])
@@ -952,7 +926,7 @@ def read_sorted_r2_presence(args: argparse.Namespace, chrom: str) -> set[object]
     else:
         raise ValueError(
             "Parquet R2 input must contain either normalized helper columns "
-            "`chr`, `pos1`, `pos2` or the raw legacy pairwise columns."
+            "`chr`, `pos_1`, `pos_2` or the raw legacy pairwise columns."
         )
     pairs = table.to_pandas()
     if layout == "raw" and len(pairs) > 0:
@@ -1312,8 +1286,8 @@ class SortedR2BlockReader:
     parquet table.
 
     The runtime parquet contract is path-based. This reader assumes the file
-    already contains `chr`, `pos1`, and `pos2`, and that pair orientation has
-    been canonicalized so `pos1 <= pos2`.
+    already contains `chr`, `pos_1`, and `pos_2`, and that pair orientation has
+    been canonicalized so `pos_1 <= pos_2`.
     """
 
     def __init__(
@@ -1340,9 +1314,10 @@ class SortedR2BlockReader:
         self.genome_build = genome_build
         self.pos = metadata["POS"].to_numpy(dtype=np.int64)
         self.m = len(metadata)
-        self.query_columns = ["chr", "pos1", "pos2", "R2"]
+        self.query_columns = ["chr", "pos_1", "pos_2", "R2"]
         self._runtime_layout = _parquet_schema_layout(self.dataset.schema.names)
         self._raw_pos_columns: tuple[str, str] | None = None
+        self._raw_query_columns: list[str] | None = None
         if self.identifier_mode == "rsID":
             self.query_columns.extend(["rsID_1", "rsID_2"])
             self.index_map = {str(snp): idx for idx, snp in enumerate(metadata["SNP"].astype(str))}
@@ -1358,22 +1333,13 @@ class SortedR2BlockReader:
                 )
         elif self._runtime_layout == "raw":
             self.genome_build = _require_runtime_genome_build(self.genome_build)
+            raw_mapping = _resolve_r2_source_columns(self.dataset.schema.names, context="raw parquet R2 schema")
             self._raw_pos_columns = get_r2_build_columns(self.genome_build, self.dataset.schema.names)
-            self.query_columns = list(R2_CANONICAL_SOURCE_COLUMNS)
-            missing_columns = [
-                canonical
-                for canonical, aliases in R2_SOURCE_COLUMN_ALIASES.items()
-                if _resolve_schema_column(self.dataset.schema.names, aliases) is None
-            ]
-            if missing_columns:
-                raise ValueError(
-                    "Raw parquet R2 input is missing required legacy columns: "
-                    + ", ".join(missing_columns)
-                )
+            self._raw_query_columns = [raw_mapping[canonical] for canonical in R2_CANONICAL_SOURCE_COLUMNS]
         else:
             raise ValueError(
                 "Parquet R2 input must contain either normalized helper columns "
-                "`chr`, `pos1`, `pos2` or the raw legacy pairwise columns."
+                "`chr`, `pos_1`, `pos_2` or the raw legacy pairwise columns."
             )
 
         self._last_query_key: tuple[int, int] | None = None
@@ -1396,7 +1362,7 @@ class SortedR2BlockReader:
             return self._last_query_rows.copy()
 
         if self._runtime_layout == "normalized":
-            helper_pos1, helper_pos2 = _resolve_helper_columns(self.dataset.schema.names)
+            helper_pos1, helper_pos2 = _resolve_helper_columns(self.dataset.schema.names, context="normalized parquet R2 schema")
             filter_expr = (
                 (self.ds.field("chr") == self.chrom)
                 & (self.ds.field(helper_pos1) >= int(pos_min))
@@ -1412,10 +1378,10 @@ class SortedR2BlockReader:
                 & (self.ds.field(right_pos_col) >= int(pos_min))
                 & (self.ds.field(right_pos_col) <= int(pos_max))
             )
-            table = self.dataset.to_table(columns=self.query_columns, filter=filter_expr)
+            table = self.dataset.to_table(columns=self._raw_query_columns, filter=filter_expr)
         rows = table.to_pandas()
         if len(rows) == 0:
-            base_columns = ["chr", "pos1", "pos2", "R2"]
+            base_columns = ["chr", "pos_1", "pos_2", "R2"]
             if self.identifier_mode == "rsID":
                 base_columns.extend(["rsID_1", "rsID_2"])
             rows = pd.DataFrame(columns=base_columns + ["i", "j"])
@@ -1435,8 +1401,8 @@ class SortedR2BlockReader:
                 rows["i"] = rows["rsID_1"].astype(str).map(self.index_map)
                 rows["j"] = rows["rsID_2"].astype(str).map(self.index_map)
             else:
-                rows["i"] = pd.to_numeric(rows["pos1"], errors="raise").astype(np.int64).map(self.index_map)
-                rows["j"] = pd.to_numeric(rows["pos2"], errors="raise").astype(np.int64).map(self.index_map)
+                rows["i"] = pd.to_numeric(rows["pos_1"], errors="raise").astype(np.int64).map(self.index_map)
+                rows["j"] = pd.to_numeric(rows["pos_2"], errors="raise").astype(np.int64).map(self.index_map)
             rows = rows.dropna(subset=["i", "j"]).copy()
             rows["i"] = rows["i"].astype(np.int64)
             rows["j"] = rows["j"].astype(np.int64)

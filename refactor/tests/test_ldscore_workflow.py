@@ -1,5 +1,6 @@
 from argparse import Namespace
 import gzip
+import importlib.util
 from pathlib import Path
 from types import SimpleNamespace
 import sys
@@ -23,6 +24,9 @@ try:
 except ImportError:
     ldscore_workflow = None
     kernel_ldscore = None
+
+
+_HAS_PYARROW = importlib.util.find_spec("pyarrow") is not None
 
 
 @unittest.skipIf(ldscore_workflow is None, "ldscore_workflow module is not available")
@@ -270,8 +274,10 @@ class LDScoreParquetNormalizationTest(unittest.TestCase):
         out = kernel_ldscore.canonicalize_r2_pairs(df, "GRCh37")
 
         self.assertEqual(out["chr"].tolist(), ["1"])
-        self.assertEqual(out["pos1"].tolist(), [10])
-        self.assertEqual(out["pos2"].tolist(), [20])
+        self.assertEqual(out["pos_1"].tolist(), [10])
+        self.assertEqual(out["pos_2"].tolist(), [20])
+        self.assertIn("hg38_pos_1", out.columns)
+        self.assertIn("hg38_pos_2", out.columns)
         self.assertIn("hg19_pos_1", out.columns)
         self.assertIn("hg19_pos_2", out.columns)
         self.assertNotIn("pair_chr", out.columns)
@@ -280,3 +286,50 @@ class LDScoreParquetNormalizationTest(unittest.TestCase):
         self.assertEqual(kernel_ldscore._require_runtime_genome_build("hg37"), "hg19")
         self.assertEqual(kernel_ldscore._require_runtime_genome_build("GRCh37"), "hg19")
         self.assertEqual(kernel_ldscore._require_runtime_genome_build("GRCh38"), "hg38")
+
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet reader coverage")
+    def test_sorted_r2_block_reader_projects_actual_raw_schema_columns(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "raw_chr1.parquet"
+            pd.DataFrame(
+                {
+                    "chr": ["1"],
+                    "rsID_1": ["rs2"],
+                    "rsID_2": ["rs1"],
+                    "hg38_bp1": [120],
+                    "hg38_bp2": [100],
+                    "hg19_bp_1": [20],
+                    "hg19_bp_2": [10],
+                    "hg38_Uniq_ID_1": ["1:120"],
+                    "hg38_Uniq_ID_2": ["1:100"],
+                    "hg19_Uniq_ID_1": ["1:20"],
+                    "hg19_Uniq_ID_2": ["1:10"],
+                    "R2": [0.4],
+                    "Dprime": [0.5],
+                    "+/-corr": ["+"],
+                }
+            ).to_parquet(path, index=False)
+
+            metadata = pd.DataFrame(
+                {
+                    "CHR": ["1", "1"],
+                    "SNP": ["rs1", "rs2"],
+                    "POS": [10, 20],
+                    "CM": [0.1, 0.2],
+                }
+            )
+            reader = kernel_ldscore.SortedR2BlockReader(
+                paths=[str(path)],
+                chrom="1",
+                metadata=metadata,
+                identifier_mode="rsID",
+                r2_bias_mode="unbiased",
+                r2_sample_size=None,
+                genome_build="hg19",
+            )
+
+            matrix = reader.within_block_matrix(l_B=0, c=2)
+            np.testing.assert_allclose(
+                matrix,
+                np.array([[1.0, 0.4], [0.4, 1.0]], dtype=np.float32),
+            )

@@ -15,6 +15,15 @@ from typing import Any
 
 import pandas as pd
 
+from ..column_inference import (
+    CHR_COLUMN_SPEC,
+    CM_COLUMN_SPEC,
+    MAF_COLUMN_SPEC,
+    POS_COLUMN_SPEC,
+    SNP_COLUMN_SPEC,
+    resolve_optional_column,
+    resolve_required_column,
+)
 from ..config import CommonConfig, RefPanelConfig, _normalize_optional_path, _normalize_path_tuple
 from ..path_resolution import (
     FREQUENCY_SUFFIXES,
@@ -28,8 +37,6 @@ from . import formats as legacy_parse
 from . import ldscore as kernel_ldscore
 from .identifiers import (
     build_snp_id_series,
-    infer_chr_pos_columns,
-    infer_snp_column,
     normalize_chromosome,
     normalize_snp_identifier_mode,
     read_global_snp_restriction,
@@ -287,16 +294,18 @@ def _read_metadata_table(path: str | Path, chrom: str | None, common_config: Com
     """Read one reference-panel metadata table into the normalized column set."""
     df = pd.read_csv(path, sep=r"\s+", compression="gzip" if str(path).endswith(".gz") else None)
     snp_identifier = normalize_snp_identifier_mode(common_config.snp_identifier)
+    context = str(path)
 
     chr_col = None
-    bp_col = None
+    pos_col = None
     snp_col = None
     try:
-        chr_col, pos_col = infer_chr_pos_columns(df.columns)
+        chr_col = resolve_required_column(df.columns, CHR_COLUMN_SPEC, context=context)
+        pos_col = resolve_required_column(df.columns, POS_COLUMN_SPEC, context=context)
     except ValueError:
         pass
     try:
-        snp_col = infer_snp_column(df.columns)
+        snp_col = resolve_required_column(df.columns, SNP_COLUMN_SPEC, context=context)
     except ValueError:
         pass
 
@@ -313,8 +322,8 @@ def _read_metadata_table(path: str | Path, chrom: str | None, common_config: Com
     if snp_col is not None:
         out["SNP"] = df[snp_col].astype(str)
 
-    cm_col = _find_optional_column(df.columns, ("CM", "CMBP", "CENTIMORGAN"))
-    maf_col = _find_optional_column(df.columns, ("MAF", "FRQ", "FREQ", "FREQUENCY"))
+    cm_col = resolve_optional_column(df.columns, CM_COLUMN_SPEC, context=context)
+    maf_col = resolve_optional_column(df.columns, MAF_COLUMN_SPEC, context=context)
     if cm_col is not None:
         out["CM"] = pd.to_numeric(df[cm_col], errors="coerce")
     else:
@@ -328,12 +337,3 @@ def _read_metadata_table(path: str | Path, chrom: str | None, common_config: Com
     if chrom is not None and "CHR" in out.columns:
         out = out.loc[out["CHR"] == normalize_chromosome(chrom)].reset_index(drop=True)
     return out
-
-
-def _find_optional_column(columns, aliases: tuple[str, ...]) -> str | None:
-    """Return the first optional column whose uppercased name matches ``aliases``."""
-    normalized_aliases = {alias.upper() for alias in aliases}
-    for column in columns:
-        if column.upper() in normalized_aliases:
-            return column
-    return None

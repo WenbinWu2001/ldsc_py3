@@ -1,11 +1,11 @@
 # Code Structure
 
-This document is a coding-oriented map of the current `refactor/` package after the `src/ldsc/` migration.
+This document is a coding-oriented map of the current repository after the `src/ldsc/` migration.
 
 ## Repository Map
 
 ```text
-refactor/
+ldsc_py3_restructured/
 ├── setup.py
 ├── src/ldsc/
 │   ├── __init__.py
@@ -346,4 +346,4 @@ Helper modules:
 
 ## Dead Code Status
 
-The old root-level wrappers and old `refactor/ldscore/` package were removed. The active codebase no longer depends on sibling legacy modules. The remaining compatibility logic lives only inside `src/ldsc/_kernel/`.
+The old root-level wrappers and old pre-migration `ldscore/` package were removed. The active codebase no longer depends on sibling legacy modules. The remaining compatibility logic lives only inside `src/ldsc/_kernel/`.

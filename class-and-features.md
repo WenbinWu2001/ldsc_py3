@@ -550,4 +550,4 @@ Defined in `ldsc._kernel.regression`.
 | `ldsc._kernel.ldscore` | consolidated reusable parts of the previous PLINK kernel and newer chromosome/parquet engine |
 | `ldsc._kernel.regression` | consolidated estimator logic and reusable allele helpers from the old regression stack |
 
-The old root wrapper scripts and the old `refactor/ldscore/` package are no longer part of the active codebase.
+The old root wrapper scripts and the old pre-migration `ldscore/` package are no longer part of the active codebase.

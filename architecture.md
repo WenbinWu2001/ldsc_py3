@@ -1,6 +1,6 @@
 # Architecture
 
-`refactor/` is the active Python 3 LDSC package. Its package root is `src/ldsc/`. The codebase is organized around one public workflow module per user-visible function, backed by an internal `_kernel/` layer that contains reused numerical methods and low-level file-format code.
+This repository is the active Python 3 LDSC package. Its package root is `src/ldsc/`. The codebase is organized around one public workflow module per user-visible function, backed by an internal `_kernel/` layer that contains reused numerical methods and low-level file-format code.
 
 The package reads SNP-level annotations, PLINK or parquet-R2 reference inputs, and munged GWAS summary statistics; computes LD scores chromosome by chromosome; aggregates those results across chromosomes; then runs LDSC regressions on the combined tables. Output writing is routed through a separate artifact layer so the core workflows stay independent of file layout and future post-processing features.
 
@@ -9,7 +9,7 @@ Public inputs use one shared token language before execution begins. Workflow en
 ## Package Shape
 
 ```text
-refactor/
+ldsc_py3_restructured/
 ├── setup.py
 ├── src/
 │   └── ldsc/
@@ -122,7 +122,7 @@ This replaces the previous split between root-level wrapper scripts.
 - `src/ldsc/_kernel/` is internal-only and may change without user-facing API guarantees.
 - All path discovery happens before the kernel runs. Kernel code may assume primitive concrete strings and should not perform user-facing glob or suite expansion.
 - Input tokens and output destinations are different contracts. Inputs may expand; outputs stay literal.
-- `refactor/` must stay self-sufficient and must not depend on sibling trees or repository-root wrappers.
+- The repository root must stay self-sufficient and must not depend on sibling trees or wrapper packages outside `src/ldsc/`.
 - LD-score calculation remains chromosome-wise; regression consumes only the aggregated cross-chromosome result.
 - Regression preserves the original LDSC default of using `.M_5_50` when available.
 - Output extensibility goes through artifact producers rather than adding feature-specific branches throughout the workflows.

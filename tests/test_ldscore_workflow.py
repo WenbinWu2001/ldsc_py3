@@ -287,6 +287,13 @@ class LDScoreParquetNormalizationTest(unittest.TestCase):
         self.assertEqual(kernel_ldscore._require_runtime_genome_build("GRCh37"), "hg19")
         self.assertEqual(kernel_ldscore._require_runtime_genome_build("GRCh38"), "hg38")
 
+    def test_get_r2_build_columns_accepts_reduced_position_only_schema(self):
+        columns = ["chr", "hg19_pos_1", "hg19_pos_2"]
+        self.assertEqual(
+            kernel_ldscore.get_r2_build_columns("hg19", columns),
+            ("hg19_pos_1", "hg19_pos_2"),
+        )
+
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet reader coverage")
     def test_sorted_r2_block_reader_projects_actual_raw_schema_columns(self):
         with tempfile.TemporaryDirectory() as tmpdir:

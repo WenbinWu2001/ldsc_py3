@@ -17,6 +17,7 @@ import pandas as pd
 
 from ..column_inference import (
     REFERENCE_METADATA_SPEC_MAP,
+    normalize_genome_build,
     resolve_optional_column,
     resolve_required_column,
 )
@@ -62,6 +63,7 @@ class RefPanelSpec:
         object.__setattr__(self, "bfile_prefix", _normalize_optional_path(self.bfile_prefix))
         object.__setattr__(self, "r2_table_paths", _normalize_path_tuple(self.r2_table_paths))
         object.__setattr__(self, "maf_metadata_paths", _normalize_path_tuple(self.maf_metadata_paths))
+        object.__setattr__(self, "genome_build", normalize_genome_build(self.genome_build))
         if self.chromosomes is not None:
             object.__setattr__(self, "chromosomes", tuple(normalize_chromosome(chrom) for chrom in self.chromosomes))
 

@@ -161,6 +161,11 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertEqual(ref.r2_table_paths, ("r2/chr1.parquet",))
         self.assertEqual(ref.maf_metadata_paths, ("meta/chr1.tsv.gz",))
 
+    def test_ref_panel_spec_normalizes_genome_build_aliases(self):
+        self.assertEqual(RefPanelSpec(backend="parquet_r2", genome_build="hg37").genome_build, "hg19")
+        self.assertEqual(RefPanelSpec(backend="parquet_r2", genome_build="GRCh37").genome_build, "hg19")
+        self.assertEqual(RefPanelSpec(backend="parquet_r2", genome_build="GRCh38").genome_build, "hg38")
+
     def test_public_specs_accept_single_string_tokens_for_plural_fields(self):
         annot = AnnotationSourceSpec(
             baseline_annot_paths="baseline.@",

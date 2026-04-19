@@ -703,6 +703,19 @@ def _resolve_r2_source_columns(schema_names: Iterable[str], context: str | None 
     return resolve_required_columns(schema_names, R2_SOURCE_COLUMN_SPECS, context=context)
 
 
+def _resolve_r2_source_subset(
+    schema_names: Iterable[str],
+    canonicals: Sequence[str],
+    context: str | None = None,
+) -> dict[str, str]:
+    """Resolve a required subset of raw R2 source columns from ``schema_names``."""
+    spec_map = {spec.canonical: spec for spec in R2_SOURCE_COLUMN_SPECS}
+    return {
+        canonical: resolve_required_column(schema_names, spec_map[canonical], context=context)
+        for canonical in canonicals
+    }
+
+
 def normalize_r2_source_columns(df: pd.DataFrame) -> pd.DataFrame:
     """Rename raw pairwise-R2 source columns to the canonical POS-based schema."""
     rename_map = {
@@ -732,7 +745,7 @@ def get_r2_build_columns(genome_build: str, schema_names: Iterable[str] | None =
         canonical = ("hg38_pos_1", "hg38_pos_2")
     if schema_names is None:
         return canonical
-    mapping = _resolve_r2_source_columns(schema_names)
+    mapping = _resolve_r2_source_subset(schema_names, canonical)
     return mapping[canonical[0]], mapping[canonical[1]]
 
 

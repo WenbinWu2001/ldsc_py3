@@ -261,7 +261,75 @@ The model should:
 
 ------
 
-### 12. Expected Output Characteristics
+### 12. User-Specific Additions For Reusable Workflow Documentation
+
+Use this section when the diagram is meant to support package documentation rather than only produce a standalone picture.
+
+#### 12.1 File-contract coverage
+
+For each **major user-facing functionality**:
+
+- Summarize the **required input files**
+- Summarize the **main output files**
+- Start from the **user-provided input files**
+- End at the **program-emitted output files**
+
+Where helpful, include a short example format for the files at the two ends of the flow.
+
+Examples:
+
+- input: ``CHR POS SNP CM annot1``
+- input: ``SNP A1 A2 P N``
+- output: ``.annot.gz``
+- output: ``.l2.ldscore.gz``
+- output: ``.h2.tsv``
+
+#### 12.2 Streamlined per-feature flow
+
+For each user-facing feature, describe a **streamlined flow**:
+
+- keep only the main path
+- omit edge cases unless they are architecturally essential
+- show the skeleton of the workflow rather than every branch
+
+The goal is to make it easy for a user to answer:
+
+- what files do I need to provide?
+- what layers/modules process them?
+- what files do I get back?
+
+#### 12.3 Layer and module traceability
+
+Each flow should explicitly indicate:
+
+- the **layer structure** used in that flow
+- the main **modules** responsible for each stage
+
+This should remain coarse-grained. Prefer module names such as:
+
+- `ldsc.cli`
+- `ldsc.ldscore_calculator`
+- `ldsc.sumstats_munger`
+- `ldsc.regression_runner`
+- `ldsc._kernel.ldscore`
+
+Avoid listing individual helper functions unless they are the public entry point.
+
+#### 12.4 Preferred deliverable shape
+
+When documenting a package with multiple workflows:
+
+- Prefer **one overall package overview figure** covering all major functionalities
+- Add **one or more supporting figures** only if the overview becomes too crowded
+- Keep the figures **concise**
+- Keep the figures **simple skeletons rather than dense diagrams**
+- Do not overcrowd the figure with implementation detail or long labels
+
+If a companion markdown document is produced alongside the figure, keep that document concise as well.
+
+------
+
+### 13. Expected Output Characteristics
 
 The final diagram should:
 

@@ -59,6 +59,7 @@ class RefPanelSpec:
     genome_build: str | None = None
 
     def __post_init__(self) -> None:
+        """Normalize backend source tokens and canonicalize chromosome labels."""
         object.__setattr__(self, "backend", self.backend)
         object.__setattr__(self, "bfile_prefix", _normalize_optional_path(self.bfile_prefix))
         object.__setattr__(self, "r2_table_paths", _normalize_path_tuple(self.r2_table_paths))
@@ -71,6 +72,7 @@ class RefPanelSpec:
 class RefPanel(ABC):
     """Abstract chromosome-scoped reference-panel interface."""
     def __init__(self, common_config: CommonConfig, spec: RefPanelSpec) -> None:
+        """Store shared config and initialize the per-chromosome metadata cache."""
         self.common_config = common_config
         self.spec = spec
         self._metadata_cache: dict[str, pd.DataFrame] = {}
@@ -109,6 +111,7 @@ class RefPanel(ABC):
         }
 
     def _apply_global_restriction(self, metadata: pd.DataFrame) -> pd.DataFrame:
+        """Filter metadata rows to the configured global SNP restriction set."""
         restrict_path = self.common_config.global_snp_restriction_path
         if restrict_path is None or len(metadata) == 0:
             return metadata
@@ -117,6 +120,7 @@ class RefPanel(ABC):
         return metadata.loc[keep].reset_index(drop=True)
 
     def _validate_metadata(self, metadata: pd.DataFrame, chrom: str) -> pd.DataFrame:
+        """Reset row order and validate identifier uniqueness for one chromosome."""
         metadata = metadata.reset_index(drop=True)
         validate_unique_snp_ids(metadata, self.common_config.snp_identifier, context=f"{type(self).__name__}[{chrom}]")
         return metadata
@@ -125,11 +129,13 @@ class RefPanel(ABC):
 class PlinkRefPanel(RefPanel):
     """PLINK-backed reference-panel adapter."""
     def available_chromosomes(self) -> list[str]:
+        """List normalized chromosomes present in the resolved PLINK inputs."""
         df = self._read_bim_table(chrom=None)
         chromosomes = sorted(df["CHR"].astype(str).map(normalize_chromosome).unique().tolist(), key=_chrom_sort_key)
         return chromosomes
 
     def load_metadata(self, chrom: str) -> pd.DataFrame:
+        """Load and cache normalized PLINK metadata for one chromosome."""
         chrom = normalize_chromosome(chrom)
         if chrom in self._metadata_cache:
             return self._metadata_cache[chrom].copy()
@@ -148,6 +154,7 @@ class PlinkRefPanel(RefPanel):
         return metadata
 
     def build_reader(self, chrom: str, keep_snps: set[str] | list[str] | None = None, keep_indivs: list[int] | None = None, maf_min: float | None = None):
+        """Build a PLINK BED reader with optional SNP, sample, and MAF filters."""
         prefix = None if self.spec.bfile_prefix is None else resolve_plink_prefix(self.spec.bfile_prefix, chrom=chrom)
         if prefix is None:
             raise ValueError("PlinkRefPanel requires bfile_prefix.")
@@ -171,6 +178,7 @@ class PlinkRefPanel(RefPanel):
         )
 
     def _read_bim_table(self, chrom: str | None) -> pd.DataFrame:
+        """Read one or many `.bim` tables into a normalized DataFrame."""
         prefixes = (
             []
             if self.spec.bfile_prefix is None
@@ -198,6 +206,7 @@ class PlinkRefPanel(RefPanel):
 class ParquetR2RefPanel(RefPanel):
     """Sorted-parquet-R2-backed reference-panel adapter."""
     def available_chromosomes(self) -> list[str]:
+        """List chromosomes from explicit config or parquet metadata sidecars."""
         if self.spec.chromosomes is not None:
             return sorted(set(self.spec.chromosomes), key=_chrom_sort_key)
 
@@ -215,6 +224,7 @@ class ParquetR2RefPanel(RefPanel):
         raise ImportError("Chromosome discovery for parquet R2 requires explicit chromosomes or sidecar metadata in this environment.")
 
     def load_metadata(self, chrom: str) -> pd.DataFrame:
+        """Load and cache normalized metadata sidecars for one chromosome."""
         chrom = normalize_chromosome(chrom)
         if chrom in self._metadata_cache:
             return self._metadata_cache[chrom].copy()
@@ -245,6 +255,7 @@ class ParquetR2RefPanel(RefPanel):
         r2_bias_mode: str | None = None,
         r2_sample_size: float | None = None,
     ):
+        """Build a block reader over sorted parquet R2 files for one chromosome."""
         metadata = metadata if metadata is not None else self.load_metadata(chrom)
         return kernel_ldscore.SortedR2BlockReader(
             paths=resolve_chromosome_group(
@@ -266,6 +277,7 @@ class ParquetR2RefPanel(RefPanel):
 class RefPanelLoader:
     """Instantiate the backend requested by a :class:`RefPanelSpec`."""
     def __init__(self, common_config: CommonConfig, ref_panel_config: RefPanelConfig | None = None) -> None:
+        """Store shared configuration for future backend instantiation."""
         self.common_config = common_config
         self.ref_panel_config = ref_panel_config or RefPanelConfig()
 

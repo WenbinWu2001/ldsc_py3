@@ -42,6 +42,7 @@ class OutputSpec:
     enabled_artifacts: list[str] | None = None
 
     def __post_init__(self) -> None:
+        """Normalize output paths and validate layout and compression choices."""
         if self.artifact_layout not in {"flat", "by_chrom", "run_dir"}:
             raise ValueError("artifact_layout must be 'flat', 'by_chrom', or 'run_dir'.")
         if self.compression not in {"gzip", "none"}:
@@ -166,6 +167,7 @@ class ResultWriter:
         return str(path)
 
     def _write_dataframe(self, df: pd.DataFrame, path: Path) -> None:
+        """Write a tabular artifact as TSV, optionally gzip-compressed."""
         if path.suffix == ".gz":
             with gzip.open(path, "wt", encoding="utf-8") as handle:
                 df.to_csv(handle, sep="\t", index=False, na_rep="NA")
@@ -173,6 +175,7 @@ class ResultWriter:
         df.to_csv(path, sep="\t", index=False, na_rep="NA")
 
     def _write_json(self, payload: Any, path: Path) -> None:
+        """Write one JSON artifact, optionally gzip-compressed."""
         serializable = _to_serializable(payload)
         if path.suffix == ".gz":
             with gzip.open(path, "wt", encoding="utf-8") as handle:
@@ -186,9 +189,11 @@ class LDScoreTableProducer(ArtifactProducer):
     name = "ldscore"
 
     def supports(self, result: Any) -> bool:
+        """Return ``True`` when aggregated LD-score tables are available."""
         return getattr(result, "reference_metadata", None) is not None and getattr(result, "ld_scores", None) is not None
 
     def build(self, result: Any, run_summary: RunSummary, output_spec: OutputSpec, artifact_config: ArtifactConfig | None = None) -> list[Artifact]:
+        """Build aggregate and optional per-chromosome LD-score artifacts."""
         artifacts: list[Artifact] = []
         print_snps = _load_print_snps(output_spec.print_snps_path)
         if output_spec.aggregate_across_chromosomes:
@@ -222,9 +227,11 @@ class WeightLDProducer(ArtifactProducer):
     name = "w_ld"
 
     def supports(self, result: Any) -> bool:
+        """Return ``True`` when regression-weight tables are available."""
         return getattr(result, "regression_metadata", None) is not None and getattr(result, "w_ld", None) is not None
 
     def build(self, result: Any, run_summary: RunSummary, output_spec: OutputSpec, artifact_config: ArtifactConfig | None = None) -> list[Artifact]:
+        """Build aggregate and optional per-chromosome weight-table artifacts."""
         artifacts: list[Artifact] = []
         if output_spec.aggregate_across_chromosomes:
             table = pd.concat([result.regression_metadata.reset_index(drop=True), result.w_ld.reset_index(drop=True)], axis=1)
@@ -253,9 +260,11 @@ class CountProducer(ArtifactProducer):
     name = "counts"
 
     def supports(self, result: Any) -> bool:
+        """Return ``True`` when named SNP-count vectors are present."""
         return bool(getattr(result, "snp_count_totals", {}))
 
     def build(self, result: Any, run_summary: RunSummary, output_spec: OutputSpec, artifact_config: ArtifactConfig | None = None) -> list[Artifact]:
+        """Build text artifacts for each named SNP-count vector."""
         artifacts: list[Artifact] = []
         count_map = getattr(result, "snp_count_totals", {})
         for key, values in count_map.items():
@@ -270,12 +279,15 @@ class AnnotationManifestProducer(ArtifactProducer):
     name = "annotation_manifest"
 
     def __init__(self, formatter: ResultFormatter):
+        """Initialize the producer with the shared result formatter."""
         self._formatter = formatter
 
     def supports(self, result: Any) -> bool:
+        """Return ``True`` when baseline or query annotation columns exist."""
         return bool(getattr(result, "baseline_columns", None) or getattr(result, "query_columns", None))
 
     def build(self, result: Any, run_summary: RunSummary, output_spec: OutputSpec, artifact_config: ArtifactConfig | None = None) -> list[Artifact]:
+        """Build the annotation-group manifest as one TSV artifact."""
         manifest = self._formatter.build_annotation_manifest(result)
         return [Artifact(self.name, _artifact_filename(output_spec, ".annotation_groups.tsv", compressed=False), manifest, "dataframe")]
 
@@ -285,12 +297,15 @@ class SummaryTSVProducer(ArtifactProducer):
     name = "summary_tsv"
 
     def __init__(self, formatter: ResultFormatter):
+        """Initialize the producer with the shared summary formatter."""
         self._formatter = formatter
 
     def supports(self, result: Any) -> bool:
+        """Always emit a TSV summary for supported run results."""
         return True
 
     def build(self, result: Any, run_summary: RunSummary, output_spec: OutputSpec, artifact_config: ArtifactConfig | None = None) -> list[Artifact]:
+        """Build the one-row TSV summary artifact."""
         table = self._formatter.build_summary_table(run_summary)
         return [Artifact(self.name, _artifact_filename(output_spec, ".summary.tsv", compressed=False), table, "dataframe")]
 
@@ -300,9 +315,11 @@ class SummaryJSONProducer(ArtifactProducer):
     name = "summary_json"
 
     def supports(self, result: Any) -> bool:
+        """Always emit a JSON summary for supported run results."""
         return True
 
     def build(self, result: Any, run_summary: RunSummary, output_spec: OutputSpec, artifact_config: ArtifactConfig | None = None) -> list[Artifact]:
+        """Build the JSON summary artifact from ``run_summary``."""
         return [Artifact(self.name, _artifact_filename(output_spec, ".summary.json", compressed=False), run_summary, "json")]
 
 
@@ -311,9 +328,11 @@ class RunMetadataProducer(ArtifactProducer):
     name = "run_metadata"
 
     def supports(self, result: Any) -> bool:
+        """Always emit run metadata for supported run results."""
         return True
 
     def build(self, result: Any, run_summary: RunSummary, output_spec: OutputSpec, artifact_config: ArtifactConfig | None = None) -> list[Artifact]:
+        """Build the JSON metadata artifact describing the current run."""
         metadata = {
             "result_type": type(result).__name__,
             "config_snapshot": run_summary.config_snapshot,
@@ -331,6 +350,7 @@ class OutputManager:
         writer: ResultWriter | None = None,
         producers: Iterable[ArtifactProducer] | None = None,
     ) -> None:
+        """Initialize the manager and register the configured producers."""
         self.formatter = formatter or ResultFormatter()
         self.writer = writer or ResultWriter()
         self._registry: dict[str, ArtifactProducer] = {}
@@ -412,6 +432,7 @@ class PostProcessor:
     """Extension hook for future summary, plotting, and report producers."""
 
     def __init__(self, output_manager: OutputManager | None = None) -> None:
+        """Attach a target output manager for future producer registrations."""
         self.output_manager = output_manager or OutputManager()
 
     def register_producer(self, producer: ArtifactProducer) -> None:

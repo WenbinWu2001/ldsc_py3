@@ -64,6 +64,7 @@ class RegressionRunner:
         common_config: CommonConfig | None = None,
         regression_config: RegressionConfig | None = None,
     ) -> None:
+        """Initialize the runner with shared defaults for regression workflows."""
         self.common_config = common_config or CommonConfig()
         self.regression_config = regression_config or RegressionConfig()
 

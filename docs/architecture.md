@@ -37,10 +37,12 @@ ldsc_py3_restructured/
 │   └── assets/
 ├── src/ldsc/
 │   ├── __init__.py          # public Python exports
+│   ├── __main__.py          # `python -m ldsc` entry point
 │   ├── cli.py               # unified `ldsc` command
 │   ├── config.py            # validated public config dataclasses
 │   ├── path_resolution.py   # input-token normalization and discovery
 │   ├── column_inference.py  # header and identifier normalization
+│   ├── chromosome_inference.py
 │   ├── annotation_builder.py
 │   ├── ref_panel_builder.py
 │   ├── ldscore_calculator.py

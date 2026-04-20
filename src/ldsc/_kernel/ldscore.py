@@ -330,6 +330,7 @@ class __GenotypeArrayInMemory__(object):
     """Parent class for in-memory genotype matrices."""
 
     def __init__(self, fname, n, snp_list, keep_snps=None, keep_indivs=None, mafMin=None):
+        """Load, filter, and normalize one in-memory genotype matrix."""
         self.m = len(snp_list.IDList)
         self.n = n
         self.keep_snps = keep_snps
@@ -362,30 +363,37 @@ class __GenotypeArrayInMemory__(object):
         self.colnames.append("MAF")
 
     def __read__(self, fname, m, n):
+        """Read the backend-specific genotype representation into memory."""
         raise NotImplementedError
 
     def __filter_indivs__(geno, keep_indivs, m, n):
+        """Apply backend-specific sample filtering to the genotype matrix."""
         raise NotImplementedError
 
     def __filter_maf_(geno, m, n, maf):
+        """Apply backend-specific SNP and MAF filtering to the genotype matrix."""
         raise NotImplementedError
 
     def ldScoreVarBlocks(self, block_left, c, annot=None):
+        """Compute LD-score block sums using the unbiased :math:`r^2` transform."""
         func = lambda x: self.__l2_unbiased__(x, self.n)
         snp_getter = self.nextSNPs
         return self.__corSumVarBlocks__(block_left, c, func, snp_getter, annot)
 
     def ldScoreBlockJackknife(self, block_left, c, annot=None, jN=10):
+        """Compute block-jackknife LD-score summaries using squared correlations."""
         func = lambda x: np.square(x)
         snp_getter = self.nextSNPs
         return self.__corSumBlockJackknife__(block_left, c, func, snp_getter, annot, jN)
 
     def __l2_unbiased__(self, x, n):
+        """Convert correlation values to the unbiased LD-score contribution."""
         denom = n - 2 if n > 2 else n
         sq = np.square(x)
         return sq - (1 - sq) / denom
 
     def __corSumVarBlocks__(self, block_left, c, func, snp_getter, annot=None):
+        """Accumulate transformed correlation sums over LDSC-style LD blocks."""
         m, n = self.m, self.n
         block_sizes = np.array(np.arange(m) - block_left)
         block_sizes = np.ceil(block_sizes / c) * c
@@ -457,6 +465,7 @@ if ba is not None:
         """Interface for PLINK .bed format."""
 
         def __init__(self, fname, n, snp_list, keep_snps=None, keep_indivs=None, mafMin=None):
+            """Initialize the PLINK reader and configure BED bit-pattern decoding."""
             self._bedcode = {
                 2: ba.bitarray("11"),
                 9: ba.bitarray("10"),
@@ -474,6 +483,7 @@ if ba is not None:
             )
 
         def __read__(self, fname, m, n):
+            """Read the raw PLINK BED payload and validate the file header."""
             if not fname.endswith(".bed"):
                 raise ValueError(".bed filename must end in .bed")
             fh = open(fname, "rb")
@@ -494,12 +504,14 @@ if ba is not None:
             return (self.nru, self.geno)
 
         def __test_length__(self, geno, m, nru):
+            """Validate that the BED payload length matches the expected shape."""
             exp_len = 2 * m * nru
             real_len = len(geno)
             if real_len != exp_len:
                 raise IOError("Plink .bed file has {n1} bits, expected {n2}".format(n1=real_len, n2=exp_len))
 
         def __filter_indivs__(self, geno, keep_indivs, m, n):
+            """Subset the BED bitarray to the requested individuals."""
             n_new = len(keep_indivs)
             e = (4 - n_new % 4) if n_new % 4 != 0 else 0
             nru_new = n_new + e
@@ -513,6 +525,7 @@ if ba is not None:
             return (z, m, n_new)
 
         def __filter_snps_maf__(self, geno, m, n, mafMin, keep_snps):
+            """Filter SNPs by explicit keep list and minor-allele frequency."""
             nru = self.nru
             m_poly = 0
             y = ba.bitarray()
@@ -539,6 +552,7 @@ if ba is not None:
             return (y, m_poly, n, kept_snps, freq)
 
         def nextSNPs(self, b, minorRef=None):
+            """Return the next ``b`` standardized SNP columns from the BED stream."""
             try:
                 b = int(b)
                 if b <= 0:
@@ -569,7 +583,9 @@ if ba is not None:
             return Y
 else:
     class PlinkBEDFile:  # pragma: no cover - dependency-gated fallback
+        """Fallback PLINK reader that raises when `bitarray` is unavailable."""
         def __init__(self, *args, **kwargs):
+            """Raise an informative import error for dependency-gated PLINK support."""
             raise ImportError("PLINK LD-score support requires the optional dependency 'bitarray'.")
 
 
@@ -1274,6 +1290,7 @@ class SortedR2BlockReader:
         r2_sample_size: float | None,
         genome_build: str | None = None,
     ) -> None:
+        """Open one chromosome's sorted parquet R2 tables and build index maps."""
         if not paths:
             raise FileNotFoundError(f"No sorted parquet R2 files resolved for chromosome {chrom}.")
         validate_retained_identifier_uniqueness(metadata, identifier_mode, chrom)
@@ -1320,6 +1337,7 @@ class SortedR2BlockReader:
         self._last_query_rows: pd.DataFrame | None = None
 
     def _transform_r2(self, values: np.ndarray) -> np.ndarray:
+        """Apply the configured raw-to-unbiased R2 correction when required."""
         values = values.astype(np.float32, copy=False)
         if self.r2_bias_mode == "raw":
             if self.r2_sample_size is None:
@@ -1331,6 +1349,7 @@ class SortedR2BlockReader:
         return values
 
     def _query_union_rows(self, pos_min: int, pos_max: int) -> pd.DataFrame:
+        """Query cached or on-disk pair rows spanning a union genomic window."""
         key = (int(pos_min), int(pos_max))
         if self._last_query_key == key and self._last_query_rows is not None:
             return self._last_query_rows.copy()
@@ -1388,6 +1407,7 @@ class SortedR2BlockReader:
         return rows
 
     def _deduplicate_pairs(self, pair_rows: pd.DataFrame, context: str) -> pd.DataFrame:
+        """Drop duplicate unordered SNP pairs after verifying matching R2 values."""
         if len(pair_rows) == 0:
             return pair_rows
         pair_rows = pair_rows.copy()
@@ -1404,6 +1424,7 @@ class SortedR2BlockReader:
         return pair_rows.drop_duplicates(subset=["lo", "hi"], keep="first").reset_index(drop=True)
 
     def cross_block_matrix(self, l_A: int, b: int, l_B: int, c: int) -> np.ndarray:
+        """Build the dense cross-block R2 matrix used by the parquet backend."""
         if b <= 0 or c <= 0:
             return np.zeros((max(b, 0), max(c, 0)), dtype=np.float32)
 
@@ -1438,6 +1459,7 @@ class SortedR2BlockReader:
         return matrix
 
     def within_block_matrix(self, l_B: int, c: int) -> np.ndarray:
+        """Build the dense within-block R2 matrix used by the parquet backend."""
         if c <= 0:
             return np.zeros((0, 0), dtype=np.float32)
 

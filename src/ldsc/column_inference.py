@@ -76,6 +76,7 @@ def _canonical_only_spec(canonical: str, label: str) -> ColumnSpec:
 
 
 def _index_spec(base_aliases: Sequence[str], index: int, canonical: str, label: str) -> ColumnSpec:
+    """Build a numbered column spec such as ``rsID_1`` or ``rsID_2``."""
     values: list[str] = []
     for alias in base_aliases:
         values.extend((f"{alias}_{index}", f"{alias}{index}"))
@@ -87,6 +88,7 @@ _UNIQ_ID_TOKEN_ALIASES = ("uniq_id", "uniqid", "unique_id", "uniqueid")
 
 
 def _build_position_aliases(build_aliases: Sequence[str], index: int) -> tuple[str, ...]:
+    """Build numbered position aliases for one genome-build family."""
     values: list[str] = []
     for build in build_aliases:
         for pos in _POS_TOKEN_ALIASES:
@@ -95,6 +97,7 @@ def _build_position_aliases(build_aliases: Sequence[str], index: int) -> tuple[s
 
 
 def _build_uniq_id_aliases(build_aliases: Sequence[str], index: int) -> tuple[str, ...]:
+    """Build numbered unique-ID aliases for one genome-build family."""
     values: list[str] = []
     for build in build_aliases:
         for token in _UNIQ_ID_TOKEN_ALIASES:
@@ -253,6 +256,7 @@ def build_cleaned_alias_lookup(specs: Sequence[ColumnSpec]) -> dict[str, str]:
 
 
 def _best_matches(columns: Iterable[str], spec: ColumnSpec) -> list[str]:
+    """Return the best-ranked header matches for one canonical field spec."""
     columns = list(columns)
     canonical_norm = normalize_column_token(spec.canonical)
     alias_norms = {normalize_column_token(alias) for alias in spec.aliases}
@@ -276,6 +280,7 @@ def _best_matches(columns: Iterable[str], spec: ColumnSpec) -> list[str]:
 
 
 def _warn_if_inferred(canonical: str, actual: str, context: str | None) -> None:
+    """Emit a one-time warning when alias inference renames a source column."""
     if actual == canonical:
         return
     key = (context or "", canonical, actual)

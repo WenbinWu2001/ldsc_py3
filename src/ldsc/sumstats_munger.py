@@ -82,6 +82,7 @@ class RawSumstatsSpec:
     column_hints: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        """Normalize the raw input path token after dataclass construction."""
         object.__setattr__(self, "path", _normalize_required_path(self.path))
 
 
@@ -210,6 +211,7 @@ class SumstatsMunger:
     """Run legacy-compatible munging through a typed workflow interface."""
 
     def __init__(self) -> None:
+        """Initialize the workflow wrapper and clear any cached run summary."""
         self._last_summary: MungeRunSummary | None = None
 
     def run(

@@ -68,14 +68,17 @@ def sec_to_str(t):
 class Logger(object):
     """Minimal file-plus-stdout logger used by the munging kernel."""
     def __init__(self, fh):
+        """Open the backing log file handle."""
         self.log_fh = open(fh, 'w', encoding='utf-8')
 
     def log(self, msg):
+        """Write one message to the log file and mirror it to stdout."""
         print(msg, file=self.log_fh)
         self.log_fh.flush()
         print(msg)
 
     def close(self):
+        """Close the backing log file handle."""
         self.log_fh.close()
 
 null_values = {

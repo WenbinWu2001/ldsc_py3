@@ -53,6 +53,7 @@ class LiftOverMappingResult:
 
 
 def _open_text(path: str | PathLike[str]):
+    """Open a plain-text or gzip-compressed text file for reading."""
     text_path = str(path)
     if text_path.endswith(".gz"):
         return gzip.open(text_path, "rt", encoding="utf-8")
@@ -60,12 +61,14 @@ def _open_text(path: str | PathLike[str]):
 
 
 def _read_text_table(path: str | PathLike[str]) -> pd.DataFrame:
+    """Read a whitespace-delimited plain-text or gzip-compressed table."""
     text_path = str(path)
     compression = "gzip" if text_path.endswith(".gz") else None
     return pd.read_csv(text_path, sep=r"\s+", compression=compression)
 
 
 def _read_non_comment_lines(path: str | PathLike[str], limit: int = 5) -> list[str]:
+    """Return up to ``limit`` non-empty, non-comment lines from ``path``."""
     lines: list[str] = []
     with _open_text(path) as handle:
         for line in handle:
@@ -79,10 +82,12 @@ def _read_non_comment_lines(path: str | PathLike[str], limit: int = 5) -> list[s
 
 
 def _normalize_map_chromosome(value: object) -> str:
+    """Normalize one genetic-map chromosome label to the package canon."""
     return normalize_chromosome(value)
 
 
 def _chrom_sort_key(chrom: object) -> tuple[int, object]:
+    """Return the stable chromosome sort key used for map-like inputs."""
     return chrom_sort_key(chrom)
 
 
@@ -236,6 +241,7 @@ def compute_block_left(coords: np.ndarray, max_dist: float) -> np.ndarray:
 
 
 def _unbiased_r2_from_correlation(correlation: float, n_samples: int) -> float:
+    """Convert a correlation coefficient to the unbiased :math:`R^2` estimate."""
     sq = correlation * correlation
     denom = n_samples - 2 if n_samples > 2 else n_samples
     return sq - (1.0 - sq) / denom
@@ -248,6 +254,7 @@ def _emit_cross_block_pairs(
     block_left: np.ndarray,
     n_samples: int,
 ) -> list[dict[str, float | int | str]]:
+    """Build pair rows between the carry-over block and the current chunk."""
     rows: list[dict[str, float | int | str]] = []
     for local_j, global_j in enumerate(b_indices):
         valid = (a_indices >= int(block_left[global_j])) & (a_indices < global_j)
@@ -270,6 +277,7 @@ def _emit_within_block_pairs(
     block_left: np.ndarray,
     n_samples: int,
 ) -> list[dict[str, float | int | str]]:
+    """Build pair rows within the current chunk subject to ``block_left``."""
     rows: list[dict[str, float | int | str]] = []
     for local_j, global_j in enumerate(b_indices):
         for local_i in range(local_j):
@@ -393,6 +401,7 @@ def iter_pairwise_r2_rows(
 
 
 def _build_unique_ids(chromosomes: pd.Series, positions: np.ndarray, ref: pd.Series, alt: pd.Series) -> pd.Series:
+    """Build ``CHR:POS:REF:ALT`` identifiers for one allele-orientation table."""
     return (
         chromosomes.astype(str)
         + ":"
@@ -488,6 +497,7 @@ def build_runtime_metadata_table(
 
 
 def _ensure_parent_dir(path: str | PathLike[str]) -> None:
+    """Create the parent directory for ``path`` if it does not already exist."""
     parent = Path(path).parent
     parent.mkdir(parents=True, exist_ok=True)
 
@@ -571,6 +581,7 @@ class LiftOverTranslator:
         target_build: str,
         chain_path: str | PathLike[str] | None = None,
     ) -> None:
+        """Initialize a build-to-build position translator for one run."""
         self.source_build = source_build
         self.target_build = target_build
         self.chain_path = None if chain_path is None else Path(chain_path)

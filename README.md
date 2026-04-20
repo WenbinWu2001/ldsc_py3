@@ -8,7 +8,7 @@ This repository is the active refactored LDSC package.
 - `src/ldsc/_kernel/`: internal compute and file-format modules
 - `tests/`: local parity and workflow tests
 - `tutorials/`: package-level usage examples
-- `architecture.md`, `code_structure.md`, `class-and-features.md`: active design and navigation docs
+- `docs/architecture.md`, `docs/code_structure.md`, `docs/class-and-features.md`: active design and navigation docs
 
 ## Install
 
@@ -25,12 +25,13 @@ ldsc --help
 Equivalent development entrypoint:
 
 ```bash
-python -m ldsc.cli --help
+python -m ldsc --help
 ```
 
 Subcommands:
 
 - `ldsc annotate`
+- `ldsc build-ref-panel`
 - `ldsc ldscore`
 - `ldsc munge-sumstats`
 - `ldsc h2`
@@ -40,7 +41,14 @@ Subcommands:
 ## Python API
 
 ```python
-from ldsc import AnnotationBuilder, LDScoreCalculator, RegressionRunner, SumstatsMunger, load_sumstats
+from ldsc import (
+    AnnotationBuilder,
+    LDScoreCalculator,
+    ReferencePanelBuilder,
+    RegressionRunner,
+    SumstatsMunger,
+    load_sumstats,
+)
 ```
 
 ## Input Path Tokens

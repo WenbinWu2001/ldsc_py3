@@ -4,6 +4,8 @@ Goal: start from a PLINK reference panel (`.bed/.bim/.fam`) and build a standard
 
 This tutorial is written for first-time users. The examples use the chr22 1000 Genomes 30x example files bundled in this repository, but the same workflow applies to your own PLINK reference panel.
 
+All example paths below are relative to the workspace root that contains both `resources/` and `ldsc_py3_restructured/`.
+
 ## What This Builder Produces
 
 The `build-ref-panel` workflow converts PLINK genotypes into three kinds of files for each chromosome:
@@ -111,6 +113,11 @@ The bundled Alkes-group maps in `resources/genetic_maps/genetic_map_alkesgroup/`
   Plain-English meaning: genetic map aligned to hg38 coordinates.
   Recommended usage: same as above; provide the hg38 mate of your hg19 map.
 
+- `--liftover-chain-hg19-to-hg38` or `--liftover-chain-hg38-to-hg19`
+  Plain-English meaning: explicit chain file used to translate positions into the other genome build.
+  Recommended usage: pass the chain that matches `--source-genome-build`.
+  Current behavior: one liftover chain is required for every build-ref-panel run.
+
 - `--out`
   Plain-English meaning: output root directory.
   Recommended usage: point this to a dedicated directory for the new reference panel build.
@@ -174,6 +181,7 @@ ldsc build-ref-panel \
   --source-genome-build hg38 \
   --genetic-map-hg19 resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg19_withX.txt \
   --genetic-map-hg38 resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg38_withX.txt \
+  --liftover-chain-hg38-to-hg19 resources/liftover/hg38ToHg19.over.chain \
   --ld-wind-cm 1.0 \
   --out tutorial_outputs/ref_panel_chr22
 ```
@@ -187,6 +195,7 @@ PYTHONPATH=src python -m ldsc build-ref-panel \
   --source-genome-build hg38 \
   --genetic-map-hg19 resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg19_withX.txt \
   --genetic-map-hg38 resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg38_withX.txt \
+  --liftover-chain-hg38-to-hg19 resources/liftover/hg38ToHg19.over.chain \
   --ld-wind-cm 1.0 \
   --out tutorial_outputs/ref_panel_chr22
 ```
@@ -196,6 +205,7 @@ What this command is doing:
 - reads the chr22 PLINK panel
 - treats the input coordinates as hg38
 - uses a 1 cM LD window
+- uses the explicit hg38->hg19 liftover chain to populate the hg19 coordinates
 - interpolates cM values from both hg19 and hg38 genetic maps
 - writes a standard parquet panel rooted at `tutorial_outputs/ref_panel_chr22`
 
@@ -214,6 +224,7 @@ config = ReferencePanelBuildConfig(
     source_genome_build="hg38",
     genetic_map_hg19_path="resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg19_withX.txt",
     genetic_map_hg38_path="resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg38_withX.txt",
+    liftover_chain_hg38_to_hg19_path="resources/liftover/hg38ToHg19.over.chain",
     output_dir="tutorial_outputs/ref_panel_chr22",
     ld_wind_cm=1.0,
 )
@@ -410,6 +421,7 @@ ldsc build-ref-panel \
   --source-genome-build hg38 \
   --genetic-map-hg19 resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg19_withX.txt \
   --genetic-map-hg38 resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg38_withX.txt \
+  --liftover-chain-hg38-to-hg19 resources/liftover/hg38ToHg19.over.chain \
   --ld-wind-cm 1.0 \
   --out tutorial_outputs/ref_panel
 ```
@@ -457,6 +469,7 @@ result = run_build_ref_panel(
     source_genome_build="hg38",
     genetic_map_hg19="resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg19_withX.txt",
     genetic_map_hg38="resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg38_withX.txt",
+    liftover_chain_hg38_to_hg19="resources/liftover/hg38ToHg19.over.chain",
     out="tutorial_outputs/ref_panel_chr22",
     ld_wind_cm=1.0,
 )

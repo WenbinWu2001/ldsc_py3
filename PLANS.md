@@ -18,6 +18,7 @@ Summary:
 Resulting command surface:
 
 - `ldsc annotate`
+- `ldsc build-ref-panel`
 - `ldsc ldscore`
 - `ldsc munge-sumstats`
 - `ldsc h2`
@@ -53,7 +54,7 @@ Goals:
 
 Suggested checks:
 
-- `python -m ldsc.cli --help`
+- `python -m ldsc --help`
 - per-subcommand `--help`
 - output-path behavior for flat vs per-chrom layouts
 

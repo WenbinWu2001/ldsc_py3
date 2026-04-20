@@ -96,6 +96,7 @@ class CommonConfig:
     fail_on_missing_metadata: bool = False
 
     def __post_init__(self) -> None:
+        """Normalize shared path-like fields and validate common enum values."""
         if self.snp_identifier not in {"rsid", "chr_pos"}:
             raise ValueError("snp_identifier must be 'rsid' or 'chr_pos'.")
         object.__setattr__(self, "genome_build", normalize_genome_build(self.genome_build))
@@ -135,6 +136,7 @@ class AnnotationBuildConfig:
     compression: CompressionMode = "gzip"
 
     def __post_init__(self) -> None:
+        """Normalize annotation path tokens and validate compression mode."""
         object.__setattr__(self, "baseline_annotation_paths", _normalize_path_tuple(self.baseline_annotation_paths))
         object.__setattr__(self, "query_annotation_paths", _normalize_path_tuple(self.query_annotation_paths))
         object.__setattr__(self, "query_bed_paths", _normalize_path_tuple(self.query_bed_paths))
@@ -179,6 +181,7 @@ class RefPanelConfig:
     r2_sample_size: float | None = None
 
     def __post_init__(self) -> None:
+        """Normalize backend path tokens and validate parquet-R2 settings."""
         if self.backend not in {"auto", "plink", "parquet_r2"}:
             raise ValueError("backend must be 'auto', 'plink', or 'parquet_r2'.")
         if self.r2_bias_mode not in {None, "raw", "unbiased"}:
@@ -233,6 +236,7 @@ class LDScoreConfig:
     whole_chromosome_ok: bool = False
 
     def __post_init__(self) -> None:
+        """Validate LD-window settings and normalize optional keep-file paths."""
         windows = [self.ld_wind_snps, self.ld_wind_kb, self.ld_wind_cm]
         if sum(value is not None for value in windows) != 1:
             raise ValueError("Exactly one LD-window option must be set.")
@@ -270,6 +274,7 @@ class ReferencePanelBuildConfig:
     chunk_size: int = 50
 
     def __post_init__(self) -> None:
+        """Normalize build paths and validate liftover and LD-window settings."""
         if not str(self.panel_label).strip():
             raise ValueError("panel_label must be non-empty.")
         object.__setattr__(self, "panel_label", str(self.panel_label).strip())
@@ -345,6 +350,7 @@ class MungeConfig:
     daner_n: bool = False
 
     def __post_init__(self) -> None:
+        """Validate munging thresholds and normalize optional file paths."""
         if self.info_min < 0:
             raise ValueError("info_min must be non-negative.")
         if self.maf_min < 0 or self.maf_min > 0.5:
@@ -393,6 +399,7 @@ class RegressionConfig:
     pop_prev: float | list[float] | None = None
 
     def __post_init__(self) -> None:
+        """Validate regression hyperparameters after dataclass construction."""
         if self.n_blocks <= 1:
             raise ValueError("n_blocks must be greater than 1.")
         if self.two_step_cutoff is not None and self.two_step_cutoff <= 0:

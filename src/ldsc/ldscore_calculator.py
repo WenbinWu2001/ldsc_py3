@@ -176,6 +176,7 @@ class LDScoreCalculator:
     """
 
     def __init__(self, output_manager: OutputManager | None = None) -> None:
+        """Initialize the calculator with the output manager used for writes."""
         self.output_manager = output_manager or OutputManager()
 
     def run(
@@ -273,6 +274,7 @@ class LDScoreCalculator:
         common_config: CommonConfig,
         regression_snps: set[str] | None = None,
     ) -> ChromLDScoreResult:
+        """Convert one kernel chromosome result into the typed public result."""
         reference_metadata = legacy_result.metadata.reset_index(drop=True).copy()
         ld_scores = pd.DataFrame(legacy_result.ld_scores, columns=list(legacy_result.ldscore_columns))
         regression_metadata = reference_metadata.copy()
@@ -302,6 +304,7 @@ class LDScoreCalculator:
         chromosome_results: Sequence[ChromLDScoreResult],
         common_config: CommonConfig,
     ) -> LDScoreResult:
+        """Concatenate and sum per-chromosome results into one aggregate object."""
         if not chromosome_results:
             raise ValueError("At least one chromosome result is required.")
 

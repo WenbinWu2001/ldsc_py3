@@ -1,4 +1,17 @@
-"""Public workflow for building standard parquet reference panels from PLINK."""
+"""Workflow wrapper for building standard parquet reference panels from PLINK.
+
+Core functionality:
+    Resolve public PLINK, genetic-map, and liftover inputs; orchestrate
+    chromosome-wise reference-panel builds; and emit the standard parquet
+    artifacts consumed by the refactored LDSC workflows.
+
+Overview
+--------
+This module is the public entry point for the `build-ref-panel` workflow. It
+keeps path resolution, logging, and cross-file validation in the workflow
+layer, then delegates pairwise-LD generation and parquet serialization to
+``ldsc._kernel.ref_panel_builder``.
+"""
 
 from __future__ import annotations
 
@@ -34,6 +47,7 @@ class ReferencePanelBuildResult:
 
 @dataclass
 class _BuildState:
+    """Shared resources reused across chromosomes during one build run."""
     genetic_map_hg19: Any
     genetic_map_hg38: Any
     liftover_chain_paths: dict[tuple[str, str], str] = field(default_factory=dict)
@@ -46,9 +60,11 @@ class ReferencePanelBuilder:
     """Build standard parquet reference-panel artifacts from PLINK input."""
 
     def __init__(self, common_config: CommonConfig | None = None) -> None:
+        """Initialize the builder with shared common configuration defaults."""
         self.common_config = common_config or CommonConfig()
 
     def run(self, config: ReferencePanelBuildConfig) -> ReferencePanelBuildResult:
+        """Build parquet reference artifacts for every resolved chromosome."""
         self._configure_logging()
         resolved_prefixes = resolve_plink_prefix_group((config.plink_prefix,), allow_chromosome_suite=True)
         build_state = self._prepare_build_state(config)
@@ -83,12 +99,14 @@ class ReferencePanelBuilder:
         )
 
     def _configure_logging(self) -> None:
+        """Configure package logging for the current build run."""
         logging.basicConfig(
             level=getattr(logging, self.common_config.log_level),
             format="%(levelname)s: %(message)s",
         )
 
     def _prepare_build_state(self, config: ReferencePanelBuildConfig) -> _BuildState:
+        """Resolve shared maps, chains, and optional SNP restrictions."""
         hg19_files = resolve_file_group(
             (config.genetic_map_hg19_path,),
             suffixes=_GENETIC_MAP_SUFFIXES,
@@ -129,6 +147,7 @@ class ReferencePanelBuilder:
         )
 
     def _discover_prefix_chromosomes(self, prefix: str) -> list[str]:
+        """List the normalized chromosomes present in one PLINK prefix."""
         bim = legacy_parse.PlinkBIMFile(prefix + ".bim")
         chromosomes = sorted(
             {kernel_builder._normalize_map_chromosome(chrom) for chrom in bim.df["CHR"]},
@@ -143,6 +162,7 @@ class ReferencePanelBuilder:
         config: ReferencePanelBuildConfig,
         build_state: _BuildState,
     ) -> dict[str, str] | None:
+        """Build all parquet and metadata artifacts for one chromosome."""
         LOGGER.info("Building reference-panel artifacts for chromosome %s from %s.", chrom, prefix)
         bim = legacy_parse.PlinkBIMFile(prefix + ".bim")
         fam = legacy_parse.PlinkFAMFile(prefix + ".fam")
@@ -269,6 +289,7 @@ class ReferencePanelBuilder:
         chrom_df,
         keep_snps,
     ) -> tuple[Any, dict[int, int], dict[int, int]]:
+        """Filter retained SNPs to positions that map cleanly across builds."""
         keep_snps = list(keep_snps)
         candidate_positions = chrom_df.loc[keep_snps, "BP"].to_numpy(dtype=int)
         if source_build == "hg19":
@@ -313,6 +334,7 @@ class ReferencePanelBuilder:
         source_build: str,
         target_build: str,
     ) -> kernel_builder.LiftOverMappingResult:
+        """Translate positions between builds, caching translators by build pair."""
         if source_build == target_build:
             array = np.asarray(positions, dtype=int)
             return kernel_builder.LiftOverMappingResult(
@@ -340,6 +362,7 @@ class ReferencePanelBuilder:
         source_build: str,
         target_build: str,
     ):
+        """Translate positions between builds without returning drop statistics."""
         if source_build == target_build:
             return positions.copy()
         key = (source_build, target_build)
@@ -354,6 +377,7 @@ class ReferencePanelBuilder:
         return translator.translate_positions(chrom, positions)
 
     def _positions_from_lookup(self, kept_snps: Sequence[int], lookup: dict[int, int]):
+        """Materialize retained positions in the same order as ``kept_snps``."""
         return np.asarray([lookup[int(idx)] for idx in kept_snps], dtype=int)
 
 

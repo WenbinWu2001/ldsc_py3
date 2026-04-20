@@ -86,6 +86,7 @@ class Jackknife(object):
     '''
 
     def __init__(self, x, y, n_blocks=None, separators=None):
+        """Initialize shared block-jackknife dimensions and separators."""
         self.N, self.p = _check_shape(x, y)
         if separators is not None:
             if max(separators) != self.N:
@@ -212,6 +213,7 @@ class LstsqJackknifeSlow(Jackknife):
     '''
 
     def __init__(self, x, y, n_blocks=None, nn=False, separators=None):
+        """Run the slow delete-one-block jackknife for least-squares regression."""
         Jackknife.__init__(self, x, y, n_blocks, separators)
         if nn:  # non-negative least squares
             func = lambda x, y: np.atleast_2d(nnls(x, np.array(y).T[0])[0])
@@ -303,6 +305,7 @@ class LstsqJackknifeFast(Jackknife):
     '''
 
     def __init__(self, x, y, n_blocks=None, separators=None):
+        """Run the fast block jackknife using blockwise `X^T X` and `X^T y` summaries."""
         Jackknife.__init__(self, x, y, n_blocks, separators)
         xty, xtx = self.block_values(x, y, self.separators)
         self.est = self.block_values_to_est(xty, xtx)
@@ -463,6 +466,7 @@ class RatioJackknife(Jackknife):
     '''
 
     def __init__(self, est, numer_delete_values, denom_delete_values):
+        """Build ratio-jackknife pseudovalues from numerator and denominator deletes."""
         if numer_delete_values.shape != denom_delete_values.shape:
             raise ValueError(
                 'numer_delete_values.shape != denom_delete_values.shape.')

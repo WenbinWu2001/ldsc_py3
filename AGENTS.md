@@ -5,7 +5,7 @@ cd /Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerr
 conda env create -f environment.yml
 conda activate ldsc-py3-Jerry
 pip install -e .
-python -m ldsc.cli -h
+python -m ldsc -h
 python -m unittest discover -s tests -p 'test*.py' -v
 ```
 
@@ -15,11 +15,12 @@ python -m unittest discover -s tests -p 'test*.py' -v
 - Treat `src/ldsc/_kernel/` as internal-only compute and file-format code.
 - Keep the public workflow modules narrow and obvious:
   - `ldsc.annotation_builder`
+  - `ldsc.ref_panel_builder`
   - `ldsc.ldscore_calculator`
   - `ldsc.sumstats_munger`
   - `ldsc.regression_runner`
   - `ldsc.outputs`
-- Keep one CLI surface: `ldsc` with subcommands `annotate`, `ldscore`, `munge-sumstats`, `h2`, `partitioned-h2`, and `rg`.
+- Keep one CLI surface: `ldsc` with subcommands `annotate`, `build-ref-panel`, `ldscore`, `munge-sumstats`, `h2`, `partitioned-h2`, and `rg`.
 - Keep the package self-sufficient. Do not add imports that depend on sibling trees or repository-root wrappers.
 - Preserve existing file-format contracts for `.annot`, `.sumstats.gz`, `.l2.ldscore(.gz)`, `.w.l2.ldscore(.gz)`, `.M`, and `.M_5_50` unless a coordinated format change is intentional.
 - LD-score computation remains chromosome-wise. Regression consumes only the aggregated cross-chromosome result.
@@ -45,7 +46,7 @@ For complex features or significant refactors, write or update an ExecPlan in `P
 # Context Management
 
 - Before editing any file larger than 300 LOC, re-read the file and the relevant part of `PLANS.md`.
-- Treat `architecture.md`, `class-and-features.md`, `code_structure.md`, and `PLANS.md` as the design source of truth over the current implementation when conflicts arise.
+- Treat `docs/architecture.md`, `docs/class-and-features.md`, `docs/code_structure.md`, and `PLANS.md` as the design source of truth over the current implementation when conflicts arise.
 - Use sub-agents only for large independent tasks with clearly separate write scopes.
 
 # Testing
@@ -67,7 +68,7 @@ For complex features or significant refactors, write or update an ExecPlan in `P
 # Documentation
 
 - Use `fun-doc` when writing or updating Python docstrings for public functions, classes, or modules.
-- Use `architecture-doc` whenever the package structure changes significantly or `architecture.md` is out of sync with the code.
+- Use `architecture-doc` whenever the package structure changes significantly or `docs/architecture.md` is out of sync with the code.
 
 
 # Resources
@@ -75,5 +76,5 @@ For complex features or significant refactors, write or update an ExecPlan in `P
 - code repo: /Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured
 - public package: /Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc
 - internal kernel: /Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/ldsc/_kernel
-- design docs: /Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/architecture.md, /Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/class-and-features.md, /Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/code_structure.md, /Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/PLANS.md
+- design docs: /Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/docs/architecture.md, /Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/docs/class-and-features.md, /Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/docs/code_structure.md, /Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/PLANS.md
 - tests: /Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/tests

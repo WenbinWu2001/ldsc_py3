@@ -197,6 +197,7 @@ def resolve_plink_prefix_group(
 
 
 def _resolve_direct_token(token: str, *, suffixes: Sequence[str]) -> list[str]:
+    """Resolve one token through direct paths, globs, and fallback suffixes."""
     if os.path.exists(token):
         return [token]
 
@@ -213,6 +214,7 @@ def _resolve_direct_token(token: str, *, suffixes: Sequence[str]) -> list[str]:
 
 
 def _resolve_suite_token(token: str, *, suffixes: Sequence[str], chromosomes: Sequence[str]) -> list[str]:
+    """Resolve a chromosome-suite token by substituting each chromosome label."""
     resolved: list[str] = []
     for chrom in chromosomes:
         chrom_token = substitute_chromosome(token, chrom)
@@ -224,6 +226,7 @@ def _resolve_suite_token(token: str, *, suffixes: Sequence[str], chromosomes: Se
 
 
 def _resolve_direct_plink_token(token: str) -> list[str]:
+    """Resolve one PLINK token to a concrete prefix with `.bed/.bim/.fam` files."""
     suffixes = (".bed", ".bim", ".fam")
     for suffix in suffixes:
         if token.endswith(suffix) and os.path.exists(token):
@@ -254,6 +257,7 @@ def _resolve_direct_plink_token(token: str) -> list[str]:
 
 
 def _resolve_plink_suite_token(token: str, *, chromosomes: Sequence[str]) -> list[str]:
+    """Resolve a PLINK chromosome-suite token across the supplied chromosomes."""
     resolved: list[str] = []
     for chrom in chromosomes:
         try:
@@ -264,6 +268,7 @@ def _resolve_plink_suite_token(token: str, *, chromosomes: Sequence[str]) -> lis
 
 
 def _dedupe_preserving_order(values: Sequence[str]) -> list[str]:
+    """Return ``values`` with duplicates removed while keeping first-seen order."""
     seen: set[str] = set()
     ordered: list[str] = []
     for value in values:

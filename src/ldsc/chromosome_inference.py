@@ -21,6 +21,7 @@ def _emit_normalization_warning(
     context: str | None,
     kind: str,
 ) -> None:
+    """Warn once when a raw chromosome token is coerced to a canonical label."""
     key = (context or "", raw, canonical, kind)
     if key in _WARNED_NORMALIZATIONS:
         return
@@ -40,6 +41,7 @@ def _emit_normalization_warning(
 
 
 def _normalize_numeric_chromosome(raw: str, text: str, *, context: str | None) -> str:
+    """Normalize a numeric chromosome token, including LDSC-style sex codes."""
     try:
         number = float(text)
     except ValueError as exc:

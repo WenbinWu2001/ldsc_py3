@@ -1,17 +1,17 @@
 """ldsc package public surface.
 
 Core functionality:
-    Re-export the refactored LDSC workflow classes, configuration dataclasses,
-    reference-panel abstractions, and convenience helpers from a single import
-    location.
+    Re-export the refactored LDSC workflow classes, reference-panel builders
+    and loaders, configuration dataclasses, and convenience helpers from a
+    single import location.
 
 Overview
 --------
 This module is the top-level public API for the refactored package. Import from
 ``ldsc`` when you want the supported package surface rather than the internal
 ``ldsc._kernel`` implementation modules. The exports here mirror the main user
-workflows: annotation building, LD-score calculation, summary-statistics
-munging, regression, and output writing.
+workflows: annotation building, parquet reference-panel building, LD-score
+calculation, summary-statistics munging, regression, and output writing.
 
 Design Notes
 ------------
@@ -21,9 +21,11 @@ Design Notes
 
 Example
 -------
->>> from ldsc import CommonConfig, LDScoreCalculator, RegressionRunner
+>>> from ldsc import CommonConfig, ReferencePanelBuilder
 >>> CommonConfig().snp_identifier
 'chr_pos'
+>>> isinstance(ReferencePanelBuilder(), ReferencePanelBuilder)
+True
 """
 
 from importlib import import_module
@@ -62,7 +64,7 @@ _LAZY_EXPORTS = {
 
 
 def __getattr__(name: str):
-    """Lazily import public workflows with optional heavy dependencies."""
+    """Lazily import optional heavy public workflows on first attribute access."""
     if name not in _LAZY_EXPORTS:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
     module_name, attr_name = _LAZY_EXPORTS[name]

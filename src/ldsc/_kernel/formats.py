@@ -191,6 +191,7 @@ def ldscore(fh, num=None):
 def M(fh, num=None, N=2, common=False):
     '''Parses .l{N}.M files, split across num chromosomes. See docs/file_formats_ld.txt.'''
     def parsefunc(path):
+        """Read one whitespace-delimited count vector from disk."""
         with open(path, 'r') as handle:
             return [float(z) for z in handle.readline().split()]
     suffix = '.l' + str(N) + '.M'
@@ -288,8 +289,10 @@ def __ID_List_Factory__(colnames, keepcol, fname_end, header=None, usecols=None)
     """
 
     class IDContainer(object):
+        """Container that loads one identifier-list table and optional `IDList` view."""
 
         def __init__(self, fname):
+            """Store parser settings and load the requested identifier list."""
             self.__usecols__ = usecols
             self.__colnames__ = colnames
             self.__keepcol__ = keepcol
@@ -299,6 +302,7 @@ def __ID_List_Factory__(colnames, keepcol, fname_end, header=None, usecols=None)
             self.n = len(self.df)
 
         def __read__(self, fname):
+            """Read one identifier-list file into ``self.df`` and ``self.IDList``."""
             end = self.__fname_end__
             if end and not fname.endswith(end):
                 raise ValueError('{f} filename must end in {f}'.format(f=end))

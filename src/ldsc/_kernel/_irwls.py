@@ -55,6 +55,7 @@ class IRWLS(object):
     '''
 
     def __init__(self, x, y, update_func, n_blocks, w=None, slow=False, separators=None):
+        """Run IRWLS immediately and store the fitted estimate and jackknife outputs."""
         n, p = jk._check_shape(x, y)
         if w is None:
             w = np.ones_like(y)

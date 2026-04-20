@@ -164,6 +164,7 @@ class LD_Score_Regression(object):
     """
 
     def __init__(self, y, x, w, N, M, n_blocks, intercept=None, slow=False, step1_ii=None, old_weights=False):
+        """Fit the shared LDSC regression core and derive jackknife summaries."""
         for i in [y, x, w, M, N]:
             try:
                 if len(i.shape) != 2:
@@ -260,6 +261,7 @@ class LD_Score_Regression(object):
 
     @classmethod
     def aggregate(cls, y, x, N, M, intercept=None):
+        """Compute the scalar aggregate slope implied by one-response LDSC inputs."""
         if intercept is None:
             intercept = cls.__null_intercept__
 
@@ -268,6 +270,7 @@ class LD_Score_Regression(object):
         return num / denom
 
     def _update_func(self, x, ref_ld_tot, w_ld, N, M, Nbar, intercept=None, ii=None):
+        """Return the next IRWLS weights for the concrete regression subclass."""
         raise NotImplementedError
 
     def _delete_vals_tot(self, jknife, Nbar, M):
@@ -363,6 +366,7 @@ class Hsq(LD_Score_Regression):
     __null_intercept__ = 1
 
     def __init__(self, y, x, w, N, M, n_blocks=200, intercept=None, slow=False, twostep=None, old_weights=False):
+        """Fit the single-trait LDSC heritability estimator."""
         step1_ii = None
         if twostep is not None:
             step1_ii = y < twostep
@@ -514,6 +518,7 @@ class Hsq(LD_Score_Regression):
         return remove_brackets('\n'.join(out))
 
     def _update_weights(self, ld, w_ld, N, M, hsq, intercept, ii=None):
+        """Adapt the shared weight-update signature to the heritability model."""
         if intercept is None:
             intercept = self.__null_intercept__
 
@@ -566,6 +571,7 @@ class Gencov(LD_Score_Regression):
 
     def __init__(self, z1, z2, x, w, N1, N2, M, hsq1, hsq2, intercept_hsq1, intercept_hsq2,
                  n_blocks=200, intercept_gencov=None, slow=False, twostep=None):
+        """Fit the cross-trait genetic covariance estimator."""
         self.intercept_hsq1 = intercept_hsq1
         self.intercept_hsq2 = intercept_hsq2
         self.hsq1 = hsq1
@@ -708,6 +714,7 @@ class RG(object):
 
     def __init__(self, z1, z2, x, w, N1, N2, M, intercept_hsq1=None, intercept_hsq2=None,
                  intercept_gencov=None, n_blocks=200, slow=False, twostep=None):
+        """Fit heritability and covariance models, then derive genetic correlation."""
         self.intercept_gencov = intercept_gencov
         self._negative_hsq = None
         n_snp, n_annot = x.shape

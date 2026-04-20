@@ -107,6 +107,7 @@ class AnnotationSourceSpec:
     allow_missing_query: bool = True
 
     def __post_init__(self) -> None:
+        """Normalize all stored annotation path-token collections to tuples."""
         object.__setattr__(self, "baseline_annot_paths", _normalize_path_tuple(self.baseline_annot_paths))
         object.__setattr__(self, "query_annot_paths", _normalize_path_tuple(self.query_annot_paths))
         object.__setattr__(self, "bed_paths", _normalize_path_tuple(self.bed_paths))
@@ -203,6 +204,7 @@ class AnnotationBuilder:
     """
 
     def __init__(self, common_config: CommonConfig, build_config: AnnotationBuildConfig | None = None) -> None:
+        """Store shared configuration for bundle loading and BED projection."""
         self.common_config = common_config
         self.build_config = build_config or AnnotationBuildConfig()
 
@@ -568,6 +570,7 @@ class AnnotationBuilder:
         annot_file: str | Path,
         bed_for_annot,
     ) -> Path:
+        """Project one BED-like input onto one BIM file and write a legacy `.annot`."""
         pybedtools = _get_pybedtools()
         bimfile = Path(resolve_scalar_path(bimfile, label="PLINK BIM file"))
         annot_file = Path(normalize_path_token(annot_file))
@@ -596,9 +599,11 @@ class AnnotationBuilder:
         return annot_file
 
     def _resolve_annotation_path(self, path: str | Path) -> str:
+        """Resolve one annotation token to exactly one concrete annotation file."""
         return resolve_scalar_path(path, suffixes=ANNOTATION_SUFFIXES, label="annotation")
 
     def _ensure_aligned_rows(self, reference: pd.DataFrame, current: pd.DataFrame, path: str) -> None:
+        """Raise if two annotation tables do not share identical SNP row order."""
         ref_keys = build_snp_id_series(reference, self.common_config.snp_identifier)
         cur_keys = build_snp_id_series(current, self.common_config.snp_identifier)
         if len(reference) != len(current) or not ref_keys.equals(cur_keys):
@@ -607,6 +612,7 @@ class AnnotationBuilder:
             raise ValueError(f"Annotation metadata mismatch across files: {path}")
 
     def _merge_missing_metadata(self, reference: pd.DataFrame, current: pd.DataFrame) -> pd.DataFrame:
+        """Backfill missing `CM` or `MAF` metadata from another aligned table."""
         merged = reference.copy()
         if "MAF" in current.columns:
             if "MAF" not in merged.columns:
@@ -620,6 +626,7 @@ class AnnotationBuilder:
         return merged
 
     def _concat_or_empty(self, frames: list[pd.DataFrame], index: pd.Index) -> pd.DataFrame:
+        """Concatenate annotation frames or return an empty frame on ``index``."""
         if frames:
             return pd.concat(frames, axis=1)
         return pd.DataFrame(index=index)
@@ -630,6 +637,7 @@ class AnnotationBuilder:
         baseline_df: pd.DataFrame,
         query_df: pd.DataFrame,
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        """Apply the configured global SNP restriction to aligned annotation tables."""
         restrict_path = self.common_config.global_snp_restriction_path
         if restrict_path is None:
             return metadata, baseline_df, query_df

@@ -1,15 +1,17 @@
 """Unified CLI for the refactored LDSC package.
 
 Core functionality:
-    Provide one command surface for annotation building, LD-score calculation,
-    summary-statistics munging, and regression workflows.
+    Provide one command surface for annotation building, parquet
+    reference-panel generation, LD-score calculation, summary-statistics
+    munging, and regression workflows.
 
 Overview
 --------
 The refactored package intentionally exposes a single command, ``ldsc``, with
 subcommands grouped by user task rather than by historical script name. This
 module owns only argument parsing and dispatch. Scientific work remains in the
-public workflow modules.
+public workflow modules, including the standalone parquet reference-panel
+builder added during the restructuring pass.
 """
 
 from __future__ import annotations

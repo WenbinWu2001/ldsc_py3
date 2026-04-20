@@ -119,7 +119,7 @@ class RefPanel(ABC):
             },
         }
 
-    def _apply_global_restriction(self, metadata: pd.DataFrame) -> pd.DataFrame:
+    def _filter_metadata_by_global_restriction(self, metadata: pd.DataFrame) -> pd.DataFrame:
         """Filter metadata rows to the configured global SNP restriction set."""
         restrict_path = self.common_config.global_snp_restriction_path
         if restrict_path is None or len(metadata) == 0:
@@ -162,7 +162,7 @@ class PlinkRefPanel(RefPanel):
         metadata = df.loc[df["CHR"] == chrom, ["CHR", "SNP", "CM", "POS"]].reset_index(drop=True)
         if len(metadata) == 0:
             raise ValueError(f"No PLINK metadata rows found for chromosome {chrom}.")
-        metadata = self._apply_global_restriction(metadata)
+        metadata = self._filter_metadata_by_global_restriction(metadata)
         metadata = self._validate_metadata(metadata, chrom)
         self._metadata_cache[chrom] = metadata.copy()
         return metadata
@@ -257,7 +257,7 @@ class ParquetR2RefPanel(RefPanel):
         if not frames:
             raise ValueError(f"No parquet metadata rows found for chromosome {chrom}.")
         metadata = pd.concat(frames, axis=0, ignore_index=True)
-        metadata = self._apply_global_restriction(metadata)
+        metadata = self._filter_metadata_by_global_restriction(metadata)
         metadata = self._validate_metadata(metadata, chrom)
         self._metadata_cache[chrom] = metadata.copy()
         return metadata

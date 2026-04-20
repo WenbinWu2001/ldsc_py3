@@ -328,7 +328,9 @@ class AnnotationBuilder:
         baseline_df = self._concat_or_empty(baseline_blocks, index=metadata.index)
         query_df = self._concat_or_empty(query_blocks, index=metadata.index)
 
-        metadata, baseline_df, query_df = self._apply_global_restriction(metadata, baseline_df, query_df)
+        metadata, baseline_df, query_df = self._filter_aligned_tables_by_global_restriction(
+            metadata, baseline_df, query_df
+        )
         chromosomes = sorted(metadata["CHR"].astype(str).map(normalize_chromosome).unique().tolist(), key=_chrom_sort_key)
         return self._build_bundle(
             metadata=metadata,
@@ -645,7 +647,7 @@ class AnnotationBuilder:
             return pd.concat(frames, axis=1)
         return pd.DataFrame(index=index)
 
-    def _apply_global_restriction(
+    def _filter_aligned_tables_by_global_restriction(
         self,
         metadata: pd.DataFrame,
         baseline_df: pd.DataFrame,

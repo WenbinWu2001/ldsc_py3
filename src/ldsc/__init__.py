@@ -26,6 +26,8 @@ Example
 'chr_pos'
 """
 
+from importlib import import_module
+
 from .annotation_builder import (
     AnnotationBuilder,
     AnnotationBundle,
@@ -46,9 +48,28 @@ from .config import (
 from .ldscore_calculator import ChromLDScoreResult, LDScoreCalculator, LDScoreResult, run_ldscore
 from .outputs import ArtifactConfig, ArtifactProducer, OutputManager, OutputSpec, PostProcessor, ResultFormatter, ResultWriter, RunSummary
 from .ref_panel_builder import ReferencePanelBuildResult, ReferencePanelBuilder, run_build_ref_panel
-from .regression_runner import RegressionDataset, RegressionRunner
-from .sumstats_munger import MungeRunSummary, RawSumstatsSpec, SumstatsMunger, SumstatsTable, load_sumstats
 from ._kernel.ref_panel import ParquetR2RefPanel, PlinkRefPanel, RefPanel, RefPanelLoader, RefPanelSpec
+
+_LAZY_EXPORTS = {
+    "MungeRunSummary": (".sumstats_munger", "MungeRunSummary"),
+    "RawSumstatsSpec": (".sumstats_munger", "RawSumstatsSpec"),
+    "SumstatsMunger": (".sumstats_munger", "SumstatsMunger"),
+    "SumstatsTable": (".sumstats_munger", "SumstatsTable"),
+    "load_sumstats": (".sumstats_munger", "load_sumstats"),
+    "RegressionDataset": (".regression_runner", "RegressionDataset"),
+    "RegressionRunner": (".regression_runner", "RegressionRunner"),
+}
+
+
+def __getattr__(name: str):
+    """Lazily import public workflows with optional heavy dependencies."""
+    if name not in _LAZY_EXPORTS:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module_name, attr_name = _LAZY_EXPORTS[name]
+    module = import_module(module_name, __name__)
+    value = getattr(module, attr_name)
+    globals()[name] = value
+    return value
 
 __all__ = [
     "AnnotationBuildConfig",

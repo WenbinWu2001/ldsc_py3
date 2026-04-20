@@ -22,5 +22,7 @@ setup(
         "scipy>=1.11,<1.12",
         "numpy>=1.24,<1.25",
         "pandas>=2.0,<2.1",
+        "pyarrow>=16,<17",
+        "pyliftover>=0.4,<0.5",
     ],
 )

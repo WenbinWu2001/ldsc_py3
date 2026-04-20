@@ -14,6 +14,7 @@ from ldsc.config import (
     CommonConfig,
     LDScoreConfig,
     MungeConfig,
+    ReferencePanelBuildConfig,
     RefPanelConfig,
     RegressionConfig,
     normalize_genome_build,
@@ -103,6 +104,74 @@ class WorkflowConfigTest(unittest.TestCase):
             keep_individuals_path=Path("filters") / "samples.keep",
         )
         self.assertEqual(config.keep_individuals_path, "filters/samples.keep")
+
+    def test_ref_panel_build_config_validates_required_fields(self):
+        config = ReferencePanelBuildConfig(
+            panel_label="EUR",
+            plink_prefix="plink/panel.@",
+            source_genome_build="GRCh38",
+            genetic_map_hg19_path="maps/hg19.txt",
+            genetic_map_hg38_path="maps/hg38.txt",
+            output_dir="out",
+            ld_wind_kb=100.0,
+        )
+        self.assertEqual(config.panel_label, "EUR")
+        self.assertEqual(config.source_genome_build, "hg38")
+        self.assertEqual(config.plink_prefix, "plink/panel.@")
+        self.assertEqual(config.genetic_map_hg19_path, "maps/hg19.txt")
+        self.assertEqual(config.genetic_map_hg38_path, "maps/hg38.txt")
+        self.assertEqual(config.output_dir, "out")
+
+        with self.assertRaises(ValueError):
+            ReferencePanelBuildConfig(
+                panel_label="",
+                plink_prefix="plink/panel",
+                source_genome_build="hg19",
+                genetic_map_hg19_path="maps/hg19.txt",
+                genetic_map_hg38_path="maps/hg38.txt",
+                output_dir="out",
+                ld_wind_kb=100.0,
+            )
+        with self.assertRaises(ValueError):
+            ReferencePanelBuildConfig(
+                panel_label="EUR",
+                plink_prefix="plink/panel",
+                source_genome_build="hg19",
+                genetic_map_hg19_path=None,
+                genetic_map_hg38_path="maps/hg38.txt",
+                output_dir="out",
+                ld_wind_kb=100.0,
+            )
+        with self.assertRaises(ValueError):
+            ReferencePanelBuildConfig(
+                panel_label="EUR",
+                plink_prefix="plink/panel",
+                source_genome_build="hg19",
+                genetic_map_hg19_path="maps/hg19.txt",
+                genetic_map_hg38_path="maps/hg38.txt",
+                output_dir="out",
+                ld_wind_kb=100.0,
+                ld_wind_cm=1.0,
+            )
+
+    def test_ref_panel_build_config_normalizes_optional_paths(self):
+        config = ReferencePanelBuildConfig(
+            panel_label="EUR",
+            plink_prefix=Path("plink") / "panel",
+            source_genome_build="hg19",
+            genetic_map_hg19_path=Path("maps") / "hg19.txt",
+            genetic_map_hg38_path=Path("maps") / "hg38.txt",
+            output_dir=Path("outputs") / "ref",
+            restrict_snps_path=Path("restrict") / "snps.txt",
+            keep_indivs_path=Path("samples") / "keep.txt",
+            ld_wind_snps=500,
+        )
+        self.assertEqual(config.plink_prefix, "plink/panel")
+        self.assertEqual(config.genetic_map_hg19_path, "maps/hg19.txt")
+        self.assertEqual(config.genetic_map_hg38_path, "maps/hg38.txt")
+        self.assertEqual(config.output_dir, "outputs/ref")
+        self.assertEqual(config.restrict_snps_path, "restrict/snps.txt")
+        self.assertEqual(config.keep_indivs_path, "samples/keep.txt")
 
     def test_munge_config_defaults(self):
         config = MungeConfig(out_prefix="out")

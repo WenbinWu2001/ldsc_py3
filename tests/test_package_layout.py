@@ -1,6 +1,8 @@
 from pathlib import Path
+import runpy
 import sys
 import unittest
+import warnings
 from unittest import mock
 
 SRC = Path(__file__).resolve().parents[1] / "src"
@@ -87,3 +89,17 @@ class PackageLayoutTest(unittest.TestCase):
                 cli.main(["build-ref-panel", "--help"])
 
         self.assertEqual(exc.exception.code, 0)
+
+    def test_python_m_ldsc_does_not_treat_successful_results_as_exit_codes(self):
+        sentinel = object()
+
+        with mock.patch("ldsc.cli.main", return_value=sentinel) as mocked_main:
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    "ignore",
+                    message=r"'ldsc\.__main__' found in sys\.modules",
+                    category=RuntimeWarning,
+                )
+                runpy.run_module("ldsc", run_name="__main__", alter_sys=True)
+
+        mocked_main.assert_called_once_with()

@@ -259,6 +259,8 @@ class ReferencePanelBuildConfig:
     genetic_map_hg19_path: str | PathLike[str]
     genetic_map_hg38_path: str | PathLike[str]
     output_dir: str | PathLike[str]
+    liftover_chain_hg19_to_hg38_path: str | PathLike[str] | None = None
+    liftover_chain_hg38_to_hg19_path: str | PathLike[str] | None = None
     ld_wind_snps: int | None = None
     ld_wind_kb: float | None = None
     ld_wind_cm: float | None = None
@@ -275,9 +277,32 @@ class ReferencePanelBuildConfig:
         object.__setattr__(self, "source_genome_build", normalize_genome_build(self.source_genome_build))
         object.__setattr__(self, "genetic_map_hg19_path", _normalize_required_path(self.genetic_map_hg19_path))
         object.__setattr__(self, "genetic_map_hg38_path", _normalize_required_path(self.genetic_map_hg38_path))
+        object.__setattr__(
+            self,
+            "liftover_chain_hg19_to_hg38_path",
+            _normalize_optional_path(self.liftover_chain_hg19_to_hg38_path),
+        )
+        object.__setattr__(
+            self,
+            "liftover_chain_hg38_to_hg19_path",
+            _normalize_optional_path(self.liftover_chain_hg38_to_hg19_path),
+        )
         object.__setattr__(self, "output_dir", _normalize_required_path(self.output_dir))
         object.__setattr__(self, "restrict_snps_path", _normalize_optional_path(self.restrict_snps_path))
         object.__setattr__(self, "keep_indivs_path", _normalize_optional_path(self.keep_indivs_path))
+        required_chain = (
+            self.liftover_chain_hg19_to_hg38_path
+            if self.source_genome_build == "hg19"
+            else self.liftover_chain_hg38_to_hg19_path
+        )
+        if required_chain is None:
+            if self.source_genome_build == "hg19":
+                raise ValueError(
+                    "liftover_chain_hg19_to_hg38_path is required when source_genome_build is hg19."
+                )
+            raise ValueError(
+                "liftover_chain_hg38_to_hg19_path is required when source_genome_build is hg38."
+            )
         windows = [self.ld_wind_snps, self.ld_wind_kb, self.ld_wind_cm]
         if sum(value is not None for value in windows) != 1:
             raise ValueError("Exactly one LD-window option must be set.")

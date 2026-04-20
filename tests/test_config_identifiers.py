@@ -112,6 +112,7 @@ class WorkflowConfigTest(unittest.TestCase):
             source_genome_build="GRCh38",
             genetic_map_hg19_path="maps/hg19.txt",
             genetic_map_hg38_path="maps/hg38.txt",
+            liftover_chain_hg38_to_hg19_path="liftover/hg38ToHg19.over.chain",
             output_dir="out",
             ld_wind_kb=100.0,
         )
@@ -120,6 +121,7 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertEqual(config.plink_prefix, "plink/panel.@")
         self.assertEqual(config.genetic_map_hg19_path, "maps/hg19.txt")
         self.assertEqual(config.genetic_map_hg38_path, "maps/hg38.txt")
+        self.assertEqual(config.liftover_chain_hg38_to_hg19_path, "liftover/hg38ToHg19.over.chain")
         self.assertEqual(config.output_dir, "out")
 
         with self.assertRaises(ValueError):
@@ -129,6 +131,7 @@ class WorkflowConfigTest(unittest.TestCase):
                 source_genome_build="hg19",
                 genetic_map_hg19_path="maps/hg19.txt",
                 genetic_map_hg38_path="maps/hg38.txt",
+                liftover_chain_hg19_to_hg38_path="liftover/hg19ToHg38.over.chain",
                 output_dir="out",
                 ld_wind_kb=100.0,
             )
@@ -139,6 +142,7 @@ class WorkflowConfigTest(unittest.TestCase):
                 source_genome_build="hg19",
                 genetic_map_hg19_path=None,
                 genetic_map_hg38_path="maps/hg38.txt",
+                liftover_chain_hg19_to_hg38_path="liftover/hg19ToHg38.over.chain",
                 output_dir="out",
                 ld_wind_kb=100.0,
             )
@@ -149,9 +153,20 @@ class WorkflowConfigTest(unittest.TestCase):
                 source_genome_build="hg19",
                 genetic_map_hg19_path="maps/hg19.txt",
                 genetic_map_hg38_path="maps/hg38.txt",
+                liftover_chain_hg19_to_hg38_path="liftover/hg19ToHg38.over.chain",
                 output_dir="out",
                 ld_wind_kb=100.0,
                 ld_wind_cm=1.0,
+            )
+        with self.assertRaises(ValueError):
+            ReferencePanelBuildConfig(
+                panel_label="EUR",
+                plink_prefix="plink/panel",
+                source_genome_build="hg38",
+                genetic_map_hg19_path="maps/hg19.txt",
+                genetic_map_hg38_path="maps/hg38.txt",
+                output_dir="out",
+                ld_wind_kb=100.0,
             )
 
     def test_ref_panel_build_config_normalizes_optional_paths(self):
@@ -161,6 +176,8 @@ class WorkflowConfigTest(unittest.TestCase):
             source_genome_build="hg19",
             genetic_map_hg19_path=Path("maps") / "hg19.txt",
             genetic_map_hg38_path=Path("maps") / "hg38.txt",
+            liftover_chain_hg19_to_hg38_path=Path("liftover") / "hg19ToHg38.over.chain",
+            liftover_chain_hg38_to_hg19_path=Path("liftover") / "hg38ToHg19.over.chain",
             output_dir=Path("outputs") / "ref",
             restrict_snps_path=Path("restrict") / "snps.txt",
             keep_indivs_path=Path("samples") / "keep.txt",
@@ -169,6 +186,8 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertEqual(config.plink_prefix, "plink/panel")
         self.assertEqual(config.genetic_map_hg19_path, "maps/hg19.txt")
         self.assertEqual(config.genetic_map_hg38_path, "maps/hg38.txt")
+        self.assertEqual(config.liftover_chain_hg19_to_hg38_path, "liftover/hg19ToHg38.over.chain")
+        self.assertEqual(config.liftover_chain_hg38_to_hg19_path, "liftover/hg38ToHg19.over.chain")
         self.assertEqual(config.output_dir, "outputs/ref")
         self.assertEqual(config.restrict_snps_path, "restrict/snps.txt")
         self.assertEqual(config.keep_indivs_path, "samples/keep.txt")

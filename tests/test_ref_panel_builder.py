@@ -137,6 +137,12 @@ class LiftOverTranslatorTest(unittest.TestCase):
         self.assertEqual(result.cross_chrom_count, 1)
         self.assertEqual(result.unmapped_count, 1)
 
+    def test_explicit_chain_path_is_required_for_cross_build_translation(self):
+        with self.assertRaises(ValueError) as exc:
+            kernel_builder.LiftOverTranslator(source_build="hg38", target_build="hg19", chain_path=None)
+
+        self.assertIn("--liftover-chain-hg38-to-hg19", str(exc.exception))
+
 
 class RestrictionModeDetectionTest(unittest.TestCase):
     def test_detect_restriction_identifier_mode_accepts_rsid_lists(self):
@@ -318,6 +324,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             source_genome_build="hg19",
             genetic_map_hg19_path=map_hg19,
             genetic_map_hg38_path=map_hg38,
+            liftover_chain_hg19_to_hg38_path=tmpdir / "hg19ToHg38.over.chain",
             output_dir=tmpdir / "out",
             ld_wind_kb=1.0,
         )
@@ -379,6 +386,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 source_genome_build="hg19",
                 genetic_map_hg19_path=map_hg19,
                 genetic_map_hg38_path=map_hg38,
+                liftover_chain_hg19_to_hg38_path=tmpdir / "hg19ToHg38.over.chain",
                 output_dir=tmpdir / "out",
                 ld_wind_kb=1.0,
             )
@@ -391,6 +399,37 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             ):
                 with self.assertRaises(ValueError):
                     builder.run(config)
+
+    def test_map_positions_passes_explicit_chain_path_to_translator(self):
+        builder = ref_panel_builder.ReferencePanelBuilder(common_config=CommonConfig())
+        build_state = ref_panel_builder._BuildState(
+            genetic_map_hg19=pd.DataFrame({"CHR": ["1"], "POS": [100], "CM": [0.0]}),
+            genetic_map_hg38=pd.DataFrame({"CHR": ["1"], "POS": [100], "CM": [0.0]}),
+            liftover_chain_paths={("hg38", "hg19"): "chains/hg38ToHg19.over.chain"},
+        )
+        expected = kernel_builder.LiftOverMappingResult(
+            translated_positions=np.array([100], dtype=np.int64),
+            keep_mask=np.array([True], dtype=bool),
+            unmapped_count=0,
+            cross_chrom_count=0,
+        )
+
+        with mock.patch.object(kernel_builder, "LiftOverTranslator") as patched:
+            patched.return_value.map_positions.return_value = expected
+            result = builder._map_positions(
+                build_state=build_state,
+                chrom="1",
+                positions=np.array([100], dtype=np.int64),
+                source_build="hg38",
+                target_build="hg19",
+            )
+
+        self.assertIs(result, expected)
+        patched.assert_called_once_with(
+            source_build="hg38",
+            target_build="hg19",
+            chain_path="chains/hg38ToHg19.over.chain",
+        )
 
 
 @unittest.skipUnless(
@@ -420,6 +459,7 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
                 source_genome_build="hg38",
                 genetic_map_hg19=str(map_hg19),
                 genetic_map_hg38=str(map_hg38),
+                liftover_chain_hg38_to_hg19=str(resources / "liftover" / "hg38ToHg19.over.chain"),
                 out=str(tmpdir / "panel"),
                 ld_wind_kb=10.0,
                 chunk_size=64,

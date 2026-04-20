@@ -42,12 +42,6 @@ _STANDARD_LD_COLUMNS = [
     "Dprime",
     "+/-corr",
 ]
-_CHAIN_FILE_NAMES = {
-    ("hg19", "hg38"): "hg19ToHg38.over.chain",
-    ("hg38", "hg19"): "hg38ToHg19.over.chain",
-}
-
-
 @dataclass(frozen=True)
 class LiftOverMappingResult:
     """Partial liftover result for one chromosome."""
@@ -575,29 +569,8 @@ def write_runtime_metadata_sidecar(df: pd.DataFrame, path: str | PathLike[str]) 
     return str(path)
 
 
-def _find_resource_path(*parts: str) -> Path:
-    relative = Path("resources", *parts)
-    for parent in Path(__file__).resolve().parents:
-        candidate = parent / relative
-        if candidate.exists():
-            return candidate
-    raise FileNotFoundError(f"Could not locate bundled resource path: {relative}")
-
-
-def get_liftover_chain_path(source_build: str, target_build: str) -> Path:
-    """Resolve the bundled chain file for one supported build conversion."""
-
-    if source_build == target_build:
-        raise ValueError("No chain file is required for identity liftover.")
-    try:
-        chain_name = _CHAIN_FILE_NAMES[(source_build, target_build)]
-    except KeyError as exc:
-        raise ValueError(f"Unsupported liftover direction: {source_build} -> {target_build}.") from exc
-    return _find_resource_path("liftover", chain_name)
-
-
 class LiftOverTranslator:
-    """Translate one chromosome's 1-based positions between bundled genome builds."""
+    """Translate one chromosome's 1-based positions between explicit genome-build chain files."""
 
     def __init__(
         self,
@@ -614,14 +587,23 @@ class LiftOverTranslator:
             self._liftover = None
             return
         self._identity = False
+        if self.chain_path is None:
+            flag = (
+                "--liftover-chain-hg19-to-hg38"
+                if (source_build, target_build) == ("hg19", "hg38")
+                else "--liftover-chain-hg38-to-hg19"
+            )
+            raise ValueError(
+                f"An explicit liftover chain path is required for {source_build} -> {target_build}. "
+                f"Provide it via {flag}."
+            )
         try:
             from pyliftover import LiftOver
         except ImportError as exc:
             raise ImportError(
                 "Building reference panels across hg19/hg38 requires the optional dependency 'pyliftover'."
             ) from exc
-        resolved_chain = self.chain_path or get_liftover_chain_path(source_build, target_build)
-        self.chain_path = Path(resolved_chain)
+        self.chain_path = Path(self.chain_path)
         self._liftover = LiftOver(str(self.chain_path))
 
     def map_positions(self, chrom: str, positions: Sequence[int] | np.ndarray) -> LiftOverMappingResult:

@@ -36,6 +36,7 @@ class ReferencePanelBuildResult:
 class _BuildState:
     genetic_map_hg19: Any
     genetic_map_hg38: Any
+    liftover_chain_paths: dict[tuple[str, str], str] = field(default_factory=dict)
     restriction_mode: str | None = None
     restriction_values: set[str] | None = None
     translator_cache: dict[tuple[str, str], kernel_builder.LiftOverTranslator] = field(default_factory=dict)
@@ -119,6 +120,10 @@ class ReferencePanelBuilder:
         return _BuildState(
             genetic_map_hg19=kernel_builder.load_genetic_map_group(hg19_files),
             genetic_map_hg38=kernel_builder.load_genetic_map_group(hg38_files),
+            liftover_chain_paths={
+                ("hg19", "hg38"): config.liftover_chain_hg19_to_hg38_path,
+                ("hg38", "hg19"): config.liftover_chain_hg38_to_hg19_path,
+            },
             restriction_mode=restriction_mode,
             restriction_values=restriction_values,
         )
@@ -319,7 +324,11 @@ class ReferencePanelBuilder:
         key = (source_build, target_build)
         translator = build_state.translator_cache.get(key)
         if translator is None:
-            translator = kernel_builder.LiftOverTranslator(source_build=source_build, target_build=target_build)
+            translator = kernel_builder.LiftOverTranslator(
+                source_build=source_build,
+                target_build=target_build,
+                chain_path=build_state.liftover_chain_paths.get(key),
+            )
             build_state.translator_cache[key] = translator
         return translator.map_positions(chrom, positions)
 
@@ -336,7 +345,11 @@ class ReferencePanelBuilder:
         key = (source_build, target_build)
         translator = build_state.translator_cache.get(key)
         if translator is None:
-            translator = kernel_builder.LiftOverTranslator(source_build=source_build, target_build=target_build)
+            translator = kernel_builder.LiftOverTranslator(
+                source_build=source_build,
+                target_build=target_build,
+                chain_path=build_state.liftover_chain_paths.get(key),
+            )
             build_state.translator_cache[key] = translator
         return translator.translate_positions(chrom, positions)
 
@@ -361,6 +374,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--genetic-map-hg19", required=True, help="Genetic map file or token aligned to hg19 coordinates.")
     parser.add_argument("--genetic-map-hg38", required=True, help="Genetic map file or token aligned to hg38 coordinates.")
+    parser.add_argument(
+        "--liftover-chain-hg19-to-hg38",
+        default=None,
+        help="Chain file for hg19->hg38 liftover. Required when --source-genome-build is hg19.",
+    )
+    parser.add_argument(
+        "--liftover-chain-hg38-to-hg19",
+        default=None,
+        help="Chain file for hg38->hg19 liftover. Required when --source-genome-build is hg38.",
+    )
     parser.add_argument("--out", required=True, help="Output root directory for emitted parquet artifacts.")
     parser.add_argument("--ld-wind-snps", default=None, type=int, help="LD window size in SNPs.")
     parser.add_argument("--ld-wind-kb", default=None, type=float, help="LD window size in kilobases.")
@@ -385,6 +408,8 @@ def config_from_args(args: argparse.Namespace) -> tuple[ReferencePanelBuildConfi
         source_genome_build=args.source_genome_build,
         genetic_map_hg19_path=args.genetic_map_hg19,
         genetic_map_hg38_path=args.genetic_map_hg38,
+        liftover_chain_hg19_to_hg38_path=args.liftover_chain_hg19_to_hg38,
+        liftover_chain_hg38_to_hg19_path=args.liftover_chain_hg38_to_hg19,
         output_dir=args.out,
         ld_wind_snps=args.ld_wind_snps,
         ld_wind_kb=args.ld_wind_kb,

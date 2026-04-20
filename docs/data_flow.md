@@ -1,0 +1,337 @@
+# Data Flow
+
+This document summarizes the user-visible file streams for each public workflow. The diagrams use Mermaid `flowchart LR` because it maps cleanly onto the package's left-to-right data movement and layered module boundaries.
+
+## Layer Legend
+
+| Layer | Public? | Modules | Role |
+| --- | --- | --- | --- |
+| CLI | yes | `ldsc.cli` | parse subcommands and dispatch |
+| Preprocessing | yes | `ldsc.config`, `ldsc.path_resolution`, `ldsc.column_inference`, `ldsc.chromosome_inference` | normalize tokens, headers, identifiers, chromosome order |
+| Workflow | yes | feature modules under `src/ldsc/` | build aligned in-memory tables |
+| Kernel | no | `ldsc._kernel.*` | low-level readers and numerical work |
+| Postprocessing | yes | `ldsc.outputs`, pandas writers in `ldsc.regression_runner` | emit files and summaries |
+
+## Package Overview
+
+```mermaid
+flowchart LR
+  IN1[BED / gene sets]
+  IN2[PLINK or parquet LD reference]
+  IN3[Raw GWAS sumstats]
+
+  subgraph CLI[CLI Layer (public)<br/>ldsc.cli]
+    C1[Dispatch subcommands]
+  end
+
+  subgraph WF[Workflow Layer (public)<br/>src/ldsc/*.py]
+    W1[Build annotations]
+    W2[Build parquet panel]
+    W3[Compute LD scores]
+    W4[Munge sumstats]
+    W5[Run regression]
+  end
+
+  subgraph K[Compute Kernel (private)<br/>src/ldsc/_kernel/*.py]
+    K1[Parse files]
+    K2[Compute LD]
+    K3[Run estimators]
+  end
+
+  subgraph OUT[Postprocessing (public)<br/>ldsc.outputs / regression_runner]
+    O1[Write LDSC artifacts]
+    O2[Write summary tables]
+  end
+
+  IN1 --> C1 --> W1 --> K1
+  IN2 --> C1 --> W2 --> K2
+  IN1 --> C1 --> W3 --> K1
+  IN2 --> C1 --> W3 --> K2
+  IN3 --> C1 --> W4 --> K1
+  W3 --> O1
+  W4 --> O1
+  O1 --> W5 --> K3 --> O2
+```
+
+## 1. `annotate`: BED Or Gene-Set Projection To SNP-Level `.annot.gz`
+
+### Required inputs
+
+| File | Example | Notes |
+| --- | --- | --- |
+| baseline annotation shard | `CHR POS SNP CM base`<br/>`1 10583 rs58108140 0.0 1` | used as the SNP template; one shard per chromosome is typical |
+| BED file | `chr1 10000 10100 enhancer_A` | one or more region files |
+| gene set file, optional | `BRCA1` | legacy path that first converts genes to BED |
+| gene coordinate file, optional | `GENE CHR START END`<br/>`BRCA1 17 43044295 43125482` | required only for gene-set projection |
+| SNP restriction file, optional | `rs123` or `CHR POS` table | applied after baseline alignment |
+
+### Flow
+
+```mermaid
+flowchart LR
+  I1[Baseline .annot(.gz)]
+  I2[BED or gene set]
+
+  subgraph P1[Preprocessing (public)<br/>config + path_resolution]
+    A1[Resolve input shards]
+    A2[Normalize restriction IDs]
+  end
+
+  subgraph W1[Workflow (public)<br/>ldsc.annotation_builder]
+    A3[Load baseline rows]
+    A4[Choose batch or legacy mode]
+  end
+
+  subgraph K1[Kernel (private)<br/>ldsc._kernel.annotation]
+    A5[Intersect regions with SNP grid]
+    A6[Assemble query masks]
+  end
+
+  I1 --> A1 --> A3 --> A4 --> A5 --> A6
+  I2 --> A1
+  A2 --> A6
+  A6 --> O1[query.<chrom>.annot.gz]
+```
+
+### Outputs
+
+| File | Example | Notes |
+| --- | --- | --- |
+| projected query annotation shard | `CHR POS SNP CM enhancer_A`<br/>`1 10583 rs58108140 0.0 1` | default batch output name is `query.<chrom>.annot.gz` |
+| legacy single-file annotation | `CHR POS SNP CM my_annot` | produced by the legacy single-annotation path |
+
+### Modules used
+
+- Preprocessing: `ldsc.config`, `ldsc.path_resolution`, `ldsc.column_inference`
+- Workflow: `ldsc.annotation_builder`
+- Kernel: `ldsc._kernel.annotation`
+- Postprocessing: gzip writer inside the annotation kernel
+
+## 2. `build-ref-panel`: PLINK To Standard Parquet LD Reference
+
+### Required inputs
+
+| File | Example | Notes |
+| --- | --- | --- |
+| PLINK prefix | `reference/genomes_30x_chr22` | resolves to `.bed`, `.bim`, `.fam` |
+| `.bim` row | `22 rs123 0.0 16050075 A G` | variant metadata |
+| `.fam` row | `fam1 iid1 0 0 0 -9` | sample metadata |
+| genetic map | `chr position Genetic_Map(cM)`<br/>`22 16050000 0.42` | one hg19 map and one hg38 map |
+| liftover chain, conditional | `hg38ToHg19.over.chain.gz` | required when source build and target build differ |
+| keep or restrict file, optional | one IID per row or one SNP per row | filters individuals or variants |
+
+### Flow
+
+```mermaid
+flowchart LR
+  I1[PLINK prefix]
+  I2[Genetic maps]
+  I3[Liftover / keep / restrict]
+
+  subgraph P2[Preprocessing (public)<br/>config + path_resolution]
+    B1[Resolve PLINK prefixes]
+    B2[Resolve map and filter files]
+  end
+
+  subgraph W2[Workflow (public)<br/>ldsc.ref_panel_builder]
+    B3[Discover chromosomes]
+    B4[Prepare build state]
+  end
+
+  subgraph K2[Kernel (private)<br/>ldsc._kernel.ref_panel_builder]
+    B5[Interpolate cM positions]
+    B6[Emit pairwise LD rows]
+    B7[Format standard schemas]
+  end
+
+  I1 --> B1 --> B3 --> B4 --> B5 --> B6 --> B7
+  I2 --> B2 --> B4
+  I3 --> B2 --> B4
+  B7 --> O2[ann.parquet + LD.parquet + meta_*.tsv.gz]
+```
+
+### Outputs
+
+| File | Example | Notes |
+| --- | --- | --- |
+| annotation parquet | columns `chr`, `hg19_pos`, `hg38_pos`, `hg19_Uniq_ID`, `hg38_Uniq_ID`, `rsID`, `MAF`, `REF`, `ALT` | one row per retained SNP |
+| LD parquet | columns `chr`, `rsID_1`, `rsID_2`, `hg38_pos_1`, `hg38_pos_2`, `hg19_pos_1`, `hg19_pos_2`, `R2`, `Dprime`, `+/-corr` | one row per unordered SNP pair inside the LD window |
+| runtime metadata sidecar | `CHR POS SNP CM MAF`<br/>`22 16050075 rs123 0.42 0.18` | emitted once for hg19 and once for hg38 |
+
+### Modules used
+
+- Preprocessing: `ldsc.config`, `ldsc.path_resolution`
+- Workflow: `ldsc.ref_panel_builder`
+- Kernel: `ldsc._kernel.ref_panel_builder`, `ldsc._kernel.ldscore`, `ldsc._kernel.formats`
+- Postprocessing: parquet and TSV writers in the kernel
+
+## 3. `ldscore`: Annotation Plus Reference Panel To LDSC Artifacts
+
+### Required inputs
+
+| File | Example | Notes |
+| --- | --- | --- |
+| baseline annotation shard | `CHR POS SNP CM base`<br/>`1 10583 rs58108140 0.0 1` | required |
+| query annotation shard, optional | `CHR POS SNP CM enhancer_A`<br/>`1 10583 rs58108140 0.0 1` | optional extra annotation columns |
+| PLINK prefix or parquet LD panel | `panel_chr@` or `EUR_chr@_LD.parquet` | choose one backend |
+| frequency / metadata sidecar, optional | `CHR POS SNP CM MAF` | used for MAF and runtime metadata |
+| regression SNP list, optional | `rs123` | restricts the weight-table SNP set |
+
+### Flow
+
+```mermaid
+flowchart LR
+  I1[.annot(.gz) shards]
+  I2[PLINK or parquet LD reference]
+  I3[Metadata / restriction files]
+
+  subgraph P3[Preprocessing (public)<br/>config + path_resolution + column_inference]
+    C1[Resolve shards and tokens]
+    C2[Normalize identifier mode]
+  end
+
+  subgraph W3[Workflow (public)<br/>ldsc.ldscore_calculator]
+    C3[Bundle annotations by chromosome]
+    C4[Select backend]
+    C5[Aggregate chromosome results]
+  end
+
+  subgraph K3[Kernel (private)<br/>ldsc._kernel.ldscore]
+    C6[Compute chromosome LD scores]
+    C7[Compute regression weights]
+  end
+
+  subgraph O3[Postprocessing (public)<br/>ldsc.outputs]
+    C8[Write LDSC artifacts]
+  end
+
+  I1 --> C1 --> C3 --> C4 --> C6 --> C7 --> C5 --> C8
+  I2 --> C1 --> C4
+  I3 --> C1 --> C2 --> C6
+```
+
+### Outputs
+
+| File | Example | Notes |
+| --- | --- | --- |
+| LD-score table | `CHR SNP POS CM MAF base enhancer_A`<br/>`1 rs1 10 0.1 0.20 1.2 0.4` | default filename `<out>.l2.ldscore.gz` |
+| regression-weight table | `CHR SNP POS CM MAF L2`<br/>`1 rs1 10 0.1 0.20 1.7` | default filename `<out>.w.l2.ldscore.gz` |
+| count vector | `12345 678 90` | `<out>.l2.M` and, when enabled, `<out>.l2.M_5_50` |
+| annotation manifest | `column group`<br/>`base baseline` | `<out>.annotation_groups.tsv` |
+| summaries | one-row `.summary.tsv`, `.summary.json`, `.run_metadata.json` | emitted by `ldsc.outputs` |
+
+### Modules used
+
+- Preprocessing: `ldsc.config`, `ldsc.path_resolution`, `ldsc.column_inference`
+- Workflow: `ldsc.ldscore_calculator`
+- Kernel: `ldsc._kernel.ldscore`
+- Postprocessing: `ldsc.outputs`
+
+## 4. `munge-sumstats`: Raw GWAS Table To Curated `.sumstats.gz`
+
+### Required inputs
+
+| File | Example | Notes |
+| --- | --- | --- |
+| raw sumstats | `SNP A1 A2 P BETA N`<br/>`rs1 A G 0.05 0.10 1000` | header aliases are normalized in the workflow layer |
+| merge-alleles file, optional | one SNP or allele pair per row | optional legacy compatibility filter |
+| column hints, optional | `--snp SNP --a1 A1 --a2 A2` | useful when headers are ambiguous |
+
+### Flow
+
+```mermaid
+flowchart LR
+  I1[Raw GWAS table]
+  I2[Column hints / merge list]
+
+  subgraph P4[Preprocessing (public)<br/>config + path_resolution + column_inference]
+    D1[Resolve one raw file]
+    D2[Normalize header aliases]
+  end
+
+  subgraph W4[Workflow (public)<br/>ldsc.sumstats_munger]
+    D3[Build typed munging args]
+    D4[Capture run summary]
+  end
+
+  subgraph K4[Kernel (private)<br/>ldsc._kernel.sumstats_munger]
+    D5[QC and infer columns]
+    D6[Compute Z and N fields]
+  end
+
+  I1 --> D1 --> D2 --> D3 --> D5 --> D6 --> D4
+  I2 --> D2
+  D4 --> O4[.sumstats.gz + .log]
+```
+
+### Outputs
+
+| File | Example | Notes |
+| --- | --- | --- |
+| curated sumstats | `SNP A1 A2 Z N`<br/>`rs1 A G 1.96 1000` | written as `<out>.sumstats.gz`; optional `FRQ` may also be present |
+| log file | plain-text QC log | written as `<out>.log` |
+
+### Modules used
+
+- Preprocessing: `ldsc.config`, `ldsc.path_resolution`, `ldsc.column_inference`
+- Workflow: `ldsc.sumstats_munger`
+- Kernel: `ldsc._kernel.sumstats_munger`
+- Postprocessing: gzip and log writing inside the kernel
+
+## 5. `h2`, `partitioned-h2`, and `rg`: Curated Artifacts To Regression Summaries
+
+### Required inputs
+
+| File | Example | Notes |
+| --- | --- | --- |
+| munged sumstats | `SNP A1 A2 Z N`<br/>`rs1 A G 1.96 1000` | one file for `h2` and `partitioned-h2`, two files for `rg` |
+| LD-score table | `CHR SNP POS CM MAF base enhancer_A` | `<out>.l2.ldscore(.gz)` from the LD-score workflow |
+| weight table | `CHR SNP POS CM MAF L2` | `<out>.w.l2.ldscore(.gz)` |
+| count vector | `12345 678 90` | `.l2.M` or `.l2.M_5_50`; order must match LD-score columns |
+| annotation manifest, optional | `column group`<br/>`enhancer_A query` | used by `partitioned-h2` to split baseline and query columns |
+
+### Flow
+
+```mermaid
+flowchart LR
+  I1[Curated .sumstats.gz]
+  I2[LD-score artifacts]
+
+  subgraph P5[Preprocessing (public)<br/>path_resolution + column_inference]
+    E1[Resolve scalar artifact files]
+    E2[Reload canonical headers]
+  end
+
+  subgraph W5[Workflow (public)<br/>ldsc.regression_runner]
+    E3[Rebuild LDScoreResult]
+    E4[Merge sumstats and LD tables]
+    E5[Drop zero-variance columns]
+  end
+
+  subgraph K5[Kernel (private)<br/>ldsc._kernel.regression]
+    E6[Estimate h2]
+    E7[Estimate partitioned h2]
+    E8[Estimate rg]
+  end
+
+  I1 --> E1 --> E4 --> E5
+  I2 --> E1 --> E2 --> E3 --> E4
+  E5 --> E6 --> O5a[.h2.tsv]
+  E5 --> E7 --> O5b[.partitioned_h2.tsv]
+  E5 --> E8 --> O5c[.rg.tsv]
+```
+
+### Outputs
+
+| Subcommand | Output columns | Example |
+| --- | --- | --- |
+| `h2` | `trait_name`, `n_snps`, `total_h2`, `total_h2_se`, `intercept`, `intercept_se`, `mean_chisq`, `lambda_gc`, `ratio`, `ratio_se` | `trait 105234 0.18 0.03 1.02 0.01 1.11 1.05 0.08 0.03` |
+| `partitioned-h2` | `query_annotation`, `coefficient`, `coefficient_se`, `coefficient_z`, `coefficient_p`, `category_h2`, `category_h2_se`, `proportion_h2`, `proportion_h2_se`, `enrichment` | `enhancer_A 0.012 0.004 3.0 0.003 0.025 0.008 0.14 0.05 2.3` |
+| `rg` | `trait_1`, `trait_2`, `rg`, `rg_se`, `z`, `p` | `trait_a trait_b 0.42 0.09 4.7 2.6e-06` |
+
+### Modules used
+
+- Preprocessing: `ldsc.path_resolution`, `ldsc.column_inference`
+- Workflow: `ldsc.regression_runner`, `ldsc.sumstats_munger.load_sumstats()`
+- Kernel: `ldsc._kernel.regression`, `ldsc._kernel._jackknife`, `ldsc._kernel._irwls`
+- Postprocessing: pandas TSV writers in `ldsc.regression_runner`

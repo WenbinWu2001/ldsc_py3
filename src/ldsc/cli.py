@@ -15,12 +15,11 @@ public workflow modules.
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 from typing import Sequence
 
-from . import annotation_builder, ldscore_calculator, ref_panel_builder, regression_runner
-
-from . import sumstats_munger
+from . import annotation_builder, ldscore_calculator, ref_panel_builder
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -43,9 +42,11 @@ def build_parser() -> argparse.ArgumentParser:
     ref_panel_parser = subparsers.add_parser("build-ref-panel", help="Build standard parquet reference panels.")
     _copy_actions(ref_panel_parser, ref_panel_builder.build_parser())
 
+    sumstats_munger = _load_sumstats_munger()
     munge_parser = subparsers.add_parser("munge-sumstats", help="Munge GWAS summary statistics.")
     _copy_actions(munge_parser, sumstats_munger.kernel_parser())
 
+    regression_runner = _load_regression_runner()
     h2_parser = subparsers.add_parser("h2", help="Estimate heritability from munged sumstats and LD scores.")
     regression_runner.add_h2_arguments(h2_parser)
 
@@ -74,6 +75,39 @@ def main(argv: Sequence[str] | None = None):
     object
         Workflow-specific result object returned by the dispatched subcommand.
     """
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv:
+        command = argv[0]
+        subargv = argv[1:]
+        if command == "annotate":
+            annotate_parser = argparse.ArgumentParser(prog="ldsc annotate", description="Build SNP-level annotations.")
+            _add_annotate_arguments(annotate_parser)
+            return _run_annotate(annotate_parser.parse_args(subargv))
+        if command == "ldscore":
+            return ldscore_calculator.main(subargv)
+        if command == "build-ref-panel":
+            return ref_panel_builder.main(subargv)
+        if command == "munge-sumstats":
+            sumstats_munger = _load_sumstats_munger()
+            return sumstats_munger.main(subargv)
+        if command == "h2":
+            regression_runner = _load_regression_runner()
+            parser = argparse.ArgumentParser(prog="ldsc h2", description="Estimate heritability from munged sumstats and LD scores.")
+            regression_runner.add_h2_arguments(parser)
+            return regression_runner.run_h2_from_args(parser.parse_args(subargv))
+        if command == "partitioned-h2":
+            regression_runner = _load_regression_runner()
+            parser = argparse.ArgumentParser(
+                prog="ldsc partitioned-h2",
+                description="Estimate partitioned heritability, optionally looping over query annotations.",
+            )
+            regression_runner.add_partitioned_h2_arguments(parser)
+            return regression_runner.run_partitioned_h2_from_args(parser.parse_args(subargv))
+        if command == "rg":
+            regression_runner = _load_regression_runner()
+            parser = argparse.ArgumentParser(prog="ldsc rg", description="Estimate genetic correlation.")
+            regression_runner.add_rg_arguments(parser)
+            return regression_runner.run_rg_from_args(parser.parse_args(subargv))
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command == "annotate":
@@ -83,13 +117,13 @@ def main(argv: Sequence[str] | None = None):
     if args.command == "build-ref-panel":
         return ref_panel_builder.run_build_ref_panel_from_args(args)
     if args.command == "munge-sumstats":
-        return sumstats_munger.main(_namespace_to_argv(args, exclude={"command"}))
+        return _load_sumstats_munger().main(_namespace_to_argv(args, exclude={"command"}))
     if args.command == "h2":
-        return regression_runner.run_h2_from_args(args)
+        return _load_regression_runner().run_h2_from_args(args)
     if args.command == "partitioned-h2":
-        return regression_runner.run_partitioned_h2_from_args(args)
+        return _load_regression_runner().run_partitioned_h2_from_args(args)
     if args.command == "rg":
-        return regression_runner.run_rg_from_args(args)
+        return _load_regression_runner().run_rg_from_args(args)
     raise ValueError(f"Unsupported command: {args.command}")
 
 
@@ -169,3 +203,17 @@ def _namespace_to_argv(args: argparse.Namespace, exclude: set[str] | None = None
             continue
         argv.extend([flag, str(value)])
     return argv
+
+
+def _load_regression_runner():
+    """Import the regression workflow lazily for SciPy-light entry paths."""
+    from . import regression_runner
+
+    return regression_runner
+
+
+def _load_sumstats_munger():
+    """Import the munging workflow lazily for SciPy-light entry paths."""
+    from . import sumstats_munger
+
+    return sumstats_munger

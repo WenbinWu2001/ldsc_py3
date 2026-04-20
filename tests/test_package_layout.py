@@ -1,6 +1,7 @@
 from pathlib import Path
 import sys
 import unittest
+from unittest import mock
 
 SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
@@ -76,3 +77,13 @@ class PackageLayoutTest(unittest.TestCase):
 
         self.assertEqual(args.command, "ldscore")
         self.assertEqual(args.print_snps, "filters/print_snps.txt")
+
+    def test_build_ref_panel_help_fast_path_avoids_scipy_backed_imports(self):
+        from ldsc import cli
+
+        with mock.patch.object(cli, "_load_regression_runner", side_effect=AssertionError("regression import should not occur")), \
+             mock.patch.object(cli, "_load_sumstats_munger", side_effect=AssertionError("munging import should not occur")):
+            with self.assertRaises(SystemExit) as exc:
+                cli.main(["build-ref-panel", "--help"])
+
+        self.assertEqual(exc.exception.code, 0)

@@ -19,14 +19,24 @@ from ldsc.config import CommonConfig
 from ldsc.outputs import OutputSpec
 
 try:
+    from ldsc import AnnotationBundle, LDScoreConfig, PlinkRefPanel, RefPanelSpec
     from ldsc import ldscore_calculator as ldscore_workflow
+    from ldsc._kernel import formats as kernel_formats
     from ldsc._kernel import ldscore as kernel_ldscore
 except ImportError:
+    AnnotationBundle = None
+    LDScoreConfig = None
+    PlinkRefPanel = None
+    RefPanelSpec = None
+    kernel_formats = None
     ldscore_workflow = None
     kernel_ldscore = None
 
 
+FIXTURES = Path(__file__).resolve().parent / "fixtures" / "legacy"
+PLINK_FIXTURES = FIXTURES / "plink_test"
 _HAS_PYARROW = importlib.util.find_spec("pyarrow") is not None
+_HAS_BITARRAY = importlib.util.find_spec("bitarray") is not None
 
 
 @unittest.skipIf(ldscore_workflow is None, "ldscore_workflow module is not available")
@@ -56,6 +66,66 @@ class LDScoreWorkflowTest(unittest.TestCase):
             reference_snps={f"rs{chrom}"},
             regression_snps={f"rs{chrom}"},
         )
+
+    def _build_annotation_bundle(self, prefix: Path) -> AnnotationBundle:
+        bim = pd.read_csv(
+            prefix.with_suffix(".bim"),
+            sep=r"\s+",
+            header=None,
+            names=["CHR", "SNP", "CM", "POS", "A1", "A2"],
+        )
+        metadata = bim.loc[:, ["CHR", "SNP", "CM", "POS"]].copy()
+        metadata["CHR"] = metadata["CHR"].astype(str)
+        metadata["SNP"] = metadata["SNP"].astype(str)
+        metadata["CM"] = pd.to_numeric(metadata["CM"], errors="coerce")
+        metadata["POS"] = pd.to_numeric(metadata["POS"], errors="raise").astype(int)
+        baseline = pd.DataFrame({"base": np.ones(len(metadata), dtype=np.float32)})
+        query = pd.DataFrame(index=metadata.index)
+        return AnnotationBundle(
+            metadata=metadata,
+            baseline_annotations=baseline,
+            query_annotations=query,
+            baseline_columns=["base"],
+            query_columns=[],
+            chromosomes=["1"],
+            source_summary={},
+        )
+
+    def _copy_plink_fixture_with_distinct_fids(self, tmpdir: Path) -> Path:
+        prefix = tmpdir / "panel"
+        prefix.with_suffix(".bed").write_bytes((PLINK_FIXTURES / "plink.bed").read_bytes())
+        prefix.with_suffix(".bim").write_text((PLINK_FIXTURES / "plink.bim").read_text(encoding="utf-8"), encoding="utf-8")
+        fam_lines = []
+        for idx, line in enumerate((PLINK_FIXTURES / "plink.fam").read_text(encoding="utf-8").splitlines()):
+            fields = line.split()
+            fields[0] = f"fam{idx}"
+            fam_lines.append(" ".join(fields))
+        prefix.with_suffix(".fam").write_text("\n".join(fam_lines) + "\n", encoding="utf-8")
+        return prefix
+
+    def _write_keep_file(self, path: Path, iids: list[str]) -> None:
+        path.write_text("\n".join(iids) + "\n", encoding="utf-8")
+
+    def _expected_plink_result(self, prefix: Path, keep_path: Path, maf_min: float | None) -> tuple[pd.DataFrame, np.ndarray]:
+        fam = kernel_formats.PlinkFAMFile(str(prefix.with_suffix(".fam")))
+        keep_indivs = fam.loj(kernel_formats.FilterFile(str(keep_path)).IDList)
+        bim = kernel_formats.PlinkBIMFile(str(prefix.with_suffix(".bim")))
+        bed = kernel_ldscore.PlinkBEDFile(
+            str(prefix.with_suffix(".bed")),
+            len(fam.IDList),
+            bim,
+            keep_indivs=keep_indivs,
+            mafMin=maf_min,
+        )
+        metadata = pd.DataFrame(bed.df, columns=bed.colnames).rename(columns={"BP": "POS"})
+        metadata["CHR"] = metadata["CHR"].astype(str)
+        metadata["SNP"] = metadata["SNP"].astype(str)
+        metadata["CM"] = pd.to_numeric(metadata["CM"], errors="coerce")
+        metadata["POS"] = pd.to_numeric(metadata["POS"], errors="raise").astype(int)
+        metadata["MAF"] = pd.to_numeric(metadata["MAF"], errors="coerce")
+        block_left = kernel_ldscore.getBlockLefts(np.arange(bed.m), 10)
+        ld_scores = bed.ldScoreVarBlocks(block_left, 50, annot=np.ones((bed.m, 1), dtype=np.float32))
+        return metadata.reset_index(drop=True), np.ravel(ld_scores)
 
     def test_aggregate_chromosome_results(self):
         calc = ldscore_workflow.LDScoreCalculator()
@@ -155,11 +225,14 @@ class LDScoreWorkflowTest(unittest.TestCase):
             tmpdir = Path(tmpdir)
             r2_path = tmpdir / "r2" / "chr1.parquet"
             meta_path = tmpdir / "meta" / "chr1.tsv.gz"
+            keep_path = tmpdir / "filters" / "samples.keep"
             r2_path.parent.mkdir(parents=True, exist_ok=True)
             meta_path.parent.mkdir(parents=True, exist_ok=True)
+            keep_path.parent.mkdir(parents=True, exist_ok=True)
             r2_path.write_text("", encoding="utf-8")
             with gzip.open(meta_path, "wt", encoding="utf-8") as handle:
                 handle.write("CHR\tBP\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n")
+            keep_path.write_text("iid1\n", encoding="utf-8")
             spec = RefPanelSpec(
                 backend="parquet_r2",
                 r2_table_paths=(r2_path,),
@@ -170,7 +243,10 @@ class LDScoreWorkflowTest(unittest.TestCase):
             args = ldscore_workflow._namespace_from_configs(
                 chrom="1",
                 ref_panel=ref_panel,
-                ldscore_config=ldscore_workflow.LDScoreConfig(ld_wind_cm=1.0),
+                ldscore_config=ldscore_workflow.LDScoreConfig(
+                    ld_wind_cm=1.0,
+                    keep_individuals_path=keep_path,
+                ),
                 common_config=common,
             )
 
@@ -178,6 +254,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             self.assertIsInstance(args.frqfile, str)
             self.assertEqual(args.r2_table, str(r2_path))
             self.assertEqual(args.frqfile, str(meta_path))
+            self.assertEqual(args.keep, str(keep_path))
             self.assertEqual(args.genome_build, "hg19")
 
     def test_run_ldscore_from_args_resolves_glob_and_suite_tokens_in_workflow_layer(self):
@@ -247,6 +324,120 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
             combine_kwargs = combine_groups.call_args.kwargs
             self.assertEqual(combine_kwargs["baseline_files"], [str(tmpdir / "baseline.1.annot.gz")])
+
+    def test_run_ldscore_from_args_rejects_keep_in_parquet_mode(self):
+        args = Namespace(
+            out="out/example",
+            output_dir=None,
+            query_annot=None,
+            query_annot_chr=None,
+            baseline_annot="baseline.annot.gz",
+            baseline_annot_chr=None,
+            bfile=None,
+            bfile_chr=None,
+            r2_table="chr1.parquet",
+            r2_table_chr=None,
+            snp_identifier="rsid",
+            genome_build=None,
+            r2_bias_mode="unbiased",
+            r2_sample_size=None,
+            regression_snps=None,
+            frqfile=None,
+            frqfile_chr=None,
+            keep="samples.keep",
+            ld_wind_snps=10,
+            ld_wind_kb=None,
+            ld_wind_cm=None,
+            maf=None,
+            chunk_size=50,
+            per_chr_output=False,
+            yes_really=False,
+            log_level="INFO",
+        )
+
+        with self.assertRaisesRegex(ValueError, "--keep.*PLINK"):
+            ldscore_workflow.run_ldscore_from_args(args)
+
+    @unittest.skipUnless(_HAS_BITARRAY, "bitarray is not installed")
+    def test_ldscore_calculator_run_applies_keep_filter_by_fam_iid(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            prefix = self._copy_plink_fixture_with_distinct_fids(tmpdir)
+            keep_path = tmpdir / "samples.keep"
+            self._write_keep_file(keep_path, ["per0", "per1"])
+
+            expected_metadata, expected_ld = self._expected_plink_result(prefix, keep_path, maf_min=None)
+            bundle = self._build_annotation_bundle(prefix)
+            common = CommonConfig(snp_identifier="rsid")
+            panel = PlinkRefPanel(common, RefPanelSpec(backend="plink", bfile_prefix=prefix))
+            result = ldscore_workflow.LDScoreCalculator().run(
+                annotation_bundle=bundle,
+                ref_panel=panel,
+                ldscore_config=LDScoreConfig(
+                    ld_wind_snps=10,
+                    keep_individuals_path=keep_path,
+                    whole_chromosome_ok=True,
+                ),
+                common_config=common,
+            )
+
+            self.assertEqual(result.reference_metadata["SNP"].tolist(), expected_metadata["SNP"].tolist())
+            np.testing.assert_allclose(result.reference_metadata["MAF"].to_numpy(), expected_metadata["MAF"].to_numpy())
+            np.testing.assert_allclose(result.ld_scores["base"].to_numpy(), expected_ld)
+            np.testing.assert_allclose(result.w_ld["L2"].to_numpy(), expected_ld)
+
+    @unittest.skipUnless(_HAS_BITARRAY, "bitarray is not installed")
+    def test_ldscore_calculator_run_filters_individuals_before_maf_in_plink_mode(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            prefix = self._copy_plink_fixture_with_distinct_fids(tmpdir)
+            keep_path = tmpdir / "samples.keep"
+            freq_path = tmpdir / "panel.frq"
+            self._write_keep_file(keep_path, ["per0", "per1"])
+            freq_path.write_text(
+                "\n".join(
+                    [
+                        "CHR SNP BP CM MAF",
+                        "1 rs_0 1 0 0.0",
+                        "1 rs_1 2 0 0.0",
+                        "1 rs_2 3 0 0.0",
+                        "1 rs_3 4 0 0.0",
+                        "1 rs_4 5 0 0.0",
+                        "1 rs_5 6 0 0.0",
+                        "1 rs_6 7 0 0.0",
+                        "1 rs_7 8 0 0.0",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            expected_metadata, expected_ld = self._expected_plink_result(prefix, keep_path, maf_min=0.01)
+            bundle = self._build_annotation_bundle(prefix)
+            common = CommonConfig(snp_identifier="rsid")
+            panel = PlinkRefPanel(
+                common,
+                RefPanelSpec(
+                    backend="plink",
+                    bfile_prefix=prefix,
+                    maf_metadata_paths=(freq_path,),
+                ),
+            )
+            result = ldscore_workflow.LDScoreCalculator().run(
+                annotation_bundle=bundle,
+                ref_panel=panel,
+                ldscore_config=LDScoreConfig(
+                    ld_wind_snps=10,
+                    maf_min=0.01,
+                    keep_individuals_path=keep_path,
+                    whole_chromosome_ok=True,
+                ),
+                common_config=common,
+            )
+
+            self.assertEqual(result.reference_metadata["SNP"].tolist(), expected_metadata["SNP"].tolist())
+            np.testing.assert_allclose(result.reference_metadata["MAF"].to_numpy(), expected_metadata["MAF"].to_numpy())
+            np.testing.assert_allclose(result.ld_scores["base"].to_numpy(), expected_ld)
 
 
 @unittest.skipIf(kernel_ldscore is None, "ldscore kernel is not available")

@@ -29,3 +29,26 @@ class PackageLayoutTest(unittest.TestCase):
             set(subparsers_action.choices),
             {"annotate", "ldscore", "munge-sumstats", "h2", "partitioned-h2", "rg"},
         )
+
+    def test_ldscore_subcommand_accepts_keep(self):
+        from ldsc import cli
+
+        parser = cli.build_parser()
+        args = parser.parse_args(
+            [
+                "ldscore",
+                "--out",
+                "out/example",
+                "--baseline-annot",
+                "baseline.annot.gz",
+                "--bfile",
+                "panel",
+                "--ld-wind-snps",
+                "10",
+                "--keep",
+                "samples.keep",
+            ]
+        )
+
+        self.assertEqual(args.command, "ldscore")
+        self.assertEqual(args.keep, "samples.keep")

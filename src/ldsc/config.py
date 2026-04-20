@@ -209,6 +209,9 @@ class LDScoreConfig:
     maf_min : float or None, optional
         Minimum retained minor-allele frequency, if MAF metadata are available.
         Default is ``None``.
+    keep_individuals_path : str or os.PathLike[str] or None, optional
+        Optional path to a one-column IID keep file applied in PLINK mode
+        before SNP and MAF filtering. Default is ``None``.
     chunk_size : int, optional
         Chunk size for legacy PLINK block computations. Default is ``50``.
     compute_m5_50 : bool, optional
@@ -222,6 +225,7 @@ class LDScoreConfig:
     ld_wind_kb: float | None = None
     ld_wind_cm: float | None = None
     maf_min: float | None = None
+    keep_individuals_path: str | PathLike[str] | None = None
     chunk_size: int = 50
     compute_m5_50: bool = True
     whole_chromosome_ok: bool = False
@@ -240,6 +244,7 @@ class LDScoreConfig:
             raise ValueError("maf_min must lie in [0, 0.5].")
         if self.chunk_size <= 0:
             raise ValueError("chunk_size must be positive.")
+        object.__setattr__(self, "keep_individuals_path", _normalize_optional_path(self.keep_individuals_path))
 
 
 @dataclass(frozen=True)

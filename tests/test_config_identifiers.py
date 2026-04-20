@@ -97,6 +97,13 @@ class WorkflowConfigTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             LDScoreConfig(ld_wind_cm=1.0, ld_wind_kb=100.0)
 
+    def test_ldscore_config_normalizes_keep_individuals_path(self):
+        config = LDScoreConfig(
+            ld_wind_snps=10,
+            keep_individuals_path=Path("filters") / "samples.keep",
+        )
+        self.assertEqual(config.keep_individuals_path, "filters/samples.keep")
+
     def test_munge_config_defaults(self):
         config = MungeConfig(out_prefix="out")
         self.assertEqual(config.info_min, 0.9)

@@ -1673,8 +1673,7 @@ def compute_chrom_from_plink(
     panel_df["_key"] = identifier_keys(panel_df, args.snp_identifier)
 
     metadata = bundle.metadata.copy()
-    metadata = merge_frequency_metadata(metadata, args, chrom=chrom, identifier_mode=args.snp_identifier)
-    metadata, annotations = apply_maf_filter(metadata, bundle.annotations.copy(), args.maf, context="PLINK mode")
+    annotations = bundle.annotations.copy()
     metadata["_key"] = identifier_keys(metadata, args.snp_identifier)
 
     key_to_panel_index = {key: idx for key, idx in zip(panel_df["_key"], panel_df.index)}
@@ -1693,8 +1692,16 @@ def compute_chrom_from_plink(
     if len(metadata) == 0:
         raise ValueError(f"No retained annotation SNPs remain on chromosome {chrom} after PLINK intersection.")
 
+    keep_indivs = resolve_keep_individuals(getattr(args, "keep", None), fam)
     keep_snps = [key_to_panel_index[key] for key in metadata["_key"]]
-    geno = legacy_ld.PlinkBEDFile(prefix + ".bed", len(fam.IDList), bim, keep_snps=keep_snps, mafMin=args.maf)
+    geno = legacy_ld.PlinkBEDFile(
+        prefix + ".bed",
+        len(fam.IDList),
+        bim,
+        keep_snps=keep_snps,
+        keep_indivs=keep_indivs,
+        mafMin=args.maf,
+    )
 
     geno_meta = pd.DataFrame(geno.df, columns=geno.colnames)
     if "BP" in geno_meta.columns:
@@ -1714,6 +1721,7 @@ def compute_chrom_from_plink(
 
     ld_scores = geno.ldScoreVarBlocks(block_left, args.chunk_size, annot=annotation_matrix.to_numpy(dtype=np.float32))
     regression_mask = regression_mask_from_keys(geno_meta.drop(columns="_key"), regression_keys, args.snp_identifier)
+    geno._currentSNP = 0
     w_ld = geno.ldScoreVarBlocks(block_left, args.chunk_size, annot=regression_mask.reshape(-1, 1))
     out_metadata = geno_meta.drop(columns="_key").reset_index(drop=True)
     M, M_5_50 = compute_counts(out_metadata, annotation_matrix.reset_index(drop=True))
@@ -1728,6 +1736,16 @@ def compute_chrom_from_plink(
         baseline_columns=bundle.baseline_columns,
         query_columns=bundle.query_columns,
     )
+
+
+def resolve_keep_individuals(keep_path: str | None, fam) -> list[int] | None:
+    """Return FAM row indices retained by ``keep_path`` using IID matching."""
+    if not keep_path:
+        return None
+    keep_indivs = fam.loj(legacy_parse.FilterFile(keep_path).IDList)
+    if len(keep_indivs) == 0:
+        raise ValueError("No individuals retained for analysis")
+    return keep_indivs.tolist()
 
 
 def result_to_dataframe(result: ChromComputationResult) -> pd.DataFrame:
@@ -1823,6 +1841,7 @@ def validate_args(args: argparse.Namespace) -> None:
     """Validate top-level LD-score CLI arguments before any heavy work starts."""
     args.snp_identifier = normalize_snp_identifier_mode(args.snp_identifier)
     args.genome_build = normalize_genome_build(args.genome_build)
+    keep = getattr(args, "keep", None)
     if not (args.query_annot or args.query_annot_chr or args.baseline_annot or args.baseline_annot_chr):
         raise ValueError("At least one of query or baseline annotation inputs must be supplied.")
     if bool(args.r2_table or args.r2_table_chr) == bool(args.bfile or args.bfile_chr):
@@ -1832,6 +1851,8 @@ def validate_args(args: argparse.Namespace) -> None:
     if args.bfile_chr and args.bfile:
         raise ValueError("Cannot set both --bfile and --bfile-chr.")
     if args.r2_table or args.r2_table_chr:
+        if keep:
+            raise ValueError("--keep is only supported in PLINK mode.")
         if args.r2_bias_mode is None:
             raise ValueError("--r2-bias-mode is required in parquet mode.")
         if args.r2_bias_mode == "raw" and args.r2_sample_size is None:
@@ -1873,6 +1894,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--regression-snps", default=None, help="Optional SNP list defining the regression SNP set for w_ld.")
     parser.add_argument("--frqfile", default=None, help="Optional frequency/metadata file for MAF and CM.")
     parser.add_argument("--frqfile-chr", default=None, help="Chromosome-pattern frequency/metadata file prefix.")
+    parser.add_argument("--keep", default=None, help="File with individuals to include in LD Score estimation. The file should contain one IID per row.")
     parser.add_argument("--ld-wind-snps", default=None, type=int, help="LD window size in SNPs.")
     parser.add_argument("--ld-wind-kb", default=None, type=float, help="LD window size in kilobases.")
     parser.add_argument("--ld-wind-cm", default=None, type=float, help="LD window size in centiMorgans.")
@@ -1952,6 +1974,7 @@ def run_ldscore(
     regression_snps: str | None = None,
     frqfile: str | None = None,
     frqfile_chr: str | None = None,
+    keep: str | None = None,
     ld_wind_snps: int | None = None,
     ld_wind_kb: float | None = None,
     ld_wind_cm: float | None = None,
@@ -1984,6 +2007,7 @@ def run_ldscore(
         regression_snps=regression_snps,
         frqfile=frqfile,
         frqfile_chr=frqfile_chr,
+        keep=keep,
         ld_wind_snps=ld_wind_snps,
         ld_wind_kb=ld_wind_kb,
         ld_wind_cm=ld_wind_cm,

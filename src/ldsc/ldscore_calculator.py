@@ -23,6 +23,7 @@ from .path_resolution import (
     ANNOTATION_SUFFIXES,
     FREQUENCY_SUFFIXES,
     PARQUET_SUFFIXES,
+    normalize_optional_path_token,
     normalize_path_token,
     resolve_chromosome_group,
     resolve_file_group,
@@ -244,6 +245,9 @@ class LDScoreCalculator:
         regression_snps: set[str] | None = None,
     ) -> ChromLDScoreResult:
         """Compute LD scores for one chromosome."""
+        backend = getattr(getattr(ref_panel, "spec", None), "backend", None)
+        if backend == "parquet_r2" and ldscore_config.keep_individuals_path is not None:
+            raise ValueError("keep_individuals_path/--keep is only supported for PLINK reference panels.")
         args = _namespace_from_configs(
             chrom=chrom,
             ref_panel=ref_panel,
@@ -364,6 +368,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--regression-snps", default=None, help="Optional SNP list defining the regression SNP set for w_ld.")
     parser.add_argument("--frqfile", default=None, help="Optional frequency or metadata token for MAF and CM.")
     parser.add_argument("--frqfile-chr", default=None, help="Chromosome-suite frequency or metadata token; `@` is preferred.")
+    parser.add_argument(
+        "--keep",
+        default=None,
+        help="File with individuals to include in LD Score estimation. The file should contain one IID per row.",
+    )
     parser.add_argument("--ld-wind-snps", default=None, type=int, help="LD window size in SNPs.")
     parser.add_argument("--ld-wind-kb", default=None, type=float, help="LD window size in kilobases.")
     parser.add_argument("--ld-wind-cm", default=None, type=float, help="LD window size in centiMorgans.")
@@ -549,6 +558,7 @@ def _normalize_run_args(args: argparse.Namespace) -> tuple[argparse.Namespace, C
     normalized_args = argparse.Namespace(**vars(args))
     normalized_args.snp_identifier = normalized_mode
     normalized_args.out = normalize_path_token(args.out)
+    normalized_args.keep = normalize_optional_path_token(getattr(args, "keep", None))
     common_config = CommonConfig(
         snp_identifier=normalized_mode,
         genome_build=getattr(args, "genome_build", None),
@@ -678,6 +688,7 @@ def _namespace_from_configs(chrom: str, ref_panel, ldscore_config: LDScoreConfig
         regression_snps=None,
         frqfile=frqfile,
         frqfile_chr=None,
+        keep=ldscore_config.keep_individuals_path,
         ld_wind_snps=ldscore_config.ld_wind_snps,
         ld_wind_kb=ldscore_config.ld_wind_kb,
         ld_wind_cm=ldscore_config.ld_wind_cm,

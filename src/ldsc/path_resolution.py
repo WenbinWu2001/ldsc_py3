@@ -22,6 +22,7 @@ from collections.abc import Sequence
 from os import PathLike
 from typing import Optional, Union
 
+from .chromosome_inference import STANDARD_CHROMOSOMES
 
 InputPathToken = Union[str, PathLike[str]]
 InputPathCollection = Union[InputPathToken, Sequence[InputPathToken]]
@@ -29,7 +30,6 @@ InputPathCollection = Union[InputPathToken, Sequence[InputPathToken]]
 ANNOTATION_SUFFIXES = ("", ".annot.gz", ".annot", ".txt.gz", ".txt", ".tsv.gz", ".tsv")
 PARQUET_SUFFIXES = ("", ".parquet")
 FREQUENCY_SUFFIXES = ("", ".frq.gz", ".frq", ".txt.gz", ".txt", ".tsv.gz", ".tsv")
-STANDARD_CHROMOSOMES = tuple([str(i) for i in range(1, 23)] + ["X", "Y", "MT", "M"])
 
 
 def normalize_path_token(path: InputPathToken) -> str:

@@ -12,12 +12,12 @@ from typing import Iterable, Iterator, Sequence
 import numpy as np
 import pandas as pd
 
+from ..chromosome_inference import chrom_sort_key, normalize_chromosome
 from ..column_inference import CHR_COLUMN_SPEC, POS_COLUMN_SPEC, ColumnSpec, resolve_required_column
 from .identifiers import (
     build_snp_id_series,
     infer_chr_pos_columns,
     infer_snp_column,
-    normalize_chromosome,
 )
 
 
@@ -79,19 +79,11 @@ def _read_non_comment_lines(path: str | PathLike[str], limit: int = 5) -> list[s
 
 
 def _normalize_map_chromosome(value: object) -> str:
-    chrom = normalize_chromosome(value)
-    if chrom == "23":
-        return "X"
-    return chrom
+    return normalize_chromosome(value)
 
 
 def _chrom_sort_key(chrom: object) -> tuple[int, object]:
-    chrom = _normalize_map_chromosome(chrom)
-    try:
-        return (0, int(chrom))
-    except ValueError:
-        special = {"X": 23, "Y": 24, "MT": 25, "M": 25}
-        return (1, special.get(chrom, chrom))
+    return chrom_sort_key(chrom)
 
 
 def load_genetic_map(path: str | PathLike[str]) -> pd.DataFrame:
@@ -105,7 +97,7 @@ def load_genetic_map(path: str | PathLike[str]) -> pd.DataFrame:
 
     out = pd.DataFrame(
         {
-            "CHR": df[chr_col].map(_normalize_map_chromosome),
+            "CHR": df[chr_col].map(lambda value: normalize_chromosome(value, context=context)),
             "POS": pd.to_numeric(df[pos_col], errors="raise").astype(np.int64),
             "CM": pd.to_numeric(df[cm_col], errors="raise").astype(float),
         }

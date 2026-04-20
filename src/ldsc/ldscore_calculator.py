@@ -16,6 +16,7 @@ from typing import Any, Sequence
 import numpy as np
 import pandas as pd
 
+from .chromosome_inference import STANDARD_CHROMOSOMES
 from .column_inference import normalize_snp_identifier_mode
 from .config import CommonConfig, LDScoreConfig
 from .outputs import OutputManager, OutputSpec
@@ -726,7 +727,7 @@ def _chromosome_set_from_annotation_inputs(
 
     suite_tokens = list(baseline_chr_tokens) + list(query_chr_tokens)
     if suite_tokens:
-        for chrom in [str(i) for i in range(1, 23)] + ["X", "Y", "MT", "M"]:
+        for chrom in STANDARD_CHROMOSOMES:
             files = []
             if query_chr_tokens:
                 files += resolve_chromosome_group(

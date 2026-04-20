@@ -40,6 +40,7 @@ from typing import Iterable
 
 import pandas as pd
 
+from ..chromosome_inference import normalize_chromosome
 from ..column_inference import (
     CHR_COLUMN_SPEC,
     POS_COLUMN_SPEC,
@@ -52,20 +53,9 @@ from ..column_inference import (
 )
 
 
-def normalize_chromosome(value: object) -> str:
-    """Return a canonical chromosome label without a leading ``chr`` prefix."""
-    text = str(value).strip()
-    if not text:
-        raise ValueError("Encountered an empty chromosome label.")
-    text = re.sub(r"^chr", "", text, flags=re.IGNORECASE)
-    if text.isdigit():
-        return str(int(text))
-    return text.upper()
-
-
-def build_chr_pos_snp_id(chrom: object, pos: object) -> str:
+def build_chr_pos_snp_id(chrom: object, pos: object, *, context: str | None = None) -> str:
     """Build the canonical ``CHR:POS`` identifier used in ``chr_pos`` mode."""
-    chrom_norm = normalize_chromosome(chrom)
+    chrom_norm = normalize_chromosome(chrom, context=context)
     pos_int = int(pos)
     if pos_int <= 0:
         raise ValueError(f"Position must be positive; got {pos!r}.")
@@ -218,12 +208,12 @@ def _read_chr_pos_restriction(path: Path) -> set[str]:
             stripped = line.strip()
             if ":" in stripped and len(re.split(r"\s+", stripped)) == 1:
                 chrom, pos = stripped.split(":", 1)
-                values.add(build_chr_pos_snp_id(chrom, pos))
+                values.add(build_chr_pos_snp_id(chrom, pos, context=str(path)))
                 continue
             fields = re.split(r"\s+", stripped)
             if len(fields) < 2:
                 raise ValueError(f"chr_pos restriction rows must contain CHR and POS: {line!r}")
-            values.add(build_chr_pos_snp_id(fields[0], fields[1]))
+            values.add(build_chr_pos_snp_id(fields[0], fields[1], context=str(path)))
         return values
 
     reader = csv.reader(lines, delimiter=delimiter)
@@ -241,5 +231,5 @@ def _read_chr_pos_restriction(path: Path) -> set[str]:
     for row in data_rows:
         if not row:
             continue
-        values.add(build_chr_pos_snp_id(row[chr_idx], row[pos_idx]))
+        values.add(build_chr_pos_snp_id(row[chr_idx], row[pos_idx], context=str(path)))
     return values

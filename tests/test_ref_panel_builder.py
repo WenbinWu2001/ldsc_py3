@@ -66,6 +66,18 @@ class GeneticMapParserTest(unittest.TestCase):
             self.assertEqual(genetic_map["POS"].tolist(), [100, 200])
             self.assertEqual(genetic_map["CM"].tolist(), [0.0, 1.0])
 
+    def test_load_genetic_map_rejects_numeric_mitochondrial_codes(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "map.tsv"
+            path.write_text(
+                "chromosome bp genetic_map_cm\n"
+                "25 100 0.0\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "M' or 'MT"):
+                kernel_builder.load_genetic_map(path)
+
     def test_load_genetic_map_rejects_unsorted_rows(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "map.txt"

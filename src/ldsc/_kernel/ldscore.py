@@ -201,6 +201,7 @@ from ..column_inference import (
     resolve_required_column,
     resolve_required_columns,
 )
+from ..chromosome_inference import STANDARD_CHROMOSOMES, chrom_sort_key, normalize_chromosome
 from . import formats as legacy_parse
 from .identifiers import build_snp_id_series, read_global_snp_restriction
 
@@ -275,26 +276,6 @@ def split_arg_list(value: str | None) -> list[str]:
         if token:
             out.append(token)
     return out
-
-
-def normalize_chromosome(value: object) -> str:
-    """Normalize chromosome labels by removing ``chr`` prefixes and uppercasing symbols."""
-    text = str(value).strip()
-    if not text:
-        raise ValueError("Encountered an empty chromosome label.")
-    if text.lower().startswith("chr"):
-        text = text[3:]
-    return text.upper()
-
-
-def chrom_sort_key(chrom: object) -> tuple[int, object]:
-    """Return the stable chromosome ordering used by the LD-score kernel."""
-    normalized = normalize_chromosome(chrom)
-    try:
-        return (0, int(normalized))
-    except ValueError:
-        special = {"X": 23, "Y": 24, "MT": 25, "M": 25}
-        return (1, special.get(normalized, normalized))
 
 
 def find_column(columns: Iterable[str], aliases: Sequence[str]) -> str | None:
@@ -810,7 +791,7 @@ def canonicalize_r2_pairs(df: pd.DataFrame, genome_build: str) -> pd.DataFrame:
     """Orient pairwise-R2 rows so the selected build always satisfies ``pos_1 <= pos_2``."""
     df = normalize_r2_source_columns(df.copy())
     left_pos_col, right_pos_col = get_r2_build_columns(genome_build, df.columns)
-    df["chr"] = df["chr"].map(normalize_chromosome)
+    df["chr"] = df["chr"].map(lambda value: normalize_chromosome(value, context="R2 chromosome column"))
 
     paired_columns = (
         ("rsID_1", "rsID_2"),
@@ -869,7 +850,7 @@ def convert_r2_table_to_sorted_parquet(source_path: str, genome_build: str, outp
     validate_r2_source_columns(df, source_path)
     df = canonicalize_r2_pairs(df, genome_build)
     df = deduplicate_normalized_r2_pairs(df)
-    chroms = df["chr"].dropna().map(normalize_chromosome).unique().tolist()
+    chroms = df["chr"].dropna().map(lambda value: normalize_chromosome(value, context=source_path)).unique().tolist()
     if len(chroms) != 1:
         raise ValueError("Each sorted parquet R2 file must contain exactly one chromosome.")
     df = df.sort_values(by=["pos_1", "pos_2"], kind="mergesort").reset_index(drop=True)
@@ -940,7 +921,9 @@ def read_sorted_r2_presence(args: argparse.Namespace, chrom: str) -> set[object]
         )
     pairs = table.to_pandas()
     if layout == "raw" and len(pairs) > 0:
-        pairs = pairs.loc[pairs["chr"].map(normalize_chromosome) == normalized_chrom].reset_index(drop=True)
+        pairs = pairs.loc[
+            pairs["chr"].map(lambda value: normalize_chromosome(value, context="raw parquet R2 schema")) == normalized_chrom
+        ].reset_index(drop=True)
     if args.snp_identifier == "rsid":
         return set(pairs["rsID_1"].astype(str)).union(set(pairs["rsID_2"].astype(str)))
     if layout == "normalized":
@@ -1001,7 +984,7 @@ def parse_annotation_file(path: str, chrom: str | None = None) -> tuple[pd.DataF
             "CM": df[cm_col],
         }
     )
-    meta["CHR"] = meta["CHR"].map(normalize_chromosome)
+    meta["CHR"] = meta["CHR"].map(lambda value: normalize_chromosome(value, context=path))
     meta["POS"] = pd.to_numeric(meta["POS"], errors="raise").astype(np.int64)
     meta["SNP"] = meta["SNP"].astype(str)
     meta["CM"] = pd.to_numeric(meta["CM"], errors="coerce")
@@ -1009,7 +992,7 @@ def parse_annotation_file(path: str, chrom: str | None = None) -> tuple[pd.DataF
         meta["MAF"] = pd.to_numeric(df[maf_col], errors="coerce")
 
     if chrom is not None:
-        keep = meta["CHR"] == normalize_chromosome(chrom)
+        keep = meta["CHR"] == normalize_chromosome(chrom, context=path)
         meta = meta.loc[keep].reset_index(drop=True)
         df = df.loc[keep].reset_index(drop=True)
     else:
@@ -1024,7 +1007,7 @@ def parse_annotation_file(path: str, chrom: str | None = None) -> tuple[pd.DataF
         raise ValueError(f"{path} does not contain any annotation columns.")
 
     sorted_df = df.copy()
-    sorted_df["_CHR"] = sorted_df[chr_col].map(normalize_chromosome)
+    sorted_df["_CHR"] = sorted_df[chr_col].map(lambda value: normalize_chromosome(value, context=path))
     sorted_df["_POS"] = pd.to_numeric(sorted_df[pos_col], errors="raise").astype(np.int64)
     sorted_df["_SNP"] = sorted_df[snp_col].astype(str)
     sorted_df["_chrom_key"] = sorted_df["_CHR"].map(chrom_sort_key)
@@ -1139,7 +1122,7 @@ def parse_frequency_metadata(path: str, chrom: str | None, identifier_mode: str)
     maf_col = resolve_optional_column(df.columns, REFERENCE_METADATA_SPEC_MAP["MAF"], context=context)
 
     if chrom is not None and chr_col is not None:
-        keep = df[chr_col].map(normalize_chromosome) == normalize_chromosome(chrom)
+        keep = df[chr_col].map(lambda value: normalize_chromosome(value, context=path)) == normalize_chromosome(chrom, context=path)
         df = df.loc[keep].reset_index(drop=True)
 
     if len(df) == 0:
@@ -1153,7 +1136,7 @@ def parse_frequency_metadata(path: str, chrom: str | None, identifier_mode: str)
     else:
         if chr_col is None or pos_col is None:
             raise ValueError(f"{path} must contain CHR and POS columns in chr_pos mode.")
-        chrom_norm = df[chr_col].map(normalize_chromosome)
+        chrom_norm = df[chr_col].map(lambda value: normalize_chromosome(value, context=path))
         pos = pd.to_numeric(df[pos_col], errors="raise").astype(np.int64).astype(str)
         out["_key"] = chrom_norm + ":" + pos
 
@@ -1230,11 +1213,11 @@ def chromosome_set_from_annotation_inputs(args: argparse.Namespace) -> list[str]
         df = read_text_table(path)
         if "CHR" not in df.columns:
             raise ValueError(f"{path} is missing CHR.")
-        chromosomes.update(df["CHR"].map(normalize_chromosome).unique().tolist())
+        chromosomes.update(df["CHR"].map(lambda value: normalize_chromosome(value, context=path)).unique().tolist())
 
     chr_specs = split_arg_list(args.query_annot_chr) + split_arg_list(args.baseline_annot_chr)
     if chr_specs:
-        for chrom in [str(i) for i in range(1, 23)] + ["X", "Y", "MT", "M"]:
+        for chrom in STANDARD_CHROMOSOMES:
             files = resolve_optional_chr_files(args.query_annot_chr, chrom, ("", ".annot", ".annot.gz", ".txt", ".txt.gz", ".tsv", ".tsv.gz"))
             files += resolve_optional_chr_files(args.baseline_annot_chr, chrom, ("", ".annot", ".annot.gz", ".txt", ".txt.gz", ".tsv", ".tsv.gz"))
             if files:
@@ -1379,7 +1362,9 @@ class SortedR2BlockReader:
         else:
             if self._runtime_layout == "raw":
                 left_pos_col, right_pos_col = self._raw_pos_columns
-                rows = rows.loc[rows["chr"].map(normalize_chromosome) == self.chrom].copy()
+                rows = rows.loc[
+                    rows["chr"].map(lambda value: normalize_chromosome(value, context="raw parquet R2 query")) == self.chrom
+                ].copy()
                 keep = (
                     pd.to_numeric(rows[left_pos_col], errors="raise").between(int(pos_min), int(pos_max))
                     & pd.to_numeric(rows[right_pos_col], errors="raise").between(int(pos_min), int(pos_max))
@@ -1663,11 +1648,11 @@ def compute_chrom_from_plink(
     bim = legacy_parse.PlinkBIMFile(prefix + ".bim")
     fam = legacy_parse.PlinkFAMFile(prefix + ".fam")
     panel_df = bim.df.loc[:, ["CHR", "SNP", "CM", "BP"]].copy().rename(columns={"BP": "POS"})
-    panel_df["CHR"] = panel_df["CHR"].map(normalize_chromosome)
+    panel_df["CHR"] = panel_df["CHR"].map(lambda value: normalize_chromosome(value, context=prefix + ".bim"))
     panel_df["SNP"] = panel_df["SNP"].astype(str)
     panel_df["POS"] = pd.to_numeric(panel_df["POS"], errors="raise").astype(np.int64)
     panel_df["CM"] = pd.to_numeric(panel_df["CM"], errors="coerce")
-    panel_df = panel_df.loc[panel_df["CHR"] == normalize_chromosome(chrom)].copy()
+    panel_df = panel_df.loc[panel_df["CHR"] == normalize_chromosome(chrom, context=prefix + ".bim")].copy()
     if len(panel_df) == 0:
         raise ValueError(f"No PLINK SNPs found for chromosome {chrom} in {prefix}.")
     panel_df["_key"] = identifier_keys(panel_df, args.snp_identifier)
@@ -1706,7 +1691,7 @@ def compute_chrom_from_plink(
     geno_meta = pd.DataFrame(geno.df, columns=geno.colnames)
     if "BP" in geno_meta.columns:
         geno_meta = geno_meta.rename(columns={"BP": "POS"})
-    geno_meta["CHR"] = geno_meta["CHR"].map(normalize_chromosome)
+    geno_meta["CHR"] = geno_meta["CHR"].map(lambda value: normalize_chromosome(value, context=prefix + ".bim"))
     geno_meta["SNP"] = geno_meta["SNP"].astype(str)
     geno_meta["POS"] = pd.to_numeric(geno_meta["POS"], errors="raise").astype(np.int64)
     geno_meta["CM"] = pd.to_numeric(geno_meta["CM"], errors="coerce")

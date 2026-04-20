@@ -15,6 +15,7 @@ from typing import Any
 
 import pandas as pd
 
+from ..chromosome_inference import chrom_sort_key, normalize_chromosome
 from ..column_inference import (
     REFERENCE_METADATA_SPEC_MAP,
     normalize_genome_build,
@@ -34,7 +35,6 @@ from . import formats as legacy_parse
 from . import ldscore as kernel_ldscore
 from .identifiers import (
     build_snp_id_series,
-    normalize_chromosome,
     normalize_snp_identifier_mode,
     read_global_snp_restriction,
     validate_unique_snp_ids,
@@ -281,11 +281,7 @@ class RefPanelLoader:
 
 def _chrom_sort_key(chrom: str) -> tuple[int, str]:
     """Return a stable chromosome sort key matching the package-wide ordering."""
-    chrom = normalize_chromosome(chrom)
-    if chrom.isdigit():
-        return (int(chrom), chrom)
-    special = {"X": 23, "Y": 24, "MT": 25, "M": 25}
-    return (special.get(chrom, 99), chrom)
+    return chrom_sort_key(chrom)
 
 
 def _read_metadata_table(path: str | Path, chrom: str | None, common_config: CommonConfig) -> pd.DataFrame:
@@ -314,7 +310,7 @@ def _read_metadata_table(path: str | Path, chrom: str | None, common_config: Com
 
     out = pd.DataFrame(index=df.index)
     if chr_col is not None:
-        out["CHR"] = df[chr_col].map(normalize_chromosome)
+        out["CHR"] = df[chr_col].map(lambda value: normalize_chromosome(value, context=context))
     if pos_col is not None:
         out["POS"] = pd.to_numeric(df[pos_col], errors="raise").astype(int)
     if snp_col is not None:
@@ -333,5 +329,5 @@ def _read_metadata_table(path: str | Path, chrom: str | None, common_config: Com
         raise ValueError(f"{path} is missing MAF metadata.")
 
     if chrom is not None and "CHR" in out.columns:
-        out = out.loc[out["CHR"] == normalize_chromosome(chrom)].reset_index(drop=True)
+        out = out.loc[out["CHR"] == normalize_chromosome(chrom, context=context)].reset_index(drop=True)
     return out

@@ -104,6 +104,22 @@ class ParquetRefPanelTest(unittest.TestCase):
             self.assertEqual(metadata["CHR"].tolist(), ["1", "1"])
             self.assertEqual(metadata["MAF"].round(3).tolist(), [0.2, 0.2])
 
+    def test_sidecar_metadata_loading_normalizes_float_chromosomes(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            meta = Path(tmpdir) / "meta.tsv"
+            meta.write_text(
+                "CHR\tBP\tSNP\tCM\tMAF\n1.0\t10\trs1\t0.1\t0.2\nchr2.0\t20\trs2\t0.2\t0.3\n",
+                encoding="utf-8",
+            )
+            panel = ParquetR2RefPanel(
+                CommonConfig(snp_identifier="chr_pos"),
+                RefPanelSpec(backend="parquet_r2", maf_metadata_paths=(str(meta),)),
+            )
+
+            self.assertEqual(panel.available_chromosomes(), ["1", "2"])
+            metadata = panel.load_metadata("2")
+            self.assertEqual(metadata["CHR"].tolist(), ["2"])
+
     def test_filter_to_snps_chr_pos(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             meta = Path(tmpdir) / "meta.tsv"

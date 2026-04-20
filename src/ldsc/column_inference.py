@@ -15,13 +15,10 @@ fail fast when their schema drifts.
 from __future__ import annotations
 
 from dataclasses import dataclass
-import logging
 import re
 import warnings
 from typing import Iterable, Sequence
 
-
-LOGGER = logging.getLogger("LDSC.columns")
 _WARNED_INFERENCES: set[tuple[str, str, str]] = set()
 
 
@@ -287,7 +284,6 @@ def _warn_if_inferred(canonical: str, actual: str, context: str | None) -> None:
     _WARNED_INFERENCES.add(key)
     suffix = "" if not context else f" in {context}"
     message = f"Inferred canonical field '{canonical}' from input column '{actual}'{suffix}."
-    LOGGER.info(message)
     warnings.warn(message, UserWarning, stacklevel=3)
 
 

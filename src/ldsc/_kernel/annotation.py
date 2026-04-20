@@ -58,6 +58,7 @@ from typing import Iterator, Sequence
 import numpy as np
 import pandas as pd
 
+from ..chromosome_inference import chrom_sort_key, normalize_chromosome
 from ..column_inference import (
     ANNOTATION_METADATA_SPEC_MAP,
     CHR_COLUMN_SPEC,
@@ -79,7 +80,6 @@ from ..path_resolution import (
 )
 from .identifiers import (
     build_snp_id_series,
-    normalize_chromosome,
     normalize_snp_identifier_mode,
     read_global_snp_restriction,
     validate_unique_snp_ids,
@@ -465,7 +465,7 @@ class AnnotationBuilder:
                 "CM": df[cm_col],
             }
         )
-        metadata["CHR"] = metadata["CHR"].map(normalize_chromosome)
+        metadata["CHR"] = metadata["CHR"].map(lambda value: normalize_chromosome(value, context=context))
         metadata["POS"] = pd.to_numeric(metadata["POS"], errors="raise").astype(np.int64)
         metadata["SNP"] = metadata["SNP"].astype(str)
         metadata["CM"] = pd.to_numeric(metadata["CM"], errors="coerce")
@@ -474,7 +474,7 @@ class AnnotationBuilder:
             metadata["MAF"] = pd.to_numeric(df[maf_col], errors="coerce")
 
         if chrom is not None:
-            keep = metadata["CHR"] == normalize_chromosome(chrom)
+            keep = metadata["CHR"] == normalize_chromosome(chrom, context=context)
             metadata = metadata.loc[keep].reset_index(drop=True)
             df = df.loc[keep].reset_index(drop=True)
 
@@ -795,11 +795,7 @@ def _annotation_shard_chromosome(path: str | Path) -> str | None:
 
 def _chrom_sort_key(chrom: str) -> tuple[int, str]:
     """Return the stable chromosome ordering used by annotation workflows."""
-    chrom = normalize_chromosome(chrom)
-    if chrom.isdigit():
-        return (int(chrom), chrom)
-    special = {"X": 23, "Y": 24, "MT": 25, "M": 25}
-    return (special.get(chrom, 99), chrom)
+    return chrom_sort_key(chrom)
 
 
 def _to_bed_chromosome(chrom: object) -> str:

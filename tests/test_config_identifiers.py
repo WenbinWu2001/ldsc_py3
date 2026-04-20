@@ -2,6 +2,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+import warnings
 
 import pandas as pd
 
@@ -298,7 +299,26 @@ class IdentifierHelpersTest(unittest.TestCase):
 
     def test_normalize_chromosome(self):
         self.assertEqual(normalize_chromosome("chr01"), "1")
+        self.assertEqual(normalize_chromosome("1.0"), "1")
         self.assertEqual(normalize_chromosome("X"), "X")
+        self.assertEqual(normalize_chromosome("M"), "M")
+        self.assertEqual(normalize_chromosome("MT"), "MT")
+
+    def test_normalize_chromosome_warns_on_sex_chromosome_numeric_inference(self):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            value = normalize_chromosome("23", context="test-sex-code")
+
+        self.assertEqual(value, "X")
+        self.assertEqual(len(caught), 1)
+        self.assertIn("sex chromosome", str(caught[0].message).lower())
+        self.assertIn("23", str(caught[0].message))
+        self.assertIn("X", str(caught[0].message))
+
+    def test_normalize_chromosome_rejects_numeric_mitochondrial_codes(self):
+        for value in ["25", "26", "25.0", "26.0"]:
+            with self.assertRaisesRegex(ValueError, "M' or 'MT"):
+                normalize_chromosome(value, context="test-mito-code")
 
     def test_build_chr_pos_snp_id(self):
         self.assertEqual(build_chr_pos_snp_id("chr1", 123), "1:123")
@@ -335,5 +355,5 @@ class RestrictionReadersTest(unittest.TestCase):
     def test_read_global_snp_restriction_chr_pos_table(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "restrict.tsv"
-            path.write_text("chrom\tbp\nchr1\t10\n2\t20\n", encoding="utf-8")
+            path.write_text("chrom\tbp\nchr1.0\t10\n2\t20\n", encoding="utf-8")
             self.assertEqual(read_global_snp_restriction(path, "chr_pos"), {"1:10", "2:20"})

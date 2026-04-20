@@ -39,11 +39,13 @@ from .config import (
     CommonConfig,
     LDScoreConfig,
     MungeConfig,
+    ReferencePanelBuildConfig,
     RefPanelConfig,
     RegressionConfig,
 )
 from .ldscore_calculator import ChromLDScoreResult, LDScoreCalculator, LDScoreResult, run_ldscore
 from .outputs import ArtifactConfig, ArtifactProducer, OutputManager, OutputSpec, PostProcessor, ResultFormatter, ResultWriter, RunSummary
+from .ref_panel_builder import ReferencePanelBuildResult, ReferencePanelBuilder, run_build_ref_panel
 from .regression_runner import RegressionDataset, RegressionRunner
 from .sumstats_munger import MungeRunSummary, RawSumstatsSpec, SumstatsMunger, SumstatsTable, load_sumstats
 from ._kernel.ref_panel import ParquetR2RefPanel, PlinkRefPanel, RefPanel, RefPanelLoader, RefPanelSpec
@@ -68,6 +70,9 @@ __all__ = [
     "PlinkRefPanel",
     "PostProcessor",
     "RawSumstatsSpec",
+    "ReferencePanelBuildConfig",
+    "ReferencePanelBuildResult",
+    "ReferencePanelBuilder",
     "RefPanel",
     "RefPanelConfig",
     "RefPanelLoader",
@@ -83,6 +88,7 @@ __all__ = [
     "gene_set_to_bed",
     "load_sumstats",
     "make_annot_files",
+    "run_build_ref_panel",
     "run_bed_to_annot",
     "run_ldscore",
 ]

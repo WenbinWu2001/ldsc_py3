@@ -18,7 +18,7 @@ import argparse
 from pathlib import Path
 from typing import Sequence
 
-from . import annotation_builder, ldscore_calculator, regression_runner
+from . import annotation_builder, ldscore_calculator, ref_panel_builder, regression_runner
 
 from . import sumstats_munger
 
@@ -39,6 +39,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     ldscore_parser = subparsers.add_parser("ldscore", help="Compute LD scores.")
     _copy_actions(ldscore_parser, ldscore_calculator.build_parser())
+
+    ref_panel_parser = subparsers.add_parser("build-ref-panel", help="Build standard parquet reference panels.")
+    _copy_actions(ref_panel_parser, ref_panel_builder.build_parser())
 
     munge_parser = subparsers.add_parser("munge-sumstats", help="Munge GWAS summary statistics.")
     _copy_actions(munge_parser, sumstats_munger.kernel_parser())
@@ -77,6 +80,8 @@ def main(argv: Sequence[str] | None = None):
         return _run_annotate(args)
     if args.command == "ldscore":
         return ldscore_calculator.run_ldscore_from_args(args)
+    if args.command == "build-ref-panel":
+        return ref_panel_builder.run_build_ref_panel_from_args(args)
     if args.command == "munge-sumstats":
         return sumstats_munger.main(_namespace_to_argv(args, exclude={"command"}))
     if args.command == "h2":

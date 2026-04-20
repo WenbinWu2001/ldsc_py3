@@ -16,6 +16,7 @@ class PackageLayoutTest(unittest.TestCase):
         self.assertTrue(hasattr(ldsc, "RegressionRunner"))
         self.assertTrue(hasattr(ldsc, "SumstatsMunger"))
         self.assertTrue(hasattr(ldsc, "AnnotationBuilder"))
+        self.assertTrue(hasattr(ldsc, "ReferencePanelBuilder"))
         self.assertTrue(hasattr(ldsc.__main__, "main"))
 
     def test_cli_exposes_expected_subcommands(self):
@@ -27,5 +28,5 @@ class PackageLayoutTest(unittest.TestCase):
         )
         self.assertEqual(
             set(subparsers_action.choices),
-            {"annotate", "ldscore", "munge-sumstats", "h2", "partitioned-h2", "rg"},
+            {"annotate", "ldscore", "build-ref-panel", "munge-sumstats", "h2", "partitioned-h2", "rg"},
         )

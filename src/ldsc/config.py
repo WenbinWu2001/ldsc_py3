@@ -49,6 +49,8 @@ def _normalize_optional_path(path: str | PathLike[str] | None) -> str | None:
 
 def _normalize_required_path(path: str | PathLike[str]) -> str:
     """Return a required path-like value as a plain string."""
+    if path is None or not str(path).strip():
+        raise ValueError("Required path value is missing.")
     return normalize_path_token(path)
 
 
@@ -227,6 +229,50 @@ class LDScoreConfig:
     whole_chromosome_ok: bool = False
 
     def __post_init__(self) -> None:
+        windows = [self.ld_wind_snps, self.ld_wind_kb, self.ld_wind_cm]
+        if sum(value is not None for value in windows) != 1:
+            raise ValueError("Exactly one LD-window option must be set.")
+        if self.ld_wind_snps is not None and self.ld_wind_snps <= 0:
+            raise ValueError("ld_wind_snps must be positive.")
+        if self.ld_wind_kb is not None and self.ld_wind_kb <= 0:
+            raise ValueError("ld_wind_kb must be positive.")
+        if self.ld_wind_cm is not None and self.ld_wind_cm <= 0:
+            raise ValueError("ld_wind_cm must be positive.")
+        if self.maf_min is not None and not 0 <= self.maf_min <= 0.5:
+            raise ValueError("maf_min must lie in [0, 0.5].")
+        if self.chunk_size <= 0:
+            raise ValueError("chunk_size must be positive.")
+
+
+@dataclass(frozen=True)
+class ReferencePanelBuildConfig:
+    """Configuration for building standard parquet reference panels from PLINK."""
+
+    panel_label: str
+    plink_prefix: str | PathLike[str]
+    source_genome_build: GenomeBuildInput
+    genetic_map_hg19_path: str | PathLike[str]
+    genetic_map_hg38_path: str | PathLike[str]
+    output_dir: str | PathLike[str]
+    ld_wind_snps: int | None = None
+    ld_wind_kb: float | None = None
+    ld_wind_cm: float | None = None
+    maf_min: float | None = None
+    restrict_snps_path: str | PathLike[str] | None = None
+    keep_indivs_path: str | PathLike[str] | None = None
+    chunk_size: int = 50
+
+    def __post_init__(self) -> None:
+        if not str(self.panel_label).strip():
+            raise ValueError("panel_label must be non-empty.")
+        object.__setattr__(self, "panel_label", str(self.panel_label).strip())
+        object.__setattr__(self, "plink_prefix", _normalize_required_path(self.plink_prefix))
+        object.__setattr__(self, "source_genome_build", normalize_genome_build(self.source_genome_build))
+        object.__setattr__(self, "genetic_map_hg19_path", _normalize_required_path(self.genetic_map_hg19_path))
+        object.__setattr__(self, "genetic_map_hg38_path", _normalize_required_path(self.genetic_map_hg38_path))
+        object.__setattr__(self, "output_dir", _normalize_required_path(self.output_dir))
+        object.__setattr__(self, "restrict_snps_path", _normalize_optional_path(self.restrict_snps_path))
+        object.__setattr__(self, "keep_indivs_path", _normalize_optional_path(self.keep_indivs_path))
         windows = [self.ld_wind_snps, self.ld_wind_kb, self.ld_wind_cm]
         if sum(value is not None for value in windows) != 1:
             raise ValueError("Exactly one LD-window option must be set.")

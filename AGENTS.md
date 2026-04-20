@@ -69,11 +69,6 @@ For complex features or significant refactors, write or update an ExecPlan in `P
 - Use `fun-doc` when writing or updating Python docstrings for public functions, classes, or modules.
 - Use `architecture-doc` whenever the package structure changes significantly or `architecture.md` is out of sync with the code.
 
-# Skill Usage Policy
-
-- Do not invoke `using-superpowers` for this project.
-- Do not use `planning-with-files`; work tracking lives in `PLANS.md`.
-- Other relevant skills may be used when they match the task.
 
 # Resources
 

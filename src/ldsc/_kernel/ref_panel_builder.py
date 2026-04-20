@@ -86,6 +86,14 @@ def _normalize_map_chromosome(value: object) -> str:
     return normalize_chromosome(value)
 
 
+def _try_normalize_map_chromosome(value: object) -> str | None:
+    """Normalize a liftover hit chromosome, ignoring unsupported auxiliary contigs."""
+    try:
+        return _normalize_map_chromosome(value)
+    except ValueError:
+        return None
+
+
 def _chrom_sort_key(chrom: object) -> tuple[int, object]:
     """Return the stable chromosome sort key used for map-like inputs."""
     return chrom_sort_key(chrom)
@@ -632,7 +640,7 @@ class LiftOverTranslator:
                 unmapped_count += 1
                 continue
             hit = next(
-                (candidate for candidate in hits if _normalize_map_chromosome(candidate[0]) == chrom),
+                (candidate for candidate in hits if _try_normalize_map_chromosome(candidate[0]) == chrom),
                 None,
             )
             if hit is None:

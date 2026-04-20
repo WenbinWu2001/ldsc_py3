@@ -71,6 +71,11 @@ from ..column_inference import (
     resolve_required_column,
 )
 from ..config import AnnotationBuildConfig, CommonConfig, _normalize_path_tuple
+from ..genome_build_inference import (
+    load_packaged_reference_table,
+    resolve_chr_pos_table,
+    validate_auto_genome_build_mode,
+)
 from ..path_resolution import (
     ANNOTATION_SUFFIXES,
     normalize_path_token,
@@ -205,6 +210,7 @@ class AnnotationBuilder:
 
     def __init__(self, common_config: CommonConfig, build_config: AnnotationBuildConfig | None = None) -> None:
         """Store shared configuration for bundle loading and BED projection."""
+        validate_auto_genome_build_mode(common_config.snp_identifier, common_config.genome_build)
         self.common_config = common_config
         self.build_config = build_config or AnnotationBuildConfig()
 
@@ -474,6 +480,13 @@ class AnnotationBuilder:
         maf_col = resolve_optional_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["MAF"], context=context)
         if maf_col is not None:
             metadata["MAF"] = pd.to_numeric(df[maf_col], errors="coerce")
+        if self.common_config.snp_identifier == "chr_pos" and self.common_config.genome_build == "auto":
+            metadata, _inference = resolve_chr_pos_table(
+                metadata,
+                context=context,
+                reference_table=load_packaged_reference_table(),
+                logger=LOGGER,
+            )
 
         if chrom is not None:
             keep = metadata["CHR"] == normalize_chromosome(chrom, context=context)
@@ -551,6 +564,7 @@ class AnnotationBuilder:
                 restrict_path,
                 self.common_config.snp_identifier,
                 tempdir,
+                genome_build=self.common_config.genome_build,
             )
             for baseline_path in baseline_paths:
                 _process_baseline_file(
@@ -641,7 +655,12 @@ class AnnotationBuilder:
         restrict_path = self.common_config.global_snp_restriction_path
         if restrict_path is None:
             return metadata, baseline_df, query_df
-        restriction = read_global_snp_restriction(restrict_path, self.common_config.snp_identifier)
+        restriction = read_global_snp_restriction(
+            restrict_path,
+            self.common_config.snp_identifier,
+            genome_build=self.common_config.genome_build,
+            logger=LOGGER,
+        )
         snp_ids = build_snp_id_series(metadata, self.common_config.snp_identifier)
         keep = snp_ids.isin(restriction)
         return (
@@ -657,6 +676,7 @@ def run_bed_to_annot(
     output_dir: str | Path,
     restrict_snps_path: str | Path | None = None,
     snp_identifier: str = "chr_pos",
+    genome_build: str | None = None,
     batch: bool = True,
     log_level: str = "INFO",
 ) -> Path:
@@ -668,6 +688,7 @@ def run_bed_to_annot(
     """
     common_config = CommonConfig(
         snp_identifier=normalize_snp_identifier_mode(snp_identifier),
+        genome_build=genome_build,
         global_snp_restriction_path=None if restrict_snps_path is None else str(restrict_snps_path),
         log_level=log_level,
     )
@@ -710,6 +731,12 @@ def parse_bed_to_annot_args(argv: Sequence[str] | None = None) -> argparse.Names
     parser.add_argument("--output-dir", required=True, help="Destination directory for generated .annot.gz files.")
     parser.add_argument("--restrict-snps-path", default=None, help="Optional SNP restriction file matched by --snp-identifier.")
     parser.add_argument("--snp-identifier", default="chr_pos", help="How to interpret --restrict-snps-path when provided.")
+    parser.add_argument(
+        "--genome-build",
+        default=None,
+        choices=("auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"),
+        help="Genome build for chr_pos inputs. Use 'auto' to infer hg19/hg38 and 0-based/1-based coordinates.",
+    )
     parser.add_argument("--no-batch", dest="batch", action="store_false", default=True, help="Write one output directory per BED file instead of combined output.")
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"), help="Logging verbosity.")
     return parser.parse_args(argv)
@@ -724,6 +751,7 @@ def main_bed_to_annot(argv: Sequence[str] | None = None) -> int:
         output_dir=args.output_dir,
         restrict_snps_path=args.restrict_snps_path,
         snp_identifier=args.snp_identifier,
+        genome_build=args.genome_build,
         batch=args.batch,
         log_level=args.log_level,
     )
@@ -958,22 +986,22 @@ def _load_restrict_snp_ids(path: Path) -> set[str]:
     return snp_ids
 
 
-def _write_restrict_table_as_bed(in_path: Path, out_path: Path) -> Path:
+def _write_restrict_table_as_bed(in_path: Path, out_path: Path, genome_build: str | None = None) -> Path:
     """Convert a ``CHR``/``POS`` restriction table into BED intervals."""
-    lines = list(_iter_text_lines(in_path))
-    if not lines:
-        raise ValueError(f"Restriction file {in_path} is empty.")
-    delimiter = _detect_delimiter(in_path)
-    header = _split_delimited_line(lines[0], delimiter)
-    chr_idx = _infer_column_index(header, RESTRICTION_CHRPOS_SPEC_MAP["CHR"], in_path)
-    pos_idx = _infer_column_index(header, RESTRICTION_CHRPOS_SPEC_MAP["POS"], in_path)
+    restriction = read_global_snp_restriction(
+        in_path,
+        "chr_pos",
+        genome_build=genome_build,
+        logger=LOGGER,
+    )
     with out_path.open("w", encoding="utf-8") as handle:
-        for line in lines[1:]:
-            fields = _split_delimited_line(line, delimiter)
-            if len(fields) <= max(chr_idx, pos_idx):
-                continue
-            chrom = _to_bed_chromosome(fields[chr_idx])
-            pos = int(fields[pos_idx])
+        for value in sorted(
+            restriction,
+            key=lambda item: (_chrom_sort_key(item.split(":", 1)[0]), int(item.split(":", 1)[1])),
+        ):
+            chrom_token, pos_token = value.split(":", 1)
+            chrom = _to_bed_chromosome(chrom_token)
+            pos = int(pos_token)
             start = pos - 1
             if start < 0:
                 raise ValueError(f"Invalid restriction POS={pos} in {in_path}")
@@ -981,7 +1009,12 @@ def _write_restrict_table_as_bed(in_path: Path, out_path: Path) -> Path:
     return out_path
 
 
-def _build_restrict_resource(restrict_path: Path | None, snp_identifier: str, tempdir: Path) -> _RestrictResource | None:
+def _build_restrict_resource(
+    restrict_path: Path | None,
+    snp_identifier: str,
+    tempdir: Path,
+    genome_build: str | None = None,
+) -> _RestrictResource | None:
     """Normalize the optional restriction input into the resource used during projection."""
     if restrict_path is None:
         return None
@@ -992,7 +1025,7 @@ def _build_restrict_resource(restrict_path: Path | None, snp_identifier: str, te
     if _is_bed_path(restrict_path):
         _write_normalized_bed(restrict_path, restrict_bed_path)
     else:
-        _write_restrict_table_as_bed(restrict_path, restrict_bed_path)
+        _write_restrict_table_as_bed(restrict_path, restrict_bed_path, genome_build=genome_build)
     return _RestrictResource(mode="chr_pos", bed_path=restrict_bed_path)
 
 

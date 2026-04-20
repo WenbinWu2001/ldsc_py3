@@ -65,7 +65,6 @@ sumstats = SumstatsMunger().run(
         out_prefix="tutorial_outputs/trait",
         signed_sumstats_spec="BETA,0",
     ),
-    common,
 )
 
 # If you already have a curated .sumstats.gz artifact on disk, load it directly:

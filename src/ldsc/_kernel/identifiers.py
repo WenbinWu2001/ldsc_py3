@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import csv
 import gzip
+import logging
 import re
 from pathlib import Path
 from typing import Iterable
@@ -51,6 +52,10 @@ from ..column_inference import (
     normalize_snp_identifier_mode,
     resolve_required_column,
 )
+from ..genome_build_inference import resolve_chr_pos_table, validate_auto_genome_build_mode
+
+
+LOGGER = logging.getLogger("LDSC.identifiers")
 
 
 def build_chr_pos_snp_id(chrom: object, pos: object, *, context: str | None = None) -> str:
@@ -139,7 +144,12 @@ def validate_unique_snp_ids(df: pd.DataFrame, mode: str, context: str = "table")
         raise ValueError(f"{context} contains non-unique SNP identifiers: {preview}")
 
 
-def read_global_snp_restriction(path: str | Path, snp_identifier: str) -> set[str]:
+def read_global_snp_restriction(
+    path: str | Path,
+    snp_identifier: str,
+    genome_build: str | None = None,
+    logger=None,
+) -> set[str]:
     """
     Read a global SNP restriction file into the active canonical identifier set.
 
@@ -147,10 +157,11 @@ def read_global_snp_restriction(path: str | Path, snp_identifier: str) -> set[st
     reference-panel, or regression SNP universes.
     """
     mode = normalize_snp_identifier_mode(snp_identifier)
+    validate_auto_genome_build_mode(mode, genome_build)
     path = Path(path)
     if mode == "rsid":
         return _read_rsid_restriction(path)
-    return _read_chr_pos_restriction(path)
+    return _read_chr_pos_restriction(path, genome_build=genome_build, logger=LOGGER if logger is None else logger)
 
 
 def _open_text(path: Path):
@@ -196,25 +207,33 @@ def _read_rsid_restriction(path: Path) -> set[str]:
     return {row[snp_idx].strip() for row in data_rows if row and row[snp_idx].strip()}
 
 
-def _read_chr_pos_restriction(path: Path) -> set[str]:
+def _read_chr_pos_restriction(path: Path, genome_build: str | None = None, logger=None) -> set[str]:
     """Read a ``CHR``/``POS`` restriction file into canonical ``CHR:POS`` IDs."""
     lines = _non_comment_lines(path)
     if not lines:
         return set()
     delimiter = _detect_delimiter(lines[0])
     if delimiter is None:
-        values = set()
+        rows: list[tuple[object, object]] = []
         for line in lines:
             stripped = line.strip()
             if ":" in stripped and len(re.split(r"\s+", stripped)) == 1:
                 chrom, pos = stripped.split(":", 1)
-                values.add(build_chr_pos_snp_id(chrom, pos, context=str(path)))
+                rows.append((chrom, pos))
                 continue
             fields = re.split(r"\s+", stripped)
             if len(fields) < 2:
                 raise ValueError(f"chr_pos restriction rows must contain CHR and POS: {line!r}")
-            values.add(build_chr_pos_snp_id(fields[0], fields[1], context=str(path)))
-        return values
+            rows.append((fields[0], fields[1]))
+        frame = pd.DataFrame(rows, columns=["CHR", "POS"])
+        frame["CHR"] = frame["CHR"].astype(str)
+        frame["POS"] = pd.to_numeric(frame["POS"], errors="raise").astype(int)
+        if genome_build is not None:
+            frame, _inference = resolve_chr_pos_table(frame, context=str(path), logger=logger)
+        return {
+            build_chr_pos_snp_id(chrom, pos, context=str(path))
+            for chrom, pos in frame.itertuples(index=False, name=None)
+        }
 
     reader = csv.reader(lines, delimiter=delimiter)
     rows = list(reader)
@@ -227,9 +246,17 @@ def _read_chr_pos_restriction(path: Path) -> set[str]:
     except ValueError:
         chr_idx, pos_idx = 0, 1
         data_rows = rows
-    values = set()
+    values: list[tuple[object, object]] = []
     for row in data_rows:
         if not row:
             continue
-        values.add(build_chr_pos_snp_id(row[chr_idx], row[pos_idx], context=str(path)))
-    return values
+        values.append((row[chr_idx], row[pos_idx]))
+    frame = pd.DataFrame(values, columns=["CHR", "POS"])
+    frame["CHR"] = frame["CHR"].astype(str)
+    frame["POS"] = pd.to_numeric(frame["POS"], errors="raise").astype(int)
+    if genome_build is not None:
+        frame, _inference = resolve_chr_pos_table(frame, context=str(path), logger=logger)
+    return {
+        build_chr_pos_snp_id(chrom, pos, context=str(path))
+        for chrom, pos in frame.itertuples(index=False, name=None)
+    }

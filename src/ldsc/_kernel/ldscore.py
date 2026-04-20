@@ -202,6 +202,11 @@ from ..column_inference import (
     resolve_required_columns,
 )
 from ..chromosome_inference import STANDARD_CHROMOSOMES, chrom_sort_key, normalize_chromosome
+from ..genome_build_inference import (
+    load_packaged_reference_table,
+    resolve_chr_pos_table,
+    validate_auto_genome_build_mode,
+)
 from . import formats as legacy_parse
 from .identifiers import build_snp_id_series, read_global_snp_restriction
 
@@ -911,10 +916,11 @@ def read_sorted_r2_presence(args: argparse.Namespace, chrom: str) -> set[object]
     dataset = ds.dataset(files, format="parquet")
     layout = _parquet_schema_layout(dataset.schema.names)
     normalized_chrom = normalize_chromosome(chrom)
+    identifier_mode = normalize_snp_identifier_mode(args.snp_identifier)
     if layout == "normalized":
         helper_pos1, helper_pos2 = _resolve_helper_columns(dataset.schema.names, context="normalized parquet R2 schema")
         columns = ["chr"]
-        if args.snp_identifier == "rsid":
+        if identifier_mode == "rsid":
             columns.extend(["rsID_1", "rsID_2"])
         else:
             columns.extend([helper_pos1, helper_pos2])
@@ -924,7 +930,7 @@ def read_sorted_r2_presence(args: argparse.Namespace, chrom: str) -> set[object]
         genome_build = _require_runtime_genome_build(getattr(args, "genome_build", None))
         left_pos_col, right_pos_col = get_r2_build_columns(genome_build, dataset.schema.names)
         columns = ["chr"]
-        if args.snp_identifier == "rsid":
+        if identifier_mode == "rsid":
             columns.extend(["rsID_1", "rsID_2"])
         else:
             columns.extend([left_pos_col, right_pos_col])
@@ -940,7 +946,7 @@ def read_sorted_r2_presence(args: argparse.Namespace, chrom: str) -> set[object]
         pairs = pairs.loc[
             pairs["chr"].map(lambda value: normalize_chromosome(value, context="raw parquet R2 schema")) == normalized_chrom
         ].reset_index(drop=True)
-    if args.snp_identifier == "rsid":
+    if identifier_mode == "rsid":
         return set(pairs["rsID_1"].astype(str)).union(set(pairs["rsID_2"].astype(str)))
     if layout == "normalized":
         left_series = pd.to_numeric(pairs[helper_pos1], errors="raise").astype(np.int64)
@@ -1293,8 +1299,6 @@ class SortedR2BlockReader:
         """Open one chromosome's sorted parquet R2 tables and build index maps."""
         if not paths:
             raise FileNotFoundError(f"No sorted parquet R2 files resolved for chromosome {chrom}.")
-        validate_retained_identifier_uniqueness(metadata, identifier_mode, chrom)
-
         ds = get_pyarrow_modules()
         self.dataset = ds.dataset(list(paths), format="parquet")
         self.ds = ds
@@ -1303,6 +1307,27 @@ class SortedR2BlockReader:
         self.r2_bias_mode = r2_bias_mode
         self.r2_sample_size = r2_sample_size
         self.genome_build = genome_build
+        metadata = metadata.copy()
+        metadata_context = f"SortedR2BlockReader[{self.chrom}] metadata"
+        renamed = {
+            resolve_required_column(metadata.columns, REFERENCE_METADATA_SPEC_MAP["CHR"], context=metadata_context): "CHR",
+            resolve_required_column(metadata.columns, REFERENCE_METADATA_SPEC_MAP["POS"], context=metadata_context): "POS",
+            resolve_required_column(metadata.columns, REFERENCE_METADATA_SPEC_MAP["SNP"], context=metadata_context): "SNP",
+        }
+        optional_cm = resolve_optional_column(metadata.columns, REFERENCE_METADATA_SPEC_MAP["CM"], context=metadata_context)
+        if optional_cm is not None:
+            renamed[optional_cm] = "CM"
+        metadata = metadata.rename(columns=renamed)
+        if self.genome_build == "auto":
+            validate_auto_genome_build_mode(self.identifier_mode, self.genome_build)
+            metadata, inference = resolve_chr_pos_table(
+                metadata,
+                context=f"SortedR2BlockReader[{self.chrom}]",
+                reference_table=load_packaged_reference_table(),
+                logger=LOGGER,
+            )
+            self.genome_build = inference.genome_build
+        validate_retained_identifier_uniqueness(metadata, identifier_mode, chrom)
         self.pos = metadata["POS"].to_numpy(dtype=np.int64)
         self.m = len(metadata)
         self.query_columns = ["chr", "pos_1", "pos_2", "R2"]
@@ -1595,6 +1620,14 @@ def compute_chrom_from_parquet(
     5. Return chromosome-level LD scores plus M and M_5_50 counts.
     """
     metadata = merge_frequency_metadata(bundle.metadata.copy(), args, chrom=chrom, identifier_mode=args.snp_identifier)
+    if args.snp_identifier == "chr_pos" and getattr(args, "genome_build", None) == "auto":
+        metadata, inference = resolve_chr_pos_table(
+            metadata,
+            context=f"parquet metadata chromosome {chrom}",
+            reference_table=load_packaged_reference_table(),
+            logger=LOGGER,
+        )
+        args.genome_build = inference.genome_build
     metadata, annotations = apply_maf_filter(metadata, bundle.annotations.copy(), args.maf, context="parquet mode")
     present_values = read_sorted_r2_presence(args, chrom=chrom)
     metadata, annotations, regression_keys = filter_reference_to_present_r2(
@@ -1848,6 +1881,7 @@ def validate_args(args: argparse.Namespace) -> None:
     """Validate top-level LD-score CLI arguments before any heavy work starts."""
     args.snp_identifier = normalize_snp_identifier_mode(args.snp_identifier)
     args.genome_build = normalize_genome_build(args.genome_build)
+    validate_auto_genome_build_mode(args.snp_identifier, args.genome_build)
     keep = getattr(args, "keep", None)
     if not (args.query_annot or args.query_annot_chr or args.baseline_annot or args.baseline_annot_chr):
         raise ValueError("At least one of query or baseline annotation inputs must be supplied.")
@@ -1894,7 +1928,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--genome-build",
         default=None,
-        help="Genome build assumed for the sorted parquet R2 file and chr_pos matching. Aliases normalize to canonical hg19/hg38.",
+        choices=("auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"),
+        help="Genome build assumed for the sorted parquet R2 file and chr_pos matching. Use 'auto' to infer hg19/hg38 and 0-based/1-based coordinates.",
     )
     parser.add_argument("--r2-bias-mode", choices=("raw", "unbiased"), default=None, help="Whether sorted parquet R2 values are raw sample r^2 or already unbiased.")
     parser.add_argument("--r2-sample-size", default=None, type=float, help="LD reference sample size used to correct raw parquet R2 values.")

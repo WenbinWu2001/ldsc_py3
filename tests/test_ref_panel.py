@@ -156,6 +156,34 @@ class ParquetRefPanelTest(unittest.TestCase):
             metadata = panel.load_metadata("2")
             self.assertEqual(metadata["POS"].tolist(), [20])
 
+    def test_sidecar_metadata_loading_auto_genome_build_shifts_zero_based_positions_and_logs(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            meta = Path(tmpdir) / "meta.tsv"
+            rows = ["CHR\tBP\tSNP\tCM\tMAF"]
+            positions = [1000 + (idx * 10) for idx in range(250)]
+            for idx, pos in enumerate(positions, start=1):
+                rows.append(f"1\t{pos - 1}\trs{idx}\t0.1\t0.2")
+            meta.write_text("\n".join(rows) + "\n", encoding="utf-8")
+            panel = ParquetR2RefPanel(
+                CommonConfig(snp_identifier="chr_pos", genome_build="auto"),
+                RefPanelSpec(backend="parquet_r2", maf_metadata_paths=(str(meta),)),
+            )
+
+            with unittest.mock.patch(
+                "ldsc._kernel.ref_panel.load_packaged_reference_table",
+                return_value=pd.DataFrame(
+                    {
+                        "CHR": ["1"] * 250,
+                        "hg19_POS": positions,
+                        "hg38_POS": [5000 + (idx * 10) for idx in range(250)],
+                    }
+                ),
+            ), self.assertLogs("LDSC.ref_panel", level="INFO") as logs:
+                metadata = panel.load_metadata("1")
+
+            self.assertEqual(metadata["POS"].tolist()[:3], [1000, 1010, 1020])
+            self.assertTrue(any("0-based" in message and "hg19" in message for message in logs.output))
+
     @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
     def test_build_reader(self):
         with tempfile.TemporaryDirectory() as tmpdir:

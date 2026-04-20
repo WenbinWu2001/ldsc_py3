@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+import logging
 from os import PathLike
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,11 @@ from ..column_inference import (
     resolve_required_column,
 )
 from ..config import CommonConfig, RefPanelConfig, _normalize_optional_path, _normalize_path_tuple
+from ..genome_build_inference import (
+    load_packaged_reference_table,
+    resolve_chr_pos_table,
+    validate_auto_genome_build_mode,
+)
 from ..path_resolution import (
     FREQUENCY_SUFFIXES,
     PARQUET_SUFFIXES,
@@ -39,6 +45,8 @@ from .identifiers import (
     read_global_snp_restriction,
     validate_unique_snp_ids,
 )
+
+LOGGER = logging.getLogger("LDSC.ref_panel")
 
 
 @dataclass(frozen=True)
@@ -73,6 +81,7 @@ class RefPanel(ABC):
     """Abstract chromosome-scoped reference-panel interface."""
     def __init__(self, common_config: CommonConfig, spec: RefPanelSpec) -> None:
         """Store shared config and initialize the per-chromosome metadata cache."""
+        validate_auto_genome_build_mode(common_config.snp_identifier, common_config.genome_build)
         self.common_config = common_config
         self.spec = spec
         self._metadata_cache: dict[str, pd.DataFrame] = {}
@@ -115,7 +124,12 @@ class RefPanel(ABC):
         restrict_path = self.common_config.global_snp_restriction_path
         if restrict_path is None or len(metadata) == 0:
             return metadata
-        restrict_ids = read_global_snp_restriction(restrict_path, self.common_config.snp_identifier)
+        restrict_ids = read_global_snp_restriction(
+            restrict_path,
+            self.common_config.snp_identifier,
+            genome_build=self.common_config.genome_build,
+            logger=LOGGER,
+        )
         keep = build_snp_id_series(metadata, self.common_config.snp_identifier).isin(restrict_ids)
         return metadata.loc[keep].reset_index(drop=True)
 
@@ -342,4 +356,11 @@ def _read_metadata_table(path: str | Path, chrom: str | None, common_config: Com
 
     if chrom is not None and "CHR" in out.columns:
         out = out.loc[out["CHR"] == normalize_chromosome(chrom, context=context)].reset_index(drop=True)
+    if snp_identifier == "chr_pos" and common_config.genome_build == "auto":
+        out, _inference = resolve_chr_pos_table(
+            out,
+            context=context,
+            reference_table=load_packaged_reference_table(),
+            logger=LOGGER,
+        )
     return out

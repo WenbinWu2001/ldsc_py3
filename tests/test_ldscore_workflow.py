@@ -616,3 +616,56 @@ class LDScoreParquetNormalizationTest(unittest.TestCase):
                 matrix,
                 np.array([[1.0, 0.4], [0.4, 1.0]], dtype=np.float32),
             )
+
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet reader coverage")
+    def test_sorted_r2_block_reader_accepts_auto_genome_build(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "raw_chr1.parquet"
+            pd.DataFrame(
+                {
+                    "chr": ["1"],
+                    "rsID_1": ["rs2"],
+                    "rsID_2": ["rs1"],
+                    "hg38_bp1": [5120],
+                    "hg38_bp2": [5100],
+                    "hg19_bp_1": [120],
+                    "hg19_bp_2": [100],
+                    "hg38_Uniq_ID_1": ["1:5120"],
+                    "hg38_Uniq_ID_2": ["1:5100"],
+                    "hg19_Uniq_ID_1": ["1:120"],
+                    "hg19_Uniq_ID_2": ["1:100"],
+                    "R2": [0.4],
+                    "Dprime": [0.5],
+                    "+/-corr": ["+"],
+                }
+            ).to_parquet(path, index=False)
+
+            metadata = pd.DataFrame(
+                {
+                    "CHR": ["1"] * 250,
+                    "SNP": [f"rs{i}" for i in range(250)],
+                    "POS": [100 + (idx * 10) for idx in range(250)],
+                    "CM": [0.1] * 250,
+                }
+            )
+            with mock.patch(
+                "ldsc._kernel.ldscore.load_packaged_reference_table",
+                return_value=pd.DataFrame(
+                    {
+                        "CHR": ["1"] * 250,
+                        "hg19_POS": [100 + (idx * 10) for idx in range(250)],
+                        "hg38_POS": [5100 + (idx * 10) for idx in range(250)],
+                    }
+                ),
+            ):
+                reader = kernel_ldscore.SortedR2BlockReader(
+                    paths=[str(path)],
+                    chrom="1",
+                    metadata=metadata,
+                    identifier_mode="chr_pos",
+                    r2_bias_mode="unbiased",
+                    r2_sample_size=None,
+                    genome_build="auto",
+                )
+
+            self.assertEqual(reader.genome_build, "hg19")

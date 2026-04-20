@@ -30,8 +30,8 @@ from .path_resolution import normalize_optional_path_token, normalize_path_token
 
 
 SNPIdentifierMode = Literal["rsid", "chr_pos"]
-GenomeBuild = Literal["hg19", "hg38"]
-GenomeBuildInput = Literal["hg19", "hg37", "hg38", "GRCh37", "GRCh38"]
+GenomeBuild = Literal["hg19", "hg38", "auto"]
+GenomeBuildInput = Literal["auto", "hg19", "hg37", "hg38", "GRCh37", "GRCh38"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
 RefPanelBackend = Literal["auto", "plink", "parquet_r2"]
 CompressionMode = Literal["auto", "gzip", "bz2", "none"]
@@ -77,7 +77,7 @@ class CommonConfig:
         Global SNP identifier mode. Default is ``"chr_pos"``. ``"rsid"``
         expects an explicit SNP column, while ``"chr_pos"`` builds identifiers
         from chromosome and base-pair position.
-    genome_build : {"hg19", "hg37", "GRCh37", "hg38", "GRCh38"} or None, optional
+    genome_build : {"auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"} or None, optional
         Genome-build context for ``chr_pos`` workflows. Default is ``None``.
     global_snp_restriction_path : str or os.PathLike[str] or None, optional
         Optional path to a SNP list or table that restricts the SNP universe used

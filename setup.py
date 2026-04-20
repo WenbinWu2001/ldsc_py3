@@ -12,6 +12,7 @@ setup(
     package_dir={"": "src"},
     packages=find_packages(where="src"),
     include_package_data=True,
+    package_data={"ldsc": ["data/*.tsv.gz"]},
     entry_points={
         "console_scripts": [
             "ldsc=ldsc.cli:main",

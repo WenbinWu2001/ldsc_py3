@@ -36,6 +36,7 @@ _RSID_IDENTIFIER_ALIASES = ("rsid", "rs_id", "rs", "snp", "snpid", "snp_id")
 _CHR_POS_IDENTIFIER_ALIASES = ("chr_pos", "chrpos", "chrom_pos", "chromosome_position", "position")
 _HG19_BUILD_ALIASES = ("hg19", "hg37", "grch37")
 _HG38_BUILD_ALIASES = ("hg38", "grch38")
+_AUTO_BUILD_ALIASES = ("auto",)
 
 
 def normalize_snp_identifier_mode(value: str) -> str:
@@ -49,15 +50,17 @@ def normalize_snp_identifier_mode(value: str) -> str:
 
 
 def normalize_genome_build(genome_build: str | None) -> str | None:
-    """Normalize a flexible genome-build label to ``hg19`` or ``hg38``."""
+    """Normalize a flexible genome-build label to ``hg19``, ``hg38``, or ``auto``."""
     if genome_build is None:
         return None
     normalized = normalize_column_token(genome_build)
+    if normalized in {normalize_column_token(alias) for alias in _AUTO_BUILD_ALIASES}:
+        return "auto"
     if normalized in {normalize_column_token(alias) for alias in _HG19_BUILD_ALIASES}:
         return "hg19"
     if normalized in {normalize_column_token(alias) for alias in _HG38_BUILD_ALIASES}:
         return "hg38"
-    raise ValueError("genome_build must be None, 'hg19', 'hg37', 'GRCh37', 'hg38', or 'GRCh38'.")
+    raise ValueError("genome_build must be None, 'auto', 'hg19', 'hg37', 'GRCh37', 'hg38', or 'GRCh38'.")
 
 
 @dataclass(frozen=True)

@@ -58,6 +58,8 @@ class CommonConfigTest(unittest.TestCase):
         self.assertEqual(normalize_genome_build("hg37"), "hg19")
         self.assertEqual(normalize_genome_build("GRCh37"), "hg19")
         self.assertEqual(normalize_genome_build("GRCh38"), "hg38")
+        self.assertEqual(CommonConfig(genome_build="auto").genome_build, "auto")
+        self.assertEqual(normalize_genome_build("AUTO"), "auto")
 
 
 class WorkflowConfigTest(unittest.TestCase):
@@ -261,6 +263,7 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertEqual(RefPanelSpec(backend="parquet_r2", genome_build="hg37").genome_build, "hg19")
         self.assertEqual(RefPanelSpec(backend="parquet_r2", genome_build="GRCh37").genome_build, "hg19")
         self.assertEqual(RefPanelSpec(backend="parquet_r2", genome_build="GRCh38").genome_build, "hg38")
+        self.assertEqual(RefPanelSpec(backend="parquet_r2", genome_build="auto").genome_build, "auto")
 
     def test_public_specs_accept_single_string_tokens_for_plural_fields(self):
         annot = AnnotationSourceSpec(

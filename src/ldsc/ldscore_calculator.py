@@ -19,6 +19,7 @@ import pandas as pd
 from .chromosome_inference import STANDARD_CHROMOSOMES
 from .column_inference import normalize_snp_identifier_mode
 from .config import CommonConfig, LDScoreConfig
+from .genome_build_inference import validate_auto_genome_build_mode
 from .outputs import OutputManager, OutputSpec
 from .path_resolution import (
     ANNOTATION_SUFFIXES,
@@ -363,9 +364,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--snp-identifier", default="chr_pos", help="Identifier mode used to match annotations to the reference panel.")
     parser.add_argument(
         "--genome-build",
-        choices=("hg19", "hg37", "GRCh37", "hg38", "GRCh38"),
+        choices=("auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"),
         default=None,
-        help="Genome build for chr_pos matching. Aliases normalize to canonical hg19/hg38.",
+        help="Genome build for chr_pos matching. Use 'auto' to infer hg19/hg38 and 0-based/1-based coordinates.",
     )
     parser.add_argument("--r2-bias-mode", choices=("raw", "unbiased"), default=None, help="Whether parquet R2 values are raw or already unbiased.")
     parser.add_argument("--r2-sample-size", default=None, type=float, help="LD reference sample size used to correct raw parquet R2 values.")
@@ -567,6 +568,7 @@ def main(argv: Sequence[str] | None = None) -> LDScoreResult:
 def _normalize_run_args(args: argparse.Namespace) -> tuple[argparse.Namespace, CommonConfig]:
     """Normalize CLI-style args and derive the shared ``CommonConfig`` object."""
     normalized_mode = normalize_snp_identifier_mode(args.snp_identifier)
+    validate_auto_genome_build_mode(normalized_mode, getattr(args, "genome_build", None))
     normalized_args = argparse.Namespace(**vars(args))
     normalized_args.snp_identifier = normalized_mode
     normalized_args.out = normalize_path_token(args.out)
@@ -583,7 +585,11 @@ def _load_regression_snps(path: str | None, common_config: CommonConfig) -> set[
     """Load the optional global regression SNP universe using the active identifier mode."""
     if not path:
         return None
-    return read_global_snp_restriction(resolve_scalar_path(path, label="regression SNP list"), common_config.snp_identifier)
+    return read_global_snp_restriction(
+        resolve_scalar_path(path, label="regression SNP list"),
+        common_config.snp_identifier,
+        genome_build=common_config.genome_build,
+    )
 
 
 def _output_spec_from_args(args: argparse.Namespace) -> OutputSpec:

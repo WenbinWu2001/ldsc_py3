@@ -13,9 +13,7 @@ Path-token rules:
 ## Python API
 
 ```python
-from ldsc import CommonConfig, MungeConfig, RawSumstatsSpec, RegressionConfig, RegressionRunner, SumstatsMunger, load_sumstats, run_ldscore
-
-common = CommonConfig(snp_identifier="rsid")
+from ldsc import MungeConfig, RawSumstatsSpec, RegressionConfig, RegressionRunner, SumstatsMunger, load_sumstats, run_ldscore
 
 sumstats = SumstatsMunger().run(
     RawSumstatsSpec(
@@ -27,7 +25,6 @@ sumstats = SumstatsMunger().run(
         out_prefix="tutorial_outputs/trait",
         signed_sumstats_spec="BETA,0",
     ),
-    common,
 )
 
 # If you already have a curated .sumstats.gz artifact on disk, load it directly:
@@ -42,7 +39,7 @@ ldscore_result = run_ldscore(
     ld_wind_cm=1.0,
 )
 
-runner = RegressionRunner(common, RegressionConfig())
+runner = RegressionRunner(regression_config=RegressionConfig())
 dataset = runner.build_dataset(sumstats, ldscore_result)
 h2 = runner.estimate_h2(dataset)
 
@@ -52,6 +49,8 @@ print("intercept =", float(h2.intercept))
 print("ldscore_file =", ldscore_result.output_paths["ldscore"])
 print("weight_file =", ldscore_result.output_paths["w_ld"])
 ```
+
+`SumstatsMunger` does not currently use `CommonConfig`, so the munging example omits it here.
 
 ## CLI
 

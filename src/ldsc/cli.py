@@ -134,7 +134,7 @@ def _run_annotate(args: argparse.Namespace):
     if args.bed_files:
         return annotation_builder.main_bed_to_annot(_namespace_to_argv(args, exclude={"command", "gene_set_file", "gene_coord_file", "windowsize", "bed_file", "nomerge", "bimfile", "annot_file"}))
     return annotation_builder.main_make_annot(
-        _namespace_to_argv(args, exclude={"command", "baseline_annot_dir", "output_dir", "restrict_snps_path", "snp_identifier", "batch", "bed_files", "log_level"})
+        _namespace_to_argv(args, exclude={"command", "baseline_annot_dir", "output_dir", "restrict_snps_path", "snp_identifier", "genome_build", "batch", "bed_files", "log_level"})
     )
 
 
@@ -145,6 +145,12 @@ def _add_annotate_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--output-dir", default=None, help="Destination directory for generated .annot.gz files.")
     parser.add_argument("--restrict-snps-path", default=None, help="Optional global SNP restriction file.")
     parser.add_argument("--snp-identifier", default="chr_pos", help="How to interpret restriction SNP identifiers.")
+    parser.add_argument(
+        "--genome-build",
+        default=None,
+        choices=("auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"),
+        help="Genome build for chr_pos inputs. Use 'auto' to infer hg19/hg38 and 0-based/1-based coordinates.",
+    )
     parser.add_argument("--no-batch", dest="batch", action="store_false", default=True, help="Write one output directory per BED file.")
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"))
     parser.add_argument("--gene-set-file", default=None, help="A file of gene names, one line per gene.")

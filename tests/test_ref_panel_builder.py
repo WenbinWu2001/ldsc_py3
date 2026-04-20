@@ -149,6 +149,29 @@ class LiftOverTranslatorTest(unittest.TestCase):
         self.assertEqual(result.cross_chrom_count, 1)
         self.assertEqual(result.unmapped_count, 1)
 
+    def test_map_positions_ignores_unsupported_auxiliary_contigs(self):
+        class _FakeLiftOver:
+            def convert_coordinate(self, chrom, pos0):
+                table = {
+                    ("chr22", 99): [("chrUn_gl000217", 50, "+", 0), ("chr22", 999, "+", 0)],
+                    ("chr22", 199): [("chrUn_gl000217", 60, "+", 0)],
+                }
+                return table[(chrom, pos0)]
+
+        translator = kernel_builder.LiftOverTranslator.__new__(kernel_builder.LiftOverTranslator)
+        translator.source_build = "hg38"
+        translator.target_build = "hg19"
+        translator.chain_path = None
+        translator._identity = False
+        translator._liftover = _FakeLiftOver()
+
+        result = translator.map_positions("22", np.array([100, 200], dtype=np.int64))
+
+        np.testing.assert_array_equal(result.translated_positions, np.array([1000], dtype=np.int64))
+        np.testing.assert_array_equal(result.keep_mask, np.array([True, False]))
+        self.assertEqual(result.cross_chrom_count, 1)
+        self.assertEqual(result.unmapped_count, 0)
+
     def test_explicit_chain_path_is_required_for_cross_build_translation(self):
         with self.assertRaises(ValueError) as exc:
             kernel_builder.LiftOverTranslator(source_build="hg38", target_build="hg19", chain_path=None)

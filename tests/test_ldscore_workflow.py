@@ -217,6 +217,91 @@ class LDScoreWorkflowTest(unittest.TestCase):
             self.assertTrue(Path(result.output_paths["ldscore"]).exists())
             self.assertTrue(Path(result.output_paths["w_ld"]).exists())
 
+    def test_run_ldscore_from_args_print_snps_filters_only_written_reference_table(self):
+        fake_legacy_result = ldscore_workflow._LegacyChromResult(
+            chrom="1",
+            metadata=pd.DataFrame(
+                {
+                    "CHR": ["1", "1"],
+                    "SNP": ["rs1", "rs2"],
+                    "POS": [10, 20],
+                    "CM": [0.1, 0.2],
+                    "MAF": [0.2, 0.3],
+                }
+            ),
+            ld_scores=np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32),
+            w_ld=np.array([[5.0], [6.0]], dtype=np.float32),
+            M=np.array([7.0, 8.0]),
+            M_5_50=np.array([6.0, 7.0]),
+            ldscore_columns=["base", "query"],
+            baseline_columns=["base"],
+            query_columns=["query"],
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            baseline = tmpdir / "baseline.annot"
+            baseline.write_text(
+                "\n".join(
+                    [
+                        "CHR\tBP\tSNP\tCM\tbase",
+                        "1\t10\trs1\t0.1\t1",
+                        "1\t20\trs2\t0.2\t1",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            print_snps = tmpdir / "print_snps.txt"
+            print_snps.write_text("rs2\n", encoding="utf-8")
+            (tmpdir / "panel.bed").write_text("", encoding="utf-8")
+            (tmpdir / "panel.bim").write_text("1 rs1 0.1 10 A G\n1 rs2 0.2 20 C T\n", encoding="utf-8")
+            (tmpdir / "panel.fam").write_text("f i 0 0 0 -9\n", encoding="utf-8")
+            args = Namespace(
+                out=str(tmpdir / "example"),
+                output_dir=None,
+                query_annot=None,
+                query_annot_chr=None,
+                baseline_annot=str(baseline),
+                baseline_annot_chr=None,
+                bfile=str(tmpdir / "panel"),
+                bfile_chr=None,
+                r2_table=None,
+                r2_table_chr=None,
+                snp_identifier="rsid",
+                genome_build=None,
+                r2_bias_mode=None,
+                r2_sample_size=None,
+                regression_snps=None,
+                frqfile=None,
+                frqfile_chr=None,
+                print_snps=str(print_snps),
+                ld_wind_snps=10,
+                ld_wind_kb=None,
+                ld_wind_cm=None,
+                maf=None,
+                chunk_size=50,
+                per_chr_output=False,
+                yes_really=False,
+                log_level="INFO",
+            )
+            with mock.patch.object(ldscore_workflow.ldscore_new, "validate_args"), mock.patch.object(
+                ldscore_workflow.ldscore_new,
+                "combine_annotation_groups",
+                return_value=mock.sentinel.bundle,
+            ), mock.patch.object(
+                ldscore_workflow.ldscore_new,
+                "compute_chrom_from_plink",
+                return_value=fake_legacy_result,
+            ):
+                result = ldscore_workflow.run_ldscore_from_args(args)
+
+            self.assertEqual(result.reference_metadata["SNP"].tolist(), ["rs1", "rs2"])
+            self.assertEqual(result.reference_snps, {"rs1", "rs2"})
+            ldscore_df = pd.read_csv(result.output_paths["ldscore"], sep="\t")
+            self.assertEqual(ldscore_df["SNP"].tolist(), ["rs2"])
+            weight_df = pd.read_csv(result.output_paths["w_ld"], sep="\t")
+            self.assertEqual(weight_df["SNP"].tolist(), ["rs1", "rs2"])
+
     def test_namespace_from_configs_emits_string_paths(self):
         from ldsc._kernel.ref_panel import RefPanelSpec
 

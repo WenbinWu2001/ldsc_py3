@@ -373,6 +373,14 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="File with individuals to include in LD Score estimation. The file should contain one IID per row.",
     )
+    parser.add_argument(
+        "--print-snps",
+        default=None,
+        help=(
+            "Only print LD scores for the SNPs listed in this one-column file. "
+            "LD-score computation itself still includes SNPs not listed here."
+        ),
+    )
     parser.add_argument("--ld-wind-snps", default=None, type=int, help="LD window size in SNPs.")
     parser.add_argument("--ld-wind-kb", default=None, type=float, help="LD window size in kilobases.")
     parser.add_argument("--ld-wind-cm", default=None, type=float, help="LD window size in centiMorgans.")
@@ -582,6 +590,7 @@ def _output_spec_from_args(args: argparse.Namespace) -> OutputSpec:
         output_dir=str(out_path.parent),
         write_per_chrom=bool(getattr(args, "per_chr_output", False)),
         aggregate_across_chromosomes=not bool(getattr(args, "per_chr_output", False)),
+        print_snps_path=normalize_optional_path_token(getattr(args, "print_snps", None)),
         write_summary_json=False,
         write_summary_tsv=False,
         write_run_metadata=False,

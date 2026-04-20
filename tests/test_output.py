@@ -68,16 +68,59 @@ def make_fake_result() -> FakeResult:
     )
 
 
+def make_multi_chrom_result() -> FakeResult:
+    ref_meta = pd.DataFrame(
+        {
+            "CHR": [1, 1, 2],
+            "BP": [10, 20, 30],
+            "SNP": ["rs1", "rs2", "rs3"],
+            "CM": [0.1, 0.2, 0.3],
+        }
+    )
+    ld_scores = pd.DataFrame({"base": [1.0, 2.0, 3.0], "query": [0.5, 0.7, 0.9]})
+    reg_meta = ref_meta.copy()
+    w_ld = pd.DataFrame({"w_base": [1.5, 2.5, 3.5]})
+    chrom1 = FakeChromResult(
+        "1",
+        ref_meta.iloc[:2].reset_index(drop=True),
+        ld_scores.iloc[:2].reset_index(drop=True),
+        reg_meta.iloc[:2].reset_index(drop=True),
+        w_ld.iloc[:2].reset_index(drop=True),
+    )
+    chrom2 = FakeChromResult(
+        "2",
+        ref_meta.iloc[2:].reset_index(drop=True),
+        ld_scores.iloc[2:].reset_index(drop=True),
+        reg_meta.iloc[2:].reset_index(drop=True),
+        w_ld.iloc[2:].reset_index(drop=True),
+    )
+    return FakeResult(
+        reference_metadata=ref_meta,
+        ld_scores=ld_scores,
+        regression_metadata=reg_meta,
+        w_ld=w_ld,
+        snp_count_totals={
+            "all_reference_snp_counts": np.array([10, 20]),
+            "common_reference_snp_counts_maf_gt_0_05": np.array([8, 18]),
+        },
+        baseline_columns=["base"],
+        query_columns=["query"],
+        chromosome_results=[chrom1, chrom2],
+    )
+
+
 class OutputManagerTest(unittest.TestCase):
     def test_output_spec_normalizes_pathlike_fields(self):
         spec = OutputSpec(
             out_prefix=Path("results") / "example",
             output_dir=Path("artifacts"),
             log_path=Path("logs") / "run.log",
+            print_snps_path=Path("filters") / "print_snps.txt",
         )
         self.assertEqual(spec.out_prefix, "results/example")
         self.assertEqual(spec.output_dir, "artifacts")
         self.assertEqual(spec.log_path, "logs/run.log")
+        self.assertEqual(spec.print_snps_path, "filters/print_snps.txt")
 
     def test_output_spec_expands_env_vars_but_does_not_glob_resolve(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -139,6 +182,79 @@ class OutputManagerTest(unittest.TestCase):
             summary = manager.write_outputs(result, spec)
             self.assertIn("ldscore.chrom_1", summary.output_paths)
             self.assertTrue(Path(summary.output_paths["ldscore.chrom_1"]).exists())
+
+    def test_print_snps_filters_only_reference_ldscore_artifact(self):
+        result = make_multi_chrom_result()
+        manager = OutputManager()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            print_snps = tmpdir / "print_snps.txt"
+            print_snps.write_text("rs2\n", encoding="utf-8")
+            spec = OutputSpec(
+                out_prefix="example",
+                output_dir=tmpdir,
+                enabled_artifacts=["ldscore", "w_ld", "counts"],
+                print_snps_path=print_snps,
+            )
+
+            summary = manager.write_outputs(result, spec)
+
+            ldscore_df = pd.read_csv(summary.output_paths["ldscore"], sep="\t")
+            self.assertEqual(ldscore_df["SNP"].tolist(), ["rs2"])
+            weight_df = pd.read_csv(summary.output_paths["w_ld"], sep="\t")
+            self.assertEqual(weight_df["SNP"].tolist(), ["rs1", "rs2", "rs3"])
+            self.assertEqual(
+                Path(summary.output_paths["counts.all_reference_snp_counts"]).read_text(encoding="utf-8"),
+                "10\t20",
+            )
+            self.assertEqual(
+                Path(summary.output_paths["counts.common_reference_snp_counts_maf_gt_0_05"]).read_text(encoding="utf-8"),
+                "8\t18",
+            )
+            self.assertEqual(result.reference_metadata["SNP"].tolist(), ["rs1", "rs2", "rs3"])
+
+    def test_print_snps_filters_per_chrom_reference_outputs_only(self):
+        result = make_multi_chrom_result()
+        manager = OutputManager()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            print_snps = tmpdir / "print_snps.txt"
+            print_snps.write_text("rs1\n", encoding="utf-8")
+            spec = OutputSpec(
+                out_prefix="example",
+                output_dir=tmpdir,
+                enabled_artifacts=["ldscore", "w_ld"],
+                write_per_chrom=True,
+                aggregate_across_chromosomes=False,
+                artifact_layout="by_chrom",
+                print_snps_path=print_snps,
+            )
+
+            summary = manager.write_outputs(result, spec)
+
+            self.assertIn("ldscore.chrom_1", summary.output_paths)
+            self.assertNotIn("ldscore.chrom_2", summary.output_paths)
+            self.assertIn("w_ld.chrom_1", summary.output_paths)
+            self.assertIn("w_ld.chrom_2", summary.output_paths)
+            ldscore_df = pd.read_csv(summary.output_paths["ldscore.chrom_1"], sep="\t")
+            self.assertEqual(ldscore_df["SNP"].tolist(), ["rs1"])
+
+    def test_print_snps_raises_when_no_reference_rows_remain(self):
+        result = make_multi_chrom_result()
+        manager = OutputManager()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            print_snps = tmpdir / "print_snps.txt"
+            print_snps.write_text("rs999\n", encoding="utf-8")
+            spec = OutputSpec(
+                out_prefix="example",
+                output_dir=tmpdir,
+                enabled_artifacts=["ldscore"],
+                print_snps_path=print_snps,
+            )
+
+            with self.assertRaisesRegex(ValueError, "After merging with --print-snps, no SNPs remain."):
+                manager.write_outputs(result, spec)
 
     def test_unknown_artifact_raises(self):
         manager = OutputManager()

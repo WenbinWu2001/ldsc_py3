@@ -52,3 +52,26 @@ class PackageLayoutTest(unittest.TestCase):
 
         self.assertEqual(args.command, "ldscore")
         self.assertEqual(args.keep, "samples.keep")
+
+    def test_ldscore_subcommand_accepts_print_snps(self):
+        from ldsc import cli
+
+        parser = cli.build_parser()
+        args = parser.parse_args(
+            [
+                "ldscore",
+                "--out",
+                "out/example",
+                "--baseline-annot",
+                "baseline.annot.gz",
+                "--bfile",
+                "panel",
+                "--ld-wind-snps",
+                "10",
+                "--print-snps",
+                "filters/print_snps.txt",
+            ]
+        )
+
+        self.assertEqual(args.command, "ldscore")
+        self.assertEqual(args.print_snps, "filters/print_snps.txt")

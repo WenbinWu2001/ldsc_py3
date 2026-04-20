@@ -35,6 +35,7 @@ class OutputSpec:
     compression: CompressionMode = "gzip"
     overwrite: bool = False
     log_path: str | PathLike[str] | None = None
+    print_snps_path: str | PathLike[str] | None = None
     write_summary_json: bool = True
     write_summary_tsv: bool = True
     write_run_metadata: bool = True
@@ -48,6 +49,7 @@ class OutputSpec:
         object.__setattr__(self, "out_prefix", _normalize_required_path(self.out_prefix))
         object.__setattr__(self, "output_dir", _normalize_optional_path(self.output_dir))
         object.__setattr__(self, "log_path", _normalize_optional_path(self.log_path))
+        object.__setattr__(self, "print_snps_path", _normalize_optional_path(self.print_snps_path))
         if not self.out_prefix:
             raise ValueError("out_prefix is required.")
 
@@ -188,8 +190,10 @@ class LDScoreTableProducer(ArtifactProducer):
 
     def build(self, result: Any, run_summary: RunSummary, output_spec: OutputSpec, artifact_config: ArtifactConfig | None = None) -> list[Artifact]:
         artifacts: list[Artifact] = []
+        print_snps = _load_print_snps(output_spec.print_snps_path)
         if output_spec.aggregate_across_chromosomes:
             table = pd.concat([result.reference_metadata.reset_index(drop=True), result.ld_scores.reset_index(drop=True)], axis=1)
+            table = _filter_ldscore_table(table, print_snps)
             artifacts.append(Artifact(self.name, _artifact_filename(output_spec, ".l2.ldscore"), table, "dataframe"))
         if output_spec.write_per_chrom:
             for chrom_result in getattr(result, "chromosome_results", []):
@@ -197,6 +201,9 @@ class LDScoreTableProducer(ArtifactProducer):
                     [chrom_result.reference_metadata.reset_index(drop=True), chrom_result.ld_scores.reset_index(drop=True)],
                     axis=1,
                 )
+                table = _filter_ldscore_table(table, print_snps, raise_on_empty=False)
+                if table.empty:
+                    continue
                 artifacts.append(
                     Artifact(
                         f"{self.name}.chrom_{chrom_result.chrom}",
@@ -205,6 +212,8 @@ class LDScoreTableProducer(ArtifactProducer):
                         "dataframe",
                     )
                 )
+        if print_snps is not None and not artifacts:
+            raise ValueError("After merging with --print-snps, no SNPs remain.")
         return artifacts
 
 
@@ -453,6 +462,31 @@ def _count_suffix(key: str) -> str:
     if key == "common_reference_snp_counts_maf_gt_0_05":
         return ".l2.M_5_50"
     return f".{key}.tsv"
+
+
+def _load_print_snps(path: str | None) -> set[str] | None:
+    """Load an optional legacy-style one-column SNP list for LD-score printing."""
+    if path is None:
+        return None
+    print_snps = pd.read_csv(path, header=None, compression="infer")
+    if len(print_snps.columns) > 1:
+        raise ValueError("--print-snps must refer to a file with a one column of SNP IDs.")
+    return set(print_snps.iloc[:, 0].astype(str))
+
+
+def _filter_ldscore_table(
+    table: pd.DataFrame,
+    print_snps: set[str] | None,
+    *,
+    raise_on_empty: bool = True,
+) -> pd.DataFrame:
+    """Apply the optional legacy ``--print-snps`` filter to one LD-score table."""
+    if print_snps is None:
+        return table
+    filtered = table.loc[table["SNP"].astype(str).isin(print_snps), :].reset_index(drop=True)
+    if filtered.empty and raise_on_empty:
+        raise ValueError("After merging with --print-snps, no SNPs remain.")
+    return filtered
 
 
 def _to_serializable(value: Any) -> Any:

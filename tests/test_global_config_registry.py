@@ -86,7 +86,7 @@ class GlobalConfigRegistryTest(unittest.TestCase):
             GlobalConfig(
                 snp_identifier="rsid",
                 genome_build="hg19",
-                restrict_snps_path="restrict.txt",
+                ref_panel_snps_path="restrict.txt",
                 log_level="DEBUG",
             )
         )
@@ -107,7 +107,7 @@ class GlobalConfigRegistryTest(unittest.TestCase):
         builder = patched.call_args.args[0]
         self.assertEqual(builder.global_config.snp_identifier, "rsid")
         self.assertEqual(builder.global_config.genome_build, "hg19")
-        self.assertEqual(builder.global_config.restrict_snps_path, "restrict.txt")
+        self.assertEqual(builder.global_config.ref_panel_snps_path, "restrict.txt")
         self.assertEqual(builder.global_config.log_level, "DEBUG")
         self.assertEqual(patched_print.call_count, 1)
         self.assertIn("GlobalConfig", patched_print.call_args.args[0])
@@ -241,9 +241,16 @@ class ConfigCompatibilityTest(unittest.TestCase):
 
         validate_config_compatibility(shared, shared, context="test")
 
-    def test_validate_config_compatibility_warns_on_restrict_snps_difference(self):
-        left = GlobalConfig(genome_build="hg38", snp_identifier="chr_pos", restrict_snps_path="left.txt")
-        right = GlobalConfig(genome_build="hg38", snp_identifier="chr_pos", restrict_snps_path="right.txt")
+    def test_validate_config_compatibility_raises_on_ref_panel_snps_difference(self):
+        left = GlobalConfig(genome_build="hg38", snp_identifier="chr_pos", ref_panel_snps_path="left.txt")
+        right = GlobalConfig(genome_build="hg38", snp_identifier="chr_pos", ref_panel_snps_path="right.txt")
 
-        with self.assertWarnsRegex(UserWarning, "restrict_snps_path differs"):
+        with self.assertRaisesRegex(ConfigMismatchError, "ref_panel_snps_path mismatch"):
+            validate_config_compatibility(left, right, context="test")
+
+    def test_validate_config_compatibility_warns_on_regression_snps_difference(self):
+        left = GlobalConfig(genome_build="hg38", snp_identifier="chr_pos", regression_snps_path="left.txt")
+        right = GlobalConfig(genome_build="hg38", snp_identifier="chr_pos", regression_snps_path="right.txt")
+
+        with self.assertWarnsRegex(UserWarning, "regression_snps_path differs"):
             validate_config_compatibility(left, right, context="test")

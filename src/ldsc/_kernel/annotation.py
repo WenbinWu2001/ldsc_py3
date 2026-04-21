@@ -534,8 +534,8 @@ class AnnotationBuilder:
         Convert BED annotations into chromosome-matched ``.annot.gz`` outputs.
 
         This method uses each baseline annotation file as the SNP template,
-        computes one binary mask per BED input, optionally intersects that mask
-        with the global SNP restriction, and writes LDSC-compatible query shard
+        computes one binary mask per BED input, optionally filters baseline SNP
+        rows to the configured reference-panel universe, and writes LDSC-compatible query shard
         files named ``query.<chrom>.annot.gz`` in either batch or
         one-directory-per-BED mode. ``bed_files`` and
         ``baseline_annot_paths`` both accept the public token language: exact
@@ -572,11 +572,11 @@ class AnnotationBuilder:
         output_path = ensure_output_directory(output_dir, label="output directory")
 
         restrict_path = None
-        if self.global_config.restrict_snps_path is not None:
+        if self.global_config.ref_panel_snps_path is not None:
             restrict_path = Path(
                 resolve_scalar_path(
-                    self.global_config.restrict_snps_path,
-                    label="global SNP restriction",
+                    self.global_config.ref_panel_snps_path,
+                    label="reference-panel SNP restriction",
                 )
             )
             if not restrict_path.is_file():
@@ -682,7 +682,7 @@ class AnnotationBuilder:
         query_df: pd.DataFrame,
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """Apply the configured global SNP restriction to aligned annotation tables."""
-        restrict_path = self.global_config.restrict_snps_path
+        restrict_path = self.global_config.ref_panel_snps_path
         if restrict_path is None:
             return metadata, baseline_df, query_df
         restriction = read_global_snp_restriction(
@@ -776,8 +776,8 @@ def parse_bed_to_annot_args(argv: Sequence[str] | None = None) -> argparse.Names
         help="Baseline annotation path tokens: exact paths, globs, or explicit @ suite tokens.",
     )
     parser.add_argument("--output-dir", required=True, help="Destination directory for generated .annot.gz files.")
-    parser.add_argument("--restrict-snps-path", default=None, help="Optional SNP restriction file matched by --snp-identifier.")
-    parser.add_argument("--snp-identifier", default="chr_pos", help="How to interpret --restrict-snps-path when provided.")
+    parser.add_argument("--ref-panel-snps-path", default=None, help="Optional SNP restriction file defining the retained annotation/reference row universe.")
+    parser.add_argument("--snp-identifier", default="chr_pos", help="How to interpret --ref-panel-snps-path when provided.")
     parser.add_argument(
         "--genome-build",
         default=None,
@@ -796,7 +796,7 @@ def main_bed_to_annot(argv: Sequence[str] | None = None) -> int:
     cli_global_config = GlobalConfig(
         snp_identifier=normalize_snp_identifier_mode(args.snp_identifier),
         genome_build=default_config.genome_build if args.genome_build is None else args.genome_build,
-        restrict_snps_path=None if args.restrict_snps_path is None else str(args.restrict_snps_path),
+        ref_panel_snps_path=None if args.ref_panel_snps_path is None else str(args.ref_panel_snps_path),
         log_level=args.log_level,
     )
     _run_bed_to_annot_with_global_config(
@@ -1125,20 +1125,13 @@ def _compute_bed_overlap_mask(baseline_rows: Sequence[_BaselineRow], baseline_be
     return _validate_and_convert_intersection(results, baseline_rows, sanity_mode="rsid")
 
 
-def _combine_masks(left: Sequence[bool], right: Sequence[bool]) -> list[int]:
-    """Combine overlap and restriction masks into one integer annotation vector."""
-    if len(left) != len(right):
-        raise ValueError("Mask length mismatch while combining BED and restriction masks.")
-    return [int(a and b) for a, b in zip(left, right)]
-
-
 def _write_annot_file(out_path: Path, rows: Sequence[_BaselineRow], annotation_names: Sequence[str], masks: Sequence[Sequence[int]]) -> None:
     """Write one LDSC-compatible ``.annot.gz`` file from precomputed annotation masks."""
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with gzip.open(out_path, "wt") as handle:
         handle.write("\t".join([*REQUIRED_ANNOT_COLUMNS, *annotation_names]) + "\n")
         for idx, row in enumerate(rows):
-            annot_values = [str(mask[idx]) for mask in masks]
+            annot_values = [str(int(mask[idx])) for mask in masks]
             handle.write("\t".join([row.chrom, str(row.pos), row.snp, row.cm, *annot_values]) + "\n")
 
 
@@ -1171,22 +1164,27 @@ def _process_baseline_file(
     pybedtools = _get_pybedtools()
     baseline_bed = pybedtools.BedTool(str(baseline_bed_path))
     restrict_mask = _build_restrict_mask(rows, baseline_bed, restrict_resource)
+    kept_rows = [row for row, keep in zip(rows, restrict_mask) if keep]
+    if not kept_rows:
+        pybedtools.cleanup(remove_all=True)
+        return
+    kept_bed_path = _write_baseline_bed(kept_rows, tempdir / f"{baseline_path.name}.restricted.snps.bed")
+    kept_baseline_bed = pybedtools.BedTool(str(kept_bed_path))
 
     if batch:
         annotation_names = [path.stem for path in bed_paths]
         masks = []
         for bed_path in bed_paths:
-            overlap_mask = _compute_bed_overlap_mask(rows, baseline_bed, bed_path)
-            masks.append(_combine_masks(overlap_mask, restrict_mask))
+            overlap_mask = _compute_bed_overlap_mask(kept_rows, kept_baseline_bed, bed_path)
+            masks.append(overlap_mask)
         output_name = _query_output_name(baseline_path)
-        _write_annot_file(output_dir / output_name, rows, annotation_names, masks)
+        _write_annot_file(output_dir / output_name, kept_rows, annotation_names, masks)
     else:
         for bed_path in bed_paths:
-            overlap_mask = _compute_bed_overlap_mask(rows, baseline_bed, bed_path)
-            final_mask = _combine_masks(overlap_mask, restrict_mask)
+            overlap_mask = _compute_bed_overlap_mask(kept_rows, kept_baseline_bed, bed_path)
             bed_output_dir = output_dir / bed_path.stem
             output_name = _query_output_name(baseline_path)
-            _write_annot_file(bed_output_dir / output_name, rows, [bed_path.stem], [final_mask])
+            _write_annot_file(bed_output_dir / output_name, kept_rows, [bed_path.stem], [overlap_mask])
 
     pybedtools.cleanup(remove_all=True)
 

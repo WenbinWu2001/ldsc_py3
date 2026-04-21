@@ -57,7 +57,7 @@ class PackageLayoutTest(unittest.TestCase):
         self.assertEqual(args.command, "ldscore")
         self.assertEqual(args.keep, "samples.keep")
 
-    def test_ldscore_subcommand_accepts_print_snps(self):
+    def test_ldscore_subcommand_accepts_regression_snps_path(self):
         from ldsc import cli
 
         parser = cli.build_parser()
@@ -72,13 +72,50 @@ class PackageLayoutTest(unittest.TestCase):
                 "panel",
                 "--ld-wind-snps",
                 "10",
-                "--print-snps",
-                "filters/print_snps.txt",
+                "--regression-snps-path",
+                "filters/hm3.txt",
             ]
         )
 
         self.assertEqual(args.command, "ldscore")
-        self.assertEqual(args.print_snps, "filters/print_snps.txt")
+        self.assertEqual(args.regression_snps_path, "filters/hm3.txt")
+
+    def test_ldscore_subcommand_rejects_removed_print_snps_and_regression_snps_flags(self):
+        from ldsc import cli
+
+        parser = cli.build_parser()
+        with self.assertRaises(SystemExit):
+            parser.parse_args(
+                [
+                    "ldscore",
+                    "--out",
+                    "out/example",
+                    "--baseline-annot",
+                    "baseline.annot.gz",
+                    "--bfile",
+                    "panel",
+                    "--ld-wind-snps",
+                    "10",
+                    "--print-snps",
+                    "filters/print_snps.txt",
+                ]
+            )
+        with self.assertRaises(SystemExit):
+            parser.parse_args(
+                [
+                    "ldscore",
+                    "--out",
+                    "out/example",
+                    "--baseline-annot",
+                    "baseline.annot.gz",
+                    "--bfile",
+                    "panel",
+                    "--ld-wind-snps",
+                    "10",
+                    "--regression-snps",
+                    "filters/hm3.txt",
+                ]
+            )
 
     def test_annotate_subcommand_rejects_removed_baseline_dir_flag(self):
         from ldsc import cli

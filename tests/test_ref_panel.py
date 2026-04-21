@@ -3,6 +3,7 @@ import importlib
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 import pandas as pd
 
@@ -71,7 +72,7 @@ class PlinkRefPanelTest(unittest.TestCase):
             restrict = Path(tmpdir) / "restrict.txt"
             restrict.write_text("SNP\nrs7341907\n", encoding="utf-8")
             panel = PlinkRefPanel(
-                GlobalConfig(snp_identifier="rsid", restrict_snps_path=str(restrict)),
+                GlobalConfig(snp_identifier="rsid", ref_panel_snps_path=str(restrict)),
                 RefPanelSpec(backend="plink", bfile_prefix=str(FIXTURES / "plink")),
             )
             metadata = panel.load_metadata("9")
@@ -169,7 +170,7 @@ class ParquetRefPanelTest(unittest.TestCase):
                 RefPanelSpec(backend="parquet_r2", maf_metadata_paths=(str(meta),)),
             )
 
-            with unittest.mock.patch(
+            with mock.patch(
                 "ldsc._kernel.ref_panel.load_packaged_reference_table",
                 return_value=pd.DataFrame(
                     {

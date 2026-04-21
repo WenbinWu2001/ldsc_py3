@@ -53,7 +53,7 @@ class GlobalConfigTest(unittest.TestCase):
         configured = GlobalConfig(
             snp_identifier="rsid",
             genome_build="hg19",
-            restrict_snps_path=Path("restrict") / "snps.txt",
+            ref_panel_snps_path=Path("restrict") / "snps.txt",
             log_level="DEBUG",
         )
         ldsc.set_global_config(configured)
@@ -207,7 +207,7 @@ class WorkflowConfigTest(unittest.TestCase):
             liftover_chain_hg19_to_hg38_path=Path("liftover") / "hg19ToHg38.over.chain",
             liftover_chain_hg38_to_hg19_path=Path("liftover") / "hg38ToHg19.over.chain",
             output_dir=Path("outputs") / "ref",
-            restrict_snps_path=Path("restrict") / "snps.txt",
+            ref_panel_snps_path=Path("restrict") / "snps.txt",
             keep_indivs_path=Path("samples") / "keep.txt",
             ld_wind_snps=500,
         )
@@ -217,7 +217,7 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertEqual(config.liftover_chain_hg19_to_hg38_path, "liftover/hg19ToHg38.over.chain")
         self.assertEqual(config.liftover_chain_hg38_to_hg19_path, "liftover/hg38ToHg19.over.chain")
         self.assertEqual(config.output_dir, "outputs/ref")
-        self.assertEqual(config.restrict_snps_path, "restrict/snps.txt")
+        self.assertEqual(config.ref_panel_snps_path, "restrict/snps.txt")
         self.assertEqual(config.keep_indivs_path, "samples/keep.txt")
 
     def test_munge_config_defaults(self):
@@ -241,9 +241,13 @@ class WorkflowConfigTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             RegressionConfig(n_blocks=1)
 
-    def test_global_config_normalizes_optional_path(self):
-        config = GlobalConfig(restrict_snps_path=Path("restrict") / "snps.txt")
-        self.assertEqual(config.restrict_snps_path, "restrict/snps.txt")
+    def test_global_config_normalizes_optional_paths(self):
+        config = GlobalConfig(
+            ref_panel_snps_path=Path("restrict") / "snps.txt",
+            regression_snps_path=Path("output") / "hm3.txt",
+        )
+        self.assertEqual(config.ref_panel_snps_path, "restrict/snps.txt")
+        self.assertEqual(config.regression_snps_path, "output/hm3.txt")
 
     def test_ref_panel_config_normalizes_path_fields(self):
         config = RefPanelConfig(

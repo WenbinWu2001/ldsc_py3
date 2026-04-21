@@ -87,10 +87,12 @@ class GlobalConfig:
         from chromosome and base-pair position.
     genome_build : {"auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"} or None, optional
         Genome-build context for ``chr_pos`` workflows. Default is ``"hg38"``.
-    restrict_snps_path : str or os.PathLike[str] or None, optional
-        Optional path to a SNP list or table that restricts the SNP universe used
-        by annotation, reference-panel, and regression workflows. Default is
-        ``None``.
+    ref_panel_snps_path : str or os.PathLike[str] or None, optional
+        Optional path to the SNP list or table defining the retained reference-
+        panel and annotation row universe. Default is ``None``.
+    regression_snps_path : str or os.PathLike[str] or None, optional
+        Optional path to the SNP list defining the regression SNP set. Default
+        is ``None``.
     log_level : {"DEBUG", "INFO", "WARNING", "ERROR"}, optional
         Requested logging verbosity for workflow modules. Default is ``"INFO"``.
     fail_on_missing_metadata : bool, optional
@@ -99,7 +101,8 @@ class GlobalConfig:
     """
     snp_identifier: SNPIdentifierMode = "chr_pos"
     genome_build: GenomeBuildInput | None = "hg38"
-    restrict_snps_path: str | PathLike[str] | None = None
+    ref_panel_snps_path: str | PathLike[str] | None = None
+    regression_snps_path: str | PathLike[str] | None = None
     log_level: LogLevel = "INFO"
     fail_on_missing_metadata: bool = False
 
@@ -109,9 +112,8 @@ class GlobalConfig:
             raise ValueError("snp_identifier must be 'rsid' or 'chr_pos'.")
         object.__setattr__(self, "genome_build", normalize_genome_build(self.genome_build))
         object.__setattr__(self, "log_level", _normalize_log_level(self.log_level))
-        object.__setattr__(
-            self, "restrict_snps_path", _normalize_optional_path(self.restrict_snps_path)
-        )
+        object.__setattr__(self, "ref_panel_snps_path", _normalize_optional_path(self.ref_panel_snps_path))
+        object.__setattr__(self, "regression_snps_path", _normalize_optional_path(self.regression_snps_path))
 
 
 _GLOBAL_CONFIG: GlobalConfig = GlobalConfig()
@@ -160,10 +162,16 @@ def validate_config_compatibility(
             f"{b.snp_identifier!r}. These objects were computed under different "
             "SNP-identifier modes and cannot be safely merged."
         )
-    if a.restrict_snps_path != b.restrict_snps_path:
+    if a.ref_panel_snps_path != b.ref_panel_snps_path:
+        raise ConfigMismatchError(
+            f"ref_panel_snps_path mismatch{prefix}: {a.ref_panel_snps_path!r} vs "
+            f"{b.ref_panel_snps_path!r}. These objects were computed under different "
+            "reference-panel SNP universes and cannot be safely merged."
+        )
+    if a.regression_snps_path != b.regression_snps_path:
         warnings.warn(
-            f"restrict_snps_path differs{prefix}: {a.restrict_snps_path!r} vs "
-            f"{b.restrict_snps_path!r}. Results are combinable but SNP sets may differ.",
+            f"regression_snps_path differs{prefix}: {a.regression_snps_path!r} vs "
+            f"{b.regression_snps_path!r}. Results are combinable but regression SNP sets may differ.",
             UserWarning,
             stacklevel=2,
         )
@@ -341,7 +349,7 @@ class ReferencePanelBuildConfig:
     ld_wind_kb: float | None = None
     ld_wind_cm: float | None = None
     maf_min: float | None = None
-    restrict_snps_path: str | PathLike[str] | None = None
+    ref_panel_snps_path: str | PathLike[str] | None = None
     keep_indivs_path: str | PathLike[str] | None = None
     chunk_size: int = 50
 
@@ -365,7 +373,7 @@ class ReferencePanelBuildConfig:
             _normalize_optional_path(self.liftover_chain_hg38_to_hg19_path),
         )
         object.__setattr__(self, "output_dir", _normalize_required_path(self.output_dir))
-        object.__setattr__(self, "restrict_snps_path", _normalize_optional_path(self.restrict_snps_path))
+        object.__setattr__(self, "ref_panel_snps_path", _normalize_optional_path(self.ref_panel_snps_path))
         object.__setattr__(self, "keep_indivs_path", _normalize_optional_path(self.keep_indivs_path))
         required_chain = (
             self.liftover_chain_hg19_to_hg38_path

@@ -82,7 +82,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             restrict.write_text("SNP\nrs1\nrs3\n", encoding="utf-8")
 
             builder = AnnotationBuilder(
-                GlobalConfig(snp_identifier="rsid", restrict_snps_path=str(restrict)),
+                GlobalConfig(snp_identifier="rsid", ref_panel_snps_path=str(restrict)),
                 AnnotationBuildConfig(),
             )
             bundle = builder.run(
@@ -105,11 +105,56 @@ class AnnotationBuilderTest(unittest.TestCase):
             restrict.write_text("CHR\tBP\n1\t20\n2\t30\n", encoding="utf-8")
 
             builder = AnnotationBuilder(
-                GlobalConfig(snp_identifier="chr_pos", restrict_snps_path=str(restrict)),
+                GlobalConfig(snp_identifier="chr_pos", ref_panel_snps_path=str(restrict)),
                 AnnotationBuildConfig(),
             )
             bundle = builder.run(AnnotationSourceSpec(baseline_annot_paths=(str(base),)))
             self.assertEqual(bundle.reference_snps("chr_pos"), {"1:20", "2:30"})
+
+    def test_process_baseline_file_drops_rows_outside_ref_panel_universe(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            baseline = tmpdir / "baseline.1.annot.gz"
+            bed = tmpdir / "query.bed"
+            rows = [("1", 10, "rs1", 0.1), ("1", 20, "rs2", 0.2), ("1", 30, "rs3", 0.3)]
+            _write_annot(baseline, rows, {"base_a": [1, 0, 1]})
+            bed.write_text("chr1\t0\t100\tfeature\n", encoding="utf-8")
+            restrict_resource = kernel_annotation._RestrictResource(mode="rsid", snp_ids=frozenset({"rs1", "rs3"}))
+
+            captured = {}
+
+            class _FakeBedTool:
+                def __init__(self, path: str):
+                    self.path = path
+
+            with mock.patch.object(kernel_annotation, "_get_pybedtools", return_value=mock.Mock(BedTool=_FakeBedTool)), mock.patch.object(
+                kernel_annotation,
+                "_compute_bed_overlap_mask",
+                return_value=[True, False],
+            ), mock.patch.object(
+                kernel_annotation,
+                "_write_annot_file",
+                side_effect=lambda out_path, kept_rows, annotation_names, masks: captured.update(
+                    {
+                        "out_path": out_path,
+                        "rows": kept_rows,
+                        "annotation_names": annotation_names,
+                        "masks": masks,
+                    }
+                ),
+            ):
+                kernel_annotation._process_baseline_file(
+                    baseline_path=baseline,
+                    bed_paths=[bed],
+                    output_dir=tmpdir / "out",
+                    batch=True,
+                    restrict_resource=restrict_resource,
+                    tempdir=tmpdir,
+                )
+
+            self.assertEqual([row.snp for row in captured["rows"]], ["rs1", "rs3"])
+            self.assertEqual(captured["annotation_names"], ["query"])
+            self.assertEqual(captured["masks"], [[True, False]])
 
     def test_parse_fixture_annotation(self):
         builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())

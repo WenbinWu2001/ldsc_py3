@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 
 from .config import _normalize_optional_path, _normalize_required_path
-from .path_resolution import ensure_output_directory, ensure_output_parent_directory, resolve_scalar_path
+from .path_resolution import ensure_output_directory, ensure_output_parent_directory
 
 
 ArtifactLayout = str
@@ -36,7 +36,6 @@ class OutputSpec:
     compression: CompressionMode = "gzip"
     overwrite: bool = False
     log_path: str | PathLike[str] | None = None
-    print_snps_path: str | PathLike[str] | None = None
     write_summary_json: bool = True
     write_summary_tsv: bool = True
     write_run_metadata: bool = True
@@ -51,7 +50,6 @@ class OutputSpec:
         object.__setattr__(self, "out_prefix", _normalize_required_path(self.out_prefix))
         object.__setattr__(self, "output_dir", _normalize_optional_path(self.output_dir))
         object.__setattr__(self, "log_path", _normalize_optional_path(self.log_path))
-        object.__setattr__(self, "print_snps_path", _normalize_optional_path(self.print_snps_path))
         if not self.out_prefix:
             raise ValueError("out_prefix is required.")
 
@@ -196,10 +194,13 @@ class LDScoreTableProducer(ArtifactProducer):
     def build(self, result: Any, run_summary: RunSummary, output_spec: OutputSpec, artifact_config: ArtifactConfig | None = None) -> list[Artifact]:
         """Build aggregate and optional per-chromosome LD-score artifacts."""
         artifacts: list[Artifact] = []
-        print_snps = _load_print_snps(output_spec.print_snps_path)
+        filter_to_regression_snps = _regression_output_enabled(result)
         if output_spec.aggregate_across_chromosomes:
             table = pd.concat([result.reference_metadata.reset_index(drop=True), result.ld_scores.reset_index(drop=True)], axis=1)
-            table = _filter_ldscore_table(table, print_snps)
+            table = _filter_ldscore_table(
+                table,
+                None if not filter_to_regression_snps else getattr(result, "regression_snps", None),
+            )
             artifacts.append(Artifact(self.name, _artifact_filename(output_spec, ".l2.ldscore"), table, "dataframe"))
         if output_spec.write_per_chrom:
             for chrom_result in getattr(result, "chromosome_results", []):
@@ -207,7 +208,11 @@ class LDScoreTableProducer(ArtifactProducer):
                     [chrom_result.reference_metadata.reset_index(drop=True), chrom_result.ld_scores.reset_index(drop=True)],
                     axis=1,
                 )
-                table = _filter_ldscore_table(table, print_snps, raise_on_empty=False)
+                table = _filter_ldscore_table(
+                    table,
+                    None if not filter_to_regression_snps else getattr(chrom_result, "regression_snps", None),
+                    raise_on_empty=False,
+                )
                 if table.empty:
                     continue
                 artifacts.append(
@@ -218,8 +223,8 @@ class LDScoreTableProducer(ArtifactProducer):
                         "dataframe",
                     )
                 )
-        if print_snps is not None and not artifacts:
-            raise ValueError("After merging with --print-snps, no SNPs remain.")
+        if filter_to_regression_snps and not artifacts:
+            raise ValueError("After filtering to regression SNPs, no SNPs remain.")
         return artifacts
 
 
@@ -486,29 +491,26 @@ def _count_suffix(key: str) -> str:
     return f".{key}.tsv"
 
 
-def _load_print_snps(path: str | None) -> set[str] | None:
-    """Load an optional legacy-style one-column SNP list for LD-score printing."""
-    if path is None:
-        return None
-    resolved = resolve_scalar_path(path, label="print_snps_path")
-    print_snps = pd.read_csv(resolved, header=None, compression="infer")
-    if len(print_snps.columns) > 1:
-        raise ValueError("--print-snps must refer to a file with a one column of SNP IDs.")
-    return set(print_snps.iloc[:, 0].astype(str))
+def _regression_output_enabled(result: Any) -> bool:
+    """Return ``True`` when written LD-score tables should be filtered to regression SNPs."""
+    config_snapshot = getattr(result, "config_snapshot", None)
+    if config_snapshot is None:
+        return False
+    return getattr(config_snapshot, "regression_snps_path", None) is not None
 
 
 def _filter_ldscore_table(
     table: pd.DataFrame,
-    print_snps: set[str] | None,
+    regression_snps: set[str] | None,
     *,
     raise_on_empty: bool = True,
 ) -> pd.DataFrame:
-    """Apply the optional legacy ``--print-snps`` filter to one LD-score table."""
-    if print_snps is None:
+    """Filter one LD-score table to the authoritative regression SNP row set."""
+    if regression_snps is None:
         return table
-    filtered = table.loc[table["SNP"].astype(str).isin(print_snps), :].reset_index(drop=True)
+    filtered = table.loc[table["SNP"].astype(str).isin(regression_snps), :].reset_index(drop=True)
     if filtered.empty and raise_on_empty:
-        raise ValueError("After merging with --print-snps, no SNPs remain.")
+        raise ValueError("After filtering to regression SNPs, no SNPs remain.")
     return filtered
 
 

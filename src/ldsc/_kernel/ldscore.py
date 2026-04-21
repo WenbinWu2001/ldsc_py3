@@ -1121,9 +1121,9 @@ def read_identifier_list(path: str, mode: str) -> set[str]:
 
 def load_regression_keys(args: argparse.Namespace) -> set[str] | None:
     """Load the optional regression SNP universe from CLI arguments."""
-    if not args.regression_snps:
+    if not getattr(args, "regression_snps_path", None):
         return None
-    return read_identifier_list(args.regression_snps, args.snp_identifier)
+    return read_identifier_list(args.regression_snps_path, args.snp_identifier)
 
 
 def parse_frequency_metadata(path: str, chrom: str | None, identifier_mode: str) -> pd.DataFrame:
@@ -1896,6 +1896,7 @@ def build_parser() -> argparse.ArgumentParser:
     """Build the standalone LD-score kernel CLI parser."""
     parser = argparse.ArgumentParser(
         description="Estimate LDSC-compatible LD scores from SNP-level annotation files using PLINK or sorted parquet R2 input.",
+        allow_abbrev=False,
     )
     parser.add_argument("--out", required=True, help="Output prefix.")
     parser.add_argument("--query-annot", default=None, help="Comma-separated SNP-level query annotation inputs. Each token may be an exact path, glob, or explicit @ chromosome-suite token.")
@@ -1911,7 +1912,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--r2-bias-mode", choices=("raw", "unbiased"), default=None, help="Whether sorted parquet R2 values are raw sample r^2 or already unbiased.")
     parser.add_argument("--r2-sample-size", default=None, type=float, help="LD reference sample size used to correct raw parquet R2 values.")
-    parser.add_argument("--regression-snps", default=None, help="Optional SNP list defining the regression SNP set for w_ld.")
+    parser.add_argument("--regression-snps-path", default=None, help="Optional SNP list defining the regression SNP set for weight LD computation and written LD-score rows.")
     parser.add_argument("--frqfile", default=None, help="Optional frequency/metadata inputs for MAF and CM. Each token may be an exact path, glob, or explicit @ chromosome-suite token.")
     parser.add_argument("--keep", default=None, help="File with individuals to include in LD Score estimation. The file should contain one IID per row.")
     parser.add_argument("--ld-wind-snps", default=None, type=int, help="LD window size in SNPs.")
@@ -1994,7 +1995,7 @@ def run_ldscore(
     genome_build: str | None = None,
     r2_bias_mode: str | None = None,
     r2_sample_size: float | None = None,
-    regression_snps: str | None = None,
+    regression_snps_path: str | None = None,
     frqfile: str | None = None,
     keep: str | None = None,
     ld_wind_snps: int | None = None,
@@ -2022,7 +2023,7 @@ def run_ldscore(
         genome_build=genome_build,
         r2_bias_mode=r2_bias_mode,
         r2_sample_size=r2_sample_size,
-        regression_snps=regression_snps,
+        regression_snps_path=regression_snps_path,
         frqfile=frqfile,
         query_annot_chr=None,
         baseline_annot_chr=None,

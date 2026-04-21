@@ -307,10 +307,11 @@ class LDScoreCalculator:
         """Convert one kernel chromosome result into the typed public result."""
         reference_metadata = legacy_result.metadata.reset_index(drop=True).copy()
         ld_scores = pd.DataFrame(legacy_result.ld_scores, columns=list(legacy_result.ldscore_columns))
-        regression_metadata = reference_metadata.copy()
-        w_ld = pd.DataFrame(np.asarray(legacy_result.w_ld, dtype=np.float32), columns=["L2"])
         reference_ids = set(build_snp_id_series(reference_metadata, global_config.snp_identifier))
         retained_regression_snps = reference_ids if regression_snps is None else reference_ids.intersection(regression_snps)
+        regression_keep = build_snp_id_series(reference_metadata, global_config.snp_identifier).isin(retained_regression_snps)
+        regression_metadata = reference_metadata.loc[regression_keep].reset_index(drop=True)
+        w_ld = pd.DataFrame(np.asarray(legacy_result.w_ld, dtype=np.float32), columns=["L2"]).loc[regression_keep].reset_index(drop=True)
         count_map = {"all_reference_snp_counts": np.asarray(legacy_result.M, dtype=np.float64)}
         if legacy_result.M_5_50 is not None:
             count_map["common_reference_snp_counts_maf_gt_0_05"] = np.asarray(legacy_result.M_5_50, dtype=np.float64)
@@ -390,6 +391,7 @@ def build_parser() -> argparse.ArgumentParser:
     """Build the feature parser for LD-score calculation."""
     parser = argparse.ArgumentParser(
         description="Estimate LDSC-compatible LD scores from SNP-level annotation files using PLINK or sorted parquet R2 input.",
+        allow_abbrev=False,
     )
     parser.add_argument("--out", required=True, help="Output prefix.")
     parser.add_argument("--query-annot", default=None, help="Comma-separated query annotation path tokens: exact paths, globs, or explicit @ suite tokens.")
@@ -405,20 +407,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--r2-bias-mode", choices=("raw", "unbiased"), default=None, help="Whether parquet R2 values are raw or already unbiased.")
     parser.add_argument("--r2-sample-size", default=None, type=float, help="LD reference sample size used to correct raw parquet R2 values.")
-    parser.add_argument("--regression-snps", default=None, help="Optional SNP list defining the regression SNP set for w_ld.")
+    parser.add_argument("--ref-panel-snps-path", default=None, help="Optional SNP list or table defining the retained annotation/reference SNP universe.")
+    parser.add_argument("--regression-snps-path", default=None, help="Optional SNP list defining the regression SNP set and the written LD-score row set.")
     parser.add_argument("--frqfile", default=None, help="Optional frequency or metadata path tokens for MAF and CM.")
     parser.add_argument(
         "--keep",
         default=None,
         help="File with individuals to include in LD Score estimation. The file should contain one IID per row.",
-    )
-    parser.add_argument(
-        "--print-snps",
-        default=None,
-        help=(
-            "Only print LD scores for the SNPs listed in this one-column file. "
-            "LD-score computation itself still includes SNPs not listed here."
-        ),
     )
     parser.add_argument("--ld-wind-snps", default=None, type=int, help="LD window size in SNPs.")
     parser.add_argument("--ld-wind-kb", default=None, type=float, help="LD window size in kilobases.")
@@ -444,7 +439,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
     normalized_args, global_config = _normalize_run_args(args)
     print_global_config_banner("run_ldscore_from_args", global_config)
     kernel_ldscore.validate_args(normalized_args)
-    regression_snps = _load_regression_snps(normalized_args.regression_snps, global_config)
+    regression_snps = _load_regression_snps(global_config.regression_snps_path, global_config)
     baseline_tokens = split_cli_path_tokens(normalized_args.baseline_annot)
     query_tokens = split_cli_path_tokens(normalized_args.query_annot)
     baseline_files = (
@@ -526,6 +521,9 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
         )
         if bundle is None:
             continue
+        bundle = _filter_annotation_bundle_to_reference_universe(bundle, global_config)
+        if bundle is None:
+            continue
         chrom_args = argparse.Namespace(**vars(normalized_args))
         if normalized_args.r2_table:
             chrom_r2_files = (
@@ -593,7 +591,7 @@ def run_ldscore(**kwargs) -> LDScoreResult:
     Keyword arguments are interpreted as CLI-equivalent option names without the
     leading ``--``.
     """
-    forbidden = sorted({"snp_identifier", "genome_build", "log_level"} & set(kwargs))
+    forbidden = sorted({"snp_identifier", "genome_build", "log_level", "ref_panel_snps_path", "regression_snps_path"} & set(kwargs))
     if forbidden:
         joined = ", ".join(forbidden)
         raise ValueError(f"Python run_ldscore() no longer accepts {joined}; call set_global_config(...) first.")
@@ -623,13 +621,20 @@ def _normalize_run_args(args: argparse.Namespace) -> tuple[argparse.Namespace, G
     for attr in ("query_annot_chr", "baseline_annot_chr", "bfile_chr", "r2_table_chr", "frqfile_chr"):
         if not hasattr(normalized_args, attr):
             setattr(normalized_args, attr, None)
+    for attr in ("ref_panel_snps_path", "regression_snps_path"):
+        if not hasattr(normalized_args, attr):
+            setattr(normalized_args, attr, None)
     normalized_args.snp_identifier = normalized_mode
     normalized_args.out = normalize_path_token(args.out)
     normalized_args.keep = normalize_optional_path_token(getattr(args, "keep", None))
+    normalized_args.ref_panel_snps_path = normalize_optional_path_token(getattr(args, "ref_panel_snps_path", None))
+    normalized_args.regression_snps_path = normalize_optional_path_token(getattr(args, "regression_snps_path", None))
     default_config = GlobalConfig()
     global_config = GlobalConfig(
         snp_identifier=normalized_mode,
         genome_build=default_config.genome_build if getattr(args, "genome_build", None) is None else getattr(args, "genome_build"),
+        ref_panel_snps_path=normalized_args.ref_panel_snps_path,
+        regression_snps_path=normalized_args.regression_snps_path,
         log_level=getattr(args, "log_level", "INFO"),
     )
     return normalized_args, global_config
@@ -654,7 +659,6 @@ def _output_spec_from_args(args: argparse.Namespace) -> OutputSpec:
         output_dir=str(out_path.parent),
         write_per_chrom=bool(getattr(args, "per_chr_output", False)),
         aggregate_across_chromosomes=not bool(getattr(args, "per_chr_output", False)),
-        print_snps_path=normalize_optional_path_token(getattr(args, "print_snps", None)),
         write_summary_json=False,
         write_summary_tsv=False,
         write_run_metadata=False,
@@ -771,7 +775,6 @@ def _namespace_from_configs(chrom: str, ref_panel, ldscore_config: LDScoreConfig
         genome_build=(getattr(spec, "genome_build", None) or global_config.genome_build),
         r2_bias_mode=getattr(spec, "r2_bias_mode", None),
         r2_sample_size=getattr(spec, "sample_size", None),
-        regression_snps=None,
         frqfile=frqfile,
         frqfile_chr=None,
         keep=ldscore_config.keep_individuals_path,
@@ -783,6 +786,26 @@ def _namespace_from_configs(chrom: str, ref_panel, ldscore_config: LDScoreConfig
         per_chr_output=False,
         yes_really=ldscore_config.whole_chromosome_ok,
         log_level=global_config.log_level,
+    )
+
+
+def _filter_annotation_bundle_to_reference_universe(bundle, global_config: GlobalConfig):
+    """Return ``bundle`` filtered to ``global_config.ref_panel_snps_path`` when configured."""
+    if global_config.ref_panel_snps_path is None:
+        return bundle
+    allowed = read_global_snp_restriction(
+        resolve_scalar_path(global_config.ref_panel_snps_path, label="reference-panel SNP restriction"),
+        global_config.snp_identifier,
+        genome_build=global_config.genome_build,
+    )
+    keep = build_snp_id_series(bundle.metadata, global_config.snp_identifier).isin(allowed)
+    if not bool(keep.any()):
+        return None
+    return type(bundle)(
+        metadata=bundle.metadata.loc[keep].reset_index(drop=True),
+        annotations=bundle.annotations.loc[keep].reset_index(drop=True),
+        baseline_columns=list(bundle.baseline_columns),
+        query_columns=list(bundle.query_columns),
     )
 
 

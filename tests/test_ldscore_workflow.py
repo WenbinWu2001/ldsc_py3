@@ -215,9 +215,10 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 r2_table_chr=None,
                 snp_identifier="rsid",
                 genome_build=None,
+                ref_panel_snps_path=None,
+                regression_snps_path=None,
                 r2_bias_mode=None,
                 r2_sample_size=None,
-                regression_snps=None,
                 frqfile=None,
                 frqfile_chr=None,
                 ld_wind_snps=10,
@@ -247,7 +248,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             self.assertTrue(Path(result.output_paths["ldscore"]).exists())
             self.assertTrue(Path(result.output_paths["w_ld"]).exists())
 
-    def test_run_ldscore_from_args_print_snps_filters_only_written_reference_table(self):
+    def test_run_ldscore_from_args_regression_snps_path_filters_both_written_tables(self):
         fake_legacy_result = ldscore_workflow._LegacyChromResult(
             chrom="1",
             metadata=pd.DataFrame(
@@ -281,8 +282,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 + "\n",
                 encoding="utf-8",
             )
-            print_snps = tmpdir / "print_snps.txt"
-            print_snps.write_text("rs2\n", encoding="utf-8")
+            regression_snps_path = tmpdir / "regression_snps.txt"
+            regression_snps_path.write_text("SNP\nrs2\n", encoding="utf-8")
             (tmpdir / "panel.bed").write_text("", encoding="utf-8")
             (tmpdir / "panel.bim").write_text("1 rs1 0.1 10 A G\n1 rs2 0.2 20 C T\n", encoding="utf-8")
             (tmpdir / "panel.fam").write_text("f i 0 0 0 -9\n", encoding="utf-8")
@@ -299,12 +300,12 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 r2_table_chr=None,
                 snp_identifier="rsid",
                 genome_build=None,
+                ref_panel_snps_path=None,
+                regression_snps_path=str(regression_snps_path),
                 r2_bias_mode=None,
                 r2_sample_size=None,
-                regression_snps=None,
                 frqfile=None,
                 frqfile_chr=None,
-                print_snps=str(print_snps),
                 ld_wind_snps=10,
                 ld_wind_kb=None,
                 ld_wind_cm=None,
@@ -327,10 +328,11 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
             self.assertEqual(result.reference_metadata["SNP"].tolist(), ["rs1", "rs2"])
             self.assertEqual(result.reference_snps, {"rs1", "rs2"})
+            self.assertEqual(result.regression_snps, {"rs2"})
             ldscore_df = pd.read_csv(result.output_paths["ldscore"], sep="\t")
             self.assertEqual(ldscore_df["SNP"].tolist(), ["rs2"])
             weight_df = pd.read_csv(result.output_paths["w_ld"], sep="\t")
-            self.assertEqual(weight_df["SNP"].tolist(), ["rs1", "rs2"])
+            self.assertEqual(weight_df["SNP"].tolist(), ["rs2"])
 
     def test_namespace_from_configs_emits_string_paths(self):
         from ldsc._kernel.ref_panel import RefPanelSpec
@@ -412,9 +414,10 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 r2_table_chr=None,
                 snp_identifier="rsid",
                 genome_build=None,
+                ref_panel_snps_path=None,
+                regression_snps_path=None,
                 r2_bias_mode=None,
                 r2_sample_size=None,
-                regression_snps=None,
                 frqfile=None,
                 frqfile_chr=None,
                 ld_wind_snps=10,
@@ -454,9 +457,10 @@ class LDScoreWorkflowTest(unittest.TestCase):
             r2_table_chr=None,
             snp_identifier="rsid",
             genome_build=None,
+            ref_panel_snps_path=None,
+            regression_snps_path=None,
             r2_bias_mode="unbiased",
             r2_sample_size=None,
-            regression_snps=None,
             frqfile=None,
             frqfile_chr=None,
             keep="samples.keep",
@@ -514,9 +518,10 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 r2_table_chr=None,
                 snp_identifier="rsid",
                 genome_build="hg19",
+                ref_panel_snps_path=None,
+                regression_snps_path=None,
                 r2_bias_mode="unbiased",
                 r2_sample_size=None,
-                regression_snps=None,
                 frqfile=None,
                 frqfile_chr=None,
                 ld_wind_snps=10,

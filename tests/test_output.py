@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 from pathlib import Path
 import os
@@ -13,6 +15,7 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from ldsc.config import GlobalConfig
 from ldsc.outputs import Artifact, ArtifactConfig, ArtifactProducer, OutputManager, OutputSpec, PostProcessor
 
 
@@ -23,6 +26,7 @@ class FakeChromResult:
     ld_scores: pd.DataFrame
     regression_metadata: pd.DataFrame
     w_ld: pd.DataFrame
+    regression_snps: set[str]
 
 
 @dataclass
@@ -34,7 +38,9 @@ class FakeResult:
     snp_count_totals: dict[str, np.ndarray]
     baseline_columns: list[str]
     query_columns: list[str]
+    regression_snps: set[str]
     chromosome_results: list[FakeChromResult]
+    config_snapshot: GlobalConfig | None = None
 
 
 class ExtraProducer(ArtifactProducer):
@@ -53,7 +59,7 @@ def make_fake_result() -> FakeResult:
     ld_scores = pd.DataFrame({"base": [1.0, 2.0], "query": [0.5, 0.7]})
     reg_meta = ref_meta.iloc[[0]].reset_index(drop=True)
     w_ld = pd.DataFrame({"w_base": [1.5]})
-    chrom_result = FakeChromResult("1", ref_meta, ld_scores, reg_meta, w_ld)
+    chrom_result = FakeChromResult("1", ref_meta, ld_scores, reg_meta, w_ld, {"rs1"})
     return FakeResult(
         reference_metadata=ref_meta,
         ld_scores=ld_scores,
@@ -65,6 +71,7 @@ def make_fake_result() -> FakeResult:
         },
         baseline_columns=["base"],
         query_columns=["query"],
+        regression_snps={"rs1"},
         chromosome_results=[chrom_result],
     )
 
@@ -79,21 +86,23 @@ def make_multi_chrom_result() -> FakeResult:
         }
     )
     ld_scores = pd.DataFrame({"base": [1.0, 2.0, 3.0], "query": [0.5, 0.7, 0.9]})
-    reg_meta = ref_meta.copy()
-    w_ld = pd.DataFrame({"w_base": [1.5, 2.5, 3.5]})
+    reg_meta = ref_meta.iloc[[0, 2]].reset_index(drop=True)
+    w_ld = pd.DataFrame({"w_base": [1.5, 3.5]})
     chrom1 = FakeChromResult(
         "1",
         ref_meta.iloc[:2].reset_index(drop=True),
         ld_scores.iloc[:2].reset_index(drop=True),
-        reg_meta.iloc[:2].reset_index(drop=True),
-        w_ld.iloc[:2].reset_index(drop=True),
+        reg_meta.iloc[:1].reset_index(drop=True),
+        w_ld.iloc[:1].reset_index(drop=True),
+        {"rs1"},
     )
     chrom2 = FakeChromResult(
         "2",
         ref_meta.iloc[2:].reset_index(drop=True),
         ld_scores.iloc[2:].reset_index(drop=True),
-        reg_meta.iloc[2:].reset_index(drop=True),
-        w_ld.iloc[2:].reset_index(drop=True),
+        reg_meta.iloc[1:].reset_index(drop=True),
+        w_ld.iloc[1:].reset_index(drop=True),
+        {"rs3"},
     )
     return FakeResult(
         reference_metadata=ref_meta,
@@ -106,6 +115,7 @@ def make_multi_chrom_result() -> FakeResult:
         },
         baseline_columns=["base"],
         query_columns=["query"],
+        regression_snps={"rs1", "rs3"},
         chromosome_results=[chrom1, chrom2],
     )
 
@@ -116,12 +126,10 @@ class OutputManagerTest(unittest.TestCase):
             out_prefix=Path("results") / "example",
             output_dir=Path("artifacts"),
             log_path=Path("logs") / "run.log",
-            print_snps_path=Path("filters") / "print_snps.txt",
         )
         self.assertEqual(spec.out_prefix, "results/example")
         self.assertEqual(spec.output_dir, "artifacts")
         self.assertEqual(spec.log_path, "logs/run.log")
-        self.assertEqual(spec.print_snps_path, "filters/print_snps.txt")
 
     def test_output_spec_expands_env_vars_but_does_not_glob_resolve(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -236,26 +244,24 @@ class OutputManagerTest(unittest.TestCase):
             self.assertIn("ldscore.chrom_1", summary.output_paths)
             self.assertTrue(Path(summary.output_paths["ldscore.chrom_1"]).exists())
 
-    def test_print_snps_filters_only_reference_ldscore_artifact(self):
+    def test_regression_snps_path_filters_written_ldscore_and_weight_artifacts(self):
         result = make_multi_chrom_result()
+        result.config_snapshot = GlobalConfig(snp_identifier="rsid", regression_snps_path="filters/hm3.txt")
         manager = OutputManager()
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
-            print_snps = tmpdir / "print_snps.txt"
-            print_snps.write_text("rs2\n", encoding="utf-8")
             spec = OutputSpec(
                 out_prefix="example",
                 output_dir=tmpdir,
                 enabled_artifacts=["ldscore", "w_ld", "counts"],
-                print_snps_path=print_snps,
             )
 
             summary = manager.write_outputs(result, spec)
 
             ldscore_df = pd.read_csv(summary.output_paths["ldscore"], sep="\t")
-            self.assertEqual(ldscore_df["SNP"].tolist(), ["rs2"])
+            self.assertEqual(ldscore_df["SNP"].tolist(), ["rs1", "rs3"])
             weight_df = pd.read_csv(summary.output_paths["w_ld"], sep="\t")
-            self.assertEqual(weight_df["SNP"].tolist(), ["rs1", "rs2", "rs3"])
+            self.assertEqual(weight_df["SNP"].tolist(), ["rs1", "rs3"])
             self.assertEqual(
                 Path(summary.output_paths["counts.all_reference_snp_counts"]).read_text(encoding="utf-8"),
                 "10\t20",
@@ -266,13 +272,12 @@ class OutputManagerTest(unittest.TestCase):
             )
             self.assertEqual(result.reference_metadata["SNP"].tolist(), ["rs1", "rs2", "rs3"])
 
-    def test_print_snps_filters_per_chrom_reference_outputs_only(self):
+    def test_regression_snps_path_filters_per_chrom_outputs_consistently(self):
         result = make_multi_chrom_result()
+        result.config_snapshot = GlobalConfig(snp_identifier="rsid", regression_snps_path="filters/hm3.txt")
         manager = OutputManager()
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
-            print_snps = tmpdir / "print_snps.txt"
-            print_snps.write_text("rs1\n", encoding="utf-8")
             spec = OutputSpec(
                 out_prefix="example",
                 output_dir=tmpdir,
@@ -280,33 +285,34 @@ class OutputManagerTest(unittest.TestCase):
                 write_per_chrom=True,
                 aggregate_across_chromosomes=False,
                 artifact_layout="by_chrom",
-                print_snps_path=print_snps,
             )
 
             summary = manager.write_outputs(result, spec)
 
             self.assertIn("ldscore.chrom_1", summary.output_paths)
-            self.assertNotIn("ldscore.chrom_2", summary.output_paths)
+            self.assertIn("ldscore.chrom_2", summary.output_paths)
             self.assertIn("w_ld.chrom_1", summary.output_paths)
             self.assertIn("w_ld.chrom_2", summary.output_paths)
             ldscore_df = pd.read_csv(summary.output_paths["ldscore.chrom_1"], sep="\t")
             self.assertEqual(ldscore_df["SNP"].tolist(), ["rs1"])
+            weight_df = pd.read_csv(summary.output_paths["w_ld.chrom_2"], sep="\t")
+            self.assertEqual(weight_df["SNP"].tolist(), ["rs3"])
 
-    def test_print_snps_raises_when_no_reference_rows_remain(self):
+    def test_regression_snps_path_raises_when_no_written_rows_remain(self):
         result = make_multi_chrom_result()
+        result.config_snapshot = GlobalConfig(snp_identifier="rsid", regression_snps_path="filters/hm3.txt")
+        result.regression_snps = {"rs999"}
+        for chrom_result in result.chromosome_results:
+            chrom_result.regression_snps = {"rs999"}
         manager = OutputManager()
         with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            print_snps = tmpdir / "print_snps.txt"
-            print_snps.write_text("rs999\n", encoding="utf-8")
             spec = OutputSpec(
                 out_prefix="example",
                 output_dir=tmpdir,
                 enabled_artifacts=["ldscore"],
-                print_snps_path=print_snps,
             )
 
-            with self.assertRaisesRegex(ValueError, "After merging with --print-snps, no SNPs remain."):
+            with self.assertRaisesRegex(ValueError, "After filtering to regression SNPs, no SNPs remain."):
                 manager.write_outputs(result, spec)
 
     def test_unknown_artifact_raises(self):

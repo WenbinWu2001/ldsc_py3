@@ -124,11 +124,11 @@ class ReferencePanelBuilder:
         )
         restriction_mode = None
         restriction_values = None
-        if self.global_config.restrict_snps_path:
+        if self.global_config.ref_panel_snps_path:
             restriction_path = resolve_scalar_path(
-                self.global_config.restrict_snps_path,
+                self.global_config.ref_panel_snps_path,
                 suffixes=_TABLE_SUFFIXES,
-                label="global SNP restriction",
+                label="reference-panel SNP restriction",
             )
             restriction_mode = normalize_snp_identifier_mode(self.global_config.snp_identifier)
             restriction_values = kernel_ldscore.read_global_snp_restriction(
@@ -419,7 +419,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ld-wind-kb", default=None, type=float, help="LD window size in kilobases.")
     parser.add_argument("--ld-wind-cm", default=None, type=float, help="LD window size in centiMorgans.")
     parser.add_argument("--maf", default=None, type=float, help="Optional MAF filter for retained SNPs.")
-    parser.add_argument("--restrict-snps-path", default=None, help="Optional global SNP restriction file.")
+    parser.add_argument("--ref-panel-snps-path", default=None, help="Optional SNP restriction file defining the retained reference-panel universe.")
     parser.add_argument("--keep-indivs", default=None, help="Optional individual-keep file.")
     parser.add_argument("--chunk-size", default=50, type=int, help="Chunk size for block processing.")
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"))
@@ -442,13 +442,13 @@ def config_from_args(args: argparse.Namespace) -> tuple[ReferencePanelBuildConfi
         ld_wind_kb=args.ld_wind_kb,
         ld_wind_cm=args.ld_wind_cm,
         maf_min=args.maf,
-        restrict_snps_path=args.restrict_snps_path,
+        ref_panel_snps_path=args.ref_panel_snps_path,
         keep_indivs_path=args.keep_indivs,
         chunk_size=args.chunk_size,
     )
     global_config = GlobalConfig(
         genome_build=build_config.source_genome_build,
-        restrict_snps_path=build_config.restrict_snps_path,
+        ref_panel_snps_path=build_config.ref_panel_snps_path,
         log_level=args.log_level,
     )
     return build_config, global_config
@@ -463,7 +463,7 @@ def run_build_ref_panel_from_args(args: argparse.Namespace) -> ReferencePanelBui
 
 def run_build_ref_panel(**kwargs: Any) -> ReferencePanelBuildResult:
     """Convenience wrapper around :func:`run_build_ref_panel_from_args`."""
-    forbidden = sorted({"log_level", "restrict_snps_path"} & set(kwargs))
+    forbidden = sorted({"log_level", "ref_panel_snps_path"} & set(kwargs))
     if forbidden:
         joined = ", ".join(forbidden)
         raise ValueError(
@@ -493,7 +493,7 @@ def run_build_ref_panel(**kwargs: Any) -> ReferencePanelBuildResult:
     )
     global_config = get_global_config()
     defaults["log_level"] = global_config.log_level
-    defaults["restrict_snps_path"] = global_config.restrict_snps_path
+    defaults["ref_panel_snps_path"] = global_config.ref_panel_snps_path
     defaults.update(kwargs)
     args = argparse.Namespace(**defaults)
     return run_build_ref_panel_from_args(args)

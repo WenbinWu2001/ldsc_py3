@@ -24,6 +24,14 @@ from typing import Sequence
 from . import annotation_builder, ldscore_calculator, ref_panel_builder
 
 
+class _NoAbbrevArgumentParser(argparse.ArgumentParser):
+    """ArgumentParser variant that disables long-option abbreviation."""
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("allow_abbrev", False)
+        super().__init__(*args, **kwargs)
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the top-level ``ldsc`` command parser.
 
@@ -32,8 +40,8 @@ def build_parser() -> argparse.ArgumentParser:
     argparse.ArgumentParser
         Parser whose subcommands mirror the supported public workflows.
     """
-    parser = argparse.ArgumentParser(prog="ldsc", description="LDSC command line interface.")
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    parser = _NoAbbrevArgumentParser(prog="ldsc", description="LDSC command line interface.")
+    subparsers = parser.add_subparsers(dest="command", required=True, parser_class=_NoAbbrevArgumentParser)
 
     annotate_parser = subparsers.add_parser("annotate", help="Build SNP-level annotations.")
     _add_annotate_arguments(annotate_parser)
@@ -82,7 +90,7 @@ def main(argv: Sequence[str] | None = None):
         command = argv[0]
         subargv = argv[1:]
         if command == "annotate":
-            annotate_parser = argparse.ArgumentParser(prog="ldsc annotate", description="Build SNP-level annotations.")
+            annotate_parser = _NoAbbrevArgumentParser(prog="ldsc annotate", description="Build SNP-level annotations.")
             _add_annotate_arguments(annotate_parser)
             return _run_annotate(annotate_parser.parse_args(subargv))
         if command == "ldscore":
@@ -94,12 +102,12 @@ def main(argv: Sequence[str] | None = None):
             return sumstats_munger.main(subargv)
         if command == "h2":
             regression_runner = _load_regression_runner()
-            parser = argparse.ArgumentParser(prog="ldsc h2", description="Estimate heritability from munged sumstats and LD scores.")
+            parser = _NoAbbrevArgumentParser(prog="ldsc h2", description="Estimate heritability from munged sumstats and LD scores.")
             regression_runner.add_h2_arguments(parser)
             return regression_runner.run_h2_from_args(parser.parse_args(subargv))
         if command == "partitioned-h2":
             regression_runner = _load_regression_runner()
-            parser = argparse.ArgumentParser(
+            parser = _NoAbbrevArgumentParser(
                 prog="ldsc partitioned-h2",
                 description="Estimate partitioned heritability, optionally looping over query annotations.",
             )
@@ -107,7 +115,7 @@ def main(argv: Sequence[str] | None = None):
             return regression_runner.run_partitioned_h2_from_args(parser.parse_args(subargv))
         if command == "rg":
             regression_runner = _load_regression_runner()
-            parser = argparse.ArgumentParser(prog="ldsc rg", description="Estimate genetic correlation.")
+            parser = _NoAbbrevArgumentParser(prog="ldsc rg", description="Estimate genetic correlation.")
             regression_runner.add_rg_arguments(parser)
             return regression_runner.run_rg_from_args(parser.parse_args(subargv))
     parser = build_parser()
@@ -134,7 +142,7 @@ def _run_annotate(args: argparse.Namespace):
     if args.bed_files:
         return annotation_builder.main_bed_to_annot(_namespace_to_argv(args, exclude={"command", "gene_set_file", "gene_coord_file", "windowsize", "bed_file", "nomerge", "bimfile", "annot_file"}))
     return annotation_builder.main_make_annot(
-        _namespace_to_argv(args, exclude={"command", "baseline_annot", "output_dir", "restrict_snps_path", "snp_identifier", "genome_build", "batch", "bed_files", "log_level"})
+        _namespace_to_argv(args, exclude={"command", "baseline_annot", "output_dir", "ref_panel_snps_path", "snp_identifier", "genome_build", "batch", "bed_files", "log_level"})
     )
 
 
@@ -148,7 +156,7 @@ def _add_annotate_arguments(parser: argparse.ArgumentParser) -> None:
         help="Baseline annotation path tokens: exact paths, globs, or explicit @ suite tokens.",
     )
     parser.add_argument("--output-dir", default=None, help="Destination directory for generated .annot.gz files.")
-    parser.add_argument("--restrict-snps-path", default=None, help="Optional global SNP restriction file.")
+    parser.add_argument("--ref-panel-snps-path", default=None, help="Optional SNP restriction file defining the retained annotation/reference row universe.")
     parser.add_argument("--snp-identifier", default="chr_pos", help="How to interpret restriction SNP identifiers.")
     parser.add_argument(
         "--genome-build",

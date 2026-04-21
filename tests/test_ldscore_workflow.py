@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from unittest import mock
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -445,6 +446,83 @@ class LDScoreWorkflowTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "--keep.*PLINK"):
             ldscore_workflow.run_ldscore_from_args(args)
 
+    def test_run_ldscore_from_args_warns_and_skips_empty_intersection_chromosome(self):
+        fake_legacy_result = ldscore_workflow._LegacyChromResult(
+            chrom="22",
+            metadata=pd.DataFrame(
+                {
+                    "CHR": ["22"],
+                    "SNP": ["rs22"],
+                    "POS": [220],
+                    "CM": [0.2],
+                    "MAF": [0.3],
+                }
+            ),
+            ld_scores=np.array([[2.0]], dtype=np.float32),
+            w_ld=np.array([[3.0]], dtype=np.float32),
+            M=np.array([5.0]),
+            M_5_50=np.array([4.0]),
+            ldscore_columns=["base"],
+            baseline_columns=["base"],
+            query_columns=[],
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            with gzip.open(tmpdir / "baseline.1.annot.gz", "wt", encoding="utf-8") as handle:
+                handle.write("CHR\tBP\tSNP\tCM\tbase\n1\t10\trs1\t0.1\t1\n")
+            with gzip.open(tmpdir / "baseline.22.annot.gz", "wt", encoding="utf-8") as handle:
+                handle.write("CHR\tBP\tSNP\tCM\tbase\n22\t220\trs22\t0.2\t1\n")
+            r2_path = tmpdir / "r2.22.parquet"
+            r2_path.write_text("", encoding="utf-8")
+            args = Namespace(
+                out=str(tmpdir / "example"),
+                output_dir=None,
+                query_annot=None,
+                query_annot_chr=None,
+                baseline_annot=str(tmpdir / "baseline.@.annot.gz"),
+                baseline_annot_chr=None,
+                bfile=None,
+                bfile_chr=None,
+                r2_table=str(r2_path),
+                r2_table_chr=None,
+                snp_identifier="rsid",
+                genome_build="hg19",
+                r2_bias_mode="unbiased",
+                r2_sample_size=None,
+                regression_snps=None,
+                frqfile=None,
+                frqfile_chr=None,
+                ld_wind_snps=10,
+                ld_wind_kb=None,
+                ld_wind_cm=None,
+                maf=None,
+                chunk_size=50,
+                per_chr_output=False,
+                yes_really=False,
+                log_level="INFO",
+            )
+
+            def _compute_side_effect(chrom, bundle, chrom_args, regression_snps):
+                if chrom == "1":
+                    raise ValueError("No retained annotation SNPs remain on chromosome 1 after parquet intersection.")
+                return fake_legacy_result
+
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                with mock.patch.object(ldscore_workflow.ldscore_new, "validate_args"), mock.patch.object(
+                    ldscore_workflow.ldscore_new,
+                    "combine_annotation_groups",
+                    return_value=mock.sentinel.bundle,
+                ), mock.patch.object(
+                    ldscore_workflow.ldscore_new,
+                    "compute_chrom_from_parquet",
+                    side_effect=_compute_side_effect,
+                ):
+                    result = ldscore_workflow.run_ldscore_from_args(args)
+
+        self.assertEqual(result.reference_metadata["CHR"].tolist(), ["22"])
+        self.assertTrue(any("Skipping chromosome 1" in str(item.message) for item in caught))
+
     @unittest.skipUnless(_HAS_BITARRAY, "bitarray is not installed")
     def test_ldscore_calculator_run_applies_keep_filter_by_fam_iid(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -525,6 +603,68 @@ class LDScoreWorkflowTest(unittest.TestCase):
             self.assertEqual(result.reference_metadata["SNP"].tolist(), expected_metadata["SNP"].tolist())
             np.testing.assert_allclose(result.reference_metadata["MAF"].to_numpy(), expected_metadata["MAF"].to_numpy())
             np.testing.assert_allclose(result.ld_scores["base"].to_numpy(), expected_ld)
+
+    def test_ldscore_calculator_run_warns_and_skips_empty_intersection_chromosome(self):
+        annotation_bundle = AnnotationBundle(
+            metadata=pd.DataFrame(
+                {
+                    "CHR": ["1", "22"],
+                    "SNP": ["rs1", "rs22"],
+                    "POS": [10, 220],
+                    "CM": [0.1, 0.2],
+                }
+            ),
+            baseline_annotations=pd.DataFrame({"base": [1.0, 1.0]}, dtype=np.float32),
+            query_annotations=pd.DataFrame(index=pd.RangeIndex(2)),
+            baseline_columns=["base"],
+            query_columns=[],
+            chromosomes=["1", "22"],
+            source_summary={},
+        )
+        fake_legacy_result = ldscore_workflow._LegacyChromResult(
+            chrom="22",
+            metadata=pd.DataFrame(
+                {
+                    "CHR": ["22"],
+                    "SNP": ["rs22"],
+                    "POS": [220],
+                    "CM": [0.2],
+                    "MAF": [0.3],
+                }
+            ),
+            ld_scores=np.array([[2.0]], dtype=np.float32),
+            w_ld=np.array([[3.0]], dtype=np.float32),
+            M=np.array([5.0]),
+            M_5_50=np.array([4.0]),
+            ldscore_columns=["base"],
+            baseline_columns=["base"],
+            query_columns=[],
+        )
+
+        def _compute_side_effect(chrom, bundle, args, regression_snps):
+            if chrom == "1":
+                raise ValueError("No retained annotation SNPs remain on chromosome 1 after parquet intersection.")
+            return fake_legacy_result
+
+        calculator = ldscore_workflow.LDScoreCalculator()
+        ref_panel = SimpleNamespace(spec=SimpleNamespace(backend="parquet_r2"))
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            with mock.patch.object(
+                ldscore_workflow.kernel_ldscore,
+                "compute_chrom_from_parquet",
+                side_effect=_compute_side_effect,
+            ):
+                result = calculator.run(
+                    annotation_bundle=annotation_bundle,
+                    ref_panel=ref_panel,
+                    ldscore_config=LDScoreConfig(ld_wind_cm=1.0),
+                    global_config=GlobalConfig(snp_identifier="rsid"),
+                )
+
+        self.assertEqual([chrom_result.chrom for chrom_result in result.chromosome_results], ["22"])
+        self.assertEqual(result.reference_metadata["CHR"].tolist(), ["22"])
+        self.assertTrue(any("Skipping chromosome 1" in str(item.message) for item in caught))
 
 
 @unittest.skipIf(kernel_ldscore is None, "ldscore kernel is not available")

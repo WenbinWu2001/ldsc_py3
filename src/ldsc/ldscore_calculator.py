@@ -12,6 +12,7 @@ import argparse
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Sequence
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -222,8 +223,8 @@ class LDScoreCalculator:
         chromosome_results: list[ChromLDScoreResult] = []
         for chrom in _chromosomes_from_bundle(annotation_bundle):
             chrom_bundle = _slice_annotation_bundle(annotation_bundle, chrom)
-            chromosome_results.append(
-                self.compute_chromosome(
+            try:
+                chromosome_result = self.compute_chromosome(
                     chrom=chrom,
                     annotation_bundle=chrom_bundle,
                     ref_panel=ref_panel,
@@ -231,7 +232,13 @@ class LDScoreCalculator:
                     global_config=global_config,
                     regression_snps=regression_snps,
                 )
-            )
+            except ValueError as exc:
+                if _warn_and_skip_empty_intersection(exc, chrom):
+                    continue
+                raise
+            chromosome_results.append(chromosome_result)
+        if not chromosome_results:
+            raise ValueError("No chromosome results were produced after intersecting annotations with the reference panel.")
         result = self._aggregate_chromosome_results(chromosome_results, global_config=global_config)
         if output_spec is not None:
             summary = self.output_manager.write_outputs(result, output_spec, config_snapshot=config_snapshot)
@@ -517,11 +524,21 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
             chrom_args.frqfile_chr = None
             chrom_args.bfile = None
             chrom_args.bfile_chr = None
-            legacy_result = kernel_ldscore.compute_chrom_from_parquet(chrom, bundle, chrom_args, regression_snps)
+            try:
+                legacy_result = kernel_ldscore.compute_chrom_from_parquet(chrom, bundle, chrom_args, regression_snps)
+            except ValueError as exc:
+                if _warn_and_skip_empty_intersection(exc, chrom):
+                    continue
+                raise
         else:
             chrom_args.bfile = None if normalized_args.bfile is None else resolve_plink_prefix(normalized_args.bfile, chrom=chrom)
             chrom_args.bfile_chr = None
-            legacy_result = kernel_ldscore.compute_chrom_from_plink(chrom, bundle, chrom_args, regression_snps)
+            try:
+                legacy_result = kernel_ldscore.compute_chrom_from_plink(chrom, bundle, chrom_args, regression_snps)
+            except ValueError as exc:
+                if _warn_and_skip_empty_intersection(exc, chrom):
+                    continue
+                raise
         chromosome_results.append(
             calculator._wrap_legacy_chrom_result(
                 legacy_result,
@@ -664,6 +681,17 @@ def _slice_annotation_bundle(annotation_bundle, chrom: str):
         chromosomes=[str(chrom)],
         source_summary=dict(getattr(annotation_bundle, "source_summary", {})),
     )
+
+
+def _warn_and_skip_empty_intersection(error: ValueError, chrom: str) -> bool:
+    """Warn and signal skip when a chromosome loses all SNPs after reference intersection."""
+    message = str(error)
+    if not message.startswith("No retained annotation SNPs remain on chromosome "):
+        return False
+    if not any(suffix in message for suffix in (" after parquet intersection.", " after PLINK intersection.")):
+        return False
+    warnings.warn(f"Skipping chromosome {chrom}: {message}", UserWarning, stacklevel=3)
+    return True
 
 
 def _namespace_from_configs(chrom: str, ref_panel, ldscore_config: LDScoreConfig, global_config: GlobalConfig) -> argparse.Namespace:

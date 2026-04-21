@@ -15,8 +15,8 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from ldsc._kernel import ref_panel_builder as kernel_builder
-from ldsc.config import CommonConfig, ReferencePanelBuildConfig
-from ldsc import ldscore_calculator, ref_panel_builder
+from ldsc.config import GlobalConfig, ReferencePanelBuildConfig
+from ldsc import ldscore_calculator, ref_panel_builder, reset_global_config, set_global_config
 
 
 _HAS_BITARRAY = importlib.util.find_spec("bitarray") is not None
@@ -370,7 +370,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
             self._write_dummy_plink_prefix(tmpdir, "panel.2", "2")
             config = self._build_config(tmpdir)
-            builder = ref_panel_builder.ReferencePanelBuilder(common_config=CommonConfig())
+            builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig())
 
             def fake_build(prefix, chrom, config, build_state):
                 out_root = Path(config.output_dir) / "parquet"
@@ -425,7 +425,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 output_dir=tmpdir / "out",
                 ld_wind_kb=1.0,
             )
-            builder = ref_panel_builder.ReferencePanelBuilder(common_config=CommonConfig())
+            builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig())
 
             with mock.patch.object(
                 ref_panel_builder.ReferencePanelBuilder,
@@ -436,7 +436,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                     builder.run(config)
 
     def test_map_positions_passes_explicit_chain_path_to_translator(self):
-        builder = ref_panel_builder.ReferencePanelBuilder(common_config=CommonConfig())
+        builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig())
         build_state = ref_panel_builder._BuildState(
             genetic_map_hg19=pd.DataFrame({"CHR": ["1"], "POS": [100], "CM": [0.0]}),
             genetic_map_hg38=pd.DataFrame({"CHR": ["1"], "POS": [100], "CM": [0.0]}),
@@ -514,25 +514,26 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
             with gzip.open(baseline, "wt", encoding="utf-8") as handle:
                 baseline_df.to_csv(handle, sep="\t", index=False)
 
-            direct = ldscore_calculator.run_ldscore(
-                out=str(tmpdir / "direct"),
-                baseline_annot=str(baseline),
-                bfile=str(prefix),
-                snp_identifier="rsid",
-                ld_wind_kb=10.0,
-                chunk_size=64,
-            )
-            parquet = ldscore_calculator.run_ldscore(
-                out=str(tmpdir / "parquet"),
-                baseline_annot=str(baseline),
-                r2_table=str(ld_path),
-                frqfile=str(meta_hg38_path),
-                snp_identifier="rsid",
-                genome_build="hg38",
-                r2_bias_mode="unbiased",
-                ld_wind_kb=10.0,
-                chunk_size=64,
-            )
+            set_global_config(GlobalConfig(snp_identifier="rsid", genome_build="hg38"))
+            try:
+                direct = ldscore_calculator.run_ldscore(
+                    out=str(tmpdir / "direct"),
+                    baseline_annot=str(baseline),
+                    bfile=str(prefix),
+                    ld_wind_kb=10.0,
+                    chunk_size=64,
+                )
+                parquet = ldscore_calculator.run_ldscore(
+                    out=str(tmpdir / "parquet"),
+                    baseline_annot=str(baseline),
+                    r2_table=str(ld_path),
+                    frqfile=str(meta_hg38_path),
+                    r2_bias_mode="unbiased",
+                    ld_wind_kb=10.0,
+                    chunk_size=64,
+                )
+            finally:
+                reset_global_config()
 
             self.assertEqual(
                 direct.reference_metadata["SNP"].tolist(),

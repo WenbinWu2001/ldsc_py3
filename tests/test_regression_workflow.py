@@ -13,7 +13,7 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from ldsc.config import CommonConfig, RegressionConfig
+from ldsc.config import GlobalConfig, RegressionConfig
 
 try:
     from ldsc.ldscore_calculator import LDScoreResult
@@ -92,14 +92,14 @@ class RegressionWorkflowTest(unittest.TestCase):
         )
 
     def test_build_dataset_uses_common_counts_and_drops_zero_variance_columns(self):
-        runner = RegressionRunner(CommonConfig(snp_identifier="rsid"), RegressionConfig())
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
         dataset = runner.build_dataset(self.make_sumstats_table(), self.make_ldscore_result())
         self.assertEqual(dataset.count_key_used_for_regression, "common_reference_snp_counts_maf_gt_0_05")
         self.assertEqual(dataset.retained_ld_columns, ["query1", "query2"])
         self.assertEqual(dataset.dropped_zero_variance_ld_columns, ["base"])
 
     def test_estimate_partitioned_h2_batch_loops_over_queries(self):
-        runner = RegressionRunner(CommonConfig(snp_identifier="rsid"), RegressionConfig())
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
         table = self.make_sumstats_table()
         ldscore_result = self.make_ldscore_result()
         annotation_bundle = self.make_annotation_bundle()

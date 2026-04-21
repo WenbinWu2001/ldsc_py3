@@ -21,6 +21,8 @@ Design Notes
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from os import PathLike
 from typing import Literal
@@ -67,8 +69,9 @@ def _normalize_log_level(level: str) -> LogLevel:
         raise ValueError(f"log_level must be one of {sorted(allowed)}; got {level!r}.")
     return normalized  # type: ignore[return-value]
 
+
 @dataclass(frozen=True)
-class CommonConfig:
+class GlobalConfig:
     """Shared configuration used across the refactored workflows.
 
     Parameters
@@ -78,7 +81,7 @@ class CommonConfig:
         expects an explicit SNP column, while ``"chr_pos"`` builds identifiers
         from chromosome and base-pair position.
     genome_build : {"auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"} or None, optional
-        Genome-build context for ``chr_pos`` workflows. Default is ``None``.
+        Genome-build context for ``chr_pos`` workflows. Default is ``"hg38"``.
     global_snp_restriction_path : str or os.PathLike[str] or None, optional
         Optional path to a SNP list or table that restricts the SNP universe used
         by annotation, reference-panel, and regression workflows. Default is
@@ -90,7 +93,7 @@ class CommonConfig:
         tolerating partial metadata tables. Default is ``False``.
     """
     snp_identifier: SNPIdentifierMode = "chr_pos"
-    genome_build: GenomeBuildInput | None = None
+    genome_build: GenomeBuildInput | None = "hg38"
     global_snp_restriction_path: str | PathLike[str] | None = None
     log_level: LogLevel = "INFO"
     fail_on_missing_metadata: bool = False
@@ -104,6 +107,50 @@ class CommonConfig:
         object.__setattr__(
             self, "global_snp_restriction_path", _normalize_optional_path(self.global_snp_restriction_path)
         )
+
+
+_GLOBAL_CONFIG: GlobalConfig = GlobalConfig()
+_GLOBAL_CONFIG_BANNER_SUPPRESSION: ContextVar[int] = ContextVar(
+    "ldsc_global_config_banner_suppression",
+    default=0,
+)
+
+
+def get_global_config() -> GlobalConfig:
+    """Return the process-wide default configuration used by Python workflows."""
+    return _GLOBAL_CONFIG
+
+
+def set_global_config(config: GlobalConfig) -> None:
+    """Replace the process-wide default configuration used by Python workflows."""
+    if not isinstance(config, GlobalConfig):
+        raise TypeError(f"config must be a GlobalConfig instance, got {type(config).__name__}.")
+    global _GLOBAL_CONFIG
+    _GLOBAL_CONFIG = config
+
+
+def reset_global_config() -> GlobalConfig:
+    """Restore the process-wide default configuration and return it."""
+    global _GLOBAL_CONFIG
+    _GLOBAL_CONFIG = GlobalConfig()
+    return _GLOBAL_CONFIG
+
+
+@contextmanager
+def suppress_global_config_banner():
+    """Temporarily suppress plain-text GlobalConfig banners within this context."""
+    token = _GLOBAL_CONFIG_BANNER_SUPPRESSION.set(_GLOBAL_CONFIG_BANNER_SUPPRESSION.get() + 1)
+    try:
+        yield
+    finally:
+        _GLOBAL_CONFIG_BANNER_SUPPRESSION.reset(token)
+
+
+def print_global_config_banner(entrypoint: str, global_config: GlobalConfig) -> None:
+    """Print the active GlobalConfig for one public workflow entrypoint."""
+    if _GLOBAL_CONFIG_BANNER_SUPPRESSION.get() > 0:
+        return
+    print(f"{entrypoint} using {global_config!r}")
 
 
 @dataclass(frozen=True)

@@ -13,7 +13,7 @@ if str(SRC) not in sys.path:
 from ldsc._kernel import annotation as kernel_annotation
 from ldsc import annotation_builder
 from ldsc.annotation_builder import AnnotationBuilder, AnnotationSourceSpec, run_bed_to_annot
-from ldsc.config import AnnotationBuildConfig, CommonConfig
+from ldsc.config import AnnotationBuildConfig, GlobalConfig
 
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "legacy"
@@ -30,7 +30,7 @@ def _write_annot(path: Path, rows: list[tuple], annotation_columns: dict[str, li
 
 class AnnotationBuilderTest(unittest.TestCase):
     def test_run_builds_bundle(self):
-        builder = AnnotationBuilder(CommonConfig(snp_identifier="rsid"), AnnotationBuildConfig())
+        builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             base = tmpdir / "base.annot"
@@ -53,7 +53,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             self.assertEqual(bundle.reference_snps("rsid"), {"rs1", "rs2", "rs3"})
 
     def test_row_mismatch_raises(self):
-        builder = AnnotationBuilder(CommonConfig(snp_identifier="rsid"), AnnotationBuildConfig())
+        builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             base = tmpdir / "base.annot"
@@ -82,7 +82,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             restrict.write_text("rs1\nrs3\n", encoding="utf-8")
 
             builder = AnnotationBuilder(
-                CommonConfig(snp_identifier="rsid", global_snp_restriction_path=str(restrict)),
+                GlobalConfig(snp_identifier="rsid", global_snp_restriction_path=str(restrict)),
                 AnnotationBuildConfig(),
             )
             bundle = builder.run(
@@ -105,21 +105,21 @@ class AnnotationBuilderTest(unittest.TestCase):
             restrict.write_text("CHR\tBP\n1\t20\n2\t30\n", encoding="utf-8")
 
             builder = AnnotationBuilder(
-                CommonConfig(snp_identifier="chr_pos", global_snp_restriction_path=str(restrict)),
+                GlobalConfig(snp_identifier="chr_pos", global_snp_restriction_path=str(restrict)),
                 AnnotationBuildConfig(),
             )
             bundle = builder.run(AnnotationSourceSpec(baseline_annot_paths=(str(base),)))
             self.assertEqual(bundle.reference_snps("chr_pos"), {"1:20", "2:30"})
 
     def test_parse_fixture_annotation(self):
-        builder = AnnotationBuilder(CommonConfig(snp_identifier="rsid"), AnnotationBuildConfig())
+        builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
         metadata, annotations = builder.parse_annotation_file(ANNOT_FIXTURE)
         self.assertEqual(list(metadata.columns), ["CHR", "POS", "SNP", "CM"])
         self.assertEqual(list(annotations.columns), ["C1", "C2", "C3"])
         self.assertEqual(len(metadata), 3)
 
     def test_parse_annotation_file_normalizes_bp_header_to_pos(self):
-        builder = AnnotationBuilder(CommonConfig(snp_identifier="rsid"), AnnotationBuildConfig())
+        builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "legacy_bp.annot"
             path.write_text(
@@ -139,7 +139,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             positions = [1000 + (idx * 10) for idx in range(250)]
             rows = [("1", pos - 1, f"rs{idx}", 0.1) for idx, pos in enumerate(positions, start=1)]
             _write_annot(path, rows, {"base_a": [1] * len(rows)})
-            builder = AnnotationBuilder(CommonConfig(snp_identifier="chr_pos", genome_build="auto"), AnnotationBuildConfig())
+            builder = AnnotationBuilder(GlobalConfig(snp_identifier="chr_pos", genome_build="auto"), AnnotationBuildConfig())
 
             with mock.patch(
                 "ldsc._kernel.annotation.load_packaged_reference_table",
@@ -158,7 +158,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             self.assertTrue(any("0-based" in message and "hg19" in message for message in logs.output))
 
     def test_run_auto_bundles_per_chromosome_files(self):
-        builder = AnnotationBuilder(CommonConfig(snp_identifier="rsid"), AnnotationBuildConfig())
+        builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             base1 = tmpdir / "baseline.1.annot.gz"
@@ -186,7 +186,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             self.assertEqual(bundle.annotation_matrix().shape, (4, 2))
 
     def test_run_accepts_single_glob_tokens_for_annotation_groups(self):
-        builder = AnnotationBuilder(CommonConfig(snp_identifier="rsid"), AnnotationBuildConfig())
+        builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             base1 = tmpdir / "baseline.1.annot.gz"
@@ -211,7 +211,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             self.assertEqual(bundle.reference_snps("rsid"), {"rs1", "rs2", "rs3", "rs4"})
 
     def test_run_accepts_legacy_suite_tokens_for_annotation_groups(self):
-        builder = AnnotationBuilder(CommonConfig(snp_identifier="rsid"), AnnotationBuildConfig())
+        builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             base1 = tmpdir / "baseline.1.annot.gz"
@@ -231,7 +231,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             self.assertEqual(bundle.reference_snps("rsid"), {"rs1", "rs2"})
 
     def test_run_prefers_compressed_suite_shards_over_stale_plain_shards(self):
-        builder = AnnotationBuilder(CommonConfig(snp_identifier="rsid"), AnnotationBuildConfig())
+        builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             base1 = tmpdir / "baseline.1.annot.gz"
@@ -258,7 +258,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             self.assertEqual(bundle.query_columns, ["query_a", "query_b"])
 
     def test_run_auto_bundles_baseline_only_per_chromosome_files(self):
-        builder = AnnotationBuilder(CommonConfig(snp_identifier="rsid"), AnnotationBuildConfig())
+        builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             base1 = tmpdir / "baseline.1.annot.gz"
@@ -279,7 +279,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             self.assertEqual(bundle.reference_snps("rsid"), {"rs1", "rs2", "rs3"})
 
     def test_run_rejects_mixed_whole_genome_and_per_chromosome_inputs(self):
-        builder = AnnotationBuilder(CommonConfig(snp_identifier="rsid"), AnnotationBuildConfig())
+        builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             base_all = tmpdir / "baseline.annot.gz"
@@ -297,7 +297,7 @@ class AnnotationBuilderTest(unittest.TestCase):
                 )
 
     def test_run_rejects_missing_query_chromosome_shard(self):
-        builder = AnnotationBuilder(CommonConfig(snp_identifier="rsid"), AnnotationBuildConfig())
+        builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             base1 = tmpdir / "baseline.1.annot.gz"
@@ -318,7 +318,7 @@ class AnnotationBuilderTest(unittest.TestCase):
                 )
 
     def test_run_rejects_ambiguous_duplicate_shards(self):
-        builder = AnnotationBuilder(CommonConfig(snp_identifier="rsid"), AnnotationBuildConfig())
+        builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             base1a = tmpdir / "baseline.1.annot.gz"
@@ -335,7 +335,7 @@ class AnnotationBuilderTest(unittest.TestCase):
                 )
 
     def test_run_still_raises_for_row_mismatch_within_chromosome_shard(self):
-        builder = AnnotationBuilder(CommonConfig(snp_identifier="rsid"), AnnotationBuildConfig())
+        builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             base1 = tmpdir / "baseline.1.annot.gz"

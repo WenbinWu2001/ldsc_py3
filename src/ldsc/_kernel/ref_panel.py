@@ -23,7 +23,7 @@ from ..column_inference import (
     resolve_optional_column,
     resolve_required_column,
 )
-from ..config import CommonConfig, RefPanelConfig, _normalize_optional_path, _normalize_path_tuple
+from ..config import GlobalConfig, RefPanelConfig, _normalize_optional_path, _normalize_path_tuple
 from ..genome_build_inference import (
     load_packaged_reference_table,
     resolve_chr_pos_table,
@@ -79,10 +79,10 @@ class RefPanelSpec:
 
 class RefPanel(ABC):
     """Abstract chromosome-scoped reference-panel interface."""
-    def __init__(self, common_config: CommonConfig, spec: RefPanelSpec) -> None:
+    def __init__(self, global_config: GlobalConfig, spec: RefPanelSpec) -> None:
         """Store shared config and initialize the per-chromosome metadata cache."""
-        validate_auto_genome_build_mode(common_config.snp_identifier, common_config.genome_build)
-        self.common_config = common_config
+        validate_auto_genome_build_mode(global_config.snp_identifier, global_config.genome_build)
+        self.global_config = global_config
         self.spec = spec
         self._metadata_cache: dict[str, pd.DataFrame] = {}
 
@@ -104,7 +104,7 @@ class RefPanel(ABC):
     def filter_to_snps(self, chrom: str, snps: set[str] | list[str]) -> pd.DataFrame:
         """Subset chromosome metadata to the requested SNP identifiers."""
         metadata = self.load_metadata(chrom)
-        keep = build_snp_id_series(metadata, self.common_config.snp_identifier).isin(set(snps))
+        keep = build_snp_id_series(metadata, self.global_config.snp_identifier).isin(set(snps))
         return metadata.loc[keep].reset_index(drop=True)
 
     def summary(self) -> dict[str, Any]:
@@ -121,22 +121,22 @@ class RefPanel(ABC):
 
     def _filter_metadata_by_global_restriction(self, metadata: pd.DataFrame) -> pd.DataFrame:
         """Filter metadata rows to the configured global SNP restriction set."""
-        restrict_path = self.common_config.global_snp_restriction_path
+        restrict_path = self.global_config.global_snp_restriction_path
         if restrict_path is None or len(metadata) == 0:
             return metadata
         restrict_ids = read_global_snp_restriction(
             restrict_path,
-            self.common_config.snp_identifier,
-            genome_build=self.common_config.genome_build,
+            self.global_config.snp_identifier,
+            genome_build=self.global_config.genome_build,
             logger=LOGGER,
         )
-        keep = build_snp_id_series(metadata, self.common_config.snp_identifier).isin(restrict_ids)
+        keep = build_snp_id_series(metadata, self.global_config.snp_identifier).isin(restrict_ids)
         return metadata.loc[keep].reset_index(drop=True)
 
     def _validate_metadata(self, metadata: pd.DataFrame, chrom: str) -> pd.DataFrame:
         """Reset row order and validate identifier uniqueness for one chromosome."""
         metadata = metadata.reset_index(drop=True)
-        validate_unique_snp_ids(metadata, self.common_config.snp_identifier, context=f"{type(self).__name__}[{chrom}]")
+        validate_unique_snp_ids(metadata, self.global_config.snp_identifier, context=f"{type(self).__name__}[{chrom}]")
         return metadata
 
 
@@ -179,8 +179,8 @@ class PlinkRefPanel(RefPanel):
         if keep_snps is not None:
             metadata = self.load_metadata(chrom)
             kept = self.filter_to_snps(chrom, set(keep_snps))
-            key_to_index = dict(zip(build_snp_id_series(metadata, self.common_config.snp_identifier), metadata.index))
-            keep_snp_indices = [int(key_to_index[key]) for key in build_snp_id_series(kept, self.common_config.snp_identifier)]
+            key_to_index = dict(zip(build_snp_id_series(metadata, self.global_config.snp_identifier), metadata.index))
+            keep_snp_indices = [int(key_to_index[key]) for key in build_snp_id_series(kept, self.global_config.snp_identifier)]
 
         return kernel_ldscore.PlinkBEDFile(
             prefix + ".bed",
@@ -231,7 +231,7 @@ class ParquetR2RefPanel(RefPanel):
             label="reference metadata",
             allow_chromosome_suite=True,
         ):
-            df = _read_metadata_table(path, chrom=None, common_config=self.common_config)
+            df = _read_metadata_table(path, chrom=None, global_config=self.global_config)
             chromosomes.update(df["CHR"].map(normalize_chromosome).unique().tolist())
         if chromosomes:
             return sorted(chromosomes, key=_chrom_sort_key)
@@ -252,7 +252,7 @@ class ParquetR2RefPanel(RefPanel):
             label="reference metadata",
             required=False,
         )
-        frames = [_read_metadata_table(path, chrom=chrom, common_config=self.common_config) for path in resolved_paths]
+        frames = [_read_metadata_table(path, chrom=chrom, global_config=self.global_config) for path in resolved_paths]
         frames = [frame for frame in frames if len(frame) > 0]
         if not frames:
             raise ValueError(f"No parquet metadata rows found for chromosome {chrom}.")
@@ -281,27 +281,27 @@ class ParquetR2RefPanel(RefPanel):
             ),
             chrom=chrom,
             metadata=metadata,
-            identifier_mode=self.common_config.snp_identifier,
+            identifier_mode=self.global_config.snp_identifier,
             r2_bias_mode="unbiased" if r2_bias_mode is None else r2_bias_mode,
             r2_sample_size=r2_sample_size if r2_sample_size is not None else self.spec.sample_size,
-            genome_build=self.spec.genome_build or self.common_config.genome_build,
+            genome_build=self.spec.genome_build or self.global_config.genome_build,
         )
 
 
 class RefPanelLoader:
     """Instantiate the backend requested by a :class:`RefPanelSpec`."""
-    def __init__(self, common_config: CommonConfig, ref_panel_config: RefPanelConfig | None = None) -> None:
+    def __init__(self, global_config: GlobalConfig, ref_panel_config: RefPanelConfig | None = None) -> None:
         """Store shared configuration for future backend instantiation."""
-        self.common_config = common_config
+        self.global_config = global_config
         self.ref_panel_config = ref_panel_config or RefPanelConfig()
 
     def load(self, ref_panel_spec: RefPanelSpec) -> RefPanel:
         """Return a concrete reference-panel adapter for ``ref_panel_spec``."""
         backend = ref_panel_spec.backend
         if backend == "plink":
-            return PlinkRefPanel(self.common_config, ref_panel_spec)
+            return PlinkRefPanel(self.global_config, ref_panel_spec)
         if backend == "parquet_r2":
-            return ParquetR2RefPanel(self.common_config, ref_panel_spec)
+            return ParquetR2RefPanel(self.global_config, ref_panel_spec)
         raise ValueError(f"Unsupported reference-panel backend: {backend}")
 
 
@@ -310,10 +310,10 @@ def _chrom_sort_key(chrom: str) -> tuple[int, str]:
     return chrom_sort_key(chrom)
 
 
-def _read_metadata_table(path: str | Path, chrom: str | None, common_config: CommonConfig) -> pd.DataFrame:
+def _read_metadata_table(path: str | Path, chrom: str | None, global_config: GlobalConfig) -> pd.DataFrame:
     """Read one reference-panel metadata table into the normalized column set."""
     df = pd.read_csv(path, sep=r"\s+", compression="gzip" if str(path).endswith(".gz") else None)
-    snp_identifier = normalize_snp_identifier_mode(common_config.snp_identifier)
+    snp_identifier = normalize_snp_identifier_mode(global_config.snp_identifier)
     context = str(path)
 
     chr_col = None
@@ -351,12 +351,12 @@ def _read_metadata_table(path: str | Path, chrom: str | None, common_config: Com
     if maf_col is not None:
         maf = pd.to_numeric(df[maf_col], errors="coerce").astype(float)
         out["MAF"] = pd.Series(maf).map(lambda value: value if pd.isna(value) else min(value, 1.0 - value))
-    elif common_config.fail_on_missing_metadata:
+    elif global_config.fail_on_missing_metadata:
         raise ValueError(f"{path} is missing MAF metadata.")
 
     if chrom is not None and "CHR" in out.columns:
         out = out.loc[out["CHR"] == normalize_chromosome(chrom, context=context)].reset_index(drop=True)
-    if snp_identifier == "chr_pos" and common_config.genome_build == "auto":
+    if snp_identifier == "chr_pos" and global_config.genome_build == "auto":
         out, _inference = resolve_chr_pos_table(
             out,
             context=context,

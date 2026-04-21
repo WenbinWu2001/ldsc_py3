@@ -20,7 +20,7 @@ This document summarizes the public package surface. For workflow-level file str
 
 | Type | Role |
 | --- | --- |
-| `CommonConfig` | shared SNP identifier, genome-build, logging, and restriction settings |
+| `GlobalConfig` | shared SNP identifier, genome-build, logging, and restriction settings |
 | `AnnotationBuildConfig` | annotation projection and bundle-building settings |
 | `RefPanelConfig` | choose and parameterize a runtime reference-panel backend |
 | `ReferencePanelBuildConfig` | build a parquet reference panel from PLINK input |
@@ -56,6 +56,14 @@ This document summarizes the public package surface. For workflow-level file str
 | `MungeRunSummary` | compact record of a munging run |
 | `RegressionDataset` | merged sumstats plus LD-score matrix used by the estimator |
 | `RunSummary` | summary emitted by the output layer |
+
+### Global Config Registry
+
+| Helper | Role |
+| --- | --- |
+| `get_global_config()` | return the package-global Python workflow configuration |
+| `set_global_config()` | replace the package-global Python workflow configuration |
+| `reset_global_config()` | restore the default package-global configuration: `GlobalConfig(snp_identifier="chr_pos", genome_build="hg38")` |
 
 ## Public Path And Header Contracts
 

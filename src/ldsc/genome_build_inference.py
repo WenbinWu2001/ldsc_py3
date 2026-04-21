@@ -166,7 +166,7 @@ def _build_hypothesis_sets(reference: pd.DataFrame) -> dict[str, set[tuple[str, 
         valid = pos >= 0
         out[name] = {
             (str(chrom), int(position))
-            for chrom, position in zip(reference.loc[valid, "CHR"], pos.loc[valid], strict=False)
+            for chrom, position in zip(reference.loc[valid, "CHR"], pos.loc[valid])
         }
     return out
 

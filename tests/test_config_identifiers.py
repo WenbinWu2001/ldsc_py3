@@ -3,6 +3,7 @@ import sys
 import tempfile
 import unittest
 import warnings
+from unittest import mock
 
 import pandas as pd
 
@@ -10,9 +11,10 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+import ldsc
 from ldsc.config import (
     AnnotationBuildConfig,
-    CommonConfig,
+    GlobalConfig,
     LDScoreConfig,
     MungeConfig,
     ReferencePanelBuildConfig,
@@ -36,29 +38,52 @@ from ldsc._kernel.identifiers import (
 )
 
 
-class CommonConfigTest(unittest.TestCase):
+class GlobalConfigTest(unittest.TestCase):
     def test_defaults(self):
-        config = CommonConfig()
+        config = GlobalConfig()
         self.assertEqual(config.snp_identifier, "chr_pos")
+        self.assertEqual(config.genome_build, "hg38")
         self.assertEqual(config.log_level, "INFO")
         self.assertFalse(config.fail_on_missing_metadata)
 
+    def test_package_global_registry_round_trip(self):
+        original = ldsc.reset_global_config()
+        self.assertEqual(original, GlobalConfig())
+
+        configured = GlobalConfig(
+            snp_identifier="rsid",
+            genome_build="hg19",
+            global_snp_restriction_path=Path("restrict") / "snps.txt",
+            log_level="DEBUG",
+        )
+        ldsc.set_global_config(configured)
+
+        self.assertEqual(ldsc.get_global_config(), configured)
+
+    def test_reset_global_config_restores_default(self):
+        ldsc.set_global_config(GlobalConfig(snp_identifier="rsid", genome_build="hg19"))
+
+        reset = ldsc.reset_global_config()
+
+        self.assertEqual(reset, GlobalConfig())
+        self.assertEqual(ldsc.get_global_config(), GlobalConfig())
+
     def test_validates_values(self):
         with self.assertRaises(ValueError):
-            CommonConfig(snp_identifier="bad")
+            GlobalConfig(snp_identifier="bad")
         with self.assertRaises(ValueError):
-            CommonConfig(genome_build="hg18")
+            GlobalConfig(genome_build="hg18")
         with self.assertRaises(ValueError):
-            CommonConfig(log_level="trace")
+            GlobalConfig(log_level="trace")
 
     def test_normalizes_genome_build_aliases(self):
-        self.assertEqual(CommonConfig(genome_build="hg37").genome_build, "hg19")
-        self.assertEqual(CommonConfig(genome_build="GRCh37").genome_build, "hg19")
-        self.assertEqual(CommonConfig(genome_build="GRCh38").genome_build, "hg38")
+        self.assertEqual(GlobalConfig(genome_build="hg37").genome_build, "hg19")
+        self.assertEqual(GlobalConfig(genome_build="GRCh37").genome_build, "hg19")
+        self.assertEqual(GlobalConfig(genome_build="GRCh38").genome_build, "hg38")
         self.assertEqual(normalize_genome_build("hg37"), "hg19")
         self.assertEqual(normalize_genome_build("GRCh37"), "hg19")
         self.assertEqual(normalize_genome_build("GRCh38"), "hg38")
-        self.assertEqual(CommonConfig(genome_build="auto").genome_build, "auto")
+        self.assertEqual(GlobalConfig(genome_build="auto").genome_build, "auto")
         self.assertEqual(normalize_genome_build("AUTO"), "auto")
 
 
@@ -216,8 +241,8 @@ class WorkflowConfigTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             RegressionConfig(n_blocks=1)
 
-    def test_common_config_normalizes_optional_path(self):
-        config = CommonConfig(global_snp_restriction_path=Path("restrict") / "snps.txt")
+    def test_global_config_normalizes_optional_path(self):
+        config = GlobalConfig(global_snp_restriction_path=Path("restrict") / "snps.txt")
         self.assertEqual(config.global_snp_restriction_path, "restrict/snps.txt")
 
     def test_ref_panel_config_normalizes_path_fields(self):
@@ -360,3 +385,14 @@ class RestrictionReadersTest(unittest.TestCase):
             path = Path(tmpdir) / "restrict.tsv"
             path.write_text("chrom\tbp\nchr1.0\t10\n2\t20\n", encoding="utf-8")
             self.assertEqual(read_global_snp_restriction(path, "chr_pos"), {"1:10", "2:20"})
+
+    def test_read_global_snp_restriction_chr_pos_fixed_build_skips_auto_inference(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "restrict.tsv"
+            path.write_text("CHR\tBP\n1\t20\n2\t30\n", encoding="utf-8")
+            with mock.patch("ldsc._kernel.identifiers.resolve_chr_pos_table") as patched:
+                self.assertEqual(
+                    read_global_snp_restriction(path, "chr_pos", genome_build="hg38"),
+                    {"1:20", "2:30"},
+                )
+            patched.assert_not_called()

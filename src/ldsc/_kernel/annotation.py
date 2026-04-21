@@ -70,7 +70,13 @@ from ..column_inference import (
     resolve_optional_column,
     resolve_required_column,
 )
-from ..config import AnnotationBuildConfig, CommonConfig, _normalize_path_tuple
+from ..config import (
+    AnnotationBuildConfig,
+    GlobalConfig,
+    get_global_config,
+    print_global_config_banner,
+    _normalize_path_tuple,
+)
 from ..genome_build_inference import (
     load_packaged_reference_table,
     resolve_chr_pos_table,
@@ -208,10 +214,10 @@ class AnnotationBuilder:
     restriction consistently.
     """
 
-    def __init__(self, common_config: CommonConfig, build_config: AnnotationBuildConfig | None = None) -> None:
+    def __init__(self, global_config: GlobalConfig, build_config: AnnotationBuildConfig | None = None) -> None:
         """Store shared configuration for bundle loading and BED projection."""
-        validate_auto_genome_build_mode(common_config.snp_identifier, common_config.genome_build)
-        self.common_config = common_config
+        validate_auto_genome_build_mode(global_config.snp_identifier, global_config.genome_build)
+        self.global_config = global_config
         self.build_config = build_config or AnnotationBuildConfig()
 
     def run(self, source_spec: AnnotationSourceSpec, chrom: str | None = None) -> AnnotationBundle:
@@ -428,7 +434,7 @@ class AnnotationBuilder:
                 "gene_set_paths": list(source_spec.gene_set_paths),
             },
         )
-        bundle.validate(self.common_config.snp_identifier)
+        bundle.validate(self.global_config.snp_identifier)
         return bundle
 
     def _detect_chromosome_shards(self, files: Sequence[str], group_name: str) -> dict[str, str] | None:
@@ -482,7 +488,7 @@ class AnnotationBuilder:
         maf_col = resolve_optional_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["MAF"], context=context)
         if maf_col is not None:
             metadata["MAF"] = pd.to_numeric(df[maf_col], errors="coerce")
-        if self.common_config.snp_identifier == "chr_pos" and self.common_config.genome_build == "auto":
+        if self.global_config.snp_identifier == "chr_pos" and self.global_config.genome_build == "auto":
             metadata, _inference = resolve_chr_pos_table(
                 metadata,
                 context=context,
@@ -525,7 +531,7 @@ class AnnotationBuilder:
         one-directory-per-BED mode.
         """
         batch = self.build_config.batch_mode if batch is None else batch
-        _configure_logging(log_level or self.common_config.log_level)
+        _configure_logging(log_level or self.global_config.log_level)
 
         bed_paths = [Path(path) for path in resolve_file_group(bed_files, label="BED file")]
         stems = [path.stem for path in bed_paths]
@@ -544,10 +550,10 @@ class AnnotationBuilder:
         output_path.mkdir(parents=True, exist_ok=True)
 
         restrict_path = None
-        if self.common_config.global_snp_restriction_path is not None:
+        if self.global_config.global_snp_restriction_path is not None:
             restrict_path = Path(
                 resolve_scalar_path(
-                    self.common_config.global_snp_restriction_path,
+                    self.global_config.global_snp_restriction_path,
                     label="global SNP restriction",
                 )
             )
@@ -564,9 +570,9 @@ class AnnotationBuilder:
 
             restrict_resource = _build_restrict_resource(
                 restrict_path,
-                self.common_config.snp_identifier,
+                self.global_config.snp_identifier,
                 tempdir,
-                genome_build=self.common_config.genome_build,
+                genome_build=self.global_config.genome_build,
             )
             for baseline_path in baseline_paths:
                 _process_baseline_file(
@@ -620,8 +626,8 @@ class AnnotationBuilder:
 
     def _ensure_aligned_rows(self, reference: pd.DataFrame, current: pd.DataFrame, path: str) -> None:
         """Raise if two annotation tables do not share identical SNP row order."""
-        ref_keys = build_snp_id_series(reference, self.common_config.snp_identifier)
-        cur_keys = build_snp_id_series(current, self.common_config.snp_identifier)
+        ref_keys = build_snp_id_series(reference, self.global_config.snp_identifier)
+        cur_keys = build_snp_id_series(current, self.global_config.snp_identifier)
         if len(reference) != len(current) or not ref_keys.equals(cur_keys):
             raise ValueError(f"Annotation SNP rows do not match across files: {path}")
         if not reference.loc[:, ["CHR", "POS", "SNP"]].equals(current.loc[:, ["CHR", "POS", "SNP"]]):
@@ -654,16 +660,16 @@ class AnnotationBuilder:
         query_df: pd.DataFrame,
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """Apply the configured global SNP restriction to aligned annotation tables."""
-        restrict_path = self.common_config.global_snp_restriction_path
+        restrict_path = self.global_config.global_snp_restriction_path
         if restrict_path is None:
             return metadata, baseline_df, query_df
         restriction = read_global_snp_restriction(
             restrict_path,
-            self.common_config.snp_identifier,
-            genome_build=self.common_config.genome_build,
+            self.global_config.snp_identifier,
+            genome_build=self.global_config.genome_build,
             logger=LOGGER,
         )
-        snp_ids = build_snp_id_series(metadata, self.common_config.snp_identifier)
+        snp_ids = build_snp_id_series(metadata, self.global_config.snp_identifier)
         keep = snp_ids.isin(restriction)
         return (
             metadata.loc[keep].reset_index(drop=True),
@@ -676,31 +682,43 @@ def run_bed_to_annot(
     bed_files: str | PathLike[str] | Sequence[str | PathLike[str]],
     baseline_annot_dir: str | Path,
     output_dir: str | Path,
-    restrict_snps_path: str | Path | None = None,
-    snp_identifier: str = "chr_pos",
-    genome_build: str | None = None,
     batch: bool = True,
-    log_level: str = "INFO",
 ) -> Path:
     """
     Convenience wrapper for BED-to-annotation projection from Python code.
 
-    Parameters mirror the dedicated CLI entrypoint but return the output
-    directory directly so higher-level workflows can compose the result.
+    Python workflows read shared identifier, genome-build, restriction, and
+    logging settings from the registered ``GlobalConfig`` rather than from
+    per-call keyword arguments.
     """
-    common_config = CommonConfig(
-        snp_identifier=normalize_snp_identifier_mode(snp_identifier),
-        genome_build=genome_build,
-        global_snp_restriction_path=None if restrict_snps_path is None else str(restrict_snps_path),
-        log_level=log_level,
-    )
-    build_config = AnnotationBuildConfig(query_bed_paths=bed_files, batch_mode=batch)
-    return AnnotationBuilder(common_config, build_config).project_bed_annotations(
+    return _run_bed_to_annot_with_global_config(
         bed_files=bed_files,
         baseline_annot_dir=baseline_annot_dir,
         output_dir=output_dir,
         batch=batch,
-        log_level=log_level,
+        global_config=get_global_config(),
+        entrypoint="run_bed_to_annot",
+    )
+
+
+def _run_bed_to_annot_with_global_config(
+    bed_files: str | PathLike[str] | Sequence[str | PathLike[str]],
+    baseline_annot_dir: str | Path,
+    output_dir: str | Path,
+    *,
+    batch: bool,
+    global_config: GlobalConfig,
+    entrypoint: str,
+) -> Path:
+    """Run BED-to-annotation projection with an explicit resolved GlobalConfig."""
+    print_global_config_banner(entrypoint, global_config)
+    build_config = AnnotationBuildConfig(query_bed_paths=bed_files, batch_mode=batch)
+    return AnnotationBuilder(global_config, build_config).project_bed_annotations(
+        bed_files=bed_files,
+        baseline_annot_dir=baseline_annot_dir,
+        output_dir=output_dir,
+        batch=batch,
+        log_level=global_config.log_level,
     )
 
 
@@ -721,7 +739,7 @@ def gene_set_to_bed(args):
 
 def make_annot_files(args, bed_for_annot):
     """Preserve the legacy single-output ``make_annot.py`` behavior."""
-    builder = AnnotationBuilder(CommonConfig(snp_identifier="rsid"))
+    builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"))
     return builder.make_single_annotation_file(args.bimfile, args.annot_file, bed_for_annot)
 
 
@@ -747,15 +765,20 @@ def parse_bed_to_annot_args(argv: Sequence[str] | None = None) -> argparse.Names
 def main_bed_to_annot(argv: Sequence[str] | None = None) -> int:
     """CLI entrypoint for BED-to-annotation projection."""
     args = parse_bed_to_annot_args(argv)
-    run_bed_to_annot(
+    default_config = GlobalConfig()
+    cli_global_config = GlobalConfig(
+        snp_identifier=normalize_snp_identifier_mode(args.snp_identifier),
+        genome_build=default_config.genome_build if args.genome_build is None else args.genome_build,
+        global_snp_restriction_path=None if args.restrict_snps_path is None else str(args.restrict_snps_path),
+        log_level=args.log_level,
+    )
+    _run_bed_to_annot_with_global_config(
         bed_files=split_cli_path_tokens(args.bed_files),
         baseline_annot_dir=args.baseline_annot_dir,
         output_dir=args.output_dir,
-        restrict_snps_path=args.restrict_snps_path,
-        snp_identifier=args.snp_identifier,
-        genome_build=args.genome_build,
         batch=args.batch,
-        log_level=args.log_level,
+        global_config=cli_global_config,
+        entrypoint="main_bed_to_annot",
     )
     return 0
 

@@ -18,7 +18,7 @@ import pandas as pd
 
 from .chromosome_inference import STANDARD_CHROMOSOMES
 from .column_inference import normalize_snp_identifier_mode
-from .config import CommonConfig, LDScoreConfig
+from .config import GlobalConfig, LDScoreConfig, get_global_config, print_global_config_banner
 from .genome_build_inference import validate_auto_genome_build_mode
 from .outputs import OutputManager, OutputSpec
 from .path_resolution import (
@@ -185,7 +185,7 @@ class LDScoreCalculator:
         annotation_bundle,
         ref_panel,
         ldscore_config: LDScoreConfig,
-        common_config: CommonConfig,
+        global_config: GlobalConfig,
         output_spec: OutputSpec | None = None,
         regression_snps: set[str] | None = None,
         config_snapshot: dict[str, Any] | None = None,
@@ -201,7 +201,7 @@ class LDScoreCalculator:
             metadata.
         ldscore_config : LDScoreConfig
             LD-window and retained-SNP settings.
-        common_config : CommonConfig
+        global_config : GlobalConfig
             Shared identifier and restriction settings.
         output_spec : OutputSpec or None, optional
             If provided, write outputs after the aggregate result is built.
@@ -219,6 +219,7 @@ class LDScoreCalculator:
             Aggregated cross-chromosome result with aligned metadata and output
             paths if writing was requested.
         """
+        print_global_config_banner(type(self).__name__, global_config)
         chromosome_results: list[ChromLDScoreResult] = []
         for chrom in _chromosomes_from_bundle(annotation_bundle):
             chrom_bundle = _slice_annotation_bundle(annotation_bundle, chrom)
@@ -228,11 +229,11 @@ class LDScoreCalculator:
                     annotation_bundle=chrom_bundle,
                     ref_panel=ref_panel,
                     ldscore_config=ldscore_config,
-                    common_config=common_config,
+                    global_config=global_config,
                     regression_snps=regression_snps,
                 )
             )
-        result = self._aggregate_chromosome_results(chromosome_results, common_config=common_config)
+        result = self._aggregate_chromosome_results(chromosome_results, global_config=global_config)
         if output_spec is not None:
             summary = self.output_manager.write_outputs(result, output_spec, config_snapshot=config_snapshot)
             result = _replace_result_output_paths(result, summary.output_paths)
@@ -244,7 +245,7 @@ class LDScoreCalculator:
         annotation_bundle,
         ref_panel,
         ldscore_config: LDScoreConfig,
-        common_config: CommonConfig,
+        global_config: GlobalConfig,
         regression_snps: set[str] | None = None,
     ) -> ChromLDScoreResult:
         """Compute LD scores for one chromosome."""
@@ -255,7 +256,7 @@ class LDScoreCalculator:
             chrom=chrom,
             ref_panel=ref_panel,
             ldscore_config=ldscore_config,
-            common_config=common_config,
+            global_config=global_config,
         )
         legacy_bundle = kernel_ldscore.AnnotationBundle(
             metadata=annotation_bundle.metadata.copy(),
@@ -267,12 +268,12 @@ class LDScoreCalculator:
             legacy_result = kernel_ldscore.compute_chrom_from_parquet(chrom, legacy_bundle, args, regression_snps)
         else:
             legacy_result = kernel_ldscore.compute_chrom_from_plink(chrom, legacy_bundle, args, regression_snps)
-        return self._wrap_legacy_chrom_result(legacy_result, common_config=common_config, regression_snps=regression_snps)
+        return self._wrap_legacy_chrom_result(legacy_result, global_config=global_config, regression_snps=regression_snps)
 
     def _wrap_legacy_chrom_result(
         self,
         legacy_result: _LegacyChromResult | Any,
-        common_config: CommonConfig,
+        global_config: GlobalConfig,
         regression_snps: set[str] | None = None,
     ) -> ChromLDScoreResult:
         """Convert one kernel chromosome result into the typed public result."""
@@ -280,7 +281,7 @@ class LDScoreCalculator:
         ld_scores = pd.DataFrame(legacy_result.ld_scores, columns=list(legacy_result.ldscore_columns))
         regression_metadata = reference_metadata.copy()
         w_ld = pd.DataFrame(np.asarray(legacy_result.w_ld, dtype=np.float32), columns=["L2"])
-        reference_ids = set(build_snp_id_series(reference_metadata, common_config.snp_identifier))
+        reference_ids = set(build_snp_id_series(reference_metadata, global_config.snp_identifier))
         retained_regression_snps = reference_ids if regression_snps is None else reference_ids.intersection(regression_snps)
         count_map = {"all_reference_snp_counts": np.asarray(legacy_result.M, dtype=np.float64)}
         if legacy_result.M_5_50 is not None:
@@ -303,7 +304,7 @@ class LDScoreCalculator:
     def _aggregate_chromosome_results(
         self,
         chromosome_results: Sequence[ChromLDScoreResult],
-        common_config: CommonConfig,
+        global_config: GlobalConfig,
     ) -> LDScoreResult:
         """Concatenate and sum per-chromosome results into one aggregate object."""
         if not chromosome_results:
@@ -399,9 +400,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
     """Run LD-score calculation from a parsed CLI namespace."""
-    normalized_args, common_config = _normalize_run_args(args)
+    normalized_args, global_config = _normalize_run_args(args)
+    print_global_config_banner("run_ldscore_from_args", global_config)
     kernel_ldscore.validate_args(normalized_args)
-    regression_snps = _load_regression_snps(normalized_args.regression_snps, common_config)
+    regression_snps = _load_regression_snps(normalized_args.regression_snps, global_config)
     baseline_tokens = split_cli_path_tokens(normalized_args.baseline_annot)
     baseline_chr_tokens = split_cli_path_tokens(normalized_args.baseline_annot_chr)
     query_tokens = split_cli_path_tokens(normalized_args.query_annot)
@@ -532,7 +534,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
         chromosome_results.append(
             calculator._wrap_legacy_chrom_result(
                 legacy_result,
-                common_config=common_config,
+                global_config=global_config,
                 regression_snps=regression_snps,
             )
         )
@@ -540,7 +542,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
     if not chromosome_results:
         raise ValueError("No chromosome results were produced.")
 
-    result = calculator._aggregate_chromosome_results(chromosome_results, common_config=common_config)
+    result = calculator._aggregate_chromosome_results(chromosome_results, global_config=global_config)
     summary = calculator.write_outputs(result, _output_spec_from_args(normalized_args))
     return _replace_result_output_paths(result, summary.output_paths)
 
@@ -551,8 +553,16 @@ def run_ldscore(**kwargs) -> LDScoreResult:
     Keyword arguments are interpreted as CLI-equivalent option names without the
     leading ``--``.
     """
+    forbidden = sorted({"snp_identifier", "genome_build", "log_level"} & set(kwargs))
+    if forbidden:
+        joined = ", ".join(forbidden)
+        raise ValueError(f"Python run_ldscore() no longer accepts {joined}; call set_global_config(...) first.")
     parser = build_parser()
     defaults = vars(parser.parse_args(["--out", "placeholder"]))
+    global_config = get_global_config()
+    defaults["snp_identifier"] = global_config.snp_identifier
+    defaults["genome_build"] = global_config.genome_build
+    defaults["log_level"] = global_config.log_level
     defaults.update(kwargs)
     args = argparse.Namespace(**defaults)
     return run_ldscore_from_args(args)
@@ -565,30 +575,31 @@ def main(argv: Sequence[str] | None = None) -> LDScoreResult:
     return run_ldscore_from_args(args)
 
 
-def _normalize_run_args(args: argparse.Namespace) -> tuple[argparse.Namespace, CommonConfig]:
-    """Normalize CLI-style args and derive the shared ``CommonConfig`` object."""
+def _normalize_run_args(args: argparse.Namespace) -> tuple[argparse.Namespace, GlobalConfig]:
+    """Normalize CLI-style args and derive the shared ``GlobalConfig`` object."""
     normalized_mode = normalize_snp_identifier_mode(args.snp_identifier)
     validate_auto_genome_build_mode(normalized_mode, getattr(args, "genome_build", None))
     normalized_args = argparse.Namespace(**vars(args))
     normalized_args.snp_identifier = normalized_mode
     normalized_args.out = normalize_path_token(args.out)
     normalized_args.keep = normalize_optional_path_token(getattr(args, "keep", None))
-    common_config = CommonConfig(
+    default_config = GlobalConfig()
+    global_config = GlobalConfig(
         snp_identifier=normalized_mode,
-        genome_build=getattr(args, "genome_build", None),
+        genome_build=default_config.genome_build if getattr(args, "genome_build", None) is None else getattr(args, "genome_build"),
         log_level=getattr(args, "log_level", "INFO"),
     )
-    return normalized_args, common_config
+    return normalized_args, global_config
 
 
-def _load_regression_snps(path: str | None, common_config: CommonConfig) -> set[str] | None:
+def _load_regression_snps(path: str | None, global_config: GlobalConfig) -> set[str] | None:
     """Load the optional global regression SNP universe using the active identifier mode."""
     if not path:
         return None
     return read_global_snp_restriction(
         resolve_scalar_path(path, label="regression SNP list"),
-        common_config.snp_identifier,
-        genome_build=common_config.genome_build,
+        global_config.snp_identifier,
+        genome_build=global_config.genome_build,
     )
 
 
@@ -661,7 +672,7 @@ def _slice_annotation_bundle(annotation_bundle, chrom: str):
     )
 
 
-def _namespace_from_configs(chrom: str, ref_panel, ldscore_config: LDScoreConfig, common_config: CommonConfig) -> argparse.Namespace:
+def _namespace_from_configs(chrom: str, ref_panel, ldscore_config: LDScoreConfig, global_config: GlobalConfig) -> argparse.Namespace:
     """Build the legacy-kernel namespace expected by the chromosome backends."""
     spec = getattr(ref_panel, "spec", None)
     backend = getattr(spec, "backend", None)
@@ -700,8 +711,8 @@ def _namespace_from_configs(chrom: str, ref_panel, ldscore_config: LDScoreConfig
         bfile_chr=None,
         r2_table=r2_table,
         r2_table_chr=None,
-        snp_identifier=common_config.snp_identifier,
-        genome_build=(getattr(spec, "genome_build", None) or common_config.genome_build),
+        snp_identifier=global_config.snp_identifier,
+        genome_build=(getattr(spec, "genome_build", None) or global_config.genome_build),
         r2_bias_mode=getattr(spec, "r2_bias_mode", None),
         r2_sample_size=getattr(spec, "sample_size", None),
         regression_snps=None,
@@ -715,7 +726,7 @@ def _namespace_from_configs(chrom: str, ref_panel, ldscore_config: LDScoreConfig
         chunk_size=ldscore_config.chunk_size,
         per_chr_output=False,
         yes_really=ldscore_config.whole_chromosome_ok,
-        log_level=common_config.log_level,
+        log_level=global_config.log_level,
     )
 
 

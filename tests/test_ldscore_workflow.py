@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from argparse import Namespace
 import gzip
 import importlib.util
@@ -15,7 +17,7 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from ldsc.config import CommonConfig
+from ldsc.config import GlobalConfig
 from ldsc.outputs import OutputSpec
 
 try:
@@ -134,7 +136,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 self.make_chrom_result("2", 20, 2.0, 20.0),
                 self.make_chrom_result("1", 10, 1.0, 10.0),
             ],
-            common_config=CommonConfig(snp_identifier="rsid"),
+            global_config=GlobalConfig(snp_identifier="rsid"),
         )
         self.assertEqual(result.reference_metadata["CHR"].tolist(), ["1", "2"])
         self.assertEqual(result.ld_scores.columns.tolist(), ["base", "query"])
@@ -305,7 +307,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
     def test_namespace_from_configs_emits_string_paths(self):
         from ldsc._kernel.ref_panel import RefPanelSpec
 
-        common = CommonConfig(snp_identifier="rsid", genome_build="hg19")
+        common = GlobalConfig(snp_identifier="rsid", genome_build="hg19")
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             r2_path = tmpdir / "r2" / "chr1.parquet"
@@ -332,7 +334,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                     ld_wind_cm=1.0,
                     keep_individuals_path=keep_path,
                 ),
-                common_config=common,
+                global_config=common,
             )
 
             self.assertIsInstance(args.r2_table, str)
@@ -453,7 +455,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
             expected_metadata, expected_ld = self._expected_plink_result(prefix, keep_path, maf_min=None)
             bundle = self._build_annotation_bundle(prefix)
-            common = CommonConfig(snp_identifier="rsid")
+            common = GlobalConfig(snp_identifier="rsid")
             panel = PlinkRefPanel(common, RefPanelSpec(backend="plink", bfile_prefix=prefix))
             result = ldscore_workflow.LDScoreCalculator().run(
                 annotation_bundle=bundle,
@@ -463,7 +465,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                     keep_individuals_path=keep_path,
                     whole_chromosome_ok=True,
                 ),
-                common_config=common,
+                global_config=common,
             )
 
             self.assertEqual(result.reference_metadata["SNP"].tolist(), expected_metadata["SNP"].tolist())
@@ -499,7 +501,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
             expected_metadata, expected_ld = self._expected_plink_result(prefix, keep_path, maf_min=0.01)
             bundle = self._build_annotation_bundle(prefix)
-            common = CommonConfig(snp_identifier="rsid")
+            common = GlobalConfig(snp_identifier="rsid")
             panel = PlinkRefPanel(
                 common,
                 RefPanelSpec(
@@ -517,7 +519,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                     keep_individuals_path=keep_path,
                     whole_chromosome_ok=True,
                 ),
-                common_config=common,
+                global_config=common,
             )
 
             self.assertEqual(result.reference_metadata["SNP"].tolist(), expected_metadata["SNP"].tolist())

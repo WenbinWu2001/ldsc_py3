@@ -29,7 +29,7 @@ from .column_inference import (
     resolve_optional_column,
     resolve_required_column,
 )
-from .config import CommonConfig, MungeConfig, _normalize_required_path
+from .config import GlobalConfig, MungeConfig, _normalize_required_path
 from .path_resolution import normalize_path_token, resolve_scalar_path
 from ._kernel import sumstats_munger as kernel_munge
 
@@ -218,7 +218,7 @@ class SumstatsMunger:
         self,
         raw_source: RawSumstatsSpec,
         munge_config: MungeConfig,
-        common_config: CommonConfig | None = None,
+        global_config: GlobalConfig | None = None,
     ) -> SumstatsTable:
         """Munge one raw summary-statistics file into LDSC-ready form.
 
@@ -228,7 +228,7 @@ class SumstatsMunger:
             Raw file path and optional column hints.
         munge_config : MungeConfig
             Munging thresholds and output settings.
-        common_config : CommonConfig or None, optional
+        global_config : GlobalConfig or None, optional
             Reserved for future shared validation. It is currently accepted to keep
             the workflow interface consistent with the rest of the package. Default
             is ``None``.
@@ -238,7 +238,7 @@ class SumstatsMunger:
         SumstatsTable
             Validated, in-memory table suitable for the regression workflow.
         """
-        del common_config  # reserved for future shared validation
+        del global_config  # reserved for future shared validation
         source_path = resolve_scalar_path(raw_source.path, label="raw sumstats")
         out_prefix = normalize_path_token(munge_config.out_prefix)
         Path(out_prefix).parent.mkdir(parents=True, exist_ok=True)

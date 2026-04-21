@@ -11,7 +11,7 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from ldsc.config import CommonConfig, MungeConfig
+from ldsc.config import GlobalConfig, MungeConfig
 
 try:
     import ldsc
@@ -53,7 +53,7 @@ class SumstatsMungerTest(unittest.TestCase):
             raw = RawSumstatsSpec(path=str(raw_path), trait_name="trait")
             config = MungeConfig(out_prefix=str(tmpdir / "munged"))
             munger = SumstatsMunger()
-            table = munger.run(raw, config, CommonConfig(snp_identifier="rsid"))
+            table = munger.run(raw, config, GlobalConfig(snp_identifier="rsid"))
             self.assertEqual(table.trait_name, "trait")
             self.assertTrue((tmpdir / "munged.sumstats.gz").exists())
             with gzip.open(tmpdir / "munged.sumstats.gz", "rt", encoding="utf-8") as handle:
@@ -84,7 +84,7 @@ class SumstatsMungerTest(unittest.TestCase):
             nested_prefix = tmpdir / "nested" / "dir" / "munged"
             config = MungeConfig(out_prefix=str(nested_prefix))
 
-            table = SumstatsMunger().run(raw, config, CommonConfig(snp_identifier="rsid"))
+            table = SumstatsMunger().run(raw, config, GlobalConfig(snp_identifier="rsid"))
 
             self.assertEqual(len(table.data), 1)
             self.assertTrue((tmpdir / "nested" / "dir" / "munged.sumstats.gz").exists())
@@ -102,7 +102,7 @@ class SumstatsMungerTest(unittest.TestCase):
             raw = RawSumstatsSpec(path=raw_path, trait_name="trait")
             out_prefix = tmpdir / "nested" / "mdd2025"
 
-            table = SumstatsMunger().run(raw, MungeConfig(out_prefix=out_prefix), CommonConfig(snp_identifier="rsid"))
+            table = SumstatsMunger().run(raw, MungeConfig(out_prefix=out_prefix), GlobalConfig(snp_identifier="rsid"))
 
             self.assertEqual(len(table.data), 1)
             self.assertEqual(table.source_path, str(raw_path))
@@ -121,7 +121,7 @@ class SumstatsMungerTest(unittest.TestCase):
             raw = RawSumstatsSpec(path=str(tmpdir / "trait.*.tsv"), trait_name="trait")
             out_prefix = tmpdir / "out" / "munged"
 
-            table = SumstatsMunger().run(raw, MungeConfig(out_prefix=out_prefix), CommonConfig(snp_identifier="rsid"))
+            table = SumstatsMunger().run(raw, MungeConfig(out_prefix=out_prefix), GlobalConfig(snp_identifier="rsid"))
 
             self.assertEqual(table.source_path, str(raw_path))
             self.assertTrue((tmpdir / "out" / "munged.sumstats.gz").exists())
@@ -139,7 +139,7 @@ class SumstatsMungerTest(unittest.TestCase):
             table = SumstatsMunger().run(
                 RawSumstatsSpec(path=raw_path, trait_name="trait"),
                 MungeConfig(out_prefix=tmpdir / "munged"),
-                CommonConfig(snp_identifier="rsid"),
+                GlobalConfig(snp_identifier="rsid"),
             )
 
             self.assertEqual(table.data["SNP"].tolist(), ["rs1"])

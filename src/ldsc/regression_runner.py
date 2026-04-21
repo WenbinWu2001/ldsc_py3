@@ -24,7 +24,13 @@ from .column_inference import (
     resolve_optional_column,
     resolve_required_column,
 )
-from .config import CommonConfig, RegressionConfig
+from .config import (
+    GlobalConfig,
+    RegressionConfig,
+    get_global_config,
+    print_global_config_banner,
+    suppress_global_config_banner,
+)
 from .path_resolution import normalize_path_token, resolve_scalar_path
 from ._kernel import regression as reg
 from .ldscore_calculator import LDScoreResult
@@ -61,11 +67,11 @@ class RegressionRunner:
 
     def __init__(
         self,
-        common_config: CommonConfig | None = None,
+        global_config: GlobalConfig | None = None,
         regression_config: RegressionConfig | None = None,
     ) -> None:
         """Initialize the runner with shared defaults for regression workflows."""
-        self.common_config = common_config or CommonConfig()
+        self.global_config = global_config or get_global_config()
         self.regression_config = regression_config or RegressionConfig()
 
     def build_dataset(
@@ -80,6 +86,7 @@ class RegressionRunner:
         receives only informative regressors. The selected count vector is
         carried alongside the merged table for later use by ``Hsq`` and ``RG``.
         """
+        print_global_config_banner(type(self).__name__, self.global_config)
         config = config or self.regression_config
         ref_ld_frame = pd.concat(
             [
@@ -351,6 +358,7 @@ def add_rg_arguments(parser) -> None:
 def run_h2_from_args(args):
     """Run single-trait heritability estimation from parsed CLI arguments."""
     runner, config = _runner_from_args(args)
+    print_global_config_banner("run_h2_from_args", runner.global_config)
     sumstats_table = _load_sumstats_table(args.sumstats, getattr(args, "trait_name", None))
     ldscore_result = _load_ldscore_result_from_files(
         ldscore_path=args.ldscore,
@@ -359,7 +367,8 @@ def run_h2_from_args(args):
         count_kind=args.count_kind,
         annotation_manifest_path=getattr(args, "annotation_manifest", None),
     )
-    dataset = runner.build_dataset(sumstats_table, ldscore_result, config=config)
+    with suppress_global_config_banner():
+        dataset = runner.build_dataset(sumstats_table, ldscore_result, config=config)
     hsq = runner.estimate_h2(dataset, config=config)
     summary = pd.DataFrame(
         [
@@ -384,6 +393,7 @@ def run_h2_from_args(args):
 def run_partitioned_h2_from_args(args):
     """Run batch partitioned heritability from parsed CLI arguments."""
     runner, config = _runner_from_args(args)
+    print_global_config_banner("run_partitioned_h2_from_args", runner.global_config)
     sumstats_table = _load_sumstats_table(args.sumstats, getattr(args, "trait_name", None))
     ldscore_result = _load_ldscore_result_from_files(
         ldscore_path=args.ldscore,
@@ -396,7 +406,8 @@ def run_partitioned_h2_from_args(args):
     if not ldscore_result.query_columns:
         raise ValueError("partitioned-h2 requires query annotation columns via --annotation-manifest or --query-columns.")
     query_bundle = SimpleNamespace(query_columns=list(ldscore_result.query_columns))
-    summary = runner.estimate_partitioned_h2_batch(sumstats_table, ldscore_result, query_bundle, config=config)
+    with suppress_global_config_banner():
+        summary = runner.estimate_partitioned_h2_batch(sumstats_table, ldscore_result, query_bundle, config=config)
     _maybe_write_dataframe(summary, args.out, ".partitioned_h2.tsv")
     return summary
 
@@ -404,6 +415,7 @@ def run_partitioned_h2_from_args(args):
 def run_rg_from_args(args):
     """Run genetic-correlation estimation from parsed CLI arguments."""
     runner, config = _runner_from_args(args)
+    print_global_config_banner("run_rg_from_args", runner.global_config)
     sumstats_table_1 = _load_sumstats_table(args.sumstats_1, getattr(args, "trait_name_1", None))
     sumstats_table_2 = _load_sumstats_table(args.sumstats_2, getattr(args, "trait_name_2", None))
     ldscore_result = _load_ldscore_result_from_files(
@@ -412,7 +424,8 @@ def run_rg_from_args(args):
         counts_path=args.counts,
         count_kind=args.count_kind,
     )
-    rg_result = runner.estimate_rg(sumstats_table_1, sumstats_table_2, ldscore_result, config=config)
+    with suppress_global_config_banner():
+        rg_result = runner.estimate_rg(sumstats_table_1, sumstats_table_2, ldscore_result, config=config)
     summary = pd.DataFrame(
         [
             {
@@ -460,7 +473,7 @@ def _runner_from_args(args) -> tuple[RegressionRunner, RegressionConfig]:
         two_step_cutoff=args.two_step_cutoff,
         chisq_max=args.chisq_max,
     )
-    runner = RegressionRunner(CommonConfig(), config)
+    runner = RegressionRunner(GlobalConfig(), config)
     return runner, config
 
 

@@ -23,7 +23,7 @@ from typing import Any, Sequence
 
 import numpy as np
 
-from .config import CommonConfig, ReferencePanelBuildConfig
+from .config import GlobalConfig, ReferencePanelBuildConfig, get_global_config, print_global_config_banner
 from .path_resolution import resolve_file_group, resolve_plink_prefix_group, resolve_scalar_path
 from ._kernel import formats as legacy_parse
 from ._kernel import ldscore as kernel_ldscore
@@ -59,12 +59,13 @@ class _BuildState:
 class ReferencePanelBuilder:
     """Build standard parquet reference-panel artifacts from PLINK input."""
 
-    def __init__(self, common_config: CommonConfig | None = None) -> None:
-        """Initialize the builder with shared common configuration defaults."""
-        self.common_config = common_config or CommonConfig()
+    def __init__(self, global_config: GlobalConfig | None = None) -> None:
+        """Initialize the builder with shared global configuration defaults."""
+        self.global_config = global_config or get_global_config()
 
     def run(self, config: ReferencePanelBuildConfig) -> ReferencePanelBuildResult:
         """Build parquet reference artifacts for every resolved chromosome."""
+        print_global_config_banner(type(self).__name__, self.global_config)
         self._configure_logging()
         resolved_prefixes = resolve_plink_prefix_group((config.plink_prefix,), allow_chromosome_suite=True)
         build_state = self._prepare_build_state(config)
@@ -93,7 +94,7 @@ class ReferencePanelBuilder:
             output_paths=output_paths,
             config_snapshot={
                 "build_config": asdict(config),
-                "common_config": asdict(self.common_config),
+                "global_config": asdict(self.global_config),
                 "resolved_plink_prefixes": list(resolved_prefixes),
             },
         )
@@ -101,7 +102,7 @@ class ReferencePanelBuilder:
     def _configure_logging(self) -> None:
         """Configure package logging for the current build run."""
         logging.basicConfig(
-            level=getattr(logging, self.common_config.log_level),
+            level=getattr(logging, self.global_config.log_level),
             format="%(levelname)s: %(message)s",
         )
 
@@ -121,9 +122,9 @@ class ReferencePanelBuilder:
         )
         restriction_mode = None
         restriction_values = None
-        if self.common_config.global_snp_restriction_path:
+        if self.global_config.global_snp_restriction_path:
             restriction_path = resolve_scalar_path(
-                self.common_config.global_snp_restriction_path,
+                self.global_config.global_snp_restriction_path,
                 suffixes=_TABLE_SUFFIXES,
                 label="global SNP restriction",
             )
@@ -420,7 +421,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def config_from_args(args: argparse.Namespace) -> tuple[ReferencePanelBuildConfig, CommonConfig]:
+def config_from_args(args: argparse.Namespace) -> tuple[ReferencePanelBuildConfig, GlobalConfig]:
     """Normalize CLI args into public config objects."""
 
     plink_prefix = args.bfile if args.bfile is not None else args.bfile_chr
@@ -443,23 +444,29 @@ def config_from_args(args: argparse.Namespace) -> tuple[ReferencePanelBuildConfi
         keep_indivs_path=args.keep_indivs,
         chunk_size=args.chunk_size,
     )
-    common_config = CommonConfig(
+    global_config = GlobalConfig(
         genome_build=build_config.source_genome_build,
         global_snp_restriction_path=build_config.restrict_snps_path,
         log_level=args.log_level,
     )
-    return build_config, common_config
+    return build_config, global_config
 
 
 def run_build_ref_panel_from_args(args: argparse.Namespace) -> ReferencePanelBuildResult:
     """Run reference-panel building from parsed CLI arguments."""
 
-    build_config, common_config = config_from_args(args)
-    return ReferencePanelBuilder(common_config=common_config).run(build_config)
+    build_config, global_config = config_from_args(args)
+    return ReferencePanelBuilder(global_config=global_config).run(build_config)
 
 
 def run_build_ref_panel(**kwargs: Any) -> ReferencePanelBuildResult:
     """Convenience wrapper around :func:`run_build_ref_panel_from_args`."""
+    forbidden = sorted({"log_level", "restrict_snps_path"} & set(kwargs))
+    if forbidden:
+        joined = ", ".join(forbidden)
+        raise ValueError(
+            f"Python run_build_ref_panel() no longer accepts {joined}; call set_global_config(...) first."
+        )
 
     parser = build_parser()
     defaults = vars(
@@ -480,6 +487,9 @@ def run_build_ref_panel(**kwargs: Any) -> ReferencePanelBuildResult:
             ]
         )
     )
+    global_config = get_global_config()
+    defaults["log_level"] = global_config.log_level
+    defaults["restrict_snps_path"] = global_config.global_snp_restriction_path
     defaults.update(kwargs)
     args = argparse.Namespace(**defaults)
     return run_build_ref_panel_from_args(args)

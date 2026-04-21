@@ -49,6 +49,7 @@ from ..column_inference import (
     RESTRICTION_RSID_SPEC_MAP,
     SNP_COLUMN_SPEC,
     clean_header,
+    normalize_genome_build,
     normalize_snp_identifier_mode,
     resolve_required_column,
 )
@@ -157,6 +158,7 @@ def read_global_snp_restriction(
     reference-panel, or regression SNP universes.
     """
     mode = normalize_snp_identifier_mode(snp_identifier)
+    genome_build = normalize_genome_build(genome_build)
     validate_auto_genome_build_mode(mode, genome_build)
     path = Path(path)
     if mode == "rsid":
@@ -212,6 +214,7 @@ def _read_chr_pos_restriction(path: Path, genome_build: str | None = None, logge
     lines = _non_comment_lines(path)
     if not lines:
         return set()
+    infer_build = genome_build == "auto"
     delimiter = _detect_delimiter(lines[0])
     if delimiter is None:
         rows: list[tuple[object, object]] = []
@@ -228,7 +231,7 @@ def _read_chr_pos_restriction(path: Path, genome_build: str | None = None, logge
         frame = pd.DataFrame(rows, columns=["CHR", "POS"])
         frame["CHR"] = frame["CHR"].astype(str)
         frame["POS"] = pd.to_numeric(frame["POS"], errors="raise").astype(int)
-        if genome_build is not None:
+        if infer_build:
             frame, _inference = resolve_chr_pos_table(frame, context=str(path), logger=logger)
         return {
             build_chr_pos_snp_id(chrom, pos, context=str(path))
@@ -254,7 +257,7 @@ def _read_chr_pos_restriction(path: Path, genome_build: str | None = None, logge
     frame = pd.DataFrame(values, columns=["CHR", "POS"])
     frame["CHR"] = frame["CHR"].astype(str)
     frame["POS"] = pd.to_numeric(frame["POS"], errors="raise").astype(int)
-    if genome_build is not None:
+    if infer_build:
         frame, _inference = resolve_chr_pos_table(frame, context=str(path), logger=logger)
     return {
         build_chr_pos_snp_id(chrom, pos, context=str(path))

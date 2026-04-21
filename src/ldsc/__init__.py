@@ -21,8 +21,8 @@ Design Notes
 
 Example
 -------
->>> from ldsc import CommonConfig, ReferencePanelBuilder
->>> CommonConfig().snp_identifier
+>>> from ldsc import GlobalConfig, ReferencePanelBuilder
+>>> GlobalConfig().snp_identifier
 'chr_pos'
 >>> isinstance(ReferencePanelBuilder(), ReferencePanelBuilder)
 True
@@ -40,12 +40,15 @@ from .annotation_builder import (
 )
 from .config import (
     AnnotationBuildConfig,
-    CommonConfig,
+    GlobalConfig,
     LDScoreConfig,
     MungeConfig,
     ReferencePanelBuildConfig,
     RefPanelConfig,
     RegressionConfig,
+    get_global_config,
+    reset_global_config,
+    set_global_config,
 )
 from .ldscore_calculator import ChromLDScoreResult, LDScoreCalculator, LDScoreResult, run_ldscore
 from .outputs import ArtifactConfig, ArtifactProducer, OutputManager, OutputSpec, PostProcessor, ResultFormatter, ResultWriter, RunSummary
@@ -81,7 +84,8 @@ __all__ = [
     "ArtifactConfig",
     "ArtifactProducer",
     "ChromLDScoreResult",
-    "CommonConfig",
+    "GlobalConfig",
+    "get_global_config",
     "LDScoreCalculator",
     "LDScoreConfig",
     "LDScoreResult",
@@ -114,4 +118,6 @@ __all__ = [
     "run_build_ref_panel",
     "run_bed_to_annot",
     "run_ldscore",
+    "reset_global_config",
+    "set_global_config",
 ]

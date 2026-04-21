@@ -76,9 +76,9 @@ Python
 
     run_ldscore(
         out="results/example",
-        baseline_annot_chr="data/baseline.@",
+        baseline_annot="data/baseline.@.annot.gz",
         query_annot="data/query.annot.gz",
-        r2_table_chr="data/r2/chr@_sorted",
+        r2_table="data/r2/chr@_sorted.parquet",
         snp_identifier="rsid",
         r2_bias_mode="unbiased",
         ld_wind_cm=1,
@@ -87,9 +87,9 @@ Python
 CLI
     python -m ldsc_py3_Jerry.ldsc_new \
         --out results/example \
-        --baseline-annot-chr data/baseline.@ \
+        --baseline-annot data/baseline.@.annot.gz \
         --query-annot data/query.annot.gz \
-        --r2-table-chr data/r2/chr@_sorted \
+        --r2-table data/r2/chr@_sorted.parquet \
         --snp-identifier rsid \
         --r2-bias-mode unbiased \
         --ld-wind-cm 1
@@ -167,7 +167,6 @@ Dependencies
 from __future__ import annotations
 
 import argparse
-import glob
 import gzip
 import logging
 import os
@@ -201,11 +200,20 @@ from ..column_inference import (
     resolve_required_column,
     resolve_required_columns,
 )
-from ..chromosome_inference import STANDARD_CHROMOSOMES, chrom_sort_key, normalize_chromosome
+from ..chromosome_inference import chrom_sort_key, normalize_chromosome
 from ..genome_build_inference import (
     load_packaged_reference_table,
     resolve_chr_pos_table,
     validate_auto_genome_build_mode,
+)
+from ..path_resolution import (
+    ANNOTATION_SUFFIXES,
+    FREQUENCY_SUFFIXES,
+    PARQUET_SUFFIXES,
+    ensure_output_parent_directory,
+    resolve_chromosome_group,
+    resolve_file_group,
+    resolve_plink_prefix,
 )
 from . import formats as legacy_parse
 from .identifiers import build_snp_id_series, read_global_snp_restriction
@@ -610,88 +618,61 @@ def sort_frame_by_genomic_position(df: pd.DataFrame) -> pd.DataFrame:
     return sort_df.drop(columns="_chrom_key").reset_index(drop=True)
 
 
-def resolve_prefixed_file(token: str, suffixes: Sequence[str]) -> list[str]:
-    """Resolve one explicit path, glob, or filename prefix into concrete files."""
-    if os.path.exists(token):
-        return [token]
-
-    matches = sorted({path for path in glob.glob(token)})
-    if matches:
-        return matches
-
-    for suffix in suffixes:
-        candidate = token + suffix
-        if os.path.exists(candidate):
-            return [candidate]
-
-    raise FileNotFoundError(f"Could not resolve input path or prefix: {token}")
-
-
 def resolve_annotation_files(spec: str | None) -> list[str]:
-    """Resolve comma-delimited annotation inputs into concrete file paths."""
-    files: list[str] = []
-    for token in split_arg_list(spec):
-        files.extend(resolve_prefixed_file(token, ("", ".annot", ".annot.gz", ".txt", ".txt.gz", ".tsv", ".tsv.gz")))
-    return files
-
-
-def resolve_chr_files(spec: str | None, chrom: str, suffixes: Sequence[str]) -> list[str]:
-    """Resolve chromosome-pattern file prefixes for one chromosome."""
-    files: list[str] = []
-    for token in split_arg_list(spec):
-        chrom_token = legacy_parse.sub_chr(token, chrom)
-        files.extend(resolve_prefixed_file(chrom_token, suffixes))
-    return files
-
-
-def resolve_optional_chr_files(spec: str | None, chrom: str, suffixes: Sequence[str]) -> list[str]:
-    """Resolve chromosome-pattern file prefixes while ignoring missing chromosomes."""
-    files: list[str] = []
-    for token in split_arg_list(spec):
-        chrom_token = legacy_parse.sub_chr(token, chrom)
-        try:
-            files.extend(resolve_prefixed_file(chrom_token, suffixes))
-        except FileNotFoundError:
-            continue
-    return files
+    """Resolve comma-delimited annotation tokens into concrete file paths."""
+    return resolve_file_group(
+        split_arg_list(spec),
+        label="annotation input",
+        allowed_suffixes=ANNOTATION_SUFFIXES,
+        allow_chromosome_suite=True,
+    )
 
 
 def resolve_parquet_files(args: argparse.Namespace, chrom: str | None = None) -> list[str]:
     """Resolve the sorted parquet R2 files participating in one LD-score run."""
-    if chrom is not None and args.r2_table_chr:
-        return resolve_chr_files(args.r2_table_chr, chrom, ("", ".parquet"))
     if args.r2_table:
-        files = []
-        for token in split_arg_list(args.r2_table):
-            files.extend(resolve_prefixed_file(token, ("", ".parquet")))
-        return files
+        tokens = split_arg_list(args.r2_table)
+        if chrom is not None:
+            return resolve_chromosome_group(
+                tokens,
+                chrom=chrom,
+                label="r2_table",
+                allowed_suffixes=PARQUET_SUFFIXES,
+            )
+        return resolve_file_group(
+            tokens,
+            label="r2_table",
+            allowed_suffixes=PARQUET_SUFFIXES,
+            allow_chromosome_suite=True,
+        )
     return []
 
 
 def resolve_bfile_prefix(args: argparse.Namespace, chrom: str | None = None) -> str | None:
     """Resolve the PLINK prefix for the requested chromosome, if any."""
-    prefix = None
-    if chrom is not None and args.bfile_chr:
-        prefix = legacy_parse.sub_chr(args.bfile_chr, chrom)
-    elif args.bfile:
-        prefix = args.bfile
-    if prefix is None:
+    if args.bfile is None:
         return None
-    if prefix.endswith(".bed") and os.path.exists(prefix):
-        prefix = prefix[:-4]
-    if os.path.exists(prefix + ".bed"):
-        return prefix
-    raise FileNotFoundError(f"Could not resolve PLINK prefix: {prefix}")
+    return resolve_plink_prefix(args.bfile, chrom=chrom, label="bfile")
 
 
 def resolve_frequency_files(args: argparse.Namespace, chrom: str | None = None) -> list[str]:
     """Resolve optional frequency or metadata files for one chromosome."""
-    files: list[str] = []
-    if chrom is not None and args.frqfile_chr:
-        return resolve_optional_chr_files(args.frqfile_chr, chrom, ("", ".frq", ".frq.gz", ".txt", ".txt.gz", ".tsv", ".tsv.gz"))
-    for token in split_arg_list(args.frqfile):
-        files.extend(resolve_prefixed_file(token, ("", ".frq", ".frq.gz", ".txt", ".txt.gz", ".tsv", ".tsv.gz")))
-    return files
+    tokens = split_arg_list(args.frqfile)
+    if not tokens:
+        return []
+    if chrom is not None:
+        return resolve_chromosome_group(
+            tokens,
+            chrom=chrom,
+            label="frqfile",
+            allowed_suffixes=FREQUENCY_SUFFIXES,
+        )
+    return resolve_file_group(
+        tokens,
+        label="frqfile",
+        allowed_suffixes=FREQUENCY_SUFFIXES,
+        allow_chromosome_suite=True,
+    )
 
 
 def read_text_table(path: str) -> pd.DataFrame:
@@ -875,9 +856,7 @@ def convert_r2_table_to_sorted_parquet(source_path: str, genome_build: str, outp
     if len(chroms) != 1:
         raise ValueError("Each sorted parquet R2 file must contain exactly one chromosome.")
     df = df.sort_values(by=["pos_1", "pos_2"], kind="mergesort").reset_index(drop=True)
-    parent = os.path.dirname(output_path)
-    if parent:
-        os.makedirs(parent, exist_ok=True)
+    ensure_output_parent_directory(output_path, label="output_path")
     try:
         df.to_parquet(output_path, index=False)
     except ImportError as exc:
@@ -989,7 +968,14 @@ def filter_reference_to_present_r2(
 
 # Annotation loading and normalization.
 def parse_annotation_file(path: str, chrom: str | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Parse one SNP-level annotation table into normalized metadata and values."""
+    """Parse one SNP-level annotation table into normalized metadata and values.
+
+    When ``chrom`` is provided, the returned tables are restricted to rows whose
+    normalized ``CHR`` matches that chromosome. This is the final safeguard for
+    group-style path tokens that resolved to shared multi-chromosome files or
+    to globs whose filenames did not encode chromosome labels clearly enough for
+    earlier path-level filtering.
+    """
     df = read_text_table(path)
     context = path
     chr_col = resolve_required_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["CHR"], context=context)
@@ -1052,11 +1038,19 @@ def combine_annotation_groups(
     Read and column-bind baseline/query annotation files for one chromosome.
 
     Main steps:
-    1. Parse each SNP-level annotation file.
+    1. Parse each SNP-level annotation file and restrict it to ``chrom``.
     2. Normalize the chosen SNP identifier key.
     3. Require identical SNP rows across all files for that chromosome.
     4. Merge annotation columns into one dense matrix while preserving the
        baseline/query grouping.
+
+    "Identical SNP rows" means that every contributing file for ``chrom`` must
+    produce the same ordered SNP universe after chromosome filtering and
+    sorting. In practice, the ``CHR``, ``POS``, and ``SNP`` columns must match
+    row-for-row, and the identifier key derived from ``identifier_mode`` must
+    also match row-for-row. If two files contribute columns for the same
+    chromosome but disagree on their retained SNP rows, the function raises a
+    ``ValueError`` instead of attempting a partial merge.
     """
     frames: list[pd.DataFrame] = []
     blocks: list[pd.DataFrame] = []
@@ -1227,23 +1221,12 @@ def apply_maf_filter(
 def chromosome_set_from_annotation_inputs(args: argparse.Namespace) -> list[str]:
     """Discover the chromosome set implied by the supplied annotation inputs."""
     chromosomes: set[str] = set()
-    all_files = (
-        resolve_annotation_files(args.query_annot)
-        + resolve_annotation_files(args.baseline_annot)
-    )
+    all_files = resolve_annotation_files(args.query_annot) + resolve_annotation_files(args.baseline_annot)
     for path in all_files:
         df = read_text_table(path)
         if "CHR" not in df.columns:
             raise ValueError(f"{path} is missing CHR.")
         chromosomes.update(df["CHR"].map(lambda value: normalize_chromosome(value, context=path)).unique().tolist())
-
-    chr_specs = split_arg_list(args.query_annot_chr) + split_arg_list(args.baseline_annot_chr)
-    if chr_specs:
-        for chrom in STANDARD_CHROMOSOMES:
-            files = resolve_optional_chr_files(args.query_annot_chr, chrom, ("", ".annot", ".annot.gz", ".txt", ".txt.gz", ".tsv", ".tsv.gz"))
-            files += resolve_optional_chr_files(args.baseline_annot_chr, chrom, ("", ".annot", ".annot.gz", ".txt", ".txt.gz", ".tsv", ".tsv.gz"))
-            if files:
-                chromosomes.add(normalize_chromosome(chrom))
 
     if not chromosomes:
         raise ValueError("No annotation chromosomes could be resolved from the supplied inputs.")
@@ -1698,7 +1681,7 @@ def compute_chrom_from_plink(
     legacy_ld = get_legacy_ld_module()
     prefix = resolve_bfile_prefix(args, chrom=chrom)
     if prefix is None:
-        raise ValueError("PLINK mode requested without --bfile or --bfile-chr.")
+        raise ValueError("PLINK mode requested without --bfile.")
 
     bim = legacy_parse.PlinkBIMFile(prefix + ".bim")
     fam = legacy_parse.PlinkFAMFile(prefix + ".fam")
@@ -1879,19 +1862,18 @@ def emit_outputs(results: Sequence[ChromComputationResult], args: argparse.Names
 
 def validate_args(args: argparse.Namespace) -> None:
     """Validate top-level LD-score CLI arguments before any heavy work starts."""
+    for attr in ("query_annot_chr", "baseline_annot_chr", "bfile_chr", "r2_table_chr", "frqfile_chr"):
+        if not hasattr(args, attr):
+            setattr(args, attr, None)
     args.snp_identifier = normalize_snp_identifier_mode(args.snp_identifier)
     args.genome_build = normalize_genome_build(args.genome_build)
     validate_auto_genome_build_mode(args.snp_identifier, args.genome_build)
     keep = getattr(args, "keep", None)
-    if not (args.query_annot or args.query_annot_chr or args.baseline_annot or args.baseline_annot_chr):
+    if not (args.query_annot or args.baseline_annot):
         raise ValueError("At least one of query or baseline annotation inputs must be supplied.")
-    if bool(args.r2_table or args.r2_table_chr) == bool(args.bfile or args.bfile_chr):
+    if bool(args.r2_table) == bool(args.bfile):
         raise ValueError("Specify exactly one reference-panel mode: parquet or PLINK.")
-    if args.r2_table_chr and args.r2_table:
-        raise ValueError("Cannot set both --r2-table and --r2-table-chr.")
-    if args.bfile_chr and args.bfile:
-        raise ValueError("Cannot set both --bfile and --bfile-chr.")
-    if args.r2_table or args.r2_table_chr:
+    if args.r2_table:
         if keep:
             raise ValueError("--keep is only supported in PLINK mode.")
         if args.r2_bias_mode is None:
@@ -1916,14 +1898,10 @@ def build_parser() -> argparse.ArgumentParser:
         description="Estimate LDSC-compatible LD scores from SNP-level annotation files using PLINK or sorted parquet R2 input.",
     )
     parser.add_argument("--out", required=True, help="Output prefix.")
-    parser.add_argument("--query-annot", default=None, help="Comma-separated SNP-level query annotation files or prefixes.")
-    parser.add_argument("--query-annot-chr", default=None, help="Comma-separated chromosome-pattern prefixes for query annotation files.")
-    parser.add_argument("--baseline-annot", default=None, help="Comma-separated SNP-level baseline annotation files or prefixes.")
-    parser.add_argument("--baseline-annot-chr", default=None, help="Comma-separated chromosome-pattern prefixes for baseline annotation files.")
-    parser.add_argument("--bfile", default=None, help="PLINK prefix for the reference panel.")
-    parser.add_argument("--bfile-chr", default=None, help="Chromosome-pattern PLINK prefix for the reference panel.")
-    parser.add_argument("--r2-table", default=None, help="Comma-separated sorted parquet R2 files or prefixes.")
-    parser.add_argument("--r2-table-chr", default=None, help="Comma-separated chromosome-pattern prefixes for sorted parquet R2 files.")
+    parser.add_argument("--query-annot", default=None, help="Comma-separated SNP-level query annotation inputs. Each token may be an exact path, glob, or explicit @ chromosome-suite token.")
+    parser.add_argument("--baseline-annot", default=None, help="Comma-separated SNP-level baseline annotation inputs. Each token may be an exact path, glob, or explicit @ chromosome-suite token.")
+    parser.add_argument("--bfile", default=None, help="PLINK reference-panel prefix or explicit @ chromosome-suite token.")
+    parser.add_argument("--r2-table", default=None, help="Comma-separated sorted parquet R2 inputs. Each token may be an exact path, glob, or explicit @ chromosome-suite token.")
     parser.add_argument("--snp-identifier", default="chr_pos", help="Identifier mode used to match annotations to the reference panel.")
     parser.add_argument(
         "--genome-build",
@@ -1934,8 +1912,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--r2-bias-mode", choices=("raw", "unbiased"), default=None, help="Whether sorted parquet R2 values are raw sample r^2 or already unbiased.")
     parser.add_argument("--r2-sample-size", default=None, type=float, help="LD reference sample size used to correct raw parquet R2 values.")
     parser.add_argument("--regression-snps", default=None, help="Optional SNP list defining the regression SNP set for w_ld.")
-    parser.add_argument("--frqfile", default=None, help="Optional frequency/metadata file for MAF and CM.")
-    parser.add_argument("--frqfile-chr", default=None, help="Chromosome-pattern frequency/metadata file prefix.")
+    parser.add_argument("--frqfile", default=None, help="Optional frequency/metadata inputs for MAF and CM. Each token may be an exact path, glob, or explicit @ chromosome-suite token.")
     parser.add_argument("--keep", default=None, help="File with individuals to include in LD Score estimation. The file should contain one IID per row.")
     parser.add_argument("--ld-wind-snps", default=None, type=int, help="LD window size in SNPs.")
     parser.add_argument("--ld-wind-kb", default=None, type=float, help="LD window size in kilobases.")
@@ -1966,10 +1943,18 @@ def run_ldscore_from_args(args: argparse.Namespace) -> list[ChromComputationResu
 
     for chrom in chromosomes:
         # Resolve all annotation files contributing columns for this chromosome.
-        baseline_files = resolve_optional_chr_files(args.baseline_annot_chr, chrom, ("", ".annot", ".annot.gz", ".txt", ".txt.gz", ".tsv", ".tsv.gz"))
-        baseline_files += resolve_annotation_files(args.baseline_annot)
-        query_files = resolve_optional_chr_files(args.query_annot_chr, chrom, ("", ".annot", ".annot.gz", ".txt", ".txt.gz", ".tsv", ".tsv.gz"))
-        query_files += resolve_annotation_files(args.query_annot)
+        baseline_files = resolve_chromosome_group(
+            split_arg_list(args.baseline_annot),
+            chrom=chrom,
+            label="baseline_annot",
+            allowed_suffixes=ANNOTATION_SUFFIXES,
+        )
+        query_files = resolve_chromosome_group(
+            split_arg_list(args.query_annot),
+            chrom=chrom,
+            label="query_annot",
+            allowed_suffixes=ANNOTATION_SUFFIXES,
+        )
 
         bundle = combine_annotation_groups(
             baseline_files=baseline_files,
@@ -1988,7 +1973,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> list[ChromComputationResu
         )
 
         # Compute LD scores from the selected reference-panel backend.
-        if args.r2_table or args.r2_table_chr:
+        if args.r2_table:
             result = compute_chrom_from_parquet(chrom, bundle, args, regression_keys)
         else:
             result = compute_chrom_from_plink(chrom, bundle, args, regression_keys)
@@ -2002,20 +1987,15 @@ def run_ldscore(
     *,
     out: str,
     query_annot: str | None = None,
-    query_annot_chr: str | None = None,
     baseline_annot: str | None = None,
-    baseline_annot_chr: str | None = None,
     bfile: str | None = None,
-    bfile_chr: str | None = None,
     r2_table: str | None = None,
-    r2_table_chr: str | None = None,
     snp_identifier: str = "chr_pos",
     genome_build: str | None = None,
     r2_bias_mode: str | None = None,
     r2_sample_size: float | None = None,
     regression_snps: str | None = None,
     frqfile: str | None = None,
-    frqfile_chr: str | None = None,
     keep: str | None = None,
     ld_wind_snps: int | None = None,
     ld_wind_kb: float | None = None,
@@ -2035,20 +2015,20 @@ def run_ldscore(
     args = argparse.Namespace(
         out=out,
         query_annot=query_annot,
-        query_annot_chr=query_annot_chr,
         baseline_annot=baseline_annot,
-        baseline_annot_chr=baseline_annot_chr,
         bfile=bfile,
-        bfile_chr=bfile_chr,
         r2_table=r2_table,
-        r2_table_chr=r2_table_chr,
         snp_identifier=snp_identifier,
         genome_build=genome_build,
         r2_bias_mode=r2_bias_mode,
         r2_sample_size=r2_sample_size,
         regression_snps=regression_snps,
         frqfile=frqfile,
-        frqfile_chr=frqfile_chr,
+        query_annot_chr=None,
+        baseline_annot_chr=None,
+        bfile_chr=None,
+        r2_table_chr=None,
+        frqfile_chr=None,
         keep=keep,
         ld_wind_snps=ld_wind_snps,
         ld_wind_kb=ld_wind_kb,

@@ -24,7 +24,7 @@ from typing import Any, Sequence
 import numpy as np
 
 from .config import GlobalConfig, ReferencePanelBuildConfig, get_global_config, print_global_config_banner
-from .path_resolution import resolve_file_group, resolve_plink_prefix_group, resolve_scalar_path
+from .path_resolution import ensure_output_directory, resolve_file_group, resolve_plink_prefix_group, resolve_scalar_path
 from ._kernel import formats as legacy_parse
 from ._kernel import ldscore as kernel_ldscore
 from ._kernel import ref_panel_builder as kernel_builder
@@ -67,6 +67,7 @@ class ReferencePanelBuilder:
         """Build parquet reference artifacts for every resolved chromosome."""
         print_global_config_banner(type(self).__name__, self.global_config)
         self._configure_logging()
+        ensure_output_directory(config.output_dir, label="output directory")
         resolved_prefixes = resolve_plink_prefix_group((config.plink_prefix,), allow_chromosome_suite=True)
         build_state = self._prepare_build_state(config)
 
@@ -388,8 +389,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Build standard parquet reference-panel artifacts from a PLINK reference input.",
     )
-    parser.add_argument("--bfile", default=None, help="PLINK prefix token for the reference panel.")
-    parser.add_argument("--bfile-chr", default=None, help="Chromosome-suite PLINK prefix token; `@` is preferred.")
+    parser.add_argument("--bfile", required=True, help="PLINK prefix token for the reference panel.")
     parser.add_argument("--panel-label", required=True, help="Label prefix used in emitted standard filenames.")
     parser.add_argument(
         "--source-genome-build",
@@ -424,12 +424,9 @@ def build_parser() -> argparse.ArgumentParser:
 def config_from_args(args: argparse.Namespace) -> tuple[ReferencePanelBuildConfig, GlobalConfig]:
     """Normalize CLI args into public config objects."""
 
-    plink_prefix = args.bfile if args.bfile is not None else args.bfile_chr
-    if plink_prefix is None:
-        raise ValueError("One of --bfile or --bfile-chr is required.")
     build_config = ReferencePanelBuildConfig(
         panel_label=args.panel_label,
-        plink_prefix=plink_prefix,
+        plink_prefix=args.bfile,
         source_genome_build=args.source_genome_build,
         genetic_map_hg19_path=args.genetic_map_hg19,
         genetic_map_hg38_path=args.genetic_map_hg38,
@@ -472,6 +469,8 @@ def run_build_ref_panel(**kwargs: Any) -> ReferencePanelBuildResult:
     defaults = vars(
         parser.parse_args(
             [
+                "--bfile",
+                "plink/panel.@",
                 "--panel-label",
                 "placeholder",
                 "--source-genome-build",

@@ -7,13 +7,32 @@ The examples below assume chromosome-pattern inputs such as `annotations/baselin
 Path-token rules:
 
 - scalar inputs such as raw sumstats must resolve to exactly one file
-- group inputs may use globs or chromosome-suite tokens such as `baseline.@`
+- group inputs may use globs or chromosome-suite tokens such as `baseline.@.annot.gz`
 - output prefixes are literal destinations
+
+Resolution behavior:
+
+- there is no separate per-chromosome argument for LD-score inputs anymore; `baseline_annot`, `r2_table`, and `frqfile` all accept the unified token format
+- a group token may resolve to multiple files
+- when multiple matched files are chromosome-sharded and the chromosome can be inferred from the filenames, only the files for the active chromosome are used in that chromosome pass
+- otherwise the matched files are read and filtered by `CHR` internally
 
 ## Python API
 
 ```python
-from ldsc import MungeConfig, RawSumstatsSpec, RegressionConfig, RegressionRunner, SumstatsMunger, load_sumstats, run_ldscore
+from ldsc import (
+    GlobalConfig,
+    MungeConfig,
+    RawSumstatsSpec,
+    RegressionConfig,
+    RegressionRunner,
+    SumstatsMunger,
+    load_sumstats,
+    run_ldscore,
+    set_global_config,
+)
+
+set_global_config(GlobalConfig(snp_identifier="rsid"))
 
 sumstats = SumstatsMunger().run(
     RawSumstatsSpec(
@@ -32,10 +51,9 @@ sumstats = SumstatsMunger().run(
 
 ldscore_result = run_ldscore(
     out="tutorial_outputs/trait_ldscores",
-    baseline_annot="annotations/baseline.@",
-    r2_table="r2/reference.@",
-    frqfile="r2/reference_metadata.@",
-    snp_identifier="rsid",
+    baseline_annot="annotations/baseline.@.annot.gz",
+    r2_table="r2/reference.@.parquet",
+    frqfile="r2/reference_metadata.@.tsv.gz",
     ld_wind_cm=1.0,
 )
 
@@ -50,7 +68,9 @@ print("ldscore_file =", ldscore_result.output_paths["ldscore"])
 print("weight_file =", ldscore_result.output_paths["w_ld"])
 ```
 
-`SumstatsMunger` does not currently use `CommonConfig`, so the munging example omits it here.
+`SumstatsMunger` does not currently use `GlobalConfig`, so the munging example
+omits it here. The registered `GlobalConfig` still applies to the downstream
+LD-score and regression workflow objects.
 
 ## CLI
 
@@ -67,9 +87,9 @@ ldsc munge-sumstats \
 
 ldsc ldscore \
   --out tutorial_outputs/trait_ldscores \
-  --baseline-annot "annotations/baseline.@" \
-  --r2-table "r2/reference.@" \
-  --frqfile "r2/reference_metadata.@" \
+  --baseline-annot "annotations/baseline.@.annot.gz" \
+  --r2-table "r2/reference.@.parquet" \
+  --frqfile "r2/reference_metadata.@.tsv.gz" \
   --snp-identifier rsid \
   --ld-wind-cm 1.0
 

@@ -101,11 +101,11 @@ class WorkflowConfigTest(unittest.TestCase):
 
     def test_annotation_config_accepts_single_string_tokens_for_plural_fields(self):
         config = AnnotationBuildConfig(
-            baseline_annotation_paths="baseline.@",
+            baseline_annotation_paths="baseline.@.annot.gz",
             query_annotation_paths="query.*.annot.gz",
             query_bed_paths="beds/*.bed",
         )
-        self.assertEqual(config.baseline_annotation_paths, ("baseline.@",))
+        self.assertEqual(config.baseline_annotation_paths, ("baseline.@.annot.gz",))
         self.assertEqual(config.query_annotation_paths, ("query.*.annot.gz",))
         self.assertEqual(config.query_bed_paths, ("beds/*.bed",))
 
@@ -249,18 +249,18 @@ class WorkflowConfigTest(unittest.TestCase):
         config = RefPanelConfig(
             plink_prefix=Path("plink") / "panel",
             parquet_r2_paths=[Path("r2") / "chr1.parquet"],
-            frequency_paths_chr=[Path("freq") / "chr@"],
+            frequency_paths=[Path("freq") / "chr@.tsv.gz"],
         )
         self.assertEqual(config.plink_prefix, "plink/panel")
         self.assertEqual(config.parquet_r2_paths, ("r2/chr1.parquet",))
-        self.assertEqual(config.frequency_paths_chr, ("freq/chr@",))
+        self.assertEqual(config.frequency_paths, ("freq/chr@.tsv.gz",))
 
     def test_ref_panel_config_accepts_single_string_tokens_for_plural_fields(self):
         config = RefPanelConfig(
-            parquet_r2_paths="r2/reference.@",
+            parquet_r2_paths="r2/reference.@.parquet",
             frequency_paths="meta/reference.*.tsv.gz",
         )
-        self.assertEqual(config.parquet_r2_paths, ("r2/reference.@",))
+        self.assertEqual(config.parquet_r2_paths, ("r2/reference.@.parquet",))
         self.assertEqual(config.frequency_paths, ("meta/reference.*.tsv.gz",))
 
     def test_public_specs_normalize_pathlike_inputs(self):
@@ -292,19 +292,19 @@ class WorkflowConfigTest(unittest.TestCase):
 
     def test_public_specs_accept_single_string_tokens_for_plural_fields(self):
         annot = AnnotationSourceSpec(
-            baseline_annot_paths="baseline.@",
+            baseline_annot_paths="baseline.@.annot.gz",
             query_annot_paths="query.*.annot.gz",
             bed_paths="beds/*.bed",
         )
         ref = RefPanelSpec(
             backend="parquet_r2",
-            r2_table_paths="r2/reference.@",
+            r2_table_paths="r2/reference.@.parquet",
             maf_metadata_paths="meta/reference.*.tsv.gz",
         )
-        self.assertEqual(annot.baseline_annot_paths, ("baseline.@",))
+        self.assertEqual(annot.baseline_annot_paths, ("baseline.@.annot.gz",))
         self.assertEqual(annot.query_annot_paths, ("query.*.annot.gz",))
         self.assertEqual(annot.bed_paths, ("beds/*.bed",))
-        self.assertEqual(ref.r2_table_paths, ("r2/reference.@",))
+        self.assertEqual(ref.r2_table_paths, ("r2/reference.@.parquet",))
         self.assertEqual(ref.maf_metadata_paths, ("meta/reference.*.tsv.gz",))
 
 

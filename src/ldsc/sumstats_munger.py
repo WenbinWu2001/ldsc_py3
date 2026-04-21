@@ -30,7 +30,7 @@ from .column_inference import (
     resolve_required_column,
 )
 from .config import GlobalConfig, MungeConfig, _normalize_required_path
-from .path_resolution import normalize_path_token, resolve_scalar_path
+from .path_resolution import ensure_output_parent_directory, normalize_path_token, resolve_scalar_path
 from ._kernel import sumstats_munger as kernel_munge
 
 
@@ -241,7 +241,7 @@ class SumstatsMunger:
         del global_config  # reserved for future shared validation
         source_path = resolve_scalar_path(raw_source.path, label="raw sumstats")
         out_prefix = normalize_path_token(munge_config.out_prefix)
-        Path(out_prefix).parent.mkdir(parents=True, exist_ok=True)
+        ensure_output_parent_directory(out_prefix, label="out_prefix")
         args = self._build_args(raw_source, munge_config)
         data = kernel_munge.munge_sumstats(args, p=True)
         table = SumstatsTable(
@@ -272,7 +272,7 @@ class SumstatsMunger:
     def write_output(self, sumstats: SumstatsTable, out_prefix: str) -> str:
         """Write a munged table to ``<out_prefix>.sumstats.gz``."""
         output_path = out_prefix + ".sumstats.gz"
-        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        ensure_output_parent_directory(output_path, label="out_prefix")
         columns = [col for col in ("SNP", "N", "Z", "A1", "A2", "FRQ") if col in sumstats.data.columns]
         sumstats.data.to_csv(output_path, sep="\t", index=False, columns=columns, float_format="%.3f", compression="gzip")
         return output_path
@@ -320,6 +320,7 @@ def main(argv: list[str] | None = None):
     args = parser.parse_args(argv)
     args.sumstats = resolve_scalar_path(args.sumstats, label="raw sumstats")
     args.out = normalize_path_token(args.out)
+    ensure_output_parent_directory(args.out, label="out_prefix")
     if getattr(args, "merge_alleles", None):
         args.merge_alleles = resolve_scalar_path(args.merge_alleles, label="merge-alleles file")
     return kernel_munge.munge_sumstats(args, p=True)

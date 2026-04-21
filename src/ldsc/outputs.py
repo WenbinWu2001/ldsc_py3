@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 
 from .config import _normalize_optional_path, _normalize_required_path
+from .path_resolution import ensure_output_directory, ensure_output_parent_directory, resolve_scalar_path
 
 
 ArtifactLayout = str
@@ -152,7 +153,7 @@ class ResultWriter:
     def write(self, artifact: Artifact, root: Path, overwrite: bool = False) -> str:
         """Write ``artifact`` below ``root`` and return the written path."""
         path = root / artifact.relative_path
-        path.parent.mkdir(parents=True, exist_ok=True)
+        path = ensure_output_parent_directory(path, label="artifact output path")
         if path.exists() and not overwrite:
             raise FileExistsError(f"Refusing to overwrite existing artifact: {path}")
 
@@ -407,7 +408,7 @@ class OutputManager:
         config_snapshot: dict[str, Any] | None = None,
     ) -> RunSummary:
         """Build and write all enabled artifacts for ``result``."""
-        root = _output_root(output_spec)
+        root = ensure_output_directory(_output_root(output_spec), label="output directory")
         run_summary = self.build_run_summary(result, output_spec, config_snapshot=config_snapshot)
         output_paths: dict[str, str] = {}
 
@@ -489,7 +490,8 @@ def _load_print_snps(path: str | None) -> set[str] | None:
     """Load an optional legacy-style one-column SNP list for LD-score printing."""
     if path is None:
         return None
-    print_snps = pd.read_csv(path, header=None, compression="infer")
+    resolved = resolve_scalar_path(path, label="print_snps_path")
+    print_snps = pd.read_csv(resolved, header=None, compression="infer")
     if len(print_snps.columns) > 1:
         raise ValueError("--print-snps must refer to a file with a one column of SNP IDs.")
     return set(print_snps.iloc[:, 0].astype(str))

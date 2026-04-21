@@ -376,7 +376,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 output_dir=None,
                 query_annot=None,
                 query_annot_chr=None,
-                baseline_annot=str(tmpdir / "baseline.@"),
+                baseline_annot=str(tmpdir / "baseline.@.annot.gz"),
                 baseline_annot_chr=None,
                 bfile=str(tmpdir / "panel.@"),
                 bfile_chr=None,

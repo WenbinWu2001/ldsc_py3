@@ -201,15 +201,13 @@ class RefPanelConfig:
     backend : {"auto", "plink", "parquet_r2"}, optional
         Backend family used to supply LD reference information. Default is
         ``"auto"``.
-    plink_prefix, plink_prefix_chr : str or os.PathLike[str] or None, optional
-        PLINK ``.bed/.bim/.fam`` prefix or chromosome-pattern prefix. Default is
-        ``None`` for both fields.
-    parquet_r2_paths, parquet_r2_paths_chr : str, os.PathLike[str], or sequence of those, optional
-        Sorted parquet R2 tables or chromosome-pattern prefixes. Default is
-        ``()`` for both fields.
-    frequency_paths, frequency_paths_chr : str, os.PathLike[str], or sequence of those, optional
-        Sidecar frequency or metadata files aligned to the reference panel.
-        Default is ``()`` for both fields.
+    plink_prefix : str or os.PathLike[str] or None, optional
+        PLINK ``.bed/.bim/.fam`` prefix token. Default is ``None``.
+    parquet_r2_paths : str, os.PathLike[str], or sequence of those, optional
+        Sorted parquet R2 path tokens. Default is ``()``.
+    frequency_paths : str, os.PathLike[str], or sequence of those, optional
+        Sidecar frequency or metadata path tokens aligned to the reference
+        panel. Default is ``()``.
     r2_bias_mode : {"raw", "unbiased"} or None, optional
         Whether parquet R2 values need sample-size correction. Default is
         ``None``.
@@ -219,11 +217,8 @@ class RefPanelConfig:
     """
     backend: RefPanelBackend = "auto"
     plink_prefix: str | PathLike[str] | None = None
-    plink_prefix_chr: str | PathLike[str] | None = None
     parquet_r2_paths: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
-    parquet_r2_paths_chr: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
     frequency_paths: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
-    frequency_paths_chr: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
     r2_bias_mode: R2BiasMode | None = None
     r2_sample_size: float | None = None
 
@@ -236,11 +231,8 @@ class RefPanelConfig:
         if self.r2_sample_size is not None and self.r2_sample_size <= 0:
             raise ValueError("r2_sample_size must be positive when provided.")
         object.__setattr__(self, "plink_prefix", _normalize_optional_path(self.plink_prefix))
-        object.__setattr__(self, "plink_prefix_chr", _normalize_optional_path(self.plink_prefix_chr))
         object.__setattr__(self, "parquet_r2_paths", _normalize_path_tuple(self.parquet_r2_paths))
-        object.__setattr__(self, "parquet_r2_paths_chr", _normalize_path_tuple(self.parquet_r2_paths_chr))
         object.__setattr__(self, "frequency_paths", _normalize_path_tuple(self.frequency_paths))
-        object.__setattr__(self, "frequency_paths_chr", _normalize_path_tuple(self.frequency_paths_chr))
 
 
 @dataclass(frozen=True)

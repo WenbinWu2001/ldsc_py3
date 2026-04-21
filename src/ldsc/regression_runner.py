@@ -31,7 +31,7 @@ from .config import (
     print_global_config_banner,
     suppress_global_config_banner,
 )
-from .path_resolution import normalize_path_token, resolve_scalar_path
+from .path_resolution import ensure_output_parent_directory, normalize_path_token, resolve_scalar_path
 from ._kernel import regression as reg
 from .ldscore_calculator import LDScoreResult
 from .sumstats_munger import SumstatsTable, load_sumstats
@@ -607,5 +607,5 @@ def _maybe_write_dataframe(df: pd.DataFrame, out_prefix: str | None, suffix: str
     if not out_prefix:
         return
     path = Path(normalize_path_token(out_prefix) + suffix)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path = ensure_output_parent_directory(path, label="out_prefix")
     df.to_csv(path, sep="\t", index=False)

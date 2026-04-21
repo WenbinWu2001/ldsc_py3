@@ -10,8 +10,6 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from ldsc.path_resolution import (
-    ANNOTATION_SUFFIXES,
-    PARQUET_SUFFIXES,
     normalize_path_token,
     normalize_path_tokens,
     resolve_chromosome_group,
@@ -63,34 +61,37 @@ class PathResolutionTest(unittest.TestCase):
             base2.write_text("x\n", encoding="utf-8")
 
             resolved = resolve_file_group(
-                [str(tmpdir / "baseline.*.annot.gz"), str(tmpdir / "baseline.1")],
-                suffixes=ANNOTATION_SUFFIXES,
+                [str(tmpdir / "baseline.*.annot.gz"), str(base1)],
                 label="annotation",
             )
 
             self.assertEqual(resolved, [str(base1), str(base2)])
 
-    def test_resolve_chromosome_group_supports_at_and_bare_prefix(self):
+    def test_resolve_chromosome_group_supports_explicit_at_tokens_only(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             base1 = tmpdir / "baseline.1.annot.gz"
             base1.write_text("x\n", encoding="utf-8")
 
             with_at = resolve_chromosome_group(
-                [str(tmpdir / "baseline.@")],
+                [str(tmpdir / "baseline.@.annot.gz")],
                 chrom="1",
-                suffixes=ANNOTATION_SUFFIXES,
-                label="annotation",
-            )
-            with_bare_prefix = resolve_chromosome_group(
-                [str(tmpdir / "baseline.")],
-                chrom="1",
-                suffixes=ANNOTATION_SUFFIXES,
                 label="annotation",
             )
 
             self.assertEqual(with_at, [str(base1)])
-            self.assertEqual(with_bare_prefix, [str(base1)])
+
+    def test_resolve_chromosome_group_rejects_bare_prefix_tokens(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            (tmpdir / "baseline.1.annot.gz").write_text("x\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(FileNotFoundError, "annotation token"):
+                resolve_chromosome_group(
+                    [str(tmpdir / "baseline.")],
+                    chrom="1",
+                    label="annotation",
+                )
 
     def test_resolve_file_group_discovers_chromosome_suite(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -101,8 +102,7 @@ class PathResolutionTest(unittest.TestCase):
             base2.write_text("x\n", encoding="utf-8")
 
             resolved = resolve_file_group(
-                str(tmpdir / "baseline.@"),
-                suffixes=ANNOTATION_SUFFIXES,
+                str(tmpdir / "baseline.@.annot.gz"),
                 label="annotation",
                 allow_chromosome_suite=True,
             )
@@ -114,9 +114,8 @@ class PathResolutionTest(unittest.TestCase):
             tmpdir = Path(tmpdir)
             self.assertEqual(
                 resolve_chromosome_group(
-                    [str(tmpdir / "baseline.@")],
+                    [str(tmpdir / "baseline.@.annot.gz")],
                     chrom="1",
-                    suffixes=ANNOTATION_SUFFIXES,
                     label="annotation",
                     required=False,
                 ),
@@ -140,32 +139,27 @@ class PathResolutionTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "exactly one"):
                 resolve_plink_prefix(str(tmpdir / "panel.*"), chrom=None)
 
-    def test_resolve_scalar_path_supports_suffix_inference(self):
+    def test_resolve_scalar_path_rejects_suffix_inference(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             path = tmpdir / "reference.1.parquet"
             path.write_text("x\n", encoding="utf-8")
 
-            resolved = resolve_scalar_path(
-                str(tmpdir / "reference.1"),
-                suffixes=PARQUET_SUFFIXES,
-                label="parquet",
-            )
-            self.assertEqual(resolved, str(path))
+            with self.assertRaisesRegex(FileNotFoundError, str(tmpdir / "reference.1")):
+                resolve_scalar_path(
+                    str(tmpdir / "reference.1"),
+                    label="parquet",
+                )
 
-    def test_resolve_file_group_prefers_compressed_suffixes_over_plain_text(self):
+    def test_resolve_file_group_requires_full_explicit_suite_pattern(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
-            plain = tmpdir / "baseline.1.annot"
             gz = tmpdir / "baseline.1.annot.gz"
-            plain.write_text("plain\n", encoding="utf-8")
             gz.write_text("gz\n", encoding="utf-8")
 
-            resolved = resolve_file_group(
-                str(tmpdir / "baseline.@"),
-                suffixes=ANNOTATION_SUFFIXES,
-                label="annotation",
-                allow_chromosome_suite=True,
-            )
-
-            self.assertEqual(resolved, [str(gz)])
+            with self.assertRaisesRegex(FileNotFoundError, "annotation token"):
+                resolve_file_group(
+                    str(tmpdir / "baseline.@"),
+                    label="annotation",
+                    allow_chromosome_suite=True,
+                )

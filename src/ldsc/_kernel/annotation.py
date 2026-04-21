@@ -23,7 +23,8 @@ AnnotationBuilder.run :
     Build one aligned SNP-level annotation bundle from baseline and query
     annotation tables, with automatic aggregation of chromosome-sharded files.
 run_bed_to_annot :
-    Project one or more BED files onto a directory of baseline templates.
+    Project one or more BED files onto baseline annotation templates resolved
+    from strict path tokens.
 make_annot_files :
     Preserve the legacy single-annotation ``make_annot.py`` behavior.
 
@@ -84,6 +85,8 @@ from ..genome_build_inference import (
 )
 from ..path_resolution import (
     ANNOTATION_SUFFIXES,
+    ensure_output_directory,
+    ensure_output_parent_directory,
     normalize_path_token,
     resolve_file_group,
     resolve_scalar_path,
@@ -106,10 +109,10 @@ class AnnotationSourceSpec:
     """Describe the raw annotation input tokens needed to build a bundle.
 
     Annotation fields accept one token or a sequence of tokens. Each token may
-    be an exact path, a standard Python glob pattern, an explicit chromosome
-    suite placeholder using ``@``, or a legacy bare prefix such as
-    ``baseline.``. Resolution happens inside the workflow layer; the stored
-    dataclass values remain normalized strings until :meth:`AnnotationBuilder.run`.
+    be an exact path, a standard Python glob pattern, or an explicit
+    chromosome-suite placeholder using ``@``. Resolution happens inside the
+    workflow layer; the stored dataclass values remain normalized strings until
+    :meth:`AnnotationBuilder.run`.
     """
     baseline_annot_paths: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
     query_annot_paths: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
@@ -516,7 +519,7 @@ class AnnotationBuilder:
     def project_bed_annotations(
         self,
         bed_files: str | PathLike[str] | Sequence[str | PathLike[str]],
-        baseline_annot_dir: str | Path,
+        baseline_annot_paths: str | PathLike[str] | Sequence[str | PathLike[str]],
         output_dir: str | Path,
         batch: bool | None = None,
         log_level: str | None = None,
@@ -528,7 +531,11 @@ class AnnotationBuilder:
         computes one binary mask per BED input, optionally intersects that mask
         with the global SNP restriction, and writes LDSC-compatible query shard
         files named ``query.<chrom>.annot.gz`` in either batch or
-        one-directory-per-BED mode.
+        one-directory-per-BED mode. ``bed_files`` and
+        ``baseline_annot_paths`` both accept the public token language: exact
+        paths, standard Python globs, and, for baseline annotations, explicit
+        ``@`` chromosome-suite tokens. If a baseline token resolves to multiple
+        files, all resolved baseline templates are processed.
         """
         batch = self.build_config.batch_mode if batch is None else batch
         _configure_logging(log_level or self.global_config.log_level)
@@ -541,13 +548,22 @@ class AnnotationBuilder:
                 "BED basenames must be unique because they become annotation names. "
                 f"Duplicate names: {', '.join(duplicates)}"
             )
-        baseline_dir = Path(resolve_scalar_path(baseline_annot_dir, label="baseline annotation directory"))
-        if not baseline_dir.is_dir():
-            raise NotADirectoryError(f"Baseline annotation directory not found: {baseline_dir}")
-        baseline_paths = _list_baseline_annots(baseline_dir)
+        baseline_paths = [
+            Path(path)
+            for path in resolve_file_group(
+                baseline_annot_paths,
+                label="baseline annotation",
+                allow_chromosome_suite=True,
+            )
+        ]
+        baseline_paths = sorted(
+            [path for path in baseline_paths if path.name.endswith(".annot") or path.name.endswith(".annot.gz")],
+            key=lambda path: str(path),
+        )
+        if not baseline_paths:
+            raise ValueError("No baseline annotation files were resolved from the supplied tokens.")
 
-        output_path = Path(normalize_path_token(output_dir))
-        output_path.mkdir(parents=True, exist_ok=True)
+        output_path = ensure_output_directory(output_dir, label="output directory")
 
         restrict_path = None
         if self.global_config.global_snp_restriction_path is not None:
@@ -595,7 +611,7 @@ class AnnotationBuilder:
         """Project one BED-like input onto one BIM file and write a legacy `.annot`."""
         pybedtools = _get_pybedtools()
         bimfile = Path(resolve_scalar_path(bimfile, label="PLINK BIM file"))
-        annot_file = Path(normalize_path_token(annot_file))
+        annot_file = ensure_output_parent_directory(annot_file, label="annot_file")
 
         df_bim = pd.read_csv(
             bimfile,
@@ -680,7 +696,7 @@ class AnnotationBuilder:
 
 def run_bed_to_annot(
     bed_files: str | PathLike[str] | Sequence[str | PathLike[str]],
-    baseline_annot_dir: str | Path,
+    baseline_annot_paths: str | PathLike[str] | Sequence[str | PathLike[str]],
     output_dir: str | Path,
     batch: bool = True,
 ) -> Path:
@@ -693,7 +709,7 @@ def run_bed_to_annot(
     """
     return _run_bed_to_annot_with_global_config(
         bed_files=bed_files,
-        baseline_annot_dir=baseline_annot_dir,
+        baseline_annot_paths=baseline_annot_paths,
         output_dir=output_dir,
         batch=batch,
         global_config=get_global_config(),
@@ -703,7 +719,7 @@ def run_bed_to_annot(
 
 def _run_bed_to_annot_with_global_config(
     bed_files: str | PathLike[str] | Sequence[str | PathLike[str]],
-    baseline_annot_dir: str | Path,
+    baseline_annot_paths: str | PathLike[str] | Sequence[str | PathLike[str]],
     output_dir: str | Path,
     *,
     batch: bool,
@@ -715,7 +731,7 @@ def _run_bed_to_annot_with_global_config(
     build_config = AnnotationBuildConfig(query_bed_paths=bed_files, batch_mode=batch)
     return AnnotationBuilder(global_config, build_config).project_bed_annotations(
         bed_files=bed_files,
-        baseline_annot_dir=baseline_annot_dir,
+        baseline_annot_paths=baseline_annot_paths,
         output_dir=output_dir,
         batch=batch,
         log_level=global_config.log_level,
@@ -747,7 +763,12 @@ def parse_bed_to_annot_args(argv: Sequence[str] | None = None) -> argparse.Names
     """Parse CLI arguments for the BED-to-annotation workflow."""
     parser = argparse.ArgumentParser(description="Convert BED annotations into LDSC .annot.gz files.")
     parser.add_argument("--bed-files", nargs="+", required=True, help="BED files, comma-separated lists, or glob patterns.")
-    parser.add_argument("--baseline-annot-dir", required=True, help="Directory containing chromosome-specific baseline .annot files.")
+    parser.add_argument(
+        "--baseline-annot",
+        nargs="+",
+        required=True,
+        help="Baseline annotation path tokens: exact paths, globs, or explicit @ suite tokens.",
+    )
     parser.add_argument("--output-dir", required=True, help="Destination directory for generated .annot.gz files.")
     parser.add_argument("--restrict-snps-path", default=None, help="Optional SNP restriction file matched by --snp-identifier.")
     parser.add_argument("--snp-identifier", default="chr_pos", help="How to interpret --restrict-snps-path when provided.")
@@ -774,7 +795,7 @@ def main_bed_to_annot(argv: Sequence[str] | None = None) -> int:
     )
     _run_bed_to_annot_with_global_config(
         bed_files=split_cli_path_tokens(args.bed_files),
-        baseline_annot_dir=args.baseline_annot_dir,
+        baseline_annot_paths=split_cli_path_tokens(args.baseline_annot),
         output_dir=args.output_dir,
         batch=args.batch,
         global_config=cli_global_config,

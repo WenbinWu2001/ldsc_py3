@@ -11,10 +11,18 @@ The workflow also accepts `hg37` and `GRCh37` as aliases for `hg19`, and
 
 Path-token rules used in this tutorial:
 
-- use `@` for chromosome suites such as `baseline.@`
+- use `@` for chromosome suites such as `baseline.@.annot.gz`
 - use globs when the filenames do not follow the simple chromosome-suffix convention
 - scalar inputs still resolve to exactly one file
 - output prefixes remain literal destinations
+
+Resolution behavior:
+
+- there is no separate `*_chr` public argument anymore; one argument now handles both shared inputs and chromosome-sharded inputs
+- group inputs may expand to many files through a glob or an `@` suite token
+- if those files encode chromosome labels in their filenames, the workflow selects the subset for the active chromosome before loading them
+- otherwise the workflow loads the matched files and keeps only rows whose `CHR` value matches the active chromosome
+- if multiple files contribute annotation columns for the same chromosome, their SNP rows must align exactly and their annotation column names must be unique
 
 ## Python API
 
@@ -23,7 +31,7 @@ from ldsc import (
     AnnotationBuildConfig,
     AnnotationBuilder,
     AnnotationSourceSpec,
-    CommonConfig,
+    GlobalConfig,
     LDScoreCalculator,
     LDScoreConfig,
     MungeConfig,
@@ -33,22 +41,25 @@ from ldsc import (
     RegressionConfig,
     RegressionRunner,
     SumstatsMunger,
+    get_global_config,
     load_sumstats,
     run_bed_to_annot,
+    set_global_config,
 )
 
-common = CommonConfig(snp_identifier="chr_pos", genome_build="hg19")
+set_global_config(GlobalConfig(snp_identifier="chr_pos", genome_build="hg19"))
+global_config = get_global_config()
 
 run_bed_to_annot(
     bed_files="beds/*.bed",
-    baseline_annot_dir="annotations/baseline_chr",
+    baseline_annot_paths="annotations/baseline_chr/baseline.@.annot.gz",
     output_dir="annotations/query_from_beds",
 )
 
-annotation_bundle = AnnotationBuilder(common, AnnotationBuildConfig()).run(
+annotation_bundle = AnnotationBuilder(global_config, AnnotationBuildConfig()).run(
     AnnotationSourceSpec(
-        baseline_annot_paths="annotations/baseline_chr/baseline.@",
-        query_annot_paths="annotations/query_from_beds/query.@",
+        baseline_annot_paths="annotations/baseline_chr/baseline.@.annot.gz",
+        query_annot_paths="annotations/query_from_beds/query.@.annot.gz",
     )
 )
 # `run()` resolves the `@` tokens and automatically bundles the per-chromosome
@@ -70,7 +81,7 @@ sumstats = SumstatsMunger().run(
 # If you already have a curated .sumstats.gz artifact on disk, load it directly:
 # sumstats = load_sumstats("tutorial_outputs/trait.sumstats.gz", trait_name="trait")
 
-ref_panel = RefPanelLoader(common).load(
+ref_panel = RefPanelLoader(global_config).load(
     RefPanelSpec(
         backend="parquet_r2",
         r2_table_paths="r2/reference.*.parquet",
@@ -82,10 +93,10 @@ ldscore_result = LDScoreCalculator().run(
     annotation_bundle=annotation_bundle,
     ref_panel=ref_panel,
     ldscore_config=LDScoreConfig(ld_wind_cm=1.0),
-    common_config=common,
+    global_config=global_config,
 )
 
-runner = RegressionRunner(common, RegressionConfig())
+runner = RegressionRunner(regression_config=RegressionConfig())
 partitioned = runner.estimate_partitioned_h2_batch(
     sumstats,
     ldscore_result,
@@ -96,20 +107,23 @@ partitioned.to_csv("tutorial_outputs/partitioned_h2.tsv", sep="\t", index=False)
 print(partitioned)
 ```
 
+The Python workflow registers `GlobalConfig` once, then reuses it across the
+compatible helper functions and workflow classes.
+
 ## CLI
 
 ```bash
 ldsc annotate \
   --bed-files "beds/*.bed" \
-  --baseline-annot-dir annotations/baseline_chr \
+  --baseline-annot "annotations/baseline_chr/baseline.@.annot.gz" \
   --output-dir annotations/query_from_beds
 
 ldsc ldscore \
   --out tutorial_outputs/partitioned_ldscores \
-  --baseline-annot "annotations/baseline_chr/baseline.@" \
-  --query-annot "annotations/query_from_beds/query.@" \
+  --baseline-annot "annotations/baseline_chr/baseline.@.annot.gz" \
+  --query-annot "annotations/query_from_beds/query.@.annot.gz" \
   --r2-table "r2/reference.*.parquet" \
-  --frqfile "r2/reference_metadata.@" \
+  --frqfile "r2/reference_metadata.@.tsv.gz" \
   --snp-identifier chr_pos \
   --genome-build hg19 \
   --ld-wind-cm 1.0
@@ -135,6 +149,7 @@ ldsc partitioned-h2 \
 ```
 
 The default CLI summary is intentionally query-focused: one output table with one row per query annotation.
+If `--output-dir` does not exist yet during annotation projection, the workflow warns once and creates it automatically.
 
 For the Python workflow-layer API, the annotation bundle already provides SNP metadata such as
 `CHR`, `POS`, `SNP`, and `CM`, so the partitioned example only needs the parquet `R2` tables.

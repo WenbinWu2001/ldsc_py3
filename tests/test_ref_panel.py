@@ -149,7 +149,7 @@ class ParquetRefPanelTest(unittest.TestCase):
             )
             panel = ParquetR2RefPanel(
                 GlobalConfig(snp_identifier="chr_pos"),
-                RefPanelSpec(backend="parquet_r2", maf_metadata_paths=str(tmpdir / "meta.@")),
+                RefPanelSpec(backend="parquet_r2", maf_metadata_paths=str(tmpdir / "meta.@.tsv")),
             )
 
             self.assertEqual(panel.available_chromosomes(), ["1", "2"])

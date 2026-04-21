@@ -134,14 +134,19 @@ def _run_annotate(args: argparse.Namespace):
     if args.bed_files:
         return annotation_builder.main_bed_to_annot(_namespace_to_argv(args, exclude={"command", "gene_set_file", "gene_coord_file", "windowsize", "bed_file", "nomerge", "bimfile", "annot_file"}))
     return annotation_builder.main_make_annot(
-        _namespace_to_argv(args, exclude={"command", "baseline_annot_dir", "output_dir", "restrict_snps_path", "snp_identifier", "genome_build", "batch", "bed_files", "log_level"})
+        _namespace_to_argv(args, exclude={"command", "baseline_annot", "output_dir", "restrict_snps_path", "snp_identifier", "genome_build", "batch", "bed_files", "log_level"})
     )
 
 
 def _add_annotate_arguments(parser: argparse.ArgumentParser) -> None:
     """Register annotation-building arguments on a subparser."""
     parser.add_argument("--bed-files", nargs="+", default=None, help="BED files, comma-separated lists, or glob patterns.")
-    parser.add_argument("--baseline-annot-dir", default=None, help="Directory containing chromosome-specific baseline .annot files.")
+    parser.add_argument(
+        "--baseline-annot",
+        nargs="+",
+        default=None,
+        help="Baseline annotation path tokens: exact paths, globs, or explicit @ suite tokens.",
+    )
     parser.add_argument("--output-dir", default=None, help="Destination directory for generated .annot.gz files.")
     parser.add_argument("--restrict-snps-path", default=None, help="Optional global SNP restriction file.")
     parser.add_argument("--snp-identifier", default="chr_pos", help="How to interpret restriction SNP identifiers.")

@@ -98,7 +98,7 @@ class GlobalConfigRegistryTest(unittest.TestCase):
         ) as patched, mock.patch("builtins.print") as patched_print:
             result = ldsc.run_bed_to_annot(
                 bed_files="beds/*.bed",
-                baseline_annot_dir="baseline",
+                baseline_annot_paths="baseline.@.annot.gz",
                 output_dir="out",
             )
 
@@ -115,7 +115,7 @@ class GlobalConfigRegistryTest(unittest.TestCase):
         with self.assertRaises(TypeError):
             ldsc.run_bed_to_annot(
                 bed_files="beds/*.bed",
-                baseline_annot_dir="baseline",
+                baseline_annot_paths="baseline.@.annot.gz",
                 output_dir="out",
                 snp_identifier="rsid",
             )

@@ -4,6 +4,7 @@ import os
 import sys
 import tempfile
 import unittest
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -142,6 +143,58 @@ class OutputManagerTest(unittest.TestCase):
             self.assertIn("summary_json", summary.output_paths)
             self.assertIn("run_metadata", summary.output_paths)
             self.assertTrue(Path(summary.output_paths["ldscore"]).exists())
+
+    def test_missing_output_dir_warns_and_is_created(self):
+        result = make_fake_result()
+        manager = OutputManager()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "missing" / "artifacts"
+            spec = OutputSpec(out_prefix="example", output_dir=output_dir)
+
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                summary = manager.write_outputs(result, spec)
+
+            self.assertTrue(output_dir.exists())
+            self.assertEqual(len(caught), 1)
+            self.assertIn("output directory", str(caught[0].message).lower())
+            self.assertIn("created", str(caught[0].message).lower())
+            self.assertTrue(Path(summary.output_paths["ldscore"]).exists())
+
+    def test_existing_output_dir_does_not_warn(self):
+        result = make_fake_result()
+        manager = OutputManager()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "artifacts"
+            output_dir.mkdir(parents=True, exist_ok=True)
+            spec = OutputSpec(out_prefix="example", output_dir=output_dir)
+
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                manager.write_outputs(result, spec)
+
+            self.assertEqual(caught, [])
+
+    def test_missing_out_prefix_parent_warns_and_is_created(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_prefix = Path(tmpdir) / "nested" / "trait"
+            munger = __import__("ldsc.sumstats_munger", fromlist=["SumstatsMunger"]).SumstatsMunger()
+            table = __import__("ldsc.sumstats_munger", fromlist=["SumstatsTable"]).SumstatsTable(
+                data=pd.DataFrame({"SNP": ["rs1"], "N": [1000.0], "Z": [1.5]}),
+                has_alleles=False,
+                source_path="source.sumstats.gz",
+                trait_name="trait",
+            )
+
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                written = munger.write_output(table, str(out_prefix))
+
+            self.assertTrue((Path(tmpdir) / "nested").exists())
+            self.assertEqual(len(caught), 1)
+            self.assertIn("parent directory", str(caught[0].message).lower())
+            self.assertIn("created", str(caught[0].message).lower())
+            self.assertTrue(Path(written).exists())
 
     def test_explicit_enabled_artifacts(self):
         result = make_fake_result()

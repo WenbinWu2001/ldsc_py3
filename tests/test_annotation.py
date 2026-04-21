@@ -223,7 +223,7 @@ class AnnotationBuilderTest(unittest.TestCase):
 
             bundle = builder.run(
                 AnnotationSourceSpec(
-                    baseline_annot_paths=str(tmpdir / "baseline.@"),
+                    baseline_annot_paths=str(tmpdir / "baseline.@.annot.gz"),
                 )
             )
 
@@ -249,8 +249,8 @@ class AnnotationBuilderTest(unittest.TestCase):
 
             bundle = builder.run(
                 AnnotationSourceSpec(
-                    baseline_annot_paths=str(tmpdir / "baseline.@"),
-                    query_annot_paths=str(tmpdir / "query.@"),
+                    baseline_annot_paths=str(tmpdir / "baseline.@.annot.gz"),
+                    query_annot_paths=str(tmpdir / "query.@.annot.gz"),
                 )
             )
 

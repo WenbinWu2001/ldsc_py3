@@ -1,9 +1,9 @@
 """Workflow-layer LD-score orchestration and result objects.
 
 This module is the public boundary for LD-score path handling. Callers may
-provide exact paths, glob patterns, explicit chromosome-suite tokens using
-``@``, or legacy bare prefixes. The workflow resolves those tokens into
-concrete per-chromosome files before calling the primitive-only kernel.
+provide exact paths, glob patterns, or explicit chromosome-suite tokens using
+``@``. The workflow resolves those tokens into concrete per-chromosome files
+before calling the primitive-only kernel.
 """
 
 from __future__ import annotations
@@ -16,7 +16,6 @@ from typing import Any, Sequence
 import numpy as np
 import pandas as pd
 
-from .chromosome_inference import STANDARD_CHROMOSOMES
 from .column_inference import normalize_snp_identifier_mode
 from .config import GlobalConfig, LDScoreConfig, get_global_config, print_global_config_banner
 from .genome_build_inference import validate_auto_genome_build_mode
@@ -354,14 +353,10 @@ def build_parser() -> argparse.ArgumentParser:
         description="Estimate LDSC-compatible LD scores from SNP-level annotation files using PLINK or sorted parquet R2 input.",
     )
     parser.add_argument("--out", required=True, help="Output prefix.")
-    parser.add_argument("--query-annot", default=None, help="Comma-separated query annotation tokens: exact paths, globs, or suite prefixes.")
-    parser.add_argument("--query-annot-chr", default=None, help="Comma-separated chromosome-suite query annotation tokens; `@` is preferred.")
-    parser.add_argument("--baseline-annot", default=None, help="Comma-separated baseline annotation tokens: exact paths, globs, or suite prefixes.")
-    parser.add_argument("--baseline-annot-chr", default=None, help="Comma-separated chromosome-suite baseline annotation tokens; `@` is preferred.")
+    parser.add_argument("--query-annot", default=None, help="Comma-separated query annotation path tokens: exact paths, globs, or explicit @ suite tokens.")
+    parser.add_argument("--baseline-annot", default=None, help="Comma-separated baseline annotation path tokens: exact paths, globs, or explicit @ suite tokens.")
     parser.add_argument("--bfile", default=None, help="PLINK prefix token for the reference panel.")
-    parser.add_argument("--bfile-chr", default=None, help="Chromosome-suite PLINK prefix token; `@` is preferred.")
-    parser.add_argument("--r2-table", default=None, help="Comma-separated parquet R2 tokens: exact paths, globs, or suite prefixes.")
-    parser.add_argument("--r2-table-chr", default=None, help="Comma-separated chromosome-suite parquet R2 tokens; `@` is preferred.")
+    parser.add_argument("--r2-table", default=None, help="Comma-separated parquet R2 path tokens: exact paths, globs, or explicit @ suite tokens.")
     parser.add_argument("--snp-identifier", default="chr_pos", help="Identifier mode used to match annotations to the reference panel.")
     parser.add_argument(
         "--genome-build",
@@ -372,8 +367,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--r2-bias-mode", choices=("raw", "unbiased"), default=None, help="Whether parquet R2 values are raw or already unbiased.")
     parser.add_argument("--r2-sample-size", default=None, type=float, help="LD reference sample size used to correct raw parquet R2 values.")
     parser.add_argument("--regression-snps", default=None, help="Optional SNP list defining the regression SNP set for w_ld.")
-    parser.add_argument("--frqfile", default=None, help="Optional frequency or metadata token for MAF and CM.")
-    parser.add_argument("--frqfile-chr", default=None, help="Chromosome-suite frequency or metadata token; `@` is preferred.")
+    parser.add_argument("--frqfile", default=None, help="Optional frequency or metadata path tokens for MAF and CM.")
     parser.add_argument(
         "--keep",
         default=None,
@@ -399,15 +393,21 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
-    """Run LD-score calculation from a parsed CLI namespace."""
+    """Run LD-score calculation from a parsed CLI namespace.
+
+    Group-style inputs such as ``baseline_annot``, ``query_annot``,
+    ``r2_table``, and ``frqfile`` are first resolved from the public token
+    language into concrete file lists. For each chromosome pass, the workflow
+    then derives the chromosome-specific subset of those lists by
+    filename-based filtering when possible and otherwise relies on downstream
+    row-level ``CHR`` filtering for shared multi-chromosome files.
+    """
     normalized_args, global_config = _normalize_run_args(args)
     print_global_config_banner("run_ldscore_from_args", global_config)
     kernel_ldscore.validate_args(normalized_args)
     regression_snps = _load_regression_snps(normalized_args.regression_snps, global_config)
     baseline_tokens = split_cli_path_tokens(normalized_args.baseline_annot)
-    baseline_chr_tokens = split_cli_path_tokens(normalized_args.baseline_annot_chr)
     query_tokens = split_cli_path_tokens(normalized_args.query_annot)
-    query_chr_tokens = split_cli_path_tokens(normalized_args.query_annot_chr)
     baseline_files = (
         []
         if not baseline_tokens
@@ -429,7 +429,6 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
         )
     )
     r2_tokens = split_cli_path_tokens(normalized_args.r2_table)
-    r2_chr_tokens = split_cli_path_tokens(normalized_args.r2_table_chr)
     r2_files = (
         []
         if not r2_tokens
@@ -441,7 +440,6 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
         )
     )
     freq_tokens = split_cli_path_tokens(normalized_args.frqfile)
-    freq_chr_tokens = split_cli_path_tokens(normalized_args.frqfile_chr)
     freq_files = (
         []
         if not freq_tokens
@@ -458,33 +456,29 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
     for chrom in _chromosome_set_from_annotation_inputs(
         baseline_files=baseline_files,
         query_files=query_files,
-        baseline_chr_tokens=baseline_chr_tokens,
-        query_chr_tokens=query_chr_tokens,
     ):
         chrom_baseline_files = (
             resolve_chromosome_group(
-                baseline_chr_tokens,
+                baseline_tokens,
                 chrom=chrom,
                 suffixes=ANNOTATION_SUFFIXES,
                 label="baseline annotation",
                 required=False,
             )
-            if baseline_chr_tokens
+            if baseline_tokens
             else []
         )
-        chrom_baseline_files += baseline_files
         chrom_query_files = (
             resolve_chromosome_group(
-                query_chr_tokens,
+                query_tokens,
                 chrom=chrom,
                 suffixes=ANNOTATION_SUFFIXES,
                 label="query annotation",
                 required=False,
             )
-            if query_chr_tokens
+            if query_tokens
             else []
         )
-        chrom_query_files += query_files
         bundle = kernel_ldscore.combine_annotation_groups(
             baseline_files=chrom_baseline_files,
             query_files=chrom_query_files,
@@ -494,31 +488,29 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
         if bundle is None:
             continue
         chrom_args = argparse.Namespace(**vars(normalized_args))
-        if normalized_args.r2_table or normalized_args.r2_table_chr:
+        if normalized_args.r2_table:
             chrom_r2_files = (
                 resolve_chromosome_group(
-                    r2_chr_tokens,
+                    r2_tokens,
                     chrom=chrom,
                     suffixes=PARQUET_SUFFIXES,
                     label="parquet R2",
                     required=False,
                 )
-                if r2_chr_tokens
+                if r2_tokens
                 else []
             )
-            chrom_r2_files += r2_files
             chrom_freq_files = (
                 resolve_chromosome_group(
-                    freq_chr_tokens,
+                    freq_tokens,
                     chrom=chrom,
                     suffixes=FREQUENCY_SUFFIXES,
                     label="frequency or metadata",
                     required=False,
                 )
-                if freq_chr_tokens
+                if freq_tokens
                 else []
             )
-            chrom_freq_files += freq_files
             chrom_args.r2_table = ",".join(chrom_r2_files) or None
             chrom_args.r2_table_chr = None
             chrom_args.frqfile = ",".join(chrom_freq_files) or None
@@ -527,8 +519,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
             chrom_args.bfile_chr = None
             legacy_result = kernel_ldscore.compute_chrom_from_parquet(chrom, bundle, chrom_args, regression_snps)
         else:
-            bfile_token = normalized_args.bfile if normalized_args.bfile is not None else normalized_args.bfile_chr
-            chrom_args.bfile = None if bfile_token is None else resolve_plink_prefix(bfile_token, chrom=chrom)
+            chrom_args.bfile = None if normalized_args.bfile is None else resolve_plink_prefix(normalized_args.bfile, chrom=chrom)
             chrom_args.bfile_chr = None
             legacy_result = kernel_ldscore.compute_chrom_from_plink(chrom, bundle, chrom_args, regression_snps)
         chromosome_results.append(
@@ -580,6 +571,9 @@ def _normalize_run_args(args: argparse.Namespace) -> tuple[argparse.Namespace, G
     normalized_mode = normalize_snp_identifier_mode(args.snp_identifier)
     validate_auto_genome_build_mode(normalized_mode, getattr(args, "genome_build", None))
     normalized_args = argparse.Namespace(**vars(args))
+    for attr in ("query_annot_chr", "baseline_annot_chr", "bfile_chr", "r2_table_chr", "frqfile_chr"):
+        if not hasattr(normalized_args, attr):
+            setattr(normalized_args, attr, None)
     normalized_args.snp_identifier = normalized_mode
     normalized_args.out = normalize_path_token(args.out)
     normalized_args.keep = normalize_optional_path_token(getattr(args, "keep", None))
@@ -734,39 +728,19 @@ def _chromosome_set_from_annotation_inputs(
     *,
     baseline_files: Sequence[str],
     query_files: Sequence[str],
-    baseline_chr_tokens: Sequence[str],
-    query_chr_tokens: Sequence[str],
 ) -> list[str]:
-    """Discover the chromosome set implied by workflow-resolved annotation inputs."""
+    """Discover the chromosome set implied by workflow-resolved annotation inputs.
+
+    The chromosome set is derived from the contents of the resolved annotation
+    files rather than from filename conventions, which keeps the workflow valid
+    for both chromosome-sharded files and shared multi-chromosome files.
+    """
     chromosomes: set[str] = set()
     for path in list(baseline_files) + list(query_files):
         df = kernel_ldscore.read_text_table(path)
         if "CHR" not in df.columns:
             raise ValueError(f"{path} is missing CHR.")
         chromosomes.update(df["CHR"].map(kernel_ldscore.normalize_chromosome).unique().tolist())
-
-    suite_tokens = list(baseline_chr_tokens) + list(query_chr_tokens)
-    if suite_tokens:
-        for chrom in STANDARD_CHROMOSOMES:
-            files = []
-            if query_chr_tokens:
-                files += resolve_chromosome_group(
-                    query_chr_tokens,
-                    chrom=chrom,
-                    suffixes=ANNOTATION_SUFFIXES,
-                    label="query annotation",
-                    required=False,
-                )
-            if baseline_chr_tokens:
-                files += resolve_chromosome_group(
-                    baseline_chr_tokens,
-                    chrom=chrom,
-                    suffixes=ANNOTATION_SUFFIXES,
-                    label="baseline annotation",
-                    required=False,
-                )
-            if files:
-                chromosomes.add(kernel_ldscore.normalize_chromosome(chrom))
 
     if not chromosomes:
         raise ValueError("No annotation chromosomes could be resolved from the supplied inputs.")

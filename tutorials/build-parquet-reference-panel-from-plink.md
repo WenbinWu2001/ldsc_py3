@@ -59,19 +59,22 @@ The builder copies the PLINK `SNP` field directly into the output `rsID` column.
 
 There is currently no separate `--chrom` flag.
 
-Chromosome selection comes from the PLINK prefix you provide:
+Chromosome selection comes from the PLINK prefix token you provide through `--bfile`:
 
 - use `--bfile <single-prefix>` when the prefix already points to one chromosome or one specific PLINK dataset
-- use `--bfile-chr <suite-token>` when you have one PLINK prefix per chromosome, typically with an `@` token
+- use `--bfile <suite-token>` when you have one PLINK prefix per chromosome, typically with an explicit `@` token
+- use `--bfile <glob-like-token>` only when that token resolves cleanly to one or more complete PLINK prefixes; unlike scalar file inputs elsewhere, a PLINK prefix token is resolved at the prefix level rather than at the individual `.bed/.bim/.fam` file level
 
 Examples:
 
 ```text
 --bfile resources/example_1kg_30x/genomes_30x_chr22
---bfile-chr data/reference/genomes_30x_chr@
+--bfile data/reference/genomes_30x_chr@
 ```
 
 If the input resolves to multiple chromosomes, the builder writes one output set per chromosome.
+
+In other words, the old split between `--bfile` and a dedicated per-chromosome flag is gone. The unified `--bfile` argument now handles either one concrete prefix or an explicit chromosome suite such as `panel_chr@`.
 
 ### Genetic map files
 
@@ -92,9 +95,9 @@ The bundled Alkes-group maps in `resources/genetic_maps/genetic_map_alkesgroup/`
 
 ### Required arguments
 
-- `--bfile` or `--bfile-chr`
+- `--bfile`
   Plain-English meaning: where the PLINK panel lives.
-  Recommended usage: use `--bfile` for a single chromosome or a single prefix; use `--bfile-chr` for a chromosome-split suite such as `panel_chr@`.
+  Recommended usage: use `--bfile` for a single chromosome, a single prefix, or a chromosome-split suite such as `panel_chr@`.
 
 - `--panel-label`
   Plain-English meaning: short label that becomes part of the output filenames.
@@ -214,9 +217,9 @@ What this command is doing:
 The most explicit Python API uses the public config object and builder class:
 
 ```python
-from ldsc import CommonConfig, ReferencePanelBuildConfig, ReferencePanelBuilder
+from ldsc import GlobalConfig, ReferencePanelBuildConfig, ReferencePanelBuilder, set_global_config
 
-common = CommonConfig(log_level="INFO")
+set_global_config(GlobalConfig(log_level="INFO"))
 
 config = ReferencePanelBuildConfig(
     panel_label="1KG30X",
@@ -229,7 +232,7 @@ config = ReferencePanelBuildConfig(
     ld_wind_cm=1.0,
 )
 
-result = ReferencePanelBuilder(common).run(config)
+result = ReferencePanelBuilder().run(config)
 
 print(result.chromosomes)
 print(result.output_paths["ann"][0])
@@ -389,7 +392,7 @@ Example:
 ```bash
 ldsc ldscore \
   --out tutorial_outputs/ldscores_from_parquet_panel \
-  --baseline-annot "annotations/baseline.@" \
+  --baseline-annot "annotations/baseline.@.annot.gz" \
   --r2-table "tutorial_outputs/ref_panel/parquet/ld/EUR_chr@_LD.parquet" \
   --frqfile "tutorial_outputs/ref_panel/parquet/meta/EUR_chr@_meta_hg38.tsv.gz" \
   --snp-identifier rsid \
@@ -412,11 +415,11 @@ These files are also useful outside of LDSC proper. Common examples include:
 
 ### Build a chromosome suite instead of one chromosome
 
-If your PLINK files are split by chromosome, use `--bfile-chr`:
+If your PLINK files are split by chromosome, pass the suite token through `--bfile`:
 
 ```bash
 ldsc build-ref-panel \
-  --bfile-chr data/reference/genomes_30x_chr@ \
+  --bfile data/reference/genomes_30x_chr@ \
   --panel-label 1KG30X \
   --source-genome-build hg38 \
   --genetic-map-hg19 resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg19_withX.txt \
@@ -425,6 +428,8 @@ ldsc build-ref-panel \
   --ld-wind-cm 1.0 \
   --out tutorial_outputs/ref_panel
 ```
+
+If `--out` does not exist yet, the workflow warns once and creates it automatically.
 
 ### Restrict to a predefined SNP universe
 
@@ -461,7 +466,9 @@ For LDSC-like reference panels, `--ld-wind-cm 1.0` is the most natural starting 
 If you prefer a thinner Python wrapper around the CLI-style arguments, the package also exports `run_build_ref_panel(...)`:
 
 ```python
-from ldsc import run_build_ref_panel
+from ldsc import GlobalConfig, run_build_ref_panel, set_global_config
+
+set_global_config(GlobalConfig(log_level="INFO"))
 
 result = run_build_ref_panel(
     bfile="resources/example_1kg_30x/genomes_30x_chr22",

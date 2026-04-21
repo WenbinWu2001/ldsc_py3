@@ -80,6 +80,75 @@ class PackageLayoutTest(unittest.TestCase):
         self.assertEqual(args.command, "ldscore")
         self.assertEqual(args.print_snps, "filters/print_snps.txt")
 
+    def test_annotate_subcommand_rejects_removed_baseline_dir_flag(self):
+        from ldsc import cli
+
+        parser = cli.build_parser()
+        with self.assertRaises(SystemExit) as exc:
+            parser.parse_args(
+                [
+                    "annotate",
+                    "--bed-files",
+                    "beds/*.bed",
+                    "--baseline-annot-dir",
+                    "annotations/baseline_chr",
+                    "--output-dir",
+                    "out/annot",
+                ]
+            )
+
+        self.assertNotEqual(exc.exception.code, 0)
+
+    def test_ldscore_subcommand_rejects_removed_chr_flags(self):
+        from ldsc import cli
+
+        parser = cli.build_parser()
+        with self.assertRaises(SystemExit) as exc:
+            parser.parse_args(
+                [
+                    "ldscore",
+                    "--out",
+                    "out/example",
+                    "--baseline-annot-chr",
+                    "annotations/baseline.@.annot.gz",
+                    "--bfile",
+                    "panel",
+                    "--ld-wind-snps",
+                    "10",
+                ]
+            )
+
+        self.assertNotEqual(exc.exception.code, 0)
+
+    def test_build_ref_panel_subcommand_rejects_removed_chr_flag(self):
+        from ldsc import cli
+
+        parser = cli.build_parser()
+        with self.assertRaises(SystemExit) as exc:
+            parser.parse_args(
+                [
+                    "build-ref-panel",
+                    "--bfile-chr",
+                    "data/reference/panel_chr@",
+                    "--panel-label",
+                    "TEST",
+                    "--source-genome-build",
+                    "hg38",
+                    "--genetic-map-hg19",
+                    "maps/hg19.txt",
+                    "--genetic-map-hg38",
+                    "maps/hg38.txt",
+                    "--liftover-chain-hg38-to-hg19",
+                    "chains/hg38ToHg19.over.chain",
+                    "--ld-wind-kb",
+                    "10",
+                    "--out",
+                    "out/panel",
+                ]
+            )
+
+        self.assertNotEqual(exc.exception.code, 0)
+
     def test_build_ref_panel_help_fast_path_avoids_scipy_backed_imports(self):
         from ldsc import cli
 

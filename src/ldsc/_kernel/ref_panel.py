@@ -1,8 +1,9 @@
 """Reference-panel specifications and workflow-to-kernel backend adapters.
 
 The public reference-panel specs accept normalized token strings, including
-glob patterns and chromosome-suite prefixes, but this module resolves those
-tokens to concrete primitive strings before the execution kernel sees them.
+glob patterns and explicit ``@`` chromosome-suite placeholders, but this module
+resolves those tokens to concrete primitive strings before the execution kernel
+sees them.
 """
 
 from __future__ import annotations
@@ -55,8 +56,8 @@ class RefPanelSpec:
 
     The public spec accepts path-like inputs and normalizes them to primitive
     strings. Resolution is deferred until workflow execution so callers may use
-    exact paths, standard Python globs, explicit ``@`` chromosome-suite
-    placeholders, or legacy bare prefixes in suite-capable fields.
+    exact paths, standard Python globs, or explicit ``@`` chromosome-suite
+    placeholders in suite-capable fields.
     """
     backend: str
     bfile_prefix: str | PathLike[str] | None = None

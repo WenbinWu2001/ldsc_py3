@@ -23,6 +23,7 @@ from typing import Any, Sequence
 
 import numpy as np
 
+from .column_inference import normalize_snp_identifier_mode
 from .config import GlobalConfig, ReferencePanelBuildConfig, get_global_config, print_global_config_banner
 from .path_resolution import ensure_output_directory, resolve_file_group, resolve_plink_prefix_group, resolve_scalar_path
 from ._kernel import formats as legacy_parse
@@ -129,8 +130,12 @@ class ReferencePanelBuilder:
                 suffixes=_TABLE_SUFFIXES,
                 label="global SNP restriction",
             )
-            restriction_mode = kernel_builder.detect_restriction_identifier_mode(restriction_path)
-            restriction_values = kernel_ldscore.read_global_snp_restriction(restriction_path, restriction_mode)
+            restriction_mode = normalize_snp_identifier_mode(self.global_config.snp_identifier)
+            restriction_values = kernel_ldscore.read_global_snp_restriction(
+                restriction_path,
+                restriction_mode,
+                genome_build=self.global_config.genome_build,
+            )
             LOGGER.info(
                 "Loaded %d SNP restriction identifiers in %s mode from %s.",
                 len(restriction_values),

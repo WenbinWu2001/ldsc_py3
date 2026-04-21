@@ -12,6 +12,8 @@ from ldsc.column_inference import (
     POS_COLUMN_SPEC,
     R2_HELPER_COLUMN_SPECS,
     R2_SOURCE_COLUMN_SPECS,
+    resolve_restriction_chr_pos_columns,
+    resolve_restriction_rsid_column,
     resolve_required_column,
     resolve_required_columns,
 )
@@ -141,3 +143,29 @@ class ColumnInferenceTest(unittest.TestCase):
 
         self.assertEqual(mapping["pos_1"], "bp1")
         self.assertEqual(mapping["pos_2"], "bp_2")
+
+    def test_resolve_restriction_rsid_column_uses_registry_aliases(self):
+        self.assertEqual(
+            resolve_restriction_rsid_column(["variant", "rs_id", "other"], context="test-restrict-rsid"),
+            "rs_id",
+        )
+
+    def test_resolve_restriction_chr_pos_columns_prefers_generic_pos_aliases(self):
+        self.assertEqual(
+            resolve_restriction_chr_pos_columns(
+                ["chr", "bp", "hg19_pos"],
+                genome_build="hg19",
+                context="test-restrict-chr-pos",
+            ),
+            ("chr", "bp"),
+        )
+
+    def test_resolve_restriction_chr_pos_columns_accepts_build_specific_position_alias(self):
+        self.assertEqual(
+            resolve_restriction_chr_pos_columns(
+                ["rsID", "chr", "hg19_pos", "other"],
+                genome_build="hg19",
+                context="test-restrict-hg19-pos",
+            ),
+            ("chr", "hg19_pos"),
+        )

@@ -43,15 +43,14 @@ import pandas as pd
 
 from ..chromosome_inference import normalize_chromosome
 from ..column_inference import (
-    CHR_COLUMN_SPEC,
-    POS_COLUMN_SPEC,
-    RESTRICTION_CHRPOS_SPEC_MAP,
-    RESTRICTION_RSID_SPEC_MAP,
-    SNP_COLUMN_SPEC,
     clean_header,
+    infer_chr_bp_columns,
+    infer_chr_pos_columns,
+    infer_snp_column,
     normalize_genome_build,
     normalize_snp_identifier_mode,
-    resolve_required_column,
+    resolve_restriction_chr_pos_columns,
+    resolve_restriction_rsid_column,
 )
 from ..genome_build_inference import resolve_chr_pos_table, validate_auto_genome_build_mode
 
@@ -96,44 +95,6 @@ def build_snp_id_series(df: pd.DataFrame, mode: str) -> pd.Series:
         index=df.index,
         name="snp_id",
     )
-
-
-def infer_column(header: Iterable[str], aliases: Iterable[str], label: str) -> str:
-    """Infer the first header entry matching the supplied alias family."""
-    header = list(header)
-    cleaned_aliases = {clean_header(alias) for alias in aliases}
-    spec = None
-    if clean_header(SNP_COLUMN_SPEC.canonical) in cleaned_aliases:
-        spec = SNP_COLUMN_SPEC
-    elif clean_header(CHR_COLUMN_SPEC.canonical) in cleaned_aliases:
-        spec = CHR_COLUMN_SPEC
-    elif clean_header(POS_COLUMN_SPEC.canonical) in cleaned_aliases:
-        spec = POS_COLUMN_SPEC
-    if spec is not None:
-        return resolve_required_column(header, spec)
-    for column in header:
-        normalized = clean_header(column)
-        if normalized in cleaned_aliases or any(normalized.endswith(alias) for alias in cleaned_aliases):
-            return column
-    raise ValueError(f"Could not infer a {label} column from: {', '.join(header)}")
-
-
-def infer_snp_column(header: Iterable[str]) -> str:
-    """Infer the SNP identifier column from a table header."""
-    return resolve_required_column(header, RESTRICTION_RSID_SPEC_MAP["SNP"])
-
-
-def infer_chr_pos_columns(header: Iterable[str]) -> tuple[str, str]:
-    """Infer chromosome and position columns from a table header."""
-    return (
-        resolve_required_column(header, RESTRICTION_CHRPOS_SPEC_MAP["CHR"]),
-        resolve_required_column(header, RESTRICTION_CHRPOS_SPEC_MAP["POS"]),
-    )
-
-
-def infer_chr_bp_columns(header: Iterable[str]) -> tuple[str, str]:
-    """Backward-compatible alias for :func:`infer_chr_pos_columns`."""
-    return infer_chr_pos_columns(header)
 
 
 def validate_unique_snp_ids(df: pd.DataFrame, mode: str, context: str = "table") -> None:
@@ -188,78 +149,93 @@ def _non_comment_lines(path: Path) -> list[str]:
         return [line.rstrip("\n") for line in handle if line.strip() and not line.lstrip().startswith("#")]
 
 
-def _read_rsid_restriction(path: Path) -> set[str]:
-    """Read an rsid-style restriction file into a set of SNP IDs."""
+def _parse_restriction_rows(path: Path) -> tuple[list[str], list[list[str]], str | None]:
+    """Parse one restriction file into a header row plus raw data rows."""
     lines = _non_comment_lines(path)
     if not lines:
-        return set()
+        return [], [], None
     delimiter = _detect_delimiter(lines[0])
     if delimiter is None:
-        return {line.split()[0] for line in lines}
-
+        header = re.split(r"\s+", lines[0].strip())
+        rows = [re.split(r"\s+", line.strip()) for line in lines[1:]]
+        return header, rows, None
     reader = csv.reader(lines, delimiter=delimiter)
-    rows = list(reader)
-    header = rows[0]
-    try:
-        snp_idx = header.index(infer_snp_column(header))
-        data_rows = rows[1:]
-    except ValueError:
-        snp_idx = 0
-        data_rows = rows
-    return {row[snp_idx].strip() for row in data_rows if row and row[snp_idx].strip()}
+    parsed = list(reader)
+    return parsed[0], parsed[1:], delimiter
+
+
+def _read_rsid_restriction(path: Path) -> set[str]:
+    """Read an rsid-style restriction file into a set of SNP IDs."""
+    header, rows, _delimiter = _parse_restriction_rows(path)
+    if not header:
+        return set()
+    snp_idx = header.index(resolve_restriction_rsid_column(header, context=str(path)))
+    values: set[str] = set()
+    for row in rows:
+        if not row:
+            continue
+        if len(row) <= snp_idx:
+            raise ValueError(f"Restriction row in {path} is missing the SNP column.")
+        value = row[snp_idx].strip()
+        if value:
+            values.add(value)
+    return values
+
+
+def _finalize_chr_pos_restriction_frame(
+    frame: pd.DataFrame,
+    *,
+    path: Path,
+    infer_build: bool,
+    logger,
+) -> set[str]:
+    """Normalize one restriction frame, dropping rows missing CHR or POS."""
+    frame = frame.loc[:, ["CHR", "POS"]].copy()
+    chr_tokens = frame["CHR"].astype("string")
+    chr_missing = chr_tokens.isna() | chr_tokens.str.strip().str.lower().isin({"", "na", "nan", "none"})
+
+    pos_tokens = frame["POS"].astype("string")
+    pos_missing = pos_tokens.isna() | pos_tokens.str.strip().str.lower().isin({"", "na", "nan", "none"})
+    pos_numeric = pd.to_numeric(frame["POS"], errors="coerce")
+    invalid_pos = (~pos_missing) & pos_numeric.isna()
+    if invalid_pos.any():
+        bad_value = pos_tokens.loc[invalid_pos].iloc[0]
+        raise ValueError(f"Restriction POS values in {path} must be numeric; got {bad_value!r}.")
+
+    keep = (~chr_missing) & (~pos_missing)
+    dropped = int((~keep).sum())
+    if dropped and logger is not None:
+        logger.warning("Dropped %d restriction rows with missing CHR or POS from %s.", dropped, path)
+
+    normalized = pd.DataFrame(
+        {
+            "CHR": chr_tokens.loc[keep].astype(str),
+            "POS": pos_numeric.loc[keep].astype(int),
+        }
+    )
+    if infer_build:
+        normalized, _inference = resolve_chr_pos_table(normalized, context=str(path), logger=logger)
+    return {
+        build_chr_pos_snp_id(chrom, pos, context=str(path))
+        for chrom, pos in normalized.itertuples(index=False, name=None)
+    }
 
 
 def _read_chr_pos_restriction(path: Path, genome_build: str | None = None, logger=None) -> set[str]:
     """Read a ``CHR``/``POS`` restriction file into canonical ``CHR:POS`` IDs."""
-    lines = _non_comment_lines(path)
-    if not lines:
+    header, rows, _delimiter = _parse_restriction_rows(path)
+    if not header:
         return set()
     infer_build = genome_build == "auto"
-    delimiter = _detect_delimiter(lines[0])
-    if delimiter is None:
-        rows: list[tuple[object, object]] = []
-        for line in lines:
-            stripped = line.strip()
-            if ":" in stripped and len(re.split(r"\s+", stripped)) == 1:
-                chrom, pos = stripped.split(":", 1)
-                rows.append((chrom, pos))
-                continue
-            fields = re.split(r"\s+", stripped)
-            if len(fields) < 2:
-                raise ValueError(f"chr_pos restriction rows must contain CHR and POS: {line!r}")
-            rows.append((fields[0], fields[1]))
-        frame = pd.DataFrame(rows, columns=["CHR", "POS"])
-        frame["CHR"] = frame["CHR"].astype(str)
-        frame["POS"] = pd.to_numeric(frame["POS"], errors="raise").astype(int)
-        if infer_build:
-            frame, _inference = resolve_chr_pos_table(frame, context=str(path), logger=logger)
-        return {
-            build_chr_pos_snp_id(chrom, pos, context=str(path))
-            for chrom, pos in frame.itertuples(index=False, name=None)
-        }
-
-    reader = csv.reader(lines, delimiter=delimiter)
-    rows = list(reader)
-    header = rows[0]
-    try:
-        chr_col, pos_col = infer_chr_pos_columns(header)
-        chr_idx = header.index(chr_col)
-        pos_idx = header.index(pos_col)
-        data_rows = rows[1:]
-    except ValueError:
-        chr_idx, pos_idx = 0, 1
-        data_rows = rows
+    chr_col, pos_col = resolve_restriction_chr_pos_columns(header, genome_build=genome_build, context=str(path))
+    chr_idx = header.index(chr_col)
+    pos_idx = header.index(pos_col)
     values: list[tuple[object, object]] = []
-    for row in data_rows:
+    for row in rows:
         if not row:
             continue
+        if len(row) <= max(chr_idx, pos_idx):
+            raise ValueError(f"Restriction row in {path} is missing the CHR or POS column.")
         values.append((row[chr_idx], row[pos_idx]))
     frame = pd.DataFrame(values, columns=["CHR", "POS"])
-    frame["CHR"] = frame["CHR"].astype(str)
-    frame["POS"] = pd.to_numeric(frame["POS"], errors="raise").astype(int)
-    if infer_build:
-        frame, _inference = resolve_chr_pos_table(frame, context=str(path), logger=logger)
-    return {
-        build_chr_pos_snp_id(chrom, pos, context=str(path))
-        for chrom, pos in frame.itertuples(index=False, name=None)
-    }
+    return _finalize_chr_pos_restriction_frame(frame, path=path, infer_build=infer_build, logger=logger)

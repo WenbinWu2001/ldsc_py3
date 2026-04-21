@@ -368,11 +368,12 @@ class IdentifierHelpersTest(unittest.TestCase):
 
 
 class RestrictionReadersTest(unittest.TestCase):
-    def test_read_global_snp_restriction_rsid_plain(self):
+    def test_read_global_snp_restriction_rsid_requires_header(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "restrict.txt"
             path.write_text("rs1\nrs2\n", encoding="utf-8")
-            self.assertEqual(read_global_snp_restriction(path, "rsid"), {"rs1", "rs2"})
+            with self.assertRaisesRegex(ValueError, "header"):
+                read_global_snp_restriction(path, "rsid")
 
     def test_read_global_snp_restriction_rsid_table(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -396,3 +397,53 @@ class RestrictionReadersTest(unittest.TestCase):
                     {"1:20", "2:30"},
                 )
             patched.assert_not_called()
+
+    def test_read_global_snp_restriction_chr_pos_uses_build_specific_position_header(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "restrict.tsv"
+            path.write_text(
+                "rsID\tA1\tchr\thg19_pos\thg38_pos\n"
+                "rs1\tA\t1\t10.0\t100.0\n"
+                "rs2\tG\tchr2\t20.0\t200.0\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                read_global_snp_restriction(path, "chr_pos", genome_build="hg19"),
+                {"1:10", "2:20"},
+            )
+
+    def test_read_global_snp_restriction_chr_pos_drops_rows_missing_chr_or_pos(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "restrict.tsv"
+            path.write_text(
+                "rsID\tA1\tchr\thg19_pos\thg38_pos\n"
+                "rs1\tA\t1\t10.0\t100.0\n"
+                "rs2\tG\t2\t\t200.0\n"
+                "rs3\tT\t\t30.0\t300.0\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                read_global_snp_restriction(path, "chr_pos", genome_build="hg19"),
+                {"1:10"},
+            )
+
+    def test_read_global_snp_restriction_chr_pos_requires_header(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "restrict.tsv"
+            path.write_text("1\t10\n2\t20\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "header"):
+                read_global_snp_restriction(path, "chr_pos")
+
+    def test_read_global_snp_restriction_rsid_missing_alias_raises_clear_error(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "restrict.tsv"
+            path.write_text("variant\tother\nrs1\ta\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "SNP"):
+                read_global_snp_restriction(path, "rsid")
+
+    def test_read_global_snp_restriction_chr_pos_missing_alias_raises_clear_error(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "restrict.tsv"
+            path.write_text("variant\tother\nrs1\ta\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "CHR, POS|POS, CHR"):
+                read_global_snp_restriction(path, "chr_pos")

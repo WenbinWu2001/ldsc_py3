@@ -168,6 +168,8 @@ RESTRICTION_RSID_SPEC_MAP = {spec.canonical: spec for spec in RESTRICTION_RSID_S
 
 RESTRICTION_CHRPOS_SPECS = (CHR_COLUMN_SPEC, POS_COLUMN_SPEC)
 RESTRICTION_CHRPOS_SPEC_MAP = {spec.canonical: spec for spec in RESTRICTION_CHRPOS_SPECS}
+RESTRICTION_HG19_POS_SPEC = ColumnSpec("POS", tuple(f"{build}_{pos}" for build in _HG19_BUILD_ALIASES for pos in _POS_TOKEN_ALIASES), "hg19 position")
+RESTRICTION_HG38_POS_SPEC = ColumnSpec("POS", tuple(f"{build}_{pos}" for build in _HG38_BUILD_ALIASES for pos in _POS_TOKEN_ALIASES), "hg38 position")
 
 
 # Strict internal artifact families.
@@ -344,3 +346,93 @@ def resolve_required_columns(
 ) -> dict[str, str]:
     """Resolve many required canonical fields from one header/schema."""
     return {spec.canonical: resolve_required_column(columns, spec, context=context) for spec in specs}
+
+
+def infer_snp_column(header: Iterable[str], *, context: str | None = None) -> str:
+    """Infer the SNP identifier column from a restriction-like header."""
+    return resolve_required_column(header, RESTRICTION_RSID_SPEC_MAP["SNP"], context=context)
+
+
+def infer_chr_pos_columns(header: Iterable[str], *, context: str | None = None) -> tuple[str, str]:
+    """Infer chromosome and position columns from a generic CHR/POS header."""
+    return (
+        resolve_required_column(header, RESTRICTION_CHRPOS_SPEC_MAP["CHR"], context=context),
+        resolve_required_column(header, RESTRICTION_CHRPOS_SPEC_MAP["POS"], context=context),
+    )
+
+
+def infer_chr_bp_columns(header: Iterable[str], *, context: str | None = None) -> tuple[str, str]:
+    """Backward-compatible alias for :func:`infer_chr_pos_columns`."""
+    return infer_chr_pos_columns(header, context=context)
+
+
+def _restriction_header_error(columns: Iterable[str], missing: Sequence[str]) -> ValueError:
+    """Build the shared error when a restriction header lacks required aliases."""
+    header = ", ".join(str(column) for column in columns)
+    joined = ", ".join(missing)
+    return ValueError(
+        "Restriction files must contain a header row with recognizable "
+        f"{joined} column(s). Available columns: {header}"
+    )
+
+
+def resolve_restriction_rsid_column(
+    columns: Iterable[str],
+    *,
+    context: str | None = None,
+) -> str:
+    """Resolve the single relevant column for an ``rsid`` restriction file."""
+    columns = list(columns)
+    try:
+        return infer_snp_column(columns, context=context)
+    except ValueError as exc:
+        raise _restriction_header_error(columns, ("SNP",)) from exc
+
+
+def resolve_restriction_chr_pos_columns(
+    columns: Iterable[str],
+    *,
+    genome_build: str | None = None,
+    context: str | None = None,
+) -> tuple[str, str]:
+    """Resolve the relevant columns for a ``chr_pos`` restriction file."""
+    columns = list(columns)
+    normalized_build = normalize_genome_build(genome_build)
+
+    try:
+        chr_col = resolve_required_column(columns, RESTRICTION_CHRPOS_SPEC_MAP["CHR"], context=context)
+    except ValueError as exc:
+        raise _restriction_header_error(columns, ("CHR", "POS")) from exc
+
+    try:
+        pos_col = resolve_required_column(columns, RESTRICTION_CHRPOS_SPEC_MAP["POS"], context=context)
+        return chr_col, pos_col
+    except ValueError as generic_error:
+        pass
+
+    if normalized_build == "hg19":
+        try:
+            return chr_col, resolve_required_column(columns, RESTRICTION_HG19_POS_SPEC, context=context)
+        except ValueError as exc:
+            raise _restriction_header_error(columns, ("POS",)) from exc
+    if normalized_build == "hg38":
+        try:
+            return chr_col, resolve_required_column(columns, RESTRICTION_HG38_POS_SPEC, context=context)
+        except ValueError as exc:
+            raise _restriction_header_error(columns, ("POS",)) from exc
+
+    if normalized_build == "auto":
+        matches: list[str] = []
+        for spec in (RESTRICTION_HG19_POS_SPEC, RESTRICTION_HG38_POS_SPEC):
+            match = resolve_optional_column(columns, spec, context=context)
+            if match is not None and match not in matches:
+                matches.append(match)
+        if len(matches) == 1:
+            return chr_col, matches[0]
+        if len(matches) > 1:
+            raise ValueError(
+                "Restriction file exposes multiple build-specific position columns; "
+                "set genome_build to 'hg19' or 'hg38', or rename the desired column to POS/BP."
+            ) from generic_error
+
+    raise _restriction_header_error(columns, ("POS",)) from generic_error

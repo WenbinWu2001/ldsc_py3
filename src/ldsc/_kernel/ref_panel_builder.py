@@ -13,12 +13,15 @@ import numpy as np
 import pandas as pd
 
 from ..chromosome_inference import chrom_sort_key, normalize_chromosome
-from ..column_inference import CHR_COLUMN_SPEC, POS_COLUMN_SPEC, ColumnSpec, resolve_required_column
-from .identifiers import (
-    build_snp_id_series,
-    infer_chr_pos_columns,
-    infer_snp_column,
+from ..column_inference import (
+    CHR_COLUMN_SPEC,
+    POS_COLUMN_SPEC,
+    ColumnSpec,
+    resolve_required_column,
+    resolve_restriction_chr_pos_columns,
+    resolve_restriction_rsid_column,
 )
+from .identifiers import build_snp_id_series
 
 
 GENETIC_MAP_CM_SPEC = ColumnSpec(
@@ -171,20 +174,19 @@ def detect_restriction_identifier_mode(path: str | PathLike[str]) -> str:
 
     header_fields = re.split(r"\t|,|\s+", lines[0])
     try:
-        infer_chr_pos_columns(header_fields)
+        resolve_restriction_chr_pos_columns(header_fields, context=str(path))
         return "chr_pos"
     except ValueError:
         pass
     try:
-        infer_snp_column(header_fields)
+        resolve_restriction_rsid_column(header_fields, context=str(path))
         return "rsid"
     except ValueError:
         pass
 
-    first_fields = re.split(r"\t|,|\s+", lines[0])
-    if len(first_fields) == 1:
-        return "chr_pos" if ":" in first_fields[0] else "rsid"
-    return "chr_pos"
+    raise ValueError(
+        f"Restriction file {path} must contain a header row with recognizable SNP or CHR/POS columns."
+    )
 
 
 def build_plink_metadata_frame(

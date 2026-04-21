@@ -79,7 +79,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             rows = [("1", 10, "rs1", 0.1), ("1", 20, "rs2", 0.2), ("2", 30, "rs3", 0.3)]
             _write_annot(base, rows, {"base_a": [1, 0, 1]})
             _write_annot(query, rows, {"query_a": [0, 1, 1]})
-            restrict.write_text("rs1\nrs3\n", encoding="utf-8")
+            restrict.write_text("SNP\nrs1\nrs3\n", encoding="utf-8")
 
             builder = AnnotationBuilder(
                 GlobalConfig(snp_identifier="rsid", restrict_snps_path=str(restrict)),

@@ -69,7 +69,7 @@ class PlinkRefPanelTest(unittest.TestCase):
     def test_global_restriction_applies(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             restrict = Path(tmpdir) / "restrict.txt"
-            restrict.write_text("rs7341907\n", encoding="utf-8")
+            restrict.write_text("SNP\nrs7341907\n", encoding="utf-8")
             panel = PlinkRefPanel(
                 GlobalConfig(snp_identifier="rsid", restrict_snps_path=str(restrict)),
                 RefPanelSpec(backend="plink", bfile_prefix=str(FIXTURES / "plink")),

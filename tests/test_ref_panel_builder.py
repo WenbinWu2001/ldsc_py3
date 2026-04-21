@@ -180,23 +180,31 @@ class LiftOverTranslatorTest(unittest.TestCase):
 
 
 class RestrictionModeDetectionTest(unittest.TestCase):
-    def test_detect_restriction_identifier_mode_accepts_rsid_lists(self):
+    def test_detect_restriction_identifier_mode_accepts_rsid_header(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "restrict.txt"
-            path.write_text("rs1\nrs2\n", encoding="utf-8")
+            path.write_text("rsid\nrs1\nrs2\n", encoding="utf-8")
 
             mode = kernel_builder.detect_restriction_identifier_mode(path)
 
             self.assertEqual(mode, "rsid")
 
-    def test_detect_restriction_identifier_mode_accepts_chr_pos_inputs(self):
+    def test_detect_restriction_identifier_mode_accepts_chr_pos_header(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "restrict.txt"
-            path.write_text("1:100\n1:200\n", encoding="utf-8")
+            path.write_text("CHR\tPOS\n1\t100\n1\t200\n", encoding="utf-8")
 
             mode = kernel_builder.detect_restriction_identifier_mode(path)
 
             self.assertEqual(mode, "chr_pos")
+
+    def test_detect_restriction_identifier_mode_rejects_headerless_input(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "restrict.txt"
+            path.write_text("rs1\nrs2\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "header"):
+                kernel_builder.detect_restriction_identifier_mode(path)
 
 
 class _SequentialSNPGetter:

@@ -192,7 +192,7 @@ class LDScoreTableProducer(ArtifactProducer):
         return getattr(result, "reference_metadata", None) is not None and getattr(result, "ld_scores", None) is not None
 
     def build(self, result: Any, run_summary: RunSummary, output_spec: OutputSpec, artifact_config: ArtifactConfig | None = None) -> list[Artifact]:
-        """Build aggregate and optional per-chromosome LD-score artifacts."""
+        """Build LD-score artifacts, optionally filtered to regression SNP rows."""
         artifacts: list[Artifact] = []
         filter_to_regression_snps = _regression_output_enabled(result)
         if output_spec.aggregate_across_chromosomes:
@@ -492,7 +492,7 @@ def _count_suffix(key: str) -> str:
 
 
 def _regression_output_enabled(result: Any) -> bool:
-    """Return ``True`` when written LD-score tables should be filtered to regression SNPs."""
+    """Return ``True`` when `regression_snps_path` should filter written LD-score rows."""
     config_snapshot = getattr(result, "config_snapshot", None)
     if config_snapshot is None:
         return False

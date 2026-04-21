@@ -641,7 +641,7 @@ def _normalize_run_args(args: argparse.Namespace) -> tuple[argparse.Namespace, G
 
 
 def _load_regression_snps(path: str | None, global_config: GlobalConfig) -> set[str] | None:
-    """Load the optional global regression SNP universe using the active identifier mode."""
+    """Load ``GlobalConfig.regression_snps_path`` using the active identifier mode."""
     if not path:
         return None
     return read_global_snp_restriction(

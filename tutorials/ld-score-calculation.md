@@ -27,7 +27,13 @@ Resolution behavior:
 ```python
 from ldsc import GlobalConfig, get_global_config, run_ldscore, set_global_config
 
-set_global_config(GlobalConfig(snp_identifier="rsid"))
+set_global_config(
+    GlobalConfig(
+        snp_identifier="rsid",
+        ref_panel_snps_path="filters/reference_universe.txt",
+        regression_snps_path="filters/hapmap3.txt",
+    )
+)
 GLOBAL_CONFIG = get_global_config()
 
 result = run_ldscore(
@@ -67,7 +73,13 @@ inputs should use tokens such as `annotations/query_from_beds/query.@.annot.gz`.
 ```python
 from ldsc import GlobalConfig, get_global_config, run_bed_to_annot, run_ldscore, set_global_config
 
-set_global_config(GlobalConfig(snp_identifier="rsid"))
+set_global_config(
+    GlobalConfig(
+        snp_identifier="rsid",
+        ref_panel_snps_path="filters/reference_universe.txt",
+        regression_snps_path="filters/hapmap3.txt",
+    )
+)
 GLOBAL_CONFIG = get_global_config()
 
 run_bed_to_annot(
@@ -112,8 +124,17 @@ If `--output-dir` does not exist yet, the workflow warns once and creates it aut
 
 For Python workflows, `run_bed_to_annot()` and `run_ldscore()` reuse the
 registered `GlobalConfig`; shared settings such as `snp_identifier`,
-`genome_build`, `log_level`, and restriction paths are no longer passed
-directly into `run_ldscore(...)`.
+`genome_build`, `log_level`, `ref_panel_snps_path`, and
+`regression_snps_path` are no longer passed directly into
+`run_ldscore(...)`.
+
+`ref_panel_snps_path` defines the retained annotation/reference SNP universe.
+When it is set, `run_bed_to_annot()` drops rows outside that universe instead
+of keeping full baseline rows with zero-masked query values.
+
+`regression_snps_path` defines the regression subset used for weight LD-score
+computation and for the synchronized row set written to `.l2.ldscore.gz` and
+`.w.l2.ldscore.gz`.
 
 Each returned result carries a frozen `config_snapshot`. If you later change the
 registered `GlobalConfig`, existing LD-score results keep their original

@@ -227,7 +227,8 @@ ldsc.set_global_config(ldsc.GlobalConfig(
 ```
 
 Annotation files contain all reference-panel SNPs. LD-score output is restricted to
-HapMap3. This matches the standard `ldsc.py` workflow with `--print-snps`.
+HapMap3. This matches the standard LDSC pattern where the regression subset is a
+strict subset of the full reference-panel universe.
 
 #### Hard analysis universe (all stages restricted to the same SNP set)
 

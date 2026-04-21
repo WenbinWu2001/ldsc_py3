@@ -91,8 +91,9 @@ class GlobalConfig:
         Optional path to the SNP list or table defining the retained reference-
         panel and annotation row universe. Default is ``None``.
     regression_snps_path : str or os.PathLike[str] or None, optional
-        Optional path to the SNP list defining the regression SNP set. Default
-        is ``None``.
+        Optional path to the SNP list defining the regression SNP set used for
+        weight LD-score computation and the synchronized written row set of
+        `.l2.ldscore.gz` and `.w.l2.ldscore.gz`. Default is ``None``.
     log_level : {"DEBUG", "INFO", "WARNING", "ERROR"}, optional
         Requested logging verbosity for workflow modules. Default is ``"INFO"``.
     fail_on_missing_metadata : bool, optional

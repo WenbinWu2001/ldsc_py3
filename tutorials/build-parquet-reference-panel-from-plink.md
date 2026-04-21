@@ -148,10 +148,12 @@ Exactly one of the following must be set:
   Optional: yes.
   Recommended usage: leave unset to keep all panel SNPs by default. Use values like `0.01` or `0.05` only if your downstream analysis truly wants a frequency-restricted panel.
 
-- `--restrict-snps-path`
-  Plain-English meaning: restrict the SNP universe to a user-supplied list.
+- `--ref-panel-snps-path`
+  Plain-English meaning: restrict the retained reference-panel SNP rows to a
+  user-supplied list.
   Optional: yes.
-  Recommended usage: use this when you want to build a panel only on HM3 SNPs, a curated common-SNP list, or another pre-defined SNP universe.
+  Recommended usage: use this when you want to build a panel only on HM3 SNPs,
+  a curated common-SNP list, or another pre-defined reference universe.
 
   The builder auto-detects two common identifier styles:
 
@@ -434,7 +436,8 @@ If `--out` does not exist yet, the workflow warns once and creates it automatica
 
 ### Restrict to a predefined SNP universe
 
-Use `--restrict-snps-path` when you want to keep only a specific SNP set, for example HapMap3 or another curated SNP universe.
+Use `--ref-panel-snps-path` when you want to keep only a specific SNP set, for
+example HapMap3 or another curated reference-panel universe.
 
 Accepted forms include:
 

@@ -109,7 +109,7 @@ class ReferencePanelBuilder:
         )
 
     def _prepare_build_state(self, config: ReferencePanelBuildConfig) -> _BuildState:
-        """Resolve shared maps, chains, and optional SNP restrictions."""
+        """Resolve shared maps, chains, and an optional reference-universe filter."""
         hg19_files = resolve_file_group(
             (config.genetic_map_hg19_path,),
             suffixes=_GENETIC_MAP_SUFFIXES,

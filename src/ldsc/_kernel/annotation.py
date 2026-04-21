@@ -34,8 +34,8 @@ Design Notes
   ``CHR``, ``POS``, ``SNP``, and ``CM``.
 - When filenames cleanly encode one chromosome shard each, bundles are built
   independently per chromosome and concatenated in stable genomic order.
-- Global SNP restriction is applied after alignment so baseline, query, and
-  metadata rows remain synchronized.
+- The retained reference-panel SNP universe is applied after alignment so
+  baseline, query, and metadata rows remain synchronized.
 - BED projection relies on ``pybedtools`` for interval intersection but keeps
   row-order validation explicit so the generated masks stay aligned to the
   baseline SNP template.
@@ -201,7 +201,7 @@ class _BaselineRow:
 
 @dataclass(frozen=True)
 class _RestrictResource:
-    """Normalized representation of a global SNP restriction input."""
+    """Normalized representation of a reference-universe SNP filter input."""
     mode: str
     bed_path: Path | None = None
     snp_ids: frozenset[str] | None = None
@@ -215,7 +215,7 @@ class AnnotationBuilder:
     resolving input paths, enforcing row alignment across baseline and query
     tables, automatically aggregating chromosome-sharded annotation files when
     their filenames encode one chromosome each, and applying the global SNP
-    restriction consistently.
+        the retained reference-panel SNP universe consistently.
     """
 
     def __init__(self, global_config: GlobalConfig, build_config: AnnotationBuildConfig | None = None) -> None:
@@ -681,7 +681,7 @@ class AnnotationBuilder:
         baseline_df: pd.DataFrame,
         query_df: pd.DataFrame,
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-        """Apply the configured global SNP restriction to aligned annotation tables."""
+        """Apply ``GlobalConfig.ref_panel_snps_path`` to aligned annotation tables."""
         restrict_path = self.global_config.ref_panel_snps_path
         if restrict_path is None:
             return metadata, baseline_df, query_df
@@ -709,9 +709,9 @@ def run_bed_to_annot(
     """
     Convenience wrapper for BED-to-annotation projection from Python code.
 
-    Python workflows read shared identifier, genome-build, restriction, and
-    logging settings from the registered ``GlobalConfig`` rather than from
-    per-call keyword arguments.
+    Python workflows read shared identifier, genome-build, reference-universe,
+    regression-subset, and logging settings from the registered
+    ``GlobalConfig`` rather than from per-call keyword arguments.
     """
     return _run_bed_to_annot_with_global_config(
         bed_files=bed_files,
@@ -1031,7 +1031,7 @@ def _is_bed_path(path: Path) -> bool:
 
 
 def _load_restrict_snp_ids(path: Path) -> set[str]:
-    """Read a global SNP restriction file interpreted in ``rsid`` mode."""
+    """Read a reference-universe SNP filter file interpreted in ``rsid`` mode."""
     snp_ids = read_global_snp_restriction(path, "rsid")
     if not snp_ids:
         raise ValueError(f"Restriction file {path} is empty.")

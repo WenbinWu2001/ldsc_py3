@@ -47,7 +47,12 @@ from ldsc import (
     set_global_config,
 )
 
-GLOBAL_CONFIG = GlobalConfig(snp_identifier="chr_pos", genome_build="hg19")
+GLOBAL_CONFIG = GlobalConfig(
+    snp_identifier="chr_pos",
+    genome_build="hg19",
+    ref_panel_snps_path="filters/reference_universe.tsv.gz",
+    regression_snps_path="filters/hapmap3.tsv.gz",
+)
 set_global_config(GLOBAL_CONFIG)
 global_config = get_global_config()
 
@@ -117,6 +122,11 @@ compatible helper functions and workflow classes. The resulting
 `config_snapshot` values, and the regression step will raise
 `ConfigMismatchError` if you accidentally mix artifacts produced under
 incompatible `snp_identifier` or `genome_build` assumptions.
+
+Within that shared config, `ref_panel_snps_path` controls the retained
+annotation/reference SNP universe, while `regression_snps_path` controls the
+regression subset used to compute `w_ld` and the synchronized SNP rows written
+to the LD-score artifacts consumed by regression.
 
 ## CLI
 

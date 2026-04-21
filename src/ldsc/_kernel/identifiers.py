@@ -113,10 +113,11 @@ def read_global_snp_restriction(
     logger=None,
 ) -> set[str]:
     """
-    Read a global SNP restriction file into the active canonical identifier set.
+    Read a SNP-set definition file into the active canonical identifier set.
 
     The returned values are ready for direct set intersection with annotation,
-    reference-panel, or regression SNP universes.
+    reference-panel, or regression SNP universes, depending on which config
+    field supplied the path.
     """
     mode = normalize_snp_identifier_mode(snp_identifier)
     genome_build = normalize_genome_build(genome_build)

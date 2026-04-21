@@ -32,7 +32,10 @@ from ldsc import (
     set_global_config,
 )
 
-GLOBAL_CONFIG = GlobalConfig(snp_identifier="rsid")
+GLOBAL_CONFIG = GlobalConfig(
+    snp_identifier="rsid",
+    regression_snps_path="filters/hapmap3.txt",
+)
 set_global_config(GLOBAL_CONFIG)
 
 sumstats = SumstatsMunger().run(
@@ -79,6 +82,10 @@ print("dataset_config =", dataset.config_snapshot)
 that the sumstats and LD-score results agree on critical settings such as
 `snp_identifier` and `genome_build`. If they do not, the workflow raises
 `ConfigMismatchError` instead of silently merging inconsistent artifacts.
+
+When you set `regression_snps_path`, the same regression SNP subset is used to
+compute `w_ld` and to write the synchronized row set of `.l2.ldscore.gz` and
+`.w.l2.ldscore.gz`.
 
 ## CLI
 

@@ -566,10 +566,10 @@ class AnnotationBuilder:
         output_path = ensure_output_directory(output_dir, label="output directory")
 
         restrict_path = None
-        if self.global_config.global_snp_restriction_path is not None:
+        if self.global_config.restrict_snps_path is not None:
             restrict_path = Path(
                 resolve_scalar_path(
-                    self.global_config.global_snp_restriction_path,
+                    self.global_config.restrict_snps_path,
                     label="global SNP restriction",
                 )
             )
@@ -676,7 +676,7 @@ class AnnotationBuilder:
         query_df: pd.DataFrame,
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """Apply the configured global SNP restriction to aligned annotation tables."""
-        restrict_path = self.global_config.global_snp_restriction_path
+        restrict_path = self.global_config.restrict_snps_path
         if restrict_path is None:
             return metadata, baseline_df, query_df
         restriction = read_global_snp_restriction(
@@ -790,7 +790,7 @@ def main_bed_to_annot(argv: Sequence[str] | None = None) -> int:
     cli_global_config = GlobalConfig(
         snp_identifier=normalize_snp_identifier_mode(args.snp_identifier),
         genome_build=default_config.genome_build if args.genome_build is None else args.genome_build,
-        global_snp_restriction_path=None if args.restrict_snps_path is None else str(args.restrict_snps_path),
+        restrict_snps_path=None if args.restrict_snps_path is None else str(args.restrict_snps_path),
         log_level=args.log_level,
     )
     _run_bed_to_annot_with_global_config(

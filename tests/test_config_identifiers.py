@@ -53,7 +53,7 @@ class GlobalConfigTest(unittest.TestCase):
         configured = GlobalConfig(
             snp_identifier="rsid",
             genome_build="hg19",
-            global_snp_restriction_path=Path("restrict") / "snps.txt",
+            restrict_snps_path=Path("restrict") / "snps.txt",
             log_level="DEBUG",
         )
         ldsc.set_global_config(configured)
@@ -242,8 +242,8 @@ class WorkflowConfigTest(unittest.TestCase):
             RegressionConfig(n_blocks=1)
 
     def test_global_config_normalizes_optional_path(self):
-        config = GlobalConfig(global_snp_restriction_path=Path("restrict") / "snps.txt")
-        self.assertEqual(config.global_snp_restriction_path, "restrict/snps.txt")
+        config = GlobalConfig(restrict_snps_path=Path("restrict") / "snps.txt")
+        self.assertEqual(config.restrict_snps_path, "restrict/snps.txt")
 
     def test_ref_panel_config_normalizes_path_fields(self):
         config = RefPanelConfig(

@@ -71,7 +71,7 @@ class PlinkRefPanelTest(unittest.TestCase):
             restrict = Path(tmpdir) / "restrict.txt"
             restrict.write_text("rs7341907\n", encoding="utf-8")
             panel = PlinkRefPanel(
-                GlobalConfig(snp_identifier="rsid", global_snp_restriction_path=str(restrict)),
+                GlobalConfig(snp_identifier="rsid", restrict_snps_path=str(restrict)),
                 RefPanelSpec(backend="plink", bfile_prefix=str(FIXTURES / "plink")),
             )
             metadata = panel.load_metadata("9")

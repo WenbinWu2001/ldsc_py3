@@ -82,7 +82,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             restrict.write_text("rs1\nrs3\n", encoding="utf-8")
 
             builder = AnnotationBuilder(
-                GlobalConfig(snp_identifier="rsid", global_snp_restriction_path=str(restrict)),
+                GlobalConfig(snp_identifier="rsid", restrict_snps_path=str(restrict)),
                 AnnotationBuildConfig(),
             )
             bundle = builder.run(
@@ -105,7 +105,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             restrict.write_text("CHR\tBP\n1\t20\n2\t30\n", encoding="utf-8")
 
             builder = AnnotationBuilder(
-                GlobalConfig(snp_identifier="chr_pos", global_snp_restriction_path=str(restrict)),
+                GlobalConfig(snp_identifier="chr_pos", restrict_snps_path=str(restrict)),
                 AnnotationBuildConfig(),
             )
             bundle = builder.run(AnnotationSourceSpec(baseline_annot_paths=(str(base),)))

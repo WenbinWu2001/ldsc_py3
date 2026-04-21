@@ -85,7 +85,7 @@ class GlobalConfigRegistryTest(unittest.TestCase):
             GlobalConfig(
                 snp_identifier="rsid",
                 genome_build="hg19",
-                global_snp_restriction_path="restrict.txt",
+                restrict_snps_path="restrict.txt",
                 log_level="DEBUG",
             )
         )
@@ -106,7 +106,7 @@ class GlobalConfigRegistryTest(unittest.TestCase):
         builder = patched.call_args.args[0]
         self.assertEqual(builder.global_config.snp_identifier, "rsid")
         self.assertEqual(builder.global_config.genome_build, "hg19")
-        self.assertEqual(builder.global_config.global_snp_restriction_path, "restrict.txt")
+        self.assertEqual(builder.global_config.restrict_snps_path, "restrict.txt")
         self.assertEqual(builder.global_config.log_level, "DEBUG")
         self.assertEqual(patched_print.call_count, 1)
         self.assertIn("GlobalConfig", patched_print.call_args.args[0])

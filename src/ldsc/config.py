@@ -82,7 +82,7 @@ class GlobalConfig:
         from chromosome and base-pair position.
     genome_build : {"auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"} or None, optional
         Genome-build context for ``chr_pos`` workflows. Default is ``"hg38"``.
-    global_snp_restriction_path : str or os.PathLike[str] or None, optional
+    restrict_snps_path : str or os.PathLike[str] or None, optional
         Optional path to a SNP list or table that restricts the SNP universe used
         by annotation, reference-panel, and regression workflows. Default is
         ``None``.
@@ -94,7 +94,7 @@ class GlobalConfig:
     """
     snp_identifier: SNPIdentifierMode = "chr_pos"
     genome_build: GenomeBuildInput | None = "hg38"
-    global_snp_restriction_path: str | PathLike[str] | None = None
+    restrict_snps_path: str | PathLike[str] | None = None
     log_level: LogLevel = "INFO"
     fail_on_missing_metadata: bool = False
 
@@ -105,7 +105,7 @@ class GlobalConfig:
         object.__setattr__(self, "genome_build", normalize_genome_build(self.genome_build))
         object.__setattr__(self, "log_level", _normalize_log_level(self.log_level))
         object.__setattr__(
-            self, "global_snp_restriction_path", _normalize_optional_path(self.global_snp_restriction_path)
+            self, "restrict_snps_path", _normalize_optional_path(self.restrict_snps_path)
         )
 
 

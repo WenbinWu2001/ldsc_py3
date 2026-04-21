@@ -122,7 +122,7 @@ class RefPanel(ABC):
 
     def _filter_metadata_by_global_restriction(self, metadata: pd.DataFrame) -> pd.DataFrame:
         """Filter metadata rows to the configured global SNP restriction set."""
-        restrict_path = self.global_config.global_snp_restriction_path
+        restrict_path = self.global_config.restrict_snps_path
         if restrict_path is None or len(metadata) == 0:
             return metadata
         restrict_ids = read_global_snp_restriction(

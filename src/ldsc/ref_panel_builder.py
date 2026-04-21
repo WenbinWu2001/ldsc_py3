@@ -123,9 +123,9 @@ class ReferencePanelBuilder:
         )
         restriction_mode = None
         restriction_values = None
-        if self.global_config.global_snp_restriction_path:
+        if self.global_config.restrict_snps_path:
             restriction_path = resolve_scalar_path(
-                self.global_config.global_snp_restriction_path,
+                self.global_config.restrict_snps_path,
                 suffixes=_TABLE_SUFFIXES,
                 label="global SNP restriction",
             )
@@ -443,7 +443,7 @@ def config_from_args(args: argparse.Namespace) -> tuple[ReferencePanelBuildConfi
     )
     global_config = GlobalConfig(
         genome_build=build_config.source_genome_build,
-        global_snp_restriction_path=build_config.restrict_snps_path,
+        restrict_snps_path=build_config.restrict_snps_path,
         log_level=args.log_level,
     )
     return build_config, global_config
@@ -488,7 +488,7 @@ def run_build_ref_panel(**kwargs: Any) -> ReferencePanelBuildResult:
     )
     global_config = get_global_config()
     defaults["log_level"] = global_config.log_level
-    defaults["restrict_snps_path"] = global_config.global_snp_restriction_path
+    defaults["restrict_snps_path"] = global_config.restrict_snps_path
     defaults.update(kwargs)
     args = argparse.Namespace(**defaults)
     return run_build_ref_panel_from_args(args)

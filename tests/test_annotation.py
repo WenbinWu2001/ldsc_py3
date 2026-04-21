@@ -317,6 +317,27 @@ class AnnotationBuilderTest(unittest.TestCase):
                     )
                 )
 
+    def test_run_rejects_unsharded_query_when_baseline_is_sharded(self):
+        builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            base1 = tmpdir / "baseline.1.annot.gz"
+            base2 = tmpdir / "baseline.2.annot.gz"
+            query = tmpdir / "query.annot.gz"
+            rows1 = [("1", 10, "rs1", 0.1)]
+            rows2 = [("2", 20, "rs2", 0.2)]
+            _write_annot(base1, rows1, {"base_a": [1]})
+            _write_annot(base2, rows2, {"base_a": [0]})
+            _write_annot(query, rows1 + rows2, {"query_a": [1, 0]})
+
+            with self.assertRaisesRegex(ValueError, "query|chromosome|shard"):
+                builder.run(
+                    AnnotationSourceSpec(
+                        baseline_annot_paths=(str(base1), str(base2)),
+                        query_annot_paths=(str(query),),
+                    )
+                )
+
     def test_run_rejects_ambiguous_duplicate_shards(self):
         builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -623,7 +623,7 @@ def resolve_annotation_files(spec: str | None) -> list[str]:
     return resolve_file_group(
         split_arg_list(spec),
         label="annotation input",
-        allowed_suffixes=ANNOTATION_SUFFIXES,
+        suffixes=ANNOTATION_SUFFIXES,
         allow_chromosome_suite=True,
     )
 
@@ -637,12 +637,12 @@ def resolve_parquet_files(args: argparse.Namespace, chrom: str | None = None) ->
                 tokens,
                 chrom=chrom,
                 label="r2_table",
-                allowed_suffixes=PARQUET_SUFFIXES,
+                suffixes=PARQUET_SUFFIXES,
             )
         return resolve_file_group(
             tokens,
             label="r2_table",
-            allowed_suffixes=PARQUET_SUFFIXES,
+            suffixes=PARQUET_SUFFIXES,
             allow_chromosome_suite=True,
         )
     return []
@@ -652,7 +652,7 @@ def resolve_bfile_prefix(args: argparse.Namespace, chrom: str | None = None) -> 
     """Resolve the PLINK prefix for the requested chromosome, if any."""
     if args.bfile is None:
         return None
-    return resolve_plink_prefix(args.bfile, chrom=chrom, label="bfile")
+    return resolve_plink_prefix(args.bfile, chrom=chrom)
 
 
 def resolve_frequency_files(args: argparse.Namespace, chrom: str | None = None) -> list[str]:
@@ -665,12 +665,12 @@ def resolve_frequency_files(args: argparse.Namespace, chrom: str | None = None) 
             tokens,
             chrom=chrom,
             label="frqfile",
-            allowed_suffixes=FREQUENCY_SUFFIXES,
+            suffixes=FREQUENCY_SUFFIXES,
         )
     return resolve_file_group(
         tokens,
         label="frqfile",
-        allowed_suffixes=FREQUENCY_SUFFIXES,
+        suffixes=FREQUENCY_SUFFIXES,
         allow_chromosome_suite=True,
     )
 
@@ -1947,13 +1947,13 @@ def run_ldscore_from_args(args: argparse.Namespace) -> list[ChromComputationResu
             split_arg_list(args.baseline_annot),
             chrom=chrom,
             label="baseline_annot",
-            allowed_suffixes=ANNOTATION_SUFFIXES,
+            suffixes=ANNOTATION_SUFFIXES,
         )
         query_files = resolve_chromosome_group(
             split_arg_list(args.query_annot),
             chrom=chrom,
             label="query_annot",
-            allowed_suffixes=ANNOTATION_SUFFIXES,
+            suffixes=ANNOTATION_SUFFIXES,
         )
 
         bundle = combine_annotation_groups(

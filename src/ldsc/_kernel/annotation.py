@@ -282,6 +282,10 @@ class AnnotationBuilder:
         sharded_baseline = self._detect_chromosome_shards(baseline_files, group_name="baseline")
         if sharded_baseline is not None:
             sharded_query = self._detect_chromosome_shards(query_files, group_name="query") if query_files else {}
+            if query_files and sharded_query is None:
+                raise ValueError(
+                    "Query annotation chromosome shards must match the baseline chromosome shards exactly."
+                )
             return self._run_sharded_inputs(
                 source_spec,
                 sharded_baseline,

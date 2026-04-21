@@ -529,6 +529,21 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
 @unittest.skipIf(kernel_ldscore is None, "ldscore kernel is not available")
 class LDScoreParquetNormalizationTest(unittest.TestCase):
+    def test_resolve_parquet_files_accepts_chromosome_specific_resolution(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            path1 = tmpdir / "r2.1.parquet"
+            path2 = tmpdir / "r2.2.parquet"
+            path1.write_text("", encoding="utf-8")
+            path2.write_text("", encoding="utf-8")
+
+            args = Namespace(r2_table=str(tmpdir / "r2.@.parquet"))
+
+            self.assertEqual(
+                kernel_ldscore.resolve_parquet_files(args, chrom="1"),
+                [str(path1)],
+            )
+
     def test_canonicalize_r2_pairs_renames_bp_aliases_to_pos_columns(self):
         df = pd.DataFrame(
             {

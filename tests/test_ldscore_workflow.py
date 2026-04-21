@@ -18,7 +18,7 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from ldsc.config import GlobalConfig
+from ldsc.config import ConfigMismatchError, GlobalConfig
 from ldsc.outputs import OutputSpec
 
 try:
@@ -68,6 +68,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             query_columns=["query"],
             reference_snps={f"rs{chrom}"},
             regression_snps={f"rs{chrom}"},
+            config_snapshot=GlobalConfig(genome_build="hg38", snp_identifier="rsid"),
         )
 
     def _build_annotation_bundle(self, prefix: Path) -> AnnotationBundle:
@@ -92,6 +93,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             query_columns=[],
             chromosomes=["1"],
             source_summary={},
+            config_snapshot=GlobalConfig(genome_build="hg38", snp_identifier="rsid"),
         )
 
     def _copy_plink_fixture_with_distinct_fids(self, tmpdir: Path) -> Path:
@@ -147,6 +149,31 @@ class LDScoreWorkflowTest(unittest.TestCase):
             result.snp_count_totals["common_reference_snp_counts_maf_gt_0_05"],
             [28.0, 30.0],
         )
+
+    def test_run_rejects_annotation_bundle_snapshot_mismatch(self):
+        calc = ldscore_workflow.LDScoreCalculator()
+        annotation_bundle = AnnotationBundle(
+            metadata=pd.DataFrame({"CHR": ["1"], "SNP": ["rs1"], "POS": [10], "CM": [0.1]}),
+            baseline_annotations=pd.DataFrame({"base": [1.0]}),
+            query_annotations=pd.DataFrame(index=pd.RangeIndex(1)),
+            baseline_columns=["base"],
+            query_columns=[],
+            chromosomes=["1"],
+            source_summary={},
+            config_snapshot=GlobalConfig(genome_build="hg19", snp_identifier="rsid"),
+        )
+        ref_panel = SimpleNamespace(spec=SimpleNamespace(genome_build="hg19", backend="plink"))
+
+        with mock.patch.object(calc, "compute_chromosome") as patched_compute:
+            with self.assertRaisesRegex(ConfigMismatchError, "AnnotationBundle and LDScoreCalculator runtime config"):
+                calc.run(
+                    annotation_bundle=annotation_bundle,
+                    ref_panel=ref_panel,
+                    ldscore_config=LDScoreConfig(ld_wind_snps=10),
+                    global_config=GlobalConfig(genome_build="hg38", snp_identifier="rsid"),
+                )
+
+        patched_compute.assert_not_called()
 
     def test_run_ldscore_from_args_writes_outputs(self):
         fake_legacy_result = ldscore_workflow._LegacyChromResult(

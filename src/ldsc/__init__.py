@@ -40,6 +40,7 @@ from .annotation_builder import (
 )
 from .config import (
     AnnotationBuildConfig,
+    ConfigMismatchError,
     GlobalConfig,
     LDScoreConfig,
     MungeConfig,
@@ -49,6 +50,7 @@ from .config import (
     get_global_config,
     reset_global_config,
     set_global_config,
+    validate_config_compatibility,
 )
 from .ldscore_calculator import ChromLDScoreResult, LDScoreCalculator, LDScoreResult, run_ldscore
 from .outputs import ArtifactConfig, ArtifactProducer, OutputManager, OutputSpec, PostProcessor, ResultFormatter, ResultWriter, RunSummary
@@ -84,6 +86,7 @@ __all__ = [
     "ArtifactConfig",
     "ArtifactProducer",
     "ChromLDScoreResult",
+    "ConfigMismatchError",
     "GlobalConfig",
     "get_global_config",
     "LDScoreCalculator",
@@ -120,4 +123,5 @@ __all__ = [
     "run_ldscore",
     "reset_global_config",
     "set_global_config",
+    "validate_config_compatibility",
 ]

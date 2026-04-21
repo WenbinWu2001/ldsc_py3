@@ -14,6 +14,7 @@ if str(SRC) not in sys.path:
 
 import ldsc
 from ldsc import GlobalConfig, set_global_config, reset_global_config
+from ldsc.config import ConfigMismatchError, validate_config_compatibility
 from ldsc import ldscore_calculator, ref_panel_builder, regression_runner
 from ldsc._kernel import annotation as kernel_annotation
 from ldsc.ldscore_calculator import LDScoreResult
@@ -218,3 +219,31 @@ class GlobalConfigRegistryTest(unittest.TestCase):
         self.assertEqual(global_config.snp_identifier, "rsid")
         self.assertEqual(global_config.genome_build, "hg38")
         self.assertEqual(global_config.log_level, "DEBUG")
+
+
+class ConfigCompatibilityTest(unittest.TestCase):
+    def test_validate_config_compatibility_rejects_genome_build_mismatch(self):
+        left = GlobalConfig(genome_build="hg19", snp_identifier="chr_pos")
+        right = GlobalConfig(genome_build="hg38", snp_identifier="chr_pos")
+
+        with self.assertRaisesRegex(ConfigMismatchError, "genome_build mismatch"):
+            validate_config_compatibility(left, right, context="test")
+
+    def test_validate_config_compatibility_rejects_snp_identifier_mismatch(self):
+        left = GlobalConfig(genome_build="hg38", snp_identifier="rsid")
+        right = GlobalConfig(genome_build="hg38", snp_identifier="chr_pos")
+
+        with self.assertRaisesRegex(ConfigMismatchError, "snp_identifier mismatch"):
+            validate_config_compatibility(left, right, context="test")
+
+    def test_validate_config_compatibility_accepts_matching_critical_fields(self):
+        shared = GlobalConfig(genome_build="hg38", snp_identifier="chr_pos")
+
+        validate_config_compatibility(shared, shared, context="test")
+
+    def test_validate_config_compatibility_warns_on_restrict_snps_difference(self):
+        left = GlobalConfig(genome_build="hg38", snp_identifier="chr_pos", restrict_snps_path="left.txt")
+        right = GlobalConfig(genome_build="hg38", snp_identifier="chr_pos", restrict_snps_path="right.txt")
+
+        with self.assertWarnsRegex(UserWarning, "restrict_snps_path differs"):
+            validate_config_compatibility(left, right, context="test")

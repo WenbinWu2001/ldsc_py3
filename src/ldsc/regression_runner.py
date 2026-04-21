@@ -30,6 +30,7 @@ from .config import (
     get_global_config,
     print_global_config_banner,
     suppress_global_config_banner,
+    validate_config_compatibility,
 )
 from .path_resolution import ensure_output_parent_directory, normalize_path_token, resolve_scalar_path
 from ._kernel import regression as reg
@@ -53,6 +54,7 @@ class RegressionDataset:
     dropped_zero_variance_ld_columns: list[str]
     trait_names: list[str]
     chromosomes_aggregated: list[str]
+    config_snapshot: GlobalConfig | None = None
 
     def validate(self) -> None:
         """Validate that the merged table contains the required LDSC columns."""
@@ -88,6 +90,12 @@ class RegressionRunner:
         """
         print_global_config_banner(type(self).__name__, self.global_config)
         config = config or self.regression_config
+        if sumstats_table.config_snapshot is not None and ldscore_result.config_snapshot is not None:
+            validate_config_compatibility(
+                sumstats_table.config_snapshot,
+                ldscore_result.config_snapshot,
+                context="SumstatsTable and LDScoreResult",
+            )
         ref_ld_frame = pd.concat(
             [
                 ldscore_result.reference_metadata.loc[:, ["SNP"]].reset_index(drop=True),
@@ -139,6 +147,7 @@ class RegressionRunner:
             dropped_zero_variance_ld_columns=dropped_ld_columns,
             trait_names=[name for name in [sumstats_table.trait_name] if name],
             chromosomes_aggregated=[result.chrom for result in ldscore_result.chromosome_results],
+            config_snapshot=ldscore_result.config_snapshot,
         )
         dataset.validate()
         return dataset
@@ -317,6 +326,7 @@ def _subset_ldscore_result(ldscore_result: LDScoreResult, baseline_columns: list
         regression_snps=set(ldscore_result.regression_snps),
         chromosome_results=list(ldscore_result.chromosome_results),
         output_paths=dict(ldscore_result.output_paths),
+        config_snapshot=ldscore_result.config_snapshot,
     )
 
 
@@ -579,6 +589,7 @@ def _load_ldscore_result_from_files(
         regression_snps=set(regression_metadata["SNP"].astype(str)),
         chromosome_results=[],
         output_paths={},
+        config_snapshot=None,
     )
 
 

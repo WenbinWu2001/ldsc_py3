@@ -219,7 +219,8 @@ The most explicit Python API uses the public config object and builder class:
 ```python
 from ldsc import GlobalConfig, ReferencePanelBuildConfig, ReferencePanelBuilder, set_global_config
 
-set_global_config(GlobalConfig(log_level="INFO"))
+GLOBAL_CONFIG = GlobalConfig(log_level="INFO")
+set_global_config(GLOBAL_CONFIG)
 
 config = ReferencePanelBuildConfig(
     panel_label="1KG30X",
@@ -232,7 +233,7 @@ config = ReferencePanelBuildConfig(
     ld_wind_cm=1.0,
 )
 
-result = ReferencePanelBuilder().run(config)
+result = ReferencePanelBuilder(global_config=GLOBAL_CONFIG).run(config)
 
 print(result.chromosomes)
 print(result.output_paths["ann"][0])
@@ -468,7 +469,8 @@ If you prefer a thinner Python wrapper around the CLI-style arguments, the packa
 ```python
 from ldsc import GlobalConfig, run_build_ref_panel, set_global_config
 
-set_global_config(GlobalConfig(log_level="INFO"))
+GLOBAL_CONFIG = GlobalConfig(log_level="INFO")
+set_global_config(GLOBAL_CONFIG)
 
 result = run_build_ref_panel(
     bfile="resources/example_1kg_30x/genomes_30x_chr22",
@@ -488,3 +490,6 @@ The builder stores both hg19 and hg38 positions in the output parquet files. Tha
 
 - use the metadata sidecar that matches your downstream coordinate system
 - if you match SNPs by chromosome-position instead of by `rsID`, make sure the build is consistent all the way through
+- if you later load this panel through `RefPanelLoader`, keep the downstream
+  `GlobalConfig.genome_build` aligned with the chosen sidecar build so LD-score
+  calculation does not fail on an explicit build mismatch

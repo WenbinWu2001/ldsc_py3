@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from os import PathLike
 from pathlib import Path
 from typing import Any
+import warnings
 
 import pandas as pd
 
@@ -29,7 +30,7 @@ from .column_inference import (
     resolve_optional_column,
     resolve_required_column,
 )
-from .config import GlobalConfig, MungeConfig, _normalize_required_path
+from .config import GlobalConfig, MungeConfig, _normalize_required_path, get_global_config
 from .path_resolution import ensure_output_parent_directory, normalize_path_token, resolve_scalar_path
 from ._kernel import sumstats_munger as kernel_munge
 
@@ -109,6 +110,7 @@ class SumstatsTable:
     source_path: str | None
     trait_name: str | None
     provenance: dict[str, Any] = field(default_factory=dict)
+    config_snapshot: GlobalConfig | None = None
 
     def validate(self) -> None:
         """Validate the minimum LDSC-ready table contract."""
@@ -132,6 +134,7 @@ class SumstatsTable:
             source_path=self.source_path,
             trait_name=self.trait_name,
             provenance=dict(self.provenance),
+            config_snapshot=self.config_snapshot,
         )
 
     def align_to_metadata(self, metadata: pd.DataFrame) -> "SumstatsTable":
@@ -143,6 +146,7 @@ class SumstatsTable:
             source_path=self.source_path,
             trait_name=self.trait_name,
             provenance=dict(self.provenance),
+            config_snapshot=self.config_snapshot,
         )
 
     def summary(self) -> dict[str, Any]:
@@ -197,11 +201,19 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
     df = df.loc[:, list(resolved_columns.values())].rename(
         columns={actual: canonical for canonical, actual in resolved_columns.items()}
     )
+    warnings.warn(
+        "load_sumstats() cannot recover the GlobalConfig that was active when this "
+        "file was originally munged. Using the current global config as a proxy. "
+        "Validate manually if genome_build or snp_identifier matters here.",
+        UserWarning,
+        stacklevel=2,
+    )
     table = SumstatsTable(
         data=df.reset_index(drop=True),
         has_alleles={"A1", "A2"}.issubset(df.columns),
         source_path=resolved,
         trait_name=trait_name or Path(resolved).name,
+        config_snapshot=get_global_config(),
     )
     table.validate()
     return table
@@ -238,7 +250,7 @@ class SumstatsMunger:
         SumstatsTable
             Validated, in-memory table suitable for the regression workflow.
         """
-        del global_config  # reserved for future shared validation
+        config_snapshot = global_config or get_global_config()
         source_path = resolve_scalar_path(raw_source.path, label="raw sumstats")
         out_prefix = normalize_path_token(munge_config.out_prefix)
         ensure_output_parent_directory(out_prefix, label="out_prefix")
@@ -254,6 +266,7 @@ class SumstatsMunger:
                 "out_prefix": out_prefix,
                 "column_hints": dict(raw_source.column_hints),
             },
+            config_snapshot=config_snapshot,
         )
         table.validate()
         self._last_summary = MungeRunSummary(

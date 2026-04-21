@@ -47,7 +47,8 @@ from ldsc import (
     set_global_config,
 )
 
-set_global_config(GlobalConfig(snp_identifier="chr_pos", genome_build="hg19"))
+GLOBAL_CONFIG = GlobalConfig(snp_identifier="chr_pos", genome_build="hg19")
+set_global_config(GLOBAL_CONFIG)
 global_config = get_global_config()
 
 run_bed_to_annot(
@@ -76,9 +77,12 @@ sumstats = SumstatsMunger().run(
         out_prefix="tutorial_outputs/trait",
         signed_sumstats_spec="BETA,0",
     ),
+    global_config=global_config,
 )
 
-# If you already have a curated .sumstats.gz artifact on disk, load it directly:
+# If you already have a curated .sumstats.gz artifact on disk, keep the same
+# GlobalConfig active before calling load_sumstats(). The loader warns because
+# the original munge-time config is not recoverable from disk.
 # sumstats = load_sumstats("tutorial_outputs/trait.sumstats.gz", trait_name="trait")
 
 ref_panel = RefPanelLoader(global_config).load(
@@ -96,7 +100,7 @@ ldscore_result = LDScoreCalculator().run(
     global_config=global_config,
 )
 
-runner = RegressionRunner(regression_config=RegressionConfig())
+runner = RegressionRunner(global_config=global_config, regression_config=RegressionConfig())
 partitioned = runner.estimate_partitioned_h2_batch(
     sumstats,
     ldscore_result,
@@ -108,7 +112,11 @@ print(partitioned)
 ```
 
 The Python workflow registers `GlobalConfig` once, then reuses it across the
-compatible helper functions and workflow classes.
+compatible helper functions and workflow classes. The resulting
+`AnnotationBundle`, `SumstatsTable`, and `LDScoreResult` objects carry frozen
+`config_snapshot` values, and the regression step will raise
+`ConfigMismatchError` if you accidentally mix artifacts produced under
+incompatible `snp_identifier` or `genome_build` assumptions.
 
 ## CLI
 
@@ -155,3 +163,7 @@ For the Python workflow-layer API, the annotation bundle already provides SNP me
 `CHR`, `POS`, `SNP`, and `CM`, so the partitioned example only needs the parquet `R2` tables.
 If your workflow depends on separate frequency metadata such as `MAF`, load that through the
 reference panel spec as well.
+
+When you use chromosome-position matching, keep the annotation bundle, reference
+panel, munged sumstats, and downstream regression under the same normalized
+`genome_build`. The package now enforces that explicitly at merge points.

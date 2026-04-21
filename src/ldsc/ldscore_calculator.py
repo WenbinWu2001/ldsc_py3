@@ -18,7 +18,14 @@ import numpy as np
 import pandas as pd
 
 from .column_inference import normalize_snp_identifier_mode
-from .config import GlobalConfig, LDScoreConfig, get_global_config, print_global_config_banner
+from .config import (
+    ConfigMismatchError,
+    GlobalConfig,
+    LDScoreConfig,
+    get_global_config,
+    print_global_config_banner,
+    validate_config_compatibility,
+)
 from .genome_build_inference import validate_auto_genome_build_mode
 from .outputs import OutputManager, OutputSpec
 from .path_resolution import (
@@ -79,6 +86,7 @@ class ChromLDScoreResult:
     reference_snps: set[str]
     regression_snps: set[str]
     output_paths: dict[str, str] = field(default_factory=dict)
+    config_snapshot: GlobalConfig | None = None
 
     def validate(self) -> None:
         """Check metadata/value alignment for the chromosome result."""
@@ -142,6 +150,7 @@ class LDScoreResult:
     regression_snps: set[str]
     chromosome_results: list[ChromLDScoreResult]
     output_paths: dict[str, str] = field(default_factory=dict)
+    config_snapshot: GlobalConfig | None = None
 
     def validate(self) -> None:
         """Check metadata/value alignment for the aggregated result."""
@@ -220,6 +229,19 @@ class LDScoreCalculator:
             paths if writing was requested.
         """
         print_global_config_banner(type(self).__name__, global_config)
+        if annotation_bundle.config_snapshot is not None:
+            validate_config_compatibility(
+                annotation_bundle.config_snapshot,
+                global_config,
+                context="AnnotationBundle and LDScoreCalculator runtime config",
+            )
+        ref_panel_build = getattr(getattr(ref_panel, "spec", None), "genome_build", None)
+        if ref_panel_build is not None and global_config.genome_build not in (None, "auto"):
+            if ref_panel_build != global_config.genome_build:
+                raise ConfigMismatchError(
+                    f"genome_build mismatch between RefPanelSpec ({ref_panel_build!r}) "
+                    f"and active GlobalConfig ({global_config.genome_build!r})."
+                )
         chromosome_results: list[ChromLDScoreResult] = []
         for chrom in _chromosomes_from_bundle(annotation_bundle):
             chrom_bundle = _slice_annotation_bundle(annotation_bundle, chrom)
@@ -303,6 +325,7 @@ class LDScoreCalculator:
             query_columns=list(legacy_result.query_columns),
             reference_snps=reference_ids,
             regression_snps=retained_regression_snps,
+            config_snapshot=global_config,
         )
         result.validate()
         return result
@@ -315,6 +338,14 @@ class LDScoreCalculator:
         """Concatenate and sum per-chromosome results into one aggregate object."""
         if not chromosome_results:
             raise ValueError("At least one chromosome result is required.")
+        snapshots = [result.config_snapshot for result in chromosome_results if result.config_snapshot is not None]
+        if snapshots:
+            for snapshot in snapshots[1:]:
+                validate_config_compatibility(
+                    snapshots[0],
+                    snapshot,
+                    context="ChromLDScoreResult aggregation",
+                )
 
         reference_metadata, ld_scores = _sort_paired_frames(
             [result.reference_metadata for result in chromosome_results],
@@ -340,6 +371,7 @@ class LDScoreCalculator:
             reference_snps=set().union(*(result.reference_snps for result in chromosome_results)),
             regression_snps=set().union(*(result.regression_snps for result in chromosome_results)),
             chromosome_results=list(chromosome_results),
+            config_snapshot=snapshots[0] if snapshots else None,
         )
         result.validate()
         return result
@@ -643,6 +675,7 @@ def _replace_result_output_paths(result: LDScoreResult, output_paths: dict[str, 
         regression_snps=result.regression_snps,
         chromosome_results=result.chromosome_results,
         output_paths=dict(output_paths),
+        config_snapshot=result.config_snapshot,
     )
 
 
@@ -680,6 +713,7 @@ def _slice_annotation_bundle(annotation_bundle, chrom: str):
         query_columns=list(annotation_bundle.query_columns),
         chromosomes=[str(chrom)],
         source_summary=dict(getattr(annotation_bundle, "source_summary", {})),
+        config_snapshot=getattr(annotation_bundle, "config_snapshot", None),
     )
 
 

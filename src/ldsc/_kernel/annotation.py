@@ -138,6 +138,7 @@ class AnnotationBundle:
     query_columns: list[str]
     chromosomes: list[str]
     source_summary: dict[str, object]
+    config_snapshot: GlobalConfig | None = None
 
     def validate(self, snp_identifier: str = "chr_pos") -> None:
         """Validate row alignment and uniqueness assumptions for the bundle.
@@ -440,6 +441,7 @@ class AnnotationBuilder:
                 "bed_paths": list(source_spec.bed_paths),
                 "gene_set_paths": list(source_spec.gene_set_paths),
             },
+            config_snapshot=self.global_config,
         )
         bundle.validate(self.global_config.snp_identifier)
         return bundle

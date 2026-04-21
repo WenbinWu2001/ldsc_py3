@@ -13,7 +13,7 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from ldsc.config import GlobalConfig, RegressionConfig
+from ldsc.config import ConfigMismatchError, GlobalConfig, RegressionConfig
 
 try:
     from ldsc.ldscore_calculator import LDScoreResult
@@ -53,6 +53,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             reference_snps={"rs1", "rs2", "rs3"},
             regression_snps={"rs1", "rs2", "rs3"},
             chromosome_results=[],
+            config_snapshot=GlobalConfig(genome_build="hg38", snp_identifier="rsid"),
         )
 
     def make_sumstats_table(self):
@@ -70,6 +71,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             source_path="sumstats.gz",
             trait_name="trait",
             provenance={},
+            config_snapshot=GlobalConfig(genome_build="hg38", snp_identifier="rsid"),
         )
 
     def make_annotation_bundle(self):
@@ -97,6 +99,27 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertEqual(dataset.count_key_used_for_regression, "common_reference_snp_counts_maf_gt_0_05")
         self.assertEqual(dataset.retained_ld_columns, ["query1", "query2"])
         self.assertEqual(dataset.dropped_zero_variance_ld_columns, ["base"])
+        self.assertEqual(dataset.config_snapshot, GlobalConfig(genome_build="hg38", snp_identifier="rsid"))
+
+    def test_build_dataset_raises_on_mismatched_sumstats_and_ldscore_snapshots(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        sumstats = self.make_sumstats_table()
+        ldscore_result = replace(
+            self.make_ldscore_result(),
+            config_snapshot=GlobalConfig(genome_build="hg19", snp_identifier="rsid"),
+        )
+
+        with self.assertRaisesRegex(ConfigMismatchError, "genome_build mismatch"):
+            runner.build_dataset(sumstats, ldscore_result)
+
+    def test_build_dataset_skips_compatibility_check_for_legacy_none_snapshots(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        sumstats = replace(self.make_sumstats_table(), config_snapshot=None)
+        ldscore_result = replace(self.make_ldscore_result(), config_snapshot=None)
+
+        dataset = runner.build_dataset(sumstats, ldscore_result)
+
+        self.assertIsNone(dataset.config_snapshot)
 
     def test_estimate_partitioned_h2_batch_loops_over_queries(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())

@@ -25,9 +25,10 @@ Resolution behavior:
 ### Python API
 
 ```python
-from ldsc import GlobalConfig, run_ldscore, set_global_config
+from ldsc import GlobalConfig, get_global_config, run_ldscore, set_global_config
 
 set_global_config(GlobalConfig(snp_identifier="rsid"))
+GLOBAL_CONFIG = get_global_config()
 
 result = run_ldscore(
     out="tutorial_outputs/r2_ldscores",
@@ -40,6 +41,7 @@ result = run_ldscore(
 print(result.output_paths["ldscore"])
 print(result.output_paths["w_ld"])
 print(result.baseline_columns)
+print(result.config_snapshot)
 ```
 
 ### CLI
@@ -63,9 +65,10 @@ inputs should use tokens such as `annotations/query_from_beds/query.@.annot.gz`.
 ### Python API
 
 ```python
-from ldsc import GlobalConfig, run_bed_to_annot, run_ldscore, set_global_config
+from ldsc import GlobalConfig, get_global_config, run_bed_to_annot, run_ldscore, set_global_config
 
 set_global_config(GlobalConfig(snp_identifier="rsid"))
+GLOBAL_CONFIG = get_global_config()
 
 run_bed_to_annot(
     bed_files="beds/*.bed",
@@ -84,6 +87,7 @@ result = run_ldscore(
 
 print(result.output_paths["ldscore"])
 print(result.query_columns)
+print(result.config_snapshot)
 ```
 
 ### CLI
@@ -110,3 +114,8 @@ For Python workflows, `run_bed_to_annot()` and `run_ldscore()` reuse the
 registered `GlobalConfig`; shared settings such as `snp_identifier`,
 `genome_build`, `log_level`, and restriction paths are no longer passed
 directly into `run_ldscore(...)`.
+
+Each returned result carries a frozen `config_snapshot`. If you later change the
+registered `GlobalConfig`, existing LD-score results keep their original
+snapshot, and downstream merge points will raise `ConfigMismatchError` if you
+try to combine artifacts produced under incompatible assumptions.

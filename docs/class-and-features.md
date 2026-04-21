@@ -28,6 +28,7 @@ This document summarizes the public package surface. For workflow-level file str
 | `MungeConfig` | raw-sumstats munging thresholds and output settings |
 | `RegressionConfig` | regression-model settings such as intercept handling and jackknife blocks |
 | `OutputSpec` | LD-score artifact layout and emission controls |
+| `ConfigMismatchError` | explicit failure raised when critical config assumptions disagree |
 
 ### Workflow Services
 
@@ -49,12 +50,12 @@ This document summarizes the public package surface. For workflow-level file str
 | `AnnotationBundle` | aligned SNP metadata plus baseline/query annotation matrices |
 | `RefPanelSpec` | runtime description of a PLINK or parquet reference panel |
 | `ReferencePanelBuildResult` | summary of parquet panel artifacts written by one build |
-| `ChromLDScoreResult` | one chromosome’s LD-score and weight tables |
-| `LDScoreResult` | aggregated cross-chromosome LD-score artifacts |
+| `ChromLDScoreResult` | one chromosome’s LD-score and weight tables, plus `config_snapshot` provenance |
+| `LDScoreResult` | aggregated cross-chromosome LD-score artifacts, plus `config_snapshot` provenance |
 | `RawSumstatsSpec` | one raw summary-statistics input plus optional column hints |
-| `SumstatsTable` | validated LDSC-ready summary-statistics table |
+| `SumstatsTable` | validated LDSC-ready summary-statistics table, plus `config_snapshot` provenance |
 | `MungeRunSummary` | compact record of a munging run |
-| `RegressionDataset` | merged sumstats plus LD-score matrix used by the estimator |
+| `RegressionDataset` | merged sumstats plus LD-score matrix used by the estimator, plus propagated provenance when available |
 | `RunSummary` | summary emitted by the output layer |
 
 ### Global Config Registry
@@ -64,6 +65,7 @@ This document summarizes the public package surface. For workflow-level file str
 | `get_global_config()` | return the package-global Python workflow configuration |
 | `set_global_config()` | replace the package-global Python workflow configuration |
 | `reset_global_config()` | restore the default package-global configuration: `GlobalConfig(snp_identifier="chr_pos", genome_build="hg38")` |
+| `validate_config_compatibility()` | compare two `GlobalConfig` snapshots and raise or warn on mismatch |
 
 ## Public Path And Header Contracts
 
@@ -77,3 +79,7 @@ This document summarizes the public package surface. For workflow-level file str
 ## Public Import Boundary
 
 Stable user-facing imports are re-exported from `ldsc.__init__`. That includes the workflow services, config dataclasses, reference-panel abstractions, and convenience helpers such as `run_ldscore()` and `load_sumstats()`. Internal modules under `ldsc._kernel` are implementation details and may change without the same compatibility promise.
+
+The top-level package also re-exports `ConfigMismatchError` and
+`validate_config_compatibility()` for notebook and library code that wants to
+surface or preflight config compatibility explicitly.

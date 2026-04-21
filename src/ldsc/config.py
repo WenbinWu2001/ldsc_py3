@@ -26,6 +26,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from os import PathLike
 from typing import Literal
+import warnings
 
 from .column_inference import normalize_genome_build
 from .path_resolution import normalize_optional_path_token, normalize_path_token, normalize_path_tokens
@@ -38,6 +39,10 @@ LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
 RefPanelBackend = Literal["auto", "plink", "parquet_r2"]
 CompressionMode = Literal["auto", "gzip", "bz2", "none"]
 R2BiasMode = Literal["raw", "unbiased"]
+
+
+class ConfigMismatchError(ValueError):
+    """Raised when two result objects carry incompatible config snapshots."""
 
 
 def _normalize_optional_path(path: str | PathLike[str] | None) -> str | None:
@@ -134,6 +139,34 @@ def reset_global_config() -> GlobalConfig:
     global _GLOBAL_CONFIG
     _GLOBAL_CONFIG = GlobalConfig()
     return _GLOBAL_CONFIG
+
+
+def validate_config_compatibility(
+    a: GlobalConfig,
+    b: GlobalConfig,
+    context: str = "",
+) -> None:
+    """Raise when ``a`` and ``b`` disagree on critical LDSC workflow settings."""
+    prefix = f" when combining {context}" if context else ""
+    if a.genome_build != b.genome_build:
+        raise ConfigMismatchError(
+            f"genome_build mismatch{prefix}: {a.genome_build!r} vs "
+            f"{b.genome_build!r}. These objects were computed under different "
+            "genome-build assumptions and cannot be safely merged."
+        )
+    if a.snp_identifier != b.snp_identifier:
+        raise ConfigMismatchError(
+            f"snp_identifier mismatch{prefix}: {a.snp_identifier!r} vs "
+            f"{b.snp_identifier!r}. These objects were computed under different "
+            "SNP-identifier modes and cannot be safely merged."
+        )
+    if a.restrict_snps_path != b.restrict_snps_path:
+        warnings.warn(
+            f"restrict_snps_path differs{prefix}: {a.restrict_snps_path!r} vs "
+            f"{b.restrict_snps_path!r}. Results are combinable but SNP sets may differ.",
+            UserWarning,
+            stacklevel=2,
+        )
 
 
 @contextmanager

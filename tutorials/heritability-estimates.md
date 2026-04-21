@@ -32,7 +32,8 @@ from ldsc import (
     set_global_config,
 )
 
-set_global_config(GlobalConfig(snp_identifier="rsid"))
+GLOBAL_CONFIG = GlobalConfig(snp_identifier="rsid")
+set_global_config(GLOBAL_CONFIG)
 
 sumstats = SumstatsMunger().run(
     RawSumstatsSpec(
@@ -44,9 +45,12 @@ sumstats = SumstatsMunger().run(
         out_prefix="tutorial_outputs/trait",
         signed_sumstats_spec="BETA,0",
     ),
+    global_config=GLOBAL_CONFIG,
 )
 
-# If you already have a curated .sumstats.gz artifact on disk, load it directly:
+# If you already have a curated .sumstats.gz artifact on disk, set the intended
+# GlobalConfig first, then load it directly. The loaded table will warn because
+# the original munge-time config is not recoverable from disk.
 # sumstats = load_sumstats("tutorial_outputs/trait.sumstats.gz", trait_name="trait")
 
 ldscore_result = run_ldscore(
@@ -57,7 +61,7 @@ ldscore_result = run_ldscore(
     ld_wind_cm=1.0,
 )
 
-runner = RegressionRunner(regression_config=RegressionConfig())
+runner = RegressionRunner(global_config=GLOBAL_CONFIG, regression_config=RegressionConfig())
 dataset = runner.build_dataset(sumstats, ldscore_result)
 h2 = runner.estimate_h2(dataset)
 
@@ -66,11 +70,15 @@ print("h2_se =", float(h2.tot_se))
 print("intercept =", float(h2.intercept))
 print("ldscore_file =", ldscore_result.output_paths["ldscore"])
 print("weight_file =", ldscore_result.output_paths["w_ld"])
+print("sumstats_config =", sumstats.config_snapshot)
+print("dataset_config =", dataset.config_snapshot)
 ```
 
-`SumstatsMunger` does not currently use `GlobalConfig`, so the munging example
-omits it here. The registered `GlobalConfig` still applies to the downstream
-LD-score and regression workflow objects.
+`SumstatsMunger` now captures `GlobalConfig` provenance into
+`SumstatsTable.config_snapshot`, and `RegressionRunner.build_dataset()` checks
+that the sumstats and LD-score results agree on critical settings such as
+`snp_identifier` and `genome_build`. If they do not, the workflow raises
+`ConfigMismatchError` instead of silently merging inconsistent artifacts.
 
 ## CLI
 

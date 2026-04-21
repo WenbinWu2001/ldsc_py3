@@ -3,6 +3,7 @@ import gzip
 import sys
 import tempfile
 import unittest
+import warnings
 from unittest import mock
 
 import pandas as pd
@@ -32,13 +33,17 @@ class SumstatsMungerTest(unittest.TestCase):
                 handle.write("SNP\tZ\tN\tA1\tA2\tFRQ\nrs1\t1.5\t1000\tA\tG\t0.2\n")
 
             self.assertTrue(hasattr(ldsc, "load_sumstats"))
-            table = ldsc.load_sumstats(str(tmpdir / "trait*.sumstats.gz"), trait_name="trait")
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                table = ldsc.load_sumstats(str(tmpdir / "trait*.sumstats.gz"), trait_name="trait")
 
             self.assertEqual(table.source_path, str(sumstats_path))
             self.assertEqual(table.trait_name, "trait")
             self.assertTrue(table.has_alleles)
             self.assertEqual(table.data.columns.tolist(), ["SNP", "N", "Z", "A1", "A2", "FRQ"])
             self.assertEqual(table.data.loc[0, "SNP"], "rs1")
+            self.assertIsNotNone(table.config_snapshot)
+            self.assertTrue(any("cannot recover the GlobalConfig" in str(item.message) for item in caught))
 
     def test_run_munges_and_writes_output(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -55,6 +60,7 @@ class SumstatsMungerTest(unittest.TestCase):
             munger = SumstatsMunger()
             table = munger.run(raw, config, GlobalConfig(snp_identifier="rsid"))
             self.assertEqual(table.trait_name, "trait")
+            self.assertEqual(table.config_snapshot, GlobalConfig(snp_identifier="rsid"))
             self.assertTrue((tmpdir / "munged.sumstats.gz").exists())
             with gzip.open(tmpdir / "munged.sumstats.gz", "rt", encoding="utf-8") as handle:
                 output = pd.read_csv(handle, sep="\t")

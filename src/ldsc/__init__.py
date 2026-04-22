@@ -34,8 +34,6 @@ from .annotation_builder import (
     AnnotationBuilder,
     AnnotationBundle,
     AnnotationSourceSpec,
-    gene_set_to_bed,
-    make_annot_files,
     run_bed_to_annot,
 )
 from .config import (
@@ -63,6 +61,7 @@ _LAZY_EXPORTS = {
     "SumstatsMunger": (".sumstats_munger", "SumstatsMunger"),
     "SumstatsTable": (".sumstats_munger", "SumstatsTable"),
     "load_sumstats": (".sumstats_munger", "load_sumstats"),
+    "load_ldscore_from_files": (".regression_runner", "load_ldscore_from_files"),
     "RegressionDataset": (".regression_runner", "RegressionDataset"),
     "RegressionRunner": (".regression_runner", "RegressionRunner"),
 }
@@ -92,6 +91,7 @@ __all__ = [
     "LDScoreCalculator",
     "LDScoreConfig",
     "LDScoreResult",
+    "load_ldscore_from_files",
     "MungeConfig",
     "MungeRunSummary",
     "OutputManager",
@@ -115,9 +115,7 @@ __all__ = [
     "RunSummary",
     "SumstatsMunger",
     "SumstatsTable",
-    "gene_set_to_bed",
     "load_sumstats",
-    "make_annot_files",
     "run_build_ref_panel",
     "run_bed_to_annot",
     "run_ldscore",

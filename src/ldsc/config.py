@@ -87,23 +87,20 @@ class GlobalConfig:
         from chromosome and base-pair position.
     genome_build : {"auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"} or None, optional
         Genome-build context for ``chr_pos`` workflows. Default is ``"hg38"``.
-    ref_panel_snps_path : str or os.PathLike[str] or None, optional
-        Optional path to the SNP list or table defining the retained reference-
-        panel and annotation row universe. Default is ``None``.
-    regression_snps_path : str or os.PathLike[str] or None, optional
-        Optional path to the SNP list defining the regression SNP set used for
-        weight LD-score computation and the synchronized written row set of
-        `.l2.ldscore.gz` and `.w.l2.ldscore.gz`. Default is ``None``.
     log_level : {"DEBUG", "INFO", "WARNING", "ERROR"}, optional
         Requested logging verbosity for workflow modules. Default is ``"INFO"``.
     fail_on_missing_metadata : bool, optional
         If ``True``, treat missing optional metadata as a hard error rather than
         tolerating partial metadata tables. Default is ``False``.
+
+    Notes
+    -----
+    ``GlobalConfig`` intentionally carries only shared runtime assumptions.
+    Per-run SNP-universe controls such as ``ref_panel_snps_path`` and
+    ``regression_snps_path`` now live on workflow-specific configs.
     """
     snp_identifier: SNPIdentifierMode = "chr_pos"
     genome_build: GenomeBuildInput | None = "hg38"
-    ref_panel_snps_path: str | PathLike[str] | None = None
-    regression_snps_path: str | PathLike[str] | None = None
     log_level: LogLevel = "INFO"
     fail_on_missing_metadata: bool = False
 
@@ -113,8 +110,6 @@ class GlobalConfig:
             raise ValueError("snp_identifier must be 'rsid' or 'chr_pos'.")
         object.__setattr__(self, "genome_build", normalize_genome_build(self.genome_build))
         object.__setattr__(self, "log_level", _normalize_log_level(self.log_level))
-        object.__setattr__(self, "ref_panel_snps_path", _normalize_optional_path(self.ref_panel_snps_path))
-        object.__setattr__(self, "regression_snps_path", _normalize_optional_path(self.regression_snps_path))
 
 
 _GLOBAL_CONFIG: GlobalConfig = GlobalConfig()
@@ -163,19 +158,6 @@ def validate_config_compatibility(
             f"{b.snp_identifier!r}. These objects were computed under different "
             "SNP-identifier modes and cannot be safely merged."
         )
-    if a.ref_panel_snps_path != b.ref_panel_snps_path:
-        raise ConfigMismatchError(
-            f"ref_panel_snps_path mismatch{prefix}: {a.ref_panel_snps_path!r} vs "
-            f"{b.ref_panel_snps_path!r}. These objects were computed under different "
-            "reference-panel SNP universes and cannot be safely merged."
-        )
-    if a.regression_snps_path != b.regression_snps_path:
-        warnings.warn(
-            f"regression_snps_path differs{prefix}: {a.regression_snps_path!r} vs "
-            f"{b.regression_snps_path!r}. Results are combinable but regression SNP sets may differ.",
-            UserWarning,
-            stacklevel=2,
-        )
 
 
 @contextmanager
@@ -211,8 +193,9 @@ class AnnotationBuildConfig:
     out_prefix : str or os.PathLike[str] or None, optional
         Output prefix used by file-writing helpers. Default is ``None``.
     batch_mode : bool, optional
-        If ``True``, write one output directory per BED input in the batch
-        projection workflow. Default is ``True``.
+        Compatibility flag retained by the legacy BED-projection wrappers.
+        Current projection always returns one combined bundle regardless of this
+        value. Default is ``True``.
     compression : {"auto", "gzip", "bz2", "none"}, optional
         Output compression preference for generated annotation files. Default is
         ``"gzip"``.
@@ -298,6 +281,10 @@ class LDScoreConfig:
     keep_individuals_path : str or os.PathLike[str] or None, optional
         Optional path to a one-column IID keep file applied in PLINK mode
         before SNP and MAF filtering. Default is ``None``.
+    regression_snps_path : str or os.PathLike[str] or None, optional
+        Optional path to the SNP list defining the regression SNP set used for
+        the written `.l2.ldscore.gz` row set and the normalized public
+        ``ldscore_table`` rows. Default is ``None``.
     chunk_size : int, optional
         Chunk size for legacy PLINK block computations. Default is ``50``.
     compute_m5_50 : bool, optional
@@ -312,6 +299,7 @@ class LDScoreConfig:
     ld_wind_cm: float | None = None
     maf_min: float | None = None
     keep_individuals_path: str | PathLike[str] | None = None
+    regression_snps_path: str | PathLike[str] | None = None
     chunk_size: int = 50
     compute_m5_50: bool = True
     whole_chromosome_ok: bool = False
@@ -332,11 +320,18 @@ class LDScoreConfig:
         if self.chunk_size <= 0:
             raise ValueError("chunk_size must be positive.")
         object.__setattr__(self, "keep_individuals_path", _normalize_optional_path(self.keep_individuals_path))
+        object.__setattr__(self, "regression_snps_path", _normalize_optional_path(self.regression_snps_path))
 
 
 @dataclass(frozen=True)
 class ReferencePanelBuildConfig:
-    """Configuration for building standard parquet reference panels from PLINK."""
+    """Configuration for building standard parquet reference panels from PLINK.
+
+    This config owns the builder-only SNP restriction path
+    ``ref_panel_snps_path``. That setting is not shared through
+    ``GlobalConfig`` because it changes the retained panel rows for one build
+    run rather than the global identifier or genome-build assumptions.
+    """
 
     panel_label: str
     plink_prefix: str | PathLike[str]

@@ -33,6 +33,14 @@ class RefPanelLoaderTest(unittest.TestCase):
         panel = loader.load(spec)
         self.assertIsInstance(panel, PlinkRefPanel)
 
+    def test_ref_panel_spec_accepts_r2_bias_mode(self):
+        spec = RefPanelSpec(backend="parquet_r2", r2_bias_mode="unbiased")
+        self.assertEqual(spec.r2_bias_mode, "unbiased")
+
+    def test_ref_panel_spec_accepts_ref_panel_snps_path(self):
+        spec = RefPanelSpec(backend="plink", ref_panel_snps_path="/path/to/snps.txt")
+        self.assertEqual(spec.ref_panel_snps_path, "/path/to/snps.txt")
+
     def test_loader_selects_parquet_backend(self):
         loader = RefPanelLoader(GlobalConfig(snp_identifier="chr_pos"), RefPanelConfig())
         spec = RefPanelSpec(backend="parquet_r2", chromosomes=("1",), maf_metadata_paths=())
@@ -72,8 +80,8 @@ class PlinkRefPanelTest(unittest.TestCase):
             restrict = Path(tmpdir) / "restrict.txt"
             restrict.write_text("SNP\nrs7341907\n", encoding="utf-8")
             panel = PlinkRefPanel(
-                GlobalConfig(snp_identifier="rsid", ref_panel_snps_path=str(restrict)),
-                RefPanelSpec(backend="plink", bfile_prefix=str(FIXTURES / "plink")),
+                GlobalConfig(snp_identifier="rsid"),
+                RefPanelSpec(backend="plink", bfile_prefix=str(FIXTURES / "plink"), ref_panel_snps_path=str(restrict)),
             )
             metadata = panel.load_metadata("9")
             self.assertEqual(set(metadata["SNP"]), {"rs7341907"})

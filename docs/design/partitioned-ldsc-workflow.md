@@ -13,7 +13,7 @@ genomic annotations (e.g., a set of enhancer regions defined by BED files). The 
 has two sequential phases:
 
 1. **LD score computation** — for each chromosome, compute annotation-weighted LD scores and
-   write `.l2.ldscore.gz` / `.M` / `.M_5_50` files.
+   write per-chromosome `.l2.ldscore.gz` files plus aggregate `.M` / `.M_5_50` files.
 2. **Regression** — read the LD score files and summary statistics, run the partitioned LDSC
    regression, and report per-annotation heritability enrichment.
 
@@ -64,7 +64,7 @@ output counts and row counts.
 |--------|------|---------|
 | **B** | Baseline annotation SNPs | All SNPs with a row in the loaded baseline `.annot.gz` files |
 | **A** | Raw reference panel SNPs | All SNPs in the PLINK `.bim` or parquet R² index |
-| **A'** | Restricted reference panel | A ∩ `ref_panel_snps_path`; equals A when `--ref-panel-snps` is absent |
+| **A'** | Restricted reference panel | A ∩ `ref_panel_snps_path`; equals A when `--ref-panel-snps-path` is absent |
 | **`ld_reference_snps`** | LD computation universe | B ∩ A' — SNPs in both annotation and (restricted) reference panel |
 | **C** | Regression SNP flags | Binary mask from `regression_snps_path`; flags 1 only for SNPs in `ld_reference_snps` |
 | **`ld_regression_snps`** | Regression output SNPs | B ∩ A' ∩ C — rows of the output `.l2.ldscore.gz` file |
@@ -75,7 +75,7 @@ output counts and row counts.
 
 - **LD scores** are computed over `ld_reference_snps` (the full reference universe). This
   is the SNP set used for column sums → **M** and **M_5_50** counts.
-- The **output file rows** are only `ld_regression_snps`. When `--regression-snps` is absent,
+- The **output file rows** are only `ld_regression_snps`. When `--regression-snps-path` is absent,
   `ld_regression_snps = ld_reference_snps` and all reference SNPs appear as rows.
 - `ld_reference_snps` is an internal variable. It is **never written as a separate file** and
   is discarded after `.M` / `.M_5_50` are computed.
@@ -87,14 +87,14 @@ output counts and row counts.
 
 ---
 
-## 4. Optional Arguments: `--ref-panel-snps` and `--regression-snps`
+## 4. Optional Arguments: `--ref-panel-snps-path` and `--regression-snps-path`
 
 Both flags are valid only on `ldsc ldscore`.
 
-### 4.1 `--ref-panel-snps` → restricts the reference panel (A → A')
+### 4.1 `--ref-panel-snps-path` → restricts the reference panel (A → A')
 
 ```
-ldsc ldscore --ref-panel-snps hm3.snplist ...
+ldsc ldscore --ref-panel-snps-path hm3.snplist ...
 ```
 
 Provides a SNP list file (one rsID per line, or CHR:POS depending on `--snp-identifier` mode).
@@ -108,10 +108,10 @@ contains low-quality or imputed SNPs not present in the annotation.
 
 **When absent:** `A' = A`; all reference panel SNPs are eligible.
 
-### 4.2 `--regression-snps` → restricts the output rows (ld_reference_snps → ld_regression_snps)
+### 4.2 `--regression-snps-path` → restricts the output rows (ld_reference_snps → ld_regression_snps)
 
 ```
-ldsc ldscore --regression-snps hm3.snplist ...
+ldsc ldscore --regression-snps-path hm3.snplist ...
 ```
 
 Provides a second SNP list that flags which SNPs from `ld_reference_snps` should appear in the
@@ -131,15 +131,15 @@ ldsc ldscore \
   --baseline-annot resources/baseline_v1.2/baseline.@ \
   --query-annot-bed my_peaks.bed \
   --bfile resources/1kg/1KG_EUR_Phase3_plink/1KG_EUR_Phase3_chr@ \
-  --ref-panel-snps resources/w_hm3.snplist \
-  --regression-snps resources/w_hm3.snplist \
+  --ref-panel-snps-path resources/w_hm3.snplist \
+  --regression-snps-path resources/w_hm3.snplist \
   --out my_study
 ```
 
 With both flags pointing to the same HapMap3 list:
 - `A'` = HapMap3 SNPs in the reference panel
 - `ld_reference_snps` = baseline annotation SNPs ∩ HapMap3 ref panel SNPs
-- `ld_regression_snps` = same (since `--regression-snps` = `--ref-panel-snps` here)
+- `ld_regression_snps` = same (since `--regression-snps-path` = `--ref-panel-snps-path` here)
 
 ---
 
@@ -148,8 +148,8 @@ With both flags pointing to the same HapMap3 list:
 Before LD score computation begins, all annotation sources (baseline + query) are loaded and
 intersected into a single `AnnotationBundle` by `AnnotationBuilder.run()`. The bundle holds:
 
-- `baseline_matrix`: DataFrame with rows = B, columns = baseline annotation categories
-- `query_matrix`: DataFrame with rows = B, columns = query annotation categories (empty if
+- `baseline_annotations`: DataFrame with rows = B, columns = baseline annotation categories
+- `query_annotations`: DataFrame with rows = B, columns = query annotation categories (empty if
   no query annotation provided)
 - `metadata`: per-SNP CHR/BP/SNP index aligned to the combined matrix rows
 
@@ -172,7 +172,7 @@ When `--query-annot-bed` is used, BED intervals are projected onto B in memory u
 5. The `regression_snps` set C is applied as a binary mask to select `ld_regression_snps`.
 6. Output row = `ld_regression_snps`. A `regr_weight` column is appended (the total LD score
    used as regression weight, previously the `.w.l2.ldscore.gz` value).
-7. The single merged file `<out_prefix>.<chrom>.l2.ldscore.gz` is written.
+7. Under the default output manager, one per-chromosome file `<out_prefix>.<chrom>.l2.ldscore.gz` is written.
 8. The in-memory `ChromLDScoreResult` / `LDScoreResult` is normalized to the same single-table
    shape as the written file: `ldscore_table` with rows = `ld_regression_snps` and columns
    `[CHR, SNP, BP, <annot>_L2..., regr_weight]`.
@@ -199,7 +199,7 @@ set `ld_reference_snps = frozenset()` after this normalization step.
 This row/column layout is also the public in-memory `ldscore_table` shape returned by
 `LDScoreCalculator.run()` after normalization.
 
-### 7.2 `.M` and `.M_5_50` (per annotation, per chromosome)
+### 7.2 `.M` and `.M_5_50` (aggregate count vectors)
 
 Tab-separated count files. Each value is the **sum of annotation indicator values over
 `ld_reference_snps`** (not `ld_regression_snps`). `M_5_50` restricts the count to SNPs
@@ -207,6 +207,7 @@ with MAF between 5% and 50%.
 
 These counts are used as denominators in the heritability partitioning formula and are
 tracked over the full reference universe (`ld_reference_snps`), not the regression subset.
+They are emitted once per run after chromosome aggregation rather than once per chromosome.
 
 ### 7.3 No `.w.l2.ldscore.gz` file
 
@@ -218,7 +219,7 @@ the `regr_weight` column in `.l2.ldscore.gz`. Pre-computed weight files from ext
 
 ## 8. Regression Phase
 
-`ldsc partitioned-h2 --ref-ld-chr <prefix>.@ --sumstats <file> [--w-ld <prefix>.@]`
+`ldsc partitioned-h2 --ldscore <merged_file> --sumstats <file> [--w-ld <legacy_weight_file>]`
 
 ### 8.1 Loading LD scores from disk
 
@@ -228,7 +229,7 @@ artifacts. It detects the file format automatically:
 - **New format (default):** `regr_weight` column present in `.l2.ldscore.gz`. `weight_path`
   argument omitted; weights extracted from the embedded column.
 - **Legacy format:** no `regr_weight` column. Pass `weight_path` pointing to a separate
-  `.w.l2.ldscore.gz` file (or a path token containing `@` for a chromosome suite).
+  `.w.l2.ldscore.gz` file.
 
 SNP set reconstruction:
 
@@ -295,6 +296,7 @@ ref_spec = RefPanelSpec(
     ref_panel_snps_path="resources/w_hm3.snplist",   # optional
 )
 ldscore_config = LDScoreConfig(
+    ld_wind_cm=1.0,
     regression_snps_path="resources/w_hm3.snplist",  # optional
 )
 from ldsc._kernel.ref_panel import PlinkRefPanel
@@ -309,8 +311,8 @@ ldscore_df = result.ldscore_table
 
 # 3. Load from disk (after step 2 has already written files)
 result = load_ldscore_from_files(
-    ldscore_path="my_study.@.l2.ldscore.gz",
-    counts_path="my_study.@.l2.M_5_50",
+    ldscore_path="my_study.merged.l2.ldscore.gz",
+    counts_path="my_study.l2.M_5_50",
     count_kind="m_5_50",
     snp_identifier="rsid",
     # weight_path omitted: uses embedded regr_weight column
@@ -335,8 +337,8 @@ ldsc ldscore \
   --baseline-annot resources/baseline_v1.2/baseline.@ \
   --query-annot-bed my_peaks.bed \
   --bfile resources/1kg/1KG_EUR_Phase3_chr@ \
-  --ref-panel-snps resources/w_hm3.snplist \
-  --regression-snps resources/w_hm3.snplist \
+  --ref-panel-snps-path resources/w_hm3.snplist \
+  --regression-snps-path resources/w_hm3.snplist \
   --out my_study
 
 # Step 1 (alternative): pre-built query annotation files
@@ -350,18 +352,26 @@ ldsc ldscore \
 ldsc annotate \
   --bed-files my_peaks.bed \
   --baseline-annot resources/baseline_v1.2/baseline.@ \
-  --out my_peaks_annot
+  --output-dir my_peaks_annot
 
-# Step 2: partitioned h² regression (new format, no --w-ld needed)
+# Step 2: partitioned h² regression
+# The regression CLI currently expects one merged .l2.ldscore.gz file plus
+# either --query-columns or an explicit annotation manifest.
 ldsc partitioned-h2 \
-  --ref-ld-chr my_study.@ \
+  --ldscore my_study.merged.l2.ldscore.gz \
   --sumstats my_gwas.sumstats.gz \
+  --counts my_study.l2.M_5_50 \
+  --count-kind m_5_50 \
+  --query-columns my_peaks \
   --out my_study_h2
 
 # Step 2 (backward compat): with separate EUR weight file
 ldsc partitioned-h2 \
-  --ref-ld-chr my_study.@ \
-  --w-ld resources/eur_w_ld_chr/weights.@ \
+  --ldscore my_study.merged.l2.ldscore.gz \
+  --w-ld resources/eur_w_ld_chr/weights.w.l2.ldscore.gz \
   --sumstats my_gwas.sumstats.gz \
+  --counts my_study.l2.M_5_50 \
+  --count-kind m_5_50 \
+  --query-columns my_peaks \
   --out my_study_h2
 ```

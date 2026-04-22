@@ -29,6 +29,14 @@ def _write_annot(path: Path, rows: list[tuple], annotation_columns: dict[str, li
 
 
 class AnnotationBuilderTest(unittest.TestCase):
+    def test_annotation_source_spec_has_no_gene_set_paths(self):
+        spec = AnnotationSourceSpec(baseline_annot_paths=("baseline.1.annot.gz",))
+        self.assertFalse(hasattr(spec, "gene_set_paths"))
+
+    def test_gene_set_functions_not_exported(self):
+        for name in ("gene_set_to_bed", "make_annot_files", "main_make_annot", "parse_make_annot_args"):
+            self.assertFalse(hasattr(annotation_builder, name), f"{name} should not be exported")
+
     def test_run_builds_bundle(self):
         builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -70,19 +78,17 @@ class AnnotationBuilderTest(unittest.TestCase):
                     )
                 )
 
-    def test_global_rsid_restriction_applies(self):
+    def test_run_in_rsid_mode_keeps_all_rows(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             base = tmpdir / "base.annot"
             query = tmpdir / "query.annot"
-            restrict = tmpdir / "restrict.txt"
             rows = [("1", 10, "rs1", 0.1), ("1", 20, "rs2", 0.2), ("2", 30, "rs3", 0.3)]
             _write_annot(base, rows, {"base_a": [1, 0, 1]})
             _write_annot(query, rows, {"query_a": [0, 1, 1]})
-            restrict.write_text("SNP\nrs1\nrs3\n", encoding="utf-8")
 
             builder = AnnotationBuilder(
-                GlobalConfig(snp_identifier="rsid", ref_panel_snps_path=str(restrict)),
+                GlobalConfig(snp_identifier="rsid"),
                 AnnotationBuildConfig(),
             )
             bundle = builder.run(
@@ -92,24 +98,55 @@ class AnnotationBuilderTest(unittest.TestCase):
                 )
             )
 
-            self.assertEqual(bundle.reference_snps("rsid"), {"rs1", "rs3"})
-            self.assertEqual(len(bundle.metadata), 2)
+            self.assertEqual(bundle.reference_snps("rsid"), {"rs1", "rs2", "rs3"})
+            self.assertEqual(len(bundle.metadata), 3)
 
-    def test_global_chr_pos_restriction_applies(self):
+    def test_run_in_chr_pos_mode_keeps_all_rows(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             base = tmpdir / "base.annot"
             rows = [("1", 10, "rs1", 0.1), ("1", 20, "rs2", 0.2), ("2", 30, "rs3", 0.3)]
             _write_annot(base, rows, {"base_a": [1, 0, 1]})
-            restrict = tmpdir / "restrict.tsv"
-            restrict.write_text("CHR\tBP\n1\t20\n2\t30\n", encoding="utf-8")
 
             builder = AnnotationBuilder(
-                GlobalConfig(snp_identifier="chr_pos", ref_panel_snps_path=str(restrict)),
+                GlobalConfig(snp_identifier="chr_pos"),
                 AnnotationBuildConfig(),
             )
             bundle = builder.run(AnnotationSourceSpec(baseline_annot_paths=(str(base),)))
-            self.assertEqual(bundle.reference_snps("chr_pos"), {"1:20", "2:30"})
+            self.assertEqual(bundle.reference_snps("chr_pos"), {"1:10", "1:20", "2:30"})
+
+    def test_run_with_bed_paths_returns_bundle_with_binary_query_columns(self):
+        builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            base = tmpdir / "base.annot"
+            bed = tmpdir / "query.bed"
+            rows = [("1", 10, "rs1", 0.1), ("1", 20, "rs2", 0.2), ("2", 30, "rs3", 0.3)]
+            _write_annot(base, rows, {"base_a": [1, 0, 1]})
+            bed.write_text("chr1\t0\t100\tfeature\n", encoding="utf-8")
+
+            class _FakeBedTool:
+                def __init__(self, path: str):
+                    self.path = path
+
+            fake_pybedtools = mock.Mock()
+            fake_pybedtools.BedTool = _FakeBedTool
+
+            with mock.patch.object(kernel_annotation, "_get_pybedtools", return_value=fake_pybedtools), mock.patch.object(
+                kernel_annotation,
+                "_compute_bed_overlap_mask",
+                return_value=[True, False, True],
+            ):
+                bundle = builder.run(
+                    AnnotationSourceSpec(
+                        baseline_annot_paths=(str(base),),
+                        bed_paths=(str(bed),),
+                    )
+                )
+
+            self.assertEqual(bundle.query_columns, ["query"])
+            self.assertEqual(bundle.query_annotations["query"].tolist(), [1.0, 0.0, 1.0])
+            self.assertEqual(len(bundle.metadata), len(bundle.query_annotations))
 
     def test_process_baseline_file_drops_rows_outside_ref_panel_universe(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -442,11 +479,40 @@ class AnnotationWrapperTest(unittest.TestCase):
             "query.custom_template.annot.gz",
         )
 
-    def test_make_annot_wrapper_calls_main(self):
-        with mock.patch.object(annotation_builder, "main_make_annot", return_value=7) as patched:
-            rc = annotation_builder.main_make_annot(["--help"])
-        patched.assert_called_once()
-        self.assertEqual(rc, 7)
+    def test_make_annot_wrapper_is_removed(self):
+        self.assertFalse(hasattr(annotation_builder, "main_make_annot"))
+
+    def test_run_bed_to_annot_returns_annotation_bundle(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            baseline = tmpdir / "baseline.annot"
+            bed = tmpdir / "query.bed"
+            _write_annot(
+                baseline,
+                [("1", 10, "rs1", 0.1), ("1", 20, "rs2", 0.2)],
+                {"base_a": [1, 0]},
+            )
+            bed.write_text("chr1\t0\t100\tfeature\n", encoding="utf-8")
+
+            class _FakeBedTool:
+                def __init__(self, path: str):
+                    self.path = path
+
+            fake_pybedtools = mock.Mock()
+            fake_pybedtools.BedTool = _FakeBedTool
+
+            with mock.patch.object(kernel_annotation, "_get_pybedtools", return_value=fake_pybedtools), mock.patch.object(
+                kernel_annotation,
+                "_compute_bed_overlap_mask",
+                return_value=[True, False],
+            ):
+                result = run_bed_to_annot(
+                    bed_files=[str(bed)],
+                    baseline_annot_paths=[str(baseline)],
+                )
+
+            self.assertIsInstance(result, kernel_annotation.AnnotationBundle)
+            self.assertEqual(result.query_columns, ["query"])
 
     def test_run_bed_wrapper_calls_main(self):
         with mock.patch.object(annotation_builder, "main_bed_to_annot", return_value=5) as patched:

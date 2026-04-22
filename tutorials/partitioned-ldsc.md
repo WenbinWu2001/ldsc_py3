@@ -3,11 +3,8 @@
 Goal: run partitioned LDSC in the refactored package by building query annotations, computing baseline-plus-query LD scores, and fitting one partitioned model per query annotation.
 
 The examples below assume chromosome-pattern inputs such as `annotations/baseline.1.annot.gz`, `r2/reference.1.parquet`, and `r2/reference_metadata.1.tsv.gz`.
-The bundled `baseline_v1.2` annotations are hg19-based, so the parquet example
-uses `genome_build="hg19"` to align raw parquet coordinates to the annotation bundle.
-The workflow also accepts `hg37` and `GRCh37` as aliases for `hg19`, and
-`GRCh38` as an alias for `hg38`; outputs always normalize back to canonical
-`hg19` or `hg38`.
+The bundled `baseline_v1.2` annotations are hg19-based, so the parquet example uses `genome_build="hg19"` to align raw parquet coordinates to the annotation bundle.
+The workflow also accepts `hg37` and `GRCh37` as aliases for `hg19`, and `GRCh38` as an alias for `hg38`; outputs always normalize back to canonical `hg19` or `hg38`.
 
 Path-token rules used in this tutorial:
 
@@ -26,6 +23,8 @@ Resolution behavior:
 
 ## Python API
 
+The Python API is the cleanest end-to-end path because it keeps the merged `AnnotationBundle` and `LDScoreResult` in memory across the whole workflow.
+
 ```python
 from ldsc import (
     AnnotationBuildConfig,
@@ -41,7 +40,6 @@ from ldsc import (
     RegressionConfig,
     RegressionRunner,
     SumstatsMunger,
-    get_global_config,
     load_sumstats,
     run_bed_to_annot,
     set_global_config,
@@ -50,27 +48,22 @@ from ldsc import (
 GLOBAL_CONFIG = GlobalConfig(
     snp_identifier="chr_pos",
     genome_build="hg19",
-    ref_panel_snps_path="filters/reference_universe.tsv.gz",
-    regression_snps_path="filters/hapmap3.tsv.gz",
 )
 set_global_config(GLOBAL_CONFIG)
-global_config = get_global_config()
 
-run_bed_to_annot(
-    bed_files="beds/*.bed",
-    baseline_annot_paths="annotations/baseline_chr/baseline.@.annot.gz",
-    output_dir="annotations/query_from_beds",
-)
-
-annotation_bundle = AnnotationBuilder(global_config, AnnotationBuildConfig()).run(
+annotation_bundle = AnnotationBuilder(GLOBAL_CONFIG, AnnotationBuildConfig()).run(
     AnnotationSourceSpec(
         baseline_annot_paths="annotations/baseline_chr/baseline.@.annot.gz",
-        query_annot_paths="annotations/query_from_beds/query.@.annot.gz",
+        bed_paths="beds/*.bed",
     )
 )
-# `run()` resolves the `@` tokens and automatically bundles the per-chromosome
-# annotation shards into one in-memory bundle.
-# `run_bed_to_annot()` writes the projected query shards as `query.<chrom>.annot.gz`.
+
+# If you want reusable query .annot.gz shards on disk, materialize them explicitly.
+# reusable_bundle = run_bed_to_annot(
+#     bed_files="beds/*.bed",
+#     baseline_annot_paths="annotations/baseline_chr/baseline.@.annot.gz",
+#     output_dir="annotations/query_from_beds",
+# )
 
 sumstats = SumstatsMunger().run(
     RawSumstatsSpec(
@@ -82,7 +75,7 @@ sumstats = SumstatsMunger().run(
         out_prefix="tutorial_outputs/trait",
         signed_sumstats_spec="BETA,0",
     ),
-    global_config=global_config,
+    global_config=GLOBAL_CONFIG,
 )
 
 # If you already have a curated .sumstats.gz artifact on disk, keep the same
@@ -90,22 +83,28 @@ sumstats = SumstatsMunger().run(
 # the original munge-time config is not recoverable from disk.
 # sumstats = load_sumstats("tutorial_outputs/trait.sumstats.gz", trait_name="trait")
 
-ref_panel = RefPanelLoader(global_config).load(
+ref_panel = RefPanelLoader(GLOBAL_CONFIG).load(
     RefPanelSpec(
         backend="parquet_r2",
-        r2_table_paths="r2/reference.*.parquet",
+        r2_table_paths="r2/reference.@.parquet",
+        maf_metadata_paths="r2/reference_metadata.@.tsv.gz",
         chromosomes=tuple(annotation_bundle.chromosomes),
+        genome_build="hg19",
+        ref_panel_snps_path="filters/reference_universe.tsv.gz",
     )
 )
 
 ldscore_result = LDScoreCalculator().run(
     annotation_bundle=annotation_bundle,
     ref_panel=ref_panel,
-    ldscore_config=LDScoreConfig(ld_wind_cm=1.0),
-    global_config=global_config,
+    ldscore_config=LDScoreConfig(
+        ld_wind_cm=1.0,
+        regression_snps_path="filters/hapmap3.tsv.gz",
+    ),
+    global_config=GLOBAL_CONFIG,
 )
 
-runner = RegressionRunner(global_config=global_config, regression_config=RegressionConfig())
+runner = RegressionRunner(global_config=GLOBAL_CONFIG, regression_config=RegressionConfig())
 partitioned = runner.estimate_partitioned_h2_batch(
     sumstats,
     ldscore_result,
@@ -113,39 +112,58 @@ partitioned = runner.estimate_partitioned_h2_batch(
 )
 
 partitioned.to_csv("tutorial_outputs/partitioned_h2.tsv", sep="\t", index=False)
+print(annotation_bundle.query_columns)
+print(ldscore_result.ldscore_table.head())
 print(partitioned)
 ```
 
-The Python workflow registers `GlobalConfig` once, then reuses it across the
-compatible helper functions and workflow classes. The resulting
-`AnnotationBundle`, `SumstatsTable`, and `LDScoreResult` objects carry frozen
-`config_snapshot` values, and the regression step will raise
-`ConfigMismatchError` if you accidentally mix artifacts produced under
-incompatible `snp_identifier` or `genome_build` assumptions.
+The Python workflow registers `GlobalConfig` once, then reuses it across the compatible helper functions and workflow classes. The resulting `AnnotationBundle`, `SumstatsTable`, and `LDScoreResult` objects carry frozen `config_snapshot` values, and the regression step raises `ConfigMismatchError` if you accidentally mix artifacts produced under incompatible `snp_identifier` or `genome_build` assumptions.
 
-Within that shared config, `ref_panel_snps_path` controls the retained
-annotation/reference SNP universe, while `regression_snps_path` controls the
-regression subset used to compute `w_ld` and the synchronized SNP rows written
-to the LD-score artifacts consumed by regression.
+Within this design:
+
+- `ref_panel_snps_path` belongs to `RefPanelSpec` and restricts the retained reference-panel rows
+- `regression_snps_path` belongs to `LDScoreConfig` and restricts the rows that survive into the normalized `ldscore_table`
+- regression weights are embedded as `regr_weight`; there is no separate `.w.l2.ldscore.gz` artifact in the new default format
 
 ## CLI
+
+The CLI supports BED-driven LD-score generation directly:
+
+```bash
+ldsc ldscore \
+  --out tutorial_outputs/partitioned_ldscores \
+  --baseline-annot "annotations/baseline_chr/baseline.@.annot.gz" \
+  --query-annot-bed "beds/*.bed" \
+  --r2-table "r2/reference.@.parquet" \
+  --frqfile "r2/reference_metadata.@.tsv.gz" \
+  --ref-panel-snps-path filters/reference_universe.tsv.gz \
+  --regression-snps-path filters/hapmap3.tsv.gz \
+  --snp-identifier chr_pos \
+  --genome-build hg19 \
+  --ld-wind-cm 1.0
+```
+
+You can still materialize reusable query `.annot.gz` files explicitly:
 
 ```bash
 ldsc annotate \
   --bed-files "beds/*.bed" \
   --baseline-annot "annotations/baseline_chr/baseline.@.annot.gz" \
   --output-dir annotations/query_from_beds
+```
 
-ldsc ldscore \
-  --out tutorial_outputs/partitioned_ldscores \
-  --baseline-annot "annotations/baseline_chr/baseline.@.annot.gz" \
-  --query-annot "annotations/query_from_beds/query.@.annot.gz" \
-  --r2-table "r2/reference.*.parquet" \
-  --frqfile "r2/reference_metadata.@.tsv.gz" \
-  --snp-identifier chr_pos \
-  --genome-build hg19 \
-  --ld-wind-cm 1.0
+The regression CLI has two current constraints that matter for partitioned runs:
 
+- `ldsc ldscore` writes per-chromosome `.l2.ldscore.gz` files by default
+- `ldsc partitioned-h2` loads one merged `.l2.ldscore.gz` table at a time and needs either `--query-columns` or an explicit annotation manifest
+
+So the CLI regression example below assumes you already have:
+
+- a merged LD-score table such as `tutorial_outputs/partitioned_ldscores.merged.l2.ldscore.gz`
+- aggregate counts such as `tutorial_outputs/partitioned_ldscores.l2.M_5_50`
+- query column names derived from your BED basenames, here `enhancers,promoters`
+
+```bash
 ldsc munge-sumstats \
   --sumstats data/trait.tsv.gz \
   --snp SNP \
@@ -158,22 +176,11 @@ ldsc munge-sumstats \
 
 ldsc partitioned-h2 \
   --sumstats tutorial_outputs/trait.sumstats.gz \
-  --ldscore tutorial_outputs/partitioned_ldscores.l2.ldscore.gz \
-  --w-ld tutorial_outputs/partitioned_ldscores.w.l2.ldscore.gz \
-  --counts tutorial_outputs/partitioned_ldscores.M_5_50 \
+  --ldscore tutorial_outputs/partitioned_ldscores.merged.l2.ldscore.gz \
+  --counts tutorial_outputs/partitioned_ldscores.l2.M_5_50 \
   --count-kind m_5_50 \
-  --annotation-manifest tutorial_outputs/partitioned_ldscores.annotation_groups.tsv \
+  --query-columns enhancers,promoters \
   --out tutorial_outputs/partitioned_h2
 ```
 
-The default CLI summary is intentionally query-focused: one output table with one row per query annotation.
-If `--output-dir` does not exist yet during annotation projection, the workflow warns once and creates it automatically.
-
-For the Python workflow-layer API, the annotation bundle already provides SNP metadata such as
-`CHR`, `POS`, `SNP`, and `CM`, so the partitioned example only needs the parquet `R2` tables.
-If your workflow depends on separate frequency metadata such as `MAF`, load that through the
-reference panel spec as well.
-
-When you use chromosome-position matching, keep the annotation bundle, reference
-panel, munged sumstats, and downstream regression under the same normalized
-`genome_build`. The package now enforces that explicitly at merge points.
+If you have a legacy separate weight file, add `--w-ld <path>` to the regression command. Otherwise leave it unset and let the loader use the embedded `regr_weight` column.

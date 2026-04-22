@@ -55,24 +55,22 @@ def _make_sumstats_table() -> SumstatsTable:
 
 
 def _make_ldscore_result() -> LDScoreResult:
-    metadata = pd.DataFrame(
+    ldscore_table = pd.DataFrame(
         {
             "CHR": ["1", "1"],
             "SNP": ["rs1", "rs2"],
-            "POS": [10, 20],
-            "CM": [0.1, 0.2],
+            "BP": [10, 20],
+            "base": [1.0, 2.0],
+            "regr_weight": [3.0, 4.0],
         }
     )
     return LDScoreResult(
-        reference_metadata=metadata,
-        ld_scores=pd.DataFrame({"base": [1.0, 2.0]}),
-        regression_metadata=metadata.copy(),
-        w_ld=pd.DataFrame({"L2": [3.0, 4.0]}),
+        ldscore_table=ldscore_table,
         snp_count_totals={"all_reference_snp_counts": np.array([10.0])},
         baseline_columns=["base"],
         query_columns=[],
-        reference_snps={"rs1", "rs2"},
-        regression_snps={"rs1", "rs2"},
+        ld_reference_snps=frozenset(),
+        ld_regression_snps=frozenset({"rs1", "rs2"}),
         chromosome_results=[],
     )
 
@@ -86,7 +84,6 @@ class GlobalConfigRegistryTest(unittest.TestCase):
             GlobalConfig(
                 snp_identifier="rsid",
                 genome_build="hg19",
-                ref_panel_snps_path="restrict.txt",
                 log_level="DEBUG",
             )
         )
@@ -95,7 +92,7 @@ class GlobalConfigRegistryTest(unittest.TestCase):
             kernel_annotation.AnnotationBuilder,
             "project_bed_annotations",
             autospec=True,
-            return_value=Path("out"),
+            return_value=mock.sentinel.bundle,
         ) as patched, mock.patch("builtins.print") as patched_print:
             result = ldsc.run_bed_to_annot(
                 bed_files="beds/*.bed",
@@ -103,11 +100,10 @@ class GlobalConfigRegistryTest(unittest.TestCase):
                 output_dir="out",
             )
 
-        self.assertEqual(result, Path("out"))
+        self.assertIs(result, mock.sentinel.bundle)
         builder = patched.call_args.args[0]
         self.assertEqual(builder.global_config.snp_identifier, "rsid")
         self.assertEqual(builder.global_config.genome_build, "hg19")
-        self.assertEqual(builder.global_config.ref_panel_snps_path, "restrict.txt")
         self.assertEqual(builder.global_config.log_level, "DEBUG")
         self.assertEqual(patched_print.call_count, 1)
         self.assertIn("GlobalConfig", patched_print.call_args.args[0])
@@ -240,17 +236,3 @@ class ConfigCompatibilityTest(unittest.TestCase):
         shared = GlobalConfig(genome_build="hg38", snp_identifier="chr_pos")
 
         validate_config_compatibility(shared, shared, context="test")
-
-    def test_validate_config_compatibility_raises_on_ref_panel_snps_difference(self):
-        left = GlobalConfig(genome_build="hg38", snp_identifier="chr_pos", ref_panel_snps_path="left.txt")
-        right = GlobalConfig(genome_build="hg38", snp_identifier="chr_pos", ref_panel_snps_path="right.txt")
-
-        with self.assertRaisesRegex(ConfigMismatchError, "ref_panel_snps_path mismatch"):
-            validate_config_compatibility(left, right, context="test")
-
-    def test_validate_config_compatibility_warns_on_regression_snps_difference(self):
-        left = GlobalConfig(genome_build="hg38", snp_identifier="chr_pos", regression_snps_path="left.txt")
-        right = GlobalConfig(genome_build="hg38", snp_identifier="chr_pos", regression_snps_path="right.txt")
-
-        with self.assertWarnsRegex(UserWarning, "regression_snps_path differs"):
-            validate_config_compatibility(left, right, context="test")

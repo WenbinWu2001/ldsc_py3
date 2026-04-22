@@ -30,28 +30,55 @@ except ImportError:
 
 @unittest.skipIf(RegressionRunner is None, "regression_runner module is not available")
 class RegressionWorkflowTest(unittest.TestCase):
+    def test_load_ldscore_from_files_is_public(self):
+        from ldsc import load_ldscore_from_files
+
+        self.assertTrue(callable(load_ldscore_from_files))
+
+    def test_load_ldscore_from_files_new_format_no_weight_path(self):
+        from ldsc import load_ldscore_from_files
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            ldscore_path = tmpdir / "trait.l2.ldscore.gz"
+            counts_path = tmpdir / "trait.l2.M_5_50"
+            with gzip.open(ldscore_path, "wt", encoding="utf-8") as handle:
+                handle.write("CHR\tSNP\tBP\tbase\tquery\tregr_weight\n1\trs1\t10\t1.0\t2.0\t3.0\n")
+            counts_path.write_text("5\t6\n", encoding="utf-8")
+
+            result = load_ldscore_from_files(
+                ldscore_path=str(ldscore_path),
+                counts_path=str(counts_path),
+                count_kind="m_5_50",
+                snp_identifier="rsid",
+            )
+
+        self.assertIn("regr_weight", result.ldscore_table.columns)
+        self.assertEqual(result.ld_reference_snps, frozenset())
+        self.assertEqual(result.ld_regression_snps, frozenset({"rs1"}))
+
     def make_ldscore_result(self):
-        metadata = pd.DataFrame(
+        ldscore_table = pd.DataFrame(
             {
                 "CHR": ["1", "1", "1"],
                 "SNP": ["rs1", "rs2", "rs3"],
                 "BP": [10, 20, 30],
-                "CM": [0.1, 0.2, 0.3],
+                "base": [1.0, 1.0, 1.0],
+                "query1": [1.0, 2.0, 3.0],
+                "query2": [0.5, 1.5, 2.5],
+                "regr_weight": [2.0, 2.0, 2.0],
             }
         )
         return LDScoreResult(
-            reference_metadata=metadata,
-            ld_scores=pd.DataFrame({"base": [1.0, 1.0, 1.0], "query1": [1.0, 2.0, 3.0], "query2": [0.5, 1.5, 2.5]}),
-            regression_metadata=metadata.copy(),
-            w_ld=pd.DataFrame({"L2": [2.0, 2.0, 2.0]}),
+            ldscore_table=ldscore_table,
             snp_count_totals={
                 "all_reference_snp_counts": np.array([10.0, 20.0, 30.0]),
                 "common_reference_snp_counts_maf_gt_0_05": np.array([8.0, 18.0, 28.0]),
             },
             baseline_columns=["base"],
             query_columns=["query1", "query2"],
-            reference_snps={"rs1", "rs2", "rs3"},
-            regression_snps={"rs1", "rs2", "rs3"},
+            ld_reference_snps=frozenset(),
+            ld_regression_snps=frozenset({"rs1", "rs2", "rs3"}),
             chromosome_results=[],
             config_snapshot=GlobalConfig(genome_build="hg38", snp_identifier="rsid"),
         )
@@ -198,3 +225,45 @@ class RegressionWorkflowTest(unittest.TestCase):
                     counts_path=str(counts_path),
                     count_kind="m_5_50",
                 )
+
+    def test_run_h2_from_args_without_w_ld_uses_embedded_regr_weight(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
+                handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
+            with gzip.open(tmpdir / "trait.l2.ldscore.gz", "wt", encoding="utf-8") as handle:
+                handle.write("CHR\tSNP\tBP\tbase\tregr_weight\n1\trs1\t10\t1.0\t2.0\n")
+            (tmpdir / "trait.l2.M_5_50").write_text("5\n", encoding="utf-8")
+            args = type(
+                "Args",
+                (),
+                {
+                    "sumstats": str(tmpdir / "trait.sumstats.gz"),
+                    "trait_name": "trait",
+                    "ldscore": str(tmpdir / "trait.l2.ldscore.gz"),
+                    "w_ld": None,
+                    "counts": str(tmpdir / "trait.l2.M_5_50"),
+                    "count_kind": "m_5_50",
+                    "out": None,
+                    "n_blocks": 200,
+                    "no_intercept": False,
+                    "intercept_h2": None,
+                    "two_step_cutoff": None,
+                    "chisq_max": None,
+                },
+            )()
+
+            with mock.patch.object(regression_runner.RegressionRunner, "estimate_h2", return_value=mock.Mock(
+                tot=np.array([0.1]),
+                tot_se=np.array([0.01]),
+                intercept=np.array([1.0]),
+                intercept_se=0.01,
+                mean_chisq=np.array([1.1]),
+                lambda_gc=np.array([1.0]),
+                ratio=0.0,
+                ratio_se=0.0,
+            )) as patched:
+                summary = regression_runner.run_h2_from_args(args)
+
+        patched.assert_called_once()
+        self.assertEqual(summary.loc[0, "trait_name"], "trait")

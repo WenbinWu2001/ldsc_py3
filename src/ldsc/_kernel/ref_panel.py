@@ -57,7 +57,9 @@ class RefPanelSpec:
     The public spec accepts path-like inputs and normalizes them to primitive
     strings. Resolution is deferred until workflow execution so callers may use
     exact paths, standard Python globs, or explicit ``@`` chromosome-suite
-    placeholders in suite-capable fields.
+    placeholders in suite-capable fields. Per-run reference-universe
+    restriction belongs here via ``ref_panel_snps_path`` rather than on
+    ``GlobalConfig``.
     """
     backend: str
     bfile_prefix: str | PathLike[str] | None = None
@@ -66,6 +68,8 @@ class RefPanelSpec:
     maf_metadata_paths: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
     chromosomes: tuple[str, ...] | None = None
     genome_build: str | None = None
+    r2_bias_mode: str | None = None
+    ref_panel_snps_path: str | PathLike[str] | None = None
 
     def __post_init__(self) -> None:
         """Normalize backend source tokens and canonicalize chromosome labels."""
@@ -74,6 +78,7 @@ class RefPanelSpec:
         object.__setattr__(self, "r2_table_paths", _normalize_path_tuple(self.r2_table_paths))
         object.__setattr__(self, "maf_metadata_paths", _normalize_path_tuple(self.maf_metadata_paths))
         object.__setattr__(self, "genome_build", normalize_genome_build(self.genome_build))
+        object.__setattr__(self, "ref_panel_snps_path", _normalize_optional_path(self.ref_panel_snps_path))
         if self.chromosomes is not None:
             object.__setattr__(self, "chromosomes", tuple(normalize_chromosome(chrom) for chrom in self.chromosomes))
 
@@ -120,9 +125,9 @@ class RefPanel(ABC):
             },
         }
 
-    def _filter_metadata_by_global_restriction(self, metadata: pd.DataFrame) -> pd.DataFrame:
-        """Filter metadata rows to ``GlobalConfig.ref_panel_snps_path``."""
-        restrict_path = self.global_config.ref_panel_snps_path
+    def _apply_snp_restriction(self, metadata: pd.DataFrame) -> pd.DataFrame:
+        """Filter metadata rows to ``RefPanelSpec.ref_panel_snps_path`` when set."""
+        restrict_path = self.spec.ref_panel_snps_path
         if restrict_path is None or len(metadata) == 0:
             return metadata
         restrict_ids = read_global_snp_restriction(
@@ -163,7 +168,7 @@ class PlinkRefPanel(RefPanel):
         metadata = df.loc[df["CHR"] == chrom, ["CHR", "SNP", "CM", "POS"]].reset_index(drop=True)
         if len(metadata) == 0:
             raise ValueError(f"No PLINK metadata rows found for chromosome {chrom}.")
-        metadata = self._filter_metadata_by_global_restriction(metadata)
+        metadata = self._apply_snp_restriction(metadata)
         metadata = self._validate_metadata(metadata, chrom)
         self._metadata_cache[chrom] = metadata.copy()
         return metadata
@@ -258,7 +263,7 @@ class ParquetR2RefPanel(RefPanel):
         if not frames:
             raise ValueError(f"No parquet metadata rows found for chromosome {chrom}.")
         metadata = pd.concat(frames, axis=0, ignore_index=True)
-        metadata = self._filter_metadata_by_global_restriction(metadata)
+        metadata = self._apply_snp_restriction(metadata)
         metadata = self._validate_metadata(metadata, chrom)
         self._metadata_cache[chrom] = metadata.copy()
         return metadata
@@ -283,7 +288,7 @@ class ParquetR2RefPanel(RefPanel):
             chrom=chrom,
             metadata=metadata,
             identifier_mode=self.global_config.snp_identifier,
-            r2_bias_mode="unbiased" if r2_bias_mode is None else r2_bias_mode,
+            r2_bias_mode=self.spec.r2_bias_mode if r2_bias_mode is None else r2_bias_mode,
             r2_sample_size=r2_sample_size if r2_sample_size is not None else self.spec.sample_size,
             genome_build=self.spec.genome_build or self.global_config.genome_build,
         )

@@ -22,23 +22,22 @@ from ldsc.outputs import Artifact, ArtifactConfig, ArtifactProducer, OutputManag
 @dataclass
 class FakeChromResult:
     chrom: str
-    reference_metadata: pd.DataFrame
-    ld_scores: pd.DataFrame
-    regression_metadata: pd.DataFrame
-    w_ld: pd.DataFrame
-    regression_snps: set[str]
+    ldscore_table: pd.DataFrame
+    snp_count_totals: dict[str, np.ndarray]
+    baseline_columns: list[str]
+    query_columns: list[str]
+    ld_reference_snps: frozenset[str]
+    ld_regression_snps: frozenset[str]
 
 
 @dataclass
 class FakeResult:
-    reference_metadata: pd.DataFrame
-    ld_scores: pd.DataFrame
-    regression_metadata: pd.DataFrame
-    w_ld: pd.DataFrame
+    ldscore_table: pd.DataFrame
     snp_count_totals: dict[str, np.ndarray]
     baseline_columns: list[str]
     query_columns: list[str]
-    regression_snps: set[str]
+    ld_reference_snps: frozenset[str]
+    ld_regression_snps: frozenset[str]
     chromosome_results: list[FakeChromResult]
     config_snapshot: GlobalConfig | None = None
 
@@ -50,73 +49,118 @@ class ExtraProducer(ArtifactProducer):
         return True
 
     def build(self, result, run_summary, output_spec, artifact_config=None):
-        note = "extra"
-        return [Artifact(self.name, "extra.txt", note, "text")]
+        return [Artifact(self.name, "extra.txt", "extra", "text")]
+
+
+def _count_map() -> dict[str, np.ndarray]:
+    return {
+        "all_reference_snp_counts": np.array([10, 20]),
+        "common_reference_snp_counts_maf_gt_0_05": np.array([8, 18]),
+    }
 
 
 def make_fake_result() -> FakeResult:
-    ref_meta = pd.DataFrame({"CHR": [1, 1], "BP": [10, 20], "SNP": ["rs1", "rs2"], "CM": [0.1, 0.2]})
-    ld_scores = pd.DataFrame({"base": [1.0, 2.0], "query": [0.5, 0.7]})
-    reg_meta = ref_meta.iloc[[0]].reset_index(drop=True)
-    w_ld = pd.DataFrame({"w_base": [1.5]})
-    chrom_result = FakeChromResult("1", ref_meta, ld_scores, reg_meta, w_ld, {"rs1"})
-    return FakeResult(
-        reference_metadata=ref_meta,
-        ld_scores=ld_scores,
-        regression_metadata=reg_meta,
-        w_ld=w_ld,
-        snp_count_totals={
-            "all_reference_snp_counts": np.array([10, 20]),
-            "common_reference_snp_counts_maf_gt_0_05": np.array([8, 18]),
-        },
+    ldscore_table = pd.DataFrame(
+        {
+            "CHR": ["1", "1"],
+            "SNP": ["rs1", "rs2"],
+            "BP": [10, 20],
+            "base": [1.0, 2.0],
+            "query": [0.5, 0.7],
+            "regr_weight": [1.5, 2.5],
+        }
+    )
+    chrom_result = FakeChromResult(
+        chrom="1",
+        ldscore_table=ldscore_table.copy(),
+        snp_count_totals=_count_map(),
         baseline_columns=["base"],
         query_columns=["query"],
-        regression_snps={"rs1"},
+        ld_reference_snps=frozenset({"rs1", "rs2"}),
+        ld_regression_snps=frozenset({"rs1", "rs2"}),
+    )
+    return FakeResult(
+        ldscore_table=ldscore_table,
+        snp_count_totals=_count_map(),
+        baseline_columns=["base"],
+        query_columns=["query"],
+        ld_reference_snps=frozenset({"rs1", "rs2"}),
+        ld_regression_snps=frozenset({"rs1", "rs2"}),
         chromosome_results=[chrom_result],
     )
 
 
 def make_multi_chrom_result() -> FakeResult:
-    ref_meta = pd.DataFrame(
+    chrom1_table = pd.DataFrame(
         {
-            "CHR": [1, 1, 2],
-            "BP": [10, 20, 30],
-            "SNP": ["rs1", "rs2", "rs3"],
-            "CM": [0.1, 0.2, 0.3],
+            "CHR": ["1", "1"],
+            "SNP": ["rs1", "rs2"],
+            "BP": [10, 20],
+            "base": [1.0, 2.0],
+            "query": [0.5, 0.7],
+            "regr_weight": [1.5, 2.5],
         }
     )
-    ld_scores = pd.DataFrame({"base": [1.0, 2.0, 3.0], "query": [0.5, 0.7, 0.9]})
-    reg_meta = ref_meta.iloc[[0, 2]].reset_index(drop=True)
-    w_ld = pd.DataFrame({"w_base": [1.5, 3.5]})
-    chrom1 = FakeChromResult(
-        "1",
-        ref_meta.iloc[:2].reset_index(drop=True),
-        ld_scores.iloc[:2].reset_index(drop=True),
-        reg_meta.iloc[:1].reset_index(drop=True),
-        w_ld.iloc[:1].reset_index(drop=True),
-        {"rs1"},
+    chrom2_table = pd.DataFrame(
+        {
+            "CHR": ["2"],
+            "SNP": ["rs3"],
+            "BP": [30],
+            "base": [3.0],
+            "query": [0.9],
+            "regr_weight": [3.5],
+        }
     )
-    chrom2 = FakeChromResult(
-        "2",
-        ref_meta.iloc[2:].reset_index(drop=True),
-        ld_scores.iloc[2:].reset_index(drop=True),
-        reg_meta.iloc[1:].reset_index(drop=True),
-        w_ld.iloc[1:].reset_index(drop=True),
-        {"rs3"},
-    )
+    chromosome_results = [
+        FakeChromResult(
+            chrom="1",
+            ldscore_table=chrom1_table,
+            snp_count_totals=_count_map(),
+            baseline_columns=["base"],
+            query_columns=["query"],
+            ld_reference_snps=frozenset({"rs1", "rs2"}),
+            ld_regression_snps=frozenset({"rs1", "rs2"}),
+        ),
+        FakeChromResult(
+            chrom="2",
+            ldscore_table=chrom2_table,
+            snp_count_totals=_count_map(),
+            baseline_columns=["base"],
+            query_columns=["query"],
+            ld_reference_snps=frozenset({"rs3"}),
+            ld_regression_snps=frozenset({"rs3"}),
+        ),
+    ]
     return FakeResult(
-        reference_metadata=ref_meta,
-        ld_scores=ld_scores,
-        regression_metadata=reg_meta,
-        w_ld=w_ld,
-        snp_count_totals={
-            "all_reference_snp_counts": np.array([10, 20]),
-            "common_reference_snp_counts_maf_gt_0_05": np.array([8, 18]),
-        },
+        ldscore_table=pd.concat([chrom1_table, chrom2_table], axis=0, ignore_index=True),
+        snp_count_totals=_count_map(),
         baseline_columns=["base"],
         query_columns=["query"],
-        regression_snps={"rs1", "rs3"},
-        chromosome_results=[chrom1, chrom2],
+        ld_reference_snps=frozenset({"rs1", "rs2", "rs3"}),
+        ld_regression_snps=frozenset({"rs1", "rs2", "rs3"}),
+        chromosome_results=chromosome_results,
+    )
+
+
+def make_single_table_result() -> FakeResult:
+    ldscore_table = pd.DataFrame(
+        {
+            "CHR": ["1", "2"],
+            "SNP": ["rs1", "rs2"],
+            "BP": [10, 20],
+            "base": [1.0, 2.0],
+            "query": [0.5, 0.7],
+            "regr_weight": [1.5, 2.5],
+        }
+    )
+    return FakeResult(
+        ldscore_table=ldscore_table,
+        snp_count_totals=_count_map(),
+        baseline_columns=["base"],
+        query_columns=["query"],
+        ld_reference_snps=frozenset({"rs1", "rs2"}),
+        ld_regression_snps=frozenset({"rs1", "rs2"}),
+        chromosome_results=[],
     )
 
 
@@ -144,13 +188,13 @@ class OutputManagerTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             spec = OutputSpec(out_prefix="example", output_dir=tmpdir)
             summary = manager.write_outputs(result, spec, config_snapshot={"stage": "test"})
-            self.assertIn("ldscore", summary.output_paths)
-            self.assertIn("w_ld", summary.output_paths)
+            self.assertIn("ldscore.chrom_1", summary.output_paths)
+            self.assertNotIn("w_ld", summary.output_paths)
             self.assertIn("counts.all_reference_snp_counts", summary.output_paths)
             self.assertIn("summary_tsv", summary.output_paths)
             self.assertIn("summary_json", summary.output_paths)
             self.assertIn("run_metadata", summary.output_paths)
-            self.assertTrue(Path(summary.output_paths["ldscore"]).exists())
+            self.assertTrue(Path(summary.output_paths["ldscore.chrom_1"]).exists())
 
     def test_missing_output_dir_warns_and_is_created(self):
         result = make_fake_result()
@@ -167,7 +211,7 @@ class OutputManagerTest(unittest.TestCase):
             self.assertEqual(len(caught), 1)
             self.assertIn("output directory", str(caught[0].message).lower())
             self.assertIn("created", str(caught[0].message).lower())
-            self.assertTrue(Path(summary.output_paths["ldscore"]).exists())
+            self.assertTrue(Path(summary.output_paths["ldscore.chrom_1"]).exists())
 
     def test_existing_output_dir_does_not_warn(self):
         result = make_fake_result()
@@ -243,67 +287,10 @@ class OutputManagerTest(unittest.TestCase):
             summary = manager.write_outputs(result, spec)
             self.assertIn("ldscore.chrom_1", summary.output_paths)
             self.assertTrue(Path(summary.output_paths["ldscore.chrom_1"]).exists())
+            self.assertIn(f"{os.sep}chr1{os.sep}", summary.output_paths["ldscore.chrom_1"])
 
-    def test_regression_snps_path_filters_written_ldscore_and_weight_artifacts(self):
-        result = make_multi_chrom_result()
-        result.config_snapshot = GlobalConfig(snp_identifier="rsid", regression_snps_path="filters/hm3.txt")
-        manager = OutputManager()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            spec = OutputSpec(
-                out_prefix="example",
-                output_dir=tmpdir,
-                enabled_artifacts=["ldscore", "w_ld", "counts"],
-            )
-
-            summary = manager.write_outputs(result, spec)
-
-            ldscore_df = pd.read_csv(summary.output_paths["ldscore"], sep="\t")
-            self.assertEqual(ldscore_df["SNP"].tolist(), ["rs1", "rs3"])
-            weight_df = pd.read_csv(summary.output_paths["w_ld"], sep="\t")
-            self.assertEqual(weight_df["SNP"].tolist(), ["rs1", "rs3"])
-            self.assertEqual(
-                Path(summary.output_paths["counts.all_reference_snp_counts"]).read_text(encoding="utf-8"),
-                "10\t20",
-            )
-            self.assertEqual(
-                Path(summary.output_paths["counts.common_reference_snp_counts_maf_gt_0_05"]).read_text(encoding="utf-8"),
-                "8\t18",
-            )
-            self.assertEqual(result.reference_metadata["SNP"].tolist(), ["rs1", "rs2", "rs3"])
-
-    def test_regression_snps_path_filters_per_chrom_outputs_consistently(self):
-        result = make_multi_chrom_result()
-        result.config_snapshot = GlobalConfig(snp_identifier="rsid", regression_snps_path="filters/hm3.txt")
-        manager = OutputManager()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            spec = OutputSpec(
-                out_prefix="example",
-                output_dir=tmpdir,
-                enabled_artifacts=["ldscore", "w_ld"],
-                write_per_chrom=True,
-                aggregate_across_chromosomes=False,
-                artifact_layout="by_chrom",
-            )
-
-            summary = manager.write_outputs(result, spec)
-
-            self.assertIn("ldscore.chrom_1", summary.output_paths)
-            self.assertIn("ldscore.chrom_2", summary.output_paths)
-            self.assertIn("w_ld.chrom_1", summary.output_paths)
-            self.assertIn("w_ld.chrom_2", summary.output_paths)
-            ldscore_df = pd.read_csv(summary.output_paths["ldscore.chrom_1"], sep="\t")
-            self.assertEqual(ldscore_df["SNP"].tolist(), ["rs1"])
-            weight_df = pd.read_csv(summary.output_paths["w_ld.chrom_2"], sep="\t")
-            self.assertEqual(weight_df["SNP"].tolist(), ["rs3"])
-
-    def test_regression_snps_path_raises_when_no_written_rows_remain(self):
-        result = make_multi_chrom_result()
-        result.config_snapshot = GlobalConfig(snp_identifier="rsid", regression_snps_path="filters/hm3.txt")
-        result.regression_snps = {"rs999"}
-        for chrom_result in result.chromosome_results:
-            chrom_result.regression_snps = {"rs999"}
+    def test_single_table_result_writes_aggregate_ldscore_artifact(self):
+        result = make_single_table_result()
         manager = OutputManager()
         with tempfile.TemporaryDirectory() as tmpdir:
             spec = OutputSpec(
@@ -312,8 +299,27 @@ class OutputManagerTest(unittest.TestCase):
                 enabled_artifacts=["ldscore"],
             )
 
-            with self.assertRaisesRegex(ValueError, "After filtering to regression SNPs, no SNPs remain."):
-                manager.write_outputs(result, spec)
+            summary = manager.write_outputs(result, spec)
+
+            self.assertEqual(set(summary.output_paths.keys()), {"ldscore"})
+            ldscore_df = pd.read_csv(summary.output_paths["ldscore"], sep="\t")
+            self.assertEqual(ldscore_df["SNP"].tolist(), ["rs1", "rs2"])
+
+    def test_multi_chrom_result_writes_one_artifact_per_chromosome(self):
+        result = make_multi_chrom_result()
+        manager = OutputManager()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            spec = OutputSpec(
+                out_prefix="example",
+                output_dir=tmpdir,
+                enabled_artifacts=["ldscore"],
+            )
+
+            summary = manager.write_outputs(result, spec)
+
+            self.assertEqual(set(summary.output_paths.keys()), {"ldscore.chrom_1", "ldscore.chrom_2"})
+            chrom2_df = pd.read_csv(summary.output_paths["ldscore.chrom_2"], sep="\t")
+            self.assertEqual(chrom2_df["SNP"].tolist(), ["rs3"])
 
     def test_unknown_artifact_raises(self):
         manager = OutputManager()

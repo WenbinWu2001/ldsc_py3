@@ -1,4 +1,26 @@
-"""Flexible artifact-oriented output layer for workflow results."""
+"""outputs.py
+
+Core functionality:
+    Build and serialize normalized workflow artifacts such as LD-score tables,
+    count vectors, and run summaries.
+
+Overview
+--------
+This module owns the artifact-oriented output layer for the refactored package.
+Its primary input is the normalized public result shape used by
+``LDScoreCalculator``: a merged ``ldscore_table`` with an embedded
+``regr_weight`` column plus aggregate count vectors and annotation-group
+metadata. By default, LD-score tables are written per chromosome while count
+vectors remain aggregated across the run.
+
+Design Notes
+------------
+- No separate ``.w.l2.ldscore.gz`` artifact is emitted by the default
+  producers.
+- ``LDScoreTableProducer`` mirrors the normalized in-memory table layout on
+  disk.
+- Additional artifacts can be registered through ``ArtifactProducer``.
+"""
 
 from __future__ import annotations
 
@@ -23,16 +45,23 @@ CompressionMode = str
 
 @dataclass(frozen=True)
 class OutputSpec:
-    """Configuration for artifact emission and on-disk layout."""
+    """Configuration for artifact emission and on-disk layout.
+
+    The default LD-score behavior writes one ``.l2.ldscore.gz`` file per
+    chromosome, aggregate count vectors, and summary metadata. ``write_w_ld``
+    remains for backward compatibility and defaults to ``False`` because
+    regression weights now live in the ``regr_weight`` column of the LD-score
+    table itself.
+    """
     out_prefix: str | PathLike[str]
     output_dir: str | PathLike[str] | None = None
     artifact_layout: ArtifactLayout = "flat"
     write_ldscore: bool = True
-    write_w_ld: bool = True
+    write_w_ld: bool = False
     write_counts: bool = True
     write_annotation_manifest: bool = True
-    write_per_chrom: bool = False
-    aggregate_across_chromosomes: bool = True
+    write_per_chrom: bool = True
+    aggregate_across_chromosomes: bool = False
     compression: CompressionMode = "gzip"
     overwrite: bool = False
     log_path: str | PathLike[str] | None = None
@@ -111,14 +140,16 @@ class ResultFormatter:
         config_snapshot: dict[str, Any] | None = None,
     ) -> RunSummary:
         """Summarize row counts, chromosomes, and count-vector keys."""
-        ref_meta = getattr(result, "reference_metadata", None)
-        reg_meta = getattr(result, "regression_metadata", None)
+        ldscore_table = getattr(result, "ldscore_table", None)
+        ld_reference_snps = getattr(result, "ld_reference_snps", frozenset())
+        ld_regression_snps = getattr(result, "ld_regression_snps", frozenset())
         chromosomes = getattr(result, "chromosome_results", None) or []
         chromosome_names = [str(getattr(chrom_result, "chrom", "")) for chrom_result in chromosomes]
         count_keys = list(getattr(result, "snp_count_totals", {}).keys())
+        n_rows = 0 if ldscore_table is None else len(ldscore_table)
         return RunSummary(
-            n_reference_snps=0 if ref_meta is None else len(ref_meta),
-            n_regression_snps=0 if reg_meta is None else len(reg_meta),
+            n_reference_snps=len(ld_reference_snps) if ld_reference_snps else n_rows,
+            n_regression_snps=len(ld_regression_snps) if ld_regression_snps else n_rows,
             chromosomes_processed=[chrom for chrom in chromosome_names if chrom],
             count_artifacts_available=count_keys,
             config_snapshot=config_snapshot or {},
@@ -184,80 +215,38 @@ class ResultWriter:
 
 
 class LDScoreTableProducer(ArtifactProducer):
-    """Producer for reference LD-score tables."""
+    """Producer for merged LD-score tables with embedded regression weights."""
     name = "ldscore"
 
     def supports(self, result: Any) -> bool:
-        """Return ``True`` when aggregated LD-score tables are available."""
-        return getattr(result, "reference_metadata", None) is not None and getattr(result, "ld_scores", None) is not None
+        """Return ``True`` when normalized LD-score tables are available."""
+        return getattr(result, "ldscore_table", None) is not None
 
     def build(self, result: Any, run_summary: RunSummary, output_spec: OutputSpec, artifact_config: ArtifactConfig | None = None) -> list[Artifact]:
-        """Build LD-score artifacts, optionally filtered to regression SNP rows."""
+        """Build per-chromosome `.l2.ldscore.gz` artifacts."""
         artifacts: list[Artifact] = []
-        filter_to_regression_snps = _regression_output_enabled(result)
-        if output_spec.aggregate_across_chromosomes:
-            table = pd.concat([result.reference_metadata.reset_index(drop=True), result.ld_scores.reset_index(drop=True)], axis=1)
-            table = _filter_ldscore_table(
-                table,
-                None if not filter_to_regression_snps else getattr(result, "regression_snps", None),
-            )
-            artifacts.append(Artifact(self.name, _artifact_filename(output_spec, ".l2.ldscore"), table, "dataframe"))
-        if output_spec.write_per_chrom:
-            for chrom_result in getattr(result, "chromosome_results", []):
-                table = pd.concat(
-                    [chrom_result.reference_metadata.reset_index(drop=True), chrom_result.ld_scores.reset_index(drop=True)],
-                    axis=1,
-                )
-                table = _filter_ldscore_table(
-                    table,
-                    None if not filter_to_regression_snps else getattr(chrom_result, "regression_snps", None),
-                    raise_on_empty=False,
-                )
-                if table.empty:
+        chromosome_results = getattr(result, "chromosome_results", []) or []
+        if chromosome_results:
+            for chrom_result in chromosome_results:
+                if chrom_result.ldscore_table.empty:
                     continue
                 artifacts.append(
                     Artifact(
                         f"{self.name}.chrom_{chrom_result.chrom}",
                         _artifact_filename(output_spec, ".l2.ldscore", chrom=str(chrom_result.chrom)),
-                        table,
+                        chrom_result.ldscore_table.reset_index(drop=True),
                         "dataframe",
                     )
                 )
-        if filter_to_regression_snps and not artifacts:
-            raise ValueError("After filtering to regression SNPs, no SNPs remain.")
-        return artifacts
-
-
-class WeightLDProducer(ArtifactProducer):
-    """Producer for regression-weight LD-score tables."""
-    name = "w_ld"
-
-    def supports(self, result: Any) -> bool:
-        """Return ``True`` when regression-weight tables are available."""
-        return getattr(result, "regression_metadata", None) is not None and getattr(result, "w_ld", None) is not None
-
-    def build(self, result: Any, run_summary: RunSummary, output_spec: OutputSpec, artifact_config: ArtifactConfig | None = None) -> list[Artifact]:
-        """Build aggregate and optional per-chromosome weight-table artifacts."""
-        artifacts: list[Artifact] = []
-        if output_spec.aggregate_across_chromosomes:
-            table = pd.concat([result.regression_metadata.reset_index(drop=True), result.w_ld.reset_index(drop=True)], axis=1)
-            artifacts.append(Artifact(self.name, _artifact_filename(output_spec, ".w.l2.ldscore"), table, "dataframe"))
-        if output_spec.write_per_chrom:
-            for chrom_result in getattr(result, "chromosome_results", []):
-                if getattr(chrom_result, "regression_metadata", None) is None or getattr(chrom_result, "w_ld", None) is None:
-                    continue
-                table = pd.concat(
-                    [chrom_result.regression_metadata.reset_index(drop=True), chrom_result.w_ld.reset_index(drop=True)],
-                    axis=1,
+        elif getattr(result, "ldscore_table", None) is not None:
+            artifacts.append(
+                Artifact(
+                    self.name,
+                    _artifact_filename(output_spec, ".l2.ldscore"),
+                    result.ldscore_table.reset_index(drop=True),
+                    "dataframe",
                 )
-                artifacts.append(
-                    Artifact(
-                        f"{self.name}.chrom_{chrom_result.chrom}",
-                        _artifact_filename(output_spec, ".w.l2.ldscore", chrom=str(chrom_result.chrom)),
-                        table,
-                        "dataframe",
-                    )
-                )
+            )
         return artifacts
 
 
@@ -382,8 +371,6 @@ class OutputManager:
         enabled: list[str] = []
         if output_spec.write_ldscore:
             enabled.append("ldscore")
-        if output_spec.write_w_ld:
-            enabled.append("w_ld")
         if output_spec.write_counts:
             enabled.append("counts")
         if output_spec.write_annotation_manifest:
@@ -450,7 +437,6 @@ def _default_producers(formatter: ResultFormatter) -> list[ArtifactProducer]:
     """Return the built-in artifact producers used by the default output manager."""
     return [
         LDScoreTableProducer(),
-        WeightLDProducer(),
         CountProducer(),
         AnnotationManifestProducer(formatter),
         SummaryTSVProducer(formatter),
@@ -472,13 +458,12 @@ def _artifact_filename(output_spec: OutputSpec, suffix: str, chrom: str | None =
     """Build one artifact-relative filename from the configured layout rules."""
     compressed = output_spec.compression == "gzip" if compressed is None else compressed
     prefix = Path(output_spec.out_prefix).name
-    if chrom is None or output_spec.artifact_layout == "flat":
+    if chrom is None:
         stem = f"{prefix}{suffix}"
+    elif output_spec.artifact_layout == "by_chrom":
+        stem = f"chr{chrom}/{prefix}.{chrom}{suffix}"
     else:
-        if output_spec.artifact_layout == "by_chrom":
-            stem = f"chr{chrom}/{prefix}{suffix}"
-        else:
-            stem = f"{prefix}.chr{chrom}{suffix}"
+        stem = f"{prefix}.{chrom}{suffix}"
     return stem + (".gz" if compressed else "")
 
 
@@ -489,29 +474,6 @@ def _count_suffix(key: str) -> str:
     if key == "common_reference_snp_counts_maf_gt_0_05":
         return ".l2.M_5_50"
     return f".{key}.tsv"
-
-
-def _regression_output_enabled(result: Any) -> bool:
-    """Return ``True`` when `regression_snps_path` should filter written LD-score rows."""
-    config_snapshot = getattr(result, "config_snapshot", None)
-    if config_snapshot is None:
-        return False
-    return getattr(config_snapshot, "regression_snps_path", None) is not None
-
-
-def _filter_ldscore_table(
-    table: pd.DataFrame,
-    regression_snps: set[str] | None,
-    *,
-    raise_on_empty: bool = True,
-) -> pd.DataFrame:
-    """Filter one LD-score table to the authoritative regression SNP row set."""
-    if regression_snps is None:
-        return table
-    filtered = table.loc[table["SNP"].astype(str).isin(regression_snps), :].reset_index(drop=True)
-    if filtered.empty and raise_on_empty:
-        raise ValueError("After filtering to regression SNPs, no SNPs remain.")
-    return filtered
 
 
 def _to_serializable(value: Any) -> Any:

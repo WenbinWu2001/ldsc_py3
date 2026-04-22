@@ -43,7 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = _NoAbbrevArgumentParser(prog="ldsc", description="LDSC command line interface.")
     subparsers = parser.add_subparsers(dest="command", required=True, parser_class=_NoAbbrevArgumentParser)
 
-    annotate_parser = subparsers.add_parser("annotate", help="Build SNP-level annotations.")
+    annotate_parser = subparsers.add_parser("annotate", help="Project BED files to SNP-level query annotations.")
     _add_annotate_arguments(annotate_parser)
 
     ldscore_parser = subparsers.add_parser("ldscore", help="Compute LD scores.")
@@ -138,12 +138,10 @@ def main(argv: Sequence[str] | None = None):
 
 
 def _run_annotate(args: argparse.Namespace):
-    """Dispatch the ``annotate`` subcommand to the appropriate workflow."""
-    if args.bed_files:
-        return annotation_builder.main_bed_to_annot(_namespace_to_argv(args, exclude={"command", "gene_set_file", "gene_coord_file", "windowsize", "bed_file", "nomerge", "bimfile", "annot_file"}))
-    return annotation_builder.main_make_annot(
-        _namespace_to_argv(args, exclude={"command", "baseline_annot", "output_dir", "ref_panel_snps_path", "snp_identifier", "genome_build", "batch", "bed_files", "log_level"})
-    )
+    """Dispatch the ``annotate`` subcommand."""
+    if not args.bed_files:
+        raise SystemExit("ldsc annotate requires --bed-files and --baseline-annot.")
+    return annotation_builder.main_bed_to_annot(_namespace_to_argv(args, exclude={"command"}))
 
 
 def _add_annotate_arguments(parser: argparse.ArgumentParser) -> None:
@@ -156,7 +154,6 @@ def _add_annotate_arguments(parser: argparse.ArgumentParser) -> None:
         help="Baseline annotation path tokens: exact paths, globs, or explicit @ suite tokens.",
     )
     parser.add_argument("--output-dir", default=None, help="Destination directory for generated .annot.gz files.")
-    parser.add_argument("--ref-panel-snps-path", default=None, help="Optional SNP restriction file defining the retained annotation/reference row universe.")
     parser.add_argument("--snp-identifier", default="chr_pos", help="How to interpret restriction SNP identifiers.")
     parser.add_argument(
         "--genome-build",
@@ -164,15 +161,14 @@ def _add_annotate_arguments(parser: argparse.ArgumentParser) -> None:
         choices=("auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"),
         help="Genome build for chr_pos inputs. Use 'auto' to infer hg19/hg38 and 0-based/1-based coordinates.",
     )
-    parser.add_argument("--no-batch", dest="batch", action="store_false", default=True, help="Write one output directory per BED file.")
+    parser.add_argument(
+        "--no-batch",
+        dest="batch",
+        action="store_false",
+        default=True,
+        help="Compatibility flag retained for legacy scripts; current output is always combined.",
+    )
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"))
-    parser.add_argument("--gene-set-file", default=None, help="A file of gene names, one line per gene.")
-    parser.add_argument("--gene-coord-file", default="ENSG_coord.txt", help="Gene coordinate file with GENE, CHR, START, END.")
-    parser.add_argument("--windowsize", type=int, default=None, help="Padding around the transcribed region.")
-    parser.add_argument("--bed-file", default=None, help="A UCSC BED file with regions defining the annotation.")
-    parser.add_argument("--nomerge", action="store_true", default=False, help="Do not merge BED intervals before projection.")
-    parser.add_argument("--bimfile", default=None, help="PLINK BIM file used to define SNP rows.")
-    parser.add_argument("--annot-file", default=None, help="Output .annot file path.")
 
 
 def _copy_actions(target: argparse.ArgumentParser, source: argparse.ArgumentParser) -> None:

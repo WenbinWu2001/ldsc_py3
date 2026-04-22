@@ -10,8 +10,8 @@ Overview
 This module is the annotation-side execution kernel for the refactored codebase. It owns
 two related jobs: reading already materialized SNP-level annotation tables into
 an ``AnnotationBundle`` that the LD-score workflow can consume, and converting
- BED or gene-set intervals into chromosome-matched ``.annot.gz`` outputs using
-baseline annotation templates. The loading path supports both single-table
+BED intervals into chromosome-matched ``.annot.gz`` outputs using baseline
+annotation templates. The loading path supports both single-table
 inputs, where every file must share the same SNP row universe, and LDSC-style
 chromosome-sharded inputs such as ``baseline.1.annot.gz`` through
 ``baseline.22.annot.gz``, which are validated per chromosome and then
@@ -20,13 +20,13 @@ aggregated into one bundle.
 Key Functions
 -------------
 AnnotationBuilder.run :
-    Build one aligned SNP-level annotation bundle from baseline and query
-    annotation tables, with automatic aggregation of chromosome-sharded files.
+    Build one aligned SNP-level annotation bundle from baseline, query, and
+    in-memory BED-projected annotation sources, with automatic aggregation of
+    chromosome-sharded files.
 run_bed_to_annot :
-    Project one or more BED files onto baseline annotation templates resolved
-    from strict path tokens.
-make_annot_files :
-    Preserve the legacy single-annotation ``make_annot.py`` behavior.
+    Project one or more BED files onto baseline annotation templates and
+    return the resulting in-memory bundle, optionally writing `.annot.gz`
+    files for callers that explicitly request them.
 
 Design Notes
 ------------
@@ -34,8 +34,6 @@ Design Notes
   ``CHR``, ``POS``, ``SNP``, and ``CM``.
 - When filenames cleanly encode one chromosome shard each, bundles are built
   independently per chromosome and concatenated in stable genomic order.
-- The retained reference-panel SNP universe is applied after alignment so
-  baseline, query, and metadata rows remain synchronized.
 - BED projection relies on ``pybedtools`` for interval intersection but keeps
   row-order validation explicit so the generated masks stay aligned to the
   baseline SNP template.
@@ -117,7 +115,6 @@ class AnnotationSourceSpec:
     baseline_annot_paths: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
     query_annot_paths: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
     bed_paths: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
-    gene_set_paths: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
     allow_missing_query: bool = True
 
     def __post_init__(self) -> None:
@@ -125,7 +122,6 @@ class AnnotationSourceSpec:
         object.__setattr__(self, "baseline_annot_paths", _normalize_path_tuple(self.baseline_annot_paths))
         object.__setattr__(self, "query_annot_paths", _normalize_path_tuple(self.query_annot_paths))
         object.__setattr__(self, "bed_paths", _normalize_path_tuple(self.bed_paths))
-        object.__setattr__(self, "gene_set_paths", _normalize_path_tuple(self.gene_set_paths))
 
 
 @dataclass(frozen=True)
@@ -339,12 +335,35 @@ class AnnotationBuilder:
         if metadata is None:
             raise ValueError("No annotation rows were loaded from the supplied sources.")
 
+        if source_spec.bed_paths:
+            resolved_bed_paths = [Path(path) for path in resolve_file_group(source_spec.bed_paths, label="BED file")]
+            stems = [path.stem for path in resolved_bed_paths]
+            duplicate_stems = sorted({stem for stem in stems if stems.count(stem) > 1})
+            if duplicate_stems:
+                raise ValueError(
+                    "BED basenames must be unique because they become annotation column names. "
+                    f"Duplicate names: {', '.join(duplicate_stems)}"
+                )
+            duplicate_columns = sorted(set(stems) & seen_columns)
+            if duplicate_columns:
+                raise ValueError(
+                    "BED file stems clash with loaded annotation column names: "
+                    f"{duplicate_columns}"
+                )
+            with tempfile.TemporaryDirectory(prefix="bed2annot_") as tmpdir:
+                tempdir = Path(tmpdir)
+                normalized_beds: list[Path] = []
+                for bed_path in resolved_bed_paths:
+                    normalized_path = tempdir / bed_path.name
+                    _write_normalized_bed(bed_path, normalized_path)
+                    normalized_beds.append(normalized_path)
+                bed_df = _compute_bed_query_columns(metadata, normalized_beds, tempdir)
+            query_blocks.append(bed_df)
+            query_columns.extend(bed_df.columns.tolist())
+            seen_columns.update(bed_df.columns)
+
         baseline_df = self._concat_or_empty(baseline_blocks, index=metadata.index)
         query_df = self._concat_or_empty(query_blocks, index=metadata.index)
-
-        metadata, baseline_df, query_df = self._filter_aligned_tables_by_global_restriction(
-            metadata, baseline_df, query_df
-        )
         chromosomes = sorted(metadata["CHR"].astype(str).map(normalize_chromosome).unique().tolist(), key=_chrom_sort_key)
         return self._build_bundle(
             metadata=metadata,
@@ -383,7 +402,6 @@ class AnnotationBuilder:
                 baseline_annot_paths=(baseline_by_chrom[chrom_key],),
                 query_annot_paths=(() if not has_query_inputs else (query_by_chrom[chrom_key],)),
                 bed_paths=source_spec.bed_paths,
-                gene_set_paths=source_spec.gene_set_paths,
                 allow_missing_query=source_spec.allow_missing_query,
             )
             bundles.append(
@@ -439,7 +457,6 @@ class AnnotationBuilder:
                 "baseline_annot_paths": list(source_spec.baseline_annot_paths),
                 "query_annot_paths": list(source_spec.query_annot_paths),
                 "bed_paths": list(source_spec.bed_paths),
-                "gene_set_paths": list(source_spec.gene_set_paths),
             },
             config_snapshot=self.global_config,
         )
@@ -526,87 +543,32 @@ class AnnotationBuilder:
         self,
         bed_files: str | PathLike[str] | Sequence[str | PathLike[str]],
         baseline_annot_paths: str | PathLike[str] | Sequence[str | PathLike[str]],
-        output_dir: str | Path,
+        output_dir: str | Path | None = None,
         batch: bool | None = None,
         log_level: str | None = None,
-    ) -> Path:
+    ) -> AnnotationBundle:
         """
-        Convert BED annotations into chromosome-matched ``.annot.gz`` outputs.
+        Convert BED annotations into an in-memory ``AnnotationBundle``.
 
-        This method uses each baseline annotation file as the SNP template,
-        computes one binary mask per BED input, optionally filters baseline SNP
-        rows to the configured reference-panel universe, and writes LDSC-compatible query shard
-        files named ``query.<chrom>.annot.gz`` in either batch or
-        one-directory-per-BED mode. ``bed_files`` and
-        ``baseline_annot_paths`` both accept the public token language: exact
-        paths, standard Python globs, and, for baseline annotations, explicit
-        ``@`` chromosome-suite tokens. If a baseline token resolves to multiple
-        files, all resolved baseline templates are processed.
+        When ``output_dir`` is provided, the projected query annotations are
+        also written as per-chromosome ``query.<chrom>.annot.gz`` files. The
+        ``batch`` argument is retained for compatibility but no longer changes
+        behavior: all BED inputs become query columns on one bundle. This
+        annotation-side projection does not apply any reference-panel SNP
+        restriction; those filters are applied later when the reference panel
+        is loaded for LD-score computation.
         """
-        batch = self.build_config.batch_mode if batch is None else batch
+        _ = self.build_config.batch_mode if batch is None else batch
         _configure_logging(log_level or self.global_config.log_level)
-
-        bed_paths = [Path(path) for path in resolve_file_group(bed_files, label="BED file")]
-        stems = [path.stem for path in bed_paths]
-        duplicates = sorted({stem for stem in stems if stems.count(stem) > 1})
-        if duplicates:
-            raise ValueError(
-                "BED basenames must be unique because they become annotation names. "
-                f"Duplicate names: {', '.join(duplicates)}"
-            )
-        baseline_paths = [
-            Path(path)
-            for path in resolve_file_group(
-                baseline_annot_paths,
-                label="baseline annotation",
-                allow_chromosome_suite=True,
-            )
-        ]
-        baseline_paths = sorted(
-            [path for path in baseline_paths if path.name.endswith(".annot") or path.name.endswith(".annot.gz")],
-            key=lambda path: str(path),
+        source_spec = AnnotationSourceSpec(
+            baseline_annot_paths=baseline_annot_paths,
+            bed_paths=bed_files,
         )
-        if not baseline_paths:
-            raise ValueError("No baseline annotation files were resolved from the supplied tokens.")
-
-        output_path = ensure_output_directory(output_dir, label="output directory")
-
-        restrict_path = None
-        if self.global_config.ref_panel_snps_path is not None:
-            restrict_path = Path(
-                resolve_scalar_path(
-                    self.global_config.ref_panel_snps_path,
-                    label="reference-panel SNP restriction",
-                )
-            )
-            if not restrict_path.is_file():
-                raise FileNotFoundError(f"Restriction file not found: {restrict_path}")
-
-        with tempfile.TemporaryDirectory(prefix="bed2annot_") as tmpdir:
-            tempdir = Path(tmpdir)
-            normalized_beds = []
-            for bed_path in bed_paths:
-                normalized_path = tempdir / bed_path.name
-                _write_normalized_bed(bed_path, normalized_path)
-                normalized_beds.append(normalized_path)
-
-            restrict_resource = _build_restrict_resource(
-                restrict_path,
-                self.global_config.snp_identifier,
-                tempdir,
-                genome_build=self.global_config.genome_build,
-            )
-            for baseline_path in baseline_paths:
-                _process_baseline_file(
-                    baseline_path=baseline_path,
-                    bed_paths=normalized_beds,
-                    output_dir=output_path,
-                    batch=batch,
-                    restrict_resource=restrict_resource,
-                    tempdir=tempdir,
-                )
-
-        return output_path
+        bundle = self.run(source_spec)
+        if output_dir is not None:
+            output_path = ensure_output_directory(output_dir, label="output directory")
+            _write_bundle_query_as_annot_files(bundle, output_path)
+        return bundle
 
     def make_single_annotation_file(
         self,
@@ -675,43 +637,21 @@ class AnnotationBuilder:
             return pd.concat(frames, axis=1)
         return pd.DataFrame(index=index)
 
-    def _filter_aligned_tables_by_global_restriction(
-        self,
-        metadata: pd.DataFrame,
-        baseline_df: pd.DataFrame,
-        query_df: pd.DataFrame,
-    ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-        """Apply ``GlobalConfig.ref_panel_snps_path`` to aligned annotation tables."""
-        restrict_path = self.global_config.ref_panel_snps_path
-        if restrict_path is None:
-            return metadata, baseline_df, query_df
-        restriction = read_global_snp_restriction(
-            restrict_path,
-            self.global_config.snp_identifier,
-            genome_build=self.global_config.genome_build,
-            logger=LOGGER,
-        )
-        snp_ids = build_snp_id_series(metadata, self.global_config.snp_identifier)
-        keep = snp_ids.isin(restriction)
-        return (
-            metadata.loc[keep].reset_index(drop=True),
-            baseline_df.loc[keep].reset_index(drop=True),
-            query_df.loc[keep].reset_index(drop=True),
-        )
-
 
 def run_bed_to_annot(
     bed_files: str | PathLike[str] | Sequence[str | PathLike[str]],
     baseline_annot_paths: str | PathLike[str] | Sequence[str | PathLike[str]],
-    output_dir: str | Path,
+    output_dir: str | Path | None = None,
     batch: bool = True,
-) -> Path:
+) -> AnnotationBundle:
     """
     Convenience wrapper for BED-to-annotation projection from Python code.
 
-    Python workflows read shared identifier, genome-build, reference-universe,
-    regression-subset, and logging settings from the registered
-    ``GlobalConfig`` rather than from per-call keyword arguments.
+    Python workflows read shared identifier, genome-build, and logging
+    settings from the registered ``GlobalConfig`` rather than from per-call
+    keyword arguments. The returned bundle stays aligned to the baseline
+    annotation rows; optional reference-panel SNP restrictions are applied only
+    in the downstream LD-score workflow.
     """
     return _run_bed_to_annot_with_global_config(
         bed_files=bed_files,
@@ -726,12 +666,12 @@ def run_bed_to_annot(
 def _run_bed_to_annot_with_global_config(
     bed_files: str | PathLike[str] | Sequence[str | PathLike[str]],
     baseline_annot_paths: str | PathLike[str] | Sequence[str | PathLike[str]],
-    output_dir: str | Path,
+    output_dir: str | Path | None,
     *,
     batch: bool,
     global_config: GlobalConfig,
     entrypoint: str,
-) -> Path:
+) -> AnnotationBundle:
     """Run BED-to-annotation projection with an explicit resolved GlobalConfig."""
     print_global_config_banner(entrypoint, global_config)
     build_config = AnnotationBuildConfig(query_bed_paths=bed_files, batch_mode=batch)
@@ -742,27 +682,6 @@ def _run_bed_to_annot_with_global_config(
         batch=batch,
         log_level=global_config.log_level,
     )
-
-
-def gene_set_to_bed(args):
-    """Expand a gene set plus window size into merged BED intervals."""
-    pybedtools = _get_pybedtools()
-    gene_set = pd.read_csv(args.gene_set_file, header=None, names=["GENE"])
-    all_genes = pd.read_csv(args.gene_coord_file, delim_whitespace=True)
-    df = pd.merge(gene_set, all_genes, on="GENE", how="inner")
-    df["START"] = np.maximum(1, df["START"] - args.windowsize)
-    df["END"] = df["END"] + args.windowsize
-    intervals = [
-        [_to_bed_chromosome(chrom), int(start) - 1, int(end)]
-        for chrom, start, end in np.array(df[["CHR", "START", "END"]])
-    ]
-    return pybedtools.BedTool(intervals).sort().merge()
-
-
-def make_annot_files(args, bed_for_annot):
-    """Preserve the legacy single-output ``make_annot.py`` behavior."""
-    builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"))
-    return builder.make_single_annotation_file(args.bimfile, args.annot_file, bed_for_annot)
 
 
 def parse_bed_to_annot_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -776,15 +695,20 @@ def parse_bed_to_annot_args(argv: Sequence[str] | None = None) -> argparse.Names
         help="Baseline annotation path tokens: exact paths, globs, or explicit @ suite tokens.",
     )
     parser.add_argument("--output-dir", required=True, help="Destination directory for generated .annot.gz files.")
-    parser.add_argument("--ref-panel-snps-path", default=None, help="Optional SNP restriction file defining the retained annotation/reference row universe.")
-    parser.add_argument("--snp-identifier", default="chr_pos", help="How to interpret --ref-panel-snps-path when provided.")
+    parser.add_argument("--snp-identifier", default="chr_pos", help="Identifier mode used for bundle validation.")
     parser.add_argument(
         "--genome-build",
         default=None,
         choices=("auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"),
         help="Genome build for chr_pos inputs. Use 'auto' to infer hg19/hg38 and 0-based/1-based coordinates.",
     )
-    parser.add_argument("--no-batch", dest="batch", action="store_false", default=True, help="Write one output directory per BED file instead of combined output.")
+    parser.add_argument(
+        "--no-batch",
+        dest="batch",
+        action="store_false",
+        default=True,
+        help="Compatibility flag retained for legacy scripts; current output is always combined.",
+    )
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"), help="Logging verbosity.")
     return parser.parse_args(argv)
 
@@ -796,7 +720,6 @@ def main_bed_to_annot(argv: Sequence[str] | None = None) -> int:
     cli_global_config = GlobalConfig(
         snp_identifier=normalize_snp_identifier_mode(args.snp_identifier),
         genome_build=default_config.genome_build if args.genome_build is None else args.genome_build,
-        ref_panel_snps_path=None if args.ref_panel_snps_path is None else str(args.ref_panel_snps_path),
         log_level=args.log_level,
     )
     _run_bed_to_annot_with_global_config(
@@ -807,43 +730,6 @@ def main_bed_to_annot(argv: Sequence[str] | None = None) -> int:
         global_config=cli_global_config,
         entrypoint="main_bed_to_annot",
     )
-    return 0
-
-
-def parse_make_annot_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    """Parse CLI arguments for the legacy ``make_annot`` compatibility command."""
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--gene-set-file", type=str, help="a file of gene names, one line per gene.")
-    parser.add_argument(
-        "--gene-coord-file",
-        type=str,
-        default="ENSG_coord.txt",
-        help="a file with columns GENE, CHR, START, and END.",
-    )
-    parser.add_argument("--windowsize", type=int, help="how many base pairs to add around the transcribed region to make the annotation?")
-    parser.add_argument("--bed-file", type=str, help="the UCSC bed file with the regions that make up your annotation")
-    parser.add_argument(
-        "--nomerge",
-        action="store_true",
-        default=False,
-        help="don't merge the bed file before constructing the annotation.",
-    )
-    parser.add_argument("--bimfile", type=str, help="plink bim file for the dataset you will use to compute LD scores.")
-    parser.add_argument("--annot-file", type=str, help="the name of the annot file to output.")
-    return parser.parse_args(argv)
-
-
-def main_make_annot(argv: Sequence[str] | None = None) -> int:
-    """CLI entrypoint preserving the legacy ``make_annot.py`` interface."""
-    args = parse_make_annot_args(argv)
-    pybedtools = _get_pybedtools()
-    if args.gene_set_file is not None:
-        bed_for_annot = gene_set_to_bed(args)
-    else:
-        bed_for_annot = pybedtools.BedTool(args.bed_file).sort()
-        if not args.nomerge:
-            bed_for_annot = bed_for_annot.merge()
-    make_annot_files(args, bed_for_annot)
     return 0
 
 
@@ -1125,6 +1011,36 @@ def _compute_bed_overlap_mask(baseline_rows: Sequence[_BaselineRow], baseline_be
     return _validate_and_convert_intersection(results, baseline_rows, sanity_mode="rsid")
 
 
+def _compute_bed_query_columns(
+    metadata: pd.DataFrame,
+    bed_paths: Sequence[Path],
+    tempdir: Path,
+) -> pd.DataFrame:
+    """Project BED overlaps onto ``metadata`` without writing `.annot.gz` files."""
+    pybedtools = _get_pybedtools()
+    rows = [
+        _BaselineRow(
+            chrom=str(row.CHR),
+            pos=int(row.POS),
+            snp=str(row.SNP),
+            cm=str(row.CM),
+        )
+        for row in metadata.itertuples(index=False)
+    ]
+    baseline_bed_path = _write_baseline_bed(rows, tempdir / "bed_query_baseline.bed")
+    baseline_bed = pybedtools.BedTool(str(baseline_bed_path))
+    try:
+        return pd.DataFrame(
+            {
+                path.stem: np.asarray(_compute_bed_overlap_mask(rows, baseline_bed, path), dtype=np.float32)
+                for path in bed_paths
+            },
+            index=metadata.index,
+        )
+    finally:
+        pybedtools.cleanup(remove_all=True)
+
+
 def _write_annot_file(out_path: Path, rows: Sequence[_BaselineRow], annotation_names: Sequence[str], masks: Sequence[Sequence[int]]) -> None:
     """Write one LDSC-compatible ``.annot.gz`` file from precomputed annotation masks."""
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1133,6 +1049,22 @@ def _write_annot_file(out_path: Path, rows: Sequence[_BaselineRow], annotation_n
         for idx, row in enumerate(rows):
             annot_values = [str(int(mask[idx])) for mask in masks]
             handle.write("\t".join([row.chrom, str(row.pos), row.snp, row.cm, *annot_values]) + "\n")
+
+
+def _write_bundle_query_as_annot_files(bundle: AnnotationBundle, output_dir: Path) -> list[Path]:
+    """Write one `query.<chrom>.annot.gz` file per chromosome from ``bundle``."""
+    output_paths: list[Path] = []
+    for chrom in bundle.chromosomes:
+        chrom_mask = bundle.metadata["CHR"].astype(str) == str(chrom)
+        chrom_meta = bundle.metadata.loc[chrom_mask].reset_index(drop=True).copy()
+        chrom_meta = chrom_meta.rename(columns={"POS": "BP"})
+        chrom_query = bundle.query_annotations.loc[chrom_mask].reset_index(drop=True)
+        out_path = output_dir / f"query.{chrom}.annot.gz"
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        with gzip.open(out_path, "wt") as handle:
+            pd.concat([chrom_meta, chrom_query], axis=1).to_csv(handle, sep="\t", index=False)
+        output_paths.append(out_path)
+    return output_paths
 
 
 def _query_output_name(path: Path) -> str:

@@ -124,9 +124,9 @@ class ReferencePanelBuilder:
         )
         restriction_mode = None
         restriction_values = None
-        if self.global_config.ref_panel_snps_path:
+        if config.ref_panel_snps_path:
             restriction_path = resolve_scalar_path(
-                self.global_config.ref_panel_snps_path,
+                config.ref_panel_snps_path,
                 suffixes=_TABLE_SUFFIXES,
                 label="reference-panel SNP restriction",
             )
@@ -448,7 +448,6 @@ def config_from_args(args: argparse.Namespace) -> tuple[ReferencePanelBuildConfi
     )
     global_config = GlobalConfig(
         genome_build=build_config.source_genome_build,
-        ref_panel_snps_path=build_config.ref_panel_snps_path,
         log_level=args.log_level,
     )
     return build_config, global_config
@@ -463,7 +462,7 @@ def run_build_ref_panel_from_args(args: argparse.Namespace) -> ReferencePanelBui
 
 def run_build_ref_panel(**kwargs: Any) -> ReferencePanelBuildResult:
     """Convenience wrapper around :func:`run_build_ref_panel_from_args`."""
-    forbidden = sorted({"log_level", "ref_panel_snps_path"} & set(kwargs))
+    forbidden = sorted({"log_level"} & set(kwargs))
     if forbidden:
         joined = ", ".join(forbidden)
         raise ValueError(
@@ -493,7 +492,6 @@ def run_build_ref_panel(**kwargs: Any) -> ReferencePanelBuildResult:
     )
     global_config = get_global_config()
     defaults["log_level"] = global_config.log_level
-    defaults["ref_panel_snps_path"] = global_config.ref_panel_snps_path
     defaults.update(kwargs)
     args = argparse.Namespace(**defaults)
     return run_build_ref_panel_from_args(args)

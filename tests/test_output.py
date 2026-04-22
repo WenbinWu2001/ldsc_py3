@@ -321,6 +321,25 @@ class OutputManagerTest(unittest.TestCase):
             chrom2_df = pd.read_csv(summary.output_paths["ldscore.chrom_2"], sep="\t")
             self.assertEqual(chrom2_df["SNP"].tolist(), ["rs3"])
 
+    def test_existing_artifact_raises_before_writing_any_outputs(self):
+        result = make_multi_chrom_result()
+        manager = OutputManager()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir)
+            conflict_path = output_dir / "example.2.l2.ldscore.gz"
+            conflict_path.write_text("existing", encoding="utf-8")
+            spec = OutputSpec(
+                out_prefix="example",
+                output_dir=output_dir,
+                enabled_artifacts=["ldscore"],
+            )
+
+            with self.assertRaisesRegex(FileExistsError, "overwrite=True"):
+                manager.write_outputs(result, spec)
+
+            self.assertFalse((output_dir / "example.1.l2.ldscore.gz").exists())
+            self.assertEqual(conflict_path.read_text(encoding="utf-8"), "existing")
+
     def test_unknown_artifact_raises(self):
         manager = OutputManager()
         spec = OutputSpec(out_prefix="example", enabled_artifacts=["does_not_exist"])

@@ -366,7 +366,25 @@ class LDScoreCalculator:
         output_spec: OutputSpec,
         config_snapshot: dict[str, Any] | None = None,
     ):
-        """Write a previously computed result through the output layer."""
+        """Write a previously computed result through the output layer.
+
+        Parameters
+        ----------
+        result : LDScoreResult
+            Aggregate LD-score result to serialize.
+        output_spec : OutputSpec
+            Output layout and artifact selection. Its ``overwrite`` flag
+            controls whether pre-existing destinations are replaced or cause a
+            fail-fast batch-level error before any artifact is written.
+        config_snapshot : dict or None, optional
+            Optional metadata recorded in the emitted run summary. Default is
+            ``None``.
+
+        Returns
+        -------
+        RunSummary
+            Summary of the emitted artifacts, including resolved output paths.
+        """
         return self.output_manager.write_outputs(result, output_spec, config_snapshot=config_snapshot)
 
 

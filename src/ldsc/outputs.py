@@ -51,7 +51,8 @@ class OutputSpec:
     chromosome, aggregate count vectors, and summary metadata. ``write_w_ld``
     remains for backward compatibility and defaults to ``False`` because
     regression weights now live in the ``regr_weight`` column of the LD-score
-    table itself.
+    table itself. When ``overwrite`` is ``False``, batched writes fail before
+    the first file is emitted if any destination path already exists.
     """
     out_prefix: str | PathLike[str]
     output_dir: str | PathLike[str] | None = None
@@ -179,13 +180,56 @@ class ResultFormatter:
 class ResultWriter:
     """Serialize artifact payloads to disk."""
 
-    def write(self, artifact: Artifact, root: Path, overwrite: bool = False) -> str:
-        """Write ``artifact`` below ``root`` and return the written path."""
+    def resolve_path(self, artifact: Artifact, root: Path) -> Path:
+        """Resolve one artifact path and ensure its parent directory exists."""
         path = root / artifact.relative_path
-        path = ensure_output_parent_directory(path, label="artifact output path")
-        if path.exists() and not overwrite:
-            raise FileExistsError(f"Refusing to overwrite existing artifact: {path}")
+        return ensure_output_parent_directory(path, label="artifact output path")
 
+    def prepare_writes(self, artifacts: Iterable[Artifact], root: Path, overwrite: bool = False) -> dict[str, Path]:
+        """Resolve and validate a batch of artifact destinations.
+
+        ``artifacts`` is typically the full output set for one run. This
+        helper ensures every destination path is unique, creates any missing
+        parent directories, and raises before the first payload is written when
+        existing files would be reused while ``overwrite`` is ``False``.
+        """
+        prepared: dict[str, Path] = {}
+        artifact_names_by_path: dict[Path, str] = {}
+        duplicate_targets: list[str] = []
+        existing_paths: list[Path] = []
+
+        for artifact in artifacts:
+            path = self.resolve_path(artifact, root)
+            other_name = artifact_names_by_path.get(path)
+            if other_name is not None:
+                duplicate_targets.append(f"{path} ({other_name}, {artifact.name})")
+            artifact_names_by_path[path] = artifact.name
+            prepared[artifact.name] = path
+            if path.exists():
+                existing_paths.append(path)
+
+        if duplicate_targets:
+            joined = ", ".join(duplicate_targets)
+            raise ValueError(f"Multiple artifacts resolve to the same output path: {joined}")
+        if existing_paths and not overwrite:
+            raise FileExistsError(_format_existing_artifact_message(existing_paths))
+        return prepared
+
+    def write(self, artifact: Artifact, root: Path, overwrite: bool = False) -> str:
+        """Write one artifact below ``root`` and return the written path.
+
+        This method validates only the destination for ``artifact``. Callers
+        writing multiple artifacts should preflight the full batch with
+        :meth:`prepare_writes` to avoid partial output directories.
+        """
+        path = self.resolve_path(artifact, root)
+        if path.exists() and not overwrite:
+            raise FileExistsError(_format_existing_artifact_message([path]))
+
+        return self.write_prepared(artifact, path)
+
+    def write_prepared(self, artifact: Artifact, path: Path) -> str:
+        """Write ``artifact`` to a destination already checked for conflicts."""
         if artifact.format == "dataframe":
             self._write_dataframe(artifact.payload, path)
         elif artifact.format == "json":
@@ -399,17 +443,20 @@ class OutputManager:
         artifact_config: ArtifactConfig | None = None,
         config_snapshot: dict[str, Any] | None = None,
     ) -> RunSummary:
-        """Build and write all enabled artifacts for ``result``."""
+        """Build and write all enabled artifacts for ``result``.
+
+        The manager first materializes the enabled artifact set, then asks the
+        writer to validate every destination path. This makes overwrite
+        failures fail-fast at the batch level instead of after a partial write.
+        """
         root = ensure_output_directory(_output_root(output_spec), label="output directory")
         run_summary = self.build_run_summary(result, output_spec, config_snapshot=config_snapshot)
         output_paths: dict[str, str] = {}
+        artifacts = self._build_artifacts(result, run_summary, output_spec, artifact_config=artifact_config)
+        prepared_paths = self.writer.prepare_writes(artifacts, root, overwrite=output_spec.overwrite)
 
-        for name in self.resolve_enabled_artifacts(output_spec):
-            producer = self._registry[name]
-            if not producer.supports(result):
-                continue
-            for artifact in producer.build(result, run_summary, output_spec, artifact_config=artifact_config):
-                output_paths[artifact.name] = self.writer.write(artifact, root, overwrite=output_spec.overwrite)
+        for artifact in artifacts:
+            output_paths[artifact.name] = self.writer.write_prepared(artifact, prepared_paths[artifact.name])
 
         return RunSummary(
             n_reference_snps=run_summary.n_reference_snps,
@@ -419,6 +466,23 @@ class OutputManager:
             output_paths=output_paths,
             config_snapshot=run_summary.config_snapshot,
         )
+
+    def _build_artifacts(
+        self,
+        result: Any,
+        run_summary: RunSummary,
+        output_spec: OutputSpec,
+        artifact_config: ArtifactConfig | None = None,
+    ) -> list[Artifact]:
+        """Build artifacts from all enabled producers without writing them yet."""
+        artifacts: list[Artifact] = []
+
+        for name in self.resolve_enabled_artifacts(output_spec):
+            producer = self._registry[name]
+            if not producer.supports(result):
+                continue
+            artifacts.extend(producer.build(result, run_summary, output_spec, artifact_config=artifact_config))
+        return artifacts
 
 
 class PostProcessor:
@@ -474,6 +538,15 @@ def _count_suffix(key: str) -> str:
     if key == "common_reference_snp_counts_maf_gt_0_05":
         return ".l2.M_5_50"
     return f".{key}.tsv"
+
+
+def _format_existing_artifact_message(paths: list[Path]) -> str:
+    """Build the shared overwrite-guard message for one or more destinations."""
+    preview = ", ".join(str(path) for path in paths[:3])
+    if len(paths) > 3:
+        preview = f"{preview}, ... ({len(paths) - 3} more)"
+    label = "artifact" if len(paths) == 1 else "artifacts"
+    return f"Refusing to overwrite existing {label}: {preview}. Pass overwrite=True to replace them."
 
 
 def _to_serializable(value: Any) -> Any:

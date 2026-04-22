@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Refactor annotation processing and the partitioned-h2 pipeline to support in-memory BED → AnnotationBundle construction, explicit LD SNP universe tracking (named `ld_reference_snps` / `ld_regression_snps`), a unified `run_ldscore_from_args` code path through `AnnotationBuilder` + `LDScoreCalculator`, a `--query-annot-bed` flag on `ldsc ldscore`, and a cleaner config boundary where `ref_panel_snps_path` lives on `RefPanelSpec` and `regression_snps_path` lives on `LDScoreConfig` — both removed from `GlobalConfig`.
+**Goal:** Refactor annotation processing and the partitioned-h2 pipeline to support in-memory BED → `AnnotationBundle` construction, a unified `run_ldscore_from_args` code path through `AnnotationBuilder` + `LDScoreCalculator`, a `--query-annot-bed` flag on `ldsc ldscore`, a single merged public `ldscore_table` result shape with embedded `regr_weight`, per-chromosome-only `.l2.ldscore.gz` output, and a cleaner config boundary where `ref_panel_snps_path` lives on `RefPanelSpec` and `regression_snps_path` lives on `LDScoreConfig` — both removed from `GlobalConfig`.
 
-**Architecture:** Eight sequential tasks. Each builds on the previous: (1) remove gene-set TSV support; (2) rename reference/regression SNP fields with invariant assertion; (3) restructure SNP-restriction config — move `ref_panel_snps_path` to `RefPanelSpec` and `regression_snps_path` to `LDScoreConfig`, remove both from `GlobalConfig`, add `r2_bias_mode` to `RefPanelSpec`; (4) add in-memory BED projection to `AnnotationBuilder.run()`; (5) refactor `project_bed_annotations` to return an `AnnotationBundle`; (6) converge `run_ldscore_from_args` through the workflow layer; (7) add `--query-annot-bed` to the ldscore CLI; (8) make `load_ldscore_from_files` public.
+**Architecture:** Nine sequential tasks. Each builds on the previous: (1) remove gene-set TSV support; (2) normalize public `LDScoreResult` / `ChromLDScoreResult` to the merged `ldscore_table` shape; (3) restructure SNP-restriction config — move `ref_panel_snps_path` to `RefPanelSpec` and `regression_snps_path` to `LDScoreConfig`, remove both from `GlobalConfig`, add `r2_bias_mode` to `RefPanelSpec`; (4) add in-memory BED projection to `AnnotationBuilder.run()`; (5) refactor `project_bed_annotations` to return an `AnnotationBundle`; (6) converge `run_ldscore_from_args` through the workflow layer and make per-chromosome output the only output mode; (7) add `--query-annot-bed` to the ldscore CLI; (8) make `load_ldscore_from_files` public; (9) make `--w-ld` optional when `regr_weight` is embedded.
 
 **Tech Stack:** Python 3.10+, pandas, numpy, pybedtools, argparse. Tests: `python -m unittest discover -s tests -p 'test*.py' -v`
 
@@ -18,13 +18,13 @@
 | `src/ldsc/annotation_builder.py` | Modify | Update `__all__` to remove gene-set exports |
 | `src/ldsc/config.py` | Modify | Remove `ref_panel_snps_path` and `regression_snps_path` from `GlobalConfig`; add `regression_snps_path` to `LDScoreConfig` |
 | `src/ldsc/_kernel/ref_panel.py` | Modify | Add `ref_panel_snps_path` and `r2_bias_mode` to `RefPanelSpec`; rename `_filter_metadata_by_global_restriction()` → `_apply_snp_restriction()` reading from spec |
-| `src/ldsc/ldscore_calculator.py` | Modify (large) | Rename SNP-set fields; add `_ref_panel_from_args()`, `_ldscore_config_from_args()`; rewrite `run_ldscore_from_args()`; add `--query-annot-bed` (mutually exclusive with `--query-annot`) to `build_parser()`; remove `--ref-panel-snps` and `--regression-snps` from passing through `GlobalConfig` |
-| `src/ldsc/regression_runner.py` | Modify | Rename SNP-set fields in result objects; rename `_load_ldscore_result_from_files` → `load_ldscore_from_files` |
+| `src/ldsc/ldscore_calculator.py` | Modify (large) | Normalize public results to merged `ldscore_table` shape; add `_ref_panel_from_args()`, `_ldscore_config_from_args()`; rewrite `run_ldscore_from_args()`; enforce per-chromosome output; add `--query-annot-bed` (mutually exclusive with `--query-annot`) to `build_parser()`; remove `--ref-panel-snps` and `--regression-snps` from passing through `GlobalConfig` |
+| `src/ldsc/regression_runner.py` | Modify | Consume `ldscore_table`; rename `_load_ldscore_result_from_files` → `load_ldscore_from_files` |
 | `src/ldsc/__init__.py` | Modify | Export `load_ldscore_from_files` |
 | `src/ldsc/cli.py` | Modify | Remove gene-set CLI arguments; simplify `_run_annotate()`; remove `--ref-panel-snps` and `--regression-snps` from non-ldscore subcommands |
 | `tests/test_annotation.py` | Modify | Update for new API and BED in-memory behavior |
-| `tests/test_ldscore_workflow.py` | Modify | Update field names; add GlobalConfig/LDScoreConfig tests |
-| `tests/test_regression_workflow.py` | Modify | Update field names |
+| `tests/test_ldscore_workflow.py` | Modify | Update for merged `ldscore_table` result shape; add GlobalConfig/LDScoreConfig tests |
+| `tests/test_regression_workflow.py` | Modify | Update for merged `ldscore_table` result shape |
 | `tests/test_ref_panel.py` | Modify | Test `r2_bias_mode` and `ref_panel_snps_path` fields |
 
 ---
@@ -160,7 +160,7 @@ EOF
 
 ---
 
-## Task 2: Rename ld_reference_snps / ld_regression_snps and add invariant assertion
+## Task 2: Normalize public LDScoreResult / ChromLDScoreResult to merged ldscore_table shape
 
 **Files:**
 - Modify: `src/ldsc/ldscore_calculator.py`
@@ -172,18 +172,21 @@ EOF
 
 In `tests/test_ldscore_workflow.py`, add to an existing `LDScoreResult`-producing test:
 ```python
-def test_ldscore_result_snp_universe_fields_exist_and_invariant_holds(self):
+def test_ldscore_result_uses_single_table_shape(self):
     result = _build_minimal_ldscore_result()  # helper that returns an LDScoreResult
-    # New field names
+    self.assertTrue(hasattr(result, "ldscore_table"))
     self.assertTrue(hasattr(result, "ld_reference_snps"))
     self.assertTrue(hasattr(result, "ld_regression_snps"))
-    # Old field names must be gone
-    self.assertFalse(hasattr(result, "reference_snps"))
-    self.assertFalse(hasattr(result, "regression_snps"))
-    # Invariant: regression SNPs ⊆ reference SNPs
-    self.assertTrue(result.ld_regression_snps.issubset(result.ld_reference_snps))
-    # Both must be frozensets
+    # Split-table public fields must be gone
+    self.assertFalse(hasattr(result, "reference_metadata"))
+    self.assertFalse(hasattr(result, "regression_metadata"))
+    self.assertFalse(hasattr(result, "w_ld"))
+    # Public result mirrors written .l2.ldscore.gz rows
+    self.assertIn("regr_weight", result.ldscore_table.columns)
+    self.assertGreater(len(result.ldscore_table), 0)
+    # ld_reference_snps is not recoverable from normalized row tables
     self.assertIsInstance(result.ld_reference_snps, frozenset)
+    self.assertEqual(result.ld_reference_snps, frozenset())
     self.assertIsInstance(result.ld_regression_snps, frozenset)
 ```
 
@@ -192,55 +195,69 @@ def test_ldscore_result_snp_universe_fields_exist_and_invariant_holds(self):
 ```
 python -m unittest tests.test_ldscore_workflow -v 2>&1 | head -30
 ```
-Expected: FAIL (fields not found)
+Expected: FAIL (old split-table fields still present)
 
-- [ ] **Step 3: Rename fields in `ChromLDScoreResult` and `LDScoreResult`**
+- [ ] **Step 3: Replace the split-table public dataclass shape**
 
 In `src/ldsc/ldscore_calculator.py`, change both dataclass field definitions:
 ```python
-# In ChromLDScoreResult — change:
-reference_snps: set[str]
-regression_snps: set[str]
-# To:
+# In ChromLDScoreResult, replace the public row tables:
+ldscore_table: pd.DataFrame
 ld_reference_snps: frozenset[str]
 ld_regression_snps: frozenset[str]
 
-# Same change in LDScoreResult.
+# Remove public fields:
+# - reference_metadata
+# - regression_metadata
+# - w_ld
+#
+# Same shape change in LDScoreResult. The public result object becomes a
+# normalized/file-equivalent view:
+# - ldscore_table: one DataFrame with [CHR, SNP, BP, <annot columns>, regr_weight]
+# - snp_count_totals: counts already computed over the full ld_reference_snps
+# - ld_reference_snps: frozenset() on normalized/public results
+# - ld_regression_snps: reconstructed from ldscore_table rows
 ```
 
-- [ ] **Step 4: Update `_wrap_legacy_chrom_result()` — populate renamed fields and add assertion**
+- [ ] **Step 4: Update `_wrap_legacy_chrom_result()` to build the merged normalized row table**
 
 ```python
 def _wrap_legacy_chrom_result(self, legacy_result, global_config, regression_snps=None):
     reference_metadata = legacy_result.metadata.reset_index(drop=True).copy()
     ld_scores = pd.DataFrame(legacy_result.ld_scores, columns=list(legacy_result.ldscore_columns))
-    ld_reference_snps = frozenset(build_snp_id_series(reference_metadata, global_config.snp_identifier))
-    retained_regression_snps = (
-        ld_reference_snps if regression_snps is None
-        else frozenset(ld_reference_snps.intersection(regression_snps))
+    internal_ld_reference_snps = frozenset(
+        build_snp_id_series(reference_metadata, global_config.snp_identifier)
     )
-    # Invariant: regression SNPs must be a subset of reference SNPs
-    assert retained_regression_snps.issubset(ld_reference_snps), (
-        f"Invariant violation on chromosome {legacy_result.chrom}: "
-        "ld_regression_snps is not a subset of ld_reference_snps."
+    internal_ld_regression_snps = (
+        internal_ld_reference_snps if regression_snps is None
+        else frozenset(internal_ld_reference_snps.intersection(regression_snps))
     )
-    regression_keep = build_snp_id_series(reference_metadata, global_config.snp_identifier).isin(retained_regression_snps)
-    regression_metadata = reference_metadata.loc[regression_keep].reset_index(drop=True)
-    w_ld = pd.DataFrame(np.asarray(legacy_result.w_ld, dtype=np.float32), columns=["L2"]).loc[regression_keep].reset_index(drop=True)
+    regression_keep = build_snp_id_series(
+        reference_metadata, global_config.snp_identifier
+    ).isin(internal_ld_regression_snps)
+    ldscore_table = pd.concat(
+        [
+            reference_metadata.loc[regression_keep, ["CHR", "SNP", "BP"]].reset_index(drop=True),
+            ld_scores.loc[regression_keep].reset_index(drop=True),
+            pd.DataFrame(
+                {"regr_weight": np.asarray(legacy_result.w_ld, dtype=np.float32)[regression_keep.to_numpy()]}
+            ).reset_index(drop=True),
+        ],
+        axis=1,
+    )
     count_map = {"all_reference_snp_counts": np.asarray(legacy_result.M, dtype=np.float64)}
     if legacy_result.M_5_50 is not None:
         count_map["common_reference_snp_counts_maf_gt_0_05"] = np.asarray(legacy_result.M_5_50, dtype=np.float64)
     result = ChromLDScoreResult(
         chrom=str(legacy_result.chrom),
-        reference_metadata=reference_metadata,
-        ld_scores=ld_scores,
-        regression_metadata=regression_metadata,
-        w_ld=w_ld,
+        ldscore_table=ldscore_table,
         snp_count_totals=count_map,
         baseline_columns=list(legacy_result.baseline_columns),
         query_columns=list(legacy_result.query_columns),
-        ld_reference_snps=ld_reference_snps,
-        ld_regression_snps=retained_regression_snps,
+        ld_reference_snps=frozenset(),
+        ld_regression_snps=frozenset(
+            build_snp_id_series(ldscore_table, global_config.snp_identifier)
+        ),
         output_paths={},
         config_snapshot=global_config,
     )
@@ -248,66 +265,67 @@ def _wrap_legacy_chrom_result(self, legacy_result, global_config, regression_snp
     return result
 ```
 
-- [ ] **Step 5: Update `_aggregate_chromosome_results()` to use new field names**
+- [ ] **Step 5: Update `_aggregate_chromosome_results()` to concatenate `ldscore_table`**
 
 ```python
-# Change these two lines in _aggregate_chromosome_results():
-reference_snps=set().union(*(result.reference_snps for result in chromosome_results)),
-regression_snps=set().union(*(result.regression_snps for result in chromosome_results)),
-# To:
-ld_reference_snps=frozenset().union(*(result.ld_reference_snps for result in chromosome_results)),
-ld_regression_snps=frozenset().union(*(result.ld_regression_snps for result in chromosome_results)),
+ldscore_table=pd.concat(
+    [result.ldscore_table for result in chromosome_results],
+    ignore_index=True,
+)
+ld_reference_snps=frozenset(),
+ld_regression_snps=frozenset().union(
+    *(result.ld_regression_snps for result in chromosome_results)
+),
 ```
 
 - [ ] **Step 6: Update `_replace_result_output_paths()` to use new field names**
 
 ```python
 # In _replace_result_output_paths(), change:
-reference_snps=result.reference_snps,
-regression_snps=result.regression_snps,
-# To:
+ldscore_table=result.ldscore_table,
 ld_reference_snps=result.ld_reference_snps,
 ld_regression_snps=result.ld_regression_snps,
 ```
 
-- [ ] **Step 7: Update `regression_runner.py` — `_subset_ldscore_result()` and `_load_ldscore_result_from_files()`**
+- [ ] **Step 7: Update `regression_runner.py` consumers to use `ldscore_table`**
 
 In `_subset_ldscore_result()`:
 ```python
-# Change:
-reference_snps=set(ldscore_result.reference_snps),
-regression_snps=set(ldscore_result.regression_snps),
-# To:
-ld_reference_snps=frozenset(ldscore_result.ld_reference_snps),
+# Subset ldscore_result.ldscore_table on the retained SNP rows and carry:
+ldscore_table=subset_table.reset_index(drop=True),
+ld_reference_snps=frozenset(),
 ld_regression_snps=frozenset(ldscore_result.ld_regression_snps),
 ```
 
 In `_load_ldscore_result_from_files()`:
 ```python
-# Change:
-reference_snps=set(reference_metadata["SNP"].astype(str)),
-regression_snps=set(regression_metadata["SNP"].astype(str)),
-# To:
-ld_reference_snps=frozenset(reference_metadata["SNP"].astype(str)),
-ld_regression_snps=frozenset(regression_metadata["SNP"].astype(str)),
+# Return:
+ldscore_table=file_rows_df.reset_index(drop=True),
+ld_reference_snps=frozenset(),
+ld_regression_snps=frozenset(build_snp_id_series(file_rows_df, snp_identifier)),
 ```
 
-- [ ] **Step 8: Update `ChromLDScoreResult.summary()`, `LDScoreResult.summary()`, and `validate()` methods if they reference the old field names**
+- [ ] **Step 8: Update `summary()` / `validate()` methods for the new public shape**
 
 Search and replace in `ldscore_calculator.py`:
 ```bash
-grep -n "reference_snps\|regression_snps" src/ldsc/ldscore_calculator.py
+grep -n "reference_metadata\|regression_metadata\|w_ld\|reference_snps\|regression_snps" src/ldsc/ldscore_calculator.py
 ```
-Fix any remaining references (method bodies in `summary()`, `validate()`, etc.).
+Fix any remaining references (method bodies in `summary()`, `validate()`, etc.). Validation
+should check the normalized/file-equivalent contract:
+- `ldscore_table` contains `CHR`, `SNP`, `BP`, and `regr_weight`
+- `ld_reference_snps == frozenset()`
+- `ld_regression_snps` is derived from `ldscore_table` rows
 
 - [ ] **Step 9: Update test files**
 
 In `tests/test_ldscore_workflow.py` and `tests/test_regression_workflow.py`, replace all:
+- `.reference_metadata` / `.regression_metadata` / `.w_ld` assertions with `ldscore_table`
 - `.reference_snps` → `.ld_reference_snps`
 - `.regression_snps` → `.ld_regression_snps`
 
 ```bash
-grep -rn "\.reference_snps\|\.regression_snps" tests/
+grep -rn "\.reference_metadata\|\.regression_metadata\|\.w_ld\|\.reference_snps\|\.regression_snps" tests/
 ```
 
 - [ ] **Step 10: Run tests**
@@ -322,12 +340,13 @@ Expected: all PASS
 ```bash
 git add src/ldsc/ldscore_calculator.py src/ldsc/regression_runner.py tests/test_ldscore_workflow.py tests/test_regression_workflow.py
 git commit -m "$(cat <<'EOF'
-Rename reference/regression SNP fields to ld_reference_snps/ld_regression_snps
+Normalize public LDScoreResult to merged ldscore_table shape
 
-Rename ChromLDScoreResult.reference_snps → ld_reference_snps and
-ChromLDScoreResult.regression_snps → ld_regression_snps. Same change on
-LDScoreResult. Both are now frozenset[str]. Add explicit invariant assertion
-in _wrap_legacy_chrom_result: ld_regression_snps ⊆ ld_reference_snps.
+Replace the public split-table shape (reference_metadata /
+regression_metadata / w_ld) with a single normalized ldscore_table that
+matches the written .l2.ldscore.gz rows and embeds regr_weight. Public
+ld_reference_snps is now frozenset() because the full reference universe
+is not recoverable from normalized row tables.
 
 Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 EOF
@@ -861,7 +880,7 @@ EOF
 
 ## Task 6: Converge run_ldscore_from_args through AnnotationBuilder + LDScoreCalculator
 
-After this task, `run_ldscore_from_args()` uses `AnnotationBuilder.run()` to build the annotation bundle and `LDScoreCalculator.run()` for computation, removing the inline `kernel_ldscore.combine_annotation_groups()` loop and the `_filter_annotation_bundle_to_reference_universe()` dead helper. The `ref_panel_snps_path` restriction is **not** applied inside `AnnotationBuilder` — it is applied by `RefPanel._apply_snp_restriction()` inside `load_metadata()` (Task 3). The annotation bundle keeps all annotation-file SNPs; the kernel intersection with the already-restricted reference panel produces the correct `ld_reference_snps`.
+After this task, `run_ldscore_from_args()` uses `AnnotationBuilder.run()` to build the annotation bundle and `LDScoreCalculator.run()` for computation, removing the inline `kernel_ldscore.combine_annotation_groups()` loop and the `_filter_annotation_bundle_to_reference_universe()` dead helper. The `ref_panel_snps_path` restriction is **not** applied inside `AnnotationBuilder` — it is applied by `RefPanel._apply_snp_restriction()` inside `load_metadata()` (Task 3). The annotation bundle keeps all annotation-file SNPs; the kernel intersection with the already-restricted reference panel produces the correct `ld_reference_snps`. This task also makes per-chromosome `.l2.ldscore.gz` output the only output mode; any aggregate-vs-per-chrom output switch is removed or ignored.
 
 **Files:**
 - Modify: `src/ldsc/ldscore_calculator.py`
@@ -890,14 +909,15 @@ def test_run_ldscore_from_args_produces_same_result_as_calculator_run(self):
         bfile=bfile, r2_table=None, out=out_prefix,
         snp_identifier="rsid", genome_build=None,
         ld_wind_snps=None, ld_wind_kb=1.0, ld_wind_cm=None,
-        maf=None, chunk_size=50, per_chr_output=False,
+        maf=None, chunk_size=50,
         yes_really=False, r2_bias_mode=None, r2_sample_size=None,
         ref_panel_snps_path=None, regression_snps_path=None,
         frqfile=None, keep=None, log_level="WARNING",
     )
     result = run_ldscore_from_args(args)
     self.assertIsNotNone(result)
-    self.assertGreater(len(result.reference_metadata), 0)
+    self.assertGreater(len(result.ldscore_table), 0)
+    self.assertIn("regr_weight", result.ldscore_table.columns)
 ```
 
 - [ ] **Step 2: Run test to verify it passes with old code (baseline)**
@@ -1014,6 +1034,8 @@ grep -n "_filter_annotation_bundle_to_reference_universe\|_chromosome_set_from_a
 - `regr_weight` is the per-SNP total LD score used as regression weight (the value that was previously written to `.w.l2.ldscore.gz`)
 - No separate `.w.l2.ldscore.gz` file is emitted
 - `.M` and `.M_5_50` count files are unchanged: they track `ld_reference_snps` (B ∩ A') per annotation column
+- Public `LDScoreResult` / `ChromLDScoreResult` objects are normalized to this same merged row-table shape
+- Per-chromosome output is the only output mode; write `<out_prefix>.<chrom>.l2.ldscore.gz` for each chromosome
 
 In `LDScoreCalculator.run()` (or its per-chromosome output assembly), replace the two-file write with a single-file write that appends `regr_weight` as the last column before writing:
 
@@ -1196,7 +1218,8 @@ def test_load_ldscore_from_files_new_format_no_weight_path(self):
         snp_identifier="rsid",
     )
     self.assertIsNotNone(result)
-    self.assertGreater(len(result.reference_metadata), 0)
+    self.assertGreater(len(result.ldscore_table), 0)
+    self.assertIn("regr_weight", result.ldscore_table.columns)
     # ld_reference_snps is not recoverable from disk; must be empty frozenset
     self.assertEqual(result.ld_reference_snps, frozenset())
     # ld_regression_snps reconstructed from file rows via build_snp_id_series
@@ -1217,7 +1240,8 @@ def test_load_ldscore_from_files_legacy_format_separate_weight_file(self):
         snp_identifier="rsid",
     )
     self.assertIsNotNone(result)
-    self.assertGreater(len(result.reference_metadata), 0)
+    self.assertGreater(len(result.ldscore_table), 0)
+    self.assertIn("regr_weight", result.ldscore_table.columns)
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1255,7 +1279,7 @@ def load_ldscore_from_files(
 df = pd.read_csv(ldscore_path, sep="\t", compression="gzip")
 if "regr_weight" in df.columns:
     regression_weights = df["regr_weight"].values
-    file_rows_df = df.drop(columns=["regr_weight"])
+    file_rows_df = df
 elif weight_path is not None:
     w_df = pd.read_csv(weight_path, sep="\t", compression="gzip")
     regression_weights = w_df["L2"].values
@@ -1264,14 +1288,20 @@ else:
     regression_weights = None
     file_rows_df = df
 
+# file_rows_df is the normalized/public row table:
+# - new format: df already includes regr_weight
+# - legacy format: append regr_weight from the separate weight file
+if "regr_weight" not in file_rows_df.columns and regression_weights is not None:
+    file_rows_df = file_rows_df.assign(regr_weight=regression_weights)
+
 # ld_reference_snps is not recoverable from disk: column sums (M/M_5_50) were
 # computed over ld_reference_snps at write time, but the file rows are
 # ld_regression_snps (a strict subset). Setting to empty frozenset is correct;
 # regression never reads ld_reference_snps after M/M_5_50 are loaded.
 ld_reference_snps = frozenset()
 
-# ld_regression_snps: reconstruct from file rows using the snp_identifier mode
-# so that chr_pos vs rsid is applied consistently (not just literal "SNP" column).
+# ld_regression_snps: reconstruct from normalized row table using the
+# snp_identifier mode so that chr_pos vs rsid is applied consistently.
 ld_regression_snps = frozenset(build_snp_id_series(file_rows_df, snp_identifier))
 ```
 
@@ -1341,7 +1371,7 @@ def test_run_partitioned_h2_from_args_without_w_ld_uses_regr_weight(self):
         ldscore_path=str(FIXTURE_DIR / "test_merged.l2.ldscore.gz"),
         w_ld=None,          # absent — must fall back to regr_weight column
         sumstats=str(FIXTURE_DIR / "test.sumstats.gz"),
-        ref_ld_chr=str(FIXTURE_DIR / "test_merged."),
+        ref_ld_chr=str(FIXTURE_DIR / "test_merged.@"),
         # ...other required args...
     )
     result = run_partitioned_h2_from_args(args)
@@ -1370,14 +1400,14 @@ def _resolve_regression_weights(
 
     Priority:
     1. If w_ld_path is provided, load from file (backward compatibility).
-    2. If ldscore_result has a 'regr_weight' column in reference_metadata, extract it.
+    2. If ldscore_result has a 'regr_weight' column in ldscore_table, extract it.
     3. Raise ValueError — weights are required for regression.
     """
     if w_ld_path is not None:
         return pd.read_csv(w_ld_path, sep="\t", compression="infer")
-    ref_meta = ldscore_result.reference_metadata
-    if "regr_weight" in ref_meta.columns:
-        return ref_meta[["CHR", "SNP", "BP", "regr_weight"]].rename(
+    table = ldscore_result.ldscore_table
+    if "regr_weight" in table.columns:
+        return table[["CHR", "SNP", "BP", "regr_weight"]].rename(
             columns={"regr_weight": "L2"}
         )
     raise ValueError(
@@ -1477,7 +1507,7 @@ Add a completed section for this refactoring under "Completed" in `PLANS.md`.
 
 **Spec coverage:**
 - [x] Q1 — `project_bed_annotations` / `run_bed_to_annot` return `AnnotationBundle`, `output_dir` optional (Tasks 4–5)
-- [x] Q2 — `ld_reference_snps` / `ld_regression_snps` frozenset fields with invariant assertion (Task 2)
+- [x] Q2 — Public `LDScoreResult` / `ChromLDScoreResult` normalized to one merged `ldscore_table`; `ld_reference_snps = frozenset()` on normalized/public results (Task 2)
 - [x] Q3 — Resumability already present via `_load_ldscore_result_from_files`; now public with weight_path optional and SNP reconstruction via `build_snp_id_series` (Task 8)
 - [x] Q4 — Python API and CLI changes: in-memory BED path, `--query-annot-bed` flag mutually exclusive with `--query-annot` (Tasks 4–5, 7)
 - [x] Q5 — Gene-set TSV removed; BED only (Task 1)
@@ -1497,10 +1527,10 @@ Add a completed section for this refactoring under "Completed" in `PLANS.md`.
 - `_ldscore_config_from_args()`: passes `regression_snps_path` to `LDScoreConfig`
 - `run_ldscore_from_args()`: reads regression SNPs from `ldscore_config`, not `global_config`
 
-**Field rename scope (Task 2) — all callers updated:**
-- `ChromLDScoreResult.ld_reference_snps`, `ld_regression_snps`
-- `LDScoreResult.ld_reference_snps`, `ld_regression_snps`
-- `_wrap_legacy_chrom_result()` (assertion added)
+**Public result-shape scope (Task 2) — all callers updated:**
+- `ChromLDScoreResult.ldscore_table`, `ld_reference_snps`, `ld_regression_snps`
+- `LDScoreResult.ldscore_table`, `ld_reference_snps`, `ld_regression_snps`
+- `_wrap_legacy_chrom_result()` normalizes to file-equivalent rows with embedded `regr_weight`
 - `_aggregate_chromosome_results()`
 - `_replace_result_output_paths()`
 - `_subset_ldscore_result()` in regression_runner.py

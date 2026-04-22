@@ -69,7 +69,7 @@ output counts and row counts.
 | **C** | Regression SNP flags | Binary mask from `regression_snps_path`; flags 1 only for SNPs in `ld_reference_snps` |
 | **`ld_regression_snps`** | Regression output SNPs | B ∩ A' ∩ C — rows of the output `.l2.ldscore.gz` file |
 
-### Key invariant
+### Computation-time relationship
 
 `ld_regression_snps ⊆ ld_reference_snps ⊆ B`
 
@@ -79,6 +79,11 @@ output counts and row counts.
   `ld_regression_snps = ld_reference_snps` and all reference SNPs appear as rows.
 - `ld_reference_snps` is an internal variable. It is **never written as a separate file** and
   is discarded after `.M` / `.M_5_50` are computed.
+- The normalized/public `LDScoreResult` does **not** expose the full reference-row table.
+  It mirrors the persisted `.l2.ldscore.gz` layout: rows = `ld_regression_snps`, columns =
+  metadata + annotation LD columns + `regr_weight`. On that normalized/public object,
+  `ld_reference_snps = frozenset()` because the full reference universe is not recoverable
+  from the written rows.
 
 ---
 
@@ -168,8 +173,12 @@ When `--query-annot-bed` is used, BED intervals are projected onto B in memory u
 6. Output row = `ld_regression_snps`. A `regr_weight` column is appended (the total LD score
    used as regression weight, previously the `.w.l2.ldscore.gz` value).
 7. The single merged file `<out_prefix>.<chrom>.l2.ldscore.gz` is written.
+8. The in-memory `ChromLDScoreResult` / `LDScoreResult` is normalized to the same single-table
+   shape as the written file: `ldscore_table` with rows = `ld_regression_snps` and columns
+   `[CHR, SNP, BP, <annot>_L2..., regr_weight]`.
 
-`ld_reference_snps` is an internal variable and is not written to disk.
+`ld_reference_snps` remains an internal compute-time concept only. Public normalized results
+set `ld_reference_snps = frozenset()` after this normalization step.
 
 ---
 
@@ -186,6 +195,9 @@ When `--query-annot-bed` is used, BED intervals are projected onto B in memory u
 | `regr_weight` | Per-SNP regression weight (total LD score); replaces the old `.w.l2.ldscore.gz` |
 
 **Rows:** `ld_regression_snps` = B ∩ A' ∩ C.
+
+This row/column layout is also the public in-memory `ldscore_table` shape returned by
+`LDScoreCalculator.run()` after normalization.
 
 ### 7.2 `.M` and `.M_5_50` (per annotation, per chromosome)
 
@@ -206,27 +218,36 @@ the `regr_weight` column in `.l2.ldscore.gz`. Pre-computed weight files from ext
 
 ## 8. Regression Phase
 
-`ldsc partitioned-h2 --ref-ld-chr <prefix>. --sumstats <file> [--w-ld <prefix>]`
+`ldsc partitioned-h2 --ref-ld-chr <prefix>.@ --sumstats <file> [--w-ld <prefix>.@]`
 
 ### 8.1 Loading LD scores from disk
 
-`load_ldscore_from_files()` rebuilds an `LDScoreResult` from disk artifacts. It detects
-the file format automatically:
+`load_ldscore_from_files()` rebuilds the normalized/public `LDScoreResult` from disk
+artifacts. It detects the file format automatically:
 
 - **New format (default):** `regr_weight` column present in `.l2.ldscore.gz`. `weight_path`
   argument omitted; weights extracted from the embedded column.
 - **Legacy format:** no `regr_weight` column. Pass `weight_path` pointing to a separate
-  `.w.l2.ldscore.gz` file (or EUR `w_ld_chr/` directory prefix).
+  `.w.l2.ldscore.gz` file (or a path token containing `@` for a chromosome suite).
 
 SNP set reconstruction:
 
 ```python
-ld_reference_snps = frozenset()   # not recoverable from disk; never needed after M/M_5_50 load
-ld_regression_snps = frozenset(build_snp_id_series(file_rows_df, snp_identifier))
+ldscore_table = file_rows_df.assign(regr_weight=regression_weights)
+ld_reference_snps = frozenset()   # not recoverable from normalized row tables
+ld_regression_snps = frozenset(build_snp_id_series(ldscore_table, snp_identifier))
 ```
 
 `snp_identifier` is passed from `GlobalConfig` and must match the mode used during LD score
 computation (`"rsid"` or `"chr_pos"`).
+
+The public result shape is therefore:
+
+- `ldscore_table`: one merged DataFrame with metadata columns, annotation LD-score columns,
+  and `regr_weight`
+- `snp_count_totals`: counts already computed over `ld_reference_snps`
+- `ld_reference_snps = frozenset()`
+- `ld_regression_snps`: reconstructed from the normalized row table
 
 ### 8.2 Regression weights
 
@@ -284,6 +305,7 @@ result = LDScoreCalculator().run(
     global_config=global_config,
     output_spec=...,
 )
+ldscore_df = result.ldscore_table
 
 # 3. Load from disk (after step 2 has already written files)
 result = load_ldscore_from_files(
@@ -326,20 +348,20 @@ ldsc ldscore \
 
 # Step 1b (optional): explicitly save BED → .annot.gz for reuse
 ldsc annotate \
-  --bed-file my_peaks.bed \
+  --bed-files my_peaks.bed \
   --baseline-annot resources/baseline_v1.2/baseline.@ \
   --out my_peaks_annot
 
 # Step 2: partitioned h² regression (new format, no --w-ld needed)
 ldsc partitioned-h2 \
-  --ref-ld-chr my_study. \
+  --ref-ld-chr my_study.@ \
   --sumstats my_gwas.sumstats.gz \
   --out my_study_h2
 
 # Step 2 (backward compat): with separate EUR weight file
 ldsc partitioned-h2 \
-  --ref-ld-chr my_study. \
-  --w-ld resources/eur_w_ld_chr/ \
+  --ref-ld-chr my_study.@ \
+  --w-ld resources/eur_w_ld_chr/weights.@ \
   --sumstats my_gwas.sumstats.gz \
   --out my_study_h2
 ```

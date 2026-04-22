@@ -100,16 +100,14 @@ results, because those results carry their own frozen snapshots.
 | --- | --- | --- |
 | `genome_build` | Critical | Hard error (`ConfigMismatchError`) |
 | `snp_identifier` | Critical | Hard error (`ConfigMismatchError`) |
-| `ref_panel_snps_path` | Critical | Hard error (`ConfigMismatchError`) |
-| `regression_snps_path` | Advisory | Warning only |
 | `log_level` | Advisory | Ignored during compatibility checks |
 | `fail_on_missing_metadata` | Advisory | Ignored during compatibility checks |
 
-`ref_panel_snps_path` is critical because it determines which rows exist in
-annotation artifacts and the LD computation. Two results computed on different
-annotation universes have incompatible row sets and cannot be safely combined.
-`regression_snps_path` is advisory because it only controls which rows appear in
-the written LD-score output table; the LD computation itself is unchanged.
+The compatibility helper compares only `GlobalConfig` snapshots, so the table
+above lists only `GlobalConfig` fields. Workflow-specific LD-score controls such
+as `RefPanelSpec.ref_panel_snps_path` and `LDScoreConfig.regression_snps_path`
+still matter to the result, but they are owned by those workflow objects rather
+than by `GlobalConfig`.
 
 ---
 
@@ -160,122 +158,88 @@ regression = runner.build_dataset(sumstats_hg19, ldscore_hg38)  # ← hard error
 
 ---
 
-## Two-Level SNP-Set Model
+## Workflow-Specific SNP Controls
 
-Standard LDSC separates two distinct SNP-set concepts that map to different stages
-of the workflow. The refactored package exposes them as two explicit `GlobalConfig`
-fields rather than one overloaded field.
+Standard LDSC still needs two distinct SNP-set controls, but they no longer live
+on `GlobalConfig`. The refactored package assigns them to the workflow objects
+that actually own those decisions.
 
 ### The hierarchy
 
 ```text
-Reference-panel / annotation universe   (GlobalConfig.ref_panel_snps_path)
-  └── Regression SNP subset             (GlobalConfig.regression_snps_path)
+Annotation bundle rows B                      (AnnotationBuilder)
+  intersects prepared reference panel A'     (RefPanelSpec.ref_panel_snps_path)
+    then optional regression row subset C    (LDScoreConfig.regression_snps_path)
 ```
 
-| Concept | `GlobalConfig` field | Subcommand(s) | CLI flag | When applied | Artifact effect |
-| --- | --- | --- | --- | --- | --- |
-| Annotation universe | `ref_panel_snps_path` | `annotate`, `ldscore` | `--ref-panel-snps-path` | BED-to-annot write time; AnnotationBundle load time | Rows outside universe are **dropped** from `.annot.gz` and from `AnnotationBundle` |
-| Regression subset | `regression_snps_path` | `ldscore` | `--regression-snps-path` | Weight LD kernel; LD-score artifact write time | Defines `regression_metadata`/`w_ld` rows (kernel); same set written as rows in `.l2.ldscore.gz` **and** `.w.l2.ldscore.gz` |
+| Concept | Owner | CLI flag | When applied | Artifact effect |
+| --- | --- | --- | --- | --- |
+| Reference-panel restriction | `RefPanelSpec.ref_panel_snps_path` | `--ref-panel-snps-path` | `RefPanel.load_metadata()`; then `LDScoreCalculator.compute_chromosome()` aligns `B_chrom` to the restricted panel before the kernel call | Shrinks the compute-time universe to `ld_reference_snps = B ∩ A'`; affects LD scores, `.M`, and `.M_5_50` |
+| Regression row restriction | `LDScoreConfig.regression_snps_path` | `--regression-snps-path` | After LD computation, when normalized/public rows are selected | Shrinks written rows to `ld_regression_snps = B ∩ A' ∩ C`; `regr_weight` is embedded in the same row table |
 
-### What each field controls
+### What each control does
 
-**`ref_panel_snps_path`** — the *reference-panel SNP universe*
+**`RefPanelSpec.ref_panel_snps_path`** — the *reference-panel SNP universe*
 
-Corresponds to the SNP universe of LDSC's `--bfile` reference panel. When set:
+- `AnnotationBuilder.run()` still builds the full annotation universe `B`.
+- `run_bed_to_annot()` and `ldsc annotate` do **not** apply this restriction.
+- `RefPanel.load_metadata()` applies the restriction to the raw panel `A`, producing `A'`.
+- `LDScoreCalculator.compute_chromosome()` then intersects the chromosome-local annotation bundle with that prepared metadata so the kernel sees `B_chrom ∩ A'_chrom`.
 
-- `ldsc annotate`: output `.annot.gz` files physically contain only rows for SNPs in
-  this set. Annotation values (0/1) reflect BED geometry only; no spurious zeros
-  from the restriction.
-- `AnnotationBuilder.run()`: both baseline and query annotation tables are row-filtered
-  to this set at load time. `AnnotationBundle.metadata` reflects only universe SNPs.
-- `RefPanel._filter_metadata_by_global_restriction()`: PLINK and parquet metadata are
-  row-filtered to this set before LD sums are computed.
-- `validate_config_compatibility()`: mismatch raises `ConfigMismatchError` because
-  two annotation bundles with different row universes cannot be combined.
+When `None`, the workflow uses the full reference panel `A`.
 
-When `None`, the full baseline-template SNP set is used as the universe.
+**`LDScoreConfig.regression_snps_path`** — the *regression row set*
 
-**`regression_snps_path`** — the *regression SNP set*
+- The restriction is loaded once into the `regression_snps` set `C`.
+- LD scores and count totals are still computed over `ld_reference_snps = B ∩ A'`.
+- Only the normalized/public rows are reduced to `ld_regression_snps = B ∩ A' ∩ C`.
+- There is no separate `.w.l2.ldscore.gz` artifact in the new format; the selected rows keep their regression weights in the embedded `regr_weight` column.
 
-Replaces both LDSC's `--regression-snps` (kernel mask) and `--print-snps` (output
-filter) with a single unified control. When set:
+When `None`, the normalized/public row table uses all of `ld_reference_snps`.
 
-- `ldsc ldscore` (kernel): weight LD scores (`w_ld`) are computed using only SNPs in
-  this set. The retained intersection is stored as `LDScoreResult.regression_snps`.
-- `ldsc ldscore` (output): `.l2.ldscore.gz` is row-filtered to `result.regression_snps`
-  (already a resolved `set[str]` — no second file-read). `.w.l2.ldscore.gz` is written
-  from `regression_metadata/w_ld` which the kernel already built with only those rows.
-  Both files are guaranteed to have **exactly the same row set**.
-- `validate_config_compatibility()`: mismatch emits a `UserWarning` only, because
-  the regression step inner-joins by SNP ID and results remain combinable.
-
-When `None`, all annotation-universe SNPs contribute to weight LD computation and all
-annotation-universe rows are written to the LD-score output.
-
-### Typical configurations
-
-#### Standard LDSC (full reference panel + HapMap3 regression)
+### Typical configuration
 
 ```python
-ldsc.set_global_config(ldsc.GlobalConfig(
-    genome_build="hg38",
-    snp_identifier="chr_pos",
-    ref_panel_snps_path=None,                      # use full reference panel
-    regression_snps_path="filters/hapmap3.txt",    # regression on HapMap3 only
-))
-```
+cfg = ldsc.GlobalConfig(genome_build="hg38", snp_identifier="chr_pos")
+ldsc.set_global_config(cfg)
 
-Annotation files contain all reference-panel SNPs. LD-score output is restricted to
-HapMap3. This matches the standard LDSC pattern where the regression subset is a
-strict subset of the full reference-panel universe.
+ref_panel = ldsc.RefPanelLoader(cfg).load(
+    ldsc.RefPanelSpec(
+        backend="parquet_r2",
+        r2_table_paths="r2/reference.@.parquet",
+        maf_metadata_paths="r2/reference_metadata.@.tsv.gz",
+        ref_panel_snps_path="filters/reference_universe.txt",
+    )
+)
 
-#### Hard analysis universe (all stages restricted to the same SNP set)
-
-```python
-ldsc.set_global_config(ldsc.GlobalConfig(
-    genome_build="hg38",
-    snp_identifier="chr_pos",
-    ref_panel_snps_path="filters/hapmap3.txt",     # annotation rows = HapMap3
-    regression_snps_path="filters/hapmap3.txt",    # regression on same set
-))
-```
-
-Annotation files, LD computation, and regression all use HapMap3. Intermediate
-`.annot.gz` files are honest: they have exactly HapMap3-many rows.
-
-#### Annotation-universe restriction without regression filter
-
-```python
-ldsc.set_global_config(ldsc.GlobalConfig(
-    ref_panel_snps_path="filters/custom_universe.txt",
-    regression_snps_path=None,      # write all annotation-universe SNPs to output
-))
+ldscore = ldsc.LDScoreCalculator().run(
+    annot,
+    ref_panel,
+    ldsc.LDScoreConfig(
+        ld_wind_cm=1.0,
+        regression_snps_path="filters/hapmap3.txt",
+    ),
+    global_config=cfg,
+)
 ```
 
 ### Artifact contract
 
-When `ref_panel_snps_path` is set, `query.<chrom>.annot.gz` files produced by
-`ldsc annotate` have fewer rows than the baseline template. Downstream steps must
-use the same `ref_panel_snps_path` to keep annotation files and the AnnotationBundle
-aligned. The package does not automatically detect row-count mismatches between a
-restricted query file and an unrestricted baseline file — this is a user error that
-manifests as an alignment failure at AnnotationBundle load time.
+- Materialized query `.annot.gz` files and in-memory `AnnotationBundle` objects stay on the annotation universe `B`.
+- `ref_panel_snps_path` becomes visible only during LD-score calculation, when the workflow aligns `B_chrom` to `ref_panel.load_metadata(chrom)`.
+- `.M` and `.M_5_50` are accumulated over `ld_reference_snps = B ∩ A'`.
+- Normalized/public `.l2.ldscore.gz` rows and `LDScoreResult.ldscore_table` rows are `ld_regression_snps = B ∩ A' ∩ C`.
 
-### Compatibility with the old `restrict_snps_path`, `--regression-snps`, and `--print-snps`
+### Compatibility with older code
 
-The single `restrict_snps_path` field has been removed and split into these two fields.
-Any code that passed `restrict_snps_path=...` to `GlobalConfig()` must be updated:
+Stop passing these controls to `GlobalConfig()`:
 
-- If the intent was to restrict annotation rows (most common case): use
-  `ref_panel_snps_path=...`.
-- If the intent was to restrict the regression SNP set: use `regression_snps_path=...`.
-- If both were intended: set both fields, usually to the same file.
+- move reference-panel restriction to `RefPanelSpec(ref_panel_snps_path=...)`
+- move regression row restriction to `LDScoreConfig(regression_snps_path=...)` or `run_ldscore(...)`
 
-The `--regression-snps` CLI flag (previously the kernel mask for weight LD computation)
-and `--print-snps` (previously the output row filter for `.l2.ldscore.gz`) are both
-removed. Both are replaced by the single `--regression-snps-path` flag, which controls
-weight LD computation and output row filtering together.
+The old `--regression-snps` and `--print-snps` behavior is unified under
+`--regression-snps-path`. There is no longer a separate default `.w.l2.ldscore.gz`
+output artifact.
 
 ---
 
@@ -292,13 +256,13 @@ Genome build for annotations is inferred from the reference metadata embedded in
 `AnnotationBundle.metadata`. Compatibility validation trusts the `GlobalConfig`
 snapshot rather than re-inferring the build from coordinates.
 
-**`ref_panel_snps_path` is critical; `regression_snps_path` is advisory.**
-`ref_panel_snps_path` defines which rows exist in annotation artifacts and the LD
-computation. Two results computed with different annotation universes cannot be safely
-combined, so a mismatch raises `ConfigMismatchError`. `regression_snps_path` controls
-both the weight LD computation and the output row filter, but a mismatch between two
-results is still advisory (warning only): the regression step inner-joins by SNP ID,
-so results with different regression SNP sets remain combinable.
+**Workflow-specific SNP controls are not part of `config_snapshot`.**
+`config_snapshot` records shared assumptions such as `genome_build` and
+`snp_identifier`. Per-run LD-score controls such as
+`RefPanelSpec.ref_panel_snps_path` and `LDScoreConfig.regression_snps_path`
+still materially affect the outputs, but callers who need to preserve that
+provenance should persist the `RefPanelSpec` / `LDScoreConfig` they used
+alongside the written artifacts.
 
 **`load_sumstats()` attaches a proxy snapshot, not original provenance.**
 Curated `.sumstats(.gz)` artifacts on disk do not embed the `GlobalConfig` that was

@@ -100,7 +100,9 @@ ldsc ldscore --ref-panel-snps-path hm3.snplist ...
 Provides a SNP list file (one rsID per line, or CHR:POS depending on `--snp-identifier` mode).
 The `RefPanel` applies this restriction internally at `load_metadata()` time (in
 `RefPanel._apply_snp_restriction()`). The restricted set A' is stored on `RefPanelSpec`; no
-separate filtering step is visible to the caller.
+separate filtering step is visible to the caller. `LDScoreCalculator.compute_chromosome()`
+then consumes that prepared metadata by intersecting the chromosome-local annotation bundle
+with `ref_panel.load_metadata(chrom)` before the legacy kernel runs.
 
 **Effect:** `ld_reference_snps = B ∩ A'` (smaller than `B ∩ A`). `.M` and `.M_5_50` count
 only SNPs in this smaller universe. Improves regression conditioning when the reference panel
@@ -154,6 +156,9 @@ intersected into a single `AnnotationBundle` by `AnnotationBuilder.run()`. The b
 - `metadata`: per-SNP CHR/BP/SNP index aligned to the combined matrix rows
 
 The bundle is the **unified SNP universe** for LD computation. Its row set defines **B**.
+`ref_panel_snps_path` does not shrink this bundle; the reference-panel restriction is applied
+later, when the LD-score workflow aligns each chromosome bundle to the prepared reference-panel
+metadata.
 
 When `--query-annot-bed` is used, BED intervals are projected onto B in memory using
 `pybedtools` overlap. No `.annot.gz` files are written unless the caller explicitly invokes
@@ -166,11 +171,13 @@ When `--query-annot-bed` is used, BED intervals are projected onto B in memory u
 `LDScoreCalculator.run()` iterates over chromosomes. For each chromosome:
 
 1. `ref_panel.load_metadata(chrom)` returns metadata for `A'` (restriction already applied).
-2. `ld_reference_snps = B_chrom ∩ A'_chrom` (frozenset intersection).
-3. LD scores are computed for all SNPs in `ld_reference_snps`, weighted by annotation columns.
+2. The chromosome-local annotation bundle is restricted to the same identifier set, materializing
+   `B_chrom ∩ A'_chrom` before the kernel call.
+3. LD scores are computed for all SNPs in `ld_reference_snps = B_chrom ∩ A'_chrom`, weighted by
+   annotation columns.
 4. `.M` and `.M_5_50` column sums are accumulated over `ld_reference_snps`.
 5. The `regression_snps` set C is applied as a binary mask to select `ld_regression_snps`.
-6. Output row = `ld_regression_snps`. A `regr_weight` column is appended (the total LD score
+6. Output row = `ld_regression_snps = B_chrom ∩ A'_chrom ∩ C`. A `regr_weight` column is appended (the total LD score
    used as regression weight, previously the `.w.l2.ldscore.gz` value).
 7. Under the default output manager, one per-chromosome file `<out_prefix>.<chrom>.l2.ldscore.gz` is written.
 8. The in-memory `ChromLDScoreResult` / `LDScoreResult` is normalized to the same single-table

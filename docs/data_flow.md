@@ -214,8 +214,7 @@ flowchart LR
 
 | File | Example | Notes |
 | --- | --- | --- |
-| LD-score table | `CHR SNP POS CM MAF base enhancer_A`<br/>`1 rs1 10 0.1 0.20 1.2 0.4` | default filename `<out>.l2.ldscore.gz` |
-| regression-weight table | `CHR SNP POS CM MAF L2`<br/>`1 rs1 10 0.1 0.20 1.7` | default filename `<out>.w.l2.ldscore.gz` |
+| LD-score table | `CHR SNP BP base enhancer_A regr_weight`<br/>`1 rs1 10 1.2 0.4 1.7` | default filename `<out>.<chrom>.l2.ldscore.gz`; `regr_weight` is embedded |
 | count vector | `12345 678 90` | `<out>.l2.M` and, when enabled, `<out>.l2.M_5_50` |
 | annotation manifest | `column group`<br/>`base baseline` | `<out>.annotation_groups.tsv` |
 | summaries | one-row `.summary.tsv`, `.summary.json`, `.run_metadata.json` | emitted by `ldsc.outputs` |

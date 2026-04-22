@@ -122,7 +122,8 @@ The Python workflow registers `GlobalConfig` once, then reuses it across the com
 Within this design:
 
 - `ref_panel_snps_path` belongs to `RefPanelSpec` and restricts the retained reference-panel rows
-- `regression_snps_path` belongs to `LDScoreConfig` and restricts the rows that survive into the normalized `ldscore_table`
+- `LDScoreCalculator.compute_chromosome()` intersects each chromosome-local annotation bundle with `ref_panel.load_metadata(chrom)`, so the LD-score compute universe is `B ∩ A'`
+- `regression_snps_path` belongs to `LDScoreConfig` and further restricts the normalized `ldscore_table` rows to `B ∩ A' ∩ C`
 - regression weights are embedded as `regr_weight`; there is no separate `.w.l2.ldscore.gz` artifact in the new default format
 
 ## CLI

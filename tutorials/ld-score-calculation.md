@@ -169,8 +169,9 @@ For Python workflows, `GlobalConfig` now carries only shared runtime settings su
 Per-run SNP-universe controls are owned by the workflow-specific configs instead:
 
 - `ref_panel_snps_path` belongs to the LD-score reference-panel input and is passed through `run_ldscore(...)` into `RefPanelSpec`
-- `regression_snps_path` belongs to the LD-score calculation config and controls which rows survive into the normalized `ldscore_table`
+- the LD-score workflow intersects each chromosome bundle with `ref_panel.load_metadata(chrom)`, so `ref_panel_snps_path` shrinks the compute-time universe from `B` to `B ∩ A'`
+- `regression_snps_path` belongs to the LD-score calculation config and further restricts the normalized `ldscore_table` rows from `B ∩ A'` to `B ∩ A' ∩ C`
 
-`run_bed_to_annot()` no longer applies a reference-panel SNP restriction. It projects BED intervals onto the baseline annotation rows and returns an `AnnotationBundle`; any reference-panel restriction is applied later, during LD-score calculation, when the reference panel is loaded.
+`run_bed_to_annot()` no longer applies a reference-panel SNP restriction. It projects BED intervals onto the baseline annotation rows and returns an `AnnotationBundle`; any reference-panel restriction is applied later, during LD-score calculation, when the workflow aligns each chromosome bundle to the prepared reference-panel metadata.
 
 Each returned result carries a frozen `config_snapshot`. If you later change the registered `GlobalConfig`, existing results keep their original snapshot, and downstream merge points raise `ConfigMismatchError` if you try to combine artifacts produced under incompatible identifier or genome-build assumptions.

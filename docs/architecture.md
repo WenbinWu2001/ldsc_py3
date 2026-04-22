@@ -96,7 +96,10 @@ This module rebuilds an `LDScoreResult` from on-disk artifacts, merges it with m
 
 ### `ldsc.outputs`
 
-This is the artifact writer for LD-score runs. It owns legacy-compatible filenames such as `.l2.ldscore.gz`, `.w.l2.ldscore.gz`, `.l2.M`, `.l2.M_5_50`, plus manifests and summary files. Architecture invariant: new postprocessing should be added through producers here instead of feature-specific ad hoc file writes.
+This is the artifact writer for LD-score runs. It owns normalized per-chromosome
+`.l2.ldscore.gz` files with embedded `regr_weight`, plus `.l2.M`, `.l2.M_5_50`,
+manifests, and summary files. Architecture invariant: new postprocessing should
+be added through producers here instead of feature-specific ad hoc file writes.
 
 ### `ldsc._kernel.*`
 
@@ -106,7 +109,7 @@ The kernel layer contains the actual numerical methods and low-level readers. It
 
 - **Input token language**: public inputs accept exact paths, globs, `@` chromosome suites, and some legacy bare prefixes. Output paths are normalized but remain literal destinations.
 - **Column and identifier normalization**: `column_inference.py` is the single source of truth for raw-input aliases, internal artifact headers, SNP identifier modes, and genome-build aliases.
-- **Artifact compatibility**: LDSC-compatible outputs remain the public contract for downstream chaining: `.annot.gz`, `.sumstats.gz`, `.l2.ldscore(.gz)`, `.w.l2.ldscore(.gz)`, `.l2.M`, and `.l2.M_5_50`.
+- **Artifact compatibility**: LDSC-compatible outputs remain the public contract for downstream chaining: `.annot.gz`, `.sumstats.gz`, `.l2.ldscore(.gz)`, `.l2.M`, and `.l2.M_5_50`. Legacy separate `.w.l2.ldscore(.gz)` files remain loadable for regression, but the refactored writer embeds weights as `regr_weight` instead of emitting that artifact by default.
 - **Chromosome ordering**: chromosome-sharded inputs are validated and reassembled in stable genomic order by the workflow layer.
 - **Testing approach**: tests under `tests/` cover file contracts, workflow behavior, and legacy compatibility expectations.
 

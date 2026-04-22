@@ -1,9 +1,11 @@
-"""Workflow-layer LD-score orchestration and result objects.
+"""Workflow-layer LD-score orchestration and normalized result objects.
 
-This module is the public boundary for LD-score path handling. Callers may
-provide exact paths, glob patterns, or explicit chromosome-suite tokens using
-``@``. The workflow resolves those tokens into concrete per-chromosome files
-before calling the primitive-only kernel.
+This module is the public boundary for LD-score path handling and result
+normalization. Callers may provide exact paths, glob patterns, or explicit
+chromosome-suite tokens using ``@``. The workflow resolves those tokens into
+concrete per-chromosome files, aligns each chromosome-local annotation bundle
+to the prepared reference-panel metadata returned by ``ref_panel.load_metadata``,
+and only then dispatches to the primitive-only kernel.
 """
 
 from __future__ import annotations
@@ -141,7 +143,11 @@ class LDScoreCalculator:
 
     This service assembles annotation and reference-panel inputs, delegates the
     heavy computation to the internal LD-score kernel, aggregates chromosome
-    outputs, and optionally hands the result to the output layer.
+    outputs, and optionally hands the result to the output layer. The calculator
+    treats ``ref_panel`` as the owner of the reference-panel SNP universe:
+    chromosome bundles are intersected with ``ref_panel.load_metadata(chrom)``
+    before the kernel runs so ``RefPanelSpec.ref_panel_snps_path`` is honored
+    without leaking that setting into the calculator interface.
     """
 
     def __init__(self, output_manager: OutputManager | None = None) -> None:
@@ -166,7 +172,8 @@ class LDScoreCalculator:
             Aligned SNP-level baseline and query annotations.
         ref_panel : RefPanel
             Reference-panel adapter that supplies chromosome readers and
-            metadata.
+            metadata. Any ``RefPanelSpec.ref_panel_snps_path`` restriction is
+            already applied when the workflow calls ``ref_panel.load_metadata``.
         ldscore_config : LDScoreConfig
             LD-window and retained-SNP settings.
         global_config : GlobalConfig
@@ -235,10 +242,24 @@ class LDScoreCalculator:
         global_config: GlobalConfig,
         regression_snps: set[str] | None = None,
     ) -> ChromLDScoreResult:
-        """Compute LD scores for one chromosome."""
+        """Compute normalized LD-score outputs for one chromosome.
+
+        The workflow first asks ``ref_panel`` for the prepared chromosome
+        metadata, which already reflects any ``ref_panel_snps_path`` restriction.
+        It then restricts the chromosome-local ``AnnotationBundle`` to the same
+        identifier set so the legacy kernel sees ``B_chrom ∩ A'_chrom`` rather
+        than the raw annotation universe ``B_chrom``. ``regression_snps`` is
+        applied later when the normalized row table is formed.
+        """
         backend = getattr(getattr(ref_panel, "spec", None), "backend", None)
         if backend == "parquet_r2" and ldscore_config.keep_individuals_path is not None:
             raise ValueError("keep_individuals_path/--keep is only supported for PLINK reference panels.")
+        annotation_bundle = _align_annotation_bundle_to_ref_panel(
+            annotation_bundle=annotation_bundle,
+            ref_panel=ref_panel,
+            chrom=chrom,
+            global_config=global_config,
+        )
         args = _namespace_from_configs(
             chrom=chrom,
             ref_panel=ref_panel,
@@ -379,7 +400,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--r2-bias-mode", choices=("raw", "unbiased"), default=None, help="Whether parquet R2 values are raw or already unbiased.")
     parser.add_argument("--r2-sample-size", default=None, type=float, help="LD reference sample size used to correct raw parquet R2 values.")
-    parser.add_argument("--ref-panel-snps-path", default=None, help="Optional SNP list or table defining the retained annotation/reference SNP universe.")
+    parser.add_argument(
+        "--ref-panel-snps-path",
+        default=None,
+        help="Optional SNP list defining the retained reference-panel universe A'; the workflow intersects each chromosome annotation bundle with this prepared panel before LD computation.",
+    )
     parser.add_argument("--regression-snps-path", default=None, help="Optional SNP list defining the regression SNP set and the written LD-score row set.")
     parser.add_argument("--frqfile", default=None, help="Optional frequency or metadata path tokens for MAF and CM.")
     parser.add_argument(
@@ -401,8 +426,10 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
     """Run LD-score calculation from a parsed CLI namespace.
 
     The workflow resolves unified path tokens for baseline annotations, optional
-    query annotations or BED files, and the reference panel, then returns the
-    normalized public ``LDScoreResult`` with a merged ``ldscore_table``.
+    query annotations or BED files, and the reference panel. For each
+    chromosome it intersects the annotation rows with
+    ``ref_panel.load_metadata(chrom)`` before calling the kernel, then returns
+    the normalized public ``LDScoreResult`` with a merged ``ldscore_table``.
     """
     from ._kernel.annotation import AnnotationBuilder, AnnotationSourceSpec
 
@@ -497,7 +524,7 @@ def _load_regression_snps(path: str | None, global_config: GlobalConfig) -> set[
 
 
 def _ref_panel_from_args(args: argparse.Namespace, global_config: GlobalConfig):
-    """Build a reference-panel adapter from normalized LD-score arguments."""
+    """Build the reference-panel adapter that owns the ``A -> A'`` restriction."""
     from ._kernel.ref_panel import RefPanelLoader, RefPanelSpec
 
     freq_tokens = split_cli_path_tokens(getattr(args, "frqfile", None))
@@ -585,6 +612,36 @@ def _slice_annotation_bundle(annotation_bundle, chrom: str):
         baseline_columns=list(annotation_bundle.baseline_columns),
         query_columns=list(annotation_bundle.query_columns),
         chromosomes=[str(chrom)],
+        source_summary=dict(getattr(annotation_bundle, "source_summary", {})),
+        config_snapshot=getattr(annotation_bundle, "config_snapshot", None),
+    )
+
+
+def _align_annotation_bundle_to_ref_panel(annotation_bundle, ref_panel, chrom: str, global_config: GlobalConfig):
+    """Restrict one chromosome bundle to the prepared reference-panel universe.
+
+    ``AnnotationBuilder`` defines the annotation universe ``B``. The reference
+    panel owns the optional ``A -> A'`` restriction through
+    ``RefPanelSpec.ref_panel_snps_path``. This helper materializes the intended
+    compute-time universe ``B_chrom ∩ A'_chrom`` immediately before the legacy
+    kernel call.
+    """
+    reference_metadata = ref_panel.load_metadata(chrom)
+    reference_ids = set(build_snp_id_series(reference_metadata, global_config.snp_identifier))
+    keep = build_snp_id_series(annotation_bundle.metadata, global_config.snp_identifier).isin(reference_ids)
+    if not bool(keep.any()):
+        backend = getattr(getattr(ref_panel, "spec", None), "backend", None)
+        intersection = "parquet" if backend == "parquet_r2" else "PLINK"
+        raise ValueError(f"No retained annotation SNPs remain on chromosome {chrom} after {intersection} intersection.")
+    if bool(keep.all()):
+        return annotation_bundle
+    return type(annotation_bundle)(
+        metadata=annotation_bundle.metadata.loc[keep].reset_index(drop=True),
+        baseline_annotations=annotation_bundle.baseline_annotations.loc[keep].reset_index(drop=True),
+        query_annotations=annotation_bundle.query_annotations.loc[keep].reset_index(drop=True),
+        baseline_columns=list(annotation_bundle.baseline_columns),
+        query_columns=list(annotation_bundle.query_columns),
+        chromosomes=list(getattr(annotation_bundle, "chromosomes", [str(chrom)])),
         source_summary=dict(getattr(annotation_bundle, "source_summary", {})),
         config_snapshot=getattr(annotation_bundle, "config_snapshot", None),
     )

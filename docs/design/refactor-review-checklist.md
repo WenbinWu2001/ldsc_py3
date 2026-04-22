@@ -48,8 +48,9 @@ Each item targets a specific constraint that is easy to get wrong or to leave ha
 
 ## 4. SNP universe filtering — `ref_panel_snps_path`
 
-- [ ] `AnnotationBuilder._run_single_universe()` applies `ref_panel_snps_path` to annotation bundle rows (via `_filter_aligned_tables_by_global_restriction()` or equivalent).
+- [ ] `AnnotationBuilder._run_single_universe()` keeps the full annotation-file universe `B`; it does **not** apply `ref_panel_snps_path` on the annotation side.
 - [ ] `RefPanel.load_metadata()` applies `RefPanelSpec.ref_panel_snps_path` at load time — not deferred to the caller.
+- [ ] `LDScoreCalculator.compute_chromosome()` aligns each chromosome-local annotation bundle to `ref_panel.load_metadata(chrom)` before the legacy kernel call, so the kernel sees `B ∩ A'`.
 - [ ] `_filter_annotation_bundle_to_reference_universe()` in `ldscore_calculator.py` is **deleted** (dead code after convergence).
 - [ ] `_chromosome_set_from_annotation_inputs()` in `ldscore_calculator.py` is **deleted**.
 
@@ -60,8 +61,8 @@ Each item targets a specific constraint that is easy to get wrong or to leave ha
 - [ ] `ChromLDScoreResult` has `ld_reference_snps: frozenset[str]` — old name `reference_snps` is gone.
 - [ ] `ChromLDScoreResult` has `ld_regression_snps: frozenset[str]` — old name `regression_snps` is gone.
 - [ ] Same rename on `LDScoreResult`.
-- [ ] `_wrap_legacy_chrom_result()` contains the invariant assertion: `assert retained_regression_snps.issubset(ld_reference_snps)`.
-- [ ] On normalized / public results reconstructed from disk via `load_ldscore_from_files`, `ld_reference_snps = frozenset()` — the full reference universe is not recoverable from written rows.
+- [ ] `_wrap_legacy_chrom_result()` derives the regression row mask from the compute-time reference metadata, so `ld_regression_snps` is a subset of the internal reference universe by construction before normalization.
+- [ ] On normalized / public results produced in memory or reconstructed from disk via `load_ldscore_from_files`, `ld_reference_snps = frozenset()` — the full reference universe is intentionally not recoverable from normalized row tables.
 - [ ] `ld_regression_snps` on disk-loaded results is reconstructed via `build_snp_id_series(ldscore_table, snp_identifier)`.
 - [ ] No callers still reference `.reference_snps` or `.regression_snps` — grep confirms zero uses.
 
@@ -139,7 +140,7 @@ Each item targets a specific constraint that is easy to get wrong or to leave ha
 - [ ] `AnnotationBuilder.run()` with `bed_paths` returns binary query columns and writes no `.annot.gz` files.
 - [ ] `run_bed_to_annot()` returns `AnnotationBundle` and writes files only when `output_dir` is given.
 - [ ] `LDScoreResult` / `ChromLDScoreResult` expose `ld_reference_snps` and `ld_regression_snps` as `frozenset`.
-- [ ] Invariant `ld_regression_snps.issubset(ld_reference_snps)` is asserted; a test verifies the assertion fires on a violation.
+- [ ] A workflow test verifies that `compute_chromosome()` filters the chromosome-local annotation bundle to the restricted reference-panel metadata before calling the kernel.
 - [ ] `build_parser()` rejects `--query-annot` + `--query-annot-bed` simultaneously.
 - [ ] `run_ldscore_from_args()` result matches a direct `AnnotationBuilder` + `LDScoreCalculator` run on the same inputs (parity / regression test).
 - [ ] `load_ldscore_from_files` is importable from `ldsc` top-level.

@@ -30,20 +30,12 @@ GENETIC_MAP_CM_SPEC = ColumnSpec(
     "genetic map centiMorgan",
 )
 _STANDARD_LD_COLUMNS = [
-    "chr",
-    "rsID_1",
-    "rsID_2",
-    "hg38_pos_1",
-    "hg38_pos_2",
-    "hg19_pos_1",
-    "hg19_pos_2",
-    "hg38_Uniq_ID_1",
-    "hg38_Uniq_ID_2",
-    "hg19_Uniq_ID_1",
-    "hg19_Uniq_ID_2",
+    "CHR",
+    "POS_1",
+    "POS_2",
     "R2",
-    "Dprime",
-    "+/-corr",
+    "SNP_1",
+    "SNP_2",
 ]
 @dataclass(frozen=True)
 class LiftOverMappingResult:
@@ -454,34 +446,28 @@ def build_standard_ld_table(
     *,
     pair_rows: list[dict[str, float | int | str]],
     annotation_table: pd.DataFrame,
+    genome_build: str,
 ) -> pd.DataFrame:
-    """Build the standard LD parquet table for one chromosome."""
+    """Build the canonical 6-column LD parquet table for one chromosome."""
 
     if not pair_rows:
         return pd.DataFrame(columns=_STANDARD_LD_COLUMNS)
 
     i = np.asarray([int(row["i"]) for row in pair_rows], dtype=np.int64)
     j = np.asarray([int(row["j"]) for row in pair_rows], dtype=np.int64)
-    signs = [str(row["sign"]) for row in pair_rows]
-    r2 = np.asarray([float(row["R2"]) for row in pair_rows], dtype=float)
+    r2 = np.asarray([float(row["R2"]) for row in pair_rows], dtype=np.float32)
     left = annotation_table.iloc[i].reset_index(drop=True)
     right = annotation_table.iloc[j].reset_index(drop=True)
+    pos_col = f"{genome_build}_pos"
+    chr_col = resolve_required_column(left.columns, CHR_COLUMN_SPEC, context="standard LD annotation table")
     return pd.DataFrame(
         {
-            "chr": left["chr"].astype(str),
-            "rsID_1": left["rsID"].astype(str),
-            "rsID_2": right["rsID"].astype(str),
-            "hg38_pos_1": left["hg38_pos"].to_numpy(dtype=np.int64),
-            "hg38_pos_2": right["hg38_pos"].to_numpy(dtype=np.int64),
-            "hg19_pos_1": left["hg19_pos"].to_numpy(dtype=np.int64),
-            "hg19_pos_2": right["hg19_pos"].to_numpy(dtype=np.int64),
-            "hg38_Uniq_ID_1": left["hg38_Uniq_ID"].astype(str),
-            "hg38_Uniq_ID_2": right["hg38_Uniq_ID"].astype(str),
-            "hg19_Uniq_ID_1": left["hg19_Uniq_ID"].astype(str),
-            "hg19_Uniq_ID_2": right["hg19_Uniq_ID"].astype(str),
+            "CHR": left[chr_col].astype(str),
+            "POS_1": left[pos_col].to_numpy(dtype=np.int64),
+            "POS_2": right[pos_col].to_numpy(dtype=np.int64),
             "R2": r2,
-            "Dprime": np.full(len(pair_rows), np.nan),
-            "+/-corr": signs,
+            "SNP_1": left["rsID"].astype(str),
+            "SNP_2": right["rsID"].astype(str),
         },
         columns=_STANDARD_LD_COLUMNS,
     )
@@ -530,42 +516,76 @@ def write_standard_ld_parquet(
     pair_rows: Iterable[dict[str, float | int | str]],
     annotation_table: pd.DataFrame,
     path: str | PathLike[str],
+    genome_build: str,
     batch_size: int = 100_000,
+    row_group_size: int = 50_000,
 ) -> str:
-    """Write the standard LD parquet table, streaming batches when pyarrow is available."""
+    """Write the canonical LD parquet table, streaming batches when pyarrow is available."""
 
     _ensure_parent_dir(path)
+    pos_col = f"{genome_build}_pos"
     try:
         import pyarrow as pa
         import pyarrow.parquet as pq
     except ImportError as exc:
         try:
-            build_standard_ld_table(pair_rows=list(pair_rows), annotation_table=annotation_table).to_parquet(path, index=False)
+            build_standard_ld_table(
+                pair_rows=list(pair_rows),
+                annotation_table=annotation_table,
+                genome_build=genome_build,
+            ).to_parquet(path, index=False)
         except ImportError:
             raise ImportError(
                 "Writing reference-panel LD parquet artifacts requires pyarrow or fastparquet."
             ) from exc
         return str(path)
 
+    pa_meta = {
+        b"ldsc:sorted_by_build": genome_build.encode("utf-8"),
+        b"ldsc:row_group_size": str(row_group_size).encode("utf-8"),
+    }
     writer = None
     batch: list[dict[str, float | int | str]] = []
+    prev_pos1: int | None = None
     try:
         for row in pair_rows:
+            current_pos1 = int(annotation_table.iloc[int(row["i"])][pos_col])
+            if prev_pos1 is not None and current_pos1 < prev_pos1:
+                raise ValueError(
+                    "Pairs must arrive in non-decreasing POS_1 order. "
+                    f"Received POS_1={current_pos1} after POS_1={prev_pos1}. "
+                    "Verify that the reference panel builder traverses SNPs in ascending positional order."
+                )
+            prev_pos1 = current_pos1
             batch.append(row)
             if len(batch) < batch_size:
                 continue
-            frame = build_standard_ld_table(pair_rows=batch, annotation_table=annotation_table)
+            frame = build_standard_ld_table(
+                pair_rows=batch,
+                annotation_table=annotation_table,
+                genome_build=genome_build,
+            )
             table = pa.Table.from_pandas(frame, preserve_index=False)
             if writer is None:
-                writer = pq.ParquetWriter(str(path), table.schema)
-            writer.write_table(table)
+                writer = pq.ParquetWriter(
+                    str(path),
+                    table.schema.with_metadata({**(table.schema.metadata or {}), **pa_meta}),
+                )
+            writer.write_table(table, row_group_size=row_group_size)
             batch = []
 
-        frame = build_standard_ld_table(pair_rows=batch, annotation_table=annotation_table)
+        frame = build_standard_ld_table(
+            pair_rows=batch,
+            annotation_table=annotation_table,
+            genome_build=genome_build,
+        )
         table = pa.Table.from_pandas(frame, preserve_index=False)
         if writer is None:
-            writer = pq.ParquetWriter(str(path), table.schema)
-        writer.write_table(table)
+            writer = pq.ParquetWriter(
+                str(path),
+                table.schema.with_metadata({**(table.schema.metadata or {}), **pa_meta}),
+            )
+        writer.write_table(table, row_group_size=row_group_size)
     finally:
         if writer is not None:
             writer.close()

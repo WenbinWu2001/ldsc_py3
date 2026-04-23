@@ -9,6 +9,7 @@ if str(SRC) not in sys.path:
 
 from ldsc import column_inference as ci
 from ldsc.column_inference import (
+    PARQUET_R2_CANONICAL_SPECS,
     POS_COLUMN_SPEC,
     R2_HELPER_COLUMN_SPECS,
     R2_SOURCE_COLUMN_SPECS,
@@ -143,6 +144,20 @@ class ColumnInferenceTest(unittest.TestCase):
 
         self.assertEqual(mapping["pos_1"], "bp1")
         self.assertEqual(mapping["pos_2"], "bp_2")
+
+    def test_resolve_canonical_parquet_columns_accepts_aliases(self):
+        mapping = resolve_required_columns(
+            ["chr", "bp_1", "bp2", "rsid_1", "rs_2", "R2"],
+            PARQUET_R2_CANONICAL_SPECS,
+            context="test-canonical-parquet-aliases",
+        )
+
+        self.assertEqual(mapping["CHR"], "chr")
+        self.assertEqual(mapping["POS_1"], "bp_1")
+        self.assertEqual(mapping["POS_2"], "bp2")
+        self.assertEqual(mapping["SNP_1"], "rsid_1")
+        self.assertEqual(mapping["SNP_2"], "rs_2")
+        self.assertEqual(mapping["R2"], "R2")
 
     def test_resolve_restriction_rsid_column_uses_registry_aliases(self):
         self.assertEqual(

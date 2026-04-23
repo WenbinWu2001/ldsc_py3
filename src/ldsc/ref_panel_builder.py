@@ -276,6 +276,7 @@ class ReferencePanelBuilder:
             ),
             annotation_table=annotation_table,
             path=ld_path,
+            genome_build=config.source_genome_build,
         )
         kernel_builder.write_runtime_metadata_sidecar(meta_hg19, meta_hg19_path)
         kernel_builder.write_runtime_metadata_sidecar(meta_hg38, meta_hg38_path)

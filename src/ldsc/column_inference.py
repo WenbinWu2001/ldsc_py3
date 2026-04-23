@@ -208,7 +208,29 @@ INTERNAL_LDSCORE_ARTIFACT_SPEC_MAP = {
 }
 
 
-# Parquet R2 schema inference.
+# Canonical parquet R2 schema inference.
+PARQUET_R2_CANONICAL_SPECS = (
+    ColumnSpec("CHR", CHR_COLUMN_ALIASES, "canonical parquet R2 chromosome", allow_suffix_match=False),
+    ColumnSpec(
+        "POS_1",
+        ("POS_1", "POS1", "BP_1", "BP1", "POSITION_1", "POSITION1"),
+        "canonical parquet R2 left position",
+        allow_suffix_match=False,
+    ),
+    ColumnSpec(
+        "POS_2",
+        ("POS_2", "POS2", "BP_2", "BP2", "POSITION_2", "POSITION2"),
+        "canonical parquet R2 right position",
+        allow_suffix_match=False,
+    ),
+    _index_spec(SNP_COLUMN_ALIASES, 1, "SNP_1", "canonical parquet R2 left SNP"),
+    _index_spec(SNP_COLUMN_ALIASES, 2, "SNP_2", "canonical parquet R2 right SNP"),
+    ColumnSpec("R2", ("R2",), "canonical parquet R2 value", allow_suffix_match=False),
+)
+PARQUET_R2_CANONICAL_SPEC_MAP = {spec.canonical: spec for spec in PARQUET_R2_CANONICAL_SPECS}
+
+
+# Legacy/raw parquet R2 schema inference.
 R2_SOURCE_COLUMN_SPECS = (
     ColumnSpec("chr", CHR_COLUMN_ALIASES, "R2 chromosome"),
     _index_spec(SNP_COLUMN_ALIASES, 1, "rsID_1", "R2 rsID_1"),

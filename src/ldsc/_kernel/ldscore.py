@@ -185,10 +185,10 @@ from ..column_inference import (
     CM_COLUMN_SPEC,
     MAF_COLUMN_ALIASES,
     MAF_COLUMN_SPEC,
+    PARQUET_R2_CANONICAL_SPECS,
     POS_COLUMN_ALIASES,
     POS_COLUMN_SPEC,
     REFERENCE_METADATA_SPEC_MAP,
-    R2_HELPER_COLUMN_SPECS,
     RESTRICTION_CHRPOS_SPEC_MAP,
     RESTRICTION_RSID_SPEC_MAP,
     R2_SOURCE_COLUMN_SPECS,
@@ -233,8 +233,7 @@ SNP_ALIASES = SNP_COLUMN_ALIASES
 CM_ALIASES = CM_COLUMN_ALIASES
 MAF_ALIASES = MAF_COLUMN_ALIASES
 R2_CANONICAL_SOURCE_COLUMNS = tuple(spec.canonical for spec in R2_SOURCE_COLUMN_SPECS)
-R2_HELPER_COLUMNS = tuple(spec.canonical for spec in R2_HELPER_COLUMN_SPECS)
-SORTED_R2_REQUIRED_COLUMNS = R2_CANONICAL_SOURCE_COLUMNS + R2_HELPER_COLUMNS
+PARQUET_R2_CANONICAL_COLUMNS = tuple(spec.canonical for spec in PARQUET_R2_CANONICAL_SPECS)
 
 
 @dataclass
@@ -686,6 +685,14 @@ def _resolve_r2_source_columns(schema_names: Iterable[str], context: str | None 
     return resolve_required_columns(schema_names, R2_SOURCE_COLUMN_SPECS, context=context)
 
 
+def _resolve_canonical_parquet_columns(
+    schema_names: Iterable[str],
+    context: str | None = None,
+) -> dict[str, str]:
+    """Resolve canonical parquet logical fields from an on-disk schema."""
+    return resolve_required_columns(schema_names, PARQUET_R2_CANONICAL_SPECS, context=context)
+
+
 def _resolve_r2_source_subset(
     schema_names: Iterable[str],
     canonicals: Sequence[str],
@@ -707,16 +714,6 @@ def normalize_r2_source_columns(df: pd.DataFrame) -> pd.DataFrame:
         if actual != canonical
     }
     return df.rename(columns=rename_map)
-
-
-def _resolve_helper_columns(schema_names: Iterable[str], context: str | None = None) -> tuple[str, str] | None:
-    """Resolve normalized parquet helper position columns from schema aliases."""
-    chr_col = resolve_optional_column(schema_names, R2_SOURCE_COLUMN_SPECS[0], context=context)
-    pos_1 = resolve_optional_column(schema_names, R2_HELPER_COLUMN_SPECS[0], context=context)
-    pos_2 = resolve_optional_column(schema_names, R2_HELPER_COLUMN_SPECS[1], context=context)
-    if chr_col is None or pos_1 is None or pos_2 is None:
-        return None
-    return pos_1, pos_2
 
 
 def get_r2_build_columns(genome_build: str, schema_names: Iterable[str] | None = None) -> tuple[str, str]:
@@ -744,9 +741,13 @@ def get_pyarrow_modules():
 
 
 def _parquet_schema_layout(schema_names: Sequence[str]) -> str:
-    """Classify a runtime parquet schema as normalized, raw, or unsupported."""
-    if _resolve_helper_columns(schema_names) is not None:
-        return "normalized"
+    """Classify a runtime parquet schema as canonical, raw, or unsupported."""
+    try:
+        _resolve_canonical_parquet_columns(schema_names)
+    except Exception:
+        pass
+    else:
+        return "canonical"
     try:
         _resolve_r2_source_columns(schema_names)
     except Exception:
@@ -883,87 +884,6 @@ def validate_retained_identifier_uniqueness(metadata: pd.DataFrame, identifier_m
             f"Chromosome {chrom} has duplicate retained SNP IDs. "
             "This is ambiguous in rsid mode."
         )
-
-
-def read_sorted_r2_presence(args: argparse.Namespace, chrom: str) -> set[object]:
-    """Read the SNP identifiers or positions present in one parquet chromosome source."""
-    files = resolve_parquet_files(args, chrom=chrom)
-    if not files:
-        raise FileNotFoundError(f"No sorted parquet R2 files resolved for chromosome {chrom}.")
-
-    ds = get_pyarrow_modules()
-    dataset = ds.dataset(files, format="parquet")
-    layout = _parquet_schema_layout(dataset.schema.names)
-    normalized_chrom = normalize_chromosome(chrom)
-    identifier_mode = normalize_snp_identifier_mode(args.snp_identifier)
-    if layout == "normalized":
-        helper_pos1, helper_pos2 = _resolve_helper_columns(dataset.schema.names, context="normalized parquet R2 schema")
-        columns = ["chr"]
-        if identifier_mode == "rsid":
-            columns.extend(["rsID_1", "rsID_2"])
-        else:
-            columns.extend([helper_pos1, helper_pos2])
-        filter_expr = ds.field("chr") == normalized_chrom
-        table = dataset.to_table(columns=columns, filter=filter_expr)
-    elif layout == "raw":
-        genome_build = _require_runtime_genome_build(getattr(args, "genome_build", None))
-        left_pos_col, right_pos_col = get_r2_build_columns(genome_build, dataset.schema.names)
-        columns = ["chr"]
-        if identifier_mode == "rsid":
-            columns.extend(["rsID_1", "rsID_2"])
-        else:
-            columns.extend([left_pos_col, right_pos_col])
-        filter_expr = ds.field("chr") == normalized_chrom
-        table = dataset.to_table(columns=columns, filter=filter_expr)
-    else:
-        raise ValueError(
-            "Parquet R2 input must contain either normalized helper columns "
-            "`chr`, `pos_1`, `pos_2` or the raw legacy pairwise columns."
-        )
-    pairs = table.to_pandas()
-    if layout == "raw" and len(pairs) > 0:
-        pairs = pairs.loc[
-            pairs["chr"].map(lambda value: normalize_chromosome(value, context="raw parquet R2 schema")) == normalized_chrom
-        ].reset_index(drop=True)
-    if identifier_mode == "rsid":
-        return set(pairs["rsID_1"].astype(str)).union(set(pairs["rsID_2"].astype(str)))
-    if layout == "normalized":
-        left_series = pd.to_numeric(pairs[helper_pos1], errors="raise").astype(np.int64)
-        right_series = pd.to_numeric(pairs[helper_pos2], errors="raise").astype(np.int64)
-    else:
-        genome_build = _require_runtime_genome_build(getattr(args, "genome_build", None))
-        left_pos_col, right_pos_col = get_r2_build_columns(genome_build, pairs.columns)
-        left_series = pd.to_numeric(pairs[left_pos_col], errors="raise").astype(np.int64)
-        right_series = pd.to_numeric(pairs[right_pos_col], errors="raise").astype(np.int64)
-    return set(left_series).union(set(right_series))
-
-
-def filter_reference_to_present_r2(
-    metadata: pd.DataFrame,
-    annotations: pd.DataFrame,
-    regression_keys: set[str] | None,
-    present_values: set[object],
-    identifier_mode: str,
-    chrom: str,
-) -> tuple[pd.DataFrame, pd.DataFrame, set[str] | None]:
-    """Restrict annotation SNPs to those that are actually present in the R2 source."""
-    metadata = metadata.copy()
-    if normalize_snp_identifier_mode(identifier_mode) == "rsid":
-        keep = metadata["SNP"].astype(str).isin(present_values)
-    else:
-        keep = metadata["POS"].astype(np.int64).isin(present_values)
-    removed = int((~keep).sum())
-    if removed:
-        LOGGER.warning(
-            "Dropping %d annotated SNPs on chromosome %s because they are absent from the R2 table.",
-            removed,
-            chrom,
-        )
-    metadata = metadata.loc[keep].reset_index(drop=True)
-    annotations = annotations.loc[keep].reset_index(drop=True)
-    if regression_keys is not None:
-        regression_keys = regression_keys.intersection(set(identifier_keys(metadata, identifier_mode)))
-    return metadata, annotations, regression_keys
 
 
 # Annotation loading and normalization.
@@ -1261,12 +1181,12 @@ def check_whole_chromosome_window(block_left: np.ndarray, args: argparse.Namespa
 # Parquet R2 adapter.
 class SortedR2BlockReader:
     """
-    Query block-local dense R2 matrices from a normalized sorted per-chromosome
-    parquet table.
+    Query block-local dense R2 matrices from a per-chromosome parquet table.
 
-    The runtime parquet contract is path-based. This reader assumes the file
-    already contains `chr`, `pos_1`, and `pos_2`, and that pair orientation has
-    been canonicalized so `pos_1 <= pos_2`.
+    Canonical parquet files use logical fields `CHR`, `POS_1`, `POS_2`,
+    `SNP_1`, `SNP_2`, `R2` (with alias-tolerant loading) and are queried via
+    row-group pruning. Legacy raw parquet files keep the historical schema and
+    fall back to the slower Dataset full-scan path.
     """
 
     def __init__(
@@ -1282,14 +1202,18 @@ class SortedR2BlockReader:
         """Open one chromosome's sorted parquet R2 tables and build index maps."""
         if not paths:
             raise FileNotFoundError(f"No sorted parquet R2 files resolved for chromosome {chrom}.")
-        ds = get_pyarrow_modules()
-        self.dataset = ds.dataset(list(paths), format="parquet")
-        self.ds = ds
         self.chrom = normalize_chromosome(chrom)
         self.identifier_mode = identifier_mode
         self.r2_bias_mode = r2_bias_mode
         self.r2_sample_size = r2_sample_size
         self.genome_build = genome_build
+        self.dataset = None
+        self.ds = None
+        self._pf = None
+        self._canonical_columns: dict[str, str] | None = None
+        self._rg_bounds: list[tuple[int, int, int]] = []
+        self._raw_pos_columns: tuple[str, str] | None = None
+        self._raw_query_columns: list[str] | None = None
         metadata = metadata.copy()
         metadata_context = f"SortedR2BlockReader[{self.chrom}] metadata"
         renamed = {
@@ -1313,36 +1237,143 @@ class SortedR2BlockReader:
         validate_retained_identifier_uniqueness(metadata, identifier_mode, chrom)
         self.pos = metadata["POS"].to_numpy(dtype=np.int64)
         self.m = len(metadata)
-        self.query_columns = ["chr", "pos_1", "pos_2", "R2"]
-        self._runtime_layout = _parquet_schema_layout(self.dataset.schema.names)
-        self._raw_pos_columns: tuple[str, str] | None = None
-        self._raw_query_columns: list[str] | None = None
         if self.identifier_mode == "rsid":
-            self.query_columns.extend(["rsID_1", "rsID_2"])
             self.index_map = {str(snp): idx for idx, snp in enumerate(metadata["SNP"].astype(str))}
         else:
             self.index_map = {int(pos): idx for idx, pos in enumerate(metadata["POS"].astype(np.int64))}
 
-        if self._runtime_layout == "normalized":
-            missing_columns = sorted(set(self.query_columns) - set(self.dataset.schema.names))
-            if missing_columns:
+        self._last_query_key: tuple[int, int] | None = None
+        self._last_query_rows: pd.DataFrame | None = None
+
+        try:
+            import pyarrow.parquet as pq
+        except ImportError:
+            pq = None
+
+        probe_schema_names: list[str]
+        if pq is not None:
+            probe_schema_names = list(pq.ParquetFile(paths[0]).schema_arrow.names)
+        else:
+            ds = get_pyarrow_modules()
+            probe_schema_names = list(ds.dataset(list(paths), format="parquet").schema.names)
+
+        layout = _parquet_schema_layout(probe_schema_names)
+        if layout == "canonical":
+            if len(paths) != 1:
                 raise ValueError(
-                    "Sorted parquet R2 input is missing required normalized columns: "
-                    + ", ".join(missing_columns)
+                    "canonical parquet_r2 backend requires exactly one file per chromosome; "
+                    f"got {len(paths)} paths for chromosome {self.chrom}"
                 )
-        elif self._runtime_layout == "raw":
+            if pq is None:
+                raise ImportError("pyarrow is required for canonical parquet R2 input.")
+            self._runtime_layout = "canonical"
+            self._pf = pq.ParquetFile(paths[0])
+            self._init_canonical_path(paths[0])
+            return
+
+        if layout == "raw":
+            ds = get_pyarrow_modules()
+            self._runtime_layout = "raw"
+            self.ds = ds
+            self.dataset = ds.dataset(list(paths), format="parquet")
             self.genome_build = _require_runtime_genome_build(self.genome_build)
             raw_mapping = _resolve_r2_source_columns(self.dataset.schema.names, context="raw parquet R2 schema")
             self._raw_pos_columns = get_r2_build_columns(self.genome_build, self.dataset.schema.names)
             self._raw_query_columns = [raw_mapping[canonical] for canonical in R2_CANONICAL_SOURCE_COLUMNS]
-        else:
-            raise ValueError(
-                "Parquet R2 input must contain either normalized helper columns "
-                "`chr`, `pos_1`, `pos_2` or the raw legacy pairwise columns."
+            LOGGER.warning(
+                "%s uses the legacy raw schema. Row-group pruning is disabled and query performance will be severely degraded.",
+                paths[0],
             )
+            return
 
-        self._last_query_key: tuple[int, int] | None = None
-        self._last_query_rows: pd.DataFrame | None = None
+        raise ValueError(
+            "Parquet R2 input must contain either canonical logical fields "
+            "`CHR`, `POS_1`, `POS_2`, `SNP_1`, `SNP_2`, `R2` (aliases allowed at load time) "
+            "or the raw legacy pairwise columns."
+        )
+
+    def _init_canonical_path(self, path: str) -> None:
+        """Validate canonical parquet metadata and build the row-group index."""
+        if self._pf is None:
+            raise ValueError("Canonical parquet reader is not initialized.")
+
+        schema_names = self._pf.schema_arrow.names
+        self._canonical_columns = _resolve_canonical_parquet_columns(
+            schema_names,
+            context="canonical parquet R2 schema",
+        )
+
+        schema_meta = self._pf.schema_arrow.metadata or {}
+        parquet_build_raw = schema_meta.get(b"ldsc:sorted_by_build")
+        if parquet_build_raw is not None:
+            parquet_build = normalize_genome_build(parquet_build_raw.decode("utf-8"))
+            if self.genome_build not in {None, "auto", parquet_build}:
+                raise ValueError(
+                    f"Parquet sorted for {parquet_build} but analysis uses {self.genome_build}. "
+                    f"Use the correct reference file or regenerate with `--genome-build {self.genome_build}`."
+                )
+            self.genome_build = parquet_build
+        else:
+            first = self._pf.read_row_group(
+                0,
+                columns=[
+                    self._canonical_columns["CHR"],
+                    self._canonical_columns["POS_1"],
+                ],
+            )
+            infer_df = pd.DataFrame(
+                {
+                    "CHR": pd.Series(
+                        first[self._canonical_columns["CHR"]].to_pylist(),
+                        dtype="object",
+                    ),
+                    "POS": pd.to_numeric(
+                        pd.Series(first[self._canonical_columns["POS_1"]].to_pylist()),
+                        errors="raise",
+                    ).astype(np.int64),
+                }
+            )
+            _, inference = resolve_chr_pos_table(
+                infer_df,
+                context=path,
+                reference_table=load_packaged_reference_table(),
+                logger=LOGGER,
+            )
+            inferred_build = inference.genome_build
+            LOGGER.warning(
+                "No build metadata found in %s; inferred %s from first row group. "
+                "To silence this warning, regenerate the parquet with `ldsc build-ref-panel`.",
+                path,
+                inferred_build,
+            )
+            if self.genome_build not in {None, "auto", inferred_build}:
+                raise ValueError(
+                    f"Parquet inferred as {inferred_build} but analysis uses {self.genome_build}."
+                )
+            self.genome_build = inferred_build
+
+        meta = self._pf.metadata
+        if meta.num_row_groups > 0:
+            avg_rows_per_rg = meta.num_rows / meta.num_row_groups
+            if avg_rows_per_rg > 500_000:
+                LOGGER.warning(
+                    "%s has %d row group(s) (avg %,.0f rows/group). Query performance will be severely degraded. "
+                    "Regenerate with `row_group_size=50000` for optimal speed.",
+                    path,
+                    meta.num_row_groups,
+                    avg_rows_per_rg,
+                )
+
+        pos1_idx = self._pf.schema_arrow.names.index(self._canonical_columns["POS_1"])
+        self._rg_bounds = []
+        for rg_index in range(meta.num_row_groups):
+            rg = meta.row_group(rg_index)
+            stats = rg.column(pos1_idx).statistics
+            if stats is None or not getattr(stats, "has_min_max", False):
+                raise ValueError(
+                    f"Row group {rg_index} in {path} is missing POS_1 footer statistics required for pruning."
+                )
+            self._rg_bounds.append((int(stats.min), int(stats.max), rg_index))
 
     def _transform_r2(self, values: np.ndarray) -> np.ndarray:
         """Apply the configured raw-to-unbiased R2 correction when required."""
@@ -1362,56 +1393,118 @@ class SortedR2BlockReader:
         if self._last_query_key == key and self._last_query_rows is not None:
             return self._last_query_rows.copy()
 
-        if self._runtime_layout == "normalized":
-            helper_pos1, helper_pos2 = _resolve_helper_columns(self.dataset.schema.names, context="normalized parquet R2 schema")
-            filter_expr = (
-                (self.ds.field("chr") == self.chrom)
-                & (self.ds.field(helper_pos1) >= int(pos_min))
-                & (self.ds.field(helper_pos2) <= int(pos_max))
-            )
-            table = self.dataset.to_table(columns=self.query_columns, filter=filter_expr)
+        if self._runtime_layout == "canonical":
+            rows = self._query_union_rows_canonical(pos_min, pos_max)
         else:
-            left_pos_col, right_pos_col = self._raw_pos_columns
-            filter_expr = (
-                (self.ds.field("chr") == self.chrom)
-                & (self.ds.field(left_pos_col) >= int(pos_min))
-                & (self.ds.field(left_pos_col) <= int(pos_max))
-                & (self.ds.field(right_pos_col) >= int(pos_min))
-                & (self.ds.field(right_pos_col) <= int(pos_max))
-            )
-            table = self.dataset.to_table(columns=self._raw_query_columns, filter=filter_expr)
-        rows = table.to_pandas()
-        if len(rows) == 0:
-            base_columns = ["chr", "pos_1", "pos_2", "R2"]
-            if self.identifier_mode == "rsid":
-                base_columns.extend(["rsID_1", "rsID_2"])
-            rows = pd.DataFrame(columns=base_columns + ["i", "j"])
-        else:
-            if self._runtime_layout == "raw":
-                left_pos_col, right_pos_col = self._raw_pos_columns
-                rows = rows.loc[
-                    rows["chr"].map(lambda value: normalize_chromosome(value, context="raw parquet R2 query")) == self.chrom
-                ].copy()
-                keep = (
-                    pd.to_numeric(rows[left_pos_col], errors="raise").between(int(pos_min), int(pos_max))
-                    & pd.to_numeric(rows[right_pos_col], errors="raise").between(int(pos_min), int(pos_max))
-                )
-                rows = rows.loc[keep].reset_index(drop=True)
-                if len(rows) > 0:
-                    rows = canonicalize_r2_pairs(rows, self.genome_build)
-            rows["R2"] = self._transform_r2(pd.to_numeric(rows["R2"], errors="raise").to_numpy(dtype=np.float32))
-            if self.identifier_mode == "rsid":
-                rows["i"] = rows["rsID_1"].astype(str).map(self.index_map)
-                rows["j"] = rows["rsID_2"].astype(str).map(self.index_map)
-            else:
-                rows["i"] = pd.to_numeric(rows["pos_1"], errors="raise").astype(np.int64).map(self.index_map)
-                rows["j"] = pd.to_numeric(rows["pos_2"], errors="raise").astype(np.int64).map(self.index_map)
-            rows = rows.dropna(subset=["i", "j"]).copy()
-            rows["i"] = rows["i"].astype(np.int64)
-            rows["j"] = rows["j"].astype(np.int64)
+            rows = self._query_union_rows_raw(pos_min, pos_max)
 
         self._last_query_key = key
         self._last_query_rows = rows.copy()
+        return rows
+
+    def _query_union_rows_canonical(self, pos_min: int, pos_max: int) -> pd.DataFrame:
+        """Fast path using Parquet row-group footer statistics for pruning."""
+        if self._pf is None or self._canonical_columns is None:
+            raise ValueError("Canonical parquet reader is not initialized.")
+
+        rg_idxs = [index for mn, mx, index in self._rg_bounds if mn <= int(pos_max) and mx >= int(pos_min)]
+        if not rg_idxs:
+            return pd.DataFrame(
+                {
+                    "i": pd.Series([], dtype=np.int64),
+                    "j": pd.Series([], dtype=np.int64),
+                    "R2": pd.Series([], dtype=np.float32),
+                }
+            )
+
+        read_cols = [
+            self._canonical_columns["POS_1"],
+            self._canonical_columns["POS_2"],
+            self._canonical_columns["R2"],
+        ]
+        if self.identifier_mode == "rsid":
+            read_cols.extend([self._canonical_columns["SNP_1"], self._canonical_columns["SNP_2"]])
+
+        table = self._pf.read_row_groups(rg_idxs, columns=read_cols)
+        pos_1 = pd.to_numeric(pd.Series(table[self._canonical_columns["POS_1"]].to_pylist()), errors="raise").astype(np.int64).to_numpy()
+        pos_2 = pd.to_numeric(pd.Series(table[self._canonical_columns["POS_2"]].to_pylist()), errors="raise").astype(np.int64).to_numpy()
+        mask = (pos_1 >= int(pos_min)) & (pos_2 <= int(pos_max))
+        if not mask.any():
+            return pd.DataFrame(
+                {
+                    "i": pd.Series([], dtype=np.int64),
+                    "j": pd.Series([], dtype=np.int64),
+                    "R2": pd.Series([], dtype=np.float32),
+                }
+            )
+
+        r2 = self._transform_r2(
+            pd.to_numeric(pd.Series(table[self._canonical_columns["R2"]].to_pylist()), errors="raise")
+            .astype(np.float32)
+            .to_numpy()[mask]
+        )
+        if self.identifier_mode == "rsid":
+            left_ids = pd.Series(table[self._canonical_columns["SNP_1"]].to_pylist(), dtype="object").astype(str).to_numpy()[mask]
+            right_ids = pd.Series(table[self._canonical_columns["SNP_2"]].to_pylist(), dtype="object").astype(str).to_numpy()[mask]
+            i_raw = [self.index_map.get(value) for value in left_ids]
+            j_raw = [self.index_map.get(value) for value in right_ids]
+        else:
+            i_raw = [self.index_map.get(int(value)) for value in pos_1[mask]]
+            j_raw = [self.index_map.get(int(value)) for value in pos_2[mask]]
+
+        rows = pd.DataFrame(
+            {
+                "i": pd.array(i_raw, dtype=pd.Int64Dtype()),
+                "j": pd.array(j_raw, dtype=pd.Int64Dtype()),
+                "R2": r2,
+            }
+        )
+        rows = rows.dropna(subset=["i", "j"]).copy()
+        rows["i"] = rows["i"].astype(np.int64)
+        rows["j"] = rows["j"].astype(np.int64)
+        return rows
+
+    def _query_union_rows_raw(self, pos_min: int, pos_max: int) -> pd.DataFrame:
+        """Legacy raw-schema path using Dataset filtering and runtime canonicalization."""
+        left_pos_col, right_pos_col = self._raw_pos_columns
+        filter_expr = (
+            (self.ds.field("chr") == self.chrom)
+            & (self.ds.field(left_pos_col) >= int(pos_min))
+            & (self.ds.field(left_pos_col) <= int(pos_max))
+            & (self.ds.field(right_pos_col) >= int(pos_min))
+            & (self.ds.field(right_pos_col) <= int(pos_max))
+        )
+        table = self.dataset.to_table(columns=self._raw_query_columns, filter=filter_expr)
+        rows = table.to_pandas()
+        if len(rows) == 0:
+            return pd.DataFrame(
+                {
+                    "i": pd.Series([], dtype=np.int64),
+                    "j": pd.Series([], dtype=np.int64),
+                    "R2": pd.Series([], dtype=np.float32),
+                }
+            )
+
+        rows = rows.loc[
+            rows["chr"].map(lambda value: normalize_chromosome(value, context="raw parquet R2 query")) == self.chrom
+        ].copy()
+        keep = (
+            pd.to_numeric(rows[left_pos_col], errors="raise").between(int(pos_min), int(pos_max))
+            & pd.to_numeric(rows[right_pos_col], errors="raise").between(int(pos_min), int(pos_max))
+        )
+        rows = rows.loc[keep].reset_index(drop=True)
+        if len(rows) > 0:
+            rows = canonicalize_r2_pairs(rows, self.genome_build)
+        rows["R2"] = self._transform_r2(pd.to_numeric(rows["R2"], errors="raise").to_numpy(dtype=np.float32))
+        if self.identifier_mode == "rsid":
+            rows["i"] = rows["rsID_1"].astype(str).map(self.index_map)
+            rows["j"] = rows["rsID_2"].astype(str).map(self.index_map)
+        else:
+            rows["i"] = pd.to_numeric(rows["pos_1"], errors="raise").astype(np.int64).map(self.index_map)
+            rows["j"] = pd.to_numeric(rows["pos_2"], errors="raise").astype(np.int64).map(self.index_map)
+        rows = rows.dropna(subset=["i", "j"]).copy()
+        rows["i"] = rows["i"].astype(np.int64)
+        rows["j"] = rows["j"].astype(np.int64)
         return rows
 
     def _deduplicate_pairs(self, pair_rows: pd.DataFrame, context: str) -> pd.DataFrame:
@@ -1596,7 +1689,7 @@ def compute_chrom_from_parquet(
 
     Main steps:
     1. Merge optional CM/MAF metadata and apply any MAF filter.
-    2. Intersect annotation SNPs with SNPs actually present in the R2 table.
+    2. Treat the sidecar-aligned metadata rows as the authoritative retained SNP universe.
     3. Validate the LD window against the retained SNP coordinates.
     4. Query block-local dense R2 matrices from the sorted parquet file while
        following the old LDSC sliding-block traversal.
@@ -1612,12 +1705,8 @@ def compute_chrom_from_parquet(
         )
         args.genome_build = inference.genome_build
     metadata, annotations = apply_maf_filter(metadata, bundle.annotations.copy(), args.maf, context="parquet mode")
-    present_values = read_sorted_r2_presence(args, chrom=chrom)
-    metadata, annotations, regression_keys = filter_reference_to_present_r2(
-        metadata, annotations, regression_keys, present_values, args.snp_identifier, chrom
-    )
     if len(metadata) == 0:
-        raise ValueError(f"No retained annotation SNPs remain on chromosome {chrom} after parquet intersection.")
+        raise ValueError(f"No retained annotation SNPs remain on chromosome {chrom} after sidecar alignment.")
 
     validate_retained_identifier_uniqueness(metadata, args.snp_identifier, chrom)
     coords, max_dist = build_window_coordinates(metadata, args)

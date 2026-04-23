@@ -45,6 +45,14 @@ Genotype data used to compute LD between SNPs. Either:
 
 - **PLINK format** (`--bfile`): binary `.bed/.bim/.fam` files.
 - **Parquet R² format** (`--r2-table`): pre-computed pairwise R² values.
+  This backend requires a paired per-SNP metadata sidecar in addition to the parquet
+  pair table. The parquet stores pairwise data only; the sidecar supplies per-SNP
+  identifiers and metadata used at runtime.
+
+For parquet-backed reference panels, treat the R² parquet and its metadata sidecar as
+one logical reference-panel artifact. The sidecar is required to load the backend. Its
+`MAF` column drives `.M_5_50`, and its `CM` column is required when `--ld-wind-cm` is
+used.
 
 ### 2.4 Summary statistics
 
@@ -63,7 +71,7 @@ output counts and row counts.
 | Symbol | Name | Meaning |
 |--------|------|---------|
 | **B** | Baseline annotation SNPs | All SNPs with a row in the loaded baseline `.annot.gz` files |
-| **A** | Raw reference panel SNPs | All SNPs in the PLINK `.bim` or parquet R² index |
+| **A** | Raw reference panel SNPs | All SNPs in the PLINK `.bim`, or in the paired parquet R² metadata sidecar for the chromosome |
 | **A'** | Restricted reference panel | A ∩ `ref_panel_snps_path`; equals A when `--ref-panel-snps-path` is absent |
 | **`ld_reference_snps`** | LD computation universe | B ∩ A' — SNPs in both annotation and (restricted) reference panel |
 | **C** | Regression SNP flags | Binary mask from `regression_snps_path`; flags 1 only for SNPs in `ld_reference_snps` |
@@ -84,6 +92,10 @@ output counts and row counts.
   metadata + annotation LD columns + `regr_weight`. On that normalized/public object,
   `ld_reference_snps = frozenset()` because the full reference universe is not recoverable
   from the written rows.
+
+For the parquet backend, `A` comes from the metadata sidecar rows for the chromosome.
+The parquet pair table is the LD backend only; it does not define a second runtime SNP
+universe.
 
 ---
 
@@ -109,6 +121,10 @@ only SNPs in this smaller universe. Improves regression conditioning when the re
 contains low-quality or imputed SNPs not present in the annotation.
 
 **When absent:** `A' = A`; all reference panel SNPs are eligible.
+
+For parquet-backed reference panels, applying `--ref-panel-snps-path` still means the
+same thing: restrict the sidecar-defined raw reference universe to
+`A' = A ∩ ref_panel_snps_path`.
 
 ### 4.2 `--regression-snps-path` → restricts the output rows (ld_reference_snps → ld_regression_snps)
 
@@ -187,6 +203,10 @@ When `--query-annot-bed` is used, BED intervals are projected onto B in memory u
 `ld_reference_snps` remains an internal compute-time concept only. Public normalized results
 set `ld_reference_snps = frozenset()` after this normalization step.
 
+Backend-specific note for parquet: the reference-panel sidecar remains the source of per-SNP
+metadata at runtime. `MAF` from that sidecar determines which retained SNPs contribute to
+`.M_5_50`, and `CM` from that sidecar is required whenever `--ld-wind-cm` is used.
+
 ---
 
 ## 7. Output Files
@@ -215,6 +235,9 @@ with MAF between 5% and 50%.
 These counts are used as denominators in the heritability partitioning formula and are
 tracked over the full reference universe (`ld_reference_snps`), not the regression subset.
 They are emitted once per run after chromosome aggregation rather than once per chromosome.
+
+For parquet-backed reference panels, the MAF filter comes from the metadata sidecar paired
+to the R² parquet. If the sidecar does not provide `MAF`, `.M_5_50` cannot be formed.
 
 ### 7.3 No `.w.l2.ldscore.gz` file
 

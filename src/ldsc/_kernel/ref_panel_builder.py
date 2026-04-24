@@ -362,6 +362,8 @@ def yield_pairwise_r2_rows(
         chunk_size = 1
         b = m
 
+    # Flush in increasing-i order; non-decreasing POS_1 holds only because
+    # keep_snps was sorted by source position before reaching here.
     pending_rows: dict[int, list[dict[str, float | int | str]]] = {}
     l_A = 0
     A = standardized_snp_getter(b)

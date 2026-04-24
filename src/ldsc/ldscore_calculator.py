@@ -147,7 +147,9 @@ class LDScoreCalculator:
     treats ``ref_panel`` as the owner of the reference-panel SNP universe:
     chromosome bundles are intersected with ``ref_panel.load_metadata(chrom)``
     before the kernel runs so ``RefPanelSpec.ref_panel_snps_path`` is honored
-    without leaking that setting into the calculator interface.
+    without leaking that setting into the calculator interface. For LD-score
+    calculation, the annotation file's ``CM`` is the first source. The sidecar
+    metadata only fills missing ``CM`` values.
     """
 
     def __init__(self, output_manager: OutputManager | None = None) -> None:
@@ -174,6 +176,8 @@ class LDScoreCalculator:
             Reference-panel adapter that supplies chromosome readers and
             metadata. Any ``RefPanelSpec.ref_panel_snps_path`` restriction is
             already applied when the workflow calls ``ref_panel.load_metadata``.
+            Reference-panel sidecar ``CM`` values are used only to fill missing
+            annotation ``CM`` values during LD-score calculation.
         ldscore_config : LDScoreConfig
             LD-window and retained-SNP settings.
         global_config : GlobalConfig
@@ -642,7 +646,10 @@ def _align_annotation_bundle_to_ref_panel(annotation_bundle, ref_panel, chrom: s
     panel owns the optional ``A -> A'`` restriction through
     ``RefPanelSpec.ref_panel_snps_path``. This helper materializes the intended
     compute-time universe ``B_chrom ∩ A'_chrom`` immediately before the legacy
-    kernel call.
+    kernel call. It restricts annotation rows but does not replace annotation
+    metadata; for LD-score calculation, the annotation file's ``CM`` is the
+    first source, and sidecar metadata only fills missing ``CM`` values later in
+    the kernel.
     """
     reference_metadata = ref_panel.load_metadata(chrom)
     reference_ids = set(build_snp_id_series(reference_metadata, global_config.snp_identifier))

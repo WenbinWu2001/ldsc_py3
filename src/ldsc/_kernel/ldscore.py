@@ -18,7 +18,9 @@ Supported Inputs
   - PLINK genotype files (`.bed/.bim/.fam`), or
   - one per-chromosome sorted parquet `R2` file.
 - Optional frequency metadata may be provided to populate `MAF` in outputs and
-  to enable `.M_5_50` generation when parquet input is used.
+  to enable `.M_5_50` generation when parquet input is used. For LD-score
+  calculation, the annotation file's `CM` is the first source. The sidecar
+  metadata only fills missing `CM` values.
 - Optional regression SNP lists may be provided to define the SNP set used for
   `w_ld`. If omitted, the retained reference SNP set is used.
 
@@ -136,7 +138,9 @@ Window Rules
   as the original codebase.
 - In parquet mode, `block_left` and the old sliding-block iteration determine
   the query bounds and accumulation order.
-- `--ld-wind-cm` requires non-missing CM coordinates for retained SNPs.
+- `--ld-wind-cm` requires non-missing CM coordinates for retained SNPs. Those
+  coordinates come first from annotation metadata, with sidecar metadata filling
+  only missing `CM` values.
 
 MAF and `.M_5_50` Rules
 -----------------------
@@ -902,7 +906,9 @@ def parse_annotation_file(path: str, chrom: str | None = None) -> tuple[pd.DataF
     normalized ``CHR`` matches that chromosome. This is the final safeguard for
     group-style path tokens that resolved to shared multi-chromosome files or
     to globs whose filenames did not encode chromosome labels clearly enough for
-    earlier path-level filtering.
+    earlier path-level filtering. For LD-score calculation, the annotation
+    file's ``CM`` is the first source. The sidecar metadata only fills missing
+    ``CM`` values.
     """
     df = read_text_table(path)
     context = path
@@ -1055,7 +1061,7 @@ def load_regression_keys(args: argparse.Namespace) -> set[str] | None:
 
 
 def parse_frequency_metadata(path: str, chrom: str | None, identifier_mode: str) -> pd.DataFrame:
-    """Parse an optional frequency metadata file into ``_key``/``CM``/``MAF`` columns."""
+    """Parse an optional sidecar metadata file into ``_key``/``CM``/``MAF`` columns."""
     df = read_text_table(path)
     identifier_mode = normalize_snp_identifier_mode(identifier_mode)
     context = path
@@ -1099,7 +1105,14 @@ def merge_frequency_metadata(
     chrom: str,
     identifier_mode: str,
 ) -> pd.DataFrame:
-    """Merge optional CM and MAF metadata onto the retained reference SNP table."""
+    """
+    Merge optional sidecar ``CM`` and ``MAF`` onto retained SNP metadata.
+
+    For LD-score calculation, the annotation file's ``CM`` is the first source.
+    The sidecar metadata only fills missing ``CM`` values. ``MAF`` is filled by
+    the same missing-value rule so annotation-provided metadata remains
+    authoritative when present.
+    """
     files = resolve_frequency_files(args, chrom=chrom)
     if not files:
         return metadata
@@ -1691,7 +1704,9 @@ def compute_chrom_from_parquet(
     Compute all LD-score outputs for one chromosome from sorted parquet R2 input.
 
     Main steps:
-    1. Merge optional CM/MAF metadata and apply any MAF filter.
+    1. Merge optional CM/MAF metadata and apply any MAF filter. For LD-score
+       calculation, the annotation file's CM is the first source. The sidecar
+       metadata only fills missing CM values.
     2. Treat the sidecar-aligned metadata rows as the authoritative retained SNP universe.
     3. Validate the LD window against the retained SNP coordinates.
     4. Query block-local dense R2 matrices from the sorted parquet file while

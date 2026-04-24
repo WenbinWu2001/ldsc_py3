@@ -212,10 +212,12 @@ The metadata sidecar feeds directly into three steps of the partitioned-LDSC wor
    If `MAF` is absent and `fail_on_missing_metadata` is `True`, `_read_metadata_table`
    raises `ValueError`; if `False`, M_5_50 cannot be computed and falls back to M.
 
-3. **Genetic-map window (`ld_wind_cm`).** The `CM` column is required when `--ld-wind-cm`
-   is specified. If `CM` is absent from the sidecar the pipeline hard-fails at window
-   construction time. Provide a sidecar that includes the `CM` column whenever using
-   `--ld-wind-cm`.
+3. **Genetic-map window (`ld_wind_cm`).** For LD-score calculation, the annotation
+   file's `CM` is the first source. The sidecar metadata only fills missing `CM`
+   values. The final merged `CM` column is required when `--ld-wind-cm` is
+   specified. If `CM` is absent from both the annotation metadata and sidecar, the
+   pipeline hard-fails at window construction time. Provide annotation metadata or
+   a sidecar that includes the `CM` column whenever using `--ld-wind-cm`.
 
 #### Relationship to the R² parquet
 

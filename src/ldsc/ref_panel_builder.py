@@ -403,6 +403,8 @@ def _sort_retained_snps_by_source_position(
     hg38_lookup: dict[int, int],
 ) -> np.ndarray:
     """Return retained PLINK indices in source-build genomic position order."""
+    # Monotone position order here makes index i → position monotone, which lets
+    # yield_pairwise_r2_rows flush cross-chunk pairs with non-decreasing POS_1.
     keep_snps = np.asarray(keep_snps, dtype=int)
     lookup = hg19_lookup if source_build == "hg19" else hg38_lookup
     return np.asarray(

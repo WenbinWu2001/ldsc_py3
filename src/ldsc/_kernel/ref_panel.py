@@ -224,9 +224,17 @@ class PlinkRefPanel(RefPanel):
 
 
 class ParquetR2RefPanel(RefPanel):
-    """Sorted-parquet-R2-backed reference-panel adapter."""
+    """
+    Canonical parquet-R2 reference-panel adapter.
+
+    The metadata sidecar is the authoritative per-SNP universe for this backend:
+    ``load_metadata()`` reads A, applies ``ref_panel_snps_path`` to form A', and
+    returns that restricted table to the LD-score workflow. The pairwise parquet
+    is used only by ``build_reader()`` for LD window queries and is not scanned
+    to discover SNP presence.
+    """
     def available_chromosomes(self) -> list[str]:
-        """List chromosomes from explicit config or parquet metadata sidecars."""
+        """List chromosomes from explicit config or the required metadata sidecars."""
         if self.spec.chromosomes is not None:
             return sorted(set(self.spec.chromosomes), key=_chrom_sort_key)
 
@@ -244,7 +252,7 @@ class ParquetR2RefPanel(RefPanel):
         raise ImportError("Chromosome discovery for parquet R2 requires explicit chromosomes or sidecar metadata in this environment.")
 
     def load_metadata(self, chrom: str) -> pd.DataFrame:
-        """Load and cache normalized metadata sidecars for one chromosome."""
+        """Load, restrict, validate, and cache sidecar metadata for one chromosome."""
         chrom = normalize_chromosome(chrom)
         if chrom in self._metadata_cache:
             return self._metadata_cache[chrom].copy()
@@ -275,7 +283,7 @@ class ParquetR2RefPanel(RefPanel):
         r2_bias_mode: str | None = None,
         r2_sample_size: float | None = None,
     ):
-        """Build a block reader over sorted parquet R2 files for one chromosome."""
+        """Build a row-group-pruning block reader over one chromosome's R2 parquet."""
         metadata = metadata if metadata is not None else self.load_metadata(chrom)
         return kernel_ldscore.SortedR2BlockReader(
             paths=resolve_chromosome_group(

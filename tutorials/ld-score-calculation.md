@@ -3,6 +3,10 @@
 Goal: compute LDSC-compatible LD scores from either pre-built SNP-level annotation files or raw BED intervals.
 
 The examples below assume chromosome-pattern inputs such as `annotations/baseline.1.annot.gz`, `r2/reference.1.parquet`, and `r2/reference_metadata.1.tsv.gz`.
+For the parquet backend, the R2 file should use the canonical six-column schema
+(`CHR`, `POS_1`, `POS_2`, `R2`, `SNP_1`, `SNP_2`) written with PyArrow row groups.
+The paired metadata sidecar is required and defines the raw reference-panel SNP
+universe used during LD-score computation.
 
 Input-token rules used below:
 
@@ -169,7 +173,7 @@ For Python workflows, `GlobalConfig` now carries only shared runtime settings su
 Per-run SNP-universe controls are owned by the workflow-specific configs instead:
 
 - `ref_panel_snps_path` belongs to the LD-score reference-panel input and is passed through `run_ldscore(...)` into `RefPanelSpec`
-- the LD-score workflow intersects each chromosome bundle with `ref_panel.load_metadata(chrom)`, so `ref_panel_snps_path` shrinks the compute-time universe from `B` to `B ∩ A'`
+- the LD-score workflow intersects each chromosome bundle with `ref_panel.load_metadata(chrom)`, so `ref_panel_snps_path` shrinks the sidecar-defined compute-time universe from `B` to `B ∩ A'`
 - `regression_snps_path` belongs to the LD-score calculation config and further restricts the normalized `ldscore_table` rows from `B ∩ A'` to `B ∩ A' ∩ C`
 
 `run_bed_to_annot()` no longer applies a reference-panel SNP restriction. It projects BED intervals onto the baseline annotation rows and returns an `AnnotationBundle`; any reference-panel restriction is applied later, during LD-score calculation, when the workflow aligns each chromosome bundle to the prepared reference-panel metadata.

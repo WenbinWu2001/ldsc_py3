@@ -3,6 +3,10 @@
 Goal: estimate SNP heritability for one trait with the refactored package, starting from raw summary statistics and LD scores built from an R2-table reference panel.
 
 The examples below assume chromosome-pattern inputs such as `annotations/baseline.1.annot.gz`, `r2/reference.1.parquet`, and `r2/reference_metadata.1.tsv.gz`.
+For parquet-backed LD scores, `r2/reference.@.parquet` is the canonical pair table
+and `r2/reference_metadata.@.tsv.gz` is the required per-SNP sidecar. The sidecar
+defines the reference SNP universe and supplies `MAF`/`CM`; the parquet is used
+only for row-group-pruned LD window queries.
 
 Path-token rules:
 

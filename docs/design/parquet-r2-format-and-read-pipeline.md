@@ -62,6 +62,11 @@ is treated as the same logical schema as `CHR`, `POS_1`, `POS_2`, `SNP_1`,
 This means the docs define the canonical names used by package-written parquet
 artifacts, while the loader remains permissive for external parquet sources.
 
+Writing canonical LD parquet requires PyArrow. The package writer uses
+`pyarrow.parquet.ParquetWriter` so it can set schema metadata and explicit row-group
+sizes; pandas/fastparquet fallback writing is intentionally not part of the canonical
+path.
+
 ### 2.2 Invariants
 
 - `POS_1 < POS_2` for every row (canonical pair orientation, enforced at write time).
@@ -71,7 +76,7 @@ artifacts, while the loader remains permissive for external parquet sources.
   window are stored.
 
 The writer **asserts** the sort invariant on every incoming pair. If a pair arrives
-with `POS_1` less than the previous pair's `POS_1`, `write_standard_ld_parquet`
+with `POS_1` less than the previous pair's `POS_1`, `write_ld_parquet`
 raises immediately with a clear message:
 
 > *"Pairs must arrive in non-decreasing POS_1 order. Received POS_1={x} after
@@ -290,6 +295,10 @@ self._rg_bounds = [
 ```
 
 This reads only the footer (a few KB) — no pair data is loaded at init time.
+Row groups without valid `POS_1` min/max footer statistics are excluded from
+`_rg_bounds` rather than treated as fatal. They are therefore not used by the
+pruned canonical query path; regenerate such files with PyArrow statistics enabled
+if those rows must be queryable.
 
 ### 3.4 Window Queries (`_query_union_rows`)
 
@@ -380,7 +389,7 @@ major version once the ecosystem has migrated to the canonical schema.
 
 | Module | Change |
 |---|---|
-| `_kernel/ref_panel_builder.py` | `write_standard_ld_parquet`: assert sort invariant on each incoming pair; write new 6-column schema; write `ldsc:sorted_by_build` and `ldsc:row_group_size` metadata; default `row_group_size=50_000` |
+| `_kernel/ref_panel_builder.py` | `write_ld_parquet`: require PyArrow; assert sort invariant on each incoming pair; write new 6-column schema; preserve canonical dtypes for empty outputs; write `ldsc:sorted_by_build` and `ldsc:row_group_size` metadata; default `row_group_size=50_000` |
 | `_kernel/ldscore.py` — `SortedR2BlockReader.__init__` | Detect schema (canonical vs legacy raw); canonical path: open as `pq.ParquetFile`, build `_rg_bounds` index from footer, validate build (3-tier), warn if coarse row groups; legacy path: open as `pyarrow.Dataset`, emit deprecation warning, proceed with full-scan fallback |
 | `_kernel/ldscore.py` — `SortedR2BlockReader._query_union_rows` | Canonical path: row-group index lookup + `read_row_groups` + `.to_numpy()`; legacy path: existing `dataset.to_table(filter=...)` behaviour unchanged |
 | `_kernel/ldscore.py` — `read_sorted_r2_presence` | Remove standalone function; the parquet backend no longer performs a runtime SNP-presence scan |

@@ -22,27 +22,23 @@ Supported Inputs
 - Optional regression SNP lists may be provided to define the SNP set used for
   `w_ld`. If omitted, the retained reference SNP set is used.
 
-Sorted Parquet `R2` Format
---------------------------
-- Runtime parquet input may be either:
-  - normalized sorted parquet with helper columns `chr`, `pos_1`, `pos_2`, or
-  - raw pairwise parquet carrying the legacy source columns listed below.
-- The source table is expected to contain the pairwise columns:
-  - `chr`
-  - `rsID_1`, `rsID_2`
-  - `hg38_pos_1`, `hg38_pos_2`
-  - `hg19_pos_1`, `hg19_pos_2`
-  - `hg38_Uniq_ID_1`, `hg38_Uniq_ID_2`
-  - `hg19_Uniq_ID_1`, `hg19_Uniq_ID_2`
-  - `R2`, `Dprime`, `+/-corr`
-- The normalized sorted parquet created by this module preserves those source
-  columns and adds helper columns:
-  - `pos_1`
-  - `pos_2`
-- Pair orientation is canonicalized by the selected build so `pos_1 <= pos_2`.
-- Rows are sorted by `(pos_1, pos_2)`.
-- Exact duplicate normalized pairs with the same `R2` are dropped. Duplicate
-  normalized pairs with different `R2` raise an error.
+Canonical Parquet `R2` Format
+-----------------------------
+- Package-written parquet R2 files contain exactly six logical columns:
+  `CHR`, `POS_1`, `POS_2`, `R2`, `SNP_1`, and `SNP_2`.
+- `POS_1` and `POS_2` are positions in one sorted genome build. The build is
+  recorded in schema metadata under `ldsc:sorted_by_build`; the runtime query
+  build must match it.
+- Rows are sorted by non-decreasing `POS_1`. Ordering by `POS_2` within equal
+  `POS_1` is not required.
+- Canonical files are opened with `pyarrow.parquet.ParquetFile`; footer
+  statistics for `POS_1` form a row-group index so each genomic window reads
+  only overlapping row groups.
+- The loader resolves accepted aliases such as `chr`, `bp_1`, `bp_2`,
+  `rsid_1`, and `rsid_2` to the six logical fields above.
+- Legacy raw-schema parquet files with `hg19_pos_1`, `hg38_pos_1`, `rsID_1`,
+  `rsID_2`, `Dprime`, or `+/-corr` are still accepted through the slower
+  `pyarrow.Dataset` fallback, but row-group pruning is disabled.
 - In `chr_pos` mode, retained reference SNP rows must have unique chromosome
   positions. If two retained SNPs share the same `CHR` and `POS`, matching to
   the `R2` table is ambiguous and the code fails fast.
@@ -53,16 +49,19 @@ Identifier and Genome-Build Rules
 - No allele matching is attempted in v1.
 - In `chr_pos` mode, retained reference SNP rows are matched by chromosome and
   position and must be unique within each chromosome.
-- The sorted parquet helper is build-specific at normalization time. When the
-  sorted parquet is used at runtime, the selected `genome_build` is assumed to
-  match the build intended for the LD-score run.
+- Canonical parquet files are build-specific. If `ldsc:sorted_by_build`
+  conflicts with the selected `genome_build`, reader initialization raises a
+  `ValueError`. If the metadata key is absent, the reader infers the build from
+  the first row group and logs a warning.
 
 Outputs
 -------
 - Reference LD-score file: `<out>.l2.ldscore.gz`
 - Reference LD-score counts: `<out>.l2.M`
 - Common-SNP counts, when MAF is available: `<out>.l2.M_5_50`
-- Regression-weight LD-score file: `<out>.w.l2.ldscore.gz`
+- Regression weights are embedded as the `regr_weight` column in the LD-score
+  table; the legacy `<out>.w.l2.ldscore.gz` sidecar is no longer written by the
+  refactored workflow.
 - Annotation-group manifest: `<out>.annotation_groups.tsv`
 
 Outputs retain `CM` and `MAF` when available. Missing values are written as
@@ -106,7 +105,8 @@ Computation Overview
 2. Normalize SNP identity using the selected identifier mode and require all
    annotation files for a chromosome to have identical retained SNP rows.
 3. Build the canonical reference SNP table from annotation inputs.
-4. Intersect annotation SNPs with SNPs actually present in the reference panel.
+4. Intersect annotation SNPs with the sidecar-defined reference-panel SNP
+   universe; parquet pair rows are not scanned to define runtime SNP presence.
 5. Compute LD scores per chromosome:
    - PLINK mode reuses the original genotype-block implementation.
    - parquet mode follows the old LDSC sliding-block accumulation workflow and
@@ -1370,9 +1370,7 @@ class SortedR2BlockReader:
             rg = meta.row_group(rg_index)
             stats = rg.column(pos1_idx).statistics
             if stats is None or not getattr(stats, "has_min_max", False):
-                raise ValueError(
-                    f"Row group {rg_index} in {path} is missing POS_1 footer statistics required for pruning."
-                )
+                continue
             self._rg_bounds.append((int(stats.min), int(stats.max), rg_index))
 
     def _transform_r2(self, values: np.ndarray) -> np.ndarray:
@@ -1426,8 +1424,8 @@ class SortedR2BlockReader:
             read_cols.extend([self._canonical_columns["SNP_1"], self._canonical_columns["SNP_2"]])
 
         table = self._pf.read_row_groups(rg_idxs, columns=read_cols)
-        pos_1 = pd.to_numeric(pd.Series(table[self._canonical_columns["POS_1"]].to_pylist()), errors="raise").astype(np.int64).to_numpy()
-        pos_2 = pd.to_numeric(pd.Series(table[self._canonical_columns["POS_2"]].to_pylist()), errors="raise").astype(np.int64).to_numpy()
+        pos_1 = table.column(self._canonical_columns["POS_1"]).to_numpy(zero_copy_only=False).astype(np.int64, copy=False)
+        pos_2 = table.column(self._canonical_columns["POS_2"]).to_numpy(zero_copy_only=False).astype(np.int64, copy=False)
         mask = (pos_1 >= int(pos_min)) & (pos_2 <= int(pos_max))
         if not mask.any():
             return pd.DataFrame(
@@ -1438,14 +1436,11 @@ class SortedR2BlockReader:
                 }
             )
 
-        r2 = self._transform_r2(
-            pd.to_numeric(pd.Series(table[self._canonical_columns["R2"]].to_pylist()), errors="raise")
-            .astype(np.float32)
-            .to_numpy()[mask]
-        )
+        r2_raw = table.column(self._canonical_columns["R2"]).to_numpy(zero_copy_only=False).astype(np.float32, copy=False)
+        r2 = self._transform_r2(r2_raw[mask])
         if self.identifier_mode == "rsid":
-            left_ids = pd.Series(table[self._canonical_columns["SNP_1"]].to_pylist(), dtype="object").astype(str).to_numpy()[mask]
-            right_ids = pd.Series(table[self._canonical_columns["SNP_2"]].to_pylist(), dtype="object").astype(str).to_numpy()[mask]
+            left_ids = table.column(self._canonical_columns["SNP_1"]).to_numpy(zero_copy_only=False).astype(str)[mask]
+            right_ids = table.column(self._canonical_columns["SNP_2"]).to_numpy(zero_copy_only=False).astype(str)[mask]
             i_raw = [self.index_map.get(value) for value in left_ids]
             j_raw = [self.index_map.get(value) for value in right_ids]
         else:

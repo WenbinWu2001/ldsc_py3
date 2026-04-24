@@ -15,13 +15,15 @@ claim that can be confirmed by reading code or running a test.
 - [ ] `R2` column is written as `float32`.
 - [ ] `POS_1` and `POS_2` columns are written as `int64`.
 - [ ] `CHR`, `SNP_1`, `SNP_2` columns are written as string.
+- [ ] Empty LD outputs preserve the same canonical dtypes rather than falling back to object-typed empty pandas columns.
 - [ ] Default `row_group_size` is `50_000` when the caller does not supply one.
+- [ ] Canonical LD parquet writing requires PyArrow; no pandas/fastparquet fallback is used for the LD pair table because schema metadata and row-group sizing are part of the format contract.
 
 ## 2. Writer — Sort Invariant
 
 - [ ] `POS_1 < POS_2` holds for every row (canonical pair orientation enforced at write time).
 - [ ] Rows are written in non-decreasing `POS_1` order.
-- [ ] If a pair arrives with `POS_1` less than the previous pair's `POS_1`, `write_standard_ld_parquet` raises `ValueError` immediately.
+- [ ] If a pair arrives with `POS_1` less than the previous pair's `POS_1`, `write_ld_parquet` raises `ValueError` immediately.
 - [ ] The `ValueError` message includes both the offending `POS_1` value and the previous `POS_1` value.
 
 ## 3. Writer — Parquet Schema Metadata

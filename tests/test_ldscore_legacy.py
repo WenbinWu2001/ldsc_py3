@@ -241,6 +241,54 @@ class CanonicalParquetRuntimeTest(unittest.TestCase):
                 self.assertLessEqual(mn, mx)
                 self.assertIsInstance(idx, int)
 
+    def test_canonical_init_excludes_row_groups_without_min_max_stats(self):
+        import pyarrow.parquet as pq
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "chr1.parquet"
+            self._write_canonical_parquet(path, n_pairs=1, row_group_size=1)
+
+            real_pf_cls = pq.ParquetFile
+
+            class FakeColumn:
+                statistics = None
+
+            class FakeRowGroup:
+                def column(self, index):
+                    return FakeColumn()
+
+            class FakeMeta:
+                num_rows = 1
+                num_row_groups = 1
+
+                def row_group(self, index):
+                    return FakeRowGroup()
+
+            class FakePF:
+                def __init__(self, parquet_path):
+                    self._real = real_pf_cls(parquet_path)
+                    self.metadata = FakeMeta()
+                    self.schema_arrow = self._real.schema_arrow
+
+                def read_row_groups(self, *args, **kwargs):
+                    return self._real.read_row_groups(*args, **kwargs)
+
+                def read_row_group(self, *args, **kwargs):
+                    return self._real.read_row_group(*args, **kwargs)
+
+            metadata = pd.DataFrame({"CHR": ["1", "1"], "SNP": ["rs1", "rs2"], "BP": [100, 120], "CM": [0.0, 0.0]})
+            with mock.patch("pyarrow.parquet.ParquetFile", FakePF):
+                reader = ld.SortedR2BlockReader(
+                    paths=[str(path)],
+                    chrom="1",
+                    metadata=metadata,
+                    identifier_mode="rsID",
+                    r2_bias_mode="unbiased",
+                    r2_sample_size=None,
+                    genome_build="hg19",
+                )
+            self.assertEqual(reader._rg_bounds, [])
+
     def test_canonical_init_raises_on_build_mismatch(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "chr1.parquet"
@@ -383,6 +431,7 @@ class CanonicalParquetRuntimeTest(unittest.TestCase):
             self.assertEqual(reader._runtime_layout, "canonical")
             matrix = reader.within_block_matrix(l_B=0, c=3)
             expected = np.array([[1.0, 0.4, 0.2], [0.4, 1.0, 0.6], [0.2, 0.6, 1.0]], dtype=np.float32)
+            self.assertEqual(matrix.dtype, np.dtype("float32"))
             assert_array_almost_equal(matrix, expected)
 
     def test_canonical_query_reads_only_overlapping_row_groups(self):

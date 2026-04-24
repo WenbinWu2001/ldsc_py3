@@ -52,7 +52,8 @@ Genotype data used to compute LD between SNPs. Either:
 For parquet-backed reference panels, treat the R² parquet and its metadata sidecar as
 one logical reference-panel artifact. The sidecar is required to load the backend. Its
 `MAF` column drives `.M_5_50`, and its `CM` column is required when `--ld-wind-cm` is
-used.
+used. The parquet pair table is not scanned at runtime to decide which SNPs are present;
+the sidecar alone defines the raw reference-panel universe A.
 
 ### 2.4 Summary statistics
 

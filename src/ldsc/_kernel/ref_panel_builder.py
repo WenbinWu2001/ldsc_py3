@@ -37,6 +37,23 @@ _STANDARD_LD_COLUMNS = [
     "SNP_1",
     "SNP_2",
 ]
+
+
+def _empty_standard_ld_table() -> pd.DataFrame:
+    """Return an empty canonical LD table with stable physical dtypes."""
+    return pd.DataFrame(
+        {
+            "CHR": pd.Series(dtype="string"),
+            "POS_1": pd.Series(dtype=np.int64),
+            "POS_2": pd.Series(dtype=np.int64),
+            "R2": pd.Series(dtype=np.float32),
+            "SNP_1": pd.Series(dtype="string"),
+            "SNP_2": pd.Series(dtype="string"),
+        },
+        columns=_STANDARD_LD_COLUMNS,
+    )
+
+
 @dataclass(frozen=True)
 class LiftOverMappingResult:
     """Partial liftover result for one chromosome."""
@@ -448,10 +465,17 @@ def build_standard_ld_table(
     annotation_table: pd.DataFrame,
     genome_build: str,
 ) -> pd.DataFrame:
-    """Build the canonical 6-column LD parquet table for one chromosome."""
+    """
+    Build one canonical six-column LD table chunk for a chromosome.
+
+    The returned frame always uses the package-written parquet schema:
+    string-valued ``CHR``/``SNP_1``/``SNP_2``, ``int64`` positions, and
+    ``float32`` R2 values. Empty chunks keep the same dtypes so chromosomes with
+    no emitted pairs still serialize as canonical LD parquet files.
+    """
 
     if not pair_rows:
-        return pd.DataFrame(columns=_STANDARD_LD_COLUMNS)
+        return _empty_standard_ld_table()
 
     i = np.asarray([int(row["i"]) for row in pair_rows], dtype=np.int64)
     j = np.asarray([int(row["j"]) for row in pair_rows], dtype=np.int64)
@@ -498,8 +522,8 @@ def _ensure_parent_dir(path: str | PathLike[str]) -> None:
     parent.mkdir(parents=True, exist_ok=True)
 
 
-def write_parquet_table(df: pd.DataFrame, path: str | PathLike[str]) -> str:
-    """Write one parquet table using pandas' parquet backend."""
+def write_dataframe_to_parquet(df: pd.DataFrame, path: str | PathLike[str]) -> str:
+    """Write one generic DataFrame to parquet without LDSC format guarantees."""
 
     _ensure_parent_dir(path)
     try:
@@ -511,7 +535,7 @@ def write_parquet_table(df: pd.DataFrame, path: str | PathLike[str]) -> str:
     return str(path)
 
 
-def write_standard_ld_parquet(
+def write_ld_parquet(
     *,
     pair_rows: Iterable[dict[str, float | int | str]],
     annotation_table: pd.DataFrame,
@@ -520,7 +544,15 @@ def write_standard_ld_parquet(
     batch_size: int = 100_000,
     row_group_size: int = 50_000,
 ) -> str:
-    """Write the canonical LD parquet table, streaming batches when pyarrow is available."""
+    """
+    Write a canonical LD parquet table with row-group metadata.
+
+    The writer requires ``pyarrow`` because the canonical format depends on
+    Arrow schema metadata and explicit row-group sizing. It writes exactly the
+    six canonical LD columns, stores ``ldsc:sorted_by_build`` and
+    ``ldsc:row_group_size`` in schema metadata, and validates that incoming
+    pair rows are sorted by non-decreasing ``POS_1``.
+    """
 
     _ensure_parent_dir(path)
     pos_col = f"{genome_build}_pos"
@@ -528,17 +560,9 @@ def write_standard_ld_parquet(
         import pyarrow as pa
         import pyarrow.parquet as pq
     except ImportError as exc:
-        try:
-            build_standard_ld_table(
-                pair_rows=list(pair_rows),
-                annotation_table=annotation_table,
-                genome_build=genome_build,
-            ).to_parquet(path, index=False)
-        except ImportError:
-            raise ImportError(
-                "Writing reference-panel LD parquet artifacts requires pyarrow or fastparquet."
-            ) from exc
-        return str(path)
+        raise ImportError(
+            "Writing canonical reference-panel LD parquet artifacts requires pyarrow."
+        ) from exc
 
     pa_meta = {
         b"ldsc:sorted_by_build": genome_build.encode("utf-8"),
@@ -574,18 +598,19 @@ def write_standard_ld_parquet(
             writer.write_table(table, row_group_size=row_group_size)
             batch = []
 
-        frame = build_standard_ld_table(
-            pair_rows=batch,
-            annotation_table=annotation_table,
-            genome_build=genome_build,
-        )
-        table = pa.Table.from_pandas(frame, preserve_index=False)
-        if writer is None:
-            writer = pq.ParquetWriter(
-                str(path),
-                table.schema.with_metadata({**(table.schema.metadata or {}), **pa_meta}),
+        if batch or writer is None:
+            frame = build_standard_ld_table(
+                pair_rows=batch,
+                annotation_table=annotation_table,
+                genome_build=genome_build,
             )
-        writer.write_table(table, row_group_size=row_group_size)
+            table = pa.Table.from_pandas(frame, preserve_index=False)
+            if writer is None:
+                writer = pq.ParquetWriter(
+                    str(path),
+                    table.schema.with_metadata({**(table.schema.metadata or {}), **pa_meta}),
+                )
+            writer.write_table(table, row_group_size=row_group_size)
     finally:
         if writer is not None:
             writer.close()

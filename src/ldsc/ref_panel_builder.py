@@ -265,8 +265,8 @@ class ReferencePanelBuilder:
         meta_hg19_path = out_root / "meta" / f"{config.panel_label}_chr{chrom}_meta_hg19.tsv.gz"
         meta_hg38_path = out_root / "meta" / f"{config.panel_label}_chr{chrom}_meta_hg38.tsv.gz"
 
-        kernel_builder.write_parquet_table(annotation_table, ann_path)
-        kernel_builder.write_standard_ld_parquet(
+        kernel_builder.write_dataframe_to_parquet(annotation_table, ann_path)
+        kernel_builder.write_ld_parquet(
             pair_rows=kernel_builder.yield_pairwise_r2_rows(
                 block_left=block_left,
                 chunk_size=config.chunk_size,

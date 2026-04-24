@@ -315,9 +315,74 @@ class StandardTableFormattingTest(unittest.TestCase):
         self.assertAlmostEqual(table.loc[0, "R2"], 0.75, places=4)
         self.assertEqual(table.loc[0, "SNP_1"], "rs1")
         self.assertEqual(table.loc[0, "SNP_2"], "rs2")
+        self.assertEqual(table["POS_1"].dtype, np.dtype("int64"))
+        self.assertEqual(table["POS_2"].dtype, np.dtype("int64"))
+        self.assertEqual(table["R2"].dtype, np.dtype("float32"))
+        self.assertTrue(pd.api.types.is_string_dtype(table["CHR"]))
+        self.assertTrue(pd.api.types.is_string_dtype(table["SNP_1"]))
+        self.assertTrue(pd.api.types.is_string_dtype(table["SNP_2"]))
+
+    def test_build_standard_ld_table_preserves_empty_schema_dtypes(self):
+        annotation_table = pd.DataFrame(
+            {
+                "CHR": ["1"],
+                "hg19_pos": [100],
+                "hg38_pos": [110],
+                "hg19_Uniq_ID": ["1:100:A:G"],
+                "hg38_Uniq_ID": ["1:110:A:G"],
+                "rsID": ["rs1"],
+                "MAF": [0.2],
+                "REF": ["A"],
+                "ALT": ["G"],
+            }
+        )
+
+        table = kernel_builder.build_standard_ld_table(
+            pair_rows=[],
+            annotation_table=annotation_table,
+            genome_build="hg19",
+        )
+
+        self.assertEqual(
+            table.columns.tolist(),
+            ["CHR", "POS_1", "POS_2", "R2", "SNP_1", "SNP_2"],
+        )
+        self.assertEqual(table["POS_1"].dtype, np.dtype("int64"))
+        self.assertEqual(table["POS_2"].dtype, np.dtype("int64"))
+        self.assertEqual(table["R2"].dtype, np.dtype("float32"))
+        self.assertTrue(pd.api.types.is_string_dtype(table["CHR"]))
+        self.assertTrue(pd.api.types.is_string_dtype(table["SNP_1"]))
+        self.assertTrue(pd.api.types.is_string_dtype(table["SNP_2"]))
+
+    @unittest.skipIf(_HAS_PYARROW, "pyarrow dependency is installed")
+    def test_write_ld_parquet_requires_pyarrow_for_canonical_output(self):
+        annotation_table = pd.DataFrame(
+            {
+                "CHR": ["1", "1"],
+                "hg19_pos": [100, 120],
+                "hg38_pos": [110, 130],
+                "hg19_Uniq_ID": ["1:100:A:G", "1:120:C:T"],
+                "hg38_Uniq_ID": ["1:110:A:G", "1:130:C:T"],
+                "rsID": ["rs1", "rs2"],
+                "MAF": [0.2, 0.3],
+                "REF": ["A", "C"],
+                "ALT": ["G", "T"],
+            }
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "chr1.parquet"
+            with self.assertRaises(ImportError) as ctx:
+                kernel_builder.write_ld_parquet(
+                    pair_rows=iter([{"i": 0, "j": 1, "R2": 0.75, "sign": "+"}]),
+                    annotation_table=annotation_table,
+                    path=path,
+                    genome_build="hg19",
+                )
+            self.assertIn("requires pyarrow", str(ctx.exception))
+            self.assertNotIn("fastparquet", str(ctx.exception))
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow dependency is not installed")
-    def test_write_standard_ld_parquet_asserts_sort_invariant(self):
+    def test_write_ld_parquet_asserts_sort_invariant(self):
         annotation_table = pd.DataFrame(
             {
                 "CHR": ["1", "1", "1"],
@@ -337,16 +402,18 @@ class StandardTableFormattingTest(unittest.TestCase):
         ]
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "chr1.parquet"
-            with self.assertRaises(ValueError):
-                kernel_builder.write_standard_ld_parquet(
+            with self.assertRaises(ValueError) as ctx:
+                kernel_builder.write_ld_parquet(
                     pair_rows=iter(pair_rows),
                     annotation_table=annotation_table,
                     path=path,
                     genome_build="hg19",
                 )
+            self.assertIn("POS_1=80", str(ctx.exception))
+            self.assertIn("POS_1=100", str(ctx.exception))
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow dependency is not installed")
-    def test_write_standard_ld_parquet_writes_schema_metadata(self):
+    def test_write_ld_parquet_writes_schema_metadata(self):
         import pyarrow.parquet as pq
 
         annotation_table = pd.DataFrame(
@@ -365,7 +432,7 @@ class StandardTableFormattingTest(unittest.TestCase):
         pair_rows = [{"i": 0, "j": 1, "R2": 0.75, "sign": "+"}]
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "chr1.parquet"
-            kernel_builder.write_standard_ld_parquet(
+            kernel_builder.write_ld_parquet(
                 pair_rows=iter(pair_rows),
                 annotation_table=annotation_table,
                 path=path,

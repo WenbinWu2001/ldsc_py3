@@ -36,34 +36,51 @@ or expected by the reader.
 
 | Column | Type | Description |
 |---|---|---|
-| `chr` | `string` | Chromosome label, normalized to bare integer string (`"1"` … `"22"`, `"X"`) |
-| `pos_1` | `int64` | Genomic position of the left SNP in the pair (1-based, sort build) |
-| `pos_2` | `int64` | Genomic position of the right SNP in the pair (1-based, sort build) |
+| `CHR` | `string` | Chromosome label, normalized to bare integer string (`"1"` … `"22"`, `"X"`) |
+| `POS_1` | `int64` | Genomic position of the left SNP in the pair (1-based, sort build) |
+| `POS_2` | `int64` | Genomic position of the right SNP in the pair (1-based, sort build) |
 | `R2` | `float32` | Squared Pearson correlation between allele dosages |
-| `rsID_1` | `string` | dbSNP rsID of the left SNP |
-| `rsID_2` | `string` | dbSNP rsID of the right SNP |
+| `SNP_1` | `string` | dbSNP rsID of the left SNP |
+| `SNP_2` | `string` | dbSNP rsID of the right SNP |
 
 **Dropped from the legacy schema:** `hg19_pos_1`, `hg38_pos_1`, `hg19_pos_2`,
 `hg38_pos_2`, `hg19_Uniq_ID_1/2`, `hg38_Uniq_ID_1/2`, `Dprime`, `+/-corr`.
 `Dprime` was always written as NaN and is unused. `+/-corr` is irrelevant to LD
 score regression because R² is unsigned. The build-specific position columns are
-replaced by the single canonical pair `pos_1`/`pos_2` whose build is recorded in
+replaced by the single canonical pair `POS_1`/`POS_2` whose build is recorded in
 the file metadata (see §2.4).
+
+#### Alias-tolerant loading
+
+The default on-disk column names are the uppercase canonical fields above:
+`CHR`, `POS_1`, `POS_2`, `SNP_1`, `SNP_2`, `R2`. At load time, the parquet reader
+resolves aliases through `src/ldsc/column_inference.py` before using the file.
+For example, a file with columns `chr`, `bp_1`, `bp_2`, `rsid_1`, `rsid_2`, `R2`
+is treated as the same logical schema as `CHR`, `POS_1`, `POS_2`, `SNP_1`,
+`SNP_2`, `R2`.
+
+This means the docs define the canonical names used by package-written parquet
+artifacts, while the loader remains permissive for external parquet sources.
+
+Writing canonical LD parquet requires PyArrow. The package writer uses
+`pyarrow.parquet.ParquetWriter` so it can set schema metadata and explicit row-group
+sizes; pandas/fastparquet fallback writing is intentionally not part of the canonical
+path.
 
 ### 2.2 Invariants
 
-- `pos_1 < pos_2` for every row (canonical pair orientation, enforced at write time).
-- Rows are sorted by `pos_1 ASC` (non-decreasing) across the entire chromosome. Ordering of `pos_2` within rows that share the same `pos_1` is not enforced; row-group pruning depends only on `pos_1` footer statistics.
+- `POS_1 < POS_2` for every row (canonical pair orientation, enforced at write time).
+- Rows are sorted by `POS_1 ASC` (non-decreasing) across the entire chromosome. Ordering of `POS_2` within rows that share the same `POS_1` is not enforced; row-group pruning depends only on `POS_1` footer statistics.
 - Each file contains exactly one chromosome. Multi-chromosome files are not supported.
 - All pairs lie within the configured LD window at write time; no pairs outside the
   window are stored.
 
 The writer **asserts** the sort invariant on every incoming pair. If a pair arrives
-with `pos_1` less than the previous pair's `pos_1`, `write_standard_ld_parquet`
+with `POS_1` less than the previous pair's `POS_1`, `write_ld_parquet`
 raises immediately with a clear message:
 
-> *"Pairs must arrive in sorted (pos_1, pos_2) order. Received pos_1={x} after
-> pos_1={prev}. Verify that the reference panel builder traverses SNPs in ascending
+> *"Pairs must arrive in non-decreasing POS_1 order. Received POS_1={x} after
+> POS_1={prev}. Verify that the reference panel builder traverses SNPs in ascending
 > positional order."*
 
 This fail-fast behaviour is intentional: a violated sort invariant corrupts
@@ -94,7 +111,7 @@ Two key-value entries are written into the parquet `schema.metadata` at file cre
 
 | Key | Type | Description |
 |---|---|---|
-| `ldsc:sorted_by_build` | string | Genome build used to define `pos_1`/`pos_2`. One of `"hg19"` or `"hg38"`. |
+| `ldsc:sorted_by_build` | string | Genome build used to define `POS_1`/`POS_2`. One of `"hg19"` or `"hg38"`. |
 | `ldsc:row_group_size` | string (int) | Intended row group size used when writing. Informational; reader uses actual footer stats. |
 
 These are accessed via `pq.ParquetFile(path).schema_arrow.metadata` and are stored
@@ -111,7 +128,7 @@ ldsc:row_group_size  = "50000"
 
 **Row group footer statistics (first three groups of a chr1 file):**
 
-| Row group | Rows | pos_1 min | pos_1 max |
+| Row group | Rows | POS_1 min | POS_1 max |
 |---|---|---|---|
 | 0 | 50 000 | 752 566 | 1 823 421 |
 | 1 | 50 000 | 1 823 422 | 2 910 884 |
@@ -120,7 +137,7 @@ ldsc:row_group_size  = "50000"
 
 **Data rows (first 10 rows of the file):**
 
-| chr | pos_1 | pos_2 | R2 | rsID_1 | rsID_2 |
+| CHR | POS_1 | POS_2 | R2 | SNP_1 | SNP_2 |
 |---|---|---|---|---|---|
 | 1 | 752 566 | 776 546 | 0.8214 | rs3094315 | rs2905036 |
 | 1 | 752 566 | 800 007 | 0.1342 | rs3094315 | rs11240777 |
@@ -133,17 +150,21 @@ ldsc:row_group_size  = "50000"
 | 1 | 800 007 | 823 656 | 0.1562 | rs11240777 | rs2980319 |
 | 1 | 817 186 | 823 656 | 0.8913 | rs4040617 | rs2980319 |
 
-Note: rows are sorted by `(pos_1, pos_2)`. The left SNP (`pos_1 = 752 566`) appears
+Note: rows are sorted by non-decreasing `POS_1`. The left SNP (`POS_1 = 752 566`) appears
 in multiple consecutive rows — one per right-side neighbor within the LD window.
 
 ---
 
 ### 2.6 SNP Metadata Sidecar
 
-The R² parquet stores **only pairwise data** (`pos_1`, `pos_2`, `R2`, `rsID_1`,
-`rsID_2`, `chr`). Per-SNP metadata — chromosome, base position, rsID, genetic
+The R² parquet stores **only pairwise data** (`CHR`, `POS_1`, `POS_2`, `R2`,
+`SNP_1`, `SNP_2`). Per-SNP metadata — chromosome, base position, rsID, genetic
 distance, and minor allele frequency — is kept in a separate **metadata sidecar**
 file. The R² parquet alone is not sufficient to use the `parquet_r2` backend.
+
+Treat the parquet R² file and the metadata sidecar as a paired artifact. Together they
+define one logical reference panel: the parquet provides pairwise LD entries, while the
+sidecar provides the per-SNP metadata required to load and interpret those pairs.
 
 #### Hard-fail requirement
 
@@ -201,12 +222,18 @@ The metadata sidecar feeds directly into three steps of the partitioned-LDSC wor
 `SortedR2BlockReader` receives the loaded sidecar table as a `metadata: pd.DataFrame`
 argument at construction time. It uses this table to build `index_map` — the mapping
 from SNP identifier to matrix row/column index — before any window query is issued.
-The parquet's own identifier columns (`rsID_1`, `rsID_2`, `pos_1`, `pos_2`) serve only
+The parquet's own identifier columns (`SNP_1`, `SNP_2`, `POS_1`, `POS_2`) serve only
 as lookup keys at query time; all per-SNP analysis metadata comes from the sidecar.
 
 This two-file design separates concerns: the parquet is a dense sorted pair table
 optimised for row-group pruning; the sidecar is a lightweight per-SNP lookup table
 that drives SNP universe construction and MAF/CM metadata.
+
+In the workflow notation of `docs/design/partitioned-ldsc-workflow.md`, the raw
+reference-panel SNP universe `A` comes from this paired artifact, but its authoritative
+materialization is the sidecar SNP table. The parquet pair rows are not scanned at
+runtime to define or validate `A`; they are used only to answer LD window queries once
+`ld_reference_snps = B ∩ A'` has been established from annotations plus sidecar metadata.
 
 ---
 
@@ -237,7 +264,7 @@ that sort build for row-group pruning to be correct.
 | 2 | `ldsc:sorted_by_build` present **and mismatches** query build | Raise `ValueError`: *"Parquet sorted for {parquet_build} but analysis uses {query_build}. Use the correct reference file or regenerate with `--genome-build {query_build}`."* |
 | 3 | `ldsc:sorted_by_build` absent or `None` | Infer build from first row group (see below); log `WARNING`; proceed if inferred build matches query build, raise `ValueError` if not |
 
-**Tier-3 inference:** read only the first row group, extract `(chr, pos_1)` as a
+**Tier-3 inference:** read only the first row group, extract `(CHR, POS_1)` as a
 `(CHR, POS)` table, and call the existing `infer_chr_pos_build()` function
 (`src/ldsc/genome_build_inference.py`). This reads ~1 MB from disk and requires
 ≥ 200 matched HM3 reference SNPs. The WARNING message is:
@@ -257,7 +284,7 @@ affect numerical correctness.
 After validation, the reader builds an in-memory index from the parquet footer:
 
 ```python
-col_idx = schema.get_field_index("pos_1")
+col_idx = schema.get_field_index("POS_1")
 self._rg_bounds = [
     (rg.column(col_idx).statistics.min,
      rg.column(col_idx).statistics.max,
@@ -268,40 +295,12 @@ self._rg_bounds = [
 ```
 
 This reads only the footer (a few KB) — no pair data is loaded at init time.
+Row groups without valid `POS_1` min/max footer statistics are excluded from
+`_rg_bounds` rather than treated as fatal. They are therefore not used by the
+pruned canonical query path; regenerate such files with PyArrow statistics enabled
+if those rows must be queryable.
 
-### 3.4 SNP Presence Scan (`get_present_identifiers`)
-
-Before the LD score loop, `compute_chrom_from_parquet` calls
-`block_reader.get_present_identifiers()` to determine which annotation SNPs have
-LD data in the parquet. The result is used by `filter_reference_to_present_r2` to
-trim the annotation SNP universe (which affects M and M_5_50 counts).
-
-The method streams through all row groups one at a time, accumulating unique
-identifiers into a Python set:
-
-```python
-def get_present_identifiers(self) -> set:
-    present = set()
-    cols = ["rsID_1", "rsID_2"] if self.identifier_mode == "rsid" else ["pos_1", "pos_2"]
-    for i in range(self._pf.metadata.num_row_groups):
-        tbl = self._pf.read_row_group(i, columns=cols)
-        for col in cols:
-            arr = tbl.column(col).to_numpy(zero_copy_only=False)
-            present.update(arr)
-    return present
-```
-
-**Memory:** peak RAM ≈ one row group × 2 columns × 50 000 rows × 8 bytes ≈ 800 KB
-plus the accumulated set (~few MB for ~50 000 unique HM3 positions). This is flat
-with respect to file size — contrast with the naive full-load approach which peaks
-at ~6 GB for a 2.3 GB parquet.
-
-**Speed:** O(N total pairs) disk reads, unavoidable because both `pos_1` and `pos_2`
-must be scanned to find all SNPs present (a SNP appears as `pos_1` in pairs where
-it is the left SNP, and as `pos_2` where it is the right SNP). Column projection
-limits the I/O to the identifier columns only.
-
-### 3.5 Window Queries (`_query_union_rows`)
+### 3.4 Window Queries (`_query_union_rows`)
 
 For each sliding-window block, `cross_block_matrix` and `within_block_matrix` call
 `_query_union_rows(pos_min, pos_max)`, which:
@@ -312,12 +311,12 @@ For each sliding-window block, `cross_block_matrix` and `within_block_matrix` ca
    ```
 2. Reads only those row groups via:
    ```python
-   tbl = self._pf.read_row_groups(rg_idxs, columns=["pos_1", "pos_2", "R2"])
+   tbl = self._pf.read_row_groups(rg_idxs, columns=["POS_1", "POS_2", "R2"])
    ```
 3. Converts to numpy arrays using zero-copy `.to_numpy()` — no Python object
    creation, no intermediate pandas DataFrame.
-4. Applies a positional mask: `(pos_1 >= pos_min) & (pos_2 <= pos_max)`.
-5. Maps `pos_1`/`pos_2` (or `rsID_1`/`rsID_2`) to matrix indices via `self.index_map`.
+4. Applies a positional mask: `(POS_1 >= pos_min) & (POS_2 <= pos_max)`.
+5. Maps `POS_1`/`POS_2` (or `SNP_1`/`SNP_2`) to matrix indices via `self.index_map`.
 6. Applies optional R² bias correction (`_transform_r2`).
 7. Returns `(i_array, j_array, r2_array)` as numpy arrays.
 
@@ -325,7 +324,7 @@ For each sliding-window block, `cross_block_matrix` and `within_block_matrix` ca
 all row groups for every query — performance degrades to O(N) per query but
 correctness is maintained.
 
-### 3.6 Dense Matrix Construction
+### 3.5 Dense Matrix Construction
 
 `cross_block_matrix` and `within_block_matrix` consume the output of
 `_query_union_rows` and fill a dense `float32` numpy matrix via vectorized
@@ -352,26 +351,26 @@ parquet files, one sorted per build.
 
 **One chromosome per file.** The reader is instantiated per chromosome and expects
 a single-chromosome file. Multi-chromosome files are not tested and may produce
-incorrect results if the `chr` filter is not applied at the row-group level.
+incorrect results if the `CHR` filter is not applied at the row-group level.
 
 **Coarse row groups.** Files with few large row groups (e.g., the legacy 2-group
 files) are accepted but may degrade query performance by orders of magnitude
 (benchmark: 27 497 ms/query with 3 row groups vs. 1.2 ms/query with 514 groups).
 A startup warning is emitted; users should regenerate for production use.
 
-**`pos_1 < pos_2` invariant.** The reader assumes canonical pair orientation is
+**`POS_1 < POS_2` invariant.** The reader assumes canonical pair orientation is
 enforced at write time by the sort assertion described in §2.2. Pairs where
-`pos_1 >= pos_2` are not re-validated at read time but will cause incorrect matrix
+`POS_1 >= POS_2` are not re-validated at read time but will cause incorrect matrix
 index lookups if present.
 
-**Identifier mode.** `rsID_1`/`rsID_2` are always written. `identifier_mode` is a
+**Identifier mode.** `SNP_1`/`SNP_2` are always written. `identifier_mode` is a
 runtime parameter; the reader selects which columns to use for index mapping
-(`pos_1`/`pos_2` for `chr_pos` mode, `rsID_1`/`rsID_2` for `rsid` mode) without
+(`POS_1`/`POS_2` for `chr_pos` mode, `SNP_1`/`SNP_2` for `rsid` mode) without
 requiring different parquet files.
 
 **Legacy raw-schema parquets.** Parquets in the old schema (containing
-`hg19_pos_1`, `hg38_pos_1`, etc. but no canonical `pos_1`/`pos_2` columns) are
-detected at `__init__` by the absence of `pos_1` and `pos_2` from the schema. The
+`hg19_pos_1`, `hg38_pos_1`, etc. but no canonical `POS_1`/`POS_2` columns) are
+detected at `__init__` by the absence of `POS_1` and `POS_2` from the schema. The
 reader emits a `WARNING` and falls back to the existing `pyarrow.Dataset` full-scan
 path:
 
@@ -390,11 +389,10 @@ major version once the ecosystem has migrated to the canonical schema.
 
 | Module | Change |
 |---|---|
-| `_kernel/ref_panel_builder.py` | `write_standard_ld_parquet`: assert sort invariant on each incoming pair; write new 6-column schema; write `ldsc:sorted_by_build` and `ldsc:row_group_size` metadata; default `row_group_size=50_000` |
+| `_kernel/ref_panel_builder.py` | `write_ld_parquet`: require PyArrow; assert sort invariant on each incoming pair; write new 6-column schema; preserve canonical dtypes for empty outputs; write `ldsc:sorted_by_build` and `ldsc:row_group_size` metadata; default `row_group_size=50_000` |
 | `_kernel/ldscore.py` — `SortedR2BlockReader.__init__` | Detect schema (canonical vs legacy raw); canonical path: open as `pq.ParquetFile`, build `_rg_bounds` index from footer, validate build (3-tier), warn if coarse row groups; legacy path: open as `pyarrow.Dataset`, emit deprecation warning, proceed with full-scan fallback |
 | `_kernel/ldscore.py` — `SortedR2BlockReader._query_union_rows` | Canonical path: row-group index lookup + `read_row_groups` + `.to_numpy()`; legacy path: existing `dataset.to_table(filter=...)` behaviour unchanged |
-| `_kernel/ldscore.py` — `SortedR2BlockReader` (new method) | Add `get_present_identifiers()`: streaming row-group scan accumulating unique identifiers into a set |
-| `_kernel/ldscore.py` — `read_sorted_r2_presence` | Remove standalone function; replace call site in `compute_chrom_from_parquet` with `block_reader.get_present_identifiers()` |
-| `_kernel/ldscore.py` — `compute_chrom_from_parquet` | Instantiate `SortedR2BlockReader` before the presence scan so the parquet file is opened exactly once |
+| `_kernel/ldscore.py` — `read_sorted_r2_presence` | Remove standalone function; the parquet backend no longer performs a runtime SNP-presence scan |
+| `_kernel/ldscore.py` — `compute_chrom_from_parquet` | Use the sidecar-defined `A'` directly when forming `ld_reference_snps`; no parquet presence scan is performed |
 | Tests — canonical schema | Add fixtures writing new 6-column sorted parquets; assert row-group index is built; assert window queries return correct pairs |
 | Tests — legacy schema | Retain existing raw-schema fixtures; assert deprecation warning is emitted; assert numerical output is unchanged |

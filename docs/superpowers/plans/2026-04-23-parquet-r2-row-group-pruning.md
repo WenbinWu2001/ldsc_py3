@@ -4,11 +4,11 @@
 
 **Goal:** Replace the current `pyarrow.Dataset` full-chromosome scan in `SortedR2BlockReader` with a tabix-style row-group index (`pq.ParquetFile` + footer statistics), eliminating ~46 000 repeated full-chromosome reads during LD score computation and reducing per-chromosome runtime from ~minutes to ~seconds.
 
-**Architecture:** On file open, read parquet footer statistics (per-row-group min/max of `pos_1`) into an in-memory list `_rg_bounds`. Per window query, intersect the requested genomic range against `_rg_bounds` and call `pf.read_row_groups(matched_idxs)` — only overlapping row groups are read. The writer is updated to produce a compact 6-column canonical schema with sort-invariant assertion and parquet schema metadata (`ldsc:sorted_by_build`, `ldsc:row_group_size`). Legacy raw-schema files continue to work via a `pyarrow.Dataset` fallback path with a deprecation warning.
+**Architecture:** On file open, read parquet footer statistics (per-row-group min/max of `POS_1`) into an in-memory list `_rg_bounds`. Per window query, intersect the requested genomic range against `_rg_bounds` and call `pf.read_row_groups(matched_idxs)` — only overlapping row groups are read. The writer is updated to produce a compact 6-column canonical schema with sort-invariant assertion and parquet schema metadata (`ldsc:sorted_by_build`, `ldsc:row_group_size`). Legacy raw-schema files continue to work via a `pyarrow.Dataset` fallback path with a deprecation warning.
 
 **Tech Stack:** `pyarrow` ≥ 7 (`pq.ParquetFile`, `read_row_groups`, schema metadata), `numpy`, `pandas`. No new external dependencies.
 
-**Design reference:** `docs/design/parquet-r2-format-and-read-pipeline.md` — read §2 (format) and §3 (read pipeline) before implementing. Terminology: "canonical schema" = 6-column format with `pos_1`/`pos_2`; "raw schema" = legacy 14-column format with `hg19_pos_1` etc.
+**Design reference:** `docs/design/parquet-r2-format-and-read-pipeline.md` — read §2 (format) and §3 (read pipeline) before implementing. Terminology: "canonical schema" = 6-column format with `CHR`, `POS_1`, `POS_2`, `SNP_1`, `SNP_2`, `R2`; "raw schema" = legacy 14-column format with `hg19_pos_1` etc.
 
 ---
 
@@ -17,9 +17,9 @@
 | File | Change |
 |---|---|
 | `src/ldsc/_kernel/ref_panel_builder.py` | Shrink `_STANDARD_LD_COLUMNS` to 6 cols; rewrite `build_standard_ld_table`; add `genome_build` + `row_group_size` + sort assertion + schema metadata to `write_standard_ld_parquet` |
-| `src/ldsc/_kernel/ldscore.py` | Refactor `SortedR2BlockReader.__init__` (canonical: `pq.ParquetFile` + build validation + `_rg_bounds`; raw: `Dataset` + deprecation warning); rewrite `_query_union_rows` canonical path; add `get_present_identifiers()`; update `compute_chrom_from_parquet` to open reader first; remove `read_sorted_r2_presence` |
+| `src/ldsc/_kernel/ldscore.py` | Refactor `SortedR2BlockReader.__init__` (canonical: `pq.ParquetFile` + build validation + `_rg_bounds`; raw: `Dataset` + deprecation warning); rewrite `_query_union_rows` canonical path; remove `read_sorted_r2_presence`; keep the sidecar authoritative for `A` |
 | `tests/test_ref_panel_builder.py` | Update `test_build_standard_ld_table_uses_exact_schema` for 6-column schema; add sort assertion + schema metadata tests |
-| `tests/test_ldscore_legacy.py` | Update `RawParquetRuntimeTest` to remove `read_sorted_r2_presence` call; add `CanonicalParquetRuntimeTest` class for canonical schema |
+| `tests/test_ldscore_legacy.py` | Add `CanonicalParquetRuntimeTest` class for canonical schema; update any legacy tests that referenced `read_sorted_r2_presence` |
 
 ---
 
@@ -33,7 +33,7 @@
 
 ### Context
 
-Currently `_STANDARD_LD_COLUMNS` has 14 columns including `hg19_pos_1`, `hg38_pos_1`, `Dprime`, `+/-corr`. The new canonical schema has 6 columns: `chr`, `pos_1`, `pos_2`, `R2`, `rsID_1`, `rsID_2`. `Dprime` was always NaN. `+/-corr` is irrelevant to LD score regression. The build-specific position columns collapse to the single canonical `pos_1`/`pos_2` pair whose build is declared in schema metadata.
+Currently `_STANDARD_LD_COLUMNS` has 14 columns including `hg19_pos_1`, `hg38_pos_1`, `Dprime`, `+/-corr`. The new canonical schema has 6 columns: `CHR`, `POS_1`, `POS_2`, `R2`, `SNP_1`, `SNP_2`. `Dprime` was always NaN. `+/-corr` is irrelevant to LD score regression. The build-specific position columns collapse to the single canonical `POS_1`/`POS_2` pair whose build is declared in schema metadata. The loader should accept alias columns such as `chr`, `bp_1`, `bp_2`, `rsid_1`, `rsid_2` and normalize them to these logical fields at read time.
 
 `build_standard_ld_table` currently takes `pair_rows` (list of `{i, j, R2, sign}` dicts) and `annotation_table`. It needs a `genome_build` parameter to select the right position column (`hg19_pos` vs `hg38_pos`).
 
@@ -47,7 +47,7 @@ In `tests/test_ref_panel_builder.py`, replace the body of `test_build_standard_l
 def test_build_standard_ld_table_uses_exact_schema(self):
     annotation_table = pd.DataFrame(
         {
-            "chr": ["1", "1"],
+            "CHR": ["1", "1"],
             "hg19_pos": [100, 120],
             "hg38_pos": [110, 130],
             "hg19_Uniq_ID": ["1:100:A:G", "1:120:C:T"],
@@ -68,14 +68,14 @@ def test_build_standard_ld_table_uses_exact_schema(self):
 
     self.assertEqual(
         table.columns.tolist(),
-        ["chr", "pos_1", "pos_2", "R2", "rsID_1", "rsID_2"],
+        ["CHR", "POS_1", "POS_2", "R2", "SNP_1", "SNP_2"],
     )
-    self.assertEqual(table.loc[0, "chr"], "1")
-    self.assertEqual(table.loc[0, "pos_1"], 100)
-    self.assertEqual(table.loc[0, "pos_2"], 120)
+    self.assertEqual(table.loc[0, "CHR"], "1")
+    self.assertEqual(table.loc[0, "POS_1"], 100)
+    self.assertEqual(table.loc[0, "POS_2"], 120)
     self.assertAlmostEqual(table.loc[0, "R2"], 0.75, places=4)
-    self.assertEqual(table.loc[0, "rsID_1"], "rs1")
-    self.assertEqual(table.loc[0, "rsID_2"], "rs2")
+    self.assertEqual(table.loc[0, "SNP_1"], "rs1")
+    self.assertEqual(table.loc[0, "SNP_2"], "rs2")
 ```
 
 - [ ] **Step 1.2: Run to verify it fails**
@@ -97,7 +97,7 @@ def test_write_standard_ld_parquet_asserts_sort_invariant(self):
     import tempfile, pathlib
     annotation_table = pd.DataFrame(
         {
-            "chr": ["1", "1", "1"],
+            "CHR": ["1", "1", "1"],
             "hg19_pos": [100, 80, 120],   # 80 comes after 100 → sort violation
             "hg38_pos": [110, 90, 130],
             "hg19_Uniq_ID": ["1:100:A:G", "1:80:C:T", "1:120:G:A"],
@@ -108,7 +108,7 @@ def test_write_standard_ld_parquet_asserts_sort_invariant(self):
             "ALT": ["G", "T", "A"],
         }
     )
-    # pair (0→1) has pos_1=100, then pair (1→2) has pos_1=80 → violates sort
+    # pair (0→1) has POS_1=100, then pair (1→2) has POS_1=80 → violates sort
     pair_rows = [{"i": 0, "j": 2, "R2": 0.5, "sign": "+"}, {"i": 1, "j": 2, "R2": 0.3, "sign": "+"}]
     with tempfile.TemporaryDirectory() as tmpdir:
         path = pathlib.Path(tmpdir) / "chr1.parquet"
@@ -132,7 +132,7 @@ def test_write_standard_ld_parquet_writes_schema_metadata(self):
     import pyarrow.parquet as pq
     annotation_table = pd.DataFrame(
         {
-            "chr": ["1", "1"],
+            "CHR": ["1", "1"],
             "hg19_pos": [100, 120],
             "hg38_pos": [110, 130],
             "hg19_Uniq_ID": ["1:100:A:G", "1:120:C:T"],
@@ -175,12 +175,12 @@ In `src/ldsc/_kernel/ref_panel_builder.py`, replace `_STANDARD_LD_COLUMNS` (line
 
 ```python
 _STANDARD_LD_COLUMNS = [
-    "chr",
-    "pos_1",
-    "pos_2",
+    "CHR",
+    "POS_1",
+    "POS_2",
     "R2",
-    "rsID_1",
-    "rsID_2",
+    "SNP_1",
+    "SNP_2",
 ]
 ```
 
@@ -205,12 +205,12 @@ def build_standard_ld_table(
     pos_col = f"{genome_build}_pos"
     return pd.DataFrame(
         {
-            "chr": left["chr"].astype(str),
-            "pos_1": left[pos_col].to_numpy(dtype=np.int64),
-            "pos_2": right[pos_col].to_numpy(dtype=np.int64),
+            "CHR": left["CHR"].astype(str),
+            "POS_1": left[pos_col].to_numpy(dtype=np.int64),
+            "POS_2": right[pos_col].to_numpy(dtype=np.int64),
             "R2": r2,
-            "rsID_1": left["rsID"].astype(str),
-            "rsID_2": right["rsID"].astype(str),
+            "SNP_1": left["rsID"].astype(str),
+            "SNP_2": right["rsID"].astype(str),
         },
         columns=_STANDARD_LD_COLUMNS,
     )
@@ -253,8 +253,8 @@ def write_standard_ld_parquet(
             current_pos1 = int(annotation_table.iloc[int(row["i"])][pos_col])
             if current_pos1 < prev_pos1:
                 raise ValueError(
-                    f"Pairs must arrive in non-decreasing pos_1 order. "
-                    f"Received pos_1={current_pos1} after pos_1={prev_pos1}. "
+                    f"Pairs must arrive in non-decreasing POS_1 order. "
+                    f"Received POS_1={current_pos1} after POS_1={prev_pos1}. "
                     "Verify that the reference panel builder traverses SNPs in ascending positional order."
                 )
             prev_pos1 = current_pos1
@@ -314,9 +314,9 @@ git commit -m "refactor: collapse parquet writer to 6-column canonical schema wi
 
 ### Context
 
-Currently `__init__` opens all files as `pyarrow.Dataset` regardless of schema. After this task, the canonical path (schema has `pos_1`/`pos_2`) opens the file with `pq.ParquetFile`, validates the build (3-tier), warns if row groups are coarse, and builds `self._rg_bounds` — the list of `(min_pos1, max_pos1, rg_index)` tuples that powers the fast window query.
+Currently `__init__` opens all files as `pyarrow.Dataset` regardless of schema. After this task, the canonical path (schema has load-resolvable `CHR`/`POS_1`/`POS_2` plus optional `SNP_1`/`SNP_2` aliases) opens the file with `pq.ParquetFile`, validates the build (3-tier), warns if row groups are coarse, and builds `self._rg_bounds` — the list of `(min_pos1, max_pos1, rg_index)` tuples that powers the fast window query.
 
-The existing `_parquet_schema_layout()` function already returns `"normalized"` for files with `pos_1`/`pos_2` (these are our canonical files). We rename this case internally to `"canonical"` in `self._runtime_layout` so downstream code branches cleanly.
+The existing `_parquet_schema_layout()` function already returns `"normalized"` for files with load-resolvable helper columns for `POS_1`/`POS_2` (these are our canonical files). We rename this case internally to `"canonical"` in `self._runtime_layout` so downstream code branches cleanly.
 
 **New attributes for canonical path:**
 - `self._pf: pq.ParquetFile` — the open file handle
@@ -333,7 +333,7 @@ The existing `_parquet_schema_layout()` function already returns `"normalized"` 
 **3-tier build validation** (for canonical path only):
 - Tier 1: `ldsc:sorted_by_build` metadata present and matches `self.genome_build` → proceed silently.
 - Tier 2: metadata present but mismatches → raise `ValueError`.
-- Tier 3: metadata absent → call `resolve_chr_pos_table` on the first row group's `(chr, pos_1)` pairs to infer the build; if inferred build matches, log WARNING; if not, raise `ValueError`.
+- Tier 3: metadata absent → call `resolve_chr_pos_table` on the first row group's `(CHR, POS_1)` pairs to infer the build; if inferred build matches, log WARNING; if not, raise `ValueError`.
 
 **Coarse row group warning:** after build validation, if `metadata.num_rows / metadata.num_row_groups > 500_000`, emit a `WARNING` with the message from §3.2 of the design doc.
 
@@ -356,7 +356,7 @@ class CanonicalParquetRuntimeTest(unittest.TestCase):
         import pyarrow.parquet as pq
 
         pairs = [
-            {"chr": "1", "pos_1": 100 + i * 10, "pos_2": 120 + i * 10, "R2": 0.5, "rsID_1": f"rs{i+1}", "rsID_2": f"rs{i+2}"}
+            {"CHR": "1", "POS_1": 100 + i * 10, "POS_2": 120 + i * 10, "R2": 0.5, "SNP_1": f"rs{i+1}", "SNP_2": f"rs{i+2}"}
             for i in range(n_pairs)
         ]
         df = pd.DataFrame(pairs)
@@ -439,7 +439,7 @@ def test_canonical_init_warns_on_coarse_row_groups(self):
 
     with tempfile.TemporaryDirectory() as tmpdir:
         path = Path(tmpdir) / "chr1.parquet"
-        df = pd.DataFrame({"chr": ["1"], "pos_1": [100], "pos_2": [120], "R2": [0.5], "rsID_1": ["rs1"], "rsID_2": ["rs2"]})
+        df = pd.DataFrame({"CHR": ["1"], "POS_1": [100], "POS_2": [120], "R2": [0.5], "SNP_1": ["rs1"], "SNP_2": ["rs2"]})
         table = pa.Table.from_pandas(df, preserve_index=False)
         meta = {b"ldsc:sorted_by_build": b"hg19", b"ldsc:row_group_size": b"50000"}
         enriched = table.schema.with_metadata({**(table.schema.metadata or {}), **meta})
@@ -485,7 +485,7 @@ def test_canonical_init_hard_fails_on_multiple_paths(self):
         path1 = Path(tmpdir) / "chr1_a.parquet"
         path2 = Path(tmpdir) / "chr1_b.parquet"
         for path in (path1, path2):
-            df = pd.DataFrame({"chr": ["1"], "pos_1": [100], "pos_2": [120], "R2": [0.5], "rsID_1": ["rs1"], "rsID_2": ["rs2"]})
+            df = pd.DataFrame({"CHR": ["1"], "POS_1": [100], "POS_2": [120], "R2": [0.5], "SNP_1": ["rs1"], "SNP_2": ["rs2"]})
             table = pa.Table.from_pandas(df, preserve_index=False)
             meta = {b"ldsc:sorted_by_build": b"hg19", b"ldsc:row_group_size": b"50000"}
             enriched = table.schema.with_metadata({**(table.schema.metadata or {}), **meta})
@@ -629,8 +629,9 @@ def __init__(
         )
     else:
         raise ValueError(
-            "Parquet R2 input must contain either normalized canonical columns "
-            "`chr`, `pos_1`, `pos_2` or the raw legacy pairwise columns."
+            "Parquet R2 input must contain either canonical logical fields "
+            "`CHR`, `POS_1`, `POS_2`, `SNP_1`, `SNP_2` (aliases allowed at load time) "
+            "or the raw legacy pairwise columns."
         )
 ```
 
@@ -660,12 +661,14 @@ def _init_canonical_path(self, path: str, pq_mod) -> None:
     raw_schema_meta = schema_arrow.metadata or {}
 
     # Validate required 6 columns are present
-    required = {"chr", "pos_1", "pos_2", "R2", "rsID_1", "rsID_2"}
-    missing = required - set(schema_arrow.names)
-    if missing:
-        raise ValueError(
-            f"Canonical parquet {path} is missing required columns: {sorted(missing)}"
-        )
+    canonical_cols = {
+        "CHR": resolve_required_column(schema_arrow.names, R2_SOURCE_COLUMN_SPEC_MAP["chr"], context="canonical parquet R2 schema"),
+        "POS_1": resolve_required_column(schema_arrow.names, R2_HELPER_COLUMN_SPEC_MAP["pos_1"], context="canonical parquet R2 schema"),
+        "POS_2": resolve_required_column(schema_arrow.names, R2_HELPER_COLUMN_SPEC_MAP["pos_2"], context="canonical parquet R2 schema"),
+        "SNP_1": resolve_required_column(schema_arrow.names, R2_SOURCE_COLUMN_SPEC_MAP["rsID_1"], context="canonical parquet R2 schema"),
+        "SNP_2": resolve_required_column(schema_arrow.names, R2_SOURCE_COLUMN_SPEC_MAP["rsID_2"], context="canonical parquet R2 schema"),
+    }
+    self._canonical_columns = canonical_cols
 
     # 3-tier build validation
     parquet_build_raw = raw_schema_meta.get(b"ldsc:sorted_by_build")
@@ -680,10 +683,10 @@ def _init_canonical_path(self, path: str, pq_mod) -> None:
         self.genome_build = parquet_build   # adopt file's declared build
     else:
         # Tier 3: infer from first row group
-        first_tbl = pf.read_row_group(0, columns=["chr", "pos_1"])
+        first_tbl = pf.read_row_group(0, columns=[canonical_cols["CHR"], canonical_cols["POS_1"]])
         infer_df = pd.DataFrame({
-            "CHR": first_tbl.column("chr").to_numpy(zero_copy_only=False),
-            "POS": first_tbl.column("pos_1").to_numpy(zero_copy_only=False).astype(np.int64),
+            "CHR": first_tbl.column(canonical_cols["CHR"]).to_numpy(zero_copy_only=False),
+            "POS": first_tbl.column(canonical_cols["POS_1"]).to_numpy(zero_copy_only=False).astype(np.int64),
         })
         _, inference = resolve_chr_pos_table(
             infer_df,
@@ -717,7 +720,7 @@ def _init_canonical_path(self, path: str, pq_mod) -> None:
             )
 
     # Build row-group bounds index from footer statistics
-    col_idx = schema_arrow.get_field_index("pos_1")
+    col_idx = schema_arrow.get_field_index(canonical_cols["POS_1"])
     self._rg_bounds: list[tuple[int, int, int]] = []
     for i in range(pf_meta.num_row_groups):
         rg = pf_meta.row_group(i)
@@ -768,7 +771,7 @@ The current `_query_union_rows` always calls `dataset.to_table(filter=...)` — 
 
 The legacy raw path (`self._runtime_layout == "raw"`) is unchanged.
 
-If `self._runtime_layout == "canonical"` but `self._pf is None` (multi-file fallback from Task 2), fall back to the existing Dataset query using `self.dataset`.
+Canonical mode always owns a single `pq.ParquetFile` handle. Multi-file input is rejected during `__init__`, so there is no canonical Dataset fallback.
 
 - [ ] **Step 3.1: Write the failing test for canonical window query correctness**
 
@@ -784,12 +787,12 @@ def test_canonical_within_block_matrix_correctness(self):
         path = Path(tmpdir) / "chr1.parquet"
         # Three SNPs: rs1@100, rs2@120, rs3@140. Pairs: (rs1,rs2)=0.4, (rs1,rs3)=0.2, (rs2,rs3)=0.6.
         df = pd.DataFrame({
-            "chr": ["1", "1", "1"],
-            "pos_1": [100, 100, 120],
-            "pos_2": [120, 140, 140],
+            "CHR": ["1", "1", "1"],
+            "POS_1": [100, 100, 120],
+            "POS_2": [120, 140, 140],
             "R2": [0.4, 0.2, 0.6],
-            "rsID_1": ["rs1", "rs1", "rs2"],
-            "rsID_2": ["rs2", "rs3", "rs3"],
+            "SNP_1": ["rs1", "rs1", "rs2"],
+            "SNP_2": ["rs2", "rs3", "rs3"],
         })
         table = pa.Table.from_pandas(df, preserve_index=False)
         meta = {b"ldsc:sorted_by_build": b"hg19", b"ldsc:row_group_size": b"2"}
@@ -835,15 +838,15 @@ def test_canonical_query_reads_only_overlapping_row_groups(self):
 
     with tempfile.TemporaryDirectory() as tmpdir:
         path = Path(tmpdir) / "chr1.parquet"
-        # 6 pairs sorted by pos_1; row_group_size=2 → 3 row groups.
+        # 6 pairs sorted by POS_1; row_group_size=2 → 3 row groups.
         # Window query [100, 120] should touch only rg0.
         df = pd.DataFrame({
-            "chr": ["1"] * 6,
-            "pos_1": [100, 100, 200, 200, 300, 300],
-            "pos_2": [120, 130, 220, 230, 320, 330],
+            "CHR": ["1"] * 6,
+            "POS_1": [100, 100, 200, 200, 300, 300],
+            "POS_2": [120, 130, 220, 230, 320, 330],
             "R2": [0.4, 0.3, 0.5, 0.6, 0.7, 0.8],
-            "rsID_1": ["rs1", "rs1", "rs3", "rs3", "rs5", "rs5"],
-            "rsID_2": ["rs2", "rs2b", "rs4", "rs4b", "rs6", "rs6b"],
+            "SNP_1": ["rs1", "rs1", "rs3", "rs3", "rs5", "rs5"],
+            "SNP_2": ["rs2", "rs2b", "rs4", "rs4b", "rs6", "rs6b"],
         })
         table = pa.Table.from_pandas(df, preserve_index=False)
         meta = {b"ldsc:sorted_by_build": b"hg19", b"ldsc:row_group_size": b"2"}
@@ -901,11 +904,8 @@ def _query_union_rows(self, pos_min: int, pos_max: int) -> pd.DataFrame:
 
     empty_cols = {"i": pd.Series([], dtype=np.int64), "j": pd.Series([], dtype=np.int64), "R2": pd.Series([], dtype=np.float32)}
 
-    if self._runtime_layout == "canonical" and self._pf is not None:
+    if self._runtime_layout == "canonical":
         rows = self._query_union_rows_canonical(pos_min, pos_max, empty_cols)
-    elif self._runtime_layout == "canonical" and self._pf is None:
-        # Multi-file fallback: use Dataset (no pruning)
-        rows = self._query_union_rows_dataset_canonical(pos_min, pos_max, empty_cols)
     else:
         # Legacy raw schema path (unchanged logic)
         rows = self._query_union_rows_raw(pos_min, pos_max, empty_cols)
@@ -916,18 +916,19 @@ def _query_union_rows(self, pos_min: int, pos_max: int) -> pd.DataFrame:
 
 def _query_union_rows_canonical(self, pos_min: int, pos_max: int, empty_cols: dict) -> pd.DataFrame:
     """Fast path: row-group index + read_row_groups + to_numpy."""
+    cols = self._canonical_columns
     rg_idxs = [i for mn, mx, i in self._rg_bounds if mn <= pos_max and mx >= pos_min]
     if not rg_idxs:
         return pd.DataFrame(empty_cols)
 
     if self.identifier_mode == "rsid":
-        read_cols = ["pos_1", "pos_2", "R2", "rsID_1", "rsID_2"]
+        read_cols = [cols["POS_1"], cols["POS_2"], "R2", cols["SNP_1"], cols["SNP_2"]]
     else:
-        read_cols = ["pos_1", "pos_2", "R2"]
+        read_cols = [cols["POS_1"], cols["POS_2"], "R2"]
 
     tbl = self._pf.read_row_groups(rg_idxs, columns=read_cols)
-    pos_1 = tbl.column("pos_1").to_numpy(zero_copy_only=False).astype(np.int64)
-    pos_2 = tbl.column("pos_2").to_numpy(zero_copy_only=False).astype(np.int64)
+    pos_1 = tbl.column(cols["POS_1"]).to_numpy(zero_copy_only=False).astype(np.int64)
+    pos_2 = tbl.column(cols["POS_2"]).to_numpy(zero_copy_only=False).astype(np.int64)
     r2_raw = tbl.column("R2").to_numpy(zero_copy_only=False).astype(np.float32)
 
     # Fine-grained mask: row groups overlap window but may have rows outside
@@ -942,8 +943,8 @@ def _query_union_rows_canonical(self, pos_min: int, pos_max: int, empty_cols: di
     r2 = self._transform_r2(r2_raw)
 
     if self.identifier_mode == "rsid":
-        id1 = tbl.column("rsID_1").to_numpy(zero_copy_only=False)[mask].astype(str)
-        id2 = tbl.column("rsID_2").to_numpy(zero_copy_only=False)[mask].astype(str)
+        id1 = tbl.column(cols["SNP_1"]).to_numpy(zero_copy_only=False)[mask].astype(str)
+        id2 = tbl.column(cols["SNP_2"]).to_numpy(zero_copy_only=False)[mask].astype(str)
         i_raw = [self.index_map.get(k) for k in id1]
         j_raw = [self.index_map.get(k) for k in id2]
     else:
@@ -955,32 +956,6 @@ def _query_union_rows_canonical(self, pos_min: int, pos_max: int, empty_cols: di
         "j": pd.array(j_raw, dtype=pd.Int64Dtype()),
         "R2": r2,
     })
-    rows = rows.dropna(subset=["i", "j"]).copy()
-    rows["i"] = rows["i"].astype(np.int64)
-    rows["j"] = rows["j"].astype(np.int64)
-    return rows
-
-def _query_union_rows_dataset_canonical(self, pos_min: int, pos_max: int, empty_cols: dict) -> pd.DataFrame:
-    """Multi-file canonical fallback: Dataset full-scan (no row-group pruning)."""
-    filter_expr = (
-        (self.ds.field("chr") == self.chrom)
-        & (self.ds.field("pos_1") >= int(pos_min))
-        & (self.ds.field("pos_2") <= int(pos_max))
-    )
-    cols = ["pos_1", "pos_2", "R2"]
-    if self.identifier_mode == "rsid":
-        cols += ["rsID_1", "rsID_2"]
-    table = self.dataset.to_table(columns=cols, filter=filter_expr)
-    rows = table.to_pandas()
-    if len(rows) == 0:
-        return pd.DataFrame(empty_cols)
-    rows["R2"] = self._transform_r2(rows["R2"].to_numpy(dtype=np.float32))
-    if self.identifier_mode == "rsid":
-        rows["i"] = rows["rsID_1"].astype(str).map(self.index_map)
-        rows["j"] = rows["rsID_2"].astype(str).map(self.index_map)
-    else:
-        rows["i"] = rows["pos_1"].astype(np.int64).map(self.index_map)
-        rows["j"] = rows["pos_2"].astype(np.int64).map(self.index_map)
     rows = rows.dropna(subset=["i", "j"]).copy()
     rows["i"] = rows["i"].astype(np.int64)
     rows["j"] = rows["j"].astype(np.int64)
@@ -1042,7 +1017,7 @@ Expected: all PASS.
 python -m pytest tests/test_ldscore_legacy.py -v
 ```
 
-Expected: all PASS. The raw schema test at `RawParquetRuntimeTest::test_raw_parquet_presence_and_reader_support_hg19` should still pass (legacy path is unchanged). If it fails because of the `read_sorted_r2_presence` call, note that we will fix that in Task 4.
+Expected: all PASS. If any legacy test still references `read_sorted_r2_presence`, remove that assertion in Task 4 because the sidecar remains authoritative for `A`.
 
 - [ ] **Step 3.7: Commit**
 
@@ -1053,268 +1028,89 @@ git commit -m "feat: SortedR2BlockReader canonical _query_union_rows — row-gro
 
 ---
 
-## Task 4: `get_present_identifiers()` + `compute_chrom_from_parquet` migration + remove `read_sorted_r2_presence`
+## Task 4: Remove `read_sorted_r2_presence` and keep the sidecar authoritative for `A`
 
 **Files:**
-- Modify: `src/ldsc/_kernel/ldscore.py` — add `get_present_identifiers()`; update `compute_chrom_from_parquet`; remove `read_sorted_r2_presence`
-- Modify: `tests/test_ldscore_legacy.py` — update `RawParquetRuntimeTest` to remove `read_sorted_r2_presence` call; add `get_present_identifiers` tests
+- Modify: `src/ldsc/_kernel/ldscore.py` — remove `read_sorted_r2_presence`; keep `compute_chrom_from_parquet` sidecar-driven
+- Modify: `tests/test_ldscore_legacy.py` — update any tests that referenced `read_sorted_r2_presence`
 
 ### Context
 
-`read_sorted_r2_presence` (lines 888-938) is a standalone function that opens the parquet via `pyarrow.Dataset`, reads the full chromosome, and returns a set of all SNP identifiers present. It causes a ~6 GB RAM spike for large files and forces the file to be opened twice per chromosome.
+The metadata sidecar is the sole authoritative definition of the raw reference-panel SNP
+universe `A` for the parquet backend. No parquet presence scan is performed at runtime.
+That means:
 
-The replacement is `SortedR2BlockReader.get_present_identifiers()`: streams through row groups one at a time via `pf.read_row_group()`, accumulating identifiers into a Python set. Peak RAM is ~800 KB (one row group at a time) regardless of file size.
+- `A` = sidecar rows for the chromosome
+- `A' = A ∩ ref_panel_snps_path` (or `A' = A` when the flag is absent)
+- `ld_reference_snps = B ∩ A'`
+- `.M` and `.M_5_50` are computed over `ld_reference_snps`
 
-`compute_chrom_from_parquet` currently calls `read_sorted_r2_presence(args, chrom)` BEFORE constructing `SortedR2BlockReader`, opening the file twice. After this task, `SortedR2BlockReader` is constructed first, then `block_reader.get_present_identifiers()` is called — one file open per chromosome.
+`read_sorted_r2_presence` is therefore stale design baggage. It should be removed rather
+than replaced by a new streaming scan method.
 
-- [ ] **Step 4.1: Write the failing test for `get_present_identifiers` (canonical path)**
+- [ ] **Step 4.1: Update tests to remove `read_sorted_r2_presence` assumptions**
 
-Add to `CanonicalParquetRuntimeTest` in `tests/test_ldscore_legacy.py`:
+In `tests/test_ldscore_legacy.py`, update any legacy test that still references
+`read_sorted_r2_presence`. The parquet backend should now be tested through
+`SortedR2BlockReader` matrix queries and through count semantics driven by the sidecar,
+not through a separate presence-scan helper.
 
-```python
-def test_get_present_identifiers_canonical(self):
-    """get_present_identifiers must return all unique rsIDs present in the parquet."""
-    import pyarrow as pa
-    import pyarrow.parquet as pq
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        path = Path(tmpdir) / "chr1.parquet"
-        df = pd.DataFrame({
-            "chr": ["1", "1", "1"],
-            "pos_1": [100, 100, 200],
-            "pos_2": [120, 200, 300],
-            "R2": [0.4, 0.2, 0.6],
-            "rsID_1": ["rs1", "rs1", "rs2"],
-            "rsID_2": ["rs2", "rs3", "rs3"],
-        })
-        table = pa.Table.from_pandas(df, preserve_index=False)
-        meta = {b"ldsc:sorted_by_build": b"hg19", b"ldsc:row_group_size": b"2"}
-        enriched = table.schema.with_metadata({**(table.schema.metadata or {}), **meta})
-        with pq.ParquetWriter(str(path), enriched) as writer:
-            writer.write_table(table.cast(enriched), row_group_size=2)
-
-        metadata = pd.DataFrame({
-            "CHR": ["1", "1", "1"],
-            "SNP": ["rs1", "rs2", "rs3"],
-            "BP": [100, 200, 300],
-            "CM": [0.0, 0.0, 0.0],
-        })
-        reader = ld.SortedR2BlockReader(
-            paths=[str(path)],
-            chrom="1",
-            metadata=metadata,
-            identifier_mode="rsID",
-            r2_bias_mode="unbiased",
-            r2_sample_size=None,
-            genome_build="hg19",
-        )
-        present = reader.get_present_identifiers()
-        self.assertEqual(present, {"rs1", "rs2", "rs3"})
-```
-
-- [ ] **Step 4.2: Write the failing test for `get_present_identifiers` (chr_pos mode)**
-
-Add to `CanonicalParquetRuntimeTest`:
-
-```python
-def test_get_present_identifiers_chr_pos_mode(self):
-    import pyarrow as pa
-    import pyarrow.parquet as pq
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        path = Path(tmpdir) / "chr1.parquet"
-        df = pd.DataFrame({
-            "chr": ["1", "1"],
-            "pos_1": [100, 200],
-            "pos_2": [200, 300],
-            "R2": [0.4, 0.6],
-            "rsID_1": ["rs1", "rs2"],
-            "rsID_2": ["rs2", "rs3"],
-        })
-        table = pa.Table.from_pandas(df, preserve_index=False)
-        meta = {b"ldsc:sorted_by_build": b"hg19", b"ldsc:row_group_size": b"2"}
-        enriched = table.schema.with_metadata({**(table.schema.metadata or {}), **meta})
-        with pq.ParquetWriter(str(path), enriched) as writer:
-            writer.write_table(table.cast(enriched), row_group_size=2)
-
-        metadata = pd.DataFrame({
-            "CHR": ["1", "1", "1"],
-            "SNP": ["rs1", "rs2", "rs3"],
-            "BP": [100, 200, 300],
-            "CM": [0.0, 0.0, 0.0],
-        })
-        reader = ld.SortedR2BlockReader(
-            paths=[str(path)],
-            chrom="1",
-            metadata=metadata,
-            identifier_mode="chr_pos",
-            r2_bias_mode="unbiased",
-            r2_sample_size=None,
-            genome_build="hg19",
-        )
-        present = reader.get_present_identifiers()
-        self.assertEqual(present, {100, 200, 300})
-```
-
-- [ ] **Step 4.3: Update `RawParquetRuntimeTest` to remove `read_sorted_r2_presence` call**
-
-In `tests/test_ldscore_legacy.py`, update `test_raw_parquet_presence_and_reader_support_hg19` to remove the `read_sorted_r2_presence` assertion and replace it with a `get_present_identifiers()` call:
-
-```python
-def test_raw_parquet_presence_and_reader_support_hg19(self):
-    with tempfile.TemporaryDirectory() as tmpdir:
-        path = Path(tmpdir) / "raw_chr1.parquet"
-        pd.DataFrame(
-            {
-                "chr": ["1"],
-                "rsID_1": ["rs2"],
-                "rsID_2": ["rs1"],
-                "hg38_bp1": [120],
-                "hg38_bp2": [100],
-                "hg19_bp_1": [20],
-                "hg19_bp_2": [10],
-                "hg38_Uniq_ID_1": ["1:120"],
-                "hg38_Uniq_ID_2": ["1:100"],
-                "hg19_Uniq_ID_1": ["1:20"],
-                "hg19_Uniq_ID_2": ["1:10"],
-                "R2": [0.4],
-                "Dprime": [0.5],
-                "+/-corr": ["+"],
-            }
-        ).to_parquet(path, index=False)
-
-        metadata = pd.DataFrame(
-            {
-                "CHR": ["1", "1"],
-                "SNP": ["rs1", "rs2"],
-                "BP": [10, 20],
-                "CM": [0.1, 0.2],
-            }
-        )
-        reader = ld.SortedR2BlockReader(
-            paths=[str(path)],
-            chrom="1",
-            metadata=metadata,
-            identifier_mode="rsID",
-            r2_bias_mode="unbiased",
-            r2_sample_size=None,
-            genome_build="hg19",
-        )
-        # Legacy raw path still exposes get_present_identifiers
-        self.assertEqual(reader.get_present_identifiers(), {"rs1", "rs2"})
-        matrix = reader.within_block_matrix(l_B=0, c=2)
-        expected = np.array([[1.0, 0.4], [0.4, 1.0]], dtype=np.float32)
-        assert_array_almost_equal(matrix, expected)
-```
-
-- [ ] **Step 4.4: Run to verify tests fail**
+- [ ] **Step 4.2: Run to verify tests fail if they still depend on presence scans**
 
 ```bash
-python -m pytest tests/test_ldscore_legacy.py -k "present_identifiers or raw_parquet" -v
+python -m pytest tests/test_ldscore_legacy.py -k "raw_parquet" -v
 ```
 
-Expected: `get_present_identifiers` tests FAIL (method doesn't exist); raw parquet test FAILS (method doesn't exist).
+Expected: any remaining `read_sorted_r2_presence` references fail and point to the stale
+test or code path that needs removal.
 
-- [ ] **Step 4.5: Implement `get_present_identifiers()`**
+- [ ] **Step 4.3: Remove `read_sorted_r2_presence()`**
 
-Add this method to `SortedR2BlockReader` (after `_query_union_rows_raw`):
+Delete the standalone `read_sorted_r2_presence` helper from `src/ldsc/_kernel/ldscore.py`.
+No replacement method is added; the sidecar remains authoritative for `A`.
+
+- [ ] **Step 4.4: Remove the parquet presence filter from `compute_chrom_from_parquet`**
+
+In `src/ldsc/_kernel/ldscore.py`, remove the `present_values = read_sorted_r2_presence(...)`
+call and the subsequent `filter_reference_to_present_r2(...)` call. The retained universe
+should now be driven only by sidecar metadata plus annotation alignment.
+
+The remaining flow should be:
 
 ```python
-def get_present_identifiers(self) -> set:
-    """Return the set of all SNP identifiers present in the parquet as left or right SNPs.
+metadata = merge_frequency_metadata(bundle.metadata.copy(), args, chrom=chrom, identifier_mode=args.snp_identifier)
+if args.snp_identifier == "chr_pos" and getattr(args, "genome_build", None) == "auto":
+    ...
+metadata, annotations = apply_maf_filter(metadata, bundle.annotations.copy(), args.maf, context="parquet mode")
+if len(metadata) == 0:
+    raise ValueError(f"No retained annotation SNPs remain on chromosome {chrom} after sidecar alignment.")
 
-    Uses streaming row-group reads to keep peak RAM constant (one row group at a time)
-    regardless of file size. For canonical files this replaces the old
-    read_sorted_r2_presence standalone function.
-    """
-    if self.identifier_mode == "rsid":
-        cols = ["rsID_1", "rsID_2"]
-    else:
-        cols = ["pos_1", "pos_2"]
-
-    present: set = set()
-
-    if self._runtime_layout == "canonical" and self._pf is not None:
-        for i in range(self._pf.metadata.num_row_groups):
-            tbl = self._pf.read_row_group(i, columns=cols)
-            for col in cols:
-                arr = tbl.column(col).to_numpy(zero_copy_only=False)
-                if self.identifier_mode == "rsid":
-                    present.update(arr.astype(str))
-                else:
-                    present.update(arr.astype(np.int64))
-    else:
-        # Legacy raw schema or multi-file canonical: full Dataset scan
-        if self.identifier_mode == "rsid":
-            read_cols = ["rsID_1", "rsID_2"]
-        else:
-            # For raw schema, positions are in build-specific columns
-            if self._raw_pos_columns is not None:
-                read_cols = list(self._raw_pos_columns)
-            else:
-                read_cols = ["pos_1", "pos_2"]
-        tbl = self.dataset.to_table(columns=read_cols)
-        for col in read_cols:
-            arr = tbl.column(col).to_numpy(zero_copy_only=False)
-            if self.identifier_mode == "rsid":
-                present.update(arr.astype(str))
-            else:
-                present.update(arr.astype(np.int64))
-
-    return present
+validate_retained_identifier_uniqueness(metadata, args.snp_identifier, chrom)
+coords, max_dist = build_window_coordinates(metadata, args)
+...
+block_reader = SortedR2BlockReader(
+    paths=resolve_parquet_files(args, chrom=chrom),
+    chrom=chrom,
+    metadata=metadata,
+    identifier_mode=args.snp_identifier,
+    r2_bias_mode=args.r2_bias_mode,
+    r2_sample_size=args.r2_sample_size,
+    genome_build=args.genome_build,
+)
 ```
 
-- [ ] **Step 4.6: Run presence tests to verify they pass**
+- [ ] **Step 4.5: Verify no runtime caller still references parquet presence scans**
 
 ```bash
-python -m pytest tests/test_ldscore_legacy.py -k "present_identifiers or raw_parquet" -v
+grep -rn "read_sorted_r2_presence\\|get_present_identifiers\\|filter_reference_to_present_r2" /Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/
 ```
 
-Expected: all PASS.
+Expected:
+- zero runtime matches for `read_sorted_r2_presence`
+- zero runtime matches for `get_present_identifiers`
+- `filter_reference_to_present_r2` should also be removed if it no longer has any callers
 
-- [ ] **Step 4.7: Update `compute_chrom_from_parquet` to open reader first**
-
-In `src/ldsc/_kernel/ldscore.py`, replace lines 1615-1640 of `compute_chrom_from_parquet`:
-
-```python
-    # Old order: read_sorted_r2_presence → filter → SortedR2BlockReader
-    # New order: SortedR2BlockReader (file open once) → get_present_identifiers → filter
-    block_reader = SortedR2BlockReader(
-        paths=resolve_parquet_files(args, chrom=chrom),
-        chrom=chrom,
-        metadata=metadata,
-        identifier_mode=args.snp_identifier,
-        r2_bias_mode=args.r2_bias_mode,
-        r2_sample_size=args.r2_sample_size,
-        genome_build=args.genome_build,
-    )
-    present_values = block_reader.get_present_identifiers()
-    metadata, annotations, regression_keys = filter_reference_to_present_r2(
-        metadata, annotations, regression_keys, present_values, args.snp_identifier, chrom
-    )
-```
-
-Remove the old lines:
-```python
-    present_values = read_sorted_r2_presence(args, chrom=chrom)
-    metadata, annotations, regression_keys = filter_reference_to_present_r2(
-        metadata, annotations, regression_keys, present_values, args.snp_identifier, chrom
-    )
-```
-
-and the existing `block_reader = SortedR2BlockReader(...)` block that comes later (now consolidated above).
-
-- [ ] **Step 4.8: Remove `read_sorted_r2_presence` standalone function**
-
-Delete lines 888-938 in `src/ldsc/_kernel/ldscore.py` (the `read_sorted_r2_presence` function body). Verify no other callers exist:
-
-```bash
-grep -rn "read_sorted_r2_presence" /Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured/src/
-```
-
-Expected: zero matches. If any remain, update them to use `block_reader.get_present_identifiers()`.
-
-- [ ] **Step 4.9: Run the full test suite**
+- [ ] **Step 4.6: Run workflow/integration tests**
 
 ```bash
 python -m pytest tests/ -v 2>&1 | tail -30
@@ -1325,13 +1121,13 @@ Expected: all tests PASS. Key tests to watch:
 - `test_ldscore_legacy.py::RawParquetRuntimeTest` — legacy schema still works
 - `test_ref_panel_builder.py` — writer tests
 
-If `test_ldscore_workflow.py` contains integration tests that call `compute_chrom_from_parquet`, verify they pass.
+If `test_ldscore_workflow.py` contains integration tests that call `compute_chrom_from_parquet`, verify they pass with the sidecar-defined `A` semantics.
 
-- [ ] **Step 4.10: Commit**
+- [ ] **Step 4.7: Commit**
 
 ```bash
 git add src/ldsc/_kernel/ldscore.py tests/test_ldscore_legacy.py
-git commit -m "feat: add SortedR2BlockReader.get_present_identifiers, migrate compute_chrom_from_parquet to single file open, remove read_sorted_r2_presence"
+git commit -m "refactor: remove parquet presence scan and keep sidecar authoritative"
 ```
 
 ---
@@ -1345,11 +1141,11 @@ git commit -m "feat: add SortedR2BlockReader.get_present_identifiers, migrate co
 - [x] **Spec coverage — §3.2 Build validation (3 tiers):** Task 2 implements all three tiers in `_init_canonical_path`.
 - [x] **Spec coverage — §3.2 Coarse warning:** Task 2 emits `UserWarning` when `avg_rows_per_rg > 500_000`.
 - [x] **Spec coverage — §3.3 Row-group index:** Task 2 builds `_rg_bounds` from footer statistics.
-- [x] **Spec coverage — §3.4 `get_present_identifiers`:** Task 4 adds streaming scan method.
+- [x] **Spec coverage — sidecar-authoritative `A`:** Task 4 removes the parquet presence scan and keeps the sidecar as the sole source of the raw reference-panel SNP universe.
 - [x] **Spec coverage — §3.5 `_query_union_rows`:** Task 3 implements row-group pruning + `to_numpy()`.
 - [x] **Spec coverage — §4 Legacy shim:** Task 2 detects raw schema, opens as Dataset, emits deprecation warning.
 - [x] **Spec coverage — §5 Affected modules table:** All listed modules are covered by tasks 1-4.
-- [x] **`read_sorted_r2_presence` removal:** Task 4 removes it and the `RawParquetRuntimeTest` test is updated.
+- [x] **`read_sorted_r2_presence` removal:** Task 4 removes it outright with no replacement presence-scan method.
 - [x] **Type consistency:** `_rg_bounds` defined as `list[tuple[int, int, int]]` in Task 2; used in Task 3 as `[i for mn, mx, i in self._rg_bounds if ...]`. Consistent.
 - [x] **`build_standard_ld_table` signature:** `genome_build` parameter added in Task 1; used with keyword in all call sites.
 - [x] **No placeholders:** all test code and implementation code is complete.

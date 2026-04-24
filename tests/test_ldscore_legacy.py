@@ -3,6 +3,7 @@ import importlib
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 import numpy as np
 from numpy.testing import assert_array_almost_equal, assert_array_equal
@@ -138,7 +139,7 @@ class PlinkBedFileTest(unittest.TestCase):
 @unittest.skipIf(ld is None, "ldscore kernel is not available")
 @unittest.skipUnless(_has_module("pyarrow"), "pyarrow dependency is not installed")
 class RawParquetRuntimeTest(unittest.TestCase):
-    def test_raw_parquet_presence_and_reader_support_hg19(self):
+    def test_raw_parquet_reader_support_hg19(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "raw_chr1.parquet"
             pd.DataFrame(
@@ -160,14 +161,6 @@ class RawParquetRuntimeTest(unittest.TestCase):
                 }
             ).to_parquet(path, index=False)
 
-            args = ld.argparse.Namespace(
-                r2_table=str(path),
-                r2_table_chr=None,
-                snp_identifier="rsID",
-                genome_build="hg19",
-            )
-            self.assertEqual(ld.read_sorted_r2_presence(args, chrom="1"), {"rs1", "rs2"})
-
             metadata = pd.DataFrame(
                 {
                     "CHR": ["1", "1"],
@@ -188,3 +181,306 @@ class RawParquetRuntimeTest(unittest.TestCase):
             matrix = reader.within_block_matrix(l_B=0, c=2)
             expected = np.array([[1.0, 0.4], [0.4, 1.0]], dtype=np.float32)
             assert_array_almost_equal(matrix, expected)
+
+
+@unittest.skipIf(ld is None, "ldscore kernel is not available")
+@unittest.skipUnless(_has_module("pyarrow"), "pyarrow dependency is not installed")
+class CanonicalParquetRuntimeTest(unittest.TestCase):
+    """Tests for the canonical 6-column parquet schema path."""
+
+    def _write_canonical_parquet(self, path: Path, *, genome_build: str = "hg19", n_pairs: int = 5, row_group_size: int = 3) -> None:
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        pairs = [
+            {
+                "CHR": "1",
+                "POS_1": 100 + i * 10,
+                "POS_2": 120 + i * 10,
+                "R2": 0.5,
+                "SNP_1": f"rs{i + 1}",
+                "SNP_2": f"rs{i + 2}",
+            }
+            for i in range(n_pairs)
+        ]
+        df = pd.DataFrame(pairs)
+        table = pa.Table.from_pandas(df, preserve_index=False)
+        meta = {
+            b"ldsc:sorted_by_build": genome_build.encode("utf-8"),
+            b"ldsc:row_group_size": str(row_group_size).encode("utf-8"),
+        }
+        enriched = table.schema.with_metadata({**(table.schema.metadata or {}), **meta})
+        with pq.ParquetWriter(str(path), enriched) as writer:
+            writer.write_table(table.cast(enriched), row_group_size=row_group_size)
+
+    def test_canonical_init_builds_rg_bounds(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "chr1.parquet"
+            self._write_canonical_parquet(path, n_pairs=6, row_group_size=2)
+            metadata = pd.DataFrame(
+                {
+                    "CHR": ["1"] * 7,
+                    "SNP": [f"rs{i + 1}" for i in range(7)],
+                    "BP": [100 + i * 10 for i in range(7)],
+                    "CM": [0.0] * 7,
+                }
+            )
+            reader = ld.SortedR2BlockReader(
+                paths=[str(path)],
+                chrom="1",
+                metadata=metadata,
+                identifier_mode="rsID",
+                r2_bias_mode="unbiased",
+                r2_sample_size=None,
+                genome_build="hg19",
+            )
+            self.assertEqual(reader._runtime_layout, "canonical")
+            self.assertTrue(hasattr(reader, "_rg_bounds"))
+            self.assertGreater(len(reader._rg_bounds), 1)
+            for mn, mx, idx in reader._rg_bounds:
+                self.assertLessEqual(mn, mx)
+                self.assertIsInstance(idx, int)
+
+    def test_canonical_init_excludes_row_groups_without_min_max_stats(self):
+        import pyarrow.parquet as pq
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "chr1.parquet"
+            self._write_canonical_parquet(path, n_pairs=1, row_group_size=1)
+
+            real_pf_cls = pq.ParquetFile
+
+            class FakeColumn:
+                statistics = None
+
+            class FakeRowGroup:
+                def column(self, index):
+                    return FakeColumn()
+
+            class FakeMeta:
+                num_rows = 1
+                num_row_groups = 1
+
+                def row_group(self, index):
+                    return FakeRowGroup()
+
+            class FakePF:
+                def __init__(self, parquet_path):
+                    self._real = real_pf_cls(parquet_path)
+                    self.metadata = FakeMeta()
+                    self.schema_arrow = self._real.schema_arrow
+
+                def read_row_groups(self, *args, **kwargs):
+                    return self._real.read_row_groups(*args, **kwargs)
+
+                def read_row_group(self, *args, **kwargs):
+                    return self._real.read_row_group(*args, **kwargs)
+
+            metadata = pd.DataFrame({"CHR": ["1", "1"], "SNP": ["rs1", "rs2"], "BP": [100, 120], "CM": [0.0, 0.0]})
+            with mock.patch("pyarrow.parquet.ParquetFile", FakePF):
+                reader = ld.SortedR2BlockReader(
+                    paths=[str(path)],
+                    chrom="1",
+                    metadata=metadata,
+                    identifier_mode="rsID",
+                    r2_bias_mode="unbiased",
+                    r2_sample_size=None,
+                    genome_build="hg19",
+                )
+            self.assertEqual(reader._rg_bounds, [])
+
+    def test_canonical_init_raises_on_build_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "chr1.parquet"
+            self._write_canonical_parquet(path, genome_build="hg19")
+            metadata = pd.DataFrame(
+                {"CHR": ["1", "1"], "SNP": ["rs1", "rs2"], "BP": [100, 120], "CM": [0.0, 0.0]}
+            )
+            with self.assertRaises(ValueError) as ctx:
+                ld.SortedR2BlockReader(
+                    paths=[str(path)],
+                    chrom="1",
+                    metadata=metadata,
+                    identifier_mode="rsID",
+                    r2_bias_mode="unbiased",
+                    r2_sample_size=None,
+                    genome_build="hg38",
+                )
+            self.assertIn("hg19", str(ctx.exception))
+            self.assertIn("hg38", str(ctx.exception))
+
+    def test_canonical_init_warns_on_coarse_row_groups(self):
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "chr1.parquet"
+            df = pd.DataFrame(
+                {"CHR": ["1"], "POS_1": [100], "POS_2": [120], "R2": [0.5], "SNP_1": ["rs1"], "SNP_2": ["rs2"]}
+            )
+            table = pa.Table.from_pandas(df, preserve_index=False)
+            meta = {b"ldsc:sorted_by_build": b"hg19", b"ldsc:row_group_size": b"50000"}
+            enriched = table.schema.with_metadata({**(table.schema.metadata or {}), **meta})
+            with pq.ParquetWriter(str(path), enriched) as writer:
+                writer.write_table(table.cast(enriched))
+
+            real_pf_cls = pq.ParquetFile
+
+            class FakeMeta:
+                num_rows = 600_000
+                num_row_groups = 1
+
+                def row_group(self, index):
+                    return real_pf_cls(str(path)).metadata.row_group(index)
+
+            class FakePF:
+                def __init__(self, parquet_path):
+                    self._real = real_pf_cls(parquet_path)
+                    self.metadata = FakeMeta()
+                    self.schema_arrow = self._real.schema_arrow
+
+                def read_row_groups(self, *args, **kwargs):
+                    return self._real.read_row_groups(*args, **kwargs)
+
+                def read_row_group(self, *args, **kwargs):
+                    return self._real.read_row_group(*args, **kwargs)
+
+            metadata = pd.DataFrame({"CHR": ["1", "1"], "SNP": ["rs1", "rs2"], "BP": [100, 120], "CM": [0.0, 0.0]})
+            with mock.patch("pyarrow.parquet.ParquetFile", FakePF):
+                with self.assertLogs("LDSC.new", level="WARNING") as log_ctx:
+                    ld.SortedR2BlockReader(
+                        paths=[str(path)],
+                        chrom="1",
+                        metadata=metadata,
+                        identifier_mode="rsID",
+                        r2_bias_mode="unbiased",
+                        r2_sample_size=None,
+                        genome_build="hg19",
+                    )
+            self.assertTrue(any("row group" in msg.lower() for msg in log_ctx.output))
+
+    def test_canonical_init_hard_fails_on_multiple_paths(self):
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path1 = Path(tmpdir) / "chr1_a.parquet"
+            path2 = Path(tmpdir) / "chr1_b.parquet"
+            for path in (path1, path2):
+                df = pd.DataFrame(
+                    {"CHR": ["1"], "POS_1": [100], "POS_2": [120], "R2": [0.5], "SNP_1": ["rs1"], "SNP_2": ["rs2"]}
+                )
+                table = pa.Table.from_pandas(df, preserve_index=False)
+                meta = {b"ldsc:sorted_by_build": b"hg19", b"ldsc:row_group_size": b"50000"}
+                enriched = table.schema.with_metadata({**(table.schema.metadata or {}), **meta})
+                with pq.ParquetWriter(str(path), enriched) as writer:
+                    writer.write_table(table.cast(enriched))
+
+            metadata = pd.DataFrame({"CHR": ["1", "1"], "SNP": ["rs1", "rs2"], "BP": [100, 120], "CM": [0.0, 0.0]})
+            with self.assertRaises(ValueError) as ctx:
+                ld.SortedR2BlockReader(
+                    paths=[str(path1), str(path2)],
+                    chrom="1",
+                    metadata=metadata,
+                    identifier_mode="rsID",
+                    r2_bias_mode="unbiased",
+                    r2_sample_size=None,
+                    genome_build="hg19",
+                )
+            self.assertIn("exactly one file", str(ctx.exception))
+
+    def test_canonical_within_block_matrix_correctness(self):
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "chr1.parquet"
+            df = pd.DataFrame(
+                {
+                    "CHR": ["1", "1", "1"],
+                    "POS_1": [100, 100, 120],
+                    "POS_2": [120, 140, 140],
+                    "R2": [0.4, 0.2, 0.6],
+                    "SNP_1": ["rs1", "rs1", "rs2"],
+                    "SNP_2": ["rs2", "rs3", "rs3"],
+                }
+            )
+            table = pa.Table.from_pandas(df, preserve_index=False)
+            meta = {b"ldsc:sorted_by_build": b"hg19", b"ldsc:row_group_size": b"2"}
+            enriched = table.schema.with_metadata({**(table.schema.metadata or {}), **meta})
+            with pq.ParquetWriter(str(path), enriched) as writer:
+                writer.write_table(table.cast(enriched), row_group_size=2)
+
+            metadata = pd.DataFrame(
+                {
+                    "CHR": ["1", "1", "1"],
+                    "SNP": ["rs1", "rs2", "rs3"],
+                    "BP": [100, 120, 140],
+                    "CM": [0.0, 0.0, 0.0],
+                }
+            )
+            reader = ld.SortedR2BlockReader(
+                paths=[str(path)],
+                chrom="1",
+                metadata=metadata,
+                identifier_mode="rsID",
+                r2_bias_mode="unbiased",
+                r2_sample_size=None,
+                genome_build="hg19",
+            )
+            self.assertEqual(reader._runtime_layout, "canonical")
+            matrix = reader.within_block_matrix(l_B=0, c=3)
+            expected = np.array([[1.0, 0.4, 0.2], [0.4, 1.0, 0.6], [0.2, 0.6, 1.0]], dtype=np.float32)
+            self.assertEqual(matrix.dtype, np.dtype("float32"))
+            assert_array_almost_equal(matrix, expected)
+
+    def test_canonical_query_reads_only_overlapping_row_groups(self):
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "chr1.parquet"
+            df = pd.DataFrame(
+                {
+                    "CHR": ["1"] * 6,
+                    "POS_1": [100, 100, 200, 200, 300, 300],
+                    "POS_2": [120, 130, 220, 230, 320, 330],
+                    "R2": [0.4, 0.3, 0.5, 0.6, 0.7, 0.8],
+                    "SNP_1": ["rs1", "rs1", "rs3", "rs3", "rs5", "rs5"],
+                    "SNP_2": ["rs2", "rs2b", "rs4", "rs4b", "rs6", "rs6b"],
+                }
+            )
+            table = pa.Table.from_pandas(df, preserve_index=False)
+            meta = {b"ldsc:sorted_by_build": b"hg19", b"ldsc:row_group_size": b"2"}
+            enriched = table.schema.with_metadata({**(table.schema.metadata or {}), **meta})
+            with pq.ParquetWriter(str(path), enriched) as writer:
+                writer.write_table(table.cast(enriched), row_group_size=2)
+
+            metadata = pd.DataFrame(
+                {
+                    "CHR": ["1"] * 7,
+                    "SNP": [f"rs{i + 1}" for i in range(7)],
+                    "BP": [100, 120, 130, 200, 220, 300, 320],
+                    "CM": [0.0] * 7,
+                }
+            )
+            reader = ld.SortedR2BlockReader(
+                paths=[str(path)],
+                chrom="1",
+                metadata=metadata,
+                identifier_mode="rsID",
+                r2_bias_mode="unbiased",
+                r2_sample_size=None,
+                genome_build="hg19",
+            )
+            rg_idxs_used = []
+            original_read_row_groups = reader._pf.read_row_groups
+
+            def mock_read_row_groups(indexes, **kwargs):
+                rg_idxs_used.extend(indexes)
+                return original_read_row_groups(indexes, **kwargs)
+
+            reader._pf.read_row_groups = mock_read_row_groups
+            rows = reader._query_union_rows(100, 130)
+            self.assertEqual(sorted(set(rg_idxs_used)), [0])
+            self.assertEqual(len(rows), 2)

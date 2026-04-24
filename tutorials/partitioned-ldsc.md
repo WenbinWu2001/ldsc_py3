@@ -3,7 +3,11 @@
 Goal: run partitioned LDSC in the refactored package by building query annotations, computing baseline-plus-query LD scores, and fitting one partitioned model per query annotation.
 
 The examples below assume chromosome-pattern inputs such as `annotations/baseline.1.annot.gz`, `r2/reference.1.parquet`, and `r2/reference_metadata.1.tsv.gz`.
-The bundled `baseline_v1.2` annotations are hg19-based, so the parquet example uses `genome_build="hg19"` to align raw parquet coordinates to the annotation bundle.
+The parquet R2 files are expected to use the canonical six-column schema
+(`CHR`, `POS_1`, `POS_2`, `R2`, `SNP_1`, `SNP_2`) with row-group statistics.
+The paired metadata sidecar is required; it defines the raw reference-panel SNP
+universe, while the parquet pair rows are queried only for LD values.
+The bundled `baseline_v1.2` annotations are hg19-based, so the parquet example uses `genome_build="hg19"` to align parquet coordinates to the annotation bundle.
 The workflow also accepts `hg37` and `GRCh37` as aliases for `hg19`, and `GRCh38` as an alias for `hg38`; outputs always normalize back to canonical `hg19` or `hg38`.
 
 Path-token rules used in this tutorial:
@@ -122,7 +126,7 @@ The Python workflow registers `GlobalConfig` once, then reuses it across the com
 Within this design:
 
 - `ref_panel_snps_path` belongs to `RefPanelSpec` and restricts the retained reference-panel rows
-- `LDScoreCalculator.compute_chromosome()` intersects each chromosome-local annotation bundle with `ref_panel.load_metadata(chrom)`, so the LD-score compute universe is `B ∩ A'`
+- `LDScoreCalculator.compute_chromosome()` intersects each chromosome-local annotation bundle with `ref_panel.load_metadata(chrom)`, so the LD-score compute universe is `B ∩ A'`; parquet pair rows are not scanned to define SNP presence
 - `regression_snps_path` belongs to `LDScoreConfig` and further restricts the normalized `ldscore_table` rows to `B ∩ A' ∩ C`
 - regression weights are embedded as `regr_weight`; there is no separate `.w.l2.ldscore.gz` artifact in the new default format
 

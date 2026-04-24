@@ -297,38 +297,45 @@ Interpretation notes:
 ### `ld`: pairwise LD parquet
 
 This file has one row per unordered SNP pair that falls inside the chosen LD window.
+It is written in the canonical row-group-prunable format used by the parquet R2
+backend. The writer requires PyArrow so it can set schema metadata and row-group
+size explicitly.
 
 Columns:
 
-- `chr`
-- `rsID_1`
-- `rsID_2`
-- `hg38_pos_1`
-- `hg38_pos_2`
-- `hg19_pos_1`
-- `hg19_pos_2`
-- `hg38_Uniq_ID_1`
-- `hg38_Uniq_ID_2`
-- `hg19_Uniq_ID_1`
-- `hg19_Uniq_ID_2`
+- `CHR`
+- `POS_1`
+- `POS_2`
 - `R2`
-- `Dprime`
-- `+/-corr`
+- `SNP_1`
+- `SNP_2`
+
+The physical schema is:
+
+- `CHR`, `SNP_1`, `SNP_2`: string
+- `POS_1`, `POS_2`: int64
+- `R2`: float32
+
+The parquet schema metadata includes:
+
+- `ldsc:sorted_by_build`: the `--source-genome-build` used for `POS_1` and `POS_2`
+- `ldsc:row_group_size`: the intended row-group size, defaulting to `50000`
 
 Example rows from the same chr22 build:
 
 ```text
-chr	rsID_1	rsID_2	hg38_pos_1	hg38_pos_2	hg19_pos_1	hg19_pos_2	hg38_Uniq_ID_1	hg38_Uniq_ID_2	hg19_Uniq_ID_1	hg19_Uniq_ID_2	R2	Dprime	+/-corr
-22	22:10684250:C:G	22:10684302:C:A	10684250	10684299	17383676	17383725	22:10684250:G:C	22:10684299:A:C	22:17383676:G:C	22:17383725:A:C	-0.00024153611420225257		-
-22	22:10684250:C:G	22:10685981:G:A	10684250	10685981	17383676	17385403	22:10684250:G:C	22:10685981:A:G	22:17383676:G:C	22:17385403:A:G	-0.00023313758664503438		-
+CHR	POS_1	POS_2	R2	SNP_1	SNP_2
+22	10684250	10684299	-0.0002415361	22:10684250:C:G	22:10684302:C:A
+22	10684250	10685981	-0.0002331376	22:10684250:C:G	22:10685981:G:A
 ```
 
 Interpretation notes:
 
 - `R2` is the unbiased estimator used by LDSC-style workflows
 - because it is unbiased, very weak LD can produce slightly negative values near zero
-- `+/-corr` stores the sign of the underlying correlation
-- `Dprime` is written as `NA` in the current implementation
+- `POS_1` and `POS_2` are in the source genome build recorded in `ldsc:sorted_by_build`
+- rows are sorted by non-decreasing `POS_1`; `POS_2` ordering within equal `POS_1` is not required
+- legacy columns such as `hg19_pos_1`, `hg38_pos_1`, `Dprime`, and `+/-corr` are intentionally not written
 
 ### `meta_hg19` and `meta_hg38`: LDSC runtime sidecars
 
@@ -361,6 +368,10 @@ CHR	POS	SNP	CM	MAF
 ```
 
 Use the sidecar that matches the coordinate system you want downstream.
+For parquet-backed LD-score calculation, this sidecar is the authoritative raw
+reference-panel SNP universe. SNPs present in the sidecar but with no off-diagonal
+LD pairs remain valid reference SNPs and receive the diagonal LD contribution during
+matrix construction.
 
 ## Downstream Use
 
@@ -489,7 +500,11 @@ result = run_build_ref_panel(
 
 ### A note on coordinate systems
 
-The builder stores both hg19 and hg38 positions in the output parquet files. That makes the panel easier to reuse across projects, but it also means you should stay intentional about which build you use downstream:
+The builder stores both hg19 and hg38 positions in the annotation parquet and emits
+one runtime metadata sidecar per build. The LD parquet itself stores only the source
+build positions in `POS_1`/`POS_2`, with that build recorded in
+`ldsc:sorted_by_build`. That makes the panel easier to reuse across projects, but it
+also means you should stay intentional about which build you use downstream:
 
 - use the metadata sidecar that matches your downstream coordinate system
 - if you match SNPs by chromosome-position instead of by `rsID`, make sure the build is consistent all the way through

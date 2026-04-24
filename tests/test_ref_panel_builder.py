@@ -255,6 +255,44 @@ class PairwiseEmissionTest(unittest.TestCase):
             self.assertAlmostEqual(row["R2"], expected_r2)
             self.assertEqual(row["sign"], expected_sign)
 
+    def test_yield_pairwise_r2_rows_emits_non_decreasing_left_index(self):
+        standardized = np.array(
+            [
+                [-1.0, -1.0, 1.0, 1.0, -1.0],
+                [-1.0, 1.0, -1.0, 1.0, 1.0],
+                [1.0, -1.0, -1.0, 1.0, -1.0],
+                [1.0, 1.0, 1.0, -1.0, 1.0],
+            ]
+        )
+        block_left = np.array([0, 0, 0, 1, 1], dtype=int)
+
+        rows = kernel_builder.iter_pairwise_r2_rows(
+            block_left=block_left,
+            chunk_size=2,
+            standardized_snp_getter=_SequentialSNPGetter(standardized),
+            m=5,
+            n=4,
+        )
+
+        left_indices = [row["i"] for row in rows]
+        self.assertEqual(left_indices, sorted(left_indices))
+
+
+class RetainedSnpOrderingTest(unittest.TestCase):
+    def test_sort_retained_snps_uses_source_build_positions(self):
+        keep_snps = np.array([10, 20, 30], dtype=int)
+        hg19_lookup = {10: 2000, 20: 1000, 30: 3000}
+        hg38_lookup = {10: 10685988, 20: 10685981, 30: 10686000}
+
+        sorted_snps = ref_panel_builder._sort_retained_snps_by_source_position(
+            keep_snps,
+            source_build="hg38",
+            hg19_lookup=hg19_lookup,
+            hg38_lookup=hg38_lookup,
+        )
+
+        self.assertEqual(sorted_snps.tolist(), [20, 10, 30])
+
 
 class StandardTableFormattingTest(unittest.TestCase):
     def test_build_standard_annotation_table_uses_exact_schema(self):

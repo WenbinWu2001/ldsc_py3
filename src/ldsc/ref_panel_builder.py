@@ -203,6 +203,12 @@ class ReferencePanelBuilder:
         if len(keep_snps) == 0:
             LOGGER.info("Skipping chromosome %s because no SNPs remain after liftover filtering.", chrom)
             return None
+        keep_snps = _sort_retained_snps_by_source_position(
+            keep_snps,
+            source_build=config.source_genome_build,
+            hg19_lookup=hg19_lookup,
+            hg38_lookup=hg38_lookup,
+        )
 
         keep_indivs = None
         if config.keep_indivs_path is not None:
@@ -387,6 +393,22 @@ class ReferencePanelBuilder:
     def _positions_from_lookup(self, kept_snps: Sequence[int], lookup: dict[int, int]):
         """Materialize retained positions in the same order as ``kept_snps``."""
         return np.asarray([lookup[int(idx)] for idx in kept_snps], dtype=int)
+
+
+def _sort_retained_snps_by_source_position(
+    keep_snps,
+    *,
+    source_build: str,
+    hg19_lookup: dict[int, int],
+    hg38_lookup: dict[int, int],
+) -> np.ndarray:
+    """Return retained PLINK indices in source-build genomic position order."""
+    keep_snps = np.asarray(keep_snps, dtype=int)
+    lookup = hg19_lookup if source_build == "hg19" else hg38_lookup
+    return np.asarray(
+        sorted(keep_snps.tolist(), key=lambda idx: (int(lookup[int(idx)]), int(idx))),
+        dtype=int,
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:

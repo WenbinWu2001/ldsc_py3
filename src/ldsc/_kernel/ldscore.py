@@ -765,6 +765,14 @@ def _require_runtime_genome_build(genome_build: str | None) -> str:
     )
 
 
+def _arrow_column_to_numpy(column):
+    """Convert an Arrow column to NumPy across PyArrow array API versions."""
+    try:
+        return column.to_numpy(zero_copy_only=False)
+    except TypeError:
+        return column.to_numpy()
+
+
 def read_common_tabular_r2(path: str) -> pd.DataFrame:
     """Read one pairwise-R2 source file from parquet, CSV, TSV, or inferred text."""
     lower = path.lower()
@@ -1424,8 +1432,8 @@ class SortedR2BlockReader:
             read_cols.extend([self._canonical_columns["SNP_1"], self._canonical_columns["SNP_2"]])
 
         table = self._pf.read_row_groups(rg_idxs, columns=read_cols)
-        pos_1 = table.column(self._canonical_columns["POS_1"]).to_numpy(zero_copy_only=False).astype(np.int64, copy=False)
-        pos_2 = table.column(self._canonical_columns["POS_2"]).to_numpy(zero_copy_only=False).astype(np.int64, copy=False)
+        pos_1 = _arrow_column_to_numpy(table.column(self._canonical_columns["POS_1"])).astype(np.int64, copy=False)
+        pos_2 = _arrow_column_to_numpy(table.column(self._canonical_columns["POS_2"])).astype(np.int64, copy=False)
         mask = (pos_1 >= int(pos_min)) & (pos_2 <= int(pos_max))
         if not mask.any():
             return pd.DataFrame(
@@ -1436,11 +1444,11 @@ class SortedR2BlockReader:
                 }
             )
 
-        r2_raw = table.column(self._canonical_columns["R2"]).to_numpy(zero_copy_only=False).astype(np.float32, copy=False)
+        r2_raw = _arrow_column_to_numpy(table.column(self._canonical_columns["R2"])).astype(np.float32, copy=False)
         r2 = self._transform_r2(r2_raw[mask])
         if self.identifier_mode == "rsid":
-            left_ids = table.column(self._canonical_columns["SNP_1"]).to_numpy(zero_copy_only=False).astype(str)[mask]
-            right_ids = table.column(self._canonical_columns["SNP_2"]).to_numpy(zero_copy_only=False).astype(str)[mask]
+            left_ids = _arrow_column_to_numpy(table.column(self._canonical_columns["SNP_1"])).astype(str)[mask]
+            right_ids = _arrow_column_to_numpy(table.column(self._canonical_columns["SNP_2"])).astype(str)[mask]
             i_raw = [self.index_map.get(value) for value in left_ids]
             j_raw = [self.index_map.get(value) for value in right_ids]
         else:

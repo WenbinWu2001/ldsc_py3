@@ -315,6 +315,27 @@ def _emit_within_block_pairs(
     return rows
 
 
+def _stash_pair_rows(
+    pending: dict[int, list[dict[str, float | int | str]]],
+    rows: Iterable[dict[str, float | int | str]],
+) -> None:
+    """Group emitted pair rows by left SNP index until that index is final."""
+    for row in rows:
+        pending.setdefault(int(row["i"]), []).append(row)
+
+
+def _pop_pair_rows_before(
+    pending: dict[int, list[dict[str, float | int | str]]],
+    min_future_i: int,
+) -> Iterator[dict[str, float | int | str]]:
+    """Yield pending rows whose left index cannot appear in future chunks."""
+    flushable = sorted(i for i in pending if i < int(min_future_i))
+    for i in flushable:
+        rows = pending.pop(i)
+        rows.sort(key=lambda row: int(row["j"]))
+        yield from rows
+
+
 def yield_pairwise_r2_rows(
     *,
     block_left: np.ndarray,
@@ -341,18 +362,23 @@ def yield_pairwise_r2_rows(
         chunk_size = 1
         b = m
 
+    pending_rows: dict[int, list[dict[str, float | int | str]]] = {}
     l_A = 0
     A = standardized_snp_getter(b)
     for l_B in range(0, b, chunk_size):
         width = min(chunk_size, b - l_B)
+        yield from _pop_pair_rows_before(pending_rows, int(block_left[l_B]))
         B = A[:, l_B:l_B + width]
         correlation_matrix = np.dot(A.T, B / n)
-        yield from _emit_cross_block_pairs(
-            correlation_matrix=correlation_matrix,
-            a_indices=np.arange(l_A, l_A + b),
-            b_indices=np.arange(l_B, l_B + width),
-            block_left=block_left,
-            n_samples=n,
+        _stash_pair_rows(
+            pending_rows,
+            _emit_cross_block_pairs(
+                correlation_matrix=correlation_matrix,
+                a_indices=np.arange(l_A, l_A + b),
+                b_indices=np.arange(l_B, l_B + width),
+                block_left=block_left,
+                n_samples=n,
+            ),
         )
 
     b0 = b
@@ -360,6 +386,7 @@ def yield_pairwise_r2_rows(
     end = md + 1 if md != m else md
     previous_chunk_width = chunk_size
     for l_B in range(b0, end, chunk_size):
+        yield from _pop_pair_rows_before(pending_rows, int(block_left[l_B]))
         old_b = b
         b = int(block_sizes[l_B])
         if l_B > b0 and b > 0:
@@ -380,22 +407,29 @@ def yield_pairwise_r2_rows(
 
         if b > 0:
             correlation_matrix = np.dot(A.T, B / n)
-            yield from _emit_cross_block_pairs(
-                correlation_matrix=correlation_matrix,
-                a_indices=np.arange(l_A, l_A + b),
-                b_indices=b_indices,
-                block_left=block_left,
-                n_samples=n,
+            _stash_pair_rows(
+                pending_rows,
+                _emit_cross_block_pairs(
+                    correlation_matrix=correlation_matrix,
+                    a_indices=np.arange(l_A, l_A + b),
+                    b_indices=b_indices,
+                    block_left=block_left,
+                    n_samples=n,
+                ),
             )
 
         within_block = np.dot(B.T, B / n)
-        yield from _emit_within_block_pairs(
-            correlation_matrix=within_block,
-            b_indices=b_indices,
-            block_left=block_left,
-            n_samples=n,
+        _stash_pair_rows(
+            pending_rows,
+            _emit_within_block_pairs(
+                correlation_matrix=within_block,
+                b_indices=b_indices,
+                block_left=block_left,
+                n_samples=n,
+            ),
         )
         previous_chunk_width = current_chunk_width
+    yield from _pop_pair_rows_before(pending_rows, m + 1)
 
 
 def iter_pairwise_r2_rows(

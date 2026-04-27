@@ -162,6 +162,52 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertEqual(patched.call_count, 2)
         self.assertEqual(result["query_annotation"].tolist(), ["query1", "query2"])
 
+    def test_h2_and_partitioned_summaries_share_one_fitted_hsq_result(self):
+        dataset = regression_runner.RegressionDataset(
+            merged=pd.DataFrame(
+                {
+                    "SNP": ["rs1", "rs2"],
+                    "Z": [1.0, 2.0],
+                    "N": [1000.0, 1000.0],
+                    "regr_weight": [1.0, 1.0],
+                }
+            ),
+            ref_ld_columns=["base"],
+            weight_column="regr_weight",
+            reference_snp_count_totals={"common_reference_snp_counts_maf_gt_0_05": np.array([10.0])},
+            count_key_used_for_regression="common_reference_snp_counts_maf_gt_0_05",
+            retained_ld_columns=["base"],
+            dropped_zero_variance_ld_columns=[],
+            trait_names=["trait"],
+            chromosomes_aggregated=[],
+        )
+        hsq = mock.Mock(
+            tot=np.array([0.25]),
+            tot_se=np.array([0.03]),
+            intercept=np.array([1.01]),
+            intercept_se=0.02,
+            mean_chisq=np.array([1.2]),
+            lambda_gc=np.array([1.1]),
+            ratio=0.05,
+            ratio_se=0.01,
+            coef=np.array([0.025]),
+            coef_se=np.array([0.003]),
+            cat=np.array([0.25]),
+            cat_se=np.array([0.03]),
+            prop=np.array([1.0]),
+            prop_se=np.array([0.0]),
+            enrichment=np.array([1.0]),
+        )
+
+        total = regression_runner.summarize_total_h2(hsq, dataset, trait_name="trait")
+        partitioned = regression_runner.summarize_partitioned_h2(hsq, dataset, ["base"])
+
+        self.assertEqual(total.loc[0, "total_h2"], partitioned.loc[0, "category_h2"])
+        self.assertEqual(total.loc[0, "total_h2_se"], partitioned.loc[0, "category_h2_se"])
+        self.assertEqual(partitioned.loc[0, "query_annotation"], "base")
+        self.assertEqual(partitioned.loc[0, "proportion_h2"], 1.0)
+        self.assertEqual(partitioned.loc[0, "enrichment"], 1.0)
+
     def test_run_h2_from_args_resolves_scalar_glob_inputs(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)

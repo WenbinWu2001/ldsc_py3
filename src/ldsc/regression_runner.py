@@ -211,28 +211,7 @@ class RegressionRunner:
         dataset = self.build_dataset(sumstats_table, ldscore_result, config=config)
         hsq = self.estimate_h2(dataset, config=config)
         query_column = ldscore_result.query_columns[-1] if ldscore_result.query_columns else ldscore_result.baseline_columns[-1]
-        query_index = dataset.retained_ld_columns.index(query_column)
-        coefficient = float(hsq.coef[query_index])
-        coefficient_se = float(hsq.coef_se[query_index])
-        z_value = math.nan if coefficient_se == 0 else coefficient / coefficient_se
-        p_value = math.nan if coefficient_se == 0 else 2 * stats.norm.sf(abs(z_value))
-        enrichment = float(np.ravel(hsq.enrichment)[query_index]) if getattr(hsq, "enrichment", None) is not None else math.nan
-        return pd.DataFrame(
-            [
-                {
-                    "query_annotation": query_column,
-                    "coefficient": coefficient,
-                    "coefficient_se": coefficient_se,
-                    "coefficient_z": z_value,
-                    "coefficient_p": p_value,
-                    "category_h2": float(np.ravel(hsq.cat)[query_index]),
-                    "category_h2_se": float(np.ravel(hsq.cat_se)[query_index]),
-                    "proportion_h2": float(np.ravel(hsq.prop)[query_index]),
-                    "proportion_h2_se": float(np.ravel(hsq.prop_se)[query_index]),
-                    "enrichment": enrichment,
-                }
-            ]
-        )
+        return summarize_partitioned_h2(hsq, dataset, [query_column])
 
     def estimate_partitioned_h2_batch(
         self,
@@ -300,6 +279,72 @@ def _select_count_key(count_totals: dict[str, np.ndarray], use_m_5_50: bool) -> 
     if ALL_COUNT_KEY in count_totals:
         return ALL_COUNT_KEY
     return sorted(count_totals.keys())[0]
+
+
+def summarize_total_h2(hsq, dataset: RegressionDataset, trait_name: str | None = None) -> pd.DataFrame:
+    """Build the one-row total-heritability summary from a fitted ``Hsq`` result."""
+    return pd.DataFrame(
+        [
+            {
+                "trait_name": trait_name,
+                "n_snps": len(dataset.merged),
+                "total_h2": _scalar(hsq.tot),
+                "total_h2_se": _scalar(hsq.tot_se),
+                "intercept": _scalar_or_value(hsq.intercept),
+                "intercept_se": getattr(hsq, "intercept_se", None),
+                "mean_chisq": _scalar_or_value(hsq.mean_chisq),
+                "lambda_gc": _scalar_or_value(hsq.lambda_gc),
+                "ratio": getattr(hsq, "ratio", None),
+                "ratio_se": getattr(hsq, "ratio_se", None),
+            }
+        ]
+    )
+
+
+def summarize_partitioned_h2(hsq, dataset: RegressionDataset, annotation_columns: Sequence[str]) -> pd.DataFrame:
+    """Build category-level heritability rows from a fitted ``Hsq`` result."""
+    rows = []
+    coefficients = np.ravel(hsq.coef)
+    coefficient_ses = np.ravel(hsq.coef_se)
+    category_h2 = np.ravel(hsq.cat)
+    category_h2_ses = np.ravel(hsq.cat_se)
+    proportions = np.ravel(hsq.prop)
+    proportion_ses = np.ravel(hsq.prop_se)
+    enrichments = np.ravel(hsq.enrichment) if getattr(hsq, "enrichment", None) is not None else None
+    for annotation_column in annotation_columns:
+        annotation_index = dataset.retained_ld_columns.index(annotation_column)
+        coefficient = float(coefficients[annotation_index])
+        coefficient_se = float(coefficient_ses[annotation_index])
+        z_value = math.nan if coefficient_se == 0 else coefficient / coefficient_se
+        rows.append(
+            {
+                "query_annotation": annotation_column,
+                "coefficient": coefficient,
+                "coefficient_se": coefficient_se,
+                "coefficient_z": z_value,
+                "coefficient_p": (
+                    math.nan if coefficient_se == 0 else 2 * stats.norm.sf(abs(z_value))
+                ),
+                "category_h2": float(category_h2[annotation_index]),
+                "category_h2_se": float(category_h2_ses[annotation_index]),
+                "proportion_h2": float(proportions[annotation_index]),
+                "proportion_h2_se": float(proportion_ses[annotation_index]),
+                "enrichment": math.nan if enrichments is None else float(enrichments[annotation_index]),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def _scalar(value) -> float:
+    """Return the first scalar numeric value from a possibly array-like object."""
+    return float(np.ravel(value)[0])
+
+
+def _scalar_or_value(value):
+    """Return a scalar float for array-like values, otherwise preserve the original value."""
+    if hasattr(value, "__array__") or isinstance(value, (list, tuple)):
+        return _scalar(value)
+    return value
 
 
 def _select_intercept(value, index: int, use_intercept: bool, default_when_disabled: float):
@@ -393,22 +438,7 @@ def run_h2_from_args(args):
     with suppress_global_config_banner():
         dataset = runner.build_dataset(sumstats_table, ldscore_result, config=config)
     hsq = runner.estimate_h2(dataset, config=config)
-    summary = pd.DataFrame(
-        [
-            {
-                "trait_name": sumstats_table.trait_name,
-                "n_snps": len(dataset.merged),
-                "total_h2": float(np.ravel(hsq.tot)[0]),
-                "total_h2_se": float(np.ravel(hsq.tot_se)[0]),
-                "intercept": float(np.ravel(hsq.intercept)[0]) if hasattr(hsq.intercept, "__array__") else hsq.intercept,
-                "intercept_se": getattr(hsq, "intercept_se", None),
-                "mean_chisq": float(np.ravel(hsq.mean_chisq)[0]) if hasattr(hsq.mean_chisq, "__array__") else hsq.mean_chisq,
-                "lambda_gc": float(np.ravel(hsq.lambda_gc)[0]) if hasattr(hsq.lambda_gc, "__array__") else hsq.lambda_gc,
-                "ratio": getattr(hsq, "ratio", None),
-                "ratio_se": getattr(hsq, "ratio_se", None),
-            }
-        ]
-    )
+    summary = summarize_total_h2(hsq, dataset, trait_name=sumstats_table.trait_name)
     _maybe_write_dataframe(summary, args.out, ".h2.tsv")
     return summary
 

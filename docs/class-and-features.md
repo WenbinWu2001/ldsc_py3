@@ -10,10 +10,10 @@ This document summarizes the public package surface. For workflow-level file str
 | Build parquet reference panels | `ldsc build-ref-panel` | `ReferencePanelBuilder`, `run_build_ref_panel()` | PLINK prefix, optional liftover chains, conditional genetic maps, optional keep/restrict files; `snp_identifier` only when a SNP restriction file is supplied | per-chromosome `ann.parquet`, `LD.parquet`, emitted `meta_*.tsv.gz` sidecars |
 | Compute LD scores | `ldsc ldscore` | `LDScoreCalculator`, `run_ldscore()` | annotation shards, PLINK or parquet reference panel, optional frequency metadata | `manifest.json`, `baseline.parquet`, optional `query.parquet` under `output_dir` |
 | Infer `chr_pos` genome build | workflow flags only: `--genome-build auto`; no standalone CLI command | `infer_chr_pos_build()`, `resolve_chr_pos_table()` | pandas table with `CHR` and `POS`; optional reference table | `ChrPosBuildInference`, and optionally a normalized 1-based table |
-| Munge GWAS summary statistics | `ldsc munge-sumstats` | `SumstatsMunger`, `load_sumstats()` | raw sumstats, column hints, QC thresholds | `sumstats.sumstats.gz`, `sumstats.log` |
-| Estimate heritability | `ldsc h2` | `RegressionRunner.estimate_h2()` | munged `.sumstats.gz`, LD-score files, count vector | `h2.tsv` |
-| Estimate partitioned heritability | `ldsc partitioned-h2` | `RegressionRunner.estimate_partitioned_h2_batch()` | munged `.sumstats.gz`, LD-score files, count vector, annotation manifest | `partitioned_h2.tsv` |
-| Estimate genetic correlation | `ldsc rg` | `RegressionRunner.estimate_rg()` | two munged `.sumstats.gz` files, LD-score files, count vector | `rg.tsv` |
+| Munge GWAS summary statistics | `ldsc munge-sumstats` | `SumstatsMunger`, `load_sumstats()` | raw sumstats, column hints, QC thresholds, optional `--chr`/`--pos`, `--genome-build auto` | `sumstats.sumstats.gz`, `sumstats.log`, `sumstats.metadata.json` |
+| Estimate heritability | `ldsc h2` | `RegressionRunner.estimate_h2()` | munged `.sumstats.gz` plus sidecar when available, LD-score directory | `h2.tsv` |
+| Estimate partitioned heritability | `ldsc partitioned-h2` | `RegressionRunner.estimate_partitioned_h2_batch()` | munged `.sumstats.gz` plus sidecar when available, LD-score directory | `partitioned_h2.tsv` |
+| Estimate genetic correlation | `ldsc rg` | `RegressionRunner.estimate_rg()` | two munged `.sumstats.gz` files plus sidecars when available, LD-score directory | `rg.tsv` |
 
 ## Public Classes And Result Types
 
@@ -50,7 +50,7 @@ This document summarizes the public package surface. For workflow-level file str
 | `ReferencePanelBuildResult` | summary of parquet panel artifacts written by one build |
 | `ChromLDScoreResult` | one chromosome’s LD-score and weight tables, plus `config_snapshot` provenance |
 | `LDScoreResult` | aggregated cross-chromosome LD-score artifacts, plus `config_snapshot` provenance |
-| `SumstatsTable` | validated LDSC-ready summary-statistics table, plus known or unknown `config_snapshot` provenance |
+| `SumstatsTable` | validated LDSC-ready summary-statistics table with canonical `SNP`, `CHR`, `POS`, `Z`, and `N` when available, plus known or unknown `config_snapshot` provenance |
 | `MungeRunSummary` | compact record of a munging run |
 | `RegressionDataset` | merged sumstats plus LD-score matrix used by the estimator, plus propagated provenance when available |
 | `ChrPosBuildInference` | genome-build and coordinate-basis decision returned by `infer_chr_pos_build()` and `resolve_chr_pos_table()` |
@@ -76,6 +76,8 @@ This document summarizes the public package surface. For workflow-level file str
 - `--overwrite` only permits replacement of the known files for the active
   workflow; it does not remove unrelated files from the output directory.
 - Raw user-authored inputs use permissive alias resolution through `column_inference.py`.
+- Raw sumstats may begin with `##` metadata/comment lines; these are skipped before header inference, so `#CHROM` remains available as the chromosome header.
+- Package-written sumstats artifacts include canonical `CHR` and `POS` columns. They are populated from inferred or explicitly flagged raw columns and filled as missing when the raw file lacks coordinates.
 - Package-written artifacts use stricter internal headers so downstream workflows reload them deterministically.
 
 ## Public Import Boundary

@@ -121,6 +121,8 @@ source-build genetic map because the map defines the LD window.
 | `--sumstats-path` | input | yes | raw summary-statistics file | Exact path or exact-one glob. |
 | `--merge-alleles-path` | input | no | allele merge file | Exact path or exact-one glob. |
 | `--output-dir` | output | yes | munged output directory | Internally uses `<output_dir>/sumstats` as the legacy kernel stem. |
+| `--chr`, `--pos` | input metadata | no | raw column hints | Explicit chromosome and base-pair position columns; common aliases such as `#CHROM`, `CHROM`, `CHR`, `POS`, and `BP` are also inferred. |
+| `--snp-identifier`, `--genome-build` | config | no | provenance | Recorded in `sumstats.metadata.json`; `--genome-build auto` can infer hg19/hg38 for complete `CHR`/`POS` rows. |
 
 Removed flags: `--sumstats`, `--merge-alleles`, `--out`.
 
@@ -129,6 +131,7 @@ Fixed output names:
 ```text
 <output_dir>/sumstats.sumstats.gz
 <output_dir>/sumstats.log
+<output_dir>/sumstats.metadata.json
 ```
 
 ### `ldsc h2`
@@ -252,11 +255,11 @@ Removed Python names: legacy separate source-path object field,
 Removed Python/public argparse names: `sumstats`, `sumstats_1`, `sumstats_2`,
 `out`, `ldscore`, `counts`, `w_ld`, `annotation_manifest`, `query_columns`.
 
-Future work: curated `.sumstats.gz` artifacts currently provide the legacy
-regression key `SNP` but do not preserve a reliable `CHR`/`BP` coordinate
-contract. A future munging expansion could retain normalized coordinates and
-genome-build provenance, enabling coordinate-based regression matching in
-addition to the current literal `SNP` merge.
+Current curated `.sumstats.gz` artifacts provide canonical `SNP`, `CHR`, `POS`,
+`Z`, and `N` fields when written by `ldsc munge-sumstats`, plus a neighboring
+metadata sidecar with the effective `snp_identifier` and `genome_build`.
+Regression therefore merges on literal `SNP` in `rsid` mode and on normalized
+`CHR:POS` coordinates in `chr_pos` mode.
 
 ## Remaining Implementation Checklist
 

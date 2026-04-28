@@ -29,8 +29,10 @@ described in [config-design.md](config-design.md).
 - `RegressionDataset.config_snapshot` is propagated from the input
   `LDScoreResult` when present. The implementation does not synthesize a new
   snapshot from the current runner config when upstream provenance is missing.
-- `load_sumstats()` cannot recover original munge-time config from disk, so it
-  warns and leaves `config_snapshot=None`.
+- `load_sumstats()` recovers original munge-time config from
+  `sumstats.metadata.json` sidecars written by the current munger. Older
+  artifacts without that sidecar still warn and load with
+  `config_snapshot=None`.
 - `load_ldscore_from_dir()` warns and leaves `config_snapshot=None` when a
   legacy or malformed manifest lacks usable config provenance.
 
@@ -46,5 +48,5 @@ described in [config-design.md](config-design.md).
   Covers LD-score runtime mismatch detection for `AnnotationBundle` vs active
   `GlobalConfig`.
 - `tests/test_sumstats_munger.py`
-  Covers `config_snapshot` propagation during munging and the
-  `load_sumstats()` provenance warning.
+  Covers `config_snapshot` propagation during munging, metadata sidecar reload,
+  and the `load_sumstats()` provenance warning for legacy artifacts.

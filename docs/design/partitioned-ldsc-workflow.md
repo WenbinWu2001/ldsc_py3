@@ -96,6 +96,13 @@ Regression commands still read munged summary statistics:
 - `ldsc partitioned-h2 --sumstats-path <file>`
 - `ldsc rg --sumstats-1-path <file> --sumstats-2-path <file>`
 
+Current `ldsc munge-sumstats` outputs include canonical `CHR` and `POS` columns
+beside `SNP`, `Z`, and `N`, and write `sumstats.metadata.json` beside the table.
+The sidecar stores the effective `snp_identifier` and `genome_build`, including
+auto-inferred build details for `chr_pos` runs. Older `.sumstats.gz` files
+without the sidecar still load, but their config provenance is treated as
+unknown.
+
 ## 4. SNP Universes
 
 The LD-score phase tracks these SNP sets:
@@ -134,6 +141,9 @@ that case.
 
 `h2` and `rg` use baseline LD scores only, even when `query.parquet` exists.
 They also use the embedded `regr_weight` column from `baseline.parquet`.
+When the effective identifier mode is `rsid`, regression merges on `SNP`. When
+it is `chr_pos`, regression builds a normalized private `CHR:POS` key from both
+the sumstats and LD-score tables and merges on that coordinate key.
 
 `partitioned-h2` reads both tables and loops over query columns. For each query
 column, it builds a regression dataset with:

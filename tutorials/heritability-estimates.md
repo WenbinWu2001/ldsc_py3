@@ -41,8 +41,8 @@ from ldsc import (
 )
 
 GLOBAL_CONFIG = GlobalConfig(
-    snp_identifier="rsid",
-    genome_build="hg38",
+    snp_identifier="chr_pos",
+    genome_build="auto",
 )
 set_global_config(GLOBAL_CONFIG)
 
@@ -50,7 +50,16 @@ sumstats = SumstatsMunger().run(
     MungeConfig(
         sumstats_path="data/trait*.tsv.gz",
         trait_name="trait",
-        column_hints={"snp": "SNP", "a1": "A1", "a2": "A2", "p": "P", "N_col": "N"},
+        column_hints={
+            "snp": "ID",
+            "chr": "#CHROM",
+            "pos": "POS",
+            "a1": "EA",
+            "a2": "NEA",
+            "p": "PVAL",
+            "N_col": "NEFF",
+            "info": "IMPINFO",
+        },
         output_dir="tutorial_outputs/trait",
         signed_sumstats_spec="BETA,0",
         # overwrite=True,  # enable only when intentionally replacing sumstats/log files
@@ -59,8 +68,8 @@ sumstats = SumstatsMunger().run(
 )
 
 # If you already have a curated .sumstats.gz artifact on disk, load it directly.
-# The loaded table will warn and use config_snapshot=None because the original
-# munge-time GlobalConfig is not recoverable from disk.
+# Current artifacts recover config_snapshot from sumstats.metadata.json. Older
+# files without that sidecar warn and use config_snapshot=None.
 # sumstats = load_sumstats("tutorial_outputs/trait/sumstats.sumstats.gz", trait_name="trait")
 
 ldscore_result = run_ldscore(
@@ -86,7 +95,13 @@ print("sumstats_config =", sumstats.config_snapshot)
 print("dataset_config =", dataset.config_snapshot)
 ```
 
-`SumstatsMunger` captures `GlobalConfig` provenance into `SumstatsTable.config_snapshot`, and `RegressionRunner.build_dataset()` checks that known sumstats and LD-score snapshots agree on critical settings such as `snp_identifier` and `genome_build`. If both snapshots are known and incompatible, the workflow raises `ConfigMismatchError` instead of silently merging inconsistent artifacts. Sumstats loaded from an existing `.sumstats.gz` file have `config_snapshot=None`, so regression treats their config provenance as unknown and validates the LD-score side only.
+`SumstatsMunger` captures `GlobalConfig` provenance into `SumstatsTable.config_snapshot` and writes the same settings to `sumstats.metadata.json`. `RegressionRunner.build_dataset()` checks that known sumstats and LD-score snapshots agree on critical settings such as `snp_identifier` and `genome_build`. If both snapshots are known and incompatible, the workflow raises `ConfigMismatchError` instead of silently merging inconsistent artifacts. Sumstats loaded from current `.sumstats.gz` artifacts recover that snapshot from the sidecar; older files without the sidecar have `config_snapshot=None`, so regression treats their config provenance as unknown and validates the LD-score side only.
+
+In `chr_pos` mode, regression merges sumstats and LD scores by normalized `CHR:POS`
+coordinates. The raw munger accepts common coordinate headers such as `#CHROM`,
+`CHROM`, `CHR`, `POS`, and `BP`; use `--chr` and `--pos` or `column_hints` when
+the header is ambiguous. Leading raw `##` metadata lines are skipped before the
+real header is parsed.
 
 When you set `regression_snps_path` during LD-score calculation, the same regression SNP subset defines the rows of the normalized `baseline_table`. Regression weights come from the embedded `regr_weight` column by default.
 
@@ -98,12 +113,17 @@ The regression CLI reads the canonical LD-score result directory written by
 ```bash
 ldsc munge-sumstats \
   --sumstats-path "data/trait*.tsv.gz" \
-  --snp SNP \
-  --a1 A1 \
-  --a2 A2 \
-  --p P \
-  --N-col N \
+  --snp ID \
+  --chr '#CHROM' \
+  --pos POS \
+  --a1 EA \
+  --a2 NEA \
+  --p PVAL \
+  --N-col NEFF \
+  --info IMPINFO \
   --signed-sumstats BETA,0 \
+  --snp-identifier chr_pos \
+  --genome-build auto \
   --output-dir tutorial_outputs/trait
 
 ldsc h2 \
@@ -114,6 +134,6 @@ ldsc h2 \
 ```
 
 The command writes `tutorial_outputs/trait_h2/h2.tsv`.
-If `sumstats.sumstats.gz`, `sumstats.log`, or `h2.tsv` already exists from a
-previous run, the relevant command fails before writing. Add `--overwrite` only
-for an intentional rerun.
+If `sumstats.sumstats.gz`, `sumstats.log`, `sumstats.metadata.json`, or `h2.tsv`
+already exists from a previous run, the relevant command fails before writing.
+Add `--overwrite` only for an intentional rerun.

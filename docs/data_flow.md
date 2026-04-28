@@ -241,17 +241,18 @@ flowchart LR
 
 ## 4. `munge-sumstats`: Raw GWAS Table To Curated `.sumstats.gz`
 
-The munging workflow preflights both fixed outputs, `sumstats.sumstats.gz` and
-`sumstats.log`, before invoking the legacy munging kernel. This avoids a long
-run partially replacing one output while leaving the other from an earlier run.
+The munging workflow preflights the fixed outputs `sumstats.sumstats.gz`,
+`sumstats.log`, and `sumstats.metadata.json` before invoking the legacy munging
+kernel. This avoids a long run partially replacing one output while leaving the
+others from an earlier run.
 
 ### Required inputs
 
 | File | Example | Notes |
 | --- | --- | --- |
-| raw sumstats | `SNP A1 A2 P BETA N`<br/>`rs1 A G 0.05 0.10 1000` | header aliases are normalized in the workflow layer |
+| raw sumstats | `#CHROM POS ID EA NEA PVAL BETA NEFF`<br/>`1 754182 rs3131969 A G 0.46 0.004 829249.58` | leading `##` metadata lines are skipped; header aliases are normalized in the workflow layer |
 | merge-alleles file, optional | one SNP or allele pair per row | optional legacy compatibility filter |
-| column hints, optional | `--snp SNP --a1 A1 --a2 A2` | useful when headers are ambiguous |
+| column hints, optional | `--snp ID --chr '#CHROM' --pos POS --a1 EA --a2 NEA` | useful when headers are ambiguous; `CHR` and `POS` also infer from common aliases |
 
 ### Flow
 
@@ -262,7 +263,7 @@ flowchart LR
 
   subgraph P4[Preprocessing (public)<br/>config + path_resolution + column_inference]
     D1[Resolve one raw file]
-    D2[Normalize header aliases]
+    D2[Skip leading ## lines<br/>Normalize header aliases]
   end
 
   subgraph W4[Workflow (public)<br/>ldsc.sumstats_munger]
@@ -272,20 +273,21 @@ flowchart LR
 
   subgraph K4[Kernel (private)<br/>ldsc._kernel.sumstats_munger]
     D5[QC and infer columns]
-    D6[Compute Z and N fields]
+    D6[Compute Z/N<br/>Finalize CHR/POS]
   end
 
   I1 --> D1 --> D2 --> D3 --> D5 --> D6 --> D4
   I2 --> D2
-  D4 --> O4[sumstats.sumstats.gz + sumstats.log]
+  D4 --> O4[sumstats.sumstats.gz + sumstats.log + metadata JSON]
 ```
 
 ### Outputs
 
 | File | Example | Notes |
 | --- | --- | --- |
-| curated sumstats | `SNP A1 A2 Z N`<br/>`rs1 A G 1.96 1000` | written as `sumstats.sumstats.gz` under `output_dir`; optional `FRQ` may also be present |
+| curated sumstats | `SNP CHR POS A1 A2 Z N`<br/>`rs3131969 1 754182 A G 0.74 829249.58` | written as `sumstats.sumstats.gz` under `output_dir`; `CHR`/`POS` are present and may be missing when absent from raw input; optional `FRQ` may also be present |
 | log file | plain-text QC log | written as `sumstats.log` under `output_dir` |
+| metadata sidecar | JSON with `snp_identifier`, `genome_build`, coordinate columns, and build-inference details | written as `sumstats.metadata.json` under `output_dir`; used by `load_sumstats()` to recover config provenance |
 
 ### Modules used
 
@@ -304,7 +306,7 @@ the new table is written unless the command includes `--overwrite`.
 
 | File | Example | Notes |
 | --- | --- | --- |
-| munged sumstats | `SNP A1 A2 Z N`<br/>`rs1 A G 1.96 1000` | one file for `h2` and `partitioned-h2`, two files for `rg`; disk-loaded config provenance is unknown |
+| munged sumstats | `SNP CHR POS A1 A2 Z N`<br/>`rs1 1 754182 A G 1.96 1000` | one file for `h2` and `partitioned-h2`, two files for `rg`; a neighboring `sumstats.metadata.json` recovers config provenance when present |
 | LD-score directory | `manifest.json`, `baseline.parquet`, optional `query.parquet` | produced by the LD-score workflow and supplied as `ldscore_dir`; legacy directories without manifest config provenance load with a warning |
 
 ### Flow
@@ -321,7 +323,7 @@ flowchart LR
 
   subgraph W5[Workflow (public)<br/>ldsc.regression_runner]
     E3[Rebuild LDScoreResult]
-    E4[Merge on literal SNP]
+    E4[Merge on SNP or CHR:POS]
     E5[Drop zero-variance columns]
   end
 

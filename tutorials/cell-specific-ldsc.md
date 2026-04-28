@@ -72,8 +72,9 @@ ldscore_result = LDScoreCalculator().run(
     ),
 )
 
-# Disk-loaded sumstats warn and use config_snapshot=None because the original
-# munge-time GlobalConfig is not stored in the .sumstats.gz artifact.
+# Current disk-loaded sumstats recover config_snapshot from
+# sumstats.metadata.json. Older artifacts without that sidecar warn and use
+# config_snapshot=None.
 sumstats = load_sumstats("tutorial_outputs/trait/sumstats.sumstats.gz", trait_name="trait")
 
 runner = RegressionRunner(
@@ -94,9 +95,10 @@ print(cell_specific)
 `annotation_bundle.query_columns` are derived from the query annotation files. For BED inputs, the column names come from the BED basenames after normalization.
 
 The LD-score result and annotation bundle retain known `GlobalConfig`
-snapshots. The disk-loaded sumstats table has unknown config provenance, so
-regression proceeds by merging on the literal `SNP` column and validating only
-the LD-score provenance it can actually recover.
+snapshots. Current disk-loaded sumstats recover the same provenance from
+`sumstats.metadata.json`. If an older sumstats artifact lacks that sidecar,
+regression treats the sumstats provenance as unknown. With `snp_identifier="chr_pos"`,
+the merge uses normalized `CHR:POS` coordinates rather than rsIDs.
 
 ## CLI
 

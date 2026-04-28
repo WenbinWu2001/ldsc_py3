@@ -67,7 +67,10 @@ class SumstatsTable:
     Parameters
     ----------
     data : pandas.DataFrame
-        Munged table containing at least ``SNP``, ``Z``, and ``N``.
+        Munged table containing at least ``SNP``, ``Z``, and ``N``. Current
+        package-written artifacts also include canonical ``CHR`` and ``POS``
+        columns, filled with missing values when the raw input had no
+        coordinates.
     has_alleles : bool
         Whether allele columns are expected to be present and validated.
     source_path : str or None
@@ -78,9 +81,10 @@ class SumstatsTable:
         Lightweight run metadata retained for debugging and output summaries.
         Default is an empty dict.
     config_snapshot : GlobalConfig or None, optional
-        Shared configuration captured when the table was produced in-process.
-        Disk-loaded curated artifacts use ``None`` because their original
-        munge-time configuration is not recoverable from the file format.
+        Shared configuration captured when the table was produced in-process or
+        recovered from a neighboring ``sumstats.metadata.json`` sidecar. Legacy
+        disk artifacts without that sidecar use ``None`` because their original
+        munge-time configuration is not recoverable from the table alone.
     """
     data: pd.DataFrame
     has_alleles: bool
@@ -164,9 +168,9 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
     -------
     SumstatsTable
         Validated in-memory table with canonical LDSC columns such as ``SNP``,
-        ``N``, and ``Z``. When a ``*.metadata.json`` sidecar is present next to
-        the artifact, the returned table also recovers its munge-time
-        ``GlobalConfig`` snapshot.
+        ``CHR``, ``POS``, ``N``, and ``Z`` when present in the artifact. When a
+        ``*.metadata.json`` sidecar is present next to the artifact, the
+        returned table also recovers its munge-time ``GlobalConfig`` snapshot.
 
     Raises
     ------
@@ -179,7 +183,8 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
     This loader emits a warning before returning an unknown-provenance table
     only when the metadata sidecar is absent. Regression compatibility
     validation is skipped for that sumstats side unless the caller supplies a
-    table produced in-process by :meth:`SumstatsMunger.run`.
+    table produced in-process by :meth:`SumstatsMunger.run` or a disk artifact
+    with a valid sidecar.
     """
     resolved = resolve_scalar_path(path, label="munged sumstats")
     df = _read_curated_sumstats_artifact(resolved)
@@ -248,8 +253,10 @@ class SumstatsMunger:
         -------
         SumstatsTable
             Validated, in-memory table suitable for the regression workflow.
-            The table preserves the active ``GlobalConfig`` snapshot so
-            downstream regression can detect incompatible LD-score results.
+            The table includes canonical ``CHR`` and ``POS`` columns, preserves
+            the active or inferred ``GlobalConfig`` snapshot, and writes the
+            same provenance into ``sumstats.metadata.json`` so downstream
+            regression can detect incompatible LD-score results after reload.
             Output paths for the corresponding disk artifacts are available
             through :meth:`build_run_summary`.
         """
@@ -467,11 +474,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _count_data_rows(path: str) -> int:
-    """Count non-header rows in an input summary-statistics file."""
+    """Count raw data rows after leading ``##`` metadata lines and the header."""
     openfunc, _compression = kernel_munge.get_compression(path)
+    skiprows = kernel_munge.count_leading_sumstats_comment_lines(path)
     with openfunc(path) as handle:
         count = sum(1 for _ in handle)
-    return max(count - 1, 0)
+    return max(count - skiprows - 1, 0)
 
 
 def _infer_used_n_rule(args: argparse.Namespace) -> str:

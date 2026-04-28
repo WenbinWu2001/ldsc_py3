@@ -262,7 +262,8 @@ class SumstatsMungerTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            table = SumstatsMunger().run(
+            munger = SumstatsMunger()
+            table = munger.run(
                 MungeConfig(sumstats_path=raw_path, trait_name="trait"),
                 MungeConfig(output_dir=tmpdir / "munged"),
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
@@ -271,6 +272,7 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(table.data["SNP"].tolist(), ["rs2073813"])
             self.assertEqual(table.data["CHR"].tolist(), ["1"])
             self.assertEqual(table.data["POS"].tolist(), [753541])
+            self.assertEqual(munger.build_run_summary(table).n_input_rows, 1)
 
     def test_run_accepts_chrom_and_bp_aliases_for_coordinates(self):
         with tempfile.TemporaryDirectory() as tmpdir:

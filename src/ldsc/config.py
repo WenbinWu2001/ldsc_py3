@@ -459,12 +459,15 @@ class MungeConfig:
 
     This dataclass preserves the established LDSC munging behavior while
     exposing the options through an explicit Python object rather than a script
-    namespace.
+    namespace. Coordinate hints for ``CHR`` and ``POS`` may be supplied through
+    ``column_hints``; when omitted, the shared column-inference registry accepts
+    common aliases such as ``#CHROM``, ``CHROM``, ``CHR``, ``POS``, and ``BP``.
 
     Parameters
     ----------
     output_dir : str or os.PathLike[str]
-        Directory that receives ``sumstats.sumstats.gz`` and ``sumstats.log``.
+        Directory that receives ``sumstats.sumstats.gz``, ``sumstats.log``, and
+        ``sumstats.metadata.json``.
     N, N_cas, N_con : float or None, optional
         Sample-size overrides forwarded to the munging kernel. Defaults are
         ``None``.

@@ -303,9 +303,9 @@ How they are handled:
 
 Output:
 
-- `ldsc munge-sumstats` writes `sumstats.sumstats.gz` and `sumstats.log` under
-  `output_dir`; existing files are refused unless `--overwrite` or
-  `MungeConfig(overwrite=True)` is supplied.
+- `ldsc munge-sumstats` writes `sumstats.sumstats.gz`, `sumstats.log`, and
+  `sumstats.metadata.json` under `output_dir`; existing files are refused
+  unless `--overwrite` or `MungeConfig(overwrite=True)` is supplied.
 - `ldsc h2`, `ldsc partitioned-h2`, and `ldsc rg` write `h2.tsv`,
   `partitioned_h2.tsv`, and `rg.tsv`, respectively, when `output_dir` is
   provided; existing files are refused unless `--overwrite` is supplied.
@@ -317,7 +317,11 @@ Output:
 The package makes a limited amount of automatic inference after path resolution:
 
 - column alias inference
-  Example: `BP` may be accepted as `POS`
+  Example: `#CHROM` and `CHROM` may be accepted as `CHR`; `BP` may be accepted
+  as `POS`
+- raw sumstats metadata-line skipping
+  Example: leading `##` lines are skipped before parsing the real header, while
+  `#CHROM` remains a valid header column
 - chromosome normalization
   Example: `chr1` may be normalized to `1`
 - genome-build and coordinate-basis inference for `chr_pos` tables when a

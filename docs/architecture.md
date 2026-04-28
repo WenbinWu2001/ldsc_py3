@@ -90,11 +90,11 @@ This module orchestrates chromosome-wise LD-score computation. It resolves annot
 
 ### `ldsc.sumstats_munger`
 
-This module wraps the historical munging behavior in typed public objects such as `MungeConfig`, `SumstatsTable`, and `SumstatsMunger`. It keeps raw-input parsing flexible but reloads curated `.sumstats(.gz)` artifacts through stricter internal column contracts. Public interface: downstream workflows should consume `SumstatsTable` or curated `.sumstats.gz`, not raw heterogeneous GWAS tables.
+This module wraps the historical munging behavior in typed public objects such as `MungeConfig`, `SumstatsTable`, and `SumstatsMunger`. It keeps raw-input parsing flexible, skips leading `##` raw metadata lines, writes canonical `CHR` and `POS` columns alongside `SNP`, `Z`, and `N`, and persists `snp_identifier`/`genome_build` provenance in `sumstats.metadata.json`. Public interface: downstream workflows should consume `SumstatsTable` or curated `.sumstats.gz` plus its sidecar, not raw heterogeneous GWAS tables.
 
 ### `ldsc.regression_runner`
 
-This module rebuilds an `LDScoreResult` from on-disk artifacts, merges it with munged sumstats, drops zero-variance LD-score columns, and dispatches to the regression kernel for `h2`, partitioned `h2`, and `rg`. Architecture invariant: regression only consumes aggregated LD-score artifacts; it does not recompute LD scores.
+This module rebuilds an `LDScoreResult` from on-disk artifacts, merges it with munged sumstats, drops zero-variance LD-score columns, and dispatches to the regression kernel for `h2`, partitioned `h2`, and `rg`. In `rsid` mode the merge uses `SNP`; in `chr_pos` mode it builds a private normalized `CHR:POS` key from sumstats and LD-score coordinates. Architecture invariant: regression only consumes aggregated LD-score artifacts; it does not recompute LD scores.
 
 ### `ldsc.outputs`
 
@@ -112,8 +112,8 @@ The kernel layer contains the actual numerical methods and low-level readers. It
 ## Cross-Cutting Concerns
 
 - **Input token language**: public inputs accept exact paths, globs, `@` chromosome suites, and some legacy bare prefixes. Output paths are normalized but remain literal destinations.
-- **Column and identifier normalization**: `column_inference.py` is the single source of truth for raw-input aliases, internal artifact headers, SNP identifier modes, and genome-build aliases. `genome_build_inference.py` owns automatic hg19/hg38 and 0-based/1-based inference for `chr_pos` tables.
-- **Artifact compatibility**: Public downstream chaining uses `.annot.gz`, `.sumstats.gz`, and canonical LD-score result directories. Legacy `.l2.ldscore(.gz)`, `.l2.M`, `.l2.M_5_50`, and separate `.w.l2.ldscore(.gz)` files remain internal/legacy file-format concerns, not the public LD-score writer contract.
+- **Column and identifier normalization**: `column_inference.py` is the single source of truth for raw-input aliases, including `#CHROM`/`CHROM` as `CHR`, internal artifact headers, SNP identifier modes, and genome-build aliases. `genome_build_inference.py` owns automatic hg19/hg38 and 0-based/1-based inference for `chr_pos` tables.
+- **Artifact compatibility**: Public downstream chaining uses `.annot.gz`, `.sumstats.gz` with optional `sumstats.metadata.json`, and canonical LD-score result directories. Legacy `.l2.ldscore(.gz)`, `.l2.M`, `.l2.M_5_50`, and separate `.w.l2.ldscore(.gz)` files remain internal/legacy file-format concerns, not the public LD-score writer contract.
 - **Output collision handling**: output directories are literal destinations.
   Missing directories are created, existing directories are reused, and fixed
   output files are checked before writing. By default an existing artifact

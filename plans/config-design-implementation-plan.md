@@ -413,7 +413,9 @@ snapshot mismatches the active `global_config`.
 
 **T7.** `None` snapshots do not cause crashes (backward-compat guard).
 
-**T8.** `load_sumstats()` emits a `UserWarning` about unknown provenance.
+**T8.** `load_sumstats()` recovers provenance from a current
+`sumstats.metadata.json` sidecar and emits a `UserWarning` only when the sidecar
+is absent or unusable.
 
 ---
 

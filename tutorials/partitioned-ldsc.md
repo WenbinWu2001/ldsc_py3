@@ -82,7 +82,16 @@ sumstats = SumstatsMunger().run(
     MungeConfig(
         sumstats_path="data/trait.tsv.gz",
         trait_name="trait",
-        column_hints={"snp": "SNP", "a1": "A1", "a2": "A2", "p": "P", "N_col": "N"},
+        column_hints={
+            "snp": "ID",
+            "chr": "#CHROM",
+            "pos": "POS",
+            "a1": "EA",
+            "a2": "NEA",
+            "p": "PVAL",
+            "N_col": "NEFF",
+            "info": "IMPINFO",
+        },
         output_dir="tutorial_outputs/trait",
         signed_sumstats_spec="BETA,0",
         # overwrite=True,  # enable only when intentionally replacing sumstats/log files
@@ -91,8 +100,8 @@ sumstats = SumstatsMunger().run(
 )
 
 # If you already have a curated .sumstats.gz artifact on disk, load it directly.
-# The loader warns and returns config_snapshot=None because the original
-# munge-time GlobalConfig is not recoverable from disk.
+# Current artifacts recover config_snapshot from sumstats.metadata.json. Older
+# files without that sidecar warn and use config_snapshot=None.
 # sumstats = load_sumstats("tutorial_outputs/trait/sumstats.sumstats.gz", trait_name="trait")
 
 ref_panel = RefPanelLoader(GLOBAL_CONFIG).load(
@@ -133,7 +142,14 @@ print(ldscore_result.baseline_table.head())
 print(partitioned)
 ```
 
-The Python workflow registers `GlobalConfig` once, then reuses it across the compatible helper functions and workflow classes. In-process results such as `AnnotationBundle`, `SumstatsTable` from `SumstatsMunger.run()`, and `LDScoreResult` carry frozen `config_snapshot` values, and the regression step raises `ConfigMismatchError` if you accidentally mix known artifacts produced under incompatible `snp_identifier` or `genome_build` assumptions. A `SumstatsTable` loaded from disk has unknown provenance (`config_snapshot=None`) and does not trigger sumstats-side compatibility validation.
+The Python workflow registers `GlobalConfig` once, then reuses it across the compatible helper functions and workflow classes. In-process results such as `AnnotationBundle`, `SumstatsTable` from `SumstatsMunger.run()`, and `LDScoreResult` carry frozen `config_snapshot` values, and the regression step raises `ConfigMismatchError` if you accidentally mix known artifacts produced under incompatible `snp_identifier` or `genome_build` assumptions. A `SumstatsTable` loaded from a current disk artifact recovers this provenance from `sumstats.metadata.json`; older artifacts without the sidecar have unknown provenance (`config_snapshot=None`) and do not trigger sumstats-side compatibility validation.
+
+Munged sumstats written by this workflow include canonical `CHR` and `POS`
+columns. The raw munger accepts common coordinate headers such as `#CHROM`,
+`CHROM`, `CHR`, `POS`, and `BP`, or explicit `--chr`/`--pos` flags. Leading
+raw `##` metadata lines are skipped before the real header is parsed. In
+`chr_pos` mode, downstream regression merges by normalized `CHR:POS` rather
+than by the literal rsID in `SNP`.
 
 Within this design:
 
@@ -176,12 +192,17 @@ and counts from `manifest.json`.
 ```bash
 ldsc munge-sumstats \
   --sumstats-path data/trait.tsv.gz \
-  --snp SNP \
-  --a1 A1 \
-  --a2 A2 \
-  --p P \
-  --N-col N \
+  --snp ID \
+  --chr '#CHROM' \
+  --pos POS \
+  --a1 EA \
+  --a2 NEA \
+  --p PVAL \
+  --N-col NEFF \
+  --info IMPINFO \
   --signed-sumstats BETA,0 \
+  --snp-identifier chr_pos \
+  --genome-build hg19 \
   --output-dir tutorial_outputs/trait
 
 ldsc partitioned-h2 \

@@ -11,8 +11,10 @@ Two implementation details are important to know:
 
 - Compatibility checks run when both inputs carry real snapshots. Legacy objects
   with `config_snapshot=None` are still accepted for backward compatibility.
-- `load_sumstats()` cannot recover the original munge-time config from disk, so
-  it emits a warning and leaves `config_snapshot=None`.
+- Current `ldsc munge-sumstats` writes `sumstats.metadata.json` beside
+  `sumstats.sumstats.gz`; `load_sumstats()` recovers the original munge-time
+  `GlobalConfig` from that sidecar. Older `.sumstats.gz` files without the
+  sidecar still warn and load with `config_snapshot=None`.
 - `load_ldscore_from_dir()` keeps strict format checks but treats missing or
   invalid manifest config provenance as unknown, warning and returning
   `config_snapshot=None`.
@@ -53,9 +55,10 @@ of computation. This snapshot is the authoritative record of what assumptions
 were active when that object was produced.
 
 File-reloaded artifacts may instead use `config_snapshot=None` when the on-disk
-format cannot prove its original settings. For example, `load_sumstats()` warns
-and returns unknown provenance because `.sumstats.gz` does not persist the
-munge-time `GlobalConfig`.
+format cannot prove its original settings. For example, `load_sumstats()` can
+recover provenance from `sumstats.metadata.json` written by the current munger,
+but warns and returns unknown provenance for older `.sumstats.gz` files that do
+not have that sidecar.
 
 This means reproducibility is structural when provenance exists: interrogating a
 result object tells you the frozen config it was computed under, or tells you
@@ -277,11 +280,12 @@ still materially affect the outputs, but callers who need to preserve that
 provenance should persist the `RefPanelConfig` / `LDScoreConfig` they used
 alongside the written artifacts.
 
-**`load_sumstats()` records unknown provenance for disk artifacts.**
-Curated `.sumstats(.gz)` artifacts on disk do not embed the `GlobalConfig` that was
-active when they were munged. The loader therefore emits a warning and leaves
-`config_snapshot=None`. In-process munging through `SumstatsMunger.run()` still
-attaches the real active or explicitly supplied `GlobalConfig` snapshot.
+**`load_sumstats()` recovers provenance for current disk artifacts.**
+Curated `.sumstats(.gz)` artifacts written by the current munger have a
+neighboring `sumstats.metadata.json` sidecar that records the active or inferred
+`GlobalConfig`, including `snp_identifier` and `genome_build`. The loader uses
+that sidecar to populate `config_snapshot`. Older artifacts without the sidecar
+still emit a warning and load with `config_snapshot=None`.
 
 **Legacy LD-score directories may also have unknown provenance.**
 Canonical LD-score directories written by the current workflow include a manifest

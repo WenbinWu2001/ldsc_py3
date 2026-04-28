@@ -38,6 +38,15 @@ Subcommands:
 - `ldsc partitioned-h2`
 - `ldsc rg`
 
+`ldsc munge-sumstats` writes canonical `SNP`, `CHR`, `POS`, `Z`, and `N`
+columns when possible and always includes `CHR`/`POS` in package-written
+artifacts. Raw files may provide chromosome and position columns through common
+aliases such as `#CHROM`, `CHROM`, `CHR`, `POS`, or `BP`, or explicitly through
+`--chr` and `--pos`. Leading `##` metadata/comment lines are skipped before the
+real header is parsed. Each munged run also writes `sumstats.metadata.json`
+beside `sumstats.sumstats.gz` so later regression commands can recover
+`snp_identifier` and `genome_build` provenance.
+
 ## Python API
 
 ```python
@@ -58,7 +67,8 @@ Genome-build inference for `chr_pos` tables is public through the Python API:
 use `infer_chr_pos_build()` when you only need the `hg19`/`hg38` decision, and
 use `resolve_chr_pos_table()` when you also want 0-based inputs converted to
 canonical 1-based coordinates. The CLI exposes this behavior inside workflows
-with `--genome-build auto`; there is no standalone inference subcommand.
+with `--genome-build auto`, including during `munge-sumstats`; there is no
+standalone inference subcommand.
 
 ## Input Path Tokens
 

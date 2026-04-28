@@ -4,15 +4,17 @@ Goal: estimate genetic correlation between two traits from munged summary statis
 
 The regression step expects:
 
-- two curated `.sumstats.gz` files with at least `SNP`, `Z`, and `N`; `A1`/`A2` are recommended so the second trait can be allele-aligned
+- two curated `.sumstats.gz` files with at least `SNP`, `Z`, and `N`; current
+  package-written artifacts also include `CHR` and `POS`, and `A1`/`A2` are
+  recommended so the second trait can be allele-aligned
 - one canonical LD-score result directory containing `manifest.json` and `baseline.parquet`
 
 Use the same `GlobalConfig` assumptions for both traits and the LD-score reference. For cross-trait rg, the LD scores should usually be the baseline, non-cell-specific LD scores used for single-trait h2.
 
 Output directories are literal destinations. Missing directories are created,
 existing directories are reused, and existing fixed files such as
-`sumstats.sumstats.gz`, `sumstats.log`, or `rg.tsv` are refused before writing
-unless you pass `--overwrite` or `overwrite=True`.
+`sumstats.sumstats.gz`, `sumstats.log`, `sumstats.metadata.json`, or `rg.tsv`
+are refused before writing unless you pass `--overwrite` or `overwrite=True`.
 
 ## Python API
 
@@ -61,9 +63,9 @@ trait_2 = SumstatsMunger().run(
     global_config=GLOBAL_CONFIG,
 )
 
-# Option B: load existing curated artifacts instead. Disk-loaded sumstats warn
-# and use config_snapshot=None because the original munge-time GlobalConfig is
-# not stored in the .sumstats.gz artifact.
+# Option B: load existing curated artifacts instead. Current artifacts recover
+# config_snapshot from sumstats.metadata.json. Older artifacts without that
+# sidecar warn and use config_snapshot=None.
 # trait_1 = load_sumstats("tutorial_outputs/trait_1/sumstats.sumstats.gz", trait_name="trait_1")
 # trait_2 = load_sumstats("tutorial_outputs/trait_2/sumstats.sumstats.gz", trait_name="trait_2")
 
@@ -95,9 +97,11 @@ print(summary)
 
 When both traits are produced by `SumstatsMunger.run()` in the same workflow,
 their known `GlobalConfig` snapshots are checked against the LD-score snapshot
-before regression. When traits are loaded from existing `.sumstats.gz` files,
-their config provenance is unknown and regression skips sumstats-side
-compatibility validation rather than fabricating a snapshot.
+before regression. Current disk artifacts recover that snapshot from
+`sumstats.metadata.json`; older `.sumstats.gz` files without the sidecar have
+unknown provenance and skip sumstats-side compatibility validation rather than
+fabricating a snapshot. In `chr_pos` mode, both trait tables and the LD-score
+table merge by normalized `CHR:POS` coordinates.
 
 ## CLI
 

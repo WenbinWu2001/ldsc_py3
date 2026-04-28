@@ -15,6 +15,7 @@ ldsc_py3_restructured/
 │   ├── path_resolution.py
 │   ├── column_inference.py
 │   ├── chromosome_inference.py
+│   ├── genome_build_inference.py
 │   ├── annotation_builder.py
 │   ├── ref_panel_builder.py
 │   ├── ldscore_calculator.py
@@ -29,7 +30,7 @@ ldsc_py3_restructured/
 ## Dependency Direction
 
 - `ldsc.cli` -> public workflow modules
-- public workflow modules -> shared helpers in `config.py`, `path_resolution.py`, `column_inference.py`, `chromosome_inference.py`
+- public workflow modules -> shared helpers in `config.py`, `path_resolution.py`, `column_inference.py`, `chromosome_inference.py`, `genome_build_inference.py`
 - public workflow modules -> private `_kernel` modules
 - `ldsc.outputs` is called from the workflow layer, not from `_kernel`
 - regression reloads written LD-score artifacts; it does not depend on annotation or reference-panel kernels directly
@@ -40,9 +41,10 @@ ldsc_py3_restructured/
 | --- | --- |
 | `ldsc.cli` | unified `ldsc` command and subcommand dispatch |
 | `ldsc.config` | frozen public config dataclasses and basic validation |
-| `ldsc.path_resolution` | normalize path tokens and resolve concrete input files |
+| `ldsc.path_resolution` | normalize path tokens, resolve concrete input files, create output directories, and preflight fixed output paths |
 | `ldsc.column_inference` | resolve header aliases and normalize identifier/build tokens |
 | `ldsc.chromosome_inference` | canonical chromosome normalization and ordering |
+| `ldsc.genome_build_inference` | public `chr_pos` build and coordinate-basis inference helpers |
 | `ldsc.annotation_builder` | public annotation bundle loading and BED projection surface |
 | `ldsc.ref_panel_builder` | parquet reference-panel build workflow |
 | `ldsc.ldscore_calculator` | LD-score orchestration, aggregation, and output routing |
@@ -64,7 +66,9 @@ ldsc_py3_restructured/
 | --- | --- |
 | change CLI flags or subcommand wiring | `src/ldsc/cli.py` |
 | change path-token behavior | `src/ldsc/path_resolution.py` |
+| change output collision policy | `src/ldsc/path_resolution.py`, then the workflow writer that owns the artifact |
 | change header aliases or identifier/build normalization | `src/ldsc/column_inference.py` |
+| change automatic `chr_pos` genome-build inference | `src/ldsc/genome_build_inference.py` |
 | change annotation loading or BED projection | `src/ldsc/annotation_builder.py`, then `src/ldsc/_kernel/annotation.py` |
 | change parquet reference-panel build logic | `src/ldsc/ref_panel_builder.py`, then `src/ldsc/_kernel/ref_panel_builder.py` |
 | change runtime PLINK/parquet reference access | `src/ldsc/_kernel/ref_panel.py` |
@@ -80,6 +84,13 @@ ldsc_py3_restructured/
 - Treat `src/ldsc/` as the only supported Python import surface.
 - Do not add user-facing path discovery to `_kernel`; pass concrete files in.
 - Keep public file contracts for `.annot(.gz)`, `.sumstats.gz`, and canonical LD-score result directories stable unless the change is intentional and coordinated. Legacy `.l2.ldscore(.gz)`, `.w.l2.ldscore(.gz)`, `.l2.M`, and `.l2.M_5_50` files are compatibility concerns rather than the public LD-score output surface.
+- Reuse `ensure_output_paths_available()` for fixed output files. Public
+  workflows should create missing output directories, reuse existing
+  directories, fail on existing known files by default, and require
+  `--overwrite` or `overwrite=True` for replacement.
+- Preflight deterministic output paths before expensive or multi-file writes.
+  This is especially important for `build-ref-panel`, `munge-sumstats`,
+  `annotate`, and summary-table regression commands.
 - Keep regression file-driven: it should be able to rebuild state from written artifacts without recomputing LD scores.
 - Prefer extending shared helpers or the workflow-owned writer over duplicating local parsing or writing logic.
 
@@ -93,4 +104,4 @@ ldsc_py3_restructured/
 | LD-score workflow | `tests/test_ldscore_workflow.py` |
 | sumstats munging | `tests/test_sumstats_munger.py` |
 | regression workflow | `tests/test_regression_workflow.py` |
-| path and config contracts | `tests/test_path_resolution.py`, `tests/test_config_identifiers.py`, `tests/test_column_inference.py` |
+| path and config contracts | `tests/test_path_resolution.py`, `tests/test_config_identifiers.py`, `tests/test_column_inference.py`, `tests/test_genome_build_inference.py` |

@@ -36,6 +36,22 @@ class PackageLayoutTest(unittest.TestCase):
         for name in removed_output_names:
             self.assertFalse(hasattr(ldsc, name), f"{name} should not be a public export")
 
+    def test_top_level_exports_genome_build_inference_api(self):
+        import ldsc
+        from ldsc import ChrPosBuildInference, infer_chr_pos_build, resolve_chr_pos_table
+        from ldsc.genome_build_inference import (
+            ChrPosBuildInference as ModuleChrPosBuildInference,
+            infer_chr_pos_build as module_infer_chr_pos_build,
+            resolve_chr_pos_table as module_resolve_chr_pos_table,
+        )
+
+        self.assertIs(ChrPosBuildInference, ModuleChrPosBuildInference)
+        self.assertIs(infer_chr_pos_build, module_infer_chr_pos_build)
+        self.assertIs(resolve_chr_pos_table, module_resolve_chr_pos_table)
+        self.assertIn("ChrPosBuildInference", ldsc.__all__)
+        self.assertIn("infer_chr_pos_build", ldsc.__all__)
+        self.assertIn("resolve_chr_pos_table", ldsc.__all__)
+
     def test_cli_exposes_expected_subcommands(self):
         from ldsc import cli
 
@@ -47,6 +63,7 @@ class PackageLayoutTest(unittest.TestCase):
             set(subparsers_action.choices),
             {"annotate", "ldscore", "build-ref-panel", "munge-sumstats", "h2", "partitioned-h2", "rg"},
         )
+        self.assertNotIn("infer-build", subparsers_action.choices)
 
     def test_ldscore_subcommand_accepts_unified_path_flags(self):
         from ldsc import cli
@@ -70,6 +87,117 @@ class PackageLayoutTest(unittest.TestCase):
 
         self.assertEqual(args.command, "ldscore")
         self.assertEqual(args.keep_indivs_path, "samples.keep")
+
+    def test_all_output_subcommands_accept_overwrite_flag(self):
+        from ldsc import cli
+
+        parser = cli.build_parser()
+        cases = [
+            [
+                "annotate",
+                "--query-annot-bed-paths",
+                "beds/query.bed",
+                "--baseline-annot-paths",
+                "baseline.1.annot.gz",
+                "--output-dir",
+                "out/annot",
+                "--overwrite",
+            ],
+            [
+                "ldscore",
+                "--output-dir",
+                "out/ldscores",
+                "--baseline-annot-paths",
+                "baseline.annot.gz",
+                "--plink-path",
+                "panel",
+                "--ld-wind-snps",
+                "10",
+                "--overwrite",
+            ],
+            [
+                "build-ref-panel",
+                "--plink-path",
+                "panel.@",
+                "--source-genome-build",
+                "hg38",
+                "--output-dir",
+                "out/panel",
+                "--ld-wind-kb",
+                "10",
+                "--overwrite",
+            ],
+            [
+                "munge-sumstats",
+                "--sumstats-path",
+                "raw.tsv",
+                "--output-dir",
+                "out/trait",
+                "--overwrite",
+            ],
+            [
+                "h2",
+                "--sumstats-path",
+                "trait.sumstats.gz",
+                "--ldscore-dir",
+                "ldscores",
+                "--output-dir",
+                "out/h2",
+                "--overwrite",
+            ],
+            [
+                "partitioned-h2",
+                "--sumstats-path",
+                "trait.sumstats.gz",
+                "--ldscore-dir",
+                "ldscores",
+                "--output-dir",
+                "out/partitioned",
+                "--overwrite",
+            ],
+            [
+                "rg",
+                "--sumstats-1-path",
+                "trait1.sumstats.gz",
+                "--sumstats-2-path",
+                "trait2.sumstats.gz",
+                "--ldscore-dir",
+                "ldscores",
+                "--output-dir",
+                "out/rg",
+                "--overwrite",
+            ],
+        ]
+
+        for argv in cases:
+            with self.subTest(command=argv[0]):
+                args = parser.parse_args(argv)
+                self.assertTrue(args.overwrite)
+
+    def test_ldscore_overwrite_flag_maps_to_output_config(self):
+        from ldsc import cli
+        from ldsc import ldscore_calculator
+
+        parser = cli.build_parser()
+        args = parser.parse_args(
+            [
+                "ldscore",
+                "--output-dir",
+                "out/ldscores",
+                "--baseline-annot-paths",
+                "baseline.annot.gz",
+                "--plink-path",
+                "panel",
+                "--ld-wind-snps",
+                "10",
+                "--overwrite",
+            ]
+        )
+
+        output_config = ldscore_calculator._output_config_from_args(args)
+
+        self.assertEqual(output_config.output_dir, "out/ldscores")
+        self.assertTrue(output_config.overwrite)
 
     def test_ldscore_subcommand_accepts_regression_snps_path(self):
         from ldsc import cli

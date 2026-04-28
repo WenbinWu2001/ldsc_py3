@@ -1,4 +1,22 @@
-"""Genome-build and coordinate-basis inference for ``chr_pos`` inputs."""
+"""Genome-build and coordinate-basis inference for ``chr_pos`` inputs.
+
+Overview
+--------
+This module scores chromosome/position tables against a packaged HapMap3
+reference subset to distinguish hg19 from hg38 and 0-based from 1-based
+coordinates. Use :func:`resolve_chr_pos_table` when loading user-authored
+``CHR``/``POS`` tables that may need coordinate normalization, and use
+:func:`infer_chr_pos_build` when the caller only needs the inferred build and
+basis decision.
+
+Design Notes
+------------
+- Automatic inference is limited to ``chr_pos`` workflows.
+- Returned coordinates are canonical 1-based positions.
+- The top-level ``ldsc`` package re-exports only the stable user-facing API:
+  :class:`ChrPosBuildInference`, :func:`infer_chr_pos_build`, and
+  :func:`resolve_chr_pos_table`.
+"""
 
 from __future__ import annotations
 
@@ -18,6 +36,12 @@ DOMINANCE_THRESHOLD = 0.99
 MIN_INSPECTED_REFERENCE_SNPS = 200
 REFERENCE_RESOURCE_PATH = "data/hm3_chr_pos_reference.tsv.gz"
 
+__all__ = [
+    "ChrPosBuildInference",
+    "infer_chr_pos_build",
+    "resolve_chr_pos_table",
+]
+
 _HYPOTHESIS_ORDER = (
     ("hg19_1based", "hg19", "1-based", "hg19_POS", 0),
     ("hg19_0based", "hg19", "0-based", "hg19_POS", -1),
@@ -28,7 +52,25 @@ _HYPOTHESIS_ORDER = (
 
 @dataclass(frozen=True)
 class ChrPosBuildInference:
-    """Resolved build/basis decision for one ``chr_pos`` input table."""
+    """Resolved build and coordinate-basis decision for one ``chr_pos`` table.
+
+    Attributes
+    ----------
+    genome_build : {"hg19", "hg38"}
+        Inferred genome build.
+    coordinate_basis : {"1-based", "0-based"}
+        Inferred coordinate basis of the input table before normalization.
+    inspected_snp_count : int
+        Number of uniquely informative reference SNPs used for scoring.
+    match_counts : dict of str to int
+        Counts for each tested hypothesis: ``hg19_1based``, ``hg19_0based``,
+        ``hg38_1based``, and ``hg38_0based``.
+    match_fractions : dict of str to float
+        Fractions corresponding to ``match_counts`` over
+        ``inspected_snp_count``.
+    summary_message : str
+        Human-readable message suitable for workflow logs.
+    """
 
     genome_build: str
     coordinate_basis: str
@@ -68,11 +110,46 @@ def resolve_chr_pos_table(
     logger=None,
 ) -> tuple[pd.DataFrame, ChrPosBuildInference]:
     """
-    Infer genome build and coordinate basis for a ``CHR``/``POS`` table.
+    Infer and normalize the genome build for a ``CHR``/``POS`` table.
 
-    The returned frame preserves the input columns but normalizes ``CHR`` to the
+    The returned frame preserves the input columns while normalizing ``CHR`` to
     package-wide canonical labels. When the inferred basis is ``0-based``, the
     returned ``POS`` values are shifted to canonical 1-based coordinates.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Input table with literal ``CHR`` and ``POS`` columns. ``CHR`` values may
+        use package-supported chromosome spellings such as ``"chr1"`` or ``1``.
+        ``POS`` values must be numeric after pandas conversion.
+    context : str
+        Label used in errors and log messages.
+    reference_table : pandas.DataFrame, optional
+        Optional reference table with ``CHR``, ``hg19_POS``, and ``hg38_POS``.
+        If omitted, the packaged HapMap3 reference subset is used.
+    logger : logging.Logger-like, optional
+        Logger receiving the inference summary. A warning is emitted when
+        0-based coordinates are converted; otherwise an info message is emitted.
+
+    Returns
+    -------
+    normalized : pandas.DataFrame
+        Copy of ``df`` with canonical ``CHR`` values and 1-based integer ``POS``
+        values.
+    inference : ChrPosBuildInference
+        Build/basis decision and hypothesis support counts.
+
+    Raises
+    ------
+    ValueError
+        If ``df`` lacks ``CHR``/``POS`` columns, has insufficient overlap with
+        the reference table, or cannot be assigned to one build/basis hypothesis
+        with the required confidence.
+
+    See Also
+    --------
+    infer_chr_pos_build : Infer the build and coordinate basis without
+        returning a normalized copy of the input table.
     """
     if not {"CHR", "POS"}.issubset(df.columns):
         raise ValueError(f"{context} must contain CHR and POS columns for auto genome-build inference.")
@@ -102,7 +179,43 @@ def infer_chr_pos_build(
     context: str,
     reference_table: pd.DataFrame | None = None,
 ) -> ChrPosBuildInference:
-    """Infer build/basis from an already-normalized ``CHR``/``POS`` table."""
+    """
+    Infer the genome build and coordinate basis of a ``CHR``/``POS`` table.
+
+    The input ``CHR`` labels should already match the package canonical
+    chromosome labels used by the reference table. For user-authored files where
+    chromosome normalization or 0-based coordinate conversion is desired, call
+    :func:`resolve_chr_pos_table` instead.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Table with literal ``CHR`` and ``POS`` columns. Rows are deduplicated by
+        ``(CHR, POS)`` before scoring, and negative positions are ignored.
+    context : str
+        Label used in error messages.
+    reference_table : pandas.DataFrame, optional
+        Optional reference table with ``CHR``, ``hg19_POS``, and ``hg38_POS``.
+        If omitted, the packaged HapMap3 reference subset is used.
+
+    Returns
+    -------
+    inference : ChrPosBuildInference
+        Inferred build, coordinate basis, support counts, support fractions, and
+        log-ready summary text.
+
+    Raises
+    ------
+    ValueError
+        If fewer than ``MIN_INSPECTED_REFERENCE_SNPS`` informative reference
+        SNPs are observed, or if the best hypothesis does not meet
+        ``DOMINANCE_THRESHOLD``.
+
+    See Also
+    --------
+    resolve_chr_pos_table : Infer the build and return a normalized 1-based
+        coordinate table.
+    """
     reference = load_packaged_reference_table() if reference_table is None else reference_table.copy()
     keys = _input_keys(df)
     hypothesis_sets = _build_hypothesis_sets(reference)

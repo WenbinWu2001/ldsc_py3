@@ -208,6 +208,35 @@ class AnnotationBuilderTest(unittest.TestCase):
             self.assertEqual(captured["annotation_names"], ["query"])
             self.assertEqual(captured["masks"], [[True, False]])
 
+    def test_project_bed_annotations_refuses_existing_output_before_writing(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            output_dir = tmpdir / "out"
+            output_dir.mkdir()
+            existing = output_dir / "query.1.annot.gz"
+            existing.write_text("existing\n", encoding="utf-8")
+            bundle = kernel_annotation.AnnotationBundle(
+                metadata=pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs1"], "CM": [0.1]}),
+                baseline_annotations=pd.DataFrame({"base": [1.0]}),
+                query_annotations=pd.DataFrame({"query": [1.0]}),
+                baseline_columns=["base"],
+                query_columns=["query"],
+                chromosomes=["1"],
+                source_summary={},
+                config_snapshot=GlobalConfig(snp_identifier="rsid"),
+            )
+            builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
+
+            with mock.patch.object(builder, "run", return_value=bundle):
+                with self.assertRaisesRegex(FileExistsError, "overwrite"):
+                    builder.project_bed_annotations(
+                        query_annot_bed_paths=("query.bed",),
+                        baseline_annot_paths=("baseline.1.annot.gz",),
+                        output_dir=output_dir,
+                    )
+
+            self.assertEqual(existing.read_text(encoding="utf-8"), "existing\n")
+
     def test_parse_fixture_annotation(self):
         builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
         metadata, annotations = builder.parse_annotation_file(ANNOT_FIXTURE)

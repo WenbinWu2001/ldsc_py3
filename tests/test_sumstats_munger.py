@@ -145,6 +145,46 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertTrue((output_dir / "sumstats.sumstats.gz").exists())
             self.assertTrue((output_dir / "sumstats.log").exists())
 
+    def test_run_refuses_existing_fixed_outputs_before_kernel_call(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text("SNP A1 A2 P OR N\nrs1 A G 0.05 1.0 1000\n", encoding="utf-8")
+            output_dir = tmpdir / "munged"
+            output_dir.mkdir()
+            existing = output_dir / "sumstats.sumstats.gz"
+            existing.write_text("existing\n", encoding="utf-8")
+
+            with mock.patch.object(kernel_munge, "munge_sumstats", side_effect=AssertionError("kernel should not run")):
+                with self.assertRaisesRegex(FileExistsError, "overwrite"):
+                    SumstatsMunger().run(
+                        MungeConfig(sumstats_path=raw_path, trait_name="trait"),
+                        MungeConfig(output_dir=output_dir),
+                        GlobalConfig(snp_identifier="rsid"),
+                    )
+
+            self.assertEqual(existing.read_text(encoding="utf-8"), "existing\n")
+
+    def test_run_allows_existing_fixed_outputs_with_overwrite(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text("SNP A1 A2 P OR N\nrs1 A G 0.05 1.0 1000\n", encoding="utf-8")
+            output_dir = tmpdir / "munged"
+            output_dir.mkdir()
+            (output_dir / "sumstats.sumstats.gz").write_text("existing\n", encoding="utf-8")
+            returned = pd.DataFrame({"SNP": ["rs1"], "N": [1000.0], "Z": [1.5], "A1": ["A"], "A2": ["G"]})
+
+            with mock.patch.object(kernel_munge, "munge_sumstats", return_value=returned) as patched:
+                table = SumstatsMunger().run(
+                    MungeConfig(sumstats_path=raw_path, trait_name="trait"),
+                    MungeConfig(output_dir=output_dir, overwrite=True),
+                    GlobalConfig(snp_identifier="rsid"),
+                )
+
+            patched.assert_called_once()
+            self.assertEqual(table.data["SNP"].tolist(), ["rs1"])
+
     def test_run_accepts_path_objects_for_input_and_output(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)

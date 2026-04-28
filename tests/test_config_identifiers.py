@@ -90,11 +90,13 @@ class WorkflowConfigTest(unittest.TestCase):
             baseline_annot_paths=[Path("base.annot.gz")],
             query_annot_bed_paths=[Path("query.bed")],
             output_dir=Path("outputs") / "annot",
+            overwrite=True,
         )
         self.assertEqual(config.baseline_annot_paths, ("base.annot.gz",))
         self.assertEqual(config.query_annot_bed_paths, ("query.bed",))
         self.assertEqual(config.output_dir, "outputs/annot")
         self.assertTrue(config.batch_mode)
+        self.assertTrue(config.overwrite)
 
     def test_annotation_config_accepts_single_string_tokens_for_plural_fields(self):
         config = AnnotationBuildConfig(
@@ -158,6 +160,7 @@ class WorkflowConfigTest(unittest.TestCase):
             liftover_chain_hg38_to_hg19_path="liftover/hg38ToHg19.over.chain",
             output_dir="out",
             ld_wind_kb=100.0,
+            overwrite=True,
         )
         self.assertEqual(config.source_genome_build, "hg38")
         self.assertEqual(config.plink_path, "plink/panel.@")
@@ -165,6 +168,7 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertEqual(config.genetic_map_hg38_path, "maps/hg38.txt")
         self.assertEqual(config.liftover_chain_hg38_to_hg19_path, "liftover/hg38ToHg19.over.chain")
         self.assertEqual(config.output_dir, "out")
+        self.assertTrue(config.overwrite)
 
         with self.assertRaisesRegex(ValueError, "ld_wind_cm"):
             ReferencePanelBuildConfig(
@@ -225,6 +229,7 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertEqual(config.info_min, 0.9)
         self.assertEqual(config.maf_min, 0.01)
         self.assertEqual(config.chunk_size, int(5e6))
+        self.assertFalse(config.overwrite)
 
     def test_munge_config_normalizes_pathlike_fields(self):
         config = MungeConfig(
@@ -232,11 +237,13 @@ class WorkflowConfigTest(unittest.TestCase):
             output_dir=Path("results") / "trait",
             merge_alleles_path=Path("resources") / "alleles.tsv",
             trait_name="trait",
+            overwrite=True,
         )
         self.assertEqual(config.sumstats_path, "sumstats/trait.tsv.gz")
         self.assertEqual(config.output_dir, "results/trait")
         self.assertEqual(config.merge_alleles_path, "resources/alleles.tsv")
         self.assertEqual(config.trait_name, "trait")
+        self.assertTrue(config.overwrite)
 
     def test_munge_config_accepts_source_fields(self):
         raw = MungeConfig(sumstats_path=Path("sumstats") / "trait.tsv.gz", trait_name="trait")

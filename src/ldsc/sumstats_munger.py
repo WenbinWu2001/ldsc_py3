@@ -31,7 +31,7 @@ from .column_inference import (
     resolve_required_column,
 )
 from .config import GlobalConfig, MungeConfig, get_global_config
-from .path_resolution import ensure_output_directory, resolve_scalar_path
+from .path_resolution import ensure_output_directory, ensure_output_paths_available, resolve_scalar_path
 from ._kernel import sumstats_munger as kernel_munge
 
 
@@ -226,7 +226,9 @@ class SumstatsMunger:
         munge_config : MungeConfig
             Munging thresholds and output directory. The kernel writes fixed
             files named ``sumstats.sumstats.gz`` and ``sumstats.log`` inside
-            ``munge_config.output_dir``.
+            ``munge_config.output_dir``. Existing fixed files are refused
+            before the legacy kernel runs unless ``munge_config.overwrite`` is
+            true.
         global_config : GlobalConfig or None, optional
             Shared configuration snapshot to attach to the returned
             ``SumstatsTable``. When omitted, the current package-global
@@ -255,6 +257,11 @@ class SumstatsMunger:
         source_path = resolve_scalar_path(raw_source.sumstats_path, label="raw sumstats")
         output_dir = ensure_output_directory(munge_config.output_dir, label="output directory")
         fixed_output_stem = str(output_dir / "sumstats")
+        ensure_output_paths_available(
+            [fixed_output_stem + ".sumstats.gz", fixed_output_stem + ".log"],
+            overwrite=munge_config.overwrite,
+            label="munged output artifact",
+        )
         args = self._build_args(raw_source, munge_config)
         data = kernel_munge.munge_sumstats(args, p=True)
         table = SumstatsTable(
@@ -283,9 +290,19 @@ class SumstatsMunger:
         )
         return table
 
-    def write_output(self, sumstats: SumstatsTable, output_dir: str | PathLike[str]) -> str:
-        """Write a munged table to ``<output_dir>/sumstats.sumstats.gz``."""
+    def write_output(
+        self,
+        sumstats: SumstatsTable,
+        output_dir: str | PathLike[str],
+        overwrite: bool = False,
+    ) -> str:
+        """Write a munged table to ``<output_dir>/sumstats.sumstats.gz``.
+
+        Existing files are refused unless ``overwrite=True``. The helper does
+        not remove unrelated files from ``output_dir``.
+        """
         output_path = ensure_output_directory(output_dir, label="output directory") / "sumstats.sumstats.gz"
+        ensure_output_paths_available([output_path], overwrite=overwrite, label="munged output artifact")
         columns = [col for col in ("SNP", "N", "Z", "A1", "A2", "FRQ") if col in sumstats.data.columns]
         sumstats.data.to_csv(output_path, sep="\t", index=False, columns=columns, float_format="%.3f", compression="gzip")
         return str(output_path)
@@ -335,6 +352,11 @@ def main(argv: list[str] | None = None):
     args.sumstats = resolve_scalar_path(args.sumstats_path, label="raw sumstats")
     output_dir = ensure_output_directory(args.output_dir, label="output directory")
     args.out = str(output_dir / "sumstats")
+    ensure_output_paths_available(
+        [args.out + ".sumstats.gz", args.out + ".log"],
+        overwrite=getattr(args, "overwrite", False),
+        label="munged output artifact",
+    )
     if getattr(args, "merge_alleles_path", None):
         args.merge_alleles = resolve_scalar_path(args.merge_alleles_path, label="merge-alleles file")
     else:
@@ -352,6 +374,7 @@ def build_parser() -> argparse.ArgumentParser:
     public = argparse.ArgumentParser(description=getattr(parser, "description", None), allow_abbrev=False)
     public.add_argument("--sumstats-path", required=True, help="Raw summary-statistics file path.")
     public.add_argument("--output-dir", required=True, help="Output directory for munged sumstats and logs.")
+    public.add_argument("--overwrite", action="store_true", default=False, help="Replace existing fixed output files.")
     public.add_argument("--merge-alleles-path", default=None, help="Optional merge-alleles file path.")
     for action in parser._actions:
         if action.dest in {"help", "sumstats", "out", "merge_alleles"}:

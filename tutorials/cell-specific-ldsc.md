@@ -6,6 +6,16 @@ In this package, cell-specific LDSC is the `partitioned-h2` workflow applied to 
 
 The examples below assume chromosome-pattern inputs such as `baseline.@.annot.gz`, `cell_type_beds/*.bed`, `reference.@.parquet`, and `reference_metadata.@.tsv.gz`.
 
+Output directories are literal destinations. Missing directories are created,
+existing directories are reused, and existing fixed files are refused before
+writing unless you pass `--overwrite` or `overwrite=True`.
+
+For `chr_pos` workflows, `genome_build="auto"` can infer hg19/hg38 and
+0-based/1-based coordinates during annotation or LD-score loading. The same
+logic is public in Python as `infer_chr_pos_build()` and
+`resolve_chr_pos_table()` from `ldsc`; the CLI keeps it under workflow flags such
+as `--genome-build auto` rather than a separate command.
+
 ## Python API
 
 ```python
@@ -58,6 +68,7 @@ ldscore_result = LDScoreCalculator().run(
     global_config=GLOBAL_CONFIG,
     output_config=LDScoreOutputConfig(
         output_dir="tutorial_outputs/cell_specific_ldscores",
+        # overwrite=True,  # enable only when intentionally replacing LD-score outputs
     ),
 )
 
@@ -122,3 +133,5 @@ The regression reads query annotation columns from
 `tutorial_outputs/cell_specific_ldsc/partitioned_h2.tsv`. Its key columns are
 `query_annotation`, `coefficient`, `coefficient_p`, `category_h2`,
 `proportion_h2`, and `enrichment`.
+If the partitioned summary already exists, `ldsc partitioned-h2` fails before
+writing; add `--overwrite` only when replacing it is intentional.

@@ -13,6 +13,9 @@ Path-token rules:
 - scalar inputs such as raw sumstats must resolve to exactly one file
 - group inputs may use globs or chromosome-suite tokens such as `baseline.@.annot.gz`
 - output directories are literal destinations
+- missing output directories are created and existing directories are reused
+- existing fixed files are refused before writing starts unless you pass
+  `--overwrite` or `overwrite=True`
 
 Resolution behavior:
 
@@ -50,6 +53,7 @@ sumstats = SumstatsMunger().run(
         column_hints={"snp": "SNP", "a1": "A1", "a2": "A2", "p": "P", "N_col": "N"},
         output_dir="tutorial_outputs/trait",
         signed_sumstats_spec="BETA,0",
+        # overwrite=True,  # enable only when intentionally replacing sumstats/log files
     ),
     global_config=GLOBAL_CONFIG,
 )
@@ -66,6 +70,7 @@ ldscore_result = run_ldscore(
     metadata_paths="r2/reference_metadata.@.tsv.gz",
     regression_snps_path="filters/hapmap3.txt",
     ld_wind_cm=1.0,
+    # overwrite=True,  # enable only when intentionally replacing LD-score outputs
 )
 
 runner = RegressionRunner(global_config=GLOBAL_CONFIG, regression_config=RegressionConfig())
@@ -109,3 +114,6 @@ ldsc h2 \
 ```
 
 The command writes `tutorial_outputs/trait_h2/h2.tsv`.
+If `sumstats.sumstats.gz`, `sumstats.log`, or `h2.tsv` already exists from a
+previous run, the relevant command fails before writing. Add `--overwrite` only
+for an intentional rerun.

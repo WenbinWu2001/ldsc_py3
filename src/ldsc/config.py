@@ -199,6 +199,9 @@ class AnnotationBuildConfig:
     compression : {"auto", "gzip", "bz2", "none"}, optional
         Output compression preference for generated annotation files. Default is
         ``"gzip"``.
+    overwrite : bool, optional
+        If ``True``, replace existing fixed output files. If ``False``, output
+        collisions raise before writing starts. Default is ``False``.
     """
     baseline_annot_paths: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
     query_annot_paths: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
@@ -207,6 +210,7 @@ class AnnotationBuildConfig:
     batch_mode: bool = True
     compression: CompressionMode = "gzip"
     allow_missing_query: bool = True
+    overwrite: bool = False
 
     def __post_init__(self) -> None:
         """Normalize annotation path tokens and validate compression mode."""
@@ -386,6 +390,10 @@ class ReferencePanelBuildConfig:
         ``None``.
     chunk_size : int, optional
         Block size used while computing pairwise LD. Default is ``50``.
+    overwrite : bool, optional
+        If ``True``, replace existing fixed output files. If ``False``, output
+        collisions raise before chromosome processing starts. Default is
+        ``False``.
     """
 
     plink_path: str | PathLike[str]
@@ -402,6 +410,7 @@ class ReferencePanelBuildConfig:
     ref_panel_snps_path: str | PathLike[str] | None = None
     keep_indivs_path: str | PathLike[str] | None = None
     chunk_size: int = 50
+    overwrite: bool = False
 
     def __post_init__(self) -> None:
         """Normalize build paths and validate liftover and LD-window settings."""
@@ -478,6 +487,9 @@ class MungeConfig:
     no_alleles, a1_inc, keep_maf, daner, daner_n : bool, optional
         Legacy munging switches preserved for behavior compatibility. Defaults
         are ``False``.
+    overwrite : bool, optional
+        If ``True``, replace existing fixed output files. If ``False``, output
+        collisions raise before the munging kernel runs. Default is ``False``.
     """
     output_dir: str | PathLike[str] | None = None
     sumstats_path: str | PathLike[str] | None = None
@@ -500,6 +512,7 @@ class MungeConfig:
     keep_maf: bool = False
     daner: bool = False
     daner_n: bool = False
+    overwrite: bool = False
 
     def __post_init__(self) -> None:
         """Validate munging thresholds and normalize optional file paths."""

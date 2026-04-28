@@ -43,13 +43,22 @@ Subcommands:
 ```python
 from ldsc import (
     AnnotationBuilder,
+    ChrPosBuildInference,
     LDScoreCalculator,
     ReferencePanelBuilder,
     RegressionRunner,
     SumstatsMunger,
+    infer_chr_pos_build,
     load_sumstats,
+    resolve_chr_pos_table,
 )
 ```
+
+Genome-build inference for `chr_pos` tables is public through the Python API:
+use `infer_chr_pos_build()` when you only need the `hg19`/`hg38` decision, and
+use `resolve_chr_pos_table()` when you also want 0-based inputs converted to
+canonical 1-based coordinates. The CLI exposes this behavior inside workflows
+with `--genome-build auto`; there is no standalone inference subcommand.
 
 ## Input Path Tokens
 
@@ -62,6 +71,19 @@ Public workflow APIs accept normalized string tokens for inputs:
 
 Inputs are resolved before the internal kernel runs. Public outputs use fixed
 filenames inside the selected `output_dir`.
+
+## Output Collision Policy
+
+Every workflow treats `--output-dir` or `output_dir` as a directory:
+
+- missing output directories are created with a warning
+- existing directories are reused
+- known output files fail the run before writing starts
+- reruns that intentionally replace known files must pass `--overwrite` on the
+  CLI or `overwrite=True` in Python
+
+The overwrite flag applies only to the fixed files owned by that workflow. It
+does not remove unrelated files and never cleans a whole directory.
 
 ## Verification
 

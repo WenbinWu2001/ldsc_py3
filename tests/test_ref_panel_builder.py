@@ -1,5 +1,6 @@
 import gzip
 import importlib.util
+from dataclasses import replace as dataclass_replace
 from pathlib import Path
 import sys
 import tempfile
@@ -806,6 +807,46 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             self.assertIn("meta_hg19", result.output_paths)
             self.assertNotIn("meta_hg38", result.output_paths)
             self.assertTrue(any("source-build-only" in message for message in logs.output))
+
+    def test_builder_run_refuses_existing_candidate_artifact_before_chromosome_build(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
+            config = self._build_config(tmpdir)
+            existing = tmpdir / "out" / "parquet" / "ann" / "chr1_ann.parquet"
+            existing.parent.mkdir(parents=True)
+            existing.write_text("existing\n", encoding="utf-8")
+            builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig())
+
+            with mock.patch.object(
+                ref_panel_builder.ReferencePanelBuilder,
+                "_build_chromosome",
+                side_effect=AssertionError("chromosome build should not run"),
+            ):
+                with self.assertRaisesRegex(FileExistsError, "overwrite"):
+                    builder.run(config)
+
+            self.assertEqual(existing.read_text(encoding="utf-8"), "existing\n")
+
+    def test_builder_run_allows_existing_candidate_artifact_with_overwrite(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
+            config = dataclass_replace(self._build_config(tmpdir), overwrite=True)
+            existing = tmpdir / "out" / "parquet" / "ann" / "chr1_ann.parquet"
+            existing.parent.mkdir(parents=True)
+            existing.write_text("existing\n", encoding="utf-8")
+            builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig())
+
+            with mock.patch.object(
+                ref_panel_builder.ReferencePanelBuilder,
+                "_build_chromosome",
+                return_value={"ann": str(existing), "ld": "ld", "meta_hg19": "m19", "meta_hg38": "m38"},
+            ) as patched:
+                result = builder.run(config)
+
+            patched.assert_called_once()
+            self.assertEqual(result.chromosomes, ["1"])
 
     def test_builder_run_allows_hg38_source_only_output_paths(self):
         with tempfile.TemporaryDirectory() as tmpdir:

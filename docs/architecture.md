@@ -22,7 +22,7 @@ Related docs:
 ## Layer Structure
 
 - **CLI Layer**: public command dispatch in `ldsc.cli`
-- **Workflow And Preprocessing Layer**: public services in `ldsc.annotation_builder`, `ldsc.ref_panel_builder`, `ldsc.ldscore_calculator`, `ldsc.sumstats_munger`, and `ldsc.regression_runner`, plus shared normalization in `ldsc.config`, `ldsc.path_resolution`, `ldsc.column_inference`, and `ldsc.chromosome_inference`
+- **Workflow And Preprocessing Layer**: public services in `ldsc.annotation_builder`, `ldsc.ref_panel_builder`, `ldsc.ldscore_calculator`, `ldsc.sumstats_munger`, and `ldsc.regression_runner`, plus shared normalization in `ldsc.config`, `ldsc.path_resolution`, `ldsc.column_inference`, `ldsc.chromosome_inference`, and `ldsc.genome_build_inference`
 - **Compute Kernel**: private file-format and numerical code in `ldsc._kernel.*`
 - **Output Layer**: artifact writing in `ldsc.outputs` plus regression summary writers in `ldsc.regression_runner`
 
@@ -44,6 +44,7 @@ ldsc_py3_restructured/
 │   ├── path_resolution.py   # input-token normalization and discovery
 │   ├── column_inference.py  # header and identifier normalization
 │   ├── chromosome_inference.py
+│   ├── genome_build_inference.py
 │   ├── annotation_builder.py
 │   ├── ref_panel_builder.py
 │   ├── ldscore_calculator.py
@@ -71,9 +72,9 @@ ldsc_py3_restructured/
 
 This is the only command-line entry point. It parses subcommands, preserves the user-facing CLI contract, and hands control to the public workflow modules. Architecture invariant: CLI code should dispatch only; it should not contain numerical logic.
 
-### `ldsc.config`, `ldsc.path_resolution`, `ldsc.column_inference`, `ldsc.chromosome_inference`
+### `ldsc.config`, `ldsc.path_resolution`, `ldsc.column_inference`, `ldsc.chromosome_inference`, `ldsc.genome_build_inference`
 
-These modules define the package-wide contracts that every workflow shares. They normalize path tokens, chromosome ordering, genome-build aliases, SNP identifier modes, and input header aliases before the kernel is called. Architecture invariant: path discovery and header inference happen here or in the workflow layer, never inside `_kernel`.
+These modules define the package-wide contracts that every workflow shares. They normalize path tokens, chromosome ordering, genome-build aliases, SNP identifier modes, input header aliases, and `chr_pos` genome-build inference before the kernel is called. `ldsc.path_resolution` also owns output-directory creation and fixed-artifact collision preflight through `ensure_output_paths_available()`. `ldsc.genome_build_inference` is public for Python callers through the top-level `ldsc` exports, while the CLI exposes it only through `--genome-build auto` on existing workflows. Architecture invariant: path discovery, header inference, output preflight, and user-facing build inference happen here or in the workflow layer, never inside `_kernel`.
 
 ### `ldsc.annotation_builder`
 
@@ -99,8 +100,10 @@ This module rebuilds an `LDScoreResult` from on-disk artifacts, merges it with m
 
 This is the canonical LD-score result-directory writer. It owns fixed files
 inside `output_dir`: `manifest.json`, `baseline.parquet`, and optional
-`query.parquet`. Architecture invariant: public output customization chooses
-the directory name, not per-run filename prefixes.
+`query.parquet`. It reuses existing directories but refuses existing canonical
+files unless `LDScoreOutputConfig(overwrite=True)` is supplied. Architecture
+invariant: public output customization chooses the directory name and explicit
+overwrite policy, not per-run filename prefixes.
 
 ### `ldsc._kernel.*`
 
@@ -109,8 +112,13 @@ The kernel layer contains the actual numerical methods and low-level readers. It
 ## Cross-Cutting Concerns
 
 - **Input token language**: public inputs accept exact paths, globs, `@` chromosome suites, and some legacy bare prefixes. Output paths are normalized but remain literal destinations.
-- **Column and identifier normalization**: `column_inference.py` is the single source of truth for raw-input aliases, internal artifact headers, SNP identifier modes, and genome-build aliases.
+- **Column and identifier normalization**: `column_inference.py` is the single source of truth for raw-input aliases, internal artifact headers, SNP identifier modes, and genome-build aliases. `genome_build_inference.py` owns automatic hg19/hg38 and 0-based/1-based inference for `chr_pos` tables.
 - **Artifact compatibility**: Public downstream chaining uses `.annot.gz`, `.sumstats.gz`, and canonical LD-score result directories. Legacy `.l2.ldscore(.gz)`, `.l2.M`, `.l2.M_5_50`, and separate `.w.l2.ldscore(.gz)` files remain internal/legacy file-format concerns, not the public LD-score writer contract.
+- **Output collision handling**: output directories are literal destinations.
+  Missing directories are created, existing directories are reused, and fixed
+  output files are checked before writing. By default an existing artifact
+  raises `FileExistsError`; `--overwrite` or `overwrite=True` makes replacement
+  explicit without deleting unrelated files or cleaning the directory.
 - **Chromosome ordering**: chromosome-sharded inputs are validated and reassembled in stable genomic order by the workflow layer.
 - **Testing approach**: tests under `tests/` cover file contracts, workflow behavior, and legacy compatibility expectations.
 
@@ -121,3 +129,5 @@ The kernel layer contains the actual numerical methods and low-level readers. It
 - `column_inference.py` owns alias families and internal artifact header strictness.
 - LD-score computation remains chromosome-wise; regression consumes only the aggregated artifacts.
 - Public LD-score output layout is fixed by `LDScoreDirectoryWriter`.
+- Every workflow that writes fixed artifacts must precompute expected output
+  paths and call the shared output preflight before the first write.

@@ -36,7 +36,7 @@ from .config import (
     suppress_global_config_banner,
     validate_config_compatibility,
 )
-from .path_resolution import ensure_output_directory, normalize_path_token
+from .path_resolution import ensure_output_directory, ensure_output_paths_available, normalize_path_token
 from ._kernel import regression as reg
 from ._kernel.identifiers import build_snp_id_series
 from .ldscore_calculator import LDScoreResult
@@ -425,7 +425,12 @@ def run_h2_from_args(args):
         dataset = runner.build_dataset(sumstats_table, ldscore_result, config=config)
     hsq = runner.estimate_h2(dataset, config=config)
     summary = summarize_total_h2(hsq, dataset, trait_name=sumstats_table.trait_name)
-    _maybe_write_dataframe(summary, getattr(args, "output_dir", None), "h2.tsv")
+    _maybe_write_dataframe(
+        summary,
+        getattr(args, "output_dir", None),
+        "h2.tsv",
+        overwrite=getattr(args, "overwrite", False),
+    )
     return summary
 
 
@@ -440,7 +445,12 @@ def run_partitioned_h2_from_args(args):
     query_bundle = SimpleNamespace(query_columns=list(ldscore_result.query_columns))
     with suppress_global_config_banner():
         summary = runner.estimate_partitioned_h2_batch(sumstats_table, ldscore_result, query_bundle, config=config)
-    _maybe_write_dataframe(summary, getattr(args, "output_dir", None), "partitioned_h2.tsv")
+    _maybe_write_dataframe(
+        summary,
+        getattr(args, "output_dir", None),
+        "partitioned_h2.tsv",
+        overwrite=getattr(args, "overwrite", False),
+    )
     return summary
 
 
@@ -465,7 +475,12 @@ def run_rg_from_args(args):
             }
         ]
     )
-    _maybe_write_dataframe(summary, getattr(args, "output_dir", None), "rg.tsv")
+    _maybe_write_dataframe(
+        summary,
+        getattr(args, "output_dir", None),
+        "rg.tsv",
+        overwrite=getattr(args, "overwrite", False),
+    )
     return summary
 
 
@@ -480,6 +495,7 @@ def _add_common_regression_arguments(parser, include_h2_intercept: bool) -> None
         help="Interpretation of the supplied count vector. Default matches LDSC's M_5_50 behavior.",
     )
     parser.add_argument("--output-dir", default=None, help="Optional output directory for summary tables.")
+    parser.add_argument("--overwrite", action="store_true", default=False, help="Replace existing fixed output files.")
     parser.add_argument("--n-blocks", type=int, default=200)
     parser.add_argument("--no-intercept", action="store_true", default=False, help="Fix the intercept to the LDSC default.")
     if include_h2_intercept:
@@ -608,9 +624,19 @@ def _global_config_from_manifest(manifest: dict[str, Any]) -> GlobalConfig | Non
         return None
 
 
-def _maybe_write_dataframe(df: pd.DataFrame, output_dir: str | None, filename: str) -> None:
-    """Write a summary table only when the caller requested an output directory."""
+def _maybe_write_dataframe(
+    df: pd.DataFrame,
+    output_dir: str | None,
+    filename: str,
+    overwrite: bool = False,
+) -> None:
+    """Write a fixed-name summary table only when an output directory is requested.
+
+    Existing ``h2.tsv``, ``partitioned_h2.tsv``, or ``rg.tsv`` files are refused
+    before writing unless ``overwrite`` is true.
+    """
     if not output_dir:
         return
     path = ensure_output_directory(output_dir, label="output directory") / filename
+    ensure_output_paths_available([path], overwrite=overwrite, label="regression output artifact")
     df.to_csv(path, sep="\t", index=False)

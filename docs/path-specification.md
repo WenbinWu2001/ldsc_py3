@@ -28,8 +28,13 @@ Output paths are different:
 
 - `output_dir` is treated as a literal directory
 - if an output directory does not exist, the program warns once and creates it
+- if the directory already exists, it is reused
 - public workflows do not use output prefixes; output filenames inside
   `output_dir` are fixed by the workflow
+- existing fixed output files raise `FileExistsError` before the workflow writes
+  anything
+- pass `--overwrite` on the CLI or `overwrite=True` in Python to intentionally
+  replace those fixed files
 
 ## General Resolution Rules
 
@@ -147,8 +152,17 @@ run_bed_to_annot(
     query_annot_bed_paths="beds/*.bed",
     baseline_annot_paths="annotations/baseline_chr/baseline.@.annot.gz",
     output_dir="annotations/query_from_beds",
+    overwrite=True,
 )
 ```
+
+Output:
+
+- `output_dir` is created when missing and reused when present.
+- Projection writes `query.<chrom>.annot.gz` for every chromosome in the
+  resulting bundle.
+- Existing `query.<chrom>.annot.gz` files are refused before any annotation
+  shard is written unless `overwrite=True` or CLI `--overwrite` is supplied.
 
 ### LD score calculation
 
@@ -210,6 +224,8 @@ Output:
 - `--output-dir` is a literal directory destination.
 - LD-score calculation writes `manifest.json`, `baseline.parquet`, and
   optional `query.parquet` inside that directory.
+- Existing canonical LD-score files are refused before any of them are written
+  unless `--overwrite` or `LDScoreOutputConfig(overwrite=True)` is supplied.
 - `baseline.parquet` contains `CHR`, `SNP`, `BP`, `regr_weight`, and baseline
   LD-score columns.
 - `query.parquet` is present only when query annotations were supplied and
@@ -253,6 +269,16 @@ ldsc build-ref-panel \
   --output-dir out/ref_panel
 ```
 
+Output:
+
+- `--output-dir` is created when missing and reused when present.
+- Before chromosome processing starts, the builder checks the deterministic
+  candidate paths under `parquet/ann`, `parquet/ld`, and `parquet/meta`.
+- Existing candidate parquet or metadata files are refused unless
+  `--overwrite` or `ReferencePanelBuildConfig(overwrite=True)` is supplied.
+- The check covers source-build metadata sidecars and covers target-build
+  sidecars only when the matching liftover chain is configured.
+
 ### Sumstats munging and regression
 
 Relevant APIs:
@@ -275,6 +301,17 @@ How they are handled:
 - `ldscore_dir` is not glob-resolved; it is opened as a directory containing
   `manifest.json` plus parquet payload files
 
+Output:
+
+- `ldsc munge-sumstats` writes `sumstats.sumstats.gz` and `sumstats.log` under
+  `output_dir`; existing files are refused unless `--overwrite` or
+  `MungeConfig(overwrite=True)` is supplied.
+- `ldsc h2`, `ldsc partitioned-h2`, and `ldsc rg` write `h2.tsv`,
+  `partitioned_h2.tsv`, and `rg.tsv`, respectively, when `output_dir` is
+  provided; existing files are refused unless `--overwrite` is supplied.
+- Existing output directories are valid in every case. Only known files for the
+  active command are checked.
+
 ## Automatic Inference
 
 The package makes a limited amount of automatic inference after path resolution:
@@ -283,6 +320,10 @@ The package makes a limited amount of automatic inference after path resolution:
   Example: `BP` may be accepted as `POS`
 - chromosome normalization
   Example: `chr1` may be normalized to `1`
+- genome-build and coordinate-basis inference for `chr_pos` tables when a
+  workflow is run with `genome_build="auto"` or `--genome-build auto`
+  Example: an hg38 0-based `CHR`/`POS` restriction table can be inferred and
+  converted to canonical 1-based `CHR:POS` identifiers
 - row-level chromosome filtering inside parsed annotation and metadata files
 
 The package does not infer:
@@ -290,6 +331,13 @@ The package does not infer:
 - missing file suffixes
 - directory contents from an input directory argument
 - a hidden per-chromosome mode from a bare prefix
+- the source build for `ldsc build-ref-panel`; that workflow still requires
+  explicit `--source-genome-build`
+
+Programmatic build inference is available from the top-level Python API:
+`from ldsc import infer_chr_pos_build, resolve_chr_pos_table`. The command-line
+API exposes inference only through existing workflow flags; there is no
+standalone `ldsc infer-build` command.
 
 ## Important Edge Cases
 
@@ -307,6 +355,10 @@ These are the main cases where users can get confused or introduce bugs.
   If two files contribute the same annotation column name, the run raises.
 - Mixed sharded and shared files
   This can be valid, but only if the resulting per-chromosome SNP rows still align.
+- Existing output file in a reused directory
+  The workflow fails before writing and tells you to pass `--overwrite` or
+  `overwrite=True`. This prevents accidental reruns from silently replacing
+  previous results.
 
 ## Recommended Usage
 
@@ -314,3 +366,5 @@ These are the main cases where users can get confused or introduce bugs.
 - Prefer globs only when you really mean “all matching files”
 - Keep chromosome labels visible in filenames if you want predictable per-chromosome file selection
 - Use exact paths or exact-one globs for scalar inputs
+- Use one dedicated output directory per reproducible run, and use
+  `--overwrite` / `overwrite=True` only when replacing that run is intentional

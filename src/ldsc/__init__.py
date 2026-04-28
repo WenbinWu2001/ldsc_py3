@@ -11,7 +11,8 @@ This module is the top-level public API for the refactored package. Import from
 ``ldsc`` when you want the supported package surface rather than the internal
 ``ldsc._kernel`` implementation modules. The exports here mirror the main user
 workflows: annotation building, parquet reference-panel building, LD-score
-calculation, summary-statistics munging, regression, and output writing.
+calculation, summary-statistics munging, regression, output writing, and
+genome-build inference for ``chr_pos`` inputs.
 
 Design Notes
 ------------
@@ -49,6 +50,11 @@ from .config import (
     set_global_config,
     validate_config_compatibility,
 )
+from .genome_build_inference import (
+    ChrPosBuildInference,
+    infer_chr_pos_build,
+    resolve_chr_pos_table,
+)
 from .ldscore_calculator import ChromLDScoreResult, LDScoreCalculator, LDScoreResult, run_ldscore
 from .outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
 from .ref_panel_builder import ReferencePanelBuildResult, ReferencePanelBuilder, run_build_ref_panel
@@ -80,9 +86,11 @@ __all__ = [
     "AnnotationBuilder",
     "AnnotationBundle",
     "ChromLDScoreResult",
+    "ChrPosBuildInference",
     "ConfigMismatchError",
     "GlobalConfig",
     "get_global_config",
+    "infer_chr_pos_build",
     "LDScoreCalculator",
     "LDScoreConfig",
     "LDScoreDirectoryWriter",
@@ -108,6 +116,7 @@ __all__ = [
     "run_build_ref_panel",
     "run_bed_to_annot",
     "run_ldscore",
+    "resolve_chr_pos_table",
     "reset_global_config",
     "set_global_config",
     "validate_config_compatibility",

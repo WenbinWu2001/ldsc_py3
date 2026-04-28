@@ -104,7 +104,10 @@ The bundled Alkes-group maps in `resources/genetic_maps/genetic_map_alkesgroup/`
 - `--source-genome-build`
   Plain-English meaning: which genome build the input PLINK coordinates already use.
   Accepted values: `hg19`, `hg37`, `GRCh37`, `hg38`, `GRCh38`.
-  Recommended usage: be explicit. Build auto-inference is not part of this workflow.
+  Recommended usage: be explicit. Build auto-inference is not part of this
+  workflow. If you want to inspect a separate `CHR`/`POS` table before choosing
+  a build, use `infer_chr_pos_build()` or `resolve_chr_pos_table()` from the
+  top-level Python API.
 
 - `--genetic-map-hg19-path`
   Plain-English meaning: genetic map aligned to hg19 coordinates.
@@ -122,7 +125,16 @@ The bundled Alkes-group maps in `resources/genetic_maps/genetic_map_alkesgroup/`
   Plain-English meaning: output root directory.
   Recommended usage: point this to a dedicated directory for the new reference
   panel build. The run identity is the directory name; output filenames are
-  fixed under `parquet/`.
+  fixed under `parquet/`. Missing directories are created and existing
+  directories are reused, but existing candidate parquet or metadata files are
+  refused before chromosome processing starts.
+
+- `--overwrite`
+  Plain-English meaning: allow replacement of the fixed parquet and metadata
+  files that this build may write.
+  Recommended usage: omit it for reproducible first runs. Add it only when you
+  intentionally want to replace an existing panel build. It does not delete
+  unrelated files or clean the output directory.
 
 ### Choose exactly one LD-window option
 
@@ -478,6 +490,10 @@ ldsc build-ref-panel \
 ```
 
 If `--output-dir` does not exist yet, the workflow warns once and creates it automatically.
+If candidate files such as `parquet/ann/chr22_ann.parquet`,
+`parquet/ld/chr22_LD.parquet`, or configured `parquet/meta/chr22_meta_*.tsv.gz`
+already exist, the build fails before processing chromosomes unless
+`--overwrite` is supplied.
 
 ### Restrict to a predefined SNP universe
 
@@ -540,6 +556,7 @@ result = run_build_ref_panel(
     liftover_chain_hg38_to_hg19_path="resources/liftover/hg38ToHg19.over.chain",
     output_dir="tutorial_outputs/ref_panel_chr22",
     ld_wind_cm=1.0,
+    # overwrite=True,  # enable only when intentionally replacing panel files
 )
 ```
 

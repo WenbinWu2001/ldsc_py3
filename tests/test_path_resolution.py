@@ -10,6 +10,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from ldsc.path_resolution import (
+    ensure_output_paths_available,
     normalize_path_token,
     normalize_path_tokens,
     resolve_chromosome_group,
@@ -163,3 +164,44 @@ class PathResolutionTest(unittest.TestCase):
                     label="annotation",
                     allow_chromosome_suite=True,
                 )
+
+    def test_ensure_output_paths_available_allows_missing_paths(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "results" / "h2.tsv"
+
+            ensure_output_paths_available([path], overwrite=False)
+
+            self.assertFalse(path.exists())
+
+    def test_ensure_output_paths_available_rejects_existing_paths(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "results.tsv"
+            path.write_text("existing\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(FileExistsError, "overwrite"):
+                ensure_output_paths_available([path], overwrite=False)
+
+    def test_ensure_output_paths_available_allows_existing_paths_with_overwrite(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "results.tsv"
+            path.write_text("existing\n", encoding="utf-8")
+
+            ensure_output_paths_available([path], overwrite=True)
+
+            self.assertEqual(path.read_text(encoding="utf-8"), "existing\n")
+
+    def test_ensure_output_paths_available_error_lists_existing_artifacts(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            first = Path(tmpdir) / "a.tsv"
+            second = Path(tmpdir) / "b.tsv"
+            first.write_text("a\n", encoding="utf-8")
+            second.write_text("b\n", encoding="utf-8")
+
+            with self.assertRaises(FileExistsError) as caught:
+                ensure_output_paths_available([first, second], overwrite=False, label="summary table")
+
+            message = str(caught.exception)
+            self.assertIn(str(first), message)
+            self.assertIn(str(second), message)
+            self.assertIn("--overwrite", message)
+            self.assertIn("overwrite=True", message)

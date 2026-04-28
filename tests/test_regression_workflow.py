@@ -546,3 +546,112 @@ class RegressionWorkflowTest(unittest.TestCase):
                 regression_runner.run_h2_from_args(args)
 
             self.assertTrue((output_dir / "h2.tsv").exists())
+
+    def test_regression_cli_refuses_existing_result_file_by_default(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            set_global_config(GlobalConfig(snp_identifier="rsid", genome_build="hg38"))
+            with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
+                handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
+            ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
+            output_dir = tmpdir / "out"
+            output_dir.mkdir()
+            existing = output_dir / "h2.tsv"
+            existing.write_text("existing\n", encoding="utf-8")
+            args = type(
+                "Args",
+                (),
+                {
+                    "sumstats_path": str(tmpdir / "trait.sumstats.gz"),
+                    "trait_name": "trait",
+                    "ldscore_dir": str(ldscore_dir),
+                    "count_kind": "m_5_50",
+                    "output_dir": str(output_dir),
+                    "overwrite": False,
+                    "n_blocks": 200,
+                    "no_intercept": False,
+                    "intercept_h2": None,
+                    "two_step_cutoff": None,
+                    "chisq_max": None,
+                },
+            )()
+
+            with mock.patch.object(
+                regression_runner.RegressionRunner,
+                "estimate_h2",
+                return_value=mock.Mock(
+                    tot=np.array([0.1]),
+                    tot_se=np.array([0.01]),
+                    intercept=np.array([1.0]),
+                    intercept_se=0.01,
+                    mean_chisq=np.array([1.1]),
+                    lambda_gc=np.array([1.0]),
+                    ratio=0.0,
+                    ratio_se=0.0,
+                ),
+            ):
+                with self.assertRaisesRegex(FileExistsError, "overwrite"):
+                    regression_runner.run_h2_from_args(args)
+
+            self.assertEqual(existing.read_text(encoding="utf-8"), "existing\n")
+
+    def test_regression_cli_allows_existing_result_file_with_overwrite(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            set_global_config(GlobalConfig(snp_identifier="rsid", genome_build="hg38"))
+            with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
+                handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
+            ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
+            output_dir = tmpdir / "out"
+            output_dir.mkdir()
+            existing = output_dir / "h2.tsv"
+            existing.write_text("existing\n", encoding="utf-8")
+            args = type(
+                "Args",
+                (),
+                {
+                    "sumstats_path": str(tmpdir / "trait.sumstats.gz"),
+                    "trait_name": "trait",
+                    "ldscore_dir": str(ldscore_dir),
+                    "count_kind": "m_5_50",
+                    "output_dir": str(output_dir),
+                    "overwrite": True,
+                    "n_blocks": 200,
+                    "no_intercept": False,
+                    "intercept_h2": None,
+                    "two_step_cutoff": None,
+                    "chisq_max": None,
+                },
+            )()
+
+            with mock.patch.object(
+                regression_runner.RegressionRunner,
+                "estimate_h2",
+                return_value=mock.Mock(
+                    tot=np.array([0.1]),
+                    tot_se=np.array([0.01]),
+                    intercept=np.array([1.0]),
+                    intercept_se=0.01,
+                    mean_chisq=np.array([1.1]),
+                    lambda_gc=np.array([1.0]),
+                    ratio=0.0,
+                    ratio_se=0.0,
+                ),
+            ):
+                regression_runner.run_h2_from_args(args)
+
+            self.assertIn("total_h2", existing.read_text(encoding="utf-8"))
+
+    def test_regression_writer_refuses_each_fixed_summary_filename(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir)
+            summary = pd.DataFrame({"value": [1]})
+            for filename in ("h2.tsv", "partitioned_h2.tsv", "rg.tsv"):
+                with self.subTest(filename=filename):
+                    existing = output_dir / filename
+                    existing.write_text("existing\n", encoding="utf-8")
+
+                    with self.assertRaisesRegex(FileExistsError, "overwrite"):
+                        regression_runner._maybe_write_dataframe(summary, str(output_dir), filename)
+
+                    self.assertEqual(existing.read_text(encoding="utf-8"), "existing\n")

@@ -239,7 +239,8 @@ class LDScoreCalculator:
             Shared SNP identifier, genome-build, and logging settings.
         output_config : LDScoreOutputConfig or None, optional
             If provided, write the canonical LD-score result directory after
-            the aggregate result is built.
+            the aggregate result is built. Existing canonical files are refused
+            unless ``output_config.overwrite`` is true.
             Default is ``None``, which keeps the result in memory only.
         regression_snps : set of str or None, optional
             Optional regression SNP universe used to define the weight table.
@@ -454,7 +455,9 @@ class LDScoreCalculator:
         result : LDScoreResult
             Aggregate LD-score result to serialize.
         output_config : LDScoreOutputConfig
-            Directory path and overwrite/compression controls.
+            Directory path and overwrite/compression controls. Existing
+            canonical files are refused unless ``output_config.overwrite`` is
+            true.
         config_snapshot : dict or None, optional
             Optional metadata recorded in the emitted run summary. Default is
             ``None``.
@@ -543,6 +546,7 @@ def build_parser() -> argparse.ArgumentParser:
         allow_abbrev=False,
     )
     parser.add_argument("--output-dir", required=True, help="Output directory for the canonical LD-score result.")
+    parser.add_argument("--overwrite", action="store_true", default=False, help="Replace existing fixed output files.")
     query_group = parser.add_mutually_exclusive_group()
     query_group.add_argument(
         "--query-annot-paths",
@@ -768,7 +772,10 @@ def _ldscore_config_from_args(args: argparse.Namespace) -> LDScoreConfig:
 
 def _output_config_from_args(args: argparse.Namespace) -> LDScoreOutputConfig:
     """Translate LD-score CLI arguments into the canonical directory output config."""
-    return LDScoreOutputConfig(output_dir=normalize_path_token(args.output_dir))
+    return LDScoreOutputConfig(
+        output_dir=normalize_path_token(args.output_dir),
+        overwrite=getattr(args, "overwrite", False),
+    )
 
 
 def _replace_result_output_paths(result: LDScoreResult, output_paths: dict[str, str]) -> LDScoreResult:

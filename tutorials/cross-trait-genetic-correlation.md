@@ -9,6 +9,11 @@ The regression step expects:
 
 Use the same `GlobalConfig` assumptions for both traits and the LD-score reference. For cross-trait rg, the LD scores should usually be the baseline, non-cell-specific LD scores used for single-trait h2.
 
+Output directories are literal destinations. Missing directories are created,
+existing directories are reused, and existing fixed files such as
+`sumstats.sumstats.gz`, `sumstats.log`, or `rg.tsv` are refused before writing
+unless you pass `--overwrite` or `overwrite=True`.
+
 ## Python API
 
 ```python
@@ -39,6 +44,7 @@ trait_1 = SumstatsMunger().run(
         column_hints={"snp": "SNP", "a1": "A1", "a2": "A2", "p": "P", "N_col": "N"},
         output_dir="tutorial_outputs/trait_1",
         signed_sumstats_spec="BETA,0",
+        # overwrite=True,  # enable only when intentionally replacing trait_1 outputs
     ),
     global_config=GLOBAL_CONFIG,
 )
@@ -50,6 +56,7 @@ trait_2 = SumstatsMunger().run(
         column_hints={"snp": "SNP", "a1": "A1", "a2": "A2", "p": "P", "N_col": "N"},
         output_dir="tutorial_outputs/trait_2",
         signed_sumstats_spec="BETA,0",
+        # overwrite=True,  # enable only when intentionally replacing trait_2 outputs
     ),
     global_config=GLOBAL_CONFIG,
 )
@@ -126,3 +133,5 @@ ldsc rg \
 ```
 
 The command writes `tutorial_outputs/trait_1_trait_2/rg.tsv`.
+If that TSV already exists, the command fails before writing; add `--overwrite`
+only when replacing the previous summary is intentional.

@@ -11,6 +11,12 @@ refactored package. Callers may pass exact paths, standard Python glob
 patterns, or explicit chromosome-suite placeholders using ``@``. Resolution is
 a workflow-layer concern; the execution kernels should only ever receive
 concrete string paths or prefixes.
+
+Output helpers in this module intentionally use a stricter policy than input
+resolution: output directories are literal destinations, missing directories
+are created, existing directories are reused, and fixed output files are
+preflighted before workflow code writes. Existing files raise by default unless
+the caller passes an explicit overwrite flag.
 """
 
 from __future__ import annotations
@@ -19,7 +25,7 @@ import glob
 import os
 import re
 import warnings
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from os import PathLike
 from pathlib import Path
 from typing import Optional, Union
@@ -451,6 +457,48 @@ def ensure_output_directory(
     return output_dir
 
 
+def ensure_output_paths_available(
+    paths: Iterable[str | PathLike[str]],
+    *,
+    overwrite: bool = False,
+    label: str = "output artifact",
+) -> list[Path]:
+    """Validate that fixed output files can be written without silent overwrite.
+
+    Parameters
+    ----------
+    paths : iterable of str or os.PathLike[str]
+        Deterministic output file paths that the active workflow may write.
+        Parent directories are not created by this helper; call
+        :func:`ensure_output_directory` or :func:`ensure_output_parent_directory`
+        where appropriate.
+    overwrite : bool, optional
+        If ``False``, any existing path raises before the caller writes
+        anything. If ``True``, existing paths are allowed but are not deleted by
+        this helper. Default is ``False``.
+    label : str, optional
+        Human-readable artifact label used in error messages. Default is
+        ``"output artifact"``.
+
+    Returns
+    -------
+    list of pathlib.Path
+        Normalized output paths in the same order as ``paths``.
+
+    Raises
+    ------
+    FileExistsError
+        If one or more paths already exist and ``overwrite`` is ``False``.
+    """
+    normalized_paths = [Path(normalize_path_token(path)) for path in paths]
+    if overwrite:
+        return normalized_paths
+    existing = [path for path in normalized_paths if path.exists()]
+    if existing:
+        raise FileExistsError(_format_output_collision_message(existing, label=label))
+    return normalized_paths
+
+
 def ensure_output_parent_directory(
     path: str | PathLike[str],
     *,
@@ -463,6 +511,18 @@ def ensure_output_parent_directory(
         return output_path
     ensure_output_directory(parent, label=f"{label} parent directory")
     return output_path
+
+
+def _format_output_collision_message(paths: Sequence[Path], *, label: str) -> str:
+    """Build a compact, shared message for existing output file collisions."""
+    preview = ", ".join(str(path) for path in paths[:3])
+    if len(paths) > 3:
+        preview = f"{preview}, ... ({len(paths) - 3} more)"
+    noun = label if len(paths) == 1 else f"{label}s"
+    return (
+        f"Refusing to overwrite existing {noun}: {preview}. "
+        "Pass --overwrite on the CLI or overwrite=True in Python to replace them."
+    )
 
 
 def _path_matches_chromosome(path: str, chrom: str) -> bool:

@@ -10,7 +10,9 @@ Overview
 This module is the public entry point for the `build-ref-panel` workflow. It
 keeps path resolution, logging, and cross-file validation in the workflow
 layer, then delegates pairwise-LD generation and parquet serialization to
-``ldsc._kernel.ref_panel_builder``.
+``ldsc._kernel.ref_panel_builder``. Before chromosome processing begins, the
+workflow precomputes deterministic parquet and metadata sidecar destinations
+and refuses existing files unless ``overwrite=True`` was configured.
 """
 
 from __future__ import annotations
@@ -25,7 +27,13 @@ import numpy as np
 
 from .column_inference import normalize_snp_identifier_mode
 from .config import GlobalConfig, ReferencePanelBuildConfig, get_global_config, print_global_config_banner
-from .path_resolution import ensure_output_directory, resolve_file_group, resolve_plink_prefix_group, resolve_scalar_path
+from .path_resolution import (
+    ensure_output_directory,
+    ensure_output_paths_available,
+    resolve_file_group,
+    resolve_plink_prefix_group,
+    resolve_scalar_path,
+)
 from ._kernel import formats as legacy_parse
 from ._kernel import ldscore as kernel_ldscore
 from ._kernel import ref_panel_builder as kernel_builder
@@ -71,6 +79,34 @@ class _BuildState:
     translator_cache: dict[tuple[str, str], kernel_builder.LiftOverTranslator] = field(default_factory=dict)
 
 
+def _expected_ref_panel_output_paths(config: ReferencePanelBuildConfig, chromosomes: Sequence[str]) -> list[Path]:
+    """Return deterministic reference-panel artifact paths that may be written.
+
+    The conservative preflight list includes annotation parquet, LD parquet,
+    and source-build metadata for each discovered chromosome. Target-build
+    metadata is included only when the matching liftover chain is configured.
+    """
+    out_root = Path(config.output_dir) / "parquet"
+    target_build = "hg38" if config.source_genome_build == "hg19" else "hg19"
+    matching_chain = (
+        config.liftover_chain_hg19_to_hg38_path
+        if config.source_genome_build == "hg19"
+        else config.liftover_chain_hg38_to_hg19_path
+    )
+    paths: list[Path] = []
+    for chrom in chromosomes:
+        paths.extend(
+            [
+                out_root / "ann" / f"chr{chrom}_ann.parquet",
+                out_root / "ld" / f"chr{chrom}_LD.parquet",
+                out_root / "meta" / f"chr{chrom}_meta_{config.source_genome_build}.tsv.gz",
+            ]
+        )
+        if matching_chain is not None:
+            paths.append(out_root / "meta" / f"chr{chrom}_meta_{target_build}.tsv.gz")
+    return paths
+
+
 class ReferencePanelBuilder:
     """Build standard parquet reference-panel artifacts from PLINK input."""
 
@@ -89,7 +125,9 @@ class ReferencePanelBuilder:
             directory, and exactly one LD window. If
             ``config.ref_panel_snps_path`` is set, this builder interprets that
             file using ``self.global_config.snp_identifier`` and
-            ``self.global_config.genome_build``.
+            ``self.global_config.genome_build``. Existing deterministic output
+            paths are refused before chromosome processing unless
+            ``config.overwrite`` is true.
 
         Returns
         -------
@@ -110,17 +148,27 @@ class ReferencePanelBuilder:
         resolved_prefixes = resolve_plink_prefix_group((config.plink_path,), allow_chromosome_suite=True)
         build_state = self._prepare_build_state(config)
 
-        chrom_records: list[tuple[str, dict[str, str]]] = []
+        chrom_sources: list[tuple[str, str]] = []
         seen_chromosomes: set[str] = set()
         for prefix in resolved_prefixes:
             for chrom in self._discover_prefix_chromosomes(prefix):
                 if chrom in seen_chromosomes:
                     raise ValueError(f"Chromosome {chrom} is present in multiple PLINK inputs. Emit one source per chromosome.")
                 seen_chromosomes.add(chrom)
-                chrom_paths = self._build_chromosome(prefix, chrom, config, build_state)
-                if chrom_paths is None:
-                    continue
-                chrom_records.append((chrom, chrom_paths))
+                chrom_sources.append((prefix, chrom))
+
+        ensure_output_paths_available(
+            _expected_ref_panel_output_paths(config, [chrom for _, chrom in chrom_sources]),
+            overwrite=config.overwrite,
+            label="reference-panel output artifact",
+        )
+
+        chrom_records: list[tuple[str, dict[str, str]]] = []
+        for prefix, chrom in chrom_sources:
+            chrom_paths = self._build_chromosome(prefix, chrom, config, build_state)
+            if chrom_paths is None:
+                continue
+            chrom_records.append((chrom, chrom_paths))
 
         if not chrom_records:
             raise ValueError("No chromosome artifacts were produced from the supplied PLINK inputs.")
@@ -566,6 +614,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional chain file for hg38->hg19 liftover. Enables hg19 outputs for hg38 source builds.",
     )
     parser.add_argument("--output-dir", required=True, help="Output root directory for emitted parquet artifacts.")
+    parser.add_argument("--overwrite", action="store_true", default=False, help="Replace existing fixed output files.")
     parser.add_argument("--ld-wind-snps", default=None, type=int, help="LD window size in SNPs.")
     parser.add_argument("--ld-wind-kb", default=None, type=float, help="LD window size in kilobases.")
     parser.add_argument("--ld-wind-cm", default=None, type=float, help="LD window size in centiMorgans.")
@@ -596,6 +645,7 @@ def config_from_args(args: argparse.Namespace) -> tuple[ReferencePanelBuildConfi
         liftover_chain_hg19_to_hg38_path=args.liftover_chain_hg19_to_hg38_path,
         liftover_chain_hg38_to_hg19_path=args.liftover_chain_hg38_to_hg19_path,
         output_dir=args.output_dir,
+        overwrite=args.overwrite,
         ld_wind_snps=args.ld_wind_snps,
         ld_wind_kb=args.ld_wind_kb,
         ld_wind_cm=args.ld_wind_cm,

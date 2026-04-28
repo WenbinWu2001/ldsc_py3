@@ -9,10 +9,11 @@ This document summarizes the public package surface. For workflow-level file str
 | Build query annotations | `ldsc annotate` | `AnnotationBuilder`, `run_bed_to_annot()`, `make_annot_files()` | baseline `.annot(.gz)`, BED or gene-set inputs | `query.<chrom>.annot.gz` or one legacy `.annot(.gz)` |
 | Build parquet reference panels | `ldsc build-ref-panel` | `ReferencePanelBuilder`, `run_build_ref_panel()` | PLINK prefix, optional liftover chains, conditional genetic maps, optional keep/restrict files; `snp_identifier` only when a SNP restriction file is supplied | per-chromosome `ann.parquet`, `LD.parquet`, emitted `meta_*.tsv.gz` sidecars |
 | Compute LD scores | `ldsc ldscore` | `LDScoreCalculator`, `run_ldscore()` | annotation shards, PLINK or parquet reference panel, optional frequency metadata | `manifest.json`, `baseline.parquet`, optional `query.parquet` under `output_dir` |
-| Munge GWAS summary statistics | `ldsc munge-sumstats` | `SumstatsMunger`, `load_sumstats()` | raw sumstats, column hints, QC thresholds | `.sumstats.gz`, `.log` |
-| Estimate heritability | `ldsc h2` | `RegressionRunner.estimate_h2()` | munged `.sumstats.gz`, LD-score files, count vector | `.h2.tsv` |
-| Estimate partitioned heritability | `ldsc partitioned-h2` | `RegressionRunner.estimate_partitioned_h2_batch()` | munged `.sumstats.gz`, LD-score files, count vector, annotation manifest | `.partitioned_h2.tsv` |
-| Estimate genetic correlation | `ldsc rg` | `RegressionRunner.estimate_rg()` | two munged `.sumstats.gz` files, LD-score files, count vector | `.rg.tsv` |
+| Infer `chr_pos` genome build | workflow flags only: `--genome-build auto`; no standalone CLI command | `infer_chr_pos_build()`, `resolve_chr_pos_table()` | pandas table with `CHR` and `POS`; optional reference table | `ChrPosBuildInference`, and optionally a normalized 1-based table |
+| Munge GWAS summary statistics | `ldsc munge-sumstats` | `SumstatsMunger`, `load_sumstats()` | raw sumstats, column hints, QC thresholds | `sumstats.sumstats.gz`, `sumstats.log` |
+| Estimate heritability | `ldsc h2` | `RegressionRunner.estimate_h2()` | munged `.sumstats.gz`, LD-score files, count vector | `h2.tsv` |
+| Estimate partitioned heritability | `ldsc partitioned-h2` | `RegressionRunner.estimate_partitioned_h2_batch()` | munged `.sumstats.gz`, LD-score files, count vector, annotation manifest | `partitioned_h2.tsv` |
+| Estimate genetic correlation | `ldsc rg` | `RegressionRunner.estimate_rg()` | two munged `.sumstats.gz` files, LD-score files, count vector | `rg.tsv` |
 
 ## Public Classes And Result Types
 
@@ -52,6 +53,7 @@ This document summarizes the public package surface. For workflow-level file str
 | `SumstatsTable` | validated LDSC-ready summary-statistics table, plus known or unknown `config_snapshot` provenance |
 | `MungeRunSummary` | compact record of a munging run |
 | `RegressionDataset` | merged sumstats plus LD-score matrix used by the estimator, plus propagated provenance when available |
+| `ChrPosBuildInference` | genome-build and coordinate-basis decision returned by `infer_chr_pos_build()` and `resolve_chr_pos_table()` |
 
 ### Global Config Registry
 
@@ -68,6 +70,11 @@ This document summarizes the public package surface. For workflow-level file str
 - Public dataclasses normalize `PathLike` objects to strings but do not expand inputs immediately.
 - Workflow modules resolve input tokens before calling `_kernel`.
 - Public outputs use fixed workflow filenames under `output_dir`; run identity comes from the directory name.
+- Missing output directories are created, existing directories are reused, and
+  existing fixed files fail before writing starts unless the caller passes
+  `--overwrite` or `overwrite=True`.
+- `--overwrite` only permits replacement of the known files for the active
+  workflow; it does not remove unrelated files from the output directory.
 - Raw user-authored inputs use permissive alias resolution through `column_inference.py`.
 - Package-written artifacts use stricter internal headers so downstream workflows reload them deterministically.
 
@@ -78,3 +85,10 @@ Stable user-facing imports are re-exported from `ldsc.__init__`. That includes t
 The top-level package also re-exports `ConfigMismatchError` and
 `validate_config_compatibility()` for notebook and library code that wants to
 surface or preflight config compatibility explicitly.
+
+Genome-build inference for `chr_pos` inputs is also part of the top-level Python
+API: import `ChrPosBuildInference`, `infer_chr_pos_build()`, and
+`resolve_chr_pos_table()` from `ldsc`. The command-line API keeps inference
+inside existing workflow flags such as `ldsc annotate --genome-build auto` and
+`ldsc ldscore --genome-build auto`; it intentionally does not add a standalone
+`infer-build` subcommand.

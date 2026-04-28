@@ -24,12 +24,23 @@ Resolution behavior:
 - if filename-based chromosome filtering is not possible, the workflow reads the matched files and filters rows by `CHR` internally
 - scalar inputs still must resolve to exactly one file
 
+Genome-build behavior for `chr_pos` inputs:
+
+- Python callers can import `infer_chr_pos_build()` and `resolve_chr_pos_table()` from `ldsc`
+- workflow calls can set `GlobalConfig(snp_identifier="chr_pos", genome_build="auto")`
+- CLI calls can pass `--snp-identifier chr_pos --genome-build auto`
+- auto mode infers hg19 or hg38 and converts 0-based `POS` values to canonical 1-based coordinates when enough reference SNPs are present
+- the CLI has no standalone build-inference command; inference is part of existing workflows
+
 Important output behavior:
 
 - the in-memory result is one merged `LDScoreResult` with split `baseline_table` and optional `query_table`
 - `--output-dir` writes a canonical LD-score result directory containing `manifest.json`, `baseline.parquet`, and optional `query.parquet`
 - regression weights live in the `regr_weight` column of `baseline.parquet`; there is no separate `.w.l2.ldscore.gz` output
 - annotation counts are stored as manifest records, not as separate `.M` files
+- missing output directories are created and existing directories are reused
+- existing fixed output files fail before writing starts; reruns that should
+  replace them must pass `--overwrite` or `overwrite=True`
 
 ## Case 1: Existing SNP-Level Annotation Files
 
@@ -53,6 +64,7 @@ result = run_ldscore(
     ref_panel_snps_path="filters/reference_universe.txt",
     regression_snps_path="filters/hapmap3.txt",
     ld_wind_cm=1.0,
+    # overwrite=True,  # enable only when intentionally replacing prior outputs
 )
 
 print(result.baseline_table.columns.tolist())
@@ -74,6 +86,7 @@ ldsc ldscore \
   --regression-snps-path filters/hapmap3.txt \
   --snp-identifier rsid \
   --ld-wind-cm 1.0
+# Add --overwrite only when intentionally replacing manifest/baseline/query files.
 ```
 
 ## Case 2: Use BED Files Directly During LD-Score Calculation
@@ -137,6 +150,7 @@ bundle = run_bed_to_annot(
     query_annot_bed_paths="beds/*.bed",
     baseline_annot_paths="annotations/baseline_chr/baseline.@.annot.gz",
     output_dir="annotations/query_from_beds",
+    # overwrite=True,  # enable only when intentionally replacing query shards
 )
 
 print(bundle.query_columns)
@@ -154,7 +168,51 @@ ldsc annotate \
 
 The generated query shards are named `query.<chrom>.annot.gz`, so downstream inputs should use a token such as `annotations/query_from_beds/query.@.annot.gz`.
 
-If `--output-dir` does not exist yet, the workflow warns once and creates it automatically.
+If `--output-dir` does not exist yet, the workflow warns once and creates it
+automatically. If a `query.<chrom>.annot.gz` shard already exists, the command
+fails before writing any shard; add `--overwrite` only for an intentional rerun.
+
+## Optional: Inspect `chr_pos` Genome Build Before A Workflow
+
+Use the top-level Python API when you want to preflight a `CHR`/`POS` table in a
+notebook or script. `infer_chr_pos_build()` reports the decision only;
+`resolve_chr_pos_table()` also returns a normalized table with canonical
+chromosome labels and 1-based positions.
+
+```python
+import pandas as pd
+from ldsc import infer_chr_pos_build, resolve_chr_pos_table
+
+# The table must contain enough HapMap3-overlapping SNPs to support inference.
+restriction = pd.read_csv("filters/hapmap3_chr_pos.tsv.gz", sep="\t")
+
+normalized, inference = resolve_chr_pos_table(
+    restriction,
+    context="tutorial restriction table",
+)
+decision_only = infer_chr_pos_build(
+    normalized.loc[:, ["CHR", "POS"]],
+    context="normalized tutorial restriction table",
+)
+
+print(inference.genome_build)
+print(inference.coordinate_basis)
+print(decision_only.summary_message)
+print(normalized.head())
+```
+
+For command-line runs, use auto mode on the workflow itself:
+
+```bash
+ldsc ldscore \
+  --output-dir tutorial_outputs/auto_build_ldscores \
+  --baseline-annot-paths "annotations/baseline.@.annot.gz" \
+  --r2-paths "r2/reference.@.parquet" \
+  --metadata-paths "r2/reference_metadata.@.tsv.gz" \
+  --snp-identifier chr_pos \
+  --genome-build auto \
+  --ld-wind-cm 1.0
+```
 
 ## Configuration Notes
 

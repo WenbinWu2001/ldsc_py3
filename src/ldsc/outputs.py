@@ -3,7 +3,9 @@
 The public LD-score workflow writes one canonical result directory containing
 ``manifest.json``, ``baseline.parquet``, and optional ``query.parquet``. Run
 identity comes from the chosen directory name; output filenames inside that
-directory are fixed.
+directory are fixed. The writer creates missing directories, reuses existing
+directories, and refuses existing canonical files unless the caller explicitly
+sets ``overwrite=True``.
 """
 
 from __future__ import annotations
@@ -18,7 +20,7 @@ import numpy as np
 import pandas as pd
 
 from .config import _normalize_required_path
-from .path_resolution import ensure_output_directory
+from .path_resolution import ensure_output_directory, ensure_output_paths_available
 
 
 LDSCORE_RESULT_FORMAT = "ldsc.ldscore_result.v1"
@@ -35,7 +37,9 @@ class LDScoreOutputConfig:
         optional ``query.parquet``.
     overwrite : bool, optional
         If ``True``, replace existing canonical LD-score files in
-        ``output_dir``. Default is ``False``.
+        ``output_dir``. If ``False``, existing canonical files raise
+        ``FileExistsError`` before any parquet or manifest file is written.
+        Default is ``False``.
     parquet_compression : {"snappy", "gzip", "brotli", "zstd", "none", None}, optional
         Compression codec used for parquet tables. Default is ``"snappy"``.
     """
@@ -53,10 +57,15 @@ class LDScoreOutputConfig:
 
 
 class LDScoreDirectoryWriter:
-    """Write the canonical LD-score result directory."""
+    """Write the canonical LD-score result directory with collision preflight."""
 
     def write(self, result: Any, output_config: LDScoreOutputConfig) -> dict[str, str]:
-        """Write ``manifest.json``, ``baseline.parquet``, and optional ``query.parquet``."""
+        """Write ``manifest.json``, ``baseline.parquet``, and optional ``query.parquet``.
+
+        Existing canonical files are checked before any output file is written.
+        Replacement requires ``output_config.overwrite=True``; unrelated files
+        in the directory are ignored.
+        """
         output_dir = ensure_output_directory(output_config.output_dir, label="LD-score output directory")
         baseline_table = getattr(result, "baseline_table", None)
         query_table = getattr(result, "query_table", None)
@@ -70,9 +79,11 @@ class LDScoreDirectoryWriter:
         }
         if query_table is not None:
             paths["query"] = output_dir / "query.parquet"
-        existing = [path for path in paths.values() if path.exists()]
-        if existing and not output_config.overwrite:
-            raise FileExistsError(_format_existing_artifact_message(existing))
+        ensure_output_paths_available(
+            paths.values(),
+            overwrite=output_config.overwrite,
+            label="LD-score output artifact",
+        )
 
         compression = None if output_config.parquet_compression in {None, "none"} else output_config.parquet_compression
         baseline_table.to_parquet(paths["baseline"], index=False, compression=compression)
@@ -126,15 +137,6 @@ class LDScoreDirectoryWriter:
         query_keys = query_table.loc[:, ["CHR", "SNP", "BP"]].reset_index(drop=True)
         if not baseline_keys.equals(query_keys):
             raise ValueError("query rows must match baseline rows on CHR/SNP/BP.")
-
-
-def _format_existing_artifact_message(paths: list[Path]) -> str:
-    """Build the shared overwrite-guard message for one or more destinations."""
-    preview = ", ".join(str(path) for path in paths[:3])
-    if len(paths) > 3:
-        preview = f"{preview}, ... ({len(paths) - 3} more)"
-    label = "artifact" if len(paths) == 1 else "artifacts"
-    return f"Refusing to overwrite existing {label}: {preview}. Pass overwrite=True to replace them."
 
 
 def _to_serializable(value: Any) -> Any:

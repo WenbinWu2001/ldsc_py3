@@ -154,6 +154,7 @@ def _add_annotate_arguments(parser: argparse.ArgumentParser) -> None:
         help="Baseline annotation path tokens: exact paths, globs, or explicit @ suite tokens.",
     )
     parser.add_argument("--output-dir", default=None, help="Destination directory for generated .annot.gz files.")
+    parser.add_argument("--overwrite", action="store_true", default=False, help="Replace existing fixed output files.")
     parser.add_argument("--snp-identifier", default="chr_pos", help="How to interpret restriction SNP identifiers.")
     parser.add_argument(
         "--genome-build",

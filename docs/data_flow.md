@@ -10,7 +10,7 @@ This document summarizes the user-visible file streams for each public workflow.
 | Preprocessing | yes | `ldsc.config`, `ldsc.path_resolution`, `ldsc.column_inference`, `ldsc.chromosome_inference` | normalize tokens, headers, identifiers, chromosome order |
 | Workflow | yes | feature modules under `src/ldsc/` | build aligned in-memory tables |
 | Kernel | no | `ldsc._kernel.*` | low-level readers and numerical work |
-| Postprocessing | yes | `ldsc.outputs`, pandas writers in `ldsc.regression_runner` | emit files and summaries |
+| Postprocessing | yes | `ldsc.outputs`, pandas writers in `ldsc.regression_runner` | preflight fixed output paths, emit files and summaries |
 
 ## Package Overview
 
@@ -54,6 +54,10 @@ flowchart LR
 ```
 
 ## 1. `annotate`: BED Or Gene-Set Projection To SNP-Level `.annot.gz`
+
+Output directories are created when missing and reused when present. Existing
+`query.<chrom>.annot.gz` files are refused before any query shard is written
+unless the caller passes `--overwrite` or `overwrite=True`.
 
 ### Required inputs
 
@@ -108,6 +112,11 @@ flowchart LR
 - Postprocessing: gzip writer inside the annotation kernel
 
 ## 2. `build-ref-panel`: PLINK To Standard Parquet LD Reference
+
+Before chromosome processing starts, the builder precomputes candidate paths
+under `parquet/ann`, `parquet/ld`, and `parquet/meta`. Existing candidates are
+refused unless `--overwrite` or `ReferencePanelBuildConfig(overwrite=True)` is
+supplied; unrelated files in the output directory are left untouched.
 
 ### Required inputs
 
@@ -167,6 +176,10 @@ flowchart LR
 - Postprocessing: parquet and TSV writers in the kernel
 
 ## 3. `ldscore`: Annotation Plus Reference Panel To LDSC Artifacts
+
+The canonical LD-score writer preflights `manifest.json`, `baseline.parquet`,
+and optional `query.parquet` before writing any of them. Use `--overwrite` or
+`LDScoreOutputConfig(overwrite=True)` only for intentional reruns.
 
 ### Required inputs
 
@@ -228,6 +241,10 @@ flowchart LR
 
 ## 4. `munge-sumstats`: Raw GWAS Table To Curated `.sumstats.gz`
 
+The munging workflow preflights both fixed outputs, `sumstats.sumstats.gz` and
+`sumstats.log`, before invoking the legacy munging kernel. This avoids a long
+run partially replacing one output while leaving the other from an earlier run.
+
 ### Required inputs
 
 | File | Example | Notes |
@@ -279,6 +296,10 @@ flowchart LR
 
 ## 5. `h2`, `partitioned-h2`, and `rg`: Curated Artifacts To Regression Summaries
 
+Regression summary commands write one fixed TSV when `output_dir` is supplied:
+`h2.tsv`, `partitioned_h2.tsv`, or `rg.tsv`. Existing summary TSVs raise before
+the new table is written unless the command includes `--overwrite`.
+
 ### Required inputs
 
 | File | Example | Notes |
@@ -312,9 +333,9 @@ flowchart LR
 
   I1 --> E1 --> E4 --> E5
   I2 --> E1 --> E2 --> E3 --> E4
-  E5 --> E6 --> O5a[.h2.tsv]
-  E5 --> E7 --> O5b[.partitioned_h2.tsv]
-  E5 --> E8 --> O5c[.rg.tsv]
+  E5 --> E6 --> O5a[h2.tsv]
+  E5 --> E7 --> O5b[partitioned_h2.tsv]
+  E5 --> E8 --> O5c[rg.tsv]
 ```
 
 ### Outputs

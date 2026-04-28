@@ -84,6 +84,7 @@ from ..genome_build_inference import (
 from ..path_resolution import (
     ANNOTATION_SUFFIXES,
     ensure_output_directory,
+    ensure_output_paths_available,
     ensure_output_parent_directory,
     normalize_path_token,
     resolve_file_group,
@@ -525,6 +526,7 @@ class AnnotationBuilder:
         output_dir: str | Path | None = None,
         batch: bool | None = None,
         log_level: str | None = None,
+        overwrite: bool | None = None,
     ) -> AnnotationBundle:
         """
         Convert BED annotations into an in-memory ``AnnotationBundle``.
@@ -536,8 +538,14 @@ class AnnotationBuilder:
         annotation-side projection does not apply any reference-panel SNP
         restriction; those filters are applied later when the reference panel
         is loaded for LD-score computation.
+
+        Existing ``query.<chrom>.annot.gz`` files are checked after the bundle
+        is assembled and before any shard is written. Replacement requires the
+        ``overwrite`` argument, or ``AnnotationBuildConfig(overwrite=True)``
+        when ``overwrite`` is left as ``None``.
         """
         _ = self.build_config.batch_mode if batch is None else batch
+        overwrite = self.build_config.overwrite if overwrite is None else overwrite
         _configure_logging(log_level or self.global_config.log_level)
         source_spec = AnnotationBuildConfig(
             baseline_annot_paths=baseline_annot_paths,
@@ -546,6 +554,11 @@ class AnnotationBuilder:
         bundle = self.run(source_spec)
         if output_dir is not None:
             output_path = ensure_output_directory(output_dir, label="output directory")
+            ensure_output_paths_available(
+                _bundle_query_annot_output_paths(bundle, output_path),
+                overwrite=overwrite,
+                label="annotation output artifact",
+            )
             _write_bundle_query_as_annot_files(bundle, output_path)
         return bundle
 
@@ -622,6 +635,7 @@ def run_bed_to_annot(
     baseline_annot_paths: str | PathLike[str] | Sequence[str | PathLike[str]],
     output_dir: str | Path | None = None,
     batch: bool = True,
+    overwrite: bool = False,
 ) -> AnnotationBundle:
     """
     Convenience wrapper for BED-to-annotation projection from Python code.
@@ -631,12 +645,16 @@ def run_bed_to_annot(
     keyword arguments. The returned bundle stays aligned to the baseline
     annotation rows; optional reference-panel SNP restrictions are applied only
     in the downstream LD-score workflow.
+
+    When ``output_dir`` is supplied, fixed ``query.<chrom>.annot.gz`` outputs
+    are refused before writing unless ``overwrite=True``.
     """
     return _run_bed_to_annot_with_global_config(
         query_annot_bed_paths=query_annot_bed_paths,
         baseline_annot_paths=baseline_annot_paths,
         output_dir=output_dir,
         batch=batch,
+        overwrite=overwrite,
         global_config=get_global_config(),
         entrypoint="run_bed_to_annot",
     )
@@ -648,6 +666,7 @@ def _run_bed_to_annot_with_global_config(
     output_dir: str | Path | None,
     *,
     batch: bool,
+    overwrite: bool,
     global_config: GlobalConfig,
     entrypoint: str,
 ) -> AnnotationBundle:
@@ -660,6 +679,7 @@ def _run_bed_to_annot_with_global_config(
         output_dir=output_dir,
         batch=batch,
         log_level=global_config.log_level,
+        overwrite=overwrite,
     )
 
 
@@ -674,6 +694,7 @@ def parse_bed_to_annot_args(argv: Sequence[str] | None = None) -> argparse.Names
         help="Baseline annotation path tokens: exact paths, globs, or explicit @ suite tokens.",
     )
     parser.add_argument("--output-dir", required=True, help="Destination directory for generated .annot.gz files.")
+    parser.add_argument("--overwrite", action="store_true", default=False, help="Replace existing fixed output files.")
     parser.add_argument("--snp-identifier", default="chr_pos", help="Identifier mode used for bundle validation.")
     parser.add_argument(
         "--genome-build",
@@ -706,6 +727,7 @@ def main_bed_to_annot(argv: Sequence[str] | None = None) -> int:
         baseline_annot_paths=split_cli_path_tokens(args.baseline_annot_paths),
         output_dir=args.output_dir,
         batch=args.batch,
+        overwrite=args.overwrite,
         global_config=cli_global_config,
         entrypoint="main_bed_to_annot",
     )
@@ -1033,17 +1055,21 @@ def _write_annot_file(out_path: Path, rows: Sequence[_BaselineRow], annotation_n
 def _write_bundle_query_as_annot_files(bundle: AnnotationBundle, output_dir: Path) -> list[Path]:
     """Write one `query.<chrom>.annot.gz` file per chromosome from ``bundle``."""
     output_paths: list[Path] = []
-    for chrom in bundle.chromosomes:
+    for chrom, out_path in zip(bundle.chromosomes, _bundle_query_annot_output_paths(bundle, output_dir)):
         chrom_mask = bundle.metadata["CHR"].astype(str) == str(chrom)
         chrom_meta = bundle.metadata.loc[chrom_mask].reset_index(drop=True).copy()
         chrom_meta = chrom_meta.rename(columns={"POS": "BP"})
         chrom_query = bundle.query_annotations.loc[chrom_mask].reset_index(drop=True)
-        out_path = output_dir / f"query.{chrom}.annot.gz"
         out_path.parent.mkdir(parents=True, exist_ok=True)
         with gzip.open(out_path, "wt") as handle:
             pd.concat([chrom_meta, chrom_query], axis=1).to_csv(handle, sep="\t", index=False)
         output_paths.append(out_path)
     return output_paths
+
+
+def _bundle_query_annot_output_paths(bundle: AnnotationBundle, output_dir: Path) -> list[Path]:
+    """Return the fixed query annotation output paths for one bundle."""
+    return [output_dir / f"query.{chrom}.annot.gz" for chrom in bundle.chromosomes]
 
 
 def _query_output_name(path: Path) -> str:

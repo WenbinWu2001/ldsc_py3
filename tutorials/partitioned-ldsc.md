@@ -9,6 +9,12 @@ The paired metadata sidecar is required; it defines the raw reference-panel SNP
 universe, while the parquet pair rows are queried only for LD values.
 The bundled `baseline_v1.2` annotations are hg19-based, so the parquet example uses `genome_build="hg19"` to align parquet coordinates to the annotation bundle.
 The workflow also accepts `hg37` and `GRCh37` as aliases for `hg19`, and `GRCh38` as an alias for `hg38`; outputs always normalize back to canonical `hg19` or `hg38`.
+If you are using `chr_pos` inputs and need the package to infer hg19/hg38 and
+0-based/1-based coordinates, set `genome_build="auto"` in `GlobalConfig` or pass
+`--genome-build auto` to `ldsc annotate` or `ldsc ldscore`. Programmatic
+preflight is available with `infer_chr_pos_build()` and
+`resolve_chr_pos_table()` from `ldsc`; there is no standalone CLI inference
+command.
 
 Path-token rules used in this tutorial:
 
@@ -16,6 +22,9 @@ Path-token rules used in this tutorial:
 - use globs when the filenames do not follow the simple chromosome-suffix convention
 - scalar inputs still resolve to exactly one file
 - output directories remain literal destinations
+- missing output directories are created and existing directories are reused
+- existing fixed files are refused before writing starts unless you pass
+  `--overwrite` or `overwrite=True`
 
 Resolution behavior:
 
@@ -66,6 +75,7 @@ annotation_bundle = AnnotationBuilder(GLOBAL_CONFIG, AnnotationBuildConfig()).ru
 #     query_annot_bed_paths="beds/*.bed",
 #     baseline_annot_paths="annotations/baseline_chr/baseline.@.annot.gz",
 #     output_dir="annotations/query_from_beds",
+#     overwrite=True,  # enable only when intentionally replacing query shards
 # )
 
 sumstats = SumstatsMunger().run(
@@ -75,6 +85,7 @@ sumstats = SumstatsMunger().run(
         column_hints={"snp": "SNP", "a1": "A1", "a2": "A2", "p": "P", "N_col": "N"},
         output_dir="tutorial_outputs/trait",
         signed_sumstats_spec="BETA,0",
+        # overwrite=True,  # enable only when intentionally replacing sumstats/log files
     ),
     global_config=GLOBAL_CONFIG,
 )
@@ -103,7 +114,10 @@ ldscore_result = LDScoreCalculator().run(
         regression_snps_path="filters/hapmap3.tsv.gz",
     ),
     global_config=GLOBAL_CONFIG,
-    output_config=LDScoreOutputConfig(output_dir="tutorial_outputs/partitioned_ldscores"),
+    output_config=LDScoreOutputConfig(
+        output_dir="tutorial_outputs/partitioned_ldscores",
+        # overwrite=True,  # enable only when intentionally replacing LD-score outputs
+    ),
 )
 
 runner = RegressionRunner(global_config=GLOBAL_CONFIG, regression_config=RegressionConfig())
@@ -178,3 +192,5 @@ ldsc partitioned-h2 \
 ```
 
 The command writes `tutorial_outputs/partitioned_h2/partitioned_h2.tsv`.
+If that TSV already exists, the command fails before writing; add `--overwrite`
+only when replacing the previous summary is intentional.

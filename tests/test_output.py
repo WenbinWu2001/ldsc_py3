@@ -142,6 +142,20 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
             self.assertFalse((output_dir / "manifest.json").exists())
             self.assertEqual((output_dir / "baseline.parquet").read_text(encoding="utf-8"), "existing")
 
+    def test_overwrite_true_replaces_existing_canonical_files(self):
+        result = make_split_ldscore_result(query=True)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir)
+            (output_dir / "manifest.json").write_text("existing", encoding="utf-8")
+            (output_dir / "baseline.parquet").write_text("existing", encoding="utf-8")
+
+            LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=output_dir, overwrite=True))
+
+            manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+            baseline = pd.read_parquet(output_dir / "baseline.parquet")
+            self.assertEqual(manifest["format"], "ldsc.ldscore_result.v1")
+            self.assertEqual(baseline["SNP"].tolist(), ["rs1", "rs2"])
+
     def test_omits_missing_common_count_values_from_manifest_records(self):
         result = make_split_ldscore_result(query=False)
         result = dataclass_replace(
@@ -185,3 +199,39 @@ class FixedOutputDirectoryTest(unittest.TestCase):
             self.assertIn("output directory", str(caught[0].message).lower())
             self.assertIn("created", str(caught[0].message).lower())
             self.assertTrue(Path(written).exists())
+
+    def test_munge_write_output_refuses_existing_file_by_default(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir)
+            existing = output_dir / "sumstats.sumstats.gz"
+            existing.write_text("existing", encoding="utf-8")
+            munger = __import__("ldsc.sumstats_munger", fromlist=["SumstatsMunger"]).SumstatsMunger()
+            table = __import__("ldsc.sumstats_munger", fromlist=["SumstatsTable"]).SumstatsTable(
+                data=pd.DataFrame({"SNP": ["rs1"], "N": [1000.0], "Z": [1.5]}),
+                has_alleles=False,
+                source_path="source.sumstats.gz",
+                trait_name="trait",
+            )
+
+            with self.assertRaisesRegex(FileExistsError, "overwrite"):
+                munger.write_output(table, output_dir)
+
+            self.assertEqual(existing.read_text(encoding="utf-8"), "existing")
+
+    def test_munge_write_output_allows_existing_file_with_overwrite(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir)
+            existing = output_dir / "sumstats.sumstats.gz"
+            existing.write_text("existing", encoding="utf-8")
+            munger = __import__("ldsc.sumstats_munger", fromlist=["SumstatsMunger"]).SumstatsMunger()
+            table = __import__("ldsc.sumstats_munger", fromlist=["SumstatsTable"]).SumstatsTable(
+                data=pd.DataFrame({"SNP": ["rs1"], "N": [1000.0], "Z": [1.5]}),
+                has_alleles=False,
+                source_path="source.sumstats.gz",
+                trait_name="trait",
+            )
+
+            written = munger.write_output(table, output_dir, overwrite=True)
+
+            self.assertEqual(written, str(existing))
+            self.assertGreater(existing.stat().st_size, len("existing"))

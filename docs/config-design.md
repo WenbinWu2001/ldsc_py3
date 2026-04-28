@@ -250,6 +250,9 @@ Stop passing these controls to `GlobalConfig()`:
 The old `--regression-snps` and `--print-snps` behavior is unified under
 `--regression-snps-path`. LD-score outputs are fixed files under `output_dir`;
 legacy `.l2.*` and `.w.l2.*` filenames are not emitted by the public writer.
+Existing fixed output files are refused by default and require `--overwrite` or
+`overwrite=True`, so reruns cannot silently replace artifacts produced under a
+different configuration snapshot.
 
 ---
 

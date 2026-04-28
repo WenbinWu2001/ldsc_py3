@@ -390,16 +390,17 @@ class PackageLayoutTest(unittest.TestCase):
 
         self.assertEqual(exc.exception.code, 0)
 
-    def test_python_m_ldsc_does_not_treat_successful_results_as_exit_codes(self):
-        sentinel = object()
+    def test_python_m_ldsc_exits_zero_for_successful_results(self):
 
-        with mock.patch("ldsc.cli.main", return_value=sentinel) as mocked_main:
+        with mock.patch("ldsc.cli.run_cli", return_value=0) as mocked_run_cli:
             with warnings.catch_warnings():
                 warnings.filterwarnings(
                     "ignore",
                     message=r"'ldsc\.__main__' found in sys\.modules",
                     category=RuntimeWarning,
                 )
-                runpy.run_module("ldsc", run_name="__main__", alter_sys=True)
+                with self.assertRaises(SystemExit) as exc:
+                    runpy.run_module("ldsc", run_name="__main__", alter_sys=True)
 
-        mocked_main.assert_called_once_with()
+        self.assertEqual(exc.exception.code, 0)
+        mocked_run_cli.assert_called_once_with()

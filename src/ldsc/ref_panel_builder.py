@@ -227,12 +227,11 @@ class ReferencePanelBuilder:
                 restriction_mode,
                 genome_build=self.global_config.genome_build,
             )
-            LOGGER.info(
-                "Loaded %d SNP restriction identifiers in %s mode from %s.",
-                len(restriction_values),
-                restriction_mode,
-                restriction_path,
+            message = (
+                f"Loaded {len(restriction_values)} SNP restriction identifiers "
+                f"in {restriction_mode} mode from '{restriction_path}'."
             )
+            LOGGER.info(message)
         source_build = config.source_genome_build
         target_build = "hg38" if source_build == "hg19" else "hg19"
         matching_chain = (
@@ -247,32 +246,29 @@ class ReferencePanelBuilder:
         )
         if matching_chain is None:
             if nonmatching_chain is not None:
-                LOGGER.warning(
-                    "No usable liftover chain was provided for %s -> %s; ignoring the opposite-direction chain and running source-build-only.",
-                    source_build,
-                    target_build,
+                message = (
+                    f"No usable liftover chain was provided for {source_build} -> {target_build}; "
+                    "ignoring the opposite-direction chain and running source-build-only."
                 )
+                LOGGER.warning(message)
             else:
                 LOGGER.warning(
-                    "No liftover chain was provided for %s -> %s; running source-build-only.",
-                    source_build,
-                    target_build,
+                    f"No liftover chain was provided for {source_build} -> {target_build}; "
+                    "running source-build-only."
                 )
         elif (target_build == "hg38" and config.genetic_map_hg38_path is None) or (
             target_build == "hg19" and config.genetic_map_hg19_path is None
         ):
             LOGGER.warning(
-                "No %s genetic map was provided; %s metadata CM values will be written as NA.",
-                target_build,
-                target_build,
+                f"No {target_build} genetic map was provided; "
+                f"{target_build} metadata CM values will be written as NA."
             )
         if (source_build == "hg38" and config.genetic_map_hg38_path is None) or (
             source_build == "hg19" and config.genetic_map_hg19_path is None
         ):
             LOGGER.warning(
-                "No %s genetic map was provided; %s metadata CM values will be written as NA.",
-                source_build,
-                source_build,
+                f"No {source_build} genetic map was provided; "
+                f"{source_build} metadata CM values will be written as NA."
             )
         return _BuildState(
             genetic_map_hg19=None if hg19_files is None else kernel_builder.load_genetic_map_group(hg19_files),
@@ -302,7 +298,7 @@ class ReferencePanelBuilder:
         build_state: _BuildState,
     ) -> dict[str, str] | None:
         """Build all parquet and metadata artifacts for one chromosome."""
-        LOGGER.info("Building reference-panel artifacts for chromosome %s from %s.", chrom, prefix)
+        LOGGER.info(f"Building reference-panel artifacts for chromosome {chrom} from '{prefix}'.")
         bim = legacy_parse.PlinkBIMFile(prefix + ".bim")
         fam = legacy_parse.PlinkFAMFile(prefix + ".fam")
         panel_df = bim.df.copy()
@@ -322,7 +318,7 @@ class ReferencePanelBuilder:
             )
             keep_snps = chrom_df.index[keep_mask].to_numpy(dtype=int)
             if len(keep_snps) == 0:
-                LOGGER.info("Skipping chromosome %s because no SNPs remain after restriction.", chrom)
+                LOGGER.info(f"Skipping chromosome {chrom} because no SNPs remain after restriction.")
                 return None
 
         keep_snps, hg19_lookup, hg38_lookup = self._resolve_mappable_snp_positions(
@@ -333,7 +329,7 @@ class ReferencePanelBuilder:
             keep_snps=keep_snps,
         )
         if len(keep_snps) == 0:
-            LOGGER.info("Skipping chromosome %s because no SNPs remain after liftover filtering.", chrom)
+            LOGGER.info(f"Skipping chromosome {chrom} because no SNPs remain after liftover filtering.")
             return None
         keep_snps = _sort_retained_snps_by_source_position(
             keep_snps,
@@ -361,7 +357,7 @@ class ReferencePanelBuilder:
             maf_values=geno.maf,
         )
         if len(metadata) == 0:
-            LOGGER.info("Skipping chromosome %s because no SNPs remain after PLINK filtering.", chrom)
+            LOGGER.info(f"Skipping chromosome {chrom} because no SNPs remain after PLINK filtering.")
             return None
         if set(metadata["CHR"]) != {chrom}:
             raise ValueError(f"PLINK filtering for chromosome {chrom} retained rows from multiple chromosomes.")
@@ -444,7 +440,7 @@ class ReferencePanelBuilder:
         if meta_hg38 is not None:
             kernel_builder.write_runtime_metadata_sidecar(meta_hg38, meta_hg38_path)
             output_paths["meta_hg38"] = str(meta_hg38_path)
-        LOGGER.info("Finished chromosome %s with %d retained SNPs.", chrom, len(metadata))
+        LOGGER.info(f"Finished chromosome {chrom} with {len(metadata)} retained SNPs.")
         return output_paths
 
     def _resolve_mappable_snp_positions(
@@ -498,13 +494,11 @@ class ReferencePanelBuilder:
 
         dropped = len(keep_snps) - len(retained_snps)
         if dropped:
-            LOGGER.warning(
-                "Dropping %d SNPs on chromosome %s after liftover filtering (%d unmapped, %d cross-chromosome).",
-                dropped,
-                chrom,
-                mapping.unmapped_count,
-                mapping.cross_chrom_count,
+            message = (
+                f"Dropping {dropped} SNPs on chromosome {chrom} after liftover filtering "
+                f"({mapping.unmapped_count} unmapped, {mapping.cross_chrom_count} cross-chromosome)."
             )
+            LOGGER.warning(message)
         return retained_snps, hg19_lookup, hg38_lookup
 
     def _map_positions(

@@ -753,7 +753,7 @@ def _resolve_annotation_cli_genome_build(args: argparse.Namespace, snp_identifie
             context="annotation inputs",
             logger=LOGGER,
         )
-        LOGGER.info("Resolved annotation genome build from %s.", sampled_path)
+        LOGGER.info(f"Resolved annotation genome build from '{sampled_path}'.")
     return genome_build
 
 

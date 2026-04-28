@@ -232,7 +232,7 @@ except ImportError:  # pragma: no cover - optional dependency
     ba = None
 
 
-LOGGER = logging.getLogger("LDSC.new")
+LOGGER = logging.getLogger("LDSC.ldscore")
 REQUIRED_ANNOT_COLUMNS = ("CHR", "POS", "SNP", "CM")
 ANNOT_META_COLUMNS = ("CHR", "SNP", "POS", "CM", "MAF")
 CHROM_ALIASES = CHR_COLUMN_ALIASES
@@ -755,13 +755,15 @@ def _parquet_schema_layout(schema_names: Sequence[str]) -> str:
     """Classify a runtime parquet schema as canonical, raw, or unsupported."""
     try:
         _resolve_canonical_parquet_columns(schema_names)
-    except Exception:
+    except ValueError:
+        # Canonical schema did not match; try the legacy raw schema before
+        # classifying the file as unsupported.
         pass
     else:
         return "canonical"
     try:
         _resolve_r2_source_columns(schema_names)
-    except Exception:
+    except ValueError:
         return "unsupported"
     return "raw"
 
@@ -1155,12 +1157,12 @@ def apply_maf_filter(
     if maf_min is None:
         return metadata, annotations
     if "MAF" not in metadata.columns or metadata["MAF"].isna().all():
-        LOGGER.warning("Cannot apply --maf in %s because MAF metadata is unavailable.", context)
+        LOGGER.warning(f"Cannot apply --maf in {context} because MAF metadata is unavailable.")
         return metadata, annotations
     keep = metadata["MAF"] > maf_min
     removed = int((~keep).sum())
     if removed:
-        LOGGER.info("Removed %d SNPs with MAF <= %s in %s.", removed, maf_min, context)
+        LOGGER.info(f"Removed {removed} SNPs with MAF <= {maf_min} in {context}.")
     metadata = metadata.loc[keep].reset_index(drop=True)
     annotations = annotations.loc[keep].reset_index(drop=True)
     return metadata, annotations
@@ -1303,8 +1305,8 @@ class SortedR2BlockReader:
             self._raw_pos_columns = get_r2_build_columns(self.genome_build, self.dataset.schema.names)
             self._raw_query_columns = [raw_mapping[canonical] for canonical in R2_CANONICAL_SOURCE_COLUMNS]
             LOGGER.warning(
-                "%s uses the legacy raw schema. Row-group pruning is disabled and query performance will be severely degraded.",
-                paths[0],
+                f"'{paths[0]}' uses the legacy raw schema. Row-group pruning is disabled "
+                "and query performance will be severely degraded."
             )
             return
 
@@ -1363,10 +1365,8 @@ class SortedR2BlockReader:
             )
             inferred_build = inference.genome_build
             LOGGER.warning(
-                "No build metadata found in %s; inferred %s from first row group. "
-                "To silence this warning, regenerate the parquet with `ldsc build-ref-panel`.",
-                path,
-                inferred_build,
+                f"No build metadata found in '{path}'; inferred {inferred_build} from first row group. "
+                "To silence this warning, regenerate the parquet with `ldsc build-ref-panel`."
             )
             if self.genome_build not in {None, inferred_build}:
                 raise ValueError(
@@ -1379,11 +1379,9 @@ class SortedR2BlockReader:
             avg_rows_per_rg = meta.num_rows / meta.num_row_groups
             if avg_rows_per_rg > 500_000:
                 LOGGER.warning(
-                    "%s has %d row group(s) (avg %.0f rows/group). Query performance will be severely degraded. "
-                    "Regenerate with `row_group_size=50000` for optimal speed.",
-                    path,
-                    meta.num_row_groups,
-                    avg_rows_per_rg,
+                    f"'{path}' has {meta.num_row_groups} row group(s) "
+                    f"(avg {avg_rows_per_rg:.0f} rows/group). Query performance will be severely degraded. "
+                    "Regenerate with `row_group_size=50000` for optimal speed."
                 )
 
         pos1_idx = self._pf.schema_arrow.names.index(self._canonical_columns["POS_1"])
@@ -1804,9 +1802,8 @@ def compute_chrom_from_plink(
     removed = int((~keep).sum())
     if removed:
         LOGGER.warning(
-            "Dropping %d annotated SNPs on chromosome %s because they are absent from the PLINK reference panel.",
-            removed,
-            chrom,
+            f"Dropping {removed} annotated SNPs on chromosome {chrom} "
+            "because they are absent from the PLINK reference panel."
         )
     metadata = metadata.loc[keep].reset_index(drop=True)
     annotations = annotations.loc[keep].reset_index(drop=True)
@@ -1947,7 +1944,7 @@ def emit_outputs(results: Sequence[ChromComputationResult], args: argparse.Names
             if result.M_5_50 is not None:
                 write_counts(prefix + ".l2.M_5_50", result.M_5_50)
             else:
-                LOGGER.warning("Skipping %s.l2.M_5_50 because MAF is unavailable.", prefix)
+                LOGGER.warning(f"Skipping {prefix}.l2.M_5_50 because MAF is unavailable.")
         return
 
     ld_df, weight_df, M, M_5_50 = aggregate_results(results)
@@ -1957,7 +1954,7 @@ def emit_outputs(results: Sequence[ChromComputationResult], args: argparse.Names
     if M_5_50 is not None:
         write_counts(args.out + ".l2.M_5_50", M_5_50)
     else:
-        LOGGER.warning("Skipping %s.l2.M_5_50 because MAF is unavailable.", args.out)
+        LOGGER.warning(f"Skipping {args.out}.l2.M_5_50 because MAF is unavailable.")
 
 
 def validate_args(args: argparse.Namespace) -> None:
@@ -2069,10 +2066,8 @@ def run_ldscore_from_args(args: argparse.Namespace) -> list[ChromComputationResu
             continue
 
         LOGGER.info(
-            "Processing chromosome %s with %d baseline and %d query annotation columns.",
-            chrom,
-            len(bundle.baseline_columns),
-            len(bundle.query_columns),
+            f"Processing chromosome {chrom} with {len(bundle.baseline_columns)} baseline "
+            f"and {len(bundle.query_columns)} query annotation columns."
         )
 
         # Compute LD scores from the selected reference-panel backend.

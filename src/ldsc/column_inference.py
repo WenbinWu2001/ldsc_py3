@@ -435,6 +435,8 @@ def resolve_restriction_chr_pos_columns(
         pos_col = resolve_required_column(columns, RESTRICTION_CHRPOS_SPEC_MAP["POS"], context=context)
         return chr_col, pos_col
     except ValueError as generic_error:
+        # Fall through to build-specific position aliases before reporting the
+        # generic POS failure to the caller.
         pass
 
     if normalized_build == "hg19":

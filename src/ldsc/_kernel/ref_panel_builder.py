@@ -186,11 +186,14 @@ def detect_restriction_identifier_mode(path: str | PathLike[str]) -> str:
         resolve_restriction_chr_pos_columns(header_fields, context=str(path))
         return "chr_pos"
     except ValueError:
+        # Not a chr_pos restriction file; try rsid before raising a combined
+        # user-facing header error.
         pass
     try:
         resolve_restriction_rsid_column(header_fields, context=str(path))
         return "rsid"
     except ValueError:
+        # Neither supported restriction schema matched.
         pass
 
     raise ValueError(

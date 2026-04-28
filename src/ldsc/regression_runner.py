@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import math
 import warnings
 from dataclasses import dataclass
@@ -48,6 +49,7 @@ from .sumstats_munger import SumstatsTable, load_sumstats
 COMMON_COUNT_KEY = "common_reference_snp_counts_maf_gt_0_05"
 ALL_COUNT_KEY = "all_reference_snp_counts"
 CHR_POS_KEY_COLUMN = "_ldsc_chr_pos_key"
+LOGGER = logging.getLogger("LDSC.regression_runner")
 
 
 @dataclass(frozen=True)
@@ -497,6 +499,7 @@ def run_h2_from_args(args):
     """Run single-trait heritability estimation from parsed CLI arguments."""
     runner, config = _runner_from_args(args)
     print_global_config_banner("run_h2_from_args", runner.global_config)
+    LOGGER.info(f"Starting h2 regression for '{args.sumstats_path}' using LD-score directory '{args.ldscore_dir}'.")
     sumstats_table = _load_sumstats_table(args.sumstats_path, getattr(args, "trait_name", None))
     ldscore_result = load_ldscore_from_dir(args.ldscore_dir)
     with suppress_global_config_banner():
@@ -509,6 +512,7 @@ def run_h2_from_args(args):
         "h2.tsv",
         overwrite=getattr(args, "overwrite", False),
     )
+    LOGGER.info(f"Finished h2 regression with {len(dataset.table)} regression SNPs.")
     return summary
 
 
@@ -516,10 +520,16 @@ def run_partitioned_h2_from_args(args):
     """Run batch partitioned heritability from parsed CLI arguments."""
     runner, config = _runner_from_args(args)
     print_global_config_banner("run_partitioned_h2_from_args", runner.global_config)
+    LOGGER.info(
+        f"Starting partitioned-h2 regression for '{args.sumstats_path}' using LD-score directory '{args.ldscore_dir}'."
+    )
     sumstats_table = _load_sumstats_table(args.sumstats_path, getattr(args, "trait_name", None))
     ldscore_result = load_ldscore_from_dir(args.ldscore_dir)
     if not ldscore_result.query_columns:
-        raise ValueError("partitioned-h2 requires query annotations in --ldscore-dir.")
+        raise ValueError(
+            "partitioned-h2 requires query annotations in --ldscore-dir. "
+            "Rerun `ldsc ldscore` with --query-annot-paths or --query-annot-bed-paths plus explicit baseline annotations."
+        )
     query_bundle = SimpleNamespace(query_columns=list(ldscore_result.query_columns))
     with suppress_global_config_banner():
         summary = runner.estimate_partitioned_h2_batch(sumstats_table, ldscore_result, query_bundle, config=config)
@@ -529,6 +539,10 @@ def run_partitioned_h2_from_args(args):
         "partitioned_h2.tsv",
         overwrite=getattr(args, "overwrite", False),
     )
+    LOGGER.info(
+        f"Finished partitioned-h2 regression for {len(ldscore_result.query_columns)} query annotations "
+        f"and {len(summary)} summary rows."
+    )
     return summary
 
 
@@ -536,6 +550,10 @@ def run_rg_from_args(args):
     """Run genetic-correlation estimation from parsed CLI arguments."""
     runner, config = _runner_from_args(args)
     print_global_config_banner("run_rg_from_args", runner.global_config)
+    LOGGER.info(
+        f"Starting rg regression for '{args.sumstats_1_path}' and '{args.sumstats_2_path}' "
+        f"using LD-score directory '{args.ldscore_dir}'."
+    )
     sumstats_table_1 = _load_sumstats_table(args.sumstats_1_path, getattr(args, "trait_name_1", None))
     sumstats_table_2 = _load_sumstats_table(args.sumstats_2_path, getattr(args, "trait_name_2", None))
     ldscore_result = load_ldscore_from_dir(args.ldscore_dir)
@@ -559,6 +577,7 @@ def run_rg_from_args(args):
         "rg.tsv",
         overwrite=getattr(args, "overwrite", False),
     )
+    LOGGER.info(f"Finished rg regression for {len(ldscore_result.ld_regression_snps)} LD-score regression SNPs.")
     return summary
 
 
@@ -641,6 +660,7 @@ def load_ldscore_from_dir(
     manifest_path = root / "manifest.json"
     if not manifest_path.exists():
         raise FileNotFoundError(f"LD-score directory is missing manifest.json: {root}")
+    LOGGER.info(f"Loading LD-score result directory from '{root}'.")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if manifest.get("format") != LDSCORE_RESULT_FORMAT:
         raise ValueError(f"Unsupported LD-score directory format: {manifest.get('format')!r}")
@@ -673,6 +693,11 @@ def load_ldscore_from_dir(
         config_snapshot=config_snapshot,
     )
     result.validate()
+    query_rows = 0 if query_table is None else len(query_table)
+    LOGGER.info(
+        f"Loaded LD-score directory '{root}' with {len(baseline_table)} baseline rows, "
+        f"{query_rows} query rows, and config provenance {'present' if config_snapshot is not None else 'unknown'}."
+    )
     return result
 
 
@@ -693,9 +718,11 @@ def _global_config_from_manifest(manifest: dict[str, Any]) -> GlobalConfig | Non
             log_level=snapshot.get("log_level", "INFO"),
             fail_on_missing_metadata=bool(snapshot.get("fail_on_missing_metadata", False)),
         )
-    except Exception:
+    except Exception as exc:
+        LOGGER.debug(f"Invalid LD-score manifest GlobalConfig provenance: {exc}", exc_info=True)
         warnings.warn(
-            "LD-score manifest GlobalConfig provenance is invalid; treating config compatibility as unknown.",
+            f"LD-score manifest GlobalConfig provenance is invalid ({exc}); "
+            "treating config compatibility as unknown.",
             UserWarning,
             stacklevel=3,
         )

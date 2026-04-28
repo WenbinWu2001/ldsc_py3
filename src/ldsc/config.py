@@ -24,12 +24,16 @@ from __future__ import annotations
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
+import logging
 from os import PathLike
 from typing import Literal
 import warnings
 
 from .column_inference import normalize_genome_build
+from .errors import LDSCConfigError
 from .path_resolution import normalize_optional_path_token, normalize_path_token, normalize_path_tokens
+
+LOGGER = logging.getLogger("LDSC.config")
 
 
 SNPIdentifierMode = Literal["rsid", "chr_pos"]
@@ -41,7 +45,7 @@ CompressionMode = Literal["auto", "gzip", "bz2", "none"]
 R2BiasMode = Literal["raw", "unbiased"]
 
 
-class ConfigMismatchError(ValueError):
+class ConfigMismatchError(LDSCConfigError, ValueError):
     """Raised when two result objects carry incompatible config snapshots."""
 
 
@@ -186,10 +190,10 @@ def suppress_global_config_banner():
 
 
 def print_global_config_banner(entrypoint: str, global_config: GlobalConfig) -> None:
-    """Print the active GlobalConfig for one public workflow entrypoint."""
+    """Log the active GlobalConfig for one public workflow entrypoint."""
     if _GLOBAL_CONFIG_BANNER_SUPPRESSION.get() > 0:
         return
-    print(f"{entrypoint} using {global_config!r}")
+    LOGGER.info(f"{entrypoint} using {global_config!r}")
 
 
 @dataclass(frozen=True)

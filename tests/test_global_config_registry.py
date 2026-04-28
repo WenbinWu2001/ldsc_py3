@@ -85,7 +85,7 @@ class GlobalConfigRegistryTest(unittest.TestCase):
     def tearDown(self) -> None:
         reset_global_config()
 
-    def test_run_bed_to_annot_uses_registered_global_config_and_prints_once(self):
+    def test_run_bed_to_annot_uses_registered_global_config_and_logs_once(self):
         set_global_config(
             GlobalConfig(
                 snp_identifier="rsid",
@@ -99,19 +99,22 @@ class GlobalConfigRegistryTest(unittest.TestCase):
             autospec=True,
             return_value=mock.sentinel.bundle,
         ) as patched, mock.patch("builtins.print") as patched_print:
-            result = ldsc.run_bed_to_annot(
-                query_annot_bed_paths="beds/*.bed",
-                baseline_annot_paths="baseline.@.annot.gz",
-                output_dir="out",
-            )
+            with self.assertLogs("LDSC.config", level="INFO") as caught:
+                result = ldsc.run_bed_to_annot(
+                    query_annot_bed_paths="beds/*.bed",
+                    baseline_annot_paths="baseline.@.annot.gz",
+                    output_dir="out",
+                )
 
         self.assertIs(result, mock.sentinel.bundle)
         builder = patched.call_args.args[0]
         self.assertEqual(builder.global_config.snp_identifier, "rsid")
         self.assertIsNone(builder.global_config.genome_build)
         self.assertEqual(builder.global_config.log_level, "DEBUG")
-        self.assertEqual(patched_print.call_count, 1)
-        self.assertIn("GlobalConfig", patched_print.call_args.args[0])
+        patched_print.assert_not_called()
+        self.assertEqual(len(caught.records), 1)
+        self.assertEqual(caught.records[0].levelname, "INFO")
+        self.assertIn("GlobalConfig", caught.records[0].getMessage())
 
     def test_run_bed_to_annot_rejects_removed_shared_kwargs(self):
         with self.assertRaises(TypeError):
@@ -165,7 +168,7 @@ class GlobalConfigRegistryTest(unittest.TestCase):
                 log_level="DEBUG",
             )
 
-    def test_reference_panel_builder_uses_registered_global_config_and_prints_once(self):
+    def test_reference_panel_builder_uses_registered_global_config_and_logs_once(self):
         set_global_config(GlobalConfig(snp_identifier="rsid", log_level="DEBUG"))
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -183,24 +186,30 @@ class GlobalConfigRegistryTest(unittest.TestCase):
                 "_build_chromosome",
                 return_value={"ann": "ann", "ld": "ld", "meta_hg19": "m19", "meta_hg38": "m38"},
             ), mock.patch("builtins.print") as patched_print:
-                result = builder.run(config)
+                with self.assertLogs("LDSC.config", level="INFO") as caught:
+                    result = builder.run(config)
 
         self.assertEqual(builder.global_config, ldsc.get_global_config())
         self.assertEqual(result.chromosomes, ["1"])
-        self.assertEqual(patched_print.call_count, 1)
-        self.assertIn("GlobalConfig", patched_print.call_args.args[0])
+        patched_print.assert_not_called()
+        self.assertEqual(len(caught.records), 1)
+        self.assertEqual(caught.records[0].levelname, "INFO")
+        self.assertIn("GlobalConfig", caught.records[0].getMessage())
 
-    def test_regression_runner_uses_registered_global_config_and_prints_once(self):
+    def test_regression_runner_uses_registered_global_config_and_logs_once(self):
         set_global_config(GlobalConfig(snp_identifier="rsid"))
         runner = RegressionRunner()
 
         with mock.patch("builtins.print") as patched_print:
-            dataset = runner.build_dataset(_make_sumstats_table(), _make_ldscore_result())
+            with self.assertLogs("LDSC.config", level="INFO") as caught:
+                dataset = runner.build_dataset(_make_sumstats_table(), _make_ldscore_result())
 
         self.assertEqual(runner.global_config, ldsc.get_global_config())
         self.assertEqual(dataset.merged["SNP"].tolist(), ["rs1", "rs2"])
-        self.assertEqual(patched_print.call_count, 1)
-        self.assertIn("GlobalConfig", patched_print.call_args.args[0])
+        patched_print.assert_not_called()
+        self.assertEqual(len(caught.records), 1)
+        self.assertEqual(caught.records[0].levelname, "INFO")
+        self.assertIn("GlobalConfig", caught.records[0].getMessage())
 
     def test_cli_normalization_ignores_registered_python_global_config(self):
         set_global_config(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38", log_level="WARNING"))

@@ -277,8 +277,14 @@ class LDScoreCalculator:
                 global_config,
                 context="AnnotationBundle and LDScoreCalculator runtime config",
             )
+        chromosomes = _chromosomes_from_bundle(annotation_bundle)
+        LOGGER.info(
+            f"Computing LD scores for {len(chromosomes)} chromosomes "
+            f"with {len(annotation_bundle.baseline_columns)} baseline columns "
+            f"and {len(annotation_bundle.query_columns)} query columns."
+        )
         chromosome_results: list[ChromLDScoreResult] = []
-        for chrom in _chromosomes_from_bundle(annotation_bundle):
+        for chrom in chromosomes:
             chrom_bundle = _slice_annotation_bundle(annotation_bundle, chrom)
             try:
                 chromosome_result = self.compute_chromosome(
@@ -300,6 +306,11 @@ class LDScoreCalculator:
         if output_config is not None:
             output_paths = self.output_writer.write(result, output_config)
             result = _replace_result_output_paths(result, output_paths)
+            LOGGER.info(f"Wrote LD-score result directory to '{output_config.output_dir}'.")
+        LOGGER.info(
+            f"Computed LD scores for {len(chromosome_results)} chromosomes "
+            f"and {len(result.baseline_table)} retained SNP rows."
+        )
         return result
 
     def compute_chromosome(
@@ -323,6 +334,10 @@ class LDScoreCalculator:
         backend = getattr(getattr(ref_panel, "spec", None), "backend", None)
         if backend == "parquet_r2" and ldscore_config.keep_indivs_path is not None:
             raise ValueError("keep_indivs_path/--keep-indivs-path is only supported for PLINK reference panels.")
+        LOGGER.info(
+            f"Computing chromosome {chrom} LD scores with backend '{backend or 'unknown'}' "
+            f"and {len(annotation_bundle.metadata)} annotation rows."
+        )
         annotation_bundle = _align_annotation_bundle_to_ref_panel(
             annotation_bundle=annotation_bundle,
             ref_panel=ref_panel,
@@ -345,7 +360,9 @@ class LDScoreCalculator:
             legacy_result = kernel_ldscore.compute_chrom_from_parquet(chrom, legacy_bundle, args, regression_snps)
         else:
             legacy_result = kernel_ldscore.compute_chrom_from_plink(chrom, legacy_bundle, args, regression_snps)
-        return self._wrap_legacy_chrom_result(legacy_result, global_config=global_config, regression_snps=regression_snps)
+        result = self._wrap_legacy_chrom_result(legacy_result, global_config=global_config, regression_snps=regression_snps)
+        LOGGER.info(f"Finished chromosome {chrom} with {len(result.baseline_table)} retained SNP rows.")
+        return result
 
     def _wrap_legacy_chrom_result(
         self,
@@ -626,6 +643,12 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
     _validate_run_args(normalized_args)
     ldscore_config = _ldscore_config_from_args(normalized_args)
     regression_snps = _load_regression_snps(ldscore_config.regression_snps_path, global_config)
+    ref_mode = "parquet" if normalized_args.r2_table else "plink"
+    LOGGER.info(
+        f"Starting LD-score workflow with reference mode '{ref_mode}', "
+        f"output directory '{normalized_args.output_dir}', "
+        f"snp_identifier='{global_config.snp_identifier}', genome_build='{global_config.genome_build}'."
+    )
     if _has_cli_tokens(normalized_args.baseline_annot_paths):
         source_spec = AnnotationBuildConfig(
             baseline_annot_paths=tuple(split_cli_path_tokens(normalized_args.baseline_annot_paths)),
@@ -860,7 +883,7 @@ def _resolve_ldscore_chr_pos_genome_build(args: argparse.Namespace, genome_build
                 ),
             )
         )
-        LOGGER.info("Resolved LD-score annotation genome build from %s.", sampled_path)
+        LOGGER.info(f"Resolved LD-score annotation genome build from '{sampled_path}'.")
     r2_tokens = split_cli_path_tokens(getattr(args, "r2_paths", None))
     if r2_tokens:
         frame, sampled_path = sample_frame_from_chr_pattern(
@@ -879,7 +902,7 @@ def _resolve_ldscore_chr_pos_genome_build(args: argparse.Namespace, genome_build
                 ),
             )
         )
-        LOGGER.info("Resolved LD-score reference-panel genome build from %s.", sampled_path)
+        LOGGER.info(f"Resolved LD-score reference-panel genome build from '{sampled_path}'.")
     if not resolved:
         raise ValueError(
             "Cannot infer --genome-build for LD-score chr_pos inputs because no chromosome-suite "

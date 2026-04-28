@@ -901,7 +901,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                     "meta_hg38": str(out_root / "meta" / f"chr{chrom}_meta_hg38.tsv.gz"),
                 }
 
-            with self.assertLogs("LDSC.ref_panel_builder", level="WARNING"):
+            with self.assertLogs("LDSC.ref_panel_builder", level="WARNING") as logs:
                 with mock.patch.object(
                     ref_panel_builder.ReferencePanelBuilder,
                     "_build_chromosome",
@@ -911,6 +911,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
 
             self.assertIn("meta_hg38", result.output_paths)
             self.assertNotIn("meta_hg19", result.output_paths)
+            self.assertTrue(any("source-build-only" in message for message in logs.output))
 
     def test_builder_run_warns_when_only_non_matching_chain_is_available(self):
         with tempfile.TemporaryDirectory() as tmpdir:

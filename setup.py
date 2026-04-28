@@ -15,7 +15,7 @@ setup(
     package_data={"ldsc": ["data/*.tsv.gz"]},
     entry_points={
         "console_scripts": [
-            "ldsc=ldsc.cli:main",
+            "ldsc=ldsc.cli:run_cli",
         ]
     },
     install_requires=[

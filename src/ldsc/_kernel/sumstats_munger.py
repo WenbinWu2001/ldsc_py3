@@ -15,11 +15,10 @@ rest of the refactored package gains a cleaner public interface.
 import pandas as pd
 import numpy as np
 #import os
-import sys
-import traceback
 import gzip
 import bz2
 import argparse
+import logging
 from functools import reduce
 from scipy.stats import chi2
 from ..column_inference import (
@@ -35,6 +34,8 @@ from ..genome_build_inference import resolve_chr_pos_table
 from . import regression as sumstats
 import time
 np.seterr(invalid='ignore')
+
+LOGGER = logging.getLogger("LDSC.sumstats_munger.kernel")
 
 try:
     x = pd.DataFrame({'A': [1, 2, 3]})
@@ -76,10 +77,10 @@ class Logger(object):
         self.log_fh = open(fh, 'w', encoding='utf-8')
 
     def log(self, msg):
-        """Write one message to the log file and mirror it to stdout."""
+        """Write one message to the log file and package logger."""
         print(msg, file=self.log_fh)
         self.log_fh.flush()
-        print(msg)
+        LOGGER.info(msg)
 
     def close(self):
         """Close the backing log file handle."""
@@ -258,7 +259,6 @@ def parse_dat(dat_gen, convert_colname, merge_alleles, log, args):
     drops = {'NA': 0, 'P': 0, 'INFO': 0,
              'FRQ': 0, 'A': 0, 'SNP': 0, 'MERGE': 0}
     for block_num, dat in enumerate(dat_gen):
-        sys.stdout.write('.')
         tot_snps += len(dat)
         old = len(dat)
         required_raw_cols = [
@@ -322,7 +322,6 @@ def parse_dat(dat_gen, convert_colname, merge_alleles, log, args):
 
         dat_list.append(dat[ii].reset_index(drop=True))
 
-    sys.stdout.write(' done\n')
     dat = pd.concat(dat_list, axis=0).reset_index(drop=True)
     msg = 'Read {N} SNPs from --sumstats file.\n'.format(N=tot_snps)
     if args.merge_alleles:
@@ -774,9 +773,16 @@ def munge_sumstats(args, p=True):
         else:
             req_cols = ['SNP', 'P']
 
-        for c in req_cols:
-            if c not in cname_translation.values():
-                raise ValueError('Could not find {C} column.'.format(C=c))
+            for c in req_cols:
+                if c not in cname_translation.values():
+                    available = ', '.join(file_cnames)
+                    raise ValueError(
+                        'Could not find {C} column in --sumstats input. '
+                        'Available columns: {A}. Use the matching column flag or --ignore to resolve ambiguous headers.'.format(
+                            C=c,
+                            A=available,
+                        )
+                    )
 
         # check aren't any duplicated column names in mapping
         for field in cname_translation:
@@ -792,7 +798,10 @@ def munge_sumstats(args, p=True):
 
         if (not args.N) and (not (args.N_cas and args.N_con)) and ('N' not in cname_translation.values()) and\
                 (any(x not in cname_translation.values() for x in ['N_CAS', 'N_CON'])):
-            raise ValueError('Could not determine N.')
+            raise ValueError(
+                'Could not determine N. Provide --N, provide both --N-cas and --N-con, '
+                'or include an inferable N column in the input summary statistics.'
+            )
         if ('N' in cname_translation.values() or all(x in cname_translation.values() for x in ['N_CAS', 'N_CON']))\
                 and 'NSTUDY' in cname_translation.values():
             nstudy = [
@@ -800,7 +809,10 @@ def munge_sumstats(args, p=True):
             for x in nstudy:
                 del cname_translation[x]
         if not args.no_alleles and not all(x in cname_translation.values() for x in ['A1', 'A2']):
-            raise ValueError('Could not find A1/A2 columns.')
+            raise ValueError(
+                'Could not find A1/A2 columns. Provide allele columns with --a1 and --a2, '
+                'or pass --no-alleles for h2/partitioned-h2 workflows that do not require allele matching.'
+            )
 
         log.log('Interpreting column names as follows:')
         log.log('\n'.join([x + ':\t' + cname_description[x]
@@ -886,10 +898,8 @@ def munge_sumstats(args, p=True):
                                                                                                         > 29).sum()))
         return dat
 
-    except Exception:
-        log.log('\nERROR converting summary statistics:\n')
-        #ex_type, ex, tb = sys.exc_info()
-        #log.log(traceback.format_exc(ex))
+    except Exception as exc:
+        log.log('\nERROR converting summary statistics: {E}\n'.format(E=exc))
         raise
     finally:
         log.log('\nConversion finished at {T}'.format(T=time.ctime()))

@@ -346,7 +346,7 @@ class CanonicalParquetRuntimeTest(unittest.TestCase):
 
             metadata = pd.DataFrame({"CHR": ["1", "1"], "SNP": ["rs1", "rs2"], "BP": [100, 120], "CM": [0.0, 0.0]})
             with mock.patch("pyarrow.parquet.ParquetFile", FakePF):
-                with self.assertLogs("LDSC.new", level="WARNING") as log_ctx:
+                with self.assertLogs("LDSC.ldscore", level="WARNING") as log_ctx:
                     ld.SortedR2BlockReader(
                         paths=[str(path)],
                         chrom="1",

@@ -206,7 +206,7 @@ def _finalize_chr_pos_restriction_frame(
     keep = (~chr_missing) & (~pos_missing)
     dropped = int((~keep).sum())
     if dropped and logger is not None:
-        logger.warning("Dropped %d restriction rows with missing CHR or POS from %s.", dropped, path)
+        logger.warning(f"Dropped {dropped} restriction rows with missing CHR or POS from '{path}'.")
 
     normalized = pd.DataFrame(
         {

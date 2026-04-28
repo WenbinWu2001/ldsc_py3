@@ -305,10 +305,14 @@ def _read_metadata_table(path: str | Path, chrom: str | None, global_config: Glo
         chr_col = resolve_required_column(df.columns, REFERENCE_METADATA_SPEC_MAP["CHR"], context=context)
         pos_col = resolve_required_column(df.columns, REFERENCE_METADATA_SPEC_MAP["POS"], context=context)
     except ValueError:
+        # Metadata may be rsid-only; validate the required identifier columns
+        # after probing both coordinate and SNP schemas.
         pass
     try:
         snp_col = resolve_required_column(df.columns, REFERENCE_METADATA_SPEC_MAP["SNP"], context=context)
     except ValueError:
+        # Metadata may be chr_pos-only; mode-specific validation below decides
+        # whether the missing SNP column is an error.
         pass
 
     if snp_identifier == "rsid" and snp_col is None:

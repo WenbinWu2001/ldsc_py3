@@ -1,5 +1,7 @@
 from pathlib import Path
+import contextlib
 import gzip
+import io
 import json
 import sys
 import tempfile
@@ -259,6 +261,40 @@ class SumstatsMungerTest(unittest.TestCase):
 
             self.assertEqual(table.source_path, str(raw_path))
             self.assertTrue((output_dir / "sumstats.sumstats.gz").exists())
+
+    def test_kernel_missing_sample_size_error_names_fix_options(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text("SNP A1 A2 P OR\nrs1 A G 0.05 1.1\n", encoding="utf-8")
+            args = kernel_munge.parser.parse_args(["--sumstats", str(raw_path), "--out", str(tmpdir / "sumstats")])
+
+            with self.assertRaisesRegex(ValueError, "--N.*--N-cas.*--N-con.*N column"):
+                kernel_munge.munge_sumstats(args, p=True)
+
+    def test_kernel_error_path_does_not_write_progress_to_stdout(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text("SNP A1 A2 P OR\nrs1 A G 0.05 1.1\n", encoding="utf-8")
+            args = kernel_munge.parser.parse_args(["--sumstats", str(raw_path), "--out", str(tmpdir / "sumstats")])
+            stdout = io.StringIO()
+
+            with contextlib.redirect_stdout(stdout):
+                with self.assertRaisesRegex(ValueError, "Could not determine N"):
+                    kernel_munge.munge_sumstats(args, p=True)
+
+            self.assertEqual(stdout.getvalue(), "")
+
+    def test_kernel_missing_allele_error_names_no_alleles_fix(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text("SNP P OR N\nrs1 0.05 1.1 1000\n", encoding="utf-8")
+            args = kernel_munge.parser.parse_args(["--sumstats", str(raw_path), "--out", str(tmpdir / "sumstats")])
+
+            with self.assertRaisesRegex(ValueError, "--a1.*--a2.*--no-alleles"):
+                kernel_munge.munge_sumstats(args, p=True)
 
     def test_run_accepts_id_and_ncas_ncon_header_aliases(self):
         with tempfile.TemporaryDirectory() as tmpdir:

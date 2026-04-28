@@ -50,6 +50,15 @@ from .config import (
     set_global_config,
     validate_config_compatibility,
 )
+from .errors import (
+    LDSCConfigError,
+    LDSCDependencyError,
+    LDSCError,
+    LDSCInputError,
+    LDSCInternalError,
+    LDSCUsageError,
+    LDSCUserError,
+)
 from .genome_build_inference import (
     ChrPosBuildInference,
     infer_chr_pos_build,
@@ -97,6 +106,13 @@ __all__ = [
     "LDScoreDirectoryWriter",
     "LDScoreOutputConfig",
     "LDScoreResult",
+    "LDSCConfigError",
+    "LDSCDependencyError",
+    "LDSCError",
+    "LDSCInputError",
+    "LDSCInternalError",
+    "LDSCUsageError",
+    "LDSCUserError",
     "load_ldscore_from_dir",
     "MungeConfig",
     "MungeRunSummary",

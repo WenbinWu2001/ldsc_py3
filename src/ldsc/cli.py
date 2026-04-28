@@ -17,11 +17,23 @@ builder added during the restructuring pass.
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 from pathlib import Path
 from typing import Sequence
 
 from . import annotation_builder, ldscore_calculator, ref_panel_builder
+from .errors import LDSCError, LDSCUsageError, LDSCUserError
+
+LOGGER = logging.getLogger("LDSC.cli")
+_USER_ERROR_TYPES = (
+    LDSCUserError,
+    ValueError,
+    FileNotFoundError,
+    FileExistsError,
+    NotADirectoryError,
+    ImportError,
+)
 
 
 class _NoAbbrevArgumentParser(argparse.ArgumentParser):
@@ -137,10 +149,35 @@ def main(argv: Sequence[str] | None = None):
     raise ValueError(f"Unsupported command: {args.command}")
 
 
+def run_cli(argv: Sequence[str] | None = None) -> int:
+    """Run the CLI with a clean user-error boundary and traceback logging."""
+    if argv is None:
+        logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    try:
+        main(argv)
+    except SystemExit as exc:
+        if exc.code is None:
+            return 0
+        if isinstance(exc.code, int):
+            return exc.code
+        LOGGER.error(f"Error: {exc.code}")
+        return 1
+    except _USER_ERROR_TYPES as exc:
+        LOGGER.error(f"Error: {exc}")
+        return 1
+    except LDSCError as exc:
+        LOGGER.exception(f"Internal LDSC error while running ldsc: {exc}")
+        return 2
+    except Exception as exc:
+        LOGGER.exception(f"Internal error while running ldsc: {exc}")
+        return 2
+    return 0
+
+
 def _run_annotate(args: argparse.Namespace):
     """Dispatch the ``annotate`` subcommand."""
     if not args.query_annot_bed_paths:
-        raise SystemExit("ldsc annotate requires --query-annot-bed-paths and --baseline-annot-paths.")
+        raise LDSCUsageError("ldsc annotate requires --query-annot-bed-paths and --baseline-annot-paths.")
     return annotation_builder.main_bed_to_annot(_namespace_to_argv(args, exclude={"command"}))
 
 

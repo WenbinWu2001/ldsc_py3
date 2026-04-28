@@ -412,16 +412,18 @@ class IdentifierHelpersTest(unittest.TestCase):
         self.assertEqual(normalize_chromosome("M"), "M")
         self.assertEqual(normalize_chromosome("MT"), "MT")
 
-    def test_normalize_chromosome_warns_on_sex_chromosome_numeric_inference(self):
+    def test_normalize_chromosome_logs_on_sex_chromosome_numeric_inference(self):
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            value = normalize_chromosome("23", context="test-sex-code")
+            with self.assertLogs("LDSC.chromosomes", level="INFO") as captured:
+                value = normalize_chromosome("23", context="test-sex-code")
 
         self.assertEqual(value, "X")
-        self.assertEqual(len(caught), 1)
-        self.assertIn("sex chromosome", str(caught[0].message).lower())
-        self.assertIn("23", str(caught[0].message))
-        self.assertIn("X", str(caught[0].message))
+        self.assertEqual(caught, [])
+        self.assertEqual(captured.records[0].levelname, "INFO")
+        self.assertIn("sex chromosome", captured.output[0].lower())
+        self.assertIn("23", captured.output[0])
+        self.assertIn("X", captured.output[0])
 
     def test_normalize_chromosome_rejects_numeric_mitochondrial_codes(self):
         for value in ["25", "26", "25.0", "26.0"]:

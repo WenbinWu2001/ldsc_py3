@@ -96,19 +96,21 @@ class ColumnInferenceTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             resolve_required_column(["CHR", "SNP", "BP", "CM"], internal_pos)
 
-    def test_resolve_required_column_warns_when_alias_maps_to_canonical_field(self):
+    def test_resolve_required_column_logs_when_alias_maps_to_canonical_field(self):
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            column = resolve_required_column(
-                ["CHR", "BP", "SNP"],
-                POS_COLUMN_SPEC,
-                context="test-position-alias",
-            )
+            with self.assertLogs("LDSC.columns", level="INFO") as captured:
+                column = resolve_required_column(
+                    ["CHR", "BP", "SNP"],
+                    POS_COLUMN_SPEC,
+                    context="test-position-alias",
+                )
 
         self.assertEqual(column, "BP")
-        self.assertEqual(len(caught), 1)
-        self.assertIn("canonical field 'POS'", str(caught[0].message))
-        self.assertIn("input column 'BP'", str(caught[0].message))
+        self.assertEqual(caught, [])
+        self.assertTrue(all(record.levelname == "INFO" for record in captured.records))
+        self.assertIn("canonical field 'POS'", captured.output[0])
+        self.assertIn("input column 'BP'", captured.output[0])
 
     def test_resolve_r2_source_columns_accepts_legacy_bp_and_build_aliases(self):
         mapping = resolve_required_columns(

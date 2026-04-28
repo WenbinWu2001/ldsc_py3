@@ -15,11 +15,12 @@ fail fast when their schema drifts.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 import re
-import warnings
 from typing import Iterable, Sequence
 
-_WARNED_INFERENCES: set[tuple[str, str, str]] = set()
+LOGGER = logging.getLogger("LDSC.columns")
+_LOGGED_INFERENCES: set[tuple[str, str, str]] = set()
 
 
 def clean_header(header: str) -> str:
@@ -310,17 +311,17 @@ def _best_matches(columns: Iterable[str], spec: ColumnSpec) -> list[str]:
     return ranked[min(ranked)]
 
 
-def _warn_if_inferred(canonical: str, actual: str, context: str | None) -> None:
-    """Emit a one-time warning when alias inference renames a source column."""
+def _log_if_inferred(canonical: str, actual: str, context: str | None) -> None:
+    """Emit a one-time info log when alias inference renames a source column."""
     if actual == canonical:
         return
     key = (context or "", canonical, actual)
-    if key in _WARNED_INFERENCES:
+    if key in _LOGGED_INFERENCES:
         return
-    _WARNED_INFERENCES.add(key)
+    _LOGGED_INFERENCES.add(key)
     suffix = "" if not context else f" in {context}"
     message = f"Inferred canonical field '{canonical}' from input column '{actual}'{suffix}."
-    warnings.warn(message, UserWarning, stacklevel=3)
+    LOGGER.info(message)
 
 
 def resolve_required_column(
@@ -340,7 +341,7 @@ def resolve_required_column(
             + ", ".join(matches)
         )
     actual = matches[0]
-    _warn_if_inferred(spec.canonical, actual, context)
+    _log_if_inferred(spec.canonical, actual, context)
     return actual
 
 
@@ -360,7 +361,7 @@ def resolve_optional_column(
             + ", ".join(matches)
         )
     actual = matches[0]
-    _warn_if_inferred(spec.canonical, actual, context)
+    _log_if_inferred(spec.canonical, actual, context)
     return actual
 
 

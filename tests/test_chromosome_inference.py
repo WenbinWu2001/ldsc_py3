@@ -15,25 +15,30 @@ class ChromosomeInferenceTest(unittest.TestCase):
         self.assertEqual(STANDARD_CHROMOSOMES[:4], ("1", "2", "3", "4"))
         self.assertEqual(STANDARD_CHROMOSOMES[-4:], ("X", "Y", "MT", "M"))
 
-    def test_normalize_chromosome_warns_once_per_context(self):
+    def test_normalize_chromosome_logs_once_per_context(self):
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            self.assertEqual(normalize_chromosome("chr1.0", context="shared-context"), "1")
-            self.assertEqual(normalize_chromosome("chr1.0", context="shared-context"), "1")
+            with self.assertLogs("LDSC.chromosomes", level="INFO") as captured:
+                self.assertEqual(normalize_chromosome("chr1.0", context="shared-log-context"), "1")
+                self.assertEqual(normalize_chromosome("chr1.0", context="shared-log-context"), "1")
 
-        self.assertEqual(len(caught), 1)
-        self.assertIn("canonical chromosome '1'", str(caught[0].message))
-        self.assertIn("input chromosome 'chr1.0'", str(caught[0].message))
+        self.assertEqual(caught, [])
+        self.assertEqual(len(captured.records), 1)
+        self.assertEqual(captured.records[0].levelname, "INFO")
+        self.assertIn("canonical chromosome '1'", captured.output[0])
+        self.assertIn("input chromosome 'chr1.0'", captured.output[0])
 
-    def test_normalize_chromosome_warns_on_sex_chromosome_inference(self):
+    def test_normalize_chromosome_logs_on_sex_chromosome_inference(self):
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            self.assertEqual(normalize_chromosome("24", context="sex-context"), "Y")
+            with self.assertLogs("LDSC.chromosomes", level="INFO") as captured:
+                self.assertEqual(normalize_chromosome("24", context="sex-log-context"), "Y")
 
-        self.assertEqual(len(caught), 1)
-        self.assertIn("sex chromosome", str(caught[0].message).lower())
-        self.assertIn("'24'", str(caught[0].message))
-        self.assertIn("'Y'", str(caught[0].message))
+        self.assertEqual(caught, [])
+        self.assertEqual(captured.records[0].levelname, "INFO")
+        self.assertIn("sex chromosome", captured.output[0].lower())
+        self.assertIn("'24'", captured.output[0])
+        self.assertIn("'Y'", captured.output[0])
 
     def test_chrom_sort_key_uses_standard_package_order(self):
         values = ["Y", "2", "MT", "1", "M", "X"]

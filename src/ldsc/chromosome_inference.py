@@ -5,27 +5,26 @@ from __future__ import annotations
 import logging
 import math
 import re
-import warnings
 
 
 LOGGER = logging.getLogger("LDSC.chromosomes")
-_WARNED_NORMALIZATIONS: set[tuple[str, str, str, str]] = set()
+_LOGGED_NORMALIZATIONS: set[tuple[str, str, str, str]] = set()
 STANDARD_CHROMOSOMES = tuple([str(i) for i in range(1, 23)] + ["X", "Y", "MT", "M"])
 _CHROMOSOME_ORDER = {chrom: idx for idx, chrom in enumerate(STANDARD_CHROMOSOMES, start=1)}
 
 
-def _emit_normalization_warning(
+def _log_normalization(
     *,
     raw: str,
     canonical: str,
     context: str | None,
     kind: str,
 ) -> None:
-    """Warn once when a raw chromosome token is coerced to a canonical label."""
+    """Log once when a raw chromosome token is coerced to a canonical label."""
     key = (context or "", raw, canonical, kind)
-    if key in _WARNED_NORMALIZATIONS:
+    if key in _LOGGED_NORMALIZATIONS:
         return
-    _WARNED_NORMALIZATIONS.add(key)
+    _LOGGED_NORMALIZATIONS.add(key)
 
     suffix = "" if not context else f" in {context}"
     if kind == "sex_code":
@@ -33,11 +32,9 @@ def _emit_normalization_warning(
             f"Inferred canonical chromosome '{canonical}' from numeric sex chromosome code "
             f"'{raw}'{suffix}."
         )
-        LOGGER.warning(message)
     else:
         message = f"Inferred canonical chromosome '{canonical}' from input chromosome '{raw}'{suffix}."
-        LOGGER.info(message)
-    warnings.warn(message, UserWarning, stacklevel=3)
+    LOGGER.info(message)
 
 
 def _normalize_numeric_chromosome(raw: str, text: str, *, context: str | None) -> str:
@@ -61,11 +58,11 @@ def _normalize_numeric_chromosome(raw: str, text: str, *, context: str | None) -
         canonical = str(integer)
     elif integer == 23:
         canonical = "X"
-        _emit_normalization_warning(raw=raw, canonical=canonical, context=context, kind="sex_code")
+        _log_normalization(raw=raw, canonical=canonical, context=context, kind="sex_code")
         return canonical
     elif integer == 24:
         canonical = "Y"
-        _emit_normalization_warning(raw=raw, canonical=canonical, context=context, kind="sex_code")
+        _log_normalization(raw=raw, canonical=canonical, context=context, kind="sex_code")
         return canonical
     elif integer in {25, 26}:
         raise ValueError(
@@ -79,7 +76,7 @@ def _normalize_numeric_chromosome(raw: str, text: str, *, context: str | None) -
         )
 
     if raw != canonical:
-        _emit_normalization_warning(raw=raw, canonical=canonical, context=context, kind="canonical")
+        _log_normalization(raw=raw, canonical=canonical, context=context, kind="canonical")
     return canonical
 
 
@@ -97,7 +94,7 @@ def normalize_chromosome(value: object, *, context: str | None = None) -> str:
     if upper in {"X", "Y", "M", "MT"}:
         canonical = upper
         if raw != canonical:
-            _emit_normalization_warning(raw=raw, canonical=canonical, context=context, kind="canonical")
+            _log_normalization(raw=raw, canonical=canonical, context=context, kind="canonical")
         return canonical
 
     return _normalize_numeric_chromosome(raw, stripped, context=context)

@@ -161,11 +161,11 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 
 | Object/function | Argument | Direction | Object |
 |---|---:|---:|---|
-| `AnnotationSourceSpec` | `baseline_annot_paths` | input | baseline annotation group |
-| `AnnotationSourceSpec` | `query_annot_paths` | input | prebuilt query annotation group |
-| `AnnotationSourceSpec` | `query_annot_bed_paths` | input | query BED group |
+| `AnnotationBuildConfig` | `baseline_annot_paths` | input | baseline annotation group |
+| `AnnotationBuildConfig` | `query_annot_paths` | input | prebuilt query annotation group |
+| `AnnotationBuildConfig` | `query_annot_bed_paths` | input | query BED group |
 | `AnnotationBuildConfig` | `output_dir` | output | generated query annotation directory |
-| `AnnotationBuilder.run(source_spec, chrom=None)` | `source_spec` | input | annotation source bundle |
+| `AnnotationBuilder.run(config=None, chrom=None)` | `config` | input/output | annotation workflow config; defaults to the builder config |
 | `AnnotationBuilder.project_bed_annotations(...)` | `query_annot_bed_paths` | input | query BED group |
 | `run_bed_to_annot(...)` | `query_annot_bed_paths` | input | query BED group |
 | `run_bed_to_annot(...)` | `baseline_annot_paths` | input | baseline annotation templates |
@@ -213,10 +213,12 @@ Removed Python names: `plink_prefix`, `bfile`, `out`, `panel_label`,
 
 | Object/function | Argument | Direction | Object |
 |---|---:|---:|---|
-| `RawSumstatsSpec` | `sumstats_path` | input | raw summary-statistics file |
+| `MungeConfig` | `sumstats_path` | input | raw summary-statistics file |
+| `MungeConfig` | `trait_name` | input metadata | optional trait label |
+| `MungeConfig` | `column_hints` | input metadata | optional source-column hints |
 | `MungeConfig` | `merge_alleles_path` | input | merge-alleles file |
 | `MungeConfig` | `output_dir` | output | munged output directory |
-| `SumstatsMunger.run(raw_source, munge_config, ...)` | `raw_source`, `munge_config` | input/output | normalized munging workflow |
+| `SumstatsMunger.run(munge_config, ...)` | `munge_config` | input/output | normalized munging workflow |
 | `SumstatsMunger.write_output(sumstats, output_dir)` | `output_dir` | output | writes fixed `sumstats.sumstats.gz` |
 
 Removed Python names: `RawSumstatsSpec.path`, `MungeConfig.out_prefix`,
@@ -254,7 +256,7 @@ Removed Python/public argparse names: `sumstats`, `sumstats_1`, `sumstats_2`,
 - [x] Regression writes fixed TSV files under `output_dir`.
 - [x] Build-ref-panel no longer accepts a separate panel label; output identity
   comes from the directory name.
-- [ ] Decide whether the low-level `ldsc.outputs.OutputSpec.out_prefix` helper
+- [ ] Decide whether the low-level `ldsc.outputs.ArtifactOutputConfig.out_prefix` helper
   remains an internal compatibility utility or should be removed in a separate
   cleanup. It is not used as a public workflow argument after this refactor.
 

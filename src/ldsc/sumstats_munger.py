@@ -30,7 +30,7 @@ from .column_inference import (
     resolve_optional_column,
     resolve_required_column,
 )
-from .config import GlobalConfig, MungeConfig, _normalize_required_path, get_global_config
+from .config import GlobalConfig, MungeConfig, get_global_config
 from .path_resolution import ensure_output_directory, resolve_scalar_path
 from ._kernel import sumstats_munger as kernel_munge
 
@@ -57,34 +57,7 @@ allele_merge = kernel_munge.allele_merge
 munge_sumstats = kernel_munge.munge_sumstats
 
 
-@dataclass(frozen=True)
-class RawSumstatsSpec:
-    """Specification for one raw GWAS summary-statistics source.
-
-    Parameters
-    ----------
-    sumstats_path : str or os.PathLike[str]
-        Path token for the raw summary-statistics file. This may be a literal
-        path or an exact-one glob pattern; resolution happens in the workflow
-        layer before the kernel is called.
-    compression : str, optional
-        Compression mode hint. Default is ``"auto"``, which delegates
-        detection to the kernel.
-    trait_name : str or None, optional
-        Optional trait label propagated to downstream summaries. Default is
-        ``None``.
-    column_hints : dict of str to str, optional
-        Mapping from canonical LDSC field names to source column names.
-        Default is an empty dict.
-    """
-    sumstats_path: str | PathLike[str]
-    compression: str = "auto"
-    trait_name: str | None = None
-    column_hints: dict[str, str] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        """Normalize the raw input path token after dataclass construction."""
-        object.__setattr__(self, "sumstats_path", _normalize_required_path(self.sumstats_path))
+RawSumstatsSpec = MungeConfig
 
 
 @dataclass(frozen=True)
@@ -228,16 +201,18 @@ class SumstatsMunger:
 
     def run(
         self,
-        raw_source: RawSumstatsSpec,
-        munge_config: MungeConfig,
+        raw_source: MungeConfig,
+        munge_config: MungeConfig | None = None,
         global_config: GlobalConfig | None = None,
     ) -> SumstatsTable:
         """Munge one raw summary-statistics file into LDSC-ready form.
 
         Parameters
         ----------
-        raw_source : RawSumstatsSpec
-            Raw file path and optional column hints.
+        raw_source : MungeConfig
+            Munging config with raw file path and optional column hints. When
+            ``munge_config`` is omitted, this object also supplies output and
+            QC settings.
         munge_config : MungeConfig
             Munging thresholds and output directory. The kernel writes fixed
             files named ``sumstats.sumstats.gz`` and ``sumstats.log`` inside
@@ -254,6 +229,16 @@ class SumstatsMunger:
             Output paths for the corresponding disk artifacts are available
             through :meth:`build_run_summary`.
         """
+        if munge_config is None:
+            munge_config = raw_source
+        elif isinstance(munge_config, GlobalConfig) and global_config is None:
+            global_config = munge_config
+            munge_config = raw_source
+        if raw_source.sumstats_path is None:
+            raise ValueError("MungeConfig.sumstats_path is required to run summary-statistics munging.")
+        if munge_config.output_dir is None:
+            raise ValueError("MungeConfig.output_dir is required to run summary-statistics munging.")
+
         config_snapshot = global_config or get_global_config()
         source_path = resolve_scalar_path(raw_source.sumstats_path, label="raw sumstats")
         output_dir = ensure_output_directory(munge_config.output_dir, label="output directory")
@@ -299,7 +284,7 @@ class SumstatsMunger:
             raise ValueError("No munging run has been executed yet.")
         return self._last_summary
 
-    def _build_args(self, raw_source: RawSumstatsSpec, munge_config: MungeConfig) -> argparse.Namespace:
+    def _build_args(self, raw_source: MungeConfig, munge_config: MungeConfig) -> argparse.Namespace:
         """Translate dataclass configuration into the legacy parser namespace."""
         args = parser.parse_args("")
         args.sumstats = resolve_scalar_path(raw_source.sumstats_path, label="raw sumstats")

@@ -22,7 +22,9 @@ from .column_inference import normalize_snp_identifier_mode
 from .config import (
     ConfigMismatchError,
     GlobalConfig,
+    AnnotationBuildConfig,
     LDScoreConfig,
+    RefPanelConfig,
     get_global_config,
     print_global_config_banner,
     validate_config_compatibility,
@@ -199,7 +201,7 @@ class LDScoreCalculator:
     outputs, and optionally hands the result to the output layer. The calculator
     treats ``ref_panel`` as the owner of the reference-panel SNP universe:
     chromosome bundles are intersected with ``ref_panel.load_metadata(chrom)``
-    before the kernel runs so ``RefPanelSpec.ref_panel_snps_path`` is honored
+    before the kernel runs so ``RefPanelConfig.ref_panel_snps_path`` is honored
     without leaking that setting into the calculator interface. For LD-score
     calculation, the annotation file's ``CM`` is the first source. The sidecar
     metadata only fills missing ``CM`` values.
@@ -227,7 +229,7 @@ class LDScoreCalculator:
             Aligned SNP-level baseline and query annotations.
         ref_panel : RefPanel
             Reference-panel adapter that supplies chromosome readers and
-            metadata. Any ``RefPanelSpec.ref_panel_snps_path`` restriction is
+            metadata. Any ``RefPanelConfig.ref_panel_snps_path`` restriction is
             already applied when the workflow calls ``ref_panel.load_metadata``.
             Reference-panel sidecar ``CM`` values are used only to fill missing
             annotation ``CM`` values during LD-score calculation.
@@ -263,7 +265,7 @@ class LDScoreCalculator:
         if ref_panel_build is not None and global_config.genome_build not in (None, "auto"):
             if ref_panel_build != global_config.genome_build:
                 raise ConfigMismatchError(
-                    f"genome_build mismatch between RefPanelSpec ({ref_panel_build!r}) "
+                    f"genome_build mismatch between RefPanelConfig ({ref_panel_build!r}) "
                     f"and active GlobalConfig ({global_config.genome_build!r})."
                 )
         chromosome_results: list[ChromLDScoreResult] = []
@@ -595,14 +597,14 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
     ``ref_panel.load_metadata(chrom)`` before calling the kernel, then returns
     the normalized public ``LDScoreResult`` with split baseline/query tables.
     """
-    from ._kernel.annotation import AnnotationBuilder, AnnotationSourceSpec
+    from ._kernel.annotation import AnnotationBuilder
 
     normalized_args, global_config = _normalize_run_args(args)
     print_global_config_banner("run_ldscore_from_args", global_config)
     kernel_ldscore.validate_args(normalized_args)
     ldscore_config = _ldscore_config_from_args(normalized_args)
     regression_snps = _load_regression_snps(ldscore_config.regression_snps_path, global_config)
-    source_spec = AnnotationSourceSpec(
+    source_spec = AnnotationBuildConfig(
         baseline_annot_paths=tuple(split_cli_path_tokens(normalized_args.baseline_annot_paths)),
         query_annot_paths=tuple(split_cli_path_tokens(normalized_args.query_annot_paths)),
         query_annot_bed_paths=tuple(split_cli_path_tokens(getattr(normalized_args, "query_annot_bed_paths", None))),
@@ -724,13 +726,13 @@ def _load_regression_snps(path: str | None, global_config: GlobalConfig) -> set[
 
 def _ref_panel_from_args(args: argparse.Namespace, global_config: GlobalConfig):
     """Build the reference-panel adapter that owns the ``A -> A'`` restriction."""
-    from ._kernel.ref_panel import RefPanelLoader, RefPanelSpec
+    from ._kernel.ref_panel import RefPanelLoader
 
     metadata_tokens = split_cli_path_tokens(getattr(args, "metadata_paths", None))
     ref_panel_snps_path = normalize_optional_path_token(getattr(args, "ref_panel_snps_path", None))
     if getattr(args, "r2_paths", None) is not None:
         r2_tokens = split_cli_path_tokens(args.r2_paths)
-        spec = RefPanelSpec(
+        spec = RefPanelConfig(
             backend="parquet_r2",
             r2_paths=tuple(r2_tokens),
             metadata_paths=tuple(metadata_tokens),
@@ -740,7 +742,7 @@ def _ref_panel_from_args(args: argparse.Namespace, global_config: GlobalConfig):
             ref_panel_snps_path=ref_panel_snps_path,
         )
     else:
-        spec = RefPanelSpec(
+        spec = RefPanelConfig(
             backend="plink",
             plink_path=getattr(args, "plink_path", None),
             metadata_paths=tuple(metadata_tokens),
@@ -813,7 +815,7 @@ def _align_annotation_bundle_to_ref_panel(annotation_bundle, ref_panel, chrom: s
 
     ``AnnotationBuilder`` defines the annotation universe ``B``. The reference
     panel owns the optional ``A -> A'`` restriction through
-    ``RefPanelSpec.ref_panel_snps_path``. This helper materializes the intended
+    ``RefPanelConfig.ref_panel_snps_path``. This helper materializes the intended
     compute-time universe ``B_chrom ∩ A'_chrom`` immediately before the legacy
     kernel call. It restricts annotation rows but does not replace annotation
     metadata; for LD-score calculation, the annotation file's ``CM`` is the

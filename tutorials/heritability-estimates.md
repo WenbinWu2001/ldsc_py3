@@ -29,7 +29,6 @@ The Python workflow is the most direct end-to-end path because `run_ldscore(...)
 from ldsc import (
     GlobalConfig,
     MungeConfig,
-    RawSumstatsSpec,
     RegressionConfig,
     RegressionRunner,
     SumstatsMunger,
@@ -45,12 +44,10 @@ GLOBAL_CONFIG = GlobalConfig(
 set_global_config(GLOBAL_CONFIG)
 
 sumstats = SumstatsMunger().run(
-    RawSumstatsSpec(
+    MungeConfig(
         sumstats_path="data/trait*.tsv.gz",
         trait_name="trait",
         column_hints={"snp": "SNP", "a1": "A1", "a2": "A2", "p": "P", "N_col": "N"},
-    ),
-    MungeConfig(
         output_dir="tutorial_outputs/trait",
         signed_sumstats_spec="BETA,0",
     ),

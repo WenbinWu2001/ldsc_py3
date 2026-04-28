@@ -17,7 +17,6 @@ import pandas as pd
 from ldsc import (
     GlobalConfig,
     MungeConfig,
-    RawSumstatsSpec,
     RegressionConfig,
     RegressionRunner,
     SumstatsMunger,
@@ -34,12 +33,10 @@ set_global_config(GLOBAL_CONFIG)
 
 # Option A: munge raw sumstats in the same workflow.
 trait_1 = SumstatsMunger().run(
-    RawSumstatsSpec(
+    MungeConfig(
         sumstats_path="data/trait_1.tsv.gz",
         trait_name="trait_1",
         column_hints={"snp": "SNP", "a1": "A1", "a2": "A2", "p": "P", "N_col": "N"},
-    ),
-    MungeConfig(
         output_dir="tutorial_outputs/trait_1",
         signed_sumstats_spec="BETA,0",
     ),
@@ -47,12 +44,10 @@ trait_1 = SumstatsMunger().run(
 )
 
 trait_2 = SumstatsMunger().run(
-    RawSumstatsSpec(
+    MungeConfig(
         sumstats_path="data/trait_2.tsv.gz",
         trait_name="trait_2",
         column_hints={"snp": "SNP", "a1": "A1", "a2": "A2", "p": "P", "N_col": "N"},
-    ),
-    MungeConfig(
         output_dir="tutorial_outputs/trait_2",
         signed_sumstats_spec="BETA,0",
     ),

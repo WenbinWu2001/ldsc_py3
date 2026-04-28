@@ -9,6 +9,7 @@ concrete files before the internal kernel code runs.
 
 from __future__ import annotations
 
+from .config import AnnotationBuildConfig
 from ._kernel.annotation import (
     AnnotationBuilder,
     AnnotationBundle,
@@ -19,6 +20,7 @@ from ._kernel.annotation import (
 )
 
 __all__ = [
+    "AnnotationBuildConfig",
     "AnnotationBuilder",
     "AnnotationBundle",
     "AnnotationSourceSpec",

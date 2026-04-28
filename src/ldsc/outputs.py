@@ -45,10 +45,10 @@ LDSCORE_RESULT_FORMAT = "ldsc.ldscore_result.v1"
 
 
 @dataclass(frozen=True)
-class OutputSpec:
+class ArtifactOutputConfig:
     """Configuration for artifact emission and on-disk layout.
 
-    This generic artifact spec supports older merged-table result shapes that
+    This generic artifact config supports older merged-table result shapes that
     write one ``.l2.ldscore.gz`` file per chromosome, aggregate count vectors,
     and summary metadata. The public LD-score CLI now uses
     ``LDScoreOutputConfig`` and ``LDScoreDirectoryWriter`` instead. When
@@ -83,6 +83,9 @@ class OutputSpec:
         object.__setattr__(self, "log_path", _normalize_optional_path(self.log_path))
         if not self.out_prefix:
             raise ValueError("out_prefix is required.")
+
+
+OutputSpec = ArtifactOutputConfig
 
 
 @dataclass(frozen=True)
@@ -228,7 +231,7 @@ class ArtifactProducer(ABC):
         self,
         result: Any,
         run_summary: RunSummary,
-        output_spec: OutputSpec,
+        output_spec: ArtifactOutputConfig,
         artifact_config: ArtifactConfig | None = None,
     ) -> list[Artifact]:
         """Build artifacts from ``result`` and ``run_summary``."""
@@ -241,7 +244,7 @@ class ResultFormatter:
     def build_run_summary(
         self,
         result: Any,
-        output_spec: OutputSpec,
+        output_spec: ArtifactOutputConfig,
         config_snapshot: dict[str, Any] | None = None,
     ) -> RunSummary:
         """Summarize row counts, chromosomes, and count-vector keys."""
@@ -370,7 +373,7 @@ class LDScoreTableProducer(ArtifactProducer):
         """Return ``True`` when normalized LD-score tables are available."""
         return getattr(result, "ldscore_table", None) is not None
 
-    def build(self, result: Any, run_summary: RunSummary, output_spec: OutputSpec, artifact_config: ArtifactConfig | None = None) -> list[Artifact]:
+    def build(self, result: Any, run_summary: RunSummary, output_spec: ArtifactOutputConfig, artifact_config: ArtifactConfig | None = None) -> list[Artifact]:
         """Build per-chromosome `.l2.ldscore.gz` artifacts."""
         artifacts: list[Artifact] = []
         chromosome_results = getattr(result, "chromosome_results", []) or []
@@ -406,7 +409,7 @@ class CountProducer(ArtifactProducer):
         """Return ``True`` when named SNP-count vectors are present."""
         return bool(getattr(result, "snp_count_totals", {}))
 
-    def build(self, result: Any, run_summary: RunSummary, output_spec: OutputSpec, artifact_config: ArtifactConfig | None = None) -> list[Artifact]:
+    def build(self, result: Any, run_summary: RunSummary, output_spec: ArtifactOutputConfig, artifact_config: ArtifactConfig | None = None) -> list[Artifact]:
         """Build text artifacts for each named SNP-count vector."""
         artifacts: list[Artifact] = []
         count_map = getattr(result, "snp_count_totals", {})
@@ -429,7 +432,7 @@ class AnnotationManifestProducer(ArtifactProducer):
         """Return ``True`` when baseline or query annotation columns exist."""
         return bool(getattr(result, "baseline_columns", None) or getattr(result, "query_columns", None))
 
-    def build(self, result: Any, run_summary: RunSummary, output_spec: OutputSpec, artifact_config: ArtifactConfig | None = None) -> list[Artifact]:
+    def build(self, result: Any, run_summary: RunSummary, output_spec: ArtifactOutputConfig, artifact_config: ArtifactConfig | None = None) -> list[Artifact]:
         """Build the annotation-group manifest as one TSV artifact."""
         manifest = self._formatter.build_annotation_manifest(result)
         return [Artifact(self.name, _artifact_filename(output_spec, ".annotation_groups.tsv", compressed=False), manifest, "dataframe")]
@@ -447,7 +450,7 @@ class SummaryTSVProducer(ArtifactProducer):
         """Always emit a TSV summary for supported run results."""
         return True
 
-    def build(self, result: Any, run_summary: RunSummary, output_spec: OutputSpec, artifact_config: ArtifactConfig | None = None) -> list[Artifact]:
+    def build(self, result: Any, run_summary: RunSummary, output_spec: ArtifactOutputConfig, artifact_config: ArtifactConfig | None = None) -> list[Artifact]:
         """Build the one-row TSV summary artifact."""
         table = self._formatter.build_summary_table(run_summary)
         return [Artifact(self.name, _artifact_filename(output_spec, ".summary.tsv", compressed=False), table, "dataframe")]
@@ -461,7 +464,7 @@ class SummaryJSONProducer(ArtifactProducer):
         """Always emit a JSON summary for supported run results."""
         return True
 
-    def build(self, result: Any, run_summary: RunSummary, output_spec: OutputSpec, artifact_config: ArtifactConfig | None = None) -> list[Artifact]:
+    def build(self, result: Any, run_summary: RunSummary, output_spec: ArtifactOutputConfig, artifact_config: ArtifactConfig | None = None) -> list[Artifact]:
         """Build the JSON summary artifact from ``run_summary``."""
         return [Artifact(self.name, _artifact_filename(output_spec, ".summary.json", compressed=False), run_summary, "json")]
 
@@ -474,7 +477,7 @@ class RunMetadataProducer(ArtifactProducer):
         """Always emit run metadata for supported run results."""
         return True
 
-    def build(self, result: Any, run_summary: RunSummary, output_spec: OutputSpec, artifact_config: ArtifactConfig | None = None) -> list[Artifact]:
+    def build(self, result: Any, run_summary: RunSummary, output_spec: ArtifactOutputConfig, artifact_config: ArtifactConfig | None = None) -> list[Artifact]:
         """Build the JSON metadata artifact describing the current run."""
         metadata = {
             "result_type": type(result).__name__,
@@ -508,7 +511,7 @@ class OutputManager:
         """Return registered artifact names."""
         return sorted(self._registry.keys())
 
-    def resolve_enabled_artifacts(self, output_spec: OutputSpec) -> list[str]:
+    def resolve_enabled_artifacts(self, output_spec: ArtifactOutputConfig) -> list[str]:
         """Resolve enabled artifact names implied by ``output_spec``."""
         if output_spec.enabled_artifacts is not None:
             unknown = sorted(set(output_spec.enabled_artifacts) - set(self._registry.keys()))
@@ -534,7 +537,7 @@ class OutputManager:
     def build_run_summary(
         self,
         result: Any,
-        output_spec: OutputSpec,
+        output_spec: ArtifactOutputConfig,
         config_snapshot: dict[str, Any] | None = None,
     ) -> RunSummary:
         """Delegate run-summary construction to :class:`ResultFormatter`."""
@@ -543,7 +546,7 @@ class OutputManager:
     def write_outputs(
         self,
         result: Any,
-        output_spec: OutputSpec,
+        output_spec: ArtifactOutputConfig,
         artifact_config: ArtifactConfig | None = None,
         config_snapshot: dict[str, Any] | None = None,
     ) -> RunSummary:
@@ -575,7 +578,7 @@ class OutputManager:
         self,
         result: Any,
         run_summary: RunSummary,
-        output_spec: OutputSpec,
+        output_spec: ArtifactOutputConfig,
         artifact_config: ArtifactConfig | None = None,
     ) -> list[Artifact]:
         """Build artifacts from all enabled producers without writing them yet."""
@@ -613,7 +616,7 @@ def _default_producers(formatter: ResultFormatter) -> list[ArtifactProducer]:
     ]
 
 
-def _output_root(output_spec: OutputSpec) -> Path:
+def _output_root(output_spec: ArtifactOutputConfig) -> Path:
     """Resolve the filesystem root for the current artifact layout."""
     if output_spec.output_dir is None:
         return Path(".")
@@ -622,7 +625,7 @@ def _output_root(output_spec: OutputSpec) -> Path:
     return Path(output_spec.output_dir)
 
 
-def _artifact_filename(output_spec: OutputSpec, suffix: str, chrom: str | None = None, compressed: bool | None = None) -> str:
+def _artifact_filename(output_spec: ArtifactOutputConfig, suffix: str, chrom: str | None = None, compressed: bool | None = None) -> str:
     """Build one artifact-relative filename from the configured layout rules."""
     compressed = output_spec.compression == "gzip" if compressed is None else compressed
     prefix = Path(output_spec.out_prefix).name

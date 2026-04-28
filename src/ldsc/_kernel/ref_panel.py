@@ -1,6 +1,6 @@
-"""Reference-panel specifications and workflow-to-kernel backend adapters.
+"""Reference-panel configuration and workflow-to-kernel backend adapters.
 
-The public reference-panel specs accept normalized token strings, including
+The public reference-panel config accepts normalized token strings, including
 glob patterns and explicit ``@`` chromosome-suite placeholders, but this module
 resolves those tokens to concrete primitive strings before the execution kernel
 sees them.
@@ -9,9 +9,7 @@ sees them.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
 import logging
-from os import PathLike
 from pathlib import Path
 from typing import Any
 
@@ -20,11 +18,10 @@ import pandas as pd
 from ..chromosome_inference import chrom_sort_key, normalize_chromosome
 from ..column_inference import (
     REFERENCE_METADATA_SPEC_MAP,
-    normalize_genome_build,
     resolve_optional_column,
     resolve_required_column,
 )
-from ..config import GlobalConfig, RefPanelConfig, _normalize_optional_path, _normalize_path_tuple
+from ..config import GlobalConfig, RefPanelConfig
 from ..genome_build_inference import (
     load_packaged_reference_table,
     resolve_chr_pos_table,
@@ -50,42 +47,12 @@ from .identifiers import (
 LOGGER = logging.getLogger("LDSC.ref_panel")
 
 
-@dataclass(frozen=True)
-class RefPanelSpec:
-    """Immutable description of a reference-panel backend and its sources.
-
-    The public spec accepts path-like inputs and normalizes them to primitive
-    strings. Resolution is deferred until workflow execution so callers may use
-    exact paths, standard Python globs, or explicit ``@`` chromosome-suite
-    placeholders in suite-capable fields. Per-run reference-universe
-    restriction belongs here via ``ref_panel_snps_path`` rather than on
-    ``GlobalConfig``.
-    """
-    backend: str
-    plink_path: str | PathLike[str] | None = None
-    r2_paths: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
-    sample_size: int | None = None
-    metadata_paths: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
-    chromosomes: tuple[str, ...] | None = None
-    genome_build: str | None = None
-    r2_bias_mode: str | None = None
-    ref_panel_snps_path: str | PathLike[str] | None = None
-
-    def __post_init__(self) -> None:
-        """Normalize backend source tokens and canonicalize chromosome labels."""
-        object.__setattr__(self, "backend", self.backend)
-        object.__setattr__(self, "plink_path", _normalize_optional_path(self.plink_path))
-        object.__setattr__(self, "r2_paths", _normalize_path_tuple(self.r2_paths))
-        object.__setattr__(self, "metadata_paths", _normalize_path_tuple(self.metadata_paths))
-        object.__setattr__(self, "genome_build", normalize_genome_build(self.genome_build))
-        object.__setattr__(self, "ref_panel_snps_path", _normalize_optional_path(self.ref_panel_snps_path))
-        if self.chromosomes is not None:
-            object.__setattr__(self, "chromosomes", tuple(normalize_chromosome(chrom) for chrom in self.chromosomes))
+RefPanelSpec = RefPanelConfig
 
 
 class RefPanel(ABC):
     """Abstract chromosome-scoped reference-panel interface."""
-    def __init__(self, global_config: GlobalConfig, spec: RefPanelSpec) -> None:
+    def __init__(self, global_config: GlobalConfig, spec: RefPanelConfig) -> None:
         """Store shared config and initialize the per-chromosome metadata cache."""
         validate_auto_genome_build_mode(global_config.snp_identifier, global_config.genome_build)
         self.global_config = global_config
@@ -126,7 +93,7 @@ class RefPanel(ABC):
         }
 
     def _apply_snp_restriction(self, metadata: pd.DataFrame) -> pd.DataFrame:
-        """Filter metadata rows to ``RefPanelSpec.ref_panel_snps_path`` when set."""
+        """Filter metadata rows to ``RefPanelConfig.ref_panel_snps_path`` when set."""
         restrict_path = self.spec.ref_panel_snps_path
         if restrict_path is None or len(metadata) == 0:
             return metadata
@@ -307,13 +274,13 @@ class ParquetR2RefPanel(RefPanel):
 
 
 class RefPanelLoader:
-    """Instantiate the backend requested by a :class:`RefPanelSpec`."""
+    """Instantiate the backend requested by a :class:`RefPanelConfig`."""
     def __init__(self, global_config: GlobalConfig, ref_panel_config: RefPanelConfig | None = None) -> None:
         """Store shared configuration for future backend instantiation."""
         self.global_config = global_config
         self.ref_panel_config = ref_panel_config or RefPanelConfig()
 
-    def load(self, ref_panel_spec: RefPanelSpec) -> RefPanel:
+    def load(self, ref_panel_spec: RefPanelConfig) -> RefPanel:
         """Return a concrete reference-panel adapter for ``ref_panel_spec``."""
         backend = ref_panel_spec.backend
         if backend == "plink":

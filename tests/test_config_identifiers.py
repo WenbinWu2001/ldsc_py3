@@ -108,6 +108,11 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertEqual(config.query_annot_paths, ("query.*.annot.gz",))
         self.assertEqual(config.query_annot_bed_paths, ("beds/*.bed",))
 
+    def test_annotation_source_spec_is_deprecated_alias_for_annotation_config(self):
+        self.assertIs(AnnotationSourceSpec, AnnotationBuildConfig)
+        config = AnnotationSourceSpec(baseline_annot_paths="baseline.@.annot.gz")
+        self.assertEqual(config.baseline_annot_paths, ("baseline.@.annot.gz",))
+
     def test_ref_panel_config_validates_r2_args(self):
         with self.assertRaises(ValueError):
             RefPanelConfig(backend="bad")
@@ -210,11 +215,21 @@ class WorkflowConfigTest(unittest.TestCase):
 
     def test_munge_config_normalizes_pathlike_fields(self):
         config = MungeConfig(
+            sumstats_path=Path("sumstats") / "trait.tsv.gz",
             output_dir=Path("results") / "trait",
             merge_alleles_path=Path("resources") / "alleles.tsv",
+            trait_name="trait",
         )
+        self.assertEqual(config.sumstats_path, "sumstats/trait.tsv.gz")
         self.assertEqual(config.output_dir, "results/trait")
         self.assertEqual(config.merge_alleles_path, "resources/alleles.tsv")
+        self.assertEqual(config.trait_name, "trait")
+
+    def test_raw_sumstats_spec_is_deprecated_source_only_alias_for_munge_config(self):
+        raw = RawSumstatsSpec(sumstats_path=Path("sumstats") / "trait.tsv.gz", trait_name="trait")
+        self.assertIsInstance(raw, MungeConfig)
+        self.assertEqual(raw.sumstats_path, "sumstats/trait.tsv.gz")
+        self.assertEqual(raw.trait_name, "trait")
 
     def test_regression_config_defaults(self):
         config = RegressionConfig()
@@ -233,13 +248,24 @@ class WorkflowConfigTest(unittest.TestCase):
 
     def test_ref_panel_config_normalizes_path_fields(self):
         config = RefPanelConfig(
+            backend="parquet_r2",
             plink_path=Path("plink") / "panel",
             r2_paths=[Path("r2") / "chr1.parquet"],
             metadata_paths=[Path("freq") / "chr@.tsv.gz"],
+            genome_build="GRCh37",
+            ref_panel_snps_path=Path("filters") / "snps.txt",
         )
+        self.assertEqual(config.backend, "parquet_r2")
         self.assertEqual(config.plink_path, "plink/panel")
         self.assertEqual(config.r2_paths, ("r2/chr1.parquet",))
         self.assertEqual(config.metadata_paths, ("freq/chr@.tsv.gz",))
+        self.assertEqual(config.genome_build, "hg19")
+        self.assertEqual(config.ref_panel_snps_path, "filters/snps.txt")
+
+    def test_ref_panel_spec_is_deprecated_alias_for_ref_panel_config(self):
+        self.assertIs(RefPanelSpec, RefPanelConfig)
+        config = RefPanelSpec(backend="plink", plink_path=Path("plink") / "panel")
+        self.assertEqual(config.plink_path, "plink/panel")
 
     def test_ref_panel_config_accepts_single_string_tokens_for_plural_fields(self):
         config = RefPanelConfig(
@@ -249,14 +275,14 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertEqual(config.r2_paths, ("r2/reference.@.parquet",))
         self.assertEqual(config.metadata_paths, ("meta/reference.*.tsv.gz",))
 
-    def test_public_specs_normalize_pathlike_inputs(self):
-        raw = RawSumstatsSpec(sumstats_path=Path("sumstats") / "trait.tsv.gz")
-        annot = AnnotationSourceSpec(
+    def test_public_configs_normalize_pathlike_inputs(self):
+        raw = MungeConfig(sumstats_path=Path("sumstats") / "trait.tsv.gz")
+        annot = AnnotationBuildConfig(
             baseline_annot_paths=(Path("baseline") / "base.1.annot.gz",),
             query_annot_paths=(Path("query") / "custom.1.annot.gz",),
             query_annot_bed_paths=(Path("beds") / "enhancer.bed",),
         )
-        ref = RefPanelSpec(
+        ref = RefPanelConfig(
             backend="parquet_r2",
             plink_path=Path("plink") / "panel",
             r2_paths=(Path("r2") / "chr1.parquet",),
@@ -270,19 +296,19 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertEqual(ref.r2_paths, ("r2/chr1.parquet",))
         self.assertEqual(ref.metadata_paths, ("meta/chr1.tsv.gz",))
 
-    def test_ref_panel_spec_normalizes_genome_build_aliases(self):
-        self.assertEqual(RefPanelSpec(backend="parquet_r2", genome_build="hg37").genome_build, "hg19")
-        self.assertEqual(RefPanelSpec(backend="parquet_r2", genome_build="GRCh37").genome_build, "hg19")
-        self.assertEqual(RefPanelSpec(backend="parquet_r2", genome_build="GRCh38").genome_build, "hg38")
-        self.assertEqual(RefPanelSpec(backend="parquet_r2", genome_build="auto").genome_build, "auto")
+    def test_ref_panel_config_normalizes_genome_build_aliases(self):
+        self.assertEqual(RefPanelConfig(backend="parquet_r2", genome_build="hg37").genome_build, "hg19")
+        self.assertEqual(RefPanelConfig(backend="parquet_r2", genome_build="GRCh37").genome_build, "hg19")
+        self.assertEqual(RefPanelConfig(backend="parquet_r2", genome_build="GRCh38").genome_build, "hg38")
+        self.assertEqual(RefPanelConfig(backend="parquet_r2", genome_build="auto").genome_build, "auto")
 
-    def test_public_specs_accept_single_string_tokens_for_plural_fields(self):
-        annot = AnnotationSourceSpec(
+    def test_public_configs_accept_single_string_tokens_for_plural_fields(self):
+        annot = AnnotationBuildConfig(
             baseline_annot_paths="baseline.@.annot.gz",
             query_annot_paths="query.*.annot.gz",
             query_annot_bed_paths="beds/*.bed",
         )
-        ref = RefPanelSpec(
+        ref = RefPanelConfig(
             backend="parquet_r2",
             r2_paths="r2/reference.@.parquet",
             metadata_paths="meta/reference.*.tsv.gz",

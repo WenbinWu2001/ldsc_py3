@@ -12,13 +12,12 @@ The examples below assume chromosome-pattern inputs such as `baseline.@.annot.gz
 from ldsc import (
     AnnotationBuildConfig,
     AnnotationBuilder,
-    AnnotationSourceSpec,
     GlobalConfig,
     LDScoreCalculator,
     LDScoreConfig,
     LDScoreOutputConfig,
     RefPanelLoader,
-    RefPanelSpec,
+    RefPanelConfig,
     RegressionConfig,
     RegressionRunner,
     load_sumstats,
@@ -32,14 +31,14 @@ GLOBAL_CONFIG = GlobalConfig(
 set_global_config(GLOBAL_CONFIG)
 
 annotation_bundle = AnnotationBuilder(GLOBAL_CONFIG, AnnotationBuildConfig()).run(
-    AnnotationSourceSpec(
+    AnnotationBuildConfig(
         baseline_annot_paths="annotations/baseline_chr/baseline.@.annot.gz",
         query_annot_bed_paths="annotations/cell_type_beds/*.bed",
     )
 )
 
 ref_panel = RefPanelLoader(GLOBAL_CONFIG).load(
-    RefPanelSpec(
+    RefPanelConfig(
         backend="parquet_r2",
         r2_paths="r2/reference.@.parquet",
         metadata_paths="r2/reference_metadata.@.tsv.gz",

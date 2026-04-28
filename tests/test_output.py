@@ -21,6 +21,7 @@ from ldsc.ldscore_calculator import LDScoreResult
 from ldsc.outputs import (
     Artifact,
     ArtifactConfig,
+    ArtifactOutputConfig,
     ArtifactProducer,
     LDScoreDirectoryWriter,
     LDScoreOutputConfig,
@@ -306,8 +307,11 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
 
 
 class OutputManagerTest(unittest.TestCase):
-    def test_output_spec_normalizes_pathlike_fields(self):
-        spec = OutputSpec(
+    def test_output_spec_is_deprecated_alias_for_artifact_output_config(self):
+        self.assertIs(OutputSpec, ArtifactOutputConfig)
+
+    def test_artifact_output_config_normalizes_pathlike_fields(self):
+        spec = ArtifactOutputConfig(
             out_prefix=Path("results") / "example",
             output_dir=Path("artifacts"),
             log_path=Path("logs") / "run.log",
@@ -316,10 +320,13 @@ class OutputManagerTest(unittest.TestCase):
         self.assertEqual(spec.output_dir, "artifacts")
         self.assertEqual(spec.log_path, "logs/run.log")
 
-    def test_output_spec_expands_env_vars_but_does_not_glob_resolve(self):
+    def test_artifact_output_config_expands_env_vars_but_does_not_glob_resolve(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             os.environ["LDSC_OUTPUT_ROOT"] = tmpdir
-            spec = OutputSpec(out_prefix="$LDSC_OUTPUT_ROOT/results/*.out", output_dir="$LDSC_OUTPUT_ROOT/artifacts")
+            spec = ArtifactOutputConfig(
+                out_prefix="$LDSC_OUTPUT_ROOT/results/*.out",
+                output_dir="$LDSC_OUTPUT_ROOT/artifacts",
+            )
             self.assertEqual(spec.out_prefix, str(Path(tmpdir) / "results" / "*.out"))
             self.assertEqual(spec.output_dir, str(Path(tmpdir) / "artifacts"))
 
@@ -327,7 +334,7 @@ class OutputManagerTest(unittest.TestCase):
         result = make_fake_result()
         manager = OutputManager()
         with tempfile.TemporaryDirectory() as tmpdir:
-            spec = OutputSpec(out_prefix="example", output_dir=tmpdir)
+            spec = ArtifactOutputConfig(out_prefix="example", output_dir=tmpdir)
             summary = manager.write_outputs(result, spec, config_snapshot={"stage": "test"})
             self.assertIn("ldscore.chrom_1", summary.output_paths)
             self.assertNotIn("w_ld", summary.output_paths)
@@ -342,7 +349,7 @@ class OutputManagerTest(unittest.TestCase):
         manager = OutputManager()
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "missing" / "artifacts"
-            spec = OutputSpec(out_prefix="example", output_dir=output_dir)
+            spec = ArtifactOutputConfig(out_prefix="example", output_dir=output_dir)
 
             with warnings.catch_warnings(record=True) as caught:
                 warnings.simplefilter("always")
@@ -360,7 +367,7 @@ class OutputManagerTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "artifacts"
             output_dir.mkdir(parents=True, exist_ok=True)
-            spec = OutputSpec(out_prefix="example", output_dir=output_dir)
+            spec = ArtifactOutputConfig(out_prefix="example", output_dir=output_dir)
 
             with warnings.catch_warnings(record=True) as caught:
                 warnings.simplefilter("always")
@@ -393,7 +400,7 @@ class OutputManagerTest(unittest.TestCase):
         result = make_fake_result()
         manager = OutputManager()
         with tempfile.TemporaryDirectory() as tmpdir:
-            spec = OutputSpec(
+            spec = ArtifactOutputConfig(
                 out_prefix="example",
                 output_dir=tmpdir,
                 enabled_artifacts=["summary_json"],
@@ -408,7 +415,7 @@ class OutputManagerTest(unittest.TestCase):
         manager = OutputManager()
         manager.register_producer(ExtraProducer())
         with tempfile.TemporaryDirectory() as tmpdir:
-            spec = OutputSpec(out_prefix="example", output_dir=tmpdir, enabled_artifacts=["extra_note"])
+            spec = ArtifactOutputConfig(out_prefix="example", output_dir=tmpdir, enabled_artifacts=["extra_note"])
             summary = manager.write_outputs(result, spec, artifact_config=ArtifactConfig())
             self.assertIn("extra_note", summary.output_paths)
             self.assertEqual(Path(summary.output_paths["extra_note"]).read_text(encoding="utf-8"), "extra")
@@ -417,7 +424,7 @@ class OutputManagerTest(unittest.TestCase):
         result = make_fake_result()
         manager = OutputManager()
         with tempfile.TemporaryDirectory() as tmpdir:
-            spec = OutputSpec(
+            spec = ArtifactOutputConfig(
                 out_prefix="example",
                 output_dir=tmpdir,
                 enabled_artifacts=["ldscore"],
@@ -434,7 +441,7 @@ class OutputManagerTest(unittest.TestCase):
         result = make_single_table_result()
         manager = OutputManager()
         with tempfile.TemporaryDirectory() as tmpdir:
-            spec = OutputSpec(
+            spec = ArtifactOutputConfig(
                 out_prefix="example",
                 output_dir=tmpdir,
                 enabled_artifacts=["ldscore"],
@@ -450,7 +457,7 @@ class OutputManagerTest(unittest.TestCase):
         result = make_multi_chrom_result()
         manager = OutputManager()
         with tempfile.TemporaryDirectory() as tmpdir:
-            spec = OutputSpec(
+            spec = ArtifactOutputConfig(
                 out_prefix="example",
                 output_dir=tmpdir,
                 enabled_artifacts=["ldscore"],
@@ -469,7 +476,7 @@ class OutputManagerTest(unittest.TestCase):
             output_dir = Path(tmpdir)
             conflict_path = output_dir / "example.2.l2.ldscore.gz"
             conflict_path.write_text("existing", encoding="utf-8")
-            spec = OutputSpec(
+            spec = ArtifactOutputConfig(
                 out_prefix="example",
                 output_dir=output_dir,
                 enabled_artifacts=["ldscore"],
@@ -483,7 +490,7 @@ class OutputManagerTest(unittest.TestCase):
 
     def test_unknown_artifact_raises(self):
         manager = OutputManager()
-        spec = OutputSpec(out_prefix="example", enabled_artifacts=["does_not_exist"])
+        spec = ArtifactOutputConfig(out_prefix="example", enabled_artifacts=["does_not_exist"])
         with self.assertRaises(ValueError):
             manager.resolve_enabled_artifacts(spec)
 

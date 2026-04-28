@@ -7,6 +7,7 @@ Related docs:
 - [data_flow.md](data_flow.md): user-visible file streams and flowcharts
 - [class-and-features.md](class-and-features.md): public API surface and major types
 - [code_structure.md](code_structure.md): module map and change guide
+- [layer-structure.md](layer-structure.md): layer-by-function object matrix
 
 ![Package overview](assets/ldsc-package-overview.png)
 
@@ -88,7 +89,7 @@ This module orchestrates chromosome-wise LD-score computation. It resolves annot
 
 ### `ldsc.sumstats_munger`
 
-This module wraps the historical munging behavior in typed public objects such as `RawSumstatsSpec`, `SumstatsTable`, and `SumstatsMunger`. It keeps raw-input parsing flexible but reloads curated `.sumstats(.gz)` artifacts through stricter internal column contracts. Public interface: downstream workflows should consume `SumstatsTable` or curated `.sumstats.gz`, not raw heterogeneous GWAS tables.
+This module wraps the historical munging behavior in typed public objects such as `MungeConfig`, `SumstatsTable`, and `SumstatsMunger`. It keeps raw-input parsing flexible but reloads curated `.sumstats(.gz)` artifacts through stricter internal column contracts. Public interface: downstream workflows should consume `SumstatsTable` or curated `.sumstats.gz`, not raw heterogeneous GWAS tables.
 
 ### `ldsc.regression_runner`
 

@@ -22,12 +22,12 @@ This document summarizes the public package surface. For workflow-level file str
 | --- | --- |
 | `GlobalConfig` | shared SNP identifier, genome-build, logging, and restriction settings |
 | `AnnotationBuildConfig` | annotation projection and bundle-building settings |
-| `RefPanelConfig` | choose and parameterize a runtime reference-panel backend |
+| `RefPanelConfig` | choose and parameterize a runtime reference-panel backend and its source paths |
 | `ReferencePanelBuildConfig` | build a parquet reference panel from PLINK input |
 | `LDScoreConfig` | LD-window and retained-SNP settings |
-| `MungeConfig` | raw-sumstats munging thresholds and output settings |
+| `MungeConfig` | raw-sumstats input, column hints, munging thresholds, and output settings |
 | `RegressionConfig` | regression-model settings such as intercept handling and jackknife blocks |
-| `OutputSpec` | LD-score artifact layout and emission controls |
+| `ArtifactOutputConfig` | generic artifact layout and emission controls; `OutputSpec` is a deprecated alias |
 | `ConfigMismatchError` | explicit failure raised when critical config assumptions disagree |
 
 ### Workflow Services
@@ -46,13 +46,10 @@ This document summarizes the public package surface. For workflow-level file str
 
 | Type | Role |
 | --- | --- |
-| `AnnotationSourceSpec` | annotation input token bundle for one run |
 | `AnnotationBundle` | aligned SNP metadata plus baseline/query annotation matrices |
-| `RefPanelSpec` | runtime description of a PLINK or parquet reference panel |
 | `ReferencePanelBuildResult` | summary of parquet panel artifacts written by one build |
 | `ChromLDScoreResult` | one chromosome’s LD-score and weight tables, plus `config_snapshot` provenance |
 | `LDScoreResult` | aggregated cross-chromosome LD-score artifacts, plus `config_snapshot` provenance |
-| `RawSumstatsSpec` | one raw summary-statistics input plus optional column hints |
 | `SumstatsTable` | validated LDSC-ready summary-statistics table, plus `config_snapshot` provenance |
 | `MungeRunSummary` | compact record of a munging run |
 | `RegressionDataset` | merged sumstats plus LD-score matrix used by the estimator, plus propagated provenance when available |

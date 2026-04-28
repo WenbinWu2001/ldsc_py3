@@ -69,6 +69,28 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(summary.n_retained_rows, 2)
             self.assertIn("sumstats_gz", summary.output_paths)
 
+    def test_run_accepts_merged_munge_config(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "SNP A1 A2 P OR N\n"
+                "rs1 A G 0.05 1.1 1000\n"
+                "rs2 C T 0.10 0.9 1000\n",
+                encoding="utf-8",
+            )
+            config = MungeConfig(
+                sumstats_path=str(raw_path),
+                output_dir=str(tmpdir / "munged"),
+                trait_name="trait",
+            )
+
+            table = SumstatsMunger().run(config, global_config=GlobalConfig(snp_identifier="rsid"))
+
+            self.assertEqual(table.trait_name, "trait")
+            self.assertEqual(table.source_path, str(raw_path))
+            self.assertTrue((tmpdir / "munged" / "sumstats.sumstats.gz").exists())
+
     def test_top_level_wrapper_calls_main(self):
         from ldsc import sumstats_munger as munge_sumstats
 

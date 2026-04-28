@@ -33,15 +33,13 @@ The Python API is the cleanest end-to-end path because it keeps the merged `Anno
 from ldsc import (
     AnnotationBuildConfig,
     AnnotationBuilder,
-    AnnotationSourceSpec,
     GlobalConfig,
     LDScoreCalculator,
     LDScoreConfig,
     LDScoreOutputConfig,
     MungeConfig,
-    RawSumstatsSpec,
     RefPanelLoader,
-    RefPanelSpec,
+    RefPanelConfig,
     RegressionConfig,
     RegressionRunner,
     SumstatsMunger,
@@ -57,7 +55,7 @@ GLOBAL_CONFIG = GlobalConfig(
 set_global_config(GLOBAL_CONFIG)
 
 annotation_bundle = AnnotationBuilder(GLOBAL_CONFIG, AnnotationBuildConfig()).run(
-    AnnotationSourceSpec(
+    AnnotationBuildConfig(
         baseline_annot_paths="annotations/baseline_chr/baseline.@.annot.gz",
         query_annot_bed_paths="beds/*.bed",
     )
@@ -71,12 +69,10 @@ annotation_bundle = AnnotationBuilder(GLOBAL_CONFIG, AnnotationBuildConfig()).ru
 # )
 
 sumstats = SumstatsMunger().run(
-    RawSumstatsSpec(
+    MungeConfig(
         sumstats_path="data/trait.tsv.gz",
         trait_name="trait",
         column_hints={"snp": "SNP", "a1": "A1", "a2": "A2", "p": "P", "N_col": "N"},
-    ),
-    MungeConfig(
         output_dir="tutorial_outputs/trait",
         signed_sumstats_spec="BETA,0",
     ),
@@ -89,7 +85,7 @@ sumstats = SumstatsMunger().run(
 # sumstats = load_sumstats("tutorial_outputs/trait/sumstats.sumstats.gz", trait_name="trait")
 
 ref_panel = RefPanelLoader(GLOBAL_CONFIG).load(
-    RefPanelSpec(
+    RefPanelConfig(
         backend="parquet_r2",
         r2_paths="r2/reference.@.parquet",
         metadata_paths="r2/reference_metadata.@.tsv.gz",
@@ -127,7 +123,7 @@ The Python workflow registers `GlobalConfig` once, then reuses it across the com
 
 Within this design:
 
-- `ref_panel_snps_path` belongs to `RefPanelSpec` and restricts the retained reference-panel rows
+- `ref_panel_snps_path` belongs to `RefPanelConfig` and restricts the retained reference-panel rows
 - `LDScoreCalculator.compute_chromosome()` intersects each chromosome-local annotation bundle with `ref_panel.load_metadata(chrom)`, so the LD-score compute universe is `B ∩ A'`; parquet pair rows are not scanned to define SNP presence
 - `regression_snps_path` belongs to `LDScoreConfig` and further restricts the normalized `baseline_table` rows to `B ∩ A' ∩ C`
 - regression weights are embedded as `regr_weight`; there is no separate `.w.l2.ldscore.gz` artifact in the new default format

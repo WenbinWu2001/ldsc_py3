@@ -166,7 +166,7 @@ For Python workflows, `GlobalConfig` now carries only shared runtime settings su
 
 Per-run SNP-universe controls are owned by the workflow-specific configs instead:
 
-- `ref_panel_snps_path` belongs to the LD-score reference-panel input and is passed through `run_ldscore(...)` into `RefPanelSpec`
+- `ref_panel_snps_path` belongs to the LD-score reference-panel input and is passed through `run_ldscore(...)` into `RefPanelConfig`
 - the LD-score workflow intersects each chromosome bundle with `ref_panel.load_metadata(chrom)`, so `ref_panel_snps_path` shrinks the sidecar-defined compute-time universe from `B` to `B ∩ A'`
 - `regression_snps_path` belongs to the LD-score calculation config and further restricts the normalized `baseline_table` rows from `B ∩ A'` to `B ∩ A' ∩ C`
 

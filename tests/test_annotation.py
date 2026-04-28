@@ -60,6 +60,22 @@ class AnnotationBuilderTest(unittest.TestCase):
             self.assertEqual(bundle.annotation_matrix(include_query=True).shape, (3, 2))
             self.assertEqual(bundle.reference_snps("rsid"), {"rs1", "rs2", "rs3"})
 
+    def test_run_uses_annotation_config_from_builder_when_source_is_omitted(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            base = tmpdir / "base.annot"
+            rows = [("1", 10, "rs1", 0.1)]
+            _write_annot(base, rows, {"base_a": [1]})
+            builder = AnnotationBuilder(
+                GlobalConfig(snp_identifier="rsid"),
+                AnnotationBuildConfig(baseline_annot_paths=(str(base),)),
+            )
+
+            bundle = builder.run()
+
+            self.assertEqual(bundle.baseline_columns, ["base_a"])
+            self.assertEqual(bundle.reference_snps("rsid"), {"rs1"})
+
     def test_row_mismatch_raises(self):
         builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
         with tempfile.TemporaryDirectory() as tmpdir:

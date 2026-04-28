@@ -102,26 +102,7 @@ LOGGER = logging.getLogger("LDSC.annotation")
 REQUIRED_ANNOT_COLUMNS = ("CHR", "POS", "SNP", "CM")
 
 
-@dataclass(frozen=True)
-class AnnotationSourceSpec:
-    """Describe the raw annotation input tokens needed to build a bundle.
-
-    Annotation fields accept one token or a sequence of tokens. Each token may
-    be an exact path, a standard Python glob pattern, or an explicit
-    chromosome-suite placeholder using ``@``. Resolution happens inside the
-    workflow layer; the stored dataclass values remain normalized strings until
-    :meth:`AnnotationBuilder.run`.
-    """
-    baseline_annot_paths: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
-    query_annot_paths: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
-    query_annot_bed_paths: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
-    allow_missing_query: bool = True
-
-    def __post_init__(self) -> None:
-        """Normalize all stored annotation path-token collections to tuples."""
-        object.__setattr__(self, "baseline_annot_paths", _normalize_path_tuple(self.baseline_annot_paths))
-        object.__setattr__(self, "query_annot_paths", _normalize_path_tuple(self.query_annot_paths))
-        object.__setattr__(self, "query_annot_bed_paths", _normalize_path_tuple(self.query_annot_bed_paths))
+AnnotationSourceSpec = AnnotationBuildConfig
 
 
 @dataclass(frozen=True)
@@ -220,7 +201,7 @@ class AnnotationBuilder:
         self.global_config = global_config
         self.build_config = build_config or AnnotationBuildConfig()
 
-    def run(self, source_spec: AnnotationSourceSpec, chrom: str | None = None) -> AnnotationBundle:
+    def run(self, source_spec: AnnotationBuildConfig | None = None, chrom: str | None = None) -> AnnotationBundle:
         """
         Build one aligned SNP-level annotation bundle.
 
@@ -234,7 +215,7 @@ class AnnotationBuilder:
 
         Parameters
         ----------
-        source_spec : AnnotationSourceSpec
+        source_spec : AnnotationBuildConfig
             Baseline and query annotation sources to load.
         chrom : str, optional
             Restrict loading to one chromosome before alignment. Default is
@@ -257,8 +238,9 @@ class AnnotationBuilder:
             ambiguously to the same chromosome shard, or if baseline and query
             chromosome shards do not cover the same chromosomes.
         """
+        source_spec = source_spec or self.build_config
         if not source_spec.baseline_annot_paths:
-            raise ValueError("AnnotationSourceSpec must include at least one baseline annotation file.")
+            raise ValueError("AnnotationBuildConfig must include at least one baseline annotation file.")
         baseline_files = resolve_file_group(
             source_spec.baseline_annot_paths,
             suffixes=ANNOTATION_SUFFIXES,
@@ -295,7 +277,7 @@ class AnnotationBuilder:
 
     def _run_single_universe(
         self,
-        source_spec: AnnotationSourceSpec,
+        source_spec: AnnotationBuildConfig,
         baseline_files: Sequence[str],
         query_files: Sequence[str],
         chrom: str | None = None,
@@ -377,7 +359,7 @@ class AnnotationBuilder:
 
     def _run_sharded_inputs(
         self,
-        source_spec: AnnotationSourceSpec,
+        source_spec: AnnotationBuildConfig,
         baseline_by_chrom: dict[str, str],
         query_by_chrom: dict[str, str],
         chrom: str | None,
@@ -398,7 +380,7 @@ class AnnotationBuilder:
 
         bundles: list[AnnotationBundle] = []
         for chrom_key in sorted(baseline_by_chrom, key=_chrom_sort_key):
-            chrom_source_spec = AnnotationSourceSpec(
+            chrom_source_spec = AnnotationBuildConfig(
                 baseline_annot_paths=(baseline_by_chrom[chrom_key],),
                 query_annot_paths=(() if not has_query_inputs else (query_by_chrom[chrom_key],)),
                 query_annot_bed_paths=source_spec.query_annot_bed_paths,
@@ -443,7 +425,7 @@ class AnnotationBuilder:
         baseline_columns: list[str],
         query_columns: list[str],
         chromosomes: list[str],
-        source_spec: AnnotationSourceSpec,
+        source_spec: AnnotationBuildConfig,
     ) -> AnnotationBundle:
         """Construct, validate, and return an ``AnnotationBundle``."""
         bundle = AnnotationBundle(
@@ -560,7 +542,7 @@ class AnnotationBuilder:
         """
         _ = self.build_config.batch_mode if batch is None else batch
         _configure_logging(log_level or self.global_config.log_level)
-        source_spec = AnnotationSourceSpec(
+        source_spec = AnnotationBuildConfig(
             baseline_annot_paths=baseline_annot_paths,
             query_annot_bed_paths=query_annot_bed_paths,
         )

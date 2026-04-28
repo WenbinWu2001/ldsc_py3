@@ -82,8 +82,8 @@ This means both of the following are valid:
 
 Relevant APIs:
 
-- `AnnotationSourceSpec.baseline_annot_paths`
-- `AnnotationSourceSpec.query_annot_paths`
+- `AnnotationBuildConfig.baseline_annot_paths`
+- `AnnotationBuildConfig.query_annot_paths`
 - `AnnotationBuilder.run(...)`
 
 Accepted path forms:
@@ -112,7 +112,7 @@ Automatic inference:
 Example:
 
 ```python
-AnnotationSourceSpec(
+AnnotationBuildConfig(
     baseline_annot_paths="annotations/baseline.*.annot.gz",
     query_annot_paths="annotations/query.@.annot.gz",
 )
@@ -251,7 +251,7 @@ ldsc build-ref-panel \
 
 Relevant APIs:
 
-- `RawSumstatsSpec.sumstats_path`
+- `MungeConfig.sumstats_path`
 - regression artifact paths such as `sumstats_path`, `sumstats_1_path`, and
   `sumstats_2_path`
 - `ldscore_dir` for the canonical LD-score result directory

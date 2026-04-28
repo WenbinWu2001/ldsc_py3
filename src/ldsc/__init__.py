@@ -51,7 +51,7 @@ from .config import (
     validate_config_compatibility,
 )
 from .ldscore_calculator import ChromLDScoreResult, LDScoreCalculator, LDScoreResult, run_ldscore
-from .outputs import ArtifactConfig, ArtifactProducer, LDScoreDirectoryWriter, LDScoreOutputConfig, OutputManager, OutputSpec, PostProcessor, ResultFormatter, ResultWriter, RunSummary
+from .outputs import ArtifactConfig, ArtifactOutputConfig, ArtifactProducer, LDScoreDirectoryWriter, LDScoreOutputConfig, OutputManager, OutputSpec, PostProcessor, ResultFormatter, ResultWriter, RunSummary
 from .ref_panel_builder import ReferencePanelBuildResult, ReferencePanelBuilder, run_build_ref_panel
 from ._kernel.ref_panel import ParquetR2RefPanel, PlinkRefPanel, RefPanel, RefPanelLoader, RefPanelSpec
 
@@ -83,6 +83,7 @@ __all__ = [
     "AnnotationBundle",
     "AnnotationSourceSpec",
     "ArtifactConfig",
+    "ArtifactOutputConfig",
     "ArtifactProducer",
     "ChromLDScoreResult",
     "ConfigMismatchError",

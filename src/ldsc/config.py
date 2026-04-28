@@ -206,6 +206,7 @@ class AnnotationBuildConfig:
     output_dir: str | PathLike[str] | None = None
     batch_mode: bool = True
     compression: CompressionMode = "gzip"
+    allow_missing_query: bool = True
 
     def __post_init__(self) -> None:
         """Normalize annotation path tokens and validate compression mode."""
@@ -244,8 +245,12 @@ class RefPanelConfig:
     plink_path: str | PathLike[str] | None = None
     r2_paths: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
     metadata_paths: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
+    chromosomes: tuple[str, ...] | list[str] | None = None
+    genome_build: GenomeBuildInput | None = None
     r2_bias_mode: R2BiasMode | None = None
     r2_sample_size: float | None = None
+    sample_size: int | None = None
+    ref_panel_snps_path: str | PathLike[str] | None = None
 
     def __post_init__(self) -> None:
         """Normalize backend path tokens and validate parquet-R2 settings."""
@@ -255,9 +260,19 @@ class RefPanelConfig:
             raise ValueError("r2_bias_mode must be None, 'raw', or 'unbiased'.")
         if self.r2_sample_size is not None and self.r2_sample_size <= 0:
             raise ValueError("r2_sample_size must be positive when provided.")
+        if self.sample_size is not None and self.sample_size <= 0:
+            raise ValueError("sample_size must be positive when provided.")
+        if self.sample_size is None and self.r2_sample_size is not None:
+            object.__setattr__(self, "sample_size", int(self.r2_sample_size))
         object.__setattr__(self, "plink_path", _normalize_optional_path(self.plink_path))
         object.__setattr__(self, "r2_paths", _normalize_path_tuple(self.r2_paths))
         object.__setattr__(self, "metadata_paths", _normalize_path_tuple(self.metadata_paths))
+        object.__setattr__(self, "genome_build", normalize_genome_build(self.genome_build))
+        object.__setattr__(self, "ref_panel_snps_path", _normalize_optional_path(self.ref_panel_snps_path))
+        if self.chromosomes is not None:
+            from .chromosome_inference import normalize_chromosome
+
+            object.__setattr__(self, "chromosomes", tuple(normalize_chromosome(chrom) for chrom in self.chromosomes))
 
 
 @dataclass(frozen=True)
@@ -462,7 +477,11 @@ class MungeConfig:
         Legacy munging switches preserved for behavior compatibility. Defaults
         are ``False``.
     """
-    output_dir: str | PathLike[str]
+    output_dir: str | PathLike[str] | None = None
+    sumstats_path: str | PathLike[str] | None = None
+    compression: str = "auto"
+    trait_name: str | None = None
+    column_hints: dict[str, str] = field(default_factory=dict)
     N: float | None = None
     N_cas: float | None = None
     N_con: float | None = None
@@ -488,9 +507,11 @@ class MungeConfig:
             raise ValueError("maf_min must lie in [0, 0.5].")
         if self.chunk_size <= 0:
             raise ValueError("chunk_size must be positive.")
-        object.__setattr__(self, "output_dir", _normalize_required_path(self.output_dir))
+        object.__setattr__(self, "output_dir", _normalize_optional_path(self.output_dir))
+        object.__setattr__(self, "sumstats_path", _normalize_optional_path(self.sumstats_path))
         object.__setattr__(self, "merge_alleles_path", _normalize_optional_path(self.merge_alleles_path))
         object.__setattr__(self, "ignore_columns", tuple(self.ignore_columns))
+        object.__setattr__(self, "column_hints", dict(self.column_hints))
 
 
 @dataclass(frozen=True)

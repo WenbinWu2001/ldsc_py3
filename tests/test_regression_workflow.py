@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+import warnings
 from unittest import mock
 
 import numpy as np
@@ -101,6 +102,42 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertEqual(result.count_records[0]["column"], "base")
         self.assertEqual(result.ld_regression_snps, frozenset({"rs1"}))
         self.assertEqual(result.config_snapshot, GlobalConfig(genome_build="hg38", snp_identifier="rsid"))
+
+    def test_load_ldscore_from_dir_warns_when_config_snapshot_is_missing(self):
+        from ldsc import load_ldscore_from_dir
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            self.write_ldscore_dir(tmpdir, include_query=False)
+            manifest_path = tmpdir / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            del manifest["config_snapshot"]
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                result = load_ldscore_from_dir(str(tmpdir))
+
+        self.assertIsNone(result.config_snapshot)
+        self.assertTrue(any("GlobalConfig provenance is missing" in str(item.message) for item in caught))
+
+    def test_load_ldscore_from_dir_warns_when_config_snapshot_is_invalid(self):
+        from ldsc import load_ldscore_from_dir
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            self.write_ldscore_dir(tmpdir, include_query=False)
+            manifest_path = tmpdir / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["config_snapshot"] = {"snp_identifier": "bad", "genome_build": "hg38", "log_level": "INFO"}
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                result = load_ldscore_from_dir(str(tmpdir))
+
+        self.assertIsNone(result.config_snapshot)
+        self.assertTrue(any("GlobalConfig provenance is invalid" in str(item.message) for item in caught))
 
     def make_ldscore_result(self):
         baseline_table = pd.DataFrame(
@@ -301,6 +338,14 @@ class RegressionWorkflowTest(unittest.TestCase):
         dataset = runner.build_dataset(sumstats, ldscore_result)
 
         self.assertIsNone(dataset.config_snapshot)
+
+    def test_build_dataset_allows_unknown_sumstats_with_known_ldscore_snapshot(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        sumstats = replace(self.make_sumstats_table(), config_snapshot=None)
+
+        dataset = runner.build_dataset(sumstats, self.make_ldscore_result())
+
+        self.assertEqual(dataset.config_snapshot, GlobalConfig(genome_build="hg38", snp_identifier="rsid"))
 
     def test_estimate_partitioned_h2_batch_loops_over_queries(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())

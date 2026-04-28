@@ -236,7 +236,7 @@ class LDScoreCalculator:
         ldscore_config : LDScoreConfig
             LD-window and retained-SNP settings.
         global_config : GlobalConfig
-            Shared identifier and restriction settings.
+            Shared SNP identifier, genome-build, and logging settings.
         output_config : LDScoreOutputConfig or None, optional
             If provided, write the canonical LD-score result directory after
             the aggregate result is built.

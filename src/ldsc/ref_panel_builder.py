@@ -75,7 +75,7 @@ class ReferencePanelBuilder:
     """Build standard parquet reference-panel artifacts from PLINK input."""
 
     def __init__(self, global_config: GlobalConfig | None = None) -> None:
-        """Initialize the builder with shared global configuration defaults."""
+        """Initialize the builder with shared identifier and build defaults."""
         self.global_config = global_config or get_global_config()
 
     def run(self, config: ReferencePanelBuildConfig) -> ReferencePanelBuildResult:
@@ -86,7 +86,10 @@ class ReferencePanelBuilder:
         config : ReferencePanelBuildConfig
             Public build configuration containing one PLINK prefix token,
             optional genetic maps, optional liftover chain paths, output
-            directory, and exactly one LD window.
+            directory, and exactly one LD window. If
+            ``config.ref_panel_snps_path`` is set, this builder interprets that
+            file using ``self.global_config.snp_identifier`` and
+            ``self.global_config.genome_build``.
 
         Returns
         -------
@@ -576,7 +579,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def config_from_args(args: argparse.Namespace) -> tuple[ReferencePanelBuildConfig, GlobalConfig]:
-    """Normalize CLI args into public config objects."""
+    """Normalize CLI args into public config objects.
+
+    ``--snp-identifier`` is required only when ``--ref-panel-snps-path`` is
+    supplied. The derived ``GlobalConfig`` then carries the restriction-file
+    identifier mode and uses ``source_genome_build`` as its genome build.
+    """
     if args.ref_panel_snps_path is not None and args.snp_identifier is None:
         raise ValueError("--snp-identifier is required when --ref-panel-snps-path is set.")
 
@@ -612,7 +620,13 @@ def run_build_ref_panel_from_args(args: argparse.Namespace) -> ReferencePanelBui
 
 
 def run_build_ref_panel(**kwargs: Any) -> ReferencePanelBuildResult:
-    """Convenience wrapper around :func:`run_build_ref_panel_from_args`."""
+    """Run the reference-panel builder with CLI-equivalent keyword arguments.
+
+    The wrapper accepts the same modern names as ``ldsc build-ref-panel``. When
+    ``ref_panel_snps_path`` is supplied, callers must also pass
+    ``snp_identifier`` so the SNP restriction file is interpreted explicitly.
+    Without a restriction file, no identifier keyword is required.
+    """
     forbidden = sorted({"log_level"} & set(kwargs))
     if forbidden:
         joined = ", ".join(forbidden)

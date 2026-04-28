@@ -12,7 +12,10 @@ Two implementation details are important to know:
 - Compatibility checks run when both inputs carry real snapshots. Legacy objects
   with `config_snapshot=None` are still accepted for backward compatibility.
 - `load_sumstats()` cannot recover the original munge-time config from disk, so
-  it emits a warning and attaches the current global config as a proxy snapshot.
+  it emits a warning and leaves `config_snapshot=None`.
+- `load_ldscore_from_dir()` keeps strict format checks but treats missing or
+  invalid manifest config provenance as unknown, warning and returning
+  `config_snapshot=None`.
 
 ## The Problem This Design Solves
 
@@ -41,16 +44,23 @@ cfg = GlobalConfig(genome_build="hg38", snp_identifier="chr_pos")
 cfg2 = GlobalConfig(genome_build="hg19", snp_identifier="chr_pos")  # correct way
 ```
 
-### 2. Every result object carries a config snapshot
+### 2. Computed result objects carry a config snapshot
 
 Each computed artifact — `LDScoreResult`, `ChromLDScoreResult`, `AnnotationBundle`,
-`SumstatsTable`, `RegressionDataset` — embeds a `config_snapshot: GlobalConfig` frozen
-at the moment of computation. This snapshot is the authoritative record of what
-assumptions were active when that object was produced.
+`SumstatsTable`, `RegressionDataset` — has a `config_snapshot` field. For
+in-process results, that field stores the `GlobalConfig` frozen at the moment
+of computation. This snapshot is the authoritative record of what assumptions
+were active when that object was produced.
 
-This means reproducibility is structural: you can always interrogate a result object
-to find out what config it was computed under, regardless of what the global registry
-currently holds.
+File-reloaded artifacts may instead use `config_snapshot=None` when the on-disk
+format cannot prove its original settings. For example, `load_sumstats()` warns
+and returns unknown provenance because `.sumstats.gz` does not persist the
+munge-time `GlobalConfig`.
+
+This means reproducibility is structural when provenance exists: interrogating a
+result object tells you the frozen config it was computed under, or tells you
+explicitly that the provenance is unknown, regardless of what the global
+registry currently holds.
 
 ### 3. Compatibility is validated at combination points
 
@@ -124,7 +134,7 @@ ldscore = ldsc.LDScoreCalculator().run(annot, ref_panel, ldscore_cfg)
 regression = ldsc.RegressionRunner().build_dataset(sumstats, ldscore)
 ```
 
-Each result carries `config_snapshot = GlobalConfig(genome_build="hg38", ...)`.
+Each in-process result carries `config_snapshot = GlobalConfig(genome_build="hg38", ...)`.
 If you accidentally re-run a cell with a different `set_global_config()` call, the
 results you already have are unaffected — and combining them with new results will
 raise `ConfigMismatchError` at merge time.
@@ -154,7 +164,7 @@ regression = runner.build_dataset(sumstats_hg19, ldscore_hg38)  # ← hard error
 | --- | --- | --- |
 | `ConfigMismatchError` | `ldsc.config` | Raised on incompatible config combination |
 | `validate_config_compatibility(a, b)` | `ldsc.config` | Public compatibility helper used by workflow merge points |
-| `config_snapshot` field | All result classes | Frozen config from computation time |
+| `config_snapshot` field | Result classes | Frozen config from computation time, or `None` when provenance is genuinely unknown |
 
 ---
 
@@ -264,12 +274,17 @@ still materially affect the outputs, but callers who need to preserve that
 provenance should persist the `RefPanelConfig` / `LDScoreConfig` they used
 alongside the written artifacts.
 
-**`load_sumstats()` attaches a proxy snapshot, not original provenance.**
+**`load_sumstats()` records unknown provenance for disk artifacts.**
 Curated `.sumstats(.gz)` artifacts on disk do not embed the `GlobalConfig` that was
-active when they were munged. The loader therefore emits a warning and attaches the
-current global config as a best-effort proxy snapshot. This supports notebook
-ergonomics, but users should treat the snapshot on a loaded table as caller-time
-context rather than guaranteed historical provenance.
+active when they were munged. The loader therefore emits a warning and leaves
+`config_snapshot=None`. In-process munging through `SumstatsMunger.run()` still
+attaches the real active or explicitly supplied `GlobalConfig` snapshot.
+
+**Legacy LD-score directories may also have unknown provenance.**
+Canonical LD-score directories written by the current workflow include a manifest
+config snapshot. Older or malformed manifests may not. `load_ldscore_from_dir()`
+warns and returns `LDScoreResult.config_snapshot=None` in that case while still
+loading the baseline/query tables if the rest of the manifest is usable.
 
 **Legacy objects with `config_snapshot=None` skip strict compatibility checks.**
 The package preserves backward compatibility for objects constructed before this

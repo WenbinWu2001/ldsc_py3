@@ -74,6 +74,10 @@ class SumstatsTable:
     provenance : dict, optional
         Lightweight run metadata retained for debugging and output summaries.
         Default is an empty dict.
+    config_snapshot : GlobalConfig or None, optional
+        Shared configuration captured when the table was produced in-process.
+        Disk-loaded curated artifacts use ``None`` because their original
+        munge-time configuration is not recoverable from the file format.
     """
     data: pd.DataFrame
     has_alleles: bool
@@ -157,13 +161,22 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
     -------
     SumstatsTable
         Validated in-memory table with canonical LDSC columns such as ``SNP``,
-        ``N``, and ``Z``.
+        ``N``, and ``Z``. The returned table has ``config_snapshot=None``
+        because curated sumstats artifacts do not persist their original
+        munge-time ``GlobalConfig``.
 
     Raises
     ------
     ValueError
         If ``path`` does not resolve to exactly one file or if the curated
         artifact is missing required LDSC columns.
+
+    Notes
+    -----
+    This loader emits a warning before returning an unknown-provenance table.
+    Regression compatibility validation is skipped for this sumstats side
+    unless the caller supplies a table produced in-process by
+    :meth:`SumstatsMunger.run`.
     """
     resolved = resolve_scalar_path(path, label="munged sumstats")
     df = _read_curated_sumstats_artifact(resolved)
@@ -173,7 +186,7 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
     )
     warnings.warn(
         "load_sumstats() cannot recover the GlobalConfig that was active when this "
-        "file was originally munged. Using the current global config as a proxy. "
+        "file was originally munged. Treating config provenance as unknown. "
         "Validate manually if genome_build or snp_identifier matters here.",
         UserWarning,
         stacklevel=2,
@@ -183,7 +196,7 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
         has_alleles={"A1", "A2"}.issubset(df.columns),
         source_path=resolved,
         trait_name=trait_name or Path(resolved).name,
-        config_snapshot=get_global_config(),
+        config_snapshot=None,
     )
     table.validate()
     return table
@@ -215,14 +228,16 @@ class SumstatsMunger:
             files named ``sumstats.sumstats.gz`` and ``sumstats.log`` inside
             ``munge_config.output_dir``.
         global_config : GlobalConfig or None, optional
-            Reserved for future shared validation. It is currently accepted to keep
-            the workflow interface consistent with the rest of the package. Default
-            is ``None``.
+            Shared configuration snapshot to attach to the returned
+            ``SumstatsTable``. When omitted, the current package-global
+            configuration is captured. Default is ``None``.
 
         Returns
         -------
         SumstatsTable
             Validated, in-memory table suitable for the regression workflow.
+            The table preserves the active ``GlobalConfig`` snapshot so
+            downstream regression can detect incompatible LD-score results.
             Output paths for the corresponding disk artifacts are available
             through :meth:`build_run_summary`.
         """

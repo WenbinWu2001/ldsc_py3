@@ -7,7 +7,7 @@ This document summarizes the public package surface. For workflow-level file str
 | Feature | CLI | Python entry points | Main inputs | Main outputs |
 | --- | --- | --- | --- | --- |
 | Build query annotations | `ldsc annotate` | `AnnotationBuilder`, `run_bed_to_annot()`, `make_annot_files()` | baseline `.annot(.gz)`, BED or gene-set inputs | `query.<chrom>.annot.gz` or one legacy `.annot(.gz)` |
-| Build parquet reference panels | `ldsc build-ref-panel` | `ReferencePanelBuilder`, `run_build_ref_panel()` | PLINK prefix, optional liftover chains, conditional genetic maps, optional keep/restrict files | per-chromosome `ann.parquet`, `LD.parquet`, emitted `meta_*.tsv.gz` sidecars |
+| Build parquet reference panels | `ldsc build-ref-panel` | `ReferencePanelBuilder`, `run_build_ref_panel()` | PLINK prefix, optional liftover chains, conditional genetic maps, optional keep/restrict files; `snp_identifier` only when a SNP restriction file is supplied | per-chromosome `ann.parquet`, `LD.parquet`, emitted `meta_*.tsv.gz` sidecars |
 | Compute LD scores | `ldsc ldscore` | `LDScoreCalculator`, `run_ldscore()` | annotation shards, PLINK or parquet reference panel, optional frequency metadata | `manifest.json`, `baseline.parquet`, optional `query.parquet` under `output_dir` |
 | Munge GWAS summary statistics | `ldsc munge-sumstats` | `SumstatsMunger`, `load_sumstats()` | raw sumstats, column hints, QC thresholds | `.sumstats.gz`, `.log` |
 | Estimate heritability | `ldsc h2` | `RegressionRunner.estimate_h2()` | munged `.sumstats.gz`, LD-score files, count vector | `.h2.tsv` |
@@ -20,7 +20,7 @@ This document summarizes the public package surface. For workflow-level file str
 
 | Type | Role |
 | --- | --- |
-| `GlobalConfig` | shared SNP identifier, genome-build, logging, and restriction settings |
+| `GlobalConfig` | shared SNP identifier, genome-build, logging, and missing-metadata policy |
 | `AnnotationBuildConfig` | annotation projection and bundle-building settings |
 | `RefPanelConfig` | choose and parameterize a runtime reference-panel backend and its source paths |
 | `ReferencePanelBuildConfig` | build a parquet reference panel from PLINK input |
@@ -49,7 +49,7 @@ This document summarizes the public package surface. For workflow-level file str
 | `ReferencePanelBuildResult` | summary of parquet panel artifacts written by one build |
 | `ChromLDScoreResult` | one chromosome’s LD-score and weight tables, plus `config_snapshot` provenance |
 | `LDScoreResult` | aggregated cross-chromosome LD-score artifacts, plus `config_snapshot` provenance |
-| `SumstatsTable` | validated LDSC-ready summary-statistics table, plus `config_snapshot` provenance |
+| `SumstatsTable` | validated LDSC-ready summary-statistics table, plus known or unknown `config_snapshot` provenance |
 | `MungeRunSummary` | compact record of a munging run |
 | `RegressionDataset` | merged sumstats plus LD-score matrix used by the estimator, plus propagated provenance when available |
 

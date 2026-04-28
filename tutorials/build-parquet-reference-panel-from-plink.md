@@ -154,10 +154,20 @@ Exactly one of the following must be set:
   Recommended usage: use this when you want to build a panel only on HM3 SNPs,
   a curated common-SNP list, or another pre-defined reference universe.
 
-  The builder auto-detects two common identifier styles:
+  When this path is supplied, also pass `--snp-identifier`. No SNP identifier
+  flag is needed when you are not supplying a reference-panel SNP restriction
+  file.
 
-  - one-column rsID-style lists
-  - chromosome-position identifiers such as `22:10684250`, or tables with `CHR` and `POS` columns
+- `--snp-identifier`
+  Plain-English meaning: how to interpret the SNP restriction file supplied by
+  `--ref-panel-snps-path`.
+  Optional: conditional.
+  Accepted values: `rsid`, `chr_pos`.
+  Recommended usage: use `rsid` for one-column rsID/dbSNP-style lists, and use
+  `chr_pos` for one-column `CHR:POS` lists or tables with `CHR` and `POS`
+  columns. In `chr_pos` mode, the builder interprets coordinates in the
+  explicit `--source-genome-build`; source-build inference is not part of this
+  workflow.
 
 - `--keep-indivs-path`
   Plain-English meaning: restrict the individuals used to compute LD.
@@ -242,6 +252,21 @@ print(result.output_paths["ann"][0])
 print(result.output_paths["ld"][0])
 print(result.output_paths["meta_hg38"][0])
 ```
+
+When you use the lower-level `ReferencePanelBuilder` API with
+`ReferencePanelBuildConfig(ref_panel_snps_path=...)`, put the restriction-file
+identifier mode on the injected `GlobalConfig`:
+
+```python
+GLOBAL_CONFIG = GlobalConfig(
+    snp_identifier="rsid",
+    genome_build="hg38",
+    log_level="INFO",
+)
+```
+
+The convenience wrapper shown later mirrors the CLI and accepts
+`snp_identifier="rsid"` directly when `ref_panel_snps_path` is supplied.
 
 ## Output Format
 
@@ -461,9 +486,21 @@ example HapMap3 or another curated reference-panel universe.
 
 Accepted forms include:
 
-- plain one-column SNP lists
-- one-column `chr:pos` lists
-- tables with `CHR` and `POS` columns
+- plain one-column SNP lists with `--snp-identifier rsid`
+- one-column `chr:pos` lists with `--snp-identifier chr_pos`
+- tables with `CHR` and `POS` columns with `--snp-identifier chr_pos`
+
+Example:
+
+```bash
+ldsc build-ref-panel \
+  --plink-path data/reference/genomes_30x_chr@ \
+  --source-genome-build hg38 \
+  --ref-panel-snps-path filters/hapmap3_rsids.txt \
+  --snp-identifier rsid \
+  --ld-wind-kb 1000 \
+  --output-dir tutorial_outputs/ref_panel_hm3
+```
 
 ### Restrict the sample set
 
@@ -505,6 +542,10 @@ result = run_build_ref_panel(
     ld_wind_cm=1.0,
 )
 ```
+
+If you add `ref_panel_snps_path=...` to this wrapper call, also add
+`snp_identifier="rsid"` or `snp_identifier="chr_pos"`. The wrapper raises
+`ValueError` rather than guessing the restriction-file identifier mode.
 
 ### A note on coordinate systems
 

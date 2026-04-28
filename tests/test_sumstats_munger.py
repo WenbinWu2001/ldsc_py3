@@ -69,7 +69,7 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertTrue(table.has_alleles)
             self.assertEqual(table.data.columns.tolist(), ["SNP", "N", "Z", "A1", "A2", "FRQ"])
             self.assertEqual(table.data.loc[0, "SNP"], "rs1")
-            self.assertIsNotNone(table.config_snapshot)
+            self.assertIsNone(table.config_snapshot)
             self.assertTrue(any("cannot recover the GlobalConfig" in str(item.message) for item in caught))
 
     def test_run_munges_and_writes_output(self):

@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -89,6 +90,12 @@ class RegressionRunner:
         query_columns: Sequence[str] | None = None,
     ) -> RegressionDataset:
         """Merge sumstats, LD scores, and weights into a regression dataset.
+
+        If both inputs carry known ``GlobalConfig`` snapshots, their critical
+        settings are checked before merging. Unknown-provenance inputs, such as
+        disk-loaded sumstats, are allowed through this compatibility boundary.
+        The merge key remains the literal ``SNP`` column; coordinate-based
+        ``CHR``/``BP`` matching is not part of the current regression workflow.
 
         Zero-variance LD-score columns are dropped here so the estimator kernel
         receives only informative regressors. The selected count vector is
@@ -506,7 +513,34 @@ def load_ldscore_from_dir(
     ldscore_dir: str,
     snp_identifier: str | None = None,
 ) -> LDScoreResult:
-    """Load a canonical LD-score result directory."""
+    """Load a canonical LD-score result directory.
+
+    Parameters
+    ----------
+    ldscore_dir : str
+        Directory containing ``manifest.json``, ``baseline.parquet``, and
+        optional ``query.parquet`` files written by the public LD-score writer.
+    snp_identifier : {"rsid", "chr_pos"} or None, optional
+        Identifier mode used to reconstruct the public regression SNP set from
+        the baseline table. When omitted, the manifest value is used, falling
+        back to ``"rsid"`` for legacy directories.
+
+    Returns
+    -------
+    LDScoreResult
+        Disk-loaded LD-score result. Missing or invalid manifest
+        ``config_snapshot`` provenance emits a warning and returns
+        ``config_snapshot=None`` so legacy directories can still be used.
+
+    Raises
+    ------
+    FileNotFoundError
+        If ``manifest.json`` is absent.
+    NotADirectoryError
+        If ``ldscore_dir`` is not an existing directory.
+    ValueError
+        If the manifest format or required file records are unsupported.
+    """
     root = Path(normalize_path_token(ldscore_dir))
     if not root.is_dir():
         raise NotADirectoryError(f"LD-score directory does not exist or is not a directory: {root}")
@@ -552,6 +586,11 @@ def _global_config_from_manifest(manifest: dict[str, Any]) -> GlobalConfig | Non
     """Recreate a GlobalConfig snapshot when the manifest contains one."""
     snapshot = manifest.get("config_snapshot")
     if not isinstance(snapshot, dict):
+        warnings.warn(
+            "LD-score manifest GlobalConfig provenance is missing; treating config compatibility as unknown.",
+            UserWarning,
+            stacklevel=3,
+        )
         return None
     try:
         return GlobalConfig(
@@ -561,6 +600,11 @@ def _global_config_from_manifest(manifest: dict[str, Any]) -> GlobalConfig | Non
             fail_on_missing_metadata=bool(snapshot.get("fail_on_missing_metadata", False)),
         )
     except Exception:
+        warnings.warn(
+            "LD-score manifest GlobalConfig provenance is invalid; treating config compatibility as unknown.",
+            UserWarning,
+            stacklevel=3,
+        )
         return None
 
 

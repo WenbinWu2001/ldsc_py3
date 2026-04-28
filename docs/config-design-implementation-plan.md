@@ -10,7 +10,8 @@ described in [config-design.md](config-design.md).
 - `AnnotationBundle`, `ChromLDScoreResult`, `LDScoreResult`, `SumstatsTable`,
   and `RegressionDataset` now carry `config_snapshot`.
 - `RegressionRunner.build_dataset()` validates `SumstatsTable` and
-  `LDScoreResult` snapshots with `validate_config_compatibility()`.
+  `LDScoreResult` snapshots with `validate_config_compatibility()` when both
+  snapshots are known.
 - `LDScoreCalculator.run()` validates `AnnotationBundle.config_snapshot`
   against the active runtime `GlobalConfig`.
 - `LDScoreCalculator.run()` validates `RefPanelConfig.genome_build` against the
@@ -29,7 +30,9 @@ described in [config-design.md](config-design.md).
   `LDScoreResult` when present. The implementation does not synthesize a new
   snapshot from the current runner config when upstream provenance is missing.
 - `load_sumstats()` cannot recover original munge-time config from disk, so it
-  warns and attaches the current global config as a proxy snapshot.
+  warns and leaves `config_snapshot=None`.
+- `load_ldscore_from_dir()` warns and leaves `config_snapshot=None` when a
+  legacy or malformed manifest lacks usable config provenance.
 
 ## Tests Covering This Design
 

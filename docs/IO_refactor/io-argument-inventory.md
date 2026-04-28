@@ -88,7 +88,7 @@ LD-score output schema:
 | `--liftover-chain-hg19-to-hg38-path` | input | no | liftover chain file | Optional; enables hg38 outputs for hg19 source builds. |
 | `--liftover-chain-hg38-to-hg19-path` | input | no | liftover chain file | Optional; enables hg19 outputs for hg38 source builds. |
 | `--ref-panel-snps-path` | input | no | retained SNP universe restriction | Scalar file-like input. |
-| `--snp-identifier` | input metadata | conditional | restriction identifier mode | Required when `--ref-panel-snps-path` is set. |
+| `--snp-identifier` | input metadata | conditional | restriction identifier mode | Required only when `--ref-panel-snps-path` is set. |
 | `--keep-indivs-path` | input | no | PLINK individual keep file | Applied during PLINK loading. |
 | `--output-dir` | output | yes | reference-panel artifact directory | Run identity is `Path(output_dir).name`; no separate label is accepted. |
 
@@ -214,6 +214,7 @@ Removed Python names: `bfile`, `r2_table`, `frqfile`, `keep`,
 | `ReferencePanelBuildConfig` | `ref_panel_snps_path` | input | retained SNP restriction |
 | `ReferencePanelBuildConfig` | `keep_indivs_path` | input | PLINK individual keep file |
 | `ReferencePanelBuildConfig` | `output_dir` | output | artifact directory |
+| `run_build_ref_panel(**kwargs)` | `snp_identifier` | input metadata | required only when `ref_panel_snps_path` is supplied |
 | `run_build_ref_panel(**kwargs)` | same config field names | input/output | CLI-equivalent wrapper |
 
 Removed Python names: `plink_prefix`, `bfile`, `out`, `panel_label`,
@@ -250,6 +251,12 @@ Removed Python names: legacy separate source-path object field,
 
 Removed Python/public argparse names: `sumstats`, `sumstats_1`, `sumstats_2`,
 `out`, `ldscore`, `counts`, `w_ld`, `annotation_manifest`, `query_columns`.
+
+Future work: curated `.sumstats.gz` artifacts currently provide the legacy
+regression key `SNP` but do not preserve a reliable `CHR`/`BP` coordinate
+contract. A future munging expansion could retain normalized coordinates and
+genome-build provenance, enabling coordinate-based regression matching in
+addition to the current literal `SNP` merge.
 
 ## Remaining Implementation Checklist
 

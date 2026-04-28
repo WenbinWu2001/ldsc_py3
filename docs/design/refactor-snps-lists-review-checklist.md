@@ -21,6 +21,7 @@ Each item targets a specific constraint that is easy to get wrong or to leave ha
 - [ ] `_normalize_run_args()` routes `--regression-snps` into `LDScoreConfig`, not `GlobalConfig`.
 - [ ] `RefPanel.load_metadata()` applies restriction from `RefPanelConfig.ref_panel_snps_path`, not from `GlobalConfig`.
 - [ ] `ref_panel_builder.py` passes SNP restriction through its build config / spec path — no dependency on `GlobalConfig.ref_panel_snps_path`.
+- [ ] `build-ref-panel` requires `--snp-identifier` only when `--ref-panel-snps-path` is supplied; lower-level `ReferencePanelBuilder(GlobalConfig(...)).run(config)` reads the mode from the injected `GlobalConfig`.
 
 ---
 

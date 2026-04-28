@@ -228,6 +228,8 @@ Accepted path forms:
 
 - `plink_path`: exact PLINK prefix, exact-one PLINK glob, or explicit `@` PLINK suite token
 - map and chain inputs, when provided: exact path or exact-one glob
+- `ref_panel_snps_path`, when provided: scalar file-like token interpreted
+  using the explicit `snp_identifier` mode
 
 How they are handled:
 
@@ -235,6 +237,8 @@ How they are handled:
 - a chromosome suite such as `panel_chr@` is expanded one chromosome at a time
 - liftover chains are optional; the matching source-to-target chain enables cross-build metadata, while no matching chain produces source-build-only outputs
 - genetic maps are required only for source-build `--ld-wind-cm`; SNP- and kb-window builds may omit maps and write emitted metadata `CM` as `NA`
+- `snp_identifier` is required only when `ref_panel_snps_path` /
+  `--ref-panel-snps-path` is supplied; no identifier flag is needed otherwise
 
 Example:
 

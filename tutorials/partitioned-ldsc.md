@@ -79,9 +79,9 @@ sumstats = SumstatsMunger().run(
     global_config=GLOBAL_CONFIG,
 )
 
-# If you already have a curated .sumstats.gz artifact on disk, keep the same
-# GlobalConfig active before calling load_sumstats(). The loader warns because
-# the original munge-time config is not recoverable from disk.
+# If you already have a curated .sumstats.gz artifact on disk, load it directly.
+# The loader warns and returns config_snapshot=None because the original
+# munge-time GlobalConfig is not recoverable from disk.
 # sumstats = load_sumstats("tutorial_outputs/trait/sumstats.sumstats.gz", trait_name="trait")
 
 ref_panel = RefPanelLoader(GLOBAL_CONFIG).load(
@@ -119,7 +119,7 @@ print(ldscore_result.baseline_table.head())
 print(partitioned)
 ```
 
-The Python workflow registers `GlobalConfig` once, then reuses it across the compatible helper functions and workflow classes. The resulting `AnnotationBundle`, `SumstatsTable`, and `LDScoreResult` objects carry frozen `config_snapshot` values, and the regression step raises `ConfigMismatchError` if you accidentally mix artifacts produced under incompatible `snp_identifier` or `genome_build` assumptions.
+The Python workflow registers `GlobalConfig` once, then reuses it across the compatible helper functions and workflow classes. In-process results such as `AnnotationBundle`, `SumstatsTable` from `SumstatsMunger.run()`, and `LDScoreResult` carry frozen `config_snapshot` values, and the regression step raises `ConfigMismatchError` if you accidentally mix known artifacts produced under incompatible `snp_identifier` or `genome_build` assumptions. A `SumstatsTable` loaded from disk has unknown provenance (`config_snapshot=None`) and does not trigger sumstats-side compatibility validation.
 
 Within this design:
 

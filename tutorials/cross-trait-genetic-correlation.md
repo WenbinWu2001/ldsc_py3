@@ -54,7 +54,9 @@ trait_2 = SumstatsMunger().run(
     global_config=GLOBAL_CONFIG,
 )
 
-# Option B: load existing curated artifacts instead.
+# Option B: load existing curated artifacts instead. Disk-loaded sumstats warn
+# and use config_snapshot=None because the original munge-time GlobalConfig is
+# not stored in the .sumstats.gz artifact.
 # trait_1 = load_sumstats("tutorial_outputs/trait_1/sumstats.sumstats.gz", trait_name="trait_1")
 # trait_2 = load_sumstats("tutorial_outputs/trait_2/sumstats.sumstats.gz", trait_name="trait_2")
 
@@ -83,6 +85,12 @@ summary = pd.DataFrame(
 summary.to_csv("tutorial_outputs/trait_1_trait_2_rg.tsv", sep="\t", index=False)
 print(summary)
 ```
+
+When both traits are produced by `SumstatsMunger.run()` in the same workflow,
+their known `GlobalConfig` snapshots are checked against the LD-score snapshot
+before regression. When traits are loaded from existing `.sumstats.gz` files,
+their config provenance is unknown and regression skips sumstats-side
+compatibility validation rather than fabricating a snapshot.
 
 ## CLI
 

@@ -157,6 +157,7 @@ ldsc ldscore \
   --plink-path resources/1kg/1KG_EUR_Phase3_chr@ \
   --ref-panel-snps-path resources/w_hm3.snplist \
   --regression-snps-path resources/w_hm3.snplist \
+  --snp-identifier rsid \
   --ld-wind-cm 1.0
 ```
 

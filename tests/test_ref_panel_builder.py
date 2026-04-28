@@ -668,6 +668,40 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
         self.assertEqual(global_config.genome_build, "hg19")
         self.assertEqual(global_config.snp_identifier, "rsid")
 
+    def test_run_build_ref_panel_requires_snp_identifier_for_restriction_file(self):
+        with self.assertRaisesRegex(ValueError, "--snp-identifier is required"):
+            ref_panel_builder.run_build_ref_panel(
+                plink_path="plink/panel.@",
+                source_genome_build="hg19",
+                genetic_map_hg19_path="maps/hg19.map",
+                output_dir="out",
+                ld_wind_kb=1,
+                ref_panel_snps_path="hm3.tsv",
+            )
+
+    def test_run_build_ref_panel_uses_explicit_snp_identifier_for_restriction_file(self):
+        captured = {}
+
+        def fake_run(self, config):
+            captured["global_config"] = self.global_config
+            captured["config"] = config
+            return ref_panel_builder.ReferencePanelBuildResult(panel_name="out", chromosomes=[])
+
+        with mock.patch.object(ref_panel_builder.ReferencePanelBuilder, "run", fake_run):
+            ref_panel_builder.run_build_ref_panel(
+                plink_path="plink/panel.@",
+                source_genome_build="hg19",
+                genetic_map_hg19_path="maps/hg19.map",
+                output_dir="out",
+                ld_wind_kb=1,
+                ref_panel_snps_path="hm3.tsv",
+                snp_identifier="rsid",
+            )
+
+        self.assertEqual(captured["config"].ref_panel_snps_path, "hm3.tsv")
+        self.assertEqual(captured["global_config"].genome_build, "hg19")
+        self.assertEqual(captured["global_config"].snp_identifier, "rsid")
+
 
 class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
     def _write_dummy_plink_prefix(self, root: Path, stem: str, chrom: str):

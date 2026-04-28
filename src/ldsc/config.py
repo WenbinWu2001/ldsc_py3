@@ -376,7 +376,11 @@ class ReferencePanelBuildConfig:
         Optional retained-SNP MAF threshold. Default is ``None``.
     ref_panel_snps_path : str or os.PathLike[str] or None, optional
         Optional SNP list restricting the emitted reference-panel universe.
-        Default is ``None``.
+        Default is ``None``. The identifier mode for this file is deliberately
+        not a field on this dataclass: lower-level callers provide it through
+        ``ReferencePanelBuilder(GlobalConfig(...))``, while the CLI and
+        ``run_build_ref_panel(...)`` convenience wrapper accept a conditional
+        ``snp_identifier`` argument only when this path is supplied.
     keep_indivs_path : str or os.PathLike[str] or None, optional
         Optional individual keep-file applied before LD calculation. Default is
         ``None``.

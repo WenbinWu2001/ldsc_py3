@@ -118,7 +118,7 @@ flowchart LR
 | `.fam` row | `fam1 iid1 0 0 0 -9` | sample metadata |
 | genetic map, conditional | `chr position Genetic_Map(cM)`<br/>`22 16050000 0.42` | source-build map required only for cM windows; missing emitted-build maps produce `CM=NA` |
 | liftover chain, optional | `hg38ToHg19.over.chain.gz` | matching source-to-target chain enables cross-build metadata; omitted chain produces source-build-only output |
-| keep or restrict file, optional | one IID per row or one SNP per row | filters individuals or variants |
+| keep or restrict file, optional | one IID per row or one SNP per row | filters individuals or variants; SNP restriction files require explicit `snp_identifier` at the CLI/convenience API boundary |
 
 ### Flow
 
@@ -131,6 +131,7 @@ flowchart LR
   subgraph P2[Preprocessing (public)<br/>config + path_resolution]
     B1[Resolve PLINK prefixes]
     B2[Resolve map and filter files]
+    B8[Interpret SNP restrictions using source build]
   end
 
   subgraph W2[Workflow (public)<br/>ldsc.ref_panel_builder]
@@ -146,7 +147,7 @@ flowchart LR
 
   I1 --> B1 --> B3 --> B4 --> B5 --> B6 --> B7
   I2 --> B2 --> B4
-  I3 --> B2 --> B4
+  I3 --> B2 --> B8 --> B4
   B7 --> O2[ann.parquet + LD.parquet + meta_*.tsv.gz]
 ```
 
@@ -282,8 +283,8 @@ flowchart LR
 
 | File | Example | Notes |
 | --- | --- | --- |
-| munged sumstats | `SNP A1 A2 Z N`<br/>`rs1 A G 1.96 1000` | one file for `h2` and `partitioned-h2`, two files for `rg` |
-| LD-score directory | `manifest.json`, `baseline.parquet`, optional `query.parquet` | produced by the LD-score workflow and supplied as `ldscore_dir` |
+| munged sumstats | `SNP A1 A2 Z N`<br/>`rs1 A G 1.96 1000` | one file for `h2` and `partitioned-h2`, two files for `rg`; disk-loaded config provenance is unknown |
+| LD-score directory | `manifest.json`, `baseline.parquet`, optional `query.parquet` | produced by the LD-score workflow and supplied as `ldscore_dir`; legacy directories without manifest config provenance load with a warning |
 
 ### Flow
 
@@ -299,7 +300,7 @@ flowchart LR
 
   subgraph W5[Workflow (public)<br/>ldsc.regression_runner]
     E3[Rebuild LDScoreResult]
-    E4[Merge sumstats and LD tables]
+    E4[Merge on literal SNP]
     E5[Drop zero-variance columns]
   end
 

@@ -54,9 +54,9 @@ sumstats = SumstatsMunger().run(
     global_config=GLOBAL_CONFIG,
 )
 
-# If you already have a curated .sumstats.gz artifact on disk, set the intended
-# GlobalConfig first, then load it directly. The loaded table will warn because
-# the original munge-time config is not recoverable from disk.
+# If you already have a curated .sumstats.gz artifact on disk, load it directly.
+# The loaded table will warn and use config_snapshot=None because the original
+# munge-time GlobalConfig is not recoverable from disk.
 # sumstats = load_sumstats("tutorial_outputs/trait/sumstats.sumstats.gz", trait_name="trait")
 
 ldscore_result = run_ldscore(
@@ -81,7 +81,7 @@ print("sumstats_config =", sumstats.config_snapshot)
 print("dataset_config =", dataset.config_snapshot)
 ```
 
-`SumstatsMunger` captures `GlobalConfig` provenance into `SumstatsTable.config_snapshot`, and `RegressionRunner.build_dataset()` checks that the sumstats and LD-score results agree on critical settings such as `snp_identifier` and `genome_build`. If they do not, the workflow raises `ConfigMismatchError` instead of silently merging inconsistent artifacts.
+`SumstatsMunger` captures `GlobalConfig` provenance into `SumstatsTable.config_snapshot`, and `RegressionRunner.build_dataset()` checks that known sumstats and LD-score snapshots agree on critical settings such as `snp_identifier` and `genome_build`. If both snapshots are known and incompatible, the workflow raises `ConfigMismatchError` instead of silently merging inconsistent artifacts. Sumstats loaded from an existing `.sumstats.gz` file have `config_snapshot=None`, so regression treats their config provenance as unknown and validates the LD-score side only.
 
 When you set `regression_snps_path` during LD-score calculation, the same regression SNP subset defines the rows of the normalized `baseline_table`. Regression weights come from the embedded `regr_weight` column by default.
 

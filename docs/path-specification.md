@@ -165,8 +165,8 @@ Group-style inputs:
 
 Scalar-style inputs:
 
-- `regression_snps`
-- `print_snps`
+- `ref_panel_snps_path`
+- `regression_snps_path`
 
 PLINK prefix input:
 
@@ -188,7 +188,7 @@ Examples:
 
 ```bash
 ldsc ldscore \
-  --out out/trait_ldscores \
+  --output-dir out/trait_ldscores \
   --baseline-annot "annotations/baseline.@.annot.gz" \
   --r2-table "r2/reference.*.parquet" \
   --frqfile "r2/reference_metadata.@.tsv.gz" \
@@ -197,11 +197,23 @@ ldsc ldscore \
 
 ```bash
 ldsc ldscore \
-  --out out/trait_ldscores \
+  --output-dir out/trait_ldscores \
   --baseline-annot "annotations/baseline_joint*.annot.gz" \
   --bfile "resources/example_1kg_30x/genomes_30x_chr@" \
   --ld-wind-kb 100
 ```
+
+Output:
+
+- `--output-dir` is a literal directory destination.
+- LD-score calculation writes `manifest.json`, `baseline.parquet`, and
+  optional `query.parquet` inside that directory.
+- `baseline.parquet` contains `CHR`, `SNP`, `BP`, `regr_weight`, and baseline
+  LD-score columns.
+- `query.parquet` is present only when query annotations were supplied and
+  contains `CHR`, `SNP`, `BP`, and query LD-score columns.
+- Regression commands consume this directory via `--ldscore-dir`; users do not
+  pass count vectors, weight files, or annotation manifests.
 
 ### Reference-panel building
 
@@ -239,17 +251,21 @@ ldsc build-ref-panel \
 Relevant APIs:
 
 - `RawSumstatsSpec.path`
-- regression artifact paths such as `sumstats`, `ldscore`, `w_ld`, `counts`
+- regression artifact paths such as `sumstats`, `sumstats_1`, and `sumstats_2`
+- `ldscore_dir` for the canonical LD-score result directory
 
 Accepted path forms:
 
 - exact path
-- exact-one glob
+- exact-one glob for sumstats file inputs
+- literal directory for `ldscore_dir`
 
 How they are handled:
 
 - these are scalar-style inputs
 - if a glob expands to more than one file, the workflow raises instead of combining them
+- `ldscore_dir` is not glob-resolved; it is opened as a directory containing
+  `manifest.json` plus parquet payload files
 
 ## Automatic Inference
 

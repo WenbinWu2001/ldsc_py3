@@ -1,5 +1,7 @@
+import argparse
 from dataclasses import replace
 import gzip
+import json
 from pathlib import Path
 import sys
 import tempfile
@@ -13,7 +15,7 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from ldsc.config import ConfigMismatchError, GlobalConfig, RegressionConfig
+from ldsc.config import ConfigMismatchError, GlobalConfig, RegressionConfig, reset_global_config, set_global_config
 
 try:
     from ldsc.ldscore_calculator import LDScoreResult
@@ -30,51 +32,118 @@ except ImportError:
 
 @unittest.skipIf(RegressionRunner is None, "regression_runner module is not available")
 class RegressionWorkflowTest(unittest.TestCase):
-    def test_load_ldscore_from_files_is_public(self):
-        from ldsc import load_ldscore_from_files
+    def setUp(self):
+        reset_global_config()
 
-        self.assertTrue(callable(load_ldscore_from_files))
+    def tearDown(self):
+        reset_global_config()
 
-    def test_load_ldscore_from_files_new_format_no_weight_path(self):
-        from ldsc import load_ldscore_from_files
+    def test_load_ldscore_from_dir_is_public(self):
+        from ldsc import load_ldscore_from_dir
+
+        self.assertTrue(callable(load_ldscore_from_dir))
+
+    def test_load_ldscore_from_dir_reads_manifest_and_parquet_files(self):
+        from ldsc import load_ldscore_from_dir
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
-            ldscore_path = tmpdir / "trait.l2.ldscore.gz"
-            counts_path = tmpdir / "trait.l2.M_5_50"
-            with gzip.open(ldscore_path, "wt", encoding="utf-8") as handle:
-                handle.write("CHR\tSNP\tBP\tbase\tquery\tregr_weight\n1\trs1\t10\t1.0\t2.0\t3.0\n")
-            counts_path.write_text("5\t6\n", encoding="utf-8")
-
-            result = load_ldscore_from_files(
-                ldscore_path=str(ldscore_path),
-                counts_path=str(counts_path),
-                count_kind="m_5_50",
-                snp_identifier="rsid",
+            pd.DataFrame(
+                {
+                    "CHR": ["1"],
+                    "SNP": ["rs1"],
+                    "BP": [10],
+                    "regr_weight": [3.0],
+                    "base": [1.0],
+                }
+            ).to_parquet(tmpdir / "baseline.parquet", index=False)
+            pd.DataFrame(
+                {
+                    "CHR": ["1"],
+                    "SNP": ["rs1"],
+                    "BP": [10],
+                    "query": [2.0],
+                }
+            ).to_parquet(tmpdir / "query.parquet", index=False)
+            (tmpdir / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "format": "ldsc.ldscore_result.v1",
+                        "files": {"baseline": "baseline.parquet", "query": "query.parquet"},
+                        "snp_identifier": "rsid",
+                        "genome_build": "hg38",
+                        "chromosomes": ["1"],
+                        "baseline_columns": ["base"],
+                        "query_columns": ["query"],
+                        "counts": [
+                            {
+                                "group": "baseline",
+                                "column": "base",
+                                "all_reference_snp_count": 5.0,
+                                "common_reference_snp_count_maf_gt_0_05": 4.0,
+                            },
+                            {
+                                "group": "query",
+                                "column": "query",
+                                "all_reference_snp_count": 6.0,
+                                "common_reference_snp_count_maf_gt_0_05": 5.0,
+                            },
+                        ],
+                        "config_snapshot": {"snp_identifier": "rsid", "genome_build": "hg38", "log_level": "INFO"},
+                    }
+                ),
+                encoding="utf-8",
             )
+            result = load_ldscore_from_dir(str(tmpdir))
 
-        self.assertIn("regr_weight", result.ldscore_table.columns)
-        self.assertEqual(result.ld_reference_snps, frozenset())
+        self.assertEqual(result.baseline_table.columns.tolist(), ["CHR", "SNP", "BP", "regr_weight", "base"])
+        self.assertEqual(result.query_table.columns.tolist(), ["CHR", "SNP", "BP", "query"])
+        self.assertEqual(result.count_records[0]["column"], "base")
         self.assertEqual(result.ld_regression_snps, frozenset({"rs1"}))
+        self.assertEqual(result.config_snapshot, GlobalConfig(genome_build="hg38", snp_identifier="rsid"))
 
     def make_ldscore_result(self):
-        ldscore_table = pd.DataFrame(
+        baseline_table = pd.DataFrame(
             {
                 "CHR": ["1", "1", "1"],
                 "SNP": ["rs1", "rs2", "rs3"],
                 "BP": [10, 20, 30],
-                "base": [1.0, 1.0, 1.0],
+                "regr_weight": [2.0, 2.0, 2.0],
+                "base": [1.0, 2.0, 3.0],
+            }
+        )
+        query_table = pd.DataFrame(
+            {
+                "CHR": ["1", "1", "1"],
+                "SNP": ["rs1", "rs2", "rs3"],
+                "BP": [10, 20, 30],
                 "query1": [1.0, 2.0, 3.0],
                 "query2": [0.5, 1.5, 2.5],
-                "regr_weight": [2.0, 2.0, 2.0],
             }
         )
         return LDScoreResult(
-            ldscore_table=ldscore_table,
-            snp_count_totals={
-                "all_reference_snp_counts": np.array([10.0, 20.0, 30.0]),
-                "common_reference_snp_counts_maf_gt_0_05": np.array([8.0, 18.0, 28.0]),
-            },
+            baseline_table=baseline_table,
+            query_table=query_table,
+            count_records=[
+                {
+                    "group": "baseline",
+                    "column": "base",
+                    "all_reference_snp_count": 10.0,
+                    "common_reference_snp_count_maf_gt_0_05": 8.0,
+                },
+                {
+                    "group": "query",
+                    "column": "query1",
+                    "all_reference_snp_count": 20.0,
+                    "common_reference_snp_count_maf_gt_0_05": 18.0,
+                },
+                {
+                    "group": "query",
+                    "column": "query2",
+                    "all_reference_snp_count": 30.0,
+                    "common_reference_snp_count_maf_gt_0_05": 28.0,
+                },
+            ],
             baseline_columns=["base"],
             query_columns=["query1", "query2"],
             ld_reference_snps=frozenset(),
@@ -120,13 +189,98 @@ class RegressionWorkflowTest(unittest.TestCase):
             source_summary={},
         )
 
-    def test_build_dataset_uses_common_counts_and_drops_zero_variance_columns(self):
+    def write_ldscore_dir(self, root: Path, *, include_query: bool = True) -> Path:
+        root.mkdir(parents=True, exist_ok=True)
+        pd.DataFrame(
+            {
+                "CHR": ["1"],
+                "SNP": ["rs1"],
+                "BP": [10],
+                "regr_weight": [2.0],
+                "base": [1.0],
+            }
+        ).to_parquet(root / "baseline.parquet", index=False)
+        files = {"baseline": "baseline.parquet"}
+        query_columns = []
+        counts = [
+            {
+                "group": "baseline",
+                "column": "base",
+                "all_reference_snp_count": 5.0,
+                "common_reference_snp_count_maf_gt_0_05": 5.0,
+            }
+        ]
+        if include_query:
+            pd.DataFrame(
+                {
+                    "CHR": ["1"],
+                    "SNP": ["rs1"],
+                    "BP": [10],
+                    "query": [2.0],
+                }
+            ).to_parquet(root / "query.parquet", index=False)
+            files["query"] = "query.parquet"
+            query_columns = ["query"]
+            counts.append(
+                {
+                    "group": "query",
+                    "column": "query",
+                    "all_reference_snp_count": 6.0,
+                    "common_reference_snp_count_maf_gt_0_05": 6.0,
+                }
+            )
+        (root / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "format": "ldsc.ldscore_result.v1",
+                    "files": files,
+                    "snp_identifier": "rsid",
+                    "genome_build": "hg38",
+                    "chromosomes": ["1"],
+                    "baseline_columns": ["base"],
+                    "query_columns": query_columns,
+                    "counts": counts,
+                    "config_snapshot": {"snp_identifier": "rsid", "genome_build": "hg38", "log_level": "INFO"},
+                }
+            ),
+            encoding="utf-8",
+        )
+        return root
+
+    def test_build_dataset_uses_baseline_only_for_h2_style_runs(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
         dataset = runner.build_dataset(self.make_sumstats_table(), self.make_ldscore_result())
         self.assertEqual(dataset.count_key_used_for_regression, "common_reference_snp_counts_maf_gt_0_05")
-        self.assertEqual(dataset.retained_ld_columns, ["query1", "query2"])
-        self.assertEqual(dataset.dropped_zero_variance_ld_columns, ["base"])
+        self.assertEqual(dataset.retained_ld_columns, ["base"])
+        self.assertEqual(dataset.dropped_zero_variance_ld_columns, [])
+        np.testing.assert_allclose(
+            dataset.reference_snp_count_totals["common_reference_snp_counts_maf_gt_0_05"],
+            [8.0],
+        )
         self.assertEqual(dataset.config_snapshot, GlobalConfig(genome_build="hg38", snp_identifier="rsid"))
+
+    def test_build_dataset_can_include_one_query_annotation_for_partitioned_h2(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        dataset = runner.build_dataset(self.make_sumstats_table(), self.make_ldscore_result(), query_columns=["query2"])
+        self.assertEqual(dataset.retained_ld_columns, ["base", "query2"])
+        np.testing.assert_allclose(
+            dataset.reference_snp_count_totals["common_reference_snp_counts_maf_gt_0_05"],
+            [8.0, 28.0],
+        )
+
+    def test_estimate_rg_uses_baseline_only_when_query_exists(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        sumstats_1 = self.make_sumstats_table()
+        sumstats_2 = replace(
+            self.make_sumstats_table(),
+            trait_name="trait2",
+            data=self.make_sumstats_table().data.assign(Z=[1.0, 1.5, 0.25]),
+        )
+        with mock.patch.object(regression_runner.reg, "RG", return_value=mock.sentinel.rg_result) as patched:
+            result = runner.estimate_rg(sumstats_1, sumstats_2, self.make_ldscore_result())
+
+        self.assertIs(result, mock.sentinel.rg_result)
+        self.assertEqual(patched.call_args.args[2].shape[1], 1)
 
     def test_build_dataset_raises_on_mismatched_sumstats_and_ldscore_snapshots(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
@@ -153,11 +307,16 @@ class RegressionWorkflowTest(unittest.TestCase):
         table = self.make_sumstats_table()
         ldscore_result = self.make_ldscore_result()
         annotation_bundle = self.make_annotation_bundle()
-        fake_rows = [
-            pd.DataFrame([{"query_annotation": "query1", "coefficient": 1.0}]),
-            pd.DataFrame([{"query_annotation": "query2", "coefficient": 2.0}]),
-        ]
-        with mock.patch.object(runner, "estimate_partitioned_h2", side_effect=fake_rows) as patched:
+        fake_hsq = mock.Mock(
+            coef=np.array([0.0, 1.0]),
+            coef_se=np.array([0.1, 0.2]),
+            cat=np.array([0.0, 0.3]),
+            cat_se=np.array([0.01, 0.03]),
+            prop=np.array([0.0, 0.4]),
+            prop_se=np.array([0.01, 0.04]),
+            enrichment=np.array([0.0, 2.0]),
+        )
+        with mock.patch.object(runner, "estimate_h2", return_value=fake_hsq) as patched:
             result = runner.estimate_partitioned_h2_batch(table, ldscore_result, annotation_bundle)
         self.assertEqual(patched.call_count, 2)
         self.assertEqual(result["query_annotation"].tolist(), ["query1", "query2"])
@@ -208,87 +367,20 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertEqual(partitioned.loc[0, "proportion_h2"], 1.0)
         self.assertEqual(partitioned.loc[0, "enrichment"], 1.0)
 
-    def test_run_h2_from_args_resolves_scalar_glob_inputs(self):
+    def test_run_h2_from_args_uses_ldscore_dir(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
+            set_global_config(GlobalConfig(snp_identifier="rsid", genome_build="hg38"))
             with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
                 handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
-            with gzip.open(tmpdir / "trait.l2.ldscore.gz", "wt", encoding="utf-8") as handle:
-                handle.write("CHR\tSNP\tPOS\tCM\tbase\n1\trs1\t10\t0.1\t1.0\n")
-            with gzip.open(tmpdir / "trait.w.l2.ldscore.gz", "wt", encoding="utf-8") as handle:
-                handle.write("CHR\tSNP\tPOS\tCM\tL2\n1\trs1\t10\t0.1\t2.0\n")
-            (tmpdir / "trait.l2.M_5_50").write_text("5\n", encoding="utf-8")
-            args = type(
-                "Args",
-                (),
-                {
-                    "sumstats": str(tmpdir / "trait*.sumstats.gz"),
-                    "trait_name": "trait",
-                    "ldscore": str(tmpdir / "trait.l2*.ldscore.gz"),
-                    "w_ld": str(tmpdir / "trait.w*.ldscore.gz"),
-                    "counts": str(tmpdir / "*.l2.M_5_50"),
-                    "count_kind": "m_5_50",
-                    "out": None,
-                    "n_blocks": 200,
-                    "no_intercept": False,
-                    "intercept_h2": None,
-                    "two_step_cutoff": None,
-                    "chisq_max": None,
-                },
-            )()
-
-            with mock.patch.object(regression_runner.RegressionRunner, "estimate_h2", return_value=mock.Mock(
-                tot=np.array([0.1]),
-                tot_se=np.array([0.01]),
-                intercept=np.array([1.0]),
-                intercept_se=0.01,
-                mean_chisq=np.array([1.1]),
-                lambda_gc=np.array([1.0]),
-                ratio=0.0,
-                ratio_se=0.0,
-            )) as patched:
-                summary = regression_runner.run_h2_from_args(args)
-
-            patched.assert_called_once()
-            self.assertEqual(summary.loc[0, "trait_name"], "trait")
-
-    def test_load_ldscore_result_from_files_requires_canonical_internal_headers(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            ldscore_path = tmpdir / "trait.l2.ldscore.gz"
-            weight_path = tmpdir / "trait.w.l2.ldscore.gz"
-            counts_path = tmpdir / "trait.l2.M_5_50"
-            with gzip.open(ldscore_path, "wt", encoding="utf-8") as handle:
-                handle.write("CHR\tSNP\tBP\tCM\tbase\n1\trs1\t10\t0.1\t1.0\n")
-            with gzip.open(weight_path, "wt", encoding="utf-8") as handle:
-                handle.write("CHR\tSNP\tBP\tCM\tL2\n1\trs1\t10\t0.1\t2.0\n")
-            counts_path.write_text("5\n", encoding="utf-8")
-
-            with self.assertRaises(ValueError):
-                regression_runner._load_ldscore_result_from_files(
-                    ldscore_path=str(ldscore_path),
-                    weight_path=str(weight_path),
-                    counts_path=str(counts_path),
-                    count_kind="m_5_50",
-                )
-
-    def test_run_h2_from_args_without_w_ld_uses_embedded_regr_weight(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
-                handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
-            with gzip.open(tmpdir / "trait.l2.ldscore.gz", "wt", encoding="utf-8") as handle:
-                handle.write("CHR\tSNP\tBP\tbase\tregr_weight\n1\trs1\t10\t1.0\t2.0\n")
-            (tmpdir / "trait.l2.M_5_50").write_text("5\n", encoding="utf-8")
+            ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
             args = type(
                 "Args",
                 (),
                 {
                     "sumstats": str(tmpdir / "trait.sumstats.gz"),
                     "trait_name": "trait",
-                    "ldscore": str(tmpdir / "trait.l2.ldscore.gz"),
-                    "w_ld": None,
-                    "counts": str(tmpdir / "trait.l2.M_5_50"),
+                    "ldscore_dir": str(ldscore_dir),
                     "count_kind": "m_5_50",
                     "out": None,
                     "n_blocks": 200,
@@ -299,17 +391,67 @@ class RegressionWorkflowTest(unittest.TestCase):
                 },
             )()
 
-            with mock.patch.object(regression_runner.RegressionRunner, "estimate_h2", return_value=mock.Mock(
-                tot=np.array([0.1]),
-                tot_se=np.array([0.01]),
-                intercept=np.array([1.0]),
-                intercept_se=0.01,
-                mean_chisq=np.array([1.1]),
-                lambda_gc=np.array([1.0]),
-                ratio=0.0,
-                ratio_se=0.0,
-            )) as patched:
+            with mock.patch.object(
+                regression_runner.RegressionRunner,
+                "estimate_h2",
+                return_value=mock.Mock(
+                    tot=np.array([0.1]),
+                    tot_se=np.array([0.01]),
+                    intercept=np.array([1.0]),
+                    intercept_se=0.01,
+                    mean_chisq=np.array([1.1]),
+                    lambda_gc=np.array([1.0]),
+                    ratio=0.0,
+                    ratio_se=0.0,
+                ),
+            ) as patched:
                 summary = regression_runner.run_h2_from_args(args)
 
+            patched.assert_called_once()
+            self.assertEqual(patched.call_args.args[0].retained_ld_columns, ["base"])
+            self.assertEqual(summary.loc[0, "trait_name"], "trait")
+
+    def test_common_regression_arguments_expose_only_ldscore_dir(self):
+        parser = argparse.ArgumentParser()
+        regression_runner.add_h2_arguments(parser)
+
+        args = parser.parse_args(["--ldscore-dir", "ldscores", "--sumstats", "trait.sumstats.gz"])
+
+        self.assertEqual(args.ldscore_dir, "ldscores")
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["--ldscore", "x", "--counts", "m", "--sumstats", "trait.sumstats.gz"])
+
+    def test_run_partitioned_h2_from_args_uses_query_columns_from_ldscore_dir(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            set_global_config(GlobalConfig(snp_identifier="rsid", genome_build="hg38"))
+            with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
+                handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
+            ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
+            args = type(
+                "Args",
+                (),
+                {
+                    "sumstats": str(tmpdir / "trait.sumstats.gz"),
+                    "trait_name": "trait",
+                    "ldscore_dir": str(ldscore_dir),
+                    "count_kind": "m_5_50",
+                    "out": None,
+                    "n_blocks": 200,
+                    "no_intercept": False,
+                    "intercept_h2": None,
+                    "two_step_cutoff": None,
+                    "chisq_max": None,
+                },
+            )()
+
+            with mock.patch.object(
+                regression_runner.RegressionRunner,
+                "estimate_partitioned_h2_batch",
+                return_value=pd.DataFrame([{"query_annotation": "query", "coefficient": 1.0}]),
+            ) as patched:
+                summary = regression_runner.run_partitioned_h2_from_args(args)
+
         patched.assert_called_once()
-        self.assertEqual(summary.loc[0, "trait_name"], "trait")
+        self.assertEqual(patched.call_args.args[2].query_columns, ["query"])
+        self.assertEqual(summary.loc[0, "query_annotation"], "query")

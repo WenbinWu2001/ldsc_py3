@@ -51,7 +51,7 @@ from .config import (
     validate_config_compatibility,
 )
 from .ldscore_calculator import ChromLDScoreResult, LDScoreCalculator, LDScoreResult, run_ldscore
-from .outputs import ArtifactConfig, ArtifactProducer, OutputManager, OutputSpec, PostProcessor, ResultFormatter, ResultWriter, RunSummary
+from .outputs import ArtifactConfig, ArtifactProducer, LDScoreDirectoryWriter, LDScoreOutputConfig, OutputManager, OutputSpec, PostProcessor, ResultFormatter, ResultWriter, RunSummary
 from .ref_panel_builder import ReferencePanelBuildResult, ReferencePanelBuilder, run_build_ref_panel
 from ._kernel.ref_panel import ParquetR2RefPanel, PlinkRefPanel, RefPanel, RefPanelLoader, RefPanelSpec
 
@@ -61,7 +61,7 @@ _LAZY_EXPORTS = {
     "SumstatsMunger": (".sumstats_munger", "SumstatsMunger"),
     "SumstatsTable": (".sumstats_munger", "SumstatsTable"),
     "load_sumstats": (".sumstats_munger", "load_sumstats"),
-    "load_ldscore_from_files": (".regression_runner", "load_ldscore_from_files"),
+    "load_ldscore_from_dir": (".regression_runner", "load_ldscore_from_dir"),
     "RegressionDataset": (".regression_runner", "RegressionDataset"),
     "RegressionRunner": (".regression_runner", "RegressionRunner"),
 }
@@ -90,8 +90,10 @@ __all__ = [
     "get_global_config",
     "LDScoreCalculator",
     "LDScoreConfig",
+    "LDScoreDirectoryWriter",
+    "LDScoreOutputConfig",
     "LDScoreResult",
-    "load_ldscore_from_files",
+    "load_ldscore_from_dir",
     "MungeConfig",
     "MungeRunSummary",
     "OutputManager",

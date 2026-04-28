@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any, Sequence
 import warnings
 
@@ -29,15 +28,13 @@ from .config import (
     validate_config_compatibility,
 )
 from .genome_build_inference import validate_auto_genome_build_mode
-from .outputs import OutputManager, OutputSpec
+from .outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
 from .path_resolution import (
-    ANNOTATION_SUFFIXES,
     FREQUENCY_SUFFIXES,
     PARQUET_SUFFIXES,
     normalize_optional_path_token,
     normalize_path_token,
     resolve_chromosome_group,
-    resolve_file_group,
     resolve_plink_prefix,
     resolve_scalar_path,
     split_cli_path_tokens,
@@ -70,50 +67,51 @@ class _LegacyChromResult:
 
 @dataclass(frozen=True)
 class ChromLDScoreResult:
-    """Normalized per-chromosome LD-score output matching the written file shape.
-
-    Each row represents one retained regression SNP on a single chromosome. The
-    table already includes the embedded ``regr_weight`` column used by the
-    regression workflows; no separate weight table is required.
-    """
+    """Normalized per-chromosome LD-score output in split baseline/query form."""
     chrom: str
-    ldscore_table: pd.DataFrame
-    snp_count_totals: dict[str, np.ndarray]
+    baseline_table: pd.DataFrame
+    query_table: pd.DataFrame | None
+    count_records: list[dict[str, Any]]
     baseline_columns: list[str]
     query_columns: list[str]
     ld_reference_snps: frozenset[str]
     ld_regression_snps: frozenset[str]
+    snp_count_totals: dict[str, np.ndarray] = field(default_factory=dict, repr=False)
     output_paths: dict[str, str] = field(default_factory=dict)
     config_snapshot: GlobalConfig | None = None
 
     def validate(self) -> None:
         """Check the normalized public contract for chromosome-level results."""
-        required = {"CHR", "SNP", "BP", "regr_weight"}
-        missing = required - set(self.ldscore_table.columns)
+        required = {"CHR", "SNP", "BP", "regr_weight", *self.baseline_columns}
+        missing = required - set(self.baseline_table.columns)
         if missing:
-            raise ValueError(f"ldscore_table is missing required columns: {sorted(missing)}")
+            raise ValueError(f"baseline_table is missing required columns: {sorted(missing)}")
+        if self.query_columns and self.query_table is None:
+            raise ValueError("query_table is required when query_columns are present.")
+        if self.query_table is not None:
+            missing_query = set(self.query_columns) - set(self.query_table.columns)
+            if missing_query:
+                raise ValueError(f"query_table is missing required columns: {sorted(missing_query)}")
+            baseline_keys = self.baseline_table.loc[:, ["CHR", "SNP", "BP"]].reset_index(drop=True)
+            query_keys = self.query_table.loc[:, ["CHR", "SNP", "BP"]].reset_index(drop=True)
+            if not baseline_keys.equals(query_keys):
+                raise ValueError("query rows must match baseline rows on CHR/SNP/BP.")
 
     def summary(self) -> dict[str, Any]:
         """Return a compact summary of chromosome-level retained rows."""
         return {
             "chrom": self.chrom,
-            "n_rows": len(self.ldscore_table),
-            "count_keys": sorted(self.snp_count_totals.keys()),
+            "n_rows": len(self.baseline_table),
+            "count_columns": [record["column"] for record in self.count_records],
         }
 
 
 @dataclass(frozen=True)
 class LDScoreResult:
-    """Aggregated cross-chromosome LD-score result in normalized row-table form.
-
-    The public result keeps one merged ``ldscore_table`` whose rows correspond
-    to the retained regression SNP set across all processed chromosomes. The
-    full LD-computation reference universe is intentionally not reconstructed
-    from these normalized rows and is therefore exposed as
-    ``ld_reference_snps = frozenset()``.
-    """
-    ldscore_table: pd.DataFrame
-    snp_count_totals: dict[str, np.ndarray]
+    """Aggregated cross-chromosome LD-score result in split persisted form."""
+    baseline_table: pd.DataFrame
+    query_table: pd.DataFrame | None
+    count_records: list[dict[str, Any]]
     baseline_columns: list[str]
     query_columns: list[str]
     ld_reference_snps: frozenset[str]
@@ -124,17 +122,29 @@ class LDScoreResult:
 
     def validate(self) -> None:
         """Check the normalized public contract for aggregated results."""
-        required = {"CHR", "SNP", "BP", "regr_weight"}
-        missing = required - set(self.ldscore_table.columns)
+        required = {"CHR", "SNP", "BP", "regr_weight", *self.baseline_columns}
+        missing = required - set(self.baseline_table.columns)
         if missing:
-            raise ValueError(f"ldscore_table is missing required columns: {sorted(missing)}")
+            raise ValueError(f"baseline_table is missing required columns: {sorted(missing)}")
+        if self.query_columns and self.query_table is None:
+            raise ValueError("query_table is required when query_columns are present.")
+        if not self.query_columns and self.query_table is not None:
+            raise ValueError("query_table was provided but query_columns is empty.")
+        if self.query_table is not None:
+            missing_query = set(self.query_columns) - set(self.query_table.columns)
+            if missing_query:
+                raise ValueError(f"query_table is missing required columns: {sorted(missing_query)}")
+            baseline_keys = self.baseline_table.loc[:, ["CHR", "SNP", "BP"]].reset_index(drop=True)
+            query_keys = self.query_table.loc[:, ["CHR", "SNP", "BP"]].reset_index(drop=True)
+            if not baseline_keys.equals(query_keys):
+                raise ValueError("query rows must match baseline rows on CHR/SNP/BP.")
 
     def summary(self) -> dict[str, Any]:
         """Return a compact cross-chromosome summary."""
         return {
-            "n_rows": len(self.ldscore_table),
+            "n_rows": len(self.baseline_table),
             "chromosomes": [result.chrom for result in self.chromosome_results],
-            "count_keys": sorted(self.snp_count_totals.keys()),
+            "count_columns": [record["column"] for record in self.count_records],
         }
 
 
@@ -152,9 +162,9 @@ class LDScoreCalculator:
     metadata only fills missing ``CM`` values.
     """
 
-    def __init__(self, output_manager: OutputManager | None = None) -> None:
-        """Initialize the calculator with the output manager used for writes."""
-        self.output_manager = output_manager or OutputManager()
+    def __init__(self, output_writer: LDScoreDirectoryWriter | None = None) -> None:
+        """Initialize the calculator with the directory writer used for LD-score outputs."""
+        self.output_writer = output_writer or LDScoreDirectoryWriter()
 
     def run(
         self,
@@ -162,7 +172,7 @@ class LDScoreCalculator:
         ref_panel,
         ldscore_config: LDScoreConfig,
         global_config: GlobalConfig,
-        output_spec: OutputSpec | None = None,
+        output_config: LDScoreOutputConfig | None = None,
         regression_snps: set[str] | None = None,
         config_snapshot: dict[str, Any] | None = None,
     ) -> LDScoreResult:
@@ -182,8 +192,9 @@ class LDScoreCalculator:
             LD-window and retained-SNP settings.
         global_config : GlobalConfig
             Shared identifier and restriction settings.
-        output_spec : OutputSpec or None, optional
-            If provided, write outputs after the aggregate result is built.
+        output_config : LDScoreOutputConfig or None, optional
+            If provided, write the canonical LD-score result directory after
+            the aggregate result is built.
             Default is ``None``, which keeps the result in memory only.
         regression_snps : set of str or None, optional
             Optional regression SNP universe used to define the weight table.
@@ -232,9 +243,9 @@ class LDScoreCalculator:
         if not chromosome_results:
             raise ValueError("No chromosome results were produced after intersecting annotations with the reference panel.")
         result = self._aggregate_chromosome_results(chromosome_results, global_config=global_config)
-        if output_spec is not None:
-            summary = self.output_manager.write_outputs(result, output_spec, config_snapshot=config_snapshot)
-            result = _replace_result_output_paths(result, summary.output_paths)
+        if output_config is not None:
+            output_paths = self.output_writer.write(result, output_config)
+            result = _replace_result_output_paths(result, output_paths)
         return result
 
     def compute_chromosome(
@@ -310,14 +321,25 @@ class LDScoreCalculator:
         count_map = {"all_reference_snp_counts": np.asarray(legacy_result.M, dtype=np.float64)}
         if legacy_result.M_5_50 is not None:
             count_map["common_reference_snp_counts_maf_gt_0_05"] = np.asarray(legacy_result.M_5_50, dtype=np.float64)
+        baseline_table, query_table = _split_ldscore_table(
+            ldscore_table,
+            baseline_columns=list(legacy_result.baseline_columns),
+            query_columns=list(legacy_result.query_columns),
+        )
         result = ChromLDScoreResult(
             chrom=str(legacy_result.chrom),
-            ldscore_table=ldscore_table,
-            snp_count_totals=count_map,
+            baseline_table=baseline_table,
+            query_table=query_table,
+            count_records=_count_records_from_totals(
+                baseline_columns=list(legacy_result.baseline_columns),
+                query_columns=list(legacy_result.query_columns),
+                count_totals=count_map,
+            ),
             baseline_columns=list(legacy_result.baseline_columns),
             query_columns=list(legacy_result.query_columns),
             ld_reference_snps=frozenset(),
-            ld_regression_snps=frozenset(build_snp_id_series(ldscore_table, global_config.snp_identifier)),
+            ld_regression_snps=frozenset(build_snp_id_series(baseline_table, global_config.snp_identifier)),
+            snp_count_totals=count_map,
             config_snapshot=global_config,
         )
         result.validate()
@@ -345,15 +367,25 @@ class LDScoreCalculator:
             key: np.sum(np.vstack([result.snp_count_totals[key] for result in chromosome_results if key in result.snp_count_totals]), axis=0)
             for key in count_keys
         }
-        ldscore_table = pd.concat(
-            [result.ldscore_table for result in chromosome_results],
+        merged_table = pd.concat(
+            [_join_split_tables(result.baseline_table, result.query_table, result.query_columns) for result in chromosome_results],
             axis=0,
             ignore_index=True,
         )
-        ldscore_table = kernel_ldscore.sort_frame_by_genomic_position(ldscore_table)
+        merged_table = kernel_ldscore.sort_frame_by_genomic_position(merged_table)
+        baseline_table, query_table = _split_ldscore_table(
+            merged_table,
+            baseline_columns=list(chromosome_results[0].baseline_columns),
+            query_columns=list(chromosome_results[0].query_columns),
+        )
         result = LDScoreResult(
-            ldscore_table=ldscore_table,
-            snp_count_totals=count_totals,
+            baseline_table=baseline_table,
+            query_table=query_table,
+            count_records=_count_records_from_totals(
+                baseline_columns=list(chromosome_results[0].baseline_columns),
+                query_columns=list(chromosome_results[0].query_columns),
+                count_totals=count_totals,
+            ),
             baseline_columns=list(chromosome_results[0].baseline_columns),
             query_columns=list(chromosome_results[0].query_columns),
             ld_reference_snps=frozenset(),
@@ -367,29 +399,96 @@ class LDScoreCalculator:
     def write_outputs(
         self,
         result: LDScoreResult,
-        output_spec: OutputSpec,
+        output_config: LDScoreOutputConfig,
         config_snapshot: dict[str, Any] | None = None,
     ):
-        """Write a previously computed result through the output layer.
+        """Write a previously computed result as a canonical LD-score directory.
 
         Parameters
         ----------
         result : LDScoreResult
             Aggregate LD-score result to serialize.
-        output_spec : OutputSpec
-            Output layout and artifact selection. Its ``overwrite`` flag
-            controls whether pre-existing destinations are replaced or cause a
-            fail-fast batch-level error before any artifact is written.
+        output_config : LDScoreOutputConfig
+            Directory path and overwrite/compression controls.
         config_snapshot : dict or None, optional
             Optional metadata recorded in the emitted run summary. Default is
             ``None``.
 
         Returns
         -------
-        RunSummary
-            Summary of the emitted artifacts, including resolved output paths.
+        dict
+            Resolved output paths keyed by artifact name.
         """
-        return self.output_manager.write_outputs(result, output_spec, config_snapshot=config_snapshot)
+        del config_snapshot
+        return self.output_writer.write(result, output_config)
+
+
+def _split_ldscore_table(
+    ldscore_table: pd.DataFrame,
+    *,
+    baseline_columns: list[str],
+    query_columns: list[str],
+) -> tuple[pd.DataFrame, pd.DataFrame | None]:
+    """Split a merged LD-score table into baseline and optional query tables."""
+    metadata_columns = ["CHR", "SNP", "BP"]
+    baseline_order = [*metadata_columns, "regr_weight", *baseline_columns]
+    query_order = [*metadata_columns, *query_columns]
+    missing_baseline = [column for column in baseline_order if column not in ldscore_table.columns]
+    if missing_baseline:
+        raise ValueError(f"LD-score table is missing baseline columns: {missing_baseline}")
+    baseline_table = ldscore_table.loc[:, baseline_order].reset_index(drop=True).copy()
+    query_table = None
+    if query_columns:
+        missing_query = [column for column in query_order if column not in ldscore_table.columns]
+        if missing_query:
+            raise ValueError(f"LD-score table is missing query columns: {missing_query}")
+        query_table = ldscore_table.loc[:, query_order].reset_index(drop=True).copy()
+    return baseline_table, query_table
+
+
+def _join_split_tables(
+    baseline_table: pd.DataFrame,
+    query_table: pd.DataFrame | None,
+    query_columns: Sequence[str],
+) -> pd.DataFrame:
+    """Join split LD-score tables for sorting or regression assembly."""
+    if query_table is None:
+        return baseline_table.copy()
+    baseline_keys = baseline_table.loc[:, ["CHR", "SNP", "BP"]].reset_index(drop=True)
+    query_keys = query_table.loc[:, ["CHR", "SNP", "BP"]].reset_index(drop=True)
+    if not baseline_keys.equals(query_keys):
+        raise ValueError("query rows must match baseline rows on CHR/SNP/BP.")
+    query_values = query_table.loc[:, list(query_columns)].reset_index(drop=True)
+    return pd.concat([baseline_table.reset_index(drop=True), query_values], axis=1)
+
+
+def _count_records_from_totals(
+    *,
+    baseline_columns: list[str],
+    query_columns: list[str],
+    count_totals: dict[str, np.ndarray],
+) -> list[dict[str, Any]]:
+    """Convert positional count vectors into manifest-friendly column records."""
+    columns = [*baseline_columns, *query_columns]
+    groups = ["baseline"] * len(baseline_columns) + ["query"] * len(query_columns)
+    all_counts = np.asarray(count_totals.get("all_reference_snp_counts"), dtype=np.float64)
+    if all_counts.size != len(columns):
+        raise ValueError("all_reference_snp_counts length does not match annotation columns.")
+    common_raw = count_totals.get("common_reference_snp_counts_maf_gt_0_05")
+    common_counts = None if common_raw is None else np.asarray(common_raw, dtype=np.float64)
+    if common_counts is not None and common_counts.size != len(columns):
+        raise ValueError("common_reference_snp_counts_maf_gt_0_05 length does not match annotation columns.")
+    records: list[dict[str, Any]] = []
+    for idx, (group, column) in enumerate(zip(groups, columns)):
+        record: dict[str, Any] = {
+            "group": group,
+            "column": column,
+            "all_reference_snp_count": float(all_counts[idx]),
+        }
+        if common_counts is not None:
+            record["common_reference_snp_count_maf_gt_0_05"] = float(common_counts[idx])
+        records.append(record)
+    return records
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -398,7 +497,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Estimate LDSC-compatible LD scores from SNP-level annotation files using PLINK or sorted parquet R2 input.",
         allow_abbrev=False,
     )
-    parser.add_argument("--out", required=True, help="Output prefix.")
+    parser.add_argument("--output-dir", required=True, help="Output directory for the canonical LD-score result.")
     query_group = parser.add_mutually_exclusive_group()
     query_group.add_argument(
         "--query-annot",
@@ -451,7 +550,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
     query annotations or BED files, and the reference panel. For each
     chromosome it intersects the annotation rows with
     ``ref_panel.load_metadata(chrom)`` before calling the kernel, then returns
-    the normalized public ``LDScoreResult`` with a merged ``ldscore_table``.
+    the normalized public ``LDScoreResult`` with split baseline/query tables.
     """
     from ._kernel.annotation import AnnotationBuilder, AnnotationSourceSpec
 
@@ -473,7 +572,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
         ref_panel=ref_panel,
         ldscore_config=ldscore_config,
         global_config=global_config,
-        output_spec=_output_spec_from_args(normalized_args),
+        output_config=_output_config_from_args(normalized_args),
         regression_snps=regression_snps,
     )
 
@@ -492,7 +591,7 @@ def run_ldscore(**kwargs) -> LDScoreResult:
         joined = ", ".join(forbidden)
         raise ValueError(f"Python run_ldscore() no longer accepts {joined}; call set_global_config(...) first.")
     parser = build_parser()
-    defaults = vars(parser.parse_args(["--out", "placeholder"]))
+    defaults = vars(parser.parse_args(["--output-dir", "placeholder"]))
     global_config = get_global_config()
     defaults["snp_identifier"] = global_config.snp_identifier
     defaults["genome_build"] = global_config.genome_build
@@ -521,7 +620,7 @@ def _normalize_run_args(args: argparse.Namespace) -> tuple[argparse.Namespace, G
         if not hasattr(normalized_args, attr):
             setattr(normalized_args, attr, None)
     normalized_args.snp_identifier = normalized_mode
-    normalized_args.out = normalize_path_token(args.out)
+    normalized_args.output_dir = normalize_path_token(args.output_dir)
     normalized_args.keep = normalize_optional_path_token(getattr(args, "keep", None))
     normalized_args.ref_panel_snps_path = normalize_optional_path_token(getattr(args, "ref_panel_snps_path", None))
     normalized_args.regression_snps_path = normalize_optional_path_token(getattr(args, "regression_snps_path", None))
@@ -587,25 +686,17 @@ def _ldscore_config_from_args(args: argparse.Namespace) -> LDScoreConfig:
     )
 
 
-def _output_spec_from_args(args: argparse.Namespace) -> OutputSpec:
-    """Translate LD-score CLI arguments into the standard output configuration."""
-    out_path = Path(normalize_path_token(args.out))
-    return OutputSpec(
-        out_prefix=out_path.name,
-        output_dir=str(out_path.parent),
-        enabled_artifacts=["ldscore", "counts"],
-        write_annotation_manifest=False,
-        write_summary_json=False,
-        write_summary_tsv=False,
-        write_run_metadata=False,
-    )
+def _output_config_from_args(args: argparse.Namespace) -> LDScoreOutputConfig:
+    """Translate LD-score CLI arguments into the canonical directory output config."""
+    return LDScoreOutputConfig(output_dir=normalize_path_token(args.output_dir))
 
 
 def _replace_result_output_paths(result: LDScoreResult, output_paths: dict[str, str]) -> LDScoreResult:
     """Return ``result`` with updated artifact-path metadata after writing outputs."""
     return LDScoreResult(
-        ldscore_table=result.ldscore_table,
-        snp_count_totals=result.snp_count_totals,
+        baseline_table=result.baseline_table,
+        query_table=result.query_table,
+        count_records=result.count_records,
         baseline_columns=result.baseline_columns,
         query_columns=result.query_columns,
         ld_reference_snps=result.ld_reference_snps,

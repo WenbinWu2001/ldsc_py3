@@ -1,24 +1,24 @@
 """outputs.py
 
 Core functionality:
-    Build and serialize normalized workflow artifacts such as LD-score tables,
-    count vectors, and run summaries.
+    Build and serialize workflow artifacts such as canonical LD-score result
+    directories, auxiliary tables, count vectors, and run summaries.
 
 Overview
 --------
-This module owns the artifact-oriented output layer for the refactored package.
-Its primary input is the normalized public result shape used by
-``LDScoreCalculator``: a merged ``ldscore_table`` with an embedded
-``regr_weight`` column plus aggregate count vectors and annotation-group
-metadata. By default, LD-score tables are written per chromosome while count
-vectors remain aggregated across the run.
+This module owns output writing for the refactored package. The current public
+LD-score workflow uses ``LDScoreDirectoryWriter`` to write a canonical result
+directory containing ``manifest.json``, ``baseline.parquet``, and optional
+``query.parquet``. ``OutputManager`` remains a generic artifact writer for older
+or lower-level result shapes that still expose merged ``ldscore_table`` and
+``snp_count_totals`` attributes.
 
 Design Notes
 ------------
-- No separate ``.w.l2.ldscore.gz`` artifact is emitted by the default
-  producers.
-- ``LDScoreTableProducer`` mirrors the normalized in-memory table layout on
-  disk.
+- Canonical LD-score writes use fixed filenames inside a directory and do not
+  emit public `.M`, `.M_5_50`, `.l2.ldscore.gz`, or `.w.l2.ldscore.gz` files.
+- ``LDScoreTableProducer`` mirrors older merged-table result shapes and is not
+  used by the public ``ldsc ldscore`` command.
 - Additional artifacts can be registered through ``ArtifactProducer``.
 """
 
@@ -41,18 +41,19 @@ from .path_resolution import ensure_output_directory, ensure_output_parent_direc
 
 ArtifactLayout = str
 CompressionMode = str
+LDSCORE_RESULT_FORMAT = "ldsc.ldscore_result.v1"
 
 
 @dataclass(frozen=True)
 class OutputSpec:
     """Configuration for artifact emission and on-disk layout.
 
-    The default LD-score behavior writes one ``.l2.ldscore.gz`` file per
-    chromosome, aggregate count vectors, and summary metadata. ``write_w_ld``
-    remains for backward compatibility and defaults to ``False`` because
-    regression weights now live in the ``regr_weight`` column of the LD-score
-    table itself. When ``overwrite`` is ``False``, batched writes fail before
-    the first file is emitted if any destination path already exists.
+    This generic artifact spec supports older merged-table result shapes that
+    write one ``.l2.ldscore.gz`` file per chromosome, aggregate count vectors,
+    and summary metadata. The public LD-score CLI now uses
+    ``LDScoreOutputConfig`` and ``LDScoreDirectoryWriter`` instead. When
+    ``overwrite`` is ``False``, batched writes fail before the first file is
+    emitted if any destination path already exists.
     """
     out_prefix: str | PathLike[str]
     output_dir: str | PathLike[str] | None = None
@@ -85,6 +86,21 @@ class OutputSpec:
 
 
 @dataclass(frozen=True)
+class LDScoreOutputConfig:
+    """Directory-oriented output config for canonical LD-score results."""
+    output_dir: str | PathLike[str]
+    overwrite: bool = False
+    parquet_compression: str = "snappy"
+
+    def __post_init__(self) -> None:
+        """Normalize the output directory and validate parquet compression."""
+        object.__setattr__(self, "output_dir", _normalize_required_path(self.output_dir))
+        allowed = {"snappy", "gzip", "brotli", "zstd", "none", None}
+        if self.parquet_compression not in allowed:
+            raise ValueError("parquet_compression must be one of 'snappy', 'gzip', 'brotli', 'zstd', 'none', or None.")
+
+
+@dataclass(frozen=True)
 class ArtifactConfig:
     """Optional advanced settings for artifact-specific producers."""
     options: dict[str, Any] = field(default_factory=dict)
@@ -108,6 +124,82 @@ class Artifact:
     relative_path: str
     payload: Any
     format: str
+
+
+class LDScoreDirectoryWriter:
+    """Write the canonical LD-score result directory."""
+
+    def write(self, result: Any, output_config: LDScoreOutputConfig) -> dict[str, str]:
+        """Write ``manifest.json``, ``baseline.parquet``, and optional ``query.parquet``."""
+        output_dir = ensure_output_directory(output_config.output_dir, label="LD-score output directory")
+        baseline_table = getattr(result, "baseline_table", None)
+        query_table = getattr(result, "query_table", None)
+        if baseline_table is None:
+            raise ValueError("LDScoreResult is missing baseline_table.")
+        self._validate_tables(result)
+
+        paths = {
+            "manifest": output_dir / "manifest.json",
+            "baseline": output_dir / "baseline.parquet",
+        }
+        if query_table is not None:
+            paths["query"] = output_dir / "query.parquet"
+        existing = [path for path in paths.values() if path.exists()]
+        if existing and not output_config.overwrite:
+            raise FileExistsError(_format_existing_artifact_message(existing))
+
+        compression = None if output_config.parquet_compression in {None, "none"} else output_config.parquet_compression
+        baseline_table.to_parquet(paths["baseline"], index=False, compression=compression)
+        if query_table is not None:
+            query_table.to_parquet(paths["query"], index=False, compression=compression)
+        manifest = self.build_manifest(result, files={name: path.name for name, path in paths.items() if name != "manifest"})
+        paths["manifest"].write_text(json.dumps(_to_serializable(manifest), indent=2, sort_keys=True), encoding="utf-8")
+        return {name: str(path) for name, path in paths.items()}
+
+    def build_manifest(self, result: Any, files: dict[str, str]) -> dict[str, Any]:
+        """Build the JSON manifest payload for one LD-score result."""
+        baseline_table = getattr(result, "baseline_table")
+        query_table = getattr(result, "query_table", None)
+        config_snapshot = getattr(result, "config_snapshot", None)
+        chromosomes = baseline_table["CHR"].astype(str).drop_duplicates().tolist()
+        return {
+            "format": LDSCORE_RESULT_FORMAT,
+            "files": dict(files),
+            "snp_identifier": getattr(config_snapshot, "snp_identifier", None),
+            "genome_build": getattr(config_snapshot, "genome_build", None),
+            "chromosomes": chromosomes,
+            "baseline_columns": list(getattr(result, "baseline_columns", [])),
+            "query_columns": list(getattr(result, "query_columns", [])),
+            "counts": list(getattr(result, "count_records", [])),
+            "config_snapshot": config_snapshot,
+            "n_baseline_rows": int(len(baseline_table)),
+            "n_query_rows": 0 if query_table is None else int(len(query_table)),
+        }
+
+    def _validate_tables(self, result: Any) -> None:
+        """Validate baseline/query table shape before any files are written."""
+        baseline_table = getattr(result, "baseline_table")
+        query_table = getattr(result, "query_table", None)
+        baseline_columns = list(getattr(result, "baseline_columns", []))
+        query_columns = list(getattr(result, "query_columns", []))
+        required_baseline = ["CHR", "SNP", "BP", "regr_weight", *baseline_columns]
+        missing = [column for column in required_baseline if column not in baseline_table.columns]
+        if missing:
+            raise ValueError(f"baseline_table is missing required columns: {missing}")
+        if query_columns and query_table is None:
+            raise ValueError("query_table is required when query_columns are present.")
+        if not query_columns and query_table is not None:
+            raise ValueError("query_table was provided but query_columns is empty.")
+        if query_table is None:
+            return
+        required_query = ["CHR", "SNP", "BP", *query_columns]
+        missing = [column for column in required_query if column not in query_table.columns]
+        if missing:
+            raise ValueError(f"query_table is missing required columns: {missing}")
+        baseline_keys = baseline_table.loc[:, ["CHR", "SNP", "BP"]].reset_index(drop=True)
+        query_keys = query_table.loc[:, ["CHR", "SNP", "BP"]].reset_index(drop=True)
+        if not baseline_keys.equals(query_keys):
+            raise ValueError("query rows must match baseline rows on CHR/SNP/BP.")
 
 
 class ArtifactProducer(ABC):

@@ -20,6 +20,8 @@ class PackageLayoutTest(unittest.TestCase):
         self.assertTrue(hasattr(ldsc, "SumstatsMunger"))
         self.assertTrue(hasattr(ldsc, "AnnotationBuilder"))
         self.assertTrue(hasattr(ldsc, "ReferencePanelBuilder"))
+        self.assertTrue(hasattr(ldsc, "LDScoreOutputConfig"))
+        self.assertTrue(hasattr(ldsc, "load_ldscore_from_dir"))
         self.assertTrue(hasattr(ldsc.__main__, "main"))
 
     def test_cli_exposes_expected_subcommands(self):
@@ -41,8 +43,8 @@ class PackageLayoutTest(unittest.TestCase):
         args = parser.parse_args(
             [
                 "ldscore",
-                "--out",
-                "out/example",
+                "--output-dir",
+                "out/ldscores",
                 "--baseline-annot",
                 "baseline.annot.gz",
                 "--bfile",
@@ -64,8 +66,8 @@ class PackageLayoutTest(unittest.TestCase):
         args = parser.parse_args(
             [
                 "ldscore",
-                "--out",
-                "out/example",
+                "--output-dir",
+                "out/ldscores",
                 "--baseline-annot",
                 "baseline.annot.gz",
                 "--bfile",
@@ -88,8 +90,8 @@ class PackageLayoutTest(unittest.TestCase):
             parser.parse_args(
                 [
                     "ldscore",
-                    "--out",
-                    "out/example",
+                    "--output-dir",
+                    "out/ldscores",
                     "--baseline-annot",
                     "baseline.annot.gz",
                     "--bfile",
@@ -104,8 +106,8 @@ class PackageLayoutTest(unittest.TestCase):
             parser.parse_args(
                 [
                     "ldscore",
-                    "--out",
-                    "out/example",
+                    "--output-dir",
+                    "out/ldscores",
                     "--baseline-annot",
                     "baseline.annot.gz",
                     "--bfile",
@@ -144,10 +146,31 @@ class PackageLayoutTest(unittest.TestCase):
             parser.parse_args(
                 [
                     "ldscore",
-                    "--out",
-                    "out/example",
+                    "--output-dir",
+                    "out/ldscores",
                     "--baseline-annot-chr",
                     "annotations/baseline.@.annot.gz",
+                    "--bfile",
+                    "panel",
+                    "--ld-wind-snps",
+                    "10",
+                ]
+            )
+
+        self.assertNotEqual(exc.exception.code, 0)
+
+    def test_ldscore_subcommand_rejects_removed_out_flag(self):
+        from ldsc import cli
+
+        parser = cli.build_parser()
+        with self.assertRaises(SystemExit) as exc:
+            parser.parse_args(
+                [
+                    "ldscore",
+                    "--out",
+                    "out/example",
+                    "--baseline-annot",
+                    "baseline.annot.gz",
                     "--bfile",
                     "panel",
                     "--ld-wind-snps",

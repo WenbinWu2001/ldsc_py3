@@ -7,18 +7,18 @@ Core functionality:
 Overview
 --------
 This module is the workflow-layer boundary for the LDSC regression commands.
-It consumes the normalized public LD-score shape introduced by the refactor: a
-single merged ``ldscore_table`` with an embedded ``regr_weight`` column plus
-aggregate count vectors. Public callers may pass literal paths or exact-one
-input tokens such as globs; those tokens are resolved before tabular artifacts
-are loaded, while output prefixes remain literal destinations.
+It consumes the canonical LD-score result directory introduced by the IO
+refactor: ``manifest.json`` plus split baseline/query parquet tables. Public
+callers pass one ``--ldscore-dir`` input instead of individual LD-score,
+weight, count, and annotation-manifest files.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Sequence
@@ -27,12 +27,6 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
-from .column_inference import (
-    INTERNAL_LDSCORE_ARTIFACT_SPEC_MAP,
-    POS_COLUMN_SPEC,
-    resolve_optional_column,
-    resolve_required_column,
-)
 from .config import (
     GlobalConfig,
     RegressionConfig,
@@ -41,10 +35,11 @@ from .config import (
     suppress_global_config_banner,
     validate_config_compatibility,
 )
-from .path_resolution import ensure_output_parent_directory, normalize_path_token, resolve_scalar_path
+from .path_resolution import ensure_output_parent_directory, normalize_path_token
 from ._kernel import regression as reg
 from ._kernel.identifiers import build_snp_id_series
 from .ldscore_calculator import LDScoreResult
+from .outputs import LDSCORE_RESULT_FORMAT
 from .sumstats_munger import SumstatsTable, load_sumstats
 
 
@@ -91,6 +86,7 @@ class RegressionRunner:
         sumstats_table: SumstatsTable,
         ldscore_result: LDScoreResult,
         config: RegressionConfig | None = None,
+        query_columns: Sequence[str] | None = None,
     ) -> RegressionDataset:
         """Merge sumstats, LD scores, and weights into a regression dataset.
 
@@ -107,16 +103,12 @@ class RegressionRunner:
                 context="SumstatsTable and LDScoreResult",
             )
         weight_column = "regr_weight"
-        ref_ld_columns = list(ldscore_result.baseline_columns) + list(ldscore_result.query_columns)
-        if not ref_ld_columns:
-            ref_ld_columns = [
-                column
-                for column in ldscore_result.ldscore_table.columns
-                if column not in {"CHR", "SNP", "BP", "POS", "CM", "MAF", weight_column}
-            ]
+        selected_query_columns = list(query_columns or [])
+        ref_ld_columns = list(ldscore_result.baseline_columns) + selected_query_columns
+        ldscore_frame = _assemble_regression_ldscore_table(ldscore_result, selected_query_columns)
         merged = pd.merge(
             sumstats_table.data,
-            ldscore_result.ldscore_table.loc[:, ["SNP", *ref_ld_columns, weight_column]].reset_index(drop=True),
+            ldscore_frame.loc[:, ["SNP", *ref_ld_columns, weight_column]].reset_index(drop=True),
             how="inner",
             on="SNP",
             sort=False,
@@ -133,11 +125,8 @@ class RegressionRunner:
             else:
                 raise ValueError("All LD-score columns have zero variance.")
 
-        count_key = _select_count_key(ldscore_result.snp_count_totals, config.use_m_5_50)
-        count_totals = {
-            key: np.asarray(values, dtype=np.float64)
-            for key, values in ldscore_result.snp_count_totals.items()
-        }
+        count_totals = _count_totals_for_columns(ldscore_result.count_records, ref_ld_columns)
+        count_key = _select_count_key(count_totals, config.use_m_5_50)
         if dropped_ld_columns:
             dropped_index = [ref_ld_columns.index(column) for column in dropped_ld_columns]
             keep_index = [idx for idx in range(len(ref_ld_columns)) if idx not in dropped_index]
@@ -208,9 +197,10 @@ class RegressionRunner:
     ) -> pd.DataFrame:
         """Estimate partitioned heritability for one selected query annotation."""
         del annotation_bundle  # grouping metadata is carried by the selected columns
-        dataset = self.build_dataset(sumstats_table, ldscore_result, config=config)
-        hsq = self.estimate_h2(dataset, config=config)
         query_column = ldscore_result.query_columns[-1] if ldscore_result.query_columns else ldscore_result.baseline_columns[-1]
+        selected_queries = [query_column] if query_column in ldscore_result.query_columns else []
+        dataset = self.build_dataset(sumstats_table, ldscore_result, config=config, query_columns=selected_queries)
+        hsq = self.estimate_h2(dataset, config=config)
         return summarize_partitioned_h2(hsq, dataset, [query_column])
 
     def estimate_partitioned_h2_batch(
@@ -223,8 +213,9 @@ class RegressionRunner:
         """Loop over query annotations and concatenate partitioned-h2 summaries."""
         rows = []
         for query_column in annotation_bundle.query_columns:
-            subset_result = _subset_ldscore_result(ldscore_result, baseline_columns=ldscore_result.baseline_columns, query_columns=[query_column])
-            query_row = self.estimate_partitioned_h2(sumstats_table, subset_result, annotation_bundle, config=config)
+            dataset = self.build_dataset(sumstats_table, ldscore_result, config=config, query_columns=[query_column])
+            hsq = self.estimate_h2(dataset, config=config)
+            query_row = summarize_partitioned_h2(hsq, dataset, [query_column])
             rows.append(query_row)
         if not rows:
             return pd.DataFrame(columns=["query_annotation"])
@@ -279,6 +270,40 @@ def _select_count_key(count_totals: dict[str, np.ndarray], use_m_5_50: bool) -> 
     if ALL_COUNT_KEY in count_totals:
         return ALL_COUNT_KEY
     return sorted(count_totals.keys())[0]
+
+
+def _assemble_regression_ldscore_table(ldscore_result: LDScoreResult, query_columns: Sequence[str]) -> pd.DataFrame:
+    """Build the table used for one regression dataset from split LD-score tables."""
+    baseline_table = ldscore_result.baseline_table.reset_index(drop=True)
+    if not query_columns:
+        return baseline_table.copy()
+    if ldscore_result.query_table is None:
+        raise ValueError("LD-score result does not contain query annotations.")
+    missing = [column for column in query_columns if column not in ldscore_result.query_columns]
+    if missing:
+        raise ValueError(f"Unknown query LD-score columns requested: {missing}")
+    query_table = ldscore_result.query_table.reset_index(drop=True)
+    baseline_keys = baseline_table.loc[:, ["CHR", "SNP", "BP"]]
+    query_keys = query_table.loc[:, ["CHR", "SNP", "BP"]]
+    if not baseline_keys.equals(query_keys):
+        raise ValueError("query rows must match baseline rows on CHR/SNP/BP.")
+    return pd.concat([baseline_table, query_table.loc[:, list(query_columns)]], axis=1)
+
+
+def _count_totals_for_columns(count_records: Sequence[dict[str, Any]], columns: Sequence[str]) -> dict[str, np.ndarray]:
+    """Return LDSC count vectors aligned to ``columns`` using manifest records."""
+    records_by_column = {str(record["column"]): record for record in count_records}
+    missing = [column for column in columns if column not in records_by_column]
+    if missing:
+        raise ValueError(f"LD-score manifest is missing count records for columns: {missing}")
+    all_counts = [float(records_by_column[column]["all_reference_snp_count"]) for column in columns]
+    count_totals = {ALL_COUNT_KEY: np.asarray(all_counts, dtype=np.float64)}
+    if all("common_reference_snp_count_maf_gt_0_05" in records_by_column[column] for column in columns):
+        count_totals[COMMON_COUNT_KEY] = np.asarray(
+            [float(records_by_column[column]["common_reference_snp_count_maf_gt_0_05"]) for column in columns],
+            dtype=np.float64,
+        )
+    return count_totals
 
 
 def summarize_total_h2(hsq, dataset: RegressionDataset, trait_name: str | None = None) -> pd.DataFrame:
@@ -358,35 +383,6 @@ def _select_intercept(value, index: int, use_intercept: bool, default_when_disab
     return float(value)
 
 
-def _subset_ldscore_result(ldscore_result: LDScoreResult, baseline_columns: list[str], query_columns: list[str]) -> LDScoreResult:
-    """Return a copy of ``ldscore_result`` restricted to the requested columns."""
-    selected_columns = baseline_columns + query_columns
-    selected_index = [
-        (list(ldscore_result.baseline_columns) + list(ldscore_result.query_columns)).index(column)
-        for column in selected_columns
-    ]
-    snp_count_totals = {
-        key: np.asarray(values)[selected_index]
-        for key, values in ldscore_result.snp_count_totals.items()
-    }
-    metadata_columns = [
-        column
-        for column in ldscore_result.ldscore_table.columns
-        if column in {"CHR", "SNP", "BP", "POS", "CM", "MAF", "regr_weight"}
-    ]
-    return LDScoreResult(
-        ldscore_table=ldscore_result.ldscore_table.loc[:, metadata_columns + selected_columns].copy(),
-        snp_count_totals=snp_count_totals,
-        baseline_columns=list(baseline_columns),
-        query_columns=list(query_columns),
-        ld_reference_snps=frozenset(),
-        ld_regression_snps=frozenset(ldscore_result.ld_regression_snps),
-        chromosome_results=list(ldscore_result.chromosome_results),
-        output_paths=dict(ldscore_result.output_paths),
-        config_snapshot=ldscore_result.config_snapshot,
-    )
-
-
 def add_h2_arguments(parser) -> None:
     """Register heritability CLI arguments on ``parser``."""
     _add_common_regression_arguments(parser, include_h2_intercept=True)
@@ -399,16 +395,6 @@ def add_partitioned_h2_arguments(parser) -> None:
     _add_common_regression_arguments(parser, include_h2_intercept=True)
     parser.add_argument("--sumstats", required=True, help="Munged .sumstats(.gz) file.")
     parser.add_argument("--trait-name", default=None, help="Optional trait label for summaries.")
-    parser.add_argument(
-        "--annotation-manifest",
-        default=None,
-        help="Annotation-group manifest with columns 'column' and 'group'.",
-    )
-    parser.add_argument(
-        "--query-columns",
-        default=None,
-        help="Comma-separated query annotation columns when no manifest is available.",
-    )
 
 
 def add_rg_arguments(parser) -> None:
@@ -427,14 +413,7 @@ def run_h2_from_args(args):
     runner, config = _runner_from_args(args)
     print_global_config_banner("run_h2_from_args", runner.global_config)
     sumstats_table = _load_sumstats_table(args.sumstats, getattr(args, "trait_name", None))
-    ldscore_result = load_ldscore_from_files(
-        ldscore_path=args.ldscore,
-        counts_path=args.counts,
-        count_kind=args.count_kind,
-        annotation_manifest_path=getattr(args, "annotation_manifest", None),
-        weight_path=getattr(args, "w_ld", None),
-        snp_identifier=runner.global_config.snp_identifier,
-    )
+    ldscore_result = load_ldscore_from_dir(args.ldscore_dir)
     with suppress_global_config_banner():
         dataset = runner.build_dataset(sumstats_table, ldscore_result, config=config)
     hsq = runner.estimate_h2(dataset, config=config)
@@ -448,17 +427,9 @@ def run_partitioned_h2_from_args(args):
     runner, config = _runner_from_args(args)
     print_global_config_banner("run_partitioned_h2_from_args", runner.global_config)
     sumstats_table = _load_sumstats_table(args.sumstats, getattr(args, "trait_name", None))
-    ldscore_result = load_ldscore_from_files(
-        ldscore_path=args.ldscore,
-        counts_path=args.counts,
-        count_kind=args.count_kind,
-        annotation_manifest_path=getattr(args, "annotation_manifest", None),
-        explicit_query_columns=getattr(args, "query_columns", None),
-        weight_path=getattr(args, "w_ld", None),
-        snp_identifier=runner.global_config.snp_identifier,
-    )
+    ldscore_result = load_ldscore_from_dir(args.ldscore_dir)
     if not ldscore_result.query_columns:
-        raise ValueError("partitioned-h2 requires query annotation columns via --annotation-manifest or --query-columns.")
+        raise ValueError("partitioned-h2 requires query annotations in --ldscore-dir.")
     query_bundle = SimpleNamespace(query_columns=list(ldscore_result.query_columns))
     with suppress_global_config_banner():
         summary = runner.estimate_partitioned_h2_batch(sumstats_table, ldscore_result, query_bundle, config=config)
@@ -472,13 +443,7 @@ def run_rg_from_args(args):
     print_global_config_banner("run_rg_from_args", runner.global_config)
     sumstats_table_1 = _load_sumstats_table(args.sumstats_1, getattr(args, "trait_name_1", None))
     sumstats_table_2 = _load_sumstats_table(args.sumstats_2, getattr(args, "trait_name_2", None))
-    ldscore_result = load_ldscore_from_files(
-        ldscore_path=args.ldscore,
-        counts_path=args.counts,
-        count_kind=args.count_kind,
-        weight_path=getattr(args, "w_ld", None),
-        snp_identifier=runner.global_config.snp_identifier,
-    )
+    ldscore_result = load_ldscore_from_dir(args.ldscore_dir)
     with suppress_global_config_banner():
         rg_result = runner.estimate_rg(sumstats_table_1, sumstats_table_2, ldscore_result, config=config)
     summary = pd.DataFrame(
@@ -499,13 +464,7 @@ def run_rg_from_args(args):
 
 def _add_common_regression_arguments(parser, include_h2_intercept: bool) -> None:
     """Add the file and model options shared by all regression subcommands."""
-    parser.add_argument("--ldscore", required=True, help="Reference LD-score table (.l2.ldscore[.gz]).")
-    parser.add_argument(
-        "--w-ld",
-        default=None,
-        help="Optional legacy regression-weight LD-score table (.w.l2.ldscore[.gz]).",
-    )
-    parser.add_argument("--counts", required=True, help="Annotation count vector file (.M or .M_5_50).")
+    parser.add_argument("--ldscore-dir", required=True, help="Canonical LD-score result directory written by `ldsc ldscore`.")
     parser.add_argument(
         "--count-kind",
         choices=("m_5_50", "all"),
@@ -523,53 +482,18 @@ def _add_common_regression_arguments(parser, include_h2_intercept: bool) -> None
 
 def _runner_from_args(args) -> tuple[RegressionRunner, RegressionConfig]:
     """Build the regression workflow objects from parsed CLI arguments."""
+    count_kind = getattr(args, "count_kind", "m_5_50")
     config = RegressionConfig(
         n_blocks=args.n_blocks,
-        use_m_5_50=(args.count_kind == "m_5_50"),
+        use_m_5_50=(count_kind == "m_5_50"),
         use_intercept=not args.no_intercept,
         intercept_h2=args.intercept_h2,
         intercept_gencov=getattr(args, "intercept_gencov", None),
         two_step_cutoff=args.two_step_cutoff,
         chisq_max=args.chisq_max,
     )
-    runner = RegressionRunner(GlobalConfig(), config)
+    runner = RegressionRunner(get_global_config(), config)
     return runner, config
-
-
-def _read_table(path: str) -> pd.DataFrame:
-    """Read a whitespace-delimited LDSC artifact table with gzip support."""
-    resolved = resolve_scalar_path(path, label="tabular artifact")
-    compression = "gzip" if str(resolved).endswith(".gz") else "infer"
-    return pd.read_csv(resolved, sep=r"\s+", compression=compression)
-
-
-def _read_count_vector(path: str) -> np.ndarray:
-    """Read one count-vector artifact such as ``.l2.M`` or ``.l2.M_5_50``."""
-    resolved = resolve_scalar_path(path, label="count vector")
-    text = Path(resolved).read_text(encoding="utf-8").strip()
-    if not text:
-        raise ValueError(f"Count file is empty: {resolved}")
-    return np.asarray([float(value) for value in text.split()], dtype=np.float64)
-
-
-def _resolve_internal_columns(
-    columns: Sequence[str],
-    spec_map: dict[str, Any],
-    *,
-    required: Sequence[str],
-    optional: Sequence[str] = (),
-    context: str,
-) -> dict[str, str]:
-    """Resolve canonical-only internal artifact columns from ``columns``."""
-    resolved = {
-        canonical: resolve_required_column(columns, spec_map[canonical], context=context)
-        for canonical in required
-    }
-    for canonical in optional:
-        actual = resolve_optional_column(columns, spec_map[canonical], context=context)
-        if actual is not None:
-            resolved[canonical] = actual
-    return resolved
 
 
 def _load_sumstats_table(path: str, trait_name: str | None) -> SumstatsTable:
@@ -577,137 +501,66 @@ def _load_sumstats_table(path: str, trait_name: str | None) -> SumstatsTable:
     return load_sumstats(path, trait_name=trait_name)
 
 
-def load_ldscore_from_files(
-    ldscore_path: str,
-    counts_path: str,
-    count_kind: str,
-    weight_path: str | None = None,
-    annotation_manifest_path: str | None = None,
-    explicit_query_columns: str | None = None,
-    snp_identifier: str = "rsid",
+def load_ldscore_from_dir(
+    ldscore_dir: str,
+    snp_identifier: str | None = None,
 ) -> LDScoreResult:
-    """Rebuild an ``LDScoreResult`` from previously written LD-score artifacts.
-
-    Parameters
-    ----------
-    ldscore_path : str
-        Path to one merged ``.l2.ldscore[.gz]`` file.
-    counts_path : str
-        Path to one count-vector artifact such as ``.l2.M`` or ``.l2.M_5_50``.
-    count_kind : {"m_5_50", "all"}
-        Interpretation of ``counts_path``.
-    weight_path : str or None, optional
-        Optional legacy ``.w.l2.ldscore[.gz]`` file. Omit this when
-        ``ldscore_path`` already contains an embedded ``regr_weight`` column.
-    annotation_manifest_path : str or None, optional
-        Optional annotation manifest used to split LD-score columns into
-        baseline and query groups. Default is ``None``.
-    explicit_query_columns : str or None, optional
-        Comma-separated query-column override used when no manifest is
-        available. Default is ``None``.
-    snp_identifier : {"rsid", "chr_pos"}, optional
-        Identifier mode used to reconstruct ``ld_regression_snps`` from the
-        normalized row table. Default is ``"rsid"``.
-
-    Returns
-    -------
-    LDScoreResult
-        Normalized public result with one merged ``ldscore_table`` and an
-        embedded ``regr_weight`` column.
-    """
-    ld_table = _read_table(ldscore_path)
-    reference_columns = {
-        "CHR": resolve_required_column(
-            list(ld_table.columns),
-            INTERNAL_LDSCORE_ARTIFACT_SPEC_MAP["CHR"],
-            context=ldscore_path,
-        ),
-        "SNP": resolve_required_column(
-            list(ld_table.columns),
-            INTERNAL_LDSCORE_ARTIFACT_SPEC_MAP["SNP"],
-            context=ldscore_path,
-        ),
-        "POS": resolve_required_column(list(ld_table.columns), POS_COLUMN_SPEC, context=ldscore_path),
-    }
-    file_rows_df = ld_table.rename(
-        columns={actual: canonical for canonical, actual in reference_columns.items()}
-    ).reset_index(drop=True)
-    file_rows_df = file_rows_df.rename(columns={"POS": "BP"})
-
-    if "regr_weight" not in file_rows_df.columns:
-        if weight_path is None:
-            raise ValueError(
-                "Regression weights unavailable: provide weight_path/--w-ld or use an .l2.ldscore.gz "
-                "file with an embedded regr_weight column."
-            )
-        weight_table = _read_table(weight_path)
-        weight_columns = _resolve_internal_columns(
-            list(weight_table.columns),
-            INTERNAL_LDSCORE_ARTIFACT_SPEC_MAP,
-            required=("SNP",),
-            optional=("CHR", "POS", "CM", "MAF"),
-            context=weight_path,
-        )
-        weight_value_columns = [
-            column
-            for column in weight_table.columns
-            if column not in set(weight_columns.values())
-        ]
-        if len(weight_value_columns) != 1:
-            raise ValueError("The regression-weight table must contain exactly one non-metadata column.")
-        weight_frame = weight_table.loc[:, [weight_columns["SNP"], weight_value_columns[0]]].rename(
-            columns={weight_columns["SNP"]: "SNP", weight_value_columns[0]: "regr_weight"}
-        )
-        file_rows_df = pd.merge(file_rows_df, weight_frame, how="left", on="SNP", sort=False)
-        if file_rows_df["regr_weight"].isna().any():
-            raise ValueError("Weight file does not align with LD-score rows.")
-
-    ld_columns = [
-        column for column in file_rows_df.columns if column not in {"CHR", "SNP", "BP", "CM", "MAF", "regr_weight"}
-    ]
-    file_rows_df = file_rows_df.loc[:, ["CHR", "SNP", "BP", *ld_columns, "regr_weight"]].reset_index(drop=True)
-
-    baseline_columns, query_columns = _resolve_annotation_groups(
-        ld_columns=ld_columns,
-        annotation_manifest_path=annotation_manifest_path,
-        explicit_query_columns=explicit_query_columns,
-    )
-    count_key = COMMON_COUNT_KEY if count_kind == "m_5_50" else ALL_COUNT_KEY
-    count_totals = {count_key: _read_count_vector(counts_path)}
-    return LDScoreResult(
-        ldscore_table=file_rows_df,
-        snp_count_totals=count_totals,
+    """Load a canonical LD-score result directory."""
+    root = Path(normalize_path_token(ldscore_dir))
+    if not root.is_dir():
+        raise NotADirectoryError(f"LD-score directory does not exist or is not a directory: {root}")
+    manifest_path = root / "manifest.json"
+    if not manifest_path.exists():
+        raise FileNotFoundError(f"LD-score directory is missing manifest.json: {root}")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("format") != LDSCORE_RESULT_FORMAT:
+        raise ValueError(f"Unsupported LD-score directory format: {manifest.get('format')!r}")
+    files = manifest.get("files", {})
+    baseline_rel = files.get("baseline")
+    if not baseline_rel:
+        raise ValueError("LD-score manifest is missing files.baseline.")
+    baseline_table = pd.read_parquet(root / baseline_rel)
+    query_rel = files.get("query")
+    query_table = pd.read_parquet(root / query_rel) if query_rel else None
+    baseline_columns = [str(column) for column in manifest.get("baseline_columns", [])]
+    query_columns = [str(column) for column in manifest.get("query_columns", [])]
+    count_records = [dict(record) for record in manifest.get("counts", [])]
+    effective_identifier = snp_identifier or manifest.get("snp_identifier") or "rsid"
+    config_snapshot = _global_config_from_manifest(manifest)
+    result = LDScoreResult(
+        baseline_table=baseline_table,
+        query_table=query_table,
+        count_records=count_records,
         baseline_columns=baseline_columns,
         query_columns=query_columns,
         ld_reference_snps=frozenset(),
-        ld_regression_snps=frozenset(build_snp_id_series(file_rows_df, snp_identifier)),
+        ld_regression_snps=frozenset(build_snp_id_series(baseline_table, effective_identifier)),
         chromosome_results=[],
-        output_paths={},
-        config_snapshot=None,
+        output_paths={
+            "manifest": str(manifest_path),
+            "baseline": str(root / baseline_rel),
+            **({"query": str(root / query_rel)} if query_rel else {}),
+        },
+        config_snapshot=config_snapshot,
     )
+    result.validate()
+    return result
 
 
-_load_ldscore_result_from_files = load_ldscore_from_files
-
-
-def _resolve_annotation_groups(
-    ld_columns: list[str],
-    annotation_manifest_path: str | None,
-    explicit_query_columns: str | None,
-) -> tuple[list[str], list[str]]:
-    """Resolve baseline/query columns from a manifest or explicit query list."""
-    if annotation_manifest_path:
-        manifest = _read_table(resolve_scalar_path(annotation_manifest_path, label="annotation manifest"))
-        if not {"column", "group"}.issubset(manifest.columns):
-            raise ValueError("Annotation manifest must contain 'column' and 'group' columns.")
-        baseline = manifest.loc[manifest["group"] == "baseline", "column"].astype(str).tolist()
-        query = manifest.loc[manifest["group"] == "query", "column"].astype(str).tolist()
-        return [column for column in baseline if column in ld_columns], [column for column in query if column in ld_columns]
-    if explicit_query_columns:
-        query = [column.strip() for column in explicit_query_columns.split(",") if column.strip()]
-        baseline = [column for column in ld_columns if column not in query]
-        return baseline, query
-    return list(ld_columns), []
+def _global_config_from_manifest(manifest: dict[str, Any]) -> GlobalConfig | None:
+    """Recreate a GlobalConfig snapshot when the manifest contains one."""
+    snapshot = manifest.get("config_snapshot")
+    if not isinstance(snapshot, dict):
+        return None
+    try:
+        return GlobalConfig(
+            snp_identifier=snapshot.get("snp_identifier") or manifest.get("snp_identifier") or "rsid",
+            genome_build=snapshot.get("genome_build") or manifest.get("genome_build"),
+            log_level=snapshot.get("log_level", "INFO"),
+            fail_on_missing_metadata=bool(snapshot.get("fail_on_missing_metadata", False)),
+        )
+    except Exception:
+        return None
 
 
 def _maybe_write_dataframe(df: pd.DataFrame, out_prefix: str | None, suffix: str) -> None:

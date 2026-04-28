@@ -522,8 +522,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
         map_hg19.write_text("chr position Genetic_Map(cM)\n1 100 0.0\n2 100 0.0\n", encoding="utf-8")
         map_hg38.write_text("chr position Genetic_Map(cM)\n1 100 0.0\n2 100 0.0\n", encoding="utf-8")
         return ReferencePanelBuildConfig(
-            panel_label="EUR",
-            plink_prefix=tmpdir / "panel.@",
+            plink_path=tmpdir / "panel.@",
             source_genome_build="hg19",
             genetic_map_hg19_path=map_hg19,
             genetic_map_hg38_path=map_hg38,
@@ -543,10 +542,10 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             def fake_build(prefix, chrom, config, build_state):
                 out_root = Path(config.output_dir) / "parquet"
                 return {
-                    "ann": str(out_root / "ann" / f"{config.panel_label}_chr{chrom}_ann.parquet"),
-                    "ld": str(out_root / "ld" / f"{config.panel_label}_chr{chrom}_LD.parquet"),
-                    "meta_hg19": str(out_root / "meta" / f"{config.panel_label}_chr{chrom}_meta_hg19.tsv.gz"),
-                    "meta_hg38": str(out_root / "meta" / f"{config.panel_label}_chr{chrom}_meta_hg38.tsv.gz"),
+                    "ann": str(out_root / "ann" / f"chr{chrom}_ann.parquet"),
+                    "ld": str(out_root / "ld" / f"chr{chrom}_LD.parquet"),
+                    "meta_hg19": str(out_root / "meta" / f"chr{chrom}_meta_hg19.tsv.gz"),
+                    "meta_hg38": str(out_root / "meta" / f"chr{chrom}_meta_hg38.tsv.gz"),
                 }
 
             with mock.patch.object(
@@ -556,21 +555,21 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             ) as patched:
                 result = builder.run(config)
 
-            self.assertEqual(result.panel_label, "EUR")
+            self.assertEqual(result.panel_name, "out")
             self.assertEqual(result.chromosomes, ["1", "2"])
             self.assertEqual(patched.call_count, 2)
             self.assertEqual(
                 result.output_paths["ann"],
                 [
-                    str(tmpdir / "out" / "parquet" / "ann" / "EUR_chr1_ann.parquet"),
-                    str(tmpdir / "out" / "parquet" / "ann" / "EUR_chr2_ann.parquet"),
+                    str(tmpdir / "out" / "parquet" / "ann" / "chr1_ann.parquet"),
+                    str(tmpdir / "out" / "parquet" / "ann" / "chr2_ann.parquet"),
                 ],
             )
             self.assertEqual(
                 result.output_paths["meta_hg38"],
                 [
-                    str(tmpdir / "out" / "parquet" / "meta" / "EUR_chr1_meta_hg38.tsv.gz"),
-                    str(tmpdir / "out" / "parquet" / "meta" / "EUR_chr2_meta_hg38.tsv.gz"),
+                    str(tmpdir / "out" / "parquet" / "meta" / "chr1_meta_hg38.tsv.gz"),
+                    str(tmpdir / "out" / "parquet" / "meta" / "chr2_meta_hg38.tsv.gz"),
                 ],
             )
 
@@ -584,8 +583,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             map_hg19.write_text("chr position Genetic_Map(cM)\n1 100 0.0\n", encoding="utf-8")
             map_hg38.write_text("chr position Genetic_Map(cM)\n1 100 0.0\n", encoding="utf-8")
             config = ReferencePanelBuildConfig(
-                panel_label="EUR",
-                plink_prefix=str(tmpdir / "panel_*"),
+                plink_path=str(tmpdir / "panel_*"),
                 source_genome_build="hg19",
                 genetic_map_hg19_path=map_hg19,
                 genetic_map_hg38_path=map_hg38,
@@ -657,13 +655,12 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             build_result = ref_panel_builder.run_build_ref_panel(
-                bfile=str(prefix),
-                panel_label="SMOKE",
+                plink_path=str(prefix),
                 source_genome_build="hg38",
-                genetic_map_hg19=str(map_hg19),
-                genetic_map_hg38=str(map_hg38),
-                liftover_chain_hg38_to_hg19=str(resources / "liftover" / "hg38ToHg19.over.chain"),
-                out=str(tmpdir / "panel"),
+                genetic_map_hg19_path=str(map_hg19),
+                genetic_map_hg38_path=str(map_hg38),
+                liftover_chain_hg38_to_hg19_path=str(resources / "liftover" / "hg38ToHg19.over.chain"),
+                output_dir=str(tmpdir / "panel"),
                 ld_wind_kb=10.0,
                 chunk_size=64,
             )
@@ -685,17 +682,17 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
             set_global_config(GlobalConfig(snp_identifier="rsid", genome_build="hg38"))
             try:
                 direct = ldscore_calculator.run_ldscore(
-                    out=str(tmpdir / "direct"),
-                    baseline_annot=str(baseline),
-                    bfile=str(prefix),
+                    output_dir=str(tmpdir / "direct"),
+                    baseline_annot_paths=str(baseline),
+                    plink_path=str(prefix),
                     ld_wind_kb=10.0,
                     chunk_size=64,
                 )
                 parquet = ldscore_calculator.run_ldscore(
-                    out=str(tmpdir / "parquet"),
-                    baseline_annot=str(baseline),
-                    r2_table=str(ld_path),
-                    frqfile=str(meta_hg38_path),
+                    output_dir=str(tmpdir / "parquet"),
+                    baseline_annot_paths=str(baseline),
+                    r2_paths=str(ld_path),
+                    metadata_paths=str(meta_hg38_path),
                     r2_bias_mode="unbiased",
                     ld_wind_kb=10.0,
                     chunk_size=64,

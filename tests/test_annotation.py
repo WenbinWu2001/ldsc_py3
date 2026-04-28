@@ -140,7 +140,7 @@ class AnnotationBuilderTest(unittest.TestCase):
                 bundle = builder.run(
                     AnnotationSourceSpec(
                         baseline_annot_paths=(str(base),),
-                        bed_paths=(str(bed),),
+                        query_annot_bed_paths=(str(bed),),
                     )
                 )
 
@@ -182,7 +182,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             ):
                 kernel_annotation._process_baseline_file(
                     baseline_path=baseline,
-                    bed_paths=[bed],
+                    query_annot_bed_paths=[bed],
                     output_dir=tmpdir / "out",
                     batch=True,
                     restrict_resource=restrict_resource,
@@ -507,7 +507,7 @@ class AnnotationWrapperTest(unittest.TestCase):
                 return_value=[True, False],
             ):
                 result = run_bed_to_annot(
-                    bed_files=[str(bed)],
+                    query_annot_bed_paths=[str(bed)],
                     baseline_annot_paths=[str(baseline)],
                 )
 

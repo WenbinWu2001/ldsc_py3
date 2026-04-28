@@ -378,11 +378,11 @@ class RegressionWorkflowTest(unittest.TestCase):
                 "Args",
                 (),
                 {
-                    "sumstats": str(tmpdir / "trait.sumstats.gz"),
+                    "sumstats_path": str(tmpdir / "trait.sumstats.gz"),
                     "trait_name": "trait",
                     "ldscore_dir": str(ldscore_dir),
                     "count_kind": "m_5_50",
-                    "out": None,
+                    "output_dir": None,
                     "n_blocks": 200,
                     "no_intercept": False,
                     "intercept_h2": None,
@@ -415,11 +415,14 @@ class RegressionWorkflowTest(unittest.TestCase):
         parser = argparse.ArgumentParser()
         regression_runner.add_h2_arguments(parser)
 
-        args = parser.parse_args(["--ldscore-dir", "ldscores", "--sumstats", "trait.sumstats.gz"])
+        args = parser.parse_args(["--ldscore-dir", "ldscores", "--sumstats-path", "trait.sumstats.gz"])
 
         self.assertEqual(args.ldscore_dir, "ldscores")
+        self.assertEqual(args.sumstats_path, "trait.sumstats.gz")
         with self.assertRaises(SystemExit):
-            parser.parse_args(["--ldscore", "x", "--counts", "m", "--sumstats", "trait.sumstats.gz"])
+            parser.parse_args(["--ldscore", "x", "--counts", "m", "--sumstats-path", "trait.sumstats.gz"])
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["--ldscore-dir", "ldscores", "--sumstats", "trait.sumstats.gz"])
 
     def test_run_partitioned_h2_from_args_uses_query_columns_from_ldscore_dir(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -432,11 +435,11 @@ class RegressionWorkflowTest(unittest.TestCase):
                 "Args",
                 (),
                 {
-                    "sumstats": str(tmpdir / "trait.sumstats.gz"),
+                    "sumstats_path": str(tmpdir / "trait.sumstats.gz"),
                     "trait_name": "trait",
                     "ldscore_dir": str(ldscore_dir),
                     "count_kind": "m_5_50",
-                    "out": None,
+                    "output_dir": None,
                     "n_blocks": 200,
                     "no_intercept": False,
                     "intercept_h2": None,
@@ -455,3 +458,46 @@ class RegressionWorkflowTest(unittest.TestCase):
         patched.assert_called_once()
         self.assertEqual(patched.call_args.args[2].query_columns, ["query"])
         self.assertEqual(summary.loc[0, "query_annotation"], "query")
+
+    def test_regression_cli_writes_fixed_result_filename_under_output_dir(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            set_global_config(GlobalConfig(snp_identifier="rsid", genome_build="hg38"))
+            with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
+                handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
+            ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
+            output_dir = tmpdir / "out"
+            args = type(
+                "Args",
+                (),
+                {
+                    "sumstats_path": str(tmpdir / "trait.sumstats.gz"),
+                    "trait_name": "trait",
+                    "ldscore_dir": str(ldscore_dir),
+                    "count_kind": "m_5_50",
+                    "output_dir": str(output_dir),
+                    "n_blocks": 200,
+                    "no_intercept": False,
+                    "intercept_h2": None,
+                    "two_step_cutoff": None,
+                    "chisq_max": None,
+                },
+            )()
+
+            with mock.patch.object(
+                regression_runner.RegressionRunner,
+                "estimate_h2",
+                return_value=mock.Mock(
+                    tot=np.array([0.1]),
+                    tot_se=np.array([0.01]),
+                    intercept=np.array([1.0]),
+                    intercept_se=0.01,
+                    mean_chisq=np.array([1.1]),
+                    lambda_gc=np.array([1.0]),
+                    ratio=0.0,
+                    ratio_se=0.0,
+                ),
+            ):
+                regression_runner.run_h2_from_args(args)
+
+            self.assertTrue((output_dir / "h2.tsv").exists())

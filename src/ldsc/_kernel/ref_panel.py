@@ -62,10 +62,10 @@ class RefPanelSpec:
     ``GlobalConfig``.
     """
     backend: str
-    bfile_prefix: str | PathLike[str] | None = None
-    r2_table_paths: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
+    plink_path: str | PathLike[str] | None = None
+    r2_paths: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
     sample_size: int | None = None
-    maf_metadata_paths: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
+    metadata_paths: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
     chromosomes: tuple[str, ...] | None = None
     genome_build: str | None = None
     r2_bias_mode: str | None = None
@@ -74,9 +74,9 @@ class RefPanelSpec:
     def __post_init__(self) -> None:
         """Normalize backend source tokens and canonicalize chromosome labels."""
         object.__setattr__(self, "backend", self.backend)
-        object.__setattr__(self, "bfile_prefix", _normalize_optional_path(self.bfile_prefix))
-        object.__setattr__(self, "r2_table_paths", _normalize_path_tuple(self.r2_table_paths))
-        object.__setattr__(self, "maf_metadata_paths", _normalize_path_tuple(self.maf_metadata_paths))
+        object.__setattr__(self, "plink_path", _normalize_optional_path(self.plink_path))
+        object.__setattr__(self, "r2_paths", _normalize_path_tuple(self.r2_paths))
+        object.__setattr__(self, "metadata_paths", _normalize_path_tuple(self.metadata_paths))
         object.__setattr__(self, "genome_build", normalize_genome_build(self.genome_build))
         object.__setattr__(self, "ref_panel_snps_path", _normalize_optional_path(self.ref_panel_snps_path))
         if self.chromosomes is not None:
@@ -119,9 +119,9 @@ class RefPanel(ABC):
             "backend": self.spec.backend,
             "chromosomes": self.available_chromosomes(),
             "source": {
-                "bfile_prefix": self.spec.bfile_prefix,
-                "r2_table_paths": list(self.spec.r2_table_paths),
-                "maf_metadata_paths": list(self.spec.maf_metadata_paths),
+                "plink_path": self.spec.plink_path,
+                "r2_paths": list(self.spec.r2_paths),
+                "metadata_paths": list(self.spec.metadata_paths),
             },
         }
 
@@ -175,17 +175,21 @@ class PlinkRefPanel(RefPanel):
 
     def build_reader(self, chrom: str, keep_snps: set[str] | list[str] | None = None, keep_indivs: list[int] | None = None, maf_min: float | None = None):
         """Build a PLINK BED reader with optional SNP, sample, and MAF filters."""
-        prefix = None if self.spec.bfile_prefix is None else resolve_plink_prefix(self.spec.bfile_prefix, chrom=chrom)
+        prefix = None if self.spec.plink_path is None else resolve_plink_prefix(self.spec.plink_path, chrom=chrom)
         if prefix is None:
-            raise ValueError("PlinkRefPanel requires bfile_prefix.")
+            raise ValueError("PlinkRefPanel requires plink_path.")
         bim = legacy_parse.PlinkBIMFile(prefix + ".bim")
         fam = legacy_parse.PlinkFAMFile(prefix + ".fam")
 
         keep_snp_indices = None
         if keep_snps is not None:
-            metadata = self.load_metadata(chrom)
+            raw_metadata = self._read_bim_table(chrom=chrom)
+            raw_metadata["CHR"] = raw_metadata["CHR"].map(normalize_chromosome)
+            raw_metadata["SNP"] = raw_metadata["SNP"].astype(str)
+            raw_metadata["POS"] = pd.to_numeric(raw_metadata["POS"], errors="raise").astype(int)
+            raw_metadata = raw_metadata.loc[raw_metadata["CHR"] == normalize_chromosome(chrom)].reset_index(drop=True)
             kept = self.filter_to_snps(chrom, set(keep_snps))
-            key_to_index = dict(zip(build_snp_id_series(metadata, self.global_config.snp_identifier), metadata.index))
+            key_to_index = dict(zip(build_snp_id_series(raw_metadata, self.global_config.snp_identifier), raw_metadata.index))
             keep_snp_indices = [int(key_to_index[key]) for key in build_snp_id_series(kept, self.global_config.snp_identifier)]
 
         return kernel_ldscore.PlinkBEDFile(
@@ -201,15 +205,15 @@ class PlinkRefPanel(RefPanel):
         """Read one or many `.bim` tables into a normalized DataFrame."""
         prefixes = (
             []
-            if self.spec.bfile_prefix is None
+            if self.spec.plink_path is None
             else resolve_plink_prefix_group(
-                (self.spec.bfile_prefix,),
+                (self.spec.plink_path,),
                 chrom=chrom,
                 allow_chromosome_suite=(chrom is None),
             )
         )
         if not prefixes:
-            raise ValueError("PlinkRefPanel requires bfile_prefix.")
+            raise ValueError("PlinkRefPanel requires plink_path.")
         frames = [
             pd.read_csv(
                 prefix + ".bim",
@@ -240,7 +244,7 @@ class ParquetR2RefPanel(RefPanel):
 
         chromosomes: set[str] = set()
         for path in resolve_file_group(
-            self.spec.maf_metadata_paths,
+            self.spec.metadata_paths,
             suffixes=FREQUENCY_SUFFIXES,
             label="reference metadata",
             allow_chromosome_suite=True,
@@ -256,11 +260,11 @@ class ParquetR2RefPanel(RefPanel):
         chrom = normalize_chromosome(chrom)
         if chrom in self._metadata_cache:
             return self._metadata_cache[chrom].copy()
-        if not self.spec.maf_metadata_paths:
+        if not self.spec.metadata_paths:
             raise ImportError("ParquetR2RefPanel.load_metadata requires metadata sidecar files.")
 
         resolved_paths = resolve_chromosome_group(
-            self.spec.maf_metadata_paths,
+            self.spec.metadata_paths,
             chrom=chrom,
             suffixes=FREQUENCY_SUFFIXES,
             label="reference metadata",
@@ -287,7 +291,7 @@ class ParquetR2RefPanel(RefPanel):
         metadata = metadata if metadata is not None else self.load_metadata(chrom)
         return kernel_ldscore.SortedR2BlockReader(
             paths=resolve_chromosome_group(
-                self.spec.r2_table_paths,
+                self.spec.r2_paths,
                 chrom=chrom,
                 suffixes=PARQUET_SUFFIXES,
                 label="parquet R2",

@@ -59,7 +59,7 @@ that query rows match baseline rows exactly on `CHR/SNP/BP`.
 ### Baseline Annotations
 
 Baseline `.annot[.gz]` files are passed to `ldsc ldscore` with
-`--baseline-annot`. They define the baseline annotation LD-score columns stored
+`--baseline-annot-paths`. They define the baseline annotation LD-score columns stored
 in `baseline.parquet`.
 
 Example:
@@ -72,9 +72,9 @@ resources/baseline_v1.2/baseline.@.annot.gz
 
 Query annotations are optional and become `query.parquet` columns.
 
-- `--query-annot-bed`: BED intervals projected to the baseline SNP universe in
+- `--query-annot-bed-paths`: BED intervals projected to the baseline SNP universe in
   memory.
-- `--query-annot`: pre-built query `.annot[.gz]` files.
+- `--query-annot-paths`: pre-built query `.annot[.gz]` files.
 
 These arguments are mutually exclusive.
 
@@ -82,19 +82,19 @@ These arguments are mutually exclusive.
 
 LD scores can be computed from:
 
-- PLINK input through `--bfile`
-- parquet R2 input through `--r2-table`
+- PLINK input through `--plink-path`
+- parquet R2 input through `--r2-paths`
 
-Frequency or metadata sidecars are passed with `--frqfile` when needed for MAF
+Frequency or metadata sidecars are passed with `--metadata-paths` when needed for MAF
 or centiMorgan windows.
 
 ### Summary Statistics
 
 Regression commands still read munged summary statistics:
 
-- `ldsc h2 --sumstats <file>`
-- `ldsc partitioned-h2 --sumstats <file>`
-- `ldsc rg --sumstats-1 <file> --sumstats-2 <file>`
+- `ldsc h2 --sumstats-path <file>`
+- `ldsc partitioned-h2 --sumstats-path <file>`
+- `ldsc rg --sumstats-1-path <file> --sumstats-2-path <file>`
 
 ## 4. SNP Universes
 
@@ -152,9 +152,9 @@ Compute LD scores:
 ```bash
 ldsc ldscore \
   --output-dir results/my_study_ldscore \
-  --baseline-annot resources/baseline_v1.2/baseline.@.annot.gz \
-  --query-annot-bed my_peaks.bed \
-  --bfile resources/1kg/1KG_EUR_Phase3_chr@ \
+  --baseline-annot-paths resources/baseline_v1.2/baseline.@.annot.gz \
+  --query-annot-bed-paths my_peaks.bed \
+  --plink-path resources/1kg/1KG_EUR_Phase3_chr@ \
   --ref-panel-snps-path resources/w_hm3.snplist \
   --regression-snps-path resources/w_hm3.snplist \
   --ld-wind-cm 1.0
@@ -165,8 +165,8 @@ Run ordinary h2:
 ```bash
 ldsc h2 \
   --ldscore-dir results/my_study_ldscore \
-  --sumstats my_gwas.sumstats.gz \
-  --out results/my_study_h2
+  --sumstats-path my_gwas.sumstats.gz \
+  --output-dir results/my_study_h2
 ```
 
 Run partitioned h2:
@@ -174,8 +174,8 @@ Run partitioned h2:
 ```bash
 ldsc partitioned-h2 \
   --ldscore-dir results/my_study_ldscore \
-  --sumstats my_gwas.sumstats.gz \
-  --out results/my_study_partitioned_h2
+  --sumstats-path my_gwas.sumstats.gz \
+  --output-dir results/my_study_partitioned_h2
 ```
 
 Run rg:
@@ -183,9 +183,9 @@ Run rg:
 ```bash
 ldsc rg \
   --ldscore-dir results/my_study_ldscore \
-  --sumstats-1 trait1.sumstats.gz \
-  --sumstats-2 trait2.sumstats.gz \
-  --out results/trait1_trait2_rg
+  --sumstats-1-path trait1.sumstats.gz \
+  --sumstats-2-path trait2.sumstats.gz \
+  --output-dir results/trait1_trait2_rg
 ```
 
 ## 8. Python API Summary

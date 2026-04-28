@@ -36,7 +36,7 @@ class PackageLayoutTest(unittest.TestCase):
             {"annotate", "ldscore", "build-ref-panel", "munge-sumstats", "h2", "partitioned-h2", "rg"},
         )
 
-    def test_ldscore_subcommand_accepts_keep(self):
+    def test_ldscore_subcommand_accepts_unified_path_flags(self):
         from ldsc import cli
 
         parser = cli.build_parser()
@@ -45,19 +45,19 @@ class PackageLayoutTest(unittest.TestCase):
                 "ldscore",
                 "--output-dir",
                 "out/ldscores",
-                "--baseline-annot",
+                "--baseline-annot-paths",
                 "baseline.annot.gz",
-                "--bfile",
+                "--plink-path",
                 "panel",
                 "--ld-wind-snps",
                 "10",
-                "--keep",
+                "--keep-indivs-path",
                 "samples.keep",
             ]
         )
 
         self.assertEqual(args.command, "ldscore")
-        self.assertEqual(args.keep, "samples.keep")
+        self.assertEqual(args.keep_indivs_path, "samples.keep")
 
     def test_ldscore_subcommand_accepts_regression_snps_path(self):
         from ldsc import cli
@@ -68,9 +68,9 @@ class PackageLayoutTest(unittest.TestCase):
                 "ldscore",
                 "--output-dir",
                 "out/ldscores",
-                "--baseline-annot",
+                "--baseline-annot-paths",
                 "baseline.annot.gz",
-                "--bfile",
+                "--plink-path",
                 "panel",
                 "--ld-wind-snps",
                 "10",
@@ -92,9 +92,9 @@ class PackageLayoutTest(unittest.TestCase):
                     "ldscore",
                     "--output-dir",
                     "out/ldscores",
-                    "--baseline-annot",
+                    "--baseline-annot-paths",
                     "baseline.annot.gz",
-                    "--bfile",
+                    "--plink-path",
                     "panel",
                     "--ld-wind-snps",
                     "10",
@@ -127,7 +127,7 @@ class PackageLayoutTest(unittest.TestCase):
             parser.parse_args(
                 [
                     "annotate",
-                    "--bed-files",
+                    "--query-annot-bed-paths",
                     "beds/*.bed",
                     "--baseline-annot-dir",
                     "annotations/baseline_chr",
@@ -150,7 +150,7 @@ class PackageLayoutTest(unittest.TestCase):
                     "out/ldscores",
                     "--baseline-annot-chr",
                     "annotations/baseline.@.annot.gz",
-                    "--bfile",
+                    "--plink-path",
                     "panel",
                     "--ld-wind-snps",
                     "10",
@@ -169,9 +169,9 @@ class PackageLayoutTest(unittest.TestCase):
                     "ldscore",
                     "--out",
                     "out/example",
-                    "--baseline-annot",
+                    "--baseline-annot-paths",
                     "baseline.annot.gz",
-                    "--bfile",
+                    "--plink-path",
                     "panel",
                     "--ld-wind-snps",
                     "10",
@@ -208,6 +208,37 @@ class PackageLayoutTest(unittest.TestCase):
             )
 
         self.assertNotEqual(exc.exception.code, 0)
+
+    def test_build_ref_panel_subcommand_accepts_output_dir_and_no_panel_label(self):
+        from ldsc import cli
+
+        parser = cli.build_parser()
+        args = parser.parse_args(
+            [
+                "build-ref-panel",
+                "--plink-path",
+                "data/reference/panel_chr@",
+                "--source-genome-build",
+                "hg38",
+                "--genetic-map-hg19-path",
+                "maps/hg19.txt",
+                "--genetic-map-hg38-path",
+                "maps/hg38.txt",
+                "--liftover-chain-hg38-to-hg19-path",
+                "chains/hg38ToHg19.over.chain",
+                "--ld-wind-kb",
+                "10",
+                "--output-dir",
+                "out/panel",
+                "--keep-indivs-path",
+                "samples.keep",
+            ]
+        )
+
+        self.assertEqual(args.command, "build-ref-panel")
+        self.assertEqual(args.plink_path, "data/reference/panel_chr@")
+        self.assertEqual(args.output_dir, "out/panel")
+        self.assertEqual(args.keep_indivs_path, "samples.keep")
 
     def test_build_ref_panel_help_fast_path_avoids_scipy_backed_imports(self):
         from ldsc import cli

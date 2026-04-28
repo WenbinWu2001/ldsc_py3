@@ -35,7 +35,7 @@ from .config import (
     suppress_global_config_banner,
     validate_config_compatibility,
 )
-from .path_resolution import ensure_output_parent_directory, normalize_path_token
+from .path_resolution import ensure_output_directory, normalize_path_token
 from ._kernel import regression as reg
 from ._kernel.identifiers import build_snp_id_series
 from .ldscore_calculator import LDScoreResult
@@ -386,22 +386,22 @@ def _select_intercept(value, index: int, use_intercept: bool, default_when_disab
 def add_h2_arguments(parser) -> None:
     """Register heritability CLI arguments on ``parser``."""
     _add_common_regression_arguments(parser, include_h2_intercept=True)
-    parser.add_argument("--sumstats", required=True, help="Munged .sumstats(.gz) file.")
+    parser.add_argument("--sumstats-path", required=True, help="Munged .sumstats(.gz) file.")
     parser.add_argument("--trait-name", default=None, help="Optional trait label for summaries.")
 
 
 def add_partitioned_h2_arguments(parser) -> None:
     """Register partitioned-heritability CLI arguments on ``parser``."""
     _add_common_regression_arguments(parser, include_h2_intercept=True)
-    parser.add_argument("--sumstats", required=True, help="Munged .sumstats(.gz) file.")
+    parser.add_argument("--sumstats-path", required=True, help="Munged .sumstats(.gz) file.")
     parser.add_argument("--trait-name", default=None, help="Optional trait label for summaries.")
 
 
 def add_rg_arguments(parser) -> None:
     """Register genetic-correlation CLI arguments on ``parser``."""
     _add_common_regression_arguments(parser, include_h2_intercept=False)
-    parser.add_argument("--sumstats-1", required=True, help="First munged .sumstats(.gz) file.")
-    parser.add_argument("--sumstats-2", required=True, help="Second munged .sumstats(.gz) file.")
+    parser.add_argument("--sumstats-1-path", required=True, help="First munged .sumstats(.gz) file.")
+    parser.add_argument("--sumstats-2-path", required=True, help="Second munged .sumstats(.gz) file.")
     parser.add_argument("--trait-name-1", default=None, help="Optional label for the first trait.")
     parser.add_argument("--trait-name-2", default=None, help="Optional label for the second trait.")
     parser.add_argument("--intercept-h2", nargs=2, type=float, default=None, metavar=("H2_1", "H2_2"))
@@ -412,13 +412,13 @@ def run_h2_from_args(args):
     """Run single-trait heritability estimation from parsed CLI arguments."""
     runner, config = _runner_from_args(args)
     print_global_config_banner("run_h2_from_args", runner.global_config)
-    sumstats_table = _load_sumstats_table(args.sumstats, getattr(args, "trait_name", None))
+    sumstats_table = _load_sumstats_table(args.sumstats_path, getattr(args, "trait_name", None))
     ldscore_result = load_ldscore_from_dir(args.ldscore_dir)
     with suppress_global_config_banner():
         dataset = runner.build_dataset(sumstats_table, ldscore_result, config=config)
     hsq = runner.estimate_h2(dataset, config=config)
     summary = summarize_total_h2(hsq, dataset, trait_name=sumstats_table.trait_name)
-    _maybe_write_dataframe(summary, args.out, ".h2.tsv")
+    _maybe_write_dataframe(summary, getattr(args, "output_dir", None), "h2.tsv")
     return summary
 
 
@@ -426,14 +426,14 @@ def run_partitioned_h2_from_args(args):
     """Run batch partitioned heritability from parsed CLI arguments."""
     runner, config = _runner_from_args(args)
     print_global_config_banner("run_partitioned_h2_from_args", runner.global_config)
-    sumstats_table = _load_sumstats_table(args.sumstats, getattr(args, "trait_name", None))
+    sumstats_table = _load_sumstats_table(args.sumstats_path, getattr(args, "trait_name", None))
     ldscore_result = load_ldscore_from_dir(args.ldscore_dir)
     if not ldscore_result.query_columns:
         raise ValueError("partitioned-h2 requires query annotations in --ldscore-dir.")
     query_bundle = SimpleNamespace(query_columns=list(ldscore_result.query_columns))
     with suppress_global_config_banner():
         summary = runner.estimate_partitioned_h2_batch(sumstats_table, ldscore_result, query_bundle, config=config)
-    _maybe_write_dataframe(summary, args.out, ".partitioned_h2.tsv")
+    _maybe_write_dataframe(summary, getattr(args, "output_dir", None), "partitioned_h2.tsv")
     return summary
 
 
@@ -441,8 +441,8 @@ def run_rg_from_args(args):
     """Run genetic-correlation estimation from parsed CLI arguments."""
     runner, config = _runner_from_args(args)
     print_global_config_banner("run_rg_from_args", runner.global_config)
-    sumstats_table_1 = _load_sumstats_table(args.sumstats_1, getattr(args, "trait_name_1", None))
-    sumstats_table_2 = _load_sumstats_table(args.sumstats_2, getattr(args, "trait_name_2", None))
+    sumstats_table_1 = _load_sumstats_table(args.sumstats_1_path, getattr(args, "trait_name_1", None))
+    sumstats_table_2 = _load_sumstats_table(args.sumstats_2_path, getattr(args, "trait_name_2", None))
     ldscore_result = load_ldscore_from_dir(args.ldscore_dir)
     with suppress_global_config_banner():
         rg_result = runner.estimate_rg(sumstats_table_1, sumstats_table_2, ldscore_result, config=config)
@@ -458,12 +458,13 @@ def run_rg_from_args(args):
             }
         ]
     )
-    _maybe_write_dataframe(summary, args.out, ".rg.tsv")
+    _maybe_write_dataframe(summary, getattr(args, "output_dir", None), "rg.tsv")
     return summary
 
 
 def _add_common_regression_arguments(parser, include_h2_intercept: bool) -> None:
     """Add the file and model options shared by all regression subcommands."""
+    parser.allow_abbrev = False
     parser.add_argument("--ldscore-dir", required=True, help="Canonical LD-score result directory written by `ldsc ldscore`.")
     parser.add_argument(
         "--count-kind",
@@ -471,7 +472,7 @@ def _add_common_regression_arguments(parser, include_h2_intercept: bool) -> None
         default="m_5_50",
         help="Interpretation of the supplied count vector. Default matches LDSC's M_5_50 behavior.",
     )
-    parser.add_argument("--out", default=None, help="Optional output prefix for summary tables.")
+    parser.add_argument("--output-dir", default=None, help="Optional output directory for summary tables.")
     parser.add_argument("--n-blocks", type=int, default=200)
     parser.add_argument("--no-intercept", action="store_true", default=False, help="Fix the intercept to the LDSC default.")
     if include_h2_intercept:
@@ -563,10 +564,9 @@ def _global_config_from_manifest(manifest: dict[str, Any]) -> GlobalConfig | Non
         return None
 
 
-def _maybe_write_dataframe(df: pd.DataFrame, out_prefix: str | None, suffix: str) -> None:
-    """Write a summary table only when the caller requested an output prefix."""
-    if not out_prefix:
+def _maybe_write_dataframe(df: pd.DataFrame, output_dir: str | None, filename: str) -> None:
+    """Write a summary table only when the caller requested an output directory."""
+    if not output_dir:
         return
-    path = Path(normalize_path_token(out_prefix) + suffix)
-    path = ensure_output_parent_directory(path, label="out_prefix")
+    path = ensure_output_directory(output_dir, label="output directory") / filename
     df.to_csv(path, sep="\t", index=False)

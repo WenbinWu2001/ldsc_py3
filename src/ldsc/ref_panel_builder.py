@@ -38,9 +38,22 @@ _TABLE_SUFFIXES = ("", ".txt", ".txt.gz", ".tsv", ".tsv.gz", ".csv", ".csv.gz")
 
 @dataclass(frozen=True)
 class ReferencePanelBuildResult:
-    """Summary of files produced by one reference-panel build run."""
+    """Summary of files produced by one reference-panel build run.
 
-    panel_label: str
+    Parameters
+    ----------
+    panel_name : str
+        Name inferred from ``Path(output_dir).name``.
+    chromosomes : list of str
+        Chromosomes for which artifacts were written.
+    output_paths : dict of str to list of str, optional
+        Paths grouped by artifact kind: ``ann``, ``ld``, ``meta_hg19``, and
+        ``meta_hg38``.
+    config_snapshot : dict, optional
+        Build configuration and resolved input provenance.
+    """
+
+    panel_name: str
     chromosomes: list[str]
     output_paths: dict[str, list[str]] = field(default_factory=dict)
     config_snapshot: dict[str, Any] = field(default_factory=dict)
@@ -65,11 +78,32 @@ class ReferencePanelBuilder:
         self.global_config = global_config or get_global_config()
 
     def run(self, config: ReferencePanelBuildConfig) -> ReferencePanelBuildResult:
-        """Build parquet reference artifacts for every resolved chromosome."""
+        """Build fixed-name parquet reference artifacts for every chromosome.
+
+        Parameters
+        ----------
+        config : ReferencePanelBuildConfig
+            Public build configuration containing one PLINK prefix token,
+            genetic maps, liftover chain paths, output directory, and exactly
+            one LD window.
+
+        Returns
+        -------
+        ReferencePanelBuildResult
+            Summary with ``panel_name`` inferred from ``config.output_dir`` and
+            artifact paths under ``parquet/ann``, ``parquet/ld``, and
+            ``parquet/meta``.
+
+        Raises
+        ------
+        ValueError
+            If no chromosome artifacts are produced or if multiple PLINK inputs
+            resolve to the same chromosome.
+        """
         print_global_config_banner(type(self).__name__, self.global_config)
         self._configure_logging()
         ensure_output_directory(config.output_dir, label="output directory")
-        resolved_prefixes = resolve_plink_prefix_group((config.plink_prefix,), allow_chromosome_suite=True)
+        resolved_prefixes = resolve_plink_prefix_group((config.plink_path,), allow_chromosome_suite=True)
         build_state = self._prepare_build_state(config)
 
         chrom_records: list[tuple[str, dict[str, str]]] = []
@@ -91,7 +125,7 @@ class ReferencePanelBuilder:
         output_keys = sorted({key for _, paths in chrom_records for key in paths})
         output_paths = {key: [paths[key] for _, paths in chrom_records] for key in output_keys}
         return ReferencePanelBuildResult(
-            panel_label=config.panel_label,
+            panel_name=Path(config.output_dir).name,
             chromosomes=[chrom for chrom, _ in chrom_records],
             output_paths=output_paths,
             config_snapshot={
@@ -266,10 +300,10 @@ class ReferencePanelBuilder:
         )
 
         out_root = Path(config.output_dir) / "parquet"
-        ann_path = out_root / "ann" / f"{config.panel_label}_chr{chrom}_ann.parquet"
-        ld_path = out_root / "ld" / f"{config.panel_label}_chr{chrom}_LD.parquet"
-        meta_hg19_path = out_root / "meta" / f"{config.panel_label}_chr{chrom}_meta_hg19.tsv.gz"
-        meta_hg38_path = out_root / "meta" / f"{config.panel_label}_chr{chrom}_meta_hg38.tsv.gz"
+        ann_path = out_root / "ann" / f"chr{chrom}_ann.parquet"
+        ld_path = out_root / "ld" / f"chr{chrom}_LD.parquet"
+        meta_hg19_path = out_root / "meta" / f"chr{chrom}_meta_hg19.tsv.gz"
+        meta_hg38_path = out_root / "meta" / f"chr{chrom}_meta_hg38.tsv.gz"
 
         kernel_builder.write_dataframe_to_parquet(annotation_table, ann_path)
         kernel_builder.write_ld_parquet(
@@ -418,34 +452,34 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         description="Build standard parquet reference-panel artifacts from a PLINK reference input.",
+        allow_abbrev=False,
     )
-    parser.add_argument("--bfile", required=True, help="PLINK prefix token for the reference panel.")
-    parser.add_argument("--panel-label", required=True, help="Label prefix used in emitted standard filenames.")
+    parser.add_argument("--plink-path", required=True, help="PLINK prefix token for the reference panel.")
     parser.add_argument(
         "--source-genome-build",
         required=True,
         choices=("hg19", "hg37", "GRCh37", "hg38", "GRCh38"),
         help="Genome build of the PLINK coordinates.",
     )
-    parser.add_argument("--genetic-map-hg19", required=True, help="Genetic map file or token aligned to hg19 coordinates.")
-    parser.add_argument("--genetic-map-hg38", required=True, help="Genetic map file or token aligned to hg38 coordinates.")
+    parser.add_argument("--genetic-map-hg19-path", required=True, help="Genetic map file or token aligned to hg19 coordinates.")
+    parser.add_argument("--genetic-map-hg38-path", required=True, help="Genetic map file or token aligned to hg38 coordinates.")
     parser.add_argument(
-        "--liftover-chain-hg19-to-hg38",
+        "--liftover-chain-hg19-to-hg38-path",
         default=None,
         help="Chain file for hg19->hg38 liftover. Required when --source-genome-build is hg19.",
     )
     parser.add_argument(
-        "--liftover-chain-hg38-to-hg19",
+        "--liftover-chain-hg38-to-hg19-path",
         default=None,
         help="Chain file for hg38->hg19 liftover. Required when --source-genome-build is hg38.",
     )
-    parser.add_argument("--out", required=True, help="Output root directory for emitted parquet artifacts.")
+    parser.add_argument("--output-dir", required=True, help="Output root directory for emitted parquet artifacts.")
     parser.add_argument("--ld-wind-snps", default=None, type=int, help="LD window size in SNPs.")
     parser.add_argument("--ld-wind-kb", default=None, type=float, help="LD window size in kilobases.")
     parser.add_argument("--ld-wind-cm", default=None, type=float, help="LD window size in centiMorgans.")
     parser.add_argument("--maf", default=None, type=float, help="Optional MAF filter for retained SNPs.")
     parser.add_argument("--ref-panel-snps-path", default=None, help="Optional SNP restriction file defining the retained reference-panel universe.")
-    parser.add_argument("--keep-indivs", default=None, help="Optional individual-keep file.")
+    parser.add_argument("--keep-indivs-path", default=None, help="Optional individual-keep file.")
     parser.add_argument("--chunk-size", default=50, type=int, help="Chunk size for block processing.")
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"))
     return parser
@@ -455,20 +489,19 @@ def config_from_args(args: argparse.Namespace) -> tuple[ReferencePanelBuildConfi
     """Normalize CLI args into public config objects."""
 
     build_config = ReferencePanelBuildConfig(
-        panel_label=args.panel_label,
-        plink_prefix=args.bfile,
+        plink_path=args.plink_path,
         source_genome_build=args.source_genome_build,
-        genetic_map_hg19_path=args.genetic_map_hg19,
-        genetic_map_hg38_path=args.genetic_map_hg38,
-        liftover_chain_hg19_to_hg38_path=args.liftover_chain_hg19_to_hg38,
-        liftover_chain_hg38_to_hg19_path=args.liftover_chain_hg38_to_hg19,
-        output_dir=args.out,
+        genetic_map_hg19_path=args.genetic_map_hg19_path,
+        genetic_map_hg38_path=args.genetic_map_hg38_path,
+        liftover_chain_hg19_to_hg38_path=args.liftover_chain_hg19_to_hg38_path,
+        liftover_chain_hg38_to_hg19_path=args.liftover_chain_hg38_to_hg19_path,
+        output_dir=args.output_dir,
         ld_wind_snps=args.ld_wind_snps,
         ld_wind_kb=args.ld_wind_kb,
         ld_wind_cm=args.ld_wind_cm,
         maf_min=args.maf,
         ref_panel_snps_path=args.ref_panel_snps_path,
-        keep_indivs_path=args.keep_indivs,
+        keep_indivs_path=args.keep_indivs_path,
         chunk_size=args.chunk_size,
     )
     global_config = GlobalConfig(
@@ -493,22 +526,37 @@ def run_build_ref_panel(**kwargs: Any) -> ReferencePanelBuildResult:
         raise ValueError(
             f"Python run_build_ref_panel() no longer accepts {joined}; call set_global_config(...) first."
         )
+    removed = sorted(
+        {
+            "bfile",
+            "out",
+            "panel_label",
+            "plink_prefix",
+            "genetic_map_hg19",
+            "genetic_map_hg38",
+            "liftover_chain_hg19_to_hg38",
+            "liftover_chain_hg38_to_hg19",
+            "keep_indivs",
+        }
+        & set(kwargs)
+    )
+    if removed:
+        joined = ", ".join(removed)
+        raise ValueError(f"Python run_build_ref_panel() no longer accepts removed IO argument(s): {joined}.")
 
     parser = build_parser()
     defaults = vars(
         parser.parse_args(
             [
-                "--bfile",
+                "--plink-path",
                 "plink/panel.@",
-                "--panel-label",
-                "placeholder",
                 "--source-genome-build",
                 "hg19",
-                "--genetic-map-hg19",
+                "--genetic-map-hg19-path",
                 "hg19.map",
-                "--genetic-map-hg38",
+                "--genetic-map-hg38-path",
                 "hg38.map",
-                "--out",
+                "--output-dir",
                 "out",
                 "--ld-wind-kb",
                 "1",

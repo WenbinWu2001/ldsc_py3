@@ -325,7 +325,7 @@ def __ID_List_Factory__(colnames, keepcol, fname_end, header=None, usecols=None)
             merge_df['keep'] = True
             z = pd.merge(self.IDList, merge_df, how='left', left_on=l, right_on=r,
                          sort=False)
-            ii = z['keep'] == True
+            ii = (z['keep'] == True).to_numpy()
             return np.nonzero(ii)[0]
 
     return IDContainer

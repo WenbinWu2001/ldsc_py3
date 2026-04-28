@@ -59,22 +59,22 @@ The builder copies the PLINK `SNP` field directly into the output `rsID` column.
 
 There is currently no separate `--chrom` flag.
 
-Chromosome selection comes from the PLINK prefix token you provide through `--bfile`:
+Chromosome selection comes from the PLINK prefix token you provide through `--plink-path`:
 
-- use `--bfile <single-prefix>` when the prefix already points to one chromosome or one specific PLINK dataset
-- use `--bfile <suite-token>` when you have one PLINK prefix per chromosome, typically with an explicit `@` token
-- use `--bfile <glob-like-token>` only when that token resolves cleanly to one or more complete PLINK prefixes; unlike scalar file inputs elsewhere, a PLINK prefix token is resolved at the prefix level rather than at the individual `.bed/.bim/.fam` file level
+- use `--plink-path <single-prefix>` when the prefix already points to one chromosome or one specific PLINK dataset
+- use `--plink-path <suite-token>` when you have one PLINK prefix per chromosome, typically with an explicit `@` token
+- use `--plink-path <glob-like-token>` only when that token resolves cleanly to one or more complete PLINK prefixes; unlike scalar file inputs elsewhere, a PLINK prefix token is resolved at the prefix level rather than at the individual `.bed/.bim/.fam` file level
 
 Examples:
 
 ```text
---bfile resources/example_1kg_30x/genomes_30x_chr22
---bfile data/reference/genomes_30x_chr@
+--plink-path resources/example_1kg_30x/genomes_30x_chr22
+--plink-path data/reference/genomes_30x_chr@
 ```
 
 If the input resolves to multiple chromosomes, the builder writes one output set per chromosome.
 
-In other words, the old split between `--bfile` and a dedicated per-chromosome flag is gone. The unified `--bfile` argument now handles either one concrete prefix or an explicit chromosome suite such as `panel_chr@`.
+In other words, the old split between `--plink-path` and a dedicated per-chromosome flag is gone. The unified `--plink-path` argument now handles either one concrete prefix or an explicit chromosome suite such as `panel_chr@`.
 
 ### Genetic map files
 
@@ -95,35 +95,33 @@ The bundled Alkes-group maps in `resources/genetic_maps/genetic_map_alkesgroup/`
 
 ### Required arguments
 
-- `--bfile`
+- `--plink-path`
   Plain-English meaning: where the PLINK panel lives.
-  Recommended usage: use `--bfile` for a single chromosome, a single prefix, or a chromosome-split suite such as `panel_chr@`.
-
-- `--panel-label`
-  Plain-English meaning: short label that becomes part of the output filenames.
-  Recommended usage: keep it short, stable, and filesystem-safe, for example `1KG30X`, `EUR`, or `UKB_EUR`.
+  Recommended usage: use `--plink-path` for a single chromosome, a single prefix, or a chromosome-split suite such as `panel_chr@`.
 
 - `--source-genome-build`
   Plain-English meaning: which genome build the input PLINK coordinates already use.
   Accepted values: `hg19`, `hg37`, `GRCh37`, `hg38`, `GRCh38`.
   Recommended usage: be explicit. Build auto-inference is not part of this workflow.
 
-- `--genetic-map-hg19`
+- `--genetic-map-hg19-path`
   Plain-English meaning: genetic map aligned to hg19 coordinates.
   Recommended usage: use the bundled Alkes-group map unless you have a strong reason to substitute your own.
 
-- `--genetic-map-hg38`
+- `--genetic-map-hg38-path`
   Plain-English meaning: genetic map aligned to hg38 coordinates.
   Recommended usage: same as above; provide the hg38 mate of your hg19 map.
 
-- `--liftover-chain-hg19-to-hg38` or `--liftover-chain-hg38-to-hg19`
+- `--liftover-chain-hg19-to-hg38-path` or `--liftover-chain-hg38-to-hg19-path`
   Plain-English meaning: explicit chain file used to translate positions into the other genome build.
   Recommended usage: pass the chain that matches `--source-genome-build`.
   Current behavior: one liftover chain is required for every build-ref-panel run.
 
-- `--out`
+- `--output-dir`
   Plain-English meaning: output root directory.
-  Recommended usage: point this to a dedicated directory for the new reference panel build.
+  Recommended usage: point this to a dedicated directory for the new reference
+  panel build. The run identity is the directory name; output filenames are
+  fixed under `parquet/`.
 
 ### Choose exactly one LD-window option
 
@@ -160,7 +158,7 @@ Exactly one of the following must be set:
   - one-column rsID-style lists
   - chromosome-position identifiers such as `22:10684250`, or tables with `CHR` and `POS` columns
 
-- `--keep-indivs`
+- `--keep-indivs-path`
   Plain-English meaning: restrict the individuals used to compute LD.
   Optional: yes.
   Recommended usage: use a PLINK-style keep file when you want population-specific LD or want to exclude certain samples.
@@ -181,28 +179,26 @@ If `ldsc` is installed as a command-line tool, run:
 
 ```bash
 ldsc build-ref-panel \
-  --bfile resources/example_1kg_30x/genomes_30x_chr22 \
-  --panel-label 1KG30X \
+  --plink-path resources/example_1kg_30x/genomes_30x_chr22 \
   --source-genome-build hg38 \
-  --genetic-map-hg19 resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg19_withX.txt \
-  --genetic-map-hg38 resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg38_withX.txt \
-  --liftover-chain-hg38-to-hg19 resources/liftover/hg38ToHg19.over.chain \
+  --genetic-map-hg19-path resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg19_withX.txt \
+  --genetic-map-hg38-path resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg38_withX.txt \
+  --liftover-chain-hg38-to-hg19-path resources/liftover/hg38ToHg19.over.chain \
   --ld-wind-cm 1.0 \
-  --out tutorial_outputs/ref_panel_chr22
+  --output-dir tutorial_outputs/ref_panel_chr22
 ```
 
 If you are running directly from a source checkout instead of an installed CLI, use:
 
 ```bash
 PYTHONPATH=src python -m ldsc build-ref-panel \
-  --bfile resources/example_1kg_30x/genomes_30x_chr22 \
-  --panel-label 1KG30X \
+  --plink-path resources/example_1kg_30x/genomes_30x_chr22 \
   --source-genome-build hg38 \
-  --genetic-map-hg19 resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg19_withX.txt \
-  --genetic-map-hg38 resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg38_withX.txt \
-  --liftover-chain-hg38-to-hg19 resources/liftover/hg38ToHg19.over.chain \
+  --genetic-map-hg19-path resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg19_withX.txt \
+  --genetic-map-hg38-path resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg38_withX.txt \
+  --liftover-chain-hg38-to-hg19-path resources/liftover/hg38ToHg19.over.chain \
   --ld-wind-cm 1.0 \
-  --out tutorial_outputs/ref_panel_chr22
+  --output-dir tutorial_outputs/ref_panel_chr22
 ```
 
 What this command is doing:
@@ -225,8 +221,7 @@ GLOBAL_CONFIG = GlobalConfig(log_level="INFO")
 set_global_config(GLOBAL_CONFIG)
 
 config = ReferencePanelBuildConfig(
-    panel_label="1KG30X",
-    plink_prefix="resources/example_1kg_30x/genomes_30x_chr22",
+    plink_path="resources/example_1kg_30x/genomes_30x_chr22",
     source_genome_build="hg38",
     genetic_map_hg19_path="resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg19_withX.txt",
     genetic_map_hg38_path="resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg38_withX.txt",
@@ -253,12 +248,12 @@ For the chr22 example above, the output tree looks like:
 tutorial_outputs/ref_panel_chr22/
 └── parquet/
     ├── ann/
-    │   └── 1KG30X_chr22_ann.parquet
+    │   └── chr22_ann.parquet
     ├── ld/
-    │   └── 1KG30X_chr22_LD.parquet
+    │   └── chr22_LD.parquet
     └── meta/
-        ├── 1KG30X_chr22_meta_hg19.tsv.gz
-        └── 1KG30X_chr22_meta_hg38.tsv.gz
+        ├── chr22_meta_hg19.tsv.gz
+        └── chr22_meta_hg38.tsv.gz
 ```
 
 For a genome-wide build, the same pattern repeats once per chromosome.
@@ -383,13 +378,13 @@ For small files, `pandas.read_parquet(...)` is enough. For large LD files, `pyar
 import pandas as pd
 import pyarrow.parquet as pq
 
-ann = pd.read_parquet("tutorial_outputs/ref_panel_chr22/parquet/ann/1KG30X_chr22_ann.parquet")
+ann = pd.read_parquet("tutorial_outputs/ref_panel_chr22/parquet/ann/chr22_ann.parquet")
 meta_hg38 = pd.read_csv(
-    "tutorial_outputs/ref_panel_chr22/parquet/meta/1KG30X_chr22_meta_hg38.tsv.gz",
+    "tutorial_outputs/ref_panel_chr22/parquet/meta/chr22_meta_hg38.tsv.gz",
     sep="\t",
 )
 
-ld_file = pq.ParquetFile("tutorial_outputs/ref_panel_chr22/parquet/ld/1KG30X_chr22_LD.parquet")
+ld_file = pq.ParquetFile("tutorial_outputs/ref_panel_chr22/parquet/ld/chr22_LD.parquet")
 first_row_group = ld_file.read_row_group(0).to_pandas()
 
 print(ann.head())
@@ -405,10 +400,10 @@ Example:
 
 ```bash
 ldsc ldscore \
-  --out tutorial_outputs/ldscores_from_parquet_panel \
-  --baseline-annot "annotations/baseline.@.annot.gz" \
-  --r2-table "tutorial_outputs/ref_panel/parquet/ld/EUR_chr@_LD.parquet" \
-  --frqfile "tutorial_outputs/ref_panel/parquet/meta/EUR_chr@_meta_hg38.tsv.gz" \
+  --output-dir tutorial_outputs/ldscores_from_parquet_panel \
+  --baseline-annot-paths "annotations/baseline.@.annot.gz" \
+  --r2-paths "tutorial_outputs/ref_panel/parquet/ld/chr@_LD.parquet" \
+  --metadata-paths "tutorial_outputs/ref_panel/parquet/meta/chr@_meta_hg38.tsv.gz" \
   --snp-identifier rsid \
   --ld-wind-cm 1.0
 ```
@@ -429,21 +424,20 @@ These files are also useful outside of LDSC proper. Common examples include:
 
 ### Build a chromosome suite instead of one chromosome
 
-If your PLINK files are split by chromosome, pass the suite token through `--bfile`:
+If your PLINK files are split by chromosome, pass the suite token through `--plink-path`:
 
 ```bash
 ldsc build-ref-panel \
-  --bfile data/reference/genomes_30x_chr@ \
-  --panel-label 1KG30X \
+  --plink-path data/reference/genomes_30x_chr@ \
   --source-genome-build hg38 \
-  --genetic-map-hg19 resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg19_withX.txt \
-  --genetic-map-hg38 resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg38_withX.txt \
-  --liftover-chain-hg38-to-hg19 resources/liftover/hg38ToHg19.over.chain \
+  --genetic-map-hg19-path resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg19_withX.txt \
+  --genetic-map-hg38-path resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg38_withX.txt \
+  --liftover-chain-hg38-to-hg19-path resources/liftover/hg38ToHg19.over.chain \
   --ld-wind-cm 1.0 \
-  --out tutorial_outputs/ref_panel
+  --output-dir tutorial_outputs/ref_panel
 ```
 
-If `--out` does not exist yet, the workflow warns once and creates it automatically.
+If `--output-dir` does not exist yet, the workflow warns once and creates it automatically.
 
 ### Restrict to a predefined SNP universe
 
@@ -458,7 +452,7 @@ Accepted forms include:
 
 ### Restrict the sample set
 
-Use `--keep-indivs` when you want LD computed from only a subset of individuals, for example one ancestry group or a QC-passed subset.
+Use `--keep-indivs-path` when you want LD computed from only a subset of individuals, for example one ancestry group or a QC-passed subset.
 
 ### Apply an MAF filter
 
@@ -487,13 +481,12 @@ GLOBAL_CONFIG = GlobalConfig(log_level="INFO")
 set_global_config(GLOBAL_CONFIG)
 
 result = run_build_ref_panel(
-    bfile="resources/example_1kg_30x/genomes_30x_chr22",
-    panel_label="1KG30X",
+    plink_path="resources/example_1kg_30x/genomes_30x_chr22",
     source_genome_build="hg38",
-    genetic_map_hg19="resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg19_withX.txt",
-    genetic_map_hg38="resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg38_withX.txt",
-    liftover_chain_hg38_to_hg19="resources/liftover/hg38ToHg19.over.chain",
-    out="tutorial_outputs/ref_panel_chr22",
+    genetic_map_hg19_path="resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg19_withX.txt",
+    genetic_map_hg38_path="resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg38_withX.txt",
+    liftover_chain_hg38_to_hg19_path="resources/liftover/hg38ToHg19.over.chain",
+    output_dir="tutorial_outputs/ref_panel_chr22",
     ld_wind_cm=1.0,
 )
 ```

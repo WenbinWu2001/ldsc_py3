@@ -15,7 +15,7 @@ Path-token rules used in this tutorial:
 - use `@` for chromosome suites such as `baseline.@.annot.gz`
 - use globs when the filenames do not follow the simple chromosome-suffix convention
 - scalar inputs still resolve to exactly one file
-- output prefixes remain literal destinations
+- output directories remain literal destinations
 
 Resolution behavior:
 
@@ -37,6 +37,7 @@ from ldsc import (
     GlobalConfig,
     LDScoreCalculator,
     LDScoreConfig,
+    LDScoreOutputConfig,
     MungeConfig,
     RawSumstatsSpec,
     RefPanelLoader,
@@ -58,25 +59,25 @@ set_global_config(GLOBAL_CONFIG)
 annotation_bundle = AnnotationBuilder(GLOBAL_CONFIG, AnnotationBuildConfig()).run(
     AnnotationSourceSpec(
         baseline_annot_paths="annotations/baseline_chr/baseline.@.annot.gz",
-        bed_paths="beds/*.bed",
+        query_annot_bed_paths="beds/*.bed",
     )
 )
 
 # If you want reusable query .annot.gz shards on disk, materialize them explicitly.
 # reusable_bundle = run_bed_to_annot(
-#     bed_files="beds/*.bed",
+#     query_annot_bed_paths="beds/*.bed",
 #     baseline_annot_paths="annotations/baseline_chr/baseline.@.annot.gz",
 #     output_dir="annotations/query_from_beds",
 # )
 
 sumstats = SumstatsMunger().run(
     RawSumstatsSpec(
-        path="data/trait.tsv.gz",
+        sumstats_path="data/trait.tsv.gz",
         trait_name="trait",
         column_hints={"snp": "SNP", "a1": "A1", "a2": "A2", "p": "P", "N_col": "N"},
     ),
     MungeConfig(
-        out_prefix="tutorial_outputs/trait",
+        output_dir="tutorial_outputs/trait",
         signed_sumstats_spec="BETA,0",
     ),
     global_config=GLOBAL_CONFIG,
@@ -85,13 +86,13 @@ sumstats = SumstatsMunger().run(
 # If you already have a curated .sumstats.gz artifact on disk, keep the same
 # GlobalConfig active before calling load_sumstats(). The loader warns because
 # the original munge-time config is not recoverable from disk.
-# sumstats = load_sumstats("tutorial_outputs/trait.sumstats.gz", trait_name="trait")
+# sumstats = load_sumstats("tutorial_outputs/trait/sumstats.sumstats.gz", trait_name="trait")
 
 ref_panel = RefPanelLoader(GLOBAL_CONFIG).load(
     RefPanelSpec(
         backend="parquet_r2",
-        r2_table_paths="r2/reference.@.parquet",
-        maf_metadata_paths="r2/reference_metadata.@.tsv.gz",
+        r2_paths="r2/reference.@.parquet",
+        metadata_paths="r2/reference_metadata.@.tsv.gz",
         chromosomes=tuple(annotation_bundle.chromosomes),
         genome_build="hg19",
         ref_panel_snps_path="filters/reference_universe.tsv.gz",
@@ -106,6 +107,7 @@ ldscore_result = LDScoreCalculator().run(
         regression_snps_path="filters/hapmap3.tsv.gz",
     ),
     global_config=GLOBAL_CONFIG,
+    output_config=LDScoreOutputConfig(output_dir="tutorial_outputs/partitioned_ldscores"),
 )
 
 runner = RegressionRunner(global_config=GLOBAL_CONFIG, regression_config=RegressionConfig())
@@ -115,9 +117,9 @@ partitioned = runner.estimate_partitioned_h2_batch(
     annotation_bundle,
 )
 
-partitioned.to_csv("tutorial_outputs/partitioned_h2.tsv", sep="\t", index=False)
+partitioned.to_csv("tutorial_outputs/partitioned_h2/partitioned_h2.tsv", sep="\t", index=False)
 print(annotation_bundle.query_columns)
-print(ldscore_result.ldscore_table.head())
+print(ldscore_result.baseline_table.head())
 print(partitioned)
 ```
 
@@ -127,7 +129,7 @@ Within this design:
 
 - `ref_panel_snps_path` belongs to `RefPanelSpec` and restricts the retained reference-panel rows
 - `LDScoreCalculator.compute_chromosome()` intersects each chromosome-local annotation bundle with `ref_panel.load_metadata(chrom)`, so the LD-score compute universe is `B ∩ A'`; parquet pair rows are not scanned to define SNP presence
-- `regression_snps_path` belongs to `LDScoreConfig` and further restricts the normalized `ldscore_table` rows to `B ∩ A' ∩ C`
+- `regression_snps_path` belongs to `LDScoreConfig` and further restricts the normalized `baseline_table` rows to `B ∩ A' ∩ C`
 - regression weights are embedded as `regr_weight`; there is no separate `.w.l2.ldscore.gz` artifact in the new default format
 
 ## CLI
@@ -136,11 +138,11 @@ The CLI supports BED-driven LD-score generation directly:
 
 ```bash
 ldsc ldscore \
-  --out tutorial_outputs/partitioned_ldscores \
-  --baseline-annot "annotations/baseline_chr/baseline.@.annot.gz" \
-  --query-annot-bed "beds/*.bed" \
-  --r2-table "r2/reference.@.parquet" \
-  --frqfile "r2/reference_metadata.@.tsv.gz" \
+  --output-dir tutorial_outputs/partitioned_ldscores \
+  --baseline-annot-paths "annotations/baseline_chr/baseline.@.annot.gz" \
+  --query-annot-bed-paths "beds/*.bed" \
+  --r2-paths "r2/reference.@.parquet" \
+  --metadata-paths "r2/reference_metadata.@.tsv.gz" \
   --ref-panel-snps-path filters/reference_universe.tsv.gz \
   --regression-snps-path filters/hapmap3.tsv.gz \
   --snp-identifier chr_pos \
@@ -152,40 +154,31 @@ You can still materialize reusable query `.annot.gz` files explicitly:
 
 ```bash
 ldsc annotate \
-  --bed-files "beds/*.bed" \
-  --baseline-annot "annotations/baseline_chr/baseline.@.annot.gz" \
+  --query-annot-bed-paths "beds/*.bed" \
+  --baseline-annot-paths "annotations/baseline_chr/baseline.@.annot.gz" \
   --output-dir annotations/query_from_beds
 ```
 
-The regression CLI has two current constraints that matter for partitioned runs:
-
-- `ldsc ldscore` writes per-chromosome `.l2.ldscore.gz` files by default
-- `ldsc partitioned-h2` loads one merged `.l2.ldscore.gz` table at a time and needs either `--query-columns` or an explicit annotation manifest
-
-So the CLI regression example below assumes you already have:
-
-- a merged LD-score table such as `tutorial_outputs/partitioned_ldscores.merged.l2.ldscore.gz`
-- aggregate counts such as `tutorial_outputs/partitioned_ldscores.l2.M_5_50`
-- query column names derived from your BED basenames, here `enhancers,promoters`
+The regression CLI consumes the LD-score result directory directly. It reads
+baseline columns from `baseline.parquet`, query columns from `query.parquet`,
+and counts from `manifest.json`.
 
 ```bash
 ldsc munge-sumstats \
-  --sumstats data/trait.tsv.gz \
+  --sumstats-path data/trait.tsv.gz \
   --snp SNP \
   --a1 A1 \
   --a2 A2 \
   --p P \
   --N-col N \
   --signed-sumstats BETA,0 \
-  --out tutorial_outputs/trait
+  --output-dir tutorial_outputs/trait
 
 ldsc partitioned-h2 \
-  --sumstats tutorial_outputs/trait.sumstats.gz \
-  --ldscore tutorial_outputs/partitioned_ldscores.merged.l2.ldscore.gz \
-  --counts tutorial_outputs/partitioned_ldscores.l2.M_5_50 \
+  --sumstats-path tutorial_outputs/trait/sumstats.sumstats.gz \
+  --ldscore-dir tutorial_outputs/partitioned_ldscores \
   --count-kind m_5_50 \
-  --query-columns enhancers,promoters \
-  --out tutorial_outputs/partitioned_h2
+  --output-dir tutorial_outputs/partitioned_h2
 ```
 
-If you have a legacy separate weight file, add `--w-ld <path>` to the regression command. Otherwise leave it unset and let the loader use the embedded `regr_weight` column.
+The command writes `tutorial_outputs/partitioned_h2/partitioned_h2.tsv`.

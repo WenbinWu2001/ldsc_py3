@@ -368,9 +368,9 @@ class OutputManagerTest(unittest.TestCase):
 
             self.assertEqual(caught, [])
 
-    def test_missing_out_prefix_parent_warns_and_is_created(self):
+    def test_missing_munge_output_dir_warns_and_is_created(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            out_prefix = Path(tmpdir) / "nested" / "trait"
+            output_dir = Path(tmpdir) / "nested" / "trait"
             munger = __import__("ldsc.sumstats_munger", fromlist=["SumstatsMunger"]).SumstatsMunger()
             table = __import__("ldsc.sumstats_munger", fromlist=["SumstatsTable"]).SumstatsTable(
                 data=pd.DataFrame({"SNP": ["rs1"], "N": [1000.0], "Z": [1.5]}),
@@ -381,11 +381,11 @@ class OutputManagerTest(unittest.TestCase):
 
             with warnings.catch_warnings(record=True) as caught:
                 warnings.simplefilter("always")
-                written = munger.write_output(table, str(out_prefix))
+                written = munger.write_output(table, str(output_dir))
 
-            self.assertTrue((Path(tmpdir) / "nested").exists())
+            self.assertTrue(output_dir.exists())
             self.assertEqual(len(caught), 1)
-            self.assertIn("parent directory", str(caught[0].message).lower())
+            self.assertIn("output directory", str(caught[0].message).lower())
             self.assertIn("created", str(caught[0].message).lower())
             self.assertTrue(Path(written).exists())
 

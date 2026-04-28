@@ -139,16 +139,16 @@ def main(argv: Sequence[str] | None = None):
 
 def _run_annotate(args: argparse.Namespace):
     """Dispatch the ``annotate`` subcommand."""
-    if not args.bed_files:
-        raise SystemExit("ldsc annotate requires --bed-files and --baseline-annot.")
+    if not args.query_annot_bed_paths:
+        raise SystemExit("ldsc annotate requires --query-annot-bed-paths and --baseline-annot-paths.")
     return annotation_builder.main_bed_to_annot(_namespace_to_argv(args, exclude={"command"}))
 
 
 def _add_annotate_arguments(parser: argparse.ArgumentParser) -> None:
     """Register annotation-building arguments on a subparser."""
-    parser.add_argument("--bed-files", nargs="+", default=None, help="BED files, comma-separated lists, or glob patterns.")
+    parser.add_argument("--query-annot-bed-paths", nargs="+", default=None, help="BED files, comma-separated lists, or glob patterns.")
     parser.add_argument(
-        "--baseline-annot",
+        "--baseline-annot-paths",
         nargs="+",
         default=None,
         help="Baseline annotation path tokens: exact paths, globs, or explicit @ suite tokens.",

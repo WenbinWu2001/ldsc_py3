@@ -58,39 +58,43 @@ Identifier and Genome-Build Rules
 
 Outputs
 -------
-- Reference LD-score file: `<out>.l2.ldscore.gz`
-- Reference LD-score counts: `<out>.l2.M`
-- Common-SNP counts, when MAF is available: `<out>.l2.M_5_50`
-- Regression weights are embedded as the `regr_weight` column in the LD-score
-  table; the legacy `<out>.w.l2.ldscore.gz` sidecar is no longer written by the
-  refactored workflow.
-- Annotation-group manifest: `<out>.annotation_groups.tsv`
+This module is the internal compute kernel. Its historical writer can still
+materialize legacy prefix-based files for compatibility tests, but the public
+``ldsc ldscore`` workflow wraps kernel results in ``LDScoreResult`` and writes a
+canonical directory:
 
-Outputs retain `CM` and `MAF` when available. Missing values are written as
-`NA`. Multi-chromosome output is aggregated by default; per-chromosome output is
-available via a flag.
+- ``manifest.json``
+- ``baseline.parquet``, containing ``CHR``, ``SNP``, ``BP``, ``regr_weight``,
+  and baseline LD-score columns
+- optional ``query.parquet``, containing ``CHR``, ``SNP``, ``BP``, and query
+  LD-score columns
+
+Count records are stored in the manifest rather than as public ``.M`` sidecar
+files. Outputs retain ``CM`` and ``MAF`` internally when available, with missing
+values represented as ``NA`` by the legacy serializers.
 
 Example Usage
 -------------
 Python
-    from ldsc_py3_Jerry.ldscore.ldscore_new import run_ldscore
+    from ldsc import run_ldscore
 
     run_ldscore(
-        out="results/example",
-        baseline_annot="data/baseline.@.annot.gz",
-        query_annot="data/query.annot.gz",
-        r2_table="data/r2/chr@_sorted.parquet",
-        snp_identifier="rsid",
+        output_dir="results/example_ldscores",
+        baseline_annot_paths="data/baseline.@.annot.gz",
+        query_annot_paths="data/query.annot.gz",
+        r2_paths="data/r2/chr@_sorted.parquet",
+        metadata_paths="data/r2/chr@_metadata.tsv.gz",
         r2_bias_mode="unbiased",
         ld_wind_cm=1,
     )
 
 CLI
-    python -m ldsc_py3_Jerry.ldsc_new \
-        --out results/example \
-        --baseline-annot data/baseline.@.annot.gz \
-        --query-annot data/query.annot.gz \
-        --r2-table data/r2/chr@_sorted.parquet \
+    python -m ldsc ldscore \
+        --output-dir results/example_ldscores \
+        --baseline-annot-paths data/baseline.@.annot.gz \
+        --query-annot-paths data/query.annot.gz \
+        --r2-paths data/r2/chr@_sorted.parquet \
+        --metadata-paths data/r2/chr@_metadata.tsv.gz \
         --snp-identifier rsid \
         --r2-bias-mode unbiased \
         --ld-wind-cm 1
@@ -99,7 +103,7 @@ Preprocessing helper
 --------------------
 - Use `convert_r2_table_to_sorted_parquet(source_path, genome_build, output_path)`
   to convert a common tabular `R2` file into the normalized sorted parquet
-  format required by `run_ldscore(...)`.
+  format consumed by the public `run_ldscore(...)` wrapper.
 
 Computation Overview
 --------------------
@@ -115,7 +119,8 @@ Computation Overview
      fills block-local dense `R2` matrices from the sorted parquet file.
 6. Compute all partitioned LD-score columns and `w_ld` from the same block
    traversal.
-7. Aggregate chromosome results and write LDSC-compatible outputs.
+7. Aggregate chromosome results; the public wrapper writes the canonical
+   LD-score result directory.
 
 Raw-vs-Unbiased `R2` Handling
 -----------------------------
@@ -633,18 +638,21 @@ def resolve_annotation_files(spec: str | None) -> list[str]:
 
 def resolve_parquet_files(args: argparse.Namespace, chrom: str | None = None) -> list[str]:
     """Resolve the sorted parquet R2 files participating in one LD-score run."""
-    if args.r2_table:
-        tokens = split_arg_list(args.r2_table)
+    r2_paths = getattr(args, "r2_paths", None)
+    r2_table = getattr(args, "r2_table", None)
+    parquet_spec = r2_paths if r2_paths is not None else r2_table
+    if parquet_spec:
+        tokens = split_arg_list(parquet_spec)
         if chrom is not None:
             return resolve_chromosome_group(
                 tokens,
                 chrom=chrom,
-                label="r2_table",
+                label="r2_paths",
                 suffixes=PARQUET_SUFFIXES,
             )
         return resolve_file_group(
             tokens,
-            label="r2_table",
+            label="r2_paths",
             suffixes=PARQUET_SUFFIXES,
             allow_chromosome_suite=True,
         )
@@ -1378,7 +1386,7 @@ class SortedR2BlockReader:
             avg_rows_per_rg = meta.num_rows / meta.num_row_groups
             if avg_rows_per_rg > 500_000:
                 LOGGER.warning(
-                    "%s has %d row group(s) (avg %,.0f rows/group). Query performance will be severely degraded. "
+                    "%s has %d row group(s) (avg %.0f rows/group). Query performance will be severely degraded. "
                     "Regenerate with `row_group_size=50000` for optimal speed.",
                     path,
                     meta.num_row_groups,
@@ -1982,7 +1990,7 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("Specify exactly one reference-panel mode: parquet or PLINK.")
     if args.r2_table:
         if keep:
-            raise ValueError("--keep is only supported in PLINK mode.")
+            raise ValueError("--keep-indivs-path is only supported in PLINK mode.")
         if args.r2_bias_mode is None:
             raise ValueError("--r2-bias-mode is required in parquet mode.")
         if args.r2_bias_mode == "raw" and args.r2_sample_size is None:

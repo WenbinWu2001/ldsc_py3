@@ -31,7 +31,7 @@ from .column_inference import (
     resolve_required_column,
 )
 from .config import GlobalConfig, MungeConfig, _normalize_required_path, get_global_config
-from .path_resolution import ensure_output_parent_directory, normalize_path_token, resolve_scalar_path
+from .path_resolution import ensure_output_directory, resolve_scalar_path
 from ._kernel import sumstats_munger as kernel_munge
 
 
@@ -63,7 +63,7 @@ class RawSumstatsSpec:
 
     Parameters
     ----------
-    path : str or os.PathLike[str]
+    sumstats_path : str or os.PathLike[str]
         Path token for the raw summary-statistics file. This may be a literal
         path or an exact-one glob pattern; resolution happens in the workflow
         layer before the kernel is called.
@@ -77,14 +77,14 @@ class RawSumstatsSpec:
         Mapping from canonical LDSC field names to source column names.
         Default is an empty dict.
     """
-    path: str | PathLike[str]
+    sumstats_path: str | PathLike[str]
     compression: str = "auto"
     trait_name: str | None = None
     column_hints: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         """Normalize the raw input path token after dataclass construction."""
-        object.__setattr__(self, "path", _normalize_required_path(self.path))
+        object.__setattr__(self, "sumstats_path", _normalize_required_path(self.sumstats_path))
 
 
 @dataclass(frozen=True)
@@ -239,7 +239,9 @@ class SumstatsMunger:
         raw_source : RawSumstatsSpec
             Raw file path and optional column hints.
         munge_config : MungeConfig
-            Munging thresholds and output settings.
+            Munging thresholds and output directory. The kernel writes fixed
+            files named ``sumstats.sumstats.gz`` and ``sumstats.log`` inside
+            ``munge_config.output_dir``.
         global_config : GlobalConfig or None, optional
             Reserved for future shared validation. It is currently accepted to keep
             the workflow interface consistent with the rest of the package. Default
@@ -249,11 +251,13 @@ class SumstatsMunger:
         -------
         SumstatsTable
             Validated, in-memory table suitable for the regression workflow.
+            Output paths for the corresponding disk artifacts are available
+            through :meth:`build_run_summary`.
         """
         config_snapshot = global_config or get_global_config()
-        source_path = resolve_scalar_path(raw_source.path, label="raw sumstats")
-        out_prefix = normalize_path_token(munge_config.out_prefix)
-        ensure_output_parent_directory(out_prefix, label="out_prefix")
+        source_path = resolve_scalar_path(raw_source.sumstats_path, label="raw sumstats")
+        output_dir = ensure_output_directory(munge_config.output_dir, label="output directory")
+        fixed_output_stem = str(output_dir / "sumstats")
         args = self._build_args(raw_source, munge_config)
         data = kernel_munge.munge_sumstats(args, p=True)
         table = SumstatsTable(
@@ -263,7 +267,7 @@ class SumstatsMunger:
             trait_name=raw_source.trait_name,
             provenance={
                 "sumstats_path": source_path,
-                "out_prefix": out_prefix,
+                "output_dir": str(output_dir),
                 "column_hints": dict(raw_source.column_hints),
             },
             config_snapshot=config_snapshot,
@@ -276,19 +280,18 @@ class SumstatsMunger:
             inferred_columns=dict(raw_source.column_hints),
             used_n_rule=_infer_used_n_rule(args),
             output_paths={
-                "sumstats_gz": out_prefix + ".sumstats.gz",
-                "log": out_prefix + ".log",
+                "sumstats_gz": fixed_output_stem + ".sumstats.gz",
+                "log": fixed_output_stem + ".log",
             },
         )
         return table
 
-    def write_output(self, sumstats: SumstatsTable, out_prefix: str) -> str:
-        """Write a munged table to ``<out_prefix>.sumstats.gz``."""
-        output_path = out_prefix + ".sumstats.gz"
-        ensure_output_parent_directory(output_path, label="out_prefix")
+    def write_output(self, sumstats: SumstatsTable, output_dir: str | PathLike[str]) -> str:
+        """Write a munged table to ``<output_dir>/sumstats.sumstats.gz``."""
+        output_path = ensure_output_directory(output_dir, label="output directory") / "sumstats.sumstats.gz"
         columns = [col for col in ("SNP", "N", "Z", "A1", "A2", "FRQ") if col in sumstats.data.columns]
         sumstats.data.to_csv(output_path, sep="\t", index=False, columns=columns, float_format="%.3f", compression="gzip")
-        return output_path
+        return str(output_path)
 
     def build_run_summary(self, _sumstats: SumstatsTable | None = None) -> MungeRunSummary:
         """Return the summary captured from the most recent call to :meth:`run`."""
@@ -299,8 +302,9 @@ class SumstatsMunger:
     def _build_args(self, raw_source: RawSumstatsSpec, munge_config: MungeConfig) -> argparse.Namespace:
         """Translate dataclass configuration into the legacy parser namespace."""
         args = parser.parse_args("")
-        args.sumstats = resolve_scalar_path(raw_source.path, label="raw sumstats")
-        args.out = normalize_path_token(munge_config.out_prefix)
+        args.sumstats = resolve_scalar_path(raw_source.sumstats_path, label="raw sumstats")
+        output_dir = ensure_output_directory(munge_config.output_dir, label="output directory")
+        args.out = str(output_dir / "sumstats")
         args.N = munge_config.N
         args.N_cas = munge_config.N_cas
         args.N_con = munge_config.N_con
@@ -330,18 +334,55 @@ class SumstatsMunger:
 
 def main(argv: list[str] | None = None):
     """Run the historical munging parser and kernel entrypoint."""
-    args = parser.parse_args(argv)
-    args.sumstats = resolve_scalar_path(args.sumstats, label="raw sumstats")
-    args.out = normalize_path_token(args.out)
-    ensure_output_parent_directory(args.out, label="out_prefix")
-    if getattr(args, "merge_alleles", None):
-        args.merge_alleles = resolve_scalar_path(args.merge_alleles, label="merge-alleles file")
+    args = build_parser().parse_args(argv)
+    args.sumstats = resolve_scalar_path(args.sumstats_path, label="raw sumstats")
+    output_dir = ensure_output_directory(args.output_dir, label="output directory")
+    args.out = str(output_dir / "sumstats")
+    if getattr(args, "merge_alleles_path", None):
+        args.merge_alleles = resolve_scalar_path(args.merge_alleles_path, label="merge-alleles file")
+    else:
+        args.merge_alleles = None
     return kernel_munge.munge_sumstats(args, p=True)
 
 
 def kernel_parser():
-    """Expose the legacy parser for CLI action cloning."""
-    return parser
+    """Expose the public munging parser for CLI action cloning."""
+    return build_parser()
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Build the public summary-statistics munging parser."""
+    public = argparse.ArgumentParser(description=getattr(parser, "description", None), allow_abbrev=False)
+    public.add_argument("--sumstats-path", required=True, help="Raw summary-statistics file path.")
+    public.add_argument("--output-dir", required=True, help="Output directory for munged sumstats and logs.")
+    public.add_argument("--merge-alleles-path", default=None, help="Optional merge-alleles file path.")
+    for action in parser._actions:
+        if action.dest in {"help", "sumstats", "out", "merge_alleles"}:
+            continue
+        option_strings = list(action.option_strings)
+        if not option_strings:
+            continue
+        kwargs = {
+            "dest": action.dest,
+            "default": action.default,
+            "required": action.required,
+            "help": action.help,
+        }
+        if getattr(action, "choices", None) is not None:
+            kwargs["choices"] = action.choices
+        if getattr(action, "type", None) is not None:
+            kwargs["type"] = action.type
+        if getattr(action, "nargs", None) is not None:
+            kwargs["nargs"] = action.nargs
+        if action.const is not None:
+            kwargs["const"] = action.const
+        if action.__class__.__name__ == "_StoreTrueAction":
+            public.add_argument(*option_strings, action="store_true", default=action.default, help=action.help)
+        elif action.__class__.__name__ == "_StoreFalseAction":
+            public.add_argument(*option_strings, action="store_false", default=action.default, help=action.help)
+        else:
+            public.add_argument(*option_strings, **kwargs)
+    return public
 
 
 def _count_data_rows(path: str) -> int:

@@ -27,8 +27,9 @@ Not supported:
 Output paths are different:
 
 - `output_dir` is treated as a literal directory
-- `out_prefix`, `annot_file`, and similar output paths are treated as literal destinations
-- if an output directory or output parent directory does not exist, the program warns once and creates it
+- if an output directory does not exist, the program warns once and creates it
+- public workflows do not use output prefixes; output filenames inside
+  `output_dir` are fixed by the workflow
 
 ## General Resolution Rules
 
@@ -126,7 +127,7 @@ Relevant APIs:
 
 Accepted path forms:
 
-- `bed_files`: exact path or glob
+- `query_annot_bed_paths`: exact path or glob
 - `baseline_annot_paths`: exact path, glob, or explicit `@`
 
 How files are handled:
@@ -143,7 +144,7 @@ Example:
 
 ```python
 run_bed_to_annot(
-    bed_files="beds/*.bed",
+    query_annot_bed_paths="beds/*.bed",
     baseline_annot_paths="annotations/baseline_chr/baseline.@.annot.gz",
     output_dir="annotations/query_from_beds",
 )
@@ -158,10 +159,11 @@ Relevant APIs:
 
 Group-style inputs:
 
-- `baseline_annot`
-- `query_annot`
-- `r2_table`
-- `frqfile`
+- `baseline_annot_paths`
+- `query_annot_paths`
+- `query_annot_bed_paths`
+- `r2_paths`
+- `metadata_paths`
 
 Scalar-style inputs:
 
@@ -170,14 +172,14 @@ Scalar-style inputs:
 
 PLINK prefix input:
 
-- `bfile`
+- `plink_path`
 
 How they are handled:
 
 - group-style inputs may resolve to many files
 - per chromosome, the workflow first tries filename-based filtering and then
   falls back to row-level `CHR` filtering
-- `bfile` must resolve to exactly one PLINK prefix per chromosome pass
+- `plink_path` must resolve to exactly one PLINK prefix per chromosome pass
 
 Requirements:
 
@@ -189,17 +191,17 @@ Examples:
 ```bash
 ldsc ldscore \
   --output-dir out/trait_ldscores \
-  --baseline-annot "annotations/baseline.@.annot.gz" \
-  --r2-table "r2/reference.*.parquet" \
-  --frqfile "r2/reference_metadata.@.tsv.gz" \
+  --baseline-annot-paths "annotations/baseline.@.annot.gz" \
+  --r2-paths "r2/reference.*.parquet" \
+  --metadata-paths "r2/reference_metadata.@.tsv.gz" \
   --ld-wind-cm 1.0
 ```
 
 ```bash
 ldsc ldscore \
   --output-dir out/trait_ldscores \
-  --baseline-annot "annotations/baseline_joint*.annot.gz" \
-  --bfile "resources/example_1kg_30x/genomes_30x_chr@" \
+  --baseline-annot-paths "annotations/baseline_joint*.annot.gz" \
+  --plink-path "resources/example_1kg_30x/genomes_30x_chr@" \
   --ld-wind-kb 100
 ```
 
@@ -224,34 +226,34 @@ Relevant APIs:
 
 Accepted path forms:
 
-- `bfile`: exact PLINK prefix, exact-one PLINK glob, or explicit `@` PLINK suite token
+- `plink_path`: exact PLINK prefix, exact-one PLINK glob, or explicit `@` PLINK suite token
 - map and chain inputs: exact path or exact-one glob
 
 How they are handled:
 
-- `bfile` is resolved at the PLINK prefix level, not at the individual `.bed/.bim/.fam` file level
+- `plink_path` is resolved at the PLINK prefix level, not at the individual `.bed/.bim/.fam` file level
 - a chromosome suite such as `panel_chr@` is expanded one chromosome at a time
 
 Example:
 
 ```bash
 ldsc build-ref-panel \
-  --bfile data/reference/genomes_30x_chr@ \
-  --panel-label REF \
+  --plink-path data/reference/genomes_30x_chr@ \
   --source-genome-build hg38 \
-  --genetic-map-hg19 maps/hg19.txt \
-  --genetic-map-hg38 maps/hg38.txt \
-  --liftover-chain-hg38-to-hg19 chains/hg38ToHg19.over.chain \
+  --genetic-map-hg19-path maps/hg19.txt \
+  --genetic-map-hg38-path maps/hg38.txt \
+  --liftover-chain-hg38-to-hg19-path chains/hg38ToHg19.over.chain \
   --ld-wind-cm 1.0 \
-  --out out/ref_panel
+  --output-dir out/ref_panel
 ```
 
 ### Sumstats munging and regression
 
 Relevant APIs:
 
-- `RawSumstatsSpec.path`
-- regression artifact paths such as `sumstats`, `sumstats_1`, and `sumstats_2`
+- `RawSumstatsSpec.sumstats_path`
+- regression artifact paths such as `sumstats_path`, `sumstats_1_path`, and
+  `sumstats_2_path`
 - `ldscore_dir` for the canonical LD-score result directory
 
 Accepted path forms:

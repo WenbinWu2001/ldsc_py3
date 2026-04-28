@@ -87,7 +87,19 @@ class OutputSpec:
 
 @dataclass(frozen=True)
 class LDScoreOutputConfig:
-    """Directory-oriented output config for canonical LD-score results."""
+    """Directory-oriented output config for canonical LD-score results.
+
+    Parameters
+    ----------
+    output_dir : str or os.PathLike[str]
+        Directory that receives ``manifest.json``, ``baseline.parquet``, and
+        optional ``query.parquet``.
+    overwrite : bool, optional
+        If ``True``, replace existing canonical LD-score files in
+        ``output_dir``. Default is ``False``.
+    parquet_compression : {"snappy", "gzip", "brotli", "zstd", "none", None}, optional
+        Compression codec used for parquet tables. Default is ``"snappy"``.
+    """
     output_dir: str | PathLike[str]
     overwrite: bool = False
     parquet_compression: str = "snappy"

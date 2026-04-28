@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass, field
+import json
 from os import PathLike
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,8 @@ import pandas as pd
 
 from .column_inference import (
     INTERNAL_SUMSTATS_ARTIFACT_SPEC_MAP,
+    normalize_genome_build,
+    normalize_snp_identifier_mode,
     resolve_optional_column,
     resolve_required_column,
 )
@@ -161,9 +164,9 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
     -------
     SumstatsTable
         Validated in-memory table with canonical LDSC columns such as ``SNP``,
-        ``N``, and ``Z``. The returned table has ``config_snapshot=None``
-        because curated sumstats artifacts do not persist their original
-        munge-time ``GlobalConfig``.
+        ``N``, and ``Z``. When a ``*.metadata.json`` sidecar is present next to
+        the artifact, the returned table also recovers its munge-time
+        ``GlobalConfig`` snapshot.
 
     Raises
     ------
@@ -173,10 +176,10 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
 
     Notes
     -----
-    This loader emits a warning before returning an unknown-provenance table.
-    Regression compatibility validation is skipped for this sumstats side
-    unless the caller supplies a table produced in-process by
-    :meth:`SumstatsMunger.run`.
+    This loader emits a warning before returning an unknown-provenance table
+    only when the metadata sidecar is absent. Regression compatibility
+    validation is skipped for that sumstats side unless the caller supplies a
+    table produced in-process by :meth:`SumstatsMunger.run`.
     """
     resolved = resolve_scalar_path(path, label="munged sumstats")
     df = _read_curated_sumstats_artifact(resolved)
@@ -184,19 +187,26 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
     df = df.loc[:, list(resolved_columns.values())].rename(
         columns={actual: canonical for canonical, actual in resolved_columns.items()}
     )
-    warnings.warn(
-        "load_sumstats() cannot recover the GlobalConfig that was active when this "
-        "file was originally munged. Treating config provenance as unknown. "
-        "Validate manually if genome_build or snp_identifier matters here.",
-        UserWarning,
-        stacklevel=2,
-    )
+    metadata_path = _sumstats_metadata_path(resolved)
+    metadata = _read_sumstats_metadata(metadata_path)
+    config_snapshot = _global_config_from_sumstats_metadata(metadata) if metadata is not None else None
+    if metadata is None:
+        warnings.warn(
+            "load_sumstats() cannot recover the GlobalConfig that was active when this "
+            "file was originally munged. Treating config provenance as unknown. "
+            "Validate manually if genome_build or snp_identifier matters here.",
+            UserWarning,
+            stacklevel=2,
+        )
     table = SumstatsTable(
         data=df.reset_index(drop=True),
         has_alleles={"A1", "A2"}.issubset(df.columns),
         source_path=resolved,
         trait_name=trait_name or Path(resolved).name,
-        config_snapshot=None,
+        provenance={
+            **({"metadata_path": str(metadata_path), "metadata": metadata} if metadata is not None else {}),
+        },
+        config_snapshot=config_snapshot,
     )
     table.validate()
     return table
@@ -257,13 +267,23 @@ class SumstatsMunger:
         source_path = resolve_scalar_path(raw_source.sumstats_path, label="raw sumstats")
         output_dir = ensure_output_directory(munge_config.output_dir, label="output directory")
         fixed_output_stem = str(output_dir / "sumstats")
+        metadata_path = fixed_output_stem + ".metadata.json"
         ensure_output_paths_available(
-            [fixed_output_stem + ".sumstats.gz", fixed_output_stem + ".log"],
+            [fixed_output_stem + ".sumstats.gz", fixed_output_stem + ".log", metadata_path],
             overwrite=munge_config.overwrite,
             label="munged output artifact",
         )
-        args = self._build_args(raw_source, munge_config)
+        args = self._build_args(raw_source, munge_config, config_snapshot)
         data = kernel_munge.munge_sumstats(args, p=True)
+        coordinate_metadata = dict(getattr(args, "_coordinate_metadata", {}))
+        table_config_snapshot = _effective_sumstats_config(config_snapshot, coordinate_metadata)
+        _write_sumstats_metadata(
+            metadata_path,
+            config_snapshot=table_config_snapshot,
+            coordinate_metadata=coordinate_metadata,
+            source_path=source_path,
+            sumstats_path=fixed_output_stem + ".sumstats.gz",
+        )
         table = SumstatsTable(
             data=data.reset_index(drop=True),
             has_alleles=(not munge_config.no_alleles),
@@ -273,8 +293,10 @@ class SumstatsMunger:
                 "sumstats_path": source_path,
                 "output_dir": str(output_dir),
                 "column_hints": dict(raw_source.column_hints),
+                "metadata_path": metadata_path,
+                "metadata": coordinate_metadata,
             },
-            config_snapshot=config_snapshot,
+            config_snapshot=table_config_snapshot,
         )
         table.validate()
         self._last_summary = MungeRunSummary(
@@ -286,6 +308,7 @@ class SumstatsMunger:
             output_paths={
                 "sumstats_gz": fixed_output_stem + ".sumstats.gz",
                 "log": fixed_output_stem + ".log",
+                "metadata_json": metadata_path,
             },
         )
         return table
@@ -302,9 +325,23 @@ class SumstatsMunger:
         not remove unrelated files from ``output_dir``.
         """
         output_path = ensure_output_directory(output_dir, label="output directory") / "sumstats.sumstats.gz"
-        ensure_output_paths_available([output_path], overwrite=overwrite, label="munged output artifact")
-        columns = [col for col in ("SNP", "N", "Z", "A1", "A2", "FRQ") if col in sumstats.data.columns]
-        sumstats.data.to_csv(output_path, sep="\t", index=False, columns=columns, float_format="%.3f", compression="gzip")
+        metadata_path = output_path.with_name("sumstats.metadata.json")
+        ensure_output_paths_available([output_path, metadata_path], overwrite=overwrite, label="munged output artifact")
+        data = sumstats.data.copy()
+        if "CHR" not in data.columns:
+            data["CHR"] = pd.NA
+        if "POS" not in data.columns:
+            data["POS"] = pd.NA
+        columns = [col for col in ("SNP", "CHR", "POS", "A1", "A2", "Z", "N", "FRQ") if col in data.columns]
+        data.to_csv(output_path, sep="\t", index=False, columns=columns, float_format="%.3f", compression="gzip")
+        if sumstats.config_snapshot is not None:
+            _write_sumstats_metadata(
+                str(metadata_path),
+                config_snapshot=sumstats.config_snapshot,
+                coordinate_metadata=sumstats.provenance.get("metadata", {}),
+                source_path=sumstats.source_path,
+                sumstats_path=str(output_path),
+            )
         return str(output_path)
 
     def build_run_summary(self, _sumstats: SumstatsTable | None = None) -> MungeRunSummary:
@@ -313,7 +350,12 @@ class SumstatsMunger:
             raise ValueError("No munging run has been executed yet.")
         return self._last_summary
 
-    def _build_args(self, raw_source: MungeConfig, munge_config: MungeConfig) -> argparse.Namespace:
+    def _build_args(
+        self,
+        raw_source: MungeConfig,
+        munge_config: MungeConfig,
+        global_config: GlobalConfig,
+    ) -> argparse.Namespace:
         """Translate dataclass configuration into the legacy parser namespace."""
         args = parser.parse_args("")
         args.sumstats = resolve_scalar_path(raw_source.sumstats_path, label="raw sumstats")
@@ -339,6 +381,8 @@ class SumstatsMunger:
         args.keep_maf = munge_config.keep_maf
         args.daner = munge_config.daner
         args.daner_n = munge_config.daner_n
+        args.snp_identifier = global_config.snp_identifier
+        args.genome_build = global_config.genome_build
         for key, value in raw_source.column_hints.items():
             attr = _COLUMN_HINT_ATTRS.get(key)
             if attr is not None:
@@ -352,8 +396,9 @@ def main(argv: list[str] | None = None):
     args.sumstats = resolve_scalar_path(args.sumstats_path, label="raw sumstats")
     output_dir = ensure_output_directory(args.output_dir, label="output directory")
     args.out = str(output_dir / "sumstats")
+    metadata_path = args.out + ".metadata.json"
     ensure_output_paths_available(
-        [args.out + ".sumstats.gz", args.out + ".log"],
+        [args.out + ".sumstats.gz", args.out + ".log", metadata_path],
         overwrite=getattr(args, "overwrite", False),
         label="munged output artifact",
     )
@@ -361,7 +406,23 @@ def main(argv: list[str] | None = None):
         args.merge_alleles = resolve_scalar_path(args.merge_alleles_path, label="merge-alleles file")
     else:
         args.merge_alleles = None
-    return kernel_munge.munge_sumstats(args, p=True)
+    data = kernel_munge.munge_sumstats(args, p=True)
+    coordinate_metadata = dict(getattr(args, "_coordinate_metadata", {}))
+    config_snapshot = _effective_sumstats_config(
+        GlobalConfig(
+            snp_identifier=normalize_snp_identifier_mode(getattr(args, "snp_identifier", "chr_pos")),
+            genome_build=normalize_genome_build(getattr(args, "genome_build", "hg38")),
+        ),
+        coordinate_metadata,
+    )
+    _write_sumstats_metadata(
+        metadata_path,
+        config_snapshot=config_snapshot,
+        coordinate_metadata=coordinate_metadata,
+        source_path=args.sumstats,
+        sumstats_path=args.out + ".sumstats.gz",
+    )
+    return data
 
 
 def kernel_parser():
@@ -434,15 +495,92 @@ def _resolve_curated_sumstats_columns(columns: list[str], *, context: str) -> di
         canonical: resolve_required_column(columns, INTERNAL_SUMSTATS_ARTIFACT_SPEC_MAP[canonical], context=context)
         for canonical in ("SNP", "N", "Z")
     }
-    for canonical in ("A1", "A2", "FRQ"):
+    for canonical in ("CHR", "POS", "A1", "A2", "FRQ"):
         actual = resolve_optional_column(columns, INTERNAL_SUMSTATS_ARTIFACT_SPEC_MAP[canonical], context=context)
         if actual is not None:
             resolved[canonical] = actual
-    return resolved
+    return {canonical: resolved[canonical] for canonical in ("SNP", "CHR", "POS", "N", "Z", "A1", "A2", "FRQ") if canonical in resolved}
+
+
+def _sumstats_metadata_path(path: str | PathLike[str]) -> Path:
+    """Return the sidecar metadata path for a curated sumstats artifact."""
+    token = str(path)
+    if token.endswith(".sumstats.gz"):
+        return Path(token[: -len(".sumstats.gz")] + ".metadata.json")
+    if token.endswith(".sumstats"):
+        return Path(token[: -len(".sumstats")] + ".metadata.json")
+    return Path(token).with_suffix(Path(token).suffix + ".metadata.json")
+
+
+def _read_sumstats_metadata(path: Path) -> dict[str, Any] | None:
+    """Read a sumstats sidecar metadata file when it exists."""
+    if not path.exists():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _global_config_from_sumstats_metadata(metadata: dict[str, Any] | None) -> GlobalConfig | None:
+    """Recreate a GlobalConfig snapshot from a sumstats sidecar."""
+    if not isinstance(metadata, dict):
+        return None
+    snapshot = metadata.get("config_snapshot")
+    source = snapshot if isinstance(snapshot, dict) else metadata
+    try:
+        return GlobalConfig(
+            snp_identifier=normalize_snp_identifier_mode(source.get("snp_identifier", "chr_pos")),
+            genome_build=normalize_genome_build(source.get("genome_build")),
+            log_level=source.get("log_level", "INFO"),
+            fail_on_missing_metadata=bool(source.get("fail_on_missing_metadata", False)),
+        )
+    except Exception as exc:
+        raise ValueError("Sumstats metadata sidecar has invalid GlobalConfig provenance.") from exc
+
+
+def _effective_sumstats_config(config: GlobalConfig, coordinate_metadata: dict[str, Any]) -> GlobalConfig:
+    """Return the config snapshot implied by coordinate metadata."""
+    genome_build = coordinate_metadata.get("genome_build", config.genome_build)
+    return GlobalConfig(
+        snp_identifier=normalize_snp_identifier_mode(coordinate_metadata.get("snp_identifier", config.snp_identifier)),
+        genome_build=normalize_genome_build(genome_build),
+        log_level=config.log_level,
+        fail_on_missing_metadata=config.fail_on_missing_metadata,
+    )
+
+
+def _write_sumstats_metadata(
+    path: str | PathLike[str],
+    *,
+    config_snapshot: GlobalConfig,
+    coordinate_metadata: dict[str, Any],
+    source_path: str | None,
+    sumstats_path: str,
+) -> None:
+    """Write sidecar metadata for a curated sumstats artifact."""
+    payload = {
+        "format": "ldsc.sumstats.v1",
+        "snp_identifier": config_snapshot.snp_identifier,
+        "genome_build": config_snapshot.genome_build,
+        "source_path": source_path,
+        "sumstats_path": sumstats_path,
+        "coordinate_metadata": dict(coordinate_metadata),
+        "config_snapshot": {
+            "snp_identifier": config_snapshot.snp_identifier,
+            "genome_build": config_snapshot.genome_build,
+            "log_level": config_snapshot.log_level,
+            "fail_on_missing_metadata": config_snapshot.fail_on_missing_metadata,
+        },
+    }
+    if "genome_build_inferred" in coordinate_metadata:
+        payload["genome_build_inferred"] = coordinate_metadata["genome_build_inferred"]
+    if "coordinate_basis" in coordinate_metadata:
+        payload["coordinate_basis"] = coordinate_metadata["coordinate_basis"]
+    Path(path).write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 _COLUMN_HINT_ATTRS = {
     "snp": "snp",
+    "chr": "chr",
+    "pos": "pos",
     "N": "N_col",
     "N_col": "N_col",
     "N_cas": "N_cas_col",

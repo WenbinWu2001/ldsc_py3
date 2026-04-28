@@ -27,7 +27,11 @@ from ..column_inference import (
     RAW_SUMSTATS_SIGNED_STAT_SPECS,
     build_cleaned_alias_lookup,
     clean_header,
+    normalize_genome_build,
+    normalize_snp_identifier_mode,
 )
+from ..chromosome_inference import normalize_chromosome
+from ..genome_build_inference import resolve_chr_pos_table
 from . import regression as sumstats
 import time
 np.seterr(invalid='ignore')
@@ -94,6 +98,8 @@ default_cnames = build_cleaned_alias_lookup(
 
 describe_cname = {
     'SNP': 'Variant ID (e.g., rs number)',
+    'CHR': 'Chromosome',
+    'POS': 'Base-pair position',
     'P': 'p-Value',
     'A1': 'Allele 1, interpreted as ref allele for signed sumstat.',
     'A2': 'Allele 2, interpreted as non-ref allele for signed sumstat.',
@@ -110,13 +116,38 @@ describe_cname = {
     'NSTUDY': 'Number of studies in which the SNP was genotyped.'
 }
 
-numeric_cols = ['P', 'N', 'N_CAS', 'N_CON', 'Z', 'OR', 'BETA', 'LOG_ODDS', 'INFO', 'FRQ', 'SIGNED_SUMSTAT', 'NSTUDY']
+numeric_cols = ['P', 'N', 'N_CAS', 'N_CON', 'POS', 'Z', 'OR', 'BETA', 'LOG_ODDS', 'INFO', 'FRQ', 'SIGNED_SUMSTAT', 'NSTUDY']
+
+
+def _decode_header_line(line):
+    """Decode one raw header/comment line from plain or compressed input."""
+    if isinstance(line, bytes):
+        return line.decode('utf-8')
+    return line
+
+
+def count_leading_sumstats_comment_lines(fh):
+    """Count leading raw sumstats metadata lines that begin with ``##``."""
+    openfunc, _compression = get_compression(fh)
+    count = 0
+    with openfunc(fh) as handle:
+        for raw_line in handle:
+            line = _decode_header_line(raw_line)
+            if not line.startswith('##'):
+                break
+            count += 1
+    return count
+
 
 def read_header(fh):
-    '''Read the first line of a file and returns a list with the column names.'''
-    (openfunc, compression) = get_compression(fh)
+    '''Read the first non-metadata line of a file and return its column names.'''
+    skiprows = count_leading_sumstats_comment_lines(fh)
+    (openfunc, _compression) = get_compression(fh)
     with openfunc(fh) as handle:
-        return [x.rstrip('\n') for x in handle.readline().split()]
+        for _idx in range(skiprows):
+            handle.readline()
+        line = _decode_header_line(handle.readline())
+        return [x.rstrip('\n') for x in line.split()]
 
 
 def get_cname_map(flag, default, ignore):
@@ -230,7 +261,11 @@ def parse_dat(dat_gen, convert_colname, merge_alleles, log, args):
         sys.stdout.write('.')
         tot_snps += len(dat)
         old = len(dat)
-        dat = dat.dropna(axis=0, how="any", subset=list(filter(lambda x: x != 'INFO', dat.columns))).reset_index(drop=True)
+        required_raw_cols = [
+            raw_col for raw_col in dat.columns
+            if convert_colname[raw_col] not in {'INFO', 'CHR', 'POS'}
+        ]
+        dat = dat.dropna(axis=0, how="any", subset=required_raw_cols).reset_index(drop=True)
         drops['NA'] += old - len(dat)
         dat.columns = map(lambda x: convert_colname[x], dat.columns)
 
@@ -377,6 +412,8 @@ def parse_flag_cnames(log, args):
     cname_options = [
         [args.nstudy, 'NSTUDY', '--nstudy'],
         [args.snp, 'SNP', '--snp'],
+        [args.chr, 'CHR', '--chr'],
+        [args.pos, 'POS', '--pos'],
         [args.N_col, 'N', '--N'],
         [args.N_cas_col, 'N_CAS', '--N-cas-col'],
         [args.N_con_col, 'N_CON', '--N-con-col'],
@@ -437,6 +474,101 @@ def allele_merge(dat, alleles, log):
     dat.drop(['MA'], axis=1, inplace=True)
     return dat
 
+
+class _CoordinateInferenceLogger:
+    """Adapter exposing logging-style methods through the legacy Logger."""
+
+    def __init__(self, log):
+        self.log = log
+
+    def info(self, msg, *args):
+        self.log.log(msg % args if args else msg)
+
+    def warning(self, msg, *args):
+        text = msg % args if args else msg
+        self.log.log('WARNING: ' + text)
+
+
+def _coordinate_missing_mask(series):
+    """Return rows whose coordinate token is missing or an NA-like string."""
+    tokens = series.astype('string')
+    return tokens.isna() | tokens.str.strip().str.lower().isin({'', 'na', 'nan', 'none'})
+
+
+def _finalize_coordinate_columns(dat, args, log):
+    """Ensure canonical CHR/POS columns exist and normalize them when requested."""
+    if 'CHR' not in dat.columns:
+        dat['CHR'] = pd.NA
+    if 'POS' not in dat.columns:
+        dat['POS'] = pd.NA
+
+    mode = normalize_snp_identifier_mode(getattr(args, 'snp_identifier', 'chr_pos'))
+    genome_build = normalize_genome_build(getattr(args, 'genome_build', 'hg38'))
+    source_columns = getattr(args, '_coordinate_source_columns', {})
+
+    chr_missing = _coordinate_missing_mask(dat['CHR'])
+    pos_missing = _coordinate_missing_mask(dat['POS'])
+    complete = ~(chr_missing | pos_missing)
+    metadata = {
+        'format': 'ldsc.sumstats.v1',
+        'snp_identifier': mode,
+        'genome_build': genome_build,
+        'genome_build_inferred': False,
+        'coordinate_basis': '1-based' if complete.any() and genome_build not in {None, 'auto'} else None,
+        'coordinate_columns': {
+            'CHR': source_columns.get('CHR'),
+            'POS': source_columns.get('POS'),
+        },
+        'n_rows': int(len(dat)),
+        'n_missing_chr_pos': int((~complete).sum()),
+    }
+
+    if complete.any():
+        pos_numeric = pd.to_numeric(dat.loc[complete, 'POS'], errors='raise')
+        non_integral = (pos_numeric % 1) != 0
+        if non_integral.any():
+            bad_value = dat.loc[complete, 'POS'].loc[non_integral].iloc[0]
+            raise ValueError('POS values must be integer base-pair positions; got {V!r}.'.format(V=bad_value))
+        if (pos_numeric <= 0).any():
+            bad_value = dat.loc[complete, 'POS'].loc[pos_numeric <= 0].iloc[0]
+            raise ValueError('POS values must be positive base-pair positions; got {V!r}.'.format(V=bad_value))
+
+    if mode == 'chr_pos' and complete.any():
+        coordinate_rows = dat.loc[complete, ['CHR', 'POS']].copy()
+        if genome_build == 'auto':
+            normalized, inference = resolve_chr_pos_table(
+                coordinate_rows,
+                context=getattr(args, 'sumstats', 'sumstats'),
+                logger=_CoordinateInferenceLogger(log),
+            )
+            metadata.update(
+                {
+                    'genome_build': inference.genome_build,
+                    'genome_build_inferred': True,
+                    'coordinate_basis': inference.coordinate_basis,
+                    'build_inference': {
+                        'inspected_snp_count': int(inference.inspected_snp_count),
+                        'match_counts': dict(inference.match_counts),
+                        'match_fractions': dict(inference.match_fractions),
+                        'summary_message': inference.summary_message,
+                    },
+                }
+            )
+        else:
+            normalized = coordinate_rows.copy()
+            normalized['CHR'] = normalized['CHR'].map(
+                lambda value: normalize_chromosome(value, context=getattr(args, 'sumstats', 'sumstats'))
+            )
+            normalized['POS'] = pd.to_numeric(normalized['POS'], errors='raise').astype('int64')
+        dat.loc[complete, 'CHR'] = normalized['CHR'].astype(object)
+        dat.loc[complete, 'POS'] = normalized['POS'].astype('int64')
+    elif mode == 'chr_pos' and genome_build == 'auto':
+        metadata['genome_build'] = None
+        log.log('WARNING: Cannot infer genome build because no rows have complete CHR/POS coordinates.')
+
+    args._coordinate_metadata = metadata
+    return dat
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--sumstats', default=None, type=str,
                     help="Input filename.")
@@ -477,6 +609,10 @@ parser.add_argument('--chunksize', default=5e6, type=int,
 # optional args to specify column names
 parser.add_argument('--snp', default=None, type=str,
                     help='Name of SNP column (if not a name that ldsc understands). NB: case insensitive.')
+parser.add_argument('--chr', default=None, type=str,
+                    help='Name of chromosome column (if not a name that ldsc understands). NB: case insensitive.')
+parser.add_argument('--pos', default=None, type=str,
+                    help='Name of base-pair position column (if not a name that ldsc understands). NB: case insensitive.')
 parser.add_argument('--N-col', default=None, type=str,
                     help='Name of N column (if not a name that ldsc understands). NB: case insensitive.')
 parser.add_argument('--N-cas-col', default=None, type=str,
@@ -508,6 +644,10 @@ parser.add_argument('--a1-inc', default=False, action='store_true',
                     help='A1 is the increasing allele.')
 parser.add_argument('--keep-maf', default=False, action='store_true',
                     help='Keep the MAF column (if one exists).')
+parser.add_argument('--snp-identifier', default='chr_pos', choices=('rsid', 'chr_pos'),
+                    help="SNP identifier mode recorded in munged metadata.")
+parser.add_argument('--genome-build', default='hg38', choices=('auto', 'hg19', 'hg37', 'GRCh37', 'hg38', 'GRCh38'),
+                    help="Genome build for CHR/POS coordinates, or 'auto' to infer when possible.")
 
 
 # set p = False for testing in order to prevent printing
@@ -529,6 +669,12 @@ def munge_sumstats(args, p=True):
     """
     if args.out is None:
         raise ValueError('The --out flag is required.')
+    args._coordinate_metadata = {
+        'format': 'ldsc.sumstats.v1',
+        'snp_identifier': normalize_snp_identifier_mode(getattr(args, 'snp_identifier', 'chr_pos')),
+        'genome_build': normalize_genome_build(getattr(args, 'genome_build', 'hg38')),
+        'genome_build_inferred': False,
+    }
 
     START_TIME = time.time()
     log = Logger(args.out + '.log')
@@ -545,10 +691,10 @@ def munge_sumstats(args, p=True):
         if p:
             defaults = vars(parser.parse_args(''))
             opts = vars(args)
-            non_defaults = [x for x in opts.keys() if opts[x] != defaults[x]]
             header = MASTHEAD
             header += "Call: \n"
             header += './munge_sumstats.py \\\n'
+            non_defaults = [x for x in opts.keys() if x in defaults and opts[x] != defaults[x]]
             options = ['--'+x.replace('_','-')+' '+str(opts[x])+' \\' for x in non_defaults]
             header += '\n'.join(options).replace('True','').replace('False','')
             header = header[0:-1]+'\n'
@@ -601,6 +747,10 @@ def munge_sumstats(args, p=True):
 
         cname_translation = {x: cname_map[clean_header(x)] for x in file_cnames if
                              clean_header(x) in cname_map}  # note keys not cleaned
+        args._coordinate_source_columns = {
+            target: source for source, target in cname_translation.items()
+            if target in {'CHR', 'POS'}
+        }
         cname_description = {
             x: describe_cname[cname_translation[x]] for x in cname_translation}
         if args.signed_sumstats is None and not args.a1_inc:
@@ -676,6 +826,7 @@ def munge_sumstats(args, p=True):
             merge_alleles = None
 
         (openfunc, compression) = get_compression(args.sumstats)
+        metadata_skiprows = count_leading_sumstats_comment_lines(args.sumstats)
 
         # figure out which columns are going to involve sign information, so we can ensure
         # they're read as floats
@@ -683,6 +834,7 @@ def munge_sumstats(args, p=True):
         dat_gen = pd.read_csv(args.sumstats, sep='\s+', header=0,
                 compression=compression, usecols=cname_translation.keys(),
                 na_values=['.', 'NA'], iterator=True, chunksize=args.chunksize,
+                skiprows=metadata_skiprows,
                 dtype={c:np.float64 for c in signed_sumstat_cols})
 
         dat = parse_dat(dat_gen, cname_translation, merge_alleles, log, args)
@@ -707,10 +859,11 @@ def munge_sumstats(args, p=True):
         # the program
         if args.merge_alleles:
             dat = allele_merge(dat, merge_alleles, log)
+        dat = _finalize_coordinate_columns(dat, args, log)
 
         out_fname = args.out + '.sumstats'
         print_colnames = [
-            c for c in dat.columns if c in ['SNP', 'N', 'Z', 'A1', 'A2']]
+            c for c in ['SNP', 'CHR', 'POS', 'A1', 'A2', 'Z', 'N'] if c in dat.columns]
         if args.keep_maf and 'FRQ' in dat.columns:
             print_colnames.append('FRQ')
         msg = 'Writing summary statistics for {M} SNPs ({N} with nonmissing beta) to {F}.'

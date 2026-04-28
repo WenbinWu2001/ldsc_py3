@@ -110,7 +110,7 @@ def _build_uniq_id_aliases(build_aliases: Sequence[str], index: int) -> tuple[st
 
 # Shared external column families.
 SNP_COLUMN_ALIASES = ("SNP", "SNPID", "SNP_ID", "RSID", "RS_ID", "RS", "ID", "MARKERNAME", "MARKER")
-CHR_COLUMN_ALIASES = ("CHR", "CHROM", "CHROMOSOME")
+CHR_COLUMN_ALIASES = ("CHR", "#CHROM", "CHROM", "CHROMOSOME")
 POS_COLUMN_ALIASES = ("POS", "BP", "POSITION", "BASE_PAIR", "BASEPAIR")
 CM_COLUMN_ALIASES = ("CM", "CMBP", "CENTIMORGAN")
 MAF_COLUMN_ALIASES = ("MAF", "FRQ", "FREQ", "FREQUENCY")
@@ -130,6 +130,8 @@ RAW_SUMSTATS_REQUIRED_OR_OPTIONAL_SPECS = (
         ("SNP", "MARKERNAME", "SNPID", "SNP_ID", "RS", "RSID", "RS_ID", "ID", "RS_NUMBER", "RS_NUMBERS", "MARKER"),
         "summary-stat SNP identifier",
     ),
+    CHR_COLUMN_SPEC,
+    POS_COLUMN_SPEC,
     ColumnSpec("NSTUDY", ("NSTUDY", "N_STUDY", "NSTUDIES", "N_STUDIES"), "summary-stat number of studies"),
     ColumnSpec("P", ("P", "PVALUE", "P_VALUE", "PVAL", "P_VAL", "GC_PVALUE"), "summary-stat p-value"),
     ColumnSpec("A1", ("A1", "ALLELE1", "ALLELE_1", "EFFECT_ALLELE", "REFERENCE_ALLELE", "INC_ALLELE", "EA"), "effect allele"),
@@ -175,6 +177,8 @@ RESTRICTION_HG38_POS_SPEC = ColumnSpec("POS", tuple(f"{build}_{pos}" for build i
 # Strict internal artifact families.
 INTERNAL_SUMSTATS_ARTIFACT_SPECS = (
     _canonical_only_spec("SNP", "munged sumstats SNP identifier"),
+    _canonical_only_spec("CHR", "munged sumstats chromosome"),
+    _canonical_only_spec("POS", "munged sumstats position"),
     _canonical_only_spec("N", "munged sumstats sample size"),
     _canonical_only_spec("Z", "munged sumstats Z-score"),
     _canonical_only_spec("A1", "munged sumstats allele 1"),

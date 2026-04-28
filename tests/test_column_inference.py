@@ -63,6 +63,13 @@ class ColumnInferenceTest(unittest.TestCase):
         frq_spec = self._spec_by_canonical(specs, "FRQ")
         self.assertEqual(resolve_required_column(["frq_u"], frq_spec), "frq_u")
 
+        chr_spec = self._spec_by_canonical(specs, "CHR")
+        self.assertEqual(resolve_required_column(["#CHROM"], chr_spec), "#CHROM")
+        self.assertEqual(resolve_required_column(["CHROM"], chr_spec), "CHROM")
+
+        pos_spec = self._spec_by_canonical(specs, "POS")
+        self.assertEqual(resolve_required_column(["BP"], pos_spec), "BP")
+
         signed_specs = getattr(ci, "RAW_SUMSTATS_SIGNED_STAT_SPECS", None)
         self.assertIsNotNone(signed_specs)
         beta_spec = self._spec_by_canonical(signed_specs, "BETA")

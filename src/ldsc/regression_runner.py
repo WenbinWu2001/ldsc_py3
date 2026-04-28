@@ -39,6 +39,7 @@ from .config import (
 from .path_resolution import ensure_output_directory, ensure_output_paths_available, normalize_path_token
 from ._kernel import regression as reg
 from ._kernel.identifiers import build_snp_id_series
+from .column_inference import infer_chr_pos_columns, normalize_snp_identifier_mode
 from .ldscore_calculator import LDScoreResult
 from .outputs import LDSCORE_RESULT_FORMAT
 from .sumstats_munger import SumstatsTable, load_sumstats
@@ -46,6 +47,7 @@ from .sumstats_munger import SumstatsTable, load_sumstats
 
 COMMON_COUNT_KEY = "common_reference_snp_counts_maf_gt_0_05"
 ALL_COUNT_KEY = "all_reference_snp_counts"
+CHR_POS_KEY_COLUMN = "_ldsc_chr_pos_key"
 
 
 @dataclass(frozen=True)
@@ -94,8 +96,9 @@ class RegressionRunner:
         If both inputs carry known ``GlobalConfig`` snapshots, their critical
         settings are checked before merging. Unknown-provenance inputs, such as
         disk-loaded sumstats, are allowed through this compatibility boundary.
-        The merge key remains the literal ``SNP`` column; coordinate-based
-        ``CHR``/``BP`` matching is not part of the current regression workflow.
+        In ``rsid`` mode the merge uses the literal ``SNP`` column. In
+        ``chr_pos`` mode it uses normalized private ``CHR:POS`` keys and keeps
+        the original sumstats ``SNP`` value as metadata.
 
         Zero-variance LD-score columns are dropped here so the estimator kernel
         receives only informative regressors. The selected count vector is
@@ -113,13 +116,27 @@ class RegressionRunner:
         selected_query_columns = list(query_columns or [])
         ref_ld_columns = list(ldscore_result.baseline_columns) + selected_query_columns
         ldscore_frame = _assemble_regression_ldscore_table(ldscore_result, selected_query_columns)
-        merged = pd.merge(
-            sumstats_table.data,
-            ldscore_frame.loc[:, ["SNP", *ref_ld_columns, weight_column]].reset_index(drop=True),
-            how="inner",
-            on="SNP",
-            sort=False,
-        )
+        identifier_mode = _effective_snp_identifier_mode(sumstats_table, ldscore_result, self.global_config)
+        if identifier_mode == "rsid":
+            merged = pd.merge(
+                sumstats_table.data,
+                ldscore_frame.loc[:, ["SNP", *ref_ld_columns, weight_column]].reset_index(drop=True),
+                how="inner",
+                on="SNP",
+                sort=False,
+            )
+        else:
+            sumstats_keyed = _with_chr_pos_key(sumstats_table.data, context=sumstats_table.source_path or "sumstats")
+            ldscore_keyed = _with_chr_pos_key(ldscore_frame, context="LD-score table")
+            merged = pd.merge(
+                sumstats_keyed,
+                ldscore_keyed.loc[:, [CHR_POS_KEY_COLUMN, *ref_ld_columns, weight_column]].reset_index(drop=True),
+                how="inner",
+                on=CHR_POS_KEY_COLUMN,
+                sort=False,
+            )
+            if merged.empty:
+                raise ValueError("No overlapping chr_pos SNPs remain after merging sumstats with LD scores.")
 
         retained_ld_columns = list(ref_ld_columns)
         dropped_ld_columns: list[str] = []
@@ -237,14 +254,30 @@ class RegressionRunner:
     ):
         """Estimate genetic correlation between two munged summary-stat tables."""
         config = config or self.regression_config
+        identifier_mode = _effective_snp_identifier_mode(sumstats_table_1, ldscore_result, self.global_config)
         dataset_1 = self.build_dataset(sumstats_table_1, ldscore_result, config=config)
-        merged = pd.merge(
-            dataset_1.merged.rename(columns={"N": "N1", "Z": "Z1", "A1": "A1", "A2": "A2"}),
-            sumstats_table_2.data.rename(columns={"A1": "A1x", "A2": "A2x", "N": "N2", "Z": "Z2"}),
-            how="inner",
-            on="SNP",
-            sort=False,
-        ).dropna(how="any")
+        left = dataset_1.merged.rename(columns={"N": "N1", "Z": "Z1", "A1": "A1", "A2": "A2"})
+        right = sumstats_table_2.data.rename(columns={"A1": "A1x", "A2": "A2x", "N": "N2", "Z": "Z2"})
+        right_payload = [column for column in ["A1x", "A2x", "N2", "Z2"] if column in right.columns]
+        if identifier_mode == "rsid":
+            merged = pd.merge(
+                left,
+                right.loc[:, ["SNP", *right_payload]],
+                how="inner",
+                on="SNP",
+                sort=False,
+            ).dropna(how="any")
+        else:
+            right_keyed = _with_chr_pos_key(right, context=sumstats_table_2.source_path or "sumstats")
+            merged = pd.merge(
+                left,
+                right_keyed.loc[:, [CHR_POS_KEY_COLUMN, *right_payload]],
+                how="inner",
+                on=CHR_POS_KEY_COLUMN,
+                sort=False,
+            ).dropna(how="any")
+            if merged.empty:
+                raise ValueError("No overlapping chr_pos SNPs remain after merging the two sumstats tables.")
         if {"A1", "A2", "A1x", "A2x"}.issubset(merged.columns):
             alleles = merged["A1"] + merged["A2"] + merged["A1x"] + merged["A2x"]
             keep = reg._filter_alleles(alleles)
@@ -269,6 +302,51 @@ class RegressionRunner:
             n_blocks=n_blocks,
             twostep=config.two_step_cutoff,
         )
+
+
+def _effective_snp_identifier_mode(
+    sumstats_table: SumstatsTable,
+    ldscore_result: LDScoreResult,
+    runner_config: GlobalConfig,
+) -> str:
+    """Resolve the SNP identifier mode for a regression merge."""
+    for snapshot in (ldscore_result.config_snapshot, sumstats_table.config_snapshot, runner_config):
+        value = getattr(snapshot, "snp_identifier", None)
+        if value is not None:
+            return normalize_snp_identifier_mode(value)
+    return "rsid"
+
+
+def _coordinate_missing_mask(series: pd.Series) -> pd.Series:
+    """Return rows with missing or NA-like coordinate tokens."""
+    tokens = series.astype("string")
+    return tokens.isna() | tokens.str.strip().str.lower().isin({"", "na", "nan", "none"})
+
+
+def _with_chr_pos_key(frame: pd.DataFrame, *, context: str) -> pd.DataFrame:
+    """Return a copy with a private canonical ``CHR:POS`` merge key."""
+    chr_col, pos_col = infer_chr_pos_columns(frame.columns, context=context)
+    chr_missing = _coordinate_missing_mask(frame[chr_col])
+    pos_missing = _coordinate_missing_mask(frame[pos_col])
+    pos_numeric = pd.to_numeric(frame[pos_col], errors="coerce")
+    invalid_pos = (~pos_missing) & pos_numeric.isna()
+    if invalid_pos.any():
+        bad_value = frame.loc[invalid_pos, pos_col].iloc[0]
+        raise ValueError(f"POS values in {context} must be numeric; got {bad_value!r}.")
+    complete = ~(chr_missing | pos_missing)
+    keyed = frame.loc[complete].copy()
+    if keyed.empty:
+        keyed[CHR_POS_KEY_COLUMN] = pd.Series(dtype="string")
+        return keyed
+    keyed[pos_col] = pos_numeric.loc[complete]
+    non_integral = (keyed[pos_col] % 1) != 0
+    if non_integral.any():
+        bad_value = keyed.loc[non_integral, pos_col].iloc[0]
+        raise ValueError(f"POS values in {context} must be integer base-pair positions; got {bad_value!r}.")
+    keyed[pos_col] = keyed[pos_col].astype("int64")
+    keyed[CHR_POS_KEY_COLUMN] = build_snp_id_series(keyed, "chr_pos")
+    return keyed
+
 
 def _select_count_key(count_totals: dict[str, np.ndarray], use_m_5_50: bool) -> str:
     """Pick the regression count vector key, preferring LDSC's common-SNP default."""

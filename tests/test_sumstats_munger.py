@@ -1,5 +1,6 @@
 from pathlib import Path
 import gzip
+import json
 import sys
 import tempfile
 import unittest
@@ -91,10 +92,14 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertTrue((tmpdir / "munged" / "sumstats.sumstats.gz").exists())
             with gzip.open(tmpdir / "munged" / "sumstats.sumstats.gz", "rt", encoding="utf-8") as handle:
                 output = pd.read_csv(handle, sep="\t")
-            self.assertEqual(output.columns.tolist(), ["SNP", "A1", "A2", "Z", "N"])
+            self.assertEqual(output.columns.tolist(), ["SNP", "CHR", "POS", "A1", "A2", "Z", "N"])
+            self.assertTrue(output["CHR"].isna().all())
+            self.assertTrue(output["POS"].isna().all())
+            self.assertTrue((tmpdir / "munged" / "sumstats.metadata.json").exists())
             summary = munger.build_run_summary(table)
             self.assertEqual(summary.n_retained_rows, 2)
             self.assertIn("sumstats_gz", summary.output_paths)
+            self.assertIn("metadata_json", summary.output_paths)
 
     def test_run_accepts_merged_munge_config(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -239,3 +244,120 @@ class SumstatsMungerTest(unittest.TestCase):
 
             self.assertEqual(table.data["SNP"].tolist(), ["rs1"])
             self.assertEqual(table.data["N"].tolist(), [1000.0])
+            self.assertEqual(table.data["CHR"].tolist(), [1])
+            self.assertEqual(table.data["POS"].tolist(), [123])
+
+    def test_run_skips_leading_double_hash_sumstats_metadata_lines(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                '##EA="SNP effect allele for ln(OR))"\n'
+                '##NEA="SNP non-effect allele"\n'
+                '##BETA="ln(Odds Ratio) effect of EA"\n'
+                '##PVAL="P-value, uncorrected"\n'
+                "## \n"
+                "#CHROM\tPOS\tID\tEA\tNEA\tBETA\tPVAL\tNCAS\tNCON\n"
+                "1\t753541\trs2073813\tA\tG\t0.004\t0.4614\t310128\t1035355\n",
+                encoding="utf-8",
+            )
+
+            table = SumstatsMunger().run(
+                MungeConfig(sumstats_path=raw_path, trait_name="trait"),
+                MungeConfig(output_dir=tmpdir / "munged"),
+                GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+            )
+
+            self.assertEqual(table.data["SNP"].tolist(), ["rs2073813"])
+            self.assertEqual(table.data["CHR"].tolist(), ["1"])
+            self.assertEqual(table.data["POS"].tolist(), [753541])
+
+    def test_run_accepts_chrom_and_bp_aliases_for_coordinates(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "CHROM\tBP\tID\tEA\tNEA\tPVAL\tOR\tN\n"
+                "chr1\t123\trs1\tA\tG\t0.05\t1.0\t1000\n",
+                encoding="utf-8",
+            )
+
+            table = SumstatsMunger().run(
+                MungeConfig(sumstats_path=raw_path, trait_name="trait"),
+                MungeConfig(output_dir=tmpdir / "munged"),
+                GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+            )
+
+            self.assertEqual(table.data["CHR"].tolist(), ["1"])
+            self.assertEqual(table.data["POS"].tolist(), [123])
+            with gzip.open(tmpdir / "munged" / "sumstats.sumstats.gz", "rt", encoding="utf-8") as handle:
+                output = pd.read_csv(handle, sep="\t")
+            self.assertEqual(output.columns.tolist(), ["SNP", "CHR", "POS", "A1", "A2", "Z", "N"])
+
+    def test_run_accepts_explicit_chr_and_pos_column_hints(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "chromosome_name\tbase_pair\tvariant\tA1\tA2\tP\tOR\tN\n"
+                "2\t200\trs2\tC\tT\t0.05\t1.0\t1000\n",
+                encoding="utf-8",
+            )
+
+            table = SumstatsMunger().run(
+                MungeConfig(
+                    sumstats_path=raw_path,
+                    trait_name="trait",
+                    column_hints={"chr": "chromosome_name", "pos": "base_pair", "snp": "variant"},
+                ),
+                MungeConfig(output_dir=tmpdir / "munged"),
+                GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+            )
+
+            self.assertEqual(table.data["SNP"].tolist(), ["rs2"])
+            self.assertEqual(table.data["CHR"].tolist(), ["2"])
+            self.assertEqual(table.data["POS"].tolist(), [200])
+
+    def test_run_rejects_ambiguous_chromosome_aliases(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "#CHROM\tCHROM\tPOS\tID\tEA\tNEA\tPVAL\tOR\tN\n"
+                "1\t1\t123\trs1\tA\tG\t0.05\t1.1\t1000\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "CHR"):
+                SumstatsMunger().run(
+                    MungeConfig(sumstats_path=raw_path, trait_name="trait"),
+                    MungeConfig(output_dir=tmpdir / "munged"),
+                    GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+                )
+
+    def test_load_sumstats_reads_metadata_sidecar_config_snapshot(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "#CHROM\tPOS\tID\tEA\tNEA\tPVAL\tOR\tN\n"
+                "1\t123\trs1\tA\tG\t0.05\t1.0\t1000\n",
+                encoding="utf-8",
+            )
+            output_dir = tmpdir / "munged"
+
+            SumstatsMunger().run(
+                MungeConfig(sumstats_path=raw_path, trait_name="trait"),
+                MungeConfig(output_dir=output_dir),
+                GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+            )
+
+            metadata = json.loads((output_dir / "sumstats.metadata.json").read_text(encoding="utf-8"))
+            self.assertEqual(metadata["format"], "ldsc.sumstats.v1")
+            self.assertEqual(metadata["snp_identifier"], "chr_pos")
+            self.assertEqual(metadata["genome_build"], "hg38")
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                table = ldsc.load_sumstats(output_dir / "sumstats.sumstats.gz", trait_name="trait")
+            self.assertEqual(table.config_snapshot, GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
+            self.assertFalse(any("cannot recover the GlobalConfig" in str(item.message) for item in caught))

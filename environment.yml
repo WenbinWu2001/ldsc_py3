@@ -1,14 +1,16 @@
-name: ldsc-py3-Jerry
+name: ldsc3
 channels:
-- bioconda
+- conda-forge
 dependencies:
 - python=3.11
-- bitarray=2.9
 - pip
+- setuptools
+- wheel
 - pip:
-  - scipy==1.11
-  - pandas==2.0
-  - numpy==1.24
+  - bitarray>=2.9,<2.10
+  - scipy>=1.11.0,<1.11.1
+  - pandas>=2.0.0,<2.0.1
+  - numpy>=1.24.0,<1.24.1
   - pyarrow>=16,<17
   - pyliftover>=0.4,<0.5
   - pytest>=8,<10

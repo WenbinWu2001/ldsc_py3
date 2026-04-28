@@ -19,7 +19,7 @@ setup(
         ]
     },
     install_requires=[
-        "bitarray>=2.5,<2.6",
+        "bitarray>=2.9,<2.10",
         "scipy>=1.11,<1.12",
         "numpy>=1.24,<1.25",
         "pandas>=2.0,<2.1",

@@ -102,9 +102,6 @@ LOGGER = logging.getLogger("LDSC.annotation")
 REQUIRED_ANNOT_COLUMNS = ("CHR", "POS", "SNP", "CM")
 
 
-AnnotationSourceSpec = AnnotationBuildConfig
-
-
 @dataclass(frozen=True)
 class AnnotationBundle:
     """Aligned SNP metadata plus baseline and query annotation matrices."""

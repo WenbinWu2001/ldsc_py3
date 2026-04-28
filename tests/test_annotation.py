@@ -12,7 +12,7 @@ if str(SRC) not in sys.path:
 
 from ldsc._kernel import annotation as kernel_annotation
 from ldsc import annotation_builder
-from ldsc.annotation_builder import AnnotationBuilder, AnnotationSourceSpec, run_bed_to_annot
+from ldsc.annotation_builder import AnnotationBuilder, run_bed_to_annot
 from ldsc.config import AnnotationBuildConfig, GlobalConfig
 
 
@@ -29,8 +29,8 @@ def _write_annot(path: Path, rows: list[tuple], annotation_columns: dict[str, li
 
 
 class AnnotationBuilderTest(unittest.TestCase):
-    def test_annotation_source_spec_has_no_gene_set_paths(self):
-        spec = AnnotationSourceSpec(baseline_annot_paths=("baseline.1.annot.gz",))
+    def test_annotation_build_config_has_no_gene_set_paths(self):
+        spec = AnnotationBuildConfig(baseline_annot_paths=("baseline.1.annot.gz",))
         self.assertFalse(hasattr(spec, "gene_set_paths"))
 
     def test_gene_set_functions_not_exported(self):
@@ -48,7 +48,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             _write_annot(query, rows, {"query_a": [0, 1, 1]})
 
             bundle = builder.run(
-                AnnotationSourceSpec(
+                AnnotationBuildConfig(
                     baseline_annot_paths=(str(base),),
                     query_annot_paths=(str(query),),
                 )
@@ -88,7 +88,7 @@ class AnnotationBuilderTest(unittest.TestCase):
 
             with self.assertRaises(ValueError):
                 builder.run(
-                    AnnotationSourceSpec(
+                    AnnotationBuildConfig(
                         baseline_annot_paths=(str(base),),
                         query_annot_paths=(str(query),),
                     )
@@ -108,7 +108,7 @@ class AnnotationBuilderTest(unittest.TestCase):
                 AnnotationBuildConfig(),
             )
             bundle = builder.run(
-                AnnotationSourceSpec(
+                AnnotationBuildConfig(
                     baseline_annot_paths=(str(base),),
                     query_annot_paths=(str(query),),
                 )
@@ -128,7 +128,7 @@ class AnnotationBuilderTest(unittest.TestCase):
                 GlobalConfig(snp_identifier="chr_pos"),
                 AnnotationBuildConfig(),
             )
-            bundle = builder.run(AnnotationSourceSpec(baseline_annot_paths=(str(base),)))
+            bundle = builder.run(AnnotationBuildConfig(baseline_annot_paths=(str(base),)))
             self.assertEqual(bundle.reference_snps("chr_pos"), {"1:10", "1:20", "2:30"})
 
     def test_run_with_bed_paths_returns_bundle_with_binary_query_columns(self):
@@ -154,7 +154,7 @@ class AnnotationBuilderTest(unittest.TestCase):
                 return_value=[True, False, True],
             ):
                 bundle = builder.run(
-                    AnnotationSourceSpec(
+                    AnnotationBuildConfig(
                         baseline_annot_paths=(str(base),),
                         query_annot_bed_paths=(str(bed),),
                     )
@@ -271,7 +271,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             _write_annot(query2, rows2, {"query_a": [1, 0]})
 
             bundle = builder.run(
-                AnnotationSourceSpec(
+                AnnotationBuildConfig(
                     baseline_annot_paths=(str(base1), str(base2)),
                     query_annot_paths=(str(query1), str(query2)),
                 )
@@ -299,7 +299,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             _write_annot(query2, rows2, {"query_a": [1, 0]})
 
             bundle = builder.run(
-                AnnotationSourceSpec(
+                AnnotationBuildConfig(
                     baseline_annot_paths=str(tmpdir / "baseline.*.annot.gz"),
                     query_annot_paths=str(tmpdir / "query.*.annot.gz"),
                 )
@@ -320,7 +320,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             _write_annot(base2, rows2, {"base_a": [0]})
 
             bundle = builder.run(
-                AnnotationSourceSpec(
+                AnnotationBuildConfig(
                     baseline_annot_paths=str(tmpdir / "baseline.@.annot.gz"),
                 )
             )
@@ -346,7 +346,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             _write_annot(query2_gz, rows2, {"query_a": [0], "query_b": [1]})
 
             bundle = builder.run(
-                AnnotationSourceSpec(
+                AnnotationBuildConfig(
                     baseline_annot_paths=str(tmpdir / "baseline.@.annot.gz"),
                     query_annot_paths=str(tmpdir / "query.@.annot.gz"),
                 )
@@ -367,7 +367,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             _write_annot(base2, rows2, {"base_a": [0]})
 
             bundle = builder.run(
-                AnnotationSourceSpec(
+                AnnotationBuildConfig(
                     baseline_annot_paths=(str(base1), str(base2)),
                 )
             )
@@ -389,7 +389,7 @@ class AnnotationBuilderTest(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "mixed|chromosome|shard"):
                 builder.run(
-                    AnnotationSourceSpec(
+                    AnnotationBuildConfig(
                         baseline_annot_paths=(str(base_all), str(base1)),
                     )
                 )
@@ -409,7 +409,7 @@ class AnnotationBuilderTest(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "query|chromosome|shard"):
                 builder.run(
-                    AnnotationSourceSpec(
+                    AnnotationBuildConfig(
                         baseline_annot_paths=(str(base1), str(base2)),
                         query_annot_paths=(str(query1),),
                     )
@@ -430,7 +430,7 @@ class AnnotationBuilderTest(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "query|chromosome|shard"):
                 builder.run(
-                    AnnotationSourceSpec(
+                    AnnotationBuildConfig(
                         baseline_annot_paths=(str(base1), str(base2)),
                         query_annot_paths=(str(query),),
                     )
@@ -448,7 +448,7 @@ class AnnotationBuilderTest(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "ambiguous|duplicate|chromosome"):
                 builder.run(
-                    AnnotationSourceSpec(
+                    AnnotationBuildConfig(
                         baseline_annot_paths=(str(base1a), str(base1b)),
                     )
                 )
@@ -471,7 +471,7 @@ class AnnotationBuilderTest(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "Annotation SNP rows do not match"):
                 builder.run(
-                    AnnotationSourceSpec(
+                    AnnotationBuildConfig(
                         baseline_annot_paths=(str(base1), str(base2)),
                         query_annot_paths=(str(query1), str(query2)),
                     )

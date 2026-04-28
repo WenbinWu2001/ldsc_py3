@@ -33,7 +33,7 @@ Read the following files in full before starting:
   `RegressionRunner.__init__()` (line 74), `RegressionRunner.build_dataset()`
 - `src/ldsc/sumstats_munger.py` — focus on `SumstatsTable` (lines 89–156),
   `SumstatsMunger.run()`
-- `src/ldsc/_kernel/ref_panel.py` — focus on `RefPanelSpec` (lines 53–79),
+- `src/ldsc/_kernel/ref_panel.py` — focus on `RefPanelConfig` (lines 53–79),
   `RefPanel.__init__()` (lines 81–142)
 - `src/ldsc/outputs.py` — focus on `RunSummary` (lines 65–73) which already has
   `config_snapshot`
@@ -329,20 +329,20 @@ if annotation_bundle.config_snapshot is not None:
 ```
 
 **Note:** `RefPanel` does not currently carry a full `GlobalConfig` snapshot —
-it carries only a `genome_build` string in `RefPanelSpec`. Add a separate check:
+it carries only a `genome_build` string in `RefPanelConfig`. Add a separate check:
 
 ```python
 if ref_panel.spec.genome_build is not None and global_config.genome_build not in (None, "auto"):
     if ref_panel.spec.genome_build != global_config.genome_build:
         from ldsc.config import ConfigMismatchError
         raise ConfigMismatchError(
-            f"genome_build mismatch between RefPanelSpec ({ref_panel.spec.genome_build!r}) "
+            f"genome_build mismatch between RefPanelConfig ({ref_panel.spec.genome_build!r}) "
             f"and active GlobalConfig ({global_config.genome_build!r})."
         )
 ```
 
 **Caveat:** This check requires that `RefPanel` exposes its `spec` publicly, or that
-`RefPanelSpec.genome_build` is accessible. Verify the attribute path in
+`RefPanelConfig.genome_build` is accessible. Verify the attribute path in
 `_kernel/ref_panel.py` before writing this code.
 
 ### 4c. `LDScoreCalculator._aggregate_chromosome_results()` or equivalent
@@ -443,7 +443,7 @@ accurately reflects any surprises discovered during coding. In particular:
 **Files that do NOT need changes:**
 - `src/ldsc/outputs.py` — `RunSummary` already has `config_snapshot`
 - `src/ldsc/ref_panel_builder.py` — `ReferencePanelBuildResult` already has `config_snapshot`
-- `src/ldsc/_kernel/ref_panel.py` — `RefPanelSpec.genome_build` is sufficient for now
+- `src/ldsc/_kernel/ref_panel.py` — `RefPanelConfig.genome_build` is sufficient for now
 - `src/ldsc/config.py` registry functions (`get_global_config`, `set_global_config`,
   `reset_global_config`) — no behavioural changes needed
 
@@ -451,7 +451,7 @@ accurately reflects any surprises discovered during coding. In particular:
 
 ## Known Caveats and Edge Cases
 
-**`RefPanelSpec.genome_build` is a `str`, not a `GlobalConfig`.** The check in Step 4b
+**`RefPanelConfig.genome_build` is a `str`, not a `GlobalConfig`.** The check in Step 4b
 compares it directly to `global_config.genome_build`. If `GlobalConfig.__post_init__`
 normalises `"hg37"` → `"hg19"` and `"GRCh38"` → `"hg38"`, the comparison will work.
 If normalisation is incomplete, the check may produce false mismatches. Verify in

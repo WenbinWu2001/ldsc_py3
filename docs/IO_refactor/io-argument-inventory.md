@@ -221,8 +221,8 @@ Removed Python names: `plink_prefix`, `bfile`, `out`, `panel_label`,
 | `SumstatsMunger.run(munge_config, ...)` | `munge_config` | input/output | normalized munging workflow |
 | `SumstatsMunger.write_output(sumstats, output_dir)` | `output_dir` | output | writes fixed `sumstats.sumstats.gz` |
 
-Removed Python names: `RawSumstatsSpec.path`, `MungeConfig.out_prefix`,
-`write_output(..., out_prefix)`.
+Removed Python names: legacy separate source-path object field,
+`MungeConfig.out_prefix`, `write_output(..., out_prefix)`.
 
 ### Regression
 

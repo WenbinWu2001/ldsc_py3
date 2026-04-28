@@ -84,10 +84,6 @@ class ArtifactOutputConfig:
         if not self.out_prefix:
             raise ValueError("out_prefix is required.")
 
-
-OutputSpec = ArtifactOutputConfig
-
-
 @dataclass(frozen=True)
 class LDScoreOutputConfig:
     """Directory-oriented output config for canonical LD-score results.

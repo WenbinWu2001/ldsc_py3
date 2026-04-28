@@ -13,7 +13,6 @@ from .config import AnnotationBuildConfig
 from ._kernel.annotation import (
     AnnotationBuilder,
     AnnotationBundle,
-    AnnotationSourceSpec,
     main_bed_to_annot,
     parse_bed_to_annot_args,
     run_bed_to_annot,
@@ -23,7 +22,6 @@ __all__ = [
     "AnnotationBuildConfig",
     "AnnotationBuilder",
     "AnnotationBundle",
-    "AnnotationSourceSpec",
     "main_bed_to_annot",
     "parse_bed_to_annot_args",
     "run_bed_to_annot",

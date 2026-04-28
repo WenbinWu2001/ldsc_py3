@@ -27,7 +27,7 @@ This document summarizes the public package surface. For workflow-level file str
 | `LDScoreConfig` | LD-window and retained-SNP settings |
 | `MungeConfig` | raw-sumstats input, column hints, munging thresholds, and output settings |
 | `RegressionConfig` | regression-model settings such as intercept handling and jackknife blocks |
-| `ArtifactOutputConfig` | generic artifact layout and emission controls; `OutputSpec` is a deprecated alias |
+| `ArtifactOutputConfig` | generic artifact layout and emission controls |
 | `ConfigMismatchError` | explicit failure raised when critical config assumptions disagree |
 
 ### Workflow Services

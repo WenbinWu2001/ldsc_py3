@@ -39,7 +39,7 @@ rather than full-template rows with zeroed query values.
 | `src/ldsc/_kernel/annotation.py` | Behavior + rename | `_process_baseline_file`: row-filter before BED projection; `AnnotationBuilder._filter_aligned_tables_by_global_restriction`: read `ref_panel_snps_path`; `run_bed_to_annot` argparse: rename CLI flag to `--ref-panel-snps-path` |
 | `src/ldsc/_kernel/ref_panel.py` | Rename | `RefPanel._filter_metadata_by_global_restriction`: read `ref_panel_snps_path` |
 | `src/ldsc/ref_panel_builder.py` | Rename | `ReferencePanelBuilder.run()`, `run_build_ref_panel()`, `build_parser()`: rename to `ref_panel_snps_path` |
-| `src/ldsc/outputs.py` | Remove field + fix filter | Remove `OutputSpec.print_snps_path`; delete `_load_print_snps()`; `LDScoreTableProducer.build()` filters `.l2.ldscore.gz` using `result.regression_snps` (already a `set[str]` from the kernel) |
+| `src/ldsc/outputs.py` | Remove field + fix filter | Remove `ArtifactOutputConfig.print_snps_path`; delete `_load_print_snps()`; `LDScoreTableProducer.build()` filters `.l2.ldscore.gz` using `result.regression_snps` (already a `set[str]` from the kernel) |
 | `src/ldsc/ldscore_calculator.py` | Remove flags + add flags + wire | Remove `--regression-snps` and `--print-snps`; add `--ref-panel-snps-path` and `--regression-snps-path`; update `_normalize_run_args()` and `run_ldscore()` to propagate both `GlobalConfig` fields; wire `global_config.regression_snps_path` to the kernel |
 | `src/ldsc/cli.py` | Rename | Rename `--restrict-snps-path` to `--ref-panel-snps-path` in annotate subcommand |
 | `src/ldsc/__init__.py` | No change needed | `GlobalConfig` is already exported; field rename is transparent to callers |
@@ -77,8 +77,8 @@ Read these files in full before editing anything:
   - The `main_bed_to_annot()` argparse section (~line 770)
 - `src/ldsc/_kernel/ref_panel.py` — focus on `RefPanel._filter_metadata_by_global_restriction()` (~line 123)
 - `src/ldsc/ref_panel_builder.py` — focus on `ReferencePanelBuilder.run()` (~line 120), `config_from_args()` (~line 440), `run_build_ref_panel()` (~line 464)
-- `src/ldsc/ldscore_calculator.py` — focus on the `--print-snps` argument addition (~line 416) and `run_ldscore_from_args()` (~line 640) where `print_snps_path` is resolved into `OutputSpec`
-- `src/ldsc/outputs.py` — focus on `OutputSpec` (~line 30), `_load_print_snps()` (~line 489), and `_filter_ldscore_table()` (~line 500)
+- `src/ldsc/ldscore_calculator.py` — focus on the `--print-snps` argument addition (~line 416) and `run_ldscore_from_args()` (~line 640) where `print_snps_path` is resolved into `ArtifactOutputConfig`
+- `src/ldsc/outputs.py` — focus on `ArtifactOutputConfig` (~line 30), `_load_print_snps()` (~line 489), and `_filter_ldscore_table()` (~line 500)
 
 ---
 
@@ -518,7 +518,7 @@ operated at different stages:
 - `--regression-snps` (line 408) → `_load_regression_snps()` → feeds the `regression_snps`
   set into the **weight LD computation kernel**, determining which SNPs populate
   `regression_metadata` / `w_ld`.
-- `--print-snps` (line 416) → `OutputSpec.print_snps_path` → **output filter only** —
+- `--print-snps` (line 416) → `ArtifactOutputConfig.print_snps_path` → **output filter only** —
   restricted which rows appeared in the written `.l2.ldscore.gz` from a separate file.
 
 The design problem: a user could set one without the other, producing paired output
@@ -534,7 +534,7 @@ to collapse both into `GlobalConfig.regression_snps_path` as the single authorit
    kernel already built with only regression-SNP rows.
 
 Result: `.l2.ldscore.gz` and `.w.l2.ldscore.gz` are guaranteed to have exactly the
-same row set, driven by one config field. `OutputSpec` no longer carries any
+same row set, driven by one config field. `ArtifactOutputConfig` no longer carries any
 regression SNP path.
 
 ### 5a. Remove `--regression-snps` and `--print-snps`; add `--ref-panel-snps-path` and `--regression-snps-path`
@@ -648,14 +648,14 @@ approximately lines 649–661.
 
 ```python
 # Before:
-return OutputSpec(
+return ArtifactOutputConfig(
     ...
     print_snps_path=normalize_optional_path_token(getattr(args, "print_snps", None)),
     ...
 )
 
 # After:
-return OutputSpec(
+return ArtifactOutputConfig(
     ...
     # print_snps_path removed — row filtering is driven by result.regression_snps
     ...
@@ -663,12 +663,12 @@ return OutputSpec(
 ```
 
 The function signature stays `_output_spec_from_args(args: argparse.Namespace)` —
-no `global_config` parameter needed since `OutputSpec` no longer carries any
+no `global_config` parameter needed since `ArtifactOutputConfig` no longer carries any
 regression SNP path.
 
 ### 5f. Update `src/ldsc/outputs.py` — remove `print_snps_path`; filter via `result.regression_snps`
 
-**Location:** `OutputSpec` dataclass, approximately line 39. Remove the field and its
+**Location:** `ArtifactOutputConfig` dataclass, approximately line 39. Remove the field and its
 `__post_init__` normalization line:
 
 ```python
@@ -733,9 +733,9 @@ no longer needed in `outputs.py`).
 
 **`tests/test_output.py`**
 
-Remove `print_snps_path=` from all `OutputSpec` constructor calls (the field no
+Remove `print_snps_path=` from all `ArtifactOutputConfig` constructor calls (the field no
 longer exists). The tests must be rewritten to drive filtering via `result.regression_snps`
-and a `config_snapshot` with `regression_snps_path` set, rather than via `OutputSpec`:
+and a `config_snapshot` with `regression_snps_path` set, rather than via `ArtifactOutputConfig`:
 
 - `test_print_snps_filters_only_reference_ldscore_artifact` →
   `test_regression_snps_path_filters_only_reference_ldscore_artifact`
@@ -944,14 +944,14 @@ differ, but it requires reading parquet metadata at runtime and is out of scope 
 `GlobalConfig.regression_snps_path` is loaded in `run_ldscore_from_args()` and
 passed to the weight LD kernel. The kernel stores the retained SNP intersection in
 `LDScoreResult.regression_snps`. The output layer then reads `result.regression_snps`
-directly — no `OutputSpec` field is involved. This means:
+directly — no `ArtifactOutputConfig` field is involved. This means:
 
 - Users who call `run_ldscore()` or `run_ldscore_from_args()` get correct filtering
   automatically.
 - Users who construct an `LDScoreResult` directly (e.g. in tests) must populate
   `regression_snps` and `config_snapshot.regression_snps_path` explicitly to trigger
   output filtering.
-- `OutputSpec` no longer has any regression SNP path field; do not add one.
+- `ArtifactOutputConfig` no longer has any regression SNP path field; do not add one.
 
 ### C5. Both `--print-snps` and `--regression-snps` are fully removed — no backward-compat shim
 
@@ -996,7 +996,7 @@ green at each checkpoint:
 2. Step 2 (`_kernel/annotation.py`) — most invasive; write `_filter_rows_to_restriction()` first, then update `_process_baseline_file()`.
 3. Step 3 (`_kernel/ref_panel.py`) — simple field rename.
 4. Step 4 (`ref_panel_builder.py`) — rename cascade including `build_parser()` CLI flag.
-5. Step 5 (`outputs.py` + `ldscore_calculator.py`) — remove `--regression-snps` and `--print-snps`; add `--ref-panel-snps-path` and `--regression-snps-path` (5a); update `_normalize_run_args()` (5b); wire kernel feed (5c); update `run_ldscore()` (5d); clean `_output_spec_from_args()` (5e); remove `OutputSpec.print_snps_path` and filter via `result.regression_snps` (5f). Do `outputs.py` first since `ldscore_calculator.py` references `OutputSpec`.
+5. Step 5 (`outputs.py` + `ldscore_calculator.py`) — remove `--regression-snps` and `--print-snps`; add `--ref-panel-snps-path` and `--regression-snps-path` (5a); update `_normalize_run_args()` (5b); wire kernel feed (5c); update `run_ldscore()` (5d); clean `_output_spec_from_args()` (5e); remove `ArtifactOutputConfig.print_snps_path` and filter via `result.regression_snps` (5f). Do `outputs.py` first since `ldscore_calculator.py` references `ArtifactOutputConfig`.
 6. Step 6 (`cli.py`) — rename annotate subcommand flag.
 7. Step 7 (tests) — update all renamed field references; delete removed tests; add new tests.
 8. Step 8 (docs) — `config-design.md` updated; grep for `restrict_snps_path`, `print_snps_path`, `print-snps`, `regression-snps` (old standalone flag) in all docs and tutorials outside `src/` and `tests/`.

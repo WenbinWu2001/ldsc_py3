@@ -26,7 +26,6 @@ from ldsc.outputs import (
     LDScoreDirectoryWriter,
     LDScoreOutputConfig,
     OutputManager,
-    OutputSpec,
     PostProcessor,
 )
 
@@ -307,9 +306,6 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
 
 
 class OutputManagerTest(unittest.TestCase):
-    def test_output_spec_is_deprecated_alias_for_artifact_output_config(self):
-        self.assertIs(OutputSpec, ArtifactOutputConfig)
-
     def test_artifact_output_config_normalizes_pathlike_fields(self):
         spec = ArtifactOutputConfig(
             out_prefix=Path("results") / "example",

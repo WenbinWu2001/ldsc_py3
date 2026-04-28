@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Refactor annotation processing and the partitioned-h2 pipeline to support in-memory BED → `AnnotationBundle` construction, a unified `run_ldscore_from_args` code path through `AnnotationBuilder` + `LDScoreCalculator`, a `--query-annot-bed` flag on `ldsc ldscore`, a single merged public `ldscore_table` result shape with embedded `regr_weight`, per-chromosome-only `.l2.ldscore.gz` output, and a cleaner config boundary where `ref_panel_snps_path` lives on `RefPanelSpec` and `regression_snps_path` lives on `LDScoreConfig` — both removed from `GlobalConfig`.
+**Goal:** Refactor annotation processing and the partitioned-h2 pipeline to support in-memory BED → `AnnotationBundle` construction, a unified `run_ldscore_from_args` code path through `AnnotationBuilder` + `LDScoreCalculator`, a `--query-annot-bed` flag on `ldsc ldscore`, a single merged public `ldscore_table` result shape with embedded `regr_weight`, per-chromosome-only `.l2.ldscore.gz` output, and a cleaner config boundary where `ref_panel_snps_path` lives on `RefPanelConfig` and `regression_snps_path` lives on `LDScoreConfig` — both removed from `GlobalConfig`.
 
-**Architecture:** Nine sequential tasks. Each builds on the previous: (1) remove gene-set TSV support; (2) normalize public `LDScoreResult` / `ChromLDScoreResult` to the merged `ldscore_table` shape; (3) restructure SNP-restriction config — move `ref_panel_snps_path` to `RefPanelSpec` and `regression_snps_path` to `LDScoreConfig`, remove both from `GlobalConfig`, add `r2_bias_mode` to `RefPanelSpec`; (4) add in-memory BED projection to `AnnotationBuilder.run()`; (5) refactor `project_bed_annotations` to return an `AnnotationBundle`; (6) converge `run_ldscore_from_args` through the workflow layer and make per-chromosome output the only output mode; (7) add `--query-annot-bed` to the ldscore CLI; (8) make `load_ldscore_from_files` public; (9) make `--w-ld` optional when `regr_weight` is embedded.
+**Architecture:** Nine sequential tasks. Each builds on the previous: (1) remove gene-set TSV support; (2) normalize public `LDScoreResult` / `ChromLDScoreResult` to the merged `ldscore_table` shape; (3) restructure SNP-restriction config — move `ref_panel_snps_path` to `RefPanelConfig` and `regression_snps_path` to `LDScoreConfig`, remove both from `GlobalConfig`, add `r2_bias_mode` to `RefPanelConfig`; (4) add in-memory BED projection to `AnnotationBuilder.run()`; (5) refactor `project_bed_annotations` to return an `AnnotationBundle`; (6) converge `run_ldscore_from_args` through the workflow layer and make per-chromosome output the only output mode; (7) add `--query-annot-bed` to the ldscore CLI; (8) make `load_ldscore_from_files` public; (9) make `--w-ld` optional when `regr_weight` is embedded.
 
 **Tech Stack:** Python 3.10+, pandas, numpy, pybedtools, argparse. Tests: `python -m unittest discover -s tests -p 'test*.py' -v`
 
@@ -17,7 +17,7 @@
 | `src/ldsc/_kernel/annotation.py` | Modify (large) | Remove gene-set code; remove `_filter_metadata_by_global_restriction()`; add `_compute_bed_query_columns()`; modify `_run_single_universe()`; refactor `project_bed_annotations()`; add `_write_bundle_query_as_annot_files()` |
 | `src/ldsc/annotation_builder.py` | Modify | Update `__all__` to remove gene-set exports |
 | `src/ldsc/config.py` | Modify | Remove `ref_panel_snps_path` and `regression_snps_path` from `GlobalConfig`; add `regression_snps_path` to `LDScoreConfig` |
-| `src/ldsc/_kernel/ref_panel.py` | Modify | Add `ref_panel_snps_path` and `r2_bias_mode` to `RefPanelSpec`; rename `_filter_metadata_by_global_restriction()` → `_apply_snp_restriction()` reading from spec |
+| `src/ldsc/_kernel/ref_panel.py` | Modify | Add `ref_panel_snps_path` and `r2_bias_mode` to `RefPanelConfig`; rename `_filter_metadata_by_global_restriction()` → `_apply_snp_restriction()` reading from spec |
 | `src/ldsc/ldscore_calculator.py` | Modify (large) | Normalize public results to merged `ldscore_table` shape; add `_ref_panel_from_args()`, `_ldscore_config_from_args()`; rewrite `run_ldscore_from_args()`; enforce per-chromosome output; add `--query-annot-bed` (mutually exclusive with `--query-annot`) to `build_parser()`; remove `--ref-panel-snps` and `--regression-snps` from passing through `GlobalConfig` |
 | `src/ldsc/regression_runner.py` | Modify | Consume `ldscore_table`; rename `_load_ldscore_result_from_files` → `load_ldscore_from_files` |
 | `src/ldsc/__init__.py` | Modify | Export `load_ldscore_from_files` |
@@ -43,8 +43,8 @@
 In `tests/test_annotation.py`, add:
 ```python
 def test_annotation_source_spec_has_no_gene_set_paths(self):
-    """AnnotationSourceSpec must not expose gene_set_paths after removal."""
-    spec = AnnotationSourceSpec(baseline_annot_paths=("baseline.1.annot.gz",))
+    """AnnotationBuildConfig must not expose gene_set_paths after removal."""
+    spec = AnnotationBuildConfig(baseline_annot_paths=("baseline.1.annot.gz",))
     self.assertFalse(hasattr(spec, "gene_set_paths"))
 
 def test_gene_set_functions_not_exported(self):
@@ -57,15 +57,15 @@ def test_gene_set_functions_not_exported(self):
 - [ ] **Step 2: Run test to verify it fails**
 
 ```
-python -m unittest tests.test_annotation.TestAnnotationSourceSpec.test_annotation_source_spec_has_no_gene_set_paths -v
+python -m unittest tests.test_annotation.TestAnnotationBuildConfig.test_annotation_source_spec_has_no_gene_set_paths -v
 ```
 Expected: FAIL (field still exists)
 
 - [ ] **Step 3: Remove gene-set code from `_kernel/annotation.py`**
 
-In `AnnotationSourceSpec`, remove the `gene_set_paths` field and its `__post_init__` line:
+In `AnnotationBuildConfig`, remove the `gene_set_paths` field and its `__post_init__` line:
 ```python
-# DELETE these two lines from AnnotationSourceSpec:
+# DELETE these two lines from AnnotationBuildConfig:
 gene_set_paths: ... = field(default_factory=tuple)
 # in __post_init__:
 object.__setattr__(self, "gene_set_paths", _normalize_path_tuple(self.gene_set_paths))
@@ -96,7 +96,7 @@ Remove the four module-level functions entirely:
 from ._kernel.annotation import (
     AnnotationBuilder,
     AnnotationBundle,
-    AnnotationSourceSpec,
+    AnnotationBuildConfig,
     main_bed_to_annot,
     parse_bed_to_annot_args,
     run_bed_to_annot,
@@ -105,7 +105,7 @@ from ._kernel.annotation import (
 __all__ = [
     "AnnotationBuilder",
     "AnnotationBundle",
-    "AnnotationSourceSpec",
+    "AnnotationBuildConfig",
     "main_bed_to_annot",
     "parse_bed_to_annot_args",
     "run_bed_to_annot",
@@ -150,7 +150,7 @@ Remove gene-set TSV annotation support
 
 BED files are now the only supported raw query annotation format.
 Remove gene_set_to_bed, make_annot_files, main_make_annot,
-parse_make_annot_args, and gene_set_paths from AnnotationSourceSpec.
+parse_make_annot_args, and gene_set_paths from AnnotationBuildConfig.
 Simplify ldsc annotate to require --bed-files.
 
 Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
@@ -357,9 +357,9 @@ EOF
 
 ## Task 3: Restructure SNP-restriction config: move ref_panel_snps_path and regression_snps_path out of GlobalConfig
 
-`ref_panel_snps_path` and `regression_snps_path` are LD-score-specific parameters with no meaning during annotation building, sumstats munging, or regression. This task moves them to the correct homes: `ref_panel_snps_path` → `RefPanelSpec` (the reference panel owns its own SNP restriction and applies it inside `load_metadata()`); `regression_snps_path` → `LDScoreConfig`; both removed from `GlobalConfig`. Also adds `r2_bias_mode` to `RefPanelSpec` (needed by Task 6).
+`ref_panel_snps_path` and `regression_snps_path` are LD-score-specific parameters with no meaning during annotation building, sumstats munging, or regression. This task moves them to the correct homes: `ref_panel_snps_path` → `RefPanelConfig` (the reference panel owns its own SNP restriction and applies it inside `load_metadata()`); `regression_snps_path` → `LDScoreConfig`; both removed from `GlobalConfig`. Also adds `r2_bias_mode` to `RefPanelConfig` (needed by Task 6).
 
-**Key consequence for the SNP universe:** `AnnotationBuilder` no longer filters its annotation bundle by `ref_panel_snps_path`. The bundle keeps all annotation-file SNPs. The kernel intersection `annotation_snps ∩ reference_panel_snps` naturally yields the correct `ld_reference_snps` because the reference panel is already restricted by `RefPanelSpec.ref_panel_snps_path` inside `load_metadata()`.
+**Key consequence for the SNP universe:** `AnnotationBuilder` no longer filters its annotation bundle by `ref_panel_snps_path`. The bundle keeps all annotation-file SNPs. The kernel intersection `annotation_snps ∩ reference_panel_snps` naturally yields the correct `ld_reference_snps` because the reference panel is already restricted by `RefPanelConfig.ref_panel_snps_path` inside `load_metadata()`.
 
 **`--ref-panel-snps` and `--regression-snps` CLI flags** are only valid on `ldsc ldscore`. They must be removed from all other subcommand parsers (`ldsc annotate`, `ldsc h2`, `ldsc partitioned-h2`, `ldsc rg`, `ldsc munge-sumstats`).
 
@@ -376,23 +376,23 @@ EOF
 In `tests/test_ref_panel.py`:
 ```python
 def test_ref_panel_spec_accepts_r2_bias_mode(self):
-    from ldsc._kernel.ref_panel import RefPanelSpec
-    spec = RefPanelSpec(backend="parquet_r2", r2_bias_mode="unbiased")
+    from ldsc._kernel.ref_panel import RefPanelConfig
+    spec = RefPanelConfig(backend="parquet_r2", r2_bias_mode="unbiased")
     self.assertEqual(spec.r2_bias_mode, "unbiased")
 
 def test_ref_panel_spec_r2_bias_mode_defaults_to_none(self):
-    from ldsc._kernel.ref_panel import RefPanelSpec
-    spec = RefPanelSpec(backend="parquet_r2")
+    from ldsc._kernel.ref_panel import RefPanelConfig
+    spec = RefPanelConfig(backend="parquet_r2")
     self.assertIsNone(spec.r2_bias_mode)
 
 def test_ref_panel_spec_accepts_ref_panel_snps_path(self):
-    from ldsc._kernel.ref_panel import RefPanelSpec
-    spec = RefPanelSpec(backend="plink", ref_panel_snps_path="/path/to/snps.txt")
+    from ldsc._kernel.ref_panel import RefPanelConfig
+    spec = RefPanelConfig(backend="plink", ref_panel_snps_path="/path/to/snps.txt")
     self.assertEqual(spec.ref_panel_snps_path, "/path/to/snps.txt")
 
 def test_ref_panel_spec_ref_panel_snps_path_defaults_to_none(self):
-    from ldsc._kernel.ref_panel import RefPanelSpec
-    spec = RefPanelSpec(backend="plink")
+    from ldsc._kernel.ref_panel import RefPanelConfig
+    spec = RefPanelConfig(backend="plink")
     self.assertIsNone(spec.ref_panel_snps_path)
 ```
 
@@ -451,15 +451,15 @@ Add to `LDScoreConfig.__post_init__` (create if not present):
 object.__setattr__(self, "regression_snps_path", _normalize_optional_path(self.regression_snps_path))
 ```
 
-- [ ] **Step 5: Add ref_panel_snps_path and r2_bias_mode to RefPanelSpec; rename _filter_metadata_by_global_restriction()**
+- [ ] **Step 5: Add ref_panel_snps_path and r2_bias_mode to RefPanelConfig; rename _filter_metadata_by_global_restriction()**
 
-In `src/ldsc/_kernel/ref_panel.py`, add to `RefPanelSpec` after `genome_build`:
+In `src/ldsc/_kernel/ref_panel.py`, add to `RefPanelConfig` after `genome_build`:
 ```python
 r2_bias_mode: str | None = None
 ref_panel_snps_path: str | PathLike[str] | None = None
 ```
 
-Add to `RefPanelSpec.__post_init__`:
+Add to `RefPanelConfig.__post_init__`:
 ```python
 object.__setattr__(self, "ref_panel_snps_path", _normalize_optional_path(self.ref_panel_snps_path))
 ```
@@ -467,7 +467,7 @@ object.__setattr__(self, "ref_panel_snps_path", _normalize_optional_path(self.re
 Rename `_filter_metadata_by_global_restriction()` → `_apply_snp_restriction()` and change it to read from `self.spec` instead of `self.global_config`:
 ```python
 def _apply_snp_restriction(self, metadata: pd.DataFrame) -> pd.DataFrame:
-    """Filter metadata rows to RefPanelSpec.ref_panel_snps_path if set."""
+    """Filter metadata rows to RefPanelConfig.ref_panel_snps_path if set."""
     restrict_path = self.spec.ref_panel_snps_path
     if restrict_path is None or len(metadata) == 0:
         return metadata
@@ -513,12 +513,12 @@ git add src/ldsc/config.py src/ldsc/_kernel/ref_panel.py src/ldsc/_kernel/annota
 git commit -m "$(cat <<'EOF'
 Move ref_panel_snps_path and regression_snps_path out of GlobalConfig
 
-ref_panel_snps_path moves to RefPanelSpec — the reference panel applies it
+ref_panel_snps_path moves to RefPanelConfig — the reference panel applies it
 in _apply_snp_restriction() inside load_metadata(). regression_snps_path
 moves to LDScoreConfig. Both removed from GlobalConfig. AnnotationBuilder
 no longer filters its annotation bundle; the kernel intersection with the
 already-restricted reference panel produces the correct ld_reference_snps.
-Also adds r2_bias_mode and ref_panel_snps_path to RefPanelSpec.
+Also adds r2_bias_mode and ref_panel_snps_path to RefPanelConfig.
 
 Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 EOF
@@ -530,7 +530,7 @@ EOF
 ## Task 4: Add in-memory BED projection to AnnotationBuilder.run()
 
 This task adds `_compute_bed_query_columns()` and wires it into `_run_single_universe()`.
-After this task, `AnnotationBuilder.run(AnnotationSourceSpec(baseline_annot_paths=..., bed_paths=[...]))` returns a bundle with BED-projected binary query columns. No intermediate `.annot.gz` files are written.
+After this task, `AnnotationBuilder.run(AnnotationBuildConfig(baseline_annot_paths=..., bed_paths=[...]))` returns a bundle with BED-projected binary query columns. No intermediate `.annot.gz` files are written.
 
 **Files:**
 - Modify: `src/ldsc/_kernel/annotation.py`
@@ -546,7 +546,7 @@ def test_run_with_bed_paths_returns_bundle_with_binary_query_columns(self):
     bed_path = str(FIXTURE_DIR / "test_query.bed")
     config = GlobalConfig(snp_identifier="chr_pos")
     builder = AnnotationBuilder(config)
-    spec = AnnotationSourceSpec(
+    spec = AnnotationBuildConfig(
         baseline_annot_paths=(baseline_path,),
         bed_paths=(bed_path,),
     )
@@ -567,7 +567,7 @@ def test_run_with_bed_paths_no_disk_annot_written(self):
         bed_path = str(FIXTURE_DIR / "test_query.bed")
         config = GlobalConfig(snp_identifier="chr_pos")
         builder = AnnotationBuilder(config)
-        spec = AnnotationSourceSpec(
+        spec = AnnotationBuildConfig(
             baseline_annot_paths=(baseline_path,),
             bed_paths=(bed_path,),
         )
@@ -687,7 +687,7 @@ Add in-memory BED projection to AnnotationBuilder.run()
 Add _compute_bed_query_columns() which converts SNP metadata rows into
 binary annotation columns via pybedtools overlap, without writing any
 LDSC-format .annot.gz intermediate files. Wire it into _run_single_universe()
-so AnnotationSourceSpec.bed_paths is now fully handled by run().
+so AnnotationBuildConfig.bed_paths is now fully handled by run().
 
 Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 EOF
@@ -796,7 +796,7 @@ def project_bed_annotations(
     but is ignored (all BED columns are combined in a single file per chromosome).
     """
     _configure_logging(log_level or self.global_config.log_level)
-    source_spec = AnnotationSourceSpec(
+    source_spec = AnnotationBuildConfig(
         baseline_annot_paths=baseline_annot_paths,
         bed_paths=bed_files,
     )
@@ -894,8 +894,8 @@ In `tests/test_ldscore_workflow.py`, add a parity test that runs both the old an
 def test_run_ldscore_from_args_produces_same_result_as_calculator_run(self):
     """run_ldscore_from_args result must match a direct AnnotationBuilder + LDScoreCalculator run."""
     from ldsc.ldscore_calculator import run_ldscore_from_args, LDScoreCalculator
-    from ldsc._kernel.annotation import AnnotationBuilder, AnnotationSourceSpec
-    from ldsc._kernel.ref_panel import PlinkRefPanel, RefPanelSpec
+    from ldsc._kernel.annotation import AnnotationBuilder, AnnotationBuildConfig
+    from ldsc._kernel.ref_panel import PlinkRefPanel, RefPanelConfig
     from ldsc.config import GlobalConfig, LDScoreConfig
     import argparse, numpy as np
 
@@ -934,25 +934,25 @@ Add both below `_load_regression_snps()` in `ldscore_calculator.py`:
 ```python
 def _ref_panel_from_args(args: argparse.Namespace, global_config: GlobalConfig):
     """Build a RefPanel adapter from normalized CLI arguments."""
-    from ._kernel.ref_panel import PlinkRefPanel, ParquetR2RefPanel, RefPanelSpec
+    from ._kernel.ref_panel import PlinkRefPanel, ParquetR2RefPanel, RefPanelConfig
     freq_tokens = split_cli_path_tokens(getattr(args, "frqfile", None))
     ref_panel_snps_path = getattr(args, "ref_panel_snps_path", None)
     if getattr(args, "r2_table", None) is not None:
         r2_tokens = split_cli_path_tokens(args.r2_table)
-        spec = RefPanelSpec(
+        spec = RefPanelConfig(
             backend="parquet_r2",
-            r2_table_paths=tuple(r2_tokens) if r2_tokens else (),
-            maf_metadata_paths=tuple(freq_tokens) if freq_tokens else (),
+            r2_paths=tuple(r2_tokens) if r2_tokens else (),
+            metadata_paths=tuple(freq_tokens) if freq_tokens else (),
             r2_bias_mode=getattr(args, "r2_bias_mode", None),
             sample_size=getattr(args, "r2_sample_size", None),
             genome_build=global_config.genome_build,
             ref_panel_snps_path=ref_panel_snps_path,
         )
         return ParquetR2RefPanel(global_config, spec)
-    spec = RefPanelSpec(
+    spec = RefPanelConfig(
         backend="plink",
         bfile_prefix=getattr(args, "bfile", None),
-        maf_metadata_paths=tuple(freq_tokens) if freq_tokens else (),
+        metadata_paths=tuple(freq_tokens) if freq_tokens else (),
         genome_build=global_config.genome_build,
         ref_panel_snps_path=ref_panel_snps_path,
     )
@@ -985,7 +985,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
     glob patterns, and @ chromosome-suite tokens are all handled uniformly
     before computation.
     """
-    from ._kernel.annotation import AnnotationBuilder, AnnotationSourceSpec
+    from ._kernel.annotation import AnnotationBuilder, AnnotationBuildConfig
     normalized_args, global_config = _normalize_run_args(args)
     print_global_config_banner("run_ldscore_from_args", global_config)
     kernel_ldscore.validate_args(normalized_args)
@@ -998,13 +998,13 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
     query_tokens = split_cli_path_tokens(normalized_args.query_annot)
     bed_tokens = split_cli_path_tokens(getattr(normalized_args, "query_annot_bed", None))
 
-    source_spec = AnnotationSourceSpec(
+    source_spec = AnnotationBuildConfig(
         baseline_annot_paths=tuple(baseline_tokens) if baseline_tokens else (),
         query_annot_paths=tuple(query_tokens) if query_tokens else (),
         bed_paths=tuple(bed_tokens) if bed_tokens else (),
     )
     annotation_bundle = AnnotationBuilder(global_config).run(source_spec)
-    # ref_panel_snps_path is passed via RefPanelSpec; no separate filtering step needed.
+    # ref_panel_snps_path is passed via RefPanelConfig; no separate filtering step needed.
     ref_panel = _ref_panel_from_args(normalized_args, global_config)
     output_spec = _output_spec_from_args(normalized_args)
 
@@ -1488,7 +1488,7 @@ python -m ldsc partitioned-h2 --help
 ```python
 python -c "
 from ldsc import (
-    AnnotationBuilder, AnnotationBundle, AnnotationSourceSpec,
+    AnnotationBuilder, AnnotationBundle, AnnotationBuildConfig,
     LDScoreCalculator, LDScoreResult,
     RegressionRunner, load_ldscore_from_files,
     run_bed_to_annot,
@@ -1514,16 +1514,16 @@ Add a completed section for this refactoring under "Completed" in `PLANS.md`.
 - [x] Q6 — `run_ldscore_from_args` converged through `AnnotationBuilder` + `LDScoreCalculator` (Task 6)
 - [x] Merged output format — `regr_weight` embedded in `.l2.ldscore.gz`; rows = `ld_regression_snps`; no `.w.l2.ldscore.gz` emitted (Task 6)
 - [x] `--w-ld` optional on regression subcommands — falls back to `regr_weight` column; backward compatible with pre-computed w_ld files (Task 9)
-- [x] Config restructure — `ref_panel_snps_path` on `RefPanelSpec`; `regression_snps_path` on `LDScoreConfig`; both removed from `GlobalConfig`; `--ref-panel-snps` and `--regression-snps` only on `ldsc ldscore` (Task 3)
+- [x] Config restructure — `ref_panel_snps_path` on `RefPanelConfig`; `regression_snps_path` on `LDScoreConfig`; both removed from `GlobalConfig`; `--ref-panel-snps` and `--regression-snps` only on `ldsc ldscore` (Task 3)
 
 **Config restructure scope (Task 3) — all callers updated:**
 
 - `GlobalConfig`: fields `ref_panel_snps_path` and `regression_snps_path` deleted
 - `LDScoreConfig`: field `regression_snps_path` added
-- `RefPanelSpec`: fields `ref_panel_snps_path` and `r2_bias_mode` added
+- `RefPanelConfig`: fields `ref_panel_snps_path` and `r2_bias_mode` added
 - `RefPanel._filter_metadata_by_global_restriction()` → `_apply_snp_restriction()` reading from `self.spec`
 - `AnnotationBuilder._filter_metadata_by_global_restriction()` removed entirely
-- `_ref_panel_from_args()`: passes `ref_panel_snps_path` to `RefPanelSpec`
+- `_ref_panel_from_args()`: passes `ref_panel_snps_path` to `RefPanelConfig`
 - `_ldscore_config_from_args()`: passes `regression_snps_path` to `LDScoreConfig`
 - `run_ldscore_from_args()`: reads regression SNPs from `ldscore_config`, not `global_config`
 
@@ -1544,6 +1544,6 @@ Add a completed section for this refactoring under "Completed" in `PLANS.md`.
 
 **Dependency order confirmed:**
 Task 1 (gene-set removal) → Task 4 (BED in run()) since `_run_sharded_inputs` no longer passes `gene_set_paths`
-Task 3 (RefPanelSpec.r2_bias_mode) → Task 6 (convergence uses RefPanelSpec)
+Task 3 (RefPanelConfig.r2_bias_mode) → Task 6 (convergence uses RefPanelConfig)
 Task 4+5 (BED bundle) → Task 6 (run_ldscore_from_args uses AnnotationBuilder with bed_paths)
 Task 6 (convergence) → Task 7 (--query-annot-bed consumed by run_ldscore_from_args; mutual exclusivity with --query-annot enforced at parse time)

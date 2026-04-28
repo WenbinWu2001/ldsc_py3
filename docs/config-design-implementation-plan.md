@@ -13,7 +13,7 @@ described in [config-design.md](config-design.md).
   `LDScoreResult` snapshots with `validate_config_compatibility()`.
 - `LDScoreCalculator.run()` validates `AnnotationBundle.config_snapshot`
   against the active runtime `GlobalConfig`.
-- `LDScoreCalculator.run()` validates `RefPanelSpec.genome_build` against the
+- `LDScoreCalculator.run()` validates `RefPanelConfig.genome_build` against the
   active runtime `GlobalConfig.genome_build`.
 - LD-score aggregation validates that per-chromosome
   `ChromLDScoreResult.config_snapshot` values agree before constructing the

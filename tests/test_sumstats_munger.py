@@ -16,10 +16,9 @@ from ldsc.config import GlobalConfig, MungeConfig
 
 try:
     import ldsc
-    from ldsc.sumstats_munger import RawSumstatsSpec, SumstatsMunger
+    from ldsc.sumstats_munger import SumstatsMunger
 except ImportError:
     ldsc = None
-    RawSumstatsSpec = None
     SumstatsMunger = None
 
 
@@ -55,7 +54,7 @@ class SumstatsMungerTest(unittest.TestCase):
                 "rs2 C T 0.10 0.9 1000\n",
                 encoding="utf-8",
             )
-            raw = RawSumstatsSpec(sumstats_path=str(raw_path), trait_name="trait")
+            raw = MungeConfig(sumstats_path=str(raw_path), trait_name="trait")
             config = MungeConfig(output_dir=str(tmpdir / "munged"))
             munger = SumstatsMunger()
             table = munger.run(raw, config, GlobalConfig(snp_identifier="rsid"))
@@ -108,7 +107,7 @@ class SumstatsMungerTest(unittest.TestCase):
                 "rs1 A G 0.05 1.0 1000\n",
                 encoding="utf-8",
             )
-            raw = RawSumstatsSpec(sumstats_path=str(raw_path), trait_name="trait")
+            raw = MungeConfig(sumstats_path=str(raw_path), trait_name="trait")
             output_dir = tmpdir / "nested" / "dir" / "munged"
             config = MungeConfig(output_dir=str(output_dir))
 
@@ -127,7 +126,7 @@ class SumstatsMungerTest(unittest.TestCase):
                 "rs1 A G 0.05 1.0 1000\n",
                 encoding="utf-8",
             )
-            raw = RawSumstatsSpec(sumstats_path=raw_path, trait_name="trait")
+            raw = MungeConfig(sumstats_path=raw_path, trait_name="trait")
             output_dir = tmpdir / "nested" / "mdd2025"
 
             table = SumstatsMunger().run(raw, MungeConfig(output_dir=output_dir), GlobalConfig(snp_identifier="rsid"))
@@ -146,7 +145,7 @@ class SumstatsMungerTest(unittest.TestCase):
                 "rs1 A G 0.05 1.0 1000\n",
                 encoding="utf-8",
             )
-            raw = RawSumstatsSpec(sumstats_path=str(tmpdir / "trait.*.tsv"), trait_name="trait")
+            raw = MungeConfig(sumstats_path=str(tmpdir / "trait.*.tsv"), trait_name="trait")
             output_dir = tmpdir / "out" / "munged"
 
             table = SumstatsMunger().run(raw, MungeConfig(output_dir=output_dir), GlobalConfig(snp_identifier="rsid"))
@@ -165,7 +164,7 @@ class SumstatsMungerTest(unittest.TestCase):
             )
 
             table = SumstatsMunger().run(
-                RawSumstatsSpec(sumstats_path=raw_path, trait_name="trait"),
+                MungeConfig(sumstats_path=raw_path, trait_name="trait"),
                 MungeConfig(output_dir=tmpdir / "munged"),
                 GlobalConfig(snp_identifier="rsid"),
             )

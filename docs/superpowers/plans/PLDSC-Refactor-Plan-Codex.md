@@ -12,8 +12,8 @@ Implement the refactor described in the April 21 plan, with the live-code adjust
 ### Config and reference-panel boundary
 - Remove `ref_panel_snps_path` and `regression_snps_path` from `GlobalConfig`; keep only identifier/build/logging/shared runtime settings there.
 - Add `regression_snps_path` to `LDScoreConfig`.
-- Add `ref_panel_snps_path` and `r2_bias_mode` to `RefPanelSpec`.
-- Move reference SNP restriction ownership into `_kernel/ref_panel.py` so `load_metadata()` applies the restriction from `RefPanelSpec`, not from `GlobalConfig`.
+- Add `ref_panel_snps_path` and `r2_bias_mode` to `RefPanelConfig`.
+- Move reference SNP restriction ownership into `_kernel/ref_panel.py` so `load_metadata()` applies the restriction from `RefPanelConfig`, not from `GlobalConfig`.
 - Update `ref_panel_builder.py` so `build-ref-panel` also stops depending on `GlobalConfig.ref_panel_snps_path` and instead carries restriction state through its build config/spec path consistently.
 
 ### Annotation and LD-score workflow
@@ -54,7 +54,7 @@ Implement the refactor described in the April 21 plan, with the live-code adjust
 - Config/ref-panel tests:
   `GlobalConfig` no longer exposes `ref_panel_snps_path` or `regression_snps_path`.
   `LDScoreConfig` accepts `regression_snps_path`.
-  `RefPanelSpec` accepts `ref_panel_snps_path` and `r2_bias_mode`.
+  `RefPanelConfig` accepts `ref_panel_snps_path` and `r2_bias_mode`.
   `build-ref-panel` still honors SNP restriction through the new boundary.
 - LD-score workflow tests:
   direct `AnnotationBuilder` + `LDScoreCalculator` matches `run_ldscore_from_args()`.

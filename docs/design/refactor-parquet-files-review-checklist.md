@@ -124,7 +124,7 @@ claim that can be confirmed by reading code or running a test.
 
 ## 17. Sidecar Hard-Fail
 
-- [ ] `ParquetR2RefPanel.load_metadata()` raises `ImportError` immediately if no sidecar paths are supplied via `maf_metadata_paths`.
+- [ ] `ParquetR2RefPanel.load_metadata()` raises `ImportError` immediately if no sidecar paths are supplied via `metadata_paths`.
 
 ## 18. Numerical Parity — Canonical vs. Legacy
 

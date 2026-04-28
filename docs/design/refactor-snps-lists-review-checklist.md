@@ -9,24 +9,24 @@ Each item targets a specific constraint that is easy to get wrong or to leave ha
 
 ---
 
-## 1. Config boundary (`config.py`, `GlobalConfig`, `LDScoreConfig`, `RefPanelSpec`)
+## 1. Config boundary (`config.py`, `GlobalConfig`, `LDScoreConfig`, `RefPanelConfig`)
 
 - [ ] `GlobalConfig` does **not** expose `ref_panel_snps_path` — field removed entirely.
 - [ ] `GlobalConfig` does **not** expose `regression_snps_path` — field removed entirely.
 - [ ] `LDScoreConfig` has a `regression_snps_path` field (moved from `GlobalConfig`).
-- [ ] `RefPanelSpec` has a `ref_panel_snps_path` field (moved from `GlobalConfig`).
-- [ ] `RefPanelSpec` has an `r2_bias_mode: str | None = None` field.
+- [ ] `RefPanelConfig` has a `ref_panel_snps_path` field (moved from `GlobalConfig`).
+- [ ] `RefPanelConfig` has an `r2_bias_mode: str | None = None` field.
 - [ ] No callers of `GlobalConfig` still read `.ref_panel_snps_path` or `.regression_snps_path` — grep confirms zero uses.
-- [ ] `_normalize_run_args()` in `ldscore_calculator.py` routes `--ref-panel-snps` into `RefPanelSpec`, not `GlobalConfig`.
+- [ ] `_normalize_run_args()` in `ldscore_calculator.py` routes `--ref-panel-snps` into `RefPanelConfig`, not `GlobalConfig`.
 - [ ] `_normalize_run_args()` routes `--regression-snps` into `LDScoreConfig`, not `GlobalConfig`.
-- [ ] `RefPanel.load_metadata()` applies restriction from `RefPanelSpec.ref_panel_snps_path`, not from `GlobalConfig`.
+- [ ] `RefPanel.load_metadata()` applies restriction from `RefPanelConfig.ref_panel_snps_path`, not from `GlobalConfig`.
 - [ ] `ref_panel_builder.py` passes SNP restriction through its build config / spec path — no dependency on `GlobalConfig.ref_panel_snps_path`.
 
 ---
 
 ## 2. Gene-set TSV removal (`_kernel/annotation.py`, `annotation_builder.py`, `cli.py`)
 
-- [ ] `AnnotationSourceSpec` has no `gene_set_paths` field.
+- [ ] `AnnotationBuildConfig` has no `gene_set_paths` field.
 - [ ] `gene_set_to_bed`, `make_annot_files`, `parse_make_annot_args`, `main_make_annot` are absent from `_kernel/annotation.py`.
 - [ ] `annotation_builder.py` `__all__` exports no gene-set symbols.
 - [ ] `cli.py` `_run_annotate()` has no gene-set dispatch branch.
@@ -36,7 +36,7 @@ Each item targets a specific constraint that is easy to get wrong or to leave ha
 
 ## 3. In-memory BED projection (`_kernel/annotation.py`)
 
-- [ ] `AnnotationBuilder.run()` handles non-empty `AnnotationSourceSpec.bed_paths` — no silent ignore.
+- [ ] `AnnotationBuilder.run()` handles non-empty `AnnotationBuildConfig.bed_paths` — no silent ignore.
 - [ ] `_compute_bed_query_columns()` returns a `pd.DataFrame`. No `.annot.gz` files are written as a side-effect.
 - [ ] BED column names are taken from file stems. Duplicate stems raise `ValueError` before any computation.
 - [ ] Stems that clash with loaded baseline/query column names raise `ValueError`.
@@ -49,7 +49,7 @@ Each item targets a specific constraint that is easy to get wrong or to leave ha
 ## 4. SNP universe filtering — `ref_panel_snps_path`
 
 - [ ] `AnnotationBuilder._run_single_universe()` keeps the full annotation-file universe `B`; it does **not** apply `ref_panel_snps_path` on the annotation side.
-- [ ] `RefPanel.load_metadata()` applies `RefPanelSpec.ref_panel_snps_path` at load time — not deferred to the caller.
+- [ ] `RefPanel.load_metadata()` applies `RefPanelConfig.ref_panel_snps_path` at load time — not deferred to the caller.
 - [ ] `LDScoreCalculator.compute_chromosome()` aligns each chromosome-local annotation bundle to `ref_panel.load_metadata(chrom)` before the legacy kernel call, so the kernel sees `B ∩ A'`.
 - [ ] `_filter_annotation_bundle_to_reference_universe()` in `ldscore_calculator.py` is **deleted** (dead code after convergence).
 - [ ] `_chromosome_set_from_annotation_inputs()` in `ldscore_calculator.py` is **deleted**.
@@ -92,11 +92,11 @@ Each item targets a specific constraint that is easy to get wrong or to leave ha
 
 ## 8. `run_ldscore_from_args()` convergence (`ldscore_calculator.py`)
 
-- [ ] `run_ldscore_from_args()` builds an `AnnotationSourceSpec` and calls `AnnotationBuilder(global_config).run(source_spec)` — no inline annotation loading.
-- [ ] `run_ldscore_from_args()` builds a `RefPanel` via `_ref_panel_from_args()` using `RefPanelSpec`.
+- [ ] `run_ldscore_from_args()` builds an `AnnotationBuildConfig` and calls `AnnotationBuilder(global_config).run(source_spec)` — no inline annotation loading.
+- [ ] `run_ldscore_from_args()` builds a `RefPanel` via `_ref_panel_from_args()` using `RefPanelConfig`.
 - [ ] `run_ldscore_from_args()` builds an `LDScoreConfig` via `_ldscore_config_from_args()`.
 - [ ] `run_ldscore_from_args()` calls `LDScoreCalculator().run(...)` — no direct `kernel_ldscore.combine_annotation_groups()` call.
-- [ ] `_ref_panel_from_args()` constructs `RefPanelSpec` with `ref_panel_snps_path` sourced from the args.
+- [ ] `_ref_panel_from_args()` constructs `RefPanelConfig` with `ref_panel_snps_path` sourced from the args.
 - [ ] `_ldscore_config_from_args()` constructs `LDScoreConfig` with `regression_snps_path`.
 
 ---
@@ -126,7 +126,7 @@ Each item targets a specific constraint that is easy to get wrong or to leave ha
 
 ## 11. Public API surface (`__init__.py`)
 
-- [ ] `from ldsc import AnnotationBuilder, AnnotationBundle, AnnotationSourceSpec` works.
+- [ ] `from ldsc import AnnotationBuilder, AnnotationBundle, AnnotationBuildConfig` works.
 - [ ] `from ldsc import LDScoreCalculator, LDScoreResult` works.
 - [ ] `from ldsc import load_ldscore_from_files` works.
 - [ ] `from ldsc import RegressionRunner` works.
@@ -147,7 +147,7 @@ Each item targets a specific constraint that is easy to get wrong or to leave ha
 - [ ] New-format regression (embedded `regr_weight`, no `--w-ld`) produces consistent heritability estimates.
 - [ ] Legacy-format regression (separate weight file via `--w-ld`) still works.
 - [ ] `GlobalConfig` constructor raises `TypeError` or `AttributeError` when passed `ref_panel_snps_path` or `regression_snps_path`.
-- [ ] `RefPanelSpec` accepts `ref_panel_snps_path` and `r2_bias_mode`; both default to `None`.
+- [ ] `RefPanelConfig` accepts `ref_panel_snps_path` and `r2_bias_mode`; both default to `None`.
 
 ---
 

@@ -47,9 +47,6 @@ from .identifiers import (
 LOGGER = logging.getLogger("LDSC.ref_panel")
 
 
-RefPanelSpec = RefPanelConfig
-
-
 class RefPanel(ABC):
     """Abstract chromosome-scoped reference-panel interface."""
     def __init__(self, global_config: GlobalConfig, spec: RefPanelConfig) -> None:

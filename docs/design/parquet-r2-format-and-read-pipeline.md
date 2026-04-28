@@ -169,15 +169,15 @@ sidecar provides the per-SNP metadata required to load and interpret those pairs
 #### Hard-fail requirement
 
 `ParquetR2RefPanel.load_metadata()` (`src/ldsc/_kernel/ref_panel.py`) raises
-`ImportError` immediately if no sidecar paths are supplied via `maf_metadata_paths`:
+`ImportError` immediately if no sidecar paths are supplied via `metadata_paths`:
 
 ```python
-if not self.spec.maf_metadata_paths:
+if not self.spec.metadata_paths:
     raise ImportError("ParquetR2RefPanel.load_metadata requires metadata sidecar files.")
 ```
 
 Callers must pass at least one sidecar file (or a chromosome-suite glob) via
-`RefPanelSpec(maf_metadata_paths=...)`.
+`RefPanelConfig(metadata_paths=...)`.
 
 #### Sidecar format
 

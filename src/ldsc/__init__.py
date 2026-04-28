@@ -33,7 +33,6 @@ from importlib import import_module
 from .annotation_builder import (
     AnnotationBuilder,
     AnnotationBundle,
-    AnnotationSourceSpec,
     run_bed_to_annot,
 )
 from .config import (
@@ -51,13 +50,12 @@ from .config import (
     validate_config_compatibility,
 )
 from .ldscore_calculator import ChromLDScoreResult, LDScoreCalculator, LDScoreResult, run_ldscore
-from .outputs import ArtifactConfig, ArtifactOutputConfig, ArtifactProducer, LDScoreDirectoryWriter, LDScoreOutputConfig, OutputManager, OutputSpec, PostProcessor, ResultFormatter, ResultWriter, RunSummary
+from .outputs import ArtifactConfig, ArtifactOutputConfig, ArtifactProducer, LDScoreDirectoryWriter, LDScoreOutputConfig, OutputManager, PostProcessor, ResultFormatter, ResultWriter, RunSummary
 from .ref_panel_builder import ReferencePanelBuildResult, ReferencePanelBuilder, run_build_ref_panel
-from ._kernel.ref_panel import ParquetR2RefPanel, PlinkRefPanel, RefPanel, RefPanelLoader, RefPanelSpec
+from ._kernel.ref_panel import ParquetR2RefPanel, PlinkRefPanel, RefPanel, RefPanelLoader
 
 _LAZY_EXPORTS = {
     "MungeRunSummary": (".sumstats_munger", "MungeRunSummary"),
-    "RawSumstatsSpec": (".sumstats_munger", "RawSumstatsSpec"),
     "SumstatsMunger": (".sumstats_munger", "SumstatsMunger"),
     "SumstatsTable": (".sumstats_munger", "SumstatsTable"),
     "load_sumstats": (".sumstats_munger", "load_sumstats"),
@@ -81,7 +79,6 @@ __all__ = [
     "AnnotationBuildConfig",
     "AnnotationBuilder",
     "AnnotationBundle",
-    "AnnotationSourceSpec",
     "ArtifactConfig",
     "ArtifactOutputConfig",
     "ArtifactProducer",
@@ -98,18 +95,15 @@ __all__ = [
     "MungeConfig",
     "MungeRunSummary",
     "OutputManager",
-    "OutputSpec",
     "ParquetR2RefPanel",
     "PlinkRefPanel",
     "PostProcessor",
-    "RawSumstatsSpec",
     "ReferencePanelBuildConfig",
     "ReferencePanelBuildResult",
     "ReferencePanelBuilder",
     "RefPanel",
     "RefPanelConfig",
     "RefPanelLoader",
-    "RefPanelSpec",
     "RegressionConfig",
     "RegressionDataset",
     "RegressionRunner",

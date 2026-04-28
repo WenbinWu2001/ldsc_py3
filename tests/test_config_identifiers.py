@@ -1,4 +1,5 @@
 from pathlib import Path
+import importlib
 import sys
 import tempfile
 import unittest
@@ -22,9 +23,6 @@ from ldsc.config import (
     RegressionConfig,
     normalize_genome_build,
 )
-from ldsc.sumstats_munger import RawSumstatsSpec
-from ldsc._kernel.annotation import AnnotationSourceSpec
-from ldsc._kernel.ref_panel import RefPanelSpec
 from ldsc._kernel.identifiers import (
     build_chr_pos_snp_id,
     build_snp_id_series,
@@ -108,10 +106,24 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertEqual(config.query_annot_paths, ("query.*.annot.gz",))
         self.assertEqual(config.query_annot_bed_paths, ("beds/*.bed",))
 
-    def test_annotation_source_spec_is_deprecated_alias_for_annotation_config(self):
-        self.assertIs(AnnotationSourceSpec, AnnotationBuildConfig)
-        config = AnnotationSourceSpec(baseline_annot_paths="baseline.@.annot.gz")
-        self.assertEqual(config.baseline_annot_paths, ("baseline.@.annot.gz",))
+    def test_removed_compatibility_aliases_are_not_exported(self):
+        removed_names_by_module = {
+            "ldsc": ("AnnotationSourceSpec", "RawSumstatsSpec", "RefPanelSpec", "OutputSpec"),
+            "ldsc.annotation_builder": ("AnnotationSourceSpec",),
+            "ldsc._kernel.annotation": ("AnnotationSourceSpec",),
+            "ldsc._kernel.ref_panel": ("RefPanelSpec",),
+            "ldsc.sumstats_munger": ("RawSumstatsSpec",),
+            "ldsc.outputs": ("OutputSpec",),
+        }
+        for module_name, names in removed_names_by_module.items():
+            module = importlib.import_module(module_name)
+            exports = getattr(module, "__all__", ())
+            lazy_exports = getattr(module, "_LAZY_EXPORTS", {})
+            for name in names:
+                with self.subTest(module=module_name, name=name):
+                    self.assertNotIn(name, vars(module))
+                    self.assertNotIn(name, exports)
+                    self.assertNotIn(name, lazy_exports)
 
     def test_ref_panel_config_validates_r2_args(self):
         with self.assertRaises(ValueError):
@@ -225,8 +237,8 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertEqual(config.merge_alleles_path, "resources/alleles.tsv")
         self.assertEqual(config.trait_name, "trait")
 
-    def test_raw_sumstats_spec_is_deprecated_source_only_alias_for_munge_config(self):
-        raw = RawSumstatsSpec(sumstats_path=Path("sumstats") / "trait.tsv.gz", trait_name="trait")
+    def test_munge_config_accepts_source_fields(self):
+        raw = MungeConfig(sumstats_path=Path("sumstats") / "trait.tsv.gz", trait_name="trait")
         self.assertIsInstance(raw, MungeConfig)
         self.assertEqual(raw.sumstats_path, "sumstats/trait.tsv.gz")
         self.assertEqual(raw.trait_name, "trait")
@@ -262,9 +274,8 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertEqual(config.genome_build, "hg19")
         self.assertEqual(config.ref_panel_snps_path, "filters/snps.txt")
 
-    def test_ref_panel_spec_is_deprecated_alias_for_ref_panel_config(self):
-        self.assertIs(RefPanelSpec, RefPanelConfig)
-        config = RefPanelSpec(backend="plink", plink_path=Path("plink") / "panel")
+    def test_ref_panel_config_accepts_runtime_source_fields(self):
+        config = RefPanelConfig(backend="plink", plink_path=Path("plink") / "panel")
         self.assertEqual(config.plink_path, "plink/panel")
 
     def test_ref_panel_config_accepts_single_string_tokens_for_plural_fields(self):

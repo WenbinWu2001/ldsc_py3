@@ -293,7 +293,7 @@ def render() -> None:
         100,
         "Reference-panel\nspec",
         BLUE,
-        "`RefPanelSpec`\n`ref_panel_snps_path`",
+        "`RefPanelConfig`\n`ref_panel_snps_path`",
         title_fs=15,
         body_fs=11.8,
     )

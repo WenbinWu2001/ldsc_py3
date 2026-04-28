@@ -21,7 +21,7 @@ if str(SRC) not in sys.path:
 from ldsc.config import ConfigMismatchError, GlobalConfig
 
 try:
-    from ldsc import AnnotationBundle, LDScoreConfig, PlinkRefPanel, RefPanelSpec
+    from ldsc import AnnotationBundle, LDScoreConfig, PlinkRefPanel, RefPanelConfig
     from ldsc import ldscore_calculator as ldscore_workflow
     from ldsc._kernel import formats as kernel_formats
     from ldsc._kernel import ldscore as kernel_ldscore
@@ -29,7 +29,7 @@ except ImportError:
     AnnotationBundle = None
     LDScoreConfig = None
     PlinkRefPanel = None
-    RefPanelSpec = None
+    RefPanelConfig = None
     kernel_formats = None
     ldscore_workflow = None
     kernel_ldscore = None
@@ -462,7 +462,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             self.assertEqual(baseline_df["SNP"].tolist(), ["rs2"])
 
     def test_namespace_from_configs_emits_string_paths(self):
-        from ldsc._kernel.ref_panel import RefPanelSpec
+        from ldsc._kernel.ref_panel import RefPanelConfig
 
         common = GlobalConfig(snp_identifier="rsid", genome_build="hg19")
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -477,7 +477,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             with gzip.open(meta_path, "wt", encoding="utf-8") as handle:
                 handle.write("CHR\tBP\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n")
             keep_path.write_text("iid1\n", encoding="utf-8")
-            spec = RefPanelSpec(
+            spec = RefPanelConfig(
                 backend="parquet_r2",
                 r2_paths=(r2_path,),
                 metadata_paths=(meta_path,),
@@ -741,7 +741,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             expected_metadata, expected_ld = self._expected_plink_result(prefix, keep_path, maf_min=None)
             bundle = self._build_annotation_bundle(prefix)
             common = GlobalConfig(snp_identifier="rsid")
-            panel = PlinkRefPanel(common, RefPanelSpec(backend="plink", plink_path=prefix))
+            panel = PlinkRefPanel(common, RefPanelConfig(backend="plink", plink_path=prefix))
             result = ldscore_workflow.LDScoreCalculator().run(
                 annotation_bundle=bundle,
                 ref_panel=panel,
@@ -769,7 +769,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             common = GlobalConfig(snp_identifier="rsid")
             panel = PlinkRefPanel(
                 common,
-                RefPanelSpec(
+                RefPanelConfig(
                     backend="plink",
                     plink_path=prefix,
                     ref_panel_snps_path=restrict_path,
@@ -820,7 +820,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             common = GlobalConfig(snp_identifier="rsid")
             panel = PlinkRefPanel(
                 common,
-                RefPanelSpec(
+                RefPanelConfig(
                     backend="plink",
                     plink_path=prefix,
                     metadata_paths=(freq_path,),

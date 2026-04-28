@@ -57,9 +57,6 @@ allele_merge = kernel_munge.allele_merge
 munge_sumstats = kernel_munge.munge_sumstats
 
 
-RawSumstatsSpec = MungeConfig
-
-
 @dataclass(frozen=True)
 class SumstatsTable:
     """In-memory LDSC-ready summary-statistics table.

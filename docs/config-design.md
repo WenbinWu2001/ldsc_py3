@@ -70,7 +70,7 @@ The implementation also validates two adjacent consistency boundaries:
 
 - `LDScoreCalculator.run()` checks `AnnotationBundle.config_snapshot` against the
   active runtime `GlobalConfig`
-- `LDScoreCalculator.run()` checks `RefPanelSpec.genome_build` against the active
+- `LDScoreCalculator.run()` checks `RefPanelConfig.genome_build` against the active
   runtime `GlobalConfig.genome_build`
 - LD-score aggregation checks that per-chromosome `ChromLDScoreResult` snapshots
   agree before constructing the final `LDScoreResult`
@@ -105,7 +105,7 @@ results, because those results carry their own frozen snapshots.
 
 The compatibility helper compares only `GlobalConfig` snapshots, so the table
 above lists only `GlobalConfig` fields. Workflow-specific LD-score controls such
-as `RefPanelSpec.ref_panel_snps_path` and `LDScoreConfig.regression_snps_path`
+as `RefPanelConfig.ref_panel_snps_path` and `LDScoreConfig.regression_snps_path`
 still matter to the result, but they are owned by those workflow objects rather
 than by `GlobalConfig`.
 
@@ -168,18 +168,18 @@ that actually own those decisions.
 
 ```text
 Annotation bundle rows B                      (AnnotationBuilder)
-  intersects prepared reference panel A'     (RefPanelSpec.ref_panel_snps_path)
+  intersects prepared reference panel A'     (RefPanelConfig.ref_panel_snps_path)
     then optional regression row subset C    (LDScoreConfig.regression_snps_path)
 ```
 
 | Concept | Owner | CLI flag | When applied | Artifact effect |
 | --- | --- | --- | --- | --- |
-| Reference-panel restriction | `RefPanelSpec.ref_panel_snps_path` | `--ref-panel-snps-path` | `RefPanel.load_metadata()`; then `LDScoreCalculator.compute_chromosome()` aligns `B_chrom` to the restricted panel before the kernel call | Shrinks the compute-time universe to `ld_reference_snps = B ∩ A'`; affects LD scores, `.M`, and `.M_5_50` |
+| Reference-panel restriction | `RefPanelConfig.ref_panel_snps_path` | `--ref-panel-snps-path` | `RefPanel.load_metadata()`; then `LDScoreCalculator.compute_chromosome()` aligns `B_chrom` to the restricted panel before the kernel call | Shrinks the compute-time universe to `ld_reference_snps = B ∩ A'`; affects LD scores, `.M`, and `.M_5_50` |
 | Regression row restriction | `LDScoreConfig.regression_snps_path` | `--regression-snps-path` | After LD computation, when normalized/public rows are selected | Shrinks written rows to `ld_regression_snps = B ∩ A' ∩ C`; `regr_weight` is embedded in the same row table |
 
 ### What each control does
 
-**`RefPanelSpec.ref_panel_snps_path`** — the *reference-panel SNP universe*
+**`RefPanelConfig.ref_panel_snps_path`** — the *reference-panel SNP universe*
 
 - `AnnotationBuilder.run()` still builds the full annotation universe `B`.
 - `run_bed_to_annot()` and `ldsc annotate` do **not** apply this restriction.
@@ -204,10 +204,10 @@ cfg = ldsc.GlobalConfig(genome_build="hg38", snp_identifier="chr_pos")
 ldsc.set_global_config(cfg)
 
 ref_panel = ldsc.RefPanelLoader(cfg).load(
-    ldsc.RefPanelSpec(
+    ldsc.RefPanelConfig(
         backend="parquet_r2",
-        r2_table_paths="r2/reference.@.parquet",
-        maf_metadata_paths="r2/reference_metadata.@.tsv.gz",
+        r2_paths="r2/reference.@.parquet",
+        metadata_paths="r2/reference_metadata.@.tsv.gz",
         ref_panel_snps_path="filters/reference_universe.txt",
     )
 )
@@ -230,11 +230,11 @@ ldscore = ldsc.LDScoreCalculator().run(
 - `.M` and `.M_5_50` are accumulated over `ld_reference_snps = B ∩ A'`.
 - Normalized/public `.l2.ldscore.gz` rows and `LDScoreResult.ldscore_table` rows are `ld_regression_snps = B ∩ A' ∩ C`.
 
-### Compatibility with older code
+### Migration Notes
 
 Stop passing these controls to `GlobalConfig()`:
 
-- move reference-panel restriction to `RefPanelSpec(ref_panel_snps_path=...)`
+- move reference-panel restriction to `RefPanelConfig(ref_panel_snps_path=...)`
 - move regression row restriction to `LDScoreConfig(regression_snps_path=...)` or `run_ldscore(...)`
 
 The old `--regression-snps` and `--print-snps` behavior is unified under
@@ -245,8 +245,8 @@ output artifact.
 
 ## Caveats and Known Limitations
 
-**`RefPanelSpec.genome_build` is not a full `GlobalConfig`.**
-The `RefPanelSpec` dataclass carries its own `genome_build` string field (set during
+**`RefPanelConfig.genome_build` is not a full `GlobalConfig`.**
+The `RefPanelConfig` dataclass carries its own `genome_build` string field (set during
 panel construction). Compatibility checks between a `RefPanel` and other results use
 this field directly, not a full `GlobalConfig` snapshot. A future refactor could
 promote this to a full snapshot, but for now the field is checked explicitly.
@@ -259,9 +259,9 @@ snapshot rather than re-inferring the build from coordinates.
 **Workflow-specific SNP controls are not part of `config_snapshot`.**
 `config_snapshot` records shared assumptions such as `genome_build` and
 `snp_identifier`. Per-run LD-score controls such as
-`RefPanelSpec.ref_panel_snps_path` and `LDScoreConfig.regression_snps_path`
+`RefPanelConfig.ref_panel_snps_path` and `LDScoreConfig.regression_snps_path`
 still materially affect the outputs, but callers who need to preserve that
-provenance should persist the `RefPanelSpec` / `LDScoreConfig` they used
+provenance should persist the `RefPanelConfig` / `LDScoreConfig` they used
 alongside the written artifacts.
 
 **`load_sumstats()` attaches a proxy snapshot, not original provenance.**

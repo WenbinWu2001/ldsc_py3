@@ -12,7 +12,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from ldsc.config import GlobalConfig, RefPanelConfig
-from ldsc._kernel.ref_panel import ParquetR2RefPanel, PlinkRefPanel, RefPanelLoader, RefPanelSpec
+from ldsc._kernel.ref_panel import ParquetR2RefPanel, PlinkRefPanel, RefPanelLoader
 
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "legacy" / "reference_test"
@@ -29,21 +29,21 @@ def _has_module(name: str) -> bool:
 class RefPanelLoaderTest(unittest.TestCase):
     def test_loader_selects_plink_backend(self):
         loader = RefPanelLoader(GlobalConfig(snp_identifier="rsid"), RefPanelConfig())
-        spec = RefPanelSpec(backend="plink", plink_path=str(FIXTURES / "plink"))
+        spec = RefPanelConfig(backend="plink", plink_path=str(FIXTURES / "plink"))
         panel = loader.load(spec)
         self.assertIsInstance(panel, PlinkRefPanel)
 
-    def test_ref_panel_spec_accepts_r2_bias_mode(self):
-        spec = RefPanelSpec(backend="parquet_r2", r2_bias_mode="unbiased")
+    def test_ref_panel_config_accepts_r2_bias_mode(self):
+        spec = RefPanelConfig(backend="parquet_r2", r2_bias_mode="unbiased")
         self.assertEqual(spec.r2_bias_mode, "unbiased")
 
-    def test_ref_panel_spec_accepts_ref_panel_snps_path(self):
-        spec = RefPanelSpec(backend="plink", ref_panel_snps_path="/path/to/snps.txt")
+    def test_ref_panel_config_accepts_ref_panel_snps_path(self):
+        spec = RefPanelConfig(backend="plink", ref_panel_snps_path="/path/to/snps.txt")
         self.assertEqual(spec.ref_panel_snps_path, "/path/to/snps.txt")
 
     def test_loader_selects_parquet_backend(self):
         loader = RefPanelLoader(GlobalConfig(snp_identifier="chr_pos"), RefPanelConfig())
-        spec = RefPanelSpec(backend="parquet_r2", chromosomes=("1",), metadata_paths=())
+        spec = RefPanelConfig(backend="parquet_r2", chromosomes=("1",), metadata_paths=())
         panel = loader.load(spec)
         self.assertIsInstance(panel, ParquetR2RefPanel)
 
@@ -52,7 +52,7 @@ class PlinkRefPanelTest(unittest.TestCase):
     def test_available_chromosomes_and_metadata(self):
         panel = PlinkRefPanel(
             GlobalConfig(snp_identifier="rsid"),
-            RefPanelSpec(backend="plink", plink_path=str(FIXTURES / "plink")),
+            RefPanelConfig(backend="plink", plink_path=str(FIXTURES / "plink")),
         )
         self.assertEqual(panel.available_chromosomes(), ["9"])
         metadata = panel.load_metadata("9")
@@ -62,7 +62,7 @@ class PlinkRefPanelTest(unittest.TestCase):
     def test_filter_to_snps_rsid(self):
         panel = PlinkRefPanel(
             GlobalConfig(snp_identifier="rsid"),
-            RefPanelSpec(backend="plink", plink_path=str(FIXTURES / "plink")),
+            RefPanelConfig(backend="plink", plink_path=str(FIXTURES / "plink")),
         )
         filtered = panel.filter_to_snps("9", {"rs185444096", "rs7341907"})
         self.assertEqual(set(filtered["SNP"]), {"rs185444096", "rs7341907"})
@@ -70,7 +70,7 @@ class PlinkRefPanelTest(unittest.TestCase):
     def test_duplicate_rsid_raises(self):
         panel = PlinkRefPanel(
             GlobalConfig(snp_identifier="rsid"),
-            RefPanelSpec(backend="plink", plink_path=str(FIXTURES / "plink2")),
+            RefPanelConfig(backend="plink", plink_path=str(FIXTURES / "plink2")),
         )
         with self.assertRaises(ValueError):
             panel.load_metadata("1")
@@ -81,7 +81,7 @@ class PlinkRefPanelTest(unittest.TestCase):
             restrict.write_text("SNP\nrs7341907\n", encoding="utf-8")
             panel = PlinkRefPanel(
                 GlobalConfig(snp_identifier="rsid"),
-                RefPanelSpec(backend="plink", plink_path=str(FIXTURES / "plink"), ref_panel_snps_path=str(restrict)),
+                RefPanelConfig(backend="plink", plink_path=str(FIXTURES / "plink"), ref_panel_snps_path=str(restrict)),
             )
             metadata = panel.load_metadata("9")
             self.assertEqual(set(metadata["SNP"]), {"rs7341907"})
@@ -90,7 +90,7 @@ class PlinkRefPanelTest(unittest.TestCase):
     def test_build_reader(self):
         panel = PlinkRefPanel(
             GlobalConfig(snp_identifier="rsid"),
-            RefPanelSpec(backend="plink", plink_path=str(FIXTURES / "plink")),
+            RefPanelConfig(backend="plink", plink_path=str(FIXTURES / "plink")),
         )
         reader = panel.build_reader("1")
         self.assertIsNotNone(reader)
@@ -106,7 +106,7 @@ class ParquetRefPanelTest(unittest.TestCase):
             )
             panel = ParquetR2RefPanel(
                 GlobalConfig(snp_identifier="chr_pos"),
-                RefPanelSpec(backend="parquet_r2", metadata_paths=(str(meta),)),
+                RefPanelConfig(backend="parquet_r2", metadata_paths=(str(meta),)),
             )
             self.assertEqual(panel.available_chromosomes(), ["1", "2"])
             metadata = panel.load_metadata("1")
@@ -122,7 +122,7 @@ class ParquetRefPanelTest(unittest.TestCase):
             )
             panel = ParquetR2RefPanel(
                 GlobalConfig(snp_identifier="chr_pos"),
-                RefPanelSpec(backend="parquet_r2", metadata_paths=(str(meta),)),
+                RefPanelConfig(backend="parquet_r2", metadata_paths=(str(meta),)),
             )
 
             self.assertEqual(panel.available_chromosomes(), ["1", "2"])
@@ -138,7 +138,7 @@ class ParquetRefPanelTest(unittest.TestCase):
             )
             panel = ParquetR2RefPanel(
                 GlobalConfig(snp_identifier="chr_pos"),
-                RefPanelSpec(backend="parquet_r2", metadata_paths=(str(meta),), chromosomes=("1",)),
+                RefPanelConfig(backend="parquet_r2", metadata_paths=(str(meta),), chromosomes=("1",)),
             )
             filtered = panel.filter_to_snps("1", {"1:20"})
             self.assertEqual(filtered["POS"].tolist(), [20])
@@ -158,7 +158,7 @@ class ParquetRefPanelTest(unittest.TestCase):
             )
             panel = ParquetR2RefPanel(
                 GlobalConfig(snp_identifier="chr_pos"),
-                RefPanelSpec(backend="parquet_r2", metadata_paths=str(tmpdir / "meta.@.tsv")),
+                RefPanelConfig(backend="parquet_r2", metadata_paths=str(tmpdir / "meta.@.tsv")),
             )
 
             self.assertEqual(panel.available_chromosomes(), ["1", "2"])
@@ -175,7 +175,7 @@ class ParquetRefPanelTest(unittest.TestCase):
             meta.write_text("\n".join(rows) + "\n", encoding="utf-8")
             panel = ParquetR2RefPanel(
                 GlobalConfig(snp_identifier="chr_pos", genome_build="auto"),
-                RefPanelSpec(backend="parquet_r2", metadata_paths=(str(meta),)),
+                RefPanelConfig(backend="parquet_r2", metadata_paths=(str(meta),)),
             )
 
             with mock.patch(
@@ -200,7 +200,7 @@ class ParquetRefPanelTest(unittest.TestCase):
             meta.write_text("CHR\tBP\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n", encoding="utf-8")
             panel = ParquetR2RefPanel(
                 GlobalConfig(snp_identifier="chr_pos"),
-                RefPanelSpec(backend="parquet_r2", metadata_paths=(str(meta),), r2_paths=(str(Path(tmpdir) / "missing.parquet"),)),
+                RefPanelConfig(backend="parquet_r2", metadata_paths=(str(meta),), r2_paths=(str(Path(tmpdir) / "missing.parquet"),)),
             )
             with self.assertRaises(Exception):
                 panel.build_reader("1")
@@ -220,7 +220,7 @@ class ParquetRefPanelTest(unittest.TestCase):
             )
             panel = PlinkRefPanel(
                 GlobalConfig(snp_identifier="rsid"),
-                RefPanelSpec(backend="plink", plink_path=str(tmpdir / "panel.@")),
+                RefPanelConfig(backend="plink", plink_path=str(tmpdir / "panel.@")),
             )
 
             self.assertEqual(panel.available_chromosomes(), ["1"])

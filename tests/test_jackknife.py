@@ -41,7 +41,7 @@ class TestJackknife(unittest.TestCase):
         assert_array_almost_equal(est, np.array([[4.5, 4.5]]))
         assert_array_almost_equal(
             cov,
-            np.matrix([[0.91666667, 0.91666667], [0.91666667, 0.91666667]]),
+            np.array([[0.91666667, 0.91666667], [0.91666667, 0.91666667]]),
         )
         assert_array_almost_equal(se**2, var)
         assert_array_equal(cov.shape, (2, 2))
@@ -196,10 +196,10 @@ class TestLstsqJackknifeFast(unittest.TestCase):
 
 class TestRatioJackknife(unittest.TestCase):
     def test_1d(self):
-        numer_delete_values = np.matrix(np.arange(1, 11)).T
-        denom_delete_values = -np.matrix(np.arange(1, 11)).T
+        numer_delete_values = np.arange(1, 11).reshape(-1, 1)
+        denom_delete_values = -np.arange(1, 11).reshape(-1, 1)
         denom_delete_values[9, 0] += 1
-        est = np.matrix(-1)
+        est = np.array([[-1]])
         jknife = jk.RatioJackknife(est, numer_delete_values, denom_delete_values)
         assert_array_almost_equal(jknife.est, est)
         assert_array_almost_equal(jknife.pseudovalues[0:9, :], -1)
@@ -218,11 +218,11 @@ class TestRatioJackknife(unittest.TestCase):
             jk.RatioJackknife(est, numer_delete_vals, denom_delete_vals)
 
     def test_2d(self):
-        numer_delete_values = np.matrix(np.vstack((np.arange(1, 11), 2 * np.arange(1, 11)))).T
+        numer_delete_values = np.vstack((np.arange(1, 11), 2 * np.arange(1, 11))).T
         x = -np.arange(1, 11)
         x[9] += 1
         denom_delete_values = np.vstack((x, 4 * x)).T
-        est = np.matrix((-1, -0.5))
+        est = np.array([[-1, -0.5]])
         jknife = jk.RatioJackknife(est, numer_delete_values, denom_delete_values)
         assert_array_almost_equal(jknife.est, est)
         self.assertEqual(jknife.est.shape, (1, 2))
@@ -233,7 +233,7 @@ class TestRatioJackknife(unittest.TestCase):
         assert_array_almost_equal(jknife.jknife_est, [[-0.9, -0.45]])
         assert_array_almost_equal(jknife.jknife_se, [[0.1, 0.05]])
         assert_array_almost_equal(jknife.jknife_var, [[0.01, 0.0025]])
-        assert_array_almost_equal(jknife.jknife_cov, np.matrix(((0.01, 0.005), (0.005, 0.0025))))
+        assert_array_almost_equal(jknife.jknife_cov, np.array(((0.01, 0.005), (0.005, 0.0025))))
 
     def test_divide_by_zero_2d(self):
         est = np.ones((1, 2))

@@ -35,7 +35,7 @@ FLIP_ALLELES = {''.join(x):
                 ((x[0] == COMPLEMENT[x[3]]) and (x[1] == COMPLEMENT[x[2]]))
                 for x in MATCH_ALLELES}
 
-s = lambda x: remove_brackets(str(np.matrix(x)))
+s = lambda x: remove_brackets(str(np.asarray(x)))
 
 
 def update_separators(s, ii):

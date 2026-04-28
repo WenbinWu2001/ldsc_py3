@@ -52,8 +52,6 @@ from ..column_inference import (
     resolve_restriction_chr_pos_columns,
     resolve_restriction_rsid_column,
 )
-from ..genome_build_inference import resolve_chr_pos_table, validate_auto_genome_build_mode
-
 
 LOGGER = logging.getLogger("LDSC.identifiers")
 
@@ -121,7 +119,10 @@ def read_global_snp_restriction(
     """
     mode = normalize_snp_identifier_mode(snp_identifier)
     genome_build = normalize_genome_build(genome_build)
-    validate_auto_genome_build_mode(mode, genome_build)
+    assert genome_build in {"hg19", "hg38", None}, (
+        f"genome_build reached kernel as {genome_build!r}; "
+        "should have been resolved at workflow entry."
+    )
     path = Path(path)
     if mode == "rsid":
         return _read_rsid_restriction(path)
@@ -187,7 +188,6 @@ def _finalize_chr_pos_restriction_frame(
     frame: pd.DataFrame,
     *,
     path: Path,
-    infer_build: bool,
     logger,
 ) -> set[str]:
     """Normalize one restriction frame, dropping rows missing CHR or POS."""
@@ -214,8 +214,6 @@ def _finalize_chr_pos_restriction_frame(
             "POS": pos_numeric.loc[keep].astype(int),
         }
     )
-    if infer_build:
-        normalized, _inference = resolve_chr_pos_table(normalized, context=str(path), logger=logger)
     return {
         build_chr_pos_snp_id(chrom, pos, context=str(path))
         for chrom, pos in normalized.itertuples(index=False, name=None)
@@ -227,7 +225,6 @@ def _read_chr_pos_restriction(path: Path, genome_build: str | None = None, logge
     header, rows, _delimiter = _parse_restriction_rows(path)
     if not header:
         return set()
-    infer_build = genome_build == "auto"
     chr_col, pos_col = resolve_restriction_chr_pos_columns(header, genome_build=genome_build, context=str(path))
     chr_idx = header.index(chr_col)
     pos_idx = header.index(pos_col)
@@ -239,4 +236,4 @@ def _read_chr_pos_restriction(path: Path, genome_build: str | None = None, logge
             raise ValueError(f"Restriction row in {path} is missing the CHR or POS column.")
         values.append((row[chr_idx], row[pos_idx]))
     frame = pd.DataFrame(values, columns=["CHR", "POS"])
-    return _finalize_chr_pos_restriction_frame(frame, path=path, infer_build=infer_build, logger=logger)
+    return _finalize_chr_pos_restriction_frame(frame, path=path, logger=logger)

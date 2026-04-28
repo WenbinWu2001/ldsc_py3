@@ -22,11 +22,7 @@ from ..column_inference import (
     resolve_required_column,
 )
 from ..config import GlobalConfig, RefPanelConfig
-from ..genome_build_inference import (
-    load_packaged_reference_table,
-    resolve_chr_pos_table,
-    validate_auto_genome_build_mode,
-)
+from ..genome_build_inference import validate_auto_genome_build_mode
 from ..path_resolution import (
     FREQUENCY_SUFFIXES,
     PARQUET_SUFFIXES,
@@ -296,6 +292,10 @@ def _read_metadata_table(path: str | Path, chrom: str | None, global_config: Glo
     """Read one reference-panel metadata table into the normalized column set."""
     df = pd.read_csv(path, sep=r"\s+", compression="gzip" if str(path).endswith(".gz") else None)
     snp_identifier = normalize_snp_identifier_mode(global_config.snp_identifier)
+    assert global_config.genome_build in {"hg19", "hg38", None}, (
+        f"genome_build reached kernel as {global_config.genome_build!r}; "
+        "should have been resolved at workflow entry."
+    )
     context = str(path)
 
     chr_col = None
@@ -338,11 +338,4 @@ def _read_metadata_table(path: str | Path, chrom: str | None, global_config: Glo
 
     if chrom is not None and "CHR" in out.columns:
         out = out.loc[out["CHR"] == normalize_chromosome(chrom, context=context)].reset_index(drop=True)
-    if snp_identifier == "chr_pos" and global_config.genome_build == "auto":
-        out, _inference = resolve_chr_pos_table(
-            out,
-            context=context,
-            reference_table=load_packaged_reference_table(),
-            logger=LOGGER,
-        )
     return out

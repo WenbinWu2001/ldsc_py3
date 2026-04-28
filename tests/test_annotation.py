@@ -259,29 +259,9 @@ class AnnotationBuilderTest(unittest.TestCase):
             self.assertEqual(metadata["POS"].tolist(), [10])
             self.assertEqual(list(annotations.columns), ["base_a"])
 
-    def test_parse_annotation_file_auto_genome_build_infers_zero_based_and_logs(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "auto.annot"
-            positions = [1000 + (idx * 10) for idx in range(250)]
-            rows = [("1", pos - 1, f"rs{idx}", 0.1) for idx, pos in enumerate(positions, start=1)]
-            _write_annot(path, rows, {"base_a": [1] * len(rows)})
-            builder = AnnotationBuilder(GlobalConfig(snp_identifier="chr_pos", genome_build="auto"), AnnotationBuildConfig())
-
-            with mock.patch(
-                "ldsc._kernel.annotation.load_packaged_reference_table",
-                return_value=pd.DataFrame(
-                    {
-                        "CHR": ["1"] * len(rows),
-                        "hg19_POS": positions,
-                        "hg38_POS": [5000 + (idx * 10) for idx in range(250)],
-                    }
-                ),
-            ), self.assertLogs("LDSC.annotation", level="INFO") as logs:
-                metadata, annotations = builder.parse_annotation_file(path)
-
-            self.assertEqual(metadata["POS"].tolist()[:3], [1000, 1010, 1020])
-            self.assertEqual(list(annotations.columns), ["base_a"])
-            self.assertTrue(any("0-based" in message and "hg19" in message for message in logs.output))
+    def test_annotation_builder_rejects_auto_genome_build_at_kernel_boundary(self):
+        with self.assertRaisesRegex(AssertionError, "workflow entry"):
+            AnnotationBuilder(GlobalConfig(snp_identifier="chr_pos", genome_build="auto"), AnnotationBuildConfig())
 
     def test_run_auto_bundles_per_chromosome_files(self):
         builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())

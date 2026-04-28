@@ -78,12 +78,7 @@ from ..config import (
     _normalize_path_tuple,
 )
 from .._chr_sampler import sample_frame_from_chr_pattern
-from ..genome_build_inference import (
-    load_packaged_reference_table,
-    resolve_chr_pos_table,
-    resolve_genome_build,
-    validate_auto_genome_build_mode,
-)
+from ..genome_build_inference import resolve_genome_build
 from ..path_resolution import (
     ANNOTATION_SUFFIXES,
     ensure_output_directory,
@@ -198,7 +193,10 @@ class AnnotationBuilder:
 
     def __init__(self, global_config: GlobalConfig, build_config: AnnotationBuildConfig | None = None) -> None:
         """Store shared configuration for bundle loading and BED projection."""
-        validate_auto_genome_build_mode(global_config.snp_identifier, global_config.genome_build)
+        assert global_config.genome_build in {"hg19", "hg38", None}, (
+            f"genome_build reached kernel as {global_config.genome_build!r}; "
+            "should have been resolved at workflow entry."
+        )
         self.global_config = global_config
         self.build_config = build_config or AnnotationBuildConfig()
 
@@ -497,14 +495,6 @@ class AnnotationBuilder:
         maf_col = resolve_optional_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["MAF"], context=context)
         if maf_col is not None:
             metadata["MAF"] = pd.to_numeric(df[maf_col], errors="coerce")
-        if self.global_config.snp_identifier == "chr_pos" and self.global_config.genome_build == "auto":
-            metadata, _inference = resolve_chr_pos_table(
-                metadata,
-                context=context,
-                reference_table=load_packaged_reference_table(),
-                logger=LOGGER,
-            )
-
         if chrom is not None:
             keep = metadata["CHR"] == normalize_chromosome(chrom, context=context)
             metadata = metadata.loc[keep].reset_index(drop=True)

@@ -1269,7 +1269,7 @@ class LDScoreParquetNormalizationTest(unittest.TestCase):
             )
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet reader coverage")
-    def test_sorted_r2_block_reader_accepts_auto_genome_build(self):
+    def test_sorted_r2_block_reader_rejects_auto_genome_build_at_kernel_boundary(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "raw_chr1.parquet"
             pd.DataFrame(
@@ -1299,16 +1299,7 @@ class LDScoreParquetNormalizationTest(unittest.TestCase):
                     "CM": [0.1] * 250,
                 }
             )
-            with mock.patch(
-                "ldsc._kernel.ldscore.load_packaged_reference_table",
-                return_value=pd.DataFrame(
-                    {
-                        "CHR": ["1"] * 250,
-                        "hg19_POS": [100 + (idx * 10) for idx in range(250)],
-                        "hg38_POS": [5100 + (idx * 10) for idx in range(250)],
-                    }
-                ),
-            ):
+            with self.assertRaisesRegex(AssertionError, "concrete"):
                 reader = kernel_ldscore.SortedR2BlockReader(
                     paths=[str(path)],
                     chrom="1",
@@ -1318,5 +1309,3 @@ class LDScoreParquetNormalizationTest(unittest.TestCase):
                     r2_sample_size=None,
                     genome_build="auto",
                 )
-
-            self.assertEqual(reader.genome_build, "hg19")

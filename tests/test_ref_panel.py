@@ -176,7 +176,7 @@ class ParquetRefPanelTest(unittest.TestCase):
             metadata = panel.load_metadata("2")
             self.assertEqual(metadata["POS"].tolist(), [20])
 
-    def test_sidecar_metadata_loading_auto_genome_build_shifts_zero_based_positions_and_logs(self):
+    def test_sidecar_metadata_loading_rejects_auto_genome_build_at_kernel_boundary(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             meta = Path(tmpdir) / "meta.tsv"
             rows = ["CHR\tBP\tSNP\tCM\tMAF"]
@@ -189,20 +189,8 @@ class ParquetRefPanelTest(unittest.TestCase):
                 RefPanelConfig(backend="parquet_r2", metadata_paths=(str(meta),)),
             )
 
-            with mock.patch(
-                "ldsc._kernel.ref_panel.load_packaged_reference_table",
-                return_value=pd.DataFrame(
-                    {
-                        "CHR": ["1"] * 250,
-                        "hg19_POS": positions,
-                        "hg38_POS": [5000 + (idx * 10) for idx in range(250)],
-                    }
-                ),
-            ), self.assertLogs("LDSC.ref_panel", level="INFO") as logs:
-                metadata = panel.load_metadata("1")
-
-            self.assertEqual(metadata["POS"].tolist()[:3], [1000, 1010, 1020])
-            self.assertTrue(any("0-based" in message and "hg19" in message for message in logs.output))
+            with self.assertRaisesRegex(AssertionError, "workflow entry"):
+                panel.load_metadata("1")
 
     @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
     def test_build_reader(self):

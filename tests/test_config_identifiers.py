@@ -469,16 +469,21 @@ class RestrictionReadersTest(unittest.TestCase):
             path.write_text("chrom\tbp\nchr1.0\t10\n2\t20\n", encoding="utf-8")
             self.assertEqual(read_global_snp_restriction(path, "chr_pos"), {"1:10", "2:20"})
 
-    def test_read_global_snp_restriction_chr_pos_fixed_build_skips_auto_inference(self):
+    def test_read_global_snp_restriction_chr_pos_fixed_build_reads_directly(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "restrict.tsv"
             path.write_text("CHR\tBP\n1\t20\n2\t30\n", encoding="utf-8")
-            with mock.patch("ldsc._kernel.identifiers.resolve_chr_pos_table") as patched:
-                self.assertEqual(
-                    read_global_snp_restriction(path, "chr_pos", genome_build="hg38"),
-                    {"1:20", "2:30"},
-                )
-            patched.assert_not_called()
+            self.assertEqual(
+                read_global_snp_restriction(path, "chr_pos", genome_build="hg38"),
+                {"1:20", "2:30"},
+            )
+
+    def test_read_global_snp_restriction_rejects_auto_genome_build_at_kernel_boundary(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "restrict.tsv"
+            path.write_text("CHR\tBP\n1\t20\n2\t30\n", encoding="utf-8")
+            with self.assertRaisesRegex(AssertionError, "workflow entry"):
+                read_global_snp_restriction(path, "chr_pos", genome_build="auto")
 
     def test_read_global_snp_restriction_chr_pos_uses_build_specific_position_header(self):
         with tempfile.TemporaryDirectory() as tmpdir:

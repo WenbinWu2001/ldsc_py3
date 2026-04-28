@@ -213,7 +213,6 @@ from ..chromosome_inference import chrom_sort_key, normalize_chromosome
 from ..genome_build_inference import (
     load_packaged_reference_table,
     resolve_chr_pos_table,
-    validate_auto_genome_build_mode,
 )
 from ..path_resolution import (
     ANNOTATION_SUFFIXES,
@@ -1236,6 +1235,9 @@ class SortedR2BlockReader:
         self.r2_bias_mode = r2_bias_mode
         self.r2_sample_size = r2_sample_size
         self.genome_build = genome_build
+        assert self.genome_build in {"hg19", "hg38", None}, (
+            f"genome_build={self.genome_build!r} must be concrete by this point."
+        )
         self.dataset = None
         self.ds = None
         self._pf = None
@@ -1254,15 +1256,6 @@ class SortedR2BlockReader:
         if optional_cm is not None:
             renamed[optional_cm] = "CM"
         metadata = metadata.rename(columns=renamed)
-        if self.genome_build == "auto":
-            validate_auto_genome_build_mode(self.identifier_mode, self.genome_build)
-            metadata, inference = resolve_chr_pos_table(
-                metadata,
-                context=f"SortedR2BlockReader[{self.chrom}]",
-                reference_table=load_packaged_reference_table(),
-                logger=LOGGER,
-            )
-            self.genome_build = inference.genome_build
         validate_retained_identifier_uniqueness(metadata, identifier_mode, chrom)
         self.pos = metadata["POS"].to_numpy(dtype=np.int64)
         self.m = len(metadata)
@@ -1336,7 +1329,7 @@ class SortedR2BlockReader:
         parquet_build_raw = schema_meta.get(b"ldsc:sorted_by_build")
         if parquet_build_raw is not None:
             parquet_build = normalize_genome_build(parquet_build_raw.decode("utf-8"))
-            if self.genome_build not in {None, "auto", parquet_build}:
+            if self.genome_build not in {None, parquet_build}:
                 raise ValueError(
                     f"Parquet sorted for {parquet_build} but analysis uses {self.genome_build}. "
                     f"Use the correct reference file or regenerate with `--genome-build {self.genome_build}`."
@@ -1375,7 +1368,7 @@ class SortedR2BlockReader:
                 path,
                 inferred_build,
             )
-            if self.genome_build not in {None, "auto", inferred_build}:
+            if self.genome_build not in {None, inferred_build}:
                 raise ValueError(
                     f"Parquet inferred as {inferred_build} but analysis uses {self.genome_build}."
                 )
@@ -1722,14 +1715,6 @@ def compute_chrom_from_parquet(
     5. Return chromosome-level LD scores plus M and M_5_50 counts.
     """
     metadata = merge_frequency_metadata(bundle.metadata.copy(), args, chrom=chrom, identifier_mode=args.snp_identifier)
-    if args.snp_identifier == "chr_pos" and getattr(args, "genome_build", None) == "auto":
-        metadata, inference = resolve_chr_pos_table(
-            metadata,
-            context=f"parquet metadata chromosome {chrom}",
-            reference_table=load_packaged_reference_table(),
-            logger=LOGGER,
-        )
-        args.genome_build = inference.genome_build
     metadata, annotations = apply_maf_filter(metadata, bundle.annotations.copy(), args.maf, context="parquet mode")
     if len(metadata) == 0:
         raise ValueError(f"No retained annotation SNPs remain on chromosome {chrom} after sidecar alignment.")
@@ -1982,7 +1967,9 @@ def validate_args(args: argparse.Namespace) -> None:
             setattr(args, attr, None)
     args.snp_identifier = normalize_snp_identifier_mode(args.snp_identifier)
     args.genome_build = normalize_genome_build(args.genome_build)
-    validate_auto_genome_build_mode(args.snp_identifier, args.genome_build)
+    assert args.genome_build in {"hg19", "hg38", None}, (
+        f"genome_build={args.genome_build!r} must be concrete by this point."
+    )
     keep = getattr(args, "keep", None)
     if not (args.query_annot or args.baseline_annot):
         raise ValueError("At least one of query or baseline annotation inputs must be supplied.")

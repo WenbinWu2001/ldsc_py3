@@ -2,15 +2,19 @@ name: ldsc3
 channels:
 - conda-forge
 dependencies:
-- python=3.11
+- python=3.13
 - pip
 - setuptools
 - wheel
+- python-dateutil>=2.8,<3
+- pytz>=2020.1
+- six>=1.16,<2
+- tzdata
 - pip:
-  - bitarray>=2.9,<2.10
-  - scipy>=1.11.0,<1.11.1
-  - pandas>=2.0.0,<2.0.1
-  - numpy>=1.24.0,<1.24.1
-  - pyarrow>=16,<17
-  - pyliftover>=0.4,<0.5
+  - bitarray>=3.0,<4
+  - scipy>=1.15,<1.18
+  - pandas>=2.3,<3.0
+  - numpy>=2.1,<2.5
+  - pyarrow>=21,<24
+  - pyliftover>=0.4.1,<0.5
   - pytest>=8,<10

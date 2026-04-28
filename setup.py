@@ -19,11 +19,15 @@ setup(
         ]
     },
     install_requires=[
-        "bitarray>=2.9,<2.10",
-        "scipy>=1.11,<1.12",
-        "numpy>=1.24,<1.25",
-        "pandas>=2.0,<2.1",
-        "pyarrow>=16,<17",
-        "pyliftover>=0.4,<0.5",
+        "bitarray>=3.0,<4",
+        "scipy>=1.15,<1.18",
+        "numpy>=2.1,<2.5",
+        "pandas>=2.3,<3.0",
+        "python-dateutil>=2.8,<3",
+        "pytz>=2020.1",
+        "six>=1.16,<2",
+        "tzdata",
+        "pyarrow>=21,<24",
+        "pyliftover>=0.4.1,<0.5",
     ],
 )

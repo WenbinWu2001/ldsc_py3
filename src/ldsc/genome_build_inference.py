@@ -6,8 +6,8 @@ This module scores chromosome/position tables against a packaged HapMap3
 reference subset to distinguish hg19 from hg38 and 0-based from 1-based
 coordinates. Use :func:`resolve_chr_pos_table` when loading user-authored
 ``CHR``/``POS`` tables that may need coordinate normalization, and use
-:func:`infer_chr_pos_build` when the caller only needs the inferred build and
-basis decision.
+:func:`resolve_genome_build` when a workflow needs to turn a CLI/config hint
+into a concrete runtime build.
 
 Design Notes
 ------------
@@ -39,6 +39,7 @@ REFERENCE_RESOURCE_PATH = "data/hm3_chr_pos_reference.tsv.gz"
 __all__ = [
     "ChrPosBuildInference",
     "infer_chr_pos_build",
+    "resolve_genome_build",
     "resolve_chr_pos_table",
 ]
 
@@ -91,6 +92,87 @@ def validate_auto_genome_build_mode(snp_identifier: str, genome_build: str | Non
         return
     if normalize_snp_identifier_mode(snp_identifier) != "chr_pos":
         raise ValueError("genome_build='auto' is only supported when snp_identifier='chr_pos'.")
+
+
+def resolve_genome_build(
+    hint: str | None,
+    snp_identifier: str,
+    sample_frame: pd.DataFrame | None,
+    *,
+    context: str,
+    logger=None,
+) -> str | None:
+    """
+    Resolve a genome-build hint to a concrete build or ``None``.
+
+    This is the single authoritative entry point for build resolution. After
+    this call returns, the value is ``"hg19"``, ``"hg38"``, or ``None``; it is
+    never ``"auto"``. Internal kernel components must not call
+    :func:`infer_chr_pos_build` directly for build resolution.
+
+    Parameters
+    ----------
+    hint : str or None
+        Raw value from CLI or config. Accepted values are ``"auto"``,
+        ``"hg19"``, ``"hg38"``, aliases accepted by
+        :func:`normalize_genome_build`, or ``None``.
+    snp_identifier : {"rsid", "chr_pos"}
+        Already-normalized SNP identifier mode.
+    sample_frame : pandas.DataFrame or None
+        DataFrame with ``CHR`` and ``POS`` columns. Required when
+        ``hint="auto"`` and ``snp_identifier="chr_pos"``; pass ``None`` in all
+        other cases.
+    context : str
+        Human-readable data-source label used in log and error messages.
+    logger : logging.Logger-like, optional
+        Receives inference summary at INFO or WARNING level.
+
+    Returns
+    -------
+    str or None
+        ``"hg19"``, ``"hg38"``, or ``None``. Returns ``None`` when
+        ``snp_identifier="rsid"``, regardless of ``hint``.
+
+    Raises
+    ------
+    ValueError
+        If ``hint="auto"`` lacks a sample frame, or if the sample has
+        insufficient overlap with the packaged HM3 reference.
+    """
+    snp_identifier = normalize_snp_identifier_mode(snp_identifier)
+    hint = normalize_genome_build(hint)
+
+    if snp_identifier == "rsid":
+        return None
+    if hint != AUTO_GENOME_BUILD:
+        return hint
+    if sample_frame is None:
+        raise ValueError(
+            f"sample_frame is required for genome-build inference of {context!r} "
+            "but None was passed. Pass --genome-build hg19 or --genome-build hg38."
+        )
+
+    try:
+        inference = infer_chr_pos_build(
+            sample_frame.loc[:, ["CHR", "POS"]],
+            context=context,
+        )
+    except ValueError as exc:
+        message = str(exc)
+        if "Insufficient evidence" in message:
+            raise ValueError(
+                f"Insufficient overlap with HM3 reference to infer genome build for {context}. "
+                f"{message} Pass --genome-build hg19 or --genome-build hg38 explicitly."
+            ) from exc
+        raise
+
+    msg = f"Inferred genome build for {context}: {inference.summary_message}"
+    if logger is not None:
+        if inference.coordinate_basis == "0-based":
+            logger.warning(msg)
+        else:
+            logger.info(msg)
+    return inference.genome_build
 
 
 @lru_cache(maxsize=1)

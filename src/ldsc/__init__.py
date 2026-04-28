@@ -23,8 +23,8 @@ Design Notes
 Example
 -------
 >>> from ldsc import GlobalConfig, ReferencePanelBuilder
->>> GlobalConfig().snp_identifier
-'chr_pos'
+>>> GlobalConfig(snp_identifier="rsid").snp_identifier
+'rsid'
 >>> isinstance(ReferencePanelBuilder(), ReferencePanelBuilder)
 True
 """
@@ -53,6 +53,7 @@ from .config import (
 from .genome_build_inference import (
     ChrPosBuildInference,
     infer_chr_pos_build,
+    resolve_genome_build,
     resolve_chr_pos_table,
 )
 from .ldscore_calculator import ChromLDScoreResult, LDScoreCalculator, LDScoreResult, run_ldscore
@@ -118,6 +119,7 @@ __all__ = [
     "run_ldscore",
     "resolve_chr_pos_table",
     "reset_global_config",
+    "resolve_genome_build",
     "set_global_config",
     "validate_config_compatibility",
 ]

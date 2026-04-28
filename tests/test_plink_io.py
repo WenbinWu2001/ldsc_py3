@@ -23,8 +23,7 @@ except ModuleNotFoundError:
     ld = None
 
 
-FIXTURES = Path(__file__).resolve().parent / "fixtures" / "legacy"
-PLINK_FIXTURES = FIXTURES / "plink_test"
+PLINK_FIXTURES = Path(__file__).resolve().parent / "fixtures" / "plink"
 
 
 def _has_module(name: str) -> bool:

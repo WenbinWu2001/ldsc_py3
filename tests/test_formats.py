@@ -14,9 +14,9 @@ if str(SRC) not in sys.path:
 from ldsc._kernel import formats as ps
 
 
-FIXTURES = Path(__file__).resolve().parent / "fixtures" / "legacy"
-PARSE_FIXTURES = FIXTURES / "parse_test"
-PLINK_FIXTURES = FIXTURES / "plink_test"
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
+PARSE_FIXTURES = FIXTURES / "formats"
+PLINK_FIXTURES = FIXTURES / "plink"
 
 
 class ParseHelpersTest(unittest.TestCase):

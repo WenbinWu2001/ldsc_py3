@@ -35,8 +35,7 @@ except ImportError:
     kernel_ldscore = None
 
 
-FIXTURES = Path(__file__).resolve().parent / "fixtures" / "legacy"
-PLINK_FIXTURES = FIXTURES / "plink_test"
+PLINK_FIXTURES = Path(__file__).resolve().parent / "fixtures" / "plink"
 _HAS_PYARROW = importlib.util.find_spec("pyarrow") is not None
 _HAS_BITARRAY = importlib.util.find_spec("bitarray") is not None
 

@@ -16,8 +16,7 @@ from ldsc.annotation_builder import AnnotationBuilder, run_bed_to_annot
 from ldsc.config import AnnotationBuildConfig, GlobalConfig
 
 
-FIXTURES = Path(__file__).resolve().parent / "fixtures" / "legacy"
-ANNOT_FIXTURE = FIXTURES / "annot_test" / "test.annot"
+ANNOT_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "annotation" / "test.annot"
 
 
 def _write_annot(path: Path, rows: list[tuple], annotation_columns: dict[str, list[int]]) -> None:

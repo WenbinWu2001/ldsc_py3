@@ -262,7 +262,7 @@ class ParquetR2RefPanel(RefPanel):
             identifier_mode=self.global_config.snp_identifier,
             r2_bias_mode=self.spec.r2_bias_mode if r2_bias_mode is None else r2_bias_mode,
             r2_sample_size=r2_sample_size if r2_sample_size is not None else self.spec.sample_size,
-            genome_build=self.spec.genome_build or self.global_config.genome_build,
+            genome_build=self.global_config.genome_build,
         )
 
 

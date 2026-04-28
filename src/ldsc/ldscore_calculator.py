@@ -277,13 +277,6 @@ class LDScoreCalculator:
                 global_config,
                 context="AnnotationBundle and LDScoreCalculator runtime config",
             )
-        ref_panel_build = getattr(getattr(ref_panel, "spec", None), "genome_build", None)
-        if ref_panel_build is not None and global_config.genome_build not in (None, "auto"):
-            if ref_panel_build != global_config.genome_build:
-                raise ConfigMismatchError(
-                    f"genome_build mismatch between RefPanelConfig ({ref_panel_build!r}) "
-                    f"and active GlobalConfig ({global_config.genome_build!r})."
-                )
         chromosome_results: list[ChromLDScoreResult] = []
         for chrom in _chromosomes_from_bundle(annotation_bundle):
             chrom_bundle = _slice_annotation_bundle(annotation_bundle, chrom)
@@ -919,7 +912,6 @@ def _ref_panel_from_args(args: argparse.Namespace, global_config: GlobalConfig):
             metadata_paths=tuple(metadata_tokens),
             r2_bias_mode=getattr(args, "r2_bias_mode", None),
             sample_size=getattr(args, "r2_sample_size", None),
-            genome_build=global_config.genome_build,
             ref_panel_snps_path=ref_panel_snps_path,
         )
     else:
@@ -927,7 +919,6 @@ def _ref_panel_from_args(args: argparse.Namespace, global_config: GlobalConfig):
             backend="plink",
             plink_path=getattr(args, "plink_path", None),
             metadata_paths=tuple(metadata_tokens),
-            genome_build=global_config.genome_build,
             ref_panel_snps_path=ref_panel_snps_path,
         )
     return RefPanelLoader(global_config).load(spec)
@@ -1078,7 +1069,7 @@ def _namespace_from_configs(chrom: str, ref_panel, ldscore_config: LDScoreConfig
         r2_table=r2_table,
         r2_table_chr=None,
         snp_identifier=global_config.snp_identifier,
-        genome_build=(getattr(spec, "genome_build", None) or global_config.genome_build),
+        genome_build=global_config.genome_build,
         r2_bias_mode=getattr(spec, "r2_bias_mode", None),
         r2_sample_size=getattr(spec, "sample_size", None),
         frqfile=frqfile,

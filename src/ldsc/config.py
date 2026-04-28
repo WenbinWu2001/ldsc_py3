@@ -265,7 +265,6 @@ class RefPanelConfig:
     r2_paths: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
     metadata_paths: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
     chromosomes: tuple[str, ...] | list[str] | None = None
-    genome_build: GenomeBuildInput | None = None
     r2_bias_mode: R2BiasMode | None = None
     r2_sample_size: float | None = None
     sample_size: int | None = None
@@ -286,7 +285,6 @@ class RefPanelConfig:
         object.__setattr__(self, "plink_path", _normalize_optional_path(self.plink_path))
         object.__setattr__(self, "r2_paths", _normalize_path_tuple(self.r2_paths))
         object.__setattr__(self, "metadata_paths", _normalize_path_tuple(self.metadata_paths))
-        object.__setattr__(self, "genome_build", normalize_genome_build(self.genome_build))
         object.__setattr__(self, "ref_panel_snps_path", _normalize_optional_path(self.ref_panel_snps_path))
         if self.chromosomes is not None:
             from .chromosome_inference import normalize_chromosome

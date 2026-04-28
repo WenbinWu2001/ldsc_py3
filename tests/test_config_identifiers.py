@@ -304,14 +304,12 @@ class WorkflowConfigTest(unittest.TestCase):
             plink_path=Path("plink") / "panel",
             r2_paths=[Path("r2") / "chr1.parquet"],
             metadata_paths=[Path("freq") / "chr@.tsv.gz"],
-            genome_build="GRCh37",
             ref_panel_snps_path=Path("filters") / "snps.txt",
         )
         self.assertEqual(config.backend, "parquet_r2")
         self.assertEqual(config.plink_path, "plink/panel")
         self.assertEqual(config.r2_paths, ("r2/chr1.parquet",))
         self.assertEqual(config.metadata_paths, ("freq/chr@.tsv.gz",))
-        self.assertEqual(config.genome_build, "hg19")
         self.assertEqual(config.ref_panel_snps_path, "filters/snps.txt")
 
     def test_ref_panel_config_accepts_runtime_source_fields(self):
@@ -347,11 +345,11 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertEqual(ref.r2_paths, ("r2/chr1.parquet",))
         self.assertEqual(ref.metadata_paths, ("meta/chr1.tsv.gz",))
 
-    def test_ref_panel_config_normalizes_genome_build_aliases(self):
-        self.assertEqual(RefPanelConfig(backend="parquet_r2", genome_build="hg37").genome_build, "hg19")
-        self.assertEqual(RefPanelConfig(backend="parquet_r2", genome_build="GRCh37").genome_build, "hg19")
-        self.assertEqual(RefPanelConfig(backend="parquet_r2", genome_build="GRCh38").genome_build, "hg38")
-        self.assertEqual(RefPanelConfig(backend="parquet_r2", genome_build="auto").genome_build, "auto")
+    def test_ref_panel_config_has_no_genome_build_field(self):
+        config = RefPanelConfig(backend="parquet_r2")
+        self.assertFalse(hasattr(config, "genome_build"))
+        with self.assertRaises(TypeError):
+            RefPanelConfig(backend="parquet_r2", genome_build="hg38")
 
     def test_public_configs_accept_single_string_tokens_for_plural_fields(self):
         annot = AnnotationBuildConfig(

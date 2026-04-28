@@ -21,8 +21,20 @@ class PackageLayoutTest(unittest.TestCase):
         self.assertTrue(hasattr(ldsc, "AnnotationBuilder"))
         self.assertTrue(hasattr(ldsc, "ReferencePanelBuilder"))
         self.assertTrue(hasattr(ldsc, "LDScoreOutputConfig"))
+        self.assertTrue(hasattr(ldsc, "LDScoreDirectoryWriter"))
         self.assertTrue(hasattr(ldsc, "load_ldscore_from_dir"))
         self.assertTrue(hasattr(ldsc.__main__, "main"))
+        removed_output_names = [
+            "ArtifactConfig",
+            "ArtifactOutputConfig",
+            "ArtifactProducer",
+            "OutputManager",
+            "PostProcessor",
+            "ResultFormatter",
+            "ResultWriter",
+        ]
+        for name in removed_output_names:
+            self.assertFalse(hasattr(ldsc, name), f"{name} should not be a public export")
 
     def test_cli_exposes_expected_subcommands(self):
         from ldsc import cli

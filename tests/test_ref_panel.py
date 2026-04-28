@@ -15,7 +15,9 @@ from ldsc.config import GlobalConfig, RefPanelConfig
 from ldsc._kernel.ref_panel import ParquetR2RefPanel, PlinkRefPanel, RefPanelLoader
 
 
-FIXTURES = Path(__file__).resolve().parent / "fixtures" / "legacy" / "reference_test"
+FIXTURES = Path(__file__).resolve().parent / "fixtures" / "minimal_external_resources" / "plink"
+PLINK_PREFIX = FIXTURES / "hm3_chr22_subset"
+PLINK_SNPS = ["22:16406147:A:G", "22:16805059:T:C"]
 
 
 def _has_module(name: str) -> bool:
@@ -29,7 +31,7 @@ def _has_module(name: str) -> bool:
 class RefPanelLoaderTest(unittest.TestCase):
     def test_loader_selects_plink_backend(self):
         loader = RefPanelLoader(GlobalConfig(snp_identifier="rsid"), RefPanelConfig())
-        spec = RefPanelConfig(backend="plink", plink_path=str(FIXTURES / "plink"))
+        spec = RefPanelConfig(backend="plink", plink_path=str(PLINK_PREFIX))
         panel = loader.load(spec)
         self.assertIsInstance(panel, PlinkRefPanel)
 
@@ -52,47 +54,56 @@ class PlinkRefPanelTest(unittest.TestCase):
     def test_available_chromosomes_and_metadata(self):
         panel = PlinkRefPanel(
             GlobalConfig(snp_identifier="rsid"),
-            RefPanelConfig(backend="plink", plink_path=str(FIXTURES / "plink")),
+            RefPanelConfig(backend="plink", plink_path=str(PLINK_PREFIX)),
         )
-        self.assertEqual(panel.available_chromosomes(), ["9"])
-        metadata = panel.load_metadata("9")
+        self.assertEqual(panel.available_chromosomes(), ["22"])
+        metadata = panel.load_metadata("22")
         self.assertEqual(list(metadata.columns), ["CHR", "SNP", "CM", "POS"])
         self.assertGreater(len(metadata), 0)
 
     def test_filter_to_snps_rsid(self):
         panel = PlinkRefPanel(
             GlobalConfig(snp_identifier="rsid"),
-            RefPanelConfig(backend="plink", plink_path=str(FIXTURES / "plink")),
+            RefPanelConfig(backend="plink", plink_path=str(PLINK_PREFIX)),
         )
-        filtered = panel.filter_to_snps("9", {"rs185444096", "rs7341907"})
-        self.assertEqual(set(filtered["SNP"]), {"rs185444096", "rs7341907"})
+        filtered = panel.filter_to_snps("22", set(PLINK_SNPS))
+        self.assertEqual(set(filtered["SNP"]), set(PLINK_SNPS))
 
     def test_duplicate_rsid_raises(self):
-        panel = PlinkRefPanel(
-            GlobalConfig(snp_identifier="rsid"),
-            RefPanelConfig(backend="plink", plink_path=str(FIXTURES / "plink2")),
-        )
-        with self.assertRaises(ValueError):
-            panel.load_metadata("1")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            prefix = Path(tmpdir) / "dup"
+            prefix.with_suffix(".bed").write_bytes(b"")
+            prefix.with_suffix(".fam").write_text("fam iid 0 0 0 -9\n", encoding="utf-8")
+            prefix.with_suffix(".bim").write_text(
+                "1 rs_dup 0.0 10 A G\n"
+                "1 rs_dup 0.0 20 A G\n",
+                encoding="utf-8",
+            )
+            panel = PlinkRefPanel(
+                GlobalConfig(snp_identifier="rsid"),
+                RefPanelConfig(backend="plink", plink_path=str(prefix)),
+            )
+            with self.assertRaises(ValueError):
+                panel.load_metadata("1")
 
     def test_global_restriction_applies(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             restrict = Path(tmpdir) / "restrict.txt"
-            restrict.write_text("SNP\nrs7341907\n", encoding="utf-8")
+            restrict.write_text(f"SNP\n{PLINK_SNPS[0]}\n", encoding="utf-8")
             panel = PlinkRefPanel(
                 GlobalConfig(snp_identifier="rsid"),
-                RefPanelConfig(backend="plink", plink_path=str(FIXTURES / "plink"), ref_panel_snps_path=str(restrict)),
+                RefPanelConfig(backend="plink", plink_path=str(PLINK_PREFIX), ref_panel_snps_path=str(restrict)),
             )
-            metadata = panel.load_metadata("9")
-            self.assertEqual(set(metadata["SNP"]), {"rs7341907"})
+            metadata = panel.load_metadata("22")
+            self.assertEqual(set(metadata["SNP"]), {PLINK_SNPS[0]})
 
     @unittest.skipUnless(_has_module("bitarray"), "bitarray is not installed")
     def test_build_reader(self):
         panel = PlinkRefPanel(
             GlobalConfig(snp_identifier="rsid"),
-            RefPanelConfig(backend="plink", plink_path=str(FIXTURES / "plink")),
+            RefPanelConfig(backend="plink", plink_path=str(PLINK_PREFIX)),
         )
-        reader = panel.build_reader("1")
+        reader = panel.build_reader("22")
         self.assertIsNotNone(reader)
 
 

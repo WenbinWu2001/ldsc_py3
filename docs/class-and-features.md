@@ -8,7 +8,7 @@ This document summarizes the public package surface. For workflow-level file str
 | --- | --- | --- | --- | --- |
 | Build query annotations | `ldsc annotate` | `AnnotationBuilder`, `run_bed_to_annot()`, `make_annot_files()` | baseline `.annot(.gz)`, BED or gene-set inputs | `query.<chrom>.annot.gz` or one legacy `.annot(.gz)` |
 | Build parquet reference panels | `ldsc build-ref-panel` | `ReferencePanelBuilder`, `run_build_ref_panel()` | PLINK prefix, genetic maps, optional keep/restrict files | per-chromosome `ann.parquet`, `LD.parquet`, `meta_*.tsv.gz` |
-| Compute LD scores | `ldsc ldscore` | `LDScoreCalculator`, `run_ldscore()` | annotation shards, PLINK or parquet reference panel, optional frequency metadata | `.l2.ldscore(.gz)`, `.w.l2.ldscore(.gz)`, `.l2.M`, `.l2.M_5_50`, manifests |
+| Compute LD scores | `ldsc ldscore` | `LDScoreCalculator`, `run_ldscore()` | annotation shards, PLINK or parquet reference panel, optional frequency metadata | `manifest.json`, `baseline.parquet`, optional `query.parquet` under `output_dir` |
 | Munge GWAS summary statistics | `ldsc munge-sumstats` | `SumstatsMunger`, `load_sumstats()` | raw sumstats, column hints, QC thresholds | `.sumstats.gz`, `.log` |
 | Estimate heritability | `ldsc h2` | `RegressionRunner.estimate_h2()` | munged `.sumstats.gz`, LD-score files, count vector | `.h2.tsv` |
 | Estimate partitioned heritability | `ldsc partitioned-h2` | `RegressionRunner.estimate_partitioned_h2_batch()` | munged `.sumstats.gz`, LD-score files, count vector, annotation manifest | `.partitioned_h2.tsv` |
@@ -27,7 +27,6 @@ This document summarizes the public package surface. For workflow-level file str
 | `LDScoreConfig` | LD-window and retained-SNP settings |
 | `MungeConfig` | raw-sumstats input, column hints, munging thresholds, and output settings |
 | `RegressionConfig` | regression-model settings such as intercept handling and jackknife blocks |
-| `ArtifactOutputConfig` | generic artifact layout and emission controls |
 | `ConfigMismatchError` | explicit failure raised when critical config assumptions disagree |
 
 ### Workflow Services
@@ -40,7 +39,7 @@ This document summarizes the public package surface. For workflow-level file str
 | `LDScoreCalculator` | run per-chromosome LD-score computation and aggregate outputs |
 | `SumstatsMunger` | normalize raw GWAS tables into curated LDSC-ready tables |
 | `RegressionRunner` | build regression datasets and run `h2`, partitioned `h2`, and `rg` |
-| `OutputManager` | write LD-score artifacts, manifests, and summaries |
+| `LDScoreDirectoryWriter` | write the canonical LD-score result directory |
 
 ### Data And Result Objects
 
@@ -53,7 +52,6 @@ This document summarizes the public package surface. For workflow-level file str
 | `SumstatsTable` | validated LDSC-ready summary-statistics table, plus `config_snapshot` provenance |
 | `MungeRunSummary` | compact record of a munging run |
 | `RegressionDataset` | merged sumstats plus LD-score matrix used by the estimator, plus propagated provenance when available |
-| `RunSummary` | summary emitted by the output layer |
 
 ### Global Config Registry
 
@@ -69,7 +67,7 @@ This document summarizes the public package surface. For workflow-level file str
 - Public inputs accept exact paths, standard globs, explicit chromosome suites using `@`, and some legacy bare prefixes.
 - Public dataclasses normalize `PathLike` objects to strings but do not expand inputs immediately.
 - Workflow modules resolve input tokens before calling `_kernel`.
-- Output destinations such as `out_prefix` are normalized but never glob-expanded.
+- Public outputs use fixed workflow filenames under `output_dir`; run identity comes from the directory name.
 - Raw user-authored inputs use permissive alias resolution through `column_inference.py`.
 - Package-written artifacts use stricter internal headers so downstream workflows reload them deterministically.
 

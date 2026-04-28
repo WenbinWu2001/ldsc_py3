@@ -256,9 +256,9 @@ Removed Python/public argparse names: `sumstats`, `sumstats_1`, `sumstats_2`,
 - [x] Regression writes fixed TSV files under `output_dir`.
 - [x] Build-ref-panel no longer accepts a separate panel label; output identity
   comes from the directory name.
-- [ ] Decide whether the low-level `ldsc.outputs.ArtifactOutputConfig.out_prefix` helper
-  remains an internal compatibility utility or should be removed in a separate
-  cleanup. It is not used as a public workflow argument after this refactor.
+- [x] Removed the low-level `ldsc.outputs.ArtifactOutputConfig.out_prefix`
+  compatibility pipeline from the public output module; `ldsc.outputs` now exposes
+  `LDScoreOutputConfig` and `LDScoreDirectoryWriter` for LD-score output writing.
 
 ## Clarifications and Recommendations
 

@@ -6,7 +6,9 @@ import unittest
 import warnings
 from unittest import mock
 
+import numpy as np
 import pandas as pd
+from pandas.testing import assert_series_equal
 
 SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
@@ -16,14 +18,40 @@ from ldsc.config import GlobalConfig, MungeConfig
 
 try:
     import ldsc
+    from ldsc._kernel import sumstats_munger as kernel_munge
     from ldsc.sumstats_munger import SumstatsMunger
 except ImportError:
     ldsc = None
+    kernel_munge = None
     SumstatsMunger = None
 
 
 @unittest.skipIf(SumstatsMunger is None, "sumstats_munger module is not available")
 class SumstatsMungerTest(unittest.TestCase):
+    def test_kernel_p_to_z_matches_legacy_direction_convention(self):
+        z = kernel_munge.p_to_z(pd.Series([0.1, 0.1, 0.1]), pd.Series([1, 2, 3]))
+        np.testing.assert_allclose(np.asarray(z), [1.644854, 1.644854, 1.644854], atol=1e-5)
+
+    def test_kernel_filters_reject_invalid_p_info_frq_and_alleles(self):
+        log = mock.Mock(log=mock.Mock())
+        args = kernel_munge.parser.parse_args("")
+        assert_series_equal(
+            kernel_munge.filter_pvals(pd.Series([0, 0.1, 1, 2]), log, args),
+            pd.Series([False, True, True, False]),
+        )
+        assert_series_equal(
+            kernel_munge.filter_info(pd.Series([0.8, 1.0, 1.0]), log, args),
+            pd.Series([False, True, True]),
+        )
+        assert_series_equal(
+            kernel_munge.filter_frq(pd.Series([-1, 0, 0.005, 0.4, 0.6, 0.999, 1, 2]), log, args),
+            pd.Series([False, False, False, True, True, False, False, False]),
+        )
+        assert_series_equal(
+            kernel_munge.filter_alleles(pd.Series(["AC", "AG", "DI", "AAT", "RA"])),
+            pd.Series([True, True, False, False, False]),
+        )
+
     def test_load_sumstats_reads_curated_sumstats_gz_with_exact_one_glob(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)

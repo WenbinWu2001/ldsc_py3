@@ -97,10 +97,10 @@ This module rebuilds an `LDScoreResult` from on-disk artifacts, merges it with m
 
 ### `ldsc.outputs`
 
-This is the artifact writer for LD-score runs. It owns normalized per-chromosome
-`.l2.ldscore.gz` files with embedded `regr_weight`, plus `.l2.M`, `.l2.M_5_50`,
-manifests, and summary files. Architecture invariant: new postprocessing should
-be added through producers here instead of feature-specific ad hoc file writes.
+This is the canonical LD-score result-directory writer. It owns fixed files
+inside `output_dir`: `manifest.json`, `baseline.parquet`, and optional
+`query.parquet`. Architecture invariant: public output customization chooses
+the directory name, not per-run filename prefixes.
 
 ### `ldsc._kernel.*`
 
@@ -110,7 +110,7 @@ The kernel layer contains the actual numerical methods and low-level readers. It
 
 - **Input token language**: public inputs accept exact paths, globs, `@` chromosome suites, and some legacy bare prefixes. Output paths are normalized but remain literal destinations.
 - **Column and identifier normalization**: `column_inference.py` is the single source of truth for raw-input aliases, internal artifact headers, SNP identifier modes, and genome-build aliases.
-- **Artifact compatibility**: LDSC-compatible outputs remain the public contract for downstream chaining: `.annot.gz`, `.sumstats.gz`, `.l2.ldscore(.gz)`, `.l2.M`, and `.l2.M_5_50`. Legacy separate `.w.l2.ldscore(.gz)` files remain loadable for regression, but the refactored writer embeds weights as `regr_weight` instead of emitting that artifact by default.
+- **Artifact compatibility**: Public downstream chaining uses `.annot.gz`, `.sumstats.gz`, and canonical LD-score result directories. Legacy `.l2.ldscore(.gz)`, `.l2.M`, `.l2.M_5_50`, and separate `.w.l2.ldscore(.gz)` files remain internal/legacy file-format concerns, not the public LD-score writer contract.
 - **Chromosome ordering**: chromosome-sharded inputs are validated and reassembled in stable genomic order by the workflow layer.
 - **Testing approach**: tests under `tests/` cover file contracts, workflow behavior, and legacy compatibility expectations.
 
@@ -120,4 +120,4 @@ The kernel layer contains the actual numerical methods and low-level readers. It
 - Kernel code must not resolve globs, `@` suites, or other user-facing path tokens.
 - `column_inference.py` owns alias families and internal artifact header strictness.
 - LD-score computation remains chromosome-wise; regression consumes only the aggregated artifacts.
-- Output extensibility goes through `ldsc.outputs`, not through feature-specific one-off writers.
+- Public LD-score output layout is fixed by `LDScoreDirectoryWriter`.

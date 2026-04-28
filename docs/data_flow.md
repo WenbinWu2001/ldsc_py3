@@ -214,10 +214,9 @@ flowchart LR
 
 | File | Example | Notes |
 | --- | --- | --- |
-| LD-score table | `CHR SNP BP base enhancer_A regr_weight`<br/>`1 rs1 10 1.2 0.4 1.7` | default filename `<out>.<chrom>.l2.ldscore.gz`; `regr_weight` is embedded |
-| count vector | `12345 678 90` | `<out>.l2.M` and, when enabled, `<out>.l2.M_5_50` |
-| annotation manifest | `column group`<br/>`base baseline` | `<out>.annotation_groups.tsv` |
-| summaries | one-row `.summary.tsv`, `.summary.json`, `.run_metadata.json` | emitted by `ldsc.outputs` |
+| baseline LD-score table | `CHR SNP BP regr_weight base`<br/>`1 rs1 10 1.7 1.2` | `baseline.parquet` inside `output_dir` |
+| query LD-score table | `CHR SNP BP enhancer_A`<br/>`1 rs1 10 0.4` | `query.parquet` inside `output_dir`; omitted when no query annotations exist |
+| manifest | JSON metadata with files, columns, counts, chromosomes, and config | `manifest.json` inside `output_dir` |
 
 ### Modules used
 
@@ -284,10 +283,7 @@ flowchart LR
 | File | Example | Notes |
 | --- | --- | --- |
 | munged sumstats | `SNP A1 A2 Z N`<br/>`rs1 A G 1.96 1000` | one file for `h2` and `partitioned-h2`, two files for `rg` |
-| LD-score table | `CHR SNP POS CM MAF base enhancer_A` | `<out>.l2.ldscore(.gz)` from the LD-score workflow |
-| weight table | `CHR SNP POS CM MAF L2` | `<out>.w.l2.ldscore(.gz)` |
-| count vector | `12345 678 90` | `.l2.M` or `.l2.M_5_50`; order must match LD-score columns |
-| annotation manifest, optional | `column group`<br/>`enhancer_A query` | used by `partitioned-h2` to split baseline and query columns |
+| LD-score directory | `manifest.json`, `baseline.parquet`, optional `query.parquet` | produced by the LD-score workflow and supplied as `ldscore_dir` |
 
 ### Flow
 

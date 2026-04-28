@@ -87,7 +87,7 @@ Goals:
 Current verification command:
 
 ```bash
-python -m unittest discover -s tests -p 'test*.py' -v
+pytest
 ```
 
 Acceptance standard for future changes:

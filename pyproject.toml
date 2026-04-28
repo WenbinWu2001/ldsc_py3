@@ -1,0 +1,10 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = ["-ra"]
+markers = [
+    "slow: tests that intentionally use larger data or long-running statistical checks",
+    "statistical: stochastic or tolerance-based statistical validation",
+    "io: parser, file-format, parquet, PLINK, or CLI filesystem coverage",
+    "legacy_compat: compatibility checks for LDSC file formats rather than old public APIs",
+]

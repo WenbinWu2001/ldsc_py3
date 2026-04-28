@@ -60,9 +60,17 @@ Public workflow APIs accept normalized string tokens for inputs:
 - explicit chromosome suites using `@`, for example `baseline.@`
 - legacy bare prefixes such as `baseline.`
 
-Inputs are resolved before the internal kernel runs. Output paths such as `out_prefix` stay literal destinations.
+Inputs are resolved before the internal kernel runs. Public outputs use fixed
+filenames inside the selected `output_dir`.
 
 ## Verification
+
+```bash
+pytest
+```
+
+The suite also remains compatible with the standard-library runner while the
+project transitions fully to pytest:
 
 ```bash
 python -m unittest discover -s tests -p 'test*.py' -v

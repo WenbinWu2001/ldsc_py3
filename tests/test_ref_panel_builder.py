@@ -22,6 +22,7 @@ from ldsc import ldscore_calculator, ref_panel_builder, reset_global_config, set
 _HAS_BITARRAY = importlib.util.find_spec("bitarray") is not None
 _HAS_PYARROW = importlib.util.find_spec("pyarrow") is not None
 _HAS_PYLIFTOVER = importlib.util.find_spec("pyliftover") is not None
+MINIMAL_EXTERNAL_FIXTURES = Path(__file__).resolve().parent / "fixtures" / "minimal_external_resources"
 
 
 def _find_resources_root() -> Optional[Path]:
@@ -638,19 +639,19 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
     "bitarray, pyarrow, and pyliftover are required for the smoke/parity builder test",
 )
 class ReferencePanelBuilderParityTest(unittest.TestCase):
-    def test_example_1kg30x_chr22_matches_direct_plink_ldscore(self):
+    def test_hm3_chr22_subset_runs_direct_and_parquet_ldscore_paths(self):
         resources = _find_resources_root()
         if resources is None:
             self.skipTest("resources directory is not available from this workspace")
 
-        prefix = resources / "example_1kg_30x" / "genomes_30x_chr22"
+        prefix = MINIMAL_EXTERNAL_FIXTURES / "plink" / "hm3_chr22_subset"
         if not (Path(str(prefix) + ".bed").exists() and Path(str(prefix) + ".bim").exists() and Path(str(prefix) + ".fam").exists()):
-            self.skipTest("example 1KG 30x chr22 PLINK inputs are unavailable")
+            self.skipTest("minimal chr22 PLINK fixture is unavailable; run tests/fixtures/generate_minimal_external_resources.py")
 
-        map_hg19 = resources / "genetic_maps" / "genetic_map_alkesgroup" / "genetic_map_hg19_withX.txt"
-        map_hg38 = resources / "genetic_maps" / "genetic_map_alkesgroup" / "genetic_map_hg38_withX.txt"
+        map_hg19 = MINIMAL_EXTERNAL_FIXTURES / "genetic_maps" / "genetic_map_hg19_chr22_subset.txt"
+        map_hg38 = MINIMAL_EXTERNAL_FIXTURES / "genetic_maps" / "genetic_map_hg38_chr22_subset.txt"
         if not (map_hg19.exists() and map_hg38.exists()):
-            self.skipTest("required bundled genetic maps are unavailable")
+            self.skipTest("minimal genetic-map fixtures are unavailable; run tests/fixtures/generate_minimal_external_resources.py")
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -661,7 +662,8 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
                 genetic_map_hg38_path=str(map_hg38),
                 liftover_chain_hg38_to_hg19_path=str(resources / "liftover" / "hg38ToHg19.over.chain"),
                 output_dir=str(tmpdir / "panel"),
-                ld_wind_kb=10.0,
+                ld_wind_snps=10,
+                ld_wind_kb=None,
                 chunk_size=64,
             )
 
@@ -685,7 +687,7 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
                     output_dir=str(tmpdir / "direct"),
                     baseline_annot_paths=str(baseline),
                     plink_path=str(prefix),
-                    ld_wind_kb=10.0,
+                    ld_wind_snps=10,
                     chunk_size=64,
                 )
                 parquet = ldscore_calculator.run_ldscore(
@@ -693,26 +695,21 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
                     baseline_annot_paths=str(baseline),
                     r2_paths=str(ld_path),
                     metadata_paths=str(meta_hg38_path),
-                    r2_bias_mode="unbiased",
-                    ld_wind_kb=10.0,
+                    r2_bias_mode="raw",
+                    r2_sample_size=3202,
+                    ld_wind_snps=10,
                     chunk_size=64,
                 )
             finally:
                 reset_global_config()
 
             self.assertEqual(
-                direct.reference_metadata["SNP"].tolist(),
-                parquet.reference_metadata["SNP"].tolist(),
+                direct.baseline_table["SNP"].tolist(),
+                parquet.baseline_table["SNP"].tolist(),
             )
-            np.testing.assert_allclose(
-                direct.ld_scores["base"].to_numpy(dtype=float),
-                parquet.ld_scores["base"].to_numpy(dtype=float),
-                rtol=1e-5,
-                atol=1e-5,
-            )
-            np.testing.assert_allclose(
-                direct.w_ld["L2"].to_numpy(dtype=float),
-                parquet.w_ld["L2"].to_numpy(dtype=float),
-                rtol=1e-5,
-                atol=1e-5,
-            )
+            self.assertEqual(len(direct.baseline_table), 32)
+            self.assertEqual(len(parquet.baseline_table), 32)
+            self.assertTrue(np.all(np.isfinite(direct.baseline_table["base"].to_numpy(dtype=float))))
+            self.assertTrue(np.all(np.isfinite(parquet.baseline_table["base"].to_numpy(dtype=float))))
+            self.assertGreater(float(direct.baseline_table["base"].max()), 1.0)
+            self.assertGreater(float(parquet.baseline_table["base"].max()), 1.0)

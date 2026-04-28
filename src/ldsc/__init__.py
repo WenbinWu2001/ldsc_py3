@@ -50,7 +50,7 @@ from .config import (
     validate_config_compatibility,
 )
 from .ldscore_calculator import ChromLDScoreResult, LDScoreCalculator, LDScoreResult, run_ldscore
-from .outputs import ArtifactConfig, ArtifactOutputConfig, ArtifactProducer, LDScoreDirectoryWriter, LDScoreOutputConfig, OutputManager, PostProcessor, ResultFormatter, ResultWriter, RunSummary
+from .outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
 from .ref_panel_builder import ReferencePanelBuildResult, ReferencePanelBuilder, run_build_ref_panel
 from ._kernel.ref_panel import ParquetR2RefPanel, PlinkRefPanel, RefPanel, RefPanelLoader
 
@@ -79,9 +79,6 @@ __all__ = [
     "AnnotationBuildConfig",
     "AnnotationBuilder",
     "AnnotationBundle",
-    "ArtifactConfig",
-    "ArtifactOutputConfig",
-    "ArtifactProducer",
     "ChromLDScoreResult",
     "ConfigMismatchError",
     "GlobalConfig",
@@ -94,10 +91,8 @@ __all__ = [
     "load_ldscore_from_dir",
     "MungeConfig",
     "MungeRunSummary",
-    "OutputManager",
     "ParquetR2RefPanel",
     "PlinkRefPanel",
-    "PostProcessor",
     "ReferencePanelBuildConfig",
     "ReferencePanelBuildResult",
     "ReferencePanelBuilder",
@@ -107,9 +102,6 @@ __all__ = [
     "RegressionConfig",
     "RegressionDataset",
     "RegressionRunner",
-    "ResultFormatter",
-    "ResultWriter",
-    "RunSummary",
     "SumstatsMunger",
     "SumstatsTable",
     "load_sumstats",

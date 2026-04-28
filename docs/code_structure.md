@@ -73,15 +73,15 @@ ldsc_py3_restructured/
 | change raw sumstats ingestion or curated loading | `src/ldsc/sumstats_munger.py`, then `src/ldsc/_kernel/sumstats_munger.py` |
 | change regression dataset assembly or CLI summaries | `src/ldsc/regression_runner.py` |
 | change LDSC estimators | `src/ldsc/_kernel/regression.py` |
-| change output filenames or add new postprocessors | `src/ldsc/outputs.py` |
+| change LD-score result-directory files | `src/ldsc/outputs.py` |
 
 ## Architectural Rules That Matter In Practice
 
 - Treat `src/ldsc/` as the only supported Python import surface.
 - Do not add user-facing path discovery to `_kernel`; pass concrete files in.
-- Keep file contracts for `.annot(.gz)`, `.sumstats.gz`, `.l2.ldscore(.gz)`, `.w.l2.ldscore(.gz)`, `.l2.M`, and `.l2.M_5_50` stable unless the change is intentional and coordinated.
+- Keep public file contracts for `.annot(.gz)`, `.sumstats.gz`, and canonical LD-score result directories stable unless the change is intentional and coordinated. Legacy `.l2.ldscore(.gz)`, `.w.l2.ldscore(.gz)`, `.l2.M`, and `.l2.M_5_50` files are compatibility concerns rather than the public LD-score output surface.
 - Keep regression file-driven: it should be able to rebuild state from written artifacts without recomputing LD scores.
-- Prefer extending shared helpers or `outputs.py` over duplicating local parsing or writing logic.
+- Prefer extending shared helpers or the workflow-owned writer over duplicating local parsing or writing logic.
 
 ## Test Map
 

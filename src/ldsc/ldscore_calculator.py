@@ -36,7 +36,6 @@ from .config import (
     print_global_config_banner,
     validate_config_compatibility,
 )
-from .genome_build_inference import validate_auto_genome_build_mode
 from .outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
 from .path_resolution import (
     FREQUENCY_SUFFIXES,
@@ -788,7 +787,6 @@ def main(argv: Sequence[str] | None = None) -> LDScoreResult:
 def _normalize_run_args(args: argparse.Namespace) -> tuple[argparse.Namespace, GlobalConfig]:
     """Normalize CLI-style args and derive the shared ``GlobalConfig`` object."""
     normalized_mode = normalize_snp_identifier_mode(args.snp_identifier)
-    validate_auto_genome_build_mode(normalized_mode, getattr(args, "genome_build", None))
     normalized_args = argparse.Namespace(**vars(args))
     for attr in ("query_annot_chr", "baseline_annot_chr", "bfile_chr", "r2_table_chr", "frqfile_chr"):
         if not hasattr(normalized_args, attr):
@@ -811,12 +809,17 @@ def _normalize_run_args(args: argparse.Namespace) -> tuple[argparse.Namespace, G
     normalized_args.r2_table = normalized_args.r2_paths
     normalized_args.frqfile = normalized_args.metadata_paths
     normalized_args.keep = normalized_args.keep_indivs_path
-    default_config = GlobalConfig()
-    global_config = GlobalConfig(
-        snp_identifier=normalized_mode,
-        genome_build=default_config.genome_build if getattr(args, "genome_build", None) is None else getattr(args, "genome_build"),
-        log_level=getattr(args, "log_level", "INFO"),
-    )
+    if normalized_mode == "rsid":
+        global_config = GlobalConfig(
+            snp_identifier=normalized_mode,
+            log_level=getattr(args, "log_level", "INFO"),
+        )
+    else:
+        global_config = GlobalConfig(
+            snp_identifier=normalized_mode,
+            genome_build=getattr(args, "genome_build", None),
+            log_level=getattr(args, "log_level", "INFO"),
+        )
     return normalized_args, global_config
 
 

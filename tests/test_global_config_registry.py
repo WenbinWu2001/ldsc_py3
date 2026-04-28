@@ -89,7 +89,6 @@ class GlobalConfigRegistryTest(unittest.TestCase):
         set_global_config(
             GlobalConfig(
                 snp_identifier="rsid",
-                genome_build="hg19",
                 log_level="DEBUG",
             )
         )
@@ -109,7 +108,7 @@ class GlobalConfigRegistryTest(unittest.TestCase):
         self.assertIs(result, mock.sentinel.bundle)
         builder = patched.call_args.args[0]
         self.assertEqual(builder.global_config.snp_identifier, "rsid")
-        self.assertEqual(builder.global_config.genome_build, "hg19")
+        self.assertIsNone(builder.global_config.genome_build)
         self.assertEqual(builder.global_config.log_level, "DEBUG")
         self.assertEqual(patched_print.call_count, 1)
         self.assertIn("GlobalConfig", patched_print.call_args.args[0])
@@ -124,11 +123,11 @@ class GlobalConfigRegistryTest(unittest.TestCase):
             )
 
     def test_run_ldscore_uses_registered_global_config_for_python_defaults(self):
-        set_global_config(GlobalConfig(snp_identifier="rsid", genome_build="hg19", log_level="DEBUG"))
+        set_global_config(GlobalConfig(snp_identifier="rsid", log_level="DEBUG"))
 
         def _assert_args(args):
             self.assertEqual(args.snp_identifier, "rsid")
-            self.assertEqual(args.genome_build, "hg19")
+            self.assertIsNone(args.genome_build)
             self.assertEqual(args.log_level, "DEBUG")
             raise RuntimeError("stop after inspecting args")
 
@@ -167,7 +166,7 @@ class GlobalConfigRegistryTest(unittest.TestCase):
             )
 
     def test_reference_panel_builder_uses_registered_global_config_and_prints_once(self):
-        set_global_config(GlobalConfig(snp_identifier="rsid", genome_build="hg19", log_level="DEBUG"))
+        set_global_config(GlobalConfig(snp_identifier="rsid", log_level="DEBUG"))
 
         with tempfile.TemporaryDirectory() as tmpdir:
             config = _make_build_config(Path(tmpdir))
@@ -192,7 +191,7 @@ class GlobalConfigRegistryTest(unittest.TestCase):
         self.assertIn("GlobalConfig", patched_print.call_args.args[0])
 
     def test_regression_runner_uses_registered_global_config_and_prints_once(self):
-        set_global_config(GlobalConfig(snp_identifier="rsid", genome_build="hg19"))
+        set_global_config(GlobalConfig(snp_identifier="rsid"))
         runner = RegressionRunner()
 
         with mock.patch("builtins.print") as patched_print:
@@ -218,7 +217,7 @@ class GlobalConfigRegistryTest(unittest.TestCase):
 
         self.assertEqual(normalized_args.snp_identifier, "rsid")
         self.assertEqual(global_config.snp_identifier, "rsid")
-        self.assertEqual(global_config.genome_build, "hg38")
+        self.assertIsNone(global_config.genome_build)
         self.assertEqual(global_config.log_level, "DEBUG")
 
 
@@ -231,7 +230,10 @@ class ConfigCompatibilityTest(unittest.TestCase):
             validate_config_compatibility(left, right, context="test")
 
     def test_validate_config_compatibility_rejects_snp_identifier_mismatch(self):
-        left = GlobalConfig(genome_build="hg38", snp_identifier="rsid")
+        with self.assertWarns(UserWarning):
+            cfg = GlobalConfig(genome_build="hg38", snp_identifier="rsid")
+        self.assertIsNone(cfg.genome_build)
+        left = cfg
         right = GlobalConfig(genome_build="hg38", snp_identifier="chr_pos")
 
         with self.assertRaisesRegex(ConfigMismatchError, "snp_identifier mismatch"):

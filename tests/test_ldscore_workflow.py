@@ -86,7 +86,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 "all_reference_snp_counts": np.array([count, count + 1.0]),
                 "common_reference_snp_counts_maf_gt_0_05": np.array([count - 1.0, count]),
             },
-            config_snapshot=GlobalConfig(genome_build="hg38", snp_identifier="rsid"),
+            config_snapshot=GlobalConfig(snp_identifier="rsid"),
         )
 
     def make_annotation_bundle(self, chrom_rows: list[tuple[str, str, int]], genome_build: str = "hg38") -> AnnotationBundle:
@@ -103,7 +103,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             query_columns=[],
             chromosomes=chromosomes,
             source_summary={},
-            config_snapshot=GlobalConfig(genome_build=genome_build, snp_identifier="rsid"),
+            config_snapshot=GlobalConfig(snp_identifier="rsid"),
         )
 
     def make_ref_panel_stub(
@@ -177,7 +177,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             ld_reference_snps=frozenset(),
             ld_regression_snps=frozenset({"rs1"}),
             snp_count_totals={"all_reference_snp_counts": np.array([10.0, 11.0])},
-            config_snapshot=GlobalConfig(genome_build="hg38", snp_identifier="rsid"),
+            config_snapshot=GlobalConfig(snp_identifier="rsid"),
         )
         self.assertFalse(hasattr(chrom_result, "reference_metadata"))
         self.assertFalse(hasattr(chrom_result, "w_ld"))
@@ -207,7 +207,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             query_columns=[],
             chromosomes=["1"],
             source_summary={},
-            config_snapshot=GlobalConfig(genome_build="hg38", snp_identifier="rsid"),
+            config_snapshot=GlobalConfig(snp_identifier="rsid"),
         )
 
     def _copy_plink_fixture_with_distinct_fids(self, tmpdir: Path) -> Path:
@@ -310,7 +310,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             query_columns=[],
             chromosomes=["1"],
             source_summary={},
-            config_snapshot=GlobalConfig(genome_build="hg19", snp_identifier="rsid"),
+            config_snapshot=GlobalConfig(genome_build="hg19", snp_identifier="chr_pos"),
         )
         ref_panel = SimpleNamespace(spec=SimpleNamespace(genome_build="hg19", backend="plink"))
 
@@ -320,7 +320,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                     annotation_bundle=annotation_bundle,
                     ref_panel=ref_panel,
                     ldscore_config=LDScoreConfig(ld_wind_snps=10),
-                    global_config=GlobalConfig(genome_build="hg38", snp_identifier="rsid"),
+                    global_config=GlobalConfig(genome_build="hg38", snp_identifier="chr_pos"),
                 )
 
         patched_compute.assert_not_called()
@@ -641,7 +641,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
     def test_namespace_from_configs_emits_string_paths(self):
         from ldsc._kernel.ref_panel import RefPanelConfig
 
-        common = GlobalConfig(snp_identifier="rsid", genome_build="hg19")
+        common = GlobalConfig(snp_identifier="chr_pos", genome_build="hg19")
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             r2_path = tmpdir / "r2" / "chr1.parquet"

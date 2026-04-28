@@ -86,7 +86,8 @@ class GlobalConfig:
         expects an explicit SNP column, while ``"chr_pos"`` builds identifiers
         from chromosome and base-pair position.
     genome_build : {"auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"} or None, optional
-        Genome-build context for ``chr_pos`` workflows. Default is ``"hg38"``.
+        Genome-build context for ``chr_pos`` workflows. Required for
+        ``snp_identifier="chr_pos"`` and ignored for ``"rsid"``.
     log_level : {"DEBUG", "INFO", "WARNING", "ERROR"}, optional
         Requested logging verbosity for workflow modules. Default is ``"INFO"``.
     fail_on_missing_metadata : bool, optional
@@ -100,7 +101,7 @@ class GlobalConfig:
     ``regression_snps_path`` now live on workflow-specific configs.
     """
     snp_identifier: SNPIdentifierMode = "chr_pos"
-    genome_build: GenomeBuildInput | None = "hg38"
+    genome_build: GenomeBuildInput | None = None
     log_level: LogLevel = "INFO"
     fail_on_missing_metadata: bool = False
 
@@ -110,9 +111,23 @@ class GlobalConfig:
             raise ValueError("snp_identifier must be 'rsid' or 'chr_pos'.")
         object.__setattr__(self, "genome_build", normalize_genome_build(self.genome_build))
         object.__setattr__(self, "log_level", _normalize_log_level(self.log_level))
+        if self.snp_identifier == "chr_pos" and self.genome_build is None:
+            raise ValueError(
+                "genome_build is required when snp_identifier='chr_pos'. "
+                "Pass 'auto' to infer from data, or 'hg19'/'hg38' explicitly."
+            )
+        if self.snp_identifier == "rsid" and self.genome_build == "auto":
+            raise ValueError("genome_build='auto' is not valid for snp_identifier='rsid'.")
+        if self.snp_identifier == "rsid" and self.genome_build is not None:
+            warnings.warn(
+                "genome_build is set but will be ignored in rsid mode.",
+                UserWarning,
+                stacklevel=2,
+            )
+            object.__setattr__(self, "genome_build", None)
 
 
-_GLOBAL_CONFIG: GlobalConfig = GlobalConfig()
+_GLOBAL_CONFIG: GlobalConfig = GlobalConfig(snp_identifier="rsid")
 _GLOBAL_CONFIG_BANNER_SUPPRESSION: ContextVar[int] = ContextVar(
     "ldsc_global_config_banner_suppression",
     default=0,
@@ -135,7 +150,7 @@ def set_global_config(config: GlobalConfig) -> None:
 def reset_global_config() -> GlobalConfig:
     """Restore the process-wide default configuration and return it."""
     global _GLOBAL_CONFIG
-    _GLOBAL_CONFIG = GlobalConfig()
+    _GLOBAL_CONFIG = GlobalConfig(snp_identifier="rsid")
     return _GLOBAL_CONFIG
 
 
@@ -146,17 +161,17 @@ def validate_config_compatibility(
 ) -> None:
     """Raise when ``a`` and ``b`` disagree on critical LDSC workflow settings."""
     prefix = f" when combining {context}" if context else ""
-    if a.genome_build != b.genome_build:
-        raise ConfigMismatchError(
-            f"genome_build mismatch{prefix}: {a.genome_build!r} vs "
-            f"{b.genome_build!r}. These objects were computed under different "
-            "genome-build assumptions and cannot be safely merged."
-        )
     if a.snp_identifier != b.snp_identifier:
         raise ConfigMismatchError(
             f"snp_identifier mismatch{prefix}: {a.snp_identifier!r} vs "
             f"{b.snp_identifier!r}. These objects were computed under different "
             "SNP-identifier modes and cannot be safely merged."
+        )
+    if a.genome_build != b.genome_build:
+        raise ConfigMismatchError(
+            f"genome_build mismatch{prefix}: {a.genome_build!r} vs "
+            f"{b.genome_build!r}. These objects were computed under different "
+            "genome-build assumptions and cannot be safely merged."
         )
 
 

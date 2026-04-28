@@ -666,7 +666,7 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
         build_config, global_config = ref_panel_builder.config_from_args(args)
 
         self.assertEqual(build_config.source_genome_build, "hg19")
-        self.assertEqual(global_config.genome_build, "hg19")
+        self.assertIsNone(global_config.genome_build)
         self.assertEqual(global_config.snp_identifier, "rsid")
 
     def test_run_build_ref_panel_requires_snp_identifier_for_restriction_file(self):
@@ -700,7 +700,7 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
             )
 
         self.assertEqual(captured["config"].ref_panel_snps_path, "hm3.tsv")
-        self.assertEqual(captured["global_config"].genome_build, "hg19")
+        self.assertIsNone(captured["global_config"].genome_build)
         self.assertEqual(captured["global_config"].snp_identifier, "rsid")
 
 
@@ -736,7 +736,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
             self._write_dummy_plink_prefix(tmpdir, "panel.2", "2")
             config = self._build_config(tmpdir)
-            builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig())
+            builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
 
             def fake_build(prefix, chrom, config, build_state):
                 out_root = Path(config.output_dir) / "parquet"
@@ -786,7 +786,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 output_dir=tmpdir / "out",
                 ld_wind_kb=1.0,
             )
-            builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig())
+            builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
 
             def fake_build(prefix, chrom, config, build_state):
                 out_root = Path(config.output_dir) / "parquet"
@@ -816,7 +816,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             existing = tmpdir / "out" / "parquet" / "ann" / "chr1_ann.parquet"
             existing.parent.mkdir(parents=True)
             existing.write_text("existing\n", encoding="utf-8")
-            builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig())
+            builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
 
             with mock.patch.object(
                 ref_panel_builder.ReferencePanelBuilder,
@@ -836,7 +836,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             existing = tmpdir / "out" / "parquet" / "ann" / "chr1_ann.parquet"
             existing.parent.mkdir(parents=True)
             existing.write_text("existing\n", encoding="utf-8")
-            builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig())
+            builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
 
             with mock.patch.object(
                 ref_panel_builder.ReferencePanelBuilder,
@@ -862,7 +862,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 output_dir=tmpdir / "out",
                 ld_wind_kb=1.0,
             )
-            builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig())
+            builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
 
             def fake_build(prefix, chrom, config, build_state):
                 out_root = Path(config.output_dir) / "parquet"
@@ -898,7 +898,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 output_dir=tmpdir / "out",
                 ld_wind_kb=1.0,
             )
-            builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig())
+            builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
 
             with self.assertLogs("LDSC.ref_panel_builder", level="WARNING") as logs:
                 with mock.patch.object(
@@ -911,7 +911,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             self.assertTrue(any("ignoring the opposite-direction chain" in message for message in logs.output))
 
     def test_resolve_mappable_snp_positions_skips_liftover_without_matching_chain(self):
-        builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig())
+        builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
         build_state = ref_panel_builder._BuildState(
             genetic_map_hg19=pd.DataFrame({"CHR": ["1"], "POS": [100], "CM": [0.0]}),
             genetic_map_hg38=None,
@@ -934,7 +934,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
         self.assertEqual(hg38_lookup, {})
 
     def test_resolve_mappable_snp_positions_keeps_hg38_source_positions_without_chain(self):
-        builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig())
+        builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
         build_state = ref_panel_builder._BuildState(
             genetic_map_hg19=None,
             genetic_map_hg38=pd.DataFrame({"CHR": ["1"], "POS": [110], "CM": [0.0]}),
@@ -972,7 +972,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 output_dir=tmpdir / "out",
                 ld_wind_kb=1.0,
             )
-            builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig())
+            builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
 
             with mock.patch.object(
                 ref_panel_builder.ReferencePanelBuilder,
@@ -983,7 +983,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                     builder.run(config)
 
     def test_map_positions_passes_explicit_chain_path_to_translator(self):
-        builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig())
+        builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
         build_state = ref_panel_builder._BuildState(
             genetic_map_hg19=pd.DataFrame({"CHR": ["1"], "POS": [100], "CM": [0.0]}),
             genetic_map_hg38=pd.DataFrame({"CHR": ["1"], "POS": [100], "CM": [0.0]}),
@@ -1132,7 +1132,7 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
             with gzip.open(baseline, "wt", encoding="utf-8") as handle:
                 baseline_df.to_csv(handle, sep="\t", index=False)
 
-            set_global_config(GlobalConfig(snp_identifier="rsid", genome_build="hg38"))
+            set_global_config(GlobalConfig(snp_identifier="rsid"))
             try:
                 direct = ldscore_calculator.run_ldscore(
                     output_dir=str(tmpdir / "direct"),

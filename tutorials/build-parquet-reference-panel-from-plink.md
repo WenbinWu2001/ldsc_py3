@@ -244,7 +244,7 @@ The most explicit Python API uses the public config object and builder class:
 ```python
 from ldsc import GlobalConfig, ReferencePanelBuildConfig, ReferencePanelBuilder, set_global_config
 
-GLOBAL_CONFIG = GlobalConfig(log_level="INFO")
+GLOBAL_CONFIG = GlobalConfig(snp_identifier="chr_pos", genome_build="hg38", log_level="INFO")
 set_global_config(GLOBAL_CONFIG)
 
 config = ReferencePanelBuildConfig(
@@ -272,7 +272,6 @@ identifier mode on the injected `GlobalConfig`:
 ```python
 GLOBAL_CONFIG = GlobalConfig(
     snp_identifier="rsid",
-    genome_build="hg38",
     log_level="INFO",
 )
 ```
@@ -549,7 +548,7 @@ If you prefer a thinner Python wrapper around the CLI-style arguments, the packa
 ```python
 from ldsc import GlobalConfig, run_build_ref_panel, set_global_config
 
-GLOBAL_CONFIG = GlobalConfig(log_level="INFO")
+GLOBAL_CONFIG = GlobalConfig(snp_identifier="chr_pos", genome_build="hg38", log_level="INFO")
 set_global_config(GLOBAL_CONFIG)
 
 result = run_build_ref_panel(

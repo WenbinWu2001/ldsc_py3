@@ -716,10 +716,15 @@ def parse_bed_to_annot_args(argv: Sequence[str] | None = None) -> argparse.Names
 def main_bed_to_annot(argv: Sequence[str] | None = None) -> int:
     """CLI entrypoint for BED-to-annotation projection."""
     args = parse_bed_to_annot_args(argv)
-    default_config = GlobalConfig()
+    normalized_mode = normalize_snp_identifier_mode(args.snp_identifier)
+    if normalized_mode == "chr_pos" and args.genome_build is None:
+        raise ValueError(
+            "genome_build is required when snp_identifier='chr_pos'. "
+            "Pass --genome-build auto, --genome-build hg19, or --genome-build hg38."
+        )
     cli_global_config = GlobalConfig(
-        snp_identifier=normalize_snp_identifier_mode(args.snp_identifier),
-        genome_build=default_config.genome_build if args.genome_build is None else args.genome_build,
+        snp_identifier=normalized_mode,
+        genome_build=(None if normalized_mode == "rsid" else args.genome_build),
         log_level=args.log_level,
     )
     _run_bed_to_annot_with_global_config(

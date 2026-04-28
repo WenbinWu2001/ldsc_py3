@@ -44,7 +44,7 @@ class RefPanelLoaderTest(unittest.TestCase):
         self.assertEqual(spec.ref_panel_snps_path, "/path/to/snps.txt")
 
     def test_loader_selects_parquet_backend(self):
-        loader = RefPanelLoader(GlobalConfig(snp_identifier="chr_pos"), RefPanelConfig())
+        loader = RefPanelLoader(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"), RefPanelConfig())
         spec = RefPanelConfig(backend="parquet_r2", chromosomes=("1",), metadata_paths=())
         panel = loader.load(spec)
         self.assertIsInstance(panel, ParquetR2RefPanel)
@@ -116,7 +116,7 @@ class ParquetRefPanelTest(unittest.TestCase):
                 encoding="utf-8",
             )
             panel = ParquetR2RefPanel(
-                GlobalConfig(snp_identifier="chr_pos"),
+                GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
                 RefPanelConfig(backend="parquet_r2", metadata_paths=(str(meta),)),
             )
             self.assertEqual(panel.available_chromosomes(), ["1", "2"])
@@ -132,7 +132,7 @@ class ParquetRefPanelTest(unittest.TestCase):
                 encoding="utf-8",
             )
             panel = ParquetR2RefPanel(
-                GlobalConfig(snp_identifier="chr_pos"),
+                GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
                 RefPanelConfig(backend="parquet_r2", metadata_paths=(str(meta),)),
             )
 
@@ -148,7 +148,7 @@ class ParquetRefPanelTest(unittest.TestCase):
                 encoding="utf-8",
             )
             panel = ParquetR2RefPanel(
-                GlobalConfig(snp_identifier="chr_pos"),
+                GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
                 RefPanelConfig(backend="parquet_r2", metadata_paths=(str(meta),), chromosomes=("1",)),
             )
             filtered = panel.filter_to_snps("1", {"1:20"})
@@ -168,7 +168,7 @@ class ParquetRefPanelTest(unittest.TestCase):
                 encoding="utf-8",
             )
             panel = ParquetR2RefPanel(
-                GlobalConfig(snp_identifier="chr_pos"),
+                GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
                 RefPanelConfig(backend="parquet_r2", metadata_paths=str(tmpdir / "meta.@.tsv")),
             )
 
@@ -210,7 +210,7 @@ class ParquetRefPanelTest(unittest.TestCase):
             meta = Path(tmpdir) / "meta.tsv"
             meta.write_text("CHR\tBP\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n", encoding="utf-8")
             panel = ParquetR2RefPanel(
-                GlobalConfig(snp_identifier="chr_pos"),
+                GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
                 RefPanelConfig(backend="parquet_r2", metadata_paths=(str(meta),), r2_paths=(str(Path(tmpdir) / "missing.parquet"),)),
             )
             with self.assertRaises(Exception):

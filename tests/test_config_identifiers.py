@@ -38,19 +38,18 @@ from ldsc._kernel.identifiers import (
 
 class GlobalConfigTest(unittest.TestCase):
     def test_defaults(self):
-        config = GlobalConfig()
-        self.assertEqual(config.snp_identifier, "chr_pos")
-        self.assertEqual(config.genome_build, "hg38")
+        config = GlobalConfig(snp_identifier="rsid")
+        self.assertEqual(config.snp_identifier, "rsid")
+        self.assertIsNone(config.genome_build)
         self.assertEqual(config.log_level, "INFO")
         self.assertFalse(config.fail_on_missing_metadata)
 
     def test_package_global_registry_round_trip(self):
         original = ldsc.reset_global_config()
-        self.assertEqual(original, GlobalConfig())
+        self.assertEqual(original, GlobalConfig(snp_identifier="rsid"))
 
         configured = GlobalConfig(
             snp_identifier="rsid",
-            genome_build="hg19",
             log_level="DEBUG",
         )
         ldsc.set_global_config(configured)
@@ -58,30 +57,71 @@ class GlobalConfigTest(unittest.TestCase):
         self.assertEqual(ldsc.get_global_config(), configured)
 
     def test_reset_global_config_restores_default(self):
-        ldsc.set_global_config(GlobalConfig(snp_identifier="rsid", genome_build="hg19"))
+        ldsc.set_global_config(GlobalConfig(snp_identifier="rsid", log_level="DEBUG"))
 
         reset = ldsc.reset_global_config()
 
-        self.assertEqual(reset, GlobalConfig())
-        self.assertEqual(ldsc.get_global_config(), GlobalConfig())
+        self.assertEqual(reset, GlobalConfig(snp_identifier="rsid"))
+        self.assertEqual(ldsc.get_global_config(), GlobalConfig(snp_identifier="rsid"))
 
     def test_validates_values(self):
         with self.assertRaises(ValueError):
             GlobalConfig(snp_identifier="bad")
         with self.assertRaises(ValueError):
-            GlobalConfig(genome_build="hg18")
+            GlobalConfig(snp_identifier="chr_pos", genome_build="hg18")
         with self.assertRaises(ValueError):
-            GlobalConfig(log_level="trace")
+            GlobalConfig(snp_identifier="rsid", log_level="trace")
 
     def test_normalizes_genome_build_aliases(self):
-        self.assertEqual(GlobalConfig(genome_build="hg37").genome_build, "hg19")
-        self.assertEqual(GlobalConfig(genome_build="GRCh37").genome_build, "hg19")
-        self.assertEqual(GlobalConfig(genome_build="GRCh38").genome_build, "hg38")
+        self.assertEqual(GlobalConfig(snp_identifier="chr_pos", genome_build="hg37").genome_build, "hg19")
+        self.assertEqual(GlobalConfig(snp_identifier="chr_pos", genome_build="GRCh37").genome_build, "hg19")
+        self.assertEqual(GlobalConfig(snp_identifier="chr_pos", genome_build="GRCh38").genome_build, "hg38")
         self.assertEqual(normalize_genome_build("hg37"), "hg19")
         self.assertEqual(normalize_genome_build("GRCh37"), "hg19")
         self.assertEqual(normalize_genome_build("GRCh38"), "hg38")
-        self.assertEqual(GlobalConfig(genome_build="auto").genome_build, "auto")
+        self.assertEqual(GlobalConfig(snp_identifier="chr_pos", genome_build="auto").genome_build, "auto")
         self.assertEqual(normalize_genome_build("AUTO"), "auto")
+
+
+class TestGlobalConfigValidation(unittest.TestCase):
+    def test_chr_pos_no_genome_build_raises(self):
+        with self.assertRaises(ValueError) as ctx:
+            GlobalConfig(snp_identifier="chr_pos")
+        self.assertIn("genome_build is required", str(ctx.exception))
+
+    def test_chr_pos_hg38_ok(self):
+        cfg = GlobalConfig(snp_identifier="chr_pos", genome_build="hg38")
+        self.assertEqual(cfg.genome_build, "hg38")
+
+    def test_chr_pos_auto_ok(self):
+        cfg = GlobalConfig(snp_identifier="chr_pos", genome_build="auto")
+        self.assertEqual(cfg.genome_build, "auto")
+
+    def test_rsid_auto_raises(self):
+        with self.assertRaises(ValueError):
+            GlobalConfig(snp_identifier="rsid", genome_build="auto")
+
+    def test_rsid_no_genome_build_ok(self):
+        cfg = GlobalConfig(snp_identifier="rsid")
+        self.assertIsNone(cfg.genome_build)
+
+    def test_rsid_with_concrete_build_warns_and_nulls(self):
+        with self.assertWarns(UserWarning) as ctx:
+            cfg = GlobalConfig(snp_identifier="rsid", genome_build="hg38")
+        self.assertIn("ignored", str(ctx.warning))
+        self.assertIsNone(cfg.genome_build)
+
+    def test_singleton_is_rsid(self):
+        from ldsc.config import get_global_config
+        cfg = get_global_config()
+        self.assertEqual(cfg.snp_identifier, "rsid")
+        self.assertIsNone(cfg.genome_build)
+
+    def test_reset_returns_rsid(self):
+        from ldsc.config import reset_global_config
+        cfg = reset_global_config()
+        self.assertEqual(cfg.snp_identifier, "rsid")
+        self.assertIsNone(cfg.genome_build)
 
 
 class WorkflowConfigTest(unittest.TestCase):

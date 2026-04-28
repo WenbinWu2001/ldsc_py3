@@ -101,7 +101,7 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertEqual(result.query_table.columns.tolist(), ["CHR", "SNP", "BP", "query"])
         self.assertEqual(result.count_records[0]["column"], "base")
         self.assertEqual(result.ld_regression_snps, frozenset({"rs1"}))
-        self.assertEqual(result.config_snapshot, GlobalConfig(genome_build="hg38", snp_identifier="rsid"))
+        self.assertEqual(result.config_snapshot, GlobalConfig(snp_identifier="rsid"))
 
     def test_load_ldscore_from_dir_warns_when_config_snapshot_is_missing(self):
         from ldsc import load_ldscore_from_dir
@@ -186,7 +186,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             ld_reference_snps=frozenset(),
             ld_regression_snps=frozenset({"rs1", "rs2", "rs3"}),
             chromosome_results=[],
-            config_snapshot=GlobalConfig(genome_build="hg38", snp_identifier="rsid"),
+            config_snapshot=GlobalConfig(snp_identifier="rsid"),
         )
 
     def make_sumstats_table(self):
@@ -204,7 +204,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             source_path="sumstats.gz",
             trait_name="trait",
             provenance={},
-            config_snapshot=GlobalConfig(genome_build="hg38", snp_identifier="rsid"),
+            config_snapshot=GlobalConfig(snp_identifier="rsid"),
         )
 
     def make_annotation_bundle(self):
@@ -294,7 +294,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             dataset.reference_snp_count_totals["common_reference_snp_counts_maf_gt_0_05"],
             [8.0],
         )
-        self.assertEqual(dataset.config_snapshot, GlobalConfig(genome_build="hg38", snp_identifier="rsid"))
+        self.assertEqual(dataset.config_snapshot, GlobalConfig(snp_identifier="rsid"))
 
     def test_build_dataset_can_include_one_query_annotation_for_partitioned_h2(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
@@ -402,11 +402,14 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertEqual(patched.call_args.args[1].shape[0], 2)
 
     def test_build_dataset_raises_on_mismatched_sumstats_and_ldscore_snapshots(self):
-        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
-        sumstats = self.make_sumstats_table()
+        runner = RegressionRunner(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"), RegressionConfig())
+        sumstats = replace(
+            self.make_sumstats_table(),
+            config_snapshot=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+        )
         ldscore_result = replace(
             self.make_ldscore_result(),
-            config_snapshot=GlobalConfig(genome_build="hg19", snp_identifier="rsid"),
+            config_snapshot=GlobalConfig(genome_build="hg19", snp_identifier="chr_pos"),
         )
 
         with self.assertRaisesRegex(ConfigMismatchError, "genome_build mismatch"):
@@ -427,7 +430,7 @@ class RegressionWorkflowTest(unittest.TestCase):
 
         dataset = runner.build_dataset(sumstats, self.make_ldscore_result())
 
-        self.assertEqual(dataset.config_snapshot, GlobalConfig(genome_build="hg38", snp_identifier="rsid"))
+        self.assertEqual(dataset.config_snapshot, GlobalConfig(snp_identifier="rsid"))
 
     def test_estimate_partitioned_h2_batch_loops_over_queries(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
@@ -497,7 +500,7 @@ class RegressionWorkflowTest(unittest.TestCase):
     def test_run_h2_from_args_uses_ldscore_dir(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
-            set_global_config(GlobalConfig(snp_identifier="rsid", genome_build="hg38"))
+            set_global_config(GlobalConfig(snp_identifier="rsid"))
             with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
                 handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
             ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
@@ -554,7 +557,7 @@ class RegressionWorkflowTest(unittest.TestCase):
     def test_run_partitioned_h2_from_args_uses_query_columns_from_ldscore_dir(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
-            set_global_config(GlobalConfig(snp_identifier="rsid", genome_build="hg38"))
+            set_global_config(GlobalConfig(snp_identifier="rsid"))
             with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
                 handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
             ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
@@ -589,7 +592,7 @@ class RegressionWorkflowTest(unittest.TestCase):
     def test_regression_cli_writes_fixed_result_filename_under_output_dir(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
-            set_global_config(GlobalConfig(snp_identifier="rsid", genome_build="hg38"))
+            set_global_config(GlobalConfig(snp_identifier="rsid"))
             with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
                 handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
             ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
@@ -632,7 +635,7 @@ class RegressionWorkflowTest(unittest.TestCase):
     def test_regression_cli_refuses_existing_result_file_by_default(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
-            set_global_config(GlobalConfig(snp_identifier="rsid", genome_build="hg38"))
+            set_global_config(GlobalConfig(snp_identifier="rsid"))
             with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
                 handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
             ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
@@ -680,7 +683,7 @@ class RegressionWorkflowTest(unittest.TestCase):
     def test_regression_cli_allows_existing_result_file_with_overwrite(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
-            set_global_config(GlobalConfig(snp_identifier="rsid", genome_build="hg38"))
+            set_global_config(GlobalConfig(snp_identifier="rsid"))
             with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
                 handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
             ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)

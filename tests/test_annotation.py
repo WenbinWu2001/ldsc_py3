@@ -124,7 +124,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             _write_annot(base, rows, {"base_a": [1, 0, 1]})
 
             builder = AnnotationBuilder(
-                GlobalConfig(snp_identifier="chr_pos"),
+                GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
                 AnnotationBuildConfig(),
             )
             bundle = builder.run(AnnotationBuildConfig(baseline_annot_paths=(str(base),)))

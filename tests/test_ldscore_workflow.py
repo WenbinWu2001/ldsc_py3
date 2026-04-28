@@ -42,6 +42,12 @@ _HAS_BITARRAY = importlib.util.find_spec("bitarray") is not None
 
 @unittest.skipIf(ldscore_workflow is None, "ldscore_workflow module is not available")
 class LDScoreWorkflowTest(unittest.TestCase):
+    def test_build_parser_genome_build_help_documents_chr_pos_requirement(self):
+        help_text = ldscore_workflow.build_parser().format_help()
+
+        self.assertIn("Required when", help_text)
+        self.assertIn("Not used when --snp-identifier rsid", help_text)
+
     def make_chrom_result(self, chrom: str, bp: int, score: float, count: float):
         baseline_table = pd.DataFrame(
             {

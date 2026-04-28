@@ -578,7 +578,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--genome-build",
         choices=("auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"),
         default=None,
-        help="Genome build for chr_pos matching. Use 'auto' to infer hg19/hg38 and 0-based/1-based coordinates.",
+        help=(
+            "Genome build for chr_pos inputs. Required when --snp-identifier chr_pos "
+            "(the default). Use 'auto' to infer hg19/hg38 and 0-based/1-based coordinates "
+            "from data. Not used when --snp-identifier rsid."
+        ),
     )
     parser.add_argument("--r2-bias-mode", choices=("raw", "unbiased"), default=None, help="Whether parquet R2 values are raw or already unbiased.")
     parser.add_argument("--r2-sample-size", default=None, type=float, help="LD reference sample size used to correct raw parquet R2 values.")

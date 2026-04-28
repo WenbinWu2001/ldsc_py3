@@ -2,7 +2,7 @@
 
 ## Status
 
-Finalized — all design decisions resolved. Ready for implementation.
+Implemented.
 
 ---
 

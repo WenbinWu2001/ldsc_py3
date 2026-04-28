@@ -1,4 +1,6 @@
 from pathlib import Path
+import contextlib
+import io
 import sys
 import tempfile
 import unittest
@@ -28,6 +30,16 @@ def _write_annot(path: Path, rows: list[tuple], annotation_columns: dict[str, li
 
 
 class AnnotationBuilderTest(unittest.TestCase):
+    def test_bed_to_annot_parser_genome_build_help_documents_chr_pos_requirement(self):
+        stdout = io.StringIO()
+        with self.assertRaises(SystemExit):
+            with contextlib.redirect_stdout(stdout):
+                kernel_annotation.parse_bed_to_annot_args(["--help"])
+
+        help_text = stdout.getvalue()
+        self.assertIn("Required when", help_text)
+        self.assertIn("Not used when --snp-identifier rsid", help_text)
+
     def test_annotation_build_config_has_no_gene_set_paths(self):
         spec = AnnotationBuildConfig(baseline_annot_paths=("baseline.1.annot.gz",))
         self.assertFalse(hasattr(spec, "gene_set_paths"))

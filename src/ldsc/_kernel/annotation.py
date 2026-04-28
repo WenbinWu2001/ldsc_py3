@@ -693,7 +693,11 @@ def parse_bed_to_annot_args(argv: Sequence[str] | None = None) -> argparse.Names
         "--genome-build",
         default=None,
         choices=("auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"),
-        help="Genome build for chr_pos inputs. Use 'auto' to infer hg19/hg38 and 0-based/1-based coordinates.",
+        help=(
+            "Genome build for chr_pos inputs. Required when --snp-identifier chr_pos "
+            "(the default). Use 'auto' to infer hg19/hg38 and 0-based/1-based coordinates "
+            "from data. Not used when --snp-identifier rsid."
+        ),
     )
     parser.add_argument(
         "--no-batch",

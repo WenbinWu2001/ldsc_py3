@@ -9,7 +9,7 @@ This document summarizes the public package surface. For workflow-level file str
 | Build query annotations | `ldsc annotate` | `AnnotationBuilder`, `run_bed_to_annot()`, `make_annot_files()` | baseline `.annot(.gz)`, BED or gene-set inputs | `query.<chrom>.annot.gz` or one legacy `.annot(.gz)` |
 | Build parquet reference panels | `ldsc build-ref-panel` | `ReferencePanelBuilder`, `run_build_ref_panel()` | PLINK prefix, optional liftover chains, conditional genetic maps, optional keep/restrict files; `snp_identifier` only when a SNP restriction file is supplied | per-chromosome `ann.parquet`, `LD.parquet`, emitted `meta_*.tsv.gz` sidecars |
 | Compute LD scores | `ldsc ldscore` | `LDScoreCalculator`, `run_ldscore()` | optional baseline annotation shards, optional query annotations only when baseline is explicit, PLINK or parquet reference panel, optional frequency metadata | `manifest.json`, `baseline.parquet`, optional `query.parquet` under `output_dir`; no-annotation runs write synthetic `base` |
-| Infer `chr_pos` genome build | workflow flags only: `--genome-build auto`; no standalone CLI command | `infer_chr_pos_build()`, `resolve_chr_pos_table()` | pandas table with `CHR` and `POS`; optional reference table | `ChrPosBuildInference`, and optionally a normalized 1-based table |
+| Infer `chr_pos` genome build | workflow flags only: `--genome-build auto`; no standalone CLI command | `infer_chr_pos_build()`, `resolve_genome_build()`, `resolve_chr_pos_table()` | pandas table with `CHR` and `POS`; optional reference table | `ChrPosBuildInference`, resolved `GlobalConfig`, and optionally a normalized 1-based table |
 | Munge GWAS summary statistics | `ldsc munge-sumstats` | `SumstatsMunger`, `load_sumstats()` | raw sumstats, column hints, QC thresholds, optional `--chr`/`--pos`, `--genome-build auto` | `sumstats.sumstats.gz`, `sumstats.log`, `sumstats.metadata.json` |
 | Estimate heritability | `ldsc h2` | `RegressionRunner.estimate_h2()` | munged `.sumstats.gz` plus sidecar when available, LD-score directory | `h2.tsv` |
 | Estimate partitioned heritability | `ldsc partitioned-h2` | `RegressionRunner.estimate_partitioned_h2_batch()` | munged `.sumstats.gz` plus sidecar when available, LD-score directory | `partitioned_h2.tsv` |
@@ -61,7 +61,7 @@ This document summarizes the public package surface. For workflow-level file str
 | --- | --- |
 | `get_global_config()` | return the package-global Python workflow configuration |
 | `set_global_config()` | replace the package-global Python workflow configuration |
-| `reset_global_config()` | restore the default package-global configuration: `GlobalConfig(snp_identifier="chr_pos", genome_build="hg38")` |
+| `reset_global_config()` | restore the default package-global configuration: `GlobalConfig(snp_identifier="rsid")` |
 | `validate_config_compatibility()` | compare two `GlobalConfig` snapshots and raise or warn on mismatch |
 
 ## Public Path And Header Contracts
@@ -79,6 +79,7 @@ This document summarizes the public package surface. For workflow-level file str
   workflow; it does not remove unrelated files from the output directory.
 - Raw user-authored inputs use permissive alias resolution through `column_inference.py`.
 - Raw sumstats may begin with `##` metadata/comment lines; these are skipped before header inference, so `#CHROM` remains available as the chromosome header.
+- `chr_pos` workflows require an explicit genome build or `--genome-build auto`; `rsid` workflows do not use genome-build metadata.
 - Package-written sumstats artifacts include canonical `CHR` and `POS` columns. They are populated from inferred or explicitly flagged raw columns and filled as missing when the raw file lacks coordinates.
 - Package-written artifacts use stricter internal headers so downstream workflows reload them deterministically.
 

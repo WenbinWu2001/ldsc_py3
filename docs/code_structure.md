@@ -50,7 +50,7 @@ ldsc_py3_restructured/
 | `ldsc.regression_runner` | file-driven regression dataset assembly and estimator dispatch |
 | `ldsc.outputs` | artifact naming, layout, and serialization |
 | `ldsc._kernel.annotation` | annotation parsing, validation, BED intersection |
-| `ldsc._kernel.ref_panel_builder` | genetic-map parsing, liftover, parquet schemas, pairwise LD emission |
+| `ldsc._kernel.ref_panel_builder` | optional genetic-map parsing, optional liftover, parquet schemas, pairwise LD emission |
 | `ldsc._kernel.ref_panel` | runtime PLINK/parquet reference-panel adapters |
 | `ldsc._kernel.ldscore` | LD-score math and legacy-compatible computation helpers |
 | `ldsc._kernel.sumstats_munger` | legacy-compatible raw summary-statistics QC and normalization |

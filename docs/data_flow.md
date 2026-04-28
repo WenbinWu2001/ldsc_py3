@@ -116,8 +116,8 @@ flowchart LR
 | PLINK prefix | `reference/genomes_30x_chr22` | resolves to `.bed`, `.bim`, `.fam` |
 | `.bim` row | `22 rs123 0.0 16050075 A G` | variant metadata |
 | `.fam` row | `fam1 iid1 0 0 0 -9` | sample metadata |
-| genetic map | `chr position Genetic_Map(cM)`<br/>`22 16050000 0.42` | one hg19 map and one hg38 map |
-| liftover chain, conditional | `hg38ToHg19.over.chain.gz` | required when source build and target build differ |
+| genetic map, conditional | `chr position Genetic_Map(cM)`<br/>`22 16050000 0.42` | source-build map required only for cM windows; missing emitted-build maps produce `CM=NA` |
+| liftover chain, optional | `hg38ToHg19.over.chain.gz` | matching source-to-target chain enables cross-build metadata; omitted chain produces source-build-only output |
 | keep or restrict file, optional | one IID per row or one SNP per row | filters individuals or variants |
 
 ### Flow

@@ -1,9 +1,9 @@
 """Workflow wrapper for building standard parquet reference panels from PLINK.
 
 Core functionality:
-    Resolve public PLINK, genetic-map, and liftover inputs; orchestrate
-    chromosome-wise reference-panel builds; and emit the standard parquet
-    artifacts consumed by the refactored LDSC workflows.
+    Resolve public PLINK, optional genetic-map, and optional liftover inputs;
+    orchestrate chromosome-wise reference-panel builds; and emit the standard
+    parquet artifacts consumed by the refactored LDSC workflows.
 
 Overview
 --------
@@ -47,8 +47,9 @@ class ReferencePanelBuildResult:
     chromosomes : list of str
         Chromosomes for which artifacts were written.
     output_paths : dict of str to list of str, optional
-        Paths grouped by artifact kind: ``ann``, ``ld``, ``meta_hg19``, and
-        ``meta_hg38``.
+        Paths grouped by artifact kind. ``ann`` and ``ld`` are always present;
+        metadata keys such as ``meta_hg19`` and ``meta_hg38`` are present only
+        for emitted builds.
     config_snapshot : dict, optional
         Build configuration and resolved input provenance.
     """
@@ -62,9 +63,9 @@ class ReferencePanelBuildResult:
 @dataclass
 class _BuildState:
     """Shared resources reused across chromosomes during one build run."""
-    genetic_map_hg19: Any
-    genetic_map_hg38: Any
-    liftover_chain_paths: dict[tuple[str, str], str] = field(default_factory=dict)
+    genetic_map_hg19: Any | None
+    genetic_map_hg38: Any | None
+    liftover_chain_paths: dict[tuple[str, str], str | None] = field(default_factory=dict)
     restriction_mode: str | None = None
     restriction_values: set[str] | None = None
     translator_cache: dict[tuple[str, str], kernel_builder.LiftOverTranslator] = field(default_factory=dict)
@@ -84,8 +85,8 @@ class ReferencePanelBuilder:
         ----------
         config : ReferencePanelBuildConfig
             Public build configuration containing one PLINK prefix token,
-            genetic maps, liftover chain paths, output directory, and exactly
-            one LD window.
+            optional genetic maps, optional liftover chain paths, output
+            directory, and exactly one LD window.
 
         Returns
         -------
@@ -143,19 +144,23 @@ class ReferencePanelBuilder:
         )
 
     def _prepare_build_state(self, config: ReferencePanelBuildConfig) -> _BuildState:
-        """Resolve shared maps, chains, and an optional reference-universe filter."""
-        hg19_files = resolve_file_group(
-            (config.genetic_map_hg19_path,),
-            suffixes=_GENETIC_MAP_SUFFIXES,
-            label="hg19 genetic map",
-            allow_chromosome_suite=True,
-        )
-        hg38_files = resolve_file_group(
-            (config.genetic_map_hg38_path,),
-            suffixes=_GENETIC_MAP_SUFFIXES,
-            label="hg38 genetic map",
-            allow_chromosome_suite=True,
-        )
+        """Resolve optional shared maps, chains, and a reference-universe filter."""
+        hg19_files = None
+        hg38_files = None
+        if config.genetic_map_hg19_path is not None:
+            hg19_files = resolve_file_group(
+                (config.genetic_map_hg19_path,),
+                suffixes=_GENETIC_MAP_SUFFIXES,
+                label="hg19 genetic map",
+                allow_chromosome_suite=True,
+            )
+        if config.genetic_map_hg38_path is not None:
+            hg38_files = resolve_file_group(
+                (config.genetic_map_hg38_path,),
+                suffixes=_GENETIC_MAP_SUFFIXES,
+                label="hg38 genetic map",
+                allow_chromosome_suite=True,
+            )
         restriction_mode = None
         restriction_values = None
         if config.ref_panel_snps_path:
@@ -176,9 +181,50 @@ class ReferencePanelBuilder:
                 restriction_mode,
                 restriction_path,
             )
+        source_build = config.source_genome_build
+        target_build = "hg38" if source_build == "hg19" else "hg19"
+        matching_chain = (
+            config.liftover_chain_hg19_to_hg38_path
+            if source_build == "hg19"
+            else config.liftover_chain_hg38_to_hg19_path
+        )
+        nonmatching_chain = (
+            config.liftover_chain_hg38_to_hg19_path
+            if source_build == "hg19"
+            else config.liftover_chain_hg19_to_hg38_path
+        )
+        if matching_chain is None:
+            if nonmatching_chain is not None:
+                LOGGER.warning(
+                    "No usable liftover chain was provided for %s -> %s; ignoring the opposite-direction chain and running source-build-only.",
+                    source_build,
+                    target_build,
+                )
+            else:
+                LOGGER.warning(
+                    "No liftover chain was provided for %s -> %s; running source-build-only.",
+                    source_build,
+                    target_build,
+                )
+        elif (target_build == "hg38" and config.genetic_map_hg38_path is None) or (
+            target_build == "hg19" and config.genetic_map_hg19_path is None
+        ):
+            LOGGER.warning(
+                "No %s genetic map was provided; %s metadata CM values will be written as NA.",
+                target_build,
+                target_build,
+            )
+        if (source_build == "hg38" and config.genetic_map_hg38_path is None) or (
+            source_build == "hg19" and config.genetic_map_hg19_path is None
+        ):
+            LOGGER.warning(
+                "No %s genetic map was provided; %s metadata CM values will be written as NA.",
+                source_build,
+                source_build,
+            )
         return _BuildState(
-            genetic_map_hg19=kernel_builder.load_genetic_map_group(hg19_files),
-            genetic_map_hg38=kernel_builder.load_genetic_map_group(hg38_files),
+            genetic_map_hg19=None if hg19_files is None else kernel_builder.load_genetic_map_group(hg19_files),
+            genetic_map_hg38=None if hg38_files is None else kernel_builder.load_genetic_map_group(hg38_files),
             liftover_chain_paths={
                 ("hg19", "hg38"): config.liftover_chain_hg19_to_hg38_path,
                 ("hg38", "hg19"): config.liftover_chain_hg38_to_hg19_path,
@@ -268,12 +314,22 @@ class ReferencePanelBuilder:
         if set(metadata["CHR"]) != {chrom}:
             raise ValueError(f"PLINK filtering for chromosome {chrom} retained rows from multiple chromosomes.")
         geno_kept_snps = list(geno.kept_snps)
-        hg19_positions = self._positions_from_lookup(geno_kept_snps, hg19_lookup)
-        hg38_positions = self._positions_from_lookup(geno_kept_snps, hg38_lookup)
+        hg19_positions = self._positions_from_lookup(geno_kept_snps, hg19_lookup) if hg19_lookup else None
+        hg38_positions = self._positions_from_lookup(geno_kept_snps, hg38_lookup) if hg38_lookup else None
 
-        cm_hg19 = kernel_builder.interpolate_genetic_map_cm(chrom, hg19_positions, build_state.genetic_map_hg19)
-        cm_hg38 = kernel_builder.interpolate_genetic_map_cm(chrom, hg38_positions, build_state.genetic_map_hg38)
+        cm_hg19 = (
+            kernel_builder.interpolate_genetic_map_cm(chrom, hg19_positions, build_state.genetic_map_hg19)
+            if hg19_positions is not None and build_state.genetic_map_hg19 is not None
+            else None
+        )
+        cm_hg38 = (
+            kernel_builder.interpolate_genetic_map_cm(chrom, hg38_positions, build_state.genetic_map_hg38)
+            if hg38_positions is not None and build_state.genetic_map_hg38 is not None
+            else None
+        )
         source_cm = cm_hg19 if config.source_genome_build == "hg19" else cm_hg38
+        if source_cm is None and config.ld_wind_cm is not None:
+            raise ValueError(f"{config.source_genome_build} genetic map is required for chromosome {chrom}.")
         coords, max_dist = kernel_builder.build_window_coordinates(
             metadata=metadata,
             cm_values=source_cm,
@@ -288,15 +344,23 @@ class ReferencePanelBuilder:
             hg19_positions=hg19_positions,
             hg38_positions=hg38_positions,
         )
-        meta_hg19 = kernel_builder.build_runtime_metadata_table(
-            metadata=metadata,
-            positions=hg19_positions,
-            cm_values=cm_hg19,
+        meta_hg19 = (
+            kernel_builder.build_runtime_metadata_table(
+                metadata=metadata,
+                positions=hg19_positions,
+                cm_values=cm_hg19,
+            )
+            if hg19_positions is not None
+            else None
         )
-        meta_hg38 = kernel_builder.build_runtime_metadata_table(
-            metadata=metadata,
-            positions=hg38_positions,
-            cm_values=cm_hg38,
+        meta_hg38 = (
+            kernel_builder.build_runtime_metadata_table(
+                metadata=metadata,
+                positions=hg38_positions,
+                cm_values=cm_hg38,
+            )
+            if hg38_positions is not None
+            else None
         )
 
         out_root = Path(config.output_dir) / "parquet"
@@ -318,15 +382,18 @@ class ReferencePanelBuilder:
             path=ld_path,
             genome_build=config.source_genome_build,
         )
-        kernel_builder.write_runtime_metadata_sidecar(meta_hg19, meta_hg19_path)
-        kernel_builder.write_runtime_metadata_sidecar(meta_hg38, meta_hg38_path)
-        LOGGER.info("Finished chromosome %s with %d retained SNPs.", chrom, len(metadata))
-        return {
+        output_paths = {
             "ann": str(ann_path),
             "ld": str(ld_path),
-            "meta_hg19": str(meta_hg19_path),
-            "meta_hg38": str(meta_hg38_path),
         }
+        if meta_hg19 is not None:
+            kernel_builder.write_runtime_metadata_sidecar(meta_hg19, meta_hg19_path)
+            output_paths["meta_hg19"] = str(meta_hg19_path)
+        if meta_hg38 is not None:
+            kernel_builder.write_runtime_metadata_sidecar(meta_hg38, meta_hg38_path)
+            output_paths["meta_hg38"] = str(meta_hg38_path)
+        LOGGER.info("Finished chromosome %s with %d retained SNPs.", chrom, len(metadata))
+        return output_paths
 
     def _resolve_mappable_snp_positions(
         self,
@@ -337,10 +404,17 @@ class ReferencePanelBuilder:
         chrom_df,
         keep_snps,
     ) -> tuple[Any, dict[int, int], dict[int, int]]:
-        """Filter retained SNPs to positions that map cleanly across builds."""
+        """Resolve retained SNP positions, applying liftover only when configured."""
         keep_snps = list(keep_snps)
         candidate_positions = chrom_df.loc[keep_snps, "BP"].to_numpy(dtype=int)
         if source_build == "hg19":
+            if build_state.liftover_chain_paths.get(("hg19", "hg38")) is None:
+                retained_snps = np.asarray(keep_snps, dtype=int)
+                hg19_lookup = {
+                    int(idx): int(pos)
+                    for idx, pos in zip(retained_snps, candidate_positions)
+                }
+                return retained_snps, hg19_lookup, {}
             mapping = self._map_positions(build_state, chrom, candidate_positions, "hg19", "hg38")
             retained_snps = np.asarray(keep_snps, dtype=int)[mapping.keep_mask]
             hg19_lookup = {
@@ -352,6 +426,13 @@ class ReferencePanelBuilder:
                 for idx, pos in zip(retained_snps, mapping.translated_positions)
             }
         else:
+            if build_state.liftover_chain_paths.get(("hg38", "hg19")) is None:
+                retained_snps = np.asarray(keep_snps, dtype=int)
+                hg38_lookup = {
+                    int(idx): int(pos)
+                    for idx, pos in zip(retained_snps, candidate_positions)
+                }
+                return retained_snps, {}, hg38_lookup
             mapping = self._map_positions(build_state, chrom, candidate_positions, "hg38", "hg19")
             retained_snps = np.asarray(keep_snps, dtype=int)[mapping.keep_mask]
             hg38_lookup = {
@@ -461,17 +542,25 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("hg19", "hg37", "GRCh37", "hg38", "GRCh38"),
         help="Genome build of the PLINK coordinates.",
     )
-    parser.add_argument("--genetic-map-hg19-path", required=True, help="Genetic map file or token aligned to hg19 coordinates.")
-    parser.add_argument("--genetic-map-hg38-path", required=True, help="Genetic map file or token aligned to hg38 coordinates.")
+    parser.add_argument(
+        "--genetic-map-hg19-path",
+        default=None,
+        help="Optional genetic map aligned to hg19; required only for hg19 source-build cM windows.",
+    )
+    parser.add_argument(
+        "--genetic-map-hg38-path",
+        default=None,
+        help="Optional genetic map aligned to hg38; required only for hg38 source-build cM windows.",
+    )
     parser.add_argument(
         "--liftover-chain-hg19-to-hg38-path",
         default=None,
-        help="Chain file for hg19->hg38 liftover. Required when --source-genome-build is hg19.",
+        help="Optional chain file for hg19->hg38 liftover. Enables hg38 outputs for hg19 source builds.",
     )
     parser.add_argument(
         "--liftover-chain-hg38-to-hg19-path",
         default=None,
-        help="Chain file for hg38->hg19 liftover. Required when --source-genome-build is hg38.",
+        help="Optional chain file for hg38->hg19 liftover. Enables hg19 outputs for hg38 source builds.",
     )
     parser.add_argument("--output-dir", required=True, help="Output root directory for emitted parquet artifacts.")
     parser.add_argument("--ld-wind-snps", default=None, type=int, help="LD window size in SNPs.")
@@ -479,6 +568,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ld-wind-cm", default=None, type=float, help="LD window size in centiMorgans.")
     parser.add_argument("--maf", default=None, type=float, help="Optional MAF filter for retained SNPs.")
     parser.add_argument("--ref-panel-snps-path", default=None, help="Optional SNP restriction file defining the retained reference-panel universe.")
+    parser.add_argument("--snp-identifier", default=None, choices=("rsid", "chr_pos"), help="SNP identifier mode for --ref-panel-snps-path.")
     parser.add_argument("--keep-indivs-path", default=None, help="Optional individual-keep file.")
     parser.add_argument("--chunk-size", default=50, type=int, help="Chunk size for block processing.")
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"))
@@ -487,6 +577,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def config_from_args(args: argparse.Namespace) -> tuple[ReferencePanelBuildConfig, GlobalConfig]:
     """Normalize CLI args into public config objects."""
+    if args.ref_panel_snps_path is not None and args.snp_identifier is None:
+        raise ValueError("--snp-identifier is required when --ref-panel-snps-path is set.")
 
     build_config = ReferencePanelBuildConfig(
         plink_path=args.plink_path,
@@ -505,6 +597,7 @@ def config_from_args(args: argparse.Namespace) -> tuple[ReferencePanelBuildConfi
         chunk_size=args.chunk_size,
     )
     global_config = GlobalConfig(
+        snp_identifier=args.snp_identifier or get_global_config().snp_identifier,
         genome_build=build_config.source_genome_build,
         log_level=args.log_level,
     )

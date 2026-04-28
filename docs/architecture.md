@@ -81,7 +81,7 @@ This is the public interface for annotation loading and BED projection. It re-ex
 
 ### `ldsc.ref_panel_builder`
 
-This module builds standard parquet LD reference artifacts from PLINK inputs. It handles genetic-map loading, liftover selection, restriction filtering, and output-path construction, then delegates pairwise-LD emission to the kernel. Architecture invariant: emitted parquet schemas are part of the public file contract for parquet-backed LDSC workflows.
+This module builds standard parquet LD reference artifacts from PLINK inputs. It handles optional genetic-map loading, optional liftover selection, restriction filtering, and output-path construction, then delegates pairwise-LD emission to the kernel. Architecture invariant: emitted parquet schemas are part of the public file contract for parquet-backed LDSC workflows.
 
 ### `ldsc.ldscore_calculator`
 

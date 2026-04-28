@@ -7,7 +7,7 @@ This document summarizes the public package surface. For workflow-level file str
 | Feature | CLI | Python entry points | Main inputs | Main outputs |
 | --- | --- | --- | --- | --- |
 | Build query annotations | `ldsc annotate` | `AnnotationBuilder`, `run_bed_to_annot()`, `make_annot_files()` | baseline `.annot(.gz)`, BED or gene-set inputs | `query.<chrom>.annot.gz` or one legacy `.annot(.gz)` |
-| Build parquet reference panels | `ldsc build-ref-panel` | `ReferencePanelBuilder`, `run_build_ref_panel()` | PLINK prefix, genetic maps, optional keep/restrict files | per-chromosome `ann.parquet`, `LD.parquet`, `meta_*.tsv.gz` |
+| Build parquet reference panels | `ldsc build-ref-panel` | `ReferencePanelBuilder`, `run_build_ref_panel()` | PLINK prefix, optional liftover chains, conditional genetic maps, optional keep/restrict files | per-chromosome `ann.parquet`, `LD.parquet`, emitted `meta_*.tsv.gz` sidecars |
 | Compute LD scores | `ldsc ldscore` | `LDScoreCalculator`, `run_ldscore()` | annotation shards, PLINK or parquet reference panel, optional frequency metadata | `manifest.json`, `baseline.parquet`, optional `query.parquet` under `output_dir` |
 | Munge GWAS summary statistics | `ldsc munge-sumstats` | `SumstatsMunger`, `load_sumstats()` | raw sumstats, column hints, QC thresholds | `.sumstats.gz`, `.log` |
 | Estimate heritability | `ldsc h2` | `RegressionRunner.estimate_h2()` | munged `.sumstats.gz`, LD-score files, count vector | `.h2.tsv` |

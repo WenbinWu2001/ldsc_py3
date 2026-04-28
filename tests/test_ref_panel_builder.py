@@ -322,6 +322,33 @@ class StandardTableFormattingTest(unittest.TestCase):
         self.assertEqual(table["hg38_Uniq_ID"].tolist(), ["1:110:A:G", "X:250:C:T"])
         self.assertEqual(table["rsID"].tolist(), ["1:100:A:G", "rsX"])
 
+    def test_build_standard_annotation_table_allows_missing_opposite_build_columns(self):
+        metadata = pd.DataFrame(
+            {
+                "CHR": ["1"],
+                "SNP": ["rs1"],
+                "POS": [100],
+                "MAF": [0.2],
+                "A1": ["A"],
+                "A2": ["G"],
+            }
+        )
+
+        table = kernel_builder.build_standard_annotation_table(
+            metadata=metadata,
+            hg19_positions=np.array([100], dtype=np.int64),
+            hg38_positions=None,
+        )
+
+        self.assertEqual(
+            table.columns.tolist(),
+            ["chr", "hg19_pos", "hg38_pos", "hg19_Uniq_ID", "hg38_Uniq_ID", "rsID", "MAF", "REF", "ALT"],
+        )
+        self.assertEqual(table.loc[0, "hg19_pos"], 100)
+        self.assertEqual(table.loc[0, "hg19_Uniq_ID"], "1:100:A:G")
+        self.assertTrue(pd.isna(table.loc[0, "hg38_pos"]))
+        self.assertTrue(pd.isna(table.loc[0, "hg38_Uniq_ID"]))
+
     def test_build_standard_ld_table_uses_exact_schema(self):
         annotation_table = pd.DataFrame(
             {
@@ -505,6 +532,142 @@ class StandardTableFormattingTest(unittest.TestCase):
         self.assertEqual(table.loc[0, "POS"], 120)
         self.assertEqual(table.loc[0, "CM"], 0.5)
 
+    def test_build_runtime_metadata_table_allows_missing_cm_values(self):
+        metadata = pd.DataFrame(
+            {
+                "CHR": ["1"],
+                "SNP": ["rs1"],
+                "MAF": [0.2],
+            }
+        )
+
+        table = kernel_builder.build_runtime_metadata_table(
+            metadata=metadata,
+            positions=np.array([120], dtype=np.int64),
+            cm_values=None,
+        )
+
+        self.assertEqual(table.columns.tolist(), ["CHR", "POS", "SNP", "CM", "MAF"])
+        self.assertEqual(table.loc[0, "POS"], 120)
+        self.assertTrue(pd.isna(table.loc[0, "CM"]))
+
+
+class ReferencePanelBuildConfigOptionalLiftoverTest(unittest.TestCase):
+    def test_python_api_defaults_missing_maps_for_snp_window(self):
+        config = ReferencePanelBuildConfig(
+            plink_path="plink/panel.@",
+            source_genome_build="hg38",
+            output_dir="out",
+            ld_wind_snps=10,
+        )
+
+        self.assertIsNone(config.genetic_map_hg19_path)
+        self.assertIsNone(config.genetic_map_hg38_path)
+        self.assertEqual(config.output_dir, "out")
+
+    def test_accepts_missing_chain_and_maps_for_kb_window(self):
+        config = ReferencePanelBuildConfig(
+            plink_path="plink/panel.@",
+            source_genome_build="hg19",
+            genetic_map_hg19_path=None,
+            genetic_map_hg38_path=None,
+            output_dir="out",
+            ld_wind_kb=1.0,
+        )
+
+        self.assertIsNone(config.liftover_chain_hg19_to_hg38_path)
+        self.assertIsNone(config.genetic_map_hg19_path)
+        self.assertIsNone(config.genetic_map_hg38_path)
+
+    def test_missing_source_map_raises_for_cm_window(self):
+        with self.assertRaisesRegex(ValueError, "hg19 genetic map.*required.*ld_wind_cm"):
+            ReferencePanelBuildConfig(
+                plink_path="plink/panel.@",
+                source_genome_build="hg19",
+                genetic_map_hg19_path=None,
+                genetic_map_hg38_path="maps/hg38.map",
+                output_dir="out",
+                ld_wind_cm=1.0,
+            )
+
+    def test_matching_chain_does_not_require_target_map_for_kb_window(self):
+        config = ReferencePanelBuildConfig(
+            plink_path="plink/panel.@",
+            source_genome_build="hg19",
+            genetic_map_hg19_path="maps/hg19.map",
+            genetic_map_hg38_path=None,
+            liftover_chain_hg19_to_hg38_path="chains/hg19ToHg38.over.chain",
+            output_dir="out",
+            ld_wind_kb=1.0,
+        )
+
+        self.assertEqual(config.liftover_chain_hg19_to_hg38_path, "chains/hg19ToHg38.over.chain")
+        self.assertIsNone(config.genetic_map_hg38_path)
+
+    def test_non_matching_chain_does_not_require_target_map(self):
+        config = ReferencePanelBuildConfig(
+            plink_path="plink/panel.@",
+            source_genome_build="hg19",
+            genetic_map_hg19_path="maps/hg19.map",
+            genetic_map_hg38_path=None,
+            liftover_chain_hg38_to_hg19_path="chains/hg38ToHg19.over.chain",
+            output_dir="out",
+            ld_wind_kb=1.0,
+        )
+
+        self.assertEqual(config.liftover_chain_hg38_to_hg19_path, "chains/hg38ToHg19.over.chain")
+
+
+class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
+    def test_config_from_args_requires_snp_identifier_for_restriction_file(self):
+        parser = ref_panel_builder.build_parser()
+        args = parser.parse_args(
+            [
+                "--plink-path",
+                "plink/panel.@",
+                "--source-genome-build",
+                "hg19",
+                "--genetic-map-hg19-path",
+                "maps/hg19.map",
+                "--output-dir",
+                "out",
+                "--ld-wind-kb",
+                "1",
+                "--ref-panel-snps-path",
+                "hm3.tsv",
+            ]
+        )
+
+        with self.assertRaisesRegex(ValueError, "--snp-identifier is required"):
+            ref_panel_builder.config_from_args(args)
+
+    def test_config_from_args_uses_explicit_snp_identifier_for_restriction_file(self):
+        parser = ref_panel_builder.build_parser()
+        args = parser.parse_args(
+            [
+                "--plink-path",
+                "plink/panel.@",
+                "--source-genome-build",
+                "hg19",
+                "--genetic-map-hg19-path",
+                "maps/hg19.map",
+                "--output-dir",
+                "out",
+                "--ld-wind-kb",
+                "1",
+                "--ref-panel-snps-path",
+                "hm3.tsv",
+                "--snp-identifier",
+                "rsid",
+            ]
+        )
+
+        build_config, global_config = ref_panel_builder.config_from_args(args)
+
+        self.assertEqual(build_config.source_genome_build, "hg19")
+        self.assertEqual(global_config.genome_build, "hg19")
+        self.assertEqual(global_config.snp_identifier, "rsid")
+
 
 class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
     def _write_dummy_plink_prefix(self, root: Path, stem: str, chrom: str):
@@ -574,6 +737,148 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 ],
             )
 
+    def test_builder_run_allows_source_only_output_paths_when_no_chain_is_available(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
+            map_hg19 = tmpdir / "hg19.map"
+            map_hg19.write_text("chr position Genetic_Map(cM)\n1 100 0.0\n", encoding="utf-8")
+            config = ReferencePanelBuildConfig(
+                plink_path=tmpdir / "panel.@",
+                source_genome_build="hg19",
+                genetic_map_hg19_path=map_hg19,
+                genetic_map_hg38_path=None,
+                output_dir=tmpdir / "out",
+                ld_wind_kb=1.0,
+            )
+            builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig())
+
+            def fake_build(prefix, chrom, config, build_state):
+                out_root = Path(config.output_dir) / "parquet"
+                return {
+                    "ann": str(out_root / "ann" / f"chr{chrom}_ann.parquet"),
+                    "ld": str(out_root / "ld" / f"chr{chrom}_LD.parquet"),
+                    "meta_hg19": str(out_root / "meta" / f"chr{chrom}_meta_hg19.tsv.gz"),
+                }
+
+            with self.assertLogs("LDSC.ref_panel_builder", level="WARNING") as logs:
+                with mock.patch.object(
+                    ref_panel_builder.ReferencePanelBuilder,
+                    "_build_chromosome",
+                    side_effect=fake_build,
+                ):
+                    result = builder.run(config)
+
+            self.assertIn("meta_hg19", result.output_paths)
+            self.assertNotIn("meta_hg38", result.output_paths)
+            self.assertTrue(any("source-build-only" in message for message in logs.output))
+
+    def test_builder_run_allows_hg38_source_only_output_paths(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
+            map_hg38 = tmpdir / "hg38.map"
+            map_hg38.write_text("chr position Genetic_Map(cM)\n1 100 0.0\n", encoding="utf-8")
+            config = ReferencePanelBuildConfig(
+                plink_path=tmpdir / "panel.@",
+                source_genome_build="hg38",
+                genetic_map_hg19_path=None,
+                genetic_map_hg38_path=map_hg38,
+                output_dir=tmpdir / "out",
+                ld_wind_kb=1.0,
+            )
+            builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig())
+
+            def fake_build(prefix, chrom, config, build_state):
+                out_root = Path(config.output_dir) / "parquet"
+                return {
+                    "ann": str(out_root / "ann" / f"chr{chrom}_ann.parquet"),
+                    "ld": str(out_root / "ld" / f"chr{chrom}_LD.parquet"),
+                    "meta_hg38": str(out_root / "meta" / f"chr{chrom}_meta_hg38.tsv.gz"),
+                }
+
+            with self.assertLogs("LDSC.ref_panel_builder", level="WARNING"):
+                with mock.patch.object(
+                    ref_panel_builder.ReferencePanelBuilder,
+                    "_build_chromosome",
+                    side_effect=fake_build,
+                ):
+                    result = builder.run(config)
+
+            self.assertIn("meta_hg38", result.output_paths)
+            self.assertNotIn("meta_hg19", result.output_paths)
+
+    def test_builder_run_warns_when_only_non_matching_chain_is_available(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
+            map_hg19 = tmpdir / "hg19.map"
+            map_hg19.write_text("chr position Genetic_Map(cM)\n1 100 0.0\n", encoding="utf-8")
+            config = ReferencePanelBuildConfig(
+                plink_path=tmpdir / "panel.@",
+                source_genome_build="hg19",
+                genetic_map_hg19_path=map_hg19,
+                genetic_map_hg38_path=None,
+                liftover_chain_hg38_to_hg19_path=tmpdir / "hg38ToHg19.over.chain",
+                output_dir=tmpdir / "out",
+                ld_wind_kb=1.0,
+            )
+            builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig())
+
+            with self.assertLogs("LDSC.ref_panel_builder", level="WARNING") as logs:
+                with mock.patch.object(
+                    ref_panel_builder.ReferencePanelBuilder,
+                    "_build_chromosome",
+                    return_value={"ann": "ann", "ld": "ld", "meta_hg19": "m19"},
+                ):
+                    builder.run(config)
+
+            self.assertTrue(any("ignoring the opposite-direction chain" in message for message in logs.output))
+
+    def test_resolve_mappable_snp_positions_skips_liftover_without_matching_chain(self):
+        builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig())
+        build_state = ref_panel_builder._BuildState(
+            genetic_map_hg19=pd.DataFrame({"CHR": ["1"], "POS": [100], "CM": [0.0]}),
+            genetic_map_hg38=None,
+            liftover_chain_paths={("hg19", "hg38"): None, ("hg38", "hg19"): "chains/hg38ToHg19.over.chain"},
+        )
+        chrom_df = pd.DataFrame({"BP": [100]}, index=[4])
+
+        with mock.patch.object(kernel_builder, "LiftOverTranslator") as patched:
+            retained, hg19_lookup, hg38_lookup = builder._resolve_mappable_snp_positions(
+                build_state=build_state,
+                chrom="1",
+                source_build="hg19",
+                chrom_df=chrom_df,
+                keep_snps=np.array([4], dtype=int),
+            )
+
+        patched.assert_not_called()
+        self.assertEqual(retained.tolist(), [4])
+        self.assertEqual(hg19_lookup, {4: 100})
+        self.assertEqual(hg38_lookup, {})
+
+    def test_resolve_mappable_snp_positions_keeps_hg38_source_positions_without_chain(self):
+        builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig())
+        build_state = ref_panel_builder._BuildState(
+            genetic_map_hg19=None,
+            genetic_map_hg38=pd.DataFrame({"CHR": ["1"], "POS": [110], "CM": [0.0]}),
+            liftover_chain_paths={("hg19", "hg38"): "chains/hg19ToHg38.over.chain", ("hg38", "hg19"): None},
+        )
+        chrom_df = pd.DataFrame({"BP": [110]}, index=[7])
+
+        retained, hg19_lookup, hg38_lookup = builder._resolve_mappable_snp_positions(
+            build_state=build_state,
+            chrom="1",
+            source_build="hg38",
+            chrom_df=chrom_df,
+            keep_snps=np.array([7], dtype=int),
+        )
+
+        self.assertEqual(retained.tolist(), [7])
+        self.assertEqual(hg19_lookup, {})
+        self.assertEqual(hg38_lookup, {7: 110})
+
     def test_builder_run_rejects_duplicate_chromosome_across_inputs(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -635,10 +940,81 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
 
 
 @unittest.skipUnless(
+    _HAS_BITARRAY and _HAS_PYARROW,
+    "bitarray and pyarrow are required for the source-only builder smoke test",
+)
+class ReferencePanelBuilderSourceOnlySmokeTest(unittest.TestCase):
+    def test_hm3_chr22_subset_builds_source_only_without_liftover_chain_or_map(self):
+        prefix = MINIMAL_EXTERNAL_FIXTURES / "plink" / "hm3_chr22_subset"
+        if not (Path(str(prefix) + ".bed").exists() and Path(str(prefix) + ".bim").exists() and Path(str(prefix) + ".fam").exists()):
+            self.skipTest("minimal chr22 PLINK fixture is unavailable; run tests/fixtures/generate_minimal_external_resources.py")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            build_result = ref_panel_builder.run_build_ref_panel(
+                plink_path=str(prefix),
+                source_genome_build="hg38",
+                genetic_map_hg19_path=None,
+                genetic_map_hg38_path=None,
+                output_dir=str(Path(tmpdir) / "panel"),
+                ld_wind_snps=10,
+                ld_wind_kb=None,
+                chunk_size=64,
+            )
+
+            self.assertEqual(build_result.chromosomes, ["22"])
+            self.assertIn("meta_hg38", build_result.output_paths)
+            self.assertNotIn("meta_hg19", build_result.output_paths)
+            self.assertTrue(Path(build_result.output_paths["ld"][0]).exists())
+            self.assertTrue(Path(build_result.output_paths["meta_hg38"][0]).exists())
+
+            meta_hg38 = pd.read_csv(build_result.output_paths["meta_hg38"][0], sep="\t")
+            self.assertTrue(meta_hg38["CM"].isna().all())
+
+            ann = pd.read_parquet(build_result.output_paths["ann"][0])
+            self.assertTrue(ann["hg19_pos"].isna().all())
+            self.assertTrue(ann["hg19_Uniq_ID"].isna().all())
+            self.assertFalse(ann["hg38_pos"].isna().any())
+            self.assertFalse(ann["hg38_Uniq_ID"].isna().any())
+
+
+@unittest.skipUnless(
     _HAS_BITARRAY and _HAS_PYARROW and _HAS_PYLIFTOVER,
     "bitarray, pyarrow, and pyliftover are required for the smoke/parity builder test",
 )
 class ReferencePanelBuilderParityTest(unittest.TestCase):
+    def test_hm3_chr22_subset_writes_target_metadata_with_missing_cm_when_target_map_is_absent(self):
+        resources = _find_resources_root()
+        if resources is None:
+            self.skipTest("resources directory is not available from this workspace")
+
+        prefix = MINIMAL_EXTERNAL_FIXTURES / "plink" / "hm3_chr22_subset"
+        if not (Path(str(prefix) + ".bed").exists() and Path(str(prefix) + ".bim").exists() and Path(str(prefix) + ".fam").exists()):
+            self.skipTest("minimal chr22 PLINK fixture is unavailable; run tests/fixtures/generate_minimal_external_resources.py")
+
+        map_hg38 = MINIMAL_EXTERNAL_FIXTURES / "genetic_maps" / "genetic_map_hg38_chr22_subset.txt"
+        if not map_hg38.exists():
+            self.skipTest("minimal hg38 genetic-map fixture is unavailable; run tests/fixtures/generate_minimal_external_resources.py")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            build_result = ref_panel_builder.run_build_ref_panel(
+                plink_path=str(prefix),
+                source_genome_build="hg38",
+                genetic_map_hg19_path=None,
+                genetic_map_hg38_path=str(map_hg38),
+                liftover_chain_hg38_to_hg19_path=str(resources / "liftover" / "hg38ToHg19.over.chain"),
+                output_dir=str(Path(tmpdir) / "panel"),
+                ld_wind_snps=10,
+                ld_wind_kb=None,
+                chunk_size=64,
+            )
+
+            self.assertIn("meta_hg19", build_result.output_paths)
+            self.assertIn("meta_hg38", build_result.output_paths)
+            meta_hg19 = pd.read_csv(build_result.output_paths["meta_hg19"][0], sep="\t")
+            meta_hg38 = pd.read_csv(build_result.output_paths["meta_hg38"][0], sep="\t")
+            self.assertTrue(meta_hg19["CM"].isna().all())
+            self.assertFalse(meta_hg38["CM"].isna().any())
+
     def test_hm3_chr22_subset_runs_direct_and_parquet_ldscore_paths(self):
         resources = _find_resources_root()
         if resources is None:

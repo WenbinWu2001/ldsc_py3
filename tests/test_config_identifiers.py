@@ -166,7 +166,7 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertEqual(config.liftover_chain_hg38_to_hg19_path, "liftover/hg38ToHg19.over.chain")
         self.assertEqual(config.output_dir, "out")
 
-        with self.assertRaises(ValueError):
+        with self.assertRaisesRegex(ValueError, "ld_wind_cm"):
             ReferencePanelBuildConfig(
                 plink_path="plink/panel",
                 source_genome_build="hg19",
@@ -174,7 +174,7 @@ class WorkflowConfigTest(unittest.TestCase):
                 genetic_map_hg38_path="maps/hg38.txt",
                 liftover_chain_hg19_to_hg38_path="liftover/hg19ToHg38.over.chain",
                 output_dir="out",
-                ld_wind_kb=100.0,
+                ld_wind_cm=1.0,
             )
         with self.assertRaises(ValueError):
             ReferencePanelBuildConfig(
@@ -187,15 +187,16 @@ class WorkflowConfigTest(unittest.TestCase):
                 ld_wind_kb=100.0,
                 ld_wind_cm=1.0,
             )
-        with self.assertRaises(ValueError):
-            ReferencePanelBuildConfig(
-                plink_path="plink/panel",
-                source_genome_build="hg38",
-                genetic_map_hg19_path="maps/hg19.txt",
-                genetic_map_hg38_path="maps/hg38.txt",
-                output_dir="out",
-                ld_wind_kb=100.0,
-            )
+        source_only = ReferencePanelBuildConfig(
+            plink_path="plink/panel",
+            source_genome_build="hg38",
+            genetic_map_hg19_path=None,
+            genetic_map_hg38_path="maps/hg38.txt",
+            output_dir="out",
+            ld_wind_kb=100.0,
+        )
+        self.assertIsNone(source_only.liftover_chain_hg38_to_hg19_path)
+        self.assertIsNone(source_only.genetic_map_hg19_path)
 
     def test_ref_panel_build_config_normalizes_optional_paths(self):
         config = ReferencePanelBuildConfig(

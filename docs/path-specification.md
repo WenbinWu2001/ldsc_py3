@@ -227,12 +227,14 @@ Relevant APIs:
 Accepted path forms:
 
 - `plink_path`: exact PLINK prefix, exact-one PLINK glob, or explicit `@` PLINK suite token
-- map and chain inputs: exact path or exact-one glob
+- map and chain inputs, when provided: exact path or exact-one glob
 
 How they are handled:
 
 - `plink_path` is resolved at the PLINK prefix level, not at the individual `.bed/.bim/.fam` file level
 - a chromosome suite such as `panel_chr@` is expanded one chromosome at a time
+- liftover chains are optional; the matching source-to-target chain enables cross-build metadata, while no matching chain produces source-build-only outputs
+- genetic maps are required only for source-build `--ld-wind-cm`; SNP- and kb-window builds may omit maps and write emitted metadata `CM` as `NA`
 
 Example:
 

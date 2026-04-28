@@ -12,16 +12,16 @@ The `build-ref-panel` workflow converts PLINK genotypes into three kinds of file
 
 - one SNP annotation parquet (`ann`): one row per retained SNP
 - one LD parquet (`ld`): one row per unordered SNP pair within the chosen LD window
-- two runtime metadata sidecars (`meta_hg19` and `meta_hg38`): one row per retained SNP, used by LDSC-style downstream tools
+- one or two runtime metadata sidecars (`meta_hg19` and/or `meta_hg38`): one row per retained SNP, used by LDSC-style downstream tools
 
 The LD output is a long pairwise table, not a dense square matrix on disk. That is usually the practical format for large reference panels.
 
 By default, the builder keeps all SNPs in the PLINK panel after:
 
 - optional user-requested filters
-- automatic liftover sanity filtering
+- automatic liftover sanity filtering, when a usable source-to-target chain is provided
 
-In particular, SNPs are dropped if they fail hg19/hg38 liftover or liftover onto a different chromosome in the target build.
+When a matching chain is provided, SNPs are dropped if they fail hg19/hg38 liftover or liftover onto a different chromosome in the target build. When no usable matching chain is provided, the builder warns, skips liftover, and writes source-build-only metadata.
 
 ## Input Files
 
@@ -78,10 +78,12 @@ In other words, the old split between `--plink-path` and a dedicated per-chromos
 
 ### Genetic map files
 
-You must supply:
+Genetic maps are optional unless the LD window is defined in centiMorgans.
+They serve two separate purposes:
 
-- one hg19-aligned genetic map
-- one hg38-aligned genetic map
+- the source-build map is required for `--ld-wind-cm`, because the map defines the LD window
+- any provided map populates `CM` in the matching metadata sidecar
+- omitted maps are allowed for `--ld-wind-snps` and `--ld-wind-kb`; emitted metadata sidecars store `CM=NA` for builds without a map
 
 The recommended file format is a plain text table with columns:
 
@@ -93,7 +95,7 @@ The bundled Alkes-group maps in `resources/genetic_maps/genetic_map_alkesgroup/`
 
 ## Parameters and Configuration
 
-### Required arguments
+### Core arguments
 
 - `--plink-path`
   Plain-English meaning: where the PLINK panel lives.
@@ -106,16 +108,15 @@ The bundled Alkes-group maps in `resources/genetic_maps/genetic_map_alkesgroup/`
 
 - `--genetic-map-hg19-path`
   Plain-English meaning: genetic map aligned to hg19 coordinates.
-  Recommended usage: use the bundled Alkes-group map unless you have a strong reason to substitute your own.
+  Recommended usage: provide it when you use `--ld-wind-cm` with hg19 source coordinates, or when you want hg19 metadata `CM` values. For SNP- or kb-window builds, omitting it writes hg19 `CM` as `NA` when hg19 metadata is emitted.
 
 - `--genetic-map-hg38-path`
   Plain-English meaning: genetic map aligned to hg38 coordinates.
-  Recommended usage: same as above; provide the hg38 mate of your hg19 map.
+  Recommended usage: provide it when you use `--ld-wind-cm` with hg38 source coordinates, or when you want hg38 metadata `CM` values. For SNP- or kb-window builds, omitting it writes hg38 `CM` as `NA` when hg38 metadata is emitted.
 
 - `--liftover-chain-hg19-to-hg38-path` or `--liftover-chain-hg38-to-hg19-path`
   Plain-English meaning: explicit chain file used to translate positions into the other genome build.
-  Recommended usage: pass the chain that matches `--source-genome-build`.
-  Current behavior: one liftover chain is required for every build-ref-panel run.
+  Recommended usage: pass the chain that matches `--source-genome-build` when you need both hg19 and hg38 outputs. If you omit it, the build completes with source-build-only outputs and logs a warning.
 
 - `--output-dir`
   Plain-English meaning: output root directory.
@@ -207,8 +208,12 @@ What this command is doing:
 - treats the input coordinates as hg38
 - uses a 1 cM LD window
 - uses the explicit hg38->hg19 liftover chain to populate the hg19 coordinates
-- interpolates cM values from both hg19 and hg38 genetic maps
+- interpolates cM values from the provided hg19 and hg38 genetic maps
 - writes a standard parquet panel rooted at `tutorial_outputs/ref_panel_chr22`
+
+This example uses `--ld-wind-cm`, so the source-build hg38 map is required. The
+hg19 map is optional for the build itself, but providing it gives the emitted
+`meta_hg19` sidecar real cM values instead of `NA`.
 
 ## Canonical Run: Python API
 
@@ -255,6 +260,12 @@ tutorial_outputs/ref_panel_chr22/
         ├── chr22_meta_hg19.tsv.gz
         └── chr22_meta_hg38.tsv.gz
 ```
+
+If you omit the matching liftover chain, only the source-build metadata sidecar
+is written. The annotation parquet still has the standard hg19/hg38 columns,
+but the opposite-build coordinate and unique-ID columns are missing. If you use
+`--ld-wind-snps` or `--ld-wind-kb`, you may omit genetic maps entirely; emitted
+metadata sidecars will keep their rows and write missing `CM` values.
 
 For a genome-wide build, the same pattern repeats once per chromosome.
 
@@ -335,6 +346,8 @@ Interpretation notes:
 ### `meta_hg19` and `meta_hg38`: LDSC runtime sidecars
 
 These are gzip-compressed tab-separated files with one row per retained SNP.
+Only emitted builds have sidecars; source-build-only runs write just the source
+build sidecar.
 
 Schema:
 
@@ -408,7 +421,9 @@ ldsc ldscore \
   --ld-wind-cm 1.0
 ```
 
-Use `meta_hg19` instead of `meta_hg38` when your downstream coordinate system is hg19/GRCh37.
+Use `meta_hg19` instead of `meta_hg38` when your downstream coordinate system
+is hg19/GRCh37. In source-build-only runs, choose the single emitted metadata
+sidecar and keep downstream coordinate settings aligned with that build.
 
 ### Other downstream tasks
 
@@ -493,10 +508,12 @@ result = run_build_ref_panel(
 
 ### A note on coordinate systems
 
-The builder stores both hg19 and hg38 positions in the annotation parquet and emits
-one runtime metadata sidecar per build. The LD parquet itself stores only the source
-build positions in `POS_1`/`POS_2`, with that build recorded in
-`ldsc:sorted_by_build`. That makes the panel easier to reuse across projects, but it
+The builder keeps both hg19 and hg38 columns in the annotation parquet. When a
+matching liftover chain is provided, it emits one runtime metadata sidecar per
+build; otherwise it emits only the source-build sidecar. The LD parquet itself
+stores only the source build positions in `POS_1`/`POS_2`, with that build
+recorded in `ldsc:sorted_by_build`. That makes the panel easier to reuse across
+projects, but it
 also means you should stay intentional about which build you use downstream:
 
 - use the metadata sidecar that matches your downstream coordinate system

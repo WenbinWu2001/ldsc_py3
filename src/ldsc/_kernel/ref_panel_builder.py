@@ -468,13 +468,37 @@ def _build_unique_ids(chromosomes: pd.Series, positions: np.ndarray, ref: pd.Ser
     )
 
 
+def _optional_position_series(positions: np.ndarray | None, index: pd.Index) -> pd.Series:
+    """Return concrete positions or nullable missing values for one build."""
+    if positions is None:
+        return pd.Series(pd.array([pd.NA] * len(index), dtype="Int64"), index=index)
+    return pd.Series(np.asarray(positions, dtype=np.int64), index=index)
+
+
+def _optional_unique_ids(
+    chromosomes: pd.Series,
+    positions: np.ndarray | None,
+    ref: pd.Series,
+    alt: pd.Series,
+) -> pd.Series:
+    """Build unique IDs when positions exist, otherwise return missing strings."""
+    if positions is None:
+        return pd.Series(pd.array([pd.NA] * len(chromosomes), dtype="string"), index=chromosomes.index)
+    return _build_unique_ids(chromosomes, positions, ref, alt)
+
+
 def build_standard_annotation_table(
     *,
     metadata: pd.DataFrame,
-    hg19_positions: np.ndarray,
-    hg38_positions: np.ndarray,
+    hg19_positions: np.ndarray | None,
+    hg38_positions: np.ndarray | None,
 ) -> pd.DataFrame:
-    """Build the standard annotation parquet table for one chromosome."""
+    """Build the standard annotation parquet table for one chromosome.
+
+    ``hg19_positions`` or ``hg38_positions`` may be ``None`` in source-only
+    builds. The returned table still keeps the canonical columns and fills the
+    unavailable build's coordinate and unique-ID fields with missing values.
+    """
 
     chromosomes = metadata["CHR"].map(_normalize_map_chromosome)
     ref = metadata["A1"].astype(str)
@@ -482,10 +506,10 @@ def build_standard_annotation_table(
     table = pd.DataFrame(
         {
             "chr": chromosomes.astype(str),
-            "hg19_pos": np.asarray(hg19_positions, dtype=np.int64),
-            "hg38_pos": np.asarray(hg38_positions, dtype=np.int64),
-            "hg19_Uniq_ID": _build_unique_ids(chromosomes, hg19_positions, ref, alt),
-            "hg38_Uniq_ID": _build_unique_ids(chromosomes, hg38_positions, ref, alt),
+            "hg19_pos": _optional_position_series(hg19_positions, chromosomes.index),
+            "hg38_pos": _optional_position_series(hg38_positions, chromosomes.index),
+            "hg19_Uniq_ID": _optional_unique_ids(chromosomes, hg19_positions, ref, alt),
+            "hg38_Uniq_ID": _optional_unique_ids(chromosomes, hg38_positions, ref, alt),
             "rsID": metadata["SNP"].astype(str),
             "MAF": pd.to_numeric(metadata["MAF"], errors="coerce").astype(float),
             "REF": ref,
@@ -537,16 +561,26 @@ def build_runtime_metadata_table(
     *,
     metadata: pd.DataFrame,
     positions: np.ndarray,
-    cm_values: np.ndarray,
+    cm_values: np.ndarray | None,
 ) -> pd.DataFrame:
-    """Build the LDSC runtime metadata sidecar for one build."""
+    """Build the LDSC runtime metadata sidecar for one emitted build.
+
+    When ``cm_values`` is ``None``, the sidecar keeps the SNP rows and writes a
+    nullable ``CM`` column. This is used by SNP- and kb-window builds that omit
+    genetic maps.
+    """
+    cm_column = (
+        pd.Series(pd.array([pd.NA] * len(metadata), dtype="Float64"))
+        if cm_values is None
+        else pd.Series(np.asarray(cm_values, dtype=float))
+    )
 
     return pd.DataFrame(
         {
             "CHR": metadata["CHR"].map(_normalize_map_chromosome).astype(str),
             "POS": np.asarray(positions, dtype=np.int64),
             "SNP": metadata["SNP"].astype(str),
-            "CM": np.asarray(cm_values, dtype=float),
+            "CM": cm_column,
             "MAF": pd.to_numeric(metadata["MAF"], errors="coerce").astype(float),
         }
     ).reset_index(drop=True)

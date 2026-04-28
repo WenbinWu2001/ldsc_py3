@@ -83,11 +83,12 @@ LD-score output schema:
 |---|---:|---:|---|---|
 | `--plink-path` | input | yes | PLINK reference panel prefix | Supports exact prefix, PLINK-prefix glob, or `@` suite. |
 | `--source-genome-build` | input metadata | yes | source build selector | Not a filesystem argument. |
-| `--genetic-map-hg19-path` | input | yes | hg19 genetic map file or suite | Exact file, exact-one glob, or `@` suite. |
-| `--genetic-map-hg38-path` | input | yes | hg38 genetic map file or suite | Exact file, exact-one glob, or `@` suite. |
-| `--liftover-chain-hg19-to-hg38-path` | input | conditional | liftover chain file | Required when source build is hg19. |
-| `--liftover-chain-hg38-to-hg19-path` | input | conditional | liftover chain file | Required when source build is hg38. |
+| `--genetic-map-hg19-path` | input | conditional | hg19 genetic map file or suite | Required only when `--ld-wind-cm` is used with hg19 source coordinates; otherwise optional and missing hg19 CM values are written as `NA`. |
+| `--genetic-map-hg38-path` | input | conditional | hg38 genetic map file or suite | Required only when `--ld-wind-cm` is used with hg38 source coordinates; otherwise optional and missing hg38 CM values are written as `NA`. |
+| `--liftover-chain-hg19-to-hg38-path` | input | no | liftover chain file | Optional; enables hg38 outputs for hg19 source builds. |
+| `--liftover-chain-hg38-to-hg19-path` | input | no | liftover chain file | Optional; enables hg19 outputs for hg38 source builds. |
 | `--ref-panel-snps-path` | input | no | retained SNP universe restriction | Scalar file-like input. |
+| `--snp-identifier` | input metadata | conditional | restriction identifier mode | Required when `--ref-panel-snps-path` is set. |
 | `--keep-indivs-path` | input | no | PLINK individual keep file | Applied during PLINK loading. |
 | `--output-dir` | output | yes | reference-panel artifact directory | Run identity is `Path(output_dir).name`; no separate label is accepted. |
 
@@ -103,6 +104,15 @@ Fixed output names:
 <output_dir>/parquet/meta/chr{chrom}_meta_hg19.tsv.gz
 <output_dir>/parquet/meta/chr{chrom}_meta_hg38.tsv.gz
 ```
+
+When no usable source-to-target liftover chain is provided, the builder warns
+and emits source-build-only outputs. In that mode the opposite-build metadata
+sidecar is not written; the annotation parquet keeps the standard columns but
+leaves opposite-build coordinate and unique-ID fields missing.
+
+When SNP- or kb-window builds omit a genetic map for an emitted build, that
+metadata sidecar is still written with `CM=NA`. cM-window builds require the
+source-build genetic map because the map defines the LD window.
 
 ### `ldsc munge-sumstats`
 
@@ -197,10 +207,10 @@ Removed Python names: `bfile`, `r2_table`, `frqfile`, `keep`,
 | Object/function | Argument | Direction | Object |
 |---|---:|---:|---|
 | `ReferencePanelBuildConfig` | `plink_path` | input | PLINK reference-panel prefix token |
-| `ReferencePanelBuildConfig` | `genetic_map_hg19_path` | input | hg19 genetic map |
-| `ReferencePanelBuildConfig` | `genetic_map_hg38_path` | input | hg38 genetic map |
-| `ReferencePanelBuildConfig` | `liftover_chain_hg19_to_hg38_path` | input | liftover chain |
-| `ReferencePanelBuildConfig` | `liftover_chain_hg38_to_hg19_path` | input | liftover chain |
+| `ReferencePanelBuildConfig` | `genetic_map_hg19_path` | input | conditional hg19 genetic map |
+| `ReferencePanelBuildConfig` | `genetic_map_hg38_path` | input | conditional hg38 genetic map |
+| `ReferencePanelBuildConfig` | `liftover_chain_hg19_to_hg38_path` | input | optional liftover chain |
+| `ReferencePanelBuildConfig` | `liftover_chain_hg38_to_hg19_path` | input | optional liftover chain |
 | `ReferencePanelBuildConfig` | `ref_panel_snps_path` | input | retained SNP restriction |
 | `ReferencePanelBuildConfig` | `keep_indivs_path` | input | PLINK individual keep file |
 | `ReferencePanelBuildConfig` | `output_dir` | output | artifact directory |

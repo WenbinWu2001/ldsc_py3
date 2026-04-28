@@ -355,17 +355,21 @@ class ReferencePanelBuildConfig:
         explicit ``@`` chromosome-suite token.
     source_genome_build : {"hg19", "hg37", "GRCh37", "hg38", "GRCh38"}
         Genome build of the input PLINK coordinates.
-    genetic_map_hg19_path, genetic_map_hg38_path : str or os.PathLike[str]
+    genetic_map_hg19_path, genetic_map_hg38_path : str or os.PathLike[str] or None, optional
         Genetic-map paths used to populate cM values for each emitted sidecar.
+        The source-build map is required only for ``ld_wind_cm``. When maps are
+        omitted for SNP- or kb-window builds, emitted sidecars store missing CM
+        values.
     output_dir : str or os.PathLike[str]
         Output directory for the reference panel. The panel identity is
         ``Path(output_dir).name``; artifact filenames inside ``parquet/`` are
-        fixed as ``chr{chrom}_ann.parquet``, ``chr{chrom}_LD.parquet``,
-        ``chr{chrom}_meta_hg19.tsv.gz``, and
-        ``chr{chrom}_meta_hg38.tsv.gz``.
+        fixed as ``chr{chrom}_ann.parquet``, ``chr{chrom}_LD.parquet``, and
+        emitted ``chr{chrom}_meta_hg19.tsv.gz`` /
+        ``chr{chrom}_meta_hg38.tsv.gz`` sidecars.
     liftover_chain_hg19_to_hg38_path, liftover_chain_hg38_to_hg19_path : str or os.PathLike[str] or None, optional
-        Chain files used to populate the opposite-build coordinates. The chain
-        matching ``source_genome_build`` is required.
+        Chain files used to populate the opposite-build coordinates. If the
+        chain matching ``source_genome_build`` is omitted, the builder emits a
+        source-build-only panel.
     ld_wind_snps, ld_wind_kb, ld_wind_cm : int, float, float, or None, optional
         LD window specification. Exactly one must be supplied.
     maf_min : float or None, optional
@@ -382,9 +386,9 @@ class ReferencePanelBuildConfig:
 
     plink_path: str | PathLike[str]
     source_genome_build: GenomeBuildInput
-    genetic_map_hg19_path: str | PathLike[str]
-    genetic_map_hg38_path: str | PathLike[str]
-    output_dir: str | PathLike[str]
+    genetic_map_hg19_path: str | PathLike[str] | None = None
+    genetic_map_hg38_path: str | PathLike[str] | None = None
+    output_dir: str | PathLike[str] | None = None
     liftover_chain_hg19_to_hg38_path: str | PathLike[str] | None = None
     liftover_chain_hg38_to_hg19_path: str | PathLike[str] | None = None
     ld_wind_snps: int | None = None
@@ -399,8 +403,8 @@ class ReferencePanelBuildConfig:
         """Normalize build paths and validate liftover and LD-window settings."""
         object.__setattr__(self, "plink_path", _normalize_required_path(self.plink_path))
         object.__setattr__(self, "source_genome_build", normalize_genome_build(self.source_genome_build))
-        object.__setattr__(self, "genetic_map_hg19_path", _normalize_required_path(self.genetic_map_hg19_path))
-        object.__setattr__(self, "genetic_map_hg38_path", _normalize_required_path(self.genetic_map_hg38_path))
+        object.__setattr__(self, "genetic_map_hg19_path", _normalize_optional_path(self.genetic_map_hg19_path))
+        object.__setattr__(self, "genetic_map_hg38_path", _normalize_optional_path(self.genetic_map_hg38_path))
         object.__setattr__(
             self,
             "liftover_chain_hg19_to_hg38_path",
@@ -414,22 +418,16 @@ class ReferencePanelBuildConfig:
         object.__setattr__(self, "output_dir", _normalize_required_path(self.output_dir))
         object.__setattr__(self, "ref_panel_snps_path", _normalize_optional_path(self.ref_panel_snps_path))
         object.__setattr__(self, "keep_indivs_path", _normalize_optional_path(self.keep_indivs_path))
-        required_chain = (
-            self.liftover_chain_hg19_to_hg38_path
-            if self.source_genome_build == "hg19"
-            else self.liftover_chain_hg38_to_hg19_path
-        )
-        if required_chain is None:
-            if self.source_genome_build == "hg19":
-                raise ValueError(
-                    "liftover_chain_hg19_to_hg38_path is required when source_genome_build is hg19."
-                )
-            raise ValueError(
-                "liftover_chain_hg38_to_hg19_path is required when source_genome_build is hg38."
-            )
         windows = [self.ld_wind_snps, self.ld_wind_kb, self.ld_wind_cm]
         if sum(value is not None for value in windows) != 1:
             raise ValueError("Exactly one LD-window option must be set.")
+        source_map = (
+            self.genetic_map_hg19_path
+            if self.source_genome_build == "hg19"
+            else self.genetic_map_hg38_path
+        )
+        if self.ld_wind_cm is not None and source_map is None:
+            raise ValueError(f"{self.source_genome_build} genetic map path is required when ld_wind_cm is set.")
         if self.ld_wind_snps is not None and self.ld_wind_snps <= 0:
             raise ValueError("ld_wind_snps must be positive.")
         if self.ld_wind_kb is not None and self.ld_wind_kb <= 0:

@@ -205,9 +205,9 @@ Examples:
 ```bash
 ldsc ldscore \
   --output-dir out/trait_ldscores \
-  --baseline-annot-paths "annotations/baseline.@.annot.gz" \
   --r2-paths "r2/reference.*.parquet" \
   --metadata-paths "r2/reference_metadata.@.tsv.gz" \
+  --r2-bias-mode unbiased \
   --ld-wind-cm 1.0
 ```
 
@@ -227,7 +227,8 @@ Output:
 - Existing canonical LD-score files are refused before any of them are written
   unless `--overwrite` or `LDScoreOutputConfig(overwrite=True)` is supplied.
 - `baseline.parquet` contains `CHR`, `SNP`, `BP`, `regr_weight`, and baseline
-  LD-score columns.
+  LD-score columns. When both baseline and query inputs are omitted, the
+  LD-score workflow writes a synthetic all-ones baseline column named `base`.
 - `query.parquet` is present only when query annotations were supplied and
   contains `CHR`, `SNP`, `BP`, and query LD-score columns.
 - Regression commands consume this directory via `--ldscore-dir`; users do not

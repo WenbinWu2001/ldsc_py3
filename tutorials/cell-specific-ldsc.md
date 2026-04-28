@@ -4,6 +4,10 @@ Goal: estimate cell-specific enrichment by running partitioned LDSC with one que
 
 In this package, cell-specific LDSC is the `partitioned-h2` workflow applied to cell-type annotations. Baseline annotations stay in the model as covariates, and each cell-type query column is tested in a baseline-plus-one-query model through `RegressionRunner.estimate_partitioned_h2_batch()`.
 
+Cell-type query annotations require explicit baseline annotations. The
+synthetic all-ones `base` annotation is reserved for ordinary unpartitioned
+LD-score generation when no query inputs are present.
+
 The examples below assume chromosome-pattern inputs such as `baseline.@.annot.gz`, `cell_type_beds/*.bed`, `reference.@.parquet`, and `reference_metadata.@.tsv.gz`.
 
 Output directories are literal destinations. Missing directories are created,
@@ -54,6 +58,7 @@ ref_panel = RefPanelLoader(GLOBAL_CONFIG).load(
         metadata_paths="r2/reference_metadata.@.tsv.gz",
         chromosomes=tuple(annotation_bundle.chromosomes),
         genome_build="hg19",
+        r2_bias_mode="unbiased",
         ref_panel_snps_path="filters/reference_universe.tsv.gz",
     )
 )
@@ -111,6 +116,7 @@ ldsc ldscore \
   --query-annot-bed-paths "annotations/cell_type_beds/*.bed" \
   --r2-paths "r2/reference.@.parquet" \
   --metadata-paths "r2/reference_metadata.@.tsv.gz" \
+  --r2-bias-mode unbiased \
   --ref-panel-snps-path filters/reference_universe.tsv.gz \
   --regression-snps-path filters/hapmap3.tsv.gz \
   --snp-identifier chr_pos \

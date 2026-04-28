@@ -8,7 +8,7 @@ This document summarizes the public package surface. For workflow-level file str
 | --- | --- | --- | --- | --- |
 | Build query annotations | `ldsc annotate` | `AnnotationBuilder`, `run_bed_to_annot()`, `make_annot_files()` | baseline `.annot(.gz)`, BED or gene-set inputs | `query.<chrom>.annot.gz` or one legacy `.annot(.gz)` |
 | Build parquet reference panels | `ldsc build-ref-panel` | `ReferencePanelBuilder`, `run_build_ref_panel()` | PLINK prefix, optional liftover chains, conditional genetic maps, optional keep/restrict files; `snp_identifier` only when a SNP restriction file is supplied | per-chromosome `ann.parquet`, `LD.parquet`, emitted `meta_*.tsv.gz` sidecars |
-| Compute LD scores | `ldsc ldscore` | `LDScoreCalculator`, `run_ldscore()` | annotation shards, PLINK or parquet reference panel, optional frequency metadata | `manifest.json`, `baseline.parquet`, optional `query.parquet` under `output_dir` |
+| Compute LD scores | `ldsc ldscore` | `LDScoreCalculator`, `run_ldscore()` | optional baseline annotation shards, optional query annotations only when baseline is explicit, PLINK or parquet reference panel, optional frequency metadata | `manifest.json`, `baseline.parquet`, optional `query.parquet` under `output_dir`; no-annotation runs write synthetic `base` |
 | Infer `chr_pos` genome build | workflow flags only: `--genome-build auto`; no standalone CLI command | `infer_chr_pos_build()`, `resolve_chr_pos_table()` | pandas table with `CHR` and `POS`; optional reference table | `ChrPosBuildInference`, and optionally a normalized 1-based table |
 | Munge GWAS summary statistics | `ldsc munge-sumstats` | `SumstatsMunger`, `load_sumstats()` | raw sumstats, column hints, QC thresholds, optional `--chr`/`--pos`, `--genome-build auto` | `sumstats.sumstats.gz`, `sumstats.log`, `sumstats.metadata.json` |
 | Estimate heritability | `ldsc h2` | `RegressionRunner.estimate_h2()` | munged `.sumstats.gz` plus sidecar when available, LD-score directory | `h2.tsv` |
@@ -69,6 +69,8 @@ This document summarizes the public package surface. For workflow-level file str
 - Public inputs accept exact paths, standard globs, explicit chromosome suites using `@`, and some legacy bare prefixes.
 - Public dataclasses normalize `PathLike` objects to strings but do not expand inputs immediately.
 - Workflow modules resolve input tokens before calling `_kernel`.
+- `ldsc ldscore` accepts no baseline/query inputs for ordinary unpartitioned LD-score generation; the workflow creates a synthetic all-ones baseline column named exactly `base` from retained reference-panel metadata.
+- `query_annot_paths` and `query_annot_bed_paths` require explicit `baseline_annot_paths`; users who want to test query annotations against an all-ones universe must materialize that `base` baseline annotation themselves and run the partitioned workflow.
 - Public outputs use fixed workflow filenames under `output_dir`; run identity comes from the directory name.
 - Missing output directories are created, existing directories are reused, and
   existing fixed files fail before writing starts unless the caller passes

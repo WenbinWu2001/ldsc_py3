@@ -1,6 +1,6 @@
 # Heritability Estimates
 
-Goal: estimate SNP heritability for one trait with the refactored package, starting from raw summary statistics and LD scores built from an R2-table reference panel.
+Goal: estimate SNP heritability for one trait with the refactored package, starting from raw summary statistics and ordinary unpartitioned LD scores built from an R2-table reference panel.
 
 The examples below assume chromosome-pattern inputs such as `annotations/baseline.1.annot.gz`, `r2/reference.1.parquet`, and `r2/reference_metadata.1.tsv.gz`.
 For parquet-backed LD scores, `r2/reference.@.parquet` is the canonical pair table
@@ -74,9 +74,9 @@ sumstats = SumstatsMunger().run(
 
 ldscore_result = run_ldscore(
     output_dir="tutorial_outputs/trait_ldscores",
-    baseline_annot_paths="annotations/baseline.@.annot.gz",
     r2_paths="r2/reference.@.parquet",
     metadata_paths="r2/reference_metadata.@.tsv.gz",
+    r2_bias_mode="unbiased",
     regression_snps_path="filters/hapmap3.txt",
     ld_wind_cm=1.0,
     # overwrite=True,  # enable only when intentionally replacing LD-score outputs
@@ -105,6 +105,11 @@ real header is parsed.
 
 When you set `regression_snps_path` during LD-score calculation, the same regression SNP subset defines the rows of the normalized `baseline_table`. Regression weights come from the embedded `regr_weight` column by default.
 
+Because this is ordinary unpartitioned heritability, `run_ldscore(...)` does
+not need baseline annotations. With no baseline and no query inputs, it writes
+a synthetic all-ones baseline column named `base`; `h2` reads that directory
+through the same manifest path as any other LD-score result.
+
 ## CLI
 
 The regression CLI reads the canonical LD-score result directory written by
@@ -125,6 +130,16 @@ ldsc munge-sumstats \
   --snp-identifier chr_pos \
   --genome-build auto \
   --output-dir tutorial_outputs/trait
+
+ldsc ldscore \
+  --output-dir tutorial_outputs/trait_ldscores \
+  --r2-paths "r2/reference.@.parquet" \
+  --metadata-paths "r2/reference_metadata.@.tsv.gz" \
+  --r2-bias-mode unbiased \
+  --regression-snps-path filters/hapmap3.txt \
+  --snp-identifier chr_pos \
+  --genome-build auto \
+  --ld-wind-cm 1.0
 
 ldsc h2 \
   --sumstats-path tutorial_outputs/trait/sumstats.sumstats.gz \

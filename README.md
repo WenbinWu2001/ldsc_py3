@@ -47,6 +47,18 @@ real header is parsed. Each munged run also writes `sumstats.metadata.json`
 beside `sumstats.sumstats.gz` so later regression commands can recover
 `snp_identifier` and `genome_build` provenance.
 
+`ldsc ldscore` supports ordinary unpartitioned LD-score generation without
+baseline annotations:
+
+```bash
+ldsc ldscore --output-dir ldscores --plink-path panel --ld-wind-snps 10
+ldsc h2 --sumstats-path trait.sumstats.gz --ldscore-dir ldscores --output-dir h2_out
+```
+
+When no baseline and no query annotations are supplied, the workflow writes a
+synthetic all-ones baseline column named exactly `base` in `baseline.parquet`.
+Query annotation inputs still require explicit `--baseline-annot-paths`.
+
 ## Python API
 
 ```python

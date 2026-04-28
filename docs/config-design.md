@@ -221,6 +221,7 @@ ref_panel = ldsc.RefPanelLoader(cfg).load(
         backend="parquet_r2",
         r2_paths="r2/reference.@.parquet",
         metadata_paths="r2/reference_metadata.@.tsv.gz",
+        r2_bias_mode="unbiased",
         ref_panel_snps_path="filters/reference_universe.txt",
     )
 )
@@ -239,6 +240,8 @@ ldscore = ldsc.LDScoreCalculator().run(
 ### Artifact contract
 
 - Materialized query `.annot.gz` files and in-memory `AnnotationBundle` objects stay on the annotation universe `B`.
+- Ordinary unpartitioned `run_ldscore()` calls may omit baseline/query annotation inputs; the workflow creates a synthetic all-ones `base` annotation after the reference panel has applied `ref_panel_snps_path`.
+- Query annotations are valid only with explicit baseline annotations, so the synthetic `base` path is not used for partitioned/query LDSC.
 - `ref_panel_snps_path` becomes visible only during LD-score calculation, when the workflow aligns `B_chrom` to `ref_panel.load_metadata(chrom)`.
 - Count records are accumulated over `ld_reference_snps = B ∩ A'` and stored in `manifest.json`.
 - Public `baseline.parquet` and optional `query.parquet` rows are `ld_regression_snps = B ∩ A' ∩ C`.

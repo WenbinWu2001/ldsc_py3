@@ -47,7 +47,7 @@ ldsc_py3_restructured/
 | `ldsc.genome_build_inference` | public `chr_pos` build and coordinate-basis inference helpers |
 | `ldsc.annotation_builder` | public annotation bundle loading and BED projection surface |
 | `ldsc.ref_panel_builder` | parquet reference-panel build workflow |
-| `ldsc.ldscore_calculator` | LD-score orchestration, aggregation, and output routing |
+| `ldsc.ldscore_calculator` | LD-score orchestration, optional synthetic `base` annotation construction, aggregation, and output routing |
 | `ldsc.sumstats_munger` | raw-sumstats munging wrapper, canonical `CHR`/`POS` sumstats output, metadata sidecar handling, and curated sumstats loader |
 | `ldsc.regression_runner` | file-driven regression dataset assembly, `SNP` or `CHR:POS` merging, and estimator dispatch |
 | `ldsc.outputs` | artifact naming, layout, and serialization |
@@ -72,7 +72,7 @@ ldsc_py3_restructured/
 | change annotation loading or BED projection | `src/ldsc/annotation_builder.py`, then `src/ldsc/_kernel/annotation.py` |
 | change parquet reference-panel build logic | `src/ldsc/ref_panel_builder.py`, then `src/ldsc/_kernel/ref_panel_builder.py` |
 | change runtime PLINK/parquet reference access | `src/ldsc/_kernel/ref_panel.py` |
-| change LD-score orchestration or output packaging | `src/ldsc/ldscore_calculator.py`, `src/ldsc/outputs.py` |
+| change LD-score orchestration, optional-baseline behavior, or output packaging | `src/ldsc/ldscore_calculator.py`, `src/ldsc/outputs.py` |
 | change LD-score math | `src/ldsc/_kernel/ldscore.py` |
 | change raw sumstats ingestion, `CHR`/`POS` handling, sidecar provenance, or curated loading | `src/ldsc/sumstats_munger.py`, then `src/ldsc/_kernel/sumstats_munger.py` |
 | change regression dataset assembly or CLI summaries | `src/ldsc/regression_runner.py` |
@@ -84,6 +84,7 @@ ldsc_py3_restructured/
 - Treat `src/ldsc/` as the only supported Python import surface.
 - Do not add user-facing path discovery to `_kernel`; pass concrete files in.
 - Keep public file contracts for `.annot(.gz)`, `.sumstats.gz` plus `sumstats.metadata.json`, and canonical LD-score result directories stable unless the change is intentional and coordinated. Legacy `.l2.ldscore(.gz)`, `.w.l2.ldscore(.gz)`, `.l2.M`, and `.l2.M_5_50` files are compatibility concerns rather than the public LD-score output surface.
+- Keep optional-baseline behavior in the public LD-score workflow layer: no baseline and no query means a synthetic all-ones `base`; query annotations require explicit baseline annotations.
 - Reuse `ensure_output_paths_available()` for fixed output files. Public
   workflows should create missing output directories, reuse existing
   directories, fail on existing known files by default, and require

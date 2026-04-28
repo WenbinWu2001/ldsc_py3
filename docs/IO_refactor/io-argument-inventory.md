@@ -54,11 +54,13 @@ Removed flags: `--bed-files`, `--baseline-annot`.
 | Flag | Direction | Required | Object | Notes |
 |---|---:|---:|---|---|
 | `--output-dir` | output | yes | canonical LD-score result directory | Writes `manifest.json`, `baseline.parquet`, and optional `query.parquet`. |
-| `--baseline-annot-paths` | input | yes | baseline annotation files | Exact files, globs, comma lists, or `@` suites. |
-| `--query-annot-paths` | input | no | prebuilt query annotation files | Mutually exclusive with `--query-annot-bed-paths`. |
-| `--query-annot-bed-paths` | input | no | query BED interval files | Projected in memory onto the baseline SNP universe. |
+| `--baseline-annot-paths` | input | no | baseline annotation files | Exact files, globs, comma lists, or `@` suites. If omitted with no query inputs, `ldscore` synthesizes an all-ones `base` column from retained reference-panel metadata. |
+| `--query-annot-paths` | input | no | prebuilt query annotation files | Mutually exclusive with `--query-annot-bed-paths`; requires `--baseline-annot-paths`. |
+| `--query-annot-bed-paths` | input | no | query BED interval files | Projected in memory onto the baseline SNP universe; requires `--baseline-annot-paths`. |
 | `--plink-path` | input | conditional | PLINK reference panel prefix | Required when not using `--r2-paths`; supports exact prefix, PLINK-prefix glob, or `@` suite. |
 | `--r2-paths` | input | conditional | parquet R2 files | Required when not using `--plink-path`; supports exact files, globs, comma lists, or `@` suites. |
+| `--r2-bias-mode` | input metadata | conditional | parquet R2 bias declaration | Required with `--r2-paths`; choose `raw` or `unbiased`. |
+| `--r2-sample-size` | input metadata | conditional | parquet R2 sample size | Required only when `--r2-bias-mode raw`. |
 | `--metadata-paths` | input | no | reference metadata or frequency sidecars | Used for MAF and centiMorgan metadata where needed. |
 | `--ref-panel-snps-path` | input | no | reference-panel SNP universe restriction | Scalar file-like input. |
 | `--regression-snps-path` | input | no | persisted LD-score row-set restriction | Scalar file-like input. |
@@ -70,7 +72,8 @@ Removed flags: `--bfile`, `--r2-table`, `--frqfile`, `--keep`,
 LD-score output schema:
 
 - `baseline.parquet`: `CHR`, `SNP`, `BP`, `regr_weight`, then baseline
-  LD-score columns.
+  LD-score columns. In no-annotation unpartitioned runs, the baseline column
+  list is exactly `base`.
 - `query.parquet`: `CHR`, `SNP`, `BP`, then query LD-score columns; omitted
   when there are no query annotations.
 - `manifest.json`: format version, relative file paths, baseline/query column
@@ -198,7 +201,7 @@ Removed Python names: `bed_paths`, `query_bed_paths`, `bed_files`,
 | `LDScoreConfig` | `regression_snps_path` | input | regression SNP restriction |
 | `LDScoreConfig` | `keep_indivs_path` | input | PLINK individual keep file |
 | `LDScoreOutputConfig` | `output_dir` | output | canonical LD-score result directory |
-| `run_ldscore(**kwargs)` | `baseline_annot_paths`, `query_annot_paths`, `query_annot_bed_paths` | input | annotation sources |
+| `run_ldscore(**kwargs)` | `baseline_annot_paths`, `query_annot_paths`, `query_annot_bed_paths` | input | optional annotation sources; query inputs require baseline paths, and no-annotation runs synthesize `base` |
 | `run_ldscore(**kwargs)` | `plink_path`, `r2_paths`, `metadata_paths` | input | reference-panel sources |
 | `run_ldscore(**kwargs)` | `output_dir` | output | canonical result directory |
 

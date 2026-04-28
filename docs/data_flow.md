@@ -175,18 +175,24 @@ flowchart LR
 - Kernel: `ldsc._kernel.ref_panel_builder`, `ldsc._kernel.ldscore`, `ldsc._kernel.formats`
 - Postprocessing: parquet and TSV writers in the kernel
 
-## 3. `ldscore`: Annotation Plus Reference Panel To LDSC Artifacts
+## 3. `ldscore`: Reference Panel And Optional Annotations To LDSC Artifacts
 
 The canonical LD-score writer preflights `manifest.json`, `baseline.parquet`,
 and optional `query.parquet` before writing any of them. Use `--overwrite` or
 `LDScoreOutputConfig(overwrite=True)` only for intentional reruns.
 
+For ordinary unpartitioned LD scores, callers may omit both baseline and query
+inputs. The workflow then creates a synthetic baseline annotation named exactly
+`base`, with value `1.0` for every row returned by the retained reference-panel
+metadata. Query annotations are partitioned-LDSC inputs and require explicit
+baseline annotations.
+
 ### Required inputs
 
 | File | Example | Notes |
 | --- | --- | --- |
-| baseline annotation shard | `CHR POS SNP CM base`<br/>`1 10583 rs58108140 0.0 1` | required |
-| query annotation shard, optional | `CHR POS SNP CM enhancer_A`<br/>`1 10583 rs58108140 0.0 1` | optional extra annotation columns |
+| baseline annotation shard, optional | `CHR POS SNP CM base`<br/>`1 10583 rs58108140 0.0 1` | optional for unpartitioned runs; required when query annotations are supplied |
+| query annotation shard, optional | `CHR POS SNP CM enhancer_A`<br/>`1 10583 rs58108140 0.0 1` | optional extra annotation columns; valid only with explicit baseline annotations |
 | PLINK prefix or parquet LD panel | `panel_chr@` or `EUR_chr@_LD.parquet` | choose one backend |
 | frequency / metadata sidecar, optional | `CHR POS SNP CM MAF` | used for MAF and runtime metadata |
 | regression SNP list, optional | `rs123` | restricts the weight-table SNP set |
@@ -195,7 +201,7 @@ and optional `query.parquet` before writing any of them. Use `--overwrite` or
 
 ```mermaid
 flowchart LR
-  I1[.annot(.gz) shards]
+  I1[Optional .annot(.gz) shards]
   I2[PLINK or parquet LD reference]
   I3[Metadata / restriction files]
 
@@ -205,7 +211,7 @@ flowchart LR
   end
 
   subgraph W3[Workflow (public)<br/>ldsc.ldscore_calculator]
-    C3[Bundle annotations by chromosome]
+    C3[Bundle annotations or synthesize base]
     C4[Select backend]
     C5[Aggregate chromosome results]
   end

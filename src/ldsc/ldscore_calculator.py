@@ -6,6 +6,13 @@ chromosome-suite tokens using ``@``. The workflow resolves those tokens into
 concrete per-chromosome files, aligns each chromosome-local annotation bundle
 to the prepared reference-panel metadata returned by ``ref_panel.load_metadata``,
 and only then dispatches to the primitive-only kernel.
+
+For ordinary unpartitioned LD-score runs, callers may omit both baseline and
+query annotations. In that case the workflow constructs an all-ones baseline
+annotation named exactly ``base`` over the retained reference-panel metadata and
+continues through the same calculator and output writer used by partitioned
+runs. Query annotations remain partitioned-LDSC inputs: they are accepted only
+when explicit baseline annotations are supplied.
 """
 
 from __future__ import annotations
@@ -51,6 +58,11 @@ ldscore_new = kernel_ldscore
 
 
 _LDSCORE_SUFFIX_COLUMNS = ("CHR", "SNP", "POS", "BP", "CM", "MAF")
+_QUERY_REQUIRES_BASELINE_MESSAGE = (
+    "Query annotations require baseline annotations. If you intentionally want to test query annotations "
+    "against an all-ones baseline, create an explicit all-ones `base` baseline annotation over the query "
+    "annotation universe, then run the partitioned LDSC workflow with both baseline and query annotations."
+)
 
 
 @dataclass(frozen=True)
@@ -551,14 +563,18 @@ def build_parser() -> argparse.ArgumentParser:
     query_group.add_argument(
         "--query-annot-paths",
         default=None,
-        help="Comma-separated query annotation path tokens: exact paths, globs, or explicit @ suite tokens.",
+        help="Comma-separated query annotation path tokens: exact paths, globs, or explicit @ suite tokens. Requires --baseline-annot-paths.",
     )
     query_group.add_argument(
         "--query-annot-bed-paths",
         default=None,
-        help="Comma-separated BED file path tokens projected in memory as query annotations.",
+        help="Comma-separated BED file path tokens projected in memory as query annotations. Requires --baseline-annot-paths.",
     )
-    parser.add_argument("--baseline-annot-paths", default=None, help="Comma-separated baseline annotation path tokens: exact paths, globs, or explicit @ suite tokens.")
+    parser.add_argument(
+        "--baseline-annot-paths",
+        default=None,
+        help="Comma-separated baseline annotation path tokens. If omitted with no query inputs, an all-ones `base` annotation is synthesized.",
+    )
     parser.add_argument("--plink-path", default=None, help="PLINK prefix token for the reference panel.")
     parser.add_argument("--r2-paths", default=None, help="Comma-separated parquet R2 path tokens: exact paths, globs, or explicit @ suite tokens.")
     parser.add_argument("--snp-identifier", default="chr_pos", help="Identifier mode used to match annotations to the reference panel.")
@@ -596,7 +612,9 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
     """Run LD-score calculation from a parsed CLI namespace.
 
     The workflow resolves unified path tokens for baseline annotations, optional
-    query annotations or BED files, and the reference panel. For each
+    query annotations or BED files, and the reference panel. If no baseline or
+    query annotations are supplied, it synthesizes an all-ones ``base``
+    annotation over the retained reference-panel metadata. For each
     chromosome it intersects the annotation rows with
     ``ref_panel.load_metadata(chrom)`` before calling the kernel, then returns
     the normalized public ``LDScoreResult`` with split baseline/query tables.
@@ -605,16 +623,20 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
 
     normalized_args, global_config = _normalize_run_args(args)
     print_global_config_banner("run_ldscore_from_args", global_config)
-    kernel_ldscore.validate_args(normalized_args)
+    _validate_run_args(normalized_args)
     ldscore_config = _ldscore_config_from_args(normalized_args)
     regression_snps = _load_regression_snps(ldscore_config.regression_snps_path, global_config)
-    source_spec = AnnotationBuildConfig(
-        baseline_annot_paths=tuple(split_cli_path_tokens(normalized_args.baseline_annot_paths)),
-        query_annot_paths=tuple(split_cli_path_tokens(normalized_args.query_annot_paths)),
-        query_annot_bed_paths=tuple(split_cli_path_tokens(getattr(normalized_args, "query_annot_bed_paths", None))),
-    )
-    annotation_bundle = AnnotationBuilder(global_config).run(source_spec)
-    ref_panel = _ref_panel_from_args(normalized_args, global_config)
+    if _has_cli_tokens(normalized_args.baseline_annot_paths):
+        source_spec = AnnotationBuildConfig(
+            baseline_annot_paths=tuple(split_cli_path_tokens(normalized_args.baseline_annot_paths)),
+            query_annot_paths=tuple(split_cli_path_tokens(normalized_args.query_annot_paths)),
+            query_annot_bed_paths=tuple(split_cli_path_tokens(getattr(normalized_args, "query_annot_bed_paths", None))),
+        )
+        annotation_bundle = AnnotationBuilder(global_config).run(source_spec)
+        ref_panel = _ref_panel_from_args(normalized_args, global_config)
+    else:
+        ref_panel = _ref_panel_from_args(normalized_args, global_config)
+        annotation_bundle = _pseudo_base_annotation_bundle_from_ref_panel(ref_panel, global_config)
     calculator = LDScoreCalculator()
     return calculator.run(
         annotation_bundle=annotation_bundle,
@@ -624,6 +646,81 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
         output_config=_output_config_from_args(normalized_args),
         regression_snps=regression_snps,
     )
+
+
+def _validate_run_args(args: argparse.Namespace) -> None:
+    """Validate public LD-score workflow arguments before loading inputs.
+
+    This validator intentionally lives in the workflow layer rather than in the
+    kernel because optional baseline synthesis is a public orchestration rule:
+    the numerical kernels still receive an explicit annotation bundle.
+    """
+    if not _has_cli_tokens(args.baseline_annot_paths) and (
+        _has_cli_tokens(args.query_annot_paths) or _has_cli_tokens(getattr(args, "query_annot_bed_paths", None))
+    ):
+        raise ValueError(_QUERY_REQUIRES_BASELINE_MESSAGE)
+    keep = getattr(args, "keep", None)
+    if bool(args.r2_table) == bool(args.bfile):
+        raise ValueError("Specify exactly one reference-panel mode: parquet or PLINK.")
+    if args.r2_table:
+        if keep:
+            raise ValueError("--keep-indivs-path is only supported in PLINK mode.")
+        if args.r2_bias_mode is None:
+            raise ValueError("--r2-bias-mode is required in parquet mode.")
+        if args.r2_bias_mode == "raw" and args.r2_sample_size is None:
+            raise ValueError("--r2-sample-size is required when --r2-bias-mode raw.")
+        if args.snp_identifier == "chr_pos" and args.genome_build is None:
+            raise ValueError("--genome-build is required in parquet mode when --snp-identifier chr_pos.")
+    if args.ld_wind_cm is not None and args.ld_wind_cm <= 0:
+        raise ValueError("--ld-wind-cm must be positive.")
+    if args.ld_wind_kb is not None and args.ld_wind_kb <= 0:
+        raise ValueError("--ld-wind-kb must be positive.")
+    if args.ld_wind_snps is not None and args.ld_wind_snps <= 0:
+        raise ValueError("--ld-wind-snps must be positive.")
+    if args.chunk_size <= 0:
+        raise ValueError("--chunk-size must be positive.")
+
+
+def _has_cli_tokens(value: str | Sequence[str] | None) -> bool:
+    """Return whether a CLI path field contains at least one non-empty token."""
+    return bool(split_cli_path_tokens(value))
+
+
+def _pseudo_base_annotation_bundle_from_ref_panel(ref_panel, global_config: GlobalConfig):
+    """Build an all-ones ``base`` bundle from retained reference-panel metadata.
+
+    The reference-panel adapter has already applied ``ref_panel_snps_path`` when
+    ``load_metadata(chrom)`` returns. Later runtime filters such as MAF and
+    regression-SNP restriction remain in the normal LD-score compute path.
+    """
+    from ._kernel.annotation import AnnotationBundle
+
+    metadata_frames = []
+    chromosomes = [str(chrom) for chrom in ref_panel.available_chromosomes()]
+    for chrom in chromosomes:
+        metadata = ref_panel.load_metadata(chrom).copy()
+        if len(metadata) == 0:
+            continue
+        if "POS" not in metadata.columns and "BP" in metadata.columns:
+            metadata = metadata.rename(columns={"BP": "POS"})
+        metadata_frames.append(metadata.loc[:, ["CHR", "SNP", "CM", "POS"]].reset_index(drop=True))
+    if not metadata_frames:
+        raise ValueError("No reference-panel SNP metadata rows are available for pseudo `base` annotation.")
+    metadata = pd.concat(metadata_frames, axis=0, ignore_index=True)
+    baseline = pd.DataFrame({"base": np.ones(len(metadata), dtype=np.float32)})
+    query = pd.DataFrame(index=metadata.index)
+    bundle = AnnotationBundle(
+        metadata=metadata,
+        baseline_annotations=baseline,
+        query_annotations=query,
+        baseline_columns=["base"],
+        query_columns=[],
+        chromosomes=chromosomes,
+        source_summary={"baseline": "synthetic all-ones base annotation from retained reference-panel metadata"},
+        config_snapshot=global_config,
+    )
+    bundle.validate(global_config.snp_identifier)
+    return bundle
 
 
 def run_ldscore(**kwargs) -> LDScoreResult:
@@ -637,6 +734,12 @@ def run_ldscore(**kwargs) -> LDScoreResult:
     supplied through ``set_global_config(...)`` first, while per-run controls
     such as ``ref_panel_snps_path`` and ``regression_snps_path`` remain ordinary
     keyword arguments here.
+
+    When ``baseline_annot_paths`` and query inputs are omitted, the workflow
+    builds a synthetic all-ones baseline column named ``base`` from retained
+    reference-panel metadata. ``query_annot_paths`` and
+    ``query_annot_bed_paths`` require explicit baseline annotations because
+    query columns are interpreted relative to that baseline SNP universe.
 
     Returns
     -------

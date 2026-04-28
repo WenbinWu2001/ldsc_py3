@@ -34,6 +34,11 @@ Resolution behavior:
 - otherwise the workflow loads the matched files and keeps only rows whose `CHR` value matches the active chromosome
 - if multiple files contribute annotation columns for the same chromosome, their SNP rows must align exactly and their annotation column names must be unique
 
+Query annotations require explicit baseline annotations. The LD-score workflow
+can synthesize an all-ones `base` column only when both baseline and query
+inputs are omitted for ordinary unpartitioned LD scores; it does not use that
+synthetic path for partitioned/query LDSC.
+
 ## Python API
 
 The Python API is the cleanest end-to-end path because it keeps the merged `AnnotationBundle` and `LDScoreResult` in memory across the whole workflow.
@@ -111,6 +116,7 @@ ref_panel = RefPanelLoader(GLOBAL_CONFIG).load(
         metadata_paths="r2/reference_metadata.@.tsv.gz",
         chromosomes=tuple(annotation_bundle.chromosomes),
         genome_build="hg19",
+        r2_bias_mode="unbiased",
         ref_panel_snps_path="filters/reference_universe.tsv.gz",
     )
 )
@@ -157,6 +163,7 @@ Within this design:
 - `LDScoreCalculator.compute_chromosome()` intersects each chromosome-local annotation bundle with `ref_panel.load_metadata(chrom)`, so the LD-score compute universe is `B ∩ A'`; parquet pair rows are not scanned to define SNP presence
 - `regression_snps_path` belongs to `LDScoreConfig` and further restricts the normalized `baseline_table` rows to `B ∩ A' ∩ C`
 - regression weights are embedded as `regr_weight`; there is no separate `.w.l2.ldscore.gz` artifact in the new default format
+- query `.annot` and BED inputs are accepted only when baseline annotations are supplied explicitly
 
 ## CLI
 
@@ -169,6 +176,7 @@ ldsc ldscore \
   --query-annot-bed-paths "beds/*.bed" \
   --r2-paths "r2/reference.@.parquet" \
   --metadata-paths "r2/reference_metadata.@.tsv.gz" \
+  --r2-bias-mode unbiased \
   --ref-panel-snps-path filters/reference_universe.tsv.gz \
   --regression-snps-path filters/hapmap3.tsv.gz \
   --snp-identifier chr_pos \

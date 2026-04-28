@@ -68,6 +68,12 @@ Example:
 resources/baseline_v1.2/baseline.@.annot.gz
 ```
 
+For ordinary unpartitioned LD-score generation, `--baseline-annot-paths` may be
+omitted when no query inputs are supplied. The public workflow then creates a
+synthetic all-ones baseline annotation named exactly `base` over the retained
+reference-panel metadata and writes the same canonical LD-score directory. This
+is not a separate h2 workflow.
+
 ### Query Annotations
 
 Query annotations are optional and become `query.parquet` columns.
@@ -76,7 +82,11 @@ Query annotations are optional and become `query.parquet` columns.
   memory.
 - `--query-annot-paths`: pre-built query `.annot[.gz]` files.
 
-These arguments are mutually exclusive.
+These arguments are mutually exclusive and require explicit
+`--baseline-annot-paths`. If users intentionally want to test query annotations
+against an all-ones universe, they should create an explicit all-ones `base`
+baseline annotation over the query annotation universe and run the partitioned
+workflow with both baseline and query inputs.
 
 ### Reference Panel
 
@@ -109,7 +119,7 @@ The LD-score phase tracks these SNP sets:
 
 | Symbol | Name | Meaning |
 |--------|------|---------|
-| B | Baseline annotation SNPs | Rows in loaded baseline annotation files |
+| B | Baseline annotation SNPs | Rows in loaded baseline annotation files, or retained reference-panel metadata rows for synthetic `base` unpartitioned runs |
 | A | Raw reference panel SNPs | Rows in PLINK `.bim` or parquet metadata sidecar |
 | A' | Restricted reference panel | `A ∩ ref_panel_snps_path`; equals A when absent |
 | `ld_reference_snps` | LD computation universe | `B ∩ A'` |
@@ -164,6 +174,18 @@ ldsc ldscore \
   --output-dir results/my_study_ldscore \
   --baseline-annot-paths resources/baseline_v1.2/baseline.@.annot.gz \
   --query-annot-bed-paths my_peaks.bed \
+  --plink-path resources/1kg/1KG_EUR_Phase3_chr@ \
+  --ref-panel-snps-path resources/w_hm3.snplist \
+  --regression-snps-path resources/w_hm3.snplist \
+  --snp-identifier rsid \
+  --ld-wind-cm 1.0
+```
+
+Compute ordinary unpartitioned LD scores without baseline annotations:
+
+```bash
+ldsc ldscore \
+  --output-dir results/my_unpartitioned_ldscore \
   --plink-path resources/1kg/1KG_EUR_Phase3_chr@ \
   --ref-panel-snps-path resources/w_hm3.snplist \
   --regression-snps-path resources/w_hm3.snplist \

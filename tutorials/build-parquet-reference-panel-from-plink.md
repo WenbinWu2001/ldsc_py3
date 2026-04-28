@@ -451,12 +451,16 @@ Example:
 ```bash
 ldsc ldscore \
   --output-dir tutorial_outputs/ldscores_from_parquet_panel \
-  --baseline-annot-paths "annotations/baseline.@.annot.gz" \
   --r2-paths "tutorial_outputs/ref_panel/parquet/ld/chr@_LD.parquet" \
   --metadata-paths "tutorial_outputs/ref_panel/parquet/meta/chr@_meta_hg38.tsv.gz" \
+  --r2-bias-mode unbiased \
   --snp-identifier rsid \
   --ld-wind-cm 1.0
 ```
+
+This ordinary unpartitioned example omits baseline and query annotations, so
+`ldsc ldscore` writes a synthetic all-ones `base` baseline column. Add explicit
+baseline annotations when computing partitioned or query LD scores.
 
 Use `meta_hg19` instead of `meta_hg38` when your downstream coordinate system
 is hg19/GRCh37. In source-build-only runs, choose the single emitted metadata

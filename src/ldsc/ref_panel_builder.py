@@ -27,6 +27,7 @@ import numpy as np
 
 from .column_inference import normalize_snp_identifier_mode
 from .config import GlobalConfig, ReferencePanelBuildConfig, get_global_config, print_global_config_banner
+from .genome_build_inference import resolve_genome_build
 from .path_resolution import (
     ensure_output_directory,
     ensure_output_paths_available,
@@ -636,10 +637,18 @@ def config_from_args(args: argparse.Namespace) -> tuple[ReferencePanelBuildConfi
     """
     if args.ref_panel_snps_path is not None and args.snp_identifier is None:
         raise ValueError("--snp-identifier is required when --ref-panel-snps-path is set.")
+    snp_identifier = normalize_snp_identifier_mode(args.snp_identifier or get_global_config().snp_identifier)
+    source_genome_build = resolve_genome_build(
+        args.source_genome_build,
+        "chr_pos",
+        None,
+        context="build-ref-panel source",
+        logger=LOGGER,
+    )
 
     build_config = ReferencePanelBuildConfig(
         plink_path=args.plink_path,
-        source_genome_build=args.source_genome_build,
+        source_genome_build=source_genome_build,
         genetic_map_hg19_path=args.genetic_map_hg19_path,
         genetic_map_hg38_path=args.genetic_map_hg38_path,
         liftover_chain_hg19_to_hg38_path=args.liftover_chain_hg19_to_hg38_path,
@@ -655,8 +664,8 @@ def config_from_args(args: argparse.Namespace) -> tuple[ReferencePanelBuildConfi
         chunk_size=args.chunk_size,
     )
     global_config = GlobalConfig(
-        snp_identifier=args.snp_identifier or get_global_config().snp_identifier,
-        genome_build=build_config.source_genome_build,
+        snp_identifier=snp_identifier,
+        genome_build=(None if snp_identifier == "rsid" else build_config.source_genome_build),
         log_level=args.log_level,
     )
     return build_config, global_config

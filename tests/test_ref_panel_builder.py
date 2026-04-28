@@ -669,6 +669,35 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
         self.assertIsNone(global_config.genome_build)
         self.assertEqual(global_config.snp_identifier, "rsid")
 
+    def test_config_from_args_resolves_source_genome_build_before_global_config(self):
+        parser = ref_panel_builder.build_parser()
+        args = parser.parse_args(
+            [
+                "--plink-path",
+                "plink/panel.@",
+                "--source-genome-build",
+                "hg37",
+                "--genetic-map-hg19-path",
+                "maps/hg19.map",
+                "--output-dir",
+                "out",
+                "--ld-wind-kb",
+                "1",
+                "--ref-panel-snps-path",
+                "hm3.tsv",
+                "--snp-identifier",
+                "chr_pos",
+            ]
+        )
+
+        with mock.patch.object(ref_panel_builder, "resolve_genome_build", return_value="hg19") as patched:
+            build_config, global_config = ref_panel_builder.config_from_args(args)
+
+        self.assertEqual(build_config.source_genome_build, "hg19")
+        self.assertEqual(global_config.genome_build, "hg19")
+        patched.assert_called_once()
+        self.assertEqual(patched.call_args.args[1], "chr_pos")
+
     def test_run_build_ref_panel_requires_snp_identifier_for_restriction_file(self):
         with self.assertRaisesRegex(ValueError, "--snp-identifier is required"):
             ref_panel_builder.run_build_ref_panel(

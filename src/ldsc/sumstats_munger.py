@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass, field
 import json
+import logging
 from os import PathLike
 from pathlib import Path
 from typing import Any
@@ -28,16 +29,19 @@ import pandas as pd
 
 from .column_inference import (
     INTERNAL_SUMSTATS_ARTIFACT_SPEC_MAP,
+    infer_chr_pos_columns,
     normalize_genome_build,
     normalize_snp_identifier_mode,
     resolve_optional_column,
     resolve_required_column,
 )
 from .config import GlobalConfig, MungeConfig, get_global_config
+from .genome_build_inference import resolve_genome_build
 from .path_resolution import ensure_output_directory, ensure_output_paths_available, resolve_scalar_path
 from ._kernel import sumstats_munger as kernel_munge
 
 
+LOGGER = logging.getLogger("LDSC.sumstats_munger")
 parser = kernel_munge.parser
 null_values = kernel_munge.null_values
 default_cnames = kernel_munge.default_cnames
@@ -413,15 +417,10 @@ def main(argv: list[str] | None = None):
         args.merge_alleles = resolve_scalar_path(args.merge_alleles_path, label="merge-alleles file")
     else:
         args.merge_alleles = None
+    config_snapshot = _resolve_main_global_config(args)
     data = kernel_munge.munge_sumstats(args, p=True)
     coordinate_metadata = dict(getattr(args, "_coordinate_metadata", {}))
-    config_snapshot = _effective_sumstats_config(
-        GlobalConfig(
-            snp_identifier=normalize_snp_identifier_mode(getattr(args, "snp_identifier", "chr_pos")),
-            genome_build=normalize_genome_build(getattr(args, "genome_build", "hg38")),
-        ),
-        coordinate_metadata,
-    )
+    config_snapshot = _effective_sumstats_config(config_snapshot, coordinate_metadata)
     _write_sumstats_metadata(
         metadata_path,
         config_snapshot=config_snapshot,
@@ -430,6 +429,43 @@ def main(argv: list[str] | None = None):
         sumstats_path=args.out + ".sumstats.gz",
     )
     return data
+
+
+def _resolve_main_global_config(args: argparse.Namespace) -> GlobalConfig:
+    mode = normalize_snp_identifier_mode(getattr(args, "snp_identifier", "chr_pos"))
+    if mode == "rsid":
+        args.genome_build = None
+        return GlobalConfig(snp_identifier="rsid")
+    genome_build = normalize_genome_build(getattr(args, "genome_build", None))
+    if genome_build is None:
+        raise ValueError(
+            "genome_build is required when snp_identifier='chr_pos'. "
+            "Pass --genome-build auto, --genome-build hg19, or --genome-build hg38."
+        )
+    if genome_build == "auto":
+        sample = _sample_raw_sumstats_chr_pos(args.sumstats)
+        genome_build = resolve_genome_build(
+            "auto",
+            "chr_pos",
+            sample,
+            context="munge-sumstats raw input",
+            logger=LOGGER,
+        )
+    args.genome_build = genome_build
+    return GlobalConfig(snp_identifier="chr_pos", genome_build=genome_build)
+
+
+def _sample_raw_sumstats_chr_pos(path: str) -> pd.DataFrame:
+    aliases = {"CHR", "CHROM", "CHROMOSOME", "POS", "BP", "POSITION", "BASE_PAIR", "BASEPAIR"}
+    frame = pd.read_csv(
+        path,
+        sep="\t",
+        compression="infer",
+        nrows=5000,
+        usecols=lambda column: str(column).upper() in aliases,
+    )
+    chr_col, pos_col = infer_chr_pos_columns(frame.columns, context=path)
+    return frame.loc[:, [chr_col, pos_col]].rename(columns={chr_col: "CHR", pos_col: "POS"})
 
 
 def kernel_parser():

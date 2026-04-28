@@ -558,6 +558,46 @@ class AnnotationWrapperTest(unittest.TestCase):
             self.assertIsInstance(result, kernel_annotation.AnnotationBundle)
             self.assertEqual(result.query_columns, ["query"])
 
+    def test_main_bed_to_annot_chr_pos_auto_resolves_build_before_running(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            baseline = tmpdir / "baseline.1.annot"
+            bed = tmpdir / "query.bed"
+            baseline.write_text("CHR\tBP\tSNP\tCM\tbase\n1\t100\trs1\t0.0\t1\n", encoding="utf-8")
+            bed.write_text("chr1\t0\t100\tfeature\n", encoding="utf-8")
+
+            with mock.patch.object(
+                kernel_annotation,
+                "sample_frame_from_chr_pattern",
+                return_value=(pd.DataFrame({"CHR": ["1"], "POS": [100]}), str(baseline)),
+            ) as patched_sample, mock.patch.object(
+                kernel_annotation,
+                "resolve_genome_build",
+                return_value="hg19",
+            ) as patched_resolve, mock.patch.object(
+                kernel_annotation,
+                "_run_bed_to_annot_with_global_config",
+            ) as patched_run:
+                rc = annotation_builder.main_bed_to_annot(
+                    [
+                        "--query-annot-bed-paths",
+                        str(bed),
+                        "--baseline-annot-paths",
+                        str(tmpdir / "baseline.@.annot"),
+                        "--output-dir",
+                        str(tmpdir / "out"),
+                        "--snp-identifier",
+                        "chr_pos",
+                        "--genome-build",
+                        "auto",
+                    ]
+                )
+
+            self.assertEqual(rc, 0)
+            self.assertEqual(patched_sample.call_args.kwargs["context"], "annotation inputs")
+            self.assertEqual(patched_resolve.call_args.args[0], "auto")
+            self.assertEqual(patched_run.call_args.kwargs["global_config"].genome_build, "hg19")
+
     def test_run_bed_wrapper_calls_main(self):
         with mock.patch.object(annotation_builder, "main_bed_to_annot", return_value=5) as patched:
             rc = annotation_builder.main_bed_to_annot(["--help"])

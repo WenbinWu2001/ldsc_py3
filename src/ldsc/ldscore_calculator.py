@@ -19,13 +19,15 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass, field
+import logging
 from typing import Any, Sequence
 import warnings
 
 import numpy as np
 import pandas as pd
 
-from .column_inference import normalize_snp_identifier_mode
+from ._chr_sampler import sample_frame_from_chr_pattern
+from .column_inference import normalize_genome_build, normalize_snp_identifier_mode
 from .config import (
     ConfigMismatchError,
     GlobalConfig,
@@ -36,6 +38,7 @@ from .config import (
     print_global_config_banner,
     validate_config_compatibility,
 )
+from .genome_build_inference import resolve_genome_build
 from .outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
 from .path_resolution import (
     FREQUENCY_SUFFIXES,
@@ -56,6 +59,7 @@ from ._kernel.identifiers import build_snp_id_series, read_global_snp_restrictio
 ldscore_new = kernel_ldscore
 
 
+LOGGER = logging.getLogger("LDSC.ldscore_calculator")
 _LDSCORE_SUFFIX_COLUMNS = ("CHR", "SNP", "POS", "BP", "CM", "MAF")
 _QUERY_REQUIRES_BASELINE_MESSAGE = (
     "Query annotations require baseline annotations. If you intentionally want to test query annotations "
@@ -810,17 +814,84 @@ def _normalize_run_args(args: argparse.Namespace) -> tuple[argparse.Namespace, G
     normalized_args.frqfile = normalized_args.metadata_paths
     normalized_args.keep = normalized_args.keep_indivs_path
     if normalized_mode == "rsid":
+        normalized_args.genome_build = None
         global_config = GlobalConfig(
             snp_identifier=normalized_mode,
             log_level=getattr(args, "log_level", "INFO"),
         )
     else:
+        resolved_genome_build = _resolve_ldscore_chr_pos_genome_build(
+            normalized_args,
+            getattr(args, "genome_build", None),
+        )
+        normalized_args.genome_build = resolved_genome_build
         global_config = GlobalConfig(
             snp_identifier=normalized_mode,
-            genome_build=getattr(args, "genome_build", None),
+            genome_build=resolved_genome_build,
             log_level=getattr(args, "log_level", "INFO"),
         )
     return normalized_args, global_config
+
+
+def _resolve_ldscore_chr_pos_genome_build(args: argparse.Namespace, genome_build: str | None) -> str:
+    normalized = normalize_genome_build(genome_build)
+    if normalized is None:
+        raise ValueError(
+            "genome_build is required when snp_identifier='chr_pos'. "
+            "Pass --genome-build auto, --genome-build hg19, or --genome-build hg38."
+        )
+    if normalized != "auto":
+        return normalized
+
+    resolved: list[tuple[str, str]] = []
+    annotation_tokens = split_cli_path_tokens(getattr(args, "baseline_annot_paths", None))
+    if annotation_tokens:
+        frame, sampled_path = sample_frame_from_chr_pattern(
+            annotation_tokens,
+            context="LD-score annotation inputs",
+        )
+        resolved.append(
+            (
+                "annotation",
+                resolve_genome_build(
+                    "auto",
+                    "chr_pos",
+                    frame,
+                    context="LD-score annotation inputs",
+                    logger=LOGGER,
+                ),
+            )
+        )
+        LOGGER.info("Resolved LD-score annotation genome build from %s.", sampled_path)
+    r2_tokens = split_cli_path_tokens(getattr(args, "r2_paths", None))
+    if r2_tokens:
+        frame, sampled_path = sample_frame_from_chr_pattern(
+            r2_tokens,
+            context="LD-score reference panel inputs",
+        )
+        resolved.append(
+            (
+                "reference panel",
+                resolve_genome_build(
+                    "auto",
+                    "chr_pos",
+                    frame,
+                    context="LD-score reference panel inputs",
+                    logger=LOGGER,
+                ),
+            )
+        )
+        LOGGER.info("Resolved LD-score reference-panel genome build from %s.", sampled_path)
+    if not resolved:
+        raise ValueError(
+            "Cannot infer --genome-build for LD-score chr_pos inputs because no chromosome-suite "
+            "annotation or parquet R2 path tokens were provided."
+        )
+    builds = {build for _label, build in resolved}
+    if len(builds) != 1:
+        details = ", ".join(f"{label}={build}" for label, build in resolved)
+        raise ValueError(f"LD-score input genome build sources disagree: {details}.")
+    return resolved[0][1]
 
 
 def _load_regression_snps(path: str | None, global_config: GlobalConfig) -> set[str] | None:

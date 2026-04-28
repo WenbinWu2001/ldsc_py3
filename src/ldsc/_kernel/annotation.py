@@ -66,6 +66,7 @@ from ..column_inference import (
     RESTRICTION_RSID_SPEC_MAP,
     POS_COLUMN_SPEC,
     SNP_COLUMN_SPEC,
+    normalize_genome_build,
     resolve_optional_column,
     resolve_required_column,
 )
@@ -76,9 +77,11 @@ from ..config import (
     print_global_config_banner,
     _normalize_path_tuple,
 )
+from .._chr_sampler import sample_frame_from_chr_pattern
 from ..genome_build_inference import (
     load_packaged_reference_table,
     resolve_chr_pos_table,
+    resolve_genome_build,
     validate_auto_genome_build_mode,
 )
 from ..path_resolution import (
@@ -717,14 +720,10 @@ def main_bed_to_annot(argv: Sequence[str] | None = None) -> int:
     """CLI entrypoint for BED-to-annotation projection."""
     args = parse_bed_to_annot_args(argv)
     normalized_mode = normalize_snp_identifier_mode(args.snp_identifier)
-    if normalized_mode == "chr_pos" and args.genome_build is None:
-        raise ValueError(
-            "genome_build is required when snp_identifier='chr_pos'. "
-            "Pass --genome-build auto, --genome-build hg19, or --genome-build hg38."
-        )
+    genome_build = _resolve_annotation_cli_genome_build(args, normalized_mode)
     cli_global_config = GlobalConfig(
         snp_identifier=normalized_mode,
-        genome_build=(None if normalized_mode == "rsid" else args.genome_build),
+        genome_build=genome_build,
         log_level=args.log_level,
     )
     _run_bed_to_annot_with_global_config(
@@ -737,6 +736,31 @@ def main_bed_to_annot(argv: Sequence[str] | None = None) -> int:
         entrypoint="main_bed_to_annot",
     )
     return 0
+
+
+def _resolve_annotation_cli_genome_build(args: argparse.Namespace, snp_identifier: str) -> str | None:
+    if snp_identifier == "rsid":
+        return None
+    genome_build = normalize_genome_build(args.genome_build)
+    if genome_build is None:
+        raise ValueError(
+            "genome_build is required when snp_identifier='chr_pos'. "
+            "Pass --genome-build auto, --genome-build hg19, or --genome-build hg38."
+        )
+    if genome_build == "auto":
+        frame, sampled_path = sample_frame_from_chr_pattern(
+            split_cli_path_tokens(args.baseline_annot_paths),
+            context="annotation inputs",
+        )
+        genome_build = resolve_genome_build(
+            "auto",
+            "chr_pos",
+            frame,
+            context="annotation inputs",
+            logger=LOGGER,
+        )
+        LOGGER.info("Resolved annotation genome build from %s.", sampled_path)
+    return genome_build
 
 
 def _configure_logging(level: str) -> None:

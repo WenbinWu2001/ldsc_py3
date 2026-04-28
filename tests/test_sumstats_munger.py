@@ -19,11 +19,13 @@ from ldsc.config import GlobalConfig, MungeConfig
 
 try:
     import ldsc
+    from ldsc import sumstats_munger as sumstats_workflow
     from ldsc._kernel import sumstats_munger as kernel_munge
     from ldsc.sumstats_munger import SumstatsMunger
 except ImportError:
     ldsc = None
     kernel_munge = None
+    sumstats_workflow = None
     SumstatsMunger = None
 
 
@@ -130,6 +132,38 @@ class SumstatsMungerTest(unittest.TestCase):
             rc = munge_sumstats.__dict__["main"](["--help"])
         patched.assert_called_once()
         self.assertEqual(rc, 11)
+
+    def test_main_chr_pos_auto_infers_genome_build_from_raw_sumstats(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "CHR\tPOS\tSNP\tA1\tA2\tP\tN\n"
+                "1\t100\trs1\tA\tG\t0.05\t1000\n",
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(sumstats_workflow, "resolve_genome_build", return_value="hg19") as patched_resolve, mock.patch.object(
+                kernel_munge,
+                "munge_sumstats",
+                return_value=pd.DataFrame({"SNP": ["rs1"], "CHR": ["1"], "POS": [100], "Z": [1.0], "N": [1000]}),
+            ) as patched_munge:
+                sumstats_workflow.main(
+                    [
+                        "--sumstats-path",
+                        str(raw_path),
+                        "--output-dir",
+                        str(tmpdir / "out"),
+                        "--snp-identifier",
+                        "chr_pos",
+                        "--genome-build",
+                        "auto",
+                    ]
+                )
+
+            self.assertEqual(patched_munge.call_args.args[0].genome_build, "hg19")
+            self.assertEqual(patched_resolve.call_args.args[0], "auto")
+            self.assertEqual(patched_resolve.call_args.args[1], "chr_pos")
 
     def test_run_creates_output_dir(self):
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -734,6 +734,78 @@ class LDScoreWorkflowTest(unittest.TestCase):
             self.assertEqual(ref_spec.backend, "plink")
             self.assertEqual(str(ref_spec.plink_path), str(tmpdir / "panel.@"))
 
+    def test_normalize_run_args_chr_pos_auto_infers_matching_annotation_and_r2_builds(self):
+        args = Namespace(
+            output_dir="out",
+            query_annot_paths=None,
+            baseline_annot_paths="baseline.@.annot.gz",
+            plink_path=None,
+            r2_paths="r2.@.parquet",
+            snp_identifier="chr_pos",
+            genome_build="auto",
+            metadata_paths=None,
+            keep_indivs_path=None,
+            ref_panel_snps_path=None,
+            regression_snps_path=None,
+            log_level="INFO",
+        )
+        sample_calls = []
+        resolve_calls = []
+
+        def fake_sample(tokens, *, context, **_kwargs):
+            sample_calls.append((tuple(tokens), context))
+            return pd.DataFrame({"CHR": ["1"], "POS": [100]}), f"{context}.sample"
+
+        def fake_resolve(genome_build, snp_identifier, sample_frame, *, context, **_kwargs):
+            resolve_calls.append((genome_build, snp_identifier, context, sample_frame["POS"].tolist()))
+            return "hg19"
+
+        with mock.patch.object(ldscore_workflow, "sample_frame_from_chr_pattern", side_effect=fake_sample), mock.patch.object(
+            ldscore_workflow,
+            "resolve_genome_build",
+            side_effect=fake_resolve,
+        ):
+            normalized_args, global_config = ldscore_workflow._normalize_run_args(args)
+
+        self.assertEqual(global_config.genome_build, "hg19")
+        self.assertEqual(normalized_args.genome_build, "hg19")
+        self.assertEqual(
+            sample_calls,
+            [
+                (("baseline.@.annot.gz",), "LD-score annotation inputs"),
+                (("r2.@.parquet",), "LD-score reference panel inputs"),
+            ],
+        )
+        self.assertEqual([call[2] for call in resolve_calls], ["LD-score annotation inputs", "LD-score reference panel inputs"])
+
+    def test_normalize_run_args_chr_pos_auto_rejects_annotation_r2_build_mismatch(self):
+        args = Namespace(
+            output_dir="out",
+            query_annot_paths=None,
+            baseline_annot_paths="baseline.@.annot.gz",
+            plink_path=None,
+            r2_paths="r2.@.parquet",
+            snp_identifier="chr_pos",
+            genome_build="auto",
+            metadata_paths=None,
+            keep_indivs_path=None,
+            ref_panel_snps_path=None,
+            regression_snps_path=None,
+            log_level="INFO",
+        )
+
+        with mock.patch.object(
+            ldscore_workflow,
+            "sample_frame_from_chr_pattern",
+            return_value=(pd.DataFrame({"CHR": ["1"], "POS": [100]}), "sample"),
+        ), mock.patch.object(
+            ldscore_workflow,
+            "resolve_genome_build",
+            side_effect=["hg19", "hg38"],
+        ):
+            with self.assertRaisesRegex(ValueError, "genome build.*disagree"):
+                ldscore_workflow._normalize_run_args(args)
+
     def test_run_ldscore_from_args_rejects_keep_in_parquet_mode(self):
         args = Namespace(
             output_dir="out/example",

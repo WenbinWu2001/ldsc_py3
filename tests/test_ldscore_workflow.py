@@ -784,6 +784,28 @@ class LDScoreWorkflowTest(unittest.TestCase):
         )
         self.assertEqual([call[2] for call in resolve_calls], ["LD-score annotation inputs", "LD-score reference panel inputs"])
 
+    def test_normalize_run_args_rsid_concrete_genome_build_warns_and_nulls(self):
+        args = Namespace(
+            output_dir="out",
+            query_annot_paths=None,
+            baseline_annot_paths="baseline.annot.gz",
+            plink_path="panel",
+            r2_paths=None,
+            snp_identifier="rsid",
+            genome_build="hg38",
+            metadata_paths=None,
+            keep_indivs_path=None,
+            ref_panel_snps_path=None,
+            regression_snps_path=None,
+            log_level="INFO",
+        )
+
+        with self.assertWarnsRegex(UserWarning, "ignored"):
+            normalized_args, global_config = ldscore_workflow._normalize_run_args(args)
+
+        self.assertIsNone(normalized_args.genome_build)
+        self.assertIsNone(global_config.genome_build)
+
     def test_normalize_run_args_chr_pos_auto_rejects_annotation_r2_build_mismatch(self):
         args = Namespace(
             output_dir="out",

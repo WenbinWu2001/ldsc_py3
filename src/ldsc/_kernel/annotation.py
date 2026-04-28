@@ -734,7 +734,7 @@ def main_bed_to_annot(argv: Sequence[str] | None = None) -> int:
 
 def _resolve_annotation_cli_genome_build(args: argparse.Namespace, snp_identifier: str) -> str | None:
     if snp_identifier == "rsid":
-        return None
+        return normalize_genome_build(args.genome_build)
     genome_build = normalize_genome_build(args.genome_build)
     if genome_build is None:
         raise ValueError(

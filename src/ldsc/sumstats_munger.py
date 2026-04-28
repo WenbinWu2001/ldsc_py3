@@ -434,8 +434,12 @@ def main(argv: list[str] | None = None):
 def _resolve_main_global_config(args: argparse.Namespace) -> GlobalConfig:
     mode = normalize_snp_identifier_mode(getattr(args, "snp_identifier", "chr_pos"))
     if mode == "rsid":
-        args.genome_build = None
-        return GlobalConfig(snp_identifier="rsid")
+        config = GlobalConfig(
+            snp_identifier="rsid",
+            genome_build=normalize_genome_build(getattr(args, "genome_build", None)),
+        )
+        args.genome_build = config.genome_build
+        return config
     genome_build = normalize_genome_build(getattr(args, "genome_build", None))
     if genome_build is None:
         raise ValueError(

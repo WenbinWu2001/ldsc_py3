@@ -811,11 +811,12 @@ def _normalize_run_args(args: argparse.Namespace) -> tuple[argparse.Namespace, G
     normalized_args.frqfile = normalized_args.metadata_paths
     normalized_args.keep = normalized_args.keep_indivs_path
     if normalized_mode == "rsid":
-        normalized_args.genome_build = None
         global_config = GlobalConfig(
             snp_identifier=normalized_mode,
+            genome_build=normalize_genome_build(getattr(args, "genome_build", None)),
             log_level=getattr(args, "log_level", "INFO"),
         )
+        normalized_args.genome_build = global_config.genome_build
     else:
         resolved_genome_build = _resolve_ldscore_chr_pos_genome_build(
             normalized_args,

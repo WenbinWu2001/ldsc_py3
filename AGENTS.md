@@ -3,10 +3,17 @@
 ```bash
 cd /Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured
 conda env create -f environment.yml
+source /Users/wenbinwu/miniforge3/etc/profile.d/conda.sh
 conda activate ldsc-py3-Jerry
 pip install -e .
 python -m ldsc -h
-python -m unittest discover -s tests -p 'test*.py' -v
+python -m pytest
+```
+
+For non-interactive agent commands, activate the project environment with:
+
+```bash
+source /Users/wenbinwu/miniforge3/etc/profile.d/conda.sh && conda activate ldsc-py3-Jerry && <command>
 ```
 
 # Key Architectural Invariants
@@ -54,6 +61,7 @@ For complex features or significant refactors, write or update an ExecPlan in `P
 - Write tests before implementation changes when adding behavior.
 - For numerical methods, verify against known outputs, legacy parity, or explicit invariants.
 - Use the local `tests/` tree. The migrated tests import from `src/ldsc/`.
+- Use `python -m pytest` as the primary test command.
 
 # Debugging
 

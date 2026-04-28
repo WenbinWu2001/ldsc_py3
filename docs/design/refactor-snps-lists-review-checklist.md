@@ -82,11 +82,16 @@ Each item targets a specific constraint that is easy to get wrong or to leave ha
 
 ## 7. Output files (`outputs.py`, `ldscore_calculator.py`)
 
-- [ ] `ldsc ldscore` writes `<out_prefix>.<chrom>.l2.ldscore.gz` — per-chromosome only; no aggregate output mode.
-- [ ] The per-chromosome file contains a `regr_weight` column. No `.w.l2.ldscore.gz` is written.
-- [ ] `.M` and `.M_5_50` counts are accumulated over `ld_reference_snps` — the count loop does not use `ld_regression_snps` rows.
-- [ ] Output-mode selection switches (`per_chr_output`, `aggregate_output`, or equivalent flags) are removed, not silently defaulted.
-- [ ] `outputs.py` reads from `ldscore_table` directly, not from split tables.
+- [ ] `ldsc ldscore` writes a canonical result directory with fixed files:
+  `manifest.json`, `baseline.parquet`, and optional `query.parquet`.
+- [ ] `baseline.parquet` contains the embedded `regr_weight` column. No
+  `.w.l2.ldscore.gz` file is written by the public workflow.
+- [ ] Count records are accumulated over `ld_reference_snps` and stored in
+  `manifest.json`; the count loop does not use `ld_regression_snps` rows.
+- [ ] Prefix/output-mode selection switches (`out_prefix`, `per_chr_output`,
+  `aggregate_output`, or equivalent flags) are removed from public outputs.
+- [ ] `outputs.py` reads from split `baseline_table` and `query_table` result
+  tables, not from the retired generic artifact pipeline.
 
 ---
 

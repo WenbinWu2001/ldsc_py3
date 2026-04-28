@@ -259,15 +259,15 @@ flowchart LR
 
   I1 --> D1 --> D2 --> D3 --> D5 --> D6 --> D4
   I2 --> D2
-  D4 --> O4[.sumstats.gz + .log]
+  D4 --> O4[sumstats.sumstats.gz + sumstats.log]
 ```
 
 ### Outputs
 
 | File | Example | Notes |
 | --- | --- | --- |
-| curated sumstats | `SNP A1 A2 Z N`<br/>`rs1 A G 1.96 1000` | written as `<out>.sumstats.gz`; optional `FRQ` may also be present |
-| log file | plain-text QC log | written as `<out>.log` |
+| curated sumstats | `SNP A1 A2 Z N`<br/>`rs1 A G 1.96 1000` | written as `sumstats.sumstats.gz` under `output_dir`; optional `FRQ` may also be present |
+| log file | plain-text QC log | written as `sumstats.log` under `output_dir` |
 
 ### Modules used
 

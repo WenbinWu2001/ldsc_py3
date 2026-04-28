@@ -192,8 +192,8 @@ When `None`, the workflow uses the full reference panel `A`.
 
 - The restriction is loaded once into the `regression_snps` set `C`.
 - LD scores and count totals are still computed over `ld_reference_snps = B ∩ A'`.
-- Only the normalized/public rows are reduced to `ld_regression_snps = B ∩ A' ∩ C`.
-- There is no separate `.w.l2.ldscore.gz` artifact in the new format; the selected rows keep their regression weights in the embedded `regr_weight` column.
+- Only the persisted LD-score rows are reduced to `ld_regression_snps = B ∩ A' ∩ C`.
+- There is no separate public weight artifact; the selected baseline rows keep their regression weights in the embedded `regr_weight` column of `baseline.parquet`.
 
 When `None`, the normalized/public row table uses all of `ld_reference_snps`.
 
@@ -227,8 +227,8 @@ ldscore = ldsc.LDScoreCalculator().run(
 
 - Materialized query `.annot.gz` files and in-memory `AnnotationBundle` objects stay on the annotation universe `B`.
 - `ref_panel_snps_path` becomes visible only during LD-score calculation, when the workflow aligns `B_chrom` to `ref_panel.load_metadata(chrom)`.
-- `.M` and `.M_5_50` are accumulated over `ld_reference_snps = B ∩ A'`.
-- Normalized/public `.l2.ldscore.gz` rows and `LDScoreResult.ldscore_table` rows are `ld_regression_snps = B ∩ A' ∩ C`.
+- Count records are accumulated over `ld_reference_snps = B ∩ A'` and stored in `manifest.json`.
+- Public `baseline.parquet` and optional `query.parquet` rows are `ld_regression_snps = B ∩ A' ∩ C`.
 
 ### Migration Notes
 
@@ -238,8 +238,8 @@ Stop passing these controls to `GlobalConfig()`:
 - move regression row restriction to `LDScoreConfig(regression_snps_path=...)` or `run_ldscore(...)`
 
 The old `--regression-snps` and `--print-snps` behavior is unified under
-`--regression-snps-path`. There is no longer a separate default `.w.l2.ldscore.gz`
-output artifact.
+`--regression-snps-path`. LD-score outputs are fixed files under `output_dir`;
+legacy `.l2.*` and `.w.l2.*` filenames are not emitted by the public writer.
 
 ---
 

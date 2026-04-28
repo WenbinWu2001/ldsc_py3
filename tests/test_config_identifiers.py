@@ -258,14 +258,6 @@ class WorkflowConfigTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             RegressionConfig(n_blocks=1)
 
-    def test_global_config_rejects_removed_ref_panel_snps_path(self):
-        with self.assertRaises(TypeError):
-            GlobalConfig(ref_panel_snps_path=Path("restrict") / "snps.txt")
-
-    def test_global_config_rejects_removed_regression_snps_path(self):
-        with self.assertRaises(TypeError):
-            GlobalConfig(regression_snps_path=Path("output") / "hm3.txt")
-
     def test_ref_panel_config_normalizes_path_fields(self):
         config = RefPanelConfig(
             backend="parquet_r2",

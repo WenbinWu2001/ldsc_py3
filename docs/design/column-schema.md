@@ -59,11 +59,10 @@ truth for any computation or validation.
 
 ### On-disk dtypes (parquet only)
 
-Float columns are narrowed to `float32` immediately before any `to_parquet`
-write. This halves the storage footprint for float data with no meaningful
-precision loss. Text-based formats (`.annot.gz`, `.sumstats.gz`) are unaffected
-— their size is governed by the number of decimal digits printed, not numpy
-dtype.
+Float columns are narrowed to `float32` immediately before parquet writes. This
+halves the storage footprint for float data with no meaningful precision loss.
+Text-based formats (`.annot.gz`, `.sumstats.gz`) are unaffected -- their size is
+governed by the number of decimal digits printed, not numpy dtype.
 
 | Parquet artifact | Columns cast to `float32` on write | Columns kept as-is |
 | --- | --- | --- |
@@ -76,7 +75,9 @@ narrowing.
 
 The casting is applied by a narrow helper (`_cast_parquet_floats`) called at the
 write site in `outputs.py`. It selects all `float64` columns and recasts them;
-no column names need to be listed explicitly.
+no column names need to be listed explicitly. LD-score output parquet files are
+also written with one row group per chromosome, and the row-group layout is
+recorded in `manifest.json`.
 
 ### Why `object` dtype for strings?
 pandas has no native string dtype in the numpy layer. `str` columns are stored as
@@ -144,5 +145,6 @@ The following locations must be kept consistent with this document.
 | `src/ldsc/column_inference.py` — `INTERNAL_ANNOT_ARTIFACT_SPECS` | Already correct: `CHR, POS, SNP, CM, MAF` |
 | `src/ldsc/_kernel/ldscore.py` — `ANNOT_META_COLUMNS` | `("CHR", "POS", "SNP", "CM", "MAF")` |
 | `src/ldsc/_kernel/ldscore.py` — explicit reorder list (line ~1904) | `["CHR", "POS", "SNP", "CM", "MAF"]` |
+| `src/ldsc/outputs.py` — `_write_chromosome_aligned_parquet` | One row group per `CHR` in `baseline.parquet` and `query.parquet` |
 | `src/ldsc/outputs.py` — `required_baseline` / `required_query` validation lists | `["CHR", "POS", "SNP", ...]` |
 | Docstrings in `ldscore.py` referencing `CHR, SNP, POS` | Update to `CHR, POS, SNP` |

@@ -71,6 +71,50 @@ def make_split_ldscore_result(query: bool = True) -> LDScoreResult:
     )
 
 
+def make_multi_chrom_result(chromosomes: list[str] | None = None) -> LDScoreResult:
+    """Three-chromosome result for row-group layout tests."""
+    if chromosomes is None:
+        chromosomes = ["1", "2", "22"]
+    rows_per_chrom = {"1": 3, "2": 2, "22": 1}
+    baseline_rows = []
+    query_rows = []
+    snp_idx = 1
+    for chrom in chromosomes:
+        n = rows_per_chrom.get(chrom, 2)
+        for i in range(n):
+            baseline_rows.append(
+                {
+                    "CHR": chrom,
+                    "SNP": f"rs{snp_idx}",
+                    "POS": (i + 1) * 100,
+                    "regr_weight": 1.0,
+                    "base": float(snp_idx),
+                }
+            )
+            query_rows.append(
+                {
+                    "CHR": chrom,
+                    "SNP": f"rs{snp_idx}",
+                    "POS": (i + 1) * 100,
+                    "query": float(snp_idx) * 0.5,
+                }
+            )
+            snp_idx += 1
+    baseline_table = pd.DataFrame(baseline_rows)
+    query_table = pd.DataFrame(query_rows)
+    return LDScoreResult(
+        baseline_table=baseline_table,
+        query_table=query_table,
+        count_records=[],
+        baseline_columns=["base"],
+        query_columns=["query"],
+        ld_reference_snps=frozenset(),
+        ld_regression_snps=frozenset(),
+        chromosome_results=[],
+        config_snapshot=GlobalConfig(genome_build="hg38", snp_identifier="rsid"),
+    )
+
+
 class LDScoreDirectoryWriterTest(unittest.TestCase):
     def test_outputs_module_does_not_expose_prefix_based_artifact_pipeline(self):
         import ldsc.outputs as outputs
@@ -113,6 +157,70 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
             query = pd.read_parquet(output_dir / "query.parquet")
             self.assertEqual(baseline.columns.tolist(), ["CHR", "SNP", "POS", "regr_weight", "base"])
             self.assertEqual(query.columns.tolist(), ["CHR", "SNP", "POS", "query"])
+
+    def test_one_row_group_per_chromosome(self):
+        import pyarrow.parquet as pq
+
+        result = make_multi_chrom_result()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "out"
+            LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=output_dir))
+
+            for fname in ("baseline.parquet", "query.parquet"):
+                pf = pq.ParquetFile(output_dir / fname)
+                self.assertEqual(pf.metadata.num_row_groups, 3, f"{fname}: expected 3 row groups")
+                for i in range(pf.metadata.num_row_groups):
+                    chroms = pf.read_row_group(i)["CHR"].unique().to_pylist()
+                    self.assertEqual(len(chroms), 1, f"{fname} row group {i} mixes chromosomes: {chroms}")
+
+    def test_chromosome_read_via_row_group_index_excludes_other_chromosomes(self):
+        import pyarrow.parquet as pq
+
+        result = make_multi_chrom_result()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "out"
+            LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=output_dir))
+
+            manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+            rg_by_chrom = {e["chrom"]: e["row_group_index"] for e in manifest["baseline_row_groups"]}
+
+            pf = pq.ParquetFile(output_dir / "baseline.parquet")
+            df = pf.read_row_group(rg_by_chrom["1"]).to_pandas()
+            self.assertTrue((df["CHR"] == "1").all())
+            self.assertNotIn("2", df["CHR"].values)
+            self.assertNotIn("22", df["CHR"].values)
+
+    def test_manifest_row_group_metadata_is_consistent(self):
+        result = make_multi_chrom_result()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "out"
+            LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=output_dir))
+
+            manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["row_group_layout"], "one_per_chromosome")
+
+            for field_name, total_field in [
+                ("baseline_row_groups", "n_baseline_rows"),
+                ("query_row_groups", "n_query_rows"),
+            ]:
+                entries = manifest[field_name]
+                self.assertIsNotNone(entries)
+                expected_offset = 0
+                for e in entries:
+                    self.assertEqual(e["row_offset"], expected_offset)
+                    expected_offset += e["n_rows"]
+                self.assertEqual(expected_offset, manifest[total_field])
+
+    def test_query_row_groups_null_when_no_query_table(self):
+        result = make_split_ldscore_result(query=False)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "out"
+            LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=output_dir))
+
+            manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+            self.assertIsNone(manifest["query_row_groups"])
+            self.assertIsNotNone(manifest["baseline_row_groups"])
+            self.assertEqual(len(manifest["baseline_row_groups"]), 1)
 
     def test_omits_query_parquet_for_baseline_only_result(self):
         result = make_split_ldscore_result(query=False)

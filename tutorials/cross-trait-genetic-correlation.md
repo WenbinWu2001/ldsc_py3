@@ -10,6 +10,9 @@ The regression step expects:
 - one canonical LD-score result directory containing `manifest.json` and `baseline.parquet`
 
 Use the same `GlobalConfig` assumptions for both traits and the LD-score reference. For cross-trait rg, the LD scores should usually be the baseline, non-cell-specific LD scores used for single-trait h2.
+Current LD-score directories keep `baseline.parquet` as one flat file with
+chromosome-aligned row groups listed in `manifest.json`; regression reads the
+full table, while inspection code can use the row-group metadata.
 
 Output directories are literal destinations. Missing directories are created,
 existing directories are reused, and existing fixed files such as

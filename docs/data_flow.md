@@ -180,6 +180,10 @@ flowchart LR
 The canonical LD-score writer preflights `manifest.json`, `baseline.parquet`,
 and optional `query.parquet` before writing any of them. Use `--overwrite` or
 `LDScoreOutputConfig(overwrite=True)` only for intentional reruns.
+The parquet payloads remain single flat files, but each row group contains rows
+from exactly one chromosome. The manifest records the row-group layout and
+per-chromosome offsets so readers can load one chromosome without scanning the
+whole table.
 
 For ordinary unpartitioned LD scores, callers may omit both baseline and query
 inputs. The workflow then creates a synthetic baseline annotation named exactly
@@ -234,9 +238,9 @@ flowchart LR
 
 | File | Example | Notes |
 | --- | --- | --- |
-| baseline LD-score table | `CHR SNP BP regr_weight base`<br/>`1 rs1 10 1.7 1.2` | `baseline.parquet` inside `output_dir` |
-| query LD-score table | `CHR SNP BP enhancer_A`<br/>`1 rs1 10 0.4` | `query.parquet` inside `output_dir`; omitted when no query annotations exist |
-| manifest | JSON metadata with files, columns, counts, chromosomes, and config | `manifest.json` inside `output_dir` |
+| baseline LD-score table | `CHR POS SNP regr_weight base`<br/>`1 10 rs1 1.7 1.2` | `baseline.parquet` inside `output_dir`; one row group per chromosome |
+| query LD-score table | `CHR POS SNP enhancer_A`<br/>`1 10 rs1 0.4` | `query.parquet` inside `output_dir`; one row group per chromosome; omitted when no query annotations exist |
+| manifest | JSON metadata with files, columns, counts, chromosomes, config, row counts, and row-group metadata | `manifest.json` inside `output_dir` |
 
 ### Modules used
 
@@ -313,7 +317,7 @@ the new table is written unless the command includes `--overwrite`.
 | File | Example | Notes |
 | --- | --- | --- |
 | munged sumstats | `SNP CHR POS A1 A2 Z N`<br/>`rs1 1 754182 A G 1.96 1000` | one file for `h2` and `partitioned-h2`, two files for `rg`; a neighboring `sumstats.metadata.json` recovers config provenance when present |
-| LD-score directory | `manifest.json`, `baseline.parquet`, optional `query.parquet` | produced by the LD-score workflow and supplied as `ldscore_dir`; legacy directories without manifest config provenance load with a warning |
+| LD-score directory | `manifest.json`, `baseline.parquet`, optional `query.parquet` | produced by the LD-score workflow and supplied as `ldscore_dir`; current parquet files have chromosome-aligned row groups; legacy directories without manifest config provenance load with a warning |
 
 ### Flow
 

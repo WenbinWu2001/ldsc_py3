@@ -109,7 +109,9 @@ When you set `regression_snps_file` during LD-score calculation, the same regres
 Because this is ordinary unpartitioned heritability, `run_ldscore(...)` does
 not need baseline annotations. With no baseline and no query inputs, it writes
 a synthetic all-ones baseline column named `base`; `h2` reads that directory
-through the same manifest path as any other LD-score result.
+through the same manifest path as any other LD-score result. The written
+`baseline.parquet` file is flat, but its row groups are chromosome-aligned and
+listed in `manifest.json` for chromosome-scoped inspection.
 
 ## CLI
 

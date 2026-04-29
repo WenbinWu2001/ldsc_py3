@@ -138,7 +138,9 @@ ldsc partitioned-h2 \
 
 The regression reads query annotation columns from
 `tutorial_outputs/cell_specific_ldscores/manifest.json` and
-`query.parquet`. The output file is
+`query.parquet`. The LD-score parquet files are flat files with
+chromosome-aligned row groups, and the manifest lists those row groups for
+targeted chromosome reads. The output file is
 `tutorial_outputs/cell_specific_ldsc/partitioned_h2.tsv`. Its key columns are
 `query_annotation`, `coefficient`, `coefficient_p`, `category_h2`,
 `proportion_h2`, and `enrichment`.

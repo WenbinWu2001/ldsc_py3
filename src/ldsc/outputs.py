@@ -3,9 +3,11 @@
 The public LD-score workflow writes one canonical result directory containing
 ``manifest.json``, ``baseline.parquet``, and optional ``query.parquet``. Run
 identity comes from the chosen directory name; output filenames inside that
-directory are fixed. The writer creates missing directories, reuses existing
-directories, and refuses existing canonical files unless the caller explicitly
-sets ``overwrite=True``.
+directory are fixed. The parquet payloads are written with one row group per
+chromosome and matching manifest metadata so downstream readers can load a
+single chromosome without scanning the whole table. The writer creates missing
+directories, reuses existing directories, and refuses existing canonical files
+unless the caller explicitly sets ``overwrite=True``.
 """
 
 from __future__ import annotations
@@ -18,15 +20,48 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 
+from ._row_alignment import assert_same_snp_rows
 from .config import _normalize_required_path
 from .path_resolution import ensure_output_directory, ensure_output_paths_available
-from ._row_alignment import assert_same_snp_rows
 
 
 def _cast_parquet_floats(df: pd.DataFrame) -> pd.DataFrame:
+    """Return a parquet-ready frame with float64 columns narrowed to float32."""
     float64_cols = [c for c in df.columns if df[c].dtype == np.float64]
     return df.astype({c: np.float32 for c in float64_cols}) if float64_cols else df
+
+
+def _write_chromosome_aligned_parquet(
+    df: pd.DataFrame, path: Path, compression: str | None
+) -> list[dict]:
+    """Write one parquet row group per chromosome and return manifest metadata.
+
+    The input frame must contain a ``CHR`` column and is assumed to already be
+    sorted by genomic position. ``groupby(sort=False)`` preserves that order,
+    giving row groups whose offsets match the public row order in the written
+    table. Float columns are narrowed through ``_cast_parquet_floats`` before
+    schema construction.
+    """
+    df = _cast_parquet_floats(df)
+    schema = pa.Schema.from_pandas(df, preserve_index=False)
+    row_group_meta: list[dict] = []
+    offset = 0
+    with pq.ParquetWriter(path, schema, compression=compression) as writer:
+        for chrom, chrom_df in df.groupby("CHR", sort=False):
+            writer.write_table(pa.Table.from_pandas(chrom_df, preserve_index=False))
+            row_group_meta.append(
+                {
+                    "chrom": str(chrom),
+                    "row_group_index": len(row_group_meta),
+                    "row_offset": offset,
+                    "n_rows": len(chrom_df),
+                }
+            )
+            offset += len(chrom_df)
+    return row_group_meta
 
 
 LDSCORE_RESULT_FORMAT = "ldsc.ldscore_result.v1"
@@ -67,14 +102,22 @@ class LDScoreOutputConfig:
 
 
 class LDScoreDirectoryWriter:
-    """Write the canonical LD-score result directory with collision preflight."""
+    """Write canonical LD-score result directories.
+
+    The writer owns the fixed files ``manifest.json``, ``baseline.parquet``,
+    and optional ``query.parquet``. Parquet files are flat files for backward
+    compatibility, but their internal row groups are chromosome-aligned and
+    described in the manifest.
+    """
 
     def write(self, result: Any, output_config: LDScoreOutputConfig) -> dict[str, str]:
         """Write ``manifest.json``, ``baseline.parquet``, and optional ``query.parquet``.
 
         Existing canonical files are checked before any output file is written.
         Replacement requires ``output_config.overwrite=True``; unrelated files
-        in the directory are ignored.
+        in the directory are ignored. The returned paths map includes
+        ``"baseline"``, ``"manifest"``, and ``"query"`` when query annotations
+        were supplied.
         """
         output_dir = ensure_output_directory(output_config.output_dir, label="LD-score output directory")
         baseline_table = getattr(result, "baseline_table", None)
@@ -96,23 +139,33 @@ class LDScoreDirectoryWriter:
         )
 
         compression = None if output_config.parquet_compression in {None, "none"} else output_config.parquet_compression
-        _cast_parquet_floats(baseline_table).to_parquet(
-            paths["baseline"], index=False, compression=compression
-        )
+        baseline_rg = _write_chromosome_aligned_parquet(baseline_table, paths["baseline"], compression)
+        query_rg = None
         if query_table is not None:
-            _cast_parquet_floats(query_table).to_parquet(
-                paths["query"], index=False, compression=compression
-            )
-        manifest = self.build_manifest(result, files={name: path.name for name, path in paths.items() if name != "manifest"})
+            query_rg = _write_chromosome_aligned_parquet(query_table, paths["query"], compression)
+        manifest = self.build_manifest(
+            result,
+            files={name: path.name for name, path in paths.items() if name != "manifest"},
+            baseline_rg=baseline_rg,
+            query_rg=query_rg,
+        )
         paths["manifest"].write_text(json.dumps(_to_serializable(manifest), indent=2, sort_keys=True), encoding="utf-8")
         return {name: str(path) for name, path in paths.items()}
 
-    def build_manifest(self, result: Any, files: dict[str, str]) -> dict[str, Any]:
+    def build_manifest(
+        self,
+        result: Any,
+        files: dict[str, str],
+        baseline_rg: list[dict] | None = None,
+        query_rg: list[dict] | None = None,
+    ) -> dict[str, Any]:
         """Build the JSON manifest payload for one LD-score result.
 
         The manifest always includes ``count_config`` so downstream regression
         code can report the common-SNP count threshold even when MAF metadata is
-        unavailable and per-column common counts are omitted.
+        unavailable and per-column common counts are omitted. Row-group metadata
+        records the chromosome, row-group index, row offset, and row count for
+        each chromosome-aligned parquet row group.
         """
         baseline_table = getattr(result, "baseline_table")
         query_table = getattr(result, "query_table", None)
@@ -131,6 +184,9 @@ class LDScoreDirectoryWriter:
             "config_snapshot": config_snapshot,
             "n_baseline_rows": int(len(baseline_table)),
             "n_query_rows": 0 if query_table is None else int(len(query_table)),
+            "row_group_layout": "one_per_chromosome",
+            "baseline_row_groups": baseline_rg or [],
+            "query_row_groups": query_rg,
         }
 
     def _validate_tables(self, result: Any) -> None:

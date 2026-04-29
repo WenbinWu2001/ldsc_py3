@@ -54,7 +54,7 @@ Removed flags: `--bed-files`, `--baseline-annot`.
 
 | Flag | Direction | Required | Object | Notes |
 |---|---:|---:|---|---|
-| `--output-dir` | output | yes | canonical LD-score result directory | Writes `manifest.json`, `baseline.parquet`, and optional `query.parquet`. |
+| `--output-dir` | output | yes | canonical LD-score result directory | Writes `manifest.json`, `baseline.parquet`, and optional `query.parquet`; parquet row groups are chromosome-aligned. |
 | `--baseline-annot-sources` | input | no | baseline annotation files | Exact files, globs, comma lists, or `@` suites. If omitted with no query inputs, `ldscore` synthesizes an all-ones `base` column from retained reference-panel metadata. |
 | `--query-annot-sources` | input | no | prebuilt query annotation files | Mutually exclusive with `--query-annot-bed-sources`; requires `--baseline-annot-sources`. |
 | `--query-annot-bed-sources` | input | no | query BED interval files | Projected in memory onto the baseline SNP universe; requires `--baseline-annot-sources`. |
@@ -74,14 +74,15 @@ Removed flags: `--bfile`, `--r2-table`, `--frqfile`, `--keep`, `--maf`,
 
 LD-score output schema:
 
-- `baseline.parquet`: `CHR`, `SNP`, `BP`, `regr_weight`, then baseline
+- `baseline.parquet`: `CHR`, `POS`, `SNP`, `regr_weight`, then baseline
   LD-score columns. In no-annotation unpartitioned runs, the baseline column
   list is exactly `base`.
-- `query.parquet`: `CHR`, `SNP`, `BP`, then query LD-score columns; omitted
+- `query.parquet`: `CHR`, `POS`, `SNP`, then query LD-score columns; omitted
   when there are no query annotations.
 - `manifest.json`: format version, relative file paths, baseline/query column
   names, count records, `count_config`, config metadata, chromosomes, row
-  counts, and writer metadata.
+  counts, `row_group_layout`, `baseline_row_groups`, `query_row_groups`, and
+  writer metadata.
 
 ### `ldsc build-ref-panel`
 

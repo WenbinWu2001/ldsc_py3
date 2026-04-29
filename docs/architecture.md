@@ -100,10 +100,13 @@ This module rebuilds an `LDScoreResult` from on-disk artifacts, merges it with m
 
 This is the canonical LD-score result-directory writer. It owns fixed files
 inside `output_dir`: `manifest.json`, `baseline.parquet`, and optional
-`query.parquet`. It reuses existing directories but refuses existing canonical
-files unless `LDScoreOutputConfig(overwrite=True)` is supplied. Architecture
-invariant: public output customization chooses the directory name and explicit
-overwrite policy, not per-run filename prefixes.
+`query.parquet`. The parquet files stay flat for compatibility, but are written
+with one row group per chromosome; `manifest.json` records row-group layout and
+per-chromosome offsets for chromosome-scoped reads. It reuses existing
+directories but refuses existing canonical files unless
+`LDScoreOutputConfig(overwrite=True)` is supplied. Architecture invariant:
+public output customization chooses the directory name and explicit overwrite
+policy, not per-run filename prefixes.
 
 ### `ldsc._kernel.*`
 
@@ -113,7 +116,7 @@ The kernel layer contains the actual numerical methods and low-level readers. It
 
 - **Input token language**: public inputs accept exact paths, globs, `@` chromosome suites, and some legacy bare prefixes. Output paths are normalized but remain literal destinations.
 - **Column and identifier normalization**: `column_inference.py` is the single source of truth for raw-input aliases, including `#CHROM`/`CHROM` as `CHR`, internal artifact headers, SNP identifier modes, and genome-build aliases. `genome_build_inference.py` owns automatic hg19/hg38 and 0-based/1-based inference for `chr_pos` tables.
-- **Artifact compatibility**: Public downstream chaining uses `.annot.gz`, `.sumstats.gz` with optional `sumstats.metadata.json`, and canonical LD-score result directories. Legacy `.l2.ldscore(.gz)`, `.l2.M`, `.l2.M_5_50`, and separate `.w.l2.ldscore(.gz)` files remain internal/legacy file-format concerns, not the public LD-score writer contract.
+- **Artifact compatibility**: Public downstream chaining uses `.annot.gz`, `.sumstats.gz` with optional `sumstats.metadata.json`, and canonical LD-score result directories. LD-score parquet payloads are flat files with chromosome-aligned row groups, so full-file readers still work while chromosome-specific readers can skip unrelated row groups. Legacy `.l2.ldscore(.gz)`, `.l2.M`, `.l2.M_5_50`, and separate `.w.l2.ldscore(.gz)` files remain internal/legacy file-format concerns, not the public LD-score writer contract.
 - **Output collision handling**: output directories are literal destinations.
   Missing directories are created, existing directories are reused, and fixed
   output files are checked before writing. By default an existing artifact

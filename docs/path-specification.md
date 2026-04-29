@@ -226,13 +226,16 @@ Output:
 - `--output-dir` is a literal directory destination.
 - LD-score calculation writes `manifest.json`, `baseline.parquet`, and
   optional `query.parquet` inside that directory.
+- `baseline.parquet` and `query.parquet` remain flat parquet files, but each
+  row group contains exactly one chromosome. The manifest records
+  `row_group_layout`, `baseline_row_groups`, and `query_row_groups`.
 - Existing canonical LD-score files are refused before any of them are written
   unless `--overwrite` or `LDScoreOutputConfig(overwrite=True)` is supplied.
-- `baseline.parquet` contains `CHR`, `SNP`, `BP`, `regr_weight`, and baseline
+- `baseline.parquet` contains `CHR`, `POS`, `SNP`, `regr_weight`, and baseline
   LD-score columns. When both baseline and query inputs are omitted, the
   LD-score workflow writes a synthetic all-ones baseline column named `base`.
 - `query.parquet` is present only when query annotations were supplied and
-  contains `CHR`, `SNP`, `BP`, and query LD-score columns.
+  contains `CHR`, `POS`, `SNP`, and query LD-score columns.
 - Regression commands consume this directory via `--ldscore-dir`; users do not
   pass count vectors, weight files, or annotation manifests.
 

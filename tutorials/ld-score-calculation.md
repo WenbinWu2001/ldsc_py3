@@ -36,6 +36,8 @@ Important output behavior:
 
 - the in-memory result is one merged `LDScoreResult` with split `baseline_table` and optional `query_table`
 - `--output-dir` writes a canonical LD-score result directory containing `manifest.json`, `baseline.parquet`, and optional `query.parquet`
+- `baseline.parquet` and `query.parquet` are still single flat files, but each parquet row group contains exactly one chromosome
+- `manifest.json` records `row_group_layout`, `baseline_row_groups`, and `query_row_groups` for readers that want to load one chromosome by row-group index
 - regression weights live in the `regr_weight` column of `baseline.parquet`; there is no separate `.w.l2.ldscore.gz` output
 - annotation counts are stored as manifest records, not as separate `.M` files
 - if both baseline and query inputs are omitted, the workflow synthesizes an all-ones baseline column named exactly `base` over retained reference-panel metadata
@@ -74,7 +76,7 @@ result = run_ldscore(
 )
 
 print(result.baseline_columns)
-print(result.baseline_table.loc[:, ["CHR", "SNP", "BP", "regr_weight", "base"]].head())
+print(result.baseline_table.loc[:, ["CHR", "SNP", "POS", "regr_weight", "base"]].head())
 ```
 
 ### CLI
@@ -192,6 +194,39 @@ ldsc ldscore \
   --common-maf-min 0.05 \
   --ld-wind-cm 1.0
 ```
+
+## Optional: Read One Chromosome From A Result Directory
+
+Full-file readers such as `pd.read_parquet("baseline.parquet")` still work.
+For large outputs, use the manifest row-group metadata to read exactly one
+chromosome from `baseline.parquet` or `query.parquet`.
+
+```python
+import json
+from pathlib import Path
+
+import pyarrow.parquet as pq
+
+ldscore_dir = Path("tutorial_outputs/r2_ldscores")
+manifest = json.loads((ldscore_dir / "manifest.json").read_text())
+
+if manifest["row_group_layout"] != "one_per_chromosome":
+    raise ValueError(f"Unsupported row-group layout: {manifest['row_group_layout']!r}")
+
+baseline_rg_by_chrom = {
+    entry["chrom"]: entry["row_group_index"]
+    for entry in manifest["baseline_row_groups"]
+}
+
+pf = pq.ParquetFile(ldscore_dir / "baseline.parquet")
+baseline_chr22 = pf.read_row_group(baseline_rg_by_chrom["22"]).to_pandas()
+
+print(baseline_chr22["CHR"].unique())
+print(baseline_chr22.head())
+```
+
+If query annotations were supplied, `manifest["query_row_groups"]` has the same
+shape for `query.parquet`. It is `None` for baseline-only LD-score results.
 
 ## Optional: Materialize BED Projections for Reuse
 

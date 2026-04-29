@@ -196,7 +196,8 @@ ldsc annotate \
 
 The regression CLI consumes the LD-score result directory directly. It reads
 baseline columns from `baseline.parquet`, query columns from `query.parquet`,
-and counts from `manifest.json`.
+and counts from `manifest.json`. Both parquet files stay flat, but their row
+groups are chromosome-aligned and listed in the manifest for targeted reads.
 
 ```bash
 ldsc munge-sumstats \

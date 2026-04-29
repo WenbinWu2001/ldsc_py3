@@ -38,6 +38,7 @@ REFERENCE_RESOURCE_PATH = "data/hm3_chr_pos_reference.tsv.gz"
 
 __all__ = [
     "ChrPosBuildInference",
+    "GenomeBuildEvidenceAccumulator",
     "infer_chr_pos_build",
     "resolve_genome_build",
     "resolve_chr_pos_table",
@@ -182,6 +183,57 @@ def load_packaged_reference_table() -> pd.DataFrame:
     with resources.as_file(resource) as path:
         df = pd.read_csv(path, sep="\t", compression="gzip")
     return df.loc[:, ["CHR", "hg19_POS", "hg38_POS"]].copy()
+
+
+class GenomeBuildEvidenceAccumulator:
+    """Incremental HM3 match counter for adaptive genome-build sampling.
+
+    Feed normalized ``(CHR, POS)`` key iterables via :meth:`update`.
+    Call :meth:`is_sufficient` to check whether both the minimum-evidence and
+    dominance thresholds are met. Call :meth:`to_frame` to produce a
+    ``CHR``/``POS`` DataFrame suitable for :func:`infer_chr_pos_build`.
+    """
+
+    def __init__(self, reference_table: pd.DataFrame | None = None) -> None:
+        reference = load_packaged_reference_table() if reference_table is None else reference_table
+        self._hypothesis_sets = _build_hypothesis_sets(reference)
+        self._match_counts: dict[str, int] = {name: 0 for name, *_ in _HYPOTHESIS_ORDER}
+        self._seen: set[tuple[str, int]] = set()
+        self._informative: int = 0
+
+    def update(self, keys: Iterable[tuple[str, int]]) -> None:
+        """Incorporate new ``(CHR, POS)`` keys and update per-hypothesis counts."""
+        for key in keys:
+            if key in self._seen:
+                continue
+            self._seen.add(key)
+            matched = [name for name, values in self._hypothesis_sets.items() if key in values]
+            if len(matched) == 1:
+                self._informative += 1
+                self._match_counts[matched[0]] += 1
+
+    @property
+    def informative_count(self) -> int:
+        """Number of uniquely informative HM3 matches accumulated so far."""
+        return self._informative
+
+    def is_sufficient(self) -> bool:
+        """Return ``True`` when both inference thresholds are met.
+
+        Both :data:`MIN_INSPECTED_REFERENCE_SNPS` and
+        :data:`DOMINANCE_THRESHOLD` must be satisfied.
+        """
+        if self._informative < MIN_INSPECTED_REFERENCE_SNPS:
+            return False
+        best = max(self._match_counts.values(), default=0)
+        return (best / self._informative) >= DOMINANCE_THRESHOLD
+
+    def to_frame(self) -> pd.DataFrame:
+        """Return accumulated unique keys as a ``CHR``/``POS`` DataFrame."""
+        if not self._seen:
+            return pd.DataFrame(columns=["CHR", "POS"])
+        chroms, positions = zip(*self._seen)
+        return pd.DataFrame({"CHR": list(chroms), "POS": list(positions)})
 
 
 def resolve_chr_pos_table(

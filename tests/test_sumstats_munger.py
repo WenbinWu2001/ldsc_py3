@@ -167,6 +167,39 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(patched_resolve.call_args.args[0], "auto")
             self.assertEqual(patched_resolve.call_args.args[1], "chr_pos")
 
+    def test_main_chr_pos_auto_accepts_hash_chrom_header(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "#CHROM\tPOS\tID\tEA\tNEA\tBETA\tPVAL\tNCAS\tNCON\n"
+                "1\t100\trs1\tA\tG\t0.1\t0.05\t400\t600\n",
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(sumstats_workflow, "resolve_genome_build", return_value="hg19") as patched_resolve, mock.patch.object(
+                kernel_munge,
+                "munge_sumstats",
+                return_value=pd.DataFrame({"SNP": ["rs1"], "CHR": ["1"], "POS": [100], "Z": [1.0], "N": [1000]}),
+            ):
+                sumstats_workflow.main(
+                    [
+                        "--sumstats-path",
+                        str(raw_path),
+                        "--output-dir",
+                        str(tmpdir / "out"),
+                        "--snp-identifier",
+                        "chr_pos",
+                        "--genome-build",
+                        "auto",
+                    ]
+                )
+
+            sample = patched_resolve.call_args.args[2]
+            self.assertEqual(sample.columns.tolist(), ["CHR", "POS"])
+            self.assertEqual(sample.loc[0, "CHR"], "1")
+            self.assertEqual(sample.loc[0, "POS"], 100)
+
     def test_run_creates_output_dir(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)

@@ -36,7 +36,7 @@ from .column_inference import (
     resolve_required_column,
 )
 from .config import GlobalConfig, MungeConfig, get_global_config
-from .genome_build_inference import resolve_genome_build
+from .genome_build_inference import GenomeBuildEvidenceAccumulator, resolve_genome_build
 from .path_resolution import ensure_output_directory, ensure_output_paths_available, resolve_scalar_path
 from ._kernel import sumstats_munger as kernel_munge
 
@@ -469,17 +469,44 @@ def _resolve_main_global_config(args: argparse.Namespace) -> GlobalConfig:
     return GlobalConfig(snp_identifier="chr_pos", genome_build=genome_build)
 
 
+_INFERENCE_CHUNK_SIZE = 25_000
+_INFERENCE_MAX_ROWS = 1_000_000
+
+
 def _sample_raw_sumstats_chr_pos(path: str) -> pd.DataFrame:
-    aliases = {"CHR", "CHROM", "CHROMOSOME", "POS", "BP", "POSITION", "BASE_PAIR", "BASEPAIR"}
-    frame = pd.read_csv(
+    """Read CHR/POS rows adaptively until both inference thresholds are met."""
+    header = kernel_munge.read_header(path)
+    chr_col, pos_col = infer_chr_pos_columns(header, context=path)
+    skiprows = kernel_munge.count_leading_sumstats_comment_lines(path)
+    scorer = GenomeBuildEvidenceAccumulator()
+
+    rows_read = 0
+    reader = pd.read_csv(
         path,
-        sep="\t",
+        sep=r"\s+",
         compression="infer",
-        nrows=5000,
-        usecols=lambda column: str(column).upper() in aliases,
+        usecols=[chr_col, pos_col],
+        skiprows=skiprows,
+        chunksize=_INFERENCE_CHUNK_SIZE,
     )
-    chr_col, pos_col = infer_chr_pos_columns(frame.columns, context=path)
-    return frame.loc[:, [chr_col, pos_col]].rename(columns={chr_col: "CHR", pos_col: "POS"})
+    for chunk in reader:
+        pos_numeric = pd.to_numeric(chunk[pos_col], errors="coerce")
+        valid = chunk[chr_col].notna() & pos_numeric.notna() & (pos_numeric >= 0)
+        scorer.update(
+            (str(chrom), int(pos))
+            for chrom, pos in zip(chunk.loc[valid, chr_col], pos_numeric.loc[valid].astype("int64"))
+        )
+        rows_read += len(chunk)
+        if scorer.is_sufficient() or rows_read >= _INFERENCE_MAX_ROWS:
+            break
+
+    if rows_read >= _INFERENCE_MAX_ROWS and not scorer.is_sufficient():
+        LOGGER.info(
+            f"Genome-build inference sampled {rows_read:,} rows and found "
+            f"{scorer.informative_count} informative HM3 matches. "
+            "If inference fails, pass --genome-build hg19 or --genome-build hg38 explicitly."
+        )
+    return scorer.to_frame()
 
 
 def kernel_parser():

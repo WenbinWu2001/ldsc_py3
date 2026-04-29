@@ -1,6 +1,21 @@
 from setuptools import find_packages, setup
 
 
+INSTALL_REQUIRES = [
+    "bitarray>=3.0,<4",
+    "scipy>=1.15,<1.18",
+    "numpy>=2.1,<2.5",
+    "pandas>=2.3,<3.0",
+    "pyarrow>=21,<24",
+    "pybedtools>=0.12,<0.13",
+    "pyliftover>=0.4.1,<0.5",
+]
+
+TEST_REQUIRES = [
+    "pytest>=8,<10",
+]
+
+
 setup(
     name="ldsc",
     version="2.0b",
@@ -18,12 +33,9 @@ setup(
             "ldsc=ldsc.cli:run_cli",
         ]
     },
-    install_requires=[
-        "bitarray>=3.0,<4",
-        "scipy>=1.15,<1.18",
-        "numpy>=2.1,<2.5",
-        "pandas>=2.3,<3.0",
-        "pyarrow>=21,<24",
-        "pyliftover>=0.4.1,<0.5",
-    ],
+    python_requires=">=3.11,<3.14",
+    install_requires=INSTALL_REQUIRES,
+    extras_require={
+        "test": TEST_REQUIRES,
+    },
 )

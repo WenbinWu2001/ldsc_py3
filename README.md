@@ -18,7 +18,7 @@ One-time setup before running this package or the result-consistency pipelines:
 cd /path/to/ldsc_py3_Jerry_workspace/ldsc_py3_restructured
 conda env create -f environment.yml
 conda activate ldsc3
-python -m pip install -e .
+python -m pip install -e ".[test]"
 ```
 
 For later runs, activate the environment before launching commands or scripts:
@@ -26,6 +26,12 @@ For later runs, activate the environment before launching commands or scripts:
 ```bash
 conda activate ldsc3
 ```
+
+The package supports Python 3.11 through 3.13. `pybedtools` is installed as a
+Python dependency; BED-based annotation projection also requires the external
+`bedtools` executable, which `environment.yml` installs from conda-forge. For
+non-conda installs, make sure `bedtools` is available on `PATH` before running
+BED annotation workflows.
 
 ## CLI
 

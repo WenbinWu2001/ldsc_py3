@@ -1,0 +1,154 @@
+# Cell-Specific LDSC
+
+Goal: estimate cell-specific enrichment by running partitioned LDSC with one query annotation per cell type.
+
+In this package, cell-specific LDSC is the `partitioned-h2` workflow applied to cell-type annotations. Baseline annotations stay in the model as covariates, and each cell-type query column is tested in a baseline-plus-one-query model through `RegressionRunner.estimate_partitioned_h2_batch()`.
+
+Cell-type query annotations require explicit baseline annotations. The
+synthetic all-ones `base` annotation is reserved for ordinary unpartitioned
+LD-score generation when no query inputs are present.
+
+The examples below assume chromosome-pattern inputs such as `baseline.@.annot.gz`, `cell_type_beds/*.bed`, `reference.@.parquet`, and `reference_metadata.@.tsv.gz`.
+
+Output directories are literal destinations. Missing directories are created,
+existing directories are reused, and existing fixed files are refused before
+writing unless you pass `--overwrite` or `overwrite=True`.
+
+For `chr_pos` workflows, `genome_build="auto"` can infer hg19/hg38 and
+0-based/1-based coordinates during annotation or LD-score loading. The same
+logic is public in Python as `infer_chr_pos_build()` and
+`resolve_chr_pos_table()` from `ldsc`; the CLI keeps it under workflow flags such
+as `--genome-build auto` rather than a separate command.
+
+## Python API
+
+```python
+from ldsc import (
+    AnnotationBuildConfig,
+    AnnotationBuilder,
+    GlobalConfig,
+    LDScoreCalculator,
+    LDScoreConfig,
+    LDScoreOutputConfig,
+    RefPanelLoader,
+    RefPanelConfig,
+    RegressionConfig,
+    RegressionRunner,
+    load_sumstats,
+    set_global_config,
+)
+
+GLOBAL_CONFIG = GlobalConfig(
+    snp_identifier="chr_pos",
+    genome_build="hg19",
+)
+set_global_config(GLOBAL_CONFIG)
+
+annotation_bundle = AnnotationBuilder(GLOBAL_CONFIG, AnnotationBuildConfig()).run(
+    AnnotationBuildConfig(
+        baseline_annot_sources="annotations/baseline_chr/baseline.@.annot.gz",
+        query_annot_bed_sources="annotations/cell_type_beds/*.bed",
+    )
+)
+
+ref_panel = RefPanelLoader(GLOBAL_CONFIG).load(
+    RefPanelConfig(
+        backend="parquet_r2",
+        r2_sources="r2/reference.@.parquet",
+        metadata_sources="r2/reference_metadata.@.tsv.gz",
+        chromosomes=tuple(annotation_bundle.chromosomes),
+        genome_build="hg19",
+        r2_bias_mode="unbiased",
+        ref_panel_snps_file="filters/reference_universe.tsv.gz",
+    )
+)
+
+ldscore_result = LDScoreCalculator().run(
+    annotation_bundle=annotation_bundle,
+    ref_panel=ref_panel,
+    ldscore_config=LDScoreConfig(
+        ld_wind_cm=1.0,
+        regression_snps_file="filters/hapmap3.tsv.gz",
+    ),
+    global_config=GLOBAL_CONFIG,
+    output_config=LDScoreOutputConfig(
+        output_dir="tutorial_outputs/cell_specific_ldscores",
+        # overwrite=True,  # enable only when intentionally replacing LD-score outputs
+    ),
+)
+
+# Current disk-loaded sumstats recover config_snapshot from
+# sumstats.metadata.json. Older artifacts without that sidecar warn and use
+# config_snapshot=None.
+sumstats = load_sumstats("tutorial_outputs/trait/sumstats.sumstats.gz", trait_name="trait")
+
+runner = RegressionRunner(
+    global_config=GLOBAL_CONFIG,
+    regression_config=RegressionConfig(),
+)
+cell_specific = runner.estimate_partitioned_h2_batch(
+    sumstats,
+    ldscore_result,
+    annotation_bundle,
+)
+
+cell_specific.to_csv("tutorial_outputs/cell_specific_ldsc.tsv", sep="\t", index=False)
+print(annotation_bundle.query_columns)
+print(cell_specific)
+```
+
+`annotation_bundle.query_columns` are derived from the query annotation files. For BED inputs, the column names come from the BED basenames after normalization.
+
+The LD-score result and annotation bundle retain known `GlobalConfig`
+snapshots. Current disk-loaded sumstats recover the same provenance from
+`sumstats.metadata.json`. If an older sumstats artifact lacks that sidecar,
+regression treats the sumstats provenance as unknown. With `snp_identifier="chr_pos"`,
+the merge uses normalized `CHR:POS` coordinates rather than rsIDs.
+
+## CLI
+
+First compute baseline-plus-cell-type LD scores. This can project BED files directly without materializing intermediate query `.annot.gz` files:
+
+```bash
+ldsc ldscore \
+  --output-dir tutorial_outputs/cell_specific_ldscores \
+  --baseline-annot-sources "annotations/baseline_chr/baseline.@.annot.gz" \
+  --query-annot-bed-sources "annotations/cell_type_beds/*.bed" \
+  --r2-sources "r2/reference.@.parquet" \
+  --metadata-sources "r2/reference_metadata.@.tsv.gz" \
+  --r2-bias-mode unbiased \
+  --ref-panel-snps-file filters/reference_universe.tsv.gz \
+  --regression-snps-file filters/hapmap3.tsv.gz \
+  --snp-identifier chr_pos \
+  --genome-build hg19 \
+  --common-maf-min 0.05 \
+  --ld-wind-cm 1.0
+```
+
+Then run partitioned h2 over the cell-type query columns:
+
+```bash
+ldsc partitioned-h2 \
+  --sumstats-file tutorial_outputs/trait/sumstats.sumstats.gz \
+  --trait-name trait \
+  --ldscore-dir tutorial_outputs/cell_specific_ldscores \
+  --count-kind common \
+  --output-dir tutorial_outputs/cell_specific_ldsc \
+  --write-per-query-results
+```
+
+The regression reads query annotation columns from
+`tutorial_outputs/cell_specific_ldscores/manifest.json` and
+`query.parquet`. The LD-score parquet files are flat files with
+chromosome-aligned row groups, and the manifest lists those row groups for
+targeted chromosome reads. The output file is
+`tutorial_outputs/cell_specific_ldsc/partitioned_h2.tsv`. Its key columns are
+`query_annotation`, `coefficient`, `coefficient_p`, `category_h2`,
+`proportion_h2`, and `enrichment`.
+With `--write-per-query-results`, the command also writes
+`tutorial_outputs/cell_specific_ldsc/query_annotations/manifest.tsv` and one
+sanitized folder per cell-type query annotation. Each folder contains the
+one-row query summary, the baseline-plus-query `model_categories.tsv`, and
+`metadata.json` with the original annotation name.
+If the partitioned summary already exists, `ldsc partitioned-h2` fails before
+writing; add `--overwrite` only when replacing it is intentional.

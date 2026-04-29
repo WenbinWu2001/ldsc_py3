@@ -1,11 +1,19 @@
-name: ldsc-py3-Jerry
+name: ldsc3
 channels:
+- conda-forge
 - bioconda
 dependencies:
-- python=3.11
-- bitarray=2.9
+- python>=3.11,<3.14
+- bedtools>=2.31,<3
 - pip
+- setuptools
+- wheel
 - pip:
-  - scipy==1.11
-  - pandas==2.0
-  - numpy==1.24
+  - bitarray>=3.0,<4
+  - scipy>=1.15,<1.18
+  - pandas>=2.3,<3.0
+  - numpy>=2.1,<2.5
+  - pyarrow>=21,<24
+  - pybedtools>=0.12,<0.13
+  - pyliftover>=0.4.1,<0.5
+  - pytest>=8,<10

@@ -189,9 +189,9 @@ behavior.
 - code repo: `/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured`
 - public package: `src/ldsc`
 - internal kernel: `src/ldsc/_kernel`
-- active architecture docs: `docs/architecture.md`, `docs/class-and-features.md`,
-  `docs/code_structure.md`, `docs/data_flow.md`, `docs/layer-structure.md`
-- detailed design docs: `docs/design/`
+- active architecture docs: `docs/current/architecture.md`, `docs/current/class-and-features.md`,
+  `docs/current/code_structure.md`, `docs/current/data_flow.md`, `docs/current/layer-structure.md`
+- detailed design docs: `docs/current/`
 - tutorials: `tutorials/`
 - prior plans: `PLANS.md`
 - tests: `tests/`

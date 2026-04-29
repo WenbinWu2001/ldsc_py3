@@ -83,6 +83,19 @@ class Logger(object):
         self.log_fh.flush()
         LOGGER.info(msg)
 
+    def error(self, msg):
+        """Write one error message to the log file without duplicating CLI errors."""
+        print(msg, file=self.log_fh)
+        self.log_fh.flush()
+        LOGGER.debug(msg)
+
+    def warning(self, msg):
+        """Write one warning message to the log file and package logger."""
+        text = 'WARNING: ' + msg
+        print(text, file=self.log_fh)
+        self.log_fh.flush()
+        LOGGER.warning(msg)
+
     def close(self):
         """Close the backing log file handle."""
         self.log_fh.close()
@@ -417,13 +430,30 @@ def filter_sumstats_snps(dat, log, args):
         logger=_CoordinateInferenceLogger(log),
     )
     keys = _sumstats_snp_keys(dat, mode)
-    keep = keys.astype('string').isin(restriction)
     old = len(dat)
+    usable = int(keys.notna().sum())
+    build_label = genome_build if mode == 'chr_pos' else 'not used'
+    log.log(
+        f"Applying --sumstats-snps-file keep-list from {snps_path} "
+        f"using snp_identifier={mode}, genome_build={build_label}; "
+        f"read {len(restriction)} keep-list identifiers and found {usable}/{old} usable row identifiers."
+    )
+    keep = keys.astype('string').isin(restriction)
     out = dat.loc[keep].reset_index(drop=True)
     removed = old - len(out)
-    log.log('Removed {N} SNPs not in --sumstats-snps-file ({M} SNPs remain).'.format(N=removed, M=len(out)))
+    log.log(
+        f"Removed {removed} SNPs not in --sumstats-snps-file "
+        f"({len(out)} SNPs remain; source={snps_path})."
+    )
     if len(out) == 0:
-        raise ValueError('After applying --sumstats-snps-file, no SNPs remain.')
+        raise ValueError(
+            "After applying --sumstats-snps-file, no SNPs remain. "
+            f"Keep-list file: {snps_path}. "
+            f"snp_identifier={mode}; genome_build={build_label}; "
+            f"input rows before filtering={old}; usable row identifiers={usable}; "
+            f"keep-list identifiers={len(restriction)}. "
+            "Check that the keep-list uses the same identifier mode and genome build as the munged sumstats."
+        )
     return out
 
 
@@ -513,10 +543,11 @@ def parse_flag_cnames(log, args):
         try:
             flag_cnames.update(
                 {clean_header(x): 'INFO' for x in args.info_list.split(',')})
-        except ValueError:
-            log.log(
-                'The argument to --info-list should be a comma-separated list of column names.')
-            raise
+        except ValueError as exc:
+            raise ValueError(
+                f"Invalid --info-list value {args.info_list!r}. "
+                "Expected a comma-separated list of INFO column names, for example 'INFO,INFO_SCORE'."
+            ) from exc
 
     null_value = None
     if args.signed_sumstats:
@@ -524,10 +555,11 @@ def parse_flag_cnames(log, args):
             cname, null_value = args.signed_sumstats.split(',')
             null_value = float(null_value)
             flag_cnames[clean_header(cname)] = 'SIGNED_SUMSTAT'
-        except ValueError:
-            log.log(
-                'The argument to --signed-sumstats should be column header comma number.')
-            raise
+        except ValueError as exc:
+            raise ValueError(
+                f"Invalid --signed-sumstats value {args.signed_sumstats!r}. "
+                "Expected '<column>,<null_value>', for example 'BETA,0' or 'OR,1'."
+            ) from exc
 
     return [flag_cnames, null_value]
 
@@ -570,7 +602,10 @@ class _CoordinateInferenceLogger:
 
     def warning(self, msg, *args):
         text = msg % args if args else msg
-        self.log.log('WARNING: ' + text)
+        if hasattr(self.log, 'warning'):
+            self.log.warning(text)
+        else:
+            self.log.log('WARNING: ' + text)
 
 
 def _coordinate_missing_mask(series):
@@ -908,11 +943,11 @@ def munge_sumstats(args, p=True):
 
         if args.merge_alleles:
             log.log(
-                'Reading list of SNPs for allele merge from {F}'.format(F=args.merge_alleles))
+                f"Reading list of SNPs for legacy allele merge from {args.merge_alleles}.")
             merge_alleles = _read_merge_alleles(args.merge_alleles)
 
             log.log(
-                'Read {N} SNPs for allele merge.'.format(N=len(merge_alleles)))
+                f"Read {len(merge_alleles)} SNPs for legacy allele merge.")
             merge_alleles['MA'] = (
                 merge_alleles.A1 + merge_alleles.A2).apply(lambda y: y.upper())
             merge_alleles.drop(
@@ -983,7 +1018,7 @@ def munge_sumstats(args, p=True):
         return dat
 
     except Exception as exc:
-        log.log(f"\nERROR converting summary statistics: {exc}\n")
+        log.error(f"\nERROR converting summary statistics: {exc}\n")
         raise
     finally:
         log.log('\nConversion finished at {T}'.format(T=time.ctime()))

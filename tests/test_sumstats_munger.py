@@ -37,6 +37,13 @@ class SumstatsMungerTest(unittest.TestCase):
         parser = sumstats_workflow.build_parser()
         self.assertEqual(parser.get_default("chunksize"), 1_000_000)
 
+    def test_kernel_reports_actionable_signed_sumstats_format_error(self):
+        args = kernel_munge.parser.parse_args(["--signed-sumstats", "BETA"])
+        log = mock.Mock(log=mock.Mock())
+
+        with self.assertRaisesRegex(ValueError, "Invalid --signed-sumstats value 'BETA'.*BETA,0"):
+            kernel_munge.parse_flag_cnames(log, args)
+
     def test_kernel_p_to_z_matches_legacy_direction_convention(self):
         z = kernel_munge.p_to_z(pd.Series([0.1, 0.1, 0.1]), pd.Series([1, 2, 3]))
         np.testing.assert_allclose(np.asarray(z), [1.644854, 1.644854, 1.644854], atol=1e-5)
@@ -374,6 +381,10 @@ class SumstatsMungerTest(unittest.TestCase):
             )
 
             self.assertEqual(table.data["SNP"].tolist(), ["rs1", "rs3"])
+            log_text = (tmpdir / "munged" / "sumstats.log").read_text(encoding="utf-8")
+            self.assertIn("Applying --sumstats-snps-file keep-list", log_text)
+            self.assertIn("snp_identifier=rsid", log_text)
+            self.assertIn("read 2 keep-list identifiers", log_text)
 
     def test_run_restricts_sumstats_snps_file_by_chr_pos(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -396,6 +407,28 @@ class SumstatsMungerTest(unittest.TestCase):
 
             self.assertEqual(table.data["SNP"].tolist(), ["rs2"])
             self.assertEqual(table.data["POS"].tolist(), [200])
+
+    def test_run_reports_context_when_sumstats_snps_file_removes_everything(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "SNP A1 A2 P BETA N\n"
+                "rs1 A G 0.05 0.1 1000\n",
+                encoding="utf-8",
+            )
+            keep_path = tmpdir / "keep.tsv"
+            keep_path.write_text("SNP\nrs2\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "Keep-list file: .*snp_identifier=rsid.*keep-list identifiers=1",
+            ):
+                SumstatsMunger().run(
+                    MungeConfig(sumstats_file=raw_path, trait_name="trait"),
+                    MungeConfig(output_dir=tmpdir / "munged", sumstats_snps_file=keep_path),
+                    GlobalConfig(snp_identifier="rsid"),
+                )
 
     def test_run_restricts_sumstats_snps_file_by_build_specific_chr_pos_column(self):
         with tempfile.TemporaryDirectory() as tmpdir:

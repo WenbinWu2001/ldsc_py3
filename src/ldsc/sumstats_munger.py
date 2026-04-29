@@ -282,9 +282,16 @@ class SumstatsMunger:
         output_dir = ensure_output_directory(munge_config.output_dir, label="output directory")
         fixed_output_stem = str(output_dir / "sumstats")
         metadata_path = fixed_output_stem + ".metadata.json"
+        sumstats_snps_label = (
+            "none"
+            if munge_config.sumstats_snps_file is None
+            else str(munge_config.sumstats_snps_file)
+        )
         LOGGER.info(
             f"Munging summary statistics from '{source_path}' into '{output_dir}' "
-            f"with snp_identifier='{config_snapshot.snp_identifier}' and genome_build='{config_snapshot.genome_build}'."
+            f"with snp_identifier='{config_snapshot.snp_identifier}', "
+            f"genome_build='{config_snapshot.genome_build}', "
+            f"sumstats_snps_file='{sumstats_snps_label}'."
         )
         ensure_output_paths_available(
             [fixed_output_stem + ".sumstats.gz", fixed_output_stem + ".log", metadata_path],
@@ -420,7 +427,6 @@ def main(argv: list[str] | None = None):
     output_dir = ensure_output_directory(args.output_dir, label="output directory")
     args.out = str(output_dir / "sumstats")
     metadata_path = args.out + ".metadata.json"
-    LOGGER.info(f"Starting munge-sumstats for '{args.sumstats}' into '{output_dir}'.")
     ensure_output_paths_available(
         [args.out + ".sumstats.gz", args.out + ".log", metadata_path],
         overwrite=getattr(args, "overwrite", False),
@@ -432,6 +438,13 @@ def main(argv: list[str] | None = None):
     else:
         args.sumstats_snps = None
     config_snapshot = _resolve_main_global_config(args)
+    sumstats_snps_label = "none" if args.sumstats_snps is None else args.sumstats_snps
+    LOGGER.info(
+        f"Starting munge-sumstats for '{args.sumstats}' into '{output_dir}' "
+        f"with snp_identifier='{config_snapshot.snp_identifier}', "
+        f"genome_build='{config_snapshot.genome_build}', "
+        f"sumstats_snps_file='{sumstats_snps_label}'."
+    )
     data = kernel_munge.munge_sumstats(args, p=True)
     coordinate_metadata = dict(getattr(args, "_coordinate_metadata", {}))
     config_snapshot = _effective_sumstats_config(config_snapshot, coordinate_metadata)

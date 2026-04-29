@@ -12,10 +12,16 @@ This repository is the active refactored LDSC package.
 
 ## Install
 
+Download the package from GitHub:
+
+```bash
+git clone https://github.com/WenbinWu2001/ldsc_py3.git
+cd ldsc_py3
+```
+
 One-time setup before running this package or the result-consistency pipelines:
 
 ```bash
-cd /path/to/ldsc_py3_Jerry_workspace/ldsc_py3_restructured
 conda env create -f environment.yml
 conda activate ldsc3
 python -m pip install -e ".[test]"

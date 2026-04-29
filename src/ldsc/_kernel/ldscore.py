@@ -2037,7 +2037,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ld-wind-cm", default=None, type=float, help="LD window size in centiMorgans.")
     parser.add_argument("--maf-min", default=None, type=float, help="Optional MAF filter for retained SNPs when MAF is available.")
     parser.add_argument("--common-maf-min", default=0.05, type=float, help="MAF threshold used only for common-SNP annotation count vectors.")
-    parser.add_argument("--chunk-size", default=50, type=int, help="Chunk size for legacy PLINK block computations.")
+    parser.add_argument("--chunk-size", default=128, type=int, help="Chunk size for legacy PLINK block computations.")
     parser.add_argument("--per-chr-output", default=False, action="store_true", help="Emit per-chromosome outputs instead of an aggregated output.")
     parser.add_argument("--yes-really", default=False, action="store_true", help="Allow whole-chromosome LD windows.")
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"), help="Logging verbosity.")
@@ -2119,7 +2119,7 @@ def run_ldscore(
     ld_wind_cm: float | None = None,
     maf_min: float | None = None,
     common_maf_min: float = 0.05,
-    chunk_size: int = 50,
+    chunk_size: int = 128,
     per_chr_output: bool = False,
     yes_really: bool = False,
     log_level: str = "INFO",

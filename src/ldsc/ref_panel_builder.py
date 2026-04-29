@@ -617,7 +617,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ref-panel-snps-file", default=None, help="Optional SNP restriction file defining the retained reference-panel universe.")
     parser.add_argument("--snp-identifier", default=None, choices=("rsid", "chr_pos"), help="SNP identifier mode for --ref-panel-snps-file.")
     parser.add_argument("--keep-indivs-file", default=None, help="Optional individual-keep file.")
-    parser.add_argument("--chunk-size", default=50, type=int, help="Chunk size for block processing.")
+    parser.add_argument("--chunk-size", default=128, type=int, help="Chunk size for block processing.")
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"))
     return parser
 

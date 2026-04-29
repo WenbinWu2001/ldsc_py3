@@ -602,7 +602,7 @@ parser.add_argument('--merge-alleles', default=None, type=str,
                     "and all alleles will be matched to the --merge-alleles file alleles.")
 parser.add_argument('--n-min', default=None, type=float,
                     help='Minimum N (sample size). Default is (90th percentile N) / 2.')
-parser.add_argument('--chunksize', default=5e6, type=int,
+parser.add_argument('--chunksize', default=1_000_000, type=int,
                     help='Chunksize.')
 
 # optional args to specify column names

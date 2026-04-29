@@ -188,7 +188,7 @@ Exactly one of the following must be set:
 
 - `--chunk-size`
   Plain-English meaning: block size used by the sliding LD writer.
-  Optional: yes; default is `50`.
+  Optional: yes; default is `128`.
   Recommended usage: keep the default unless you are tuning memory and throughput on a large machine.
 
 - `--log-level`

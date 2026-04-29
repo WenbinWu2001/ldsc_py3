@@ -286,6 +286,10 @@ class LDScoreWorkflowTest(unittest.TestCase):
         )
         self.assertEqual(args.query_annot_bed_sources, "query.bed")
 
+    def test_build_parser_defaults_chunk_size_to_128(self):
+        parser = ldscore_workflow.build_parser()
+        self.assertEqual(parser.get_default("chunk_size"), 128)
+
     def test_build_parser_rejects_query_annot_and_query_annot_bed_together(self):
         parser = ldscore_workflow.build_parser()
         with self.assertRaises(SystemExit):

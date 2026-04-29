@@ -33,6 +33,10 @@ except ImportError:
 
 @unittest.skipIf(SumstatsMunger is None, "sumstats_munger module is not available")
 class SumstatsMungerTest(unittest.TestCase):
+    def test_build_parser_defaults_chunksize_to_one_million_rows(self):
+        parser = sumstats_workflow.build_parser()
+        self.assertEqual(parser.get_default("chunksize"), 1_000_000)
+
     def test_kernel_p_to_z_matches_legacy_direction_convention(self):
         z = kernel_munge.p_to_z(pd.Series([0.1, 0.1, 0.1]), pd.Series([1, 2, 3]))
         np.testing.assert_allclose(np.asarray(z), [1.644854, 1.644854, 1.644854], atol=1e-5)

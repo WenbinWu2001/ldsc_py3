@@ -178,6 +178,7 @@ class WorkflowConfigTest(unittest.TestCase):
     def test_ldscore_config_requires_one_window(self):
         config = LDScoreConfig(ld_wind_cm=1.0)
         self.assertEqual(config.ld_wind_cm, 1.0)
+        self.assertEqual(config.chunk_size, 128)
         self.assertEqual(config.common_maf_min, 0.05)
         with self.assertRaises(ValueError):
             LDScoreConfig()
@@ -216,6 +217,7 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertEqual(config.genetic_map_hg38_sources, "maps/hg38.txt")
         self.assertEqual(config.liftover_chain_hg38_to_hg19_file, "liftover/hg38ToHg19.over.chain")
         self.assertEqual(config.output_dir, "out")
+        self.assertEqual(config.chunk_size, 128)
         self.assertTrue(config.overwrite)
 
         with self.assertRaisesRegex(ValueError, "ld_wind_cm"):
@@ -276,7 +278,7 @@ class WorkflowConfigTest(unittest.TestCase):
         config = MungeConfig(output_dir="out")
         self.assertEqual(config.info_min, 0.9)
         self.assertEqual(config.maf_min, 0.01)
-        self.assertEqual(config.chunk_size, int(5e6))
+        self.assertEqual(config.chunk_size, 1_000_000)
         self.assertFalse(config.overwrite)
 
     def test_munge_config_normalizes_pathlike_fields(self):

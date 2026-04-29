@@ -12,8 +12,19 @@ This repository is the active refactored LDSC package.
 
 ## Install
 
+One-time setup before running this package or the result-consistency pipelines:
+
 ```bash
-pip install -e .
+cd /path/to/ldsc_py3_Jerry_workspace/ldsc_py3_restructured
+conda env create -f environment.yml
+conda activate ldsc3
+python -m pip install -e .
+```
+
+For later runs, activate the environment before launching commands or scripts:
+
+```bash
+conda activate ldsc3
 ```
 
 ## CLI

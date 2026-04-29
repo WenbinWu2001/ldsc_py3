@@ -329,7 +329,7 @@ class LDScoreConfig:
         are present, the aligned ``query.parquet`` row set. Default is
         ``None``.
     chunk_size : int, optional
-        Chunk size for legacy PLINK block computations. Default is ``50``.
+        Chunk size for legacy PLINK block computations. Default is ``128``.
     common_maf_min : float, optional
         Inclusive MAF threshold used only for common-SNP count vectors
         (``MAF >= common_maf_min``). It does not change retained reference
@@ -343,7 +343,7 @@ class LDScoreConfig:
     ld_wind_kb: float | None = None
     ld_wind_cm: float | None = None
     regression_snps_file: str | PathLike[str] | None = None
-    chunk_size: int = 50
+    chunk_size: int = 128
     common_maf_min: float = 0.05
     whole_chromosome_ok: bool = False
 
@@ -411,7 +411,7 @@ class ReferencePanelBuildConfig:
         Optional individual keep-file applied before LD calculation. Default is
         ``None``.
     chunk_size : int, optional
-        Block size used while computing pairwise LD. Default is ``50``.
+        Block size used while computing pairwise LD. Default is ``128``.
     overwrite : bool, optional
         If ``True``, replace existing fixed output files. If ``False``, output
         collisions raise before chromosome processing starts. Default is
@@ -431,7 +431,7 @@ class ReferencePanelBuildConfig:
     maf_min: float | None = None
     ref_panel_snps_file: str | PathLike[str] | None = None
     keep_indivs_file: str | PathLike[str] | None = None
-    chunk_size: int = 50
+    chunk_size: int = 128
     overwrite: bool = False
 
     def __post_init__(self) -> None:
@@ -501,7 +501,7 @@ class MungeConfig:
         Optional row filters for sample size and study count. Defaults are
         ``None``.
     chunk_size : int, optional
-        Number of input rows processed per chunk. Default is ``5e6``.
+        Number of input rows processed per chunk. Default is ``1_000_000``.
     merge_alleles_file : str or os.PathLike[str] or None, optional
         Optional allele-merge file path. Default is ``None``.
     signed_sumstats_spec : str or None, optional
@@ -528,7 +528,7 @@ class MungeConfig:
     maf_min: float = 0.01
     n_min: float | None = None
     nstudy_min: float | None = None
-    chunk_size: int = int(5e6)
+    chunk_size: int = 1_000_000
     merge_alleles_file: str | PathLike[str] | None = None
     signed_sumstats_spec: str | None = None
     ignore_columns: tuple[str, ...] = field(default_factory=tuple)

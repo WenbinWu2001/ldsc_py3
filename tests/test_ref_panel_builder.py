@@ -620,6 +620,10 @@ class ReferencePanelBuildConfigOptionalLiftoverTest(unittest.TestCase):
 
 
 class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
+    def test_build_parser_defaults_chunk_size_to_128(self):
+        parser = ref_panel_builder.build_parser()
+        self.assertEqual(parser.get_default("chunk_size"), 128)
+
     def test_config_from_args_requires_snp_identifier_for_restriction_file(self):
         parser = ref_panel_builder.build_parser()
         args = parser.parse_args(

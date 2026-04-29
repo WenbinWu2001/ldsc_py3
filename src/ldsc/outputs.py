@@ -24,6 +24,11 @@ from .path_resolution import ensure_output_directory, ensure_output_paths_availa
 from ._row_alignment import assert_same_snp_rows
 
 
+def _cast_parquet_floats(df: pd.DataFrame) -> pd.DataFrame:
+    float64_cols = [c for c in df.columns if df[c].dtype == np.float64]
+    return df.astype({c: np.float32 for c in float64_cols}) if float64_cols else df
+
+
 LDSCORE_RESULT_FORMAT = "ldsc.ldscore_result.v1"
 DEFAULT_COUNT_CONFIG = {
     "common_reference_snp_maf_min": 0.05,
@@ -91,9 +96,13 @@ class LDScoreDirectoryWriter:
         )
 
         compression = None if output_config.parquet_compression in {None, "none"} else output_config.parquet_compression
-        baseline_table.to_parquet(paths["baseline"], index=False, compression=compression)
+        _cast_parquet_floats(baseline_table).to_parquet(
+            paths["baseline"], index=False, compression=compression
+        )
         if query_table is not None:
-            query_table.to_parquet(paths["query"], index=False, compression=compression)
+            _cast_parquet_floats(query_table).to_parquet(
+                paths["query"], index=False, compression=compression
+            )
         manifest = self.build_manifest(result, files={name: path.name for name, path in paths.items() if name != "manifest"})
         paths["manifest"].write_text(json.dumps(_to_serializable(manifest), indent=2, sort_keys=True), encoding="utf-8")
         return {name: str(path) for name, path in paths.items()}
@@ -130,7 +139,7 @@ class LDScoreDirectoryWriter:
         query_table = getattr(result, "query_table", None)
         baseline_columns = list(getattr(result, "baseline_columns", []))
         query_columns = list(getattr(result, "query_columns", []))
-        required_baseline = ["CHR", "SNP", "POS", "regr_weight", *baseline_columns]
+        required_baseline = ["CHR", "POS", "SNP", "regr_weight", *baseline_columns]
         missing = [column for column in required_baseline if column not in baseline_table.columns]
         if missing:
             raise ValueError(f"baseline_table is missing required columns: {missing}")
@@ -140,7 +149,7 @@ class LDScoreDirectoryWriter:
             raise ValueError("query_table was provided but query_columns is empty.")
         if query_table is None:
             return
-        required_query = ["CHR", "SNP", "POS", *query_columns]
+        required_query = ["CHR", "POS", "SNP", *query_columns]
         missing = [column for column in required_query if column not in query_table.columns]
         if missing:
             raise ValueError(f"query_table is missing required columns: {missing}")

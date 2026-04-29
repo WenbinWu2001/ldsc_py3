@@ -599,6 +599,9 @@ def write_dataframe_to_parquet(df: pd.DataFrame, path: str | PathLike[str]) -> s
     """Write one generic DataFrame to parquet without LDSC format guarantees."""
 
     _ensure_parent_dir(path)
+    if "R2" in df.columns:
+        df = df.copy()
+        df["R2"] = df["R2"].astype(np.float32)
     try:
         df.to_parquet(path, index=False)
     except ImportError as exc:

@@ -177,9 +177,9 @@ RESTRICTION_HG38_POS_SPEC = ColumnSpec("POS", tuple(f"{build}_{pos}" for build i
 
 # Strict internal artifact families.
 INTERNAL_SUMSTATS_ARTIFACT_SPECS = (
-    _canonical_only_spec("SNP", "munged sumstats SNP identifier"),
     _canonical_only_spec("CHR", "munged sumstats chromosome"),
     _canonical_only_spec("POS", "munged sumstats position"),
+    _canonical_only_spec("SNP", "munged sumstats SNP identifier"),
     _canonical_only_spec("N", "munged sumstats sample size"),
     _canonical_only_spec("Z", "munged sumstats Z-score"),
     _canonical_only_spec("A1", "munged sumstats allele 1"),
@@ -203,8 +203,8 @@ INTERNAL_ANNOT_ARTIFACT_SPEC_MAP = {
 
 INTERNAL_LDSCORE_ARTIFACT_SPECS = (
     _canonical_only_spec("CHR", "internal LD-score chromosome"),
-    _canonical_only_spec("SNP", "internal LD-score SNP identifier"),
     _canonical_only_spec("POS", "internal LD-score position"),
+    _canonical_only_spec("SNP", "internal LD-score SNP identifier"),
     _canonical_only_spec("CM", "internal LD-score centiMorgan"),
     _canonical_only_spec("MAF", "internal LD-score minor-allele frequency"),
 )

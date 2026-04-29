@@ -64,9 +64,9 @@ materialize legacy prefix-based files for compatibility tests, but the public
 canonical directory:
 
 - ``manifest.json``
-- ``baseline.parquet``, containing ``CHR``, ``SNP``, ``POS``, ``regr_weight``,
+- ``baseline.parquet``, containing ``CHR``, ``POS``, ``SNP``, ``regr_weight``,
   and baseline LD-score columns
-- optional ``query.parquet``, containing ``CHR``, ``SNP``, ``POS``, and query
+- optional ``query.parquet``, containing ``CHR``, ``POS``, ``SNP``, and query
   LD-score columns
 
 Count records are stored in the manifest rather than as public ``.M`` sidecar
@@ -235,7 +235,7 @@ except ImportError:  # pragma: no cover - optional dependency
 
 LOGGER = logging.getLogger("LDSC.ldscore")
 REQUIRED_ANNOT_COLUMNS = ("CHR", "POS", "SNP", "CM")
-ANNOT_META_COLUMNS = ("CHR", "SNP", "POS", "CM", "MAF")
+ANNOT_META_COLUMNS = ("CHR", "POS", "SNP", "CM", "MAF")
 CHROM_ALIASES = CHR_COLUMN_ALIASES
 POS_ALIASES = POS_COLUMN_ALIASES
 SNP_ALIASES = SNP_COLUMN_ALIASES
@@ -1901,7 +1901,7 @@ def weight_result_to_dataframe(result: ChromComputationResult) -> pd.DataFrame:
 def write_ldscore_file(df: pd.DataFrame, path: str) -> None:
     """Write one LDSC-compatible LD-score table, preserving metadata columns first."""
     out = df.copy()
-    out = out.loc[:, [col for col in ["CHR", "SNP", "POS", "CM", "MAF"] if col in out.columns] + [col for col in out.columns if col not in ANNOT_META_COLUMNS]]
+    out = out.loc[:, [col for col in ["CHR", "POS", "SNP", "CM", "MAF"] if col in out.columns] + [col for col in out.columns if col not in ANNOT_META_COLUMNS]]
     with gzip.open(path, "wt") as handle:
         out.to_csv(handle, sep="\t", index=False, na_rep="NA", float_format="%.6g")
 

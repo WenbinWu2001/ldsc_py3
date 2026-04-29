@@ -296,7 +296,6 @@ def _process_baseline_file(
     baseline_path: Path,
     bed_paths: Sequence[Path],
     output_dir: Path,
-    batch: bool,
     restrict_resource: _RestrictResource | None,
     tempdir: Path,
 ) -> None:
@@ -317,12 +316,11 @@ def _process_baseline_file(
         )
         baseline_bed = pybedtools.BedTool(str(baseline_bed_path))
 
-    if batch:
-        annotation_names = [path.stem for path in bed_paths]
-        masks = []
-        for bed_path in bed_paths:
-            overlap_mask = _compute_bed_overlap_mask(rows, baseline_bed, bed_path)
-            masks.append(overlap_mask)          # no _combine_masks needed
+    annotation_names = [path.stem for path in bed_paths]
+    masks = []
+    for bed_path in bed_paths:
+        overlap_mask = _compute_bed_overlap_mask(rows, baseline_bed, bed_path)
+        masks.append(overlap_mask)          # no _combine_masks needed
         output_name = _query_output_name(baseline_path)
         _write_annot_file(output_dir / output_name, rows, annotation_names, masks)
     else:

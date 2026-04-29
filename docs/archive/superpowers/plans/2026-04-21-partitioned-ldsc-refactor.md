@@ -785,15 +785,13 @@ def project_bed_annotations(
     bed_files: str | PathLike[str] | Sequence[str | PathLike[str]],
     baseline_annot_sources: str | PathLike[str] | Sequence[str | PathLike[str]],
     output_dir: str | Path | None = None,
-    batch: bool | None = None,
     log_level: str | None = None,
 ) -> "AnnotationBundle":
     """Convert BED annotations into an in-memory AnnotationBundle.
 
     If ``output_dir`` is provided, also writes per-chromosome
     ``query.<chrom>.annot.gz`` files containing the projected annotation
-    columns. The ``batch`` parameter is retained for backward compatibility
-    but is ignored (all BED columns are combined in a single file per chromosome).
+    columns. All BED inputs are combined in a single file per chromosome.
     """
     _configure_logging(log_level or self.global_config.log_level)
     source_spec = AnnotationBuildConfig(
@@ -814,7 +812,6 @@ def run_bed_to_annot(
     bed_files: str | PathLike[str] | Sequence[str | PathLike[str]],
     baseline_annot_sources: str | PathLike[str] | Sequence[str | PathLike[str]],
     output_dir: str | Path | None = None,
-    batch: bool = True,
 ) -> "AnnotationBundle":
     """Build an in-memory AnnotationBundle from BED files and baseline annotations.
 
@@ -826,7 +823,6 @@ def run_bed_to_annot(
         bed_files=bed_files,
         baseline_annot_sources=baseline_annot_sources,
         output_dir=output_dir,
-        batch=batch,
         global_config=get_global_config(),
         entrypoint="run_bed_to_annot",
     )
@@ -837,17 +833,15 @@ def _run_bed_to_annot_with_global_config(
     baseline_annot_sources,
     output_dir,
     *,
-    batch: bool,
     global_config: GlobalConfig,
     entrypoint: str,
 ) -> "AnnotationBundle":
     print_global_config_banner(entrypoint, global_config)
-    build_config = AnnotationBuildConfig(query_bed_paths=bed_files, batch_mode=batch)
+    build_config = AnnotationBuildConfig(query_bed_paths=bed_files)
     return AnnotationBuilder(global_config, build_config).project_bed_annotations(
         bed_files=bed_files,
         baseline_annot_sources=baseline_annot_sources,
         output_dir=output_dir,
-        batch=batch,
         log_level=global_config.log_level,
     )
 ```

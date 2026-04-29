@@ -52,7 +52,7 @@ import tempfile
 from dataclasses import dataclass, field
 from os import PathLike
 from pathlib import Path
-from typing import Iterator, Sequence
+from typing import Sequence
 
 import numpy as np
 import pandas as pd
@@ -62,8 +62,6 @@ from ..column_inference import (
     ANNOTATION_METADATA_SPEC_MAP,
     CHR_COLUMN_SPEC,
     CM_COLUMN_SPEC,
-    RESTRICTION_CHRPOS_SPEC_MAP,
-    RESTRICTION_RSID_SPEC_MAP,
     POS_COLUMN_SPEC,
     SNP_COLUMN_SPEC,
     normalize_genome_build,
@@ -94,13 +92,11 @@ from .._row_alignment import assert_same_snp_rows
 from .identifiers import (
     build_snp_id_series,
     normalize_snp_identifier_mode,
-    read_global_snp_restriction,
     validate_unique_snp_ids,
 )
 
 
 LOGGER = logging.getLogger("LDSC.annotation")
-REQUIRED_ANNOT_COLUMNS = ("CHR", "POS", "SNP", "CM")
 
 
 @dataclass(frozen=True)
@@ -172,14 +168,6 @@ class _BaselineRow:
     pos: int
     snp: str
     cm: str
-
-
-@dataclass(frozen=True)
-class _RestrictResource:
-    """Normalized representation of a reference-universe SNP filter input."""
-    mode: str
-    bed_path: Path | None = None
-    snp_ids: frozenset[str] | None = None
 
 
 class AnnotationBuilder:
@@ -519,7 +507,6 @@ class AnnotationBuilder:
         query_annot_bed_sources: str | PathLike[str] | Sequence[str | PathLike[str]],
         baseline_annot_sources: str | PathLike[str] | Sequence[str | PathLike[str]],
         output_dir: str | Path | None = None,
-        batch: bool | None = None,
         log_level: str | None = None,
         overwrite: bool | None = None,
     ) -> AnnotationBundle:
@@ -528,18 +515,16 @@ class AnnotationBuilder:
 
         When ``output_dir`` is provided, the projected query annotations are
         also written as per-chromosome ``query.<chrom>.annot.gz`` files. The
-        ``batch`` argument is retained for compatibility but no longer changes
-        behavior: all BED inputs become query columns on one bundle. This
-        annotation-side projection does not apply any reference-panel SNP
-        restriction; those filters are applied later when the reference panel
-        is loaded for LD-score computation.
+        output is always combined: all BED inputs become query columns on one
+        bundle. This annotation-side projection does not apply any
+        reference-panel SNP restriction; those filters are applied later when
+        the reference panel is loaded for LD-score computation.
 
         Existing ``query.<chrom>.annot.gz`` files are checked after the bundle
         is assembled and before any shard is written. Replacement requires the
         ``overwrite`` argument, or ``AnnotationBuildConfig(overwrite=True)``
         when ``overwrite`` is left as ``None``.
         """
-        _ = self.build_config.batch_mode if batch is None else batch
         overwrite = self.build_config.overwrite if overwrite is None else overwrite
         _configure_logging(log_level or self.global_config.log_level)
         source_spec = AnnotationBuildConfig(
@@ -628,7 +613,6 @@ def run_bed_to_annot(
     query_annot_bed_sources: str | PathLike[str] | Sequence[str | PathLike[str]],
     baseline_annot_sources: str | PathLike[str] | Sequence[str | PathLike[str]],
     output_dir: str | Path | None = None,
-    batch: bool = True,
     overwrite: bool = False,
 ) -> AnnotationBundle:
     """
@@ -647,7 +631,6 @@ def run_bed_to_annot(
         query_annot_bed_sources=query_annot_bed_sources,
         baseline_annot_sources=baseline_annot_sources,
         output_dir=output_dir,
-        batch=batch,
         overwrite=overwrite,
         global_config=get_global_config(),
         entrypoint="run_bed_to_annot",
@@ -659,19 +642,17 @@ def _run_bed_to_annot_with_global_config(
     baseline_annot_sources: str | PathLike[str] | Sequence[str | PathLike[str]],
     output_dir: str | Path | None,
     *,
-    batch: bool,
     overwrite: bool,
     global_config: GlobalConfig,
     entrypoint: str,
 ) -> AnnotationBundle:
     """Run BED-to-annotation projection with an explicit resolved GlobalConfig."""
     print_global_config_banner(entrypoint, global_config)
-    build_config = AnnotationBuildConfig(query_annot_bed_sources=query_annot_bed_sources, batch_mode=batch)
+    build_config = AnnotationBuildConfig(query_annot_bed_sources=query_annot_bed_sources)
     return AnnotationBuilder(global_config, build_config).project_bed_annotations(
         query_annot_bed_sources=query_annot_bed_sources,
         baseline_annot_sources=baseline_annot_sources,
         output_dir=output_dir,
-        batch=batch,
         log_level=global_config.log_level,
         overwrite=overwrite,
     )
@@ -700,13 +681,6 @@ def parse_bed_to_annot_args(argv: Sequence[str] | None = None) -> argparse.Names
             "from data. Not used when --snp-identifier rsid."
         ),
     )
-    parser.add_argument(
-        "--no-batch",
-        dest="batch",
-        action="store_false",
-        default=True,
-        help="Compatibility flag retained for legacy scripts; current output is always combined.",
-    )
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"), help="Logging verbosity.")
     return parser.parse_args(argv)
 
@@ -725,7 +699,6 @@ def main_bed_to_annot(argv: Sequence[str] | None = None) -> int:
         query_annot_bed_sources=split_cli_path_tokens(args.query_annot_bed_sources),
         baseline_annot_sources=split_cli_path_tokens(args.baseline_annot_sources),
         output_dir=args.output_dir,
-        batch=args.batch,
         overwrite=args.overwrite,
         global_config=cli_global_config,
         entrypoint="main_bed_to_annot",
@@ -812,102 +785,6 @@ def _split_delimited_line(line: str, delimiter: str | None) -> list[str]:
     return re.split(r"\s+", line.strip())
 
 
-def _detect_delimiter(path: Path) -> str | None:
-    """Infer the delimiter used by a BED or tabular text file."""
-    if path.name.lower().endswith(".csv") or path.name.lower().endswith(".csv.gz"):
-        return ","
-    opener = gzip.open if path.suffix.lower() == ".gz" else open
-    with opener(path, "rt") as handle:
-        for line in handle:
-            stripped = line.strip()
-            if not stripped or stripped.startswith("#"):
-                continue
-            if "\t" in line:
-                return "\t"
-            if "," in line:
-                return ","
-            return None
-    raise ValueError(f"{path} does not contain any readable data rows.")
-
-
-def _iter_text_lines(path: Path) -> Iterator[str]:
-    """Yield non-empty, non-comment text lines from a plain or gzipped file."""
-    opener = gzip.open if path.suffix.lower() == ".gz" else open
-    with opener(path, "rt") as handle:
-        for line in handle:
-            stripped = line.strip()
-            if stripped and not stripped.startswith("#"):
-                yield line.rstrip("\n")
-
-
-def _infer_column_index(header: Sequence[str], spec, path: Path) -> int:
-    """Infer the index of a named column family from a parsed header row."""
-    column = resolve_required_column(header, spec, context=str(path))
-    return list(header).index(column)
-
-
-def _list_baseline_annots(baseline_dir: Path) -> list[Path]:
-    """List baseline annotation template files available in one directory."""
-    paths = sorted(
-        path
-        for path in baseline_dir.iterdir()
-        if path.is_file() and (path.name.endswith(".annot") or path.name.endswith(".annot.gz"))
-    )
-    if not paths:
-        raise ValueError(f"No .annot or .annot.gz files found in {baseline_dir}")
-    return paths
-
-
-def _read_baseline_annot(path: Path) -> list[_BaselineRow]:
-    """Read the baseline SNP template rows from one ``.annot`` or ``.annot.gz`` file."""
-    delimiter = _detect_delimiter(path)
-    opener = gzip.open if path.suffix.lower() == ".gz" else open
-    with opener(path, "rt") as handle:
-        reader = csv.reader(handle, delimiter=delimiter) if delimiter else None
-        if reader is None:
-            header_line = next(handle).rstrip("\n")
-            header = re.split(r"\s+", header_line.strip())
-            rows_iter = handle
-        else:
-            header = next(reader)
-            rows_iter = reader
-
-        chr_idx = _infer_column_index(header, ANNOTATION_METADATA_SPEC_MAP["CHR"], path)
-        pos_idx = _infer_column_index(header, ANNOTATION_METADATA_SPEC_MAP["POS"], path)
-        snp_idx = _infer_column_index(header, ANNOTATION_METADATA_SPEC_MAP["SNP"], path)
-        cm_idx = _infer_column_index(header, ANNOTATION_METADATA_SPEC_MAP["CM"], path)
-
-        rows: list[_BaselineRow] = []
-        if reader is None:
-            for line in rows_iter:
-                fields = re.split(r"\s+", line.strip())
-                if not fields or len(fields) < 4:
-                    continue
-                rows.append(
-                    _BaselineRow(
-                        chrom=fields[chr_idx],
-                        pos=int(fields[pos_idx]),
-                        snp=fields[snp_idx],
-                        cm=fields[cm_idx],
-                    )
-                )
-        else:
-            for fields in rows_iter:
-                if not fields or len(fields) < 4:
-                    continue
-                rows.append(
-                    _BaselineRow(
-                        chrom=fields[chr_idx],
-                        pos=int(fields[pos_idx]),
-                        snp=fields[snp_idx],
-                        cm=fields[cm_idx],
-                    )
-                )
-    if not rows:
-        raise ValueError(f"{path} does not contain any SNP rows.")
-    return rows
-
-
 def _write_baseline_bed(rows: Sequence[_BaselineRow], path: Path) -> Path:
     """Write baseline SNP rows as single-base BED intervals for overlap queries."""
     with path.open("w", encoding="utf-8") as handle:
@@ -935,63 +812,6 @@ def _write_normalized_bed(in_path: Path, out_path: Path) -> Path:
     return out_path
 
 
-def _is_bed_path(path: Path) -> bool:
-    """Return ``True`` when a path looks like a BED or gzipped BED file."""
-    name = path.name.lower()
-    return name.endswith(".bed") or name.endswith(".bed.gz")
-
-
-def _load_restrict_snp_ids(path: Path) -> set[str]:
-    """Read a reference-universe SNP filter file interpreted in ``rsid`` mode."""
-    snp_ids = read_global_snp_restriction(path, "rsid")
-    if not snp_ids:
-        raise ValueError(f"Restriction file {path} is empty.")
-    return snp_ids
-
-
-def _write_restrict_table_as_bed(in_path: Path, out_path: Path, genome_build: str | None = None) -> Path:
-    """Convert a ``CHR``/``POS`` restriction table into BED intervals."""
-    restriction = read_global_snp_restriction(
-        in_path,
-        "chr_pos",
-        genome_build=genome_build,
-        logger=LOGGER,
-    )
-    with out_path.open("w", encoding="utf-8") as handle:
-        for value in sorted(
-            restriction,
-            key=lambda item: (_chrom_sort_key(item.split(":", 1)[0]), int(item.split(":", 1)[1])),
-        ):
-            chrom_token, pos_token = value.split(":", 1)
-            chrom = _to_bed_chromosome(chrom_token)
-            pos = int(pos_token)
-            start = pos - 1
-            if start < 0:
-                raise ValueError(f"Invalid restriction POS={pos} in {in_path}")
-            handle.write(f"{chrom}\t{start}\t{pos}\n")
-    return out_path
-
-
-def _build_restrict_resource(
-    restrict_path: Path | None,
-    snp_identifier: str,
-    tempdir: Path,
-    genome_build: str | None = None,
-) -> _RestrictResource | None:
-    """Normalize the optional restriction input into the resource used during projection."""
-    if restrict_path is None:
-        return None
-    if normalize_snp_identifier_mode(snp_identifier) == "rsid":
-        snp_ids = _load_restrict_snp_ids(restrict_path)
-        return _RestrictResource(mode="rsid", snp_ids=frozenset(snp_ids))
-    restrict_bed_path = tempdir / "restrict_snps.normalized.bed"
-    if _is_bed_path(restrict_path):
-        _write_normalized_bed(restrict_path, restrict_bed_path)
-    else:
-        _write_restrict_table_as_bed(restrict_path, restrict_bed_path, genome_build=genome_build)
-    return _RestrictResource(mode="chr_pos", bed_path=restrict_bed_path)
-
-
 def _validate_and_convert_intersection(results, baseline_rows: Sequence[_BaselineRow], sanity_mode: str) -> list[bool]:
     """Validate a pybedtools intersection result and convert it into a row-aligned mask."""
     mask: list[bool] = []
@@ -1016,18 +836,6 @@ def _validate_and_convert_intersection(results, baseline_rows: Sequence[_Baselin
     if len(mask) != len(baseline_rows):
         raise ValueError(f"Intersection returned {len(mask)} rows for a baseline template with {len(baseline_rows)} rows.")
     return mask
-
-
-def _build_restrict_mask(baseline_rows: Sequence[_BaselineRow], baseline_bed, restrict_resource: _RestrictResource | None) -> list[bool]:
-    """Build the boolean keep mask implied by the normalized restriction input."""
-    if restrict_resource is None:
-        return [True] * len(baseline_rows)
-    if restrict_resource.mode == "rsid":
-        assert restrict_resource.snp_ids is not None
-        return [row.snp in restrict_resource.snp_ids for row in baseline_rows]
-    assert restrict_resource.bed_path is not None
-    results = baseline_bed.intersect(str(restrict_resource.bed_path), c=True, wa=True)
-    return _validate_and_convert_intersection(results, baseline_rows, sanity_mode="chr_pos")
 
 
 def _compute_bed_overlap_mask(baseline_rows: Sequence[_BaselineRow], baseline_bed, bed_path: Path) -> list[bool]:
@@ -1066,16 +874,6 @@ def _compute_bed_query_columns(
         pybedtools.cleanup(remove_all=True)
 
 
-def _write_annot_file(out_path: Path, rows: Sequence[_BaselineRow], annotation_names: Sequence[str], masks: Sequence[Sequence[int]]) -> None:
-    """Write one LDSC-compatible ``.annot.gz`` file from precomputed annotation masks."""
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    with gzip.open(out_path, "wt") as handle:
-        handle.write("\t".join([*REQUIRED_ANNOT_COLUMNS, *annotation_names]) + "\n")
-        for idx, row in enumerate(rows):
-            annot_values = [str(int(mask[idx])) for mask in masks]
-            handle.write("\t".join([row.chrom, str(row.pos), row.snp, row.cm, *annot_values]) + "\n")
-
-
 def _write_bundle_query_as_annot_files(bundle: AnnotationBundle, output_dir: Path) -> list[Path]:
     """Write one `query.<chrom>.annot.gz` file per chromosome from ``bundle``."""
     output_paths: list[Path] = []
@@ -1093,60 +891,6 @@ def _write_bundle_query_as_annot_files(bundle: AnnotationBundle, output_dir: Pat
 def _bundle_query_annot_output_paths(bundle: AnnotationBundle, output_dir: Path) -> list[Path]:
     """Return the fixed query annotation output paths for one bundle."""
     return [output_dir / f"query.{chrom}.annot.gz" for chrom in bundle.chromosomes]
-
-
-def _query_output_name(path: Path) -> str:
-    """Derive the output filename for one projected query annotation shard."""
-    chrom = _annotation_shard_chromosome(path)
-    if chrom is not None:
-        return f"query.{chrom}.annot.gz"
-
-    if path.name.endswith(".annot.gz"):
-        stem = path.name[: -len(".annot.gz")]
-    elif path.name.endswith(".annot"):
-        stem = path.name[: -len(".annot")]
-    else:
-        stem = path.stem
-    return f"query.{stem}.annot.gz"
-
-
-def _process_baseline_file(
-    baseline_path: Path,
-    query_annot_bed_sources: Sequence[Path],
-    output_dir: Path,
-    batch: bool,
-    restrict_resource: _RestrictResource | None,
-    tempdir: Path,
-) -> None:
-    """Project all requested BED annotations onto one baseline template file."""
-    rows = _read_baseline_annot(baseline_path)
-    baseline_bed_path = _write_baseline_bed(rows, tempdir / f"{baseline_path.name}.snps.bed")
-    pybedtools = _get_pybedtools()
-    baseline_bed = pybedtools.BedTool(str(baseline_bed_path))
-    restrict_mask = _build_restrict_mask(rows, baseline_bed, restrict_resource)
-    kept_rows = [row for row, keep in zip(rows, restrict_mask) if keep]
-    if not kept_rows:
-        pybedtools.cleanup(remove_all=True)
-        return
-    kept_bed_path = _write_baseline_bed(kept_rows, tempdir / f"{baseline_path.name}.restricted.snps.bed")
-    kept_baseline_bed = pybedtools.BedTool(str(kept_bed_path))
-
-    if batch:
-        annotation_names = [path.stem for path in query_annot_bed_sources]
-        masks = []
-        for bed_path in query_annot_bed_sources:
-            overlap_mask = _compute_bed_overlap_mask(kept_rows, kept_baseline_bed, bed_path)
-            masks.append(overlap_mask)
-        output_name = _query_output_name(baseline_path)
-        _write_annot_file(output_dir / output_name, kept_rows, annotation_names, masks)
-    else:
-        for bed_path in query_annot_bed_sources:
-            overlap_mask = _compute_bed_overlap_mask(kept_rows, kept_baseline_bed, bed_path)
-            bed_output_dir = output_dir / bed_path.stem
-            output_name = _query_output_name(baseline_path)
-            _write_annot_file(bed_output_dir / output_name, kept_rows, [bed_path.stem], [overlap_mask])
-
-    pybedtools.cleanup(remove_all=True)
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -202,13 +202,6 @@ def _add_annotate_arguments(parser: argparse.ArgumentParser) -> None:
             "from data. Not used when --snp-identifier rsid."
         ),
     )
-    parser.add_argument(
-        "--no-batch",
-        dest="batch",
-        action="store_false",
-        default=True,
-        help="Compatibility flag retained for legacy scripts; current output is always combined.",
-    )
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"))
 
 

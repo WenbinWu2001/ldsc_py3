@@ -135,7 +135,7 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertEqual(config.baseline_annot_sources, ("base.annot.gz",))
         self.assertEqual(config.query_annot_bed_sources, ("query.bed",))
         self.assertEqual(config.output_dir, "outputs/annot")
-        self.assertTrue(config.batch_mode)
+        self.assertFalse(hasattr(config, "batch_mode"))
         self.assertTrue(config.overwrite)
 
     def test_annotation_config_accepts_single_string_tokens_for_plural_fields(self):

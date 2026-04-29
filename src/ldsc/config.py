@@ -211,10 +211,6 @@ class AnnotationBuildConfig:
         ``()``.
     output_dir : str or os.PathLike[str] or None, optional
         Output directory used by file-writing helpers. Default is ``None``.
-    batch_mode : bool, optional
-        Compatibility flag retained by the legacy BED-projection wrappers.
-        Current projection always returns one combined bundle regardless of this
-        value. Default is ``True``.
     compression : {"auto", "gzip", "bz2", "none"}, optional
         Output compression preference for generated annotation files. Default is
         ``"gzip"``.
@@ -226,7 +222,6 @@ class AnnotationBuildConfig:
     query_annot_sources: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
     query_annot_bed_sources: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
     output_dir: str | PathLike[str] | None = None
-    batch_mode: bool = True
     compression: CompressionMode = "gzip"
     allow_missing_query: bool = True
     overwrite: bool = False

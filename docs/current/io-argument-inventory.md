@@ -46,7 +46,7 @@ inside that directory are fixed and workflow-specific.
 |---|---:|---:|---|---|
 | `--query-annot-bed-sources` | input | yes | BED interval files | Accepts exact files, globs, comma-separated tokens, and source-token lists. BED basenames become query annotation names. |
 | `--baseline-annot-sources` | input | yes | baseline `.annot[.gz]` templates | Accepts exact files, globs, and `@` chromosome-suite tokens. |
-| `--output-dir` | output | yes | generated query annotation directory | Writes `query.<chrom>.annot.gz` files or compatibility batch outputs. |
+| `--output-dir` | output | yes | generated query annotation directory | Writes combined `query.<chrom>.annot.gz` files, with all BED inputs represented as query columns. |
 
 Removed flags: `--bed-files`, `--baseline-annot`.
 

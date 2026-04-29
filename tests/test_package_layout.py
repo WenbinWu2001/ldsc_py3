@@ -22,6 +22,8 @@ class PackageLayoutTest(unittest.TestCase):
         self.assertTrue(hasattr(ldsc, "ReferencePanelBuilder"))
         self.assertTrue(hasattr(ldsc, "LDScoreOutputConfig"))
         self.assertTrue(hasattr(ldsc, "LDScoreDirectoryWriter"))
+        self.assertTrue(hasattr(ldsc, "PartitionedH2OutputConfig"))
+        self.assertTrue(hasattr(ldsc, "PartitionedH2DirectoryWriter"))
         self.assertTrue(hasattr(ldsc, "load_ldscore_from_dir"))
         self.assertTrue(hasattr(ldsc.__main__, "main"))
         removed_output_names = [
@@ -159,6 +161,7 @@ class PackageLayoutTest(unittest.TestCase):
                 "ldscores",
                 "--output-dir",
                 "out/partitioned",
+                "--write-per-query-results",
                 "--overwrite",
             ],
             [

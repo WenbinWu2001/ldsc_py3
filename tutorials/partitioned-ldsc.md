@@ -52,6 +52,8 @@ from ldsc import (
     LDScoreConfig,
     LDScoreOutputConfig,
     MungeConfig,
+    PartitionedH2DirectoryWriter,
+    PartitionedH2OutputConfig,
     RefPanelLoader,
     RefPanelConfig,
     RegressionConfig,
@@ -136,13 +138,25 @@ ldscore_result = LDScoreCalculator().run(
 )
 
 runner = RegressionRunner(global_config=GLOBAL_CONFIG, regression_config=RegressionConfig())
-partitioned = runner.estimate_partitioned_h2_batch(
+partitioned_result = runner.estimate_partitioned_h2_batch(
     sumstats,
     ldscore_result,
     annotation_bundle,
+    include_model_categories=True,
 )
+partitioned = partitioned_result.summary
 
-partitioned.to_csv("tutorial_outputs/partitioned_h2/partitioned_h2.tsv", sep="\t", index=False)
+PartitionedH2DirectoryWriter().write(
+    partitioned,
+    PartitionedH2OutputConfig(
+        output_dir="tutorial_outputs/partitioned_h2",
+        # overwrite=True,
+        write_per_query_results=True,
+    ),
+    per_query_category_tables=partitioned_result.per_query_category_tables,
+    metadata={"trait_name": "trait", "count_kind": "common", "ldscore_dir": "tutorial_outputs/partitioned_ldscores"},
+    per_query_metadata=partitioned_result.per_query_metadata,
+)
 print(annotation_bundle.query_columns)
 print(ldscore_result.baseline_table.head())
 print(partitioned)
@@ -225,3 +239,21 @@ ldsc partitioned-h2 \
 The command writes `tutorial_outputs/partitioned_h2/partitioned_h2.tsv`.
 If that TSV already exists, the command fails before writing; add `--overwrite`
 only when replacing the previous summary is intentional.
+
+To also materialize one result folder per query annotation, add
+`--write-per-query-results`:
+
+```bash
+ldsc partitioned-h2 \
+  --sumstats-file tutorial_outputs/trait/sumstats.sumstats.gz \
+  --ldscore-dir tutorial_outputs/partitioned_ldscores \
+  --count-kind common \
+  --output-dir tutorial_outputs/partitioned_h2 \
+  --write-per-query-results
+```
+
+This keeps the aggregate `partitioned_h2.tsv` and adds
+`query_annotations/manifest.tsv` plus sanitized query folders such as
+`query_annotations/0001_enhancer_a/`. Each query folder contains its one-row
+`partitioned_h2.tsv`, the fitted baseline-plus-query `model_categories.tsv`,
+and `metadata.json` with the original query annotation name.

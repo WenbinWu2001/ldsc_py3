@@ -16,7 +16,12 @@ if str(SRC) not in sys.path:
 
 from ldsc.config import GlobalConfig
 from ldsc.ldscore_calculator import LDScoreResult
-from ldsc.outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
+from ldsc.outputs import (
+    LDScoreDirectoryWriter,
+    LDScoreOutputConfig,
+    PartitionedH2DirectoryWriter,
+    PartitionedH2OutputConfig,
+)
 
 
 def make_split_ldscore_result(query: bool = True) -> LDScoreResult:
@@ -292,6 +297,119 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
         self.assertEqual(manifest["counts"][0]["all_reference_snp_count"], 10.0)
         self.assertNotIn("common_reference_snp_count", manifest["counts"][0])
         self.assertEqual(manifest["count_config"]["common_reference_snp_maf_operator"], ">=")
+
+
+class PartitionedH2DirectoryWriterTest(unittest.TestCase):
+    def make_summary(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "query_annotation": ["IL-6/JAK STAT (Hallmark)", "IL 6 JAK STAT Hallmark"],
+                "coefficient": [1.0, 2.0],
+                "coefficient_se": [0.1, 0.2],
+                "category_h2": [0.3, 0.4],
+            }
+        )
+
+    def make_category_tables(self) -> dict[str, pd.DataFrame]:
+        return {
+            "IL-6/JAK STAT (Hallmark)": pd.DataFrame(
+                {
+                    "query_annotation": ["base", "IL-6/JAK STAT (Hallmark)"],
+                    "coefficient": [0.5, 1.0],
+                    "category_h2": [0.2, 0.3],
+                }
+            ),
+            "IL 6 JAK STAT Hallmark": pd.DataFrame(
+                {
+                    "query_annotation": ["base", "IL 6 JAK STAT Hallmark"],
+                    "coefficient": [0.6, 2.0],
+                    "category_h2": [0.25, 0.4],
+                }
+            ),
+        }
+
+    def test_writes_aggregate_only_by_default(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "partitioned"
+            paths = PartitionedH2DirectoryWriter().write(
+                self.make_summary(),
+                PartitionedH2OutputConfig(output_dir=output_dir),
+            )
+
+            self.assertTrue((output_dir / "partitioned_h2.tsv").exists())
+            self.assertFalse((output_dir / "query_annotations").exists())
+            self.assertEqual(paths, {"summary": str(output_dir / "partitioned_h2.tsv")})
+
+    def test_writes_per_query_tree_with_sanitized_manifest(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "partitioned"
+            paths = PartitionedH2DirectoryWriter().write(
+                self.make_summary(),
+                PartitionedH2OutputConfig(output_dir=output_dir, write_per_query_results=True),
+                per_query_category_tables=self.make_category_tables(),
+                metadata={"trait_name": "trait", "count_kind": "common", "ldscore_dir": "ldscores"},
+            )
+
+            query_root = output_dir / "query_annotations"
+            manifest = pd.read_csv(query_root / "manifest.tsv", sep="\t")
+            self.assertEqual(manifest["ordinal"].tolist(), [1, 2])
+            self.assertEqual(
+                manifest["query_annotation"].tolist(),
+                ["IL-6/JAK STAT (Hallmark)", "IL 6 JAK STAT Hallmark"],
+            )
+            self.assertEqual(
+                manifest["folder"].tolist(),
+                ["0001_il-6_jak_stat_hallmark", "0002_il_6_jak_stat_hallmark"],
+            )
+            self.assertTrue((query_root / "0001_il-6_jak_stat_hallmark" / "partitioned_h2.tsv").exists())
+            self.assertTrue((query_root / "0001_il-6_jak_stat_hallmark" / "model_categories.tsv").exists())
+            metadata = json.loads(
+                (query_root / "0001_il-6_jak_stat_hallmark" / "metadata.json").read_text(encoding="utf-8")
+            )
+            categories = pd.read_csv(query_root / "0001_il-6_jak_stat_hallmark" / "model_categories.tsv", sep="\t")
+            self.assertEqual(metadata["query_annotation"], "IL-6/JAK STAT (Hallmark)")
+            self.assertEqual(metadata["trait_name"], "trait")
+            self.assertEqual(categories["query_annotation"].tolist(), ["base", "IL-6/JAK STAT (Hallmark)"])
+            self.assertEqual(paths["per_query_root"], str(query_root))
+
+    def test_refuses_existing_outputs_before_writing(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "partitioned"
+            output_dir.mkdir()
+            existing = output_dir / "partitioned_h2.tsv"
+            existing.write_text("existing\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(FileExistsError, "overwrite"):
+                PartitionedH2DirectoryWriter().write(
+                    self.make_summary(),
+                    PartitionedH2OutputConfig(output_dir=output_dir, write_per_query_results=True),
+                    per_query_category_tables=self.make_category_tables(),
+                )
+
+            self.assertEqual(existing.read_text(encoding="utf-8"), "existing\n")
+            self.assertFalse((output_dir / "query_annotations").exists())
+
+    def test_overwrite_replaces_existing_per_query_tree(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "partitioned"
+            stale = output_dir / "query_annotations" / "stale"
+            stale.mkdir(parents=True)
+            (stale / "old.txt").write_text("old\n", encoding="utf-8")
+            (output_dir / "partitioned_h2.tsv").write_text("old\n", encoding="utf-8")
+
+            PartitionedH2DirectoryWriter().write(
+                self.make_summary(),
+                PartitionedH2OutputConfig(
+                    output_dir=output_dir,
+                    overwrite=True,
+                    write_per_query_results=True,
+                ),
+                per_query_category_tables=self.make_category_tables(),
+            )
+
+            self.assertFalse(stale.exists())
+            self.assertTrue((output_dir / "query_annotations" / "manifest.tsv").exists())
+            self.assertIn("coefficient", (output_dir / "partitioned_h2.tsv").read_text(encoding="utf-8"))
 
 
 class FixedOutputDirectoryTest(unittest.TestCase):

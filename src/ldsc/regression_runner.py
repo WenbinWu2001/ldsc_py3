@@ -15,6 +15,9 @@ weight, count, and annotation-manifest files.
 Regression chooses either the manifest ``common_reference_snp_counts`` vector or
 ``all_reference_snp_counts`` through ``--count-kind common|all``. The default
 ``common`` mode falls back to all-SNP counts when common counts are unavailable.
+Partitioned-h2 can optionally retain and write the full category table for each
+baseline-plus-one-query model through the output-layer
+``PartitionedH2DirectoryWriter``.
 """
 
 from __future__ import annotations
@@ -47,7 +50,7 @@ from ._kernel.identifiers import build_snp_id_series
 from ._row_alignment import assert_same_snp_rows
 from .column_inference import infer_chr_pos_columns, normalize_snp_identifier_mode
 from .ldscore_calculator import LDScoreResult
-from .outputs import LDSCORE_RESULT_FORMAT
+from .outputs import LDSCORE_RESULT_FORMAT, PartitionedH2DirectoryWriter, PartitionedH2OutputConfig
 from .sumstats_munger import SumstatsTable, load_sumstats
 
 
@@ -77,6 +80,19 @@ class RegressionDataset:
         missing = required - set(self.merged.columns)
         if missing:
             raise ValueError(f"RegressionDataset is missing required columns: {sorted(missing)}")
+
+
+@dataclass(frozen=True)
+class PartitionedH2BatchResult:
+    """Batch partitioned-h2 summaries plus optional per-query detail tables.
+
+    ``summary`` is the aggregate one-row-per-query table. The optional detail
+    dictionaries are keyed by original query annotation name and are populated
+    only when callers request per-query model category output.
+    """
+    summary: pd.DataFrame
+    per_query_category_tables: dict[str, pd.DataFrame]
+    per_query_metadata: dict[str, dict[str, object]]
 
 
 class RegressionRunner:
@@ -244,17 +260,62 @@ class RegressionRunner:
         ldscore_result: LDScoreResult,
         annotation_bundle,
         config: RegressionConfig | None = None,
-    ) -> pd.DataFrame:
-        """Loop over query annotations and concatenate partitioned-h2 summaries."""
+        include_model_categories: bool = False,
+    ) -> pd.DataFrame | PartitionedH2BatchResult:
+        """Estimate one baseline-plus-query model per query annotation.
+
+        Parameters
+        ----------
+        sumstats_table : SumstatsTable
+            Munged single-trait summary statistics.
+        ldscore_result : LDScoreResult
+            Canonical LD-score result containing baseline and query columns.
+        annotation_bundle : object
+            Object exposing ordered ``query_columns``. Disk-loaded CLI runs use
+            a lightweight namespace derived from the LD-score manifest.
+        config : RegressionConfig, optional
+            Regression settings. Defaults to the runner's config.
+        include_model_categories : bool, optional
+            If ``True``, return ``PartitionedH2BatchResult`` with per-query
+            full category tables for output writers. If ``False``, return the
+            historical aggregate dataframe.
+
+        Returns
+        -------
+        pandas.DataFrame or PartitionedH2BatchResult
+            Aggregate summary by default, or aggregate plus per-query detail
+            tables when ``include_model_categories`` is enabled.
+        """
         rows = []
+        per_query_category_tables: dict[str, pd.DataFrame] = {}
+        per_query_metadata: dict[str, dict[str, object]] = {}
         for query_column in annotation_bundle.query_columns:
             dataset = self.build_dataset(sumstats_table, ldscore_result, config=config, query_columns=[query_column])
             hsq = self.estimate_h2(dataset, config=config)
             query_row = summarize_partitioned_h2(hsq, dataset, [query_column])
             rows.append(query_row)
+            if include_model_categories:
+                per_query_category_tables[query_column] = summarize_partitioned_h2(
+                    hsq,
+                    dataset,
+                    dataset.retained_ld_columns,
+                )
+                per_query_metadata[query_column] = {
+                    "dropped_zero_variance_ld_columns": list(dataset.dropped_zero_variance_ld_columns),
+                    "retained_ld_columns": list(dataset.retained_ld_columns),
+                    "n_snps": len(dataset.merged),
+                }
         if not rows:
-            return pd.DataFrame(columns=["query_annotation"])
-        return pd.concat(rows, axis=0, ignore_index=True)
+            summary = pd.DataFrame(columns=["query_annotation"])
+        else:
+            summary = pd.concat(rows, axis=0, ignore_index=True)
+        if include_model_categories:
+            return PartitionedH2BatchResult(
+                summary=summary,
+                per_query_category_tables=per_query_category_tables,
+                per_query_metadata=per_query_metadata,
+            )
+        return summary
 
     def estimate_rg(
         self,
@@ -492,6 +553,12 @@ def add_partitioned_h2_arguments(parser) -> None:
     _add_common_regression_arguments(parser, include_h2_intercept=True)
     parser.add_argument("--sumstats-file", required=True, help="Munged .sumstats(.gz) file.")
     parser.add_argument("--trait-name", default=None, help="Optional trait label for summaries.")
+    parser.add_argument(
+        "--write-per-query-results",
+        action="store_true",
+        default=False,
+        help="Also write one sanitized result folder per query annotation under output_dir/query_annotations.",
+    )
 
 
 def add_rg_arguments(parser) -> None:
@@ -542,13 +609,38 @@ def run_partitioned_h2_from_args(args):
         )
     query_bundle = SimpleNamespace(query_columns=list(ldscore_result.query_columns))
     with suppress_global_config_banner():
-        summary = runner.estimate_partitioned_h2_batch(sumstats_table, ldscore_result, query_bundle, config=config)
-    _maybe_write_dataframe(
-        summary,
-        getattr(args, "output_dir", None),
-        "partitioned_h2.tsv",
-        overwrite=getattr(args, "overwrite", False),
-    )
+        result = runner.estimate_partitioned_h2_batch(
+            sumstats_table,
+            ldscore_result,
+            query_bundle,
+            config=config,
+            include_model_categories=getattr(args, "write_per_query_results", False),
+        )
+    if isinstance(result, PartitionedH2BatchResult):
+        summary = result.summary
+        per_query_category_tables = result.per_query_category_tables
+        per_query_metadata = result.per_query_metadata
+    else:
+        summary = result
+        per_query_category_tables = None
+        per_query_metadata = None
+    output_dir = getattr(args, "output_dir", None)
+    if output_dir:
+        PartitionedH2DirectoryWriter().write(
+            summary,
+            PartitionedH2OutputConfig(
+                output_dir=output_dir,
+                overwrite=getattr(args, "overwrite", False),
+                write_per_query_results=getattr(args, "write_per_query_results", False),
+            ),
+            per_query_category_tables=per_query_category_tables,
+            metadata={
+                "trait_name": sumstats_table.trait_name,
+                "count_kind": getattr(args, "count_kind", "common"),
+                "ldscore_dir": getattr(args, "ldscore_dir", None),
+            },
+            per_query_metadata=per_query_metadata,
+        )
     LOGGER.info(
         f"Finished partitioned-h2 regression for {len(ldscore_result.query_columns)} query annotations "
         f"and {len(summary)} summary rows."

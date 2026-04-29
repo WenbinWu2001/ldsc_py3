@@ -66,7 +66,12 @@ from .genome_build_inference import (
     resolve_chr_pos_table,
 )
 from .ldscore_calculator import ChromLDScoreResult, LDScoreCalculator, LDScoreResult, run_ldscore
-from .outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
+from .outputs import (
+    LDScoreDirectoryWriter,
+    LDScoreOutputConfig,
+    PartitionedH2DirectoryWriter,
+    PartitionedH2OutputConfig,
+)
 from .ref_panel_builder import ReferencePanelBuildResult, ReferencePanelBuilder, run_build_ref_panel
 from ._kernel.ref_panel import ParquetR2RefPanel, PlinkRefPanel, RefPanel, RefPanelLoader
 
@@ -117,6 +122,8 @@ __all__ = [
     "MungeConfig",
     "MungeRunSummary",
     "ParquetR2RefPanel",
+    "PartitionedH2DirectoryWriter",
+    "PartitionedH2OutputConfig",
     "PlinkRefPanel",
     "ReferencePanelBuildConfig",
     "ReferencePanelBuildResult",

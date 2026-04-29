@@ -12,7 +12,7 @@ This document summarizes the public package surface. For workflow-level file str
 | Infer `chr_pos` genome build | workflow flags only: `--genome-build auto`; no standalone CLI command | `infer_chr_pos_build()`, `resolve_genome_build()`, `resolve_chr_pos_table()` | pandas table with `CHR` and `POS`; optional reference table | `ChrPosBuildInference`, resolved `GlobalConfig`, and optionally a normalized 1-based table |
 | Munge GWAS summary statistics | `ldsc munge-sumstats` | `SumstatsMunger`, `load_sumstats()` | raw sumstats, column hints, QC thresholds, optional `--chr`/`--pos`, `--genome-build auto` | `sumstats.sumstats.gz`, `sumstats.log`, `sumstats.metadata.json` |
 | Estimate heritability | `ldsc h2` | `RegressionRunner.estimate_h2()` | munged `.sumstats.gz` plus sidecar when available, LD-score directory | `h2.tsv` |
-| Estimate partitioned heritability | `ldsc partitioned-h2` | `RegressionRunner.estimate_partitioned_h2_batch()` | munged `.sumstats.gz` plus sidecar when available, LD-score directory | `partitioned_h2.tsv` |
+| Estimate partitioned heritability | `ldsc partitioned-h2` | `RegressionRunner.estimate_partitioned_h2_batch()`, `PartitionedH2DirectoryWriter` | munged `.sumstats.gz` plus sidecar when available, LD-score directory | `partitioned_h2.tsv`; optional `query_annotations/` tree with `--write-per-query-results` |
 | Estimate genetic correlation | `ldsc rg` | `RegressionRunner.estimate_rg()` | two munged `.sumstats.gz` files plus sidecars when available, LD-score directory | `rg.tsv` |
 
 ## Public Classes And Result Types

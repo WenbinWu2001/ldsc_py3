@@ -133,7 +133,8 @@ ldsc partitioned-h2 \
   --trait-name trait \
   --ldscore-dir tutorial_outputs/cell_specific_ldscores \
   --count-kind common \
-  --output-dir tutorial_outputs/cell_specific_ldsc
+  --output-dir tutorial_outputs/cell_specific_ldsc \
+  --write-per-query-results
 ```
 
 The regression reads query annotation columns from
@@ -144,5 +145,10 @@ targeted chromosome reads. The output file is
 `tutorial_outputs/cell_specific_ldsc/partitioned_h2.tsv`. Its key columns are
 `query_annotation`, `coefficient`, `coefficient_p`, `category_h2`,
 `proportion_h2`, and `enrichment`.
+With `--write-per-query-results`, the command also writes
+`tutorial_outputs/cell_specific_ldsc/query_annotations/manifest.tsv` and one
+sanitized folder per cell-type query annotation. Each folder contains the
+one-row query summary, the baseline-plus-query `model_categories.tsv`, and
+`metadata.json` with the original annotation name.
 If the partitioned summary already exists, `ldsc partitioned-h2` fails before
 writing; add `--overwrite` only when replacing it is intentional.

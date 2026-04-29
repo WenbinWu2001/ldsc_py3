@@ -173,7 +173,10 @@ baseline LD-score columns + one query LD-score column
 ```
 
 This keeps baseline annotations fixed while estimating one query annotation at a
-time.
+time. By default the CLI writes the aggregate `partitioned_h2.tsv` table only.
+With `--write-per-query-results`, it also writes a staged
+`query_annotations/` tree containing a manifest and one sanitized folder per
+query annotation.
 
 ## 7. CLI Examples
 
@@ -221,6 +224,16 @@ ldsc partitioned-h2 \
   --ldscore-dir results/my_study_ldscore \
   --sumstats-file my_gwas.sumstats.gz \
   --output-dir results/my_study_partitioned_h2
+```
+
+Run partitioned h2 and save per-query folders:
+
+```bash
+ldsc partitioned-h2 \
+  --ldscore-dir results/my_study_ldscore \
+  --sumstats-file my_gwas.sumstats.gz \
+  --output-dir results/my_study_partitioned_h2 \
+  --write-per-query-results
 ```
 
 Run rg:

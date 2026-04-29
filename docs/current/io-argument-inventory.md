@@ -160,6 +160,7 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 | `--ldscore-dir` | input | yes | canonical LD-score result directory | Reads baseline plus query LD scores. |
 | `--sumstats-file` | input | yes | munged summary-statistics file | Exact path or exact-one glob. |
 | `--output-dir` | output | no | result output directory | Writes `partitioned_h2.tsv` when supplied. |
+| `--write-per-query-results` | output mode | no | per-query result tree | Also writes `query_annotations/manifest.tsv` plus one sanitized query folder under `--output-dir`. |
 
 Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 `--query-columns`, `--sumstats`, `--out`.
@@ -260,6 +261,7 @@ Removed Python names: legacy separate source-path object field,
 | `run_partitioned_h2_from_args(args)` | `ldscore_dir` | input | LD-score result directory |
 | `run_partitioned_h2_from_args(args)` | `sumstats_file` | input | munged summary-statistics file |
 | `run_partitioned_h2_from_args(args)` | `output_dir` | output | writes `partitioned_h2.tsv` |
+| `run_partitioned_h2_from_args(args)` | `write_per_query_results` | output mode | optionally writes `query_annotations/` |
 | `run_rg_from_args(args)` | `ldscore_dir` | input | LD-score result directory |
 | `run_rg_from_args(args)` | `sumstats_1_file`, `sumstats_2_file` | input | munged summary-statistics files |
 | `run_rg_from_args(args)` | `output_dir` | output | writes `rg.tsv` |
@@ -285,12 +287,15 @@ Regression therefore merges on literal `SNP` in `rsid` mode and on normalized
 - [x] PLINK input is named `plink_prefix` / `--plink-prefix`.
 - [x] `keep` inputs are named `keep_indivs_file` / `--keep-indivs-file`.
 - [x] Munging writes fixed files under `output_dir`.
-- [x] Regression writes fixed TSV files under `output_dir`.
+- [x] Regression writes fixed TSV files under `output_dir`; partitioned-h2 can
+  additionally write per-query folders when requested.
 - [x] Build-ref-panel no longer accepts a separate panel label; output identity
   comes from the directory name.
 - [x] Removed the old prefix-based output compatibility pipeline from the
   public output module; `ldsc.outputs` now exposes
-  `LDScoreOutputConfig` and `LDScoreDirectoryWriter` for LD-score output writing.
+  `LDScoreOutputConfig`, `LDScoreDirectoryWriter`,
+  `PartitionedH2OutputConfig`, and `PartitionedH2DirectoryWriter` for output
+  writing.
 
 ## Clarifications and Recommendations
 

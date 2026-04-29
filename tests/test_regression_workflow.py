@@ -643,6 +643,22 @@ class RegressionWorkflowTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             parser.parse_args(["--ldscore-dir", "ldscores", "--sumstats-file", "trait.sumstats.gz", "--count-kind", "m_5_50"])
 
+    def test_partitioned_h2_arguments_accept_per_query_output_flag(self):
+        parser = argparse.ArgumentParser()
+        regression_runner.add_partitioned_h2_arguments(parser)
+
+        args = parser.parse_args(
+            [
+                "--ldscore-dir",
+                "ldscores",
+                "--sumstats-file",
+                "trait.sumstats.gz",
+                "--write-per-query-results",
+            ]
+        )
+
+        self.assertTrue(args.write_per_query_results)
+
     def test_run_partitioned_h2_from_args_uses_query_columns_from_ldscore_dir(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -664,6 +680,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "intercept_h2": None,
                     "two_step_cutoff": None,
                     "chisq_max": None,
+                    "write_per_query_results": False,
                 },
             )()
 
@@ -676,6 +693,51 @@ class RegressionWorkflowTest(unittest.TestCase):
 
         patched.assert_called_once()
         self.assertEqual(patched.call_args.args[2].query_columns, ["query"])
+        self.assertEqual(summary.loc[0, "query_annotation"], "query")
+
+    def test_run_partitioned_h2_from_args_writes_with_partitioned_writer(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            set_global_config(GlobalConfig(snp_identifier="rsid"))
+            with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
+                handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
+            ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
+            output_dir = tmpdir / "out"
+            args = type(
+                "Args",
+                (),
+                {
+                    "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
+                    "trait_name": "trait",
+                    "ldscore_dir": str(ldscore_dir),
+                    "count_kind": "common",
+                    "output_dir": str(output_dir),
+                    "overwrite": False,
+                    "n_blocks": 200,
+                    "no_intercept": False,
+                    "intercept_h2": None,
+                    "two_step_cutoff": None,
+                    "chisq_max": None,
+                    "write_per_query_results": True,
+                },
+            )()
+
+            with mock.patch.object(
+                regression_runner.RegressionRunner,
+                "estimate_partitioned_h2_batch",
+                return_value=pd.DataFrame([{"query_annotation": "query", "coefficient": 1.0}]),
+            ), mock.patch.object(
+                regression_runner.PartitionedH2DirectoryWriter,
+                "write",
+            ) as writer:
+                summary = regression_runner.run_partitioned_h2_from_args(args)
+
+        writer.assert_called_once()
+        output_config = writer.call_args.args[1]
+        self.assertEqual(str(output_config.output_dir), str(output_dir))
+        self.assertTrue(output_config.write_per_query_results)
+        self.assertEqual(writer.call_args.kwargs["metadata"]["count_kind"], "common")
+        self.assertEqual(writer.call_args.kwargs["metadata"]["trait_name"], "trait")
         self.assertEqual(summary.loc[0, "query_annotation"], "query")
 
     def test_regression_cli_writes_fixed_result_filename_under_output_dir(self):

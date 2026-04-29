@@ -24,7 +24,7 @@ Related docs:
 - **CLI Layer**: public command dispatch in `ldsc.cli`
 - **Workflow And Preprocessing Layer**: public services in `ldsc.annotation_builder`, `ldsc.ref_panel_builder`, `ldsc.ldscore_calculator`, `ldsc.sumstats_munger`, and `ldsc.regression_runner`, plus shared normalization in `ldsc.config`, `ldsc.path_resolution`, `ldsc.column_inference`, `ldsc.chromosome_inference`, and `ldsc.genome_build_inference`
 - **Compute Kernel**: private file-format and numerical code in `ldsc._kernel.*`
-- **Output Layer**: artifact writing in `ldsc.outputs` plus regression summary writers in `ldsc.regression_runner`
+- **Output Layer**: canonical LD-score and partitioned-h2 artifact writing in `ldsc.outputs`, plus fixed h2/rg summary writers in `ldsc.regression_runner`
 
 ## File Tree
 
@@ -50,7 +50,7 @@ ldsc_py3_restructured/
 │   ├── ldscore_calculator.py
 │   ├── sumstats_munger.py
 │   ├── regression_runner.py
-│   ├── outputs.py           # LDSC artifact writer
+│   ├── outputs.py           # LD-score and partitioned-h2 artifact writers
 │   └── _kernel/
 │       ├── annotation.py    # annotation parsing and BED projection
 │       ├── ref_panel_builder.py
@@ -131,7 +131,9 @@ The kernel layer contains the actual numerical methods and low-level readers. It
 - Kernel code must not resolve globs, `@` suites, or other user-facing path tokens.
 - `column_inference.py` owns alias families and internal artifact header strictness.
 - LD-score computation remains chromosome-wise; regression consumes only the aggregated artifacts.
-- Public LD-score output layout is fixed by `LDScoreDirectoryWriter`.
+- Public LD-score output layout is fixed by `LDScoreDirectoryWriter`; optional
+  per-query partitioned-h2 output layout is fixed by
+  `PartitionedH2DirectoryWriter`.
 - Query annotations are valid only with explicit baseline annotations; the synthetic `base` path is for ordinary unpartitioned LD-score generation.
 - Every workflow that writes fixed artifacts must precompute expected output
   paths and call the shared output preflight before the first write.

@@ -315,6 +315,9 @@ Output:
 - `ldsc h2`, `ldsc partitioned-h2`, and `ldsc rg` write `h2.tsv`,
   `partitioned_h2.tsv`, and `rg.tsv`, respectively, when `output_dir` is
   provided; existing files are refused unless `--overwrite` is supplied.
+- `ldsc partitioned-h2 --write-per-query-results` also writes a staged
+  `query_annotations/` tree under `output_dir`; existing final per-query
+  output is refused unless `--overwrite` is supplied.
 - Existing output directories are valid in every case. Only known files for the
   active command are checked.
 

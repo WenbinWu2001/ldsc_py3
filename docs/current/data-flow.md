@@ -307,6 +307,9 @@ flowchart LR
 Regression summary commands write one fixed TSV when `output_dir` is supplied:
 `h2.tsv`, `partitioned_h2.tsv`, or `rg.tsv`. Existing summary TSVs raise before
 the new table is written unless the command includes `--overwrite`.
+`partitioned-h2` can also write an opt-in per-query tree with
+`--write-per-query-results`; the aggregate `partitioned_h2.tsv` remains the
+stable summary entry point.
 
 ### Required inputs
 
@@ -343,6 +346,7 @@ flowchart LR
   I2 --> E1 --> E2 --> E3 --> E4
   E5 --> E6 --> O5a[h2.tsv]
   E5 --> E7 --> O5b[partitioned_h2.tsv]
+  E7 --> O5d[query_annotations/]
   E5 --> E8 --> O5c[rg.tsv]
 ```
 
@@ -354,9 +358,15 @@ flowchart LR
 | `partitioned-h2` | `query_annotation`, `coefficient`, `coefficient_se`, `coefficient_z`, `coefficient_p`, `category_h2`, `category_h2_se`, `proportion_h2`, `proportion_h2_se`, `enrichment` | `enhancer_A 0.012 0.004 3.0 0.003 0.025 0.008 0.14 0.05 2.3` |
 | `rg` | `trait_1`, `trait_2`, `rg`, `rg_se`, `z`, `p` | `trait_a trait_b 0.42 0.09 4.7 2.6e-06` |
 
+When `partitioned-h2 --write-per-query-results` is supplied, the command also
+writes `query_annotations/manifest.tsv` plus one ordinal-prefixed sanitized
+folder per query annotation. Each query folder contains `partitioned_h2.tsv`,
+`model_categories.tsv`, and `metadata.json`.
+
 ### Modules used
 
 - Preprocessing: `ldsc.path_resolution`, `ldsc.column_inference`
 - Workflow: `ldsc.regression_runner`, `ldsc.sumstats_munger.load_sumstats()`
 - Kernel: `ldsc._kernel.regression`, `ldsc._kernel._jackknife`, `ldsc._kernel._irwls`
-- Postprocessing: pandas TSV writers in `ldsc.regression_runner`
+- Postprocessing: pandas TSV writers in `ldsc.regression_runner`; partitioned-h2
+  directory writing in `ldsc.outputs`

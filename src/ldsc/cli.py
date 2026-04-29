@@ -146,7 +146,7 @@ def main(argv: Sequence[str] | None = None):
         return _load_regression_runner().run_partitioned_h2_from_args(args)
     if args.command == "rg":
         return _load_regression_runner().run_rg_from_args(args)
-    raise ValueError(f"Unsupported command: {args.command}")
+    raise LDSCUsageError(f"Unsupported command: {args.command}")
 
 
 def run_cli(argv: Sequence[str] | None = None) -> int:

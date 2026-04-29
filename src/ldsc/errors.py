@@ -27,7 +27,7 @@ class LDSCInputError(LDSCUserError):
     """Raised when input paths, file schemas, or file contents are invalid."""
 
 
-class LDSCDependencyError(LDSCUserError):
+class LDSCDependencyError(LDSCUserError, ImportError):
     """Raised when an optional dependency is required for the requested workflow."""
 
 

@@ -77,6 +77,7 @@ from ..config import (
     print_global_config_banner,
     _normalize_path_tuple,
 )
+from ..errors import LDSCDependencyError
 from .._chr_sampler import sample_frame_from_chr_pattern
 from ..genome_build_inference import resolve_genome_build
 from ..path_resolution import (
@@ -767,7 +768,7 @@ def _get_pybedtools():
     try:
         import pybedtools
     except ImportError as exc:  # pragma: no cover - dependency check
-        raise SystemExit(
+        raise LDSCDependencyError(
             "pybedtools is required for BED-based annotation projection. Install pybedtools and bedtools, then retry."
         ) from exc
     return pybedtools

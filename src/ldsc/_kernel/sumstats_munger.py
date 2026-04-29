@@ -759,8 +759,13 @@ def munge_sumstats(args, p=True):
                 raise ValueError(
                     'Too many signed sumstat columns. Specify which to ignore with the --ignore flag.')
             if len(sign_cnames) == 0:
+                available = ', '.join(file_cnames)
+                accepted = ', '.join(sorted(null_values))
                 raise ValueError(
-                    'Could not find a signed summary statistic column.')
+                    f"Could not find a signed summary statistic column in --sumstats input. "
+                    f"Available columns: {available}. Expected one of: {accepted}, "
+                    "or pass --signed-sumstats <column>,<null_value>."
+                )
             sign_cname = sign_cnames[0]
             signed_sumstat_null = null_values[cname_translation[sign_cname]]
             cname_translation[sign_cname] = 'SIGNED_SUMSTAT'    
@@ -773,16 +778,13 @@ def munge_sumstats(args, p=True):
         else:
             req_cols = ['SNP', 'P']
 
-            for c in req_cols:
-                if c not in cname_translation.values():
-                    available = ', '.join(file_cnames)
-                    raise ValueError(
-                        'Could not find {C} column in --sumstats input. '
-                        'Available columns: {A}. Use the matching column flag or --ignore to resolve ambiguous headers.'.format(
-                            C=c,
-                            A=available,
-                        )
-                    )
+        for c in req_cols:
+            if c not in cname_translation.values():
+                available = ', '.join(file_cnames)
+                raise ValueError(
+                    f"Could not find {c} column in --sumstats input. "
+                    f"Available columns: {available}. Use the matching column flag or --ignore to resolve ambiguous headers."
+                )
 
         # check aren't any duplicated column names in mapping
         for field in cname_translation:
@@ -899,7 +901,7 @@ def munge_sumstats(args, p=True):
         return dat
 
     except Exception as exc:
-        log.log('\nERROR converting summary statistics: {E}\n'.format(E=exc))
+        log.log(f"\nERROR converting summary statistics: {exc}\n")
         raise
     finally:
         log.log('\nConversion finished at {T}'.format(T=time.ctime()))

@@ -21,6 +21,7 @@ from ..column_inference import (
     resolve_restriction_chr_pos_columns,
     resolve_restriction_rsid_column,
 )
+from ..errors import LDSCDependencyError
 from .identifiers import build_snp_id_series
 
 
@@ -605,7 +606,7 @@ def write_dataframe_to_parquet(df: pd.DataFrame, path: str | PathLike[str]) -> s
     try:
         df.to_parquet(path, index=False)
     except ImportError as exc:
-        raise ImportError(
+        raise LDSCDependencyError(
             "Writing reference-panel parquet artifacts requires pyarrow or fastparquet."
         ) from exc
     return str(path)
@@ -636,7 +637,7 @@ def write_ld_parquet(
         import pyarrow as pa
         import pyarrow.parquet as pq
     except ImportError as exc:
-        raise ImportError(
+        raise LDSCDependencyError(
             "Writing canonical reference-panel LD parquet artifacts requires pyarrow."
         ) from exc
 
@@ -734,7 +735,7 @@ class LiftOverTranslator:
         try:
             from pyliftover import LiftOver
         except ImportError as exc:
-            raise ImportError(
+            raise LDSCDependencyError(
                 "Building reference panels across hg19/hg38 requires the optional dependency 'pyliftover'."
             ) from exc
         self.chain_path = Path(self.chain_path)

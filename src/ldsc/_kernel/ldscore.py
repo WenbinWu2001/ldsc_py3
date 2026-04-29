@@ -210,6 +210,7 @@ from ..column_inference import (
     resolve_required_columns,
 )
 from ..chromosome_inference import chrom_sort_key, normalize_chromosome
+from ..errors import LDSCDependencyError
 from ..genome_build_inference import (
     load_packaged_reference_table,
     resolve_chr_pos_table,
@@ -280,7 +281,7 @@ def configure_logging(level: str) -> None:
 def get_legacy_ld_module():
     """Return the bitarray-backed LD kernel or raise a dependency error."""
     if ba is None:
-        raise ImportError(
+        raise LDSCDependencyError(
             "PLINK reference-panel mode requires the internal bitarray-backed LD kernel. "
             "Install bitarray and retry."
         )
@@ -607,7 +608,7 @@ else:
         """Fallback PLINK reader that raises when `bitarray` is unavailable."""
         def __init__(self, *args, **kwargs):
             """Raise an informative import error for dependency-gated PLINK support."""
-            raise ImportError("PLINK LD-score support requires the optional dependency 'bitarray'.")
+            raise LDSCDependencyError("PLINK LD-score support requires the optional dependency 'bitarray'.")
 
 
 def identifier_keys(df: pd.DataFrame, mode: str) -> pd.Series:
@@ -746,7 +747,7 @@ def get_pyarrow_modules():
     try:
         import pyarrow.dataset as ds
     except ImportError as exc:
-        raise ImportError(
+        raise LDSCDependencyError(
             "pyarrow is required for sorted parquet R2 input. Install pyarrow and retry."
         ) from exc
     return ds
@@ -794,7 +795,7 @@ def read_common_tabular_r2(path: str) -> pd.DataFrame:
         try:
             return pd.read_parquet(path)
         except ImportError as exc:
-            raise ImportError(
+            raise LDSCDependencyError(
                 "Reading parquet R2 input requires pyarrow or fastparquet."
             ) from exc
     if lower.endswith(".csv") or lower.endswith(".csv.gz"):
@@ -883,7 +884,7 @@ def convert_r2_table_to_sorted_parquet(source_path: str, genome_build: str, outp
     try:
         df.to_parquet(output_path, index=False)
     except ImportError as exc:
-        raise ImportError(
+        raise LDSCDependencyError(
             "Writing sorted parquet R2 files requires pyarrow or fastparquet."
         ) from exc
     return output_path
@@ -1286,7 +1287,7 @@ class SortedR2BlockReader:
                     f"got {len(paths)} paths for chromosome {self.chrom}"
                 )
             if pq is None:
-                raise ImportError("pyarrow is required for canonical parquet R2 input.")
+                raise LDSCDependencyError("pyarrow is required for canonical parquet R2 input.")
             self._runtime_layout = "canonical"
             self._pf = pq.ParquetFile(paths[0])
             self._init_canonical_path(paths[0])

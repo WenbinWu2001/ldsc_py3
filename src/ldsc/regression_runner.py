@@ -142,8 +142,12 @@ class RegressionRunner:
                 on=CHR_POS_KEY_COLUMN,
                 sort=False,
             )
-            if merged.empty:
-                raise ValueError("No overlapping chr_pos SNPs remain after merging sumstats with LD scores.")
+        if merged.empty:
+            source = sumstats_table.source_path or sumstats_table.trait_name or "sumstats"
+            raise ValueError(
+                f"No overlapping {identifier_mode} SNPs remain after merging sumstats '{source}' "
+                f"with {len(ldscore_frame)} LD-score rows. Check that snp_identifier and genome_build match."
+            )
 
         retained_ld_columns = list(ref_ld_columns)
         dropped_ld_columns: list[str] = []

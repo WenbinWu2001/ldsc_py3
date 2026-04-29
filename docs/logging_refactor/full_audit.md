@@ -1,290 +1,171 @@
 # Logging and Traceback Full Audit
 
-Date: 2026-04-28
+Date: 2026-04-29
 
 Scope: `src/ldsc` in `ldsc_py3_restructured`.
 
-This audit follows the repository layer contract documented in `docs/architecture.md`
-and `docs/layer-structure.md`: the CLI dispatch layer should expose one
-user-facing command surface; workflow modules should own user-facing path,
+This audit follows the repository layer contract documented in
+`docs/architecture.md` and `docs/layer-structure.md`: the CLI layer owns public
+command dispatch and traceback routing; workflow modules own user-facing path,
 schema, config, genome-build, and output-preflight behavior; `_kernel` modules
-should receive resolved primitive inputs and perform legacy parsing or numerical
-work; output modules should own persisted artifact layout.
+receive resolved primitive inputs and preserve legacy parsing or numerical
+behavior; output modules own persisted artifact layout.
 
-## 1. Logging Setup Summary
+## 1. Current Logging Setup Summary
 
-Current setup: module-level `LOGGER = logging.getLogger(...)` exists in several
-workflow and kernel modules, including `ldsc.ref_panel_builder`,
-`ldsc.ldscore_calculator`, `ldsc.sumstats_munger`, `ldsc.column_inference`,
-`ldsc.chromosome_inference`, `ldsc._kernel.annotation`,
-`ldsc._kernel.identifiers`, `ldsc._kernel.ref_panel`, and
-`ldsc._kernel.ldscore`. Logger naming is uppercase `LOGGER`, but logger names
-mix stable names such as `LDSC.ref_panel_builder` with stale names such as
-`LDSC.new`.
+The refactor now has a package exception hierarchy in `src/ldsc/errors.py` and a
+central CLI error boundary in `ldsc.cli.run_cli()`. `python -m ldsc` routes
+through that boundary, `LDSCUserError` and common user-caused built-ins are
+rendered as clean `ERROR: Error: ...` messages without traceback, and unexpected
+internal failures are logged with `LOGGER.exception(...)` and exit code 2.
 
-Logging configuration is not centralized. `logging.basicConfig(...)` is called
-from `ReferencePanelBuilder._configure_logging()` and from standalone kernel
-compatibility entry points in `_kernel.annotation` and `_kernel.ldscore`.
-Most public CLI paths rely on argparse and raw exception propagation rather than
-a single top-level logging and traceback boundary.
+Operational logging now follows the module-level uppercase `LOGGER` convention.
+Most workflow modules use stable logger names such as `LDSC.cli`,
+`LDSC.ldscore_calculator`, `LDSC.sumstats_munger`,
+`LDSC.regression_runner`, and `LDSC.ref_panel_builder`; the stale
+`LDSC.new` logger has been removed. Public workflow entry points now log
+start/completion context for LD-score calculation, summary-statistics munging,
+regression, reference-panel building, config banners, genome-build inference,
+and LD-score directory loading.
 
-Key gap: the codebase does not distinguish user-facing errors from internal
-failures at the CLI boundary. Most validation errors currently reach end users
-as raw Python tracebacks, while operational progress sometimes goes to stdout
-through `print()` or `sys.stdout.write()` rather than the package logger.
+The main remaining logging debt is legacy kernel compatibility. The summary
+statistics kernel still writes its historical `.log` artifact through
+`LegacyMungeLog.write()` and intentionally preserves many legacy message strings.
+That output is no longer mirrored to stdout; it is mirrored to the package
+logger at `INFO` while still writing the `.log` file. One standalone compatibility
+entry point in `_kernel.annotation` still raises `SystemExit(main_bed_to_annot())`
+because it is a script-style boundary, not a workflow-layer API.
 
-## 2. Log Message Findings
+## 2. Completed Since Previous Audit
+
+| Previous ID | Status | Current implementation |
+| --- | --- | --- |
+| A-1, T-1, T-2 | Done | Added `LDSCError`, `LDSCUserError`, `LDSCUsageError`, `LDSCConfigError`, `LDSCInputError`, `LDSCDependencyError`, and `LDSCInternalError`; `run_cli()` centralizes user/internal error routing. |
+| A-2 | Done | `ConfigMismatchError` now inherits from both `LDSCConfigError` and `ValueError`, preserving compatibility while allowing package-level user-error catches. |
+| A-3, E-2 | Done | `ldsc annotate` argument validation raises `LDSCUsageError` instead of direct `SystemExit` inside dispatch. |
+| A-4 | Done | Optional dependency failures in annotation, LD-score, and reference-panel parquet/liftover paths now raise `LDSCDependencyError`, which also subclasses `ImportError` for legacy compatibility. |
+| L-1 | Done | `_kernel.ldscore` logger now uses `LDSC.ldscore`. |
+| L-2 through L-10, L-12 through L-13 | Done | Standard logger calls in workflow modules and LD-score/reference-panel kernels now use f-strings. |
+| M-1 through M-10 | Mostly done | CLI, LD-score, summary-statistics, regression, and LD-score directory loading now emit useful workflow start/completion logs. |
+| P-1 | Done | Global config banners now use `LOGGER.info(...)`; suppression behavior is preserved. |
+| P-3 through P-5 | Done | Legacy munger progress no longer writes progress dots/status directly to stdout. |
+| P-6 | Done | IRWLS shape failure now reports expected and observed shapes in the exception. |
+| E-9 | Done | `partitioned-h2` now tells users to rerun `ldsc ldscore` with query annotations and explicit baseline annotations. |
+| T-3 | Done | Invalid manifest config provenance is logged at `DEBUG` with `exc_info=True` and warned with the original exception value. |
+| T-4 | Done | Munger conversion failure logs include the original exception message before re-raising. |
+| T-5, T-6 | Done | Intentional parquet schema probe fallbacks are narrowed/documented as schema fallback logic. |
+
+## 3. Residual Log Message Findings
 
 Severity: High means the issue can hide failures or materially confuse users;
 Medium means important operational context or consistency is missing; Low means
 style, clarity, or maintainability.
 
-| ID | File | Line | Current message or pattern | Issue | Suggested fix | Severity |
-| --- | --- | ---: | --- | --- | --- | --- |
-| L-1 | `src/ldsc/_kernel/ldscore.py` | 235 | `LOGGER = logging.getLogger("LDSC.new")` | Stale logger name does not identify the module or layer. It makes filtered logs and test assertions harder to interpret. | Rename to `logging.getLogger("LDSC.ldscore")` or `logging.getLogger("LDSC._kernel.ldscore")`; update any tests/docs that refer to the old logger. | Medium |
-| L-2 | `src/ldsc/ref_panel_builder.py` | 230 | `LOGGER.info("Loaded %d SNP restriction identifiers in %s mode from %s.", ...)` | Uses percent-style logger arguments, inconsistent with the requested f-string standard. | Build a message variable: `message = f"Loaded {len(restriction_values)} SNP restriction identifiers in {restriction_mode} mode from '{restriction_path}'."; LOGGER.info(message)`. | Medium |
-| L-3 | `src/ldsc/ref_panel_builder.py` | 250 | `LOGGER.warning("No usable liftover chain was provided for %s -> %s; ...", ...)` | Percent-style logger arguments; long message would be clearer as a named message variable. | Convert to an f-string message that names source and target builds. | Medium |
-| L-4 | `src/ldsc/ref_panel_builder.py` | 305 | `LOGGER.info("Building reference-panel artifacts for chromosome %s from %s.", chrom, prefix)` | Percent-style logger arguments; path is unquoted, making spaces or glob-resolved prefixes harder to read. | `LOGGER.info(f"Building reference-panel artifacts for chromosome {chrom} from '{prefix}'.")`. | Medium |
-| L-5 | `src/ldsc/ref_panel_builder.py` | 325 | `LOGGER.info("Skipping chromosome %s because no SNPs remain after restriction.", chrom)` | Percent-style logger arguments; lacks retained/restricted count context. | Include counts when available, e.g. skipped chromosome, restriction mode, and total candidate SNPs. | Medium |
-| L-6 | `src/ldsc/ref_panel_builder.py` | 447 | `LOGGER.info("Finished chromosome %s with %d retained SNPs.", chrom, len(metadata))` | Percent-style logger arguments; otherwise good completion context. | Convert to f-string: `LOGGER.info(f"Finished chromosome {chrom} with {len(metadata)} retained SNPs.")`. | Low |
-| L-7 | `src/ldsc/ldscore_calculator.py` | 863 | `LOGGER.info("Resolved LD-score annotation genome build from %s.", sampled_path)` | Percent-style logger arguments; inferred build is logged by lower layer, but this message does not repeat the resolved build. | Include path and build in one message when possible. | Medium |
-| L-8 | `src/ldsc/ldscore_calculator.py` | 882 | `LOGGER.info("Resolved LD-score reference-panel genome build from %s.", sampled_path)` | Percent-style logger arguments; message omits resolved build. | Include sampled path and resolved build. | Medium |
-| L-9 | `src/ldsc/_kernel/identifiers.py` | 209 | `logger.warning("Dropped %d restriction rows with missing CHR or POS from %s.", dropped, path)` | Percent-style logger arguments. Message is operationally useful but should match project style. | Convert to f-string with quoted path. | Low |
-| L-10 | `src/ldsc/_kernel/annotation.py` | 756 | `LOGGER.info("Resolved annotation genome build from %s.", sampled_path)` | Percent-style logger arguments; inferred build is not visible in this message. | Include sampled path and inferred build, or rely on a single lower-level inference message to avoid duplicates. | Medium |
-| L-11 | `src/ldsc/_kernel/ldscore.py` | 1160 | `LOGGER.warning(f"Cannot apply --maf-min in {context} because MAF metadata is unavailable.")` | Current message uses the retained-panel filter name and f-string style; it could still state that no retained-panel MAF filter was applied for the context. | Add the fallback behavior to the message if this warning remains user-facing. | Low |
-| L-12 | `src/ldsc/_kernel/ldscore.py` | 1305 | Raw-schema parquet warning | Uses percent-style formatting and logs a severe performance warning from the kernel. The warning is important but should include the path and the remediation command context consistently. | Convert to f-string; mention that row-group pruning is disabled and recommend regenerating with `ldsc build-ref-panel`. | Medium |
-| L-13 | `src/ldsc/_kernel/ldscore.py` | 1365 | Missing build metadata warning | Uses percent-style formatting and duplicates inference behavior. | Convert to a single f-string warning with path, inferred build, and regeneration hint. | Medium |
-| L-14 | `src/ldsc/_kernel/ldscore.py` | 1964 | `LOGGER.warning(f"Skipping {prefix}.l2.M_5_50 because MAF is unavailable.")` | Current message uses f-string style; the legacy artifact name is intentionally preserved for low-level file compatibility. | No action unless the legacy writer is renamed. | Low |
+| ID | File | Current pattern | Issue | Recommendation | Severity |
+| --- | --- | --- | --- | --- | --- |
+| L-1 | `src/ldsc/_kernel/sumstats_munger.py` | Many `log.log(...format(...))` legacy messages | The legacy `.log` writer still uses historical `.format()` strings. They are not Python `logging` calls, but the style is inconsistent with the package-wide f-string standard. | Leave while preserving exact legacy logs, or convert in a dedicated compatibility-reviewed pass with snapshot tests. | Low |
+| L-2 | `src/ldsc/_kernel/sumstats_munger.py` | `print(msg, file=self.log_fh)` | This is an intentional file writer for the legacy `.log` artifact, not stdout progress. It still looks like print misuse to simple scanners. | Keep unless replacing `LegacyMungeLog` with a file-handler adapter; document as intentional. | Low |
+| L-3 | `src/ldsc/_kernel/ref_panel.py` | Broad fallback logs BIM-only metadata at `DEBUG` | The fallback is well logged with traceback, but the broad catch is still wider than the expected PLINK BED reader failures. | If the PLINK reader exposes stable exception types later, narrow this catch. | Low |
+| L-4 | `src/ldsc/regression_runner.py`, `src/ldsc/sumstats_munger.py` | Provenance warnings use `warnings.warn(...)` plus selective debug logging | These are API warnings rather than operational logs, which is appropriate for Python callers but less visible in CLI logs. | Keep for API compatibility; optionally mirror to logger at `WARNING` only at CLI boundaries. | Low |
 
-### Missing Logging Coverage
-
-These functions are long enough or operational enough that additional entry and
-completion logging would help users diagnose runs without reading tracebacks.
-Pure utilities and numerical kernels are intentionally excluded unless they
-perform file I/O or public workflow orchestration.
-
-| ID | Module / function | Lines | Reason flagged | Recommended entry log | Recommended exit log |
-| --- | --- | ---: | --- | --- | --- |
-| M-1 | `src/ldsc/cli.py::main` | 74 | The top-level public command dispatcher has no logging or error boundary. | Log selected command at DEBUG after parse, or INFO for actual workflow start through subcommands. | Log clean failure through centralized handler; do not print raw traceback for user errors. |
-| M-2 | `src/ldsc/ldscore_calculator.py::run_ldscore_from_args` | 611 | Public workflow entry point resolves many inputs, builds configs, and writes outputs. | Inputs that matter: baseline/query token presence, reference backend, output directory, identifier mode, genome build. | Number of chromosomes, output path, baseline/query column counts. |
-| M-3 | `src/ldsc/ldscore_calculator.py::LDScoreCalculator.run` | 229 | Main LD-score orchestration loop currently logs only indirect events. | Total chromosome count and annotation columns. | Number of completed/skipped chromosomes and output directory if written. |
-| M-4 | `src/ldsc/ldscore_calculator.py::compute_chromosome` | 305 | Per-chromosome compute boundary delegates to expensive PLINK/parquet kernels. | Chromosome, backend, annotation row count, and LD window mode. | Retained row count and count-column summary. |
-| M-5 | `src/ldsc/sumstats_munger.py::SumstatsMunger.run` | 231 | Public munging workflow resolves inputs and writes three fixed outputs but delegates most logging to legacy kernel stdout/log file. | Raw path, output directory, identifier mode, genome build, and overwrite state. | Input and retained row counts, output artifact paths. |
-| M-6 | `src/ldsc/sumstats_munger.py::main` | 404 | CLI entry point performs path resolution and config inference, but only legacy kernel writes progress. | Raw path and output directory after argument normalization. | Retained row count and metadata sidecar path. |
-| M-7 | `src/ldsc/regression_runner.py::run_h2_from_args` | 496 | Public regression CLI path loads artifacts and may write summary output without logger messages. | Sumstats path, LD-score directory, output directory. | Number of regression SNPs and output summary path if written. |
-| M-8 | `src/ldsc/regression_runner.py::run_partitioned_h2_from_args` | 515 | Public regression CLI path loops over query annotations with no operational logs. | Sumstats path, LD-score directory, query annotation count. | Number of query summaries and output summary path if written. |
-| M-9 | `src/ldsc/regression_runner.py::run_rg_from_args` | 535 | Public rg CLI path loads two sumstats artifacts and LD scores with no operational logs. | Trait paths/names and LD-score directory. | Number of merged SNPs and output summary path if written. |
-| M-10 | `src/ldsc/regression_runner.py::load_ldscore_from_dir` | 606 | Public loader reads manifest and parquet artifacts but only emits warnings for provenance problems. | Directory path and manifest path at DEBUG or INFO. | Baseline row count, query row count, and provenance status. |
-
-### `print()` and stdout Misuse
-
-| ID | File | Line | Current call | Issue | Suggested replacement |
-| --- | --- | ---: | --- | --- | --- |
-| P-1 | `src/ldsc/config.py` | 192 | `print(f"{entrypoint} using {global_config!r}")` | Operational banner is written to stdout for Python and CLI workflows. This can pollute command output and scripted pipelines. | Replace with logger-backed banner. Keep suppression context for repeated nested calls. |
-| P-2 | `src/ldsc/_kernel/sumstats_munger.py` | 80 | `print(msg, file=self.log_fh)` | File logging is intentional for legacy `.log` artifact; the class is not integrated with Python logging. | Keep file write but rename/adapt as `LegacyMungeLogWriter`; pair stdout mirroring with package logger or a verbosity flag. |
-| P-3 | `src/ldsc/_kernel/sumstats_munger.py` | 82 | `print(msg)` | Legacy progress and diagnostics go directly to stdout. | Mirror through `LOGGER.info` or adapter so CLI boundary controls formatting and verbosity. |
-| P-4 | `src/ldsc/_kernel/sumstats_munger.py` | 261 | `sys.stdout.write('.')` | Progress dots are not structured, cannot be filtered, and can interfere with shell pipelines. | Remove dots or emit DEBUG progress by chunk number. |
-| P-5 | `src/ldsc/_kernel/sumstats_munger.py` | 325 | `sys.stdout.write(' done\n')` | Completes the progress-dot stream through stdout instead of a logger. | Replace with a structured completion log containing chunk and SNP counts. |
-| P-6 | `src/ldsc/_kernel/_irwls.py` | 116 | `print('IRWLS update:', new_w.shape, w.shape)` | Debug print inside numerical kernel. It triggers only before raising but bypasses logging. | Include shapes in the raised `ValueError` and remove the print. |
-
-## 3. Error Message Findings
+## 4. Residual Error Message Findings
 
 Track: U means user-facing; D means developer-facing.
 
-| ID | File | Line | Track | Current raise | Issue | Suggested replacement | Severity |
-| --- | --- | ---: | --- | --- | --- | --- | --- |
-| E-1 | `src/ldsc/cli.py` | 137 | U | `raise ValueError(f"Unsupported command: {args.command}")` | Should be impossible after argparse, but if reached it produces a raw traceback. | Raise `LDSCUsageError` or call `parser.error(...)` through the CLI boundary. | Medium |
-| E-2 | `src/ldsc/cli.py` | 143 | U | `raise SystemExit("ldsc annotate requires --query-annot-bed-sources and --baseline-annot-sources.")` | Uses `SystemExit` directly inside dispatch. Message is clear, but it bypasses any structured error handler. | Raise a user/config error and let the CLI boundary render `Error: ...`. | Medium |
-| E-3 | `src/ldsc/config.py` | 60 | U | `ValueError("Required path value is missing.")` | Generic message does not name the config field. | Include field/context at caller or change helper to accept `label`. | Medium |
-| E-4 | `src/ldsc/path_resolution.py` | 123 | U | Exact-one path resolution error | Message gives count and token, but not examples of accepted token forms. | Include accepted forms where user-facing: exact path, glob, or explicit `@` suite when enabled. | Low |
-| E-5 | `src/ldsc/path_resolution.py` | 179 | U | `FileNotFoundError(f"Could not resolve {label} token: {token}") from None` | `from None` intentionally suppresses lower-level token traceback, which is acceptable for user errors, but there is no domain exception. | Convert at workflow/CLI boundary to `LDSCInputError` or leave built-in but catch cleanly at boundary. | Medium |
-| E-6 | `src/ldsc/ldscore_calculator.py` | 661 | U | Query requires baseline message | Strong actionable message; keep content. It should be routed cleanly without traceback at CLI. | Reclassify as `LDSCUsageError` or catch `ValueError` as user error at boundary. | Low |
-| E-7 | `src/ldsc/ldscore_calculator.py` | 837 | U | Missing genome build for chr_pos | Actionable; mentions accepted fixes. | Keep content; route through clean CLI boundary. | Low |
-| E-8 | `src/ldsc/regression_runner.py` | 139 | U | `No overlapping chr_pos SNPs remain after merging sumstats with LD scores.` | Good high-level cause, but lacks path/trait context. | Include sumstats source path or trait and LD-score directory when raised at workflow boundary. | Medium |
-| E-9 | `src/ldsc/regression_runner.py` | 522 | U | `partitioned-h2 requires query annotations in --ldscore-dir.` | Actionable but can include how to create them. | Add hint: rerun `ldsc ldscore` with `--query-annot-sources` or `--query-annot-bed-sources` and explicit baseline annotations. | Medium |
-| E-10 | `src/ldsc/regression_runner.py` | 640 | U | `LD-score directory does not exist or is not a directory: {root}` | Clear, user-facing. | Keep; route without traceback. | Low |
-| E-11 | `src/ldsc/_kernel/sumstats_munger.py` | 382 | D | `Cannot determine N. This message indicates a bug...` | Internal bug message reaches users from a kernel path if pre-validation missed it. | Raise `LDSCInternalError` or add workflow pre-validation so this cannot be user-visible. | Medium |
-| E-12 | `src/ldsc/_kernel/sumstats_munger.py` | 779 | U | `Could not find {C} column.` | Names missing internal canonical column but not the input header or accepted aliases. | Include available columns and accepted aliases for the missing field. | High |
-| E-13 | `src/ldsc/_kernel/sumstats_munger.py` | 795 | U | `Could not determine N.` | Does not tell user which flags or columns can fix it. | Include required fixes: provide `--N`, `--N-cas/--N-con`, or an inferable sample-size column. | High |
-| E-14 | `src/ldsc/_kernel/sumstats_munger.py` | 803 | U | `Could not find A1/A2 columns.` | Does not mention `--no-alleles` as a valid h2-only workaround. | Add hint: provide allele column flags or pass `--no-alleles` when alleles are not needed. | High |
-| E-15 | `src/ldsc/_kernel/ldscore.py` | 1977 | U | `Specify exactly one reference-panel mode: parquet or PLINK.` | Clear but should name concrete flags. | Use: `Specify exactly one reference-panel mode: --r2-sources/--r2-table for parquet or --plink-prefix/--bfile for PLINK.` | Medium |
-| E-16 | `src/ldsc/_kernel/ldscore.py` | 1188 | U | `Must specify exactly one of --ld-wind-snps, --ld-wind-kb, or --ld-wind-cm.` | Good user-facing validation. | Keep; route without traceback. | Low |
+| ID | File | Track | Current pattern | Issue | Recommendation | Severity |
+| --- | --- | --- | --- | --- | --- | --- |
+| E-1 | `src/ldsc/config.py` | U | `ValueError("Required path value is missing.")` | The helper does not name the field whose path is missing. | Add an optional `label` argument to `_normalize_required_path()` when a future config pass touches path validation. | Medium |
+| E-2 | `src/ldsc/path_resolution.py` | U | Exact-one path resolution errors | Messages give token and match count but only some call sites explain accepted token forms. | For top-level CLI paths, include accepted forms: exact path, glob, or explicit `@` chromosome suite when supported. | Low |
+| E-3 | `src/ldsc/regression_runner.py` | U | Empty regression merge | Now names identifier mode, sumstats source, LD-score row count, and the likely config mismatch. | No further action. | Done |
+| E-4 | `src/ldsc/_kernel/sumstats_munger.py` | U | Missing signed statistic, required column, N, and allele errors | High-impact messages now include available columns or concrete fix hints for `--signed-sumstats`, sample-size flags, and `--no-alleles`. | Add targeted tests for these messages to prevent regression. | Low |
+| E-5 | `src/ldsc/_kernel/ref_panel.py` | U | `ImportError("Chromosome discovery for parquet R2 requires explicit chromosomes or sidecar metadata...")` | This is not an optional dependency failure; `ImportError` is semantically misleading. | Convert to `LDSCInputError` or `ValueError` in a follow-up because the fix is to pass chromosomes/metadata, not install a package. | Medium |
+| E-6 | `src/ldsc/_kernel/ref_panel.py` | U | `ImportError("ParquetR2RefPanel.load_metadata requires metadata sidecar files.")` | Same semantic issue as E-5. | Convert to `LDSCInputError` or `ValueError` in a follow-up and update tests if they assert `ImportError`. | Medium |
 
-## 4. Exception Architecture Findings
+## 5. Exception Architecture Status
 
 Current hierarchy:
 
 ```text
 Exception
+├── LDSCError
+│   ├── LDSCUserError
+│   │   ├── LDSCUsageError
+│   │   ├── LDSCConfigError
+│   │   │   └── ConfigMismatchError  (+ ValueError compatibility)
+│   │   ├── LDSCInputError
+│   │   └── LDSCDependencyError      (+ ImportError compatibility)
+│   └── LDSCInternalError
 ├── ValueError
-│   └── ConfigMismatchError
 ├── FileNotFoundError
 ├── FileExistsError
 ├── NotADirectoryError
-├── ImportError
-└── SystemExit
+└── SystemExit at true process boundaries
 ```
 
-Evaluation: the hierarchy is insufficient for the current layered architecture.
-The codebase has many user-caused validation and input errors, plus a smaller
-set of internal or dependency failures, but callers cannot distinguish those
-tracks by exception class. `ConfigMismatchError` is useful and semantic, but it
-inherits from `ValueError` directly and does not establish a package-wide base.
+This hierarchy is now adequate for the current layered architecture. New
+workflow-layer validation should prefer `LDSCUsageError`, `LDSCConfigError`, or
+`LDSCInputError` when the error is meant to be shown cleanly at the CLI boundary.
+Optional dependency failures should use `LDSCDependencyError`; it remains an
+`ImportError` subclass so existing dependency-gated tests and callers can still
+catch it as an import failure.
 
-Recommended hierarchy:
+Do not introduce package exceptions named after Python built-ins such as
+`SystemError`, `RuntimeError`, `ValueError`, `FileNotFoundError`,
+`PermissionError`, or `ConnectionError`.
 
-```python
-class LDSCError(Exception):
-    """Base class for package-specific failures."""
+## 6. Traceback Enrichment Status
 
+| ID | Boundary | Status | Notes |
+| --- | --- | --- | --- |
+| T-1 | `ldsc.__main__` | Done | `python -m ldsc` exits through `run_cli()`, not raw workflow propagation. |
+| T-2 | `ldsc.cli.run_cli()` | Done | User errors produce clean messages; internal package and unexpected failures log traceback with `LOGGER.exception(...)`. |
+| T-3 | Optional dependency paths | Done | Annotation, LD-score parquet/PLINK, reference-panel parquet, and liftover dependency failures now preserve exception chains with `from exc`. |
+| T-4 | Manifest and metadata provenance | Done | Invalid LD-score provenance logs debug traceback and warns with the cause; invalid sumstats metadata raises from the original exception. |
+| T-5 | Legacy munger conversion | Done | The `.log` artifact records the original conversion exception before re-raising, preserving the Python traceback chain. |
+| T-6 | Intentional schema probes | Acceptable | Narrowed to `ValueError` and documented as fallback probes. |
 
-class LDSCUserError(LDSCError):
-    """User input, CLI arguments, or configuration are invalid."""
+## 7. Recommended Next Steps
 
+### Priority 1: Keep covered
 
-class LDSCConfigError(LDSCUserError):
-    """Configuration values or cross-artifact config provenance are invalid."""
+- [x] Keep `tests/test_logging_refactor.py` covering the error hierarchy and
+      `run_cli()` user/internal split.
+- [x] Keep dependency errors chained with `from exc`.
+- [x] Keep raw tracebacks out of expected user-error paths.
 
+### Priority 2: Follow-up refinements
 
-class LDSCInputError(LDSCUserError):
-    """Input paths, file schemas, or file contents are invalid."""
+- [ ] Convert the two semantic `ImportError` cases in `_kernel/ref_panel.py`
+      to `LDSCInputError` or `ValueError`.
+- [ ] Add focused tests for munger missing signed-statistic, required-column,
+      sample-size, and allele messages.
+- [ ] Add a `label` argument to `_normalize_required_path()` so missing config
+      paths can name the field.
+- [ ] Decide whether the legacy `.log` artifact must remain byte-for-byte
+      compatible before converting remaining `.format()`-style `log.log(...)`
+      messages.
 
+### Priority 3: Optional polish
 
-class LDSCDependencyError(LDSCUserError):
-    """An optional dependency required for the requested workflow is missing."""
-
-
-class LDSCInternalError(LDSCError):
-    """Unexpected internal state; log with traceback at the boundary."""
-```
-
-Do not introduce names that shadow Python built-ins such as `SystemError`,
-`RuntimeError`, `ValueError`, `FileNotFoundError`, `PermissionError`, or
-`ConnectionError`.
-
-| ID | Issue | Location | Description | Recommendation |
-| --- | --- | --- | --- | --- |
-| A-1 | No package base exception | `src/ldsc` | Most public workflow errors use built-ins directly. | Add `src/ldsc/errors.py`; export package exceptions from `ldsc.__init__`. |
-| A-2 | Config mismatch not rooted in package base | `src/ldsc/config.py:44` | `ConfigMismatchError` inherits from `ValueError`, so boundary code cannot catch all package user errors by base class. | Make it inherit from `LDSCConfigError` while preserving `ValueError` compatibility if needed through multiple inheritance. |
-| A-3 | Direct `SystemExit` in workflow dispatch | `src/ldsc/cli.py:143` | A specific subcommand validation exits directly instead of raising semantic user error. | Raise `LDSCUsageError` or `LDSCInputError`; central CLI boundary exits. |
-| A-4 | Optional dependency failures use plain `ImportError` | `_kernel/annotation.py:769`, `_kernel/ldscore.py:282`, `_kernel/ref_panel_builder.py:601` | User sees dependency errors as Python import failures. | Wrap or raise `LDSCDependencyError` with install hint at workflow boundary. |
-| A-5 | Intentional probe exceptions use `pass` | `column_inference.py:437`, `_kernel/ldscore.py:758`, `_kernel/ref_panel.py:307` | Silent catches are intentional schema probes but are indistinguishable from accidental swallowing. | Replace with named helper functions or comments such as `# Try build-specific POS aliases after generic POS fails.` |
-
-## 5. Traceback Enrichment Findings
-
-| ID | File | Line | Issue | Suggested fix |
-| --- | --- | ---: | --- | --- |
-| T-1 | `src/ldsc/__main__.py` | 6 | `python -m ldsc` calls `main()` directly, so all non-argparse errors become raw tracebacks. | Introduce `cli.run_cli(argv=None) -> int` with user/internal split; call it from `__main__`. |
-| T-2 | `src/ldsc/cli.py` | 74 | Unified CLI dispatch has no `try/except` boundary around workflow calls. | Catch `LDSCUserError`, selected built-ins (`ValueError`, `FileNotFoundError`, `FileExistsError`, `NotADirectoryError`, `ImportError`) and render clean messages; catch `LDSCError` and unexpected `Exception` with `LOGGER.exception`. |
-| T-3 | `src/ldsc/regression_runner.py` | 696 | `except Exception:` while rebuilding manifest config emits a warning and returns `None`; original exception type and value are discarded. | Catch `Exception as exc`; warning should include `exc`; optionally `LOGGER.debug(..., exc_info=True)` for developer trace. |
-| T-4 | `src/ldsc/_kernel/sumstats_munger.py` | 889 | Broad catch logs a generic error banner and re-raises. Chain is preserved because it re-raises, but the log omits the exception message. | Log `ERROR converting summary statistics: {exc}` and re-raise. Remove unused `traceback` import. |
-| T-5 | `src/ldsc/_kernel/ldscore.py` | 758 | Broad catch suppresses schema-probe failure. | Keep suppression only if intentional; narrow to `ValueError` or add comment explaining canonical-schema probe fallback. |
-| T-6 | `src/ldsc/_kernel/ldscore.py` | 764 | Broad catch suppresses schema-probe failure. | Narrow to expected schema-resolution exceptions and document fallback to raw/unsupported schema. |
-
-## 6. Recommended Changes
-
-### Priority 1: High severity
-
-- [ ] Add `src/ldsc/errors.py` with package exception classes that distinguish
-      user/config/input/dependency failures from internal failures.
-- [ ] Add a central CLI error boundary in `ldsc.cli` and route `python -m ldsc`
-      through it from `ldsc.__main__`.
-- [ ] Convert the most common user-facing validation errors in CLI and public
-      workflow entry points to package user exceptions, or catch the existing
-      built-ins cleanly during the first pass.
-- [ ] Improve high-impact munger messages for missing signed statistic, sample
-      size, and allele columns.
-
-### Priority 2: Medium severity
-
-- [ ] Replace `print_global_config_banner()` stdout output with logger-backed
-      behavior while preserving `suppress_global_config_banner()`.
-- [ ] Convert percent-style logger calls to f-strings in `ref_panel_builder.py`,
-      `ldscore_calculator.py`, `_kernel/identifiers.py`, `_kernel/annotation.py`,
-      and `_kernel/ldscore.py`.
-- [ ] Rename `_kernel.ldscore` logger from `LDSC.new` to a stable module name.
-- [ ] Add entry/completion logs to the public workflow entry points:
-      `run_ldscore_from_args`, `SumstatsMunger.run`, regression `run_*_from_args`,
-      and `load_ldscore_from_dir`.
-- [ ] Replace operational `warnings.warn(...)` calls with logger warnings where
-      the condition is runtime progress/status rather than Python API warning.
-
-### Priority 3: Low severity and consistency
-
-- [ ] Remove the IRWLS debug print and include shape details in the exception.
-- [ ] Remove unused `traceback` import from `_kernel/sumstats_munger.py`.
-- [ ] Document intentional schema-probe exception suppression with comments or
-      helper names.
-- [ ] Review log levels after conversion: expected milestones at INFO,
-      recoverable data-quality drops at WARNING, internal traces at DEBUG.
-
-## 7. Suggested Implementation Sequence
-
-1. Add package exceptions and CLI boundary first. This reduces traceback noise
-   immediately without changing numerical behavior.
-2. Move global config banners from stdout to logging. This is low-risk but
-   affects shell-script output, so update tests that assert stdout/stderr.
-3. Convert logging style and logger names. This should be mostly mechanical.
-4. Improve user-facing error messages in munger, LD-score, and regression
-   workflow boundaries. Keep kernel behavior stable and avoid changing filters.
-5. Clean up legacy stdout progress in the munger kernel behind the public
-   workflow adapter.
-6. Run targeted CLI tests and then the full test suite.
+- [ ] Mirror API-level `warnings.warn(...)` messages to the CLI logger only at
+      command boundaries if CLI users are missing important provenance warnings.
+- [ ] Narrow the broad PLINK BED fallback in `_kernel/ref_panel.py` if stable
+      lower-level exception classes become available.
 
 ## 8. Verification Plan
 
-Run these commands from the repository root after implementation:
+Run these commands from the repository root after logging/error changes:
 
 ```bash
-python -m unittest discover -s tests -p 'test*.py' -v
+python -m unittest tests.test_logging_refactor tests.test_sumstats_munger tests.test_regression_workflow tests.test_annotation tests.test_ref_panel_builder tests.test_ldscore_workflow
+python -m unittest discover -s tests -p 'test*.py'
 python -m ldsc --help
-python -m ldsc munge-sumstats --help
-python -m ldsc ldscore --help
-python -m ldsc h2 --help
 ```
 
-Add targeted tests for:
+Quick audit probes:
 
-- CLI user errors exit nonzero without raw tracebacks.
-- Unexpected internal errors still log full traceback with `LOGGER.exception`.
-- `print_global_config_banner()` no longer writes to stdout in normal workflows.
-- Existing legacy munger `.log` artifact still contains conversion details.
-
-## 9. Agent Execution Instructions
-
-This section is written for an AI agent executing the cleanup plan above.
-
-### Before You Start
-
-- Read this full audit and the active design docs:
-  `docs/architecture.md`, `docs/layer-structure.md`, and `AGENTS.md`.
-- Do not change numerical behavior, filtering semantics, file formats, or public
-  CLI flag names as part of this logging pass.
-- Keep edits in the documented layers: CLI boundary in `ldsc.cli`, user-facing
-  workflow context in public workflow modules, and only local message/logging
-  improvements inside `_kernel`.
-
-### Execution Order
-
-1. Implement `src/ldsc/errors.py` and export exceptions.
-2. Add the top-level CLI boundary and route `__main__.py` through it.
-3. Move global config banners to logging.
-4. Convert logger message style and stale logger names.
-5. Improve high-impact user-facing error text.
-6. Clean stdout/progress misuse in legacy kernels where tests allow it.
-7. Run targeted and full verification.
-
-### Per-Change Checklist
-
-- For every `except` block you touch, preserve exception chains with `raise ...
-  from exc` unless intentionally suppressing user-facing noise with `from None`.
-- For user errors, include what was wrong, what was received, what was expected,
-  and a concrete fix hint when practical.
-- For developer/internal errors, include operation context and preserve the
-  original exception.
-- For log messages, prefer f-strings and include path/count/build/chromosome
-  context when relevant.
-- After each file edit, run the smallest targeted test that exercises it before
-  the full suite.
-
-Awaiting approval before applying code changes.
+```bash
+rg -n "LOGGER\.(info|warning|error|debug|exception)\([^f\n]*%|logger\.(info|warning|error|debug|exception)\([^f\n]*%" src/ldsc --glob '*.py'
+rg -n "^\s*print\(|sys\.stdout\.write|sys\.stderr\.write" src/ldsc tests --glob '*.py'
+rg -n "except Exception|except BaseException|except:\s*(#.*)?$" src/ldsc --glob '*.py'
+```

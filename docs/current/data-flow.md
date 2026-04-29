@@ -257,7 +257,7 @@ others from an earlier run.
 | File | Example | Notes |
 | --- | --- | --- |
 | raw sumstats | `#CHROM POS ID EA NEA PVAL BETA NEFF`<br/>`1 754182 rs3131969 A G 0.46 0.004 829249.58` | leading `##` metadata lines are skipped; header aliases are normalized in the workflow layer |
-| merge-alleles file, optional | one SNP or allele pair per row | optional legacy compatibility filter |
+| sumstats SNP keep-list, optional | headered `SNP` or `CHR`/`POS` restriction file | optional row filter; does not allele-match or reorder rows |
 | column hints, optional | `--snp ID --chr '#CHROM' --pos POS --a1 EA --a2 NEA` | useful when headers are ambiguous; `CHR` and `POS` also infer from common aliases |
 
 ### Flow
@@ -265,7 +265,7 @@ others from an earlier run.
 ```mermaid
 flowchart LR
   I1[Raw GWAS table]
-  I2[Column hints / merge list]
+  I2[Column hints / SNP keep-list]
 
   subgraph P4[Preprocessing (public)<br/>config + path_resolution + column_inference]
     D1[Resolve one raw file]

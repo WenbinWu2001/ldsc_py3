@@ -231,6 +231,42 @@ class PackageLayoutTest(unittest.TestCase):
         self.assertEqual(args.command, "ldscore")
         self.assertEqual(args.regression_snps_file, "filters/hm3.txt")
 
+    def test_munge_sumstats_subcommand_accepts_sumstats_snps_file(self):
+        from ldsc import cli
+
+        parser = cli.build_parser()
+        args = parser.parse_args(
+            [
+                "munge-sumstats",
+                "--sumstats-file",
+                "raw.tsv",
+                "--output-dir",
+                "out/trait",
+                "--sumstats-snps-file",
+                "filters/hm3.tsv.gz",
+            ]
+        )
+
+        self.assertEqual(args.command, "munge-sumstats")
+        self.assertEqual(args.sumstats_snps_file, "filters/hm3.tsv.gz")
+
+    def test_munge_sumstats_subcommand_rejects_removed_merge_alleles_file(self):
+        from ldsc import cli
+
+        parser = cli.build_parser()
+        with self.assertRaises(SystemExit):
+            parser.parse_args(
+                [
+                    "munge-sumstats",
+                    "--sumstats-file",
+                    "raw.tsv",
+                    "--output-dir",
+                    "out/trait",
+                    "--merge-alleles-file",
+                    "filters/hm3.tsv.gz",
+                ]
+            )
+
     def test_ldscore_subcommand_rejects_removed_print_snps_and_regression_snps_flags(self):
         from ldsc import cli
 

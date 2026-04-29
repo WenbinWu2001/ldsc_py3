@@ -74,7 +74,7 @@ ldsc_py3_restructured/
 | change runtime PLINK/parquet reference access | `src/ldsc/_kernel/ref_panel.py` |
 | change LD-score orchestration, optional-baseline behavior, or output packaging | `src/ldsc/ldscore_calculator.py`, `src/ldsc/outputs.py` |
 | change LD-score math | `src/ldsc/_kernel/ldscore.py` |
-| change raw sumstats ingestion, `CHR`/`POS` handling, sidecar provenance, or curated loading | `src/ldsc/sumstats_munger.py`, then `src/ldsc/_kernel/sumstats_munger.py` |
+| change raw sumstats ingestion, `CHR`/`POS` handling, sumstats SNP keep-list filtering, sidecar provenance, or curated loading | `src/ldsc/sumstats_munger.py`, then `src/ldsc/_kernel/sumstats_munger.py` |
 | change regression dataset assembly or CLI summaries | `src/ldsc/regression_runner.py`, then `src/ldsc/outputs.py` for partitioned-h2 output layout |
 | change LDSC estimators | `src/ldsc/_kernel/regression.py` |
 | change LD-score result-directory files, parquet row-group layout, partitioned-h2 per-query layout, or manifest writer metadata | `src/ldsc/outputs.py` |

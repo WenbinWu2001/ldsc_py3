@@ -62,36 +62,38 @@ needs.
 | Input type | Strategy |
 |---|---|
 | Packaged HM3 reference | Load full 11,000-SNP map once, then reuse from cache |
-| Raw sumstats text / `.gz` | Adaptive chunked read of `CHR` + `POS` only |
+| Raw sumstats text / `.gz` | Kernel-side normalization of munged `CHR` + `POS`, with build inference when requested |
 | Annotation chromosome-suite inputs | Read a small head sample from the first resolvable `@` chromosome file |
 | Canonical parquet R2 reference panel | Prefer schema metadata; otherwise inspect the first row group |
 
 ## Raw Sumstats
 
-Raw sumstats can be large, compressed, and sequential-access. A fixed first
-5,000-row sample may fail when the file starts in a region with sparse HapMap3
-overlap.
+Raw sumstats can be large, compressed, and sequential-access. `ldsc
+munge-sumstats` keeps `--genome-build auto` unresolved until the munging kernel
+has parsed the raw table, applied standard QC, and translated coordinate aliases
+into canonical `CHR` and `POS` columns. The kernel then calls
+`resolve_chr_pos_table()` so build inference and coordinate-basis normalization
+operate on the same coordinate table that will be written to the curated
+artifact.
 
-For raw sumstats, `_sample_raw_sumstats_chr_pos()` reads forward in chunks using
-`GenomeBuildEvidenceAccumulator` from `genome_build_inference.py`:
+The build resolver uses `GenomeBuildEvidenceAccumulator` from
+`genome_build_inference.py`:
 
 ```text
-chunk_size = 25,000 rows
-max_rows   = 1,000,000 rows
-
-read CHR + POS only
-accumulate unique valid (CHR, POS) pairs
-stop when both thresholds are met:
+normalize CHR spellings
+coerce POS to integer base-pair positions
+compare unique valid (CHR, POS) pairs to the packaged HM3 hypotheses
+require:
   - at least 200 informative HM3 matches, AND
   - best hypothesis explains >= 99% of informative matches
-or when 1,000,000 rows have been inspected
 ```
 
-Only two columns are read, so the inference chunk size is intentionally smaller
-than the normal munge chunk size. If the row budget is exhausted before both
-thresholds are met, an INFO log reports how many rows were scanned and how many
-informative matches were found, then inference proceeds and raises an error with
-an actionable message.
+If those thresholds are not met, inference raises an actionable error that asks
+the user to pass `--genome-build hg19` or `--genome-build hg38` explicitly. The
+same normalized coordinate metadata is also used by munge-time
+`--sumstats-snps-file` filtering in `chr_pos` mode, so a keep-list with both
+`hg19_POS` and `hg38_POS` selects the position column matching the effective raw
+sumstats build.
 
 ## Annotation Inputs
 

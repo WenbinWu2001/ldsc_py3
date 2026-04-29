@@ -29,14 +29,12 @@ import pandas as pd
 
 from .column_inference import (
     INTERNAL_SUMSTATS_ARTIFACT_SPEC_MAP,
-    infer_chr_pos_columns,
     normalize_genome_build,
     normalize_snp_identifier_mode,
     resolve_optional_column,
     resolve_required_column,
 )
 from .config import GlobalConfig, MungeConfig, get_global_config
-from .genome_build_inference import GenomeBuildEvidenceAccumulator, resolve_genome_build
 from .path_resolution import ensure_output_directory, ensure_output_paths_available, resolve_scalar_path
 from ._kernel import sumstats_munger as kernel_munge
 
@@ -247,7 +245,10 @@ class SumstatsMunger:
             files named ``sumstats.sumstats.gz`` and ``sumstats.log`` inside
             ``munge_config.output_dir``. Existing fixed files are refused
             before the legacy kernel runs unless ``munge_config.overwrite`` is
-            true.
+            true. If ``munge_config.sumstats_snps_file`` is supplied, it is
+            treated as a headered keep-list and applied after munging QC and
+            coordinate normalization without allele matching or output
+            reordering.
         global_config : GlobalConfig or None, optional
             Shared configuration snapshot to attach to the returned
             ``SumstatsTable``. When omitted, the current package-global
@@ -261,6 +262,8 @@ class SumstatsMunger:
             the active or inferred ``GlobalConfig`` snapshot, and writes the
             same provenance into ``sumstats.metadata.json`` so downstream
             regression can detect incompatible LD-score results after reload.
+            Optional ``sumstats_snps_file`` filtering is reflected in both the
+            returned table and the written ``sumstats.sumstats.gz`` artifact.
             Output paths for the corresponding disk artifacts are available
             through :meth:`build_run_summary`.
         """
@@ -388,10 +391,11 @@ class SumstatsMunger:
         args.n_min = munge_config.n_min
         args.nstudy_min = munge_config.nstudy_min
         args.chunksize = munge_config.chunk_size
-        args.merge_alleles = (
+        args.merge_alleles = None
+        args.sumstats_snps = (
             None
-            if munge_config.merge_alleles_file is None
-            else resolve_scalar_path(munge_config.merge_alleles_file, label="merge-alleles file")
+            if munge_config.sumstats_snps_file is None
+            else resolve_scalar_path(munge_config.sumstats_snps_file, label="sumstats SNPs file")
         )
         args.signed_sumstats = munge_config.signed_sumstats_spec
         args.ignore = ",".join(munge_config.ignore_columns) if munge_config.ignore_columns else None
@@ -422,10 +426,11 @@ def main(argv: list[str] | None = None):
         overwrite=getattr(args, "overwrite", False),
         label="munged output artifact",
     )
-    if getattr(args, "merge_alleles_file", None):
-        args.merge_alleles = resolve_scalar_path(args.merge_alleles_file, label="merge-alleles file")
+    args.merge_alleles = None
+    if getattr(args, "sumstats_snps_file", None):
+        args.sumstats_snps = resolve_scalar_path(args.sumstats_snps_file, label="sumstats SNPs file")
     else:
-        args.merge_alleles = None
+        args.sumstats_snps = None
     config_snapshot = _resolve_main_global_config(args)
     data = kernel_munge.munge_sumstats(args, p=True)
     coordinate_metadata = dict(getattr(args, "_coordinate_metadata", {}))
@@ -456,57 +461,8 @@ def _resolve_main_global_config(args: argparse.Namespace) -> GlobalConfig:
             "genome_build is required when snp_identifier='chr_pos'. "
             "Pass --genome-build auto, --genome-build hg19, or --genome-build hg38."
         )
-    if genome_build == "auto":
-        sample = _sample_raw_sumstats_chr_pos(args.sumstats)
-        genome_build = resolve_genome_build(
-            "auto",
-            "chr_pos",
-            sample,
-            context="munge-sumstats raw input",
-            logger=LOGGER,
-        )
     args.genome_build = genome_build
     return GlobalConfig(snp_identifier="chr_pos", genome_build=genome_build)
-
-
-_INFERENCE_CHUNK_SIZE = 25_000
-_INFERENCE_MAX_ROWS = 1_000_000
-
-
-def _sample_raw_sumstats_chr_pos(path: str) -> pd.DataFrame:
-    """Read CHR/POS rows adaptively until both inference thresholds are met."""
-    header = kernel_munge.read_header(path)
-    chr_col, pos_col = infer_chr_pos_columns(header, context=path)
-    skiprows = kernel_munge.count_leading_sumstats_comment_lines(path)
-    scorer = GenomeBuildEvidenceAccumulator()
-
-    rows_read = 0
-    reader = pd.read_csv(
-        path,
-        sep=r"\s+",
-        compression="infer",
-        usecols=[chr_col, pos_col],
-        skiprows=skiprows,
-        chunksize=_INFERENCE_CHUNK_SIZE,
-    )
-    for chunk in reader:
-        pos_numeric = pd.to_numeric(chunk[pos_col], errors="coerce")
-        valid = chunk[chr_col].notna() & pos_numeric.notna() & (pos_numeric >= 0)
-        scorer.update(
-            (str(chrom), int(pos))
-            for chrom, pos in zip(chunk.loc[valid, chr_col], pos_numeric.loc[valid].astype("int64"))
-        )
-        rows_read += len(chunk)
-        if scorer.is_sufficient() or rows_read >= _INFERENCE_MAX_ROWS:
-            break
-
-    if rows_read >= _INFERENCE_MAX_ROWS and not scorer.is_sufficient():
-        LOGGER.info(
-            f"Genome-build inference sampled {rows_read:,} rows and found "
-            f"{scorer.informative_count} informative HM3 matches. "
-            "If inference fails, pass --genome-build hg19 or --genome-build hg38 explicitly."
-        )
-    return scorer.to_frame()
 
 
 def kernel_parser():
@@ -520,7 +476,7 @@ def build_parser() -> argparse.ArgumentParser:
     public.add_argument("--sumstats-file", required=True, help="Raw summary-statistics file path.")
     public.add_argument("--output-dir", required=True, help="Output directory for munged sumstats and logs.")
     public.add_argument("--overwrite", action="store_true", default=False, help="Replace existing fixed output files.")
-    public.add_argument("--merge-alleles-file", default=None, help="Optional merge-alleles file path.")
+    public.add_argument("--sumstats-snps-file", default=None, help="Optional SNP keep-list for munged summary statistics.")
     for action in parser._actions:
         if action.dest in {"help", "sumstats", "out", "merge_alleles"}:
             continue

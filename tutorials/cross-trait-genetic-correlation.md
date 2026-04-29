@@ -47,6 +47,7 @@ trait_1 = SumstatsMunger().run(
         sumstats_file="data/trait_1.tsv.gz",
         trait_name="trait_1",
         column_hints={"snp": "SNP", "a1": "A1", "a2": "A2", "p": "P", "N_col": "N"},
+        # sumstats_snps_file="filters/hapmap3.tsv.gz",  # optional row keep-list
         output_dir="tutorial_outputs/trait_1",
         signed_sumstats_spec="BETA,0",
         # overwrite=True,  # enable only when intentionally replacing trait_1 outputs
@@ -59,6 +60,7 @@ trait_2 = SumstatsMunger().run(
         sumstats_file="data/trait_2.tsv.gz",
         trait_name="trait_2",
         column_hints={"snp": "SNP", "a1": "A1", "a2": "A2", "p": "P", "N_col": "N"},
+        # sumstats_snps_file="filters/hapmap3.tsv.gz",  # optional row keep-list
         output_dir="tutorial_outputs/trait_2",
         signed_sumstats_spec="BETA,0",
         # overwrite=True,  # enable only when intentionally replacing trait_2 outputs
@@ -116,6 +118,7 @@ ldsc munge-sumstats \
   --a2 A2 \
   --p P \
   --N-col N \
+  --sumstats-snps-file filters/hapmap3.tsv.gz \
   --signed-sumstats BETA,0 \
   --output-dir tutorial_outputs/trait_1
 
@@ -126,6 +129,7 @@ ldsc munge-sumstats \
   --a2 A2 \
   --p P \
   --N-col N \
+  --sumstats-snps-file filters/hapmap3.tsv.gz \
   --signed-sumstats BETA,0 \
   --output-dir tutorial_outputs/trait_2
 

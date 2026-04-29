@@ -148,7 +148,15 @@ def _detect_delimiter(sample_line: str) -> str | None:
 def _non_comment_lines(path: Path) -> list[str]:
     """Read non-empty, non-comment lines from a restriction file."""
     with _open_text(path) as handle:
-        return [line.rstrip("\n") for line in handle if line.strip() and not line.lstrip().startswith("#")]
+        lines: list[str] = []
+        for line in handle:
+            stripped = line.lstrip()
+            if not stripped.strip():
+                continue
+            if stripped.startswith("#") and not stripped.upper().startswith("#CHROM"):
+                continue
+            lines.append(line.rstrip("\n"))
+        return lines
 
 
 def _parse_restriction_rows(path: Path) -> tuple[list[str], list[list[str]], str | None]:

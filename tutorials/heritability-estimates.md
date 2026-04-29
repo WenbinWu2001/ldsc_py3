@@ -60,6 +60,7 @@ sumstats = SumstatsMunger().run(
             "N_col": "NEFF",
             "info": "IMPINFO",
         },
+        # sumstats_snps_file="filters/hapmap3.tsv.gz",  # optional row keep-list
         output_dir="tutorial_outputs/trait",
         signed_sumstats_spec="BETA,0",
         # overwrite=True,  # enable only when intentionally replacing sumstats/log files
@@ -129,6 +130,7 @@ ldsc munge-sumstats \
   --p PVAL \
   --N-col NEFF \
   --info IMPINFO \
+  --sumstats-snps-file filters/hapmap3.tsv.gz \
   --signed-sumstats BETA,0 \
   --snp-identifier chr_pos \
   --genome-build auto \

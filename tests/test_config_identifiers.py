@@ -285,13 +285,13 @@ class WorkflowConfigTest(unittest.TestCase):
         config = MungeConfig(
             sumstats_file=Path("sumstats") / "trait.tsv.gz",
             output_dir=Path("results") / "trait",
-            merge_alleles_file=Path("resources") / "alleles.tsv",
+            sumstats_snps_file=Path("resources") / "alleles.tsv",
             trait_name="trait",
             overwrite=True,
         )
         self.assertEqual(config.sumstats_file, "sumstats/trait.tsv.gz")
         self.assertEqual(config.output_dir, "results/trait")
-        self.assertEqual(config.merge_alleles_file, "resources/alleles.tsv")
+        self.assertEqual(config.sumstats_snps_file, "resources/alleles.tsv")
         self.assertEqual(config.trait_name, "trait")
         self.assertTrue(config.overwrite)
 

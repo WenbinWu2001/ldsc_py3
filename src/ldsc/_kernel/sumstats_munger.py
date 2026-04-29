@@ -32,6 +32,7 @@ from ..column_inference import (
 from ..chromosome_inference import normalize_chromosome
 from ..genome_build_inference import resolve_chr_pos_table
 from . import regression as sumstats
+from .identifiers import build_snp_id_series, read_global_snp_restriction
 import time
 np.seterr(invalid='ignore')
 
@@ -149,6 +150,49 @@ def read_header(fh):
             handle.readline()
         line = _decode_header_line(handle.readline())
         return [x.rstrip('\n') for x in line.split()]
+
+
+def _read_first_non_metadata_line(fh):
+    """Return the first non-``##`` line from a plain or compressed text file."""
+    (openfunc, _compression) = get_compression(fh)
+    with openfunc(fh) as handle:
+        for raw_line in handle:
+            line = _decode_header_line(raw_line)
+            if not line.startswith('##'):
+                return line
+    return ''
+
+
+def _merge_alleles_sep(fh):
+    """Choose the delimiter for a merge-alleles file from its header line."""
+    header = _read_first_non_metadata_line(fh)
+    return '\t' if '\t' in header else r'\s+'
+
+
+def _read_merge_alleles(path):
+    """Read a merge-alleles file while preserving allele columns as strings."""
+    (_openfunc, compression) = get_compression(path)
+    merge_alleles = pd.read_csv(
+        path,
+        compression=compression,
+        header=0,
+        sep=_merge_alleles_sep(path),
+        na_values='.',
+        keep_default_na=False,
+        usecols=lambda column: column in {'SNP', 'A1', 'A2'},
+    )
+    if any(x not in merge_alleles.columns for x in ["SNP", "A1", "A2"]):
+        raise ValueError(
+            '--merge-alleles must have columns SNP, A1, A2.')
+    missing_required = merge_alleles[["SNP", "A1", "A2"]].isna() | (
+        merge_alleles[["SNP", "A1", "A2"]].astype(str).apply(lambda col: col.str.strip()) == ''
+    )
+    if missing_required.any(axis=None):
+        bad_col = missing_required.any(axis=0).idxmax()
+        raise ValueError('--merge-alleles has missing values in required column {C}.'.format(C=bad_col))
+    for column in ["SNP", "A1", "A2"]:
+        merge_alleles[column] = merge_alleles[column].astype(str).str.strip()
+    return merge_alleles
 
 
 def get_cname_map(flag, default, ignore):
@@ -340,6 +384,47 @@ def parse_dat(dat_gen, convert_colname, merge_alleles, log, args):
     msg += '{N} SNPs remain.'.format(N=len(dat))
     log.log(msg)
     return dat
+
+
+def _sumstats_snp_keys(dat, mode):
+    """Return canonical SNP keys for rows with usable identifiers."""
+    mode = normalize_snp_identifier_mode(mode)
+    if mode == 'rsid':
+        return pd.Series(dat['SNP'].astype(str), index=dat.index)
+
+    chr_missing = _coordinate_missing_mask(dat['CHR'])
+    pos_missing = _coordinate_missing_mask(dat['POS'])
+    complete = ~(chr_missing | pos_missing)
+    keys = pd.Series(pd.NA, index=dat.index, dtype='object')
+    if complete.any():
+        keys.loc[complete] = build_snp_id_series(dat.loc[complete, ['CHR', 'POS']], mode).astype(str)
+    return keys
+
+
+def filter_sumstats_snps(dat, log, args):
+    """Restrict munged summary statistics to ``args.sumstats_snps`` when set."""
+    snps_path = getattr(args, 'sumstats_snps', None)
+    if not snps_path:
+        return dat
+
+    mode = normalize_snp_identifier_mode(getattr(args, 'snp_identifier', 'chr_pos'))
+    coordinate_metadata = getattr(args, '_coordinate_metadata', {})
+    genome_build = coordinate_metadata.get('genome_build', getattr(args, 'genome_build', None))
+    restriction = read_global_snp_restriction(
+        snps_path,
+        mode,
+        genome_build=genome_build if mode == 'chr_pos' else None,
+        logger=_CoordinateInferenceLogger(log),
+    )
+    keys = _sumstats_snp_keys(dat, mode)
+    keep = keys.astype('string').isin(restriction)
+    old = len(dat)
+    out = dat.loc[keep].reset_index(drop=True)
+    removed = old - len(out)
+    log.log('Removed {N} SNPs not in --sumstats-snps-file ({M} SNPs remain).'.format(N=removed, M=len(out)))
+    if len(out) == 0:
+        raise ValueError('After applying --sumstats-snps-file, no SNPs remain.')
+    return out
 
 
 def process_n(dat, args, log):
@@ -559,6 +644,7 @@ def _finalize_coordinate_columns(dat, args, log):
                 lambda value: normalize_chromosome(value, context=getattr(args, 'sumstats', 'sumstats'))
             )
             normalized['POS'] = pd.to_numeric(normalized['POS'], errors='raise').astype('int64')
+        dat['CHR'] = dat['CHR'].astype(object)
         dat.loc[complete, 'CHR'] = normalized['CHR'].astype(object)
         dat.loc[complete, 'POS'] = normalized['POS'].astype('int64')
     elif mode == 'chr_pos' and genome_build == 'auto':
@@ -823,12 +909,7 @@ def munge_sumstats(args, p=True):
         if args.merge_alleles:
             log.log(
                 'Reading list of SNPs for allele merge from {F}'.format(F=args.merge_alleles))
-            (openfunc, compression) = get_compression(args.merge_alleles)
-            merge_alleles = pd.read_csv(args.merge_alleles, compression=compression, header=0,
-                                        sep='\s+', na_values='.')
-            if any(x not in merge_alleles.columns for x in ["SNP", "A1", "A2"]):
-                raise ValueError(
-                    '--merge-alleles must have columns SNP, A1, A2.')
+            merge_alleles = _read_merge_alleles(args.merge_alleles)
 
             log.log(
                 'Read {N} SNPs for allele merge.'.format(N=len(merge_alleles)))
@@ -874,6 +955,7 @@ def munge_sumstats(args, p=True):
         if args.merge_alleles:
             dat = allele_merge(dat, merge_alleles, log)
         dat = _finalize_coordinate_columns(dat, args, log)
+        dat = filter_sumstats_snps(dat, log, args)
 
         out_fname = args.out + '.sumstats'
         print_colnames = [

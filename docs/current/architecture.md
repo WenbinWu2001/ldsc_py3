@@ -90,7 +90,7 @@ This module orchestrates chromosome-wise LD-score computation. It resolves annot
 
 ### `ldsc.sumstats_munger`
 
-This module wraps the historical munging behavior in typed public objects such as `MungeConfig`, `SumstatsTable`, and `SumstatsMunger`. It keeps raw-input parsing flexible, skips leading `##` raw metadata lines, writes canonical `CHR` and `POS` columns alongside `SNP`, `Z`, and `N`, and persists `snp_identifier`/`genome_build` provenance in `sumstats.metadata.json`. Public interface: downstream workflows should consume `SumstatsTable` or curated `.sumstats.gz` plus its sidecar, not raw heterogeneous GWAS tables.
+This module wraps the historical munging behavior in typed public objects such as `MungeConfig`, `SumstatsTable`, and `SumstatsMunger`. It keeps raw-input parsing flexible, skips leading `##` raw metadata lines, writes canonical `CHR` and `POS` columns alongside `SNP`, `Z`, and `N`, optionally applies a headered `sumstats_snps_file` keep-list through the shared identifier parser, and persists `snp_identifier`/`genome_build` provenance in `sumstats.metadata.json`. Public interface: downstream workflows should consume `SumstatsTable` or curated `.sumstats.gz` plus its sidecar, not raw heterogeneous GWAS tables.
 
 ### `ldsc.regression_runner`
 

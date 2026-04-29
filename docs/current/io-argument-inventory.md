@@ -23,7 +23,7 @@ Public CLI flags and Python config fields follow these rules:
 
 | Suffix | Meaning | Examples |
 |---|---|---|
-| `*_file` | one file-like input, exact-one glob allowed where the resolver supports it | `sumstats_file`, `merge_alleles_file`, `keep_indivs_file` |
+| `*_file` | one file-like input, exact-one glob allowed where the resolver supports it | `sumstats_file`, `sumstats_snps_file`, `keep_indivs_file` |
 | `*_sources` | one logical input that may resolve to many files via globs, comma lists, or `@` chromosome tokens | `baseline_annot_sources`, `query_annot_bed_sources`, `r2_sources` |
 | `*_dir` | directory input or output location | `ldscore_dir`, `output_dir` |
 
@@ -127,12 +127,12 @@ source-build genetic map because the map defines the LD window.
 | Flag | Direction | Required | Object | Notes |
 |---|---:|---:|---|---|
 | `--sumstats-file` | input | yes | raw summary-statistics file | Exact path or exact-one glob. |
-| `--merge-alleles-file` | input | no | allele merge file | Exact path or exact-one glob. |
+| `--sumstats-snps-file` | input | no | summary-statistics SNP keep-list | Exact path or exact-one glob. Restricts munged rows only; does not allele-match or reorder rows. |
 | `--output-dir` | output | yes | munged output directory | Internally uses `<output_dir>/sumstats` as the legacy kernel stem. |
 | `--chr`, `--pos` | input metadata | no | raw column hints | Explicit chromosome and base-pair position columns; common aliases such as `#CHROM`, `CHROM`, `CHR`, `POS`, and `BP` are also inferred. |
 | `--snp-identifier`, `--genome-build` | config | no | provenance | Recorded in `sumstats.metadata.json`; `--genome-build auto` can infer hg19/hg38 for complete `CHR`/`POS` rows. |
 
-Removed flags: `--sumstats`, `--merge-alleles`, `--out`.
+Removed flags: `--sumstats`, `--merge-alleles`, `--merge-alleles-file`, `--out`.
 
 Fixed output names:
 
@@ -243,7 +243,7 @@ Removed Python names: `plink_path`, `bfile`, `out`, `panel_label`,
 | `MungeConfig` | `sumstats_file` | input | raw summary-statistics file |
 | `MungeConfig` | `trait_name` | input metadata | optional trait label |
 | `MungeConfig` | `column_hints` | input metadata | optional source-column hints |
-| `MungeConfig` | `merge_alleles_file` | input | merge-alleles file |
+| `MungeConfig` | `sumstats_snps_file` | input | summary-statistics SNP keep-list |
 | `MungeConfig` | `output_dir` | output | munged output directory |
 | `SumstatsMunger.run(munge_config, ...)` | `munge_config` | input/output | normalized munging workflow |
 | `SumstatsMunger.write_output(sumstats, output_dir)` | `output_dir` | output | writes fixed `sumstats.sumstats.gz` |

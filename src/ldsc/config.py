@@ -497,8 +497,14 @@ class MungeConfig:
         ``None``.
     chunk_size : int, optional
         Number of input rows processed per chunk. Default is ``1_000_000``.
-    merge_alleles_file : str or os.PathLike[str] or None, optional
-        Optional allele-merge file path. Default is ``None``.
+    sumstats_snps_file : str or os.PathLike[str] or None, optional
+        Optional headered summary-statistics SNP keep-list path. In ``rsid``
+        mode, central ``SNP`` aliases identify the keep-list column. In
+        ``chr_pos`` mode, central ``CHR``/``POS`` aliases, including
+        build-specific position aliases such as ``hg19_POS`` and ``hg38_POS``,
+        define retained coordinates. This option restricts rows only; it does
+        not allele-match, rewrite alleles, or reorder output. Default is
+        ``None``.
     signed_sumstats_spec : str or None, optional
         Signed statistic specification passed through to the legacy kernel.
         Default is ``None``.
@@ -524,7 +530,7 @@ class MungeConfig:
     n_min: float | None = None
     nstudy_min: float | None = None
     chunk_size: int = 1_000_000
-    merge_alleles_file: str | PathLike[str] | None = None
+    sumstats_snps_file: str | PathLike[str] | None = None
     signed_sumstats_spec: str | None = None
     ignore_columns: tuple[str, ...] = field(default_factory=tuple)
     no_alleles: bool = False
@@ -544,7 +550,7 @@ class MungeConfig:
             raise ValueError("chunk_size must be positive.")
         object.__setattr__(self, "output_dir", _normalize_optional_path(self.output_dir))
         object.__setattr__(self, "sumstats_file", _normalize_optional_path(self.sumstats_file))
-        object.__setattr__(self, "merge_alleles_file", _normalize_optional_path(self.merge_alleles_file))
+        object.__setattr__(self, "sumstats_snps_file", _normalize_optional_path(self.sumstats_snps_file))
         object.__setattr__(self, "ignore_columns", tuple(self.ignore_columns))
         object.__setattr__(self, "column_hints", dict(self.column_hints))
 

@@ -417,7 +417,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             )
             annotation_bundle = self.make_annotation_bundle([("1", "rs1", 10)])
             ref_panel = self.make_ref_panel_stub(backend="plink")
-            with mock.patch.object(ldscore_workflow.ldscore_new, "validate_args"), mock.patch(
+            with mock.patch.object(ldscore_workflow.kernel_ldscore, "validate_args"), mock.patch(
                 "ldsc._kernel.annotation.AnnotationBuilder.run",
                 autospec=True,
                 return_value=annotation_bundle,
@@ -681,7 +681,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
             annotation_bundle = self.make_annotation_bundle([("1", "rs1", 10), ("1", "rs2", 20)])
             ref_panel = self.make_ref_panel_stub(backend="plink")
-            with mock.patch.object(ldscore_workflow.ldscore_new, "validate_args"), mock.patch(
+            with mock.patch.object(ldscore_workflow.kernel_ldscore, "validate_args"), mock.patch(
                 "ldsc._kernel.annotation.AnnotationBuilder.run",
                 autospec=True,
                 return_value=annotation_bundle,
@@ -775,7 +775,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             )
             annotation_bundle = self.make_annotation_bundle([("1", "rs1", 10)])
             ref_panel = self.make_ref_panel_stub(backend="plink", plink_prefix=str(tmpdir / "panel.@"))
-            with mock.patch.object(ldscore_workflow.ldscore_new, "validate_args"), mock.patch(
+            with mock.patch.object(ldscore_workflow.kernel_ldscore, "validate_args"), mock.patch(
                 "ldsc._kernel.annotation.AnnotationBuilder.run",
                 autospec=True,
                 return_value=annotation_bundle,
@@ -992,7 +992,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             ref_panel = self.make_ref_panel_stub(backend="parquet_r2", genome_build="hg19", r2_sources=(str(tmpdir / "r2.@.parquet"),))
             with warnings.catch_warnings(record=True) as caught:
                 warnings.simplefilter("always")
-                with mock.patch.object(ldscore_workflow.ldscore_new, "validate_args"), mock.patch(
+                with mock.patch.object(ldscore_workflow.kernel_ldscore, "validate_args"), mock.patch(
                     "ldsc._kernel.annotation.AnnotationBuilder.run",
                     autospec=True,
                     return_value=annotation_bundle,

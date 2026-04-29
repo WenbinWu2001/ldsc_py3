@@ -19,7 +19,6 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
-from pathlib import Path
 from typing import Sequence
 
 from . import annotation_builder, ldscore_calculator, ref_panel_builder

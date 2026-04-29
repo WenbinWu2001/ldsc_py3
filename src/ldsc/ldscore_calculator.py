@@ -55,11 +55,6 @@ from ._kernel.identifiers import build_snp_id_series, read_global_snp_restrictio
 from ._row_alignment import assert_same_snp_rows
 
 
-# Temporary compatibility alias while tests and call sites finish moving from the
-# old wrapper naming.
-ldscore_new = kernel_ldscore
-
-
 LOGGER = logging.getLogger("LDSC.ldscore_calculator")
 _LDSCORE_SUFFIX_COLUMNS = ("CHR", "SNP", "POS", "BP", "CM", "MAF")
 _QUERY_REQUIRES_BASELINE_MESSAGE = (

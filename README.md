@@ -35,7 +35,7 @@ conda activate ldsc3
 
 The package supports Python 3.11 through 3.13. `pybedtools` is installed as a
 Python dependency; BED-based annotation projection also requires the external
-`bedtools` executable, which `environment.yml` installs from conda-forge. For
+`bedtools` executable, which `environment.yml` installs from bioconda. For
 non-conda installs, make sure `bedtools` is available on `PATH` before running
 BED annotation workflows.
 

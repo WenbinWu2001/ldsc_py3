@@ -4,16 +4,16 @@
 
 Related docs:
 
-- [data_flow.md](data_flow.md): user-visible file streams and flowcharts
+- [data-flow.md](data-flow.md): user-visible file streams and flowcharts
 - [class-and-features.md](class-and-features.md): public API surface and major types
-- [code_structure.md](code_structure.md): module map and change guide
+- [code-structure.md](code-structure.md): module map and change guide
 - [layer-structure.md](layer-structure.md): layer-by-function object matrix
 
-![Package overview](assets/ldsc-package-overview.png)
+![Package overview](../assets/ldsc-package-overview.png)
 
 ## Bird's-Eye View
 
-- **Build query annotations**: project BED or gene-set regions onto a baseline SNP grid. Entry points: `ldsc annotate`, `ldsc.AnnotationBuilder`
+- **Build query annotations**: project BED intervals onto a baseline SNP grid. Entry points: `ldsc annotate`, `ldsc.AnnotationBuilder`
 - **Build parquet reference panels**: convert PLINK genotype panels into standard parquet LD artifacts. Entry points: `ldsc build-ref-panel`, `ldsc.ReferencePanelBuilder`
 - **Compute LD scores**: align annotations to a reference panel and emit LDSC-compatible LD-score artifacts; ordinary unpartitioned runs may omit annotations and receive a synthetic all-ones `base` annotation. Entry points: `ldsc ldscore`, `ldsc.run_ldscore()`, `ldsc.LDScoreCalculator`
 - **Munge raw summary statistics**: normalize raw GWAS tables into curated `.sumstats.gz` artifacts. Entry points: `ldsc munge-sumstats`, `ldsc.SumstatsMunger`
@@ -78,7 +78,7 @@ These modules define the package-wide contracts that every workflow shares. They
 
 ### `ldsc.annotation_builder`
 
-This is the public interface for annotation loading and BED projection. It re-exports `AnnotationBuilder`, `AnnotationBundle`, and the legacy-compatible projection helpers while the implementation lives in `ldsc._kernel.annotation`. Public interface: users should start here rather than importing the kernel directly.
+This is the public interface for annotation loading and BED projection. It re-exports `AnnotationBuilder`, `AnnotationBundle`, and `run_bed_to_annot()` while the implementation lives in `ldsc._kernel.annotation`. Public interface: users should start here rather than importing the kernel directly.
 
 ### `ldsc.ref_panel_builder`
 

@@ -16,7 +16,7 @@ This document summarizes the user-visible file streams for each public workflow.
 
 ```mermaid
 flowchart LR
-  IN1[BED / gene sets]
+  IN1[BED intervals]
   IN2[PLINK or parquet LD reference]
   IN3[Raw GWAS sumstats]
 
@@ -53,7 +53,7 @@ flowchart LR
   O1 --> W5 --> K3 --> O2
 ```
 
-## 1. `annotate`: BED Or Gene-Set Projection To SNP-Level `.annot.gz`
+## 1. `annotate`: BED Projection To SNP-Level `.annot.gz`
 
 Output directories are created when missing and reused when present. Existing
 `query.<chrom>.annot.gz` files are refused before any query shard is written
@@ -64,26 +64,23 @@ unless the caller passes `--overwrite` or `overwrite=True`.
 | File | Example | Notes |
 | --- | --- | --- |
 | baseline annotation shard | `CHR POS SNP CM base`<br/>`1 10583 rs58108140 0.0 1` | used as the SNP template; one shard per chromosome is typical |
-| BED file | `chr1 10000 10100 enhancer_A` | one or more region files |
-| gene set file, optional | `BRCA1` | legacy path that first converts genes to BED |
-| gene coordinate file, optional | `GENE CHR START END`<br/>`BRCA1 17 43044295 43125482` | required only for gene-set projection |
-| SNP restriction file, optional | `rs123` or `CHR POS` table | applied after baseline alignment |
+| BED file | `chr1 10000 10100 enhancer_A` | one or more region files; BED basenames become query annotation column names |
 
 ### Flow
 
 ```mermaid
 flowchart LR
   I1[Baseline .annot(.gz)]
-  I2[BED or gene set]
+  I2[BED intervals]
 
   subgraph P1[Preprocessing (public)<br/>config + path_resolution]
     A1[Resolve input shards]
-    A2[Normalize restriction IDs]
+    A2[Normalize BED and baseline tokens]
   end
 
   subgraph W1[Workflow (public)<br/>ldsc.annotation_builder]
     A3[Load baseline rows]
-    A4[Choose batch or legacy mode]
+    A4[Project BEDs to SNP columns]
   end
 
   subgraph K1[Kernel (private)<br/>ldsc._kernel.annotation]
@@ -93,7 +90,7 @@ flowchart LR
 
   I1 --> A1 --> A3 --> A4 --> A5 --> A6
   I2 --> A1
-  A2 --> A6
+  A2 --> A4
   A6 --> O1[query.<chrom>.annot.gz]
 ```
 
@@ -101,8 +98,7 @@ flowchart LR
 
 | File | Example | Notes |
 | --- | --- | --- |
-| projected query annotation shard | `CHR POS SNP CM enhancer_A`<br/>`1 10583 rs58108140 0.0 1` | default batch output name is `query.<chrom>.annot.gz` |
-| legacy single-file annotation | `CHR POS SNP CM my_annot` | produced by the legacy single-annotation path |
+| projected query annotation shard | `CHR POS SNP CM enhancer_A`<br/>`1 10583 rs58108140 0.0 1` | output name is `query.<chrom>.annot.gz` |
 
 ### Modules used
 
@@ -165,7 +161,7 @@ flowchart LR
 | File | Example | Notes |
 | --- | --- | --- |
 | annotation parquet | columns `chr`, `hg19_pos`, `hg38_pos`, `hg19_Uniq_ID`, `hg38_Uniq_ID`, `rsID`, `MAF`, `REF`, `ALT` | one row per retained SNP |
-| LD parquet | columns `chr`, `rsID_1`, `rsID_2`, `hg38_pos_1`, `hg38_pos_2`, `hg19_pos_1`, `hg19_pos_2`, `R2`, `Dprime`, `+/-corr` | one row per unordered SNP pair inside the LD window |
+| LD parquet | columns `CHR`, `POS_1`, `POS_2`, `SNP_1`, `SNP_2`, `R2` | one row per unordered SNP pair inside the LD window |
 | runtime metadata sidecar | `CHR POS SNP CM MAF`<br/>`22 16050075 rs123 0.42 0.18` | emitted once for hg19 and once for hg38 |
 
 ### Modules used

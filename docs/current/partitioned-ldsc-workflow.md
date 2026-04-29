@@ -42,17 +42,17 @@ All paths inside the manifest are relative to `ldscore_dir`.
 `baseline.parquet` columns:
 
 ```text
-CHR, SNP, BP, regr_weight, <baseline LD-score columns...>
+CHR, SNP, POS, regr_weight, <baseline LD-score columns...>
 ```
 
 `query.parquet` columns:
 
 ```text
-CHR, SNP, BP, <query LD-score columns...>
+CHR, SNP, POS, <query LD-score columns...>
 ```
 
 `query.parquet` duplicates the SNP key columns intentionally. Loaders validate
-that query rows match baseline rows exactly on `CHR/SNP/BP`.
+that query rows match baseline rows exactly on `CHR/SNP/POS`.
 
 ## 3. Inputs
 

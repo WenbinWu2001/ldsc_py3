@@ -1,12 +1,12 @@
 # Classes And Features
 
-This document summarizes the public package surface. For workflow-level file streams, see [data_flow.md](data_flow.md).
+This document summarizes the public package surface. For workflow-level file streams, see [data-flow.md](data-flow.md).
 
 ## Feature Inventory
 
 | Feature | CLI | Python entry points | Main inputs | Main outputs |
 | --- | --- | --- | --- | --- |
-| Build query annotations | `ldsc annotate` | `AnnotationBuilder`, `run_bed_to_annot()`, `make_annot_files()` | baseline `.annot(.gz)`, BED or gene-set inputs | `query.<chrom>.annot.gz` or one legacy `.annot(.gz)` |
+| Build query annotations | `ldsc annotate` | `AnnotationBuilder`, `run_bed_to_annot()` | baseline `.annot(.gz)`, BED inputs | `query.<chrom>.annot.gz` |
 | Build parquet reference panels | `ldsc build-ref-panel` | `ReferencePanelBuilder`, `run_build_ref_panel()` | PLINK prefix, optional liftover chains, conditional genetic maps, optional keep/restrict files; `snp_identifier` only when a SNP restriction file is supplied | per-chromosome `ann.parquet`, `LD.parquet`, emitted `meta_*.tsv.gz` sidecars |
 | Compute LD scores | `ldsc ldscore` | `LDScoreCalculator`, `run_ldscore()` | optional baseline annotation shards, optional query annotations only when baseline is explicit, PLINK or parquet reference panel, optional frequency metadata | `manifest.json`, `baseline.parquet`, optional `query.parquet` under `output_dir`; parquet row groups are chromosome-aligned; no-annotation runs write synthetic `base` |
 | Infer `chr_pos` genome build | workflow flags only: `--genome-build auto`; no standalone CLI command | `infer_chr_pos_build()`, `resolve_genome_build()`, `resolve_chr_pos_table()` | pandas table with `CHR` and `POS`; optional reference table | `ChrPosBuildInference`, resolved `GlobalConfig`, and optionally a normalized 1-based table |
@@ -25,7 +25,7 @@ This document summarizes the public package surface. For workflow-level file str
 | `AnnotationBuildConfig` | annotation projection and bundle-building settings |
 | `RefPanelConfig` | choose and parameterize a runtime reference-panel backend and its source paths |
 | `ReferencePanelBuildConfig` | build a parquet reference panel from PLINK input |
-| `LDScoreConfig` | LD-window and retained-SNP settings |
+| `LDScoreConfig` | LD-window settings, common-count threshold, and optional regression row-set restriction |
 | `MungeConfig` | raw-sumstats input, column hints, munging thresholds, and output settings |
 | `RegressionConfig` | regression-model settings such as intercept handling and jackknife blocks |
 | `ConfigMismatchError` | explicit failure raised when critical config assumptions disagree |

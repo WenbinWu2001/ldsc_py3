@@ -79,12 +79,13 @@ At each of these points, the package calls `validate_config_compatibility()` on 
 config snapshots of both inputs. Mismatches on critical fields (`genome_build`,
 `snp_identifier`) raise `ConfigMismatchError` with a precise diagnostic message.
 
-The implementation also validates two adjacent consistency boundaries:
+The implementation also validates adjacent consistency boundaries:
 
 - `LDScoreCalculator.run()` checks `AnnotationBundle.config_snapshot` against the
   active runtime `GlobalConfig`
-- `LDScoreCalculator.run()` checks `RefPanelConfig.genome_build` against the active
-  runtime `GlobalConfig.genome_build`
+- reference-panel loaders receive the active `GlobalConfig`, so parquet metadata
+  build checks and `chr_pos` interpretation use the same runtime build that is
+  later captured in LD-score result snapshots
 - LD-score aggregation checks that per-chromosome `ChromLDScoreResult` snapshots
   agree before constructing the final `LDScoreResult`
 
@@ -266,11 +267,11 @@ different configuration snapshot.
 
 ## Caveats and Known Limitations
 
-**`RefPanelConfig.genome_build` is not a full `GlobalConfig`.**
-The `RefPanelConfig` dataclass carries its own `genome_build` string field (set during
-panel construction). Compatibility checks between a `RefPanel` and other results use
-this field directly, not a full `GlobalConfig` snapshot. A future refactor could
-promote this to a full snapshot, but for now the field is checked explicitly.
+**Reference-panel runtime state does not carry its own full `GlobalConfig`.**
+`RefPanelConfig` owns backend and filtering options such as `r2_sources`,
+`metadata_sources`, `maf_min`, and `ref_panel_snps_file`. The shared identifier
+and genome-build assumptions come from the `GlobalConfig` passed to
+`RefPanelLoader` and then captured by the LD-score workflow result snapshots.
 
 **`AnnotationBundle` does not carry chromosome-level genome-build metadata.**
 Genome build for annotations is inferred from the reference metadata embedded in

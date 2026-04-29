@@ -288,8 +288,8 @@ Regression therefore merges on literal `SNP` in `rsid` mode and on normalized
 - [x] Regression writes fixed TSV files under `output_dir`.
 - [x] Build-ref-panel no longer accepts a separate panel label; output identity
   comes from the directory name.
-- [x] Removed the low-level `ldsc.outputs.ArtifactOutputConfig.out_prefix`
-  compatibility pipeline from the public output module; `ldsc.outputs` now exposes
+- [x] Removed the old prefix-based output compatibility pipeline from the
+  public output module; `ldsc.outputs` now exposes
   `LDScoreOutputConfig` and `LDScoreDirectoryWriter` for LD-score output writing.
 
 ## Clarifications and Recommendations

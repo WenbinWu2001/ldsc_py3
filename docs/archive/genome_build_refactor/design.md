@@ -4,6 +4,10 @@
 
 Implemented.
 
+This document is a historical design record. Sections that say "current"
+describe the codebase at the time the refactor was proposed; the implemented
+state is summarized in §4 and §6.
+
 ---
 
 ## 1. Problem Statement

@@ -98,6 +98,9 @@ class ChromLDScoreResult:
         columns.
     count_records : list of dict
         Manifest-ready count records keyed by annotation column.
+    count_config : dict, optional
+        Manifest-ready metadata describing how optional common-SNP counts were
+        computed, including the inclusive common-MAF threshold.
     baseline_columns, query_columns : list of str
         Ordered annotation LD-score columns in the baseline and query tables.
     ld_reference_snps, ld_regression_snps : frozenset of str
@@ -112,6 +115,7 @@ class ChromLDScoreResult:
     ld_reference_snps: frozenset[str]
     ld_regression_snps: frozenset[str]
     snp_count_totals: dict[str, np.ndarray] = field(default_factory=dict, repr=False)
+    count_config: dict[str, Any] = field(default_factory=dict)
     output_paths: dict[str, str] = field(default_factory=dict)
     config_snapshot: GlobalConfig | None = None
 
@@ -158,6 +162,9 @@ class LDScoreResult:
     count_records : list of dict
         Manifest-ready count records. Each record names an annotation column and
         its all-SNP and optional common-SNP counts.
+    count_config : dict, optional
+        Manifest-ready metadata describing how optional common-SNP counts were
+        computed, including the inclusive common-MAF threshold.
     baseline_columns, query_columns : list of str
         Ordered LD-score columns available to regression workflows.
     ld_reference_snps, ld_regression_snps : frozenset of str
@@ -178,6 +185,7 @@ class LDScoreResult:
     ld_regression_snps: frozenset[str]
     chromosome_results: list[ChromLDScoreResult]
     output_paths: dict[str, str] = field(default_factory=dict)
+    count_config: dict[str, Any] = field(default_factory=dict)
     config_snapshot: GlobalConfig | None = None
 
     def validate(self) -> None:
@@ -302,7 +310,11 @@ class LDScoreCalculator:
             chromosome_results.append(chromosome_result)
         if not chromosome_results:
             raise ValueError("No chromosome results were produced after intersecting annotations with the reference panel.")
-        result = self._aggregate_chromosome_results(chromosome_results, global_config=global_config)
+        result = self._aggregate_chromosome_results(
+            chromosome_results,
+            global_config=global_config,
+            count_config=_count_config_from_ldscore_config(ldscore_config),
+        )
         if output_config is not None:
             output_paths = self.output_writer.write(result, output_config)
             result = _replace_result_output_paths(result, output_paths)
@@ -332,8 +344,6 @@ class LDScoreCalculator:
         applied later when the normalized row table is formed.
         """
         backend = getattr(getattr(ref_panel, "spec", None), "backend", None)
-        if backend == "parquet_r2" and ldscore_config.keep_indivs_file is not None:
-            raise ValueError("keep_indivs_file/--keep-indivs-file is only supported for PLINK reference panels.")
         LOGGER.info(
             f"Computing chromosome {chrom} LD scores with backend '{backend or 'unknown'}' "
             f"and {len(annotation_bundle.metadata)} annotation rows."
@@ -391,7 +401,7 @@ class LDScoreCalculator:
         ldscore_table = kernel_ldscore.sort_frame_by_genomic_position(ldscore_table)
         count_map = {"all_reference_snp_counts": np.asarray(legacy_result.M, dtype=np.float64)}
         if legacy_result.M_5_50 is not None:
-            count_map["common_reference_snp_counts_maf_gt_0_05"] = np.asarray(legacy_result.M_5_50, dtype=np.float64)
+            count_map["common_reference_snp_counts"] = np.asarray(legacy_result.M_5_50, dtype=np.float64)
         baseline_table, query_table = _split_ldscore_table(
             ldscore_table,
             baseline_columns=list(legacy_result.baseline_columns),
@@ -411,6 +421,7 @@ class LDScoreCalculator:
             ld_reference_snps=frozenset(),
             ld_regression_snps=frozenset(build_snp_id_series(baseline_table, global_config.snp_identifier)),
             snp_count_totals=count_map,
+            count_config={},
             config_snapshot=global_config,
         )
         result.validate()
@@ -420,6 +431,7 @@ class LDScoreCalculator:
         self,
         chromosome_results: Sequence[ChromLDScoreResult],
         global_config: GlobalConfig,
+        count_config: dict[str, Any] | None = None,
     ) -> LDScoreResult:
         """Concatenate and sum per-chromosome results into one aggregate object."""
         if not chromosome_results:
@@ -433,9 +445,9 @@ class LDScoreCalculator:
                     context="ChromLDScoreResult aggregation",
                 )
 
-        count_keys = sorted({key for result in chromosome_results for key in result.snp_count_totals})
+        count_keys = sorted(set.intersection(*(set(result.snp_count_totals) for result in chromosome_results)))
         count_totals = {
-            key: np.sum(np.vstack([result.snp_count_totals[key] for result in chromosome_results if key in result.snp_count_totals]), axis=0)
+            key: np.sum(np.vstack([result.snp_count_totals[key] for result in chromosome_results]), axis=0)
             for key in count_keys
         }
         merged_table = pd.concat(
@@ -462,6 +474,7 @@ class LDScoreCalculator:
             ld_reference_snps=frozenset(),
             ld_regression_snps=frozenset().union(*(result.ld_regression_snps for result in chromosome_results)),
             chromosome_results=list(chromosome_results),
+            count_config=dict(count_config or {}),
             config_snapshot=snapshots[0] if snapshots else None,
         )
         result.validate()
@@ -547,10 +560,10 @@ def _count_records_from_totals(
     all_counts = np.asarray(count_totals.get("all_reference_snp_counts"), dtype=np.float64)
     if all_counts.size != len(columns):
         raise ValueError("all_reference_snp_counts length does not match annotation columns.")
-    common_raw = count_totals.get("common_reference_snp_counts_maf_gt_0_05")
+    common_raw = count_totals.get("common_reference_snp_counts")
     common_counts = None if common_raw is None else np.asarray(common_raw, dtype=np.float64)
     if common_counts is not None and common_counts.size != len(columns):
-        raise ValueError("common_reference_snp_counts_maf_gt_0_05 length does not match annotation columns.")
+        raise ValueError("common_reference_snp_counts length does not match annotation columns.")
     records: list[dict[str, Any]] = []
     for idx, (group, column) in enumerate(zip(groups, columns)):
         record: dict[str, Any] = {
@@ -559,9 +572,17 @@ def _count_records_from_totals(
             "all_reference_snp_count": float(all_counts[idx]),
         }
         if common_counts is not None:
-            record["common_reference_snp_count_maf_gt_0_05"] = float(common_counts[idx])
+            record["common_reference_snp_count"] = float(common_counts[idx])
         records.append(record)
     return records
+
+
+def _count_config_from_ldscore_config(ldscore_config: LDScoreConfig) -> dict[str, Any]:
+    """Return manifest count metadata for common-SNP count vectors."""
+    return {
+        "common_reference_snp_maf_min": float(ldscore_config.common_maf_min),
+        "common_reference_snp_maf_operator": ">=",
+    }
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -618,7 +639,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ld-wind-snps", default=None, type=int, help="LD window size in SNPs.")
     parser.add_argument("--ld-wind-kb", default=None, type=float, help="LD window size in kilobases.")
     parser.add_argument("--ld-wind-cm", default=None, type=float, help="LD window size in centiMorgans.")
-    parser.add_argument("--maf", default=None, type=float, help="Optional MAF filter for retained SNPs when MAF is available.")
+    parser.add_argument("--maf-min", default=None, type=float, help="Optional MAF filter for retained reference-panel SNPs when MAF is available.")
+    parser.add_argument("--common-maf-min", default=0.05, type=float, help="MAF threshold used only for common-SNP annotation count vectors.")
     parser.add_argument("--chunk-size", default=50, type=int, help="Chunk size for legacy PLINK block computations.")
     parser.add_argument("--yes-really", default=False, action="store_true", help="Allow whole-chromosome LD windows.")
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"), help="Logging verbosity.")
@@ -700,6 +722,10 @@ def _validate_run_args(args: argparse.Namespace) -> None:
         raise ValueError("--ld-wind-kb must be positive.")
     if args.ld_wind_snps is not None and args.ld_wind_snps <= 0:
         raise ValueError("--ld-wind-snps must be positive.")
+    if getattr(args, "maf_min", None) is not None and not 0 <= args.maf_min <= 0.5:
+        raise ValueError("--maf-min must lie in [0, 0.5].")
+    if not 0 <= getattr(args, "common_maf_min", 0.05) <= 0.5:
+        raise ValueError("--common-maf-min must lie in [0, 0.5].")
     if args.chunk_size <= 0:
         raise ValueError("--chunk-size must be positive.")
 
@@ -712,9 +738,9 @@ def _has_cli_tokens(value: str | Sequence[str] | None) -> bool:
 def _pseudo_base_annotation_bundle_from_ref_panel(ref_panel, global_config: GlobalConfig):
     """Build an all-ones ``base`` bundle from retained reference-panel metadata.
 
-    The reference-panel adapter has already applied ``ref_panel_snps_file`` when
-    ``load_metadata(chrom)`` returns. Later runtime filters such as MAF and
-    regression-SNP restriction remain in the normal LD-score compute path.
+    The reference-panel adapter has already applied retained-panel SNP filters
+    when ``load_metadata(chrom)`` returns. Later runtime regression-SNP
+    restriction remains in the normal LD-score compute path.
     """
     from ._kernel.annotation import AnnotationBundle
 
@@ -752,11 +778,11 @@ def run_ldscore(**kwargs) -> LDScoreResult:
     Keyword arguments are interpreted as CLI-equivalent option names without
     leading ``--``; for example ``baseline_annot_sources``, ``query_annot_sources``,
     ``query_annot_bed_sources``, ``plink_prefix``, ``r2_sources``,
-    ``metadata_sources``, ``keep_indivs_file``, and ``output_dir``. Shared
-    runtime assumptions such as ``snp_identifier`` and ``genome_build`` must be
-    supplied through ``set_global_config(...)`` first, while per-run controls
-    such as ``ref_panel_snps_file`` and ``regression_snps_file`` remain ordinary
-    keyword arguments here.
+    ``metadata_sources``, ``keep_indivs_file``, ``common_maf_min``, and
+    ``output_dir``. Shared runtime assumptions such as ``snp_identifier`` and
+    ``genome_build`` must be supplied through ``set_global_config(...)`` first,
+    while per-run controls such as ``ref_panel_snps_file`` and
+    ``regression_snps_file`` remain ordinary keyword arguments here.
 
     When ``baseline_annot_sources`` and query inputs are omitted, the workflow
     builds a synthetic all-ones baseline column named ``base`` from retained
@@ -793,6 +819,7 @@ def run_ldscore(**kwargs) -> LDScoreResult:
             "ref_panel_snps_path",
             "regression_snps_path",
             "keep_indivs_path",
+            "maf",
         }
         & set(kwargs)
     )
@@ -830,6 +857,10 @@ def _normalize_run_args(args: argparse.Namespace) -> tuple[argparse.Namespace, G
     for attr in ("ref_panel_snps_file", "regression_snps_file"):
         if not hasattr(normalized_args, attr):
             setattr(normalized_args, attr, None)
+    if not hasattr(normalized_args, "maf_min"):
+        normalized_args.maf_min = None
+    if not hasattr(normalized_args, "common_maf_min"):
+        normalized_args.common_maf_min = 0.05
     normalized_args.snp_identifier = normalized_mode
     normalized_args.output_dir = normalize_path_token(args.output_dir)
     normalized_args.keep_indivs_file = normalize_optional_path_token(getattr(args, "keep_indivs_file", None))
@@ -950,6 +981,8 @@ def _ref_panel_from_args(args: argparse.Namespace, global_config: GlobalConfig):
             r2_bias_mode=getattr(args, "r2_bias_mode", None),
             sample_size=getattr(args, "r2_sample_size", None),
             ref_panel_snps_file=ref_panel_snps_file,
+            maf_min=getattr(args, "maf_min", None),
+            keep_indivs_file=getattr(args, "keep_indivs_file", None),
         )
     else:
         spec = RefPanelConfig(
@@ -957,6 +990,8 @@ def _ref_panel_from_args(args: argparse.Namespace, global_config: GlobalConfig):
             plink_prefix=getattr(args, "plink_prefix", None),
             metadata_sources=tuple(metadata_tokens),
             ref_panel_snps_file=ref_panel_snps_file,
+            maf_min=getattr(args, "maf_min", None),
+            keep_indivs_file=getattr(args, "keep_indivs_file", None),
         )
     return RefPanelLoader(global_config).load(spec)
 
@@ -967,10 +1002,9 @@ def _ldscore_config_from_args(args: argparse.Namespace) -> LDScoreConfig:
         ld_wind_snps=getattr(args, "ld_wind_snps", None),
         ld_wind_kb=getattr(args, "ld_wind_kb", None),
         ld_wind_cm=getattr(args, "ld_wind_cm", None),
-        maf_min=getattr(args, "maf", None),
-        keep_indivs_file=getattr(args, "keep_indivs_file", None),
         regression_snps_file=getattr(args, "regression_snps_file", None),
         chunk_size=getattr(args, "chunk_size", 50),
+        common_maf_min=getattr(args, "common_maf_min", 0.05),
         whole_chromosome_ok=getattr(args, "yes_really", False),
     )
 
@@ -995,6 +1029,7 @@ def _replace_result_output_paths(result: LDScoreResult, output_paths: dict[str, 
         ld_regression_snps=result.ld_regression_snps,
         chromosome_results=result.chromosome_results,
         output_paths=dict(output_paths),
+        count_config=dict(result.count_config),
         config_snapshot=result.config_snapshot,
     )
 
@@ -1111,11 +1146,13 @@ def _namespace_from_configs(chrom: str, ref_panel, ldscore_config: LDScoreConfig
         r2_sample_size=getattr(spec, "sample_size", None),
         frqfile=frqfile,
         frqfile_chr=None,
-        keep=ldscore_config.keep_indivs_file,
+        keep=getattr(spec, "keep_indivs_file", None),
         ld_wind_snps=ldscore_config.ld_wind_snps,
         ld_wind_kb=ldscore_config.ld_wind_kb,
         ld_wind_cm=ldscore_config.ld_wind_cm,
-        maf=ldscore_config.maf_min,
+        maf=None,
+        maf_min=None,
+        common_maf_min=ldscore_config.common_maf_min,
         chunk_size=ldscore_config.chunk_size,
         per_chr_output=False,
         yes_really=ldscore_config.whole_chromosome_ok,

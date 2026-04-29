@@ -69,6 +69,7 @@ result = run_ldscore(
     r2_bias_mode="unbiased",
     ref_panel_snps_file="filters/reference_universe.txt",
     regression_snps_file="filters/hapmap3.txt",
+    common_maf_min=0.05,
     ld_wind_cm=1.0,
 )
 
@@ -87,6 +88,7 @@ ldsc ldscore \
   --ref-panel-snps-file filters/reference_universe.txt \
   --regression-snps-file filters/hapmap3.txt \
   --snp-identifier rsid \
+  --common-maf-min 0.05 \
   --ld-wind-cm 1.0
 ```
 
@@ -112,6 +114,7 @@ result = run_ldscore(
     r2_bias_mode="unbiased",
     ref_panel_snps_file="filters/reference_universe.txt",
     regression_snps_file="filters/hapmap3.txt",
+    common_maf_min=0.05,
     ld_wind_cm=1.0,
     # overwrite=True,  # enable only when intentionally replacing prior outputs
 )
@@ -135,6 +138,7 @@ ldsc ldscore \
   --ref-panel-snps-file filters/reference_universe.txt \
   --regression-snps-file filters/hapmap3.txt \
   --snp-identifier rsid \
+  --common-maf-min 0.05 \
   --ld-wind-cm 1.0
 # Add --overwrite only when intentionally replacing manifest/baseline/query files.
 ```
@@ -164,6 +168,7 @@ result = run_ldscore(
     r2_bias_mode="unbiased",
     ref_panel_snps_file="filters/reference_universe.txt",
     regression_snps_file="filters/hapmap3.txt",
+    common_maf_min=0.05,
     ld_wind_cm=1.0,
 )
 
@@ -184,6 +189,7 @@ ldsc ldscore \
   --ref-panel-snps-file filters/reference_universe.txt \
   --regression-snps-file filters/hapmap3.txt \
   --snp-identifier rsid \
+  --common-maf-min 0.05 \
   --ld-wind-cm 1.0
 ```
 
@@ -264,6 +270,7 @@ ldsc ldscore \
   --r2-bias-mode unbiased \
   --snp-identifier chr_pos \
   --genome-build auto \
+  --common-maf-min 0.05 \
   --ld-wind-cm 1.0
 ```
 

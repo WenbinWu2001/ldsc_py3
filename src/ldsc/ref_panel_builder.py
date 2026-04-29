@@ -613,7 +613,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ld-wind-snps", default=None, type=int, help="LD window size in SNPs.")
     parser.add_argument("--ld-wind-kb", default=None, type=float, help="LD window size in kilobases.")
     parser.add_argument("--ld-wind-cm", default=None, type=float, help="LD window size in centiMorgans.")
-    parser.add_argument("--maf", default=None, type=float, help="Optional MAF filter for retained SNPs.")
+    parser.add_argument("--maf-min", default=None, type=float, help="Optional MAF filter for retained SNPs.")
     parser.add_argument("--ref-panel-snps-file", default=None, help="Optional SNP restriction file defining the retained reference-panel universe.")
     parser.add_argument("--snp-identifier", default=None, choices=("rsid", "chr_pos"), help="SNP identifier mode for --ref-panel-snps-file.")
     parser.add_argument("--keep-indivs-file", default=None, help="Optional individual-keep file.")
@@ -652,7 +652,7 @@ def config_from_args(args: argparse.Namespace) -> tuple[ReferencePanelBuildConfi
         ld_wind_snps=args.ld_wind_snps,
         ld_wind_kb=args.ld_wind_kb,
         ld_wind_cm=args.ld_wind_cm,
-        maf_min=args.maf,
+        maf_min=args.maf_min,
         ref_panel_snps_file=args.ref_panel_snps_file,
         keep_indivs_file=args.keep_indivs_file,
         chunk_size=args.chunk_size,
@@ -703,6 +703,7 @@ def run_build_ref_panel(**kwargs: Any) -> ReferencePanelBuildResult:
             "liftover_chain_hg19_to_hg38",
             "liftover_chain_hg38_to_hg19",
             "keep_indivs",
+            "maf",
         }
         & set(kwargs)
     )

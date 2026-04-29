@@ -257,6 +257,13 @@ class RefPanelConfig:
     metadata_sources : str, os.PathLike[str], or sequence of those, optional
         Sidecar frequency or metadata path tokens aligned to the reference
         panel. Default is ``()``.
+    maf_min : float or None, optional
+        Optional retained-reference-panel MAF threshold applied before LD-score
+        computation. This is distinct from the common-SNP count threshold on
+        ``LDScoreConfig``. Default is ``None``.
+    keep_indivs_file : str or os.PathLike[str] or None, optional
+        Optional path to a one-column IID keep file applied in PLINK mode before
+        genotype-derived MAF is computed. Default is ``None``.
     r2_bias_mode : {"raw", "unbiased"} or None, optional
         Whether parquet R2 values need sample-size correction. Default is
         ``None``.
@@ -269,6 +276,8 @@ class RefPanelConfig:
     r2_sources: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
     metadata_sources: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
     chromosomes: tuple[str, ...] | list[str] | None = None
+    maf_min: float | None = None
+    keep_indivs_file: str | PathLike[str] | None = None
     r2_bias_mode: R2BiasMode | None = None
     r2_sample_size: float | None = None
     sample_size: int | None = None
@@ -284,11 +293,14 @@ class RefPanelConfig:
             raise ValueError("r2_sample_size must be positive when provided.")
         if self.sample_size is not None and self.sample_size <= 0:
             raise ValueError("sample_size must be positive when provided.")
+        if self.maf_min is not None and not 0 <= self.maf_min <= 0.5:
+            raise ValueError("maf_min must lie in [0, 0.5].")
         if self.sample_size is None and self.r2_sample_size is not None:
             object.__setattr__(self, "sample_size", int(self.r2_sample_size))
         object.__setattr__(self, "plink_prefix", _normalize_optional_path(self.plink_prefix))
         object.__setattr__(self, "r2_sources", _normalize_path_tuple(self.r2_sources))
         object.__setattr__(self, "metadata_sources", _normalize_path_tuple(self.metadata_sources))
+        object.__setattr__(self, "keep_indivs_file", _normalize_optional_path(self.keep_indivs_file))
         object.__setattr__(self, "ref_panel_snps_file", _normalize_optional_path(self.ref_panel_snps_file))
         if self.chromosomes is not None:
             from .chromosome_inference import normalize_chromosome
@@ -301,7 +313,7 @@ class LDScoreConfig:
     """Configuration for chromosome-wise LD-score calculation.
 
     Exactly one LD-window field must be provided. The remaining fields control
-    retained-SNP filtering and count-artifact emission.
+    regression row selection and count-artifact emission.
 
     Parameters
     ----------
@@ -311,12 +323,6 @@ class LDScoreConfig:
         Window size measured in kilobases. Default is ``None``.
     ld_wind_cm : float or None, optional
         Window size measured in centiMorgans. Default is ``None``.
-    maf_min : float or None, optional
-        Minimum retained minor-allele frequency, if MAF metadata are available.
-        Default is ``None``.
-    keep_indivs_file : str or os.PathLike[str] or None, optional
-        Optional path to a one-column IID keep file applied in PLINK mode
-        before SNP and MAF filtering. Default is ``None``.
     regression_snps_file : str or os.PathLike[str] or None, optional
         Optional path to the SNP list defining the regression SNP set used for
         the persisted ``baseline.parquet`` row set and, when query annotations
@@ -324,9 +330,11 @@ class LDScoreConfig:
         ``None``.
     chunk_size : int, optional
         Chunk size for legacy PLINK block computations. Default is ``50``.
-    compute_m5_50 : bool, optional
-        If ``True``, store common-SNP counts in the LD-score directory
-        manifest. Default is ``True``.
+    common_maf_min : float, optional
+        Inclusive MAF threshold used only for common-SNP count vectors
+        (``MAF >= common_maf_min``). It does not change retained reference
+        SNPs, LD-score rows, LD scores, or regression weights. Default is
+        ``0.05``.
     whole_chromosome_ok : bool, optional
         Override the guard that rejects windows effectively spanning an entire
         chromosome. Default is ``False``.
@@ -334,15 +342,13 @@ class LDScoreConfig:
     ld_wind_snps: int | None = None
     ld_wind_kb: float | None = None
     ld_wind_cm: float | None = None
-    maf_min: float | None = None
-    keep_indivs_file: str | PathLike[str] | None = None
     regression_snps_file: str | PathLike[str] | None = None
     chunk_size: int = 50
-    compute_m5_50: bool = True
+    common_maf_min: float = 0.05
     whole_chromosome_ok: bool = False
 
     def __post_init__(self) -> None:
-        """Validate LD-window settings and normalize optional keep-file paths."""
+        """Validate LD-window settings and normalize optional SNP-list paths."""
         windows = [self.ld_wind_snps, self.ld_wind_kb, self.ld_wind_cm]
         if sum(value is not None for value in windows) != 1:
             raise ValueError("Exactly one LD-window option must be set.")
@@ -352,11 +358,10 @@ class LDScoreConfig:
             raise ValueError("ld_wind_kb must be positive.")
         if self.ld_wind_cm is not None and self.ld_wind_cm <= 0:
             raise ValueError("ld_wind_cm must be positive.")
-        if self.maf_min is not None and not 0 <= self.maf_min <= 0.5:
-            raise ValueError("maf_min must lie in [0, 0.5].")
+        if not 0 <= self.common_maf_min <= 0.5:
+            raise ValueError("common_maf_min must lie in [0, 0.5].")
         if self.chunk_size <= 0:
             raise ValueError("chunk_size must be positive.")
-        object.__setattr__(self, "keep_indivs_file", _normalize_optional_path(self.keep_indivs_file))
         object.__setattr__(self, "regression_snps_file", _normalize_optional_path(self.regression_snps_file))
 
 
@@ -557,8 +562,9 @@ class RegressionConfig:
     ----------
     n_blocks : int, optional
         Requested number of block-jackknife partitions. Default is ``200``.
-    use_m_5_50 : bool, optional
-        If ``True``, prefer the common-SNP count vector when it is available.
+    use_common_counts : bool, optional
+        If ``True``, prefer the manifest ``common_reference_snp_counts`` vector
+        when it is available; otherwise use ``all_reference_snp_counts``.
         Default is ``True``.
     use_intercept : bool, optional
         If ``False``, constrain the intercept to the LDSC default for the model
@@ -576,7 +582,7 @@ class RegressionConfig:
         Liability-scale prevalence inputs. Defaults are ``None``.
     """
     n_blocks: int = 200
-    use_m_5_50: bool = True
+    use_common_counts: bool = True
     use_intercept: bool = True
     intercept_h2: float | list[float] | None = None
     intercept_gencov: float | list[float] | None = None

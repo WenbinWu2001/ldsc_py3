@@ -11,6 +11,10 @@ It consumes the canonical LD-score result directory introduced by the IO
 refactor: ``manifest.json`` plus split baseline/query parquet tables. Public
 callers pass one ``--ldscore-dir`` input instead of individual LD-score,
 weight, count, and annotation-manifest files.
+
+Regression chooses either the manifest ``common_reference_snp_counts`` vector or
+``all_reference_snp_counts`` through ``--count-kind common|all``. The default
+``common`` mode falls back to all-SNP counts when common counts are unavailable.
 """
 
 from __future__ import annotations
@@ -46,7 +50,7 @@ from .outputs import LDSCORE_RESULT_FORMAT
 from .sumstats_munger import SumstatsTable, load_sumstats
 
 
-COMMON_COUNT_KEY = "common_reference_snp_counts_maf_gt_0_05"
+COMMON_COUNT_KEY = "common_reference_snp_counts"
 ALL_COUNT_KEY = "all_reference_snp_counts"
 CHR_POS_KEY_COLUMN = "_ldsc_chr_pos_key"
 LOGGER = logging.getLogger("LDSC.regression_runner")
@@ -152,7 +156,7 @@ class RegressionRunner:
                 raise ValueError("All LD-score columns have zero variance.")
 
         count_totals = _count_totals_for_columns(ldscore_result.count_records, ref_ld_columns)
-        count_key = _select_count_key(count_totals, config.use_m_5_50)
+        count_key = _select_count_key(count_totals, config.use_common_counts)
         if dropped_ld_columns:
             dropped_index = [ref_ld_columns.index(column) for column in dropped_ld_columns]
             keep_index = [idx for idx in range(len(ref_ld_columns)) if idx not in dropped_index]
@@ -350,9 +354,9 @@ def _with_chr_pos_key(frame: pd.DataFrame, *, context: str) -> pd.DataFrame:
     return keyed
 
 
-def _select_count_key(count_totals: dict[str, np.ndarray], use_m_5_50: bool) -> str:
-    """Pick the regression count vector key, preferring LDSC's common-SNP default."""
-    if use_m_5_50 and COMMON_COUNT_KEY in count_totals:
+def _select_count_key(count_totals: dict[str, np.ndarray], use_common_counts: bool) -> str:
+    """Pick the regression count vector key, preferring common-SNP counts by default."""
+    if use_common_counts and COMMON_COUNT_KEY in count_totals:
         return COMMON_COUNT_KEY
     if ALL_COUNT_KEY in count_totals:
         return ALL_COUNT_KEY
@@ -385,9 +389,9 @@ def _count_totals_for_columns(count_records: Sequence[dict[str, Any]], columns: 
         raise ValueError(f"LD-score manifest is missing count records for columns: {missing}")
     all_counts = [float(records_by_column[column]["all_reference_snp_count"]) for column in columns]
     count_totals = {ALL_COUNT_KEY: np.asarray(all_counts, dtype=np.float64)}
-    if all("common_reference_snp_count_maf_gt_0_05" in records_by_column[column] for column in columns):
+    if all("common_reference_snp_count" in records_by_column[column] for column in columns):
         count_totals[COMMON_COUNT_KEY] = np.asarray(
-            [float(records_by_column[column]["common_reference_snp_count_maf_gt_0_05"]) for column in columns],
+            [float(records_by_column[column]["common_reference_snp_count"]) for column in columns],
             dtype=np.float64,
         )
     return count_totals
@@ -512,7 +516,7 @@ def run_h2_from_args(args):
         "h2.tsv",
         overwrite=getattr(args, "overwrite", False),
     )
-    LOGGER.info(f"Finished h2 regression with {len(dataset.table)} regression SNPs.")
+    LOGGER.info(f"Finished h2 regression with {len(dataset.merged)} regression SNPs.")
     return summary
 
 
@@ -587,9 +591,9 @@ def _add_common_regression_arguments(parser, include_h2_intercept: bool) -> None
     parser.add_argument("--ldscore-dir", required=True, help="Canonical LD-score result directory written by `ldsc ldscore`.")
     parser.add_argument(
         "--count-kind",
-        choices=("m_5_50", "all"),
-        default="m_5_50",
-        help="Interpretation of the supplied count vector. Default matches LDSC's M_5_50 behavior.",
+        choices=("common", "all"),
+        default="common",
+        help="Reference SNP count vector used by regression.",
     )
     parser.add_argument("--output-dir", default=None, help="Optional output directory for summary tables.")
     parser.add_argument("--overwrite", action="store_true", default=False, help="Replace existing fixed output files.")
@@ -603,10 +607,10 @@ def _add_common_regression_arguments(parser, include_h2_intercept: bool) -> None
 
 def _runner_from_args(args) -> tuple[RegressionRunner, RegressionConfig]:
     """Build the regression workflow objects from parsed CLI arguments."""
-    count_kind = getattr(args, "count_kind", "m_5_50")
+    count_kind = getattr(args, "count_kind", "common")
     config = RegressionConfig(
         n_blocks=args.n_blocks,
-        use_m_5_50=(count_kind == "m_5_50"),
+        use_common_counts=(count_kind == "common"),
         use_intercept=not args.no_intercept,
         intercept_h2=args.intercept_h2,
         intercept_gencov=getattr(args, "intercept_gencov", None),
@@ -690,6 +694,7 @@ def load_ldscore_from_dir(
             "baseline": str(root / baseline_rel),
             **({"query": str(root / query_rel)} if query_rel else {}),
         },
+        count_config=dict(manifest.get("count_config", {})),
         config_snapshot=config_snapshot,
     )
     result.validate()

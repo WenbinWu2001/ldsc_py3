@@ -58,7 +58,7 @@ class PlinkRefPanelTest(unittest.TestCase):
         )
         self.assertEqual(panel.available_chromosomes(), ["22"])
         metadata = panel.load_metadata("22")
-        self.assertEqual(list(metadata.columns), ["CHR", "SNP", "CM", "POS"])
+        self.assertEqual(metadata.loc[:, ["CHR", "SNP", "CM", "POS"]].columns.tolist(), ["CHR", "SNP", "CM", "POS"])
         self.assertGreater(len(metadata), 0)
 
     def test_filter_to_snps_rsid(self):
@@ -98,6 +98,18 @@ class PlinkRefPanelTest(unittest.TestCase):
             self.assertEqual(set(metadata["SNP"]), {PLINK_SNPS[0]})
 
     @unittest.skipUnless(_has_module("bitarray"), "bitarray is not installed")
+    def test_plink_metadata_includes_genotype_maf_and_applies_maf_min(self):
+        panel = PlinkRefPanel(
+            GlobalConfig(snp_identifier="rsid"),
+            RefPanelConfig(backend="plink", plink_prefix=str(PLINK_PREFIX), maf_min=0.2),
+        )
+
+        metadata = panel.load_metadata("22")
+
+        self.assertIn("MAF", metadata.columns)
+        self.assertTrue((metadata["MAF"] > 0.2).all())
+
+    @unittest.skipUnless(_has_module("bitarray"), "bitarray is not installed")
     def test_build_reader(self):
         panel = PlinkRefPanel(
             GlobalConfig(snp_identifier="rsid"),
@@ -123,6 +135,23 @@ class ParquetRefPanelTest(unittest.TestCase):
             metadata = panel.load_metadata("1")
             self.assertEqual(metadata["CHR"].tolist(), ["1", "1"])
             self.assertEqual(metadata["MAF"].round(3).tolist(), [0.2, 0.2])
+
+    def test_sidecar_metadata_applies_maf_min_filter(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            meta = Path(tmpdir) / "meta.tsv"
+            meta.write_text(
+                "CHR\tBP\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n1\t20\trs2\t0.2\t0.3\n1\t30\trs3\t0.3\t0.4\n",
+                encoding="utf-8",
+            )
+            panel = ParquetR2RefPanel(
+                GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+                RefPanelConfig(backend="parquet_r2", metadata_sources=(str(meta),), maf_min=0.25),
+            )
+
+            metadata = panel.load_metadata("1")
+
+            self.assertEqual(metadata["SNP"].tolist(), ["rs2", "rs3"])
+            self.assertTrue((metadata["MAF"] > 0.25).all())
 
     def test_sidecar_metadata_loading_normalizes_float_chromosomes(self):
         with tempfile.TemporaryDirectory() as tmpdir:

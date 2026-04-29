@@ -154,7 +154,7 @@ Exactly one of the following must be set:
 
 ### Optional filters and controls
 
-- `--maf`
+- `--maf-min`
   Plain-English meaning: minimum minor allele frequency among retained SNPs.
   Optional: yes.
   Recommended usage: leave unset to keep all panel SNPs by default. Use values like `0.01` or `0.05` only if your downstream analysis truly wants a frequency-restricted panel.
@@ -454,6 +454,7 @@ ldsc ldscore \
   --metadata-sources "tutorial_outputs/ref_panel/parquet/meta/chr@_meta_hg38.tsv.gz" \
   --r2-bias-mode unbiased \
   --snp-identifier rsid \
+  --common-maf-min 0.05 \
   --ld-wind-cm 1.0
 ```
 
@@ -527,9 +528,9 @@ Use `--keep-indivs-file` when you want LD computed from only a subset of individ
 
 ### Apply an MAF filter
 
-Use `--maf 0.01` or another threshold when you explicitly want to exclude very rare variants from the built panel.
+Use `--maf-min 0.01` or another threshold when you explicitly want to exclude very rare variants from the built panel.
 
-Remember that the canonical examples in this tutorial intentionally do not set `--maf`, so they use the full retained SNP set by default.
+Remember that the canonical examples in this tutorial intentionally do not set `--maf-min`, so they use the full retained SNP set by default.
 
 ### Choose a different LD window
 

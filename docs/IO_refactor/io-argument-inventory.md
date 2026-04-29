@@ -66,8 +66,10 @@ Removed flags: `--bed-files`, `--baseline-annot`.
 | `--ref-panel-snps-file` | input | no | reference-panel SNP universe restriction | Scalar file-like input. |
 | `--regression-snps-file` | input | no | persisted LD-score row-set restriction | Scalar file-like input. |
 | `--keep-indivs-file` | input | no | PLINK individual keep file | PLINK mode only. |
+| `--maf-min` | input metadata | no | retained reference-panel MAF filter | Applied in the reference-panel layer when MAF is available. |
+| `--common-maf-min` | input metadata | no | common-SNP count threshold | Default `0.05`; affects common count vectors only, using `MAF >= common_maf_min`. |
 
-Removed flags: `--bfile`, `--r2-table`, `--frqfile`, `--keep`,
+Removed flags: `--bfile`, `--r2-table`, `--frqfile`, `--keep`, `--maf`,
 `--baseline-annot`, `--query-annot`, `--query-annot-bed`, legacy `--out`.
 
 LD-score output schema:
@@ -78,8 +80,8 @@ LD-score output schema:
 - `query.parquet`: `CHR`, `SNP`, `BP`, then query LD-score columns; omitted
   when there are no query annotations.
 - `manifest.json`: format version, relative file paths, baseline/query column
-  names, count records, config metadata, chromosomes, row counts, and writer
-  metadata.
+  names, count records, `count_config`, config metadata, chromosomes, row
+  counts, and writer metadata.
 
 ### `ldsc build-ref-panel`
 
@@ -94,9 +96,10 @@ LD-score output schema:
 | `--ref-panel-snps-file` | input | no | retained SNP universe restriction | Scalar file-like input. |
 | `--snp-identifier` | input metadata | conditional | restriction identifier mode | Required only when `--ref-panel-snps-file` is set. |
 | `--keep-indivs-file` | input | no | PLINK individual keep file | Applied during PLINK loading. |
+| `--maf-min` | input metadata | no | retained SNP MAF filter | Applied during PLINK loading. |
 | `--output-dir` | output | yes | reference-panel artifact directory | Run identity is `Path(output_dir).name`; no separate label is accepted. |
 
-Removed flags: `--bfile`, `--out`, `--panel-label`, `--keep-indivs`,
+Removed flags: `--bfile`, `--out`, `--panel-label`, `--keep-indivs`, `--maf`,
 `--genetic-map-hg19`, `--genetic-map-hg38`, old liftover-chain names without
 `_file` / `_sources`.
 
@@ -199,14 +202,16 @@ Removed Python names: `bed_paths`, `query_bed_paths`, `bed_files`,
 | `RefPanelConfig` | `r2_sources` | input | parquet R2 group |
 | `RefPanelConfig` | `metadata_sources` | input | metadata/frequency sidecar group |
 | `RefPanelConfig` | `ref_panel_snps_file` | input | reference SNP restriction |
+| `RefPanelConfig` | `keep_indivs_file` | input | PLINK individual keep file |
+| `RefPanelConfig` | `maf_min` | input metadata | retained reference-panel MAF filter |
 | `LDScoreConfig` | `regression_snps_file` | input | regression SNP restriction |
-| `LDScoreConfig` | `keep_indivs_file` | input | PLINK individual keep file |
+| `LDScoreConfig` | `common_maf_min` | input metadata | common-SNP count threshold only |
 | `LDScoreOutputConfig` | `output_dir` | output | canonical LD-score result directory |
 | `run_ldscore(**kwargs)` | `baseline_annot_sources`, `query_annot_sources`, `query_annot_bed_sources` | input | optional annotation sources; query inputs require baseline sources, and no-annotation runs synthesize `base` |
 | `run_ldscore(**kwargs)` | `plink_prefix`, `r2_sources`, `metadata_sources` | input | reference-panel sources |
 | `run_ldscore(**kwargs)` | `output_dir` | output | canonical result directory |
 
-Removed Python names: `bfile`, `r2_table`, `frqfile`, `keep`,
+Removed Python names: `bfile`, `r2_table`, `frqfile`, `keep`, `maf`,
 `baseline_annot`, `query_annot`, `query_annot_bed`, `out`.
 
 ### Reference-panel building
@@ -220,12 +225,13 @@ Removed Python names: `bfile`, `r2_table`, `frqfile`, `keep`,
 | `ReferencePanelBuildConfig` | `liftover_chain_hg38_to_hg19_file` | input | optional liftover chain |
 | `ReferencePanelBuildConfig` | `ref_panel_snps_file` | input | retained SNP restriction |
 | `ReferencePanelBuildConfig` | `keep_indivs_file` | input | PLINK individual keep file |
+| `ReferencePanelBuildConfig` | `maf_min` | input metadata | retained SNP MAF filter |
 | `ReferencePanelBuildConfig` | `output_dir` | output | artifact directory |
 | `run_build_ref_panel(**kwargs)` | `snp_identifier` | input metadata | required only when `ref_panel_snps_file` is supplied |
 | `run_build_ref_panel(**kwargs)` | same config field names | input/output | CLI-equivalent wrapper |
 
 Removed Python names: `plink_path`, `bfile`, `out`, `panel_label`,
-`keep_indivs`, old genetic-map and liftover names without `_file` /
+`keep_indivs`, `maf`, old genetic-map and liftover names without `_file` /
 `_sources`.
 
 ### Sumstats munging

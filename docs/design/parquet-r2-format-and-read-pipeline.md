@@ -207,10 +207,12 @@ The metadata sidecar feeds directly into three steps of the partitioned-LDSC wor
    the restricted per-SNP table A'. This is what the annotation bundle is aligned
    against (`B_chrom ∩ A'_chrom`) to materialize `ld_reference_snps`.
 
-2. **M and M_5_50 counts.** The `MAF` column propagates through the metadata DataFrame
-   and is consumed by `compute_counts()` to restrict the SNP count to 5% ≤ MAF ≤ 50%.
+2. **All and common count vectors.** The `MAF` column propagates through the
+   metadata DataFrame and is consumed by `compute_counts()` to compute
+   `common_reference_snp_count` using `MAF >= common_maf_min`.
    If `MAF` is absent and `fail_on_missing_metadata` is `True`, `_read_metadata_table`
-   raises `ValueError`; if `False`, M_5_50 cannot be computed and falls back to M.
+   raises `ValueError`; if `False`, common counts cannot be computed and regression
+   falls back to all counts.
 
 3. **Genetic-map window (`ld_wind_cm`).** For LD-score calculation, the annotation
    file's `CM` is the first source. The sidecar metadata only fills missing `CM`

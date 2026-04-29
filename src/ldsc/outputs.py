@@ -24,6 +24,10 @@ from .path_resolution import ensure_output_directory, ensure_output_paths_availa
 
 
 LDSCORE_RESULT_FORMAT = "ldsc.ldscore_result.v1"
+DEFAULT_COUNT_CONFIG = {
+    "common_reference_snp_maf_min": 0.05,
+    "common_reference_snp_maf_operator": ">=",
+}
 
 
 @dataclass(frozen=True)
@@ -94,7 +98,12 @@ class LDScoreDirectoryWriter:
         return {name: str(path) for name, path in paths.items()}
 
     def build_manifest(self, result: Any, files: dict[str, str]) -> dict[str, Any]:
-        """Build the JSON manifest payload for one LD-score result."""
+        """Build the JSON manifest payload for one LD-score result.
+
+        The manifest always includes ``count_config`` so downstream regression
+        code can report the common-SNP count threshold even when MAF metadata is
+        unavailable and per-column common counts are omitted.
+        """
         baseline_table = getattr(result, "baseline_table")
         query_table = getattr(result, "query_table", None)
         config_snapshot = getattr(result, "config_snapshot", None)
@@ -108,6 +117,7 @@ class LDScoreDirectoryWriter:
             "baseline_columns": list(getattr(result, "baseline_columns", [])),
             "query_columns": list(getattr(result, "query_columns", [])),
             "counts": list(getattr(result, "count_records", [])),
+            "count_config": dict(getattr(result, "count_config", None) or DEFAULT_COUNT_CONFIG),
             "config_snapshot": config_snapshot,
             "n_baseline_rows": int(len(baseline_table)),
             "n_query_rows": 0 if query_table is None else int(len(query_table)),

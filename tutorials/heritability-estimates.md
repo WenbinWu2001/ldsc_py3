@@ -78,6 +78,7 @@ ldscore_result = run_ldscore(
     metadata_sources="r2/reference_metadata.@.tsv.gz",
     r2_bias_mode="unbiased",
     regression_snps_file="filters/hapmap3.txt",
+    common_maf_min=0.05,
     ld_wind_cm=1.0,
     # overwrite=True,  # enable only when intentionally replacing LD-score outputs
 )
@@ -139,12 +140,13 @@ ldsc ldscore \
   --regression-snps-file filters/hapmap3.txt \
   --snp-identifier chr_pos \
   --genome-build auto \
+  --common-maf-min 0.05 \
   --ld-wind-cm 1.0
 
 ldsc h2 \
   --sumstats-file tutorial_outputs/trait/sumstats.sumstats.gz \
   --ldscore-dir tutorial_outputs/trait_ldscores \
-  --count-kind m_5_50 \
+  --count-kind common \
   --output-dir tutorial_outputs/trait_h2
 ```
 

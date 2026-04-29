@@ -208,6 +208,7 @@ ldsc ldscore \
   --r2-sources "r2/reference.*.parquet" \
   --metadata-sources "r2/reference_metadata.@.tsv.gz" \
   --r2-bias-mode unbiased \
+  --common-maf-min 0.05 \
   --ld-wind-cm 1.0
 ```
 
@@ -216,6 +217,7 @@ ldsc ldscore \
   --output-dir out/trait_ldscores \
   --baseline-annot-sources "annotations/baseline_joint*.annot.gz" \
   --plink-prefix "resources/example_1kg_30x/genomes_30x_chr@" \
+  --common-maf-min 0.05 \
   --ld-wind-kb 100
 ```
 

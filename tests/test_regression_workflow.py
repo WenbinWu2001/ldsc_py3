@@ -81,13 +81,13 @@ class RegressionWorkflowTest(unittest.TestCase):
                                 "group": "baseline",
                                 "column": "base",
                                 "all_reference_snp_count": 5.0,
-                                "common_reference_snp_count_maf_gt_0_05": 4.0,
+                                "common_reference_snp_count": 4.0,
                             },
                             {
                                 "group": "query",
                                 "column": "query",
                                 "all_reference_snp_count": 6.0,
-                                "common_reference_snp_count_maf_gt_0_05": 5.0,
+                                "common_reference_snp_count": 5.0,
                             },
                         ],
                         "config_snapshot": {"snp_identifier": "rsid", "genome_build": "hg38", "log_level": "INFO"},
@@ -166,19 +166,19 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "group": "baseline",
                     "column": "base",
                     "all_reference_snp_count": 10.0,
-                    "common_reference_snp_count_maf_gt_0_05": 8.0,
+                    "common_reference_snp_count": 8.0,
                 },
                 {
                     "group": "query",
                     "column": "query1",
                     "all_reference_snp_count": 20.0,
-                    "common_reference_snp_count_maf_gt_0_05": 18.0,
+                    "common_reference_snp_count": 18.0,
                 },
                 {
                     "group": "query",
                     "column": "query2",
                     "all_reference_snp_count": 30.0,
-                    "common_reference_snp_count_maf_gt_0_05": 28.0,
+                    "common_reference_snp_count": 28.0,
                 },
             ],
             baseline_columns=["base"],
@@ -244,7 +244,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                 "group": "baseline",
                 "column": "base",
                 "all_reference_snp_count": 5.0,
-                "common_reference_snp_count_maf_gt_0_05": 5.0,
+                "common_reference_snp_count": 5.0,
             }
         ]
         if include_query:
@@ -263,7 +263,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "group": "query",
                     "column": "query",
                     "all_reference_snp_count": 6.0,
-                    "common_reference_snp_count_maf_gt_0_05": 6.0,
+                    "common_reference_snp_count": 6.0,
                 }
             )
         (root / "manifest.json").write_text(
@@ -287,11 +287,11 @@ class RegressionWorkflowTest(unittest.TestCase):
     def test_build_dataset_uses_baseline_only_for_h2_style_runs(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
         dataset = runner.build_dataset(self.make_sumstats_table(), self.make_ldscore_result())
-        self.assertEqual(dataset.count_key_used_for_regression, "common_reference_snp_counts_maf_gt_0_05")
+        self.assertEqual(dataset.count_key_used_for_regression, "common_reference_snp_counts")
         self.assertEqual(dataset.retained_ld_columns, ["base"])
         self.assertEqual(dataset.dropped_zero_variance_ld_columns, [])
         np.testing.assert_allclose(
-            dataset.reference_snp_count_totals["common_reference_snp_counts_maf_gt_0_05"],
+            dataset.reference_snp_count_totals["common_reference_snp_counts"],
             [8.0],
         )
         self.assertEqual(dataset.config_snapshot, GlobalConfig(snp_identifier="rsid"))
@@ -301,9 +301,30 @@ class RegressionWorkflowTest(unittest.TestCase):
         dataset = runner.build_dataset(self.make_sumstats_table(), self.make_ldscore_result(), query_columns=["query2"])
         self.assertEqual(dataset.retained_ld_columns, ["base", "query2"])
         np.testing.assert_allclose(
-            dataset.reference_snp_count_totals["common_reference_snp_counts_maf_gt_0_05"],
+            dataset.reference_snp_count_totals["common_reference_snp_counts"],
             [8.0, 28.0],
         )
+
+    def test_old_common_count_manifest_key_is_not_recognized(self):
+        old_result = replace(
+            self.make_ldscore_result(),
+            count_records=[
+                {
+                    "group": "baseline",
+                    "column": "base",
+                    "all_reference_snp_count": 10.0,
+                    "common_reference_snp_count_maf_gt_0_05": 8.0,
+                }
+            ],
+            query_table=None,
+            query_columns=[],
+        )
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+
+        dataset = runner.build_dataset(self.make_sumstats_table(), old_result)
+
+        self.assertEqual(dataset.count_key_used_for_regression, "all_reference_snp_counts")
+        self.assertNotIn("common_reference_snp_counts", dataset.reference_snp_count_totals)
 
     def test_build_dataset_chr_pos_mode_merges_on_coordinates_not_snp(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"), RegressionConfig())
@@ -463,8 +484,8 @@ class RegressionWorkflowTest(unittest.TestCase):
             ),
             ref_ld_columns=["base"],
             weight_column="regr_weight",
-            reference_snp_count_totals={"common_reference_snp_counts_maf_gt_0_05": np.array([10.0])},
-            count_key_used_for_regression="common_reference_snp_counts_maf_gt_0_05",
+            reference_snp_count_totals={"common_reference_snp_counts": np.array([10.0])},
+            count_key_used_for_regression="common_reference_snp_counts",
             retained_ld_columns=["base"],
             dropped_zero_variance_ld_columns=[],
             trait_names=["trait"],
@@ -511,7 +532,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
                     "trait_name": "trait",
                     "ldscore_dir": str(ldscore_dir),
-                    "count_kind": "m_5_50",
+                    "count_kind": "common",
                     "output_dir": None,
                     "n_blocks": 200,
                     "no_intercept": False,
@@ -549,10 +570,17 @@ class RegressionWorkflowTest(unittest.TestCase):
 
         self.assertEqual(args.ldscore_dir, "ldscores")
         self.assertEqual(args.sumstats_file, "trait.sumstats.gz")
+        self.assertEqual(args.count_kind, "common")
+        parsed = parser.parse_args(
+            ["--ldscore-dir", "ldscores", "--sumstats-file", "trait.sumstats.gz", "--count-kind", "all"]
+        )
+        self.assertEqual(parsed.count_kind, "all")
         with self.assertRaises(SystemExit):
             parser.parse_args(["--ldscore", "x", "--counts", "m", "--sumstats-file", "trait.sumstats.gz"])
         with self.assertRaises(SystemExit):
             parser.parse_args(["--ldscore-dir", "ldscores", "--sumstats", "trait.sumstats.gz"])
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["--ldscore-dir", "ldscores", "--sumstats-file", "trait.sumstats.gz", "--count-kind", "m_5_50"])
 
     def test_run_partitioned_h2_from_args_uses_query_columns_from_ldscore_dir(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -568,7 +596,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
                     "trait_name": "trait",
                     "ldscore_dir": str(ldscore_dir),
-                    "count_kind": "m_5_50",
+                    "count_kind": "common",
                     "output_dir": None,
                     "n_blocks": 200,
                     "no_intercept": False,
@@ -604,7 +632,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
                     "trait_name": "trait",
                     "ldscore_dir": str(ldscore_dir),
-                    "count_kind": "m_5_50",
+                    "count_kind": "common",
                     "output_dir": str(output_dir),
                     "n_blocks": 200,
                     "no_intercept": False,
@@ -650,7 +678,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
                     "trait_name": "trait",
                     "ldscore_dir": str(ldscore_dir),
-                    "count_kind": "m_5_50",
+                    "count_kind": "common",
                     "output_dir": str(output_dir),
                     "overwrite": False,
                     "n_blocks": 200,
@@ -698,7 +726,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
                     "trait_name": "trait",
                     "ldscore_dir": str(ldscore_dir),
-                    "count_kind": "m_5_50",
+                    "count_kind": "common",
                     "output_dir": str(output_dir),
                     "overwrite": True,
                     "n_blocks": 200,

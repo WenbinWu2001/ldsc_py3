@@ -46,7 +46,7 @@ def make_split_ldscore_result(query: bool = True) -> LDScoreResult:
             "group": "baseline",
             "column": "base",
             "all_reference_snp_count": 10.0,
-            "common_reference_snp_count_maf_gt_0_05": 8.0,
+            "common_reference_snp_count": 8.0,
         }
     ]
     if query:
@@ -55,7 +55,7 @@ def make_split_ldscore_result(query: bool = True) -> LDScoreResult:
                 "group": "query",
                 "column": "query",
                 "all_reference_snp_count": 20.0,
-                "common_reference_snp_count_maf_gt_0_05": 18.0,
+                "common_reference_snp_count": 18.0,
             }
         )
     return LDScoreResult(
@@ -101,6 +101,13 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
             self.assertEqual(manifest["baseline_columns"], ["base"])
             self.assertEqual(manifest["query_columns"], ["query"])
             self.assertEqual(manifest["counts"][1]["column"], "query")
+            self.assertEqual(
+                manifest["count_config"],
+                {
+                    "common_reference_snp_maf_min": 0.05,
+                    "common_reference_snp_maf_operator": ">=",
+                },
+            )
 
             baseline = pd.read_parquet(output_dir / "baseline.parquet")
             query = pd.read_parquet(output_dir / "query.parquet")
@@ -175,7 +182,8 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
             manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
 
         self.assertEqual(manifest["counts"][0]["all_reference_snp_count"], 10.0)
-        self.assertNotIn("common_reference_snp_count_maf_gt_0_05", manifest["counts"][0])
+        self.assertNotIn("common_reference_snp_count", manifest["counts"][0])
+        self.assertEqual(manifest["count_config"]["common_reference_snp_maf_operator"], ">=")
 
 
 class FixedOutputDirectoryTest(unittest.TestCase):

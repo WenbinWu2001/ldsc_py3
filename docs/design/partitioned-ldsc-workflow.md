@@ -121,7 +121,7 @@ The LD-score phase tracks these SNP sets:
 |--------|------|---------|
 | B | Baseline annotation SNPs | Rows in loaded baseline annotation files, or retained reference-panel metadata rows for synthetic `base` unpartitioned runs |
 | A | Raw reference panel SNPs | Rows in PLINK `.bim` or parquet metadata sidecar |
-| A' | Restricted reference panel | `A ∩ ref_panel_snps_file`; equals A when absent |
+| A' | Prepared reference panel | `A ∩ ref_panel_snps_file`, after optional retained-panel `maf_min` and PLINK `keep_indivs_file`; equals A when absent |
 | `ld_reference_snps` | LD computation universe | `B ∩ A'` |
 | C | Regression SNP mask | Optional mask from `regression_snps_file` |
 | `ld_regression_snps` | Persisted row set | `B ∩ A' ∩ C`; equals `ld_reference_snps` when C is absent |
@@ -139,13 +139,23 @@ position:
   "group": "baseline",
   "column": "base",
   "all_reference_snp_count": 100000.0,
-  "common_reference_snp_count_maf_gt_0_05": 85000.0
+  "common_reference_snp_count": 85000.0
 }
 ```
 
-The `common_reference_snp_count_maf_gt_0_05` key is omitted when common-SNP
-counts are unavailable. Regression falls back to `all_reference_snp_count` in
-that case.
+The top-level manifest also records the threshold used to compute common counts:
+
+```json
+{
+  "count_config": {
+    "common_reference_snp_maf_min": 0.05,
+    "common_reference_snp_maf_operator": ">="
+  }
+}
+```
+
+The `common_reference_snp_count` key is omitted when common-SNP counts are
+unavailable. Regression falls back to `all_reference_snp_count` in that case.
 
 ## 6. Regression Behavior
 
@@ -178,6 +188,7 @@ ldsc ldscore \
   --ref-panel-snps-file resources/w_hm3.snplist \
   --regression-snps-file resources/w_hm3.snplist \
   --snp-identifier rsid \
+  --common-maf-min 0.05 \
   --ld-wind-cm 1.0
 ```
 
@@ -190,6 +201,7 @@ ldsc ldscore \
   --ref-panel-snps-file resources/w_hm3.snplist \
   --regression-snps-file resources/w_hm3.snplist \
   --snp-identifier rsid \
+  --common-maf-min 0.05 \
   --ld-wind-cm 1.0
 ```
 

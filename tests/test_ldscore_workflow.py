@@ -75,13 +75,13 @@ class LDScoreWorkflowTest(unittest.TestCase):
                     "group": "baseline",
                     "column": "base",
                     "all_reference_snp_count": count,
-                    "common_reference_snp_count_maf_gt_0_05": count - 1.0,
+                    "common_reference_snp_count": count - 1.0,
                 },
                 {
                     "group": "query",
                     "column": "query",
                     "all_reference_snp_count": count + 1.0,
-                    "common_reference_snp_count_maf_gt_0_05": count,
+                    "common_reference_snp_count": count,
                 },
             ],
             baseline_columns=["base"],
@@ -90,7 +90,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             ld_regression_snps=frozenset({f"rs{chrom}"}),
             snp_count_totals={
                 "all_reference_snp_counts": np.array([count, count + 1.0]),
-                "common_reference_snp_counts_maf_gt_0_05": np.array([count - 1.0, count]),
+                "common_reference_snp_counts": np.array([count - 1.0, count]),
             },
             config_snapshot=GlobalConfig(snp_identifier="rsid"),
         )
@@ -266,7 +266,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         self.assertEqual(result.baseline_table.columns.tolist(), ["CHR", "SNP", "BP", "regr_weight", "base"])
         self.assertEqual(result.query_table.columns.tolist(), ["CHR", "SNP", "BP", "query"])
         self.assertEqual(result.count_records[0]["all_reference_snp_count"], 30.0)
-        self.assertEqual(result.count_records[1]["common_reference_snp_count_maf_gt_0_05"], 30.0)
+        self.assertEqual(result.count_records[1]["common_reference_snp_count"], 30.0)
 
     def test_build_parser_accepts_query_annot_bed(self):
         parser = ldscore_workflow.build_parser()
@@ -305,6 +305,55 @@ class LDScoreWorkflowTest(unittest.TestCase):
                     "query.bed",
                 ]
             )
+
+    def test_build_parser_accepts_maf_min_and_common_maf_min_but_rejects_old_maf(self):
+        parser = ldscore_workflow.build_parser()
+        args = parser.parse_args(
+            [
+                "--output-dir",
+                "out/example",
+                "--baseline-annot-sources",
+                "baseline.annot.gz",
+                "--plink-prefix",
+                "panel",
+                "--ld-wind-snps",
+                "10",
+                "--maf-min",
+                "0.01",
+                "--common-maf-min",
+                "0.2",
+            ]
+        )
+        self.assertEqual(args.maf_min, 0.01)
+        self.assertEqual(args.common_maf_min, 0.2)
+        with self.assertRaises(SystemExit):
+            parser.parse_args(
+                [
+                    "--output-dir",
+                    "out/example",
+                    "--baseline-annot-sources",
+                    "baseline.annot.gz",
+                    "--plink-prefix",
+                    "panel",
+                    "--ld-wind-snps",
+                    "10",
+                    "--maf",
+                    "0.01",
+                ]
+            )
+
+    def test_compute_counts_uses_inclusive_common_maf_min(self):
+        metadata = pd.DataFrame({"MAF": [0.1, 0.2, 0.3]})
+        annotations = pd.DataFrame({"base": [1.0, 2.0, 3.0], "query": [0.0, 4.0, 5.0]})
+
+        all_counts, common_counts = kernel_ldscore.compute_counts(
+            metadata,
+            annotations,
+            common_maf_min=0.2,
+        )
+
+        np.testing.assert_allclose(all_counts, [6.0, 9.0])
+        np.testing.assert_allclose(common_counts, [5.0, 9.0])
 
     def test_run_rejects_annotation_bundle_snapshot_mismatch(self):
         calc = ldscore_workflow.LDScoreCalculator()
@@ -355,7 +404,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 ld_wind_snps=10,
                 ld_wind_kb=None,
                 ld_wind_cm=None,
-                maf=None,
+                maf_min=None,
+                common_maf_min=0.05,
                 chunk_size=50,
                 per_chr_output=False,
                 yes_really=False,
@@ -411,7 +461,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 ld_wind_snps=10,
                 ld_wind_kb=None,
                 ld_wind_cm=None,
-                maf=None,
+                maf_min=None,
+                common_maf_min=0.05,
                 chunk_size=50,
                 per_chr_output=False,
                 yes_really=False,
@@ -447,7 +498,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                     ),
                     query_table=None,
                     count_records=[
-                        {"group": "baseline", "column": "base", "all_reference_snp_count": 2.0, "common_reference_snp_count_maf_gt_0_05": 2.0}
+                        {"group": "baseline", "column": "base", "all_reference_snp_count": 2.0, "common_reference_snp_count": 2.0}
                     ],
                     baseline_columns=["base"],
                     query_columns=[],
@@ -455,7 +506,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                     ld_regression_snps=frozenset({"rs1", "rs2"}),
                     snp_count_totals={
                         "all_reference_snp_counts": np.array([2.0]),
-                        "common_reference_snp_counts_maf_gt_0_05": np.array([2.0]),
+                        "common_reference_snp_counts": np.array([2.0]),
                     },
                     config_snapshot=global_config,
                 )
@@ -508,7 +559,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
             ld_wind_snps=10,
             ld_wind_kb=None,
             ld_wind_cm=None,
-            maf=None,
+            maf_min=None,
+            common_maf_min=0.05,
             chunk_size=50,
             per_chr_output=False,
             yes_really=False,
@@ -541,7 +593,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
             ld_wind_snps=10,
             ld_wind_kb=None,
             ld_wind_cm=None,
-            maf=None,
+            maf_min=None,
+            common_maf_min=0.05,
             chunk_size=50,
             per_chr_output=False,
             yes_really=False,
@@ -577,7 +630,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 ld_wind_snps=10,
                 ld_wind_kb=None,
                 ld_wind_cm=None,
-                maf=None,
+                maf_min=None,
+                common_maf_min=0.05,
                 chunk_size=50,
                 per_chr_output=False,
                 yes_really=False,
@@ -607,8 +661,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
                         }
                     ),
                     count_records=[
-                        {"group": "baseline", "column": "base", "all_reference_snp_count": 7.0, "common_reference_snp_count_maf_gt_0_05": 6.0},
-                        {"group": "query", "column": "query", "all_reference_snp_count": 8.0, "common_reference_snp_count_maf_gt_0_05": 7.0},
+                        {"group": "baseline", "column": "base", "all_reference_snp_count": 7.0, "common_reference_snp_count": 6.0},
+                        {"group": "query", "column": "query", "all_reference_snp_count": 8.0, "common_reference_snp_count": 7.0},
                     ],
                     baseline_columns=["base"],
                     query_columns=["query"],
@@ -616,7 +670,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                     ld_regression_snps=frozenset({"rs2"}),
                     snp_count_totals={
                         "all_reference_snp_counts": np.array([7.0, 8.0]),
-                        "common_reference_snp_counts_maf_gt_0_05": np.array([6.0, 7.0]),
+                        "common_reference_snp_counts": np.array([6.0, 7.0]),
                     },
                     config_snapshot=global_config,
                 )
@@ -672,7 +726,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 ref_panel=ref_panel,
                 ldscore_config=ldscore_workflow.LDScoreConfig(
                     ld_wind_cm=1.0,
-                    keep_indivs_file=keep_path,
+                    common_maf_min=0.05,
                 ),
                 global_config=common,
             )
@@ -681,7 +735,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             self.assertIsInstance(args.frqfile, str)
             self.assertEqual(args.r2_table, str(r2_path))
             self.assertEqual(args.frqfile, str(meta_path))
-            self.assertEqual(args.keep, str(keep_path))
+            self.assertIsNone(args.keep)
             self.assertEqual(args.genome_build, "hg19")
 
     def test_run_ldscore_from_args_passes_path_tokens_to_builder_and_ref_panel_loader(self):
@@ -708,7 +762,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 ld_wind_snps=10,
                 ld_wind_kb=None,
                 ld_wind_cm=None,
-                maf=None,
+                maf_min=None,
+                common_maf_min=0.05,
                 chunk_size=50,
                 per_chr_output=False,
                 yes_really=False,
@@ -857,7 +912,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
             ld_wind_snps=10,
             ld_wind_kb=None,
             ld_wind_cm=None,
-            maf=None,
+            maf_min=None,
+            common_maf_min=0.05,
             chunk_size=50,
             per_chr_output=False,
             yes_really=False,
@@ -891,7 +947,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 ld_wind_snps=10,
                 ld_wind_kb=None,
                 ld_wind_cm=None,
-                maf=None,
+                maf_min=None,
+                common_maf_min=0.05,
                 chunk_size=50,
                 per_chr_output=False,
                 yes_really=False,
@@ -914,7 +971,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                     ),
                     query_table=None,
                     count_records=[
-                        {"group": "baseline", "column": "base", "all_reference_snp_count": 5.0, "common_reference_snp_count_maf_gt_0_05": 4.0}
+                        {"group": "baseline", "column": "base", "all_reference_snp_count": 5.0, "common_reference_snp_count": 4.0}
                     ],
                     baseline_columns=["base"],
                     query_columns=[],
@@ -922,7 +979,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                     ld_regression_snps=frozenset({"rs22"}),
                     snp_count_totals={
                         "all_reference_snp_counts": np.array([5.0]),
-                        "common_reference_snp_counts_maf_gt_0_05": np.array([4.0]),
+                        "common_reference_snp_counts": np.array([4.0]),
                     },
                     config_snapshot=global_config,
                 )
@@ -1018,13 +1075,12 @@ class LDScoreWorkflowTest(unittest.TestCase):
             expected_metadata, expected_ld = self._expected_plink_result(prefix, keep_path, maf_min=None)
             bundle = self._build_annotation_bundle(prefix)
             common = GlobalConfig(snp_identifier="rsid")
-            panel = PlinkRefPanel(common, RefPanelConfig(backend="plink", plink_prefix=prefix))
+            panel = PlinkRefPanel(common, RefPanelConfig(backend="plink", plink_prefix=prefix, keep_indivs_file=keep_path))
             result = ldscore_workflow.LDScoreCalculator().run(
                 annotation_bundle=bundle,
                 ref_panel=panel,
                 ldscore_config=LDScoreConfig(
                     ld_wind_snps=10,
-                    keep_indivs_file=keep_path,
                     whole_chromosome_ok=True,
                 ),
                 global_config=common,
@@ -1101,6 +1157,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
                     backend="plink",
                     plink_prefix=prefix,
                     metadata_sources=(freq_path,),
+                    maf_min=0.01,
+                    keep_indivs_file=keep_path,
                 ),
             )
             result = ldscore_workflow.LDScoreCalculator().run(
@@ -1108,8 +1166,6 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 ref_panel=panel,
                 ldscore_config=LDScoreConfig(
                     ld_wind_snps=10,
-                    maf_min=0.01,
-                    keep_indivs_file=keep_path,
                     whole_chromosome_ok=True,
                 ),
                 global_config=common,

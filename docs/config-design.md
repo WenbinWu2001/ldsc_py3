@@ -181,14 +181,16 @@ that actually own those decisions.
 
 ```text
 Annotation bundle rows B                      (AnnotationBuilder)
-  intersects prepared reference panel A'     (RefPanelConfig.ref_panel_snps_file)
+  intersects prepared reference panel A'     (RefPanelConfig ref-panel filters)
     then optional regression row subset C    (LDScoreConfig.regression_snps_file)
 ```
 
 | Concept | Owner | CLI flag | When applied | Artifact effect |
 | --- | --- | --- | --- | --- |
-| Reference-panel restriction | `RefPanelConfig.ref_panel_snps_file` | `--ref-panel-snps-file` | `RefPanel.load_metadata()`; then `LDScoreCalculator.compute_chromosome()` aligns `B_chrom` to the restricted panel before the kernel call | Shrinks the compute-time universe to `ld_reference_snps = B ∩ A'`; affects LD scores, `.M`, and `.M_5_50` |
+| Reference-panel SNP restriction | `RefPanelConfig.ref_panel_snps_file` | `--ref-panel-snps-file` | `RefPanel.load_metadata()`; then `LDScoreCalculator.compute_chromosome()` aligns `B_chrom` to the restricted panel before the kernel call | Shrinks the compute-time universe to `ld_reference_snps = B ∩ A'`; affects LD scores and count records |
+| Reference-panel MAF/sample filters | `RefPanelConfig.maf_min`, `RefPanelConfig.keep_indivs_file` | `--maf-min`, `--keep-indivs-file` | `RefPanel.load_metadata()` and PLINK reader construction | Affects the prepared panel A' and LD computation; separate from `LDScoreConfig.common_maf_min` |
 | Regression row restriction | `LDScoreConfig.regression_snps_file` | `--regression-snps-file` | After LD computation, when normalized/public rows are selected | Shrinks written rows to `ld_regression_snps = B ∩ A' ∩ C`; `regr_weight` is embedded in the same row table |
+| Common-count threshold | `LDScoreConfig.common_maf_min` | `--common-maf-min` | During count-vector computation after LD scores are computed | Affects only `common_reference_snp_count` / `common_reference_snp_counts`; does not change LD rows, LD scores, or regression weights |
 
 ### What each control does
 

@@ -82,11 +82,17 @@ class PackageLayoutTest(unittest.TestCase):
                 "10",
                 "--keep-indivs-file",
                 "samples.keep",
+                "--maf-min",
+                "0.01",
+                "--common-maf-min",
+                "0.2",
             ]
         )
 
         self.assertEqual(args.command, "ldscore")
         self.assertEqual(args.keep_indivs_file, "samples.keep")
+        self.assertEqual(args.maf_min, 0.01)
+        self.assertEqual(args.common_maf_min, 0.2)
 
     def test_all_output_subcommands_accept_overwrite_flag(self):
         from ldsc import cli
@@ -372,6 +378,8 @@ class PackageLayoutTest(unittest.TestCase):
                 "out/panel",
                 "--keep-indivs-file",
                 "samples.keep",
+                "--maf-min",
+                "0.01",
             ]
         )
 
@@ -379,6 +387,44 @@ class PackageLayoutTest(unittest.TestCase):
         self.assertEqual(args.plink_prefix, "data/reference/panel_chr@")
         self.assertEqual(args.output_dir, "out/panel")
         self.assertEqual(args.keep_indivs_file, "samples.keep")
+        self.assertEqual(args.maf_min, 0.01)
+
+    def test_old_maf_flag_is_rejected_for_reference_panel_workflows(self):
+        from ldsc import cli
+
+        parser = cli.build_parser()
+        with self.assertRaises(SystemExit):
+            parser.parse_args(
+                [
+                    "ldscore",
+                    "--output-dir",
+                    "out/ldscores",
+                    "--baseline-annot-sources",
+                    "baseline.annot.gz",
+                    "--plink-prefix",
+                    "panel",
+                    "--ld-wind-snps",
+                    "10",
+                    "--maf",
+                    "0.01",
+                ]
+            )
+        with self.assertRaises(SystemExit):
+            parser.parse_args(
+                [
+                    "build-ref-panel",
+                    "--plink-prefix",
+                    "data/reference/panel_chr@",
+                    "--source-genome-build",
+                    "hg38",
+                    "--ld-wind-kb",
+                    "10",
+                    "--output-dir",
+                    "out/panel",
+                    "--maf",
+                    "0.01",
+                ]
+            )
 
     def test_build_ref_panel_help_fast_path_avoids_scipy_backed_imports(self):
         from ldsc import cli

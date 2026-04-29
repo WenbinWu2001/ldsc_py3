@@ -178,17 +178,25 @@ class WorkflowConfigTest(unittest.TestCase):
     def test_ldscore_config_requires_one_window(self):
         config = LDScoreConfig(ld_wind_cm=1.0)
         self.assertEqual(config.ld_wind_cm, 1.0)
-        self.assertTrue(config.compute_m5_50)
+        self.assertEqual(config.common_maf_min, 0.05)
         with self.assertRaises(ValueError):
             LDScoreConfig()
         with self.assertRaises(ValueError):
             LDScoreConfig(ld_wind_cm=1.0, ld_wind_kb=100.0)
 
-    def test_ldscore_config_normalizes_keep_individuals_path(self):
-        config = LDScoreConfig(
-            ld_wind_snps=10,
+    def test_ldscore_config_rejects_reference_panel_filter_fields(self):
+        with self.assertRaises(TypeError):
+            LDScoreConfig(ld_wind_snps=10, maf_min=0.01)
+        with self.assertRaises(TypeError):
+            LDScoreConfig(ld_wind_snps=10, keep_indivs_file=Path("filters") / "samples.keep")
+
+    def test_ref_panel_config_normalizes_reference_panel_filter_fields(self):
+        config = RefPanelConfig(
+            backend="plink",
+            maf_min=0.01,
             keep_indivs_file=Path("filters") / "samples.keep",
         )
+        self.assertEqual(config.maf_min, 0.01)
         self.assertEqual(config.keep_indivs_file, "filters/samples.keep")
 
     def test_ref_panel_build_config_validates_required_fields(self):
@@ -294,7 +302,7 @@ class WorkflowConfigTest(unittest.TestCase):
     def test_regression_config_defaults(self):
         config = RegressionConfig()
         self.assertEqual(config.n_blocks, 200)
-        self.assertTrue(config.use_m_5_50)
+        self.assertTrue(config.use_common_counts)
         with self.assertRaises(ValueError):
             RegressionConfig(n_blocks=1)
 
@@ -305,12 +313,16 @@ class WorkflowConfigTest(unittest.TestCase):
             r2_sources=[Path("r2") / "chr1.parquet"],
             metadata_sources=[Path("freq") / "chr@.tsv.gz"],
             ref_panel_snps_file=Path("filters") / "snps.txt",
+            keep_indivs_file=Path("filters") / "samples.keep",
+            maf_min=0.02,
         )
         self.assertEqual(config.backend, "parquet_r2")
         self.assertEqual(config.plink_prefix, "plink/panel")
         self.assertEqual(config.r2_sources, ("r2/chr1.parquet",))
         self.assertEqual(config.metadata_sources, ("freq/chr@.tsv.gz",))
         self.assertEqual(config.ref_panel_snps_file, "filters/snps.txt")
+        self.assertEqual(config.keep_indivs_file, "filters/samples.keep")
+        self.assertEqual(config.maf_min, 0.02)
 
     def test_ref_panel_config_accepts_runtime_source_fields(self):
         config = RefPanelConfig(backend="plink", plink_prefix=Path("plink") / "panel")

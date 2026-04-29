@@ -59,7 +59,7 @@ class RefPanel(ABC):
 
     @abstractmethod
     def load_metadata(self, chrom: str) -> pd.DataFrame:
-        """Load SNP metadata for ``chrom``."""
+        """Load prepared SNP metadata for ``chrom`` after panel-layer filters."""
         raise NotImplementedError
 
     @abstractmethod
@@ -84,6 +84,20 @@ class RefPanel(ABC):
                 "metadata_sources": list(self.spec.metadata_sources),
             },
         }
+
+    def _apply_maf_filter(self, metadata: pd.DataFrame, chrom: str) -> pd.DataFrame:
+        """Apply the retained-panel MAF filter from ``RefPanelConfig`` when set."""
+        maf_min = self.spec.maf_min
+        if maf_min is None or len(metadata) == 0:
+            return metadata.reset_index(drop=True)
+        if "MAF" not in metadata.columns or metadata["MAF"].isna().all():
+            LOGGER.warning(f"Cannot apply --maf-min on chromosome {chrom} because MAF metadata is unavailable.")
+            return metadata.reset_index(drop=True)
+        keep = metadata["MAF"] > maf_min
+        removed = int((~keep).sum())
+        if removed:
+            LOGGER.info(f"Removed {removed} reference-panel SNPs with MAF <= {maf_min} on chromosome {chrom}.")
+        return metadata.loc[keep].reset_index(drop=True)
 
     def _apply_snp_restriction(self, metadata: pd.DataFrame) -> pd.DataFrame:
         """Filter metadata rows to ``RefPanelConfig.ref_panel_snps_file`` when set."""
@@ -120,15 +134,17 @@ class PlinkRefPanel(RefPanel):
         if chrom in self._metadata_cache:
             return self._metadata_cache[chrom].copy()
 
-        df = self._read_bim_table(chrom=chrom)
+        df = self._read_bim_table(chrom=chrom).reset_index(drop=False).rename(columns={"index": "_raw_index"})
         df["CHR"] = df["CHR"].map(normalize_chromosome)
         df["SNP"] = df["SNP"].astype(str)
         df["CM"] = pd.to_numeric(df["CM"], errors="coerce")
         df["POS"] = pd.to_numeric(df["POS"], errors="raise").astype(int)
-        metadata = df.loc[df["CHR"] == chrom, ["CHR", "SNP", "CM", "POS"]].reset_index(drop=True)
+        metadata = df.loc[df["CHR"] == chrom, ["_raw_index", "CHR", "SNP", "CM", "POS"]].reset_index(drop=True)
         if len(metadata) == 0:
             raise ValueError(f"No PLINK metadata rows found for chromosome {chrom}.")
         metadata = self._apply_snp_restriction(metadata)
+        validate_unique_snp_ids(metadata, self.global_config.snp_identifier, context=f"{type(self).__name__}[{chrom}]")
+        metadata = self._load_genotype_metadata(chrom, metadata)
         metadata = self._validate_metadata(metadata, chrom)
         self._metadata_cache[chrom] = metadata.copy()
         return metadata
@@ -160,6 +176,49 @@ class PlinkRefPanel(RefPanel):
             keep_indivs=keep_indivs,
             mafMin=maf_min,
         )
+
+    def _load_genotype_metadata(self, chrom: str, metadata: pd.DataFrame) -> pd.DataFrame:
+        """Return PLINK metadata with genotype-derived MAF when the reader is available."""
+        prefix = None if self.spec.plink_prefix is None else resolve_plink_prefix(self.spec.plink_prefix, chrom=chrom)
+        if prefix is None:
+            raise ValueError("PlinkRefPanel requires plink_prefix.")
+        bim = legacy_parse.PlinkBIMFile(prefix + ".bim")
+        fam = legacy_parse.PlinkFAMFile(prefix + ".fam")
+        keep_indivs = self._resolve_keep_individuals(fam)
+        keep_snps = [int(index) for index in metadata["_raw_index"].tolist()]
+        try:
+            bed = kernel_ldscore.PlinkBEDFile(
+                prefix + ".bed",
+                len(fam.IDList),
+                bim,
+                keep_snps=keep_snps,
+                keep_indivs=keep_indivs,
+                mafMin=self.spec.maf_min,
+            )
+        except Exception as exc:
+            if self.spec.maf_min is not None or self.spec.keep_indivs_file is not None:
+                raise
+            LOGGER.debug(f"Falling back to BIM-only PLINK metadata for chromosome {chrom}: {exc}", exc_info=True)
+            return metadata.drop(columns="_raw_index", errors="ignore").reset_index(drop=True)
+
+        out = pd.DataFrame(bed.df, columns=bed.colnames)
+        if "BP" in out.columns:
+            out = out.rename(columns={"BP": "POS"})
+        out["CHR"] = out["CHR"].map(lambda value: normalize_chromosome(value, context=prefix + ".bim"))
+        out["SNP"] = out["SNP"].astype(str)
+        out["POS"] = pd.to_numeric(out["POS"], errors="raise").astype(int)
+        out["CM"] = pd.to_numeric(out["CM"], errors="coerce")
+        out["MAF"] = pd.to_numeric(out["MAF"], errors="coerce")
+        return out.loc[out["CHR"] == normalize_chromosome(chrom)].reset_index(drop=True)
+
+    def _resolve_keep_individuals(self, fam) -> list[int] | None:
+        """Return FAM row indices retained by ``RefPanelConfig.keep_indivs_file``."""
+        if self.spec.keep_indivs_file is None:
+            return None
+        keep_indivs = fam.loj(legacy_parse.FilterFile(self.spec.keep_indivs_file).IDList)
+        if len(keep_indivs) == 0:
+            raise ValueError("No individuals retained for analysis")
+        return keep_indivs.tolist()
 
     def _read_bim_table(self, chrom: str | None) -> pd.DataFrame:
         """Read one or many `.bim` tables into a normalized DataFrame."""
@@ -220,6 +279,8 @@ class ParquetR2RefPanel(RefPanel):
         chrom = normalize_chromosome(chrom)
         if chrom in self._metadata_cache:
             return self._metadata_cache[chrom].copy()
+        if self.spec.keep_indivs_file is not None:
+            raise ValueError("--keep-indivs-file is only supported in PLINK mode.")
         if not self.spec.metadata_sources:
             raise ImportError("ParquetR2RefPanel.load_metadata requires metadata sidecar files.")
 
@@ -236,6 +297,7 @@ class ParquetR2RefPanel(RefPanel):
             raise ValueError(f"No parquet metadata rows found for chromosome {chrom}.")
         metadata = pd.concat(frames, axis=0, ignore_index=True)
         metadata = self._apply_snp_restriction(metadata)
+        metadata = self._apply_maf_filter(metadata, chrom)
         metadata = self._validate_metadata(metadata, chrom)
         self._metadata_cache[chrom] = metadata.copy()
         return metadata

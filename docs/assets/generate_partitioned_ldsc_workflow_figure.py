@@ -367,7 +367,7 @@ def render() -> None:
         175,
         "Written artifacts",
         SLATE,
-        "`OutputManager.write_outputs()`\n\n`<out>.<chrom>.l2.ldscore.gz`\n\nCount vectors from `LDScoreResult.snp_count_totals`:\n`all_reference_snp_counts` -> `.M`\n`common_reference_snp_counts_maf_gt_0_05` -> `.M_5_50`",
+        "`LDScoreDirectoryWriter.write()`\n\n`baseline.parquet`, optional `query.parquet`,\n`manifest.json`\n\nManifest counts:\n`all_reference_snp_count`\noptional `common_reference_snp_count`\nplus top-level `count_config`",
         title_fs=15,
         body_fs=10.8,
     )
@@ -460,7 +460,7 @@ def render() -> None:
         "Notes:\n"
         "1. Main `ldscore` uses `AnnotationBuilder.run()` for BED input; `run_bed_to_annot()` is the optional explicit materialization path.\n"
         "2. `ref_panel_snps_file` defines `A'`; `regression_snps_file` defines `C`.\n"
-        "3. `.M` / `.M_5_50` use `ld_reference_snps`; `.l2.ldscore.gz` rows use `ld_regression_snps`.",
+        "3. Manifest counts use `ld_reference_snps`; parquet LD-score rows use `ld_regression_snps`.",
         fontsize=10.2,
         color=INK,
         family="DejaVu Sans",

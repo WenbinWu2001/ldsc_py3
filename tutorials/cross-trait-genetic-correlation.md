@@ -132,7 +132,7 @@ ldsc rg \
   --trait-name-1 trait_1 \
   --trait-name-2 trait_2 \
   --ldscore-dir tutorial_outputs/baseline_ldscores \
-  --count-kind m_5_50 \
+  --count-kind common \
   --output-dir tutorial_outputs/trait_1_trait_2
 ```
 

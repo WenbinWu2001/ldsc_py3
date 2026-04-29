@@ -18,7 +18,7 @@ Supported Inputs
   - PLINK genotype files (`.bed/.bim/.fam`), or
   - one per-chromosome sorted parquet `R2` file.
 - Optional frequency metadata may be provided to populate `MAF` in outputs and
-  to enable `.M_5_50` generation when parquet input is used. For LD-score
+  to enable common-count generation when parquet input is used. For LD-score
   calculation, the annotation file's `CM` is the first source. The sidecar
   metadata only fills missing `CM` values.
 - Optional regression SNP lists may be provided to define the SNP set used for
@@ -147,13 +147,13 @@ Window Rules
   coordinates come first from annotation metadata, with sidecar metadata filling
   only missing `CM` values.
 
-MAF and `.M_5_50` Rules
------------------------
+MAF and Common-Count Rules
+--------------------------
 - In PLINK mode, MAF is taken from the genotype data after SNP filtering.
 - In parquet mode, MAF is only available when supplied via an optional
   frequency/metadata file.
 - If MAF is unavailable, `MAF` is written as `NA` in LD-score outputs and
-  `.M_5_50` is not emitted.
+  common counts are not emitted.
 
 Current Limitations
 -------------------
@@ -585,7 +585,7 @@ if ba is not None:
             n = self.n
             nru = self.nru
             slice = self.geno[2 * c * nru:2 * (c + b) * nru]
-            X = np.array(slice.decode(self._bedcode), dtype="float64").reshape((b, nru)).T
+            X = np.array(list(slice.decode(self._bedcode)), dtype="float64").reshape((b, nru)).T
             X = X[0:n, :]
             Y = np.zeros(X.shape)
             for j in range(0, b):
@@ -1157,7 +1157,7 @@ def apply_maf_filter(
     if maf_min is None:
         return metadata, annotations
     if "MAF" not in metadata.columns or metadata["MAF"].isna().all():
-        LOGGER.warning(f"Cannot apply --maf in {context} because MAF metadata is unavailable.")
+        LOGGER.warning(f"Cannot apply --maf-min in {context} because MAF metadata is unavailable.")
         return metadata, annotations
     keep = metadata["MAF"] > maf_min
     removed = int((~keep).sum())
@@ -1667,19 +1667,23 @@ def ld_score_var_blocks_from_r2_reader(
     return np.asarray(cor_sum, dtype=np.float32)
 
 
-def compute_counts(metadata: pd.DataFrame, annotations: pd.DataFrame) -> tuple[np.ndarray, np.ndarray | None]:
+def compute_counts(
+    metadata: pd.DataFrame,
+    annotations: pd.DataFrame,
+    common_maf_min: float = 0.05,
+) -> tuple[np.ndarray, np.ndarray | None]:
     """
-    Compute LDSC-style annotation count vectors ``M`` and optional ``M_5_50``.
+    Compute LDSC-style annotation count vectors ``M`` and optional common counts.
 
     ``M`` is the column-wise sum over the retained reference SNP universe.
-    ``M_5_50`` is the same sum restricted to rows with ``MAF > 0.05`` when MAF
-    metadata is available.
+    The common-count vector is the same sum restricted to rows with
+    ``MAF >= common_maf_min`` when MAF metadata is available.
     """
     annot_matrix = annotations.to_numpy(dtype=np.float32, copy=False)
     M = np.asarray(annot_matrix.sum(axis=0), dtype=np.float64)
     if "MAF" not in metadata.columns or metadata["MAF"].isna().all():
         return M, None
-    common = metadata["MAF"] > 0.05
+    common = metadata["MAF"] >= common_maf_min
     M_5_50 = np.asarray(annot_matrix[common.to_numpy(), :].sum(axis=0), dtype=np.float64)
     return M, M_5_50
 
@@ -1710,10 +1714,15 @@ def compute_chrom_from_parquet(
     3. Validate the LD window against the retained SNP coordinates.
     4. Query block-local dense R2 matrices from the sorted parquet file while
        following the old LDSC sliding-block traversal.
-    5. Return chromosome-level LD scores plus M and M_5_50 counts.
+    5. Return chromosome-level LD scores plus all-SNP and common-SNP counts.
     """
     metadata = merge_frequency_metadata(bundle.metadata.copy(), args, chrom=chrom, identifier_mode=args.snp_identifier)
-    metadata, annotations = apply_maf_filter(metadata, bundle.annotations.copy(), args.maf, context="parquet mode")
+    metadata, annotations = apply_maf_filter(
+        metadata,
+        bundle.annotations.copy(),
+        getattr(args, "maf_min", getattr(args, "maf", None)),
+        context="parquet mode",
+    )
     if len(metadata) == 0:
         raise ValueError(f"No retained annotation SNPs remain on chromosome {chrom} after sidecar alignment.")
 
@@ -1747,7 +1756,11 @@ def compute_chrom_from_parquet(
     out_metadata = metadata.reset_index(drop=True)
     if "MAF" not in out_metadata.columns:
         out_metadata["MAF"] = np.nan
-    M, M_5_50 = compute_counts(out_metadata, annotations)
+    M, M_5_50 = compute_counts(
+        out_metadata,
+        annotations,
+        common_maf_min=getattr(args, "common_maf_min", 0.05),
+    )
     return ChromComputationResult(
         chrom=chrom,
         metadata=out_metadata,
@@ -1774,7 +1787,7 @@ def compute_chrom_from_plink(
     1. Align annotation SNPs to the PLINK BIM table.
     2. Reuse the legacy PLINK genotype reader and LD-score kernel.
     3. Compute partitioned reference LD scores and one-column regression weights.
-    4. Return chromosome-level LD scores plus M and M_5_50 counts.
+    4. Return chromosome-level LD scores plus all-SNP and common-SNP counts.
     """
     legacy_ld = get_legacy_ld_module()
     prefix = resolve_bfile_prefix(args, chrom=chrom)
@@ -1820,7 +1833,7 @@ def compute_chrom_from_plink(
         bim,
         keep_snps=keep_snps,
         keep_indivs=keep_indivs,
-        mafMin=args.maf,
+        mafMin=getattr(args, "maf_min", getattr(args, "maf", None)),
     )
 
     geno_meta = pd.DataFrame(geno.df, columns=geno.colnames)
@@ -1844,7 +1857,11 @@ def compute_chrom_from_plink(
     geno._currentSNP = 0
     w_ld = geno.ldScoreVarBlocks(block_left, args.chunk_size, annot=regression_mask.reshape(-1, 1))
     out_metadata = geno_meta.drop(columns="_key").reset_index(drop=True)
-    M, M_5_50 = compute_counts(out_metadata, annotation_matrix.reset_index(drop=True))
+    M, M_5_50 = compute_counts(
+        out_metadata,
+        annotation_matrix.reset_index(drop=True),
+        common_maf_min=getattr(args, "common_maf_min", 0.05),
+    )
     return ChromComputationResult(
         chrom=chrom,
         metadata=out_metadata,
@@ -1910,7 +1927,7 @@ def aggregate_results(results: Sequence[ChromComputationResult]) -> tuple[pd.Dat
     Combine chromosome-level results into one genome-wide LD-score output set.
 
     Returns the aggregated reference LD-score table, regression-weight table,
-    and the chromosome-summed ``M`` / ``M_5_50`` vectors.
+    and the chromosome-summed all-SNP / common-SNP count vectors.
     """
     ld_frames = [result_to_dataframe(result) for result in results]
     weight_frames = [weight_result_to_dataframe(result) for result in results]
@@ -1987,6 +2004,10 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--ld-wind-kb must be positive.")
     if args.ld_wind_snps is not None and args.ld_wind_snps <= 0:
         raise ValueError("--ld-wind-snps must be positive.")
+    if getattr(args, "maf_min", None) is not None and not 0 <= args.maf_min <= 0.5:
+        raise ValueError("--maf-min must lie in [0, 0.5].")
+    if not 0 <= getattr(args, "common_maf_min", 0.05) <= 0.5:
+        raise ValueError("--common-maf-min must lie in [0, 0.5].")
     if args.chunk_size <= 0:
         raise ValueError("--chunk-size must be positive.")
 
@@ -2017,7 +2038,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ld-wind-snps", default=None, type=int, help="LD window size in SNPs.")
     parser.add_argument("--ld-wind-kb", default=None, type=float, help="LD window size in kilobases.")
     parser.add_argument("--ld-wind-cm", default=None, type=float, help="LD window size in centiMorgans.")
-    parser.add_argument("--maf", default=None, type=float, help="Optional MAF filter for retained SNPs when MAF is available.")
+    parser.add_argument("--maf-min", default=None, type=float, help="Optional MAF filter for retained SNPs when MAF is available.")
+    parser.add_argument("--common-maf-min", default=0.05, type=float, help="MAF threshold used only for common-SNP annotation count vectors.")
     parser.add_argument("--chunk-size", default=50, type=int, help="Chunk size for legacy PLINK block computations.")
     parser.add_argument("--per-chr-output", default=False, action="store_true", help="Emit per-chromosome outputs instead of an aggregated output.")
     parser.add_argument("--yes-really", default=False, action="store_true", help="Allow whole-chromosome LD windows.")
@@ -2098,7 +2120,8 @@ def run_ldscore(
     ld_wind_snps: int | None = None,
     ld_wind_kb: float | None = None,
     ld_wind_cm: float | None = None,
-    maf: float | None = None,
+    maf_min: float | None = None,
+    common_maf_min: float = 0.05,
     chunk_size: int = 50,
     per_chr_output: bool = False,
     yes_really: bool = False,
@@ -2131,7 +2154,8 @@ def run_ldscore(
         ld_wind_snps=ld_wind_snps,
         ld_wind_kb=ld_wind_kb,
         ld_wind_cm=ld_wind_cm,
-        maf=maf,
+        maf_min=maf_min,
+        common_maf_min=common_maf_min,
         chunk_size=chunk_size,
         per_chr_output=per_chr_output,
         yes_really=yes_really,

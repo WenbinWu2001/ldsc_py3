@@ -181,6 +181,7 @@ ldsc ldscore \
   --regression-snps-file filters/hapmap3.tsv.gz \
   --snp-identifier chr_pos \
   --genome-build hg19 \
+  --common-maf-min 0.05 \
   --ld-wind-cm 1.0
 ```
 
@@ -216,7 +217,7 @@ ldsc munge-sumstats \
 ldsc partitioned-h2 \
   --sumstats-file tutorial_outputs/trait/sumstats.sumstats.gz \
   --ldscore-dir tutorial_outputs/partitioned_ldscores \
-  --count-kind m_5_50 \
+  --count-kind common \
   --output-dir tutorial_outputs/partitioned_h2
 ```
 

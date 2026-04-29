@@ -118,7 +118,7 @@ results, because those results carry their own frozen snapshots.
 
 The compatibility helper compares only `GlobalConfig` snapshots, so the table
 above lists only `GlobalConfig` fields. Workflow-specific LD-score controls such
-as `RefPanelConfig.ref_panel_snps_path` and `LDScoreConfig.regression_snps_path`
+as `RefPanelConfig.ref_panel_snps_file` and `LDScoreConfig.regression_snps_file`
 still matter to the result, but they are owned by those workflow objects rather
 than by `GlobalConfig`.
 
@@ -181,18 +181,18 @@ that actually own those decisions.
 
 ```text
 Annotation bundle rows B                      (AnnotationBuilder)
-  intersects prepared reference panel A'     (RefPanelConfig.ref_panel_snps_path)
-    then optional regression row subset C    (LDScoreConfig.regression_snps_path)
+  intersects prepared reference panel A'     (RefPanelConfig.ref_panel_snps_file)
+    then optional regression row subset C    (LDScoreConfig.regression_snps_file)
 ```
 
 | Concept | Owner | CLI flag | When applied | Artifact effect |
 | --- | --- | --- | --- | --- |
-| Reference-panel restriction | `RefPanelConfig.ref_panel_snps_path` | `--ref-panel-snps-path` | `RefPanel.load_metadata()`; then `LDScoreCalculator.compute_chromosome()` aligns `B_chrom` to the restricted panel before the kernel call | Shrinks the compute-time universe to `ld_reference_snps = B ∩ A'`; affects LD scores, `.M`, and `.M_5_50` |
-| Regression row restriction | `LDScoreConfig.regression_snps_path` | `--regression-snps-path` | After LD computation, when normalized/public rows are selected | Shrinks written rows to `ld_regression_snps = B ∩ A' ∩ C`; `regr_weight` is embedded in the same row table |
+| Reference-panel restriction | `RefPanelConfig.ref_panel_snps_file` | `--ref-panel-snps-file` | `RefPanel.load_metadata()`; then `LDScoreCalculator.compute_chromosome()` aligns `B_chrom` to the restricted panel before the kernel call | Shrinks the compute-time universe to `ld_reference_snps = B ∩ A'`; affects LD scores, `.M`, and `.M_5_50` |
+| Regression row restriction | `LDScoreConfig.regression_snps_file` | `--regression-snps-file` | After LD computation, when normalized/public rows are selected | Shrinks written rows to `ld_regression_snps = B ∩ A' ∩ C`; `regr_weight` is embedded in the same row table |
 
 ### What each control does
 
-**`RefPanelConfig.ref_panel_snps_path`** — the *reference-panel SNP universe*
+**`RefPanelConfig.ref_panel_snps_file`** — the *reference-panel SNP universe*
 
 - `AnnotationBuilder.run()` still builds the full annotation universe `B`.
 - `run_bed_to_annot()` and `ldsc annotate` do **not** apply this restriction.
@@ -201,7 +201,7 @@ Annotation bundle rows B                      (AnnotationBuilder)
 
 When `None`, the workflow uses the full reference panel `A`.
 
-**`LDScoreConfig.regression_snps_path`** — the *regression row set*
+**`LDScoreConfig.regression_snps_file`** — the *regression row set*
 
 - The restriction is loaded once into the `regression_snps` set `C`.
 - LD scores and count totals are still computed over `ld_reference_snps = B ∩ A'`.
@@ -219,10 +219,10 @@ ldsc.set_global_config(cfg)
 ref_panel = ldsc.RefPanelLoader(cfg).load(
     ldsc.RefPanelConfig(
         backend="parquet_r2",
-        r2_paths="r2/reference.@.parquet",
-        metadata_paths="r2/reference_metadata.@.tsv.gz",
+        r2_sources="r2/reference.@.parquet",
+        metadata_sources="r2/reference_metadata.@.tsv.gz",
         r2_bias_mode="unbiased",
-        ref_panel_snps_path="filters/reference_universe.txt",
+        ref_panel_snps_file="filters/reference_universe.txt",
     )
 )
 
@@ -231,7 +231,7 @@ ldscore = ldsc.LDScoreCalculator().run(
     ref_panel,
     ldsc.LDScoreConfig(
         ld_wind_cm=1.0,
-        regression_snps_path="filters/hapmap3.txt",
+        regression_snps_file="filters/hapmap3.txt",
     ),
     global_config=cfg,
 )
@@ -240,9 +240,9 @@ ldscore = ldsc.LDScoreCalculator().run(
 ### Artifact contract
 
 - Materialized query `.annot.gz` files and in-memory `AnnotationBundle` objects stay on the annotation universe `B`.
-- Ordinary unpartitioned `run_ldscore()` calls may omit baseline/query annotation inputs; the workflow creates a synthetic all-ones `base` annotation after the reference panel has applied `ref_panel_snps_path`.
+- Ordinary unpartitioned `run_ldscore()` calls may omit baseline/query annotation inputs; the workflow creates a synthetic all-ones `base` annotation after the reference panel has applied `ref_panel_snps_file`.
 - Query annotations are valid only with explicit baseline annotations, so the synthetic `base` path is not used for partitioned/query LDSC.
-- `ref_panel_snps_path` becomes visible only during LD-score calculation, when the workflow aligns `B_chrom` to `ref_panel.load_metadata(chrom)`.
+- `ref_panel_snps_file` becomes visible only during LD-score calculation, when the workflow aligns `B_chrom` to `ref_panel.load_metadata(chrom)`.
 - Count records are accumulated over `ld_reference_snps = B ∩ A'` and stored in `manifest.json`.
 - Public `baseline.parquet` and optional `query.parquet` rows are `ld_regression_snps = B ∩ A' ∩ C`.
 
@@ -250,11 +250,11 @@ ldscore = ldsc.LDScoreCalculator().run(
 
 Stop passing these controls to `GlobalConfig()`:
 
-- move reference-panel restriction to `RefPanelConfig(ref_panel_snps_path=...)`
-- move regression row restriction to `LDScoreConfig(regression_snps_path=...)` or `run_ldscore(...)`
+- move reference-panel restriction to `RefPanelConfig(ref_panel_snps_file=...)`
+- move regression row restriction to `LDScoreConfig(regression_snps_file=...)` or `run_ldscore(...)`
 
 The old `--regression-snps` and `--print-snps` behavior is unified under
-`--regression-snps-path`. LD-score outputs are fixed files under `output_dir`;
+`--regression-snps-file`. LD-score outputs are fixed files under `output_dir`;
 legacy `.l2.*` and `.w.l2.*` filenames are not emitted by the public writer.
 Existing fixed output files are refused by default and require `--overwrite` or
 `overwrite=True`, so reruns cannot silently replace artifacts produced under a
@@ -278,7 +278,7 @@ snapshot rather than re-inferring the build from coordinates.
 **Workflow-specific SNP controls are not part of `config_snapshot`.**
 `config_snapshot` records shared assumptions such as `genome_build` and
 `snp_identifier`. Per-run LD-score controls such as
-`RefPanelConfig.ref_panel_snps_path` and `LDScoreConfig.regression_snps_path`
+`RefPanelConfig.ref_panel_snps_file` and `LDScoreConfig.regression_snps_file`
 still materially affect the outputs, but callers who need to preserve that
 provenance should persist the `RefPanelConfig` / `LDScoreConfig` they used
 alongside the written artifacts.

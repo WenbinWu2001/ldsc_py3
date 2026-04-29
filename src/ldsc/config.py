@@ -101,8 +101,8 @@ class GlobalConfig:
     Notes
     -----
     ``GlobalConfig`` intentionally carries only shared runtime assumptions.
-    Per-run SNP-universe controls such as ``ref_panel_snps_path`` and
-    ``regression_snps_path`` now live on workflow-specific configs.
+    Per-run SNP-universe controls such as ``ref_panel_snps_file`` and
+    ``regression_snps_file`` now live on workflow-specific configs.
     """
     snp_identifier: SNPIdentifierMode = "chr_pos"
     genome_build: GenomeBuildInput | None = None
@@ -202,11 +202,11 @@ class AnnotationBuildConfig:
 
     Parameters
     ----------
-    baseline_annot_paths : str, os.PathLike[str], or sequence of those, optional
+    baseline_annot_sources : str, os.PathLike[str], or sequence of those, optional
         Baseline annotation files to align and combine. Default is ``()``.
-    query_annot_paths : str, os.PathLike[str], or sequence of those, optional
+    query_annot_sources : str, os.PathLike[str], or sequence of those, optional
         Query annotation files to align with the baseline. Default is ``()``.
-    query_annot_bed_paths : str, os.PathLike[str], or sequence of those, optional
+    query_annot_bed_sources : str, os.PathLike[str], or sequence of those, optional
         BED inputs that should be projected to SNP-level annotations. Default is
         ``()``.
     output_dir : str or os.PathLike[str] or None, optional
@@ -222,9 +222,9 @@ class AnnotationBuildConfig:
         If ``True``, replace existing fixed output files. If ``False``, output
         collisions raise before writing starts. Default is ``False``.
     """
-    baseline_annot_paths: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
-    query_annot_paths: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
-    query_annot_bed_paths: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
+    baseline_annot_sources: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
+    query_annot_sources: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
+    query_annot_bed_sources: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
     output_dir: str | PathLike[str] | None = None
     batch_mode: bool = True
     compression: CompressionMode = "gzip"
@@ -233,9 +233,9 @@ class AnnotationBuildConfig:
 
     def __post_init__(self) -> None:
         """Normalize annotation path tokens and validate compression mode."""
-        object.__setattr__(self, "baseline_annot_paths", _normalize_path_tuple(self.baseline_annot_paths))
-        object.__setattr__(self, "query_annot_paths", _normalize_path_tuple(self.query_annot_paths))
-        object.__setattr__(self, "query_annot_bed_paths", _normalize_path_tuple(self.query_annot_bed_paths))
+        object.__setattr__(self, "baseline_annot_sources", _normalize_path_tuple(self.baseline_annot_sources))
+        object.__setattr__(self, "query_annot_sources", _normalize_path_tuple(self.query_annot_sources))
+        object.__setattr__(self, "query_annot_bed_sources", _normalize_path_tuple(self.query_annot_bed_sources))
         object.__setattr__(self, "output_dir", _normalize_optional_path(self.output_dir))
         if self.compression not in {"auto", "gzip", "bz2", "none"}:
             raise ValueError("compression must be one of 'auto', 'gzip', 'bz2', or 'none'.")
@@ -250,11 +250,11 @@ class RefPanelConfig:
     backend : {"auto", "plink", "parquet_r2"}, optional
         Backend family used to supply LD reference information. Default is
         ``"auto"``.
-    plink_path : str or os.PathLike[str] or None, optional
+    plink_prefix : str or os.PathLike[str] or None, optional
         PLINK ``.bed/.bim/.fam`` prefix token. Default is ``None``.
-    r2_paths : str, os.PathLike[str], or sequence of those, optional
+    r2_sources : str, os.PathLike[str], or sequence of those, optional
         Sorted parquet R2 path tokens. Default is ``()``.
-    metadata_paths : str, os.PathLike[str], or sequence of those, optional
+    metadata_sources : str, os.PathLike[str], or sequence of those, optional
         Sidecar frequency or metadata path tokens aligned to the reference
         panel. Default is ``()``.
     r2_bias_mode : {"raw", "unbiased"} or None, optional
@@ -265,14 +265,14 @@ class RefPanelConfig:
         ``None``.
     """
     backend: RefPanelBackend = "auto"
-    plink_path: str | PathLike[str] | None = None
-    r2_paths: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
-    metadata_paths: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
+    plink_prefix: str | PathLike[str] | None = None
+    r2_sources: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
+    metadata_sources: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
     chromosomes: tuple[str, ...] | list[str] | None = None
     r2_bias_mode: R2BiasMode | None = None
     r2_sample_size: float | None = None
     sample_size: int | None = None
-    ref_panel_snps_path: str | PathLike[str] | None = None
+    ref_panel_snps_file: str | PathLike[str] | None = None
 
     def __post_init__(self) -> None:
         """Normalize backend path tokens and validate parquet-R2 settings."""
@@ -286,10 +286,10 @@ class RefPanelConfig:
             raise ValueError("sample_size must be positive when provided.")
         if self.sample_size is None and self.r2_sample_size is not None:
             object.__setattr__(self, "sample_size", int(self.r2_sample_size))
-        object.__setattr__(self, "plink_path", _normalize_optional_path(self.plink_path))
-        object.__setattr__(self, "r2_paths", _normalize_path_tuple(self.r2_paths))
-        object.__setattr__(self, "metadata_paths", _normalize_path_tuple(self.metadata_paths))
-        object.__setattr__(self, "ref_panel_snps_path", _normalize_optional_path(self.ref_panel_snps_path))
+        object.__setattr__(self, "plink_prefix", _normalize_optional_path(self.plink_prefix))
+        object.__setattr__(self, "r2_sources", _normalize_path_tuple(self.r2_sources))
+        object.__setattr__(self, "metadata_sources", _normalize_path_tuple(self.metadata_sources))
+        object.__setattr__(self, "ref_panel_snps_file", _normalize_optional_path(self.ref_panel_snps_file))
         if self.chromosomes is not None:
             from .chromosome_inference import normalize_chromosome
 
@@ -314,10 +314,10 @@ class LDScoreConfig:
     maf_min : float or None, optional
         Minimum retained minor-allele frequency, if MAF metadata are available.
         Default is ``None``.
-    keep_indivs_path : str or os.PathLike[str] or None, optional
+    keep_indivs_file : str or os.PathLike[str] or None, optional
         Optional path to a one-column IID keep file applied in PLINK mode
         before SNP and MAF filtering. Default is ``None``.
-    regression_snps_path : str or os.PathLike[str] or None, optional
+    regression_snps_file : str or os.PathLike[str] or None, optional
         Optional path to the SNP list defining the regression SNP set used for
         the persisted ``baseline.parquet`` row set and, when query annotations
         are present, the aligned ``query.parquet`` row set. Default is
@@ -335,8 +335,8 @@ class LDScoreConfig:
     ld_wind_kb: float | None = None
     ld_wind_cm: float | None = None
     maf_min: float | None = None
-    keep_indivs_path: str | PathLike[str] | None = None
-    regression_snps_path: str | PathLike[str] | None = None
+    keep_indivs_file: str | PathLike[str] | None = None
+    regression_snps_file: str | PathLike[str] | None = None
     chunk_size: int = 50
     compute_m5_50: bool = True
     whole_chromosome_ok: bool = False
@@ -356,8 +356,8 @@ class LDScoreConfig:
             raise ValueError("maf_min must lie in [0, 0.5].")
         if self.chunk_size <= 0:
             raise ValueError("chunk_size must be positive.")
-        object.__setattr__(self, "keep_indivs_path", _normalize_optional_path(self.keep_indivs_path))
-        object.__setattr__(self, "regression_snps_path", _normalize_optional_path(self.regression_snps_path))
+        object.__setattr__(self, "keep_indivs_file", _normalize_optional_path(self.keep_indivs_file))
+        object.__setattr__(self, "regression_snps_file", _normalize_optional_path(self.regression_snps_file))
 
 
 @dataclass(frozen=True)
@@ -365,18 +365,18 @@ class ReferencePanelBuildConfig:
     """Configuration for building standard parquet reference panels from PLINK.
 
     This config owns the builder-only SNP restriction path
-    ``ref_panel_snps_path``. That setting is not shared through
+    ``ref_panel_snps_file``. That setting is not shared through
     ``GlobalConfig`` because it changes the retained panel rows for one build
     run rather than the global identifier or genome-build assumptions.
 
     Parameters
     ----------
-    plink_path : str or os.PathLike[str]
+    plink_prefix : str or os.PathLike[str]
         PLINK ``.bed/.bim/.fam`` prefix token. This may be a single prefix or an
         explicit ``@`` chromosome-suite token.
     source_genome_build : {"hg19", "hg37", "GRCh37", "hg38", "GRCh38"}
         Genome build of the input PLINK coordinates.
-    genetic_map_hg19_path, genetic_map_hg38_path : str or os.PathLike[str] or None, optional
+    genetic_map_hg19_sources, genetic_map_hg38_sources : str or os.PathLike[str] or None, optional
         Genetic-map paths used to populate cM values for each emitted sidecar.
         The source-build map is required only for ``ld_wind_cm``. When maps are
         omitted for SNP- or kb-window builds, emitted sidecars store missing CM
@@ -387,7 +387,7 @@ class ReferencePanelBuildConfig:
         fixed as ``chr{chrom}_ann.parquet``, ``chr{chrom}_LD.parquet``, and
         emitted ``chr{chrom}_meta_hg19.tsv.gz`` /
         ``chr{chrom}_meta_hg38.tsv.gz`` sidecars.
-    liftover_chain_hg19_to_hg38_path, liftover_chain_hg38_to_hg19_path : str or os.PathLike[str] or None, optional
+    liftover_chain_hg19_to_hg38_file, liftover_chain_hg38_to_hg19_file : str or os.PathLike[str] or None, optional
         Chain files used to populate the opposite-build coordinates. If the
         chain matching ``source_genome_build`` is omitted, the builder emits a
         source-build-only panel.
@@ -395,14 +395,14 @@ class ReferencePanelBuildConfig:
         LD window specification. Exactly one must be supplied.
     maf_min : float or None, optional
         Optional retained-SNP MAF threshold. Default is ``None``.
-    ref_panel_snps_path : str or os.PathLike[str] or None, optional
+    ref_panel_snps_file : str or os.PathLike[str] or None, optional
         Optional SNP list restricting the emitted reference-panel universe.
         Default is ``None``. The identifier mode for this file is deliberately
         not a field on this dataclass: lower-level callers provide it through
         ``ReferencePanelBuilder(GlobalConfig(...))``, while the CLI and
         ``run_build_ref_panel(...)`` convenience wrapper accept a conditional
         ``snp_identifier`` argument only when this path is supplied.
-    keep_indivs_path : str or os.PathLike[str] or None, optional
+    keep_indivs_file : str or os.PathLike[str] or None, optional
         Optional individual keep-file applied before LD calculation. Default is
         ``None``.
     chunk_size : int, optional
@@ -413,48 +413,48 @@ class ReferencePanelBuildConfig:
         ``False``.
     """
 
-    plink_path: str | PathLike[str]
+    plink_prefix: str | PathLike[str]
     source_genome_build: GenomeBuildInput
-    genetic_map_hg19_path: str | PathLike[str] | None = None
-    genetic_map_hg38_path: str | PathLike[str] | None = None
+    genetic_map_hg19_sources: str | PathLike[str] | None = None
+    genetic_map_hg38_sources: str | PathLike[str] | None = None
     output_dir: str | PathLike[str] | None = None
-    liftover_chain_hg19_to_hg38_path: str | PathLike[str] | None = None
-    liftover_chain_hg38_to_hg19_path: str | PathLike[str] | None = None
+    liftover_chain_hg19_to_hg38_file: str | PathLike[str] | None = None
+    liftover_chain_hg38_to_hg19_file: str | PathLike[str] | None = None
     ld_wind_snps: int | None = None
     ld_wind_kb: float | None = None
     ld_wind_cm: float | None = None
     maf_min: float | None = None
-    ref_panel_snps_path: str | PathLike[str] | None = None
-    keep_indivs_path: str | PathLike[str] | None = None
+    ref_panel_snps_file: str | PathLike[str] | None = None
+    keep_indivs_file: str | PathLike[str] | None = None
     chunk_size: int = 50
     overwrite: bool = False
 
     def __post_init__(self) -> None:
         """Normalize build paths and validate liftover and LD-window settings."""
-        object.__setattr__(self, "plink_path", _normalize_required_path(self.plink_path))
+        object.__setattr__(self, "plink_prefix", _normalize_required_path(self.plink_prefix))
         object.__setattr__(self, "source_genome_build", normalize_genome_build(self.source_genome_build))
-        object.__setattr__(self, "genetic_map_hg19_path", _normalize_optional_path(self.genetic_map_hg19_path))
-        object.__setattr__(self, "genetic_map_hg38_path", _normalize_optional_path(self.genetic_map_hg38_path))
+        object.__setattr__(self, "genetic_map_hg19_sources", _normalize_optional_path(self.genetic_map_hg19_sources))
+        object.__setattr__(self, "genetic_map_hg38_sources", _normalize_optional_path(self.genetic_map_hg38_sources))
         object.__setattr__(
             self,
-            "liftover_chain_hg19_to_hg38_path",
-            _normalize_optional_path(self.liftover_chain_hg19_to_hg38_path),
+            "liftover_chain_hg19_to_hg38_file",
+            _normalize_optional_path(self.liftover_chain_hg19_to_hg38_file),
         )
         object.__setattr__(
             self,
-            "liftover_chain_hg38_to_hg19_path",
-            _normalize_optional_path(self.liftover_chain_hg38_to_hg19_path),
+            "liftover_chain_hg38_to_hg19_file",
+            _normalize_optional_path(self.liftover_chain_hg38_to_hg19_file),
         )
         object.__setattr__(self, "output_dir", _normalize_required_path(self.output_dir))
-        object.__setattr__(self, "ref_panel_snps_path", _normalize_optional_path(self.ref_panel_snps_path))
-        object.__setattr__(self, "keep_indivs_path", _normalize_optional_path(self.keep_indivs_path))
+        object.__setattr__(self, "ref_panel_snps_file", _normalize_optional_path(self.ref_panel_snps_file))
+        object.__setattr__(self, "keep_indivs_file", _normalize_optional_path(self.keep_indivs_file))
         windows = [self.ld_wind_snps, self.ld_wind_kb, self.ld_wind_cm]
         if sum(value is not None for value in windows) != 1:
             raise ValueError("Exactly one LD-window option must be set.")
         source_map = (
-            self.genetic_map_hg19_path
+            self.genetic_map_hg19_sources
             if self.source_genome_build == "hg19"
-            else self.genetic_map_hg38_path
+            else self.genetic_map_hg38_sources
         )
         if self.ld_wind_cm is not None and source_map is None:
             raise ValueError(f"{self.source_genome_build} genetic map path is required when ld_wind_cm is set.")
@@ -497,7 +497,7 @@ class MungeConfig:
         ``None``.
     chunk_size : int, optional
         Number of input rows processed per chunk. Default is ``5e6``.
-    merge_alleles_path : str or os.PathLike[str] or None, optional
+    merge_alleles_file : str or os.PathLike[str] or None, optional
         Optional allele-merge file path. Default is ``None``.
     signed_sumstats_spec : str or None, optional
         Signed statistic specification passed through to the legacy kernel.
@@ -512,7 +512,7 @@ class MungeConfig:
         collisions raise before the munging kernel runs. Default is ``False``.
     """
     output_dir: str | PathLike[str] | None = None
-    sumstats_path: str | PathLike[str] | None = None
+    sumstats_file: str | PathLike[str] | None = None
     compression: str = "auto"
     trait_name: str | None = None
     column_hints: dict[str, str] = field(default_factory=dict)
@@ -524,7 +524,7 @@ class MungeConfig:
     n_min: float | None = None
     nstudy_min: float | None = None
     chunk_size: int = int(5e6)
-    merge_alleles_path: str | PathLike[str] | None = None
+    merge_alleles_file: str | PathLike[str] | None = None
     signed_sumstats_spec: str | None = None
     ignore_columns: tuple[str, ...] = field(default_factory=tuple)
     no_alleles: bool = False
@@ -543,8 +543,8 @@ class MungeConfig:
         if self.chunk_size <= 0:
             raise ValueError("chunk_size must be positive.")
         object.__setattr__(self, "output_dir", _normalize_optional_path(self.output_dir))
-        object.__setattr__(self, "sumstats_path", _normalize_optional_path(self.sumstats_path))
-        object.__setattr__(self, "merge_alleles_path", _normalize_optional_path(self.merge_alleles_path))
+        object.__setattr__(self, "sumstats_file", _normalize_optional_path(self.sumstats_file))
+        object.__setattr__(self, "merge_alleles_file", _normalize_optional_path(self.merge_alleles_file))
         object.__setattr__(self, "ignore_columns", tuple(self.ignore_columns))
         object.__setattr__(self, "column_hints", dict(self.column_hints))
 

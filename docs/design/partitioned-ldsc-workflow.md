@@ -59,7 +59,7 @@ that query rows match baseline rows exactly on `CHR/SNP/BP`.
 ### Baseline Annotations
 
 Baseline `.annot[.gz]` files are passed to `ldsc ldscore` with
-`--baseline-annot-paths`. They define the baseline annotation LD-score columns stored
+`--baseline-annot-sources`. They define the baseline annotation LD-score columns stored
 in `baseline.parquet`.
 
 Example:
@@ -68,7 +68,7 @@ Example:
 resources/baseline_v1.2/baseline.@.annot.gz
 ```
 
-For ordinary unpartitioned LD-score generation, `--baseline-annot-paths` may be
+For ordinary unpartitioned LD-score generation, `--baseline-annot-sources` may be
 omitted when no query inputs are supplied. The public workflow then creates a
 synthetic all-ones baseline annotation named exactly `base` over the retained
 reference-panel metadata and writes the same canonical LD-score directory. This
@@ -78,12 +78,12 @@ is not a separate h2 workflow.
 
 Query annotations are optional and become `query.parquet` columns.
 
-- `--query-annot-bed-paths`: BED intervals projected to the baseline SNP universe in
+- `--query-annot-bed-sources`: BED intervals projected to the baseline SNP universe in
   memory.
-- `--query-annot-paths`: pre-built query `.annot[.gz]` files.
+- `--query-annot-sources`: pre-built query `.annot[.gz]` files.
 
 These arguments are mutually exclusive and require explicit
-`--baseline-annot-paths`. If users intentionally want to test query annotations
+`--baseline-annot-sources`. If users intentionally want to test query annotations
 against an all-ones universe, they should create an explicit all-ones `base`
 baseline annotation over the query annotation universe and run the partitioned
 workflow with both baseline and query inputs.
@@ -92,19 +92,19 @@ workflow with both baseline and query inputs.
 
 LD scores can be computed from:
 
-- PLINK input through `--plink-path`
-- parquet R2 input through `--r2-paths`
+- PLINK input through `--plink-prefix`
+- parquet R2 input through `--r2-sources`
 
-Frequency or metadata sidecars are passed with `--metadata-paths` when needed for MAF
+Frequency or metadata sidecars are passed with `--metadata-sources` when needed for MAF
 or centiMorgan windows.
 
 ### Summary Statistics
 
 Regression commands still read munged summary statistics:
 
-- `ldsc h2 --sumstats-path <file>`
-- `ldsc partitioned-h2 --sumstats-path <file>`
-- `ldsc rg --sumstats-1-path <file> --sumstats-2-path <file>`
+- `ldsc h2 --sumstats-file <file>`
+- `ldsc partitioned-h2 --sumstats-file <file>`
+- `ldsc rg --sumstats-1-file <file> --sumstats-2-file <file>`
 
 Current `ldsc munge-sumstats` outputs include canonical `CHR` and `POS` columns
 beside `SNP`, `Z`, and `N`, and write `sumstats.metadata.json` beside the table.
@@ -121,9 +121,9 @@ The LD-score phase tracks these SNP sets:
 |--------|------|---------|
 | B | Baseline annotation SNPs | Rows in loaded baseline annotation files, or retained reference-panel metadata rows for synthetic `base` unpartitioned runs |
 | A | Raw reference panel SNPs | Rows in PLINK `.bim` or parquet metadata sidecar |
-| A' | Restricted reference panel | `A ∩ ref_panel_snps_path`; equals A when absent |
+| A' | Restricted reference panel | `A ∩ ref_panel_snps_file`; equals A when absent |
 | `ld_reference_snps` | LD computation universe | `B ∩ A'` |
-| C | Regression SNP mask | Optional mask from `regression_snps_path` |
+| C | Regression SNP mask | Optional mask from `regression_snps_file` |
 | `ld_regression_snps` | Persisted row set | `B ∩ A' ∩ C`; equals `ld_reference_snps` when C is absent |
 
 LD-score column counts in the manifest are computed over `ld_reference_snps`.
@@ -172,11 +172,11 @@ Compute LD scores:
 ```bash
 ldsc ldscore \
   --output-dir results/my_study_ldscore \
-  --baseline-annot-paths resources/baseline_v1.2/baseline.@.annot.gz \
-  --query-annot-bed-paths my_peaks.bed \
-  --plink-path resources/1kg/1KG_EUR_Phase3_chr@ \
-  --ref-panel-snps-path resources/w_hm3.snplist \
-  --regression-snps-path resources/w_hm3.snplist \
+  --baseline-annot-sources resources/baseline_v1.2/baseline.@.annot.gz \
+  --query-annot-bed-sources my_peaks.bed \
+  --plink-prefix resources/1kg/1KG_EUR_Phase3_chr@ \
+  --ref-panel-snps-file resources/w_hm3.snplist \
+  --regression-snps-file resources/w_hm3.snplist \
   --snp-identifier rsid \
   --ld-wind-cm 1.0
 ```
@@ -186,9 +186,9 @@ Compute ordinary unpartitioned LD scores without baseline annotations:
 ```bash
 ldsc ldscore \
   --output-dir results/my_unpartitioned_ldscore \
-  --plink-path resources/1kg/1KG_EUR_Phase3_chr@ \
-  --ref-panel-snps-path resources/w_hm3.snplist \
-  --regression-snps-path resources/w_hm3.snplist \
+  --plink-prefix resources/1kg/1KG_EUR_Phase3_chr@ \
+  --ref-panel-snps-file resources/w_hm3.snplist \
+  --regression-snps-file resources/w_hm3.snplist \
   --snp-identifier rsid \
   --ld-wind-cm 1.0
 ```
@@ -198,7 +198,7 @@ Run ordinary h2:
 ```bash
 ldsc h2 \
   --ldscore-dir results/my_study_ldscore \
-  --sumstats-path my_gwas.sumstats.gz \
+  --sumstats-file my_gwas.sumstats.gz \
   --output-dir results/my_study_h2
 ```
 
@@ -207,7 +207,7 @@ Run partitioned h2:
 ```bash
 ldsc partitioned-h2 \
   --ldscore-dir results/my_study_ldscore \
-  --sumstats-path my_gwas.sumstats.gz \
+  --sumstats-file my_gwas.sumstats.gz \
   --output-dir results/my_study_partitioned_h2
 ```
 
@@ -216,8 +216,8 @@ Run rg:
 ```bash
 ldsc rg \
   --ldscore-dir results/my_study_ldscore \
-  --sumstats-1-path trait1.sumstats.gz \
-  --sumstats-2-path trait2.sumstats.gz \
+  --sumstats-1-file trait1.sumstats.gz \
+  --sumstats-2-file trait2.sumstats.gz \
   --output-dir results/trait1_trait2_rg
 ```
 

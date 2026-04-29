@@ -70,22 +70,22 @@ set_global_config(GLOBAL_CONFIG)
 
 annotation_bundle = AnnotationBuilder(GLOBAL_CONFIG, AnnotationBuildConfig()).run(
     AnnotationBuildConfig(
-        baseline_annot_paths="annotations/baseline_chr/baseline.@.annot.gz",
-        query_annot_bed_paths="beds/*.bed",
+        baseline_annot_sources="annotations/baseline_chr/baseline.@.annot.gz",
+        query_annot_bed_sources="beds/*.bed",
     )
 )
 
 # If you want reusable query .annot.gz shards on disk, materialize them explicitly.
 # reusable_bundle = run_bed_to_annot(
-#     query_annot_bed_paths="beds/*.bed",
-#     baseline_annot_paths="annotations/baseline_chr/baseline.@.annot.gz",
+#     query_annot_bed_sources="beds/*.bed",
+#     baseline_annot_sources="annotations/baseline_chr/baseline.@.annot.gz",
 #     output_dir="annotations/query_from_beds",
 #     overwrite=True,  # enable only when intentionally replacing query shards
 # )
 
 sumstats = SumstatsMunger().run(
     MungeConfig(
-        sumstats_path="data/trait.tsv.gz",
+        sumstats_file="data/trait.tsv.gz",
         trait_name="trait",
         column_hints={
             "snp": "ID",
@@ -112,12 +112,12 @@ sumstats = SumstatsMunger().run(
 ref_panel = RefPanelLoader(GLOBAL_CONFIG).load(
     RefPanelConfig(
         backend="parquet_r2",
-        r2_paths="r2/reference.@.parquet",
-        metadata_paths="r2/reference_metadata.@.tsv.gz",
+        r2_sources="r2/reference.@.parquet",
+        metadata_sources="r2/reference_metadata.@.tsv.gz",
         chromosomes=tuple(annotation_bundle.chromosomes),
         genome_build="hg19",
         r2_bias_mode="unbiased",
-        ref_panel_snps_path="filters/reference_universe.tsv.gz",
+        ref_panel_snps_file="filters/reference_universe.tsv.gz",
     )
 )
 
@@ -126,7 +126,7 @@ ldscore_result = LDScoreCalculator().run(
     ref_panel=ref_panel,
     ldscore_config=LDScoreConfig(
         ld_wind_cm=1.0,
-        regression_snps_path="filters/hapmap3.tsv.gz",
+        regression_snps_file="filters/hapmap3.tsv.gz",
     ),
     global_config=GLOBAL_CONFIG,
     output_config=LDScoreOutputConfig(
@@ -159,9 +159,9 @@ than by the literal rsID in `SNP`.
 
 Within this design:
 
-- `ref_panel_snps_path` belongs to `RefPanelConfig` and restricts the retained reference-panel rows
+- `ref_panel_snps_file` belongs to `RefPanelConfig` and restricts the retained reference-panel rows
 - `LDScoreCalculator.compute_chromosome()` intersects each chromosome-local annotation bundle with `ref_panel.load_metadata(chrom)`, so the LD-score compute universe is `B ∩ A'`; parquet pair rows are not scanned to define SNP presence
-- `regression_snps_path` belongs to `LDScoreConfig` and further restricts the normalized `baseline_table` rows to `B ∩ A' ∩ C`
+- `regression_snps_file` belongs to `LDScoreConfig` and further restricts the normalized `baseline_table` rows to `B ∩ A' ∩ C`
 - regression weights are embedded as `regr_weight`; there is no separate `.w.l2.ldscore.gz` artifact in the new default format
 - query `.annot` and BED inputs are accepted only when baseline annotations are supplied explicitly
 
@@ -172,13 +172,13 @@ The CLI supports BED-driven LD-score generation directly:
 ```bash
 ldsc ldscore \
   --output-dir tutorial_outputs/partitioned_ldscores \
-  --baseline-annot-paths "annotations/baseline_chr/baseline.@.annot.gz" \
-  --query-annot-bed-paths "beds/*.bed" \
-  --r2-paths "r2/reference.@.parquet" \
-  --metadata-paths "r2/reference_metadata.@.tsv.gz" \
+  --baseline-annot-sources "annotations/baseline_chr/baseline.@.annot.gz" \
+  --query-annot-bed-sources "beds/*.bed" \
+  --r2-sources "r2/reference.@.parquet" \
+  --metadata-sources "r2/reference_metadata.@.tsv.gz" \
   --r2-bias-mode unbiased \
-  --ref-panel-snps-path filters/reference_universe.tsv.gz \
-  --regression-snps-path filters/hapmap3.tsv.gz \
+  --ref-panel-snps-file filters/reference_universe.tsv.gz \
+  --regression-snps-file filters/hapmap3.tsv.gz \
   --snp-identifier chr_pos \
   --genome-build hg19 \
   --ld-wind-cm 1.0
@@ -188,8 +188,8 @@ You can still materialize reusable query `.annot.gz` files explicitly:
 
 ```bash
 ldsc annotate \
-  --query-annot-bed-paths "beds/*.bed" \
-  --baseline-annot-paths "annotations/baseline_chr/baseline.@.annot.gz" \
+  --query-annot-bed-sources "beds/*.bed" \
+  --baseline-annot-sources "annotations/baseline_chr/baseline.@.annot.gz" \
   --output-dir annotations/query_from_beds
 ```
 
@@ -199,7 +199,7 @@ and counts from `manifest.json`.
 
 ```bash
 ldsc munge-sumstats \
-  --sumstats-path data/trait.tsv.gz \
+  --sumstats-file data/trait.tsv.gz \
   --snp ID \
   --chr '#CHROM' \
   --pos POS \
@@ -214,7 +214,7 @@ ldsc munge-sumstats \
   --output-dir tutorial_outputs/trait
 
 ldsc partitioned-h2 \
-  --sumstats-path tutorial_outputs/trait/sumstats.sumstats.gz \
+  --sumstats-file tutorial_outputs/trait/sumstats.sumstats.gz \
   --ldscore-dir tutorial_outputs/partitioned_ldscores \
   --count-kind m_5_50 \
   --output-dir tutorial_outputs/partitioned_h2

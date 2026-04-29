@@ -737,7 +737,7 @@ z
     </g>
    </g>
    <g id="text_2">
-    <!-- A' = panel after `ref_panel_snps_path` -->
+    <!-- A' = panel after `ref_panel_snps_file` -->
     <g style="fill: #16202a" transform="translate(244.8 124.782344)scale(0.11 -0.11)">
      <defs>
       <path id="DejaVuSans-27" d="M 1147 4666 
@@ -2430,7 +2430,7 @@ z
     </g>
    </g>
    <g id="text_10">
-    <!-- `baseline_annot_paths` -->
+    <!-- `baseline_annot_sources` -->
     <g style="fill: #16202a" transform="translate(74.88 347.838156)scale(0.118 -0.118)">
      <use xlink:href="#DejaVuSans-60"/>
      <use xlink:href="#DejaVuSans-62" x="50"/>
@@ -2604,7 +2604,7 @@ z
     </g>
    </g>
    <g id="text_12">
-    <!-- `query_annot_paths` -->
+    <!-- `query_annot_sources` -->
     <g style="fill: #16202a" transform="translate(74.88 502.15825)scale(0.112 -0.112)">
      <defs>
       <path id="DejaVuSans-71" d="M 947 1747 
@@ -3624,7 +3624,7 @@ z
      <use xlink:href="#DejaVuSans-63" x="669.955078"/>
      <use xlink:href="#DejaVuSans-60" x="724.935547"/>
     </g>
-    <!-- `ref_panel_snps_path` -->
+    <!-- `ref_panel_snps_file` -->
     <g style="fill: #16202a" transform="translate(874.08 311.406738)scale(0.118 -0.118)">
      <use xlink:href="#DejaVuSans-60"/>
      <use xlink:href="#DejaVuSans-72" x="50"/>
@@ -3933,7 +3933,7 @@ z
      <use xlink:href="#DejaVuSans-74" x="1690.128906"/>
      <use xlink:href="#DejaVuSans-73" x="1729.337891"/>
     </g>
-    <!-- `ref_panel_snps_path`. -->
+    <!-- `ref_panel_snps_file`. -->
     <g style="fill: #16202a" transform="translate(658.08 552.219986)scale(0.114 -0.114)">
      <use xlink:href="#DejaVuSans-60"/>
      <use xlink:href="#DejaVuSans-72" x="50"/>
@@ -4041,7 +4041,7 @@ z
     </g>
    </g>
    <g id="text_26">
-    <!-- `LDScoreConfig.regression_snps_path` -->
+    <!-- `LDScoreConfig.regression_snps_file` -->
     <g style="fill: #16202a" transform="translate(931.68 527.35825)scale(0.112 -0.112)">
      <use xlink:href="#DejaVuSans-60"/>
      <use xlink:href="#DejaVuSans-4c" x="50"/>
@@ -5855,7 +5855,7 @@ z
      <use xlink:href="#DejaVuSans-68" x="6372.861328"/>
      <use xlink:href="#DejaVuSans-2e" x="6436.240234"/>
     </g>
-    <!-- 2. `ref_panel_snps_path` defines `A'`; `regression_snps_path` defines `C`. -->
+    <!-- 2. `ref_panel_snps_file` defines `A'`; `regression_snps_file` defines `C`. -->
     <g style="fill: #16202a" transform="translate(57.6 207.961776)scale(0.102 -0.102)">
      <use xlink:href="#DejaVuSans-32"/>
      <use xlink:href="#DejaVuSans-2e" x="63.623047"/>

@@ -46,20 +46,20 @@ set_global_config(GLOBAL_CONFIG)
 
 annotation_bundle = AnnotationBuilder(GLOBAL_CONFIG, AnnotationBuildConfig()).run(
     AnnotationBuildConfig(
-        baseline_annot_paths="annotations/baseline_chr/baseline.@.annot.gz",
-        query_annot_bed_paths="annotations/cell_type_beds/*.bed",
+        baseline_annot_sources="annotations/baseline_chr/baseline.@.annot.gz",
+        query_annot_bed_sources="annotations/cell_type_beds/*.bed",
     )
 )
 
 ref_panel = RefPanelLoader(GLOBAL_CONFIG).load(
     RefPanelConfig(
         backend="parquet_r2",
-        r2_paths="r2/reference.@.parquet",
-        metadata_paths="r2/reference_metadata.@.tsv.gz",
+        r2_sources="r2/reference.@.parquet",
+        metadata_sources="r2/reference_metadata.@.tsv.gz",
         chromosomes=tuple(annotation_bundle.chromosomes),
         genome_build="hg19",
         r2_bias_mode="unbiased",
-        ref_panel_snps_path="filters/reference_universe.tsv.gz",
+        ref_panel_snps_file="filters/reference_universe.tsv.gz",
     )
 )
 
@@ -68,7 +68,7 @@ ldscore_result = LDScoreCalculator().run(
     ref_panel=ref_panel,
     ldscore_config=LDScoreConfig(
         ld_wind_cm=1.0,
-        regression_snps_path="filters/hapmap3.tsv.gz",
+        regression_snps_file="filters/hapmap3.tsv.gz",
     ),
     global_config=GLOBAL_CONFIG,
     output_config=LDScoreOutputConfig(
@@ -112,13 +112,13 @@ First compute baseline-plus-cell-type LD scores. This can project BED files dire
 ```bash
 ldsc ldscore \
   --output-dir tutorial_outputs/cell_specific_ldscores \
-  --baseline-annot-paths "annotations/baseline_chr/baseline.@.annot.gz" \
-  --query-annot-bed-paths "annotations/cell_type_beds/*.bed" \
-  --r2-paths "r2/reference.@.parquet" \
-  --metadata-paths "r2/reference_metadata.@.tsv.gz" \
+  --baseline-annot-sources "annotations/baseline_chr/baseline.@.annot.gz" \
+  --query-annot-bed-sources "annotations/cell_type_beds/*.bed" \
+  --r2-sources "r2/reference.@.parquet" \
+  --metadata-sources "r2/reference_metadata.@.tsv.gz" \
   --r2-bias-mode unbiased \
-  --ref-panel-snps-path filters/reference_universe.tsv.gz \
-  --regression-snps-path filters/hapmap3.tsv.gz \
+  --ref-panel-snps-file filters/reference_universe.tsv.gz \
+  --regression-snps-file filters/hapmap3.tsv.gz \
   --snp-identifier chr_pos \
   --genome-build hg19 \
   --ld-wind-cm 1.0
@@ -128,7 +128,7 @@ Then run partitioned h2 over the cell-type query columns:
 
 ```bash
 ldsc partitioned-h2 \
-  --sumstats-path tutorial_outputs/trait/sumstats.sumstats.gz \
+  --sumstats-file tutorial_outputs/trait/sumstats.sumstats.gz \
   --trait-name trait \
   --ldscore-dir tutorial_outputs/cell_specific_ldscores \
   --count-kind m_5_50 \

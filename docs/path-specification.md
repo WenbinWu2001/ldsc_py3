@@ -87,8 +87,8 @@ This means both of the following are valid:
 
 Relevant APIs:
 
-- `AnnotationBuildConfig.baseline_annot_paths`
-- `AnnotationBuildConfig.query_annot_paths`
+- `AnnotationBuildConfig.baseline_annot_sources`
+- `AnnotationBuildConfig.query_annot_sources`
 - `AnnotationBuilder.run(...)`
 
 Accepted path forms:
@@ -118,8 +118,8 @@ Example:
 
 ```python
 AnnotationBuildConfig(
-    baseline_annot_paths="annotations/baseline.*.annot.gz",
-    query_annot_paths="annotations/query.@.annot.gz",
+    baseline_annot_sources="annotations/baseline.*.annot.gz",
+    query_annot_sources="annotations/query.@.annot.gz",
 )
 ```
 
@@ -132,8 +132,8 @@ Relevant APIs:
 
 Accepted path forms:
 
-- `query_annot_bed_paths`: exact path or glob
-- `baseline_annot_paths`: exact path, glob, or explicit `@`
+- `query_annot_bed_sources`: exact path or glob
+- `baseline_annot_sources`: exact path, glob, or explicit `@`
 
 How files are handled:
 
@@ -149,8 +149,8 @@ Example:
 
 ```python
 run_bed_to_annot(
-    query_annot_bed_paths="beds/*.bed",
-    baseline_annot_paths="annotations/baseline_chr/baseline.@.annot.gz",
+    query_annot_bed_sources="beds/*.bed",
+    baseline_annot_sources="annotations/baseline_chr/baseline.@.annot.gz",
     output_dir="annotations/query_from_beds",
     overwrite=True,
 )
@@ -173,27 +173,27 @@ Relevant APIs:
 
 Group-style inputs:
 
-- `baseline_annot_paths`
-- `query_annot_paths`
-- `query_annot_bed_paths`
-- `r2_paths`
-- `metadata_paths`
+- `baseline_annot_sources`
+- `query_annot_sources`
+- `query_annot_bed_sources`
+- `r2_sources`
+- `metadata_sources`
 
 Scalar-style inputs:
 
-- `ref_panel_snps_path`
-- `regression_snps_path`
+- `ref_panel_snps_file`
+- `regression_snps_file`
 
 PLINK prefix input:
 
-- `plink_path`
+- `plink_prefix`
 
 How they are handled:
 
 - group-style inputs may resolve to many files
 - per chromosome, the workflow first tries filename-based filtering and then
   falls back to row-level `CHR` filtering
-- `plink_path` must resolve to exactly one PLINK prefix per chromosome pass
+- `plink_prefix` must resolve to exactly one PLINK prefix per chromosome pass
 
 Requirements:
 
@@ -205,8 +205,8 @@ Examples:
 ```bash
 ldsc ldscore \
   --output-dir out/trait_ldscores \
-  --r2-paths "r2/reference.*.parquet" \
-  --metadata-paths "r2/reference_metadata.@.tsv.gz" \
+  --r2-sources "r2/reference.*.parquet" \
+  --metadata-sources "r2/reference_metadata.@.tsv.gz" \
   --r2-bias-mode unbiased \
   --ld-wind-cm 1.0
 ```
@@ -214,8 +214,8 @@ ldsc ldscore \
 ```bash
 ldsc ldscore \
   --output-dir out/trait_ldscores \
-  --baseline-annot-paths "annotations/baseline_joint*.annot.gz" \
-  --plink-path "resources/example_1kg_30x/genomes_30x_chr@" \
+  --baseline-annot-sources "annotations/baseline_joint*.annot.gz" \
+  --plink-prefix "resources/example_1kg_30x/genomes_30x_chr@" \
   --ld-wind-kb 100
 ```
 
@@ -243,29 +243,29 @@ Relevant APIs:
 
 Accepted path forms:
 
-- `plink_path`: exact PLINK prefix, exact-one PLINK glob, or explicit `@` PLINK suite token
+- `plink_prefix`: exact PLINK prefix, exact-one PLINK glob, or explicit `@` PLINK suite token
 - map and chain inputs, when provided: exact path or exact-one glob
-- `ref_panel_snps_path`, when provided: scalar file-like token interpreted
+- `ref_panel_snps_file`, when provided: scalar file-like token interpreted
   using the explicit `snp_identifier` mode
 
 How they are handled:
 
-- `plink_path` is resolved at the PLINK prefix level, not at the individual `.bed/.bim/.fam` file level
+- `plink_prefix` is resolved at the PLINK prefix level, not at the individual `.bed/.bim/.fam` file level
 - a chromosome suite such as `panel_chr@` is expanded one chromosome at a time
 - liftover chains are optional; the matching source-to-target chain enables cross-build metadata, while no matching chain produces source-build-only outputs
 - genetic maps are required only for source-build `--ld-wind-cm`; SNP- and kb-window builds may omit maps and write emitted metadata `CM` as `NA`
-- `snp_identifier` is required only when `ref_panel_snps_path` /
-  `--ref-panel-snps-path` is supplied; no identifier flag is needed otherwise
+- `snp_identifier` is required only when `ref_panel_snps_file` /
+  `--ref-panel-snps-file` is supplied; no identifier flag is needed otherwise
 
 Example:
 
 ```bash
 ldsc build-ref-panel \
-  --plink-path data/reference/genomes_30x_chr@ \
+  --plink-prefix data/reference/genomes_30x_chr@ \
   --source-genome-build hg38 \
-  --genetic-map-hg19-path maps/hg19.txt \
-  --genetic-map-hg38-path maps/hg38.txt \
-  --liftover-chain-hg38-to-hg19-path chains/hg38ToHg19.over.chain \
+  --genetic-map-hg19-sources maps/hg19.txt \
+  --genetic-map-hg38-sources maps/hg38.txt \
+  --liftover-chain-hg38-to-hg19-file chains/hg38ToHg19.over.chain \
   --ld-wind-cm 1.0 \
   --output-dir out/ref_panel
 ```
@@ -284,9 +284,9 @@ Output:
 
 Relevant APIs:
 
-- `MungeConfig.sumstats_path`
-- regression artifact paths such as `sumstats_path`, `sumstats_1_path`, and
-  `sumstats_2_path`
+- `MungeConfig.sumstats_file`
+- regression artifact paths such as `sumstats_file`, `sumstats_1_file`, and
+  `sumstats_2_file`
 - `ldscore_dir` for the canonical LD-score result directory
 
 Accepted path forms:

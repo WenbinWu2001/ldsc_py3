@@ -19,7 +19,7 @@ Path-token rules:
 
 Resolution behavior:
 
-- there is no separate per-chromosome argument for LD-score inputs anymore; `baseline_annot_paths`, `r2_paths`, and `metadata_paths` all accept the unified token format
+- there is no separate per-chromosome argument for LD-score inputs anymore; `baseline_annot_sources`, `r2_sources`, and `metadata_sources` all accept the unified token format
 - a group token may resolve to multiple files
 - when multiple matched files are chromosome-sharded and the chromosome can be inferred from the filenames, only the files for the active chromosome are used in that chromosome pass
 - otherwise the matched files are read and filtered by `CHR` internally
@@ -48,7 +48,7 @@ set_global_config(GLOBAL_CONFIG)
 
 sumstats = SumstatsMunger().run(
     MungeConfig(
-        sumstats_path="data/trait*.tsv.gz",
+        sumstats_file="data/trait*.tsv.gz",
         trait_name="trait",
         column_hints={
             "snp": "ID",
@@ -74,10 +74,10 @@ sumstats = SumstatsMunger().run(
 
 ldscore_result = run_ldscore(
     output_dir="tutorial_outputs/trait_ldscores",
-    r2_paths="r2/reference.@.parquet",
-    metadata_paths="r2/reference_metadata.@.tsv.gz",
+    r2_sources="r2/reference.@.parquet",
+    metadata_sources="r2/reference_metadata.@.tsv.gz",
     r2_bias_mode="unbiased",
-    regression_snps_path="filters/hapmap3.txt",
+    regression_snps_file="filters/hapmap3.txt",
     ld_wind_cm=1.0,
     # overwrite=True,  # enable only when intentionally replacing LD-score outputs
 )
@@ -103,7 +103,7 @@ coordinates. The raw munger accepts common coordinate headers such as `#CHROM`,
 the header is ambiguous. Leading raw `##` metadata lines are skipped before the
 real header is parsed.
 
-When you set `regression_snps_path` during LD-score calculation, the same regression SNP subset defines the rows of the normalized `baseline_table`. Regression weights come from the embedded `regr_weight` column by default.
+When you set `regression_snps_file` during LD-score calculation, the same regression SNP subset defines the rows of the normalized `baseline_table`. Regression weights come from the embedded `regr_weight` column by default.
 
 Because this is ordinary unpartitioned heritability, `run_ldscore(...)` does
 not need baseline annotations. With no baseline and no query inputs, it writes
@@ -117,7 +117,7 @@ The regression CLI reads the canonical LD-score result directory written by
 
 ```bash
 ldsc munge-sumstats \
-  --sumstats-path "data/trait*.tsv.gz" \
+  --sumstats-file "data/trait*.tsv.gz" \
   --snp ID \
   --chr '#CHROM' \
   --pos POS \
@@ -133,16 +133,16 @@ ldsc munge-sumstats \
 
 ldsc ldscore \
   --output-dir tutorial_outputs/trait_ldscores \
-  --r2-paths "r2/reference.@.parquet" \
-  --metadata-paths "r2/reference_metadata.@.tsv.gz" \
+  --r2-sources "r2/reference.@.parquet" \
+  --metadata-sources "r2/reference_metadata.@.tsv.gz" \
   --r2-bias-mode unbiased \
-  --regression-snps-path filters/hapmap3.txt \
+  --regression-snps-file filters/hapmap3.txt \
   --snp-identifier chr_pos \
   --genome-build auto \
   --ld-wind-cm 1.0
 
 ldsc h2 \
-  --sumstats-path tutorial_outputs/trait/sumstats.sumstats.gz \
+  --sumstats-file tutorial_outputs/trait/sumstats.sumstats.gz \
   --ldscore-dir tutorial_outputs/trait_ldscores \
   --count-kind m_5_50 \
   --output-dir tutorial_outputs/trait_h2

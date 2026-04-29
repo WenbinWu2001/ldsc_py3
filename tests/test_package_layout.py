@@ -74,19 +74,19 @@ class PackageLayoutTest(unittest.TestCase):
                 "ldscore",
                 "--output-dir",
                 "out/ldscores",
-                "--baseline-annot-paths",
+                "--baseline-annot-sources",
                 "baseline.annot.gz",
-                "--plink-path",
+                "--plink-prefix",
                 "panel",
                 "--ld-wind-snps",
                 "10",
-                "--keep-indivs-path",
+                "--keep-indivs-file",
                 "samples.keep",
             ]
         )
 
         self.assertEqual(args.command, "ldscore")
-        self.assertEqual(args.keep_indivs_path, "samples.keep")
+        self.assertEqual(args.keep_indivs_file, "samples.keep")
 
     def test_all_output_subcommands_accept_overwrite_flag(self):
         from ldsc import cli
@@ -95,9 +95,9 @@ class PackageLayoutTest(unittest.TestCase):
         cases = [
             [
                 "annotate",
-                "--query-annot-bed-paths",
+                "--query-annot-bed-sources",
                 "beds/query.bed",
-                "--baseline-annot-paths",
+                "--baseline-annot-sources",
                 "baseline.1.annot.gz",
                 "--output-dir",
                 "out/annot",
@@ -107,9 +107,9 @@ class PackageLayoutTest(unittest.TestCase):
                 "ldscore",
                 "--output-dir",
                 "out/ldscores",
-                "--baseline-annot-paths",
+                "--baseline-annot-sources",
                 "baseline.annot.gz",
-                "--plink-path",
+                "--plink-prefix",
                 "panel",
                 "--ld-wind-snps",
                 "10",
@@ -117,7 +117,7 @@ class PackageLayoutTest(unittest.TestCase):
             ],
             [
                 "build-ref-panel",
-                "--plink-path",
+                "--plink-prefix",
                 "panel.@",
                 "--source-genome-build",
                 "hg38",
@@ -129,7 +129,7 @@ class PackageLayoutTest(unittest.TestCase):
             ],
             [
                 "munge-sumstats",
-                "--sumstats-path",
+                "--sumstats-file",
                 "raw.tsv",
                 "--output-dir",
                 "out/trait",
@@ -137,7 +137,7 @@ class PackageLayoutTest(unittest.TestCase):
             ],
             [
                 "h2",
-                "--sumstats-path",
+                "--sumstats-file",
                 "trait.sumstats.gz",
                 "--ldscore-dir",
                 "ldscores",
@@ -147,7 +147,7 @@ class PackageLayoutTest(unittest.TestCase):
             ],
             [
                 "partitioned-h2",
-                "--sumstats-path",
+                "--sumstats-file",
                 "trait.sumstats.gz",
                 "--ldscore-dir",
                 "ldscores",
@@ -157,9 +157,9 @@ class PackageLayoutTest(unittest.TestCase):
             ],
             [
                 "rg",
-                "--sumstats-1-path",
+                "--sumstats-1-file",
                 "trait1.sumstats.gz",
-                "--sumstats-2-path",
+                "--sumstats-2-file",
                 "trait2.sumstats.gz",
                 "--ldscore-dir",
                 "ldscores",
@@ -184,9 +184,9 @@ class PackageLayoutTest(unittest.TestCase):
                 "ldscore",
                 "--output-dir",
                 "out/ldscores",
-                "--baseline-annot-paths",
+                "--baseline-annot-sources",
                 "baseline.annot.gz",
-                "--plink-path",
+                "--plink-prefix",
                 "panel",
                 "--ld-wind-snps",
                 "10",
@@ -199,7 +199,7 @@ class PackageLayoutTest(unittest.TestCase):
         self.assertEqual(output_config.output_dir, "out/ldscores")
         self.assertTrue(output_config.overwrite)
 
-    def test_ldscore_subcommand_accepts_regression_snps_path(self):
+    def test_ldscore_subcommand_accepts_regression_snps_file(self):
         from ldsc import cli
 
         parser = cli.build_parser()
@@ -208,19 +208,19 @@ class PackageLayoutTest(unittest.TestCase):
                 "ldscore",
                 "--output-dir",
                 "out/ldscores",
-                "--baseline-annot-paths",
+                "--baseline-annot-sources",
                 "baseline.annot.gz",
-                "--plink-path",
+                "--plink-prefix",
                 "panel",
                 "--ld-wind-snps",
                 "10",
-                "--regression-snps-path",
+                "--regression-snps-file",
                 "filters/hm3.txt",
             ]
         )
 
         self.assertEqual(args.command, "ldscore")
-        self.assertEqual(args.regression_snps_path, "filters/hm3.txt")
+        self.assertEqual(args.regression_snps_file, "filters/hm3.txt")
 
     def test_ldscore_subcommand_rejects_removed_print_snps_and_regression_snps_flags(self):
         from ldsc import cli
@@ -232,9 +232,9 @@ class PackageLayoutTest(unittest.TestCase):
                     "ldscore",
                     "--output-dir",
                     "out/ldscores",
-                    "--baseline-annot-paths",
+                    "--baseline-annot-sources",
                     "baseline.annot.gz",
-                    "--plink-path",
+                    "--plink-prefix",
                     "panel",
                     "--ld-wind-snps",
                     "10",
@@ -267,7 +267,7 @@ class PackageLayoutTest(unittest.TestCase):
             parser.parse_args(
                 [
                     "annotate",
-                    "--query-annot-bed-paths",
+                    "--query-annot-bed-sources",
                     "beds/*.bed",
                     "--baseline-annot-dir",
                     "annotations/baseline_chr",
@@ -290,7 +290,7 @@ class PackageLayoutTest(unittest.TestCase):
                     "out/ldscores",
                     "--baseline-annot-chr",
                     "annotations/baseline.@.annot.gz",
-                    "--plink-path",
+                    "--plink-prefix",
                     "panel",
                     "--ld-wind-snps",
                     "10",
@@ -309,9 +309,9 @@ class PackageLayoutTest(unittest.TestCase):
                     "ldscore",
                     "--out",
                     "out/example",
-                    "--baseline-annot-paths",
+                    "--baseline-annot-sources",
                     "baseline.annot.gz",
-                    "--plink-path",
+                    "--plink-prefix",
                     "panel",
                     "--ld-wind-snps",
                     "10",
@@ -356,29 +356,29 @@ class PackageLayoutTest(unittest.TestCase):
         args = parser.parse_args(
             [
                 "build-ref-panel",
-                "--plink-path",
+                "--plink-prefix",
                 "data/reference/panel_chr@",
                 "--source-genome-build",
                 "hg38",
-                "--genetic-map-hg19-path",
+                "--genetic-map-hg19-sources",
                 "maps/hg19.txt",
-                "--genetic-map-hg38-path",
+                "--genetic-map-hg38-sources",
                 "maps/hg38.txt",
-                "--liftover-chain-hg38-to-hg19-path",
+                "--liftover-chain-hg38-to-hg19-file",
                 "chains/hg38ToHg19.over.chain",
                 "--ld-wind-kb",
                 "10",
                 "--output-dir",
                 "out/panel",
-                "--keep-indivs-path",
+                "--keep-indivs-file",
                 "samples.keep",
             ]
         )
 
         self.assertEqual(args.command, "build-ref-panel")
-        self.assertEqual(args.plink_path, "data/reference/panel_chr@")
+        self.assertEqual(args.plink_prefix, "data/reference/panel_chr@")
         self.assertEqual(args.output_dir, "out/panel")
-        self.assertEqual(args.keep_indivs_path, "samples.keep")
+        self.assertEqual(args.keep_indivs_file, "samples.keep")
 
     def test_build_ref_panel_help_fast_path_avoids_scipy_backed_imports(self):
         from ldsc import cli

@@ -556,67 +556,67 @@ class StandardTableFormattingTest(unittest.TestCase):
 class ReferencePanelBuildConfigOptionalLiftoverTest(unittest.TestCase):
     def test_python_api_defaults_missing_maps_for_snp_window(self):
         config = ReferencePanelBuildConfig(
-            plink_path="plink/panel.@",
+            plink_prefix="plink/panel.@",
             source_genome_build="hg38",
             output_dir="out",
             ld_wind_snps=10,
         )
 
-        self.assertIsNone(config.genetic_map_hg19_path)
-        self.assertIsNone(config.genetic_map_hg38_path)
+        self.assertIsNone(config.genetic_map_hg19_sources)
+        self.assertIsNone(config.genetic_map_hg38_sources)
         self.assertEqual(config.output_dir, "out")
 
     def test_accepts_missing_chain_and_maps_for_kb_window(self):
         config = ReferencePanelBuildConfig(
-            plink_path="plink/panel.@",
+            plink_prefix="plink/panel.@",
             source_genome_build="hg19",
-            genetic_map_hg19_path=None,
-            genetic_map_hg38_path=None,
+            genetic_map_hg19_sources=None,
+            genetic_map_hg38_sources=None,
             output_dir="out",
             ld_wind_kb=1.0,
         )
 
-        self.assertIsNone(config.liftover_chain_hg19_to_hg38_path)
-        self.assertIsNone(config.genetic_map_hg19_path)
-        self.assertIsNone(config.genetic_map_hg38_path)
+        self.assertIsNone(config.liftover_chain_hg19_to_hg38_file)
+        self.assertIsNone(config.genetic_map_hg19_sources)
+        self.assertIsNone(config.genetic_map_hg38_sources)
 
     def test_missing_source_map_raises_for_cm_window(self):
         with self.assertRaisesRegex(ValueError, "hg19 genetic map.*required.*ld_wind_cm"):
             ReferencePanelBuildConfig(
-                plink_path="plink/panel.@",
+                plink_prefix="plink/panel.@",
                 source_genome_build="hg19",
-                genetic_map_hg19_path=None,
-                genetic_map_hg38_path="maps/hg38.map",
+                genetic_map_hg19_sources=None,
+                genetic_map_hg38_sources="maps/hg38.map",
                 output_dir="out",
                 ld_wind_cm=1.0,
             )
 
     def test_matching_chain_does_not_require_target_map_for_kb_window(self):
         config = ReferencePanelBuildConfig(
-            plink_path="plink/panel.@",
+            plink_prefix="plink/panel.@",
             source_genome_build="hg19",
-            genetic_map_hg19_path="maps/hg19.map",
-            genetic_map_hg38_path=None,
-            liftover_chain_hg19_to_hg38_path="chains/hg19ToHg38.over.chain",
+            genetic_map_hg19_sources="maps/hg19.map",
+            genetic_map_hg38_sources=None,
+            liftover_chain_hg19_to_hg38_file="chains/hg19ToHg38.over.chain",
             output_dir="out",
             ld_wind_kb=1.0,
         )
 
-        self.assertEqual(config.liftover_chain_hg19_to_hg38_path, "chains/hg19ToHg38.over.chain")
-        self.assertIsNone(config.genetic_map_hg38_path)
+        self.assertEqual(config.liftover_chain_hg19_to_hg38_file, "chains/hg19ToHg38.over.chain")
+        self.assertIsNone(config.genetic_map_hg38_sources)
 
     def test_non_matching_chain_does_not_require_target_map(self):
         config = ReferencePanelBuildConfig(
-            plink_path="plink/panel.@",
+            plink_prefix="plink/panel.@",
             source_genome_build="hg19",
-            genetic_map_hg19_path="maps/hg19.map",
-            genetic_map_hg38_path=None,
-            liftover_chain_hg38_to_hg19_path="chains/hg38ToHg19.over.chain",
+            genetic_map_hg19_sources="maps/hg19.map",
+            genetic_map_hg38_sources=None,
+            liftover_chain_hg38_to_hg19_file="chains/hg38ToHg19.over.chain",
             output_dir="out",
             ld_wind_kb=1.0,
         )
 
-        self.assertEqual(config.liftover_chain_hg38_to_hg19_path, "chains/hg38ToHg19.over.chain")
+        self.assertEqual(config.liftover_chain_hg38_to_hg19_file, "chains/hg38ToHg19.over.chain")
 
 
 class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
@@ -624,17 +624,17 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
         parser = ref_panel_builder.build_parser()
         args = parser.parse_args(
             [
-                "--plink-path",
+                "--plink-prefix",
                 "plink/panel.@",
                 "--source-genome-build",
                 "hg19",
-                "--genetic-map-hg19-path",
+                "--genetic-map-hg19-sources",
                 "maps/hg19.map",
                 "--output-dir",
                 "out",
                 "--ld-wind-kb",
                 "1",
-                "--ref-panel-snps-path",
+                "--ref-panel-snps-file",
                 "hm3.tsv",
             ]
         )
@@ -646,17 +646,17 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
         parser = ref_panel_builder.build_parser()
         args = parser.parse_args(
             [
-                "--plink-path",
+                "--plink-prefix",
                 "plink/panel.@",
                 "--source-genome-build",
                 "hg19",
-                "--genetic-map-hg19-path",
+                "--genetic-map-hg19-sources",
                 "maps/hg19.map",
                 "--output-dir",
                 "out",
                 "--ld-wind-kb",
                 "1",
-                "--ref-panel-snps-path",
+                "--ref-panel-snps-file",
                 "hm3.tsv",
                 "--snp-identifier",
                 "rsid",
@@ -673,17 +673,17 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
         parser = ref_panel_builder.build_parser()
         args = parser.parse_args(
             [
-                "--plink-path",
+                "--plink-prefix",
                 "plink/panel.@",
                 "--source-genome-build",
                 "hg37",
-                "--genetic-map-hg19-path",
+                "--genetic-map-hg19-sources",
                 "maps/hg19.map",
                 "--output-dir",
                 "out",
                 "--ld-wind-kb",
                 "1",
-                "--ref-panel-snps-path",
+                "--ref-panel-snps-file",
                 "hm3.tsv",
                 "--snp-identifier",
                 "chr_pos",
@@ -701,12 +701,12 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
     def test_run_build_ref_panel_requires_snp_identifier_for_restriction_file(self):
         with self.assertRaisesRegex(ValueError, "--snp-identifier is required"):
             ref_panel_builder.run_build_ref_panel(
-                plink_path="plink/panel.@",
+                plink_prefix="plink/panel.@",
                 source_genome_build="hg19",
-                genetic_map_hg19_path="maps/hg19.map",
+                genetic_map_hg19_sources="maps/hg19.map",
                 output_dir="out",
                 ld_wind_kb=1,
-                ref_panel_snps_path="hm3.tsv",
+                ref_panel_snps_file="hm3.tsv",
             )
 
     def test_run_build_ref_panel_uses_explicit_snp_identifier_for_restriction_file(self):
@@ -719,16 +719,16 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
 
         with mock.patch.object(ref_panel_builder.ReferencePanelBuilder, "run", fake_run):
             ref_panel_builder.run_build_ref_panel(
-                plink_path="plink/panel.@",
+                plink_prefix="plink/panel.@",
                 source_genome_build="hg19",
-                genetic_map_hg19_path="maps/hg19.map",
+                genetic_map_hg19_sources="maps/hg19.map",
                 output_dir="out",
                 ld_wind_kb=1,
-                ref_panel_snps_path="hm3.tsv",
+                ref_panel_snps_file="hm3.tsv",
                 snp_identifier="rsid",
             )
 
-        self.assertEqual(captured["config"].ref_panel_snps_path, "hm3.tsv")
+        self.assertEqual(captured["config"].ref_panel_snps_file, "hm3.tsv")
         self.assertIsNone(captured["global_config"].genome_build)
         self.assertEqual(captured["global_config"].snp_identifier, "rsid")
 
@@ -750,11 +750,11 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
         map_hg19.write_text("chr position Genetic_Map(cM)\n1 100 0.0\n2 100 0.0\n", encoding="utf-8")
         map_hg38.write_text("chr position Genetic_Map(cM)\n1 100 0.0\n2 100 0.0\n", encoding="utf-8")
         return ReferencePanelBuildConfig(
-            plink_path=tmpdir / "panel.@",
+            plink_prefix=tmpdir / "panel.@",
             source_genome_build="hg19",
-            genetic_map_hg19_path=map_hg19,
-            genetic_map_hg38_path=map_hg38,
-            liftover_chain_hg19_to_hg38_path=tmpdir / "hg19ToHg38.over.chain",
+            genetic_map_hg19_sources=map_hg19,
+            genetic_map_hg38_sources=map_hg38,
+            liftover_chain_hg19_to_hg38_file=tmpdir / "hg19ToHg38.over.chain",
             output_dir=tmpdir / "out",
             ld_wind_kb=1.0,
         )
@@ -808,10 +808,10 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             map_hg19 = tmpdir / "hg19.map"
             map_hg19.write_text("chr position Genetic_Map(cM)\n1 100 0.0\n", encoding="utf-8")
             config = ReferencePanelBuildConfig(
-                plink_path=tmpdir / "panel.@",
+                plink_prefix=tmpdir / "panel.@",
                 source_genome_build="hg19",
-                genetic_map_hg19_path=map_hg19,
-                genetic_map_hg38_path=None,
+                genetic_map_hg19_sources=map_hg19,
+                genetic_map_hg38_sources=None,
                 output_dir=tmpdir / "out",
                 ld_wind_kb=1.0,
             )
@@ -884,10 +884,10 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             map_hg38 = tmpdir / "hg38.map"
             map_hg38.write_text("chr position Genetic_Map(cM)\n1 100 0.0\n", encoding="utf-8")
             config = ReferencePanelBuildConfig(
-                plink_path=tmpdir / "panel.@",
+                plink_prefix=tmpdir / "panel.@",
                 source_genome_build="hg38",
-                genetic_map_hg19_path=None,
-                genetic_map_hg38_path=map_hg38,
+                genetic_map_hg19_sources=None,
+                genetic_map_hg38_sources=map_hg38,
                 output_dir=tmpdir / "out",
                 ld_wind_kb=1.0,
             )
@@ -920,11 +920,11 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             map_hg19 = tmpdir / "hg19.map"
             map_hg19.write_text("chr position Genetic_Map(cM)\n1 100 0.0\n", encoding="utf-8")
             config = ReferencePanelBuildConfig(
-                plink_path=tmpdir / "panel.@",
+                plink_prefix=tmpdir / "panel.@",
                 source_genome_build="hg19",
-                genetic_map_hg19_path=map_hg19,
-                genetic_map_hg38_path=None,
-                liftover_chain_hg38_to_hg19_path=tmpdir / "hg38ToHg19.over.chain",
+                genetic_map_hg19_sources=map_hg19,
+                genetic_map_hg38_sources=None,
+                liftover_chain_hg38_to_hg19_file=tmpdir / "hg38ToHg19.over.chain",
                 output_dir=tmpdir / "out",
                 ld_wind_kb=1.0,
             )
@@ -994,11 +994,11 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             map_hg19.write_text("chr position Genetic_Map(cM)\n1 100 0.0\n", encoding="utf-8")
             map_hg38.write_text("chr position Genetic_Map(cM)\n1 100 0.0\n", encoding="utf-8")
             config = ReferencePanelBuildConfig(
-                plink_path=str(tmpdir / "panel_*"),
+                plink_prefix=str(tmpdir / "panel_*"),
                 source_genome_build="hg19",
-                genetic_map_hg19_path=map_hg19,
-                genetic_map_hg38_path=map_hg38,
-                liftover_chain_hg19_to_hg38_path=tmpdir / "hg19ToHg38.over.chain",
+                genetic_map_hg19_sources=map_hg19,
+                genetic_map_hg38_sources=map_hg38,
+                liftover_chain_hg19_to_hg38_file=tmpdir / "hg19ToHg38.over.chain",
                 output_dir=tmpdir / "out",
                 ld_wind_kb=1.0,
             )
@@ -1056,10 +1056,10 @@ class ReferencePanelBuilderSourceOnlySmokeTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             build_result = ref_panel_builder.run_build_ref_panel(
-                plink_path=str(prefix),
+                plink_prefix=str(prefix),
                 source_genome_build="hg38",
-                genetic_map_hg19_path=None,
-                genetic_map_hg38_path=None,
+                genetic_map_hg19_sources=None,
+                genetic_map_hg38_sources=None,
                 output_dir=str(Path(tmpdir) / "panel"),
                 ld_wind_snps=10,
                 ld_wind_kb=None,
@@ -1102,11 +1102,11 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             build_result = ref_panel_builder.run_build_ref_panel(
-                plink_path=str(prefix),
+                plink_prefix=str(prefix),
                 source_genome_build="hg38",
-                genetic_map_hg19_path=None,
-                genetic_map_hg38_path=str(map_hg38),
-                liftover_chain_hg38_to_hg19_path=str(resources / "liftover" / "hg38ToHg19.over.chain"),
+                genetic_map_hg19_sources=None,
+                genetic_map_hg38_sources=str(map_hg38),
+                liftover_chain_hg38_to_hg19_file=str(resources / "liftover" / "hg38ToHg19.over.chain"),
                 output_dir=str(Path(tmpdir) / "panel"),
                 ld_wind_snps=10,
                 ld_wind_kb=None,
@@ -1137,11 +1137,11 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             build_result = ref_panel_builder.run_build_ref_panel(
-                plink_path=str(prefix),
+                plink_prefix=str(prefix),
                 source_genome_build="hg38",
-                genetic_map_hg19_path=str(map_hg19),
-                genetic_map_hg38_path=str(map_hg38),
-                liftover_chain_hg38_to_hg19_path=str(resources / "liftover" / "hg38ToHg19.over.chain"),
+                genetic_map_hg19_sources=str(map_hg19),
+                genetic_map_hg38_sources=str(map_hg38),
+                liftover_chain_hg38_to_hg19_file=str(resources / "liftover" / "hg38ToHg19.over.chain"),
                 output_dir=str(tmpdir / "panel"),
                 ld_wind_snps=10,
                 ld_wind_kb=None,
@@ -1166,16 +1166,16 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
             try:
                 direct = ldscore_calculator.run_ldscore(
                     output_dir=str(tmpdir / "direct"),
-                    baseline_annot_paths=str(baseline),
-                    plink_path=str(prefix),
+                    baseline_annot_sources=str(baseline),
+                    plink_prefix=str(prefix),
                     ld_wind_snps=10,
                     chunk_size=64,
                 )
                 parquet = ldscore_calculator.run_ldscore(
                     output_dir=str(tmpdir / "parquet"),
-                    baseline_annot_paths=str(baseline),
-                    r2_paths=str(ld_path),
-                    metadata_paths=str(meta_hg38_path),
+                    baseline_annot_sources=str(baseline),
+                    r2_sources=str(ld_path),
+                    metadata_sources=str(meta_hg38_path),
                     r2_bias_mode="raw",
                     r2_sample_size=3202,
                     ld_wind_snps=10,

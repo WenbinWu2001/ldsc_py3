@@ -19,7 +19,7 @@ Output directories stay literal; only input fields are expanded.
 Resolution behavior:
 
 - there is no separate `*_chr` argument anymore; the same public argument now accepts exact paths, globs, or explicit `@` suite tokens
-- group inputs such as `--baseline-annot-paths`, `--query-annot-paths`, `--query-annot-bed-paths`, `--r2-paths`, and `--metadata-paths` may resolve to many files
+- group inputs such as `--baseline-annot-sources`, `--query-annot-sources`, `--query-annot-bed-sources`, `--r2-sources`, and `--metadata-sources` may resolve to many files
 - when a group token resolves to chromosome-sharded files, the workflow tries to keep only the files whose names match the active chromosome
 - if filename-based chromosome filtering is not possible, the workflow reads the matched files and filters rows by `CHR` internally
 - scalar inputs still must resolve to exactly one file
@@ -64,11 +64,11 @@ set_global_config(
 
 result = run_ldscore(
     output_dir="tutorial_outputs/unpartitioned_ldscores",
-    r2_paths="r2/reference.@.parquet",
-    metadata_paths="r2/reference_metadata.@.tsv.gz",
+    r2_sources="r2/reference.@.parquet",
+    metadata_sources="r2/reference_metadata.@.tsv.gz",
     r2_bias_mode="unbiased",
-    ref_panel_snps_path="filters/reference_universe.txt",
-    regression_snps_path="filters/hapmap3.txt",
+    ref_panel_snps_file="filters/reference_universe.txt",
+    regression_snps_file="filters/hapmap3.txt",
     ld_wind_cm=1.0,
 )
 
@@ -81,11 +81,11 @@ print(result.baseline_table.loc[:, ["CHR", "SNP", "BP", "regr_weight", "base"]].
 ```bash
 ldsc ldscore \
   --output-dir tutorial_outputs/unpartitioned_ldscores \
-  --r2-paths "r2/reference.@.parquet" \
-  --metadata-paths "r2/reference_metadata.@.tsv.gz" \
+  --r2-sources "r2/reference.@.parquet" \
+  --metadata-sources "r2/reference_metadata.@.tsv.gz" \
   --r2-bias-mode unbiased \
-  --ref-panel-snps-path filters/reference_universe.txt \
-  --regression-snps-path filters/hapmap3.txt \
+  --ref-panel-snps-file filters/reference_universe.txt \
+  --regression-snps-file filters/hapmap3.txt \
   --snp-identifier rsid \
   --ld-wind-cm 1.0
 ```
@@ -106,12 +106,12 @@ set_global_config(
 
 result = run_ldscore(
     output_dir="tutorial_outputs/r2_ldscores",
-    baseline_annot_paths="annotations/baseline.@.annot.gz",
-    r2_paths="r2/reference.@.parquet",
-    metadata_paths="r2/reference_metadata.@.tsv.gz",
+    baseline_annot_sources="annotations/baseline.@.annot.gz",
+    r2_sources="r2/reference.@.parquet",
+    metadata_sources="r2/reference_metadata.@.tsv.gz",
     r2_bias_mode="unbiased",
-    ref_panel_snps_path="filters/reference_universe.txt",
-    regression_snps_path="filters/hapmap3.txt",
+    ref_panel_snps_file="filters/reference_universe.txt",
+    regression_snps_file="filters/hapmap3.txt",
     ld_wind_cm=1.0,
     # overwrite=True,  # enable only when intentionally replacing prior outputs
 )
@@ -128,12 +128,12 @@ print(result.config_snapshot)
 ```bash
 ldsc ldscore \
   --output-dir tutorial_outputs/r2_ldscores \
-  --baseline-annot-paths "annotations/baseline.@.annot.gz" \
-  --r2-paths "r2/reference.@.parquet" \
-  --metadata-paths "r2/reference_metadata.@.tsv.gz" \
+  --baseline-annot-sources "annotations/baseline.@.annot.gz" \
+  --r2-sources "r2/reference.@.parquet" \
+  --metadata-sources "r2/reference_metadata.@.tsv.gz" \
   --r2-bias-mode unbiased \
-  --ref-panel-snps-path filters/reference_universe.txt \
-  --regression-snps-path filters/hapmap3.txt \
+  --ref-panel-snps-file filters/reference_universe.txt \
+  --regression-snps-file filters/hapmap3.txt \
   --snp-identifier rsid \
   --ld-wind-cm 1.0
 # Add --overwrite only when intentionally replacing manifest/baseline/query files.
@@ -141,7 +141,7 @@ ldsc ldscore \
 
 ## Case 3: Use BED Files Directly During LD-Score Calculation
 
-`ldsc ldscore` can now project BED files in memory through `--query-annot-bed-paths` without first materializing intermediate query `.annot.gz` files. Because BED inputs are query annotations, this mode requires explicit baseline annotations.
+`ldsc ldscore` can now project BED files in memory through `--query-annot-bed-sources` without first materializing intermediate query `.annot.gz` files. Because BED inputs are query annotations, this mode requires explicit baseline annotations.
 
 ### Python API
 
@@ -157,13 +157,13 @@ set_global_config(
 
 result = run_ldscore(
     output_dir="tutorial_outputs/r2_ldscores_with_queries",
-    baseline_annot_paths="annotations/baseline_chr/baseline.@.annot.gz",
-    query_annot_bed_paths="beds/*.bed",
-    r2_paths="r2/reference.@.parquet",
-    metadata_paths="r2/reference_metadata.@.tsv.gz",
+    baseline_annot_sources="annotations/baseline_chr/baseline.@.annot.gz",
+    query_annot_bed_sources="beds/*.bed",
+    r2_sources="r2/reference.@.parquet",
+    metadata_sources="r2/reference_metadata.@.tsv.gz",
     r2_bias_mode="unbiased",
-    ref_panel_snps_path="filters/reference_universe.txt",
-    regression_snps_path="filters/hapmap3.txt",
+    ref_panel_snps_file="filters/reference_universe.txt",
+    regression_snps_file="filters/hapmap3.txt",
     ld_wind_cm=1.0,
 )
 
@@ -176,13 +176,13 @@ print(result.baseline_table.head())
 ```bash
 ldsc ldscore \
   --output-dir tutorial_outputs/r2_ldscores_with_queries \
-  --baseline-annot-paths "annotations/baseline_chr/baseline.@.annot.gz" \
-  --query-annot-bed-paths "beds/*.bed" \
-  --r2-paths "r2/reference.@.parquet" \
-  --metadata-paths "r2/reference_metadata.@.tsv.gz" \
+  --baseline-annot-sources "annotations/baseline_chr/baseline.@.annot.gz" \
+  --query-annot-bed-sources "beds/*.bed" \
+  --r2-sources "r2/reference.@.parquet" \
+  --metadata-sources "r2/reference_metadata.@.tsv.gz" \
   --r2-bias-mode unbiased \
-  --ref-panel-snps-path filters/reference_universe.txt \
-  --regression-snps-path filters/hapmap3.txt \
+  --ref-panel-snps-file filters/reference_universe.txt \
+  --regression-snps-file filters/hapmap3.txt \
   --snp-identifier rsid \
   --ld-wind-cm 1.0
 ```
@@ -199,8 +199,8 @@ from ldsc import GlobalConfig, run_bed_to_annot, set_global_config
 set_global_config(GlobalConfig(snp_identifier="rsid", genome_build="hg38"))
 
 bundle = run_bed_to_annot(
-    query_annot_bed_paths="beds/*.bed",
-    baseline_annot_paths="annotations/baseline_chr/baseline.@.annot.gz",
+    query_annot_bed_sources="beds/*.bed",
+    baseline_annot_sources="annotations/baseline_chr/baseline.@.annot.gz",
     output_dir="annotations/query_from_beds",
     # overwrite=True,  # enable only when intentionally replacing query shards
 )
@@ -213,8 +213,8 @@ print(bundle.chromosomes)
 
 ```bash
 ldsc annotate \
-  --query-annot-bed-paths "beds/*.bed" \
-  --baseline-annot-paths "annotations/baseline_chr/baseline.@.annot.gz" \
+  --query-annot-bed-sources "beds/*.bed" \
+  --baseline-annot-sources "annotations/baseline_chr/baseline.@.annot.gz" \
   --output-dir annotations/query_from_beds
 ```
 
@@ -258,9 +258,9 @@ For command-line runs, use auto mode on the workflow itself:
 ```bash
 ldsc ldscore \
   --output-dir tutorial_outputs/auto_build_ldscores \
-  --baseline-annot-paths "annotations/baseline.@.annot.gz" \
-  --r2-paths "r2/reference.@.parquet" \
-  --metadata-paths "r2/reference_metadata.@.tsv.gz" \
+  --baseline-annot-sources "annotations/baseline.@.annot.gz" \
+  --r2-sources "r2/reference.@.parquet" \
+  --metadata-sources "r2/reference_metadata.@.tsv.gz" \
   --r2-bias-mode unbiased \
   --snp-identifier chr_pos \
   --genome-build auto \
@@ -277,9 +277,9 @@ For Python workflows, `GlobalConfig` now carries only shared runtime settings su
 
 Per-run SNP-universe controls are owned by the workflow-specific configs instead:
 
-- `ref_panel_snps_path` belongs to the LD-score reference-panel input and is passed through `run_ldscore(...)` into `RefPanelConfig`
-- the LD-score workflow intersects each chromosome bundle with `ref_panel.load_metadata(chrom)`, so `ref_panel_snps_path` shrinks the sidecar-defined compute-time universe from `B` to `B ∩ A'`; in the no-annotation unpartitioned case, synthetic `B` is the retained reference-panel metadata itself
-- `regression_snps_path` belongs to the LD-score calculation config and further restricts the normalized `baseline_table` rows from `B ∩ A'` to `B ∩ A' ∩ C`
+- `ref_panel_snps_file` belongs to the LD-score reference-panel input and is passed through `run_ldscore(...)` into `RefPanelConfig`
+- the LD-score workflow intersects each chromosome bundle with `ref_panel.load_metadata(chrom)`, so `ref_panel_snps_file` shrinks the sidecar-defined compute-time universe from `B` to `B ∩ A'`; in the no-annotation unpartitioned case, synthetic `B` is the retained reference-panel metadata itself
+- `regression_snps_file` belongs to the LD-score calculation config and further restricts the normalized `baseline_table` rows from `B ∩ A'` to `B ∩ A' ∩ C`
 
 `run_bed_to_annot()` no longer applies a reference-panel SNP restriction. It projects BED intervals onto the baseline annotation rows and returns an `AnnotationBundle`; any reference-panel restriction is applied later, during LD-score calculation, when the workflow aligns each chromosome bundle to the prepared reference-panel metadata.
 

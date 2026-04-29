@@ -70,7 +70,7 @@ This document summarizes the public package surface. For workflow-level file str
 - Public dataclasses normalize `PathLike` objects to strings but do not expand inputs immediately.
 - Workflow modules resolve input tokens before calling `_kernel`.
 - `ldsc ldscore` accepts no baseline/query inputs for ordinary unpartitioned LD-score generation; the workflow creates a synthetic all-ones baseline column named exactly `base` from retained reference-panel metadata.
-- `query_annot_paths` and `query_annot_bed_paths` require explicit `baseline_annot_paths`; users who want to test query annotations against an all-ones universe must materialize that `base` baseline annotation themselves and run the partitioned workflow.
+- `query_annot_sources` and `query_annot_bed_sources` require explicit `baseline_annot_sources`; users who want to test query annotations against an all-ones universe must materialize that `base` baseline annotation themselves and run the partitioned workflow.
 - Public outputs use fixed workflow filenames under `output_dir`; run identity comes from the directory name.
 - Missing output directories are created, existing directories are reused, and
   existing fixed files fail before writing starts unless the caller passes

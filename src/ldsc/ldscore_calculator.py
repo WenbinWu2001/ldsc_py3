@@ -216,7 +216,7 @@ class LDScoreCalculator:
     outputs, and optionally hands the result to the output layer. The calculator
     treats ``ref_panel`` as the owner of the reference-panel SNP universe:
     chromosome bundles are intersected with ``ref_panel.load_metadata(chrom)``
-    before the kernel runs so ``RefPanelConfig.ref_panel_snps_path`` is honored
+    before the kernel runs so ``RefPanelConfig.ref_panel_snps_file`` is honored
     without leaking that setting into the calculator interface. For LD-score
     calculation, the annotation file's ``CM`` is the first source. The sidecar
     metadata only fills missing ``CM`` values.
@@ -244,7 +244,7 @@ class LDScoreCalculator:
             Aligned SNP-level baseline and query annotations.
         ref_panel : RefPanel
             Reference-panel adapter that supplies chromosome readers and
-            metadata. Any ``RefPanelConfig.ref_panel_snps_path`` restriction is
+            metadata. Any ``RefPanelConfig.ref_panel_snps_file`` restriction is
             already applied when the workflow calls ``ref_panel.load_metadata``.
             Reference-panel sidecar ``CM`` values are used only to fill missing
             annotation ``CM`` values during LD-score calculation.
@@ -325,15 +325,15 @@ class LDScoreCalculator:
         """Compute normalized LD-score outputs for one chromosome.
 
         The workflow first asks ``ref_panel`` for the prepared chromosome
-        metadata, which already reflects any ``ref_panel_snps_path`` restriction.
+        metadata, which already reflects any ``ref_panel_snps_file`` restriction.
         It then restricts the chromosome-local ``AnnotationBundle`` to the same
         identifier set so the legacy kernel sees ``B_chrom ∩ A'_chrom`` rather
         than the raw annotation universe ``B_chrom``. ``regression_snps`` is
         applied later when the normalized row table is formed.
         """
         backend = getattr(getattr(ref_panel, "spec", None), "backend", None)
-        if backend == "parquet_r2" and ldscore_config.keep_indivs_path is not None:
-            raise ValueError("keep_indivs_path/--keep-indivs-path is only supported for PLINK reference panels.")
+        if backend == "parquet_r2" and ldscore_config.keep_indivs_file is not None:
+            raise ValueError("keep_indivs_file/--keep-indivs-file is only supported for PLINK reference panels.")
         LOGGER.info(
             f"Computing chromosome {chrom} LD scores with backend '{backend or 'unknown'}' "
             f"and {len(annotation_bundle.metadata)} annotation rows."
@@ -574,22 +574,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--overwrite", action="store_true", default=False, help="Replace existing fixed output files.")
     query_group = parser.add_mutually_exclusive_group()
     query_group.add_argument(
-        "--query-annot-paths",
+        "--query-annot-sources",
         default=None,
-        help="Comma-separated query annotation path tokens: exact paths, globs, or explicit @ suite tokens. Requires --baseline-annot-paths.",
+        help="Comma-separated query annotation path tokens: exact paths, globs, or explicit @ suite tokens. Requires --baseline-annot-sources.",
     )
     query_group.add_argument(
-        "--query-annot-bed-paths",
+        "--query-annot-bed-sources",
         default=None,
-        help="Comma-separated BED file path tokens projected in memory as query annotations. Requires --baseline-annot-paths.",
+        help="Comma-separated BED file path tokens projected in memory as query annotations. Requires --baseline-annot-sources.",
     )
     parser.add_argument(
-        "--baseline-annot-paths",
+        "--baseline-annot-sources",
         default=None,
         help="Comma-separated baseline annotation path tokens. If omitted with no query inputs, an all-ones `base` annotation is synthesized.",
     )
-    parser.add_argument("--plink-path", default=None, help="PLINK prefix token for the reference panel.")
-    parser.add_argument("--r2-paths", default=None, help="Comma-separated parquet R2 path tokens: exact paths, globs, or explicit @ suite tokens.")
+    parser.add_argument("--plink-prefix", default=None, help="PLINK prefix token for the reference panel.")
+    parser.add_argument("--r2-sources", default=None, help="Comma-separated parquet R2 path tokens: exact paths, globs, or explicit @ suite tokens.")
     parser.add_argument("--snp-identifier", default="chr_pos", help="Identifier mode used to match annotations to the reference panel.")
     parser.add_argument(
         "--genome-build",
@@ -604,14 +604,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--r2-bias-mode", choices=("raw", "unbiased"), default=None, help="Whether parquet R2 values are raw or already unbiased.")
     parser.add_argument("--r2-sample-size", default=None, type=float, help="LD reference sample size used to correct raw parquet R2 values.")
     parser.add_argument(
-        "--ref-panel-snps-path",
+        "--ref-panel-snps-file",
         default=None,
         help="Optional SNP list defining the retained reference-panel universe A'; the workflow intersects each chromosome annotation bundle with this prepared panel before LD computation.",
     )
-    parser.add_argument("--regression-snps-path", default=None, help="Optional SNP list defining the regression SNP set and the written LD-score row set.")
-    parser.add_argument("--metadata-paths", default=None, help="Optional frequency or metadata path tokens for MAF and CM.")
+    parser.add_argument("--regression-snps-file", default=None, help="Optional SNP list defining the regression SNP set and the written LD-score row set.")
+    parser.add_argument("--metadata-sources", default=None, help="Optional frequency or metadata path tokens for MAF and CM.")
     parser.add_argument(
-        "--keep-indivs-path",
+        "--keep-indivs-file",
         default=None,
         help="File with individuals to include in LD Score estimation. The file should contain one IID per row.",
     )
@@ -642,18 +642,18 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
     print_global_config_banner("run_ldscore_from_args", global_config)
     _validate_run_args(normalized_args)
     ldscore_config = _ldscore_config_from_args(normalized_args)
-    regression_snps = _load_regression_snps(ldscore_config.regression_snps_path, global_config)
+    regression_snps = _load_regression_snps(ldscore_config.regression_snps_file, global_config)
     ref_mode = "parquet" if normalized_args.r2_table else "plink"
     LOGGER.info(
         f"Starting LD-score workflow with reference mode '{ref_mode}', "
         f"output directory '{normalized_args.output_dir}', "
         f"snp_identifier='{global_config.snp_identifier}', genome_build='{global_config.genome_build}'."
     )
-    if _has_cli_tokens(normalized_args.baseline_annot_paths):
+    if _has_cli_tokens(normalized_args.baseline_annot_sources):
         source_spec = AnnotationBuildConfig(
-            baseline_annot_paths=tuple(split_cli_path_tokens(normalized_args.baseline_annot_paths)),
-            query_annot_paths=tuple(split_cli_path_tokens(normalized_args.query_annot_paths)),
-            query_annot_bed_paths=tuple(split_cli_path_tokens(getattr(normalized_args, "query_annot_bed_paths", None))),
+            baseline_annot_sources=tuple(split_cli_path_tokens(normalized_args.baseline_annot_sources)),
+            query_annot_sources=tuple(split_cli_path_tokens(normalized_args.query_annot_sources)),
+            query_annot_bed_sources=tuple(split_cli_path_tokens(getattr(normalized_args, "query_annot_bed_sources", None))),
         )
         annotation_bundle = AnnotationBuilder(global_config).run(source_spec)
         ref_panel = _ref_panel_from_args(normalized_args, global_config)
@@ -678,8 +678,8 @@ def _validate_run_args(args: argparse.Namespace) -> None:
     kernel because optional baseline synthesis is a public orchestration rule:
     the numerical kernels still receive an explicit annotation bundle.
     """
-    if not _has_cli_tokens(args.baseline_annot_paths) and (
-        _has_cli_tokens(args.query_annot_paths) or _has_cli_tokens(getattr(args, "query_annot_bed_paths", None))
+    if not _has_cli_tokens(args.baseline_annot_sources) and (
+        _has_cli_tokens(args.query_annot_sources) or _has_cli_tokens(getattr(args, "query_annot_bed_sources", None))
     ):
         raise ValueError(_QUERY_REQUIRES_BASELINE_MESSAGE)
     keep = getattr(args, "keep", None)
@@ -687,7 +687,7 @@ def _validate_run_args(args: argparse.Namespace) -> None:
         raise ValueError("Specify exactly one reference-panel mode: parquet or PLINK.")
     if args.r2_table:
         if keep:
-            raise ValueError("--keep-indivs-path is only supported in PLINK mode.")
+            raise ValueError("--keep-indivs-file is only supported in PLINK mode.")
         if args.r2_bias_mode is None:
             raise ValueError("--r2-bias-mode is required in parquet mode.")
         if args.r2_bias_mode == "raw" and args.r2_sample_size is None:
@@ -712,7 +712,7 @@ def _has_cli_tokens(value: str | Sequence[str] | None) -> bool:
 def _pseudo_base_annotation_bundle_from_ref_panel(ref_panel, global_config: GlobalConfig):
     """Build an all-ones ``base`` bundle from retained reference-panel metadata.
 
-    The reference-panel adapter has already applied ``ref_panel_snps_path`` when
+    The reference-panel adapter has already applied ``ref_panel_snps_file`` when
     ``load_metadata(chrom)`` returns. Later runtime filters such as MAF and
     regression-SNP restriction remain in the normal LD-score compute path.
     """
@@ -750,18 +750,18 @@ def run_ldscore(**kwargs) -> LDScoreResult:
     """Run LD-score calculation from Python using public CLI-style names.
 
     Keyword arguments are interpreted as CLI-equivalent option names without
-    leading ``--``; for example ``baseline_annot_paths``, ``query_annot_paths``,
-    ``query_annot_bed_paths``, ``plink_path``, ``r2_paths``,
-    ``metadata_paths``, ``keep_indivs_path``, and ``output_dir``. Shared
+    leading ``--``; for example ``baseline_annot_sources``, ``query_annot_sources``,
+    ``query_annot_bed_sources``, ``plink_prefix``, ``r2_sources``,
+    ``metadata_sources``, ``keep_indivs_file``, and ``output_dir``. Shared
     runtime assumptions such as ``snp_identifier`` and ``genome_build`` must be
     supplied through ``set_global_config(...)`` first, while per-run controls
-    such as ``ref_panel_snps_path`` and ``regression_snps_path`` remain ordinary
+    such as ``ref_panel_snps_file`` and ``regression_snps_file`` remain ordinary
     keyword arguments here.
 
-    When ``baseline_annot_paths`` and query inputs are omitted, the workflow
+    When ``baseline_annot_sources`` and query inputs are omitted, the workflow
     builds a synthetic all-ones baseline column named ``base`` from retained
-    reference-panel metadata. ``query_annot_paths`` and
-    ``query_annot_bed_paths`` require explicit baseline annotations because
+    reference-panel metadata. ``query_annot_sources`` and
+    ``query_annot_bed_sources`` require explicit baseline annotations because
     query columns are interpreted relative to that baseline SNP universe.
 
     Returns
@@ -784,6 +784,15 @@ def run_ldscore(**kwargs) -> LDScoreResult:
             "r2_table",
             "frqfile",
             "keep",
+            "baseline_annot_paths",
+            "query_annot_paths",
+            "query_annot_bed_paths",
+            "plink_path",
+            "r2_paths",
+            "metadata_paths",
+            "ref_panel_snps_path",
+            "regression_snps_path",
+            "keep_indivs_path",
         }
         & set(kwargs)
     )
@@ -815,24 +824,24 @@ def _normalize_run_args(args: argparse.Namespace) -> tuple[argparse.Namespace, G
     for attr in ("query_annot_chr", "baseline_annot_chr", "bfile_chr", "r2_table_chr", "frqfile_chr"):
         if not hasattr(normalized_args, attr):
             setattr(normalized_args, attr, None)
-    for attr in ("query_annot_paths", "baseline_annot_paths", "plink_path", "r2_paths", "metadata_paths", "query_annot_bed_paths", "keep_indivs_path"):
+    for attr in ("query_annot_sources", "baseline_annot_sources", "plink_prefix", "r2_sources", "metadata_sources", "query_annot_bed_sources", "keep_indivs_file"):
         if not hasattr(normalized_args, attr):
             setattr(normalized_args, attr, None)
-    for attr in ("ref_panel_snps_path", "regression_snps_path"):
+    for attr in ("ref_panel_snps_file", "regression_snps_file"):
         if not hasattr(normalized_args, attr):
             setattr(normalized_args, attr, None)
     normalized_args.snp_identifier = normalized_mode
     normalized_args.output_dir = normalize_path_token(args.output_dir)
-    normalized_args.keep_indivs_path = normalize_optional_path_token(getattr(args, "keep_indivs_path", None))
-    normalized_args.ref_panel_snps_path = normalize_optional_path_token(getattr(args, "ref_panel_snps_path", None))
-    normalized_args.regression_snps_path = normalize_optional_path_token(getattr(args, "regression_snps_path", None))
+    normalized_args.keep_indivs_file = normalize_optional_path_token(getattr(args, "keep_indivs_file", None))
+    normalized_args.ref_panel_snps_file = normalize_optional_path_token(getattr(args, "ref_panel_snps_file", None))
+    normalized_args.regression_snps_file = normalize_optional_path_token(getattr(args, "regression_snps_file", None))
     # The numerical kernel still consumes the historical namespace shape.
-    normalized_args.query_annot = normalized_args.query_annot_paths
-    normalized_args.baseline_annot = normalized_args.baseline_annot_paths
-    normalized_args.bfile = normalized_args.plink_path
-    normalized_args.r2_table = normalized_args.r2_paths
-    normalized_args.frqfile = normalized_args.metadata_paths
-    normalized_args.keep = normalized_args.keep_indivs_path
+    normalized_args.query_annot = normalized_args.query_annot_sources
+    normalized_args.baseline_annot = normalized_args.baseline_annot_sources
+    normalized_args.bfile = normalized_args.plink_prefix
+    normalized_args.r2_table = normalized_args.r2_sources
+    normalized_args.frqfile = normalized_args.metadata_sources
+    normalized_args.keep = normalized_args.keep_indivs_file
     if normalized_mode == "rsid":
         global_config = GlobalConfig(
             snp_identifier=normalized_mode,
@@ -865,7 +874,7 @@ def _resolve_ldscore_chr_pos_genome_build(args: argparse.Namespace, genome_build
         return normalized
 
     resolved: list[tuple[str, str]] = []
-    annotation_tokens = split_cli_path_tokens(getattr(args, "baseline_annot_paths", None))
+    annotation_tokens = split_cli_path_tokens(getattr(args, "baseline_annot_sources", None))
     if annotation_tokens:
         frame, sampled_path = sample_frame_from_chr_pattern(
             annotation_tokens,
@@ -884,7 +893,7 @@ def _resolve_ldscore_chr_pos_genome_build(args: argparse.Namespace, genome_build
             )
         )
         LOGGER.info(f"Resolved LD-score annotation genome build from '{sampled_path}'.")
-    r2_tokens = split_cli_path_tokens(getattr(args, "r2_paths", None))
+    r2_tokens = split_cli_path_tokens(getattr(args, "r2_sources", None))
     if r2_tokens:
         frame, sampled_path = sample_frame_from_chr_pattern(
             r2_tokens,
@@ -916,7 +925,7 @@ def _resolve_ldscore_chr_pos_genome_build(args: argparse.Namespace, genome_build
 
 
 def _load_regression_snps(path: str | None, global_config: GlobalConfig) -> set[str] | None:
-    """Load ``LDScoreConfig.regression_snps_path`` using the active identifier mode."""
+    """Load ``LDScoreConfig.regression_snps_file`` using the active identifier mode."""
     if not path:
         return None
     return read_global_snp_restriction(
@@ -930,24 +939,24 @@ def _ref_panel_from_args(args: argparse.Namespace, global_config: GlobalConfig):
     """Build the reference-panel adapter that owns the ``A -> A'`` restriction."""
     from ._kernel.ref_panel import RefPanelLoader
 
-    metadata_tokens = split_cli_path_tokens(getattr(args, "metadata_paths", None))
-    ref_panel_snps_path = normalize_optional_path_token(getattr(args, "ref_panel_snps_path", None))
-    if getattr(args, "r2_paths", None) is not None:
-        r2_tokens = split_cli_path_tokens(args.r2_paths)
+    metadata_tokens = split_cli_path_tokens(getattr(args, "metadata_sources", None))
+    ref_panel_snps_file = normalize_optional_path_token(getattr(args, "ref_panel_snps_file", None))
+    if getattr(args, "r2_sources", None) is not None:
+        r2_tokens = split_cli_path_tokens(args.r2_sources)
         spec = RefPanelConfig(
             backend="parquet_r2",
-            r2_paths=tuple(r2_tokens),
-            metadata_paths=tuple(metadata_tokens),
+            r2_sources=tuple(r2_tokens),
+            metadata_sources=tuple(metadata_tokens),
             r2_bias_mode=getattr(args, "r2_bias_mode", None),
             sample_size=getattr(args, "r2_sample_size", None),
-            ref_panel_snps_path=ref_panel_snps_path,
+            ref_panel_snps_file=ref_panel_snps_file,
         )
     else:
         spec = RefPanelConfig(
             backend="plink",
-            plink_path=getattr(args, "plink_path", None),
-            metadata_paths=tuple(metadata_tokens),
-            ref_panel_snps_path=ref_panel_snps_path,
+            plink_prefix=getattr(args, "plink_prefix", None),
+            metadata_sources=tuple(metadata_tokens),
+            ref_panel_snps_file=ref_panel_snps_file,
         )
     return RefPanelLoader(global_config).load(spec)
 
@@ -959,8 +968,8 @@ def _ldscore_config_from_args(args: argparse.Namespace) -> LDScoreConfig:
         ld_wind_kb=getattr(args, "ld_wind_kb", None),
         ld_wind_cm=getattr(args, "ld_wind_cm", None),
         maf_min=getattr(args, "maf", None),
-        keep_indivs_path=getattr(args, "keep_indivs_path", None),
-        regression_snps_path=getattr(args, "regression_snps_path", None),
+        keep_indivs_file=getattr(args, "keep_indivs_file", None),
+        regression_snps_file=getattr(args, "regression_snps_file", None),
         chunk_size=getattr(args, "chunk_size", 50),
         whole_chromosome_ok=getattr(args, "yes_really", False),
     )
@@ -1018,7 +1027,7 @@ def _align_annotation_bundle_to_ref_panel(annotation_bundle, ref_panel, chrom: s
 
     ``AnnotationBuilder`` defines the annotation universe ``B``. The reference
     panel owns the optional ``A -> A'`` restriction through
-    ``RefPanelConfig.ref_panel_snps_path``. This helper materializes the intended
+    ``RefPanelConfig.ref_panel_snps_file``. This helper materializes the intended
     compute-time universe ``B_chrom ∩ A'_chrom`` immediately before the legacy
     kernel call. It restricts annotation rows but does not replace annotation
     metadata; for LD-score calculation, the annotation file's ``CM`` is the
@@ -1064,22 +1073,22 @@ def _namespace_from_configs(chrom: str, ref_panel, ldscore_config: LDScoreConfig
     bfile = None
     r2_table = None
     frqfile = None
-    if backend == "plink" and getattr(spec, "plink_path", None) is not None:
-        bfile = resolve_plink_prefix(spec.plink_path, chrom=chrom)
-    if backend == "parquet_r2" and getattr(spec, "r2_paths", ()):
+    if backend == "plink" and getattr(spec, "plink_prefix", None) is not None:
+        bfile = resolve_plink_prefix(spec.plink_prefix, chrom=chrom)
+    if backend == "parquet_r2" and getattr(spec, "r2_sources", ()):
         r2_table = ",".join(
             resolve_chromosome_group(
-                getattr(spec, "r2_paths", ()),
+                getattr(spec, "r2_sources", ()),
                 chrom=chrom,
                 suffixes=PARQUET_SUFFIXES,
                 label="parquet R2",
                 required=False,
             )
         ) or None
-    if getattr(spec, "metadata_paths", ()):
+    if getattr(spec, "metadata_sources", ()):
         frqfile = ",".join(
             resolve_chromosome_group(
-                getattr(spec, "metadata_paths", ()),
+                getattr(spec, "metadata_sources", ()),
                 chrom=chrom,
                 suffixes=FREQUENCY_SUFFIXES,
                 label="frequency or metadata",
@@ -1102,7 +1111,7 @@ def _namespace_from_configs(chrom: str, ref_panel, ldscore_config: LDScoreConfig
         r2_sample_size=getattr(spec, "sample_size", None),
         frqfile=frqfile,
         frqfile_chr=None,
-        keep=ldscore_config.keep_indivs_path,
+        keep=ldscore_config.keep_indivs_file,
         ld_wind_snps=ldscore_config.ld_wind_snps,
         ld_wind_kb=ldscore_config.ld_wind_kb,
         ld_wind_cm=ldscore_config.ld_wind_cm,

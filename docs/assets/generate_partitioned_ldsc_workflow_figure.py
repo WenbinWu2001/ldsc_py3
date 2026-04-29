@@ -211,7 +211,7 @@ def render() -> None:
     )
 
     tag(ax, 60, 1710, 250, 42, "A = raw reference-panel SNPs", BLUE)
-    tag(ax, 330, 1710, 330, 42, "A' = panel after `ref_panel_snps_path`", BLUE)
+    tag(ax, 330, 1710, 330, 42, "A' = panel after `ref_panel_snps_file`", BLUE)
     tag(ax, 680, 1710, 290, 42, "B = `AnnotationBundle` SNP rows", ORANGE)
     tag(ax, 990, 1710, 220, 42, "C = regression SNP mask", GREEN)
     tag(ax, 60, 1658, 320, 42, "`ld_reference_snps = B ∩ A'`", MAGENTA)
@@ -231,7 +231,7 @@ def render() -> None:
         170,
         "Baseline annotation\ninput",
         RED,
-        "`baseline_annot_paths`\nLDSC `.annot[.gz]` shards",
+        "`baseline_annot_sources`\nLDSC `.annot[.gz]` shards",
         title_fs=16,
         body_fs=11.8,
     )
@@ -243,7 +243,7 @@ def render() -> None:
         185,
         "Query annotation\ninput",
         ORANGE,
-        "`query_annot_paths`\nor `bed_paths`\n\nBED paths stay in-memory\nin the main `ldscore`\nworkflow.",
+        "`query_annot_sources`\nor `bed_paths`\n\nBED paths stay in-memory\nin the main `ldscore`\nworkflow.",
         title_fs=16,
         body_fs=11.2,
     )
@@ -293,7 +293,7 @@ def render() -> None:
         100,
         "Reference-panel\nspec",
         BLUE,
-        "`RefPanelConfig`\n`ref_panel_snps_path`",
+        "`RefPanelConfig`\n`ref_panel_snps_file`",
         title_fs=15,
         body_fs=11.8,
     )
@@ -317,7 +317,7 @@ def render() -> None:
         200,
         "Restricted metadata\n(`A'`)",
         BLUE,
-        "`load_metadata(chrom)`\n+ `RefPanel._apply_snp_restriction()`\n\nReturned metadata already reflects\n`ref_panel_snps_path`.",
+        "`load_metadata(chrom)`\n+ `RefPanel._apply_snp_restriction()`\n\nReturned metadata already reflects\n`ref_panel_snps_file`.",
         title_fs=15,
         body_fs=11.4,
     )
@@ -329,7 +329,7 @@ def render() -> None:
         160,
         "Regression SNP mask\n(`C`)",
         GREEN,
-        "`LDScoreConfig.regression_snps_path`\nloaded by `_load_regression_snps()`",
+        "`LDScoreConfig.regression_snps_file`\nloaded by `_load_regression_snps()`",
         title_fs=15,
         body_fs=11.2,
     )
@@ -459,7 +459,7 @@ def render() -> None:
         1594,
         "Notes:\n"
         "1. Main `ldscore` uses `AnnotationBuilder.run()` for BED input; `run_bed_to_annot()` is the optional explicit materialization path.\n"
-        "2. `ref_panel_snps_path` defines `A'`; `regression_snps_path` defines `C`.\n"
+        "2. `ref_panel_snps_file` defines `A'`; `regression_snps_file` defines `C`.\n"
         "3. `.M` / `.M_5_50` use `ld_reference_snps`; `.l2.ldscore.gz` rows use `ld_regression_snps`.",
         fontsize=10.2,
         color=INK,

@@ -41,7 +41,7 @@ class AnnotationBuilderTest(unittest.TestCase):
         self.assertIn("Not used when --snp-identifier rsid", help_text)
 
     def test_annotation_build_config_has_no_gene_set_paths(self):
-        spec = AnnotationBuildConfig(baseline_annot_paths=("baseline.1.annot.gz",))
+        spec = AnnotationBuildConfig(baseline_annot_sources=("baseline.1.annot.gz",))
         self.assertFalse(hasattr(spec, "gene_set_paths"))
 
     def test_gene_set_functions_not_exported(self):
@@ -60,8 +60,8 @@ class AnnotationBuilderTest(unittest.TestCase):
 
             bundle = builder.run(
                 AnnotationBuildConfig(
-                    baseline_annot_paths=(str(base),),
-                    query_annot_paths=(str(query),),
+                    baseline_annot_sources=(str(base),),
+                    query_annot_sources=(str(query),),
                 )
             )
 
@@ -79,7 +79,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             _write_annot(base, rows, {"base_a": [1]})
             builder = AnnotationBuilder(
                 GlobalConfig(snp_identifier="rsid"),
-                AnnotationBuildConfig(baseline_annot_paths=(str(base),)),
+                AnnotationBuildConfig(baseline_annot_sources=(str(base),)),
             )
 
             bundle = builder.run()
@@ -100,8 +100,8 @@ class AnnotationBuilderTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 builder.run(
                     AnnotationBuildConfig(
-                        baseline_annot_paths=(str(base),),
-                        query_annot_paths=(str(query),),
+                        baseline_annot_sources=(str(base),),
+                        query_annot_sources=(str(query),),
                     )
                 )
 
@@ -120,8 +120,8 @@ class AnnotationBuilderTest(unittest.TestCase):
             )
             bundle = builder.run(
                 AnnotationBuildConfig(
-                    baseline_annot_paths=(str(base),),
-                    query_annot_paths=(str(query),),
+                    baseline_annot_sources=(str(base),),
+                    query_annot_sources=(str(query),),
                 )
             )
 
@@ -139,7 +139,7 @@ class AnnotationBuilderTest(unittest.TestCase):
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
                 AnnotationBuildConfig(),
             )
-            bundle = builder.run(AnnotationBuildConfig(baseline_annot_paths=(str(base),)))
+            bundle = builder.run(AnnotationBuildConfig(baseline_annot_sources=(str(base),)))
             self.assertEqual(bundle.reference_snps("chr_pos"), {"1:10", "1:20", "2:30"})
 
     def test_run_with_bed_paths_returns_bundle_with_binary_query_columns(self):
@@ -166,8 +166,8 @@ class AnnotationBuilderTest(unittest.TestCase):
             ):
                 bundle = builder.run(
                     AnnotationBuildConfig(
-                        baseline_annot_paths=(str(base),),
-                        query_annot_bed_paths=(str(bed),),
+                        baseline_annot_sources=(str(base),),
+                        query_annot_bed_sources=(str(bed),),
                     )
                 )
 
@@ -209,7 +209,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             ):
                 kernel_annotation._process_baseline_file(
                     baseline_path=baseline,
-                    query_annot_bed_paths=[bed],
+                    query_annot_bed_sources=[bed],
                     output_dir=tmpdir / "out",
                     batch=True,
                     restrict_resource=restrict_resource,
@@ -242,8 +242,8 @@ class AnnotationBuilderTest(unittest.TestCase):
             with mock.patch.object(builder, "run", return_value=bundle):
                 with self.assertRaisesRegex(FileExistsError, "overwrite"):
                     builder.project_bed_annotations(
-                        query_annot_bed_paths=("query.bed",),
-                        baseline_annot_paths=("baseline.1.annot.gz",),
+                        query_annot_bed_sources=("query.bed",),
+                        baseline_annot_sources=("baseline.1.annot.gz",),
                         output_dir=output_dir,
                     )
 
@@ -292,8 +292,8 @@ class AnnotationBuilderTest(unittest.TestCase):
 
             bundle = builder.run(
                 AnnotationBuildConfig(
-                    baseline_annot_paths=(str(base1), str(base2)),
-                    query_annot_paths=(str(query1), str(query2)),
+                    baseline_annot_sources=(str(base1), str(base2)),
+                    query_annot_sources=(str(query1), str(query2)),
                 )
             )
 
@@ -320,8 +320,8 @@ class AnnotationBuilderTest(unittest.TestCase):
 
             bundle = builder.run(
                 AnnotationBuildConfig(
-                    baseline_annot_paths=str(tmpdir / "baseline.*.annot.gz"),
-                    query_annot_paths=str(tmpdir / "query.*.annot.gz"),
+                    baseline_annot_sources=str(tmpdir / "baseline.*.annot.gz"),
+                    query_annot_sources=str(tmpdir / "query.*.annot.gz"),
                 )
             )
 
@@ -341,7 +341,7 @@ class AnnotationBuilderTest(unittest.TestCase):
 
             bundle = builder.run(
                 AnnotationBuildConfig(
-                    baseline_annot_paths=str(tmpdir / "baseline.@.annot.gz"),
+                    baseline_annot_sources=str(tmpdir / "baseline.@.annot.gz"),
                 )
             )
 
@@ -367,8 +367,8 @@ class AnnotationBuilderTest(unittest.TestCase):
 
             bundle = builder.run(
                 AnnotationBuildConfig(
-                    baseline_annot_paths=str(tmpdir / "baseline.@.annot.gz"),
-                    query_annot_paths=str(tmpdir / "query.@.annot.gz"),
+                    baseline_annot_sources=str(tmpdir / "baseline.@.annot.gz"),
+                    query_annot_sources=str(tmpdir / "query.@.annot.gz"),
                 )
             )
 
@@ -388,7 +388,7 @@ class AnnotationBuilderTest(unittest.TestCase):
 
             bundle = builder.run(
                 AnnotationBuildConfig(
-                    baseline_annot_paths=(str(base1), str(base2)),
+                    baseline_annot_sources=(str(base1), str(base2)),
                 )
             )
 
@@ -410,7 +410,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "mixed|chromosome|shard"):
                 builder.run(
                     AnnotationBuildConfig(
-                        baseline_annot_paths=(str(base_all), str(base1)),
+                        baseline_annot_sources=(str(base_all), str(base1)),
                     )
                 )
 
@@ -430,8 +430,8 @@ class AnnotationBuilderTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "query|chromosome|shard"):
                 builder.run(
                     AnnotationBuildConfig(
-                        baseline_annot_paths=(str(base1), str(base2)),
-                        query_annot_paths=(str(query1),),
+                        baseline_annot_sources=(str(base1), str(base2)),
+                        query_annot_sources=(str(query1),),
                     )
                 )
 
@@ -451,8 +451,8 @@ class AnnotationBuilderTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "query|chromosome|shard"):
                 builder.run(
                     AnnotationBuildConfig(
-                        baseline_annot_paths=(str(base1), str(base2)),
-                        query_annot_paths=(str(query),),
+                        baseline_annot_sources=(str(base1), str(base2)),
+                        query_annot_sources=(str(query),),
                     )
                 )
 
@@ -469,7 +469,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "ambiguous|duplicate|chromosome"):
                 builder.run(
                     AnnotationBuildConfig(
-                        baseline_annot_paths=(str(base1a), str(base1b)),
+                        baseline_annot_sources=(str(base1a), str(base1b)),
                     )
                 )
 
@@ -492,8 +492,8 @@ class AnnotationBuilderTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Annotation SNP rows do not match"):
                 builder.run(
                     AnnotationBuildConfig(
-                        baseline_annot_paths=(str(base1), str(base2)),
-                        query_annot_paths=(str(query1), str(query2)),
+                        baseline_annot_sources=(str(base1), str(base2)),
+                        query_annot_sources=(str(query1), str(query2)),
                     )
                 )
 
@@ -543,8 +543,8 @@ class AnnotationWrapperTest(unittest.TestCase):
                 return_value=[True, False],
             ):
                 result = run_bed_to_annot(
-                    query_annot_bed_paths=[str(bed)],
-                    baseline_annot_paths=[str(baseline)],
+                    query_annot_bed_sources=[str(bed)],
+                    baseline_annot_sources=[str(baseline)],
                 )
 
             self.assertIsInstance(result, kernel_annotation.AnnotationBundle)
@@ -572,9 +572,9 @@ class AnnotationWrapperTest(unittest.TestCase):
             ) as patched_run:
                 rc = annotation_builder.main_bed_to_annot(
                     [
-                        "--query-annot-bed-paths",
+                        "--query-annot-bed-sources",
                         str(bed),
-                        "--baseline-annot-paths",
+                        "--baseline-annot-sources",
                         str(tmpdir / "baseline.@.annot"),
                         "--output-dir",
                         str(tmpdir / "out"),

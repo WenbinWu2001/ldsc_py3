@@ -169,15 +169,15 @@ sidecar provides the per-SNP metadata required to load and interpret those pairs
 #### Hard-fail requirement
 
 `ParquetR2RefPanel.load_metadata()` (`src/ldsc/_kernel/ref_panel.py`) raises
-`ImportError` immediately if no sidecar paths are supplied via `metadata_paths`:
+`ImportError` immediately if no sidecar paths are supplied via `metadata_sources`:
 
 ```python
-if not self.spec.metadata_paths:
+if not self.spec.metadata_sources:
     raise ImportError("ParquetR2RefPanel.load_metadata requires metadata sidecar files.")
 ```
 
 Callers must pass at least one sidecar file (or a chromosome-suite glob) via
-`RefPanelConfig(metadata_paths=...)`.
+`RefPanelConfig(metadata_sources=...)`.
 
 #### Sidecar format
 
@@ -203,7 +203,7 @@ The metadata sidecar feeds directly into three steps of the partitioned-LDSC wor
 (see `docs/design/partitioned-ldsc-workflow.md`, §6):
 
 1. **Reference panel universe (A').** `load_metadata()` reads the sidecar, optionally
-   applies `_apply_snp_restriction()` when `ref_panel_snps_path` is set, and returns
+   applies `_apply_snp_restriction()` when `ref_panel_snps_file` is set, and returns
    the restricted per-SNP table A'. This is what the annotation bundle is aligned
    against (`B_chrom ∩ A'_chrom`) to materialize `ld_reference_snps`.
 

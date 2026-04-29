@@ -508,7 +508,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                 "Args",
                 (),
                 {
-                    "sumstats_path": str(tmpdir / "trait.sumstats.gz"),
+                    "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
                     "trait_name": "trait",
                     "ldscore_dir": str(ldscore_dir),
                     "count_kind": "m_5_50",
@@ -545,12 +545,12 @@ class RegressionWorkflowTest(unittest.TestCase):
         parser = argparse.ArgumentParser()
         regression_runner.add_h2_arguments(parser)
 
-        args = parser.parse_args(["--ldscore-dir", "ldscores", "--sumstats-path", "trait.sumstats.gz"])
+        args = parser.parse_args(["--ldscore-dir", "ldscores", "--sumstats-file", "trait.sumstats.gz"])
 
         self.assertEqual(args.ldscore_dir, "ldscores")
-        self.assertEqual(args.sumstats_path, "trait.sumstats.gz")
+        self.assertEqual(args.sumstats_file, "trait.sumstats.gz")
         with self.assertRaises(SystemExit):
-            parser.parse_args(["--ldscore", "x", "--counts", "m", "--sumstats-path", "trait.sumstats.gz"])
+            parser.parse_args(["--ldscore", "x", "--counts", "m", "--sumstats-file", "trait.sumstats.gz"])
         with self.assertRaises(SystemExit):
             parser.parse_args(["--ldscore-dir", "ldscores", "--sumstats", "trait.sumstats.gz"])
 
@@ -565,7 +565,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                 "Args",
                 (),
                 {
-                    "sumstats_path": str(tmpdir / "trait.sumstats.gz"),
+                    "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
                     "trait_name": "trait",
                     "ldscore_dir": str(ldscore_dir),
                     "count_kind": "m_5_50",
@@ -601,7 +601,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                 "Args",
                 (),
                 {
-                    "sumstats_path": str(tmpdir / "trait.sumstats.gz"),
+                    "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
                     "trait_name": "trait",
                     "ldscore_dir": str(ldscore_dir),
                     "count_kind": "m_5_50",
@@ -647,7 +647,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                 "Args",
                 (),
                 {
-                    "sumstats_path": str(tmpdir / "trait.sumstats.gz"),
+                    "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
                     "trait_name": "trait",
                     "ldscore_dir": str(ldscore_dir),
                     "count_kind": "m_5_50",
@@ -695,7 +695,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                 "Args",
                 (),
                 {
-                    "sumstats_path": str(tmpdir / "trait.sumstats.gz"),
+                    "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
                     "trait_name": "trait",
                     "ldscore_dir": str(ldscore_dir),
                     "count_kind": "m_5_50",

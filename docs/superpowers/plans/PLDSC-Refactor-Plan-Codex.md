@@ -10,11 +10,11 @@ Implement the refactor described in the April 21 plan, with the live-code adjust
 
 ## Key Changes
 ### Config and reference-panel boundary
-- Remove `ref_panel_snps_path` and `regression_snps_path` from `GlobalConfig`; keep only identifier/build/logging/shared runtime settings there.
-- Add `regression_snps_path` to `LDScoreConfig`.
-- Add `ref_panel_snps_path` and `r2_bias_mode` to `RefPanelConfig`.
+- Remove `ref_panel_snps_file` and `regression_snps_file` from `GlobalConfig`; keep only identifier/build/logging/shared runtime settings there.
+- Add `regression_snps_file` to `LDScoreConfig`.
+- Add `ref_panel_snps_file` and `r2_bias_mode` to `RefPanelConfig`.
 - Move reference SNP restriction ownership into `_kernel/ref_panel.py` so `load_metadata()` applies the restriction from `RefPanelConfig`, not from `GlobalConfig`.
-- Update `ref_panel_builder.py` so `build-ref-panel` also stops depending on `GlobalConfig.ref_panel_snps_path` and instead carries restriction state through its build config/spec path consistently.
+- Update `ref_panel_builder.py` so `build-ref-panel` also stops depending on `GlobalConfig.ref_panel_snps_file` and instead carries restriction state through its build config/spec path consistently.
 
 ### Annotation and LD-score workflow
 - Remove gene-set TSV support entirely; BED is the only raw query format.
@@ -52,9 +52,9 @@ Implement the refactor described in the April 21 plan, with the live-code adjust
   `run_bed_to_annot()` returns `AnnotationBundle` and only writes annotations when `output_dir` is explicitly provided.
   gene-set APIs/CLI paths are gone.
 - Config/ref-panel tests:
-  `GlobalConfig` no longer exposes `ref_panel_snps_path` or `regression_snps_path`.
-  `LDScoreConfig` accepts `regression_snps_path`.
-  `RefPanelConfig` accepts `ref_panel_snps_path` and `r2_bias_mode`.
+  `GlobalConfig` no longer exposes `ref_panel_snps_file` or `regression_snps_file`.
+  `LDScoreConfig` accepts `regression_snps_file`.
+  `RefPanelConfig` accepts `ref_panel_snps_file` and `r2_bias_mode`.
   `build-ref-panel` still honors SNP restriction through the new boundary.
 - LD-score workflow tests:
   direct `AnnotationBuilder` + `LDScoreCalculator` matches `run_ldscore_from_args()`.

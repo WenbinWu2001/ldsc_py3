@@ -330,7 +330,7 @@ if normalized_mode == "chr_pos":
 
     if hint == "auto":
         # --- Annotation source ---
-        annot_tokens = split_cli_path_tokens(getattr(args, "baseline_annot_paths", None))
+        annot_tokens = split_cli_path_tokens(getattr(args, "baseline_annot_sources", None))
         annot_sample, annot_path = sample_frame_from_chr_pattern(
             annot_tokens, getattr(args, "chromosomes", None), logger=logger
         )
@@ -341,7 +341,7 @@ if normalized_mode == "chr_pos":
         )
 
         # --- Reference panel source ---
-        ref_tokens = split_cli_path_tokens(getattr(args, "r2_paths", None))
+        ref_tokens = split_cli_path_tokens(getattr(args, "r2_sources", None))
         ref_sample, ref_path = sample_frame_from_chr_pattern(
             ref_tokens, getattr(args, "chromosomes", None), logger=logger
         )
@@ -403,18 +403,18 @@ No reference panel input; no cross-check.
 ```python
 if normalized_mode == "chr_pos" and hint == "auto":
     sample_frame = pd.read_csv(
-        sumstats_path, sep="\t", compression="infer", nrows=5000,
+        sumstats_file, sep="\t", compression="infer", nrows=5000,
         usecols=lambda col: col.upper() in {"CHR", "BP", "POS", "POSITION"},
     )
-    chr_col, pos_col = infer_chr_pos_columns(sample_frame.columns, context=sumstats_path)
+    chr_col, pos_col = infer_chr_pos_columns(sample_frame.columns, context=sumstats_file)
     sample_frame = sample_frame.rename(columns={chr_col: "CHR", pos_col: "POS"})[["CHR", "POS"]]
     logger.info(
         "Auto-inferring genome build from first 5000 rows of %s. "
         "Pass --genome-build hg19 or --genome-build hg38 to skip.",
-        sumstats_path,
+        sumstats_file,
     )
     resolved_build = resolve_genome_build(
-        hint, normalized_mode, sample_frame, context=sumstats_path, logger=logger
+        hint, normalized_mode, sample_frame, context=sumstats_file, logger=logger
     )
 ```
 
@@ -540,7 +540,7 @@ Complete callsite inventory requiring update:
 - `test_config_identifiers.py:72` — `GlobalConfig(genome_build="hg18")` → `GlobalConfig(snp_identifier="chr_pos", genome_build="hg18")`
 - `test_config_identifiers.py:74` — `GlobalConfig(log_level="trace")` → `GlobalConfig(snp_identifier="rsid", log_level="trace")`
 - `test_config_identifiers.py:77–79,83` — `GlobalConfig(genome_build="hg37")` etc. → add `snp_identifier="chr_pos"`
-- `test_config_identifiers.py:263,267` — stale; `GlobalConfig(ref_panel_snps_path=...)` / `GlobalConfig(regression_snps_path=...)` — fields no longer on `GlobalConfig`; **delete these tests**
+- `test_config_identifiers.py:263,267` — stale; `GlobalConfig(ref_panel_snps_file=...)` / `GlobalConfig(regression_snps_file=...)` — fields no longer on `GlobalConfig`; **delete these tests**
 - `test_ref_panel_builder.py` lines 739, 789, 819, 839, 865, 901, 914, 937, 975, 986 — bare `GlobalConfig()` → `GlobalConfig(snp_identifier="chr_pos", genome_build="hg38")`
 - `test_annotation.py:127` — `GlobalConfig(snp_identifier="chr_pos")` missing `genome_build` → add `genome_build="hg38"`
 

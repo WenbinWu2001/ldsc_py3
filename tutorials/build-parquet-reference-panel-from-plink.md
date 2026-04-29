@@ -59,22 +59,22 @@ The builder copies the PLINK `SNP` field directly into the output `rsID` column.
 
 There is currently no separate `--chrom` flag.
 
-Chromosome selection comes from the PLINK prefix token you provide through `--plink-path`:
+Chromosome selection comes from the PLINK prefix token you provide through `--plink-prefix`:
 
-- use `--plink-path <single-prefix>` when the prefix already points to one chromosome or one specific PLINK dataset
-- use `--plink-path <suite-token>` when you have one PLINK prefix per chromosome, typically with an explicit `@` token
-- use `--plink-path <glob-like-token>` only when that token resolves cleanly to one or more complete PLINK prefixes; unlike scalar file inputs elsewhere, a PLINK prefix token is resolved at the prefix level rather than at the individual `.bed/.bim/.fam` file level
+- use `--plink-prefix <single-prefix>` when the prefix already points to one chromosome or one specific PLINK dataset
+- use `--plink-prefix <suite-token>` when you have one PLINK prefix per chromosome, typically with an explicit `@` token
+- use `--plink-prefix <glob-like-token>` only when that token resolves cleanly to one or more complete PLINK prefixes; unlike scalar file inputs elsewhere, a PLINK prefix token is resolved at the prefix level rather than at the individual `.bed/.bim/.fam` file level
 
 Examples:
 
 ```text
---plink-path resources/example_1kg_30x/genomes_30x_chr22
---plink-path data/reference/genomes_30x_chr@
+--plink-prefix resources/example_1kg_30x/genomes_30x_chr22
+--plink-prefix data/reference/genomes_30x_chr@
 ```
 
 If the input resolves to multiple chromosomes, the builder writes one output set per chromosome.
 
-In other words, the old split between `--plink-path` and a dedicated per-chromosome flag is gone. The unified `--plink-path` argument now handles either one concrete prefix or an explicit chromosome suite such as `panel_chr@`.
+In other words, the old split between `--plink-prefix` and a dedicated per-chromosome flag is gone. The unified `--plink-prefix` argument now handles either one concrete prefix or an explicit chromosome suite such as `panel_chr@`.
 
 ### Genetic map files
 
@@ -97,9 +97,9 @@ The bundled Alkes-group maps in `resources/genetic_maps/genetic_map_alkesgroup/`
 
 ### Core arguments
 
-- `--plink-path`
+- `--plink-prefix`
   Plain-English meaning: where the PLINK panel lives.
-  Recommended usage: use `--plink-path` for a single chromosome, a single prefix, or a chromosome-split suite such as `panel_chr@`.
+  Recommended usage: use `--plink-prefix` for a single chromosome, a single prefix, or a chromosome-split suite such as `panel_chr@`.
 
 - `--source-genome-build`
   Plain-English meaning: which genome build the input PLINK coordinates already use.
@@ -109,15 +109,15 @@ The bundled Alkes-group maps in `resources/genetic_maps/genetic_map_alkesgroup/`
   a build, use `infer_chr_pos_build()` or `resolve_chr_pos_table()` from the
   top-level Python API.
 
-- `--genetic-map-hg19-path`
+- `--genetic-map-hg19-sources`
   Plain-English meaning: genetic map aligned to hg19 coordinates.
   Recommended usage: provide it when you use `--ld-wind-cm` with hg19 source coordinates, or when you want hg19 metadata `CM` values. For SNP- or kb-window builds, omitting it writes hg19 `CM` as `NA` when hg19 metadata is emitted.
 
-- `--genetic-map-hg38-path`
+- `--genetic-map-hg38-sources`
   Plain-English meaning: genetic map aligned to hg38 coordinates.
   Recommended usage: provide it when you use `--ld-wind-cm` with hg38 source coordinates, or when you want hg38 metadata `CM` values. For SNP- or kb-window builds, omitting it writes hg38 `CM` as `NA` when hg38 metadata is emitted.
 
-- `--liftover-chain-hg19-to-hg38-path` or `--liftover-chain-hg38-to-hg19-path`
+- `--liftover-chain-hg19-to-hg38-file` or `--liftover-chain-hg38-to-hg19-file`
   Plain-English meaning: explicit chain file used to translate positions into the other genome build.
   Recommended usage: pass the chain that matches `--source-genome-build` when you need both hg19 and hg38 outputs. If you omit it, the build completes with source-build-only outputs and logs a warning.
 
@@ -159,7 +159,7 @@ Exactly one of the following must be set:
   Optional: yes.
   Recommended usage: leave unset to keep all panel SNPs by default. Use values like `0.01` or `0.05` only if your downstream analysis truly wants a frequency-restricted panel.
 
-- `--ref-panel-snps-path`
+- `--ref-panel-snps-file`
   Plain-English meaning: restrict the retained reference-panel SNP rows to a
   user-supplied list.
   Optional: yes.
@@ -172,7 +172,7 @@ Exactly one of the following must be set:
 
 - `--snp-identifier`
   Plain-English meaning: how to interpret the SNP restriction file supplied by
-  `--ref-panel-snps-path`.
+  `--ref-panel-snps-file`.
   Optional: conditional.
   Accepted values: `rsid`, `chr_pos`.
   Recommended usage: use `rsid` for one-column rsID/dbSNP-style lists, and use
@@ -181,7 +181,7 @@ Exactly one of the following must be set:
   explicit `--source-genome-build`; source-build inference is not part of this
   workflow.
 
-- `--keep-indivs-path`
+- `--keep-indivs-file`
   Plain-English meaning: restrict the individuals used to compute LD.
   Optional: yes.
   Recommended usage: use a PLINK-style keep file when you want population-specific LD or want to exclude certain samples.
@@ -202,11 +202,11 @@ If `ldsc` is installed as a command-line tool, run:
 
 ```bash
 ldsc build-ref-panel \
-  --plink-path resources/example_1kg_30x/genomes_30x_chr22 \
+  --plink-prefix resources/example_1kg_30x/genomes_30x_chr22 \
   --source-genome-build hg38 \
-  --genetic-map-hg19-path resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg19_withX.txt \
-  --genetic-map-hg38-path resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg38_withX.txt \
-  --liftover-chain-hg38-to-hg19-path resources/liftover/hg38ToHg19.over.chain \
+  --genetic-map-hg19-sources resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg19_withX.txt \
+  --genetic-map-hg38-sources resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg38_withX.txt \
+  --liftover-chain-hg38-to-hg19-file resources/liftover/hg38ToHg19.over.chain \
   --ld-wind-cm 1.0 \
   --output-dir tutorial_outputs/ref_panel_chr22
 ```
@@ -215,11 +215,11 @@ If you are running directly from a source checkout instead of an installed CLI, 
 
 ```bash
 PYTHONPATH=src python -m ldsc build-ref-panel \
-  --plink-path resources/example_1kg_30x/genomes_30x_chr22 \
+  --plink-prefix resources/example_1kg_30x/genomes_30x_chr22 \
   --source-genome-build hg38 \
-  --genetic-map-hg19-path resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg19_withX.txt \
-  --genetic-map-hg38-path resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg38_withX.txt \
-  --liftover-chain-hg38-to-hg19-path resources/liftover/hg38ToHg19.over.chain \
+  --genetic-map-hg19-sources resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg19_withX.txt \
+  --genetic-map-hg38-sources resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg38_withX.txt \
+  --liftover-chain-hg38-to-hg19-file resources/liftover/hg38ToHg19.over.chain \
   --ld-wind-cm 1.0 \
   --output-dir tutorial_outputs/ref_panel_chr22
 ```
@@ -248,11 +248,11 @@ GLOBAL_CONFIG = GlobalConfig(snp_identifier="chr_pos", genome_build="hg38", log_
 set_global_config(GLOBAL_CONFIG)
 
 config = ReferencePanelBuildConfig(
-    plink_path="resources/example_1kg_30x/genomes_30x_chr22",
+    plink_prefix="resources/example_1kg_30x/genomes_30x_chr22",
     source_genome_build="hg38",
-    genetic_map_hg19_path="resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg19_withX.txt",
-    genetic_map_hg38_path="resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg38_withX.txt",
-    liftover_chain_hg38_to_hg19_path="resources/liftover/hg38ToHg19.over.chain",
+    genetic_map_hg19_sources="resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg19_withX.txt",
+    genetic_map_hg38_sources="resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg38_withX.txt",
+    liftover_chain_hg38_to_hg19_file="resources/liftover/hg38ToHg19.over.chain",
     output_dir="tutorial_outputs/ref_panel_chr22",
     ld_wind_cm=1.0,
 )
@@ -266,7 +266,7 @@ print(result.output_paths["meta_hg38"][0])
 ```
 
 When you use the lower-level `ReferencePanelBuilder` API with
-`ReferencePanelBuildConfig(ref_panel_snps_path=...)`, put the restriction-file
+`ReferencePanelBuildConfig(ref_panel_snps_file=...)`, put the restriction-file
 identifier mode on the injected `GlobalConfig`:
 
 ```python
@@ -277,7 +277,7 @@ GLOBAL_CONFIG = GlobalConfig(
 ```
 
 The convenience wrapper shown later mirrors the CLI and accepts
-`snp_identifier="rsid"` directly when `ref_panel_snps_path` is supplied.
+`snp_identifier="rsid"` directly when `ref_panel_snps_file` is supplied.
 
 ## Output Format
 
@@ -450,8 +450,8 @@ Example:
 ```bash
 ldsc ldscore \
   --output-dir tutorial_outputs/ldscores_from_parquet_panel \
-  --r2-paths "tutorial_outputs/ref_panel/parquet/ld/chr@_LD.parquet" \
-  --metadata-paths "tutorial_outputs/ref_panel/parquet/meta/chr@_meta_hg38.tsv.gz" \
+  --r2-sources "tutorial_outputs/ref_panel/parquet/ld/chr@_LD.parquet" \
+  --metadata-sources "tutorial_outputs/ref_panel/parquet/meta/chr@_meta_hg38.tsv.gz" \
   --r2-bias-mode unbiased \
   --snp-identifier rsid \
   --ld-wind-cm 1.0
@@ -479,15 +479,15 @@ These files are also useful outside of LDSC proper. Common examples include:
 
 ### Build a chromosome suite instead of one chromosome
 
-If your PLINK files are split by chromosome, pass the suite token through `--plink-path`:
+If your PLINK files are split by chromosome, pass the suite token through `--plink-prefix`:
 
 ```bash
 ldsc build-ref-panel \
-  --plink-path data/reference/genomes_30x_chr@ \
+  --plink-prefix data/reference/genomes_30x_chr@ \
   --source-genome-build hg38 \
-  --genetic-map-hg19-path resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg19_withX.txt \
-  --genetic-map-hg38-path resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg38_withX.txt \
-  --liftover-chain-hg38-to-hg19-path resources/liftover/hg38ToHg19.over.chain \
+  --genetic-map-hg19-sources resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg19_withX.txt \
+  --genetic-map-hg38-sources resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg38_withX.txt \
+  --liftover-chain-hg38-to-hg19-file resources/liftover/hg38ToHg19.over.chain \
   --ld-wind-cm 1.0 \
   --output-dir tutorial_outputs/ref_panel
 ```
@@ -500,7 +500,7 @@ already exist, the build fails before processing chromosomes unless
 
 ### Restrict to a predefined SNP universe
 
-Use `--ref-panel-snps-path` when you want to keep only a specific SNP set, for
+Use `--ref-panel-snps-file` when you want to keep only a specific SNP set, for
 example HapMap3 or another curated reference-panel universe.
 
 Accepted forms include:
@@ -513,9 +513,9 @@ Example:
 
 ```bash
 ldsc build-ref-panel \
-  --plink-path data/reference/genomes_30x_chr@ \
+  --plink-prefix data/reference/genomes_30x_chr@ \
   --source-genome-build hg38 \
-  --ref-panel-snps-path filters/hapmap3_rsids.txt \
+  --ref-panel-snps-file filters/hapmap3_rsids.txt \
   --snp-identifier rsid \
   --ld-wind-kb 1000 \
   --output-dir tutorial_outputs/ref_panel_hm3
@@ -523,7 +523,7 @@ ldsc build-ref-panel \
 
 ### Restrict the sample set
 
-Use `--keep-indivs-path` when you want LD computed from only a subset of individuals, for example one ancestry group or a QC-passed subset.
+Use `--keep-indivs-file` when you want LD computed from only a subset of individuals, for example one ancestry group or a QC-passed subset.
 
 ### Apply an MAF filter
 
@@ -552,18 +552,18 @@ GLOBAL_CONFIG = GlobalConfig(snp_identifier="chr_pos", genome_build="hg38", log_
 set_global_config(GLOBAL_CONFIG)
 
 result = run_build_ref_panel(
-    plink_path="resources/example_1kg_30x/genomes_30x_chr22",
+    plink_prefix="resources/example_1kg_30x/genomes_30x_chr22",
     source_genome_build="hg38",
-    genetic_map_hg19_path="resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg19_withX.txt",
-    genetic_map_hg38_path="resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg38_withX.txt",
-    liftover_chain_hg38_to_hg19_path="resources/liftover/hg38ToHg19.over.chain",
+    genetic_map_hg19_sources="resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg19_withX.txt",
+    genetic_map_hg38_sources="resources/genetic_maps/genetic_map_alkesgroup/genetic_map_hg38_withX.txt",
+    liftover_chain_hg38_to_hg19_file="resources/liftover/hg38ToHg19.over.chain",
     output_dir="tutorial_outputs/ref_panel_chr22",
     ld_wind_cm=1.0,
     # overwrite=True,  # enable only when intentionally replacing panel files
 )
 ```
 
-If you add `ref_panel_snps_path=...` to this wrapper call, also add
+If you add `ref_panel_snps_file=...` to this wrapper call, also add
 `snp_identifier="rsid"` or `snp_identifier="chr_pos"`. The wrapper raises
 `ValueError` rather than guessing the restriction-file identifier mode.
 

@@ -79,15 +79,15 @@ class RefPanel(ABC):
             "backend": self.spec.backend,
             "chromosomes": self.available_chromosomes(),
             "source": {
-                "plink_path": self.spec.plink_path,
-                "r2_paths": list(self.spec.r2_paths),
-                "metadata_paths": list(self.spec.metadata_paths),
+                "plink_prefix": self.spec.plink_prefix,
+                "r2_sources": list(self.spec.r2_sources),
+                "metadata_sources": list(self.spec.metadata_sources),
             },
         }
 
     def _apply_snp_restriction(self, metadata: pd.DataFrame) -> pd.DataFrame:
-        """Filter metadata rows to ``RefPanelConfig.ref_panel_snps_path`` when set."""
-        restrict_path = self.spec.ref_panel_snps_path
+        """Filter metadata rows to ``RefPanelConfig.ref_panel_snps_file`` when set."""
+        restrict_path = self.spec.ref_panel_snps_file
         if restrict_path is None or len(metadata) == 0:
             return metadata
         restrict_ids = read_global_snp_restriction(
@@ -135,9 +135,9 @@ class PlinkRefPanel(RefPanel):
 
     def build_reader(self, chrom: str, keep_snps: set[str] | list[str] | None = None, keep_indivs: list[int] | None = None, maf_min: float | None = None):
         """Build a PLINK BED reader with optional SNP, sample, and MAF filters."""
-        prefix = None if self.spec.plink_path is None else resolve_plink_prefix(self.spec.plink_path, chrom=chrom)
+        prefix = None if self.spec.plink_prefix is None else resolve_plink_prefix(self.spec.plink_prefix, chrom=chrom)
         if prefix is None:
-            raise ValueError("PlinkRefPanel requires plink_path.")
+            raise ValueError("PlinkRefPanel requires plink_prefix.")
         bim = legacy_parse.PlinkBIMFile(prefix + ".bim")
         fam = legacy_parse.PlinkFAMFile(prefix + ".fam")
 
@@ -165,15 +165,15 @@ class PlinkRefPanel(RefPanel):
         """Read one or many `.bim` tables into a normalized DataFrame."""
         prefixes = (
             []
-            if self.spec.plink_path is None
+            if self.spec.plink_prefix is None
             else resolve_plink_prefix_group(
-                (self.spec.plink_path,),
+                (self.spec.plink_prefix,),
                 chrom=chrom,
                 allow_chromosome_suite=(chrom is None),
             )
         )
         if not prefixes:
-            raise ValueError("PlinkRefPanel requires plink_path.")
+            raise ValueError("PlinkRefPanel requires plink_prefix.")
         frames = [
             pd.read_csv(
                 prefix + ".bim",
@@ -192,7 +192,7 @@ class ParquetR2RefPanel(RefPanel):
     Canonical parquet-R2 reference-panel adapter.
 
     The metadata sidecar is the authoritative per-SNP universe for this backend:
-    ``load_metadata()`` reads A, applies ``ref_panel_snps_path`` to form A', and
+    ``load_metadata()`` reads A, applies ``ref_panel_snps_file`` to form A', and
     returns that restricted table to the LD-score workflow. The pairwise parquet
     is used only by ``build_reader()`` for LD window queries and is not scanned
     to discover SNP presence.
@@ -204,7 +204,7 @@ class ParquetR2RefPanel(RefPanel):
 
         chromosomes: set[str] = set()
         for path in resolve_file_group(
-            self.spec.metadata_paths,
+            self.spec.metadata_sources,
             suffixes=FREQUENCY_SUFFIXES,
             label="reference metadata",
             allow_chromosome_suite=True,
@@ -220,11 +220,11 @@ class ParquetR2RefPanel(RefPanel):
         chrom = normalize_chromosome(chrom)
         if chrom in self._metadata_cache:
             return self._metadata_cache[chrom].copy()
-        if not self.spec.metadata_paths:
+        if not self.spec.metadata_sources:
             raise ImportError("ParquetR2RefPanel.load_metadata requires metadata sidecar files.")
 
         resolved_paths = resolve_chromosome_group(
-            self.spec.metadata_paths,
+            self.spec.metadata_sources,
             chrom=chrom,
             suffixes=FREQUENCY_SUFFIXES,
             label="reference metadata",
@@ -251,7 +251,7 @@ class ParquetR2RefPanel(RefPanel):
         metadata = metadata if metadata is not None else self.load_metadata(chrom)
         return kernel_ldscore.SortedR2BlockReader(
             paths=resolve_chromosome_group(
-                self.spec.r2_paths,
+                self.spec.r2_sources,
                 chrom=chrom,
                 suffixes=PARQUET_SUFFIXES,
                 label="parquet R2",

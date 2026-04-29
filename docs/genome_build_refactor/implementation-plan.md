@@ -15,8 +15,8 @@ before moving to the next step.
 `genome_build` TODOs.
 
 - [ ] Delete `test_config_identifiers.py` lines 263 and 267. These tests
-  construct `GlobalConfig(ref_panel_snps_path=...)` and
-  `GlobalConfig(regression_snps_path=...)`, which are fields that no longer
+  construct `GlobalConfig(ref_panel_snps_file=...)` and
+  `GlobalConfig(regression_snps_file=...)`, which are fields that no longer
   exist on `GlobalConfig`. Confirm they fail before deletion to ensure they
   are not testing something real.
 - [ ] Grep for `# TODO.*genome_build` and `# FIXME.*genome_build` across
@@ -589,8 +589,8 @@ from .genome_build_inference import resolve_genome_build
 Key behaviour to implement:
 
 - When `normalized_mode == "chr_pos"` and `hint == "auto"`:
-  - Sample annotation (`baseline_annot_paths` tokens) → `annot_build`.
-  - Sample reference panel (`r2_paths` tokens) → `ref_build`.
+  - Sample annotation (`baseline_annot_sources` tokens) → `annot_build`.
+  - Sample reference panel (`r2_sources` tokens) → `ref_build`.
   - If both sources present and `annot_build != ref_build`: raise `ValueError`
     with the mismatch message from `design.md §3.4`.
   - If only one source present: use that build, skip cross-check.

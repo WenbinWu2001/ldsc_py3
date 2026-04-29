@@ -25,11 +25,11 @@ from ldsc.sumstats_munger import SumstatsTable
 
 def _make_build_config(tmpdir: Path) -> ReferencePanelBuildConfig:
     return ReferencePanelBuildConfig(
-        plink_path=tmpdir / "panel.@",
+        plink_prefix=tmpdir / "panel.@",
         source_genome_build="hg19",
-        genetic_map_hg19_path=tmpdir / "hg19.map",
-        genetic_map_hg38_path=tmpdir / "hg38.map",
-        liftover_chain_hg19_to_hg38_path=tmpdir / "hg19ToHg38.over.chain",
+        genetic_map_hg19_sources=tmpdir / "hg19.map",
+        genetic_map_hg38_sources=tmpdir / "hg38.map",
+        liftover_chain_hg19_to_hg38_file=tmpdir / "hg19ToHg38.over.chain",
         output_dir=tmpdir / "out",
         ld_wind_kb=1.0,
     )
@@ -101,8 +101,8 @@ class GlobalConfigRegistryTest(unittest.TestCase):
         ) as patched, mock.patch("builtins.print") as patched_print:
             with self.assertLogs("LDSC.config", level="INFO") as caught:
                 result = ldsc.run_bed_to_annot(
-                    query_annot_bed_paths="beds/*.bed",
-                    baseline_annot_paths="baseline.@.annot.gz",
+                    query_annot_bed_sources="beds/*.bed",
+                    baseline_annot_sources="baseline.@.annot.gz",
                     output_dir="out",
                 )
 
@@ -119,8 +119,8 @@ class GlobalConfigRegistryTest(unittest.TestCase):
     def test_run_bed_to_annot_rejects_removed_shared_kwargs(self):
         with self.assertRaises(TypeError):
             ldsc.run_bed_to_annot(
-                query_annot_bed_paths="beds/*.bed",
-                baseline_annot_paths="baseline.@.annot.gz",
+                query_annot_bed_sources="beds/*.bed",
+                baseline_annot_sources="baseline.@.annot.gz",
                 output_dir="out",
                 snp_identifier="rsid",
             )
@@ -138,9 +138,9 @@ class GlobalConfigRegistryTest(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "stop after inspecting args"):
                 ldscore_calculator.run_ldscore(
                     output_dir="results/example",
-                    baseline_annot_paths="baseline.annot.gz",
-                    r2_paths="reference.parquet",
-                    metadata_paths="reference.tsv.gz",
+                    baseline_annot_sources="baseline.annot.gz",
+                    r2_sources="reference.parquet",
+                    metadata_sources="reference.tsv.gz",
                     ld_wind_cm=1.0,
                 )
 
@@ -148,24 +148,43 @@ class GlobalConfigRegistryTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "set_global_config"):
             ldscore_calculator.run_ldscore(
                 output_dir="results/example",
-                baseline_annot_paths="baseline.annot.gz",
-                r2_paths="reference.parquet",
-                metadata_paths="reference.tsv.gz",
+                baseline_annot_sources="baseline.annot.gz",
+                r2_sources="reference.parquet",
+                metadata_sources="reference.tsv.gz",
                 ld_wind_cm=1.0,
                 snp_identifier="rsid",
+            )
+
+    def test_run_ldscore_rejects_retired_io_kwargs(self):
+        with self.assertRaisesRegex(ValueError, "baseline_annot_paths"):
+            ldscore_calculator.run_ldscore(
+                output_dir="results/example",
+                baseline_annot_paths="baseline.annot.gz",
+                plink_path="plink/panel",
+                ld_wind_snps=10,
             )
 
     def test_run_build_ref_panel_rejects_removed_shared_kwargs(self):
         with self.assertRaisesRegex(ValueError, "set_global_config"):
             ref_panel_builder.run_build_ref_panel(
-                plink_path="plink/panel",
+                plink_prefix="plink/panel",
                 source_genome_build="hg19",
-                genetic_map_hg19_path="maps/hg19.txt",
-                genetic_map_hg38_path="maps/hg38.txt",
-                liftover_chain_hg19_to_hg38_path="chains/hg19ToHg38.over.chain",
+                genetic_map_hg19_sources="maps/hg19.txt",
+                genetic_map_hg38_sources="maps/hg38.txt",
+                liftover_chain_hg19_to_hg38_file="chains/hg19ToHg38.over.chain",
                 output_dir="out/panel",
                 ld_wind_kb=1.0,
                 log_level="DEBUG",
+            )
+
+    def test_run_build_ref_panel_rejects_retired_io_kwargs(self):
+        with self.assertRaisesRegex(ValueError, "plink_path"):
+            ref_panel_builder.run_build_ref_panel(
+                plink_path="plink/panel",
+                source_genome_build="hg19",
+                genetic_map_hg19_path="maps/hg19.txt",
+                output_dir="out/panel",
+                ld_wind_kb=1.0,
             )
 
     def test_reference_panel_builder_uses_registered_global_config_and_logs_once(self):
@@ -219,7 +238,7 @@ class GlobalConfigRegistryTest(unittest.TestCase):
             genome_build=None,
             log_level="DEBUG",
             output_dir="results/example",
-            keep_indivs_path=None,
+            keep_indivs_file=None,
         )
 
         normalized_args, global_config = ldscore_calculator._normalize_run_args(args)

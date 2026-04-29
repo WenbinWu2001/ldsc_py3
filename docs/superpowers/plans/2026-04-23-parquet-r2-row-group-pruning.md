@@ -1041,7 +1041,7 @@ universe `A` for the parquet backend. No parquet presence scan is performed at r
 That means:
 
 - `A` = sidecar rows for the chromosome
-- `A' = A ∩ ref_panel_snps_path` (or `A' = A` when the flag is absent)
+- `A' = A ∩ ref_panel_snps_file` (or `A' = A` when the flag is absent)
 - `ld_reference_snps = B ∩ A'`
 - `.M` and `.M_5_50` are computed over `ld_reference_snps`
 

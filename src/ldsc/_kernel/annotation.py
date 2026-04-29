@@ -238,19 +238,19 @@ class AnnotationBuilder:
             chromosome shards do not cover the same chromosomes.
         """
         source_spec = source_spec or self.build_config
-        if not source_spec.baseline_annot_paths:
+        if not source_spec.baseline_annot_sources:
             raise ValueError("AnnotationBuildConfig must include at least one baseline annotation file.")
         baseline_files = resolve_file_group(
-            source_spec.baseline_annot_paths,
+            source_spec.baseline_annot_sources,
             suffixes=ANNOTATION_SUFFIXES,
             label="baseline annotation",
             allow_chromosome_suite=True,
         )
         query_files = (
             []
-            if not source_spec.query_annot_paths
+            if not source_spec.query_annot_sources
             else resolve_file_group(
-                source_spec.query_annot_paths,
+                source_spec.query_annot_sources,
                 suffixes=ANNOTATION_SUFFIXES,
                 label="query annotation",
                 allow_chromosome_suite=True,
@@ -316,8 +316,8 @@ class AnnotationBuilder:
         if metadata is None:
             raise ValueError("No annotation rows were loaded from the supplied sources.")
 
-        if source_spec.query_annot_bed_paths:
-            resolved_bed_paths = [Path(path) for path in resolve_file_group(source_spec.query_annot_bed_paths, label="BED file")]
+        if source_spec.query_annot_bed_sources:
+            resolved_bed_paths = [Path(path) for path in resolve_file_group(source_spec.query_annot_bed_sources, label="BED file")]
             stems = [path.stem for path in resolved_bed_paths]
             duplicate_stems = sorted({stem for stem in stems if stems.count(stem) > 1})
             if duplicate_stems:
@@ -380,9 +380,9 @@ class AnnotationBuilder:
         bundles: list[AnnotationBundle] = []
         for chrom_key in sorted(baseline_by_chrom, key=_chrom_sort_key):
             chrom_source_spec = AnnotationBuildConfig(
-                baseline_annot_paths=(baseline_by_chrom[chrom_key],),
-                query_annot_paths=(() if not has_query_inputs else (query_by_chrom[chrom_key],)),
-                query_annot_bed_paths=source_spec.query_annot_bed_paths,
+                baseline_annot_sources=(baseline_by_chrom[chrom_key],),
+                query_annot_sources=(() if not has_query_inputs else (query_by_chrom[chrom_key],)),
+                query_annot_bed_sources=source_spec.query_annot_bed_sources,
                 allow_missing_query=source_spec.allow_missing_query,
             )
             bundles.append(
@@ -435,9 +435,9 @@ class AnnotationBuilder:
             query_columns=query_columns,
             chromosomes=chromosomes,
             source_summary={
-                "baseline_annot_paths": list(source_spec.baseline_annot_paths),
-                "query_annot_paths": list(source_spec.query_annot_paths),
-                "query_annot_bed_paths": list(source_spec.query_annot_bed_paths),
+                "baseline_annot_sources": list(source_spec.baseline_annot_sources),
+                "query_annot_sources": list(source_spec.query_annot_sources),
+                "query_annot_bed_sources": list(source_spec.query_annot_bed_sources),
             },
             config_snapshot=self.global_config,
         )
@@ -514,8 +514,8 @@ class AnnotationBuilder:
 
     def project_bed_annotations(
         self,
-        query_annot_bed_paths: str | PathLike[str] | Sequence[str | PathLike[str]],
-        baseline_annot_paths: str | PathLike[str] | Sequence[str | PathLike[str]],
+        query_annot_bed_sources: str | PathLike[str] | Sequence[str | PathLike[str]],
+        baseline_annot_sources: str | PathLike[str] | Sequence[str | PathLike[str]],
         output_dir: str | Path | None = None,
         batch: bool | None = None,
         log_level: str | None = None,
@@ -541,8 +541,8 @@ class AnnotationBuilder:
         overwrite = self.build_config.overwrite if overwrite is None else overwrite
         _configure_logging(log_level or self.global_config.log_level)
         source_spec = AnnotationBuildConfig(
-            baseline_annot_paths=baseline_annot_paths,
-            query_annot_bed_paths=query_annot_bed_paths,
+            baseline_annot_sources=baseline_annot_sources,
+            query_annot_bed_sources=query_annot_bed_sources,
         )
         bundle = self.run(source_spec)
         if output_dir is not None:
@@ -624,8 +624,8 @@ class AnnotationBuilder:
 
 
 def run_bed_to_annot(
-    query_annot_bed_paths: str | PathLike[str] | Sequence[str | PathLike[str]],
-    baseline_annot_paths: str | PathLike[str] | Sequence[str | PathLike[str]],
+    query_annot_bed_sources: str | PathLike[str] | Sequence[str | PathLike[str]],
+    baseline_annot_sources: str | PathLike[str] | Sequence[str | PathLike[str]],
     output_dir: str | Path | None = None,
     batch: bool = True,
     overwrite: bool = False,
@@ -643,8 +643,8 @@ def run_bed_to_annot(
     are refused before writing unless ``overwrite=True``.
     """
     return _run_bed_to_annot_with_global_config(
-        query_annot_bed_paths=query_annot_bed_paths,
-        baseline_annot_paths=baseline_annot_paths,
+        query_annot_bed_sources=query_annot_bed_sources,
+        baseline_annot_sources=baseline_annot_sources,
         output_dir=output_dir,
         batch=batch,
         overwrite=overwrite,
@@ -654,8 +654,8 @@ def run_bed_to_annot(
 
 
 def _run_bed_to_annot_with_global_config(
-    query_annot_bed_paths: str | PathLike[str] | Sequence[str | PathLike[str]],
-    baseline_annot_paths: str | PathLike[str] | Sequence[str | PathLike[str]],
+    query_annot_bed_sources: str | PathLike[str] | Sequence[str | PathLike[str]],
+    baseline_annot_sources: str | PathLike[str] | Sequence[str | PathLike[str]],
     output_dir: str | Path | None,
     *,
     batch: bool,
@@ -665,10 +665,10 @@ def _run_bed_to_annot_with_global_config(
 ) -> AnnotationBundle:
     """Run BED-to-annotation projection with an explicit resolved GlobalConfig."""
     print_global_config_banner(entrypoint, global_config)
-    build_config = AnnotationBuildConfig(query_annot_bed_paths=query_annot_bed_paths, batch_mode=batch)
+    build_config = AnnotationBuildConfig(query_annot_bed_sources=query_annot_bed_sources, batch_mode=batch)
     return AnnotationBuilder(global_config, build_config).project_bed_annotations(
-        query_annot_bed_paths=query_annot_bed_paths,
-        baseline_annot_paths=baseline_annot_paths,
+        query_annot_bed_sources=query_annot_bed_sources,
+        baseline_annot_sources=baseline_annot_sources,
         output_dir=output_dir,
         batch=batch,
         log_level=global_config.log_level,
@@ -679,9 +679,9 @@ def _run_bed_to_annot_with_global_config(
 def parse_bed_to_annot_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     """Parse CLI arguments for the BED-to-annotation workflow."""
     parser = argparse.ArgumentParser(description="Convert BED annotations into LDSC .annot.gz files.", allow_abbrev=False)
-    parser.add_argument("--query-annot-bed-paths", nargs="+", required=True, help="BED files, comma-separated lists, or glob patterns.")
+    parser.add_argument("--query-annot-bed-sources", nargs="+", required=True, help="BED files, comma-separated lists, or glob patterns.")
     parser.add_argument(
-        "--baseline-annot-paths",
+        "--baseline-annot-sources",
         nargs="+",
         required=True,
         help="Baseline annotation path tokens: exact paths, globs, or explicit @ suite tokens.",
@@ -721,8 +721,8 @@ def main_bed_to_annot(argv: Sequence[str] | None = None) -> int:
         log_level=args.log_level,
     )
     _run_bed_to_annot_with_global_config(
-        query_annot_bed_paths=split_cli_path_tokens(args.query_annot_bed_paths),
-        baseline_annot_paths=split_cli_path_tokens(args.baseline_annot_paths),
+        query_annot_bed_sources=split_cli_path_tokens(args.query_annot_bed_sources),
+        baseline_annot_sources=split_cli_path_tokens(args.baseline_annot_sources),
         output_dir=args.output_dir,
         batch=args.batch,
         overwrite=args.overwrite,
@@ -743,7 +743,7 @@ def _resolve_annotation_cli_genome_build(args: argparse.Namespace, snp_identifie
         )
     if genome_build == "auto":
         frame, sampled_path = sample_frame_from_chr_pattern(
-            split_cli_path_tokens(args.baseline_annot_paths),
+            split_cli_path_tokens(args.baseline_annot_sources),
             context="annotation inputs",
         )
         genome_build = resolve_genome_build(
@@ -1112,7 +1112,7 @@ def _query_output_name(path: Path) -> str:
 
 def _process_baseline_file(
     baseline_path: Path,
-    query_annot_bed_paths: Sequence[Path],
+    query_annot_bed_sources: Sequence[Path],
     output_dir: Path,
     batch: bool,
     restrict_resource: _RestrictResource | None,
@@ -1132,15 +1132,15 @@ def _process_baseline_file(
     kept_baseline_bed = pybedtools.BedTool(str(kept_bed_path))
 
     if batch:
-        annotation_names = [path.stem for path in query_annot_bed_paths]
+        annotation_names = [path.stem for path in query_annot_bed_sources]
         masks = []
-        for bed_path in query_annot_bed_paths:
+        for bed_path in query_annot_bed_sources:
             overlap_mask = _compute_bed_overlap_mask(kept_rows, kept_baseline_bed, bed_path)
             masks.append(overlap_mask)
         output_name = _query_output_name(baseline_path)
         _write_annot_file(output_dir / output_name, kept_rows, annotation_names, masks)
     else:
-        for bed_path in query_annot_bed_paths:
+        for bed_path in query_annot_bed_sources:
             overlap_mask = _compute_bed_overlap_mask(kept_rows, kept_baseline_bed, bed_path)
             bed_output_dir = output_dir / bed_path.stem
             output_name = _query_output_name(baseline_path)

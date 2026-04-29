@@ -19,13 +19,13 @@ incompatible representations.
 
 This plan replaces the single field with two explicit fields:
 
-- `GlobalConfig.ref_panel_snps_path` — row-level filter on baseline template;
+- `GlobalConfig.ref_panel_snps_file` — row-level filter on baseline template;
   controls which SNPs exist in annotation artifacts and the LD computation.
-- `GlobalConfig.regression_snps_path` — single source of truth for the regression SNP
+- `GlobalConfig.regression_snps_file` — single source of truth for the regression SNP
   set; controls **both** which SNPs contribute to the weight LD kernel **and** which
   rows appear in the written `.l2.ldscore.gz` and `.w.l2.ldscore.gz` output files.
 
-It also fixes the BED-to-annot artifact contract so that when `ref_panel_snps_path`
+It also fixes the BED-to-annot artifact contract so that when `ref_panel_snps_file`
 is set, the output `.annot.gz` files physically contain only reference-universe rows
 rather than full-template rows with zeroed query values.
 
@@ -35,22 +35,22 @@ rather than full-template rows with zeroed query values.
 
 | File | Change type | Description |
 | --- | --- | --- |
-| `src/ldsc/config.py` | Rename + add | Replace `restrict_snps_path` with `ref_panel_snps_path` and `regression_snps_path` in `GlobalConfig`; update `validate_config_compatibility()`; rename field in `ReferencePanelBuildConfig` |
-| `src/ldsc/_kernel/annotation.py` | Behavior + rename | `_process_baseline_file`: row-filter before BED projection; `AnnotationBuilder._filter_aligned_tables_by_global_restriction`: read `ref_panel_snps_path`; `run_bed_to_annot` argparse: rename CLI flag to `--ref-panel-snps-path` |
-| `src/ldsc/_kernel/ref_panel.py` | Rename | `RefPanel._filter_metadata_by_global_restriction`: read `ref_panel_snps_path` |
-| `src/ldsc/ref_panel_builder.py` | Rename | `ReferencePanelBuilder.run()`, `run_build_ref_panel()`, `build_parser()`: rename to `ref_panel_snps_path` |
+| `src/ldsc/config.py` | Rename + add | Replace `restrict_snps_path` with `ref_panel_snps_file` and `regression_snps_file` in `GlobalConfig`; update `validate_config_compatibility()`; rename field in `ReferencePanelBuildConfig` |
+| `src/ldsc/_kernel/annotation.py` | Behavior + rename | `_process_baseline_file`: row-filter before BED projection; `AnnotationBuilder._filter_aligned_tables_by_global_restriction`: read `ref_panel_snps_file`; `run_bed_to_annot` argparse: rename CLI flag to `--ref-panel-snps-file` |
+| `src/ldsc/_kernel/ref_panel.py` | Rename | `RefPanel._filter_metadata_by_global_restriction`: read `ref_panel_snps_file` |
+| `src/ldsc/ref_panel_builder.py` | Rename | `ReferencePanelBuilder.run()`, `run_build_ref_panel()`, `build_parser()`: rename to `ref_panel_snps_file` |
 | `src/ldsc/outputs.py` | Remove field + fix filter | Remove `ArtifactOutputConfig.print_snps_path`; delete `_load_print_snps()`; `LDScoreTableProducer.build()` filters `.l2.ldscore.gz` using `result.regression_snps` (already a `set[str]` from the kernel) |
-| `src/ldsc/ldscore_calculator.py` | Remove flags + add flags + wire | Remove `--regression-snps` and `--print-snps`; add `--ref-panel-snps-path` and `--regression-snps-path`; update `_normalize_run_args()` and `run_ldscore()` to propagate both `GlobalConfig` fields; wire `global_config.regression_snps_path` to the kernel |
-| `src/ldsc/cli.py` | Rename | Rename `--restrict-snps-path` to `--ref-panel-snps-path` in annotate subcommand |
+| `src/ldsc/ldscore_calculator.py` | Remove flags + add flags + wire | Remove `--regression-snps` and `--print-snps`; add `--ref-panel-snps-file` and `--regression-snps-file`; update `_normalize_run_args()` and `run_ldscore()` to propagate both `GlobalConfig` fields; wire `global_config.regression_snps_file` to the kernel |
+| `src/ldsc/cli.py` | Rename | Rename `--restrict-snps-path` to `--ref-panel-snps-file` in annotate subcommand |
 | `src/ldsc/__init__.py` | No change needed | `GlobalConfig` is already exported; field rename is transparent to callers |
 | `docs/config-design.md` | Update | Document two-field model, updated critical/advisory classification, CLI flag table |
-| `tests/test_config_identifiers.py` | Update | Rename field references; add `regression_snps_path` normalization test |
-| `tests/test_global_config_registry.py` | Update | Rename field references; `ref_panel_snps_path` mismatch → `ConfigMismatchError`; `regression_snps_path` mismatch → warning |
+| `tests/test_config_identifiers.py` | Update | Rename field references; add `regression_snps_file` normalization test |
+| `tests/test_global_config_registry.py` | Update | Rename field references; `ref_panel_snps_file` mismatch → `ConfigMismatchError`; `regression_snps_file` mismatch → warning |
 | `tests/test_annotation.py` | Update | Rename field references; add row-filter behavior test |
 | `tests/test_ref_panel.py` | Update | Rename field references |
-| `tests/test_output.py` | Update | Rename `print_snps_path` → `regression_snps_path`; rename test methods |
+| `tests/test_output.py` | Update | Rename `print_snps_path` → `regression_snps_file`; rename test methods |
 | `tests/test_ldscore_workflow.py` | Update | Replace `print_snps=` kwarg with GlobalConfig-based approach |
-| `tests/test_package_layout.py` | Update | Remove print_snps test; add ref_panel_snps_path and regression_snps_path tests |
+| `tests/test_package_layout.py` | Update | Remove print_snps test; add ref_panel_snps_file and regression_snps_file tests |
 
 **Files that do NOT need changes:**
 
@@ -97,21 +97,21 @@ restrict_snps_path: str | PathLike[str] | None = None
 Add two fields in its place (both optional, both default `None`):
 
 ```python
-ref_panel_snps_path: str | PathLike[str] | None = None
-regression_snps_path: str | PathLike[str] | None = None
+ref_panel_snps_file: str | PathLike[str] | None = None
+regression_snps_file: str | PathLike[str] | None = None
 ```
 
 Update the docstring to describe both fields:
 
 ```text
-ref_panel_snps_path : str or os.PathLike[str] or None, optional
+ref_panel_snps_file : str or os.PathLike[str] or None, optional
     Path to a SNP list that defines the annotation and LD-computation universe.
     When set, annotation files are physically limited to these SNPs (rows outside
     the universe are dropped, not zeroed). Applied as a row filter at
     AnnotationBundle load time and at BED-to-annot write time. Corresponds
     conceptually to the SNP universe of LDSC's ``--bfile`` reference panel.
     Default is ``None`` (use the full baseline template universe).
-regression_snps_path : str or os.PathLike[str] or None, optional
+regression_snps_file : str or os.PathLike[str] or None, optional
     Path to a SNP list that restricts which SNPs appear in the written
     ``.l2.ldscore.gz`` output table and therefore enter the LDSC regression.
     Does not affect which rows are in annotation files or which SNPs contribute
@@ -124,10 +124,10 @@ Update `__post_init__` to normalize both fields:
 
 ```python
 object.__setattr__(
-    self, "ref_panel_snps_path", _normalize_optional_path(self.ref_panel_snps_path)
+    self, "ref_panel_snps_file", _normalize_optional_path(self.ref_panel_snps_file)
 )
 object.__setattr__(
-    self, "regression_snps_path", _normalize_optional_path(self.regression_snps_path)
+    self, "regression_snps_file", _normalize_optional_path(self.regression_snps_file)
 )
 ```
 
@@ -140,28 +140,28 @@ Remove the old `restrict_snps_path` normalization line.
 Replace the current `restrict_snps_path` advisory comparison block with:
 
 ```python
-# ref_panel_snps_path is critical: it defines which rows exist in annotation
+# ref_panel_snps_file is critical: it defines which rows exist in annotation
 # artifacts. Two results computed on different annotation universes cannot be
 # safely combined.
-if a.ref_panel_snps_path != b.ref_panel_snps_path:
+if a.ref_panel_snps_file != b.ref_panel_snps_file:
     raise ConfigMismatchError(
-        f"ref_panel_snps_path mismatch{prefix}: {a.ref_panel_snps_path!r} vs "
-        f"{b.ref_panel_snps_path!r}. These objects were computed on different "
+        f"ref_panel_snps_file mismatch{prefix}: {a.ref_panel_snps_file!r} vs "
+        f"{b.ref_panel_snps_file!r}. These objects were computed on different "
         "annotation universes and cannot be safely merged."
     )
-# regression_snps_path is advisory: it controls the output filter, not the
+# regression_snps_file is advisory: it controls the output filter, not the
 # computation space. Results with different regression SNP sets are combinable.
-if a.regression_snps_path != b.regression_snps_path:
+if a.regression_snps_file != b.regression_snps_file:
     warnings.warn(
-        f"regression_snps_path differs{prefix}: {a.regression_snps_path!r} vs "
-        f"{b.regression_snps_path!r}. Results are combinable but regression SNP "
+        f"regression_snps_file differs{prefix}: {a.regression_snps_file!r} vs "
+        f"{b.regression_snps_file!r}. Results are combinable but regression SNP "
         "sets differ.",
         UserWarning,
         stacklevel=2,
     )
 ```
 
-**Caveat:** `ref_panel_snps_path` is now **critical** (raises `ConfigMismatchError`), not advisory. The existing `config-design.md` table and tests must be updated to reflect this.
+**Caveat:** `ref_panel_snps_file` is now **critical** (raises `ConfigMismatchError`), not advisory. The existing `config-design.md` table and tests must be updated to reflect this.
 
 ### 1c. Rename `restrict_snps_path` in `ReferencePanelBuildConfig`
 
@@ -174,18 +174,18 @@ Rename the field:
 restrict_snps_path: str | PathLike[str] | None = None
 
 # After:
-ref_panel_snps_path: str | PathLike[str] | None = None
+ref_panel_snps_file: str | PathLike[str] | None = None
 ```
 
 Update `__post_init__` normalization accordingly:
 
 ```python
-object.__setattr__(self, "ref_panel_snps_path", _normalize_optional_path(self.ref_panel_snps_path))
+object.__setattr__(self, "ref_panel_snps_file", _normalize_optional_path(self.ref_panel_snps_file))
 ```
 
-**Note:** `ReferencePanelBuildConfig.ref_panel_snps_path` is a build-time filter that
+**Note:** `ReferencePanelBuildConfig.ref_panel_snps_file` is a build-time filter that
 restricts which SNPs are retained in the parquet reference panel during construction.
-It is distinct from `GlobalConfig.ref_panel_snps_path` but the two should point to
+It is distinct from `GlobalConfig.ref_panel_snps_file` but the two should point to
 the same file in a consistent workflow. They are separate because `ReferencePanelBuildConfig`
 is a build-once config while `GlobalConfig` is a runtime analysis config.
 
@@ -357,9 +357,9 @@ if self.global_config.restrict_snps_path is not None:
 to:
 
 ```python
-if self.global_config.ref_panel_snps_path is not None:
+if self.global_config.ref_panel_snps_file is not None:
     restrict_path = Path(resolve_scalar_path(
-        self.global_config.ref_panel_snps_path, label="reference-panel SNP universe"
+        self.global_config.ref_panel_snps_file, label="reference-panel SNP universe"
     ))
 ```
 
@@ -375,7 +375,7 @@ Change the field read:
 restrict_path = self.global_config.restrict_snps_path
 
 # After:
-restrict_path = self.global_config.ref_panel_snps_path
+restrict_path = self.global_config.ref_panel_snps_file
 ```
 
 No other changes to this method are needed. Row-filtering behavior is already correct.
@@ -394,7 +394,7 @@ parser.add_argument(
 
 # After:
 parser.add_argument(
-    "--ref-panel-snps-path",
+    "--ref-panel-snps-file",
     default=None,
     help=(
         "Optional path to a SNP list defining the reference-panel universe. "
@@ -411,11 +411,11 @@ Update the `GlobalConfig` construction that reads from parsed args (~line 796):
 restrict_snps_path=None if args.restrict_snps_path is None else str(args.restrict_snps_path),
 
 # After:
-ref_panel_snps_path=None if args.ref_panel_snps_path is None else str(args.ref_panel_snps_path),
+ref_panel_snps_file=None if args.ref_panel_snps_file is None else str(args.ref_panel_snps_file),
 ```
 
-**Caveat:** `args.restrict_snps_path` → `args.ref_panel_snps_path` because argparse
-converts `--ref-panel-snps-path` to `ref_panel_snps_path` via the hyphen-to-underscore
+**Caveat:** `args.restrict_snps_path` → `args.ref_panel_snps_file` because argparse
+converts `--ref-panel-snps-file` to `ref_panel_snps_file` via the hyphen-to-underscore
 rule. Verify with `vars(args)` in a test before finalizing.
 
 ---
@@ -427,7 +427,7 @@ rule. Verify with `vars(args)` in a test before finalizing.
 ```python
 def _filter_metadata_by_global_restriction(self, metadata: pd.DataFrame) -> pd.DataFrame:
     """Filter metadata rows to the configured reference-panel SNP universe."""
-    restrict_path = self.global_config.ref_panel_snps_path   # renamed field
+    restrict_path = self.global_config.ref_panel_snps_file   # renamed field
     if restrict_path is None or len(metadata) == 0:
         return metadata
     restrict_ids = read_global_snp_restriction(
@@ -458,9 +458,9 @@ if self.global_config.restrict_snps_path:
     )
 
 # After:
-if self.global_config.ref_panel_snps_path:
+if self.global_config.ref_panel_snps_file:
     restriction_path = resolve_scalar_path(
-        self.global_config.ref_panel_snps_path, ...
+        self.global_config.ref_panel_snps_file, ...
     )
 ```
 
@@ -475,9 +475,9 @@ restrict_snps_path=args.restrict_snps_path,
 restrict_snps_path=build_config.restrict_snps_path,
 
 # After:
-ref_panel_snps_path=args.ref_panel_snps_path,
+ref_panel_snps_file=args.ref_panel_snps_file,
 ...
-ref_panel_snps_path=build_config.ref_panel_snps_path,
+ref_panel_snps_file=build_config.ref_panel_snps_file,
 ```
 
 ### 4c. `run_build_ref_panel()` convenience wrapper
@@ -491,9 +491,9 @@ forbidden = sorted({"log_level", "restrict_snps_path"} & set(kwargs))
 defaults["restrict_snps_path"] = global_config.restrict_snps_path
 
 # After:
-forbidden = sorted({"log_level", "ref_panel_snps_path"} & set(kwargs))
+forbidden = sorted({"log_level", "ref_panel_snps_file"} & set(kwargs))
 ...
-defaults["ref_panel_snps_path"] = global_config.ref_panel_snps_path
+defaults["ref_panel_snps_file"] = global_config.ref_panel_snps_file
 ```
 
 Also update the argparse flag in `ref_panel_builder.build_parser()` (wherever
@@ -504,12 +504,12 @@ Also update the argparse flag in `ref_panel_builder.build_parser()` (wherever
 parser.add_argument("--restrict-snps-path", ...)
 
 # After:
-parser.add_argument("--ref-panel-snps-path", ...)
+parser.add_argument("--ref-panel-snps-file", ...)
 ```
 
 ---
 
-## Step 5 — Remove `--regression-snps` and `--print-snps`; Wire `regression_snps_path` as Single Source of Truth
+## Step 5 — Remove `--regression-snps` and `--print-snps`; Wire `regression_snps_file` as Single Source of Truth
 
 **Background:** The existing codebase has two separate SNP-list flags in
 `ldscore_calculator.py` that both sounded like "regression SNP filtering" but
@@ -523,9 +523,9 @@ operated at different stages:
 
 The design problem: a user could set one without the other, producing paired output
 files (`.l2.ldscore.gz` and `.w.l2.ldscore.gz`) with different row sets. The fix is
-to collapse both into `GlobalConfig.regression_snps_path` as the single authority:
+to collapse both into `GlobalConfig.regression_snps_file` as the single authority:
 
-1. `GlobalConfig.regression_snps_path` is loaded once via `_load_regression_snps()`
+1. `GlobalConfig.regression_snps_file` is loaded once via `_load_regression_snps()`
    and passed to the weight LD kernel — replacing `--regression-snps`.
 2. The kernel stores the retained intersection as `LDScoreResult.regression_snps: set[str]`.
 3. The output layer reads `result.regression_snps` directly (already a resolved
@@ -537,7 +537,7 @@ Result: `.l2.ldscore.gz` and `.w.l2.ldscore.gz` are guaranteed to have exactly t
 same row set, driven by one config field. `ArtifactOutputConfig` no longer carries any
 regression SNP path.
 
-### 5a. Remove `--regression-snps` and `--print-snps`; add `--ref-panel-snps-path` and `--regression-snps-path`
+### 5a. Remove `--regression-snps` and `--print-snps`; add `--ref-panel-snps-file` and `--regression-snps-file`
 
 **Location:** `build_parser()` in `src/ldsc/ldscore_calculator.py`, approximately
 lines 405–431.
@@ -554,7 +554,7 @@ Add the two new GlobalConfig-aligned flags in their place:
 
 ```python
 parser.add_argument(
-    "--ref-panel-snps-path",
+    "--ref-panel-snps-file",
     default=None,
     help=(
         "Path to a SNP list defining the reference-panel universe. "
@@ -563,7 +563,7 @@ parser.add_argument(
     ),
 )
 parser.add_argument(
-    "--regression-snps-path",
+    "--regression-snps-file",
     default=None,
     help=(
         "Path to a SNP list defining the regression SNP set. "
@@ -574,8 +574,8 @@ parser.add_argument(
 )
 ```
 
-Argparse converts `--ref-panel-snps-path` → `ref_panel_snps_path` and
-`--regression-snps-path` → `regression_snps_path` as namespace attribute names.
+Argparse converts `--ref-panel-snps-file` → `ref_panel_snps_file` and
+`--regression-snps-file` → `regression_snps_file` as namespace attribute names.
 
 ### 5b. Update `_normalize_run_args()` to include both new fields in `GlobalConfig`
 
@@ -584,14 +584,14 @@ approximately lines 618–635.
 
 ```python
 default_config = GlobalConfig()   # reads module-level _GLOBAL_CONFIG
-_ref_panel = getattr(args, "ref_panel_snps_path", None) or default_config.ref_panel_snps_path
-_regression = getattr(args, "regression_snps_path", None) or default_config.regression_snps_path
+_ref_panel = getattr(args, "ref_panel_snps_file", None) or default_config.ref_panel_snps_file
+_regression = getattr(args, "regression_snps_file", None) or default_config.regression_snps_file
 
 global_config = GlobalConfig(
     snp_identifier=normalized_mode,
     genome_build=default_config.genome_build if getattr(args, "genome_build", None) is None else getattr(args, "genome_build"),
-    ref_panel_snps_path=normalize_optional_path_token(_ref_panel),
-    regression_snps_path=normalize_optional_path_token(_regression),
+    ref_panel_snps_file=normalize_optional_path_token(_ref_panel),
+    regression_snps_file=normalize_optional_path_token(_regression),
     log_level=getattr(args, "log_level", "INFO"),
 )
 ```
@@ -601,7 +601,7 @@ wins; falls back to the module-level global config. The `or` short-circuit is sa
 because `normalize_optional_path_token(None)` returns `None` and paths are never
 empty strings after normalization.
 
-### 5c. Wire `global_config.regression_snps_path` to the kernel in `run_ldscore_from_args()`
+### 5c. Wire `global_config.regression_snps_file` to the kernel in `run_ldscore_from_args()`
 
 **Location:** `run_ldscore_from_args()`, approximately line 447.
 
@@ -610,11 +610,11 @@ empty strings after normalization.
 regression_snps = _load_regression_snps(normalized_args.regression_snps, global_config)
 
 # After:
-regression_snps = _load_regression_snps(global_config.regression_snps_path, global_config)
+regression_snps = _load_regression_snps(global_config.regression_snps_file, global_config)
 ```
 
 `_load_regression_snps()` already uses `read_global_snp_restriction()` internally
-(same format support as `ref_panel_snps_path`). Only the source of the path changes —
+(same format support as `ref_panel_snps_file`). Only the source of the path changes —
 from a now-removed CLI arg to the `GlobalConfig` field. No changes to the function
 body itself.
 
@@ -632,11 +632,11 @@ forbidden = sorted({"snp_identifier", "genome_build", "log_level"} & set(kwargs)
 # After:
 defaults["snp_identifier"] = global_config.snp_identifier
 defaults["genome_build"] = global_config.genome_build
-defaults["ref_panel_snps_path"] = global_config.ref_panel_snps_path
-defaults["regression_snps_path"] = global_config.regression_snps_path
+defaults["ref_panel_snps_file"] = global_config.ref_panel_snps_file
+defaults["regression_snps_file"] = global_config.regression_snps_file
 defaults["log_level"] = global_config.log_level
 forbidden = sorted(
-    {"snp_identifier", "genome_build", "ref_panel_snps_path", "regression_snps_path", "log_level"}
+    {"snp_identifier", "genome_build", "ref_panel_snps_file", "regression_snps_file", "log_level"}
     & set(kwargs)
 )
 ```
@@ -686,7 +686,7 @@ table = _filter_ldscore_table(table, print_snps)
 
 # After:
 _cfg = getattr(result, "config_snapshot", None) or get_global_config()
-regression_filter = set(result.regression_snps) if _cfg.regression_snps_path else None
+regression_filter = set(result.regression_snps) if _cfg.regression_snps_file else None
 table = _filter_ldscore_table(table, regression_filter)
 ```
 
@@ -700,7 +700,7 @@ if print_snps is not None and not artifacts:
 
 # After:
 if regression_filter is not None and not artifacts:
-    raise ValueError("After applying regression_snps_path filter, no SNPs remain.")
+    raise ValueError("After applying regression_snps_file filter, no SNPs remain.")
 ```
 
 **Delete `_load_print_snps()`** (approximately lines 489–497) entirely.
@@ -727,36 +727,36 @@ no longer needed in `outputs.py`).
 - Add two new tests:
 
   ```python
-  def test_ldscore_subcommand_accepts_ref_panel_snps_path(self): ...
-  def test_ldscore_subcommand_accepts_regression_snps_path(self): ...
+  def test_ldscore_subcommand_accepts_ref_panel_snps_file(self): ...
+  def test_ldscore_subcommand_accepts_regression_snps_file(self): ...
   ```
 
 **`tests/test_output.py`**
 
 Remove `print_snps_path=` from all `ArtifactOutputConfig` constructor calls (the field no
 longer exists). The tests must be rewritten to drive filtering via `result.regression_snps`
-and a `config_snapshot` with `regression_snps_path` set, rather than via `ArtifactOutputConfig`:
+and a `config_snapshot` with `regression_snps_file` set, rather than via `ArtifactOutputConfig`:
 
 - `test_print_snps_filters_only_reference_ldscore_artifact` →
-  `test_regression_snps_path_filters_only_reference_ldscore_artifact`
+  `test_regression_snps_file_filters_only_reference_ldscore_artifact`
 - `test_print_snps_filters_per_chrom_reference_outputs_only` →
-  `test_regression_snps_path_filters_per_chrom_reference_outputs_only`
+  `test_regression_snps_file_filters_per_chrom_reference_outputs_only`
 - `test_print_snps_raises_when_no_reference_rows_remain` →
-  `test_regression_snps_path_raises_when_no_reference_rows_remain`; update expected
+  `test_regression_snps_file_raises_when_no_reference_rows_remain`; update expected
   error message from `"After merging with --print-snps, no SNPs remain."` to
-  `"After applying regression_snps_path filter, no SNPs remain."`.
+  `"After applying regression_snps_file filter, no SNPs remain."`.
 
 For each test, construct the mock `LDScoreResult` with:
 
 - `regression_snps=<the filtered SNP set>`
-- `config_snapshot=GlobalConfig(regression_snps_path="path/to/snps.txt")`
+- `config_snapshot=GlobalConfig(regression_snps_file="path/to/snps.txt")`
 
 **`tests/test_ldscore_workflow.py`**
 
 Update `test_run_ldscore_from_args_print_snps_filters_only_written_reference_table`:
 
-- Rename the test to `test_regression_snps_path_produces_aligned_paired_outputs`.
-- Replace `print_snps=str(...)` kwarg with `regression_snps_path=str(...)` in the
+- Rename the test to `test_regression_snps_file_produces_aligned_paired_outputs`.
+- Replace `print_snps=str(...)` kwarg with `regression_snps_file=str(...)` in the
   `run_ldscore()` call (or set via `set_global_config()`).
 - Assert that both `.l2.ldscore.gz` and `.w.l2.ldscore.gz` have the same row set
   (not just that `.l2.ldscore.gz` is filtered).
@@ -779,7 +779,7 @@ parser.add_argument(
 
 # After:
 parser.add_argument(
-    "--ref-panel-snps-path",
+    "--ref-panel-snps-file",
     default=None,
     help=(
         "Path to a SNP list defining the reference-panel universe for annotation. "
@@ -797,7 +797,7 @@ parser.add_argument(
 _namespace_to_argv(args, exclude={..., "restrict_snps_path", ...})
 
 # After:
-_namespace_to_argv(args, exclude={..., "ref_panel_snps_path", ...})
+_namespace_to_argv(args, exclude={..., "ref_panel_snps_file", ...})
 ```
 
 ---
@@ -806,18 +806,18 @@ _namespace_to_argv(args, exclude={..., "ref_panel_snps_path", ...})
 
 ### 7a. `tests/test_config_identifiers.py`
 
-- Replace all `restrict_snps_path=...` with `ref_panel_snps_path=...` in `GlobalConfig`
+- Replace all `restrict_snps_path=...` with `ref_panel_snps_file=...` in `GlobalConfig`
   construction calls (approximately lines 56 and 210–246).
-- Add a test verifying `regression_snps_path` is normalized the same way:
+- Add a test verifying `regression_snps_file` is normalized the same way:
 
   ```python
-  config = GlobalConfig(regression_snps_path=Path("output") / "hm3.txt")
-  self.assertEqual(config.regression_snps_path, "output/hm3.txt")
+  config = GlobalConfig(regression_snps_file=Path("output") / "hm3.txt")
+  self.assertEqual(config.regression_snps_file, "output/hm3.txt")
   ```
 
 ### 7b. `tests/test_global_config_registry.py`
 
-- Replace `restrict_snps_path="restrict.txt"` with `ref_panel_snps_path="restrict.txt"`
+- Replace `restrict_snps_path="restrict.txt"` with `ref_panel_snps_file="restrict.txt"`
   in construction calls (approximately lines 89, 110, 245–246).
 - Update test `test_validate_config_compatibility_warns_on_restrict_snps_difference`
   (approximately line 244):
@@ -825,26 +825,26 @@ _namespace_to_argv(args, exclude={..., "ref_panel_snps_path", ...})
   - Assert `ConfigMismatchError` is raised (not just a warning):
 
     ```python
-    left = GlobalConfig(genome_build="hg38", snp_identifier="chr_pos", ref_panel_snps_path="left.txt")
-    right = GlobalConfig(genome_build="hg38", snp_identifier="chr_pos", ref_panel_snps_path="right.txt")
-    with self.assertRaises(ConfigMismatchError, msg="ref_panel_snps_path mismatch"):
+    left = GlobalConfig(genome_build="hg38", snp_identifier="chr_pos", ref_panel_snps_file="left.txt")
+    right = GlobalConfig(genome_build="hg38", snp_identifier="chr_pos", ref_panel_snps_file="right.txt")
+    with self.assertRaises(ConfigMismatchError, msg="ref_panel_snps_file mismatch"):
         validate_config_compatibility(left, right)
     ```
 
-- Add a new test for `regression_snps_path` difference emitting a warning (not error):
+- Add a new test for `regression_snps_file` difference emitting a warning (not error):
 
   ```python
-  left = GlobalConfig(genome_build="hg38", regression_snps_path="a.txt")
-  right = GlobalConfig(genome_build="hg38", regression_snps_path="b.txt")
+  left = GlobalConfig(genome_build="hg38", regression_snps_file="a.txt")
+  right = GlobalConfig(genome_build="hg38", regression_snps_file="b.txt")
   with self.assertWarns(UserWarning):
       validate_config_compatibility(left, right)
   ```
 
 ### 7c. `tests/test_annotation.py`
 
-- Replace `restrict_snps_path=...` with `ref_panel_snps_path=...` (approximately
+- Replace `restrict_snps_path=...` with `ref_panel_snps_file=...` (approximately
   lines 85 and 108).
-- Add a test asserting that BED-to-annot output with `ref_panel_snps_path` set
+- Add a test asserting that BED-to-annot output with `ref_panel_snps_file` set
   produces only reference-universe rows:
 
   ```python
@@ -855,7 +855,7 @@ _namespace_to_argv(args, exclude={..., "ref_panel_snps_path", ...})
 
 ### 7d. `tests/test_ref_panel.py`
 
-- Replace `restrict_snps_path=...` with `ref_panel_snps_path=...` (approximately
+- Replace `restrict_snps_path=...` with `ref_panel_snps_file=...` (approximately
   line 74).
 
 ### 7e. New test for two-field behavior
@@ -866,11 +866,11 @@ independently:
 
 ```python
 cfg = GlobalConfig(
-    ref_panel_snps_path="universe/hm3_extended.txt",
-    regression_snps_path="filters/hm3.txt",
+    ref_panel_snps_file="universe/hm3_extended.txt",
+    regression_snps_file="filters/hm3.txt",
 )
-self.assertEqual(cfg.ref_panel_snps_path, "universe/hm3_extended.txt")
-self.assertEqual(cfg.regression_snps_path, "filters/hm3.txt")
+self.assertEqual(cfg.ref_panel_snps_file, "universe/hm3_extended.txt")
+self.assertEqual(cfg.regression_snps_file, "filters/hm3.txt")
 ```
 
 ---
@@ -883,8 +883,8 @@ Update the **Critical vs. Advisory Fields** table to reflect the new classificat
 | --- | --- | --- |
 | `genome_build` | Critical | Hard error (`ConfigMismatchError`) |
 | `snp_identifier` | Critical | Hard error (`ConfigMismatchError`) |
-| `ref_panel_snps_path` | Critical | Hard error (`ConfigMismatchError`) |
-| `regression_snps_path` | Advisory | Warning only |
+| `ref_panel_snps_file` | Critical | Hard error (`ConfigMismatchError`) |
+| `regression_snps_file` | Advisory | Warning only |
 | `log_level` | Advisory | Ignored during compatibility checks |
 | `fail_on_missing_metadata` | Advisory | Ignored during compatibility checks |
 
@@ -904,7 +904,7 @@ user code that passes `restrict_snps_path=...` to `GlobalConfig()` will raise
 1. **Hard break (recommended):** Remove the old field entirely. Users are on a
    pre-release internal package; the API contract is not yet frozen.
 2. **Deprecation shim:** Add a `restrict_snps_path` property that emits
-   `DeprecationWarning` and redirects to `ref_panel_snps_path`. Remove after one
+   `DeprecationWarning` and redirects to `ref_panel_snps_file`. Remove after one
    release cycle.
 
 If the hard-break option is chosen, grep for all call sites outside `src/` and
@@ -912,7 +912,7 @@ If the hard-break option is chosen, grep for all call sites outside `src/` and
 
 ### C2. Intermediate artifact row-count change
 
-When `ref_panel_snps_path` is set, `query.<chrom>.annot.gz` files will have fewer
+When `ref_panel_snps_file` is set, `query.<chrom>.annot.gz` files will have fewer
 rows than the baseline template. Any downstream workflow that assumes the output
 `.annot.gz` and the baseline `.annot.gz` have identical row counts will break.
 
@@ -923,25 +923,25 @@ This is **intentional and correct**, but it means:
   `AnnotationBuilder.run()` does not hard-fail when a query file has fewer rows
   than the raw baseline template.
 - If users supply these restricted query files to the ldscore step alongside an
-  unrestricted baseline, alignment will fail. Document that the same `ref_panel_snps_path`
+  unrestricted baseline, alignment will fail. Document that the same `ref_panel_snps_file`
   must be used for both the annotate and ldscore steps.
 
-### C3. `ReferencePanelBuildConfig.ref_panel_snps_path` vs `GlobalConfig.ref_panel_snps_path`
+### C3. `ReferencePanelBuildConfig.ref_panel_snps_file` vs `GlobalConfig.ref_panel_snps_file`
 
 These two fields serve the same concept but at different stages:
 
-- `ReferencePanelBuildConfig.ref_panel_snps_path` restricts which SNPs are retained
+- `ReferencePanelBuildConfig.ref_panel_snps_file` restricts which SNPs are retained
   in the parquet files at panel-build time.
-- `GlobalConfig.ref_panel_snps_path` restricts which SNPs are loaded at annotation
+- `GlobalConfig.ref_panel_snps_file` restricts which SNPs are loaded at annotation
   and LD-computation time.
 
 In a consistent workflow, both should point to the same file. There is currently no
 validation that enforces this. A future enhancement could warn when the two paths
 differ, but it requires reading parquet metadata at runtime and is out of scope here.
 
-### C4. `regression_snps_path` is honored automatically through the kernel result
+### C4. `regression_snps_file` is honored automatically through the kernel result
 
-`GlobalConfig.regression_snps_path` is loaded in `run_ldscore_from_args()` and
+`GlobalConfig.regression_snps_file` is loaded in `run_ldscore_from_args()` and
 passed to the weight LD kernel. The kernel stores the retained SNP intersection in
 `LDScoreResult.regression_snps`. The output layer then reads `result.regression_snps`
 directly — no `ArtifactOutputConfig` field is involved. This means:
@@ -949,20 +949,20 @@ directly — no `ArtifactOutputConfig` field is involved. This means:
 - Users who call `run_ldscore()` or `run_ldscore_from_args()` get correct filtering
   automatically.
 - Users who construct an `LDScoreResult` directly (e.g. in tests) must populate
-  `regression_snps` and `config_snapshot.regression_snps_path` explicitly to trigger
+  `regression_snps` and `config_snapshot.regression_snps_file` explicitly to trigger
   output filtering.
 - `ArtifactOutputConfig` no longer has any regression SNP path field; do not add one.
 
 ### C5. Both `--print-snps` and `--regression-snps` are fully removed — no backward-compat shim
 
 Both flags are removed from the `ldscore` subcommand. The replacement is the single
-`--regression-snps-path` flag. Users who previously passed either flag on the command
+`--regression-snps-file` flag. Users who previously passed either flag on the command
 line must migrate:
 
-- `--print-snps path/to/snps.txt` → `--regression-snps-path path/to/snps.txt`
-- `--regression-snps path/to/snps.txt` → `--regression-snps-path path/to/snps.txt`
+- `--print-snps path/to/snps.txt` → `--regression-snps-file path/to/snps.txt`
+- `--regression-snps path/to/snps.txt` → `--regression-snps-file path/to/snps.txt`
 
-From Python, use `set_global_config(GlobalConfig(regression_snps_path=...))` before
+From Python, use `set_global_config(GlobalConfig(regression_snps_file=...))` before
 calling `run_ldscore()`.
 
 Grep for `print-snps`, `print_snps`, `regression-snps`, and `regression_snps` (the
@@ -976,7 +976,7 @@ with annotation value `0` in `query.*.annot.gz` will see a different artifact af
 this change. Those SNPs will simply not appear as rows. If users were relying on the
 zero values to identify "which SNPs were excluded," they must now inspect the row
 set difference between the baseline template and the output query file. Log a message
-at `INFO` level during BED-to-annot projection when `ref_panel_snps_path` is set,
+at `INFO` level during BED-to-annot projection when `ref_panel_snps_file` is set,
 reporting the number of rows retained and dropped.
 
 ### C7. `_build_restrict_mask()` and `_combine_masks()` become dead code
@@ -996,7 +996,7 @@ green at each checkpoint:
 2. Step 2 (`_kernel/annotation.py`) — most invasive; write `_filter_rows_to_restriction()` first, then update `_process_baseline_file()`.
 3. Step 3 (`_kernel/ref_panel.py`) — simple field rename.
 4. Step 4 (`ref_panel_builder.py`) — rename cascade including `build_parser()` CLI flag.
-5. Step 5 (`outputs.py` + `ldscore_calculator.py`) — remove `--regression-snps` and `--print-snps`; add `--ref-panel-snps-path` and `--regression-snps-path` (5a); update `_normalize_run_args()` (5b); wire kernel feed (5c); update `run_ldscore()` (5d); clean `_output_spec_from_args()` (5e); remove `ArtifactOutputConfig.print_snps_path` and filter via `result.regression_snps` (5f). Do `outputs.py` first since `ldscore_calculator.py` references `ArtifactOutputConfig`.
+5. Step 5 (`outputs.py` + `ldscore_calculator.py`) — remove `--regression-snps` and `--print-snps`; add `--ref-panel-snps-file` and `--regression-snps-file` (5a); update `_normalize_run_args()` (5b); wire kernel feed (5c); update `run_ldscore()` (5d); clean `_output_spec_from_args()` (5e); remove `ArtifactOutputConfig.print_snps_path` and filter via `result.regression_snps` (5f). Do `outputs.py` first since `ldscore_calculator.py` references `ArtifactOutputConfig`.
 6. Step 6 (`cli.py`) — rename annotate subcommand flag.
 7. Step 7 (tests) — update all renamed field references; delete removed tests; add new tests.
 8. Step 8 (docs) — `config-design.md` updated; grep for `restrict_snps_path`, `print_snps_path`, `print-snps`, `regression-snps` (old standalone flag) in all docs and tutorials outside `src/` and `tests/`.

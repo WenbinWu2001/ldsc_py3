@@ -80,10 +80,10 @@ Python
 
     run_ldscore(
         output_dir="results/example_ldscores",
-        baseline_annot_paths="data/baseline.@.annot.gz",
-        query_annot_paths="data/query.annot.gz",
-        r2_paths="data/r2/chr@_sorted.parquet",
-        metadata_paths="data/r2/chr@_metadata.tsv.gz",
+        baseline_annot_sources="data/baseline.@.annot.gz",
+        query_annot_sources="data/query.annot.gz",
+        r2_sources="data/r2/chr@_sorted.parquet",
+        metadata_sources="data/r2/chr@_metadata.tsv.gz",
         r2_bias_mode="unbiased",
         ld_wind_cm=1,
     )
@@ -91,10 +91,10 @@ Python
 CLI
     python -m ldsc ldscore \
         --output-dir results/example_ldscores \
-        --baseline-annot-paths data/baseline.@.annot.gz \
-        --query-annot-paths data/query.annot.gz \
-        --r2-paths data/r2/chr@_sorted.parquet \
-        --metadata-paths data/r2/chr@_metadata.tsv.gz \
+        --baseline-annot-sources data/baseline.@.annot.gz \
+        --query-annot-sources data/query.annot.gz \
+        --r2-sources data/r2/chr@_sorted.parquet \
+        --metadata-sources data/r2/chr@_metadata.tsv.gz \
         --snp-identifier rsid \
         --r2-bias-mode unbiased \
         --ld-wind-cm 1
@@ -637,21 +637,21 @@ def resolve_annotation_files(spec: str | None) -> list[str]:
 
 def resolve_parquet_files(args: argparse.Namespace, chrom: str | None = None) -> list[str]:
     """Resolve the sorted parquet R2 files participating in one LD-score run."""
-    r2_paths = getattr(args, "r2_paths", None)
+    r2_sources = getattr(args, "r2_sources", None)
     r2_table = getattr(args, "r2_table", None)
-    parquet_spec = r2_paths if r2_paths is not None else r2_table
+    parquet_spec = r2_sources if r2_sources is not None else r2_table
     if parquet_spec:
         tokens = split_arg_list(parquet_spec)
         if chrom is not None:
             return resolve_chromosome_group(
                 tokens,
                 chrom=chrom,
-                label="r2_paths",
+                label="r2_sources",
                 suffixes=PARQUET_SUFFIXES,
             )
         return resolve_file_group(
             tokens,
-            label="r2_paths",
+            label="r2_sources",
             suffixes=PARQUET_SUFFIXES,
             allow_chromosome_suite=True,
         )
@@ -1064,9 +1064,9 @@ def read_identifier_list(path: str, mode: str) -> set[str]:
 
 def load_regression_keys(args: argparse.Namespace) -> set[str] | None:
     """Load the optional regression SNP universe from CLI arguments."""
-    if not getattr(args, "regression_snps_path", None):
+    if not getattr(args, "regression_snps_file", None):
         return None
-    return read_identifier_list(args.regression_snps_path, args.snp_identifier)
+    return read_identifier_list(args.regression_snps_file, args.snp_identifier)
 
 
 def parse_frequency_metadata(path: str, chrom: str | None, identifier_mode: str) -> pd.DataFrame:
@@ -1974,7 +1974,7 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("Specify exactly one reference-panel mode: parquet or PLINK.")
     if args.r2_table:
         if keep:
-            raise ValueError("--keep-indivs-path is only supported in PLINK mode.")
+            raise ValueError("--keep-indivs-file is only supported in PLINK mode.")
         if args.r2_bias_mode is None:
             raise ValueError("--r2-bias-mode is required in parquet mode.")
         if args.r2_bias_mode == "raw" and args.r2_sample_size is None:
@@ -2011,7 +2011,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--r2-bias-mode", choices=("raw", "unbiased"), default=None, help="Whether sorted parquet R2 values are raw sample r^2 or already unbiased.")
     parser.add_argument("--r2-sample-size", default=None, type=float, help="LD reference sample size used to correct raw parquet R2 values.")
-    parser.add_argument("--regression-snps-path", default=None, help="Optional SNP list defining the regression SNP set for weight LD computation and written LD-score rows.")
+    parser.add_argument("--regression-snps-file", default=None, help="Optional SNP list defining the regression SNP set for weight LD computation and written LD-score rows.")
     parser.add_argument("--frqfile", default=None, help="Optional frequency/metadata inputs for MAF and CM. Each token may be an exact path, glob, or explicit @ chromosome-suite token.")
     parser.add_argument("--keep", default=None, help="File with individuals to include in LD Score estimation. The file should contain one IID per row.")
     parser.add_argument("--ld-wind-snps", default=None, type=int, help="LD window size in SNPs.")
@@ -2092,7 +2092,7 @@ def run_ldscore(
     genome_build: str | None = None,
     r2_bias_mode: str | None = None,
     r2_sample_size: float | None = None,
-    regression_snps_path: str | None = None,
+    regression_snps_file: str | None = None,
     frqfile: str | None = None,
     keep: str | None = None,
     ld_wind_snps: int | None = None,
@@ -2120,7 +2120,7 @@ def run_ldscore(
         genome_build=genome_build,
         r2_bias_mode=r2_bias_mode,
         r2_sample_size=r2_sample_size,
-        regression_snps_path=regression_snps_path,
+        regression_snps_file=regression_snps_file,
         frqfile=frqfile,
         query_annot_chr=None,
         baseline_annot_chr=None,

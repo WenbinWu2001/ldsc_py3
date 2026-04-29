@@ -127,26 +127,26 @@ class TestGlobalConfigValidation(unittest.TestCase):
 class WorkflowConfigTest(unittest.TestCase):
     def test_annotation_config_normalizes_paths(self):
         config = AnnotationBuildConfig(
-            baseline_annot_paths=[Path("base.annot.gz")],
-            query_annot_bed_paths=[Path("query.bed")],
+            baseline_annot_sources=[Path("base.annot.gz")],
+            query_annot_bed_sources=[Path("query.bed")],
             output_dir=Path("outputs") / "annot",
             overwrite=True,
         )
-        self.assertEqual(config.baseline_annot_paths, ("base.annot.gz",))
-        self.assertEqual(config.query_annot_bed_paths, ("query.bed",))
+        self.assertEqual(config.baseline_annot_sources, ("base.annot.gz",))
+        self.assertEqual(config.query_annot_bed_sources, ("query.bed",))
         self.assertEqual(config.output_dir, "outputs/annot")
         self.assertTrue(config.batch_mode)
         self.assertTrue(config.overwrite)
 
     def test_annotation_config_accepts_single_string_tokens_for_plural_fields(self):
         config = AnnotationBuildConfig(
-            baseline_annot_paths="baseline.@.annot.gz",
-            query_annot_paths="query.*.annot.gz",
-            query_annot_bed_paths="beds/*.bed",
+            baseline_annot_sources="baseline.@.annot.gz",
+            query_annot_sources="query.*.annot.gz",
+            query_annot_bed_sources="beds/*.bed",
         )
-        self.assertEqual(config.baseline_annot_paths, ("baseline.@.annot.gz",))
-        self.assertEqual(config.query_annot_paths, ("query.*.annot.gz",))
-        self.assertEqual(config.query_annot_bed_paths, ("beds/*.bed",))
+        self.assertEqual(config.baseline_annot_sources, ("baseline.@.annot.gz",))
+        self.assertEqual(config.query_annot_sources, ("query.*.annot.gz",))
+        self.assertEqual(config.query_annot_bed_sources, ("beds/*.bed",))
 
     def test_removed_compatibility_aliases_are_not_exported(self):
         removed_names_by_module = {
@@ -187,82 +187,82 @@ class WorkflowConfigTest(unittest.TestCase):
     def test_ldscore_config_normalizes_keep_individuals_path(self):
         config = LDScoreConfig(
             ld_wind_snps=10,
-            keep_indivs_path=Path("filters") / "samples.keep",
+            keep_indivs_file=Path("filters") / "samples.keep",
         )
-        self.assertEqual(config.keep_indivs_path, "filters/samples.keep")
+        self.assertEqual(config.keep_indivs_file, "filters/samples.keep")
 
     def test_ref_panel_build_config_validates_required_fields(self):
         config = ReferencePanelBuildConfig(
-            plink_path="plink/panel.@",
+            plink_prefix="plink/panel.@",
             source_genome_build="GRCh38",
-            genetic_map_hg19_path="maps/hg19.txt",
-            genetic_map_hg38_path="maps/hg38.txt",
-            liftover_chain_hg38_to_hg19_path="liftover/hg38ToHg19.over.chain",
+            genetic_map_hg19_sources="maps/hg19.txt",
+            genetic_map_hg38_sources="maps/hg38.txt",
+            liftover_chain_hg38_to_hg19_file="liftover/hg38ToHg19.over.chain",
             output_dir="out",
             ld_wind_kb=100.0,
             overwrite=True,
         )
         self.assertEqual(config.source_genome_build, "hg38")
-        self.assertEqual(config.plink_path, "plink/panel.@")
-        self.assertEqual(config.genetic_map_hg19_path, "maps/hg19.txt")
-        self.assertEqual(config.genetic_map_hg38_path, "maps/hg38.txt")
-        self.assertEqual(config.liftover_chain_hg38_to_hg19_path, "liftover/hg38ToHg19.over.chain")
+        self.assertEqual(config.plink_prefix, "plink/panel.@")
+        self.assertEqual(config.genetic_map_hg19_sources, "maps/hg19.txt")
+        self.assertEqual(config.genetic_map_hg38_sources, "maps/hg38.txt")
+        self.assertEqual(config.liftover_chain_hg38_to_hg19_file, "liftover/hg38ToHg19.over.chain")
         self.assertEqual(config.output_dir, "out")
         self.assertTrue(config.overwrite)
 
         with self.assertRaisesRegex(ValueError, "ld_wind_cm"):
             ReferencePanelBuildConfig(
-                plink_path="plink/panel",
+                plink_prefix="plink/panel",
                 source_genome_build="hg19",
-                genetic_map_hg19_path=None,
-                genetic_map_hg38_path="maps/hg38.txt",
-                liftover_chain_hg19_to_hg38_path="liftover/hg19ToHg38.over.chain",
+                genetic_map_hg19_sources=None,
+                genetic_map_hg38_sources="maps/hg38.txt",
+                liftover_chain_hg19_to_hg38_file="liftover/hg19ToHg38.over.chain",
                 output_dir="out",
                 ld_wind_cm=1.0,
             )
         with self.assertRaises(ValueError):
             ReferencePanelBuildConfig(
-                plink_path="plink/panel",
+                plink_prefix="plink/panel",
                 source_genome_build="hg19",
-                genetic_map_hg19_path="maps/hg19.txt",
-                genetic_map_hg38_path="maps/hg38.txt",
-                liftover_chain_hg19_to_hg38_path="liftover/hg19ToHg38.over.chain",
+                genetic_map_hg19_sources="maps/hg19.txt",
+                genetic_map_hg38_sources="maps/hg38.txt",
+                liftover_chain_hg19_to_hg38_file="liftover/hg19ToHg38.over.chain",
                 output_dir="out",
                 ld_wind_kb=100.0,
                 ld_wind_cm=1.0,
             )
         source_only = ReferencePanelBuildConfig(
-            plink_path="plink/panel",
+            plink_prefix="plink/panel",
             source_genome_build="hg38",
-            genetic_map_hg19_path=None,
-            genetic_map_hg38_path="maps/hg38.txt",
+            genetic_map_hg19_sources=None,
+            genetic_map_hg38_sources="maps/hg38.txt",
             output_dir="out",
             ld_wind_kb=100.0,
         )
-        self.assertIsNone(source_only.liftover_chain_hg38_to_hg19_path)
-        self.assertIsNone(source_only.genetic_map_hg19_path)
+        self.assertIsNone(source_only.liftover_chain_hg38_to_hg19_file)
+        self.assertIsNone(source_only.genetic_map_hg19_sources)
 
     def test_ref_panel_build_config_normalizes_optional_paths(self):
         config = ReferencePanelBuildConfig(
-            plink_path=Path("plink") / "panel",
+            plink_prefix=Path("plink") / "panel",
             source_genome_build="hg19",
-            genetic_map_hg19_path=Path("maps") / "hg19.txt",
-            genetic_map_hg38_path=Path("maps") / "hg38.txt",
-            liftover_chain_hg19_to_hg38_path=Path("liftover") / "hg19ToHg38.over.chain",
-            liftover_chain_hg38_to_hg19_path=Path("liftover") / "hg38ToHg19.over.chain",
+            genetic_map_hg19_sources=Path("maps") / "hg19.txt",
+            genetic_map_hg38_sources=Path("maps") / "hg38.txt",
+            liftover_chain_hg19_to_hg38_file=Path("liftover") / "hg19ToHg38.over.chain",
+            liftover_chain_hg38_to_hg19_file=Path("liftover") / "hg38ToHg19.over.chain",
             output_dir=Path("outputs") / "ref",
-            ref_panel_snps_path=Path("restrict") / "snps.txt",
-            keep_indivs_path=Path("samples") / "keep.txt",
+            ref_panel_snps_file=Path("restrict") / "snps.txt",
+            keep_indivs_file=Path("samples") / "keep.txt",
             ld_wind_snps=500,
         )
-        self.assertEqual(config.plink_path, "plink/panel")
-        self.assertEqual(config.genetic_map_hg19_path, "maps/hg19.txt")
-        self.assertEqual(config.genetic_map_hg38_path, "maps/hg38.txt")
-        self.assertEqual(config.liftover_chain_hg19_to_hg38_path, "liftover/hg19ToHg38.over.chain")
-        self.assertEqual(config.liftover_chain_hg38_to_hg19_path, "liftover/hg38ToHg19.over.chain")
+        self.assertEqual(config.plink_prefix, "plink/panel")
+        self.assertEqual(config.genetic_map_hg19_sources, "maps/hg19.txt")
+        self.assertEqual(config.genetic_map_hg38_sources, "maps/hg38.txt")
+        self.assertEqual(config.liftover_chain_hg19_to_hg38_file, "liftover/hg19ToHg38.over.chain")
+        self.assertEqual(config.liftover_chain_hg38_to_hg19_file, "liftover/hg38ToHg19.over.chain")
         self.assertEqual(config.output_dir, "outputs/ref")
-        self.assertEqual(config.ref_panel_snps_path, "restrict/snps.txt")
-        self.assertEqual(config.keep_indivs_path, "samples/keep.txt")
+        self.assertEqual(config.ref_panel_snps_file, "restrict/snps.txt")
+        self.assertEqual(config.keep_indivs_file, "samples/keep.txt")
 
     def test_munge_config_defaults(self):
         config = MungeConfig(output_dir="out")
@@ -273,22 +273,22 @@ class WorkflowConfigTest(unittest.TestCase):
 
     def test_munge_config_normalizes_pathlike_fields(self):
         config = MungeConfig(
-            sumstats_path=Path("sumstats") / "trait.tsv.gz",
+            sumstats_file=Path("sumstats") / "trait.tsv.gz",
             output_dir=Path("results") / "trait",
-            merge_alleles_path=Path("resources") / "alleles.tsv",
+            merge_alleles_file=Path("resources") / "alleles.tsv",
             trait_name="trait",
             overwrite=True,
         )
-        self.assertEqual(config.sumstats_path, "sumstats/trait.tsv.gz")
+        self.assertEqual(config.sumstats_file, "sumstats/trait.tsv.gz")
         self.assertEqual(config.output_dir, "results/trait")
-        self.assertEqual(config.merge_alleles_path, "resources/alleles.tsv")
+        self.assertEqual(config.merge_alleles_file, "resources/alleles.tsv")
         self.assertEqual(config.trait_name, "trait")
         self.assertTrue(config.overwrite)
 
     def test_munge_config_accepts_source_fields(self):
-        raw = MungeConfig(sumstats_path=Path("sumstats") / "trait.tsv.gz", trait_name="trait")
+        raw = MungeConfig(sumstats_file=Path("sumstats") / "trait.tsv.gz", trait_name="trait")
         self.assertIsInstance(raw, MungeConfig)
-        self.assertEqual(raw.sumstats_path, "sumstats/trait.tsv.gz")
+        self.assertEqual(raw.sumstats_file, "sumstats/trait.tsv.gz")
         self.assertEqual(raw.trait_name, "trait")
 
     def test_regression_config_defaults(self):
@@ -301,49 +301,49 @@ class WorkflowConfigTest(unittest.TestCase):
     def test_ref_panel_config_normalizes_path_fields(self):
         config = RefPanelConfig(
             backend="parquet_r2",
-            plink_path=Path("plink") / "panel",
-            r2_paths=[Path("r2") / "chr1.parquet"],
-            metadata_paths=[Path("freq") / "chr@.tsv.gz"],
-            ref_panel_snps_path=Path("filters") / "snps.txt",
+            plink_prefix=Path("plink") / "panel",
+            r2_sources=[Path("r2") / "chr1.parquet"],
+            metadata_sources=[Path("freq") / "chr@.tsv.gz"],
+            ref_panel_snps_file=Path("filters") / "snps.txt",
         )
         self.assertEqual(config.backend, "parquet_r2")
-        self.assertEqual(config.plink_path, "plink/panel")
-        self.assertEqual(config.r2_paths, ("r2/chr1.parquet",))
-        self.assertEqual(config.metadata_paths, ("freq/chr@.tsv.gz",))
-        self.assertEqual(config.ref_panel_snps_path, "filters/snps.txt")
+        self.assertEqual(config.plink_prefix, "plink/panel")
+        self.assertEqual(config.r2_sources, ("r2/chr1.parquet",))
+        self.assertEqual(config.metadata_sources, ("freq/chr@.tsv.gz",))
+        self.assertEqual(config.ref_panel_snps_file, "filters/snps.txt")
 
     def test_ref_panel_config_accepts_runtime_source_fields(self):
-        config = RefPanelConfig(backend="plink", plink_path=Path("plink") / "panel")
-        self.assertEqual(config.plink_path, "plink/panel")
+        config = RefPanelConfig(backend="plink", plink_prefix=Path("plink") / "panel")
+        self.assertEqual(config.plink_prefix, "plink/panel")
 
     def test_ref_panel_config_accepts_single_string_tokens_for_plural_fields(self):
         config = RefPanelConfig(
-            r2_paths="r2/reference.@.parquet",
-            metadata_paths="meta/reference.*.tsv.gz",
+            r2_sources="r2/reference.@.parquet",
+            metadata_sources="meta/reference.*.tsv.gz",
         )
-        self.assertEqual(config.r2_paths, ("r2/reference.@.parquet",))
-        self.assertEqual(config.metadata_paths, ("meta/reference.*.tsv.gz",))
+        self.assertEqual(config.r2_sources, ("r2/reference.@.parquet",))
+        self.assertEqual(config.metadata_sources, ("meta/reference.*.tsv.gz",))
 
     def test_public_configs_normalize_pathlike_inputs(self):
-        raw = MungeConfig(sumstats_path=Path("sumstats") / "trait.tsv.gz")
+        raw = MungeConfig(sumstats_file=Path("sumstats") / "trait.tsv.gz")
         annot = AnnotationBuildConfig(
-            baseline_annot_paths=(Path("baseline") / "base.1.annot.gz",),
-            query_annot_paths=(Path("query") / "custom.1.annot.gz",),
-            query_annot_bed_paths=(Path("beds") / "enhancer.bed",),
+            baseline_annot_sources=(Path("baseline") / "base.1.annot.gz",),
+            query_annot_sources=(Path("query") / "custom.1.annot.gz",),
+            query_annot_bed_sources=(Path("beds") / "enhancer.bed",),
         )
         ref = RefPanelConfig(
             backend="parquet_r2",
-            plink_path=Path("plink") / "panel",
-            r2_paths=(Path("r2") / "chr1.parquet",),
-            metadata_paths=(Path("meta") / "chr1.tsv.gz",),
+            plink_prefix=Path("plink") / "panel",
+            r2_sources=(Path("r2") / "chr1.parquet",),
+            metadata_sources=(Path("meta") / "chr1.tsv.gz",),
         )
-        self.assertEqual(raw.sumstats_path, "sumstats/trait.tsv.gz")
-        self.assertEqual(annot.baseline_annot_paths, ("baseline/base.1.annot.gz",))
-        self.assertEqual(annot.query_annot_paths, ("query/custom.1.annot.gz",))
-        self.assertEqual(annot.query_annot_bed_paths, ("beds/enhancer.bed",))
-        self.assertEqual(ref.plink_path, "plink/panel")
-        self.assertEqual(ref.r2_paths, ("r2/chr1.parquet",))
-        self.assertEqual(ref.metadata_paths, ("meta/chr1.tsv.gz",))
+        self.assertEqual(raw.sumstats_file, "sumstats/trait.tsv.gz")
+        self.assertEqual(annot.baseline_annot_sources, ("baseline/base.1.annot.gz",))
+        self.assertEqual(annot.query_annot_sources, ("query/custom.1.annot.gz",))
+        self.assertEqual(annot.query_annot_bed_sources, ("beds/enhancer.bed",))
+        self.assertEqual(ref.plink_prefix, "plink/panel")
+        self.assertEqual(ref.r2_sources, ("r2/chr1.parquet",))
+        self.assertEqual(ref.metadata_sources, ("meta/chr1.tsv.gz",))
 
     def test_ref_panel_config_has_no_genome_build_field(self):
         config = RefPanelConfig(backend="parquet_r2")
@@ -353,20 +353,20 @@ class WorkflowConfigTest(unittest.TestCase):
 
     def test_public_configs_accept_single_string_tokens_for_plural_fields(self):
         annot = AnnotationBuildConfig(
-            baseline_annot_paths="baseline.@.annot.gz",
-            query_annot_paths="query.*.annot.gz",
-            query_annot_bed_paths="beds/*.bed",
+            baseline_annot_sources="baseline.@.annot.gz",
+            query_annot_sources="query.*.annot.gz",
+            query_annot_bed_sources="beds/*.bed",
         )
         ref = RefPanelConfig(
             backend="parquet_r2",
-            r2_paths="r2/reference.@.parquet",
-            metadata_paths="meta/reference.*.tsv.gz",
+            r2_sources="r2/reference.@.parquet",
+            metadata_sources="meta/reference.*.tsv.gz",
         )
-        self.assertEqual(annot.baseline_annot_paths, ("baseline.@.annot.gz",))
-        self.assertEqual(annot.query_annot_paths, ("query.*.annot.gz",))
-        self.assertEqual(annot.query_annot_bed_paths, ("beds/*.bed",))
-        self.assertEqual(ref.r2_paths, ("r2/reference.@.parquet",))
-        self.assertEqual(ref.metadata_paths, ("meta/reference.*.tsv.gz",))
+        self.assertEqual(annot.baseline_annot_sources, ("baseline.@.annot.gz",))
+        self.assertEqual(annot.query_annot_sources, ("query.*.annot.gz",))
+        self.assertEqual(annot.query_annot_bed_sources, ("beds/*.bed",))
+        self.assertEqual(ref.r2_sources, ("r2/reference.@.parquet",))
+        self.assertEqual(ref.metadata_sources, ("meta/reference.*.tsv.gz",))
 
     def test_removed_public_config_fields_are_rejected(self):
         with self.assertRaises(TypeError):
@@ -376,16 +376,16 @@ class WorkflowConfigTest(unittest.TestCase):
                 panel_label="EUR",
                 plink_prefix="plink/panel",
                 source_genome_build="hg19",
-                genetic_map_hg19_path="maps/hg19.txt",
-                genetic_map_hg38_path="maps/hg38.txt",
-                liftover_chain_hg19_to_hg38_path="liftover/hg19ToHg38.over.chain",
+                genetic_map_hg19_sources="maps/hg19.txt",
+                genetic_map_hg38_sources="maps/hg38.txt",
+                liftover_chain_hg19_to_hg38_file="liftover/hg19ToHg38.over.chain",
                 output_dir="out",
                 ld_wind_kb=100.0,
             )
         with self.assertRaises(TypeError):
             MungeConfig(out_prefix="out")
         with self.assertRaises(TypeError):
-            RefPanelConfig(plink_prefix="plink/panel")
+            RefPanelConfig(plink_path="plink/panel")
 
 
 class IdentifierHelpersTest(unittest.TestCase):

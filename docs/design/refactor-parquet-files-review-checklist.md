@@ -103,7 +103,7 @@ claim that can be confirmed by reading code or running a test.
 ## 14. SNP Universe A — Sidecar Authoritative
 
 - [ ] `A` (the raw reference-panel SNP universe) is defined entirely by the metadata sidecar rows. No parquet pair-row scan is performed at any point in the normal workflow.
-- [ ] `A' = A ∩ ref_panel_snps_path` when `--ref-panel-snps-path` is supplied; `A' = A` otherwise.
+- [ ] `A' = A ∩ ref_panel_snps_file` when `--ref-panel-snps-file` is supplied; `A' = A` otherwise.
 - [ ] `ld_reference_snps = B ∩ A'`.
 - [ ] `.M` and `.M_5_50` are computed over `ld_reference_snps` using MAF from the sidecar.
 - [ ] Sidecar SNPs that have no pair rows in the parquet (isolated SNPs) are included in `ld_reference_snps` and receive LD score `1.0` via the diagonal fill.
@@ -124,7 +124,7 @@ claim that can be confirmed by reading code or running a test.
 
 ## 17. Sidecar Hard-Fail
 
-- [ ] `ParquetR2RefPanel.load_metadata()` raises `ImportError` immediately if no sidecar paths are supplied via `metadata_paths`.
+- [ ] `ParquetR2RefPanel.load_metadata()` raises `ImportError` immediately if no sidecar paths are supplied via `metadata_sources`.
 
 ## 18. Numerical Parity — Canonical vs. Legacy
 

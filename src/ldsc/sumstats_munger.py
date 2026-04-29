@@ -269,13 +269,13 @@ class SumstatsMunger:
         elif isinstance(munge_config, GlobalConfig) and global_config is None:
             global_config = munge_config
             munge_config = raw_source
-        if raw_source.sumstats_path is None:
-            raise ValueError("MungeConfig.sumstats_path is required to run summary-statistics munging.")
+        if raw_source.sumstats_file is None:
+            raise ValueError("MungeConfig.sumstats_file is required to run summary-statistics munging.")
         if munge_config.output_dir is None:
             raise ValueError("MungeConfig.output_dir is required to run summary-statistics munging.")
 
         config_snapshot = global_config or get_global_config()
-        source_path = resolve_scalar_path(raw_source.sumstats_path, label="raw sumstats")
+        source_path = resolve_scalar_path(raw_source.sumstats_file, label="raw sumstats")
         output_dir = ensure_output_directory(munge_config.output_dir, label="output directory")
         fixed_output_stem = str(output_dir / "sumstats")
         metadata_path = fixed_output_stem + ".metadata.json"
@@ -297,7 +297,7 @@ class SumstatsMunger:
             config_snapshot=table_config_snapshot,
             coordinate_metadata=coordinate_metadata,
             source_path=source_path,
-            sumstats_path=fixed_output_stem + ".sumstats.gz",
+            sumstats_file=fixed_output_stem + ".sumstats.gz",
         )
         table = SumstatsTable(
             data=data.reset_index(drop=True),
@@ -305,7 +305,7 @@ class SumstatsMunger:
             source_path=source_path,
             trait_name=raw_source.trait_name,
             provenance={
-                "sumstats_path": source_path,
+                "sumstats_file": source_path,
                 "output_dir": str(output_dir),
                 "column_hints": dict(raw_source.column_hints),
                 "metadata_path": metadata_path,
@@ -359,7 +359,7 @@ class SumstatsMunger:
                 config_snapshot=sumstats.config_snapshot,
                 coordinate_metadata=sumstats.provenance.get("metadata", {}),
                 source_path=sumstats.source_path,
-                sumstats_path=str(output_path),
+                sumstats_file=str(output_path),
             )
         return str(output_path)
 
@@ -377,7 +377,7 @@ class SumstatsMunger:
     ) -> argparse.Namespace:
         """Translate dataclass configuration into the legacy parser namespace."""
         args = parser.parse_args("")
-        args.sumstats = resolve_scalar_path(raw_source.sumstats_path, label="raw sumstats")
+        args.sumstats = resolve_scalar_path(raw_source.sumstats_file, label="raw sumstats")
         output_dir = ensure_output_directory(munge_config.output_dir, label="output directory")
         args.out = str(output_dir / "sumstats")
         args.N = munge_config.N
@@ -390,8 +390,8 @@ class SumstatsMunger:
         args.chunksize = munge_config.chunk_size
         args.merge_alleles = (
             None
-            if munge_config.merge_alleles_path is None
-            else resolve_scalar_path(munge_config.merge_alleles_path, label="merge-alleles file")
+            if munge_config.merge_alleles_file is None
+            else resolve_scalar_path(munge_config.merge_alleles_file, label="merge-alleles file")
         )
         args.signed_sumstats = munge_config.signed_sumstats_spec
         args.ignore = ",".join(munge_config.ignore_columns) if munge_config.ignore_columns else None
@@ -412,7 +412,7 @@ class SumstatsMunger:
 def main(argv: list[str] | None = None):
     """Run the historical munging parser and kernel entrypoint."""
     args = build_parser().parse_args(argv)
-    args.sumstats = resolve_scalar_path(args.sumstats_path, label="raw sumstats")
+    args.sumstats = resolve_scalar_path(args.sumstats_file, label="raw sumstats")
     output_dir = ensure_output_directory(args.output_dir, label="output directory")
     args.out = str(output_dir / "sumstats")
     metadata_path = args.out + ".metadata.json"
@@ -422,8 +422,8 @@ def main(argv: list[str] | None = None):
         overwrite=getattr(args, "overwrite", False),
         label="munged output artifact",
     )
-    if getattr(args, "merge_alleles_path", None):
-        args.merge_alleles = resolve_scalar_path(args.merge_alleles_path, label="merge-alleles file")
+    if getattr(args, "merge_alleles_file", None):
+        args.merge_alleles = resolve_scalar_path(args.merge_alleles_file, label="merge-alleles file")
     else:
         args.merge_alleles = None
     config_snapshot = _resolve_main_global_config(args)
@@ -435,7 +435,7 @@ def main(argv: list[str] | None = None):
         config_snapshot=config_snapshot,
         coordinate_metadata=coordinate_metadata,
         source_path=args.sumstats,
-        sumstats_path=args.out + ".sumstats.gz",
+        sumstats_file=args.out + ".sumstats.gz",
     )
     LOGGER.info(f"Munged {len(data)} retained summary-statistics rows; wrote '{args.out}.sumstats.gz'.")
     return data
@@ -517,10 +517,10 @@ def kernel_parser():
 def build_parser() -> argparse.ArgumentParser:
     """Build the public summary-statistics munging parser."""
     public = argparse.ArgumentParser(description=getattr(parser, "description", None), allow_abbrev=False)
-    public.add_argument("--sumstats-path", required=True, help="Raw summary-statistics file path.")
+    public.add_argument("--sumstats-file", required=True, help="Raw summary-statistics file path.")
     public.add_argument("--output-dir", required=True, help="Output directory for munged sumstats and logs.")
     public.add_argument("--overwrite", action="store_true", default=False, help="Replace existing fixed output files.")
-    public.add_argument("--merge-alleles-path", default=None, help="Optional merge-alleles file path.")
+    public.add_argument("--merge-alleles-file", default=None, help="Optional merge-alleles file path.")
     for action in parser._actions:
         if action.dest in {"help", "sumstats", "out", "merge_alleles"}:
             continue
@@ -638,7 +638,7 @@ def _write_sumstats_metadata(
     config_snapshot: GlobalConfig,
     coordinate_metadata: dict[str, Any],
     source_path: str | None,
-    sumstats_path: str,
+    sumstats_file: str,
 ) -> None:
     """Write sidecar metadata for a curated sumstats artifact."""
     payload = {
@@ -646,7 +646,7 @@ def _write_sumstats_metadata(
         "snp_identifier": config_snapshot.snp_identifier,
         "genome_build": config_snapshot.genome_build,
         "source_path": source_path,
-        "sumstats_path": sumstats_path,
+        "sumstats_file": sumstats_file,
         "coordinate_metadata": dict(coordinate_metadata),
         "config_snapshot": {
             "snp_identifier": config_snapshot.snp_identifier,

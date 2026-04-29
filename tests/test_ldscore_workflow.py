@@ -117,8 +117,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
         *,
         backend: str,
         genome_build: str = "hg38",
-        plink_path: str | None = None,
-        r2_paths: tuple[str, ...] = (),
+        plink_prefix: str | None = None,
+        r2_sources: tuple[str, ...] = (),
         metadata: pd.DataFrame | None = None,
     ) -> SimpleNamespace:
         metadata_by_chrom = {}
@@ -129,12 +129,12 @@ class LDScoreWorkflowTest(unittest.TestCase):
             spec=SimpleNamespace(
                 backend=backend,
                 genome_build=genome_build,
-                plink_path=plink_path,
-                r2_paths=r2_paths,
-                metadata_paths=(),
+                plink_prefix=plink_prefix,
+                r2_sources=r2_sources,
+                metadata_sources=(),
                 r2_bias_mode=None,
                 sample_size=None,
-                ref_panel_snps_path=None,
+                ref_panel_snps_file=None,
             )
         )
         if metadata is not None:
@@ -142,17 +142,17 @@ class LDScoreWorkflowTest(unittest.TestCase):
             panel.load_metadata = lambda chrom: metadata_by_chrom[str(chrom)].copy()
         return panel
 
-    def test_global_config_rejects_removed_ref_panel_snps_path(self):
+    def test_global_config_rejects_removed_ref_panel_snps_file(self):
         with self.assertRaises(TypeError):
-            GlobalConfig(snp_identifier="rsid", ref_panel_snps_path="filters/reference.tsv.gz")
+            GlobalConfig(snp_identifier="rsid", ref_panel_snps_file="filters/reference.tsv.gz")
 
-    def test_global_config_rejects_removed_regression_snps_path(self):
+    def test_global_config_rejects_removed_regression_snps_file(self):
         with self.assertRaises(TypeError):
-            GlobalConfig(snp_identifier="rsid", regression_snps_path="filters/hm3.tsv.gz")
+            GlobalConfig(snp_identifier="rsid", regression_snps_file="filters/hm3.tsv.gz")
 
-    def test_ldscore_config_accepts_regression_snps_path(self):
-        config = LDScoreConfig(ld_wind_snps=10, regression_snps_path="/path/to/snps.txt")
-        self.assertEqual(config.regression_snps_path, "/path/to/snps.txt")
+    def test_ldscore_config_accepts_regression_snps_file(self):
+        config = LDScoreConfig(ld_wind_snps=10, regression_snps_file="/path/to/snps.txt")
+        self.assertEqual(config.regression_snps_file, "/path/to/snps.txt")
 
     def test_chrom_result_uses_split_table_shape(self):
         chrom_result = ldscore_workflow.ChromLDScoreResult(
@@ -274,17 +274,17 @@ class LDScoreWorkflowTest(unittest.TestCase):
             [
                 "--output-dir",
                 "out/example",
-                "--baseline-annot-paths",
+                "--baseline-annot-sources",
                 "baseline.annot.gz",
-                "--plink-path",
+                "--plink-prefix",
                 "panel",
                 "--ld-wind-snps",
                 "10",
-                "--query-annot-bed-paths",
+                "--query-annot-bed-sources",
                 "query.bed",
             ]
         )
-        self.assertEqual(args.query_annot_bed_paths, "query.bed")
+        self.assertEqual(args.query_annot_bed_sources, "query.bed")
 
     def test_build_parser_rejects_query_annot_and_query_annot_bed_together(self):
         parser = ldscore_workflow.build_parser()
@@ -293,15 +293,15 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 [
                     "--output-dir",
                     "out/example",
-                    "--baseline-annot-paths",
+                    "--baseline-annot-sources",
                     "baseline.annot.gz",
-                    "--plink-path",
+                    "--plink-prefix",
                     "panel",
                     "--ld-wind-snps",
                     "10",
-                    "--query-annot-paths",
+                    "--query-annot-sources",
                     "query.annot.gz",
-                    "--query-annot-bed-paths",
+                    "--query-annot-bed-sources",
                     "query.bed",
                 ]
             )
@@ -336,21 +336,21 @@ class LDScoreWorkflowTest(unittest.TestCase):
             tmpdir = Path(tmpdir)
             args = Namespace(
                 output_dir=str(tmpdir / "ldscore_result"),
-                query_annot_paths=None,
+                query_annot_sources=None,
                 query_annot_chr=None,
-                baseline_annot_paths="baseline.annot.gz",
+                baseline_annot_sources="baseline.annot.gz",
                 baseline_annot_chr=None,
-                plink_path="panel",
+                plink_prefix="panel",
                 bfile_chr=None,
-                r2_paths=None,
+                r2_sources=None,
                 r2_table_chr=None,
                 snp_identifier="rsid",
                 genome_build=None,
-                ref_panel_snps_path=None,
-                regression_snps_path=None,
+                ref_panel_snps_file=None,
+                regression_snps_file=None,
                 r2_bias_mode=None,
                 r2_sample_size=None,
-                metadata_paths=None,
+                metadata_sources=None,
                 frqfile_chr=None,
                 ld_wind_snps=10,
                 ld_wind_kb=None,
@@ -391,22 +391,22 @@ class LDScoreWorkflowTest(unittest.TestCase):
             tmpdir = Path(tmpdir)
             args = Namespace(
                 output_dir=str(tmpdir / "ldscore_result"),
-                query_annot_paths=None,
+                query_annot_sources=None,
                 query_annot_chr=None,
-                query_annot_bed_paths=None,
-                baseline_annot_paths=None,
+                query_annot_bed_sources=None,
+                baseline_annot_sources=None,
                 baseline_annot_chr=None,
-                plink_path="panel",
+                plink_prefix="panel",
                 bfile_chr=None,
-                r2_paths=None,
+                r2_sources=None,
                 r2_table_chr=None,
                 snp_identifier="rsid",
                 genome_build="hg38",
-                ref_panel_snps_path=None,
-                regression_snps_path=None,
+                ref_panel_snps_file=None,
+                regression_snps_file=None,
                 r2_bias_mode=None,
                 r2_sample_size=None,
-                metadata_paths=None,
+                metadata_sources=None,
                 frqfile_chr=None,
                 ld_wind_snps=10,
                 ld_wind_kb=None,
@@ -488,22 +488,22 @@ class LDScoreWorkflowTest(unittest.TestCase):
     def test_run_ldscore_from_args_rejects_query_annotations_without_baseline(self):
         args = Namespace(
             output_dir="out/example",
-            query_annot_paths="query.annot.gz",
+            query_annot_sources="query.annot.gz",
             query_annot_chr=None,
-            query_annot_bed_paths=None,
-            baseline_annot_paths=None,
+            query_annot_bed_sources=None,
+            baseline_annot_sources=None,
             baseline_annot_chr=None,
-            plink_path="panel",
+            plink_prefix="panel",
             bfile_chr=None,
-            r2_paths=None,
+            r2_sources=None,
             r2_table_chr=None,
             snp_identifier="rsid",
             genome_build=None,
-            ref_panel_snps_path=None,
-            regression_snps_path=None,
+            ref_panel_snps_file=None,
+            regression_snps_file=None,
             r2_bias_mode=None,
             r2_sample_size=None,
-            metadata_paths=None,
+            metadata_sources=None,
             frqfile_chr=None,
             ld_wind_snps=10,
             ld_wind_kb=None,
@@ -521,22 +521,22 @@ class LDScoreWorkflowTest(unittest.TestCase):
     def test_run_ldscore_from_args_rejects_query_bed_without_baseline(self):
         args = Namespace(
             output_dir="out/example",
-            query_annot_paths=None,
+            query_annot_sources=None,
             query_annot_chr=None,
-            query_annot_bed_paths="query.bed",
-            baseline_annot_paths=None,
+            query_annot_bed_sources="query.bed",
+            baseline_annot_sources=None,
             baseline_annot_chr=None,
-            plink_path="panel",
+            plink_prefix="panel",
             bfile_chr=None,
-            r2_paths=None,
+            r2_sources=None,
             r2_table_chr=None,
             snp_identifier="rsid",
             genome_build=None,
-            ref_panel_snps_path=None,
-            regression_snps_path=None,
+            ref_panel_snps_file=None,
+            regression_snps_file=None,
             r2_bias_mode=None,
             r2_sample_size=None,
-            metadata_paths=None,
+            metadata_sources=None,
             frqfile_chr=None,
             ld_wind_snps=10,
             ld_wind_kb=None,
@@ -554,25 +554,25 @@ class LDScoreWorkflowTest(unittest.TestCase):
     def test_run_ldscore_from_args_loads_regression_snps_and_writes_filtered_ldscore(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
-            regression_snps_path = tmpdir / "regression_snps.txt"
-            regression_snps_path.write_text("SNP\nrs2\n", encoding="utf-8")
+            regression_snps_file = tmpdir / "regression_snps.txt"
+            regression_snps_file.write_text("SNP\nrs2\n", encoding="utf-8")
             args = Namespace(
                 output_dir=str(tmpdir / "ldscore_result"),
-                query_annot_paths=None,
+                query_annot_sources=None,
                 query_annot_chr=None,
-                baseline_annot_paths="baseline.annot.gz",
+                baseline_annot_sources="baseline.annot.gz",
                 baseline_annot_chr=None,
-                plink_path="panel",
+                plink_prefix="panel",
                 bfile_chr=None,
-                r2_paths=None,
+                r2_sources=None,
                 r2_table_chr=None,
                 snp_identifier="rsid",
                 genome_build=None,
-                ref_panel_snps_path=None,
-                regression_snps_path=str(regression_snps_path),
+                ref_panel_snps_file=None,
+                regression_snps_file=str(regression_snps_file),
                 r2_bias_mode=None,
                 r2_sample_size=None,
-                metadata_paths=None,
+                metadata_sources=None,
                 frqfile_chr=None,
                 ld_wind_snps=10,
                 ld_wind_kb=None,
@@ -662,8 +662,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
             keep_path.write_text("iid1\n", encoding="utf-8")
             spec = RefPanelConfig(
                 backend="parquet_r2",
-                r2_paths=(r2_path,),
-                metadata_paths=(meta_path,),
+                r2_sources=(r2_path,),
+                metadata_sources=(meta_path,),
             )
             ref_panel = SimpleNamespace(spec=spec)
 
@@ -672,7 +672,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 ref_panel=ref_panel,
                 ldscore_config=ldscore_workflow.LDScoreConfig(
                     ld_wind_cm=1.0,
-                    keep_indivs_path=keep_path,
+                    keep_indivs_file=keep_path,
                 ),
                 global_config=common,
             )
@@ -689,21 +689,21 @@ class LDScoreWorkflowTest(unittest.TestCase):
             tmpdir = Path(tmpdir)
             args = Namespace(
                 output_dir=str(tmpdir / "ldscore_result"),
-                query_annot_paths=None,
+                query_annot_sources=None,
                 query_annot_chr=None,
-                baseline_annot_paths=str(tmpdir / "baseline.@.annot.gz"),
+                baseline_annot_sources=str(tmpdir / "baseline.@.annot.gz"),
                 baseline_annot_chr=None,
-                plink_path=str(tmpdir / "panel.@"),
+                plink_prefix=str(tmpdir / "panel.@"),
                 bfile_chr=None,
-                r2_paths=None,
+                r2_sources=None,
                 r2_table_chr=None,
                 snp_identifier="rsid",
                 genome_build=None,
-                ref_panel_snps_path=None,
-                regression_snps_path=None,
+                ref_panel_snps_file=None,
+                regression_snps_file=None,
                 r2_bias_mode=None,
                 r2_sample_size=None,
-                metadata_paths=None,
+                metadata_sources=None,
                 frqfile_chr=None,
                 ld_wind_snps=10,
                 ld_wind_kb=None,
@@ -715,7 +715,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 log_level="INFO",
             )
             annotation_bundle = self.make_annotation_bundle([("1", "rs1", 10)])
-            ref_panel = self.make_ref_panel_stub(backend="plink", plink_path=str(tmpdir / "panel.@"))
+            ref_panel = self.make_ref_panel_stub(backend="plink", plink_prefix=str(tmpdir / "panel.@"))
             with mock.patch.object(ldscore_workflow.ldscore_new, "validate_args"), mock.patch(
                 "ldsc._kernel.annotation.AnnotationBuilder.run",
                 autospec=True,
@@ -733,26 +733,26 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 ldscore_workflow.run_ldscore_from_args(args)
 
             source_spec = patched_builder.call_args.args[1]
-            self.assertEqual(source_spec.baseline_annot_paths, (str(tmpdir / "baseline.@.annot.gz"),))
-            self.assertEqual(source_spec.query_annot_paths, ())
-            self.assertEqual(source_spec.query_annot_bed_paths, ())
+            self.assertEqual(source_spec.baseline_annot_sources, (str(tmpdir / "baseline.@.annot.gz"),))
+            self.assertEqual(source_spec.query_annot_sources, ())
+            self.assertEqual(source_spec.query_annot_bed_sources, ())
             ref_spec = patched_loader.call_args.args[1]
             self.assertEqual(ref_spec.backend, "plink")
-            self.assertEqual(str(ref_spec.plink_path), str(tmpdir / "panel.@"))
+            self.assertEqual(str(ref_spec.plink_prefix), str(tmpdir / "panel.@"))
 
     def test_normalize_run_args_chr_pos_auto_infers_matching_annotation_and_r2_builds(self):
         args = Namespace(
             output_dir="out",
-            query_annot_paths=None,
-            baseline_annot_paths="baseline.@.annot.gz",
-            plink_path=None,
-            r2_paths="r2.@.parquet",
+            query_annot_sources=None,
+            baseline_annot_sources="baseline.@.annot.gz",
+            plink_prefix=None,
+            r2_sources="r2.@.parquet",
             snp_identifier="chr_pos",
             genome_build="auto",
-            metadata_paths=None,
-            keep_indivs_path=None,
-            ref_panel_snps_path=None,
-            regression_snps_path=None,
+            metadata_sources=None,
+            keep_indivs_file=None,
+            ref_panel_snps_file=None,
+            regression_snps_file=None,
             log_level="INFO",
         )
         sample_calls = []
@@ -787,16 +787,16 @@ class LDScoreWorkflowTest(unittest.TestCase):
     def test_normalize_run_args_rsid_concrete_genome_build_warns_and_nulls(self):
         args = Namespace(
             output_dir="out",
-            query_annot_paths=None,
-            baseline_annot_paths="baseline.annot.gz",
-            plink_path="panel",
-            r2_paths=None,
+            query_annot_sources=None,
+            baseline_annot_sources="baseline.annot.gz",
+            plink_prefix="panel",
+            r2_sources=None,
             snp_identifier="rsid",
             genome_build="hg38",
-            metadata_paths=None,
-            keep_indivs_path=None,
-            ref_panel_snps_path=None,
-            regression_snps_path=None,
+            metadata_sources=None,
+            keep_indivs_file=None,
+            ref_panel_snps_file=None,
+            regression_snps_file=None,
             log_level="INFO",
         )
 
@@ -809,16 +809,16 @@ class LDScoreWorkflowTest(unittest.TestCase):
     def test_normalize_run_args_chr_pos_auto_rejects_annotation_r2_build_mismatch(self):
         args = Namespace(
             output_dir="out",
-            query_annot_paths=None,
-            baseline_annot_paths="baseline.@.annot.gz",
-            plink_path=None,
-            r2_paths="r2.@.parquet",
+            query_annot_sources=None,
+            baseline_annot_sources="baseline.@.annot.gz",
+            plink_prefix=None,
+            r2_sources="r2.@.parquet",
             snp_identifier="chr_pos",
             genome_build="auto",
-            metadata_paths=None,
-            keep_indivs_path=None,
-            ref_panel_snps_path=None,
-            regression_snps_path=None,
+            metadata_sources=None,
+            keep_indivs_file=None,
+            ref_panel_snps_file=None,
+            regression_snps_file=None,
             log_level="INFO",
         )
 
@@ -837,23 +837,23 @@ class LDScoreWorkflowTest(unittest.TestCase):
     def test_run_ldscore_from_args_rejects_keep_in_parquet_mode(self):
         args = Namespace(
             output_dir="out/example",
-            query_annot_paths=None,
+            query_annot_sources=None,
             query_annot_chr=None,
-            baseline_annot_paths="baseline.annot.gz",
+            baseline_annot_sources="baseline.annot.gz",
             baseline_annot_chr=None,
-            plink_path=None,
+            plink_prefix=None,
             bfile_chr=None,
-            r2_paths="chr1.parquet",
+            r2_sources="chr1.parquet",
             r2_table_chr=None,
             snp_identifier="rsid",
             genome_build=None,
-            ref_panel_snps_path=None,
-            regression_snps_path=None,
+            ref_panel_snps_file=None,
+            regression_snps_file=None,
             r2_bias_mode="unbiased",
             r2_sample_size=None,
-            metadata_paths=None,
+            metadata_sources=None,
             frqfile_chr=None,
-            keep_indivs_path="samples.keep",
+            keep_indivs_file="samples.keep",
             ld_wind_snps=10,
             ld_wind_kb=None,
             ld_wind_cm=None,
@@ -864,7 +864,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             log_level="INFO",
         )
 
-        with self.assertRaisesRegex(ValueError, "--keep-indivs-path.*PLINK"):
+        with self.assertRaisesRegex(ValueError, "--keep-indivs-file.*PLINK"):
             ldscore_workflow.run_ldscore_from_args(args)
 
     def test_run_ldscore_from_args_warns_and_skips_empty_intersection_chromosome(self):
@@ -872,21 +872,21 @@ class LDScoreWorkflowTest(unittest.TestCase):
             tmpdir = Path(tmpdir)
             args = Namespace(
                 output_dir=str(tmpdir / "ldscore_result"),
-                query_annot_paths=None,
+                query_annot_sources=None,
                 query_annot_chr=None,
-                baseline_annot_paths=str(tmpdir / "baseline.@.annot.gz"),
+                baseline_annot_sources=str(tmpdir / "baseline.@.annot.gz"),
                 baseline_annot_chr=None,
-                plink_path=None,
+                plink_prefix=None,
                 bfile_chr=None,
-                r2_paths=str(tmpdir / "r2.@.parquet"),
+                r2_sources=str(tmpdir / "r2.@.parquet"),
                 r2_table_chr=None,
                 snp_identifier="rsid",
                 genome_build="hg19",
-                ref_panel_snps_path=None,
-                regression_snps_path=None,
+                ref_panel_snps_file=None,
+                regression_snps_file=None,
                 r2_bias_mode="unbiased",
                 r2_sample_size=None,
-                metadata_paths=None,
+                metadata_sources=None,
                 frqfile_chr=None,
                 ld_wind_snps=10,
                 ld_wind_kb=None,
@@ -928,7 +928,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 )
 
             annotation_bundle = self.make_annotation_bundle([("1", "rs1", 10), ("22", "rs22", 220)], genome_build="hg19")
-            ref_panel = self.make_ref_panel_stub(backend="parquet_r2", genome_build="hg19", r2_paths=(str(tmpdir / "r2.@.parquet"),))
+            ref_panel = self.make_ref_panel_stub(backend="parquet_r2", genome_build="hg19", r2_sources=(str(tmpdir / "r2.@.parquet"),))
             with warnings.catch_warnings(record=True) as caught:
                 warnings.simplefilter("always")
                 with mock.patch.object(ldscore_workflow.ldscore_new, "validate_args"), mock.patch(
@@ -1018,13 +1018,13 @@ class LDScoreWorkflowTest(unittest.TestCase):
             expected_metadata, expected_ld = self._expected_plink_result(prefix, keep_path, maf_min=None)
             bundle = self._build_annotation_bundle(prefix)
             common = GlobalConfig(snp_identifier="rsid")
-            panel = PlinkRefPanel(common, RefPanelConfig(backend="plink", plink_path=prefix))
+            panel = PlinkRefPanel(common, RefPanelConfig(backend="plink", plink_prefix=prefix))
             result = ldscore_workflow.LDScoreCalculator().run(
                 annotation_bundle=bundle,
                 ref_panel=panel,
                 ldscore_config=LDScoreConfig(
                     ld_wind_snps=10,
-                    keep_indivs_path=keep_path,
+                    keep_indivs_file=keep_path,
                     whole_chromosome_ok=True,
                 ),
                 global_config=common,
@@ -1048,8 +1048,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 common,
                 RefPanelConfig(
                     backend="plink",
-                    plink_path=prefix,
-                    ref_panel_snps_path=restrict_path,
+                    plink_prefix=prefix,
+                    ref_panel_snps_file=restrict_path,
                 ),
             )
             result = ldscore_workflow.LDScoreCalculator().run(
@@ -1099,8 +1099,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 common,
                 RefPanelConfig(
                     backend="plink",
-                    plink_path=prefix,
-                    metadata_paths=(freq_path,),
+                    plink_prefix=prefix,
+                    metadata_sources=(freq_path,),
                 ),
             )
             result = ldscore_workflow.LDScoreCalculator().run(
@@ -1109,7 +1109,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 ldscore_config=LDScoreConfig(
                     ld_wind_snps=10,
                     maf_min=0.01,
-                    keep_indivs_path=keep_path,
+                    keep_indivs_file=keep_path,
                     whole_chromosome_ok=True,
                 ),
                 global_config=common,
@@ -1199,7 +1199,7 @@ class LDScoreParquetNormalizationTest(unittest.TestCase):
             path1.write_text("", encoding="utf-8")
             path2.write_text("", encoding="utf-8")
 
-            args = Namespace(r2_paths=str(tmpdir / "r2.@.parquet"))
+            args = Namespace(r2_sources=str(tmpdir / "r2.@.parquet"))
 
             self.assertEqual(
                 kernel_ldscore.resolve_parquet_files(args, chrom="1"),

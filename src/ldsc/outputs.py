@@ -21,6 +21,7 @@ import pandas as pd
 
 from .config import _normalize_required_path
 from .path_resolution import ensure_output_directory, ensure_output_paths_available
+from ._row_alignment import assert_same_snp_rows
 
 
 LDSCORE_RESULT_FORMAT = "ldsc.ldscore_result.v1"
@@ -129,7 +130,7 @@ class LDScoreDirectoryWriter:
         query_table = getattr(result, "query_table", None)
         baseline_columns = list(getattr(result, "baseline_columns", []))
         query_columns = list(getattr(result, "query_columns", []))
-        required_baseline = ["CHR", "SNP", "BP", "regr_weight", *baseline_columns]
+        required_baseline = ["CHR", "SNP", "POS", "regr_weight", *baseline_columns]
         missing = [column for column in required_baseline if column not in baseline_table.columns]
         if missing:
             raise ValueError(f"baseline_table is missing required columns: {missing}")
@@ -139,14 +140,15 @@ class LDScoreDirectoryWriter:
             raise ValueError("query_table was provided but query_columns is empty.")
         if query_table is None:
             return
-        required_query = ["CHR", "SNP", "BP", *query_columns]
+        required_query = ["CHR", "SNP", "POS", *query_columns]
         missing = [column for column in required_query if column not in query_table.columns]
         if missing:
             raise ValueError(f"query_table is missing required columns: {missing}")
-        baseline_keys = baseline_table.loc[:, ["CHR", "SNP", "BP"]].reset_index(drop=True)
-        query_keys = query_table.loc[:, ["CHR", "SNP", "BP"]].reset_index(drop=True)
-        if not baseline_keys.equals(query_keys):
-            raise ValueError("query rows must match baseline rows on CHR/SNP/BP.")
+        assert_same_snp_rows(
+            baseline_table,
+            query_table,
+            context="query rows must match baseline rows on CHR/SNP/POS",
+        )
 
 
 def _to_serializable(value: Any) -> Any:

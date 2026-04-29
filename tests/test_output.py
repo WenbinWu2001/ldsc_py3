@@ -24,7 +24,7 @@ def make_split_ldscore_result(query: bool = True) -> LDScoreResult:
         {
             "CHR": ["1", "1"],
             "SNP": ["rs1", "rs2"],
-            "BP": [10, 20],
+            "POS": [10, 20],
             "regr_weight": [1.5, 2.5],
             "base": [1.0, 2.0],
         }
@@ -36,7 +36,7 @@ def make_split_ldscore_result(query: bool = True) -> LDScoreResult:
             {
                 "CHR": ["1", "1"],
                 "SNP": ["rs1", "rs2"],
-                "BP": [10, 20],
+                "POS": [10, 20],
                 "query": [0.5, 0.7],
             }
         )
@@ -111,8 +111,8 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
 
             baseline = pd.read_parquet(output_dir / "baseline.parquet")
             query = pd.read_parquet(output_dir / "query.parquet")
-            self.assertEqual(baseline.columns.tolist(), ["CHR", "SNP", "BP", "regr_weight", "base"])
-            self.assertEqual(query.columns.tolist(), ["CHR", "SNP", "BP", "query"])
+            self.assertEqual(baseline.columns.tolist(), ["CHR", "SNP", "POS", "regr_weight", "base"])
+            self.assertEqual(query.columns.tolist(), ["CHR", "SNP", "POS", "query"])
 
     def test_omits_query_parquet_for_baseline_only_result(self):
         result = make_split_ldscore_result(query=False)
@@ -130,7 +130,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
     def test_rejects_query_table_with_mismatched_row_keys(self):
         result = make_split_ldscore_result(query=True)
         bad_query = result.query_table.copy()
-        bad_query.loc[1, "BP"] = 999
+        bad_query.loc[1, "POS"] = 999
         bad_result = dataclass_replace(result, query_table=bad_query)
 
         with tempfile.TemporaryDirectory() as tmpdir:

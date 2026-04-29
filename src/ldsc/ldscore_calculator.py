@@ -52,6 +52,7 @@ from .path_resolution import (
 )
 from ._kernel import ldscore as kernel_ldscore
 from ._kernel.identifiers import build_snp_id_series, read_global_snp_restriction
+from ._row_alignment import assert_same_snp_rows
 
 
 # Temporary compatibility alias while tests and call sites finish moving from the
@@ -91,10 +92,10 @@ class ChromLDScoreResult:
     chrom : str
         Chromosome label.
     baseline_table : pandas.DataFrame
-        Table with ``CHR``, ``SNP``, ``BP``, ``regr_weight``, and baseline
+        Table with ``CHR``, ``SNP``, ``POS``, ``regr_weight``, and baseline
         LD-score columns.
     query_table : pandas.DataFrame or None
-        Optional table with ``CHR``, ``SNP``, ``BP``, and query LD-score
+        Optional table with ``CHR``, ``SNP``, ``POS``, and query LD-score
         columns.
     count_records : list of dict
         Manifest-ready count records keyed by annotation column.
@@ -121,20 +122,21 @@ class ChromLDScoreResult:
 
     def validate(self) -> None:
         """Check the normalized public contract for chromosome-level results."""
-        required = {"CHR", "SNP", "BP", "regr_weight", *self.baseline_columns}
+        required = {"CHR", "SNP", "POS", "regr_weight", *self.baseline_columns}
         missing = required - set(self.baseline_table.columns)
         if missing:
             raise ValueError(f"baseline_table is missing required columns: {sorted(missing)}")
         if self.query_columns and self.query_table is None:
             raise ValueError("query_table is required when query_columns are present.")
         if self.query_table is not None:
-            missing_query = set(self.query_columns) - set(self.query_table.columns)
+            missing_query = {"CHR", "SNP", "POS", *self.query_columns} - set(self.query_table.columns)
             if missing_query:
                 raise ValueError(f"query_table is missing required columns: {sorted(missing_query)}")
-            baseline_keys = self.baseline_table.loc[:, ["CHR", "SNP", "BP"]].reset_index(drop=True)
-            query_keys = self.query_table.loc[:, ["CHR", "SNP", "BP"]].reset_index(drop=True)
-            if not baseline_keys.equals(query_keys):
-                raise ValueError("query rows must match baseline rows on CHR/SNP/BP.")
+            assert_same_snp_rows(
+                self.baseline_table,
+                self.query_table,
+                context="query rows must match baseline rows on CHR/SNP/POS",
+            )
 
     def summary(self) -> dict[str, Any]:
         """Return a compact summary of chromosome-level retained rows."""
@@ -153,11 +155,11 @@ class LDScoreResult:
     ----------
     baseline_table : pandas.DataFrame
         Cross-chromosome table persisted as ``baseline.parquet`` when the result
-        is written. Required columns are ``CHR``, ``SNP``, ``BP``,
+        is written. Required columns are ``CHR``, ``SNP``, ``POS``,
         ``regr_weight``, and every entry in ``baseline_columns``.
     query_table : pandas.DataFrame or None
         Optional cross-chromosome table persisted as ``query.parquet``. Required
-        columns are ``CHR``, ``SNP``, ``BP``, and every entry in
+        columns are ``CHR``, ``SNP``, ``POS``, and every entry in
         ``query_columns``.
     count_records : list of dict
         Manifest-ready count records. Each record names an annotation column and
@@ -188,9 +190,9 @@ class LDScoreResult:
     count_config: dict[str, Any] = field(default_factory=dict)
     config_snapshot: GlobalConfig | None = None
 
-    def validate(self) -> None:
+    def validate(self, *, require_query_alignment: bool = True) -> None:
         """Check the normalized public contract for aggregated results."""
-        required = {"CHR", "SNP", "BP", "regr_weight", *self.baseline_columns}
+        required = {"CHR", "SNP", "POS", "regr_weight", *self.baseline_columns}
         missing = required - set(self.baseline_table.columns)
         if missing:
             raise ValueError(f"baseline_table is missing required columns: {sorted(missing)}")
@@ -199,13 +201,15 @@ class LDScoreResult:
         if not self.query_columns and self.query_table is not None:
             raise ValueError("query_table was provided but query_columns is empty.")
         if self.query_table is not None:
-            missing_query = set(self.query_columns) - set(self.query_table.columns)
+            missing_query = {"CHR", "SNP", "POS", *self.query_columns} - set(self.query_table.columns)
             if missing_query:
                 raise ValueError(f"query_table is missing required columns: {sorted(missing_query)}")
-            baseline_keys = self.baseline_table.loc[:, ["CHR", "SNP", "BP"]].reset_index(drop=True)
-            query_keys = self.query_table.loc[:, ["CHR", "SNP", "BP"]].reset_index(drop=True)
-            if not baseline_keys.equals(query_keys):
-                raise ValueError("query rows must match baseline rows on CHR/SNP/BP.")
+            if require_query_alignment:
+                assert_same_snp_rows(
+                    self.baseline_table,
+                    self.query_table,
+                    context="query rows must match baseline rows on CHR/SNP/POS",
+                )
 
     def summary(self) -> dict[str, Any]:
         """Return a compact cross-chromosome summary."""
@@ -388,11 +392,11 @@ class LDScoreCalculator:
             reference_ids if regression_snps is None else frozenset(reference_ids.intersection(regression_snps))
         )
         regression_keep = build_snp_id_series(reference_metadata, global_config.snp_identifier).isin(retained_regression_snps)
-        bp_column = "BP" if "BP" in reference_metadata.columns else "POS"
+        pos_column = "POS" if "POS" in reference_metadata.columns else "BP"
         regression_weights = np.asarray(legacy_result.w_ld, dtype=np.float32).reshape(-1)
         ldscore_table = pd.concat(
             [
-                reference_metadata.loc[regression_keep, ["CHR", "SNP", bp_column]].rename(columns={bp_column: "BP"}).reset_index(drop=True),
+                reference_metadata.loc[regression_keep, ["CHR", "SNP", pos_column]].rename(columns={pos_column: "POS"}).reset_index(drop=True),
                 ld_scores.loc[regression_keep].reset_index(drop=True),
                 pd.DataFrame({"regr_weight": regression_weights[regression_keep.to_numpy()]}).reset_index(drop=True),
             ],
@@ -516,7 +520,7 @@ def _split_ldscore_table(
     query_columns: list[str],
 ) -> tuple[pd.DataFrame, pd.DataFrame | None]:
     """Split a merged LD-score table into baseline and optional query tables."""
-    metadata_columns = ["CHR", "SNP", "BP"]
+    metadata_columns = ["CHR", "SNP", "POS"]
     baseline_order = [*metadata_columns, "regr_weight", *baseline_columns]
     query_order = [*metadata_columns, *query_columns]
     missing_baseline = [column for column in baseline_order if column not in ldscore_table.columns]
@@ -529,6 +533,11 @@ def _split_ldscore_table(
         if missing_query:
             raise ValueError(f"LD-score table is missing query columns: {missing_query}")
         query_table = ldscore_table.loc[:, query_order].reset_index(drop=True).copy()
+        assert_same_snp_rows(
+            baseline_table,
+            query_table,
+            context="query rows must match baseline rows on CHR/SNP/POS",
+        )
     return baseline_table, query_table
 
 
@@ -540,10 +549,11 @@ def _join_split_tables(
     """Join split LD-score tables for sorting or regression assembly."""
     if query_table is None:
         return baseline_table.copy()
-    baseline_keys = baseline_table.loc[:, ["CHR", "SNP", "BP"]].reset_index(drop=True)
-    query_keys = query_table.loc[:, ["CHR", "SNP", "BP"]].reset_index(drop=True)
-    if not baseline_keys.equals(query_keys):
-        raise ValueError("query rows must match baseline rows on CHR/SNP/BP.")
+    assert_same_snp_rows(
+        baseline_table,
+        query_table,
+        context="query rows must match baseline rows on CHR/SNP/POS",
+    )
     query_values = query_table.loc[:, list(query_columns)].reset_index(drop=True)
     return pd.concat([baseline_table.reset_index(drop=True), query_values], axis=1)
 

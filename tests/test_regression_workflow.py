@@ -53,7 +53,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                 {
                     "CHR": ["1"],
                     "SNP": ["rs1"],
-                    "BP": [10],
+                    "POS": [10],
                     "regr_weight": [3.0],
                     "base": [1.0],
                 }
@@ -62,7 +62,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                 {
                     "CHR": ["1"],
                     "SNP": ["rs1"],
-                    "BP": [10],
+                    "POS": [10],
                     "query": [2.0],
                 }
             ).to_parquet(tmpdir / "query.parquet", index=False)
@@ -97,11 +97,51 @@ class RegressionWorkflowTest(unittest.TestCase):
             )
             result = load_ldscore_from_dir(str(tmpdir))
 
-        self.assertEqual(result.baseline_table.columns.tolist(), ["CHR", "SNP", "BP", "regr_weight", "base"])
-        self.assertEqual(result.query_table.columns.tolist(), ["CHR", "SNP", "BP", "query"])
+        self.assertEqual(result.baseline_table.columns.tolist(), ["CHR", "SNP", "POS", "regr_weight", "base"])
+        self.assertEqual(result.query_table.columns.tolist(), ["CHR", "SNP", "POS", "query"])
         self.assertEqual(result.count_records[0]["column"], "base")
         self.assertEqual(result.ld_regression_snps, frozenset({"rs1"}))
         self.assertEqual(result.config_snapshot, GlobalConfig(snp_identifier="rsid"))
+
+    def test_load_ldscore_from_dir_rejects_legacy_bp_coordinate_schema(self):
+        from ldsc import load_ldscore_from_dir
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            pd.DataFrame(
+                {
+                    "CHR": ["1"],
+                    "SNP": ["rs1"],
+                    "BP": [10],
+                    "regr_weight": [3.0],
+                    "base": [1.0],
+                }
+            ).to_parquet(tmpdir / "baseline.parquet", index=False)
+            (tmpdir / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "format": "ldsc.ldscore_result.v1",
+                        "files": {"baseline": "baseline.parquet"},
+                        "snp_identifier": "rsid",
+                        "genome_build": "hg38",
+                        "chromosomes": ["1"],
+                        "baseline_columns": ["base"],
+                        "query_columns": [],
+                        "counts": [
+                            {
+                                "group": "baseline",
+                                "column": "base",
+                                "all_reference_snp_count": 5.0,
+                            }
+                        ],
+                        "config_snapshot": {"snp_identifier": "rsid", "genome_build": "hg38", "log_level": "INFO"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "baseline_table is missing required columns.*POS"):
+                load_ldscore_from_dir(str(tmpdir))
 
     def test_load_ldscore_from_dir_warns_when_config_snapshot_is_missing(self):
         from ldsc import load_ldscore_from_dir
@@ -144,7 +184,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             {
                 "CHR": ["1", "1", "1"],
                 "SNP": ["rs1", "rs2", "rs3"],
-                "BP": [10, 20, 30],
+                "POS": [10, 20, 30],
                 "regr_weight": [2.0, 2.0, 2.0],
                 "base": [1.0, 2.0, 3.0],
             }
@@ -153,7 +193,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             {
                 "CHR": ["1", "1", "1"],
                 "SNP": ["rs1", "rs2", "rs3"],
-                "BP": [10, 20, 30],
+                "POS": [10, 20, 30],
                 "query1": [1.0, 2.0, 3.0],
                 "query2": [0.5, 1.5, 2.5],
             }
@@ -211,7 +251,7 @@ class RegressionWorkflowTest(unittest.TestCase):
         metadata = pd.DataFrame(
             {
                 "CHR": ["1", "1", "1"],
-                "BP": [10, 20, 30],
+                "POS": [10, 20, 30],
                 "SNP": ["rs1", "rs2", "rs3"],
                 "CM": [0.1, 0.2, 0.3],
             }
@@ -232,7 +272,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             {
                 "CHR": ["1"],
                 "SNP": ["rs1"],
-                "BP": [10],
+                "POS": [10],
                 "regr_weight": [2.0],
                 "base": [1.0],
             }
@@ -252,7 +292,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                 {
                     "CHR": ["1"],
                     "SNP": ["rs1"],
-                    "BP": [10],
+                    "POS": [10],
                     "query": [2.0],
                 }
             ).to_parquet(root / "query.parquet", index=False)
@@ -296,6 +336,17 @@ class RegressionWorkflowTest(unittest.TestCase):
         )
         self.assertEqual(dataset.config_snapshot, GlobalConfig(snp_identifier="rsid"))
 
+    def test_build_dataset_baseline_only_ignores_unused_misaligned_query_table(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        result = self.make_ldscore_result()
+        bad_query = result.query_table.iloc[[1, 0, 2]].reset_index(drop=True)
+        result = replace(result, query_table=bad_query)
+
+        dataset = runner.build_dataset(self.make_sumstats_table(), result)
+
+        self.assertEqual(dataset.retained_ld_columns, ["base"])
+        self.assertEqual(dataset.merged["SNP"].tolist(), ["rs1", "rs2", "rs3"])
+
     def test_build_dataset_can_include_one_query_annotation_for_partitioned_h2(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
         dataset = runner.build_dataset(self.make_sumstats_table(), self.make_ldscore_result(), query_columns=["query2"])
@@ -304,6 +355,16 @@ class RegressionWorkflowTest(unittest.TestCase):
             dataset.reference_snp_count_totals["common_reference_snp_counts"],
             [8.0, 28.0],
         )
+
+    def test_build_dataset_with_query_rejects_misaligned_query_table(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        result = self.make_ldscore_result()
+        bad_query = result.query_table.copy()
+        bad_query.loc[1, "POS"] = 999
+        result = replace(result, query_table=bad_query)
+
+        with self.assertRaisesRegex(ValueError, "query rows must match baseline rows"):
+            runner.build_dataset(self.make_sumstats_table(), result, query_columns=["query2"])
 
     def test_old_common_count_manifest_key_is_not_recognized(self):
         old_result = replace(

@@ -64,9 +64,9 @@ materialize legacy prefix-based files for compatibility tests, but the public
 canonical directory:
 
 - ``manifest.json``
-- ``baseline.parquet``, containing ``CHR``, ``SNP``, ``BP``, ``regr_weight``,
+- ``baseline.parquet``, containing ``CHR``, ``SNP``, ``POS``, ``regr_weight``,
   and baseline LD-score columns
-- optional ``query.parquet``, containing ``CHR``, ``SNP``, ``BP``, and query
+- optional ``query.parquet``, containing ``CHR``, ``SNP``, ``POS``, and query
   LD-score columns
 
 Count records are stored in the manifest rather than as public ``.M`` sidecar
@@ -223,6 +223,7 @@ from ..path_resolution import (
     resolve_file_group,
     resolve_plink_prefix,
 )
+from .._row_alignment import assert_same_snp_rows
 from . import formats as legacy_parse
 from .identifiers import build_snp_id_series, read_global_snp_restriction
 
@@ -1012,15 +1013,11 @@ def combine_annotation_groups(
                 frames.append(meta)
             else:
                 reference = frames[0]
-                if len(reference) != len(meta) or not reference["_key"].equals(meta["_key"]):
-                    raise ValueError(
-                        f"Annotation SNP rows do not match across files for chromosome {chrom}: {path}"
-                    )
-                same_core = reference.loc[:, ["CHR", "POS", "SNP"]].equals(meta.loc[:, ["CHR", "POS", "SNP"]])
-                if not same_core:
-                    raise ValueError(
-                        f"Annotation metadata mismatch across files for chromosome {chrom}: {path}"
-                    )
+                assert_same_snp_rows(
+                    reference,
+                    meta,
+                    context=f"Annotation SNP rows do not match across files for chromosome {chrom}: {path}",
+                )
                 missing_cm = reference["CM"].isna() & meta["CM"].notna()
                 if missing_cm.any():
                     frames[0].loc[missing_cm, "CM"] = meta.loc[missing_cm, "CM"].to_numpy()

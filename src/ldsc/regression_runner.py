@@ -44,6 +44,7 @@ from .config import (
 from .path_resolution import ensure_output_directory, ensure_output_paths_available, normalize_path_token
 from ._kernel import regression as reg
 from ._kernel.identifiers import build_snp_id_series
+from ._row_alignment import assert_same_snp_rows
 from .column_inference import infer_chr_pos_columns, normalize_snp_identifier_mode
 from .ldscore_calculator import LDScoreResult
 from .outputs import LDSCORE_RESULT_FORMAT
@@ -374,10 +375,11 @@ def _assemble_regression_ldscore_table(ldscore_result: LDScoreResult, query_colu
     if missing:
         raise ValueError(f"Unknown query LD-score columns requested: {missing}")
     query_table = ldscore_result.query_table.reset_index(drop=True)
-    baseline_keys = baseline_table.loc[:, ["CHR", "SNP", "BP"]]
-    query_keys = query_table.loc[:, ["CHR", "SNP", "BP"]]
-    if not baseline_keys.equals(query_keys):
-        raise ValueError("query rows must match baseline rows on CHR/SNP/BP.")
+    assert_same_snp_rows(
+        baseline_table,
+        query_table,
+        context="query rows must match baseline rows on CHR/SNP/POS",
+    )
     return pd.concat([baseline_table, query_table.loc[:, list(query_columns)]], axis=1)
 
 
@@ -697,7 +699,7 @@ def load_ldscore_from_dir(
         count_config=dict(manifest.get("count_config", {})),
         config_snapshot=config_snapshot,
     )
-    result.validate()
+    result.validate(require_query_alignment=False)
     query_rows = 0 if query_table is None else len(query_table)
     LOGGER.info(
         f"Loaded LD-score directory '{root}' with {len(baseline_table)} baseline rows, "

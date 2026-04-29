@@ -53,7 +53,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             {
                 "CHR": [chrom],
                 "SNP": [f"rs{chrom}"],
-                "BP": [bp],
+                "POS": [bp],
                 "regr_weight": [score + 2.0],
                 "base": [score],
             }
@@ -62,7 +62,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             {
                 "CHR": [chrom],
                 "SNP": [f"rs{chrom}"],
-                "BP": [bp],
+                "POS": [bp],
                 "query": [score + 1.0],
             }
         )
@@ -161,7 +161,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 {
                     "CHR": ["1"],
                     "SNP": ["rs1"],
-                    "BP": [10],
+                    "POS": [10],
                     "regr_weight": [3.0],
                     "base": [1.0],
                 }
@@ -170,7 +170,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 {
                     "CHR": ["1"],
                     "SNP": ["rs1"],
-                    "BP": [10],
+                    "POS": [10],
                     "query": [2.0],
                 }
             ),
@@ -263,8 +263,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
         )
         self.assertFalse(hasattr(result, "reference_metadata"))
         self.assertEqual(result.baseline_table["CHR"].tolist(), ["1", "2"])
-        self.assertEqual(result.baseline_table.columns.tolist(), ["CHR", "SNP", "BP", "regr_weight", "base"])
-        self.assertEqual(result.query_table.columns.tolist(), ["CHR", "SNP", "BP", "query"])
+        self.assertEqual(result.baseline_table.columns.tolist(), ["CHR", "SNP", "POS", "regr_weight", "base"])
+        self.assertEqual(result.query_table.columns.tolist(), ["CHR", "SNP", "POS", "query"])
         self.assertEqual(result.count_records[0]["all_reference_snp_count"], 30.0)
         self.assertEqual(result.count_records[1]["common_reference_snp_count"], 30.0)
 
@@ -491,7 +491,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                         {
                             "CHR": ["1", "1"],
                             "SNP": ["rs1", "rs2"],
-                            "BP": [10, 20],
+                            "POS": [10, 20],
                             "regr_weight": [3.0, 4.0],
                             "base": [1.0, 2.0],
                         }
@@ -533,7 +533,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             self.assertIsNone(result.query_table)
             self.assertNotIn("query", result.output_paths)
             baseline_df = pd.read_parquet(result.output_paths["baseline"])
-            self.assertEqual(baseline_df.columns.tolist(), ["CHR", "SNP", "BP", "regr_weight", "base"])
+            self.assertEqual(baseline_df.columns.tolist(), ["CHR", "SNP", "POS", "regr_weight", "base"])
             self.assertEqual(result.count_records[0]["column"], "base")
 
     def test_run_ldscore_from_args_rejects_query_annotations_without_baseline(self):
@@ -647,7 +647,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                         {
                             "CHR": ["1"],
                             "SNP": ["rs2"],
-                            "BP": [20],
+                            "POS": [20],
                             "regr_weight": [6.0],
                             "base": [3.0],
                         }
@@ -656,7 +656,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                         {
                             "CHR": ["1"],
                             "SNP": ["rs2"],
-                            "BP": [20],
+                            "POS": [20],
                             "query": [4.0],
                         }
                     ),
@@ -964,7 +964,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                         {
                             "CHR": ["22"],
                             "SNP": ["rs22"],
-                            "BP": [220],
+                            "POS": [220],
                             "regr_weight": [3.0],
                             "base": [2.0],
                         }

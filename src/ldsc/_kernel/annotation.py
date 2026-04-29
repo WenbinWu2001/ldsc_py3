@@ -89,6 +89,7 @@ from ..path_resolution import (
     resolve_scalar_path,
     split_cli_path_tokens,
 )
+from .._row_alignment import assert_same_snp_rows
 from .identifiers import (
     build_snp_id_series,
     normalize_snp_identifier_mode,
@@ -595,12 +596,11 @@ class AnnotationBuilder:
 
     def _ensure_aligned_rows(self, reference: pd.DataFrame, current: pd.DataFrame, path: str) -> None:
         """Raise if two annotation tables do not share identical SNP row order."""
-        ref_keys = build_snp_id_series(reference, self.global_config.snp_identifier)
-        cur_keys = build_snp_id_series(current, self.global_config.snp_identifier)
-        if len(reference) != len(current) or not ref_keys.equals(cur_keys):
-            raise ValueError(f"Annotation SNP rows do not match across files: {path}")
-        if not reference.loc[:, ["CHR", "POS", "SNP"]].equals(current.loc[:, ["CHR", "POS", "SNP"]]):
-            raise ValueError(f"Annotation metadata mismatch across files: {path}")
+        assert_same_snp_rows(
+            reference,
+            current,
+            context=f"Annotation SNP rows do not match across files: {path}",
+        )
 
     def _merge_missing_metadata(self, reference: pd.DataFrame, current: pd.DataFrame) -> pd.DataFrame:
         """Backfill missing `CM` or `MAF` metadata from another aligned table."""
@@ -1081,7 +1081,6 @@ def _write_bundle_query_as_annot_files(bundle: AnnotationBundle, output_dir: Pat
     for chrom, out_path in zip(bundle.chromosomes, _bundle_query_annot_output_paths(bundle, output_dir)):
         chrom_mask = bundle.metadata["CHR"].astype(str) == str(chrom)
         chrom_meta = bundle.metadata.loc[chrom_mask].reset_index(drop=True).copy()
-        chrom_meta = chrom_meta.rename(columns={"POS": "BP"})
         chrom_query = bundle.query_annotations.loc[chrom_mask].reset_index(drop=True)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         with gzip.open(out_path, "wt") as handle:

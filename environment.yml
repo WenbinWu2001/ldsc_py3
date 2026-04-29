@@ -1,6 +1,7 @@
 name: ldsc3
 channels:
 - conda-forge
+- bioconda
 dependencies:
 - python>=3.11,<3.14
 - bedtools>=2.31,<3

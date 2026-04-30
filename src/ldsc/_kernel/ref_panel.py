@@ -371,13 +371,25 @@ class ParquetR2RefPanel(RefPanel):
     ):
         """Build a row-group-pruning block reader over one chromosome's R2 parquet."""
         metadata = metadata if metadata is not None else self.load_metadata(chrom)
+        paths = self.resolve_r2_paths(chrom)
+        effective_bias = self.spec.r2_bias_mode if r2_bias_mode is None else r2_bias_mode
+        effective_n = r2_sample_size if r2_sample_size is not None else self.spec.sample_size
+
+        if paths:
+            stored = _read_r2_schema_meta(paths[0])
+            effective_bias, effective_n = _resolve_r2_bias_from_meta(
+                effective_bias,
+                effective_n,
+                stored,
+            )
+
         return kernel_ldscore.SortedR2BlockReader(
-            paths=self.resolve_r2_paths(chrom),
+            paths=paths,
             chrom=chrom,
             metadata=metadata,
             identifier_mode=self.global_config.snp_identifier,
-            r2_bias_mode=self.spec.r2_bias_mode if r2_bias_mode is None else r2_bias_mode,
-            r2_sample_size=r2_sample_size if r2_sample_size is not None else self.spec.sample_size,
+            r2_bias_mode=effective_bias,
+            r2_sample_size=effective_n,
             genome_build=self.global_config.genome_build,
         )
 

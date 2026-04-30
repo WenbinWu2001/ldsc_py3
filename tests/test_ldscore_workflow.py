@@ -228,6 +228,41 @@ class R2AutoLoadCLITest(unittest.TestCase):
         self.assertEqual(args.r2_bias_mode, "raw")
         self.assertAlmostEqual(args.r2_sample_size, 150.0)
 
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet schema coverage")
+    def test_parquet_panel_autofills_raw_and_n_from_schema(self):
+        from ldsc._kernel.ref_panel import ParquetR2RefPanel
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "hg19" / "chr1_r2.parquet"
+            _write_minimal_r2_parquet(
+                path,
+                {b"ldsc:n_samples": b"200", b"ldsc:r2_bias": b"raw"},
+            )
+            spec = RefPanelConfig(
+                backend="parquet_r2",
+                r2_dir=str(Path(tmpdir) / "hg19"),
+                r2_bias_mode=None,
+                r2_sample_size=None,
+            )
+            panel = ParquetR2RefPanel(
+                GlobalConfig(snp_identifier="rsid"),
+                spec,
+            )
+            metadata = pd.DataFrame(
+                {
+                    "CHR": ["1"],
+                    "POS": [100],
+                    "SNP": ["rs1"],
+                    "CM": [0.0],
+                    "MAF": [0.3],
+                }
+            )
+
+            reader = panel.build_reader("1", metadata=metadata)
+
+        self.assertEqual(reader.r2_bias_mode, "raw")
+        self.assertAlmostEqual(reader.r2_sample_size, 200.0)
+
 
 @unittest.skipIf(ldscore_workflow is None, "ldscore_workflow module is not available")
 class LDScoreWorkflowTest(unittest.TestCase):

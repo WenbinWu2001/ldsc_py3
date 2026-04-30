@@ -63,8 +63,10 @@ Use this when you have one file or prefix per chromosome.
 
 ## How Group Inputs Are Handled
 
-Group-style inputs include annotation files, parquet R2 tables, BED inputs, and
-frequency metadata. A single argument may resolve to multiple files.
+Group-style inputs include annotation files and BED inputs. The public
+reference-panel parquet interface is directory-oriented (`r2_dir`); the loader
+discovers fixed `chr*_r2.parquet` files and optional metadata sidecars inside
+that directory.
 
 During per-chromosome processing:
 

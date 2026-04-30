@@ -1,9 +1,9 @@
-# IO Argument Inventory and Implementation Plan
+# IO Argument Inventory
 
 Date: 2026-04-28
 
-This document records the final public input/output naming target after the
-LD-score result-directory refactor. The LD-score workflow now uses a canonical
+This document records the current public input/output naming contract after the
+LD-score result-directory refactor. The LD-score workflow uses a canonical
 result directory as the baseline design:
 
 ```text
@@ -47,6 +47,8 @@ inside that directory are fixed and workflow-specific.
 | `--query-annot-bed-sources` | input | yes | BED interval files | Accepts exact files, globs, comma-separated tokens, and source-token lists. BED basenames become query annotation names. |
 | `--baseline-annot-sources` | input | yes | baseline `.annot[.gz]` templates | Accepts exact files, globs, and `@` chromosome-suite tokens. |
 | `--output-dir` | output | yes | generated query annotation directory | Writes combined `query.<chrom>.annot.gz` files, with all BED inputs represented as query columns. |
+| `--overwrite` | output mode | no | collision policy | Permits replacement of generated `query.<chrom>.annot.gz` files. |
+| `--snp-identifier`, `--genome-build` | config | no | coordinate interpretation | `--snp-identifier` defaults to `chr_pos`; `chr_pos` coordinate inputs need `--genome-build auto`, `hg19`, or `hg38`. |
 
 Removed flags: `--bed-files`, `--baseline-annot`.
 
@@ -55,6 +57,7 @@ Removed flags: `--bed-files`, `--baseline-annot`.
 | Flag | Direction | Required | Object | Notes |
 |---|---:|---:|---|---|
 | `--output-dir` | output | yes | canonical LD-score result directory | Writes `manifest.json`, `baseline.parquet`, and optional `query.parquet`; parquet row groups are chromosome-aligned. |
+| `--overwrite` | output mode | no | collision policy | Permits replacement of the fixed LD-score files in `output_dir`. |
 | `--baseline-annot-sources` | input | no | baseline annotation files | Exact files, globs, comma lists, or `@` suites. If omitted with no query inputs, `ldscore` synthesizes an all-ones `base` column from retained reference-panel metadata. |
 | `--query-annot-sources` | input | no | prebuilt query annotation files | Mutually exclusive with `--query-annot-bed-sources`; requires `--baseline-annot-sources`. |
 | `--query-annot-bed-sources` | input | no | query BED interval files | Projected in memory onto the baseline SNP universe; requires `--baseline-annot-sources`. |
@@ -67,6 +70,8 @@ Removed flags: `--bed-files`, `--baseline-annot`.
 | `--keep-indivs-file` | input | no | PLINK individual keep file | PLINK mode only. |
 | `--maf-min` | input metadata | no | retained reference-panel MAF filter | Applied in the reference-panel layer when MAF is available. |
 | `--common-maf-min` | input metadata | no | common-SNP count threshold | Default `0.05`; affects common count vectors only, using `MAF >= common_maf_min`. |
+| `--chunk-size` | performance | no | PLINK block size | Default `128`; used by legacy PLINK block computations. |
+| `--yes-really` | safety override | no | whole-chromosome LD windows | Allows whole-chromosome LD windows when no LD-window option is supplied. |
 
 Removed flags: `--bfile`, `--r2-table`, `--frqfile`, `--r2-sources`,
 `--metadata-sources`, `--keep`, `--maf`, `--baseline-annot`,
@@ -81,8 +86,8 @@ LD-score output schema:
   when there are no query annotations.
 - `manifest.json`: format version, relative file paths, baseline/query column
   names, count records, `count_config`, config metadata, chromosomes, row
-  counts, `row_group_layout`, `baseline_row_groups`, `query_row_groups`, and
-  writer metadata.
+  counts, `row_group_layout`, `baseline_row_groups`, and
+  `query_row_groups`.
 
 ### `ldsc build-ref-panel`
 
@@ -99,6 +104,8 @@ LD-score output schema:
 | `--keep-indivs-file` | input | no | PLINK individual keep file | Applied during PLINK loading. |
 | `--maf-min` | input metadata | no | retained SNP MAF filter | Applied during PLINK loading. |
 | `--output-dir` | output | yes | reference-panel artifact directory | Run identity is `Path(output_dir).name`; no separate label is accepted. |
+| `--overwrite` | output mode | no | collision policy | Permits replacement of deterministic parquet and metadata outputs. |
+| `--chunk-size` | performance | no | block size | Default `128`; used during block processing. |
 
 Removed flags: `--bfile`, `--out`, `--panel-label`, `--keep-indivs`, `--maf`,
 `--genetic-map-hg19`, `--genetic-map-hg38`, old liftover-chain names without
@@ -130,7 +137,8 @@ build's LD window.
 | `--sumstats-snps-file` | input | no | summary-statistics SNP keep-list | Exact path or exact-one glob. Restricts munged rows only; does not allele-match or reorder rows. |
 | `--output-dir` | output | yes | munged output directory | Internally uses `<output_dir>/sumstats` as the legacy kernel stem. |
 | `--chr`, `--pos` | input metadata | no | raw column hints | Explicit chromosome and base-pair position columns; common aliases such as `#CHROM`, `CHROM`, `CHR`, `POS`, and `BP` are also inferred. |
-| `--snp-identifier`, `--genome-build` | config | no | provenance | Recorded in `sumstats.metadata.json`; `--genome-build auto` can infer hg19/hg38 for complete `CHR`/`POS` rows. |
+| `--snp-identifier`, `--genome-build` | config | no | provenance | `--snp-identifier` defaults to `chr_pos`; `--genome-build` defaults to `hg38`; `--genome-build auto` can infer hg19/hg38 for complete `CHR`/`POS` rows. |
+| `--overwrite` | output mode | no | collision policy | Permits replacement of the fixed sumstats outputs. |
 
 Removed flags: `--sumstats`, `--merge-alleles`, `--merge-alleles-file`, `--out`.
 
@@ -149,6 +157,8 @@ Fixed output names:
 | `--ldscore-dir` | input | yes | canonical LD-score result directory | Reads baseline LD scores and embedded `regr_weight`. |
 | `--sumstats-file` | input | yes | munged summary-statistics file | Exact path or exact-one glob. |
 | `--output-dir` | output | no | result output directory | Writes `h2.tsv` when supplied. |
+| `--count-kind` | model | no | count vector choice | `common` by default; `all` uses all-SNP counts. |
+| `--overwrite` | output mode | no | collision policy | Permits replacement of `h2.tsv`. |
 
 Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 `--sumstats`, `--out`.
@@ -160,7 +170,9 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 | `--ldscore-dir` | input | yes | canonical LD-score result directory | Reads baseline plus query LD scores. |
 | `--sumstats-file` | input | yes | munged summary-statistics file | Exact path or exact-one glob. |
 | `--output-dir` | output | no | result output directory | Writes `partitioned_h2.tsv` when supplied. |
+| `--count-kind` | model | no | count vector choice | `common` by default; `all` uses all-SNP counts. |
 | `--write-per-query-results` | output mode | no | per-query result tree | Also writes `query_annotations/manifest.tsv` plus one sanitized query folder under `--output-dir`. |
+| `--overwrite` | output mode | no | collision policy | Permits replacement of aggregate and requested per-query outputs. |
 
 Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 `--query-columns`, `--sumstats`, `--out`.
@@ -173,6 +185,8 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 | `--sumstats-1-file` | input | yes | first munged summary-statistics file | Exact path or exact-one glob. |
 | `--sumstats-2-file` | input | yes | second munged summary-statistics file | Exact path or exact-one glob. |
 | `--output-dir` | output | no | result output directory | Writes `rg.tsv` when supplied. |
+| `--count-kind` | model | no | count vector choice | `common` by default; `all` uses all-SNP counts. |
+| `--overwrite` | output mode | no | collision policy | Permits replacement of `rg.tsv`. |
 
 Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 `--sumstats-1`, `--sumstats-2`, `--out`.

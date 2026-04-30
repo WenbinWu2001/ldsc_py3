@@ -7,7 +7,7 @@ This document summarizes the public package surface. For workflow-level file str
 | Feature | CLI | Python entry points | Main inputs | Main outputs |
 | --- | --- | --- | --- | --- |
 | Build query annotations | `ldsc annotate` | `AnnotationBuilder`, `run_bed_to_annot()` | baseline `.annot(.gz)`, BED inputs | `query.<chrom>.annot.gz` |
-| Build parquet reference panels | `ldsc build-ref-panel` | `ReferencePanelBuilder`, `run_build_ref_panel()` | PLINK prefix, optional liftover chains, conditional genetic maps, optional keep/restrict files; `snp_identifier` only when a SNP restriction file is supplied | per-chromosome `ann.parquet`, `LD.parquet`, emitted `meta_*.tsv.gz` sidecars |
+| Build parquet reference panels | `ldsc build-ref-panel` | `ReferencePanelBuilder`, `run_build_ref_panel()` | PLINK prefix, optional source build inferred from `.bim`, optional liftover chains, conditional genetic maps, optional keep/restrict files; restriction identifier read from `GlobalConfig` and coordinates interpreted in the source build | per-build `chr*_r2.parquet` and `chr*_meta.tsv.gz` artifacts |
 | Compute LD scores | `ldsc ldscore` | `LDScoreCalculator`, `run_ldscore()` | optional baseline annotation shards, optional query annotations only when baseline is explicit, PLINK or parquet reference panel, optional frequency metadata | `manifest.json`, `baseline.parquet`, optional `query.parquet` under `output_dir`; parquet row groups are chromosome-aligned; no-annotation runs write synthetic `base` |
 | Infer `chr_pos` genome build | workflow flags only: `--genome-build auto`; no standalone CLI command | `infer_chr_pos_build()`, `resolve_genome_build()`, `resolve_chr_pos_table()` | pandas table with `CHR` and `POS`; optional reference table | `ChrPosBuildInference`, resolved `GlobalConfig`, and optionally a normalized 1-based table |
 | Munge GWAS summary statistics | `ldsc munge-sumstats` | `SumstatsMunger`, `load_sumstats()` | raw sumstats, column hints, QC thresholds, optional `--chr`/`--pos`, `--genome-build auto`, optional `--sumstats-snps-file` keep-list | `sumstats.sumstats.gz`, `sumstats.log`, `sumstats.metadata.json` |
@@ -82,7 +82,7 @@ This document summarizes the public package surface. For workflow-level file str
   workflow; it does not remove unrelated files from the output directory.
 - Raw user-authored inputs use permissive alias resolution through `column_inference.py`.
 - Raw sumstats may begin with `##` metadata/comment lines; these are skipped before header inference, so `#CHROM` remains available as the chromosome header.
-- `chr_pos` workflows require an explicit genome build or `--genome-build auto`; `rsid` workflows do not use genome-build metadata.
+- `chr_pos` workflows that interpret external coordinates require an explicit genome build or `--genome-build auto`; workflows such as `build-ref-panel` may ignore `GlobalConfig.genome_build` when they own a separate source-build contract. `rsid` workflows do not use genome-build metadata.
 - Package-written sumstats artifacts include canonical `CHR` and `POS` columns. They are populated from inferred or explicitly flagged raw columns and filled as missing when the raw file lacks coordinates.
 - Package-written artifacts use stricter internal headers so downstream workflows reload them deterministically.
 

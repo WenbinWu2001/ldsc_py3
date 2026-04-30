@@ -138,9 +138,9 @@ RAW_SUMSTATS_REQUIRED_OR_OPTIONAL_SPECS = (
     ColumnSpec("A1", ("A1", "ALLELE1", "ALLELE_1", "EFFECT_ALLELE", "REFERENCE_ALLELE", "INC_ALLELE", "EA"), "effect allele"),
     ColumnSpec("A2", ("A2", "ALLELE2", "ALLELE_2", "OTHER_ALLELE", "NON_EFFECT_ALLELE", "DEC_ALLELE", "NEA"), "non-effect allele"),
     ColumnSpec("N", ("N", "WEIGHT"), "summary-stat sample size"),
-    ColumnSpec("N_CAS", ("NCASE", "CASES_N", "N_CASE", "N_CASES", "N_CAS", "NCAS"), "summary-stat case count"),
-    ColumnSpec("N_CON", ("N_CONTROLS", "N_CON", "NCONTROL", "CONTROLS_N", "N_CONTROL", "NCON"), "summary-stat control count"),
-    ColumnSpec("INFO", ("INFO",), "summary-stat INFO"),
+    ColumnSpec("N_CAS", ("NCASE", "CASES_N", "N_CASE", "N_CASES", "N_CAS", "NCAS", "Nca"), "summary-stat case count"),
+    ColumnSpec("N_CON", ("N_CONTROLS", "N_CON", "NCONTROL", "CONTROLS_N", "N_CONTROL", "NCON", "Nco"), "summary-stat control count"),
+    ColumnSpec("INFO", ("INFO", "IMPINFO"), "summary-stat INFO"),
     ColumnSpec("FRQ", ("EAF", "FRQ", "MAF", "FRQ_U", "F_U"), "summary-stat allele frequency"),
 )
 RAW_SUMSTATS_REQUIRED_OR_OPTIONAL_SPEC_MAP = {

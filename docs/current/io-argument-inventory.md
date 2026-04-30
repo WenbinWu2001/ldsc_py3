@@ -24,7 +24,7 @@ Public CLI flags and Python config fields follow these rules:
 | Suffix | Meaning | Examples |
 |---|---|---|
 | `*_file` | one file-like input, exact-one glob allowed where the resolver supports it | `sumstats_file`, `sumstats_snps_file`, `keep_indivs_file` |
-| `*_sources` | one logical input that may resolve to many files via globs, comma lists, or `@` chromosome tokens | `baseline_annot_sources`, `query_annot_bed_sources`, `r2_sources` |
+| `*_sources` | one logical input that may resolve to many files via globs, comma lists, or `@` chromosome tokens | `baseline_annot_sources`, `query_annot_bed_sources` |
 | `*_dir` | directory input or output location | `ldscore_dir`, `output_dir` |
 
 Removed from public surfaces:
@@ -58,19 +58,19 @@ Removed flags: `--bed-files`, `--baseline-annot`.
 | `--baseline-annot-sources` | input | no | baseline annotation files | Exact files, globs, comma lists, or `@` suites. If omitted with no query inputs, `ldscore` synthesizes an all-ones `base` column from retained reference-panel metadata. |
 | `--query-annot-sources` | input | no | prebuilt query annotation files | Mutually exclusive with `--query-annot-bed-sources`; requires `--baseline-annot-sources`. |
 | `--query-annot-bed-sources` | input | no | query BED interval files | Projected in memory onto the baseline SNP universe; requires `--baseline-annot-sources`. |
-| `--plink-prefix` | input | conditional | PLINK reference panel prefix | Required when not using `--r2-sources`; supports exact prefix, PLINK-prefix glob, or `@` suite. |
-| `--r2-sources` | input | conditional | parquet R2 files | Required when not using `--plink-prefix`; supports exact files, globs, comma lists, or `@` suites. |
-| `--r2-bias-mode` | input metadata | conditional | parquet R2 bias declaration | Required with `--r2-sources`; choose `raw` or `unbiased`. |
+| `--plink-prefix` | input | conditional | PLINK reference panel prefix | Required when not using parquet reference-panel input; supports exact prefix, PLINK-prefix glob, or `@` suite. |
+| `--r2-dir` | input | conditional | package-built parquet R2 directory | Parquet input; pass a build-specific directory such as `ref_panel/hg38`, containing `chr*_r2.parquet` plus optional `chr*_meta.tsv.gz`. |
+| `--r2-bias-mode` | input metadata | conditional | parquet R2 bias declaration | Required with `--r2-dir`; choose `raw` or `unbiased`. |
 | `--r2-sample-size` | input metadata | conditional | parquet R2 sample size | Required only when `--r2-bias-mode raw`. |
-| `--metadata-sources` | input | no | reference metadata or frequency sidecars | Used for MAF and centiMorgan metadata where needed. |
 | `--ref-panel-snps-file` | input | no | reference-panel SNP universe restriction | Scalar file-like input. |
 | `--regression-snps-file` | input | no | persisted LD-score row-set restriction | Scalar file-like input. |
 | `--keep-indivs-file` | input | no | PLINK individual keep file | PLINK mode only. |
 | `--maf-min` | input metadata | no | retained reference-panel MAF filter | Applied in the reference-panel layer when MAF is available. |
 | `--common-maf-min` | input metadata | no | common-SNP count threshold | Default `0.05`; affects common count vectors only, using `MAF >= common_maf_min`. |
 
-Removed flags: `--bfile`, `--r2-table`, `--frqfile`, `--keep`, `--maf`,
-`--baseline-annot`, `--query-annot`, `--query-annot-bed`, legacy `--out`.
+Removed flags: `--bfile`, `--r2-table`, `--frqfile`, `--r2-sources`,
+`--metadata-sources`, `--keep`, `--maf`, `--baseline-annot`,
+`--query-annot`, `--query-annot-bed`, legacy `--out`.
 
 LD-score output schema:
 
@@ -89,13 +89,13 @@ LD-score output schema:
 | Flag | Direction | Required | Object | Notes |
 |---|---:|---:|---|---|
 | `--plink-prefix` | input | yes | PLINK reference panel prefix | Supports exact prefix, PLINK-prefix glob, or `@` suite. |
-| `--source-genome-build` | input metadata | yes | source build selector | Not a filesystem argument. |
-| `--genetic-map-hg19-sources` | input | conditional | hg19 genetic map file or suite | Required only when `--ld-wind-cm` is used with hg19 source coordinates; otherwise optional and missing hg19 CM values are written as `NA`. |
-| `--genetic-map-hg38-sources` | input | conditional | hg38 genetic map file or suite | Required only when `--ld-wind-cm` is used with hg38 source coordinates; otherwise optional and missing hg38 CM values are written as `NA`. |
+| `--source-genome-build` | input metadata | no | source PLINK coordinate build | Not a filesystem argument; inferred from `.bim` before SNP restriction when omitted. |
+| `--genetic-map-hg19-sources` | input | conditional | hg19 genetic map file or suite | Required when `--ld-wind-cm` is used and hg19 output is emitted; otherwise optional and missing hg19 CM values are written as `NA`. |
+| `--genetic-map-hg38-sources` | input | conditional | hg38 genetic map file or suite | Required when `--ld-wind-cm` is used and hg38 output is emitted; otherwise optional and missing hg38 CM values are written as `NA`. |
 | `--liftover-chain-hg19-to-hg38-file` | input | no | liftover chain file | Optional; enables hg38 outputs for hg19 source builds. |
 | `--liftover-chain-hg38-to-hg19-file` | input | no | liftover chain file | Optional; enables hg19 outputs for hg38 source builds. |
-| `--ref-panel-snps-file` | input | no | retained SNP universe restriction | Scalar file-like input. |
-| `--snp-identifier` | input metadata | conditional | restriction identifier mode | Required only when `--ref-panel-snps-file` is set. |
+| `--ref-panel-snps-file` | input | no | retained SNP universe restriction | Scalar file-like input; identifier mode comes from `GlobalConfig.snp_identifier`; `chr_pos` coordinates must align to the source PLINK build. |
+| `--snp-identifier` | input metadata | conditional | global SNP identifier mode | CLI-only way to construct `GlobalConfig.snp_identifier` for this invocation. |
 | `--keep-indivs-file` | input | no | PLINK individual keep file | Applied during PLINK loading. |
 | `--maf-min` | input metadata | no | retained SNP MAF filter | Applied during PLINK loading. |
 | `--output-dir` | output | yes | reference-panel artifact directory | Run identity is `Path(output_dir).name`; no separate label is accepted. |
@@ -107,20 +107,20 @@ Removed flags: `--bfile`, `--out`, `--panel-label`, `--keep-indivs`, `--maf`,
 Fixed output names:
 
 ```text
-<output_dir>/parquet/ann/chr{chrom}_ann.parquet
-<output_dir>/parquet/ld/chr{chrom}_LD.parquet
-<output_dir>/parquet/meta/chr{chrom}_meta_hg19.tsv.gz
-<output_dir>/parquet/meta/chr{chrom}_meta_hg38.tsv.gz
+<output_dir>/hg19/chr{chrom}_r2.parquet
+<output_dir>/hg19/chr{chrom}_meta.tsv.gz
+<output_dir>/hg38/chr{chrom}_r2.parquet
+<output_dir>/hg38/chr{chrom}_meta.tsv.gz
 ```
 
-When no usable source-to-target liftover chain is provided, the builder warns
-and emits source-build-only outputs. In that mode the opposite-build metadata
-sidecar is not written; the annotation parquet keeps the standard columns but
-leaves opposite-build coordinate and unique-ID fields missing.
+When no usable source-to-target liftover chain is provided, the builder logs
+an INFO message and emits source-build-only outputs. When a matching liftover
+chain is provided, it emits both source and target build R2/metadata trees.
 
 When SNP- or kb-window builds omit a genetic map for an emitted build, that
 metadata sidecar is still written with `CM=NA`. cM-window builds require the
-source-build genetic map because the map defines the LD window.
+genetic map for every emitted build because each build's map defines that
+build's LD window.
 
 ### `ldsc munge-sumstats`
 
@@ -201,8 +201,7 @@ Removed Python names: `bed_paths`, `query_bed_paths`, `bed_files`,
 | Object/function | Argument | Direction | Object |
 |---|---:|---:|---|
 | `RefPanelConfig` | `plink_prefix` | input | PLINK reference-panel prefix token |
-| `RefPanelConfig` | `r2_sources` | input | parquet R2 group |
-| `RefPanelConfig` | `metadata_sources` | input | metadata/frequency sidecar group |
+| `RefPanelConfig` | `r2_dir` | input | preferred package-built parquet reference-panel directory |
 | `RefPanelConfig` | `ref_panel_snps_file` | input | reference SNP restriction |
 | `RefPanelConfig` | `keep_indivs_file` | input | PLINK individual keep file |
 | `RefPanelConfig` | `maf_min` | input metadata | retained reference-panel MAF filter |
@@ -210,17 +209,19 @@ Removed Python names: `bed_paths`, `query_bed_paths`, `bed_files`,
 | `LDScoreConfig` | `common_maf_min` | input metadata | common-SNP count threshold only |
 | `LDScoreOutputConfig` | `output_dir` | output | canonical LD-score result directory |
 | `run_ldscore(**kwargs)` | `baseline_annot_sources`, `query_annot_sources`, `query_annot_bed_sources` | input | optional annotation sources; query inputs require baseline sources, and no-annotation runs synthesize `base` |
-| `run_ldscore(**kwargs)` | `plink_prefix`, `r2_sources`, `metadata_sources` | input | reference-panel sources |
+| `run_ldscore(**kwargs)` | `plink_prefix`, `r2_dir` | input | reference-panel sources |
 | `run_ldscore(**kwargs)` | `output_dir` | output | canonical result directory |
 
 Removed Python names: `bfile`, `r2_table`, `frqfile`, `keep`, `maf`,
-`baseline_annot`, `query_annot`, `query_annot_bed`, `out`.
+`baseline_annot`, `query_annot`, `query_annot_bed`, `out`,
+`r2_ref_panel_dir`, `ref_panel_dir`, `r2_sources`, and `metadata_sources`.
 
 ### Reference-panel building
 
 | Object/function | Argument | Direction | Object |
 |---|---:|---:|---|
 | `ReferencePanelBuildConfig` | `plink_prefix` | input | PLINK reference-panel prefix token |
+| `ReferencePanelBuildConfig` | `source_genome_build` | input metadata | optional PLINK source build; inferred from `.bim` when omitted |
 | `ReferencePanelBuildConfig` | `genetic_map_hg19_sources` | input | conditional hg19 genetic map |
 | `ReferencePanelBuildConfig` | `genetic_map_hg38_sources` | input | conditional hg38 genetic map |
 | `ReferencePanelBuildConfig` | `liftover_chain_hg19_to_hg38_file` | input | optional liftover chain |
@@ -229,8 +230,7 @@ Removed Python names: `bfile`, `r2_table`, `frqfile`, `keep`, `maf`,
 | `ReferencePanelBuildConfig` | `keep_indivs_file` | input | PLINK individual keep file |
 | `ReferencePanelBuildConfig` | `maf_min` | input metadata | retained SNP MAF filter |
 | `ReferencePanelBuildConfig` | `output_dir` | output | artifact directory |
-| `run_build_ref_panel(**kwargs)` | `snp_identifier` | input metadata | required only when `ref_panel_snps_file` is supplied |
-| `run_build_ref_panel(**kwargs)` | same config field names | input/output | CLI-equivalent wrapper |
+| `run_build_ref_panel(**kwargs)` | same config field names except global settings | input/output | convenience wrapper; reads `snp_identifier` from the registered `GlobalConfig`; ignores `GlobalConfig.genome_build` |
 
 Removed Python names: `plink_path`, `bfile`, `out`, `panel_label`,
 `keep_indivs`, `maf`, old genetic-map and liftover names without `_file` /
@@ -302,6 +302,11 @@ Regression therefore merges on literal `SNP` in `rsid` mode and on normalized
 - Keep `--plink-prefix` rather than forcing it into the `*_file` or
   `*_sources` suffix rules. PLINK inputs are a file stem for a related
   `.bed`/`.bim`/`.fam` trio, so `prefix` is the most accurate public name.
+- Prefer `--r2-dir` / `r2_dir` for package-built parquet
+  panels. It mirrors `--plink-prefix` as the single reference-panel input for
+  one backend. Direct R2-file and metadata-source groups are no longer part of
+  the LD-score public API; standard panels should use the fixed directory
+  layout with metadata sidecars next to their R2 parquet files.
 - Do not add `--output-name` or `--panel-name`. Fixed output names make
   downstream automation simpler; users name runs by naming the output
   directory.

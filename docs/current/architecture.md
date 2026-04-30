@@ -1,6 +1,6 @@
 # Architecture
 
-`ldsc_py3_restructured` is the refactored Python 3 LDSC package. It reads optional SNP-level annotations, PLINK or parquet LD references, and GWAS summary statistics; resolves user-facing path and header conventions in the public workflow layer; delegates numerical work to `ldsc._kernel`; and writes LDSC-compatible artifacts that can be chained into later runs.
+`ldsc_py3_restructured` is the refactored Python 3 LDSC package. It reads optional SNP-level annotations, PLINK or parquet R2 references, and GWAS summary statistics; resolves user-facing path and header conventions in the public workflow layer; delegates numerical work to `ldsc._kernel`; and writes LDSC-compatible artifacts that can be chained into later runs.
 
 Related docs:
 
@@ -14,7 +14,7 @@ Related docs:
 ## Bird's-Eye View
 
 - **Build query annotations**: project BED intervals onto a baseline SNP grid. Entry points: `ldsc annotate`, `ldsc.AnnotationBuilder`
-- **Build parquet reference panels**: convert PLINK genotype panels into standard parquet LD artifacts. Entry points: `ldsc build-ref-panel`, `ldsc.ReferencePanelBuilder`
+- **Build parquet reference panels**: convert PLINK genotype panels into standard parquet R2 artifacts. Entry points: `ldsc build-ref-panel`, `ldsc.ReferencePanelBuilder`
 - **Compute LD scores**: align annotations to a reference panel and emit LDSC-compatible LD-score artifacts; ordinary unpartitioned runs may omit annotations and receive a synthetic all-ones `base` annotation. Entry points: `ldsc ldscore`, `ldsc.run_ldscore()`, `ldsc.LDScoreCalculator`
 - **Munge raw summary statistics**: normalize raw GWAS tables into curated `.sumstats.gz` artifacts. Entry points: `ldsc munge-sumstats`, `ldsc.SumstatsMunger`
 - **Run LDSC regression**: consume munged sumstats and LD-score artifacts to estimate `h2`, partitioned `h2`, or `rg`. Entry points: `ldsc h2`, `ldsc partitioned-h2`, `ldsc rg`, `ldsc.RegressionRunner`
@@ -82,7 +82,7 @@ This is the public interface for annotation loading and BED projection. It re-ex
 
 ### `ldsc.ref_panel_builder`
 
-This module builds standard parquet LD reference artifacts from PLINK inputs. It handles optional genetic-map loading, optional liftover selection, restriction filtering, and output-path construction, then delegates pairwise-LD emission to the kernel. Architecture invariant: emitted parquet schemas are part of the public file contract for parquet-backed LDSC workflows.
+This module builds standard parquet R2 reference artifacts from PLINK inputs. It handles optional genetic-map loading, optional liftover selection, restriction filtering, and output-path construction, then delegates pairwise-R2 emission to the kernel. Architecture invariant: emitted parquet schemas are part of the public file contract for parquet-backed LDSC workflows.
 
 ### `ldsc.ldscore_calculator`
 

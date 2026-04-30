@@ -1,4 +1,5 @@
 from pathlib import Path
+import gzip
 import importlib
 import sys
 import tempfile
@@ -28,6 +29,32 @@ def _has_module(name: str) -> bool:
         return False
 
 
+def _write_canonical_r2_parquet(path: Path, chrom: str = "1") -> None:
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    frame = pd.DataFrame(
+        {
+            "CHR": [chrom, chrom],
+            "POS_1": [10, 20],
+            "POS_2": [20, 30],
+            "R2": pd.Series([0.4, 0.2], dtype="float32"),
+            "SNP_1": ["rs1", "rs2"],
+            "SNP_2": ["rs2", "rs3"],
+        }
+    )
+    table = pa.Table.from_pandas(frame, preserve_index=False)
+    table = table.replace_schema_metadata({b"ldsc:sorted_by_build": b"hg38"})
+    pq.write_table(table, path)
+
+
+def _write_meta_sidecar(path: Path, rows: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with gzip.open(path, "wt", encoding="utf-8") as handle:
+        handle.write(rows)
+
+
 class RefPanelLoaderTest(unittest.TestCase):
     def test_loader_selects_plink_backend(self):
         loader = RefPanelLoader(GlobalConfig(snp_identifier="rsid"), RefPanelConfig())
@@ -43,9 +70,19 @@ class RefPanelLoaderTest(unittest.TestCase):
         spec = RefPanelConfig(backend="plink", ref_panel_snps_file="/path/to/snps.txt")
         self.assertEqual(spec.ref_panel_snps_file, "/path/to/snps.txt")
 
+    def test_ref_panel_config_accepts_r2_dir(self):
+        spec = RefPanelConfig(backend="parquet_r2", r2_dir="/path/to/panel/hg38")
+        self.assertEqual(spec.r2_dir, "/path/to/panel/hg38")
+
+    def test_ref_panel_config_rejects_removed_parquet_source_fields(self):
+        for name in ("r2_ref_panel_dir", "ref_panel_dir", "r2_sources", "metadata_sources"):
+            with self.subTest(name=name):
+                with self.assertRaises(TypeError):
+                    RefPanelConfig(backend="parquet_r2", **{name: "/path/to/panel/hg38"})
+
     def test_loader_selects_parquet_backend(self):
         loader = RefPanelLoader(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"), RefPanelConfig())
-        spec = RefPanelConfig(backend="parquet_r2", chromosomes=("1",), metadata_sources=())
+        spec = RefPanelConfig(backend="parquet_r2", chromosomes=("1",))
         panel = loader.load(spec)
         self.assertIsInstance(panel, ParquetR2RefPanel)
 
@@ -120,16 +157,124 @@ class PlinkRefPanelTest(unittest.TestCase):
 
 
 class ParquetRefPanelTest(unittest.TestCase):
-    def test_sidecar_metadata_loading(self):
+    @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
+    def test_r2_dir_loads_sidecar_metadata(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            meta = Path(tmpdir) / "meta.tsv"
-            meta.write_text(
-                "CHR\tBP\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n1\t20\trs2\t0.2\t0.8\n2\t30\trs3\t0.3\t0.4\n",
-                encoding="utf-8",
-            )
+            build_dir = Path(tmpdir) / "panel" / "hg38"
+            _write_canonical_r2_parquet(build_dir / "chr1_r2.parquet")
+            _write_meta_sidecar(build_dir / "chr1_meta.tsv.gz", "CHR\tPOS\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n1\t20\trs2\t0.2\t0.3\n")
+
             panel = ParquetR2RefPanel(
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-                RefPanelConfig(backend="parquet_r2", metadata_sources=(str(meta),)),
+                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
+            )
+
+            self.assertEqual(panel.available_chromosomes(), ["1"])
+            metadata = panel.load_metadata("1")
+            self.assertEqual(metadata["SNP"].tolist(), ["rs1", "rs2"])
+            self.assertEqual(metadata["CM"].round(3).tolist(), [0.1, 0.2])
+
+    @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
+    def test_r2_dir_falls_back_to_r2_endpoints_without_sidecar(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            build_dir = Path(tmpdir) / "panel" / "hg38"
+            _write_canonical_r2_parquet(build_dir / "chr1_r2.parquet")
+
+            panel = ParquetR2RefPanel(
+                GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
+            )
+
+            self.assertEqual(panel.available_chromosomes(), ["1"])
+            metadata = panel.load_metadata("1")
+            self.assertEqual(metadata["CHR"].tolist(), ["1", "1", "1"])
+            self.assertEqual(metadata["POS"].tolist(), [10, 20, 30])
+            self.assertEqual(metadata["SNP"].tolist(), ["rs1", "rs2", "rs3"])
+            self.assertTrue(metadata["CM"].isna().all())
+            self.assertNotIn("MAF", metadata.columns)
+
+    @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
+    def test_r2_dir_requires_r2_for_requested_chromosome(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            build_dir = Path(tmpdir) / "panel" / "hg38"
+            build_dir.mkdir(parents=True)
+            panel = ParquetR2RefPanel(
+                GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
+            )
+
+            with self.assertRaisesRegex(FileNotFoundError, "chr1_r2.parquet"):
+                panel.load_metadata("1")
+
+    @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
+    def test_r2_dir_missing_metadata_hard_fails_when_configured(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            build_dir = Path(tmpdir) / "panel" / "hg38"
+            _write_canonical_r2_parquet(build_dir / "chr1_r2.parquet")
+            panel = ParquetR2RefPanel(
+                GlobalConfig(snp_identifier="chr_pos", genome_build="hg38", fail_on_missing_metadata=True),
+                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
+            )
+
+            with self.assertRaisesRegex(ValueError, "metadata sidecar"):
+                panel.load_metadata("1")
+
+    @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
+    def test_r2_dir_top_level_root_descends_by_genome_build(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir) / "panel"
+            _write_canonical_r2_parquet(root / "hg38" / "chr1_r2.parquet")
+
+            panel = ParquetR2RefPanel(
+                GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+                RefPanelConfig(backend="parquet_r2", r2_dir=str(root)),
+            )
+
+            self.assertEqual(panel.available_chromosomes(), ["1"])
+
+    @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
+    def test_r2_dir_top_level_root_rejects_ambiguous_build(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir) / "panel"
+            _write_canonical_r2_parquet(root / "hg19" / "chr1_r2.parquet")
+            _write_canonical_r2_parquet(root / "hg38" / "chr1_r2.parquet")
+
+            panel = ParquetR2RefPanel(
+                GlobalConfig(snp_identifier="rsid"),
+                RefPanelConfig(backend="parquet_r2", r2_dir=str(root)),
+            )
+
+            with self.assertRaisesRegex(ValueError, "ambiguous"):
+                panel.available_chromosomes()
+
+    @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
+    def test_r2_dir_top_level_root_rejects_build_dirs_even_when_only_one_has_r2(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir) / "panel"
+            (root / "hg19").mkdir(parents=True)
+            _write_canonical_r2_parquet(root / "hg38" / "chr1_r2.parquet")
+
+            panel = ParquetR2RefPanel(
+                GlobalConfig(snp_identifier="rsid"),
+                RefPanelConfig(backend="parquet_r2", r2_dir=str(root)),
+            )
+
+            with self.assertRaisesRegex(ValueError, "ambiguous"):
+                panel.available_chromosomes()
+
+    def test_sidecar_metadata_loading(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            build_dir = Path(tmpdir) / "panel" / "hg38"
+            _write_canonical_r2_parquet(build_dir / "chr1_r2.parquet")
+            _write_canonical_r2_parquet(build_dir / "chr2_r2.parquet", chrom="2")
+            _write_meta_sidecar(
+                build_dir / "chr1_meta.tsv.gz",
+                "CHR\tBP\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n1\t20\trs2\t0.2\t0.8\n2\t30\trs3\t0.3\t0.4\n",
+            )
+            _write_meta_sidecar(build_dir / "chr2_meta.tsv.gz", "CHR\tBP\tSNP\tCM\tMAF\n2\t30\trs3\t0.3\t0.4\n")
+            panel = ParquetR2RefPanel(
+                GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
             )
             self.assertEqual(panel.available_chromosomes(), ["1", "2"])
             metadata = panel.load_metadata("1")
@@ -138,14 +283,15 @@ class ParquetRefPanelTest(unittest.TestCase):
 
     def test_sidecar_metadata_applies_maf_min_filter(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            meta = Path(tmpdir) / "meta.tsv"
-            meta.write_text(
+            build_dir = Path(tmpdir) / "panel" / "hg38"
+            _write_canonical_r2_parquet(build_dir / "chr1_r2.parquet")
+            _write_meta_sidecar(
+                build_dir / "chr1_meta.tsv.gz",
                 "CHR\tBP\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n1\t20\trs2\t0.2\t0.3\n1\t30\trs3\t0.3\t0.4\n",
-                encoding="utf-8",
             )
             panel = ParquetR2RefPanel(
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-                RefPanelConfig(backend="parquet_r2", metadata_sources=(str(meta),), maf_min=0.25),
+                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir), maf_min=0.25),
             )
 
             metadata = panel.load_metadata("1")
@@ -155,14 +301,20 @@ class ParquetRefPanelTest(unittest.TestCase):
 
     def test_sidecar_metadata_loading_normalizes_float_chromosomes(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            meta = Path(tmpdir) / "meta.tsv"
-            meta.write_text(
+            build_dir = Path(tmpdir) / "panel" / "hg38"
+            _write_canonical_r2_parquet(build_dir / "chr1_r2.parquet")
+            _write_canonical_r2_parquet(build_dir / "chr2_r2.parquet", chrom="2")
+            _write_meta_sidecar(
+                build_dir / "chr1_meta.tsv.gz",
+                "CHR\tBP\tSNP\tCM\tMAF\n1.0\t10\trs1\t0.1\t0.2\n",
+            )
+            _write_meta_sidecar(
+                build_dir / "chr2_meta.tsv.gz",
                 "CHR\tBP\tSNP\tCM\tMAF\n1.0\t10\trs1\t0.1\t0.2\nchr2.0\t20\trs2\t0.2\t0.3\n",
-                encoding="utf-8",
             )
             panel = ParquetR2RefPanel(
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-                RefPanelConfig(backend="parquet_r2", metadata_sources=(str(meta),)),
+                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
             )
 
             self.assertEqual(panel.available_chromosomes(), ["1", "2"])
@@ -171,34 +323,29 @@ class ParquetRefPanelTest(unittest.TestCase):
 
     def test_filter_to_snps_chr_pos(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            meta = Path(tmpdir) / "meta.tsv"
-            meta.write_text(
+            build_dir = Path(tmpdir) / "panel" / "hg38"
+            _write_canonical_r2_parquet(build_dir / "chr1_r2.parquet")
+            _write_meta_sidecar(
+                build_dir / "chr1_meta.tsv.gz",
                 "CHR\tBP\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n1\t20\trs2\t0.2\t0.3\n",
-                encoding="utf-8",
             )
             panel = ParquetR2RefPanel(
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-                RefPanelConfig(backend="parquet_r2", metadata_sources=(str(meta),), chromosomes=("1",)),
+                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir), chromosomes=("1",)),
             )
             filtered = panel.filter_to_snps("1", {"1:20"})
             self.assertEqual(filtered["POS"].tolist(), [20])
 
-    def test_sidecar_metadata_loading_accepts_suite_tokens(self):
+    def test_r2_dir_sidecar_metadata_loading_by_chromosome(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            meta1 = tmpdir / "meta.1.tsv"
-            meta2 = tmpdir / "meta.2.tsv"
-            meta1.write_text(
-                "CHR\tBP\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n",
-                encoding="utf-8",
-            )
-            meta2.write_text(
-                "CHR\tBP\tSNP\tCM\tMAF\n2\t20\trs2\t0.2\t0.3\n",
-                encoding="utf-8",
-            )
+            build_dir = Path(tmpdir) / "panel" / "hg38"
+            _write_canonical_r2_parquet(build_dir / "chr1_r2.parquet")
+            _write_canonical_r2_parquet(build_dir / "chr2_r2.parquet", chrom="2")
+            _write_meta_sidecar(build_dir / "chr1_meta.tsv.gz", "CHR\tBP\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n")
+            _write_meta_sidecar(build_dir / "chr2_meta.tsv.gz", "CHR\tBP\tSNP\tCM\tMAF\n2\t20\trs2\t0.2\t0.3\n")
             panel = ParquetR2RefPanel(
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-                RefPanelConfig(backend="parquet_r2", metadata_sources=str(tmpdir / "meta.@.tsv")),
+                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
             )
 
             self.assertEqual(panel.available_chromosomes(), ["1", "2"])
@@ -207,15 +354,16 @@ class ParquetRefPanelTest(unittest.TestCase):
 
     def test_sidecar_metadata_loading_rejects_auto_genome_build_at_kernel_boundary(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            meta = Path(tmpdir) / "meta.tsv"
+            build_dir = Path(tmpdir) / "panel" / "hg38"
+            _write_canonical_r2_parquet(build_dir / "chr1_r2.parquet")
             rows = ["CHR\tBP\tSNP\tCM\tMAF"]
             positions = [1000 + (idx * 10) for idx in range(250)]
             for idx, pos in enumerate(positions, start=1):
                 rows.append(f"1\t{pos - 1}\trs{idx}\t0.1\t0.2")
-            meta.write_text("\n".join(rows) + "\n", encoding="utf-8")
+            _write_meta_sidecar(build_dir / "chr1_meta.tsv.gz", "\n".join(rows) + "\n")
             panel = ParquetR2RefPanel(
                 GlobalConfig(snp_identifier="chr_pos", genome_build="auto"),
-                RefPanelConfig(backend="parquet_r2", metadata_sources=(str(meta),)),
+                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
             )
 
             with self.assertRaisesRegex(AssertionError, "workflow entry"):
@@ -224,13 +372,13 @@ class ParquetRefPanelTest(unittest.TestCase):
     @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
     def test_build_reader(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            meta = Path(tmpdir) / "meta.tsv"
-            meta.write_text("CHR\tBP\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n", encoding="utf-8")
+            build_dir = Path(tmpdir) / "panel" / "hg38"
+            _write_meta_sidecar(build_dir / "chr1_meta.tsv.gz", "CHR\tBP\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n")
             panel = ParquetR2RefPanel(
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-                RefPanelConfig(backend="parquet_r2", metadata_sources=(str(meta),), r2_sources=(str(Path(tmpdir) / "missing.parquet"),)),
+                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
             )
-            with self.assertRaises(Exception):
+            with self.assertRaises(FileNotFoundError):
                 panel.build_reader("1")
 
     def test_plink_prefix_accepts_suite_token(self):

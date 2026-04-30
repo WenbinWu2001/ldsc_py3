@@ -139,8 +139,7 @@ class GlobalConfigRegistryTest(unittest.TestCase):
                 ldscore_calculator.run_ldscore(
                     output_dir="results/example",
                     baseline_annot_sources="baseline.annot.gz",
-                    r2_sources="reference.parquet",
-                    metadata_sources="reference.tsv.gz",
+                    r2_dir="reference_panel/hg38",
                     ld_wind_cm=1.0,
                 )
 
@@ -149,8 +148,7 @@ class GlobalConfigRegistryTest(unittest.TestCase):
             ldscore_calculator.run_ldscore(
                 output_dir="results/example",
                 baseline_annot_sources="baseline.annot.gz",
-                r2_sources="reference.parquet",
-                metadata_sources="reference.tsv.gz",
+                r2_dir="reference_panel/hg38",
                 ld_wind_cm=1.0,
                 snp_identifier="rsid",
             )
@@ -203,7 +201,7 @@ class GlobalConfigRegistryTest(unittest.TestCase):
             ), mock.patch.object(
                 builder,
                 "_build_chromosome",
-                return_value={"ann": "ann", "ld": "ld", "meta_hg19": "m19", "meta_hg38": "m38"},
+                return_value={"r2_hg19": "r2-19", "r2_hg38": "r2-38", "meta_hg19": "m19", "meta_hg38": "m38"},
             ), mock.patch("builtins.print") as patched_print:
                 with self.assertLogs("LDSC.config", level="INFO") as caught:
                     result = builder.run(config)

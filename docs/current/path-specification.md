@@ -176,8 +176,10 @@ Group-style inputs:
 - `baseline_annot_sources`
 - `query_annot_sources`
 - `query_annot_bed_sources`
-- `r2_sources`
-- `metadata_sources`
+
+Directory-style inputs:
+
+- `r2_dir`
 
 Scalar-style inputs:
 
@@ -198,15 +200,15 @@ How they are handled:
 Requirements:
 
 - annotation files must align on SNP rows within each chromosome
-- parquet and frequency inputs must have the schema expected by the downstream readers
+- parquet R2 directories must use the fixed `chr{chrom}_r2.parquet` naming
+  contract, with optional `chr{chrom}_meta.tsv.gz` sidecars
 
 Examples:
 
 ```bash
 ldsc ldscore \
   --output-dir out/trait_ldscores \
-  --r2-sources "r2/reference.*.parquet" \
-  --metadata-sources "r2/reference_metadata.@.tsv.gz" \
+  --r2-dir "r2_ref_panel_1kg30x_1cM_hm3/hg38" \
   --r2-bias-mode unbiased \
   --common-maf-min 0.05 \
   --ld-wind-cm 1.0
@@ -251,16 +253,26 @@ Accepted path forms:
 - `plink_prefix`: exact PLINK prefix, exact-one PLINK glob, or explicit `@` PLINK suite token
 - map and chain inputs, when provided: exact path or exact-one glob
 - `ref_panel_snps_file`, when provided: scalar file-like token interpreted
-  using the explicit `snp_identifier` mode
+  using `GlobalConfig.snp_identifier`; `chr_pos` coordinates must be aligned to
+  the PLINK source build
 
 How they are handled:
 
 - `plink_prefix` is resolved at the PLINK prefix level, not at the individual `.bed/.bim/.fam` file level
 - a chromosome suite such as `panel_chr@` is expanded one chromosome at a time
-- liftover chains are optional; the matching source-to-target chain enables cross-build metadata, while no matching chain produces source-build-only outputs
-- genetic maps are required only for source-build `--ld-wind-cm`; SNP- and kb-window builds may omit maps and write emitted metadata `CM` as `NA`
-- `snp_identifier` is required only when `ref_panel_snps_file` /
-  `--ref-panel-snps-file` is supplied; no identifier flag is needed otherwise
+- liftover chains are optional; the matching source-to-target chain enables
+  cross-build R2 and metadata outputs, while no matching chain produces
+  source-build-only outputs
+- genetic maps are required for every emitted build when `--ld-wind-cm` is set;
+  SNP- and kb-window builds may omit maps and write emitted metadata `CM` as
+  `NA`
+- `snp_identifier` for SNP restrictions comes from `GlobalConfig`; the CLI flag
+  constructs a one-invocation identifier config, and the Python wrapper reads
+  the registered config
+- `build-ref-panel` ignores `GlobalConfig.genome_build`; in `chr_pos` mode, the
+  restriction file must provide source-build coordinates, either through a
+  source-specific column such as `hg19_POS` or through generic `POS` that
+  infers to the source PLINK build
 
 Example:
 
@@ -279,11 +291,11 @@ Output:
 
 - `--output-dir` is created when missing and reused when present.
 - Before chromosome processing starts, the builder checks the deterministic
-  candidate paths under `parquet/ann`, `parquet/ld`, and `parquet/meta`.
+  candidate paths under each emitted `{build}` directory.
 - Existing candidate parquet or metadata files are refused unless
   `--overwrite` or `ReferencePanelBuildConfig(overwrite=True)` is supplied.
-- The check covers source-build metadata sidecars and covers target-build
-  sidecars only when the matching liftover chain is configured.
+- The check covers source-build artifacts and covers target-build artifacts
+  only when the matching liftover chain is configured.
 
 ### Sumstats munging and regression
 
@@ -344,8 +356,9 @@ The package does not infer:
 - missing file suffixes
 - directory contents from an input directory argument
 - a hidden per-chromosome mode from a bare prefix
-- the source build for `ldsc build-ref-panel`; that workflow still requires
-  explicit `--source-genome-build`
+- target-build SNP restrictions for `ldsc build-ref-panel`; that workflow
+  applies restrictions before liftover and requires restriction coordinates to
+  align to the inferred or explicit source PLINK build
 
 Programmatic build inference is available from the top-level Python API:
 `from ldsc import infer_chr_pos_build, resolve_chr_pos_table`. The command-line

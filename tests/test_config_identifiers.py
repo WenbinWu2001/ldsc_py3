@@ -84,10 +84,9 @@ class GlobalConfigTest(unittest.TestCase):
 
 
 class TestGlobalConfigValidation(unittest.TestCase):
-    def test_chr_pos_no_genome_build_raises(self):
-        with self.assertRaises(ValueError) as ctx:
-            GlobalConfig(snp_identifier="chr_pos")
-        self.assertIn("genome_build is required", str(ctx.exception))
+    def test_chr_pos_no_genome_build_ok_for_workflows_that_do_not_need_build(self):
+        cfg = GlobalConfig(snp_identifier="chr_pos")
+        self.assertIsNone(cfg.genome_build)
 
     def test_chr_pos_hg38_ok(self):
         cfg = GlobalConfig(snp_identifier="chr_pos", genome_build="hg38")
@@ -312,16 +311,14 @@ class WorkflowConfigTest(unittest.TestCase):
         config = RefPanelConfig(
             backend="parquet_r2",
             plink_prefix=Path("plink") / "panel",
-            r2_sources=[Path("r2") / "chr1.parquet"],
-            metadata_sources=[Path("freq") / "chr@.tsv.gz"],
+            r2_dir=Path("r2_panel") / "hg38",
             ref_panel_snps_file=Path("filters") / "snps.txt",
             keep_indivs_file=Path("filters") / "samples.keep",
             maf_min=0.02,
         )
         self.assertEqual(config.backend, "parquet_r2")
         self.assertEqual(config.plink_prefix, "plink/panel")
-        self.assertEqual(config.r2_sources, ("r2/chr1.parquet",))
-        self.assertEqual(config.metadata_sources, ("freq/chr@.tsv.gz",))
+        self.assertEqual(config.r2_dir, "r2_panel/hg38")
         self.assertEqual(config.ref_panel_snps_file, "filters/snps.txt")
         self.assertEqual(config.keep_indivs_file, "filters/samples.keep")
         self.assertEqual(config.maf_min, 0.02)
@@ -330,13 +327,14 @@ class WorkflowConfigTest(unittest.TestCase):
         config = RefPanelConfig(backend="plink", plink_prefix=Path("plink") / "panel")
         self.assertEqual(config.plink_prefix, "plink/panel")
 
-    def test_ref_panel_config_accepts_single_string_tokens_for_plural_fields(self):
-        config = RefPanelConfig(
-            r2_sources="r2/reference.@.parquet",
-            metadata_sources="meta/reference.*.tsv.gz",
-        )
-        self.assertEqual(config.r2_sources, ("r2/reference.@.parquet",))
-        self.assertEqual(config.metadata_sources, ("meta/reference.*.tsv.gz",))
+    def test_ref_panel_config_rejects_removed_parquet_source_fields(self):
+        for kwargs in (
+            {"r2_sources": "r2/reference.@.parquet"},
+            {"metadata_sources": "meta/reference.*.tsv.gz"},
+        ):
+            with self.subTest(kwargs=kwargs):
+                with self.assertRaises(TypeError):
+                    RefPanelConfig(**kwargs)
 
     def test_public_configs_normalize_pathlike_inputs(self):
         raw = MungeConfig(sumstats_file=Path("sumstats") / "trait.tsv.gz")
@@ -348,16 +346,14 @@ class WorkflowConfigTest(unittest.TestCase):
         ref = RefPanelConfig(
             backend="parquet_r2",
             plink_prefix=Path("plink") / "panel",
-            r2_sources=(Path("r2") / "chr1.parquet",),
-            metadata_sources=(Path("meta") / "chr1.tsv.gz",),
+            r2_dir=Path("r2_panel") / "hg38",
         )
         self.assertEqual(raw.sumstats_file, "sumstats/trait.tsv.gz")
         self.assertEqual(annot.baseline_annot_sources, ("baseline/base.1.annot.gz",))
         self.assertEqual(annot.query_annot_sources, ("query/custom.1.annot.gz",))
         self.assertEqual(annot.query_annot_bed_sources, ("beds/enhancer.bed",))
         self.assertEqual(ref.plink_prefix, "plink/panel")
-        self.assertEqual(ref.r2_sources, ("r2/chr1.parquet",))
-        self.assertEqual(ref.metadata_sources, ("meta/chr1.tsv.gz",))
+        self.assertEqual(ref.r2_dir, "r2_panel/hg38")
 
     def test_ref_panel_config_has_no_genome_build_field(self):
         config = RefPanelConfig(backend="parquet_r2")
@@ -371,16 +367,11 @@ class WorkflowConfigTest(unittest.TestCase):
             query_annot_sources="query.*.annot.gz",
             query_annot_bed_sources="beds/*.bed",
         )
-        ref = RefPanelConfig(
-            backend="parquet_r2",
-            r2_sources="r2/reference.@.parquet",
-            metadata_sources="meta/reference.*.tsv.gz",
-        )
+        ref = RefPanelConfig(backend="parquet_r2", r2_dir="r2_panel/hg38")
         self.assertEqual(annot.baseline_annot_sources, ("baseline.@.annot.gz",))
         self.assertEqual(annot.query_annot_sources, ("query.*.annot.gz",))
         self.assertEqual(annot.query_annot_bed_sources, ("beds/*.bed",))
-        self.assertEqual(ref.r2_sources, ("r2/reference.@.parquet",))
-        self.assertEqual(ref.metadata_sources, ("meta/reference.*.tsv.gz",))
+        self.assertEqual(ref.r2_dir, "r2_panel/hg38")
 
     def test_removed_public_config_fields_are_rejected(self):
         with self.assertRaises(TypeError):

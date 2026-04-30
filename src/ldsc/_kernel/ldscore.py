@@ -82,8 +82,7 @@ Python
         output_dir="results/example_ldscores",
         baseline_annot_sources="data/baseline.@.annot.gz",
         query_annot_sources="data/query.annot.gz",
-        r2_sources="data/r2/chr@_sorted.parquet",
-        metadata_sources="data/r2/chr@_metadata.tsv.gz",
+        r2_dir="data/ref_panel/hg38",
         r2_bias_mode="unbiased",
         ld_wind_cm=1,
     )
@@ -93,8 +92,7 @@ CLI
         --output-dir results/example_ldscores \
         --baseline-annot-sources data/baseline.@.annot.gz \
         --query-annot-sources data/query.annot.gz \
-        --r2-sources data/r2/chr@_sorted.parquet \
-        --metadata-sources data/r2/chr@_metadata.tsv.gz \
+        --r2-dir data/ref_panel/hg38 \
         --snp-identifier rsid \
         --r2-bias-mode unbiased \
         --ld-wind-cm 1
@@ -111,8 +109,9 @@ Computation Overview
 2. Normalize SNP identity using the selected identifier mode and require all
    annotation files for a chromosome to have identical retained SNP rows.
 3. Build the canonical reference SNP table from annotation inputs.
-4. Intersect annotation SNPs with the sidecar-defined reference-panel SNP
-   universe; parquet pair rows are not scanned to define runtime SNP presence.
+4. Intersect annotation SNPs with the reference-panel SNP universe. Metadata
+   sidecars define the full universe when present; otherwise the workflow falls
+   back to the partial SNP universe recoverable from parquet pair endpoints.
 5. Compute LD scores per chromosome:
    - PLINK mode reuses the original genotype-block implementation.
    - parquet mode follows the old LDSC sliding-block accumulation workflow and
@@ -639,21 +638,19 @@ def resolve_annotation_files(spec: str | None) -> list[str]:
 
 def resolve_parquet_files(args: argparse.Namespace, chrom: str | None = None) -> list[str]:
     """Resolve the sorted parquet R2 files participating in one LD-score run."""
-    r2_sources = getattr(args, "r2_sources", None)
     r2_table = getattr(args, "r2_table", None)
-    parquet_spec = r2_sources if r2_sources is not None else r2_table
-    if parquet_spec:
-        tokens = split_arg_list(parquet_spec)
+    if r2_table:
+        tokens = split_arg_list(r2_table)
         if chrom is not None:
             return resolve_chromosome_group(
                 tokens,
                 chrom=chrom,
-                label="r2_sources",
+                label="r2_table",
                 suffixes=PARQUET_SUFFIXES,
             )
         return resolve_file_group(
             tokens,
-            label="r2_sources",
+            label="r2_table",
             suffixes=PARQUET_SUFFIXES,
             allow_chromosome_suite=True,
         )
@@ -868,7 +865,7 @@ def deduplicate_normalized_r2_pairs(df: pd.DataFrame) -> pd.DataFrame:
 def convert_r2_table_to_sorted_parquet(source_path: str, genome_build: str, output_path: str) -> str:
     """
     Convert a common tabular pairwise-R2 file into the normalized sorted parquet
-    format required by the runtime parquet LD-score path.
+    format required by the runtime parquet R2 path.
     """
     source_path = os.path.expanduser(os.path.expandvars(source_path))
     output_path = os.path.expanduser(os.path.expandvars(output_path))

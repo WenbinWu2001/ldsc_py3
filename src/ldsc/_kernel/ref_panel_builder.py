@@ -30,7 +30,7 @@ GENETIC_MAP_CM_SPEC = ColumnSpec(
     ("CM", "GENETIC_MAP_CM", "GENETICMAPCM", "GENETIC_MAP(CM)", "GENETICMAP(CM)"),
     "genetic map centiMorgan",
 )
-_STANDARD_LD_COLUMNS = [
+_STANDARD_R2_COLUMNS = [
     "CHR",
     "POS_1",
     "POS_2",
@@ -40,8 +40,8 @@ _STANDARD_LD_COLUMNS = [
 ]
 
 
-def _empty_standard_ld_table() -> pd.DataFrame:
-    """Return an empty canonical LD table with stable physical dtypes."""
+def _empty_standard_r2_table() -> pd.DataFrame:
+    """Return an empty canonical R2 table with stable physical dtypes."""
     return pd.DataFrame(
         {
             "CHR": pd.Series(dtype="string"),
@@ -51,7 +51,7 @@ def _empty_standard_ld_table() -> pd.DataFrame:
             "SNP_1": pd.Series(dtype="string"),
             "SNP_2": pd.Series(dtype="string"),
         },
-        columns=_STANDARD_LD_COLUMNS,
+        columns=_STANDARD_R2_COLUMNS,
     )
 
 
@@ -491,17 +491,17 @@ def _optional_unique_ids(
     return _build_unique_ids(chromosomes, positions, ref, alt)
 
 
-def build_standard_annotation_table(
+def build_reference_snp_table(
     *,
     metadata: pd.DataFrame,
     hg19_positions: np.ndarray | None,
     hg38_positions: np.ndarray | None,
 ) -> pd.DataFrame:
-    """Build the standard annotation parquet table for one chromosome.
+    """Build the in-memory reference SNP table for one chromosome.
 
     ``hg19_positions`` or ``hg38_positions`` may be ``None`` in source-only
-    builds. The returned table still keeps the canonical columns and fills the
-    unavailable build's coordinate and unique-ID fields with missing values.
+    builds. The returned table keeps both build-specific coordinate slots and
+    fills unavailable coordinates and unique-ID fields with missing values.
     """
 
     chromosomes = metadata["CHR"].map(_normalize_map_chromosome)
@@ -523,31 +523,31 @@ def build_standard_annotation_table(
     return table.reset_index(drop=True)
 
 
-def build_standard_ld_table(
+def build_standard_r2_table(
     *,
     pair_rows: list[dict[str, float | int | str]],
-    annotation_table: pd.DataFrame,
+    reference_snp_table: pd.DataFrame,
     genome_build: str,
 ) -> pd.DataFrame:
     """
-    Build one canonical six-column LD table chunk for a chromosome.
+    Build one canonical six-column R2 table chunk for a chromosome.
 
     The returned frame always uses the package-written parquet schema:
     string-valued ``CHR``/``SNP_1``/``SNP_2``, ``int64`` positions, and
     ``float32`` R2 values. Empty chunks keep the same dtypes so chromosomes with
-    no emitted pairs still serialize as canonical LD parquet files.
+    no emitted pairs still serialize as canonical R2 parquet files.
     """
 
     if not pair_rows:
-        return _empty_standard_ld_table()
+        return _empty_standard_r2_table()
 
     i = np.asarray([int(row["i"]) for row in pair_rows], dtype=np.int64)
     j = np.asarray([int(row["j"]) for row in pair_rows], dtype=np.int64)
     r2 = np.asarray([float(row["R2"]) for row in pair_rows], dtype=np.float32)
-    left = annotation_table.iloc[i].reset_index(drop=True)
-    right = annotation_table.iloc[j].reset_index(drop=True)
+    left = reference_snp_table.iloc[i].reset_index(drop=True)
+    right = reference_snp_table.iloc[j].reset_index(drop=True)
     pos_col = f"{genome_build}_pos"
-    chr_col = resolve_required_column(left.columns, CHR_COLUMN_SPEC, context="standard LD annotation table")
+    chr_col = resolve_required_column(left.columns, CHR_COLUMN_SPEC, context="standard R2 reference SNP table")
     return pd.DataFrame(
         {
             "CHR": left[chr_col].astype(str),
@@ -557,7 +557,7 @@ def build_standard_ld_table(
             "SNP_1": left["rsID"].astype(str),
             "SNP_2": right["rsID"].astype(str),
         },
-        columns=_STANDARD_LD_COLUMNS,
+        columns=_STANDARD_R2_COLUMNS,
     )
 
 
@@ -612,21 +612,21 @@ def write_dataframe_to_parquet(df: pd.DataFrame, path: str | PathLike[str]) -> s
     return str(path)
 
 
-def write_ld_parquet(
+def write_r2_parquet(
     *,
     pair_rows: Iterable[dict[str, float | int | str]],
-    annotation_table: pd.DataFrame,
+    reference_snp_table: pd.DataFrame,
     path: str | PathLike[str],
     genome_build: str,
     batch_size: int = 100_000,
     row_group_size: int = 50_000,
 ) -> str:
     """
-    Write a canonical LD parquet table with row-group metadata.
+    Write a canonical R2 parquet table with row-group metadata.
 
     The writer requires ``pyarrow`` because the canonical format depends on
     Arrow schema metadata and explicit row-group sizing. It writes exactly the
-    six canonical LD columns, stores ``ldsc:sorted_by_build`` and
+    six canonical R2 columns, stores ``ldsc:sorted_by_build`` and
     ``ldsc:row_group_size`` in schema metadata, and validates that incoming
     pair rows are sorted by non-decreasing ``POS_1``.
     """
@@ -638,7 +638,7 @@ def write_ld_parquet(
         import pyarrow.parquet as pq
     except ImportError as exc:
         raise LDSCDependencyError(
-            "Writing canonical reference-panel LD parquet artifacts requires pyarrow."
+            "Writing canonical reference-panel R2 parquet artifacts requires pyarrow."
         ) from exc
 
     pa_meta = {
@@ -650,7 +650,7 @@ def write_ld_parquet(
     prev_pos1: int | None = None
     try:
         for row in pair_rows:
-            current_pos1 = int(annotation_table.iloc[int(row["i"])][pos_col])
+            current_pos1 = int(reference_snp_table.iloc[int(row["i"])][pos_col])
             if prev_pos1 is not None and current_pos1 < prev_pos1:
                 raise ValueError(
                     "Pairs must arrive in non-decreasing POS_1 order. "
@@ -661,9 +661,9 @@ def write_ld_parquet(
             batch.append(row)
             if len(batch) < batch_size:
                 continue
-            frame = build_standard_ld_table(
+            frame = build_standard_r2_table(
                 pair_rows=batch,
-                annotation_table=annotation_table,
+                reference_snp_table=reference_snp_table,
                 genome_build=genome_build,
             )
             table = pa.Table.from_pandas(frame, preserve_index=False)
@@ -676,9 +676,9 @@ def write_ld_parquet(
             batch = []
 
         if batch or writer is None:
-            frame = build_standard_ld_table(
+            frame = build_standard_r2_table(
                 pair_rows=batch,
-                annotation_table=annotation_table,
+                reference_snp_table=reference_snp_table,
                 genome_build=genome_build,
             )
             table = pa.Table.from_pandas(frame, preserve_index=False)

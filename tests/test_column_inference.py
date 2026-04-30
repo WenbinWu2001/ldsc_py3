@@ -56,9 +56,14 @@ class ColumnInferenceTest(unittest.TestCase):
 
         n_cas_spec = self._spec_by_canonical(specs, "N_CAS")
         self.assertEqual(resolve_required_column(["ncas"], n_cas_spec), "ncas")
+        self.assertEqual(resolve_required_column(["Nca"], n_cas_spec), "Nca")
 
         n_con_spec = self._spec_by_canonical(specs, "N_CON")
         self.assertEqual(resolve_required_column(["ncon"], n_con_spec), "ncon")
+        self.assertEqual(resolve_required_column(["Nco"], n_con_spec), "Nco")
+
+        info_spec = self._spec_by_canonical(specs, "INFO")
+        self.assertEqual(resolve_required_column(["IMPINFO"], info_spec), "IMPINFO")
 
         frq_spec = self._spec_by_canonical(specs, "FRQ")
         self.assertEqual(resolve_required_column(["frq_u"], frq_spec), "frq_u")

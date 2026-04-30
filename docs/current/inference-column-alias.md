@@ -27,7 +27,9 @@ coordinate inference.
 | `MAF` | `MAF`, `FRQ`, `FREQ`, `FREQUENCY` |
 
 Restriction files in `chr_pos` mode also accept build-specific position
-columns when `genome_build` is set:
+columns. At `build-ref-panel` time the source PLINK build chooses the column;
+runtime LD-score and munging restrictions use the workflow's resolved
+`GlobalConfig.genome_build`:
 
 | Build | Accepted position aliases |
 |---|---|

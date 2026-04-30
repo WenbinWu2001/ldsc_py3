@@ -23,7 +23,7 @@ Public CLI flags and Python config fields follow these rules:
 
 | Suffix | Meaning | Examples |
 |---|---|---|
-| `*_file` | one file-like input, exact-one glob allowed where the resolver supports it | `sumstats_file`, `sumstats_snps_file`, `keep_indivs_file` |
+| `*_file` | one file-like input, exact-one glob allowed where the resolver supports it | `raw_sumstats_file`, `sumstats_file`, `sumstats_snps_file`, `keep_indivs_file` |
 | `*_sources` | one logical input that may resolve to many files via globs, comma lists, or `@` chromosome tokens | `baseline_annot_sources`, `query_annot_bed_sources` |
 | `*_dir` | directory input or output location | `ldscore_dir`, `output_dir` |
 
@@ -133,14 +133,15 @@ build's LD window.
 
 | Flag | Direction | Required | Object | Notes |
 |---|---:|---:|---|---|
-| `--sumstats-file` | input | yes | raw summary-statistics file | Exact path or exact-one glob. |
+| `--raw-sumstats-file` | input | yes | raw summary-statistics file | Exact path or exact-one glob. |
 | `--sumstats-snps-file` | input | no | summary-statistics SNP keep-list | Restricts munged summary-statistics rows to a SNP keep-list; defaults to omitted/`None`, so no keep-list restriction is applied. |
 | `--output-dir` | output | yes | munged output directory | Internally uses `<output_dir>/sumstats` as the legacy kernel stem. |
 | `--chr`, `--pos` | input metadata | no | raw column hints | Identify raw chromosome and position columns; default to omitted/`None`, so common aliases such as `#CHROM`, `CHROM`, `CHR`, `POS`, and `BP` are inferred. |
 | `--snp-identifier`, `--genome-build` | config | no | provenance | `--snp-identifier` defaults to `chr_pos`; `--genome-build` defaults to `hg38`; `--genome-build auto` can infer hg19/hg38 for complete `CHR`/`POS` rows. |
 | `--overwrite` | output mode | no | collision policy | Controls whether fixed sumstats outputs may be replaced; defaults to `False`, so existing outputs are refused. |
 
-Removed flags: `--sumstats`, `--merge-alleles`, `--merge-alleles-file`, `--out`.
+Removed flags: `--sumstats`, `--sumstats-file` for raw munge input,
+`--merge-alleles`, `--merge-alleles-file`, `--out`.
 
 Fixed output names:
 
@@ -254,7 +255,7 @@ Removed Python names: `plink_path`, `bfile`, `out`, `panel_label`,
 
 | Object/function | Argument | Direction | Object |
 |---|---:|---:|---|
-| `MungeConfig` | `sumstats_file` | input | raw summary-statistics file |
+| `MungeConfig` | `raw_sumstats_file` | input | raw summary-statistics file |
 | `MungeConfig` | `trait_name` | input metadata | optional trait label |
 | `MungeConfig` | `column_hints` | input metadata | optional source-column hints |
 | `MungeConfig` | `sumstats_snps_file` | input | summary-statistics SNP keep-list |
@@ -263,7 +264,8 @@ Removed Python names: `plink_path`, `bfile`, `out`, `panel_label`,
 | `SumstatsMunger.write_output(sumstats, output_dir)` | `output_dir` | output | writes fixed `sumstats.sumstats.gz` |
 
 Removed Python names: legacy separate source-path object field,
-`MungeConfig.out_prefix`, `write_output(..., out_prefix)`.
+`MungeConfig.sumstats_file`, `MungeConfig.out_prefix`,
+`write_output(..., out_prefix)`.
 
 ### Regression
 

@@ -87,7 +87,7 @@ annotation_bundle = AnnotationBuilder(GLOBAL_CONFIG, AnnotationBuildConfig()).ru
 
 sumstats = SumstatsMunger().run(
     MungeConfig(
-        sumstats_file="data/trait.tsv.gz",
+        raw_sumstats_file="data/trait.tsv.gz",
         trait_name="trait",
         column_hints={
             "snp": "ID",
@@ -213,7 +213,7 @@ groups are chromosome-aligned and listed in the manifest for targeted reads.
 
 ```bash
 ldsc munge-sumstats \
-  --sumstats-file data/trait.tsv.gz \
+  --raw-sumstats-file data/trait.tsv.gz \
   --snp ID \
   --chr '#CHROM' \
   --pos POS \

@@ -49,7 +49,7 @@ set_global_config(GLOBAL_CONFIG)
 
 sumstats = SumstatsMunger().run(
     MungeConfig(
-        sumstats_file="data/trait*.tsv.gz",
+        raw_sumstats_file="data/trait*.tsv.gz",
         trait_name="trait",
         column_hints={
             "snp": "ID",
@@ -121,7 +121,7 @@ The regression CLI reads the canonical LD-score result directory written by
 
 ```bash
 ldsc munge-sumstats \
-  --sumstats-file "data/trait*.tsv.gz" \
+  --raw-sumstats-file "data/trait*.tsv.gz" \
   --snp ID \
   --chr '#CHROM' \
   --pos POS \

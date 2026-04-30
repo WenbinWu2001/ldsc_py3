@@ -303,7 +303,7 @@ Output:
 
 Relevant APIs:
 
-- `MungeConfig.sumstats_file`
+- `MungeConfig.raw_sumstats_file`
 - regression artifact paths such as `sumstats_file`, `sumstats_1_file`, and
   `sumstats_2_file`
 - `ldscore_dir` for the canonical LD-score result directory

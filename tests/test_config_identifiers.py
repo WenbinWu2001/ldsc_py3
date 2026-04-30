@@ -286,22 +286,22 @@ class WorkflowConfigTest(unittest.TestCase):
 
     def test_munge_config_normalizes_pathlike_fields(self):
         config = MungeConfig(
-            sumstats_file=Path("sumstats") / "trait.tsv.gz",
+            raw_sumstats_file=Path("sumstats") / "trait.tsv.gz",
             output_dir=Path("results") / "trait",
             sumstats_snps_file=Path("resources") / "alleles.tsv",
             trait_name="trait",
             overwrite=True,
         )
-        self.assertEqual(config.sumstats_file, "sumstats/trait.tsv.gz")
+        self.assertEqual(config.raw_sumstats_file, "sumstats/trait.tsv.gz")
         self.assertEqual(config.output_dir, "results/trait")
         self.assertEqual(config.sumstats_snps_file, "resources/alleles.tsv")
         self.assertEqual(config.trait_name, "trait")
         self.assertTrue(config.overwrite)
 
     def test_munge_config_accepts_source_fields(self):
-        raw = MungeConfig(sumstats_file=Path("sumstats") / "trait.tsv.gz", trait_name="trait")
+        raw = MungeConfig(raw_sumstats_file=Path("sumstats") / "trait.tsv.gz", trait_name="trait")
         self.assertIsInstance(raw, MungeConfig)
-        self.assertEqual(raw.sumstats_file, "sumstats/trait.tsv.gz")
+        self.assertEqual(raw.raw_sumstats_file, "sumstats/trait.tsv.gz")
         self.assertEqual(raw.trait_name, "trait")
 
     def test_regression_config_defaults(self):
@@ -341,7 +341,7 @@ class WorkflowConfigTest(unittest.TestCase):
                     RefPanelConfig(**kwargs)
 
     def test_public_configs_normalize_pathlike_inputs(self):
-        raw = MungeConfig(sumstats_file=Path("sumstats") / "trait.tsv.gz")
+        raw = MungeConfig(raw_sumstats_file=Path("sumstats") / "trait.tsv.gz")
         annot = AnnotationBuildConfig(
             baseline_annot_sources=(Path("baseline") / "base.1.annot.gz",),
             query_annot_sources=(Path("query") / "custom.1.annot.gz",),
@@ -352,7 +352,7 @@ class WorkflowConfigTest(unittest.TestCase):
             plink_prefix=Path("plink") / "panel",
             r2_dir=Path("r2_panel") / "hg38",
         )
-        self.assertEqual(raw.sumstats_file, "sumstats/trait.tsv.gz")
+        self.assertEqual(raw.raw_sumstats_file, "sumstats/trait.tsv.gz")
         self.assertEqual(annot.baseline_annot_sources, ("baseline/base.1.annot.gz",))
         self.assertEqual(annot.query_annot_sources, ("query/custom.1.annot.gz",))
         self.assertEqual(annot.query_annot_bed_sources, ("beds/enhancer.bed",))
@@ -393,6 +393,8 @@ class WorkflowConfigTest(unittest.TestCase):
             )
         with self.assertRaises(TypeError):
             MungeConfig(out_prefix="out")
+        with self.assertRaises(TypeError):
+            MungeConfig(sumstats_file="sumstats/trait.tsv.gz")
         with self.assertRaises(TypeError):
             RefPanelConfig(plink_path="plink/panel")
 

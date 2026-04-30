@@ -62,7 +62,7 @@ is treated as the same logical schema as `CHR`, `POS_1`, `POS_2`, `SNP_1`,
 This means the docs define the canonical names used by package-written parquet
 artifacts, while the loader remains permissive for external parquet sources.
 
-Writing canonical LD parquet requires PyArrow. The package writer uses
+Writing canonical R2 parquet requires PyArrow. The package writer uses
 `pyarrow.parquet.ParquetWriter` so it can set schema metadata and explicit row-group
 sizes; pandas/fastparquet fallback writing is intentionally not part of the canonical
 path.
@@ -76,7 +76,7 @@ path.
   window are stored.
 
 The writer **asserts** the sort invariant on every incoming pair. If a pair arrives
-with `POS_1` less than the previous pair's `POS_1`, `write_ld_parquet`
+with `POS_1` less than the previous pair's `POS_1`, `write_r2_parquet`
 raises immediately with a clear message:
 
 > *"Pairs must arrive in non-decreasing POS_1 order. Received POS_1={x} after
@@ -160,24 +160,30 @@ in multiple consecutive rows — one per right-side neighbor within the LD windo
 The R² parquet stores **only pairwise data** (`CHR`, `POS_1`, `POS_2`, `R2`,
 `SNP_1`, `SNP_2`). Per-SNP metadata — chromosome, base position, rsID, genetic
 distance, and minor allele frequency — is kept in a separate **metadata sidecar**
-file. The R² parquet alone is not sufficient to use the `parquet_r2` backend.
+file. The sidecar is optional, but strongly recommended for production use.
 
-Treat the parquet R² file and the metadata sidecar as a paired artifact. Together they
-define one logical reference panel: the parquet provides pairwise LD entries, while the
-sidecar provides the per-SNP metadata required to load and interpret those pairs.
+Treat the parquet R² file and the metadata sidecar as a paired artifact when
+possible. Together they define one logical reference panel: the parquet provides
+pairwise LD entries, while the sidecar provides the complete per-SNP metadata
+needed for MAF filtering, common counts, and cM windows.
 
-#### Hard-fail requirement
+#### Fallback when the sidecar is absent
 
-`ParquetR2RefPanel.load_metadata()` (`src/ldsc/_kernel/ref_panel.py`) raises
-`ImportError` immediately if no sidecar paths are supplied via `metadata_sources`:
+R2 parquet files are required. In `r2_dir` mode, chromosome `N` must have
+`chrN_r2.parquet`; missing R2 is a hard error. If the matching
+`chrN_meta.tsv.gz` sidecar is absent and `fail_on_missing_metadata=False`,
+`ParquetR2RefPanel.load_metadata()` synthesizes a minimal metadata table by
+scanning the R2 endpoint columns:
 
-```python
-if not self.spec.metadata_sources:
-    raise ImportError("ParquetR2RefPanel.load_metadata requires metadata sidecar files.")
-```
+- `CHR`, `POS`, and `SNP` are derived from the union of `CHR/POS_1/SNP_1` and
+  `CHR/POS_2/SNP_2`.
+- `CM` is present but missing for every row.
+- `MAF` is unavailable.
 
-Callers must pass at least one sidecar file (or a chromosome-suite glob) via
-`RefPanelConfig(metadata_sources=...)`.
+This fallback cannot recover SNPs that have no emitted pair rows, cannot apply
+`--maf-min`, cannot compute common-SNP counts, and cannot support
+`--ld-wind-cm` unless annotation metadata supplies cM values. Setting
+`fail_on_missing_metadata=True` turns a missing sidecar into a hard error.
 
 #### Sidecar format
 
@@ -199,7 +205,7 @@ for production use.
 
 #### Role in the downstream workflow
 
-The metadata sidecar feeds directly into three steps of the partitioned-LDSC workflow
+When present, the metadata sidecar feeds directly into three steps of the partitioned-LDSC workflow
 (see `docs/design/partitioned-ldsc-workflow.md`, §6):
 
 1. **Reference panel universe (A').** `load_metadata()` reads the sidecar, optionally
@@ -234,10 +240,12 @@ optimised for row-group pruning; the sidecar is a lightweight per-SNP lookup tab
 that drives SNP universe construction and MAF/CM metadata.
 
 In the workflow notation of `docs/design/partitioned-ldsc-workflow.md`, the raw
-reference-panel SNP universe `A` comes from this paired artifact, but its authoritative
-materialization is the sidecar SNP table. The parquet pair rows are not scanned at
-runtime to define or validate `A`; they are used only to answer LD window queries once
-`ld_reference_snps = B ∩ A'` has been established from annotations plus sidecar metadata.
+reference-panel SNP universe `A` comes from this paired artifact. When the
+sidecar is present, its SNP table is authoritative and parquet pair rows are
+used only to answer LD window queries once `ld_reference_snps = B ∩ A'` has been
+established. When the sidecar is missing, the loader falls back to scanning
+parquet endpoint columns to synthesize a partial SNP table with the limitations
+listed above.
 
 ---
 
@@ -265,7 +273,7 @@ that sort build for row-group pruning to be correct.
 | Tier | Condition | Action |
 |---|---|---|
 | 1 | `ldsc:sorted_by_build` present **and matches** query build | Proceed silently |
-| 2 | `ldsc:sorted_by_build` present **and mismatches** query build | Raise `ValueError`: *"Parquet sorted for {parquet_build} but analysis uses {query_build}. Use the correct reference file or regenerate with `--genome-build {query_build}`."* |
+| 2 | `ldsc:sorted_by_build` present **and mismatches** query build | Raise `ValueError`: *"Parquet sorted for {parquet_build} but analysis uses {query_build}. Use the matching `{query_build}/r2` reference file or regenerate the panel with the correct source/liftover inputs."* |
 | 3 | `ldsc:sorted_by_build` absent or `None` | Infer build from first row group (see below); log `WARNING`; proceed if inferred build matches query build, raise `ValueError` if not |
 
 **Tier-3 inference:** read only the first row group, extract `(CHR, POS_1)` as a
@@ -393,7 +401,7 @@ major version once the ecosystem has migrated to the canonical schema.
 
 | Module | Change |
 |---|---|
-| `_kernel/ref_panel_builder.py` | `write_ld_parquet`: require PyArrow; assert sort invariant on each incoming pair; write new 6-column schema; preserve canonical dtypes for empty outputs; write `ldsc:sorted_by_build` and `ldsc:row_group_size` metadata; default `row_group_size=50_000` |
+| `_kernel/ref_panel_builder.py` | `write_r2_parquet`: require PyArrow; assert sort invariant on each incoming pair; write new 6-column schema; preserve canonical dtypes for empty outputs; write `ldsc:sorted_by_build` and `ldsc:row_group_size` metadata; default `row_group_size=50_000` |
 | `_kernel/ldscore.py` — `SortedR2BlockReader.__init__` | Detect schema (canonical vs legacy raw); canonical path: open as `pq.ParquetFile`, build `_rg_bounds` index from footer, validate build (3-tier), warn if coarse row groups; legacy path: open as `pyarrow.Dataset`, emit deprecation warning, proceed with full-scan fallback |
 | `_kernel/ldscore.py` — `SortedR2BlockReader._query_union_rows` | Canonical path: row-group index lookup + `read_row_groups` + `.to_numpy()`; legacy path: existing `dataset.to_table(filter=...)` behaviour unchanged |
 | `_kernel/ldscore.py` — `read_sorted_r2_presence` | Remove standalone function; the parquet backend no longer performs a runtime SNP-presence scan |

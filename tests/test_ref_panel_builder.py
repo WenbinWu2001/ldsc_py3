@@ -281,23 +281,44 @@ class PairwiseEmissionTest(unittest.TestCase):
 
 
 class RetainedSnpOrderingTest(unittest.TestCase):
-    def test_sort_retained_snps_uses_source_build_positions(self):
+    def test_sort_retained_snps_uses_requested_build_positions(self):
         keep_snps = np.array([10, 20, 30], dtype=int)
         hg19_lookup = {10: 2000, 20: 1000, 30: 3000}
         hg38_lookup = {10: 10685988, 20: 10685981, 30: 10686000}
 
-        sorted_snps = ref_panel_builder._sort_retained_snps_by_source_position(
+        sorted_snps = ref_panel_builder._sort_retained_snps_by_build_position(
             keep_snps,
-            source_build="hg38",
+            genome_build="hg38",
             hg19_lookup=hg19_lookup,
             hg38_lookup=hg38_lookup,
         )
 
         self.assertEqual(sorted_snps.tolist(), [20, 10, 30])
 
+    def test_kb_window_coordinates_use_requested_build_positions(self):
+        metadata = pd.DataFrame(
+            {
+                "CHR": ["1", "1"],
+                "POS": [1_000, 2_000],
+                "SNP": ["rs1", "rs2"],
+            }
+        )
+        build_positions = np.array([100, 250], dtype=np.int64)
+
+        coords, max_dist = kernel_builder.build_window_coordinates(
+            metadata=ref_panel_builder._metadata_with_build_positions(metadata, build_positions),
+            cm_values=None,
+            ld_wind_snps=None,
+            ld_wind_kb=1.0,
+            ld_wind_cm=None,
+        )
+
+        np.testing.assert_array_equal(coords, np.array([100.0, 250.0]))
+        self.assertEqual(max_dist, 1000.0)
+
 
 class StandardTableFormattingTest(unittest.TestCase):
-    def test_build_standard_annotation_table_uses_exact_schema(self):
+    def test_build_reference_snp_table_uses_exact_schema(self):
         metadata = pd.DataFrame(
             {
                 "CHR": ["1", "X"],
@@ -309,7 +330,7 @@ class StandardTableFormattingTest(unittest.TestCase):
             }
         )
 
-        table = kernel_builder.build_standard_annotation_table(
+        table = kernel_builder.build_reference_snp_table(
             metadata=metadata,
             hg19_positions=np.array([100, 150], dtype=np.int64),
             hg38_positions=np.array([110, 250], dtype=np.int64),
@@ -323,7 +344,7 @@ class StandardTableFormattingTest(unittest.TestCase):
         self.assertEqual(table["hg38_Uniq_ID"].tolist(), ["1:110:A:G", "X:250:C:T"])
         self.assertEqual(table["rsID"].tolist(), ["1:100:A:G", "rsX"])
 
-    def test_build_standard_annotation_table_allows_missing_opposite_build_columns(self):
+    def test_build_reference_snp_table_allows_missing_opposite_build_columns(self):
         metadata = pd.DataFrame(
             {
                 "CHR": ["1"],
@@ -335,7 +356,7 @@ class StandardTableFormattingTest(unittest.TestCase):
             }
         )
 
-        table = kernel_builder.build_standard_annotation_table(
+        table = kernel_builder.build_reference_snp_table(
             metadata=metadata,
             hg19_positions=np.array([100], dtype=np.int64),
             hg38_positions=None,
@@ -350,8 +371,8 @@ class StandardTableFormattingTest(unittest.TestCase):
         self.assertTrue(pd.isna(table.loc[0, "hg38_pos"]))
         self.assertTrue(pd.isna(table.loc[0, "hg38_Uniq_ID"]))
 
-    def test_build_standard_ld_table_uses_exact_schema(self):
-        annotation_table = pd.DataFrame(
+    def test_build_standard_r2_table_uses_exact_schema(self):
+        reference_snp_table = pd.DataFrame(
             {
                 "CHR": ["1", "1"],
                 "hg19_pos": [100, 120],
@@ -366,9 +387,9 @@ class StandardTableFormattingTest(unittest.TestCase):
         )
         pair_rows = [{"i": 0, "j": 1, "R2": 0.75, "sign": "-"}]
 
-        table = kernel_builder.build_standard_ld_table(
+        table = kernel_builder.build_standard_r2_table(
             pair_rows=pair_rows,
-            annotation_table=annotation_table,
+            reference_snp_table=reference_snp_table,
             genome_build="hg19",
         )
 
@@ -389,8 +410,8 @@ class StandardTableFormattingTest(unittest.TestCase):
         self.assertTrue(pd.api.types.is_string_dtype(table["SNP_1"]))
         self.assertTrue(pd.api.types.is_string_dtype(table["SNP_2"]))
 
-    def test_build_standard_ld_table_preserves_empty_schema_dtypes(self):
-        annotation_table = pd.DataFrame(
+    def test_build_standard_r2_table_preserves_empty_schema_dtypes(self):
+        reference_snp_table = pd.DataFrame(
             {
                 "CHR": ["1"],
                 "hg19_pos": [100],
@@ -404,9 +425,9 @@ class StandardTableFormattingTest(unittest.TestCase):
             }
         )
 
-        table = kernel_builder.build_standard_ld_table(
+        table = kernel_builder.build_standard_r2_table(
             pair_rows=[],
-            annotation_table=annotation_table,
+            reference_snp_table=reference_snp_table,
             genome_build="hg19",
         )
 
@@ -422,8 +443,8 @@ class StandardTableFormattingTest(unittest.TestCase):
         self.assertTrue(pd.api.types.is_string_dtype(table["SNP_2"]))
 
     @unittest.skipIf(_HAS_PYARROW, "pyarrow dependency is installed")
-    def test_write_ld_parquet_requires_pyarrow_for_canonical_output(self):
-        annotation_table = pd.DataFrame(
+    def test_write_r2_parquet_requires_pyarrow_for_canonical_output(self):
+        reference_snp_table = pd.DataFrame(
             {
                 "CHR": ["1", "1"],
                 "hg19_pos": [100, 120],
@@ -439,9 +460,9 @@ class StandardTableFormattingTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "chr1.parquet"
             with self.assertRaises(ImportError) as ctx:
-                kernel_builder.write_ld_parquet(
+                kernel_builder.write_r2_parquet(
                     pair_rows=iter([{"i": 0, "j": 1, "R2": 0.75, "sign": "+"}]),
-                    annotation_table=annotation_table,
+                    reference_snp_table=reference_snp_table,
                     path=path,
                     genome_build="hg19",
                 )
@@ -449,8 +470,8 @@ class StandardTableFormattingTest(unittest.TestCase):
             self.assertNotIn("fastparquet", str(ctx.exception))
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow dependency is not installed")
-    def test_write_ld_parquet_asserts_sort_invariant(self):
-        annotation_table = pd.DataFrame(
+    def test_write_r2_parquet_asserts_sort_invariant(self):
+        reference_snp_table = pd.DataFrame(
             {
                 "CHR": ["1", "1", "1"],
                 "hg19_pos": [100, 80, 120],
@@ -470,9 +491,9 @@ class StandardTableFormattingTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "chr1.parquet"
             with self.assertRaises(ValueError) as ctx:
-                kernel_builder.write_ld_parquet(
+                kernel_builder.write_r2_parquet(
                     pair_rows=iter(pair_rows),
-                    annotation_table=annotation_table,
+                    reference_snp_table=reference_snp_table,
                     path=path,
                     genome_build="hg19",
                 )
@@ -480,10 +501,10 @@ class StandardTableFormattingTest(unittest.TestCase):
             self.assertIn("POS_1=100", str(ctx.exception))
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow dependency is not installed")
-    def test_write_ld_parquet_writes_schema_metadata(self):
+    def test_write_r2_parquet_writes_schema_metadata(self):
         import pyarrow.parquet as pq
 
-        annotation_table = pd.DataFrame(
+        reference_snp_table = pd.DataFrame(
             {
                 "CHR": ["1", "1"],
                 "hg19_pos": [100, 120],
@@ -499,9 +520,9 @@ class StandardTableFormattingTest(unittest.TestCase):
         pair_rows = [{"i": 0, "j": 1, "R2": 0.75, "sign": "+"}]
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "chr1.parquet"
-            kernel_builder.write_ld_parquet(
+            kernel_builder.write_r2_parquet(
                 pair_rows=iter(pair_rows),
-                annotation_table=annotation_table,
+                reference_snp_table=reference_snp_table,
                 path=path,
                 genome_build="hg19",
                 row_group_size=50_000,
@@ -624,14 +645,28 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
         parser = ref_panel_builder.build_parser()
         self.assertEqual(parser.get_default("chunk_size"), 128)
 
-    def test_config_from_args_requires_snp_identifier_for_restriction_file(self):
+    def test_build_parser_does_not_accept_genome_build(self):
+        parser = ref_panel_builder.build_parser()
+        with self.assertRaises(SystemExit):
+            parser.parse_args(
+                [
+                    "--plink-prefix",
+                    "plink/panel.@",
+                    "--output-dir",
+                    "out",
+                    "--ld-wind-kb",
+                    "1",
+                    "--genome-build",
+                    "hg38",
+                ]
+            )
+
+    def test_config_from_args_uses_registered_identifier_for_restriction_file(self):
         parser = ref_panel_builder.build_parser()
         args = parser.parse_args(
             [
                 "--plink-prefix",
                 "plink/panel.@",
-                "--source-genome-build",
-                "hg19",
                 "--genetic-map-hg19-sources",
                 "maps/hg19.map",
                 "--output-dir",
@@ -643,8 +678,16 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
             ]
         )
 
-        with self.assertRaisesRegex(ValueError, "--snp-identifier is required"):
-            ref_panel_builder.config_from_args(args)
+        set_global_config(GlobalConfig(snp_identifier="chr_pos"))
+        try:
+            build_config, global_config = ref_panel_builder.config_from_args(args)
+        finally:
+            reset_global_config()
+
+        self.assertEqual(build_config.ref_panel_snps_file, "hm3.tsv")
+        self.assertIsNone(build_config.source_genome_build)
+        self.assertEqual(global_config.snp_identifier, "chr_pos")
+        self.assertIsNone(global_config.genome_build)
 
     def test_config_from_args_uses_explicit_snp_identifier_for_restriction_file(self):
         parser = ref_panel_builder.build_parser()
@@ -673,14 +716,14 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
         self.assertIsNone(global_config.genome_build)
         self.assertEqual(global_config.snp_identifier, "rsid")
 
-    def test_config_from_args_resolves_source_genome_build_before_global_config(self):
+    def test_config_from_args_does_not_require_genome_build_for_chr_pos_mode(self):
         parser = ref_panel_builder.build_parser()
         args = parser.parse_args(
             [
                 "--plink-prefix",
                 "plink/panel.@",
                 "--source-genome-build",
-                "hg37",
+                "hg19",
                 "--genetic-map-hg19-sources",
                 "maps/hg19.map",
                 "--output-dir",
@@ -694,26 +737,13 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
             ]
         )
 
-        with mock.patch.object(ref_panel_builder, "resolve_genome_build", return_value="hg19") as patched:
-            build_config, global_config = ref_panel_builder.config_from_args(args)
+        build_config, global_config = ref_panel_builder.config_from_args(args)
 
         self.assertEqual(build_config.source_genome_build, "hg19")
-        self.assertEqual(global_config.genome_build, "hg19")
-        patched.assert_called_once()
-        self.assertEqual(patched.call_args.args[1], "chr_pos")
+        self.assertEqual(global_config.snp_identifier, "chr_pos")
+        self.assertIsNone(global_config.genome_build)
 
-    def test_run_build_ref_panel_requires_snp_identifier_for_restriction_file(self):
-        with self.assertRaisesRegex(ValueError, "--snp-identifier is required"):
-            ref_panel_builder.run_build_ref_panel(
-                plink_prefix="plink/panel.@",
-                source_genome_build="hg19",
-                genetic_map_hg19_sources="maps/hg19.map",
-                output_dir="out",
-                ld_wind_kb=1,
-                ref_panel_snps_file="hm3.tsv",
-            )
-
-    def test_run_build_ref_panel_uses_explicit_snp_identifier_for_restriction_file(self):
+    def test_run_build_ref_panel_uses_registered_identifier_for_restriction_file(self):
         captured = {}
 
         def fake_run(self, config):
@@ -721,7 +751,39 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
             captured["config"] = config
             return ref_panel_builder.ReferencePanelBuildResult(panel_name="out", chromosomes=[])
 
-        with mock.patch.object(ref_panel_builder.ReferencePanelBuilder, "run", fake_run):
+        set_global_config(GlobalConfig(snp_identifier="chr_pos"))
+        try:
+            with mock.patch.object(ref_panel_builder.ReferencePanelBuilder, "run", fake_run):
+                ref_panel_builder.run_build_ref_panel(
+                    plink_prefix="plink/panel.@",
+                    source_genome_build="hg19",
+                    genetic_map_hg19_sources="maps/hg19.map",
+                    output_dir="out",
+                    ld_wind_kb=1,
+                    ref_panel_snps_file="hm3.tsv",
+                )
+        finally:
+            reset_global_config()
+
+        self.assertEqual(captured["config"].ref_panel_snps_file, "hm3.tsv")
+        self.assertEqual(captured["global_config"].snp_identifier, "chr_pos")
+        self.assertIsNone(captured["global_config"].genome_build)
+
+    def test_run_build_ref_panel_rejects_explicit_genome_build_keyword(self):
+        with self.assertRaisesRegex(ValueError, "set_global_config"):
+            ref_panel_builder.run_build_ref_panel(
+                plink_prefix="plink/panel.@",
+                source_genome_build="hg19",
+                genetic_map_hg19_sources="maps/hg19.map",
+                output_dir="out",
+                ld_wind_kb=1,
+                ref_panel_snps_file="hm3.tsv",
+                snp_identifier="chr_pos",
+                genome_build="hg38",
+            )
+
+    def test_run_build_ref_panel_rejects_explicit_snp_identifier_keyword(self):
+        with self.assertRaisesRegex(ValueError, "set_global_config"):
             ref_panel_builder.run_build_ref_panel(
                 plink_prefix="plink/panel.@",
                 source_genome_build="hg19",
@@ -732,10 +794,6 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
                 snp_identifier="rsid",
             )
 
-        self.assertEqual(captured["config"].ref_panel_snps_file, "hm3.tsv")
-        self.assertIsNone(captured["global_config"].genome_build)
-        self.assertEqual(captured["global_config"].snp_identifier, "rsid")
-
 
 class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
     def _write_dummy_plink_prefix(self, root: Path, stem: str, chrom: str):
@@ -744,6 +802,16 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
         Path(str(prefix) + ".fam").write_text("fam iid 0 0 0 -9\n", encoding="utf-8")
         Path(str(prefix) + ".bim").write_text(
             f"{chrom} rs{chrom} 0.0 100 A G\n",
+            encoding="utf-8",
+        )
+        return prefix
+
+    def _write_plink_prefix_rows(self, root: Path, stem: str, rows: list[tuple[str, str, int]]):
+        prefix = root / stem
+        Path(str(prefix) + ".bed").write_bytes(b"")
+        Path(str(prefix) + ".fam").write_text("fam iid 0 0 0 -9\n", encoding="utf-8")
+        Path(str(prefix) + ".bim").write_text(
+            "".join(f"{chrom} {snp} 0.0 {pos} A G\n" for chrom, snp, pos in rows),
             encoding="utf-8",
         )
         return prefix
@@ -772,12 +840,12 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
 
             def fake_build(prefix, chrom, config, build_state):
-                out_root = Path(config.output_dir) / "parquet"
+                out_root = Path(config.output_dir)
                 return {
-                    "ann": str(out_root / "ann" / f"chr{chrom}_ann.parquet"),
-                    "ld": str(out_root / "ld" / f"chr{chrom}_LD.parquet"),
-                    "meta_hg19": str(out_root / "meta" / f"chr{chrom}_meta_hg19.tsv.gz"),
-                    "meta_hg38": str(out_root / "meta" / f"chr{chrom}_meta_hg38.tsv.gz"),
+                    "r2_hg19": str(out_root / "hg19" / f"chr{chrom}_r2.parquet"),
+                    "r2_hg38": str(out_root / "hg38" / f"chr{chrom}_r2.parquet"),
+                    "meta_hg19": str(out_root / "hg19" / f"chr{chrom}_meta.tsv.gz"),
+                    "meta_hg38": str(out_root / "hg38" / f"chr{chrom}_meta.tsv.gz"),
                 }
 
             with mock.patch.object(
@@ -790,18 +858,20 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             self.assertEqual(result.panel_name, "out")
             self.assertEqual(result.chromosomes, ["1", "2"])
             self.assertEqual(patched.call_count, 2)
+            self.assertNotIn("ann", result.output_paths)
+            self.assertNotIn("ld", result.output_paths)
             self.assertEqual(
-                result.output_paths["ann"],
+                result.output_paths["r2_hg19"],
                 [
-                    str(tmpdir / "out" / "parquet" / "ann" / "chr1_ann.parquet"),
-                    str(tmpdir / "out" / "parquet" / "ann" / "chr2_ann.parquet"),
+                    str(tmpdir / "out" / "hg19" / "chr1_r2.parquet"),
+                    str(tmpdir / "out" / "hg19" / "chr2_r2.parquet"),
                 ],
             )
             self.assertEqual(
                 result.output_paths["meta_hg38"],
                 [
-                    str(tmpdir / "out" / "parquet" / "meta" / "chr1_meta_hg38.tsv.gz"),
-                    str(tmpdir / "out" / "parquet" / "meta" / "chr2_meta_hg38.tsv.gz"),
+                    str(tmpdir / "out" / "hg38" / "chr1_meta.tsv.gz"),
+                    str(tmpdir / "out" / "hg38" / "chr2_meta.tsv.gz"),
                 ],
             )
 
@@ -822,14 +892,13 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
 
             def fake_build(prefix, chrom, config, build_state):
-                out_root = Path(config.output_dir) / "parquet"
+                out_root = Path(config.output_dir)
                 return {
-                    "ann": str(out_root / "ann" / f"chr{chrom}_ann.parquet"),
-                    "ld": str(out_root / "ld" / f"chr{chrom}_LD.parquet"),
-                    "meta_hg19": str(out_root / "meta" / f"chr{chrom}_meta_hg19.tsv.gz"),
+                    "r2_hg19": str(out_root / "hg19" / f"chr{chrom}_r2.parquet"),
+                    "meta_hg19": str(out_root / "hg19" / f"chr{chrom}_meta.tsv.gz"),
                 }
 
-            with self.assertLogs("LDSC.ref_panel_builder", level="WARNING") as logs:
+            with self.assertLogs("LDSC.ref_panel_builder", level="INFO") as logs:
                 with mock.patch.object(
                     ref_panel_builder.ReferencePanelBuilder,
                     "_build_chromosome",
@@ -838,7 +907,11 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                     result = builder.run(config)
 
             self.assertIn("meta_hg19", result.output_paths)
+            self.assertIn("r2_hg19", result.output_paths)
+            self.assertNotIn("ann", result.output_paths)
+            self.assertNotIn("ld", result.output_paths)
             self.assertNotIn("meta_hg38", result.output_paths)
+            self.assertNotIn("r2_hg38", result.output_paths)
             self.assertTrue(any("source-build-only" in message for message in logs.output))
 
     def test_builder_run_refuses_existing_candidate_artifact_before_chromosome_build(self):
@@ -846,7 +919,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             tmpdir = Path(tmpdir)
             self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
             config = self._build_config(tmpdir)
-            existing = tmpdir / "out" / "parquet" / "ann" / "chr1_ann.parquet"
+            existing = tmpdir / "out" / "hg19" / "chr1_r2.parquet"
             existing.parent.mkdir(parents=True)
             existing.write_text("existing\n", encoding="utf-8")
             builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
@@ -866,7 +939,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             tmpdir = Path(tmpdir)
             self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
             config = dataclass_replace(self._build_config(tmpdir), overwrite=True)
-            existing = tmpdir / "out" / "parquet" / "ann" / "chr1_ann.parquet"
+            existing = tmpdir / "out" / "hg19" / "chr1_r2.parquet"
             existing.parent.mkdir(parents=True)
             existing.write_text("existing\n", encoding="utf-8")
             builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
@@ -874,7 +947,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             with mock.patch.object(
                 ref_panel_builder.ReferencePanelBuilder,
                 "_build_chromosome",
-                return_value={"ann": str(existing), "ld": "ld", "meta_hg19": "m19", "meta_hg38": "m38"},
+                return_value={"r2_hg19": str(existing), "r2_hg38": "r2", "meta_hg19": "m19", "meta_hg38": "m38"},
             ) as patched:
                 result = builder.run(config)
 
@@ -898,14 +971,13 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
 
             def fake_build(prefix, chrom, config, build_state):
-                out_root = Path(config.output_dir) / "parquet"
+                out_root = Path(config.output_dir)
                 return {
-                    "ann": str(out_root / "ann" / f"chr{chrom}_ann.parquet"),
-                    "ld": str(out_root / "ld" / f"chr{chrom}_LD.parquet"),
-                    "meta_hg38": str(out_root / "meta" / f"chr{chrom}_meta_hg38.tsv.gz"),
+                    "r2_hg38": str(out_root / "hg38" / f"chr{chrom}_r2.parquet"),
+                    "meta_hg38": str(out_root / "hg38" / f"chr{chrom}_meta.tsv.gz"),
                 }
 
-            with self.assertLogs("LDSC.ref_panel_builder", level="WARNING") as logs:
+            with self.assertLogs("LDSC.ref_panel_builder", level="INFO") as logs:
                 with mock.patch.object(
                     ref_panel_builder.ReferencePanelBuilder,
                     "_build_chromosome",
@@ -914,7 +986,9 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                     result = builder.run(config)
 
             self.assertIn("meta_hg38", result.output_paths)
+            self.assertIn("r2_hg38", result.output_paths)
             self.assertNotIn("meta_hg19", result.output_paths)
+            self.assertNotIn("r2_hg19", result.output_paths)
             self.assertTrue(any("source-build-only" in message for message in logs.output))
 
     def test_builder_run_warns_when_only_non_matching_chain_is_available(self):
@@ -934,11 +1008,11 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             )
             builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
 
-            with self.assertLogs("LDSC.ref_panel_builder", level="WARNING") as logs:
+            with self.assertLogs("LDSC.ref_panel_builder", level="INFO") as logs:
                 with mock.patch.object(
                     ref_panel_builder.ReferencePanelBuilder,
                     "_build_chromosome",
-                    return_value={"ann": "ann", "ld": "ld", "meta_hg19": "m19"},
+                    return_value={"r2_hg19": "r2", "meta_hg19": "m19"},
                 ):
                     builder.run(config)
 
@@ -988,6 +1062,161 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
         self.assertEqual(hg19_lookup, {})
         self.assertEqual(hg38_lookup, {7: 110})
 
+    def test_builder_run_infers_source_genome_build_before_build_state_preparation(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            self._write_plink_prefix_rows(tmpdir, "panel.1", [("1", "rs1", 100), ("1", "rs2", 200)])
+            config = ReferencePanelBuildConfig(
+                plink_prefix=tmpdir / "panel.@",
+                output_dir=tmpdir / "out",
+                ld_wind_kb=1.0,
+            )
+            builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="rsid"))
+            captured = {}
+
+            def fake_build(prefix, chrom, config, build_state):
+                captured["source_genome_build"] = config.source_genome_build
+                return {
+                    "r2_hg19": str(Path(config.output_dir) / "hg19" / f"chr{chrom}_r2.parquet"),
+                    "meta_hg19": str(Path(config.output_dir) / "hg19" / f"chr{chrom}_meta.tsv.gz"),
+                }
+
+            with mock.patch.object(ref_panel_builder, "resolve_genome_build", return_value="hg19") as patched_resolve:
+                with mock.patch.object(ref_panel_builder.ReferencePanelBuilder, "_build_chromosome", side_effect=fake_build):
+                    builder.run(config)
+
+        self.assertEqual(captured["source_genome_build"], "hg19")
+        self.assertEqual(patched_resolve.call_args.args[0], "auto")
+        self.assertEqual(patched_resolve.call_args.args[1], "chr_pos")
+        self.assertEqual(patched_resolve.call_args.args[2]["POS"].tolist(), [100, 200])
+
+    def test_prepare_build_state_reads_source_build_specific_restriction_column(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            restriction = tmpdir / "restrict.tsv"
+            restriction.write_text("CHR\thg19_POS\thg38_POS\n1\t100\t110\n", encoding="utf-8")
+            config = ReferencePanelBuildConfig(
+                plink_prefix=tmpdir / "panel.@",
+                source_genome_build="hg19",
+                output_dir=tmpdir / "out",
+                ld_wind_kb=1.0,
+                ref_panel_snps_file=restriction,
+            )
+            builder = ref_panel_builder.ReferencePanelBuilder(
+                global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38")
+            )
+
+            with self.assertLogs("LDSC.ref_panel_builder", level="INFO") as logs:
+                build_state = builder._prepare_build_state(config)
+
+        self.assertEqual(build_state.restriction_values, {"1:100"})
+        self.assertTrue(any("source genome build 'hg19'" in message for message in logs.output))
+
+    def test_prepare_build_state_infers_generic_restriction_pos_build_and_accepts_source_match(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            restriction = tmpdir / "restrict.tsv"
+            restriction.write_text("CHR\tPOS\n1\t100\n", encoding="utf-8")
+            config = ReferencePanelBuildConfig(
+                plink_prefix=tmpdir / "panel.@",
+                source_genome_build="hg19",
+                output_dir=tmpdir / "out",
+                ld_wind_kb=1.0,
+                ref_panel_snps_file=restriction,
+            )
+            builder = ref_panel_builder.ReferencePanelBuilder(
+                global_config=GlobalConfig(snp_identifier="chr_pos")
+            )
+
+            with mock.patch.object(ref_panel_builder, "resolve_genome_build", return_value="hg19") as patched_resolve:
+                build_state = builder._prepare_build_state(config)
+
+        self.assertEqual(build_state.restriction_values, {"1:100"})
+        self.assertEqual(patched_resolve.call_args.args[0], "auto")
+        self.assertEqual(patched_resolve.call_args.args[2]["POS"].tolist(), [100])
+
+    def test_prepare_build_state_rejects_generic_restriction_pos_build_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            restriction = tmpdir / "restrict.tsv"
+            restriction.write_text("CHR\tPOS\n1\t110\n", encoding="utf-8")
+            config = ReferencePanelBuildConfig(
+                plink_prefix=tmpdir / "panel.@",
+                source_genome_build="hg19",
+                output_dir=tmpdir / "out",
+                ld_wind_kb=1.0,
+                ref_panel_snps_file=restriction,
+            )
+            builder = ref_panel_builder.ReferencePanelBuilder(
+                global_config=GlobalConfig(snp_identifier="chr_pos")
+            )
+
+            with mock.patch.object(ref_panel_builder, "resolve_genome_build", return_value="hg38"):
+                with self.assertRaisesRegex(ValueError, "restriction.*hg38.*source.*hg19"):
+                    builder._prepare_build_state(config)
+
+    def test_chr_pos_restriction_filters_before_liftover(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            prefix = self._write_plink_prefix_rows(tmpdir, "panel.1", [("1", "rs1", 100), ("1", "rs2", 200)])
+            config = ReferencePanelBuildConfig(
+                plink_prefix=tmpdir / "panel.@",
+                source_genome_build="hg19",
+                output_dir=tmpdir / "out",
+                ld_wind_kb=1.0,
+            )
+            build_state = ref_panel_builder._BuildState(
+                genetic_map_hg19=None,
+                genetic_map_hg38=None,
+                liftover_chain_paths={("hg19", "hg38"): "chain.over"},
+                restriction_mode="chr_pos",
+                restriction_values={"1:200"},
+            )
+            builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos"))
+            captured = {}
+
+            def stop_after_restriction(*, keep_snps, **_kwargs):
+                captured["keep_snps"] = list(map(int, keep_snps))
+                raise RuntimeError("stop after restriction")
+
+            with mock.patch.object(builder, "_resolve_mappable_snp_positions", side_effect=stop_after_restriction):
+                with self.assertRaisesRegex(RuntimeError, "stop after restriction"):
+                    builder._build_chromosome(str(prefix), "1", config, build_state)
+
+        self.assertEqual(captured["keep_snps"], [1])
+
+    def test_rsid_restriction_filters_before_liftover_and_ignores_global_build(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            prefix = self._write_plink_prefix_rows(tmpdir, "panel.1", [("1", "rs1", 100), ("1", "rs2", 200)])
+            config = ReferencePanelBuildConfig(
+                plink_prefix=tmpdir / "panel.@",
+                source_genome_build="hg19",
+                output_dir=tmpdir / "out",
+                ld_wind_kb=1.0,
+            )
+            build_state = ref_panel_builder._BuildState(
+                genetic_map_hg19=None,
+                genetic_map_hg38=None,
+                liftover_chain_paths={("hg19", "hg38"): "chain.over"},
+                restriction_mode="rsid",
+                restriction_values={"rs2"},
+            )
+            builder = ref_panel_builder.ReferencePanelBuilder(
+                global_config=GlobalConfig(snp_identifier="rsid", genome_build="hg38")
+            )
+            captured = {}
+
+            def stop_after_restriction(*, keep_snps, **_kwargs):
+                captured["keep_snps"] = list(map(int, keep_snps))
+                raise RuntimeError("stop after restriction")
+
+            with mock.patch.object(builder, "_resolve_mappable_snp_positions", side_effect=stop_after_restriction):
+                with self.assertRaisesRegex(RuntimeError, "stop after restriction"):
+                    builder._build_chromosome(str(prefix), "1", config, build_state)
+
+        self.assertEqual(captured["keep_snps"], [1])
+
     def test_builder_run_rejects_duplicate_chromosome_across_inputs(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -1011,7 +1240,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             with mock.patch.object(
                 ref_panel_builder.ReferencePanelBuilder,
                 "_build_chromosome",
-                return_value={"ann": "ann", "ld": "ld", "meta_hg19": "m19", "meta_hg38": "m38"},
+                return_value={"r2_hg19": "r2-19", "r2_hg38": "r2-38", "meta_hg19": "m19", "meta_hg38": "m38"},
             ):
                 with self.assertRaises(ValueError):
                     builder.run(config)
@@ -1072,18 +1301,17 @@ class ReferencePanelBuilderSourceOnlySmokeTest(unittest.TestCase):
 
             self.assertEqual(build_result.chromosomes, ["22"])
             self.assertIn("meta_hg38", build_result.output_paths)
+            self.assertIn("r2_hg38", build_result.output_paths)
             self.assertNotIn("meta_hg19", build_result.output_paths)
-            self.assertTrue(Path(build_result.output_paths["ld"][0]).exists())
+            self.assertNotIn("r2_hg19", build_result.output_paths)
+            self.assertNotIn("ann", build_result.output_paths)
+            self.assertNotIn("ld", build_result.output_paths)
+            self.assertFalse((Path(tmpdir) / "panel" / "parquet").exists())
+            self.assertTrue(Path(build_result.output_paths["r2_hg38"][0]).exists())
             self.assertTrue(Path(build_result.output_paths["meta_hg38"][0]).exists())
 
             meta_hg38 = pd.read_csv(build_result.output_paths["meta_hg38"][0], sep="\t")
             self.assertTrue(meta_hg38["CM"].isna().all())
-
-            ann = pd.read_parquet(build_result.output_paths["ann"][0])
-            self.assertTrue(ann["hg19_pos"].isna().all())
-            self.assertTrue(ann["hg19_Uniq_ID"].isna().all())
-            self.assertFalse(ann["hg38_pos"].isna().any())
-            self.assertFalse(ann["hg38_Uniq_ID"].isna().any())
 
 
 @unittest.skipUnless(
@@ -1091,7 +1319,7 @@ class ReferencePanelBuilderSourceOnlySmokeTest(unittest.TestCase):
     "bitarray, pyarrow, and pyliftover are required for the smoke/parity builder test",
 )
 class ReferencePanelBuilderParityTest(unittest.TestCase):
-    def test_hm3_chr22_subset_writes_target_metadata_with_missing_cm_when_target_map_is_absent(self):
+    def test_hm3_chr22_subset_writes_target_r2_and_metadata_with_missing_cm_when_target_map_is_absent(self):
         resources = _find_resources_root()
         if resources is None:
             self.skipTest("resources directory is not available from this workspace")
@@ -1119,10 +1347,41 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
 
             self.assertIn("meta_hg19", build_result.output_paths)
             self.assertIn("meta_hg38", build_result.output_paths)
+            self.assertIn("r2_hg19", build_result.output_paths)
+            self.assertIn("r2_hg38", build_result.output_paths)
             meta_hg19 = pd.read_csv(build_result.output_paths["meta_hg19"][0], sep="\t")
             meta_hg38 = pd.read_csv(build_result.output_paths["meta_hg38"][0], sep="\t")
             self.assertTrue(meta_hg19["CM"].isna().all())
             self.assertFalse(meta_hg38["CM"].isna().any())
+            self.assertTrue(Path(build_result.output_paths["r2_hg19"][0]).exists())
+            self.assertTrue(Path(build_result.output_paths["r2_hg38"][0]).exists())
+
+    def test_cm_window_requires_target_map_when_liftover_emits_target_build(self):
+        resources = _find_resources_root()
+        if resources is None:
+            self.skipTest("resources directory is not available from this workspace")
+
+        prefix = MINIMAL_EXTERNAL_FIXTURES / "plink" / "hm3_chr22_subset"
+        if not (Path(str(prefix) + ".bed").exists() and Path(str(prefix) + ".bim").exists() and Path(str(prefix) + ".fam").exists()):
+            self.skipTest("minimal chr22 PLINK fixture is unavailable; run tests/fixtures/generate_minimal_external_resources.py")
+
+        map_hg38 = MINIMAL_EXTERNAL_FIXTURES / "genetic_maps" / "genetic_map_hg38_chr22_subset.txt"
+        if not map_hg38.exists():
+            self.skipTest("minimal hg38 genetic-map fixture is unavailable; run tests/fixtures/generate_minimal_external_resources.py")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with self.assertRaisesRegex(ValueError, "hg19 genetic map.*required"):
+                ref_panel_builder.run_build_ref_panel(
+                    plink_prefix=str(prefix),
+                    source_genome_build="hg38",
+                    genetic_map_hg19_sources=None,
+                    genetic_map_hg38_sources=str(map_hg38),
+                    liftover_chain_hg38_to_hg19_file=str(resources / "liftover" / "hg38ToHg19.over.chain"),
+                    output_dir=str(Path(tmpdir) / "panel"),
+                    ld_wind_cm=1.0,
+                    ld_wind_kb=None,
+                    chunk_size=64,
+                )
 
     def test_hm3_chr22_subset_runs_direct_and_parquet_ldscore_paths(self):
         resources = _find_resources_root()
@@ -1153,9 +1412,9 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
             )
 
             self.assertEqual(build_result.chromosomes, ["22"])
-            ld_path = build_result.output_paths["ld"][0]
+            r2_path = build_result.output_paths["r2_hg38"][0]
             meta_hg38_path = build_result.output_paths["meta_hg38"][0]
-            self.assertTrue(Path(ld_path).exists())
+            self.assertTrue(Path(r2_path).exists())
             self.assertTrue(Path(meta_hg38_path).exists())
 
             with gzip.open(meta_hg38_path, "rt", encoding="utf-8") as handle:
@@ -1178,8 +1437,7 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
                 parquet = ldscore_calculator.run_ldscore(
                     output_dir=str(tmpdir / "parquet"),
                     baseline_annot_sources=str(baseline),
-                    r2_sources=str(ld_path),
-                    metadata_sources=str(meta_hg38_path),
+                    r2_dir=str(tmpdir / "panel" / "hg38"),
                     r2_bias_mode="raw",
                     r2_sample_size=3202,
                     ld_wind_snps=10,

@@ -1,7 +1,8 @@
 # Genome-Build and Coordinate-Basis Inference
 
-Automatic genome-build inference is used only for `chr_pos` workflows when the
-user passes `--genome-build auto`. It is not used in `rsid` mode.
+Automatic genome-build inference is used for `chr_pos` workflows when the user
+passes `--genome-build auto`, and by `build-ref-panel` when
+`--source-genome-build` is omitted. It is not used in `rsid` mode.
 
 The package infers the build by comparing a subset of input (CHR, POS) pairs against the packaged HapMap3 coordinate map, then selecting the hypothesis that best explains those positions:
 
@@ -64,6 +65,8 @@ needs.
 | Packaged HM3 reference | Load full 11,000-SNP map once, then reuse from cache |
 | Raw sumstats text / `.gz` | Kernel-side normalization of munged `CHR` + `POS`, with build inference when requested |
 | Annotation chromosome-suite inputs | Read a small head sample from the first resolvable `@` chromosome file |
+| PLINK `.bim` source panel | `build-ref-panel` reads `.bim` `CHR/BP` rows before SNP restriction when `source_genome_build` is omitted |
+| build-ref-panel SNP restriction generic `POS` | Infer the restriction file's local build and require it to match the source PLINK build |
 | Canonical parquet R2 reference panel | Prefer schema metadata; otherwise inspect the first row group |
 
 ## Raw Sumstats

@@ -4,46 +4,39 @@
 
 **Design doc:** `docs/current/snp-identifier-genome-build-defaults.md`
 
-### Background
+### Goal
 
-`GlobalConfig` currently defaults to `snp_identifier="chr_pos"`, `genome_build=None`.
-That pair is invalid (chr_pos requires a genome build). The package works around this
-by registering `GlobalConfig(snp_identifier="rsid")` as the process default, creating
-a mismatch between the class declaration and actual runtime behavior.
+Make `GlobalConfig()` always produce a valid object that encodes the preferred
+SNP identification convention. Current state: `GlobalConfig()` produces
+`chr_pos + None`, which is an invalid pair that several workflows silently reject
+later. The process registry works around this by registering `rsid + None`
+instead — creating a mismatch between the class declaration and actual runtime.
 
-Goal: make `GlobalConfig()` produce a valid state that encodes the preferred SNP
-identification convention (`chr_pos`) with the honest uncertainty sentinel (`"auto"`).
+Target state:
 
----
-
-### Contract After This Change
-
-- `GlobalConfig()` → `chr_pos + auto`. Always valid.
-- `GlobalConfig(snp_identifier="chr_pos", genome_build=None)` → raises with clear message.
-- `GlobalConfig(snp_identifier="rsid")` → `rsid + None`. Still valid.
-- `GlobalConfig(snp_identifier="rsid", genome_build="auto")` → still raises (no change).
-- Process default (`_GLOBAL_CONFIG`) → `chr_pos + auto`.
+- `GlobalConfig()` → `chr_pos + auto`. Always valid. No override needed in registry.
+- `GlobalConfig(snp_identifier="chr_pos", genome_build=None)` → raises immediately
+  with: `"genome_build is required when snp_identifier='chr_pos'. Pass genome_build='auto' to infer from data, or 'hg19'/'hg38' explicitly."`
+- `GlobalConfig(snp_identifier="rsid")` → `rsid + None`. Unchanged.
 
 ---
 
 ### Step 1 — `src/ldsc/config.py`
 
-**1a. Change field default**
+**1a. Change `genome_build` field default**
 
 ```python
-# Line 108-109 — before
-snp_identifier: SNPIdentifierMode = "chr_pos"
+# before
 genome_build: GenomeBuildInput | None = None
 
 # after
-snp_identifier: SNPIdentifierMode = "chr_pos"
 genome_build: GenomeBuildInput | None = "auto"
 ```
 
-**1b. Add explicit chr_pos + None validation in `__post_init__`**
+**1b. Add explicit `chr_pos + None` validation in `__post_init__`**
 
-Insert after the existing `normalize_genome_build` call (around line 117), before
-the `rsid + auto` check:
+Insert after `object.__setattr__(self, "genome_build", normalize_genome_build(self.genome_build))`
+and before the existing `rsid + auto` check:
 
 ```python
 if self.snp_identifier == "chr_pos" and self.genome_build is None:
@@ -53,30 +46,30 @@ if self.snp_identifier == "chr_pos" and self.genome_build is None:
     )
 ```
 
-**1c. Simplify process-default and reset**
+#### 1c. Simplify process default and reset
 
 ```python
-# Line 130 — before
+# _GLOBAL_CONFIG line — before
 _GLOBAL_CONFIG: GlobalConfig = GlobalConfig(snp_identifier="rsid")
 
 # after
 _GLOBAL_CONFIG: GlobalConfig = GlobalConfig()
 
-# reset_global_config (line ~153) — before
+# reset_global_config body — before
 _GLOBAL_CONFIG = GlobalConfig(snp_identifier="rsid")
 
 # after
 _GLOBAL_CONFIG = GlobalConfig()
 ```
 
-**1d. Update docstring** for `genome_build` parameter to say default is `"auto"`.
+**1d. Update the `genome_build` docstring parameter line** to say default is `"auto"`.
 
 ---
 
 ### Step 2 — `src/ldsc/ref_panel_builder.py`
 
-`config_from_args` (line ~902) constructs `GlobalConfig` without `genome_build`.
-With the new validation, if `snp_identifier="chr_pos"` (the default), this raises.
+`config_from_args` (around line 902) constructs `GlobalConfig` without
+`genome_build`. With the new validation, `chr_pos + None` now raises.
 
 ```python
 # before
@@ -88,23 +81,23 @@ global_config = GlobalConfig(
 # after
 global_config = GlobalConfig(
     snp_identifier=snp_identifier,
-    genome_build="auto",   # build-ref-panel ignores GlobalConfig.genome_build; "auto" satisfies the invariant
+    genome_build="auto",
     log_level=args.log_level,
 )
 ```
 
-Note: `build-ref-panel` intentionally ignores `GlobalConfig.genome_build` (uses
-`ReferencePanelBuildConfig.source_genome_build` instead). The `"auto"` value here
-simply satisfies the construction invariant; it is never consumed by this workflow.
+Note: `build-ref-panel` intentionally ignores `GlobalConfig.genome_build`; it
+uses `ReferencePanelBuildConfig.source_genome_build` instead. The `"auto"` here
+only satisfies the construction invariant.
 
 ---
 
 ### Step 3 — `src/ldsc/sumstats_munger.py`
 
-`_effective_sumstats_config` (line ~593) reads `genome_build` from
-`coordinate_metadata`. If the metadata dict contains `"genome_build": None`
-(from an older artifact), the current code passes `None` through and would now
-raise on `chr_pos + None`.
+`_effective_sumstats_config` (around line 593) reads `genome_build` from
+`coordinate_metadata`. If that dict contains `"genome_build": None` (from an
+older artifact on disk), the current code passes `None` through and the new
+validation would raise on `chr_pos + None`.
 
 ```python
 # before
@@ -114,37 +107,35 @@ genome_build = coordinate_metadata.get("genome_build", config.genome_build)
 genome_build = coordinate_metadata.get("genome_build") or config.genome_build
 ```
 
-This makes `None` (or missing key) fall back to `config.genome_build`, which
-is now `"auto"` for chr_pos mode. Old artifacts with an explicit `None` do not
-corrupt the recovered config.
+`None` (explicit) and missing key both fall back to `config.genome_build`, which
+is `"auto"` under the new default.
 
 ---
 
 ### Step 4 — `src/ldsc/regression_runner.py`
 
-**4a. `_global_config_from_manifest` (line ~818)**
+**4a. `_global_config_from_manifest` (around line 818)**
 
-The snapshot recovery uses `snapshot.get("genome_build") or manifest.get("genome_build")`,
-which evaluates to `None` for old manifests. If the recovered `snp_identifier` is
-`"chr_pos"`, `GlobalConfig(snp_identifier="chr_pos", genome_build=None)` now raises
-and falls into the existing `except Exception` block — returning `None` (unknown
-provenance). This is acceptable, but more explicit:
+The recovered `genome_build` can be `None` for old chr_pos manifests that did
+not record a build. Rather than letting that fall into the `except` block and
+silently returning `None` provenance, fall back to `"auto"`:
 
 ```python
-# before (inside GlobalConfig(...) construction)
+# before
 genome_build=snapshot.get("genome_build") or manifest.get("genome_build"),
 
-# after
-genome_build=snapshot.get("genome_build") or manifest.get("genome_build") or (
-    "auto" if (snapshot.get("snp_identifier") or manifest.get("snp_identifier") or "rsid") == "chr_pos"
-    else None
+# after — determine the recovered snp_identifier first, then pick the right fallback
+_recovered_snp = (
+    snapshot.get("snp_identifier") or manifest.get("snp_identifier") or "rsid"
+)
+genome_build=(
+    snapshot.get("genome_build")
+    or manifest.get("genome_build")
+    or ("auto" if _recovered_snp == "chr_pos" else None)
 ),
 ```
 
-This recovers old chr_pos manifests with a `"auto"` fallback instead of silently
-dropping provenance. Rsid manifests continue to get `None`.
-
-**4b. Empty-merge error message (line ~161-166)**
+#### 4b. Empty-merge error message (around line 161–166)
 
 ```python
 # before
@@ -165,53 +156,39 @@ raise ValueError(
 
 ### Step 5 — Tests
 
-Run the full suite before and after:
+Activate environment first:
 
 ```bash
 source /Users/wenbinwu/miniforge3/etc/profile.d/conda.sh && conda activate ldsc3
+```
+
+Run full suite:
+
+```bash
 pytest
 ```
 
-Specific tests to check or add:
+Specific cases to add in `tests/test_global_config_registry.py`:
 
-1. **`test_global_config_registry.py`**: Add tests:
-   - `GlobalConfig()` succeeds and produces `snp_identifier="chr_pos"`, `genome_build="auto"`.
-   - `GlobalConfig(snp_identifier="chr_pos", genome_build=None)` raises `ValueError` with
-     message containing "Pass genome_build='auto'".
-   - `GlobalConfig(snp_identifier="rsid")` still produces `genome_build=None`.
-   - `get_global_config()` returns `chr_pos + auto` after module import.
-   - `reset_global_config()` returns `chr_pos + auto`.
+1. `GlobalConfig()` succeeds → `snp_identifier="chr_pos"`, `genome_build="auto"`.
+2. `GlobalConfig(snp_identifier="chr_pos", genome_build=None)` → raises `ValueError`
+   with message containing `"Pass genome_build='auto'"`.
+3. `GlobalConfig(snp_identifier="rsid")` → `genome_build=None`. Still valid.
+4. `get_global_config()` after module import → `snp_identifier="chr_pos"`, `genome_build="auto"`.
+5. `reset_global_config()` → `snp_identifier="chr_pos"`, `genome_build="auto"`.
 
-2. **`test_config_identifiers.py`**: Verify existing chr_pos + None construction sites
-   that were previously valid now raise.
-
-3. **`test_regression_workflow.py`**: Check that empty-merge error message now includes
-   `Active config:`.
+In `tests/test_regression_workflow.py`: verify the empty-merge error string
+contains `"Active config:"`.
 
 ---
 
-### Step 6 — Verify no regressions in CLI
+### Completion Criteria
 
-```bash
-# build-ref-panel should still work
-ldsc build-ref-panel --help
-
-# ldscore should still require --genome-build in chr_pos mode
-ldsc ldscore --snp-identifier chr_pos  # should raise without --genome-build
-
-# regression workflows should pick up chr_pos+auto from registry
-ldsc h2 --help
-```
-
----
-
-### Completion criteria
-
-- [ ] `GlobalConfig()` valid, produces `chr_pos + auto`
-- [ ] `GlobalConfig(snp_identifier="chr_pos", genome_build=None)` raises with clear message
-- [ ] `_GLOBAL_CONFIG` and `reset_global_config()` use `GlobalConfig()`
-- [ ] `ref_panel_builder.config_from_args` passes `genome_build="auto"` in construction
-- [ ] `sumstats_munger._effective_sumstats_config` guards against `None` override
-- [ ] `regression_runner._global_config_from_manifest` handles chr_pos + None recovery
+- [ ] `GlobalConfig()` valid; produces `chr_pos + auto`
+- [ ] `GlobalConfig(snp_identifier="chr_pos", genome_build=None)` raises with fix-it message
+- [ ] `_GLOBAL_CONFIG` and `reset_global_config()` use `GlobalConfig()` with no args
+- [ ] `ref_panel_builder.config_from_args` passes `genome_build="auto"`
+- [ ] `sumstats_munger._effective_sumstats_config` guards against `None` override from old metadata
+- [ ] `regression_runner._global_config_from_manifest` falls back to `"auto"` for chr_pos manifests with no recorded build
 - [ ] Empty-merge error includes `Active config: {self.global_config!r}`
-- [ ] Full test suite passes
+- [ ] Full `pytest` suite passes with no new failures

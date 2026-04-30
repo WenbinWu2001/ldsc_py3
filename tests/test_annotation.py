@@ -244,9 +244,10 @@ class AnnotationBuilderTest(unittest.TestCase):
             self.assertEqual(metadata["POS"].tolist(), [10])
             self.assertEqual(list(annotations.columns), ["base_a"])
 
-    def test_annotation_builder_rejects_auto_genome_build_at_kernel_boundary(self):
-        with self.assertRaisesRegex(AssertionError, "workflow entry"):
-            AnnotationBuilder(GlobalConfig(snp_identifier="chr_pos", genome_build="auto"), AnnotationBuildConfig())
+    def test_annotation_builder_accepts_auto_genome_build(self):
+        builder = AnnotationBuilder(GlobalConfig(snp_identifier="chr_pos", genome_build="auto"), AnnotationBuildConfig())
+
+        self.assertEqual(builder.global_config.genome_build, "auto")
 
     def test_run_auto_bundles_per_chromosome_files(self):
         builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())

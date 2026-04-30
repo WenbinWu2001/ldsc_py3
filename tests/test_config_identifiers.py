@@ -38,15 +38,15 @@ from ldsc._kernel.identifiers import (
 
 class GlobalConfigTest(unittest.TestCase):
     def test_defaults(self):
-        config = GlobalConfig(snp_identifier="rsid")
-        self.assertEqual(config.snp_identifier, "rsid")
-        self.assertIsNone(config.genome_build)
+        config = GlobalConfig()
+        self.assertEqual(config.snp_identifier, "chr_pos")
+        self.assertEqual(config.genome_build, "auto")
         self.assertEqual(config.log_level, "INFO")
         self.assertFalse(config.fail_on_missing_metadata)
 
     def test_package_global_registry_round_trip(self):
         original = ldsc.reset_global_config()
-        self.assertEqual(original, GlobalConfig(snp_identifier="rsid"))
+        self.assertEqual(original, GlobalConfig())
 
         configured = GlobalConfig(
             snp_identifier="rsid",
@@ -61,8 +61,8 @@ class GlobalConfigTest(unittest.TestCase):
 
         reset = ldsc.reset_global_config()
 
-        self.assertEqual(reset, GlobalConfig(snp_identifier="rsid"))
-        self.assertEqual(ldsc.get_global_config(), GlobalConfig(snp_identifier="rsid"))
+        self.assertEqual(reset, GlobalConfig())
+        self.assertEqual(ldsc.get_global_config(), GlobalConfig())
 
     def test_validates_values(self):
         with self.assertRaises(ValueError):
@@ -84,9 +84,13 @@ class GlobalConfigTest(unittest.TestCase):
 
 
 class TestGlobalConfigValidation(unittest.TestCase):
-    def test_chr_pos_no_genome_build_ok_for_workflows_that_do_not_need_build(self):
+    def test_chr_pos_omitted_genome_build_defaults_to_auto(self):
         cfg = GlobalConfig(snp_identifier="chr_pos")
-        self.assertIsNone(cfg.genome_build)
+        self.assertEqual(cfg.genome_build, "auto")
+
+    def test_chr_pos_explicit_none_raises(self):
+        with self.assertRaisesRegex(ValueError, "Pass genome_build='auto'"):
+            GlobalConfig(snp_identifier="chr_pos", genome_build=None)
 
     def test_chr_pos_hg38_ok(self):
         cfg = GlobalConfig(snp_identifier="chr_pos", genome_build="hg38")
@@ -110,17 +114,17 @@ class TestGlobalConfigValidation(unittest.TestCase):
         self.assertIn("ignored", str(ctx.warning))
         self.assertIsNone(cfg.genome_build)
 
-    def test_singleton_is_rsid(self):
+    def test_singleton_is_chr_pos_auto(self):
         from ldsc.config import get_global_config
         cfg = get_global_config()
-        self.assertEqual(cfg.snp_identifier, "rsid")
-        self.assertIsNone(cfg.genome_build)
+        self.assertEqual(cfg.snp_identifier, "chr_pos")
+        self.assertEqual(cfg.genome_build, "auto")
 
-    def test_reset_returns_rsid(self):
+    def test_reset_returns_chr_pos_auto(self):
         from ldsc.config import reset_global_config
         cfg = reset_global_config()
-        self.assertEqual(cfg.snp_identifier, "rsid")
-        self.assertIsNone(cfg.genome_build)
+        self.assertEqual(cfg.snp_identifier, "chr_pos")
+        self.assertEqual(cfg.genome_build, "auto")
 
 
 class WorkflowConfigTest(unittest.TestCase):

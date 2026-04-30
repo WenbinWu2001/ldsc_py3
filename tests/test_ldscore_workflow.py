@@ -62,6 +62,112 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
         self.assertEqual(args.r2_dir, "panel/hg38")
 
+    def test_build_parser_defaults_r2_bias_mode_to_unbiased(self):
+        args = ldscore_workflow.build_parser().parse_args(["--output-dir", "out", "--r2-dir", "panel/hg38"])
+
+        self.assertEqual(args.r2_bias_mode, "unbiased")
+
+    def test_validate_run_args_accepts_omitted_r2_bias_mode_as_unbiased(self):
+        args = Namespace(
+            output_dir="out",
+            query_annot_sources=None,
+            query_annot_bed_sources=None,
+            baseline_annot_sources="baseline.annot.gz",
+            plink_prefix=None,
+            bfile=None,
+            bfile_chr=None,
+            r2_dir="panel/hg38",
+            r2_table_chr=None,
+            snp_identifier="rsid",
+            genome_build=None,
+            keep_indivs_file=None,
+            r2_bias_mode=None,
+            r2_sample_size=None,
+            ld_wind_snps=10,
+            ld_wind_kb=None,
+            ld_wind_cm=None,
+            maf_min=None,
+            common_maf_min=0.05,
+            chunk_size=50,
+        )
+
+        ldscore_workflow._validate_run_args(args)
+        self.assertEqual(args.r2_bias_mode, "unbiased")
+
+    def test_validate_run_args_requires_sample_size_for_raw_r2(self):
+        args = Namespace(
+            output_dir="out",
+            query_annot_sources=None,
+            query_annot_bed_sources=None,
+            baseline_annot_sources="baseline.annot.gz",
+            plink_prefix=None,
+            bfile=None,
+            bfile_chr=None,
+            r2_dir="panel/hg38",
+            r2_table_chr=None,
+            snp_identifier="rsid",
+            genome_build=None,
+            keep_indivs_file=None,
+            r2_bias_mode="raw",
+            r2_sample_size=None,
+            ld_wind_snps=10,
+            ld_wind_kb=None,
+            ld_wind_cm=None,
+            maf_min=None,
+            common_maf_min=0.05,
+            chunk_size=50,
+        )
+
+        with self.assertRaisesRegex(ValueError, "--r2-sample-size is required"):
+            ldscore_workflow._validate_run_args(args)
+
+    def test_kernel_build_parser_defaults_r2_bias_mode_to_unbiased(self):
+        args = kernel_ldscore.build_parser().parse_args(
+            [
+                "--out",
+                "out",
+                "--baseline-annot",
+                "baseline.annot.gz",
+                "--r2-table",
+                "panel.@.parquet",
+            ]
+        )
+
+        self.assertEqual(args.r2_bias_mode, "unbiased")
+
+    def test_kernel_validate_args_accepts_omitted_r2_bias_mode_as_unbiased(self):
+        args = Namespace(
+            out="out",
+            query_annot=None,
+            baseline_annot="baseline.annot.gz",
+            bfile=None,
+            r2_table="panel.@.parquet",
+            snp_identifier="rsid",
+            genome_build=None,
+            r2_bias_mode=None,
+            r2_sample_size=None,
+            regression_snps_file=None,
+            frqfile=None,
+            query_annot_chr=None,
+            baseline_annot_chr=None,
+            bfile_chr=None,
+            r2_table_chr=None,
+            frqfile_chr=None,
+            keep=None,
+            ld_wind_snps=10,
+            ld_wind_kb=None,
+            ld_wind_cm=None,
+            maf_min=None,
+            common_maf_min=0.05,
+            chunk_size=50,
+            per_chr_output=False,
+            yes_really=False,
+            log_level="INFO",
+        )
+
+        kernel_ldscore.validate_args(args)
+        self.assertEqual(args.r2_bias_mode, "unbiased")
+
     def test_build_parser_help_exposes_only_r2_dir_for_parquet_input(self):
         help_text = ldscore_workflow.build_parser().format_help()
 

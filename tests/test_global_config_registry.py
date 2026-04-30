@@ -85,6 +85,36 @@ class GlobalConfigRegistryTest(unittest.TestCase):
     def tearDown(self) -> None:
         reset_global_config()
 
+    def test_global_config_default_uses_chr_pos_auto(self):
+        config = GlobalConfig()
+
+        self.assertEqual(config.snp_identifier, "chr_pos")
+        self.assertEqual(config.genome_build, "auto")
+
+    def test_chr_pos_requires_genome_build_fix_it(self):
+        with self.assertRaisesRegex(ValueError, "Pass genome_build='auto'"):
+            GlobalConfig(snp_identifier="chr_pos", genome_build=None)
+
+    def test_rsid_default_keeps_genome_build_none(self):
+        config = GlobalConfig(snp_identifier="rsid")
+
+        self.assertEqual(config.snp_identifier, "rsid")
+        self.assertIsNone(config.genome_build)
+
+    def test_registered_global_config_defaults_to_chr_pos_auto(self):
+        config = ldsc.get_global_config()
+
+        self.assertEqual(config.snp_identifier, "chr_pos")
+        self.assertEqual(config.genome_build, "auto")
+
+    def test_reset_global_config_restores_chr_pos_auto(self):
+        set_global_config(GlobalConfig(snp_identifier="rsid"))
+
+        config = reset_global_config()
+
+        self.assertEqual(config.snp_identifier, "chr_pos")
+        self.assertEqual(config.genome_build, "auto")
+
     def test_run_bed_to_annot_uses_registered_global_config_and_logs_once(self):
         set_global_config(
             GlobalConfig(

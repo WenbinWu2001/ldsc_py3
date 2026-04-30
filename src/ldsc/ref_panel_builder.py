@@ -901,6 +901,7 @@ def config_from_args(args: argparse.Namespace) -> tuple[ReferencePanelBuildConfi
     )
     global_config = GlobalConfig(
         snp_identifier=snp_identifier,
+        genome_build="auto" if snp_identifier == "chr_pos" else None,
         log_level=args.log_level,
     )
     return build_config, global_config

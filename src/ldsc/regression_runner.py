@@ -162,7 +162,8 @@ class RegressionRunner:
             source = sumstats_table.source_path or sumstats_table.trait_name or "sumstats"
             raise ValueError(
                 f"No overlapping {identifier_mode} SNPs remain after merging sumstats '{source}' "
-                f"with {len(ldscore_frame)} LD-score rows. Check that snp_identifier and genome_build match."
+                f"with {len(ldscore_frame)} LD-score rows. Check that snp_identifier and genome_build match. "
+                f"Active config: {self.global_config!r}."
             )
 
         retained_ld_columns = list(ref_ld_columns)
@@ -815,9 +816,14 @@ def _global_config_from_manifest(manifest: dict[str, Any]) -> GlobalConfig | Non
         )
         return None
     try:
+        _recovered_snp = snapshot.get("snp_identifier") or manifest.get("snp_identifier") or "rsid"
         return GlobalConfig(
-            snp_identifier=snapshot.get("snp_identifier") or manifest.get("snp_identifier") or "rsid",
-            genome_build=snapshot.get("genome_build") or manifest.get("genome_build"),
+            snp_identifier=_recovered_snp,
+            genome_build=(
+                snapshot.get("genome_build")
+                or manifest.get("genome_build")
+                or ("auto" if _recovered_snp == "chr_pos" else None)
+            ),
             log_level=snapshot.get("log_level", "INFO"),
             fail_on_missing_metadata=bool(snapshot.get("fail_on_missing_metadata", False)),
         )

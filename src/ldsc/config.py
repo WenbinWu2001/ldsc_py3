@@ -34,6 +34,7 @@ from .errors import LDSCConfigError
 from .path_resolution import normalize_optional_path_token, normalize_path_token, normalize_path_tokens
 
 LOGGER = logging.getLogger("LDSC.config")
+_GENOME_BUILD_UNSET = object()
 
 
 SNPIdentifierMode = Literal["rsid", "chr_pos"]
@@ -79,7 +80,7 @@ def _normalize_log_level(level: str) -> LogLevel:
     return normalized  # type: ignore[return-value]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class GlobalConfig:
     """Shared configuration used across the refactored workflows.
 
@@ -91,8 +92,8 @@ class GlobalConfig:
         from chromosome and base-pair position.
     genome_build : {"auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"} or None, optional
         Genome-build context for ``chr_pos`` workflows that require
-        coordinate-build interpretation. Workflows that do not need this
-        setting may leave it ``None``. Ignored for ``"rsid"``.
+        coordinate-build interpretation. Default is ``"auto"``. Ignored for
+        ``"rsid"``.
     log_level : {"DEBUG", "INFO", "WARNING", "ERROR"}, optional
         Requested logging verbosity for workflow modules. Default is ``"INFO"``.
     fail_on_missing_metadata : bool, optional
@@ -106,9 +107,25 @@ class GlobalConfig:
     ``regression_snps_file`` now live on workflow-specific configs.
     """
     snp_identifier: SNPIdentifierMode = "chr_pos"
-    genome_build: GenomeBuildInput | None = None
+    genome_build: GenomeBuildInput | None = "auto"
     log_level: LogLevel = "INFO"
     fail_on_missing_metadata: bool = False
+
+    def __init__(
+        self,
+        snp_identifier: SNPIdentifierMode = "chr_pos",
+        genome_build: GenomeBuildInput | None | object = _GENOME_BUILD_UNSET,
+        log_level: LogLevel = "INFO",
+        fail_on_missing_metadata: bool = False,
+    ) -> None:
+        """Initialize global workflow assumptions with mode-aware defaults."""
+        if genome_build is _GENOME_BUILD_UNSET:
+            genome_build = None if snp_identifier == "rsid" else "auto"
+        object.__setattr__(self, "snp_identifier", snp_identifier)
+        object.__setattr__(self, "genome_build", genome_build)
+        object.__setattr__(self, "log_level", log_level)
+        object.__setattr__(self, "fail_on_missing_metadata", fail_on_missing_metadata)
+        self.__post_init__()
 
     def __post_init__(self) -> None:
         """Normalize shared path-like fields and validate common enum values."""
@@ -116,18 +133,23 @@ class GlobalConfig:
             raise ValueError("snp_identifier must be 'rsid' or 'chr_pos'.")
         object.__setattr__(self, "genome_build", normalize_genome_build(self.genome_build))
         object.__setattr__(self, "log_level", _normalize_log_level(self.log_level))
+        if self.snp_identifier == "chr_pos" and self.genome_build is None:
+            raise ValueError(
+                "genome_build is required when snp_identifier='chr_pos'. "
+                "Pass genome_build='auto' to infer from data, or 'hg19'/'hg38' explicitly."
+            )
         if self.snp_identifier == "rsid" and self.genome_build == "auto":
             raise ValueError("genome_build='auto' is not valid for snp_identifier='rsid'.")
         if self.snp_identifier == "rsid" and self.genome_build is not None:
             warnings.warn(
                 "genome_build is set but will be ignored in rsid mode.",
                 UserWarning,
-                stacklevel=2,
+                stacklevel=3,
             )
             object.__setattr__(self, "genome_build", None)
 
 
-_GLOBAL_CONFIG: GlobalConfig = GlobalConfig(snp_identifier="rsid")
+_GLOBAL_CONFIG: GlobalConfig = GlobalConfig()
 _GLOBAL_CONFIG_BANNER_SUPPRESSION: ContextVar[int] = ContextVar(
     "ldsc_global_config_banner_suppression",
     default=0,
@@ -150,7 +172,7 @@ def set_global_config(config: GlobalConfig) -> None:
 def reset_global_config() -> GlobalConfig:
     """Restore the process-wide default configuration and return it."""
     global _GLOBAL_CONFIG
-    _GLOBAL_CONFIG = GlobalConfig(snp_identifier="rsid")
+    _GLOBAL_CONFIG = GlobalConfig()
     return _GLOBAL_CONFIG
 
 

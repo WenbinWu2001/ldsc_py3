@@ -1988,7 +1988,7 @@ def validate_args(args: argparse.Namespace) -> None:
         if keep:
             raise ValueError("--keep-indivs-file is only supported in PLINK mode.")
         if args.r2_bias_mode is None:
-            raise ValueError("--r2-bias-mode is required in parquet mode.")
+            args.r2_bias_mode = "unbiased"
         if args.r2_bias_mode == "raw" and args.r2_sample_size is None:
             raise ValueError("--r2-sample-size is required when --r2-bias-mode raw.")
         if args.snp_identifier == "chr_pos" and args.genome_build is None:
@@ -2025,7 +2025,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"),
         help="Genome build assumed for the sorted parquet R2 file and chr_pos matching. Use 'auto' to infer hg19/hg38 and 0-based/1-based coordinates.",
     )
-    parser.add_argument("--r2-bias-mode", choices=("raw", "unbiased"), default=None, help="Whether sorted parquet R2 values are raw sample r^2 or already unbiased.")
+    parser.add_argument("--r2-bias-mode", choices=("raw", "unbiased"), default="unbiased", help="Whether sorted parquet R2 values are raw sample r^2 or already unbiased.")
     parser.add_argument("--r2-sample-size", default=None, type=float, help="LD reference sample size used to correct raw parquet R2 values.")
     parser.add_argument("--regression-snps-file", default=None, help="Optional SNP list defining the regression SNP set for weight LD computation and written LD-score rows.")
     parser.add_argument("--frqfile", default=None, help="Optional frequency/metadata inputs for MAF and CM. Each token may be an exact path, glob, or explicit @ chromosome-suite token.")

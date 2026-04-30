@@ -183,9 +183,9 @@ class AnnotationBuilder:
 
     def __init__(self, global_config: GlobalConfig, build_config: AnnotationBuildConfig | None = None) -> None:
         """Store shared configuration for bundle loading and BED projection."""
-        assert global_config.genome_build in {"hg19", "hg38", None}, (
+        assert global_config.genome_build in {"auto", "hg19", "hg38", None}, (
             f"genome_build reached kernel as {global_config.genome_build!r}; "
-            "should have been resolved at workflow entry."
+            "should be normalized before annotation building."
         )
         self.global_config = global_config
         self.build_config = build_config or AnnotationBuildConfig()

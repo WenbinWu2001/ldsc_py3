@@ -640,6 +640,29 @@ class ReferencePanelBuildConfigOptionalLiftoverTest(unittest.TestCase):
         self.assertEqual(config.liftover_chain_hg38_to_hg19_file, "chains/hg38ToHg19.over.chain")
 
 
+class ReferencePanelBuildConfigDuplicatePolicyTest(unittest.TestCase):
+    def _base_config(self, **kwargs):
+        return ReferencePanelBuildConfig(
+            plink_prefix="plink/panel.@",
+            source_genome_build="hg19",
+            output_dir="out",
+            ld_wind_kb=1.0,
+            **kwargs,
+        )
+
+    def test_default_policy_is_error(self):
+        config = self._base_config()
+        self.assertEqual(config.duplicate_position_policy, "error")
+
+    def test_drop_all_policy_is_accepted(self):
+        config = self._base_config(duplicate_position_policy="drop-all")
+        self.assertEqual(config.duplicate_position_policy, "drop-all")
+
+    def test_invalid_policy_raises(self):
+        with self.assertRaisesRegex(ValueError, "duplicate_position_policy"):
+            self._base_config(duplicate_position_policy="keep-one")
+
+
 class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
     def test_build_parser_defaults_chunk_size_to_128(self):
         parser = ref_panel_builder.build_parser()

@@ -618,6 +618,7 @@ def write_r2_parquet(
     reference_snp_table: pd.DataFrame,
     path: str | PathLike[str],
     genome_build: str,
+    n_samples: int,
     batch_size: int = 100_000,
     row_group_size: int = 50_000,
 ) -> str:
@@ -644,6 +645,8 @@ def write_r2_parquet(
     pa_meta = {
         b"ldsc:sorted_by_build": genome_build.encode("utf-8"),
         b"ldsc:row_group_size": str(row_group_size).encode("utf-8"),
+        b"ldsc:n_samples": str(n_samples).encode("utf-8"),
+        b"ldsc:r2_bias": b"unbiased",
     }
     writer = None
     batch: list[dict[str, float | int | str]] = []

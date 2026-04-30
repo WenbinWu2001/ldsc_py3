@@ -465,6 +465,7 @@ class StandardTableFormattingTest(unittest.TestCase):
                     reference_snp_table=reference_snp_table,
                     path=path,
                     genome_build="hg19",
+                    n_samples=10,
                 )
             self.assertIn("requires pyarrow", str(ctx.exception))
             self.assertNotIn("fastparquet", str(ctx.exception))
@@ -496,6 +497,7 @@ class StandardTableFormattingTest(unittest.TestCase):
                     reference_snp_table=reference_snp_table,
                     path=path,
                     genome_build="hg19",
+                    n_samples=10,
                 )
             self.assertIn("POS_1=80", str(ctx.exception))
             self.assertIn("POS_1=100", str(ctx.exception))
@@ -525,6 +527,7 @@ class StandardTableFormattingTest(unittest.TestCase):
                 reference_snp_table=reference_snp_table,
                 path=path,
                 genome_build="hg19",
+                n_samples=10,
                 row_group_size=50_000,
             )
             pf = pq.ParquetFile(str(path))
@@ -534,6 +537,37 @@ class StandardTableFormattingTest(unittest.TestCase):
             self.assertEqual(meta[b"ldsc:sorted_by_build"].decode("utf-8"), "hg19")
             self.assertIn(b"ldsc:row_group_size", meta)
             self.assertEqual(meta[b"ldsc:row_group_size"].decode("utf-8"), "50000")
+
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow dependency is not installed")
+    def test_write_r2_parquet_stores_n_samples_and_r2_bias(self):
+        import pyarrow.parquet as pq
+
+        ref_table = kernel_builder.build_reference_snp_table(
+            metadata=pd.DataFrame(
+                {
+                    "CHR": ["1", "1"],
+                    "SNP": ["rs1", "rs2"],
+                    "A1": ["A", "T"],
+                    "A2": ["C", "G"],
+                    "MAF": [0.3, 0.4],
+                }
+            ),
+            hg19_positions=np.array([100, 200], dtype=int),
+            hg38_positions=None,
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "hg19" / "chr1_r2.parquet"
+            kernel_builder.write_r2_parquet(
+                pair_rows=iter([]),
+                reference_snp_table=ref_table,
+                path=path,
+                genome_build="hg19",
+                n_samples=42,
+            )
+            meta = pq.read_schema(str(path)).metadata
+
+        self.assertEqual(meta[b"ldsc:n_samples"], b"42")
+        self.assertEqual(meta[b"ldsc:r2_bias"], b"unbiased")
 
     def test_build_runtime_metadata_table_is_build_specific(self):
         metadata = pd.DataFrame(

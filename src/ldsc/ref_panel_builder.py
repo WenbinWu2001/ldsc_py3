@@ -494,6 +494,7 @@ class ReferencePanelBuilder:
                 reference_snp_table=reference_snp_table,
                 path=r2_path,
                 genome_build=build,
+                n_samples=geno.n,
             )
             runtime_metadata = kernel_builder.build_runtime_metadata_table(
                 metadata=metadata,

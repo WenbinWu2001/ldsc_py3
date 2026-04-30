@@ -251,7 +251,8 @@ Accepted path forms:
 - `plink_prefix`: exact PLINK prefix, exact-one PLINK glob, or explicit `@` PLINK suite token
 - map and chain inputs, when provided: exact path or exact-one glob
 - `ref_panel_snps_file`, when provided: scalar file-like token interpreted
-  using explicit CLI identifier/build flags or the registered `GlobalConfig`
+  using `GlobalConfig.snp_identifier`; `chr_pos` coordinates must be aligned to
+  the PLINK source build
 
 How they are handled:
 
@@ -263,10 +264,13 @@ How they are handled:
 - genetic maps are required for every emitted build when `--ld-wind-cm` is set;
   SNP- and kb-window builds may omit maps and write emitted metadata `CM` as
   `NA`
-- `snp_identifier` for SNP restrictions comes from the explicit argument or
-  registered `GlobalConfig`; in `chr_pos` mode, `genome_build` selects the
-  restriction-file coordinate build, falling back to the source build when
-  omitted or `auto`
+- `snp_identifier` for SNP restrictions comes from `GlobalConfig`; the CLI flag
+  constructs a one-invocation identifier config, and the Python wrapper reads
+  the registered config
+- `build-ref-panel` ignores `GlobalConfig.genome_build`; in `chr_pos` mode, the
+  restriction file must provide source-build coordinates, either through a
+  source-specific column such as `hg19_POS` or through generic `POS` that
+  infers to the source PLINK build
 
 Example:
 
@@ -350,8 +354,9 @@ The package does not infer:
 - missing file suffixes
 - directory contents from an input directory argument
 - a hidden per-chromosome mode from a bare prefix
-- the source build for `ldsc build-ref-panel`; that workflow still requires
-  explicit `--source-genome-build`
+- target-build SNP restrictions for `ldsc build-ref-panel`; that workflow
+  applies restrictions before liftover and requires restriction coordinates to
+  align to the inferred or explicit source PLINK build
 
 Programmatic build inference is available from the top-level Python API:
 `from ldsc import infer_chr_pos_build, resolve_chr_pos_table`. The command-line

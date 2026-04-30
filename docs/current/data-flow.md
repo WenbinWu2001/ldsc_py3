@@ -123,7 +123,7 @@ supplied; unrelated files in the output directory are left untouched.
 | `.fam` row | `fam1 iid1 0 0 0 -9` | sample metadata |
 | genetic map, conditional | `chr position Genetic_Map(cM)`<br/>`22 16050000 0.42` | required for every emitted build when cM windows are used; optional for SNP/kb windows |
 | liftover chain, optional | `hg38ToHg19.over.chain.gz` | matching source-to-target chain enables cross-build R2 and metadata; omitted chain produces source-build-only output |
-| keep or restrict file, optional | one IID per row or a headered SNP table | filters individuals or variants; SNP restriction matching uses explicit CLI identifier/build flags or registered `GlobalConfig` |
+| keep or restrict file, optional | one IID per row or a headered SNP table | filters individuals or variants; SNP restriction matching uses `GlobalConfig.snp_identifier`; `chr_pos` restrictions must match the source PLINK build |
 
 ### Flow
 
@@ -135,8 +135,9 @@ flowchart LR
 
   subgraph P2[Preprocessing (public)<br/>config + path_resolution]
     B1[Resolve PLINK prefixes]
+    B0[Infer source build from .bim when omitted]
     B2[Resolve map and filter files]
-    B8[Interpret SNP restrictions using effective restriction build]
+    B8[Interpret SNP restrictions in source build]
   end
 
   subgraph W2[Workflow (public)<br/>ldsc.ref_panel_builder]
@@ -150,7 +151,7 @@ flowchart LR
     B7[Format standard schemas]
   end
 
-  I1 --> B1 --> B3 --> B4 --> B5 --> B6 --> B7
+  I1 --> B1 --> B0 --> B3 --> B4 --> B5 --> B6 --> B7
   I2 --> B2 --> B4
   I3 --> B2 --> B8 --> B4
   B7 --> O2[{build}/r2/chr*_r2.parquet + {build}/meta/chr*_meta.tsv.gz]

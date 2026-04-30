@@ -48,6 +48,25 @@ class LDScoreWorkflowTest(unittest.TestCase):
         self.assertIn("Required when", help_text)
         self.assertIn("Not used when --snp-identifier rsid", help_text)
 
+    def test_normalize_run_args_chr_pos_still_requires_genome_build(self):
+        args = Namespace(
+            output_dir="out",
+            query_annot_sources=None,
+            baseline_annot_sources=None,
+            plink_prefix="plink/panel.@",
+            r2_sources=None,
+            snp_identifier="chr_pos",
+            genome_build=None,
+            metadata_sources=None,
+            keep_indivs_file=None,
+            ref_panel_snps_file=None,
+            regression_snps_file=None,
+            log_level="INFO",
+        )
+
+        with self.assertRaisesRegex(ValueError, "genome_build is required"):
+            ldscore_workflow._normalize_run_args(args)
+
     def make_chrom_result(self, chrom: str, bp: int, score: float, count: float):
         baseline_table = pd.DataFrame(
             {

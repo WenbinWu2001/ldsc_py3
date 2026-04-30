@@ -19,14 +19,21 @@ from __future__ import annotations
 
 import argparse
 import logging
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace as dataclass_replace
 from pathlib import Path
 from typing import Any, Sequence
 
 import numpy as np
 import pandas as pd
 
-from .column_inference import normalize_genome_build, normalize_snp_identifier_mode
+from .column_inference import (
+    RESTRICTION_CHRPOS_SPEC_MAP,
+    RESTRICTION_HG19_POS_SPEC,
+    RESTRICTION_HG38_POS_SPEC,
+    normalize_column_token,
+    normalize_snp_identifier_mode,
+    resolve_required_column,
+)
 from .config import GlobalConfig, ReferencePanelBuildConfig, get_global_config, print_global_config_banner
 from .genome_build_inference import resolve_genome_build
 from .path_resolution import (
@@ -37,6 +44,7 @@ from .path_resolution import (
     resolve_scalar_path,
 )
 from ._kernel import formats as legacy_parse
+from ._kernel import identifiers as kernel_identifiers
 from ._kernel import ldscore as kernel_ldscore
 from ._kernel import ref_panel_builder as kernel_builder
 
@@ -77,7 +85,6 @@ class _BuildState:
     genetic_map_hg38: Any | None
     liftover_chain_paths: dict[tuple[str, str], str | None] = field(default_factory=dict)
     restriction_mode: str | None = None
-    restriction_build: str | None = None
     restriction_values: set[str] | None = None
     translator_cache: dict[tuple[str, str], kernel_builder.LiftOverTranslator] = field(default_factory=dict)
 
@@ -85,6 +92,8 @@ class _BuildState:
 def _emitted_genome_builds(config: ReferencePanelBuildConfig) -> list[str]:
     """Return source and optional target builds emitted by one build config."""
     source_build = config.source_genome_build
+    if source_build not in {"hg19", "hg38"}:
+        raise ValueError("source_genome_build must be resolved before output paths are generated.")
     target_build = "hg38" if source_build == "hg19" else "hg19"
     matching_chain = (
         config.liftover_chain_hg19_to_hg38_file
@@ -130,8 +139,9 @@ class ReferencePanelBuilder:
             optional genetic maps, optional liftover chain paths, output
             directory, and exactly one LD window. If
             ``config.ref_panel_snps_file`` is set, this builder interprets that
-            file using ``self.global_config.snp_identifier`` and
-            ``self.global_config.genome_build``. Existing deterministic output
+            file using ``self.global_config.snp_identifier`` against the
+            resolved source PLINK build. ``GlobalConfig.genome_build`` is not
+            consulted by this workflow. Existing deterministic output
             paths are refused before chromosome processing unless
             ``config.overwrite`` is true.
 
@@ -152,6 +162,7 @@ class ReferencePanelBuilder:
         self._configure_logging()
         ensure_output_directory(config.output_dir, label="output directory")
         resolved_prefixes = resolve_plink_prefix_group((config.plink_prefix,), allow_chromosome_suite=True)
+        config = self._resolve_source_genome_build(config, resolved_prefixes)
         build_state = self._prepare_build_state(config)
 
         chrom_sources: list[tuple[str, str]] = []
@@ -200,6 +211,39 @@ class ReferencePanelBuilder:
             format="%(levelname)s: %(message)s",
         )
 
+    def _resolve_source_genome_build(
+        self,
+        config: ReferencePanelBuildConfig,
+        resolved_prefixes: Sequence[str],
+    ) -> ReferencePanelBuildConfig:
+        """Return a config whose PLINK source genome build is concrete."""
+        if config.source_genome_build in {"hg19", "hg38"}:
+            return config
+        if config.source_genome_build is not None:
+            raise ValueError(f"Unsupported source_genome_build: {config.source_genome_build!r}.")
+        sample_frame = _plink_bim_chr_pos_frame(resolved_prefixes)
+        try:
+            source_build = resolve_genome_build(
+                "auto",
+                "chr_pos",
+                sample_frame,
+                context="build-ref-panel PLINK .bim",
+                logger=LOGGER,
+            )
+        except ValueError as exc:
+            details = str(exc).replace(
+                "Pass --genome-build hg19 or --genome-build hg38",
+                "Pass --source-genome-build hg19 or --source-genome-build hg38",
+            )
+            raise ValueError(
+                "Unable to infer source_genome_build from PLINK .bim coordinates. "
+                f"{details}"
+            ) from exc
+        if source_build not in {"hg19", "hg38"}:
+            raise ValueError("Unable to resolve source_genome_build from PLINK .bim coordinates.")
+        LOGGER.info(f"Using source_genome_build='{source_build}' for PLINK reference-panel coordinates.")
+        return dataclass_replace(config, source_genome_build=source_build)
+
     def _prepare_build_state(self, config: ReferencePanelBuildConfig) -> _BuildState:
         """Resolve optional shared maps, chains, and a reference-universe filter."""
         hg19_files = None
@@ -219,8 +263,9 @@ class ReferencePanelBuilder:
                 allow_chromosome_suite=True,
             )
         source_build = config.source_genome_build
+        if source_build not in {"hg19", "hg38"}:
+            raise ValueError("source_genome_build must be resolved before loading build-ref-panel shared state.")
         restriction_mode = None
-        restriction_build = None
         restriction_values = None
         if config.ref_panel_snps_file:
             restriction_path = resolve_scalar_path(
@@ -229,20 +274,16 @@ class ReferencePanelBuilder:
                 label="reference-panel SNP restriction",
             )
             restriction_mode = normalize_snp_identifier_mode(self.global_config.snp_identifier)
-            restriction_build = (
-                None
-                if restriction_mode == "rsid"
-                else _effective_restriction_build(self.global_config.genome_build, source_build)
-            )
             if restriction_mode == "chr_pos":
                 LOGGER.info(
                     f"Interpreting reference-panel SNP restriction '{restriction_path}' "
-                    f"as {restriction_build} CHR/POS identifiers."
+                    f"against source_genome_build='{source_build}' PLINK coordinates. "
+                    "GlobalConfig.genome_build is ignored by build-ref-panel."
                 )
-            restriction_values = kernel_ldscore.read_global_snp_restriction(
+            restriction_values = _read_ref_panel_snp_restriction(
                 restriction_path,
                 restriction_mode,
-                genome_build=restriction_build,
+                source_genome_build=source_build,
             )
             message = (
                 f"Loaded {len(restriction_values)} SNP restriction identifiers "
@@ -284,6 +325,11 @@ class ReferencePanelBuilder:
                 f"No {target_build} genetic map was provided; "
                 f"{target_build} metadata CM values will be written as NA."
             )
+        if config.ld_wind_cm is not None and (
+            (source_build == "hg38" and config.genetic_map_hg38_sources is None)
+            or (source_build == "hg19" and config.genetic_map_hg19_sources is None)
+        ):
+            raise ValueError(f"{source_build} genetic map path is required when ld_wind_cm is set.")
         if (source_build == "hg38" and config.genetic_map_hg38_sources is None) or (
             source_build == "hg19" and config.genetic_map_hg19_sources is None
         ):
@@ -299,7 +345,6 @@ class ReferencePanelBuilder:
                 ("hg38", "hg19"): config.liftover_chain_hg38_to_hg19_file,
             },
             restriction_mode=restriction_mode,
-            restriction_build=restriction_build,
             restriction_values=restriction_values,
         )
 
@@ -334,7 +379,7 @@ class ReferencePanelBuilder:
         keep_snps = chrom_df.index.to_numpy(dtype=int)
         if (
             build_state.restriction_values is not None
-            and build_state.restriction_mode == "rsid"
+            and build_state.restriction_mode is not None
         ):
             keep_mask = kernel_builder.build_restriction_mask(
                 chrom_metadata.reset_index(drop=True),
@@ -356,22 +401,6 @@ class ReferencePanelBuilder:
         if len(keep_snps) == 0:
             LOGGER.info(f"Skipping chromosome {chrom} because no SNPs remain after liftover filtering.")
             return None
-        if (
-            build_state.restriction_values is not None
-            and build_state.restriction_mode == "chr_pos"
-            and build_state.restriction_build is not None
-        ):
-            keep_snps = _apply_chr_pos_restriction(
-                keep_snps=keep_snps,
-                chrom=chrom,
-                restriction_values=build_state.restriction_values,
-                restriction_build=build_state.restriction_build,
-                hg19_lookup=hg19_lookup,
-                hg38_lookup=hg38_lookup,
-            )
-            if len(keep_snps) == 0:
-                LOGGER.info(f"Skipping chromosome {chrom} because no SNPs remain after restriction.")
-                return None
 
         keep_indivs = None
         if config.keep_indivs_file is not None:
@@ -574,10 +603,167 @@ class ReferencePanelBuilder:
         return np.asarray([lookup[int(idx)] for idx in kept_snps], dtype=int)
 
 
-def _effective_restriction_build(genome_build: str | None, source_build: str) -> str:
-    """Return the concrete build used to interpret CHR/POS restriction files."""
-    normalized = normalize_genome_build(genome_build)
-    return source_build if normalized in {None, "auto"} else normalized
+def _plink_bim_chr_pos_frame(resolved_prefixes: Sequence[str]) -> pd.DataFrame:
+    """Read CHR/BP coordinates from resolved PLINK ``.bim`` files."""
+    frames: list[pd.DataFrame] = []
+    for prefix in resolved_prefixes:
+        frame = pd.read_csv(
+            prefix + ".bim",
+            sep=r"\s+",
+            header=None,
+            usecols=[0, 3],
+            names=["CHR", "POS"],
+        )
+        if not frame.empty:
+            frames.append(frame)
+    if not frames:
+        return pd.DataFrame(columns=["CHR", "POS"])
+    return pd.concat(frames, ignore_index=True)
+
+
+def _read_ref_panel_snp_restriction(
+    path: str | Path,
+    restriction_mode: str,
+    *,
+    source_genome_build: str,
+) -> set[str]:
+    """Read a builder SNP restriction file in the source PLINK build."""
+    if restriction_mode == "rsid":
+        return kernel_identifiers.read_global_snp_restriction(path, "rsid")
+    if source_genome_build not in {"hg19", "hg38"}:
+        raise ValueError("source_genome_build must be resolved before CHR/POS SNP restriction loading.")
+    return _read_source_build_chr_pos_restriction(Path(path), source_genome_build)
+
+
+def _source_position_spec(source_genome_build: str):
+    """Return the build-specific position column spec for the source build."""
+    return RESTRICTION_HG19_POS_SPEC if source_genome_build == "hg19" else RESTRICTION_HG38_POS_SPEC
+
+
+def _resolve_build_specific_position_column(
+    header: Sequence[str],
+    *,
+    source_genome_build: str,
+    path: Path,
+) -> str | None:
+    """Resolve only explicit build-specific position aliases, not generic POS."""
+    spec = _source_position_spec(source_genome_build)
+    alias_tokens = {normalize_column_token(alias) for alias in spec.aliases}
+    matches = [
+        column
+        for column in header
+        if (normalized := normalize_column_token(column)) in alias_tokens
+        or any(normalized.endswith(alias) for alias in alias_tokens)
+    ]
+    if not matches:
+        return None
+    if len(matches) > 1:
+        raise ValueError(
+            f"Ambiguous {source_genome_build} position columns in reference-panel "
+            f"SNP restriction '{path}': {', '.join(map(str, matches))}"
+        )
+    return matches[0]
+
+
+def _restriction_frame_from_columns(
+    *,
+    path: Path,
+    header: Sequence[str],
+    rows: Sequence[Sequence[str]],
+    chr_col: str,
+    pos_col: str,
+) -> pd.DataFrame:
+    """Materialize CHR/POS restriction rows from selected source columns."""
+    chr_idx = list(header).index(chr_col)
+    pos_idx = list(header).index(pos_col)
+    values: list[tuple[object, object]] = []
+    for row in rows:
+        if not row:
+            continue
+        if len(row) <= max(chr_idx, pos_idx):
+            raise ValueError(f"Restriction row in {path} is missing the CHR or POS column.")
+        values.append((row[chr_idx], row[pos_idx]))
+    return pd.DataFrame(values, columns=["CHR", "POS"])
+
+
+def _infer_generic_restriction_build(frame: pd.DataFrame, path: Path) -> str:
+    """Infer the genome build represented by a generic restriction POS column."""
+    inference_frame = frame.loc[:, ["CHR", "POS"]].copy()
+    inference_frame["POS"] = pd.to_numeric(inference_frame["POS"], errors="raise").astype(int)
+    try:
+        inferred_build = resolve_genome_build(
+            "auto",
+            "chr_pos",
+            inference_frame,
+            context=f"reference-panel SNP restriction '{path}'",
+            logger=LOGGER,
+        )
+    except ValueError as exc:
+        raise ValueError(
+            "Unable to infer the genome build of the generic POS column in "
+            f"reference-panel SNP restriction '{path}'. Provide a source-build-specific "
+            "position column such as hg19_POS or hg38_POS, aligned to the PLINK source build."
+        ) from exc
+    if inferred_build not in {"hg19", "hg38"}:
+        raise ValueError(f"Unable to infer the genome build of reference-panel SNP restriction '{path}'.")
+    return inferred_build
+
+
+def _read_source_build_chr_pos_restriction(path: Path, source_genome_build: str) -> set[str]:
+    """Read a CHR/POS restriction file that must align to the source build."""
+    header, rows, _delimiter = kernel_identifiers._parse_restriction_rows(path)
+    if not header:
+        return set()
+    chr_col = resolve_required_column(
+        header,
+        RESTRICTION_CHRPOS_SPEC_MAP["CHR"],
+        context=str(path),
+    )
+    source_pos_col = _resolve_build_specific_position_column(
+        header,
+        source_genome_build=source_genome_build,
+        path=path,
+    )
+    if source_pos_col is not None:
+        LOGGER.info(
+            f"Using source-build-specific restriction column '{source_pos_col}' "
+            f"for source genome build '{source_genome_build}'."
+        )
+        frame = _restriction_frame_from_columns(
+            path=path,
+            header=header,
+            rows=rows,
+            chr_col=chr_col,
+            pos_col=source_pos_col,
+        )
+        return kernel_identifiers._finalize_chr_pos_restriction_frame(frame, path=path, logger=LOGGER)
+
+    generic_pos_col = resolve_required_column(
+        header,
+        RESTRICTION_CHRPOS_SPEC_MAP["POS"],
+        context=str(path),
+    )
+    frame = _restriction_frame_from_columns(
+        path=path,
+        header=header,
+        rows=rows,
+        chr_col=chr_col,
+        pos_col=generic_pos_col,
+    )
+    restriction_build = _infer_generic_restriction_build(frame, path)
+    if restriction_build != source_genome_build:
+        raise ValueError(
+            "Reference-panel SNP restriction build mismatch: generic POS column "
+            f"in '{path}' was inferred as {restriction_build}, but the source "
+            f"reference panel build is {source_genome_build}. Provide SNP restrictions "
+            "aligned to the PLINK source build, or add a source-build-specific "
+            f"{source_genome_build}_POS column."
+        )
+    LOGGER.info(
+        f"Generic POS column in reference-panel SNP restriction '{path}' "
+        f"was inferred as source_genome_build='{source_genome_build}'."
+    )
+    return kernel_identifiers._finalize_chr_pos_restriction_frame(frame, path=path, logger=LOGGER)
 
 
 def _position_lookup_for_build(
@@ -588,40 +774,6 @@ def _position_lookup_for_build(
 ) -> dict[int, int]:
     """Return the retained-position lookup for one genome build."""
     return hg19_lookup if genome_build == "hg19" else hg38_lookup
-
-
-def _apply_chr_pos_restriction(
-    *,
-    keep_snps,
-    chrom: str,
-    restriction_values: set[str],
-    restriction_build: str,
-    hg19_lookup: dict[int, int],
-    hg38_lookup: dict[int, int],
-) -> np.ndarray:
-    """Filter retained PLINK indices by CHR/POS keys in one genome build."""
-    keep_snps = np.asarray(keep_snps, dtype=int)
-    lookup = _position_lookup_for_build(
-        restriction_build,
-        hg19_lookup=hg19_lookup,
-        hg38_lookup=hg38_lookup,
-    )
-    if not lookup:
-        raise ValueError(
-            f"{restriction_build} positions are unavailable for chromosome {chrom}; "
-            "provide a matching liftover chain or use a restriction file in the source build."
-        )
-    missing = [int(idx) for idx in keep_snps.tolist() if int(idx) not in lookup]
-    if missing:
-        raise ValueError(f"{restriction_build} positions are unavailable for {len(missing)} retained SNPs on chromosome {chrom}.")
-    metadata = pd.DataFrame(
-        {
-            "CHR": [chrom] * len(keep_snps),
-            "POS": [lookup[int(idx)] for idx in keep_snps.tolist()],
-        }
-    )
-    mask = kernel_builder.build_restriction_mask(metadata, restriction_values, "chr_pos")
-    return keep_snps[mask]
 
 
 def _metadata_with_build_positions(metadata: pd.DataFrame, positions: np.ndarray) -> pd.DataFrame:
@@ -665,9 +817,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--plink-prefix", required=True, help="PLINK prefix token for the reference panel.")
     parser.add_argument(
         "--source-genome-build",
-        required=True,
+        default=None,
         choices=("hg19", "hg37", "GRCh37", "hg38", "GRCh38"),
-        help="Genome build of the PLINK coordinates.",
+        help="Genome build of the PLINK coordinates. If omitted, infer it from .bim CHR/BP rows before SNP restriction.",
     )
     parser.add_argument(
         "--genetic-map-hg19-sources",
@@ -695,14 +847,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ld-wind-kb", default=None, type=float, help="LD window size in kilobases.")
     parser.add_argument("--ld-wind-cm", default=None, type=float, help="LD window size in centiMorgans.")
     parser.add_argument("--maf-min", default=None, type=float, help="Optional MAF filter for retained SNPs.")
-    parser.add_argument("--ref-panel-snps-file", default=None, help="Optional SNP restriction file defining the retained reference-panel universe.")
-    parser.add_argument("--snp-identifier", default=None, choices=("rsid", "chr_pos"), help="SNP identifier mode for --ref-panel-snps-file.")
     parser.add_argument(
-        "--genome-build",
+        "--ref-panel-snps-file",
         default=None,
-        choices=("auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"),
-        help="Genome build of --ref-panel-snps-file in chr_pos mode; defaults to registered GlobalConfig or the source build.",
+        help=(
+            "Optional SNP restriction file defining the retained reference-panel universe. "
+            "In chr_pos mode, coordinates must match the PLINK source genome build."
+        ),
     )
+    parser.add_argument("--snp-identifier", default=None, choices=("rsid", "chr_pos"), help="SNP identifier mode for --ref-panel-snps-file.")
     parser.add_argument("--keep-indivs-file", default=None, help="Optional individual-keep file.")
     parser.add_argument("--chunk-size", default=128, type=int, help="Chunk size for block processing.")
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"))
@@ -714,19 +867,21 @@ def config_from_args(args: argparse.Namespace) -> tuple[ReferencePanelBuildConfi
 
     ``--ref-panel-snps-file`` uses the explicit ``--snp-identifier`` when
     provided, otherwise the registered :class:`GlobalConfig` identifier mode.
-    In ``chr_pos`` mode, ``--genome-build`` or the registered genome build
-    defines the restriction-file coordinate build; if neither is concrete, the
-    PLINK source build is used.
+    The PLINK source build remains local to this workflow and is inferred from
+    ``.bim`` coordinates during :meth:`ReferencePanelBuilder.run` when omitted.
+    ``GlobalConfig.genome_build`` is ignored by ``build-ref-panel``.
     """
     registered_config = get_global_config()
     snp_identifier = normalize_snp_identifier_mode(args.snp_identifier or registered_config.snp_identifier)
-    source_genome_build = resolve_genome_build(
-        args.source_genome_build,
-        "chr_pos",
-        None,
-        context="build-ref-panel source",
-        logger=LOGGER,
-    )
+    source_genome_build = None
+    if args.source_genome_build is not None:
+        source_genome_build = resolve_genome_build(
+            args.source_genome_build,
+            "chr_pos",
+            None,
+            context="build-ref-panel source",
+            logger=LOGGER,
+        )
 
     build_config = ReferencePanelBuildConfig(
         plink_prefix=args.plink_prefix,
@@ -745,17 +900,8 @@ def config_from_args(args: argparse.Namespace) -> tuple[ReferencePanelBuildConfi
         keep_indivs_file=args.keep_indivs_file,
         chunk_size=args.chunk_size,
     )
-    restriction_build_hint = getattr(args, "genome_build", None)
-    if restriction_build_hint is None:
-        restriction_build_hint = registered_config.genome_build
-    restriction_build = (
-        None
-        if snp_identifier == "rsid"
-        else _effective_restriction_build(restriction_build_hint, build_config.source_genome_build)
-    )
     global_config = GlobalConfig(
         snp_identifier=snp_identifier,
-        genome_build=restriction_build,
         log_level=args.log_level,
     )
     return build_config, global_config
@@ -771,12 +917,12 @@ def run_build_ref_panel_from_args(args: argparse.Namespace) -> ReferencePanelBui
 def run_build_ref_panel(**kwargs: Any) -> ReferencePanelBuildResult:
     """Run the reference-panel builder with CLI-equivalent keyword arguments.
 
-    The wrapper accepts the same modern names as ``ldsc build-ref-panel``. SNP
-    restriction files use explicit ``snp_identifier``/``genome_build`` keyword
-    overrides when supplied, otherwise the registered ``GlobalConfig`` provides
-    those settings.
+    The wrapper accepts the same modern I/O and build names as
+    ``ldsc build-ref-panel``. The shared identifier mode comes from the
+    registered ``GlobalConfig``; call ``set_global_config(...)`` before
+    invoking this wrapper. ``GlobalConfig.genome_build`` is ignored here.
     """
-    forbidden = sorted({"log_level"} & set(kwargs))
+    forbidden = sorted({"genome_build", "log_level", "snp_identifier"} & set(kwargs))
     if forbidden:
         joined = ", ".join(forbidden)
         raise ValueError(
@@ -813,8 +959,6 @@ def run_build_ref_panel(**kwargs: Any) -> ReferencePanelBuildResult:
             [
                 "--plink-prefix",
                 "plink/panel.@",
-                "--source-genome-build",
-                "hg19",
                 "--genetic-map-hg19-sources",
                 "hg19.map",
                 "--genetic-map-hg38-sources",

@@ -645,14 +645,28 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
         parser = ref_panel_builder.build_parser()
         self.assertEqual(parser.get_default("chunk_size"), 128)
 
+    def test_build_parser_does_not_accept_genome_build(self):
+        parser = ref_panel_builder.build_parser()
+        with self.assertRaises(SystemExit):
+            parser.parse_args(
+                [
+                    "--plink-prefix",
+                    "plink/panel.@",
+                    "--output-dir",
+                    "out",
+                    "--ld-wind-kb",
+                    "1",
+                    "--genome-build",
+                    "hg38",
+                ]
+            )
+
     def test_config_from_args_uses_registered_identifier_for_restriction_file(self):
         parser = ref_panel_builder.build_parser()
         args = parser.parse_args(
             [
                 "--plink-prefix",
                 "plink/panel.@",
-                "--source-genome-build",
-                "hg19",
                 "--genetic-map-hg19-sources",
                 "maps/hg19.map",
                 "--output-dir",
@@ -664,15 +678,16 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
             ]
         )
 
-        set_global_config(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
+        set_global_config(GlobalConfig(snp_identifier="chr_pos"))
         try:
             build_config, global_config = ref_panel_builder.config_from_args(args)
         finally:
             reset_global_config()
 
         self.assertEqual(build_config.ref_panel_snps_file, "hm3.tsv")
+        self.assertIsNone(build_config.source_genome_build)
         self.assertEqual(global_config.snp_identifier, "chr_pos")
-        self.assertEqual(global_config.genome_build, "hg38")
+        self.assertIsNone(global_config.genome_build)
 
     def test_config_from_args_uses_explicit_snp_identifier_for_restriction_file(self):
         parser = ref_panel_builder.build_parser()
@@ -701,65 +716,7 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
         self.assertIsNone(global_config.genome_build)
         self.assertEqual(global_config.snp_identifier, "rsid")
 
-    def test_config_from_args_allows_explicit_restriction_genome_build(self):
-        parser = ref_panel_builder.build_parser()
-        args = parser.parse_args(
-            [
-                "--plink-prefix",
-                "plink/panel.@",
-                "--source-genome-build",
-                "hg19",
-                "--genetic-map-hg19-sources",
-                "maps/hg19.map",
-                "--output-dir",
-                "out",
-                "--ld-wind-kb",
-                "1",
-                "--ref-panel-snps-file",
-                "hm3.tsv",
-                "--snp-identifier",
-                "chr_pos",
-                "--genome-build",
-                "hg38",
-            ]
-        )
-
-        build_config, global_config = ref_panel_builder.config_from_args(args)
-
-        self.assertEqual(build_config.source_genome_build, "hg19")
-        self.assertEqual(global_config.snp_identifier, "chr_pos")
-        self.assertEqual(global_config.genome_build, "hg38")
-
-    def test_config_from_args_resolves_source_genome_build_before_global_config(self):
-        parser = ref_panel_builder.build_parser()
-        args = parser.parse_args(
-            [
-                "--plink-prefix",
-                "plink/panel.@",
-                "--source-genome-build",
-                "hg37",
-                "--genetic-map-hg19-sources",
-                "maps/hg19.map",
-                "--output-dir",
-                "out",
-                "--ld-wind-kb",
-                "1",
-                "--ref-panel-snps-file",
-                "hm3.tsv",
-                "--snp-identifier",
-                "chr_pos",
-            ]
-        )
-
-        with mock.patch.object(ref_panel_builder, "resolve_genome_build", return_value="hg19") as patched:
-            build_config, global_config = ref_panel_builder.config_from_args(args)
-
-        self.assertEqual(build_config.source_genome_build, "hg19")
-        self.assertEqual(global_config.genome_build, "hg19")
-        patched.assert_called_once()
-        self.assertEqual(patched.call_args.args[1], "chr_pos")
-
-    def test_config_from_args_defaults_chr_pos_restriction_build_to_source_build(self):
+    def test_config_from_args_does_not_require_genome_build_for_chr_pos_mode(self):
         parser = ref_panel_builder.build_parser()
         args = parser.parse_args(
             [
@@ -784,7 +741,7 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
 
         self.assertEqual(build_config.source_genome_build, "hg19")
         self.assertEqual(global_config.snp_identifier, "chr_pos")
-        self.assertEqual(global_config.genome_build, "hg19")
+        self.assertIsNone(global_config.genome_build)
 
     def test_run_build_ref_panel_uses_registered_identifier_for_restriction_file(self):
         captured = {}
@@ -794,7 +751,7 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
             captured["config"] = config
             return ref_panel_builder.ReferencePanelBuildResult(panel_name="out", chromosomes=[])
 
-        set_global_config(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
+        set_global_config(GlobalConfig(snp_identifier="chr_pos"))
         try:
             with mock.patch.object(ref_panel_builder.ReferencePanelBuilder, "run", fake_run):
                 ref_panel_builder.run_build_ref_panel(
@@ -810,17 +767,10 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
 
         self.assertEqual(captured["config"].ref_panel_snps_file, "hm3.tsv")
         self.assertEqual(captured["global_config"].snp_identifier, "chr_pos")
-        self.assertEqual(captured["global_config"].genome_build, "hg38")
+        self.assertIsNone(captured["global_config"].genome_build)
 
-    def test_run_build_ref_panel_accepts_explicit_restriction_genome_build(self):
-        captured = {}
-
-        def fake_run(self, config):
-            captured["global_config"] = self.global_config
-            captured["config"] = config
-            return ref_panel_builder.ReferencePanelBuildResult(panel_name="out", chromosomes=[])
-
-        with mock.patch.object(ref_panel_builder.ReferencePanelBuilder, "run", fake_run):
+    def test_run_build_ref_panel_rejects_explicit_genome_build_keyword(self):
+        with self.assertRaisesRegex(ValueError, "set_global_config"):
             ref_panel_builder.run_build_ref_panel(
                 plink_prefix="plink/panel.@",
                 source_genome_build="hg19",
@@ -832,17 +782,8 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
                 genome_build="hg38",
             )
 
-        self.assertEqual(captured["global_config"].genome_build, "hg38")
-
-    def test_run_build_ref_panel_uses_explicit_snp_identifier_for_restriction_file(self):
-        captured = {}
-
-        def fake_run(self, config):
-            captured["global_config"] = self.global_config
-            captured["config"] = config
-            return ref_panel_builder.ReferencePanelBuildResult(panel_name="out", chromosomes=[])
-
-        with mock.patch.object(ref_panel_builder.ReferencePanelBuilder, "run", fake_run):
+    def test_run_build_ref_panel_rejects_explicit_snp_identifier_keyword(self):
+        with self.assertRaisesRegex(ValueError, "set_global_config"):
             ref_panel_builder.run_build_ref_panel(
                 plink_prefix="plink/panel.@",
                 source_genome_build="hg19",
@@ -853,10 +794,6 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
                 snp_identifier="rsid",
             )
 
-        self.assertEqual(captured["config"].ref_panel_snps_file, "hm3.tsv")
-        self.assertIsNone(captured["global_config"].genome_build)
-        self.assertEqual(captured["global_config"].snp_identifier, "rsid")
-
 
 class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
     def _write_dummy_plink_prefix(self, root: Path, stem: str, chrom: str):
@@ -865,6 +802,16 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
         Path(str(prefix) + ".fam").write_text("fam iid 0 0 0 -9\n", encoding="utf-8")
         Path(str(prefix) + ".bim").write_text(
             f"{chrom} rs{chrom} 0.0 100 A G\n",
+            encoding="utf-8",
+        )
+        return prefix
+
+    def _write_plink_prefix_rows(self, root: Path, stem: str, rows: list[tuple[str, str, int]]):
+        prefix = root / stem
+        Path(str(prefix) + ".bed").write_bytes(b"")
+        Path(str(prefix) + ".fam").write_text("fam iid 0 0 0 -9\n", encoding="utf-8")
+        Path(str(prefix) + ".bim").write_text(
+            "".join(f"{chrom} {snp} 0.0 {pos} A G\n" for chrom, snp, pos in rows),
             encoding="utf-8",
         )
         return prefix
@@ -1115,7 +1062,35 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
         self.assertEqual(hg19_lookup, {})
         self.assertEqual(hg38_lookup, {7: 110})
 
-    def test_prepare_build_state_reads_build_specific_restriction_column(self):
+    def test_builder_run_infers_source_genome_build_before_build_state_preparation(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            self._write_plink_prefix_rows(tmpdir, "panel.1", [("1", "rs1", 100), ("1", "rs2", 200)])
+            config = ReferencePanelBuildConfig(
+                plink_prefix=tmpdir / "panel.@",
+                output_dir=tmpdir / "out",
+                ld_wind_kb=1.0,
+            )
+            builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="rsid"))
+            captured = {}
+
+            def fake_build(prefix, chrom, config, build_state):
+                captured["source_genome_build"] = config.source_genome_build
+                return {
+                    "r2_hg19": str(Path(config.output_dir) / "hg19" / "r2" / f"chr{chrom}_r2.parquet"),
+                    "meta_hg19": str(Path(config.output_dir) / "hg19" / "meta" / f"chr{chrom}_meta.tsv.gz"),
+                }
+
+            with mock.patch.object(ref_panel_builder, "resolve_genome_build", return_value="hg19") as patched_resolve:
+                with mock.patch.object(ref_panel_builder.ReferencePanelBuilder, "_build_chromosome", side_effect=fake_build):
+                    builder.run(config)
+
+        self.assertEqual(captured["source_genome_build"], "hg19")
+        self.assertEqual(patched_resolve.call_args.args[0], "auto")
+        self.assertEqual(patched_resolve.call_args.args[1], "chr_pos")
+        self.assertEqual(patched_resolve.call_args.args[2]["POS"].tolist(), [100, 200])
+
+    def test_prepare_build_state_reads_source_build_specific_restriction_column(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             restriction = tmpdir / "restrict.tsv"
@@ -1134,32 +1109,113 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             with self.assertLogs("LDSC.ref_panel_builder", level="INFO") as logs:
                 build_state = builder._prepare_build_state(config)
 
-        self.assertEqual(build_state.restriction_build, "hg38")
-        self.assertEqual(build_state.restriction_values, {"1:110"})
-        self.assertTrue(any("hg38" in message and "restriction" in message for message in logs.output))
+        self.assertEqual(build_state.restriction_values, {"1:100"})
+        self.assertTrue(any("source genome build 'hg19'" in message for message in logs.output))
 
-    def test_chr_pos_restriction_uses_requested_build_lookup(self):
-        retained = ref_panel_builder._apply_chr_pos_restriction(
-            keep_snps=np.array([4, 5], dtype=int),
-            chrom="1",
-            restriction_values={"1:210"},
-            restriction_build="hg38",
-            hg19_lookup={4: 100, 5: 200},
-            hg38_lookup={4: 110, 5: 210},
-        )
-
-        self.assertEqual(retained.tolist(), [5])
-
-    def test_chr_pos_restriction_requires_positions_for_requested_build(self):
-        with self.assertRaisesRegex(ValueError, "hg38 positions are unavailable"):
-            ref_panel_builder._apply_chr_pos_restriction(
-                keep_snps=np.array([4], dtype=int),
-                chrom="1",
-                restriction_values={"1:110"},
-                restriction_build="hg38",
-                hg19_lookup={4: 100},
-                hg38_lookup={},
+    def test_prepare_build_state_infers_generic_restriction_pos_build_and_accepts_source_match(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            restriction = tmpdir / "restrict.tsv"
+            restriction.write_text("CHR\tPOS\n1\t100\n", encoding="utf-8")
+            config = ReferencePanelBuildConfig(
+                plink_prefix=tmpdir / "panel.@",
+                source_genome_build="hg19",
+                output_dir=tmpdir / "out",
+                ld_wind_kb=1.0,
+                ref_panel_snps_file=restriction,
             )
+            builder = ref_panel_builder.ReferencePanelBuilder(
+                global_config=GlobalConfig(snp_identifier="chr_pos")
+            )
+
+            with mock.patch.object(ref_panel_builder, "resolve_genome_build", return_value="hg19") as patched_resolve:
+                build_state = builder._prepare_build_state(config)
+
+        self.assertEqual(build_state.restriction_values, {"1:100"})
+        self.assertEqual(patched_resolve.call_args.args[0], "auto")
+        self.assertEqual(patched_resolve.call_args.args[2]["POS"].tolist(), [100])
+
+    def test_prepare_build_state_rejects_generic_restriction_pos_build_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            restriction = tmpdir / "restrict.tsv"
+            restriction.write_text("CHR\tPOS\n1\t110\n", encoding="utf-8")
+            config = ReferencePanelBuildConfig(
+                plink_prefix=tmpdir / "panel.@",
+                source_genome_build="hg19",
+                output_dir=tmpdir / "out",
+                ld_wind_kb=1.0,
+                ref_panel_snps_file=restriction,
+            )
+            builder = ref_panel_builder.ReferencePanelBuilder(
+                global_config=GlobalConfig(snp_identifier="chr_pos")
+            )
+
+            with mock.patch.object(ref_panel_builder, "resolve_genome_build", return_value="hg38"):
+                with self.assertRaisesRegex(ValueError, "restriction.*hg38.*source.*hg19"):
+                    builder._prepare_build_state(config)
+
+    def test_chr_pos_restriction_filters_before_liftover(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            prefix = self._write_plink_prefix_rows(tmpdir, "panel.1", [("1", "rs1", 100), ("1", "rs2", 200)])
+            config = ReferencePanelBuildConfig(
+                plink_prefix=tmpdir / "panel.@",
+                source_genome_build="hg19",
+                output_dir=tmpdir / "out",
+                ld_wind_kb=1.0,
+            )
+            build_state = ref_panel_builder._BuildState(
+                genetic_map_hg19=None,
+                genetic_map_hg38=None,
+                liftover_chain_paths={("hg19", "hg38"): "chain.over"},
+                restriction_mode="chr_pos",
+                restriction_values={"1:200"},
+            )
+            builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos"))
+            captured = {}
+
+            def stop_after_restriction(*, keep_snps, **_kwargs):
+                captured["keep_snps"] = list(map(int, keep_snps))
+                raise RuntimeError("stop after restriction")
+
+            with mock.patch.object(builder, "_resolve_mappable_snp_positions", side_effect=stop_after_restriction):
+                with self.assertRaisesRegex(RuntimeError, "stop after restriction"):
+                    builder._build_chromosome(str(prefix), "1", config, build_state)
+
+        self.assertEqual(captured["keep_snps"], [1])
+
+    def test_rsid_restriction_filters_before_liftover_and_ignores_global_build(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            prefix = self._write_plink_prefix_rows(tmpdir, "panel.1", [("1", "rs1", 100), ("1", "rs2", 200)])
+            config = ReferencePanelBuildConfig(
+                plink_prefix=tmpdir / "panel.@",
+                source_genome_build="hg19",
+                output_dir=tmpdir / "out",
+                ld_wind_kb=1.0,
+            )
+            build_state = ref_panel_builder._BuildState(
+                genetic_map_hg19=None,
+                genetic_map_hg38=None,
+                liftover_chain_paths={("hg19", "hg38"): "chain.over"},
+                restriction_mode="rsid",
+                restriction_values={"rs2"},
+            )
+            builder = ref_panel_builder.ReferencePanelBuilder(
+                global_config=GlobalConfig(snp_identifier="rsid", genome_build="hg38")
+            )
+            captured = {}
+
+            def stop_after_restriction(*, keep_snps, **_kwargs):
+                captured["keep_snps"] = list(map(int, keep_snps))
+                raise RuntimeError("stop after restriction")
+
+            with mock.patch.object(builder, "_resolve_mappable_snp_positions", side_effect=stop_after_restriction):
+                with self.assertRaisesRegex(RuntimeError, "stop after restriction"):
+                    builder._build_chromosome(str(prefix), "1", config, build_state)
+
+        self.assertEqual(captured["keep_snps"], [1])
 
     def test_builder_run_rejects_duplicate_chromosome_across_inputs(self):
         with tempfile.TemporaryDirectory() as tmpdir:

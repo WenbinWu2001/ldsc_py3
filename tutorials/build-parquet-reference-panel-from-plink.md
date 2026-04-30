@@ -103,10 +103,9 @@ The bundled Alkes-group maps in `resources/genetic_maps/genetic_map_alkesgroup/`
 - `--source-genome-build`
   Plain-English meaning: which genome build the input PLINK coordinates already use.
   Accepted values: `hg19`, `hg37`, `GRCh37`, `hg38`, `GRCh38`.
-  Recommended usage: be explicit. Build auto-inference is not part of this
-  workflow. If you want to inspect a separate `CHR`/`POS` table before choosing
-  a build, use `infer_chr_pos_build()` or `resolve_chr_pos_table()` from the
-  top-level Python API.
+  Recommended usage: be explicit for production runs when you know the source
+  panel build. If omitted, `build-ref-panel` infers the source build from the
+  PLINK `.bim` `CHR/BP` rows before applying any SNP restriction.
 
 - `--genetic-map-hg19-sources`
   Plain-English meaning: genetic map aligned to hg19 coordinates.
@@ -171,10 +170,10 @@ Exactly one of the following must be set:
   Recommended usage: use this when you want to build a panel only on HM3 SNPs,
   a curated common-SNP list, or another pre-defined reference universe.
 
-  When this path is supplied, the restriction key comes from explicit
-  `--snp-identifier` or the registered `GlobalConfig.snp_identifier`. No SNP
-  identifier setting is needed when you are not supplying a reference-panel SNP
-  restriction file.
+  When this path is supplied, the restriction key comes from the invocation
+  `GlobalConfig.snp_identifier`. In `chr_pos` mode, the restriction file must
+  be aligned to the PLINK source build. Target-build restriction files are not
+  lifted over by the builder.
 
 - `--snp-identifier`
   Plain-English meaning: how to interpret the SNP restriction file supplied by
@@ -184,15 +183,6 @@ Exactly one of the following must be set:
   Recommended usage: use `rsid` for one-column rsID/dbSNP-style lists, and use
   `chr_pos` for one-column `CHR:POS` lists or tables with `CHR` and `POS`
   columns.
-
-- `--genome-build`
-  Plain-English meaning: genome build of `--ref-panel-snps-file` when
-  `--snp-identifier chr_pos` is used.
-  Optional: yes.
-  Accepted values: `auto`, `hg19`, `hg37`, `GRCh37`, `hg38`, `GRCh38`.
-  Recommended usage: set this when a `chr_pos` restriction file is not in the
-  source build. If omitted or `auto`, the builder assumes the source build and
-  logs that assumption.
 
 - `--keep-indivs-file`
   Plain-English meaning: restrict the individuals used to compute LD.
@@ -256,7 +246,7 @@ The most explicit Python API uses the public config object and builder class:
 ```python
 from ldsc import GlobalConfig, ReferencePanelBuildConfig, ReferencePanelBuilder, set_global_config
 
-GLOBAL_CONFIG = GlobalConfig(snp_identifier="chr_pos", genome_build="hg38", log_level="INFO")
+GLOBAL_CONFIG = GlobalConfig(snp_identifier="chr_pos", log_level="INFO")
 set_global_config(GLOBAL_CONFIG)
 
 config = ReferencePanelBuildConfig(
@@ -279,21 +269,19 @@ print(result.output_paths["meta_hg38"][0])
 
 When you use the lower-level `ReferencePanelBuilder` API with
 `ReferencePanelBuildConfig(ref_panel_snps_file=...)`, put the restriction-file
-identifier mode on the injected `GlobalConfig`. In `chr_pos` mode, also set
-`genome_build` when the restriction file is not in the source build:
+identifier mode on the injected `GlobalConfig`. In `chr_pos` mode,
+`GlobalConfig.genome_build` is ignored by this builder; the restriction file
+must be in the same build as `source_genome_build`:
 
 ```python
 GLOBAL_CONFIG = GlobalConfig(
-    snp_identifier="rsid",
-    genome_build="hg38",
+    snp_identifier="chr_pos",
     log_level="INFO",
 )
 ```
 
-The convenience wrapper shown later mirrors the CLI and accepts
-`snp_identifier="rsid"` and `genome_build="hg38"` directly when
-`ref_panel_snps_file` is supplied. If `genome_build` is omitted, the builder
-assumes the restriction file uses the source build and logs that assumption.
+The convenience wrapper shown later reads `snp_identifier` from the registered
+`GlobalConfig`; set it before calling the wrapper.
 
 ## Output Format
 
@@ -493,8 +481,7 @@ Accepted forms include:
 - tables with an `SNP`/`rsID`-style column in `rsid` mode
 - tables with `CHR` and `POS` columns in `chr_pos` mode
 - tables with build-specific columns such as `hg19_POS` and `hg38_POS`; in
-  `chr_pos` mode, the builder reads the column matching `--genome-build` or the
-  registered `GlobalConfig.genome_build`
+  `chr_pos` mode, the builder reads the column matching the source PLINK build
 
 Example:
 
@@ -508,10 +495,11 @@ ldsc build-ref-panel \
   --output-dir tutorial_outputs/ref_panel_hm3
 ```
 
-For `chr_pos` restriction files, add `--genome-build hg19` or
-`--genome-build hg38` when the restriction file is not in the source build. If
-you omit it, the builder assumes the restriction file uses
-`--source-genome-build` and logs that assumption.
+For `chr_pos` restriction files, provide source-build coordinates. If both
+`hg19_POS` and `hg38_POS` are present, the builder selects the column matching
+the explicit or inferred source PLINK build. If only generic `POS` is present,
+the builder infers that restriction file's build and errors if it differs from
+the source PLINK build.
 
 ### Restrict the sample set
 
@@ -540,7 +528,7 @@ If you prefer a thinner Python wrapper around the CLI-style arguments, the packa
 ```python
 from ldsc import GlobalConfig, run_build_ref_panel, set_global_config
 
-GLOBAL_CONFIG = GlobalConfig(snp_identifier="chr_pos", genome_build="hg38", log_level="INFO")
+GLOBAL_CONFIG = GlobalConfig(snp_identifier="chr_pos", log_level="INFO")
 set_global_config(GLOBAL_CONFIG)
 
 result = run_build_ref_panel(
@@ -556,9 +544,9 @@ result = run_build_ref_panel(
 ```
 
 If you add `ref_panel_snps_file=...` to this wrapper call, set
-`snp_identifier="rsid"` or `snp_identifier="chr_pos"` either on the call or on
-the registered `GlobalConfig`. In `chr_pos` mode, set `genome_build` when the
-restriction file is not in the source build.
+`snp_identifier="rsid"` or `snp_identifier="chr_pos"` on the registered
+`GlobalConfig`. In `chr_pos` mode, the restriction file must be in the source
+PLINK build; `GlobalConfig.genome_build` is ignored by `build-ref-panel`.
 
 ### A note on coordinate systems
 

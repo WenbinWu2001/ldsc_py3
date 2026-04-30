@@ -84,10 +84,9 @@ class GlobalConfigTest(unittest.TestCase):
 
 
 class TestGlobalConfigValidation(unittest.TestCase):
-    def test_chr_pos_no_genome_build_raises(self):
-        with self.assertRaises(ValueError) as ctx:
-            GlobalConfig(snp_identifier="chr_pos")
-        self.assertIn("genome_build is required", str(ctx.exception))
+    def test_chr_pos_no_genome_build_ok_for_workflows_that_do_not_need_build(self):
+        cfg = GlobalConfig(snp_identifier="chr_pos")
+        self.assertIsNone(cfg.genome_build)
 
     def test_chr_pos_hg38_ok(self):
         cfg = GlobalConfig(snp_identifier="chr_pos", genome_build="hg38")

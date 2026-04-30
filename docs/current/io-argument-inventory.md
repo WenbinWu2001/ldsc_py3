@@ -89,14 +89,13 @@ LD-score output schema:
 | Flag | Direction | Required | Object | Notes |
 |---|---:|---:|---|---|
 | `--plink-prefix` | input | yes | PLINK reference panel prefix | Supports exact prefix, PLINK-prefix glob, or `@` suite. |
-| `--source-genome-build` | input metadata | yes | source build selector | Not a filesystem argument. |
+| `--source-genome-build` | input metadata | no | source PLINK coordinate build | Not a filesystem argument; inferred from `.bim` before SNP restriction when omitted. |
 | `--genetic-map-hg19-sources` | input | conditional | hg19 genetic map file or suite | Required when `--ld-wind-cm` is used and hg19 output is emitted; otherwise optional and missing hg19 CM values are written as `NA`. |
 | `--genetic-map-hg38-sources` | input | conditional | hg38 genetic map file or suite | Required when `--ld-wind-cm` is used and hg38 output is emitted; otherwise optional and missing hg38 CM values are written as `NA`. |
 | `--liftover-chain-hg19-to-hg38-file` | input | no | liftover chain file | Optional; enables hg38 outputs for hg19 source builds. |
 | `--liftover-chain-hg38-to-hg19-file` | input | no | liftover chain file | Optional; enables hg19 outputs for hg38 source builds. |
-| `--ref-panel-snps-file` | input | no | retained SNP universe restriction | Scalar file-like input; interpreted through explicit CLI identifier/build flags or registered `GlobalConfig`. |
-| `--snp-identifier` | input metadata | conditional | restriction identifier mode | Overrides registered `GlobalConfig.snp_identifier` for `--ref-panel-snps-file`. |
-| `--genome-build` | input metadata | conditional | restriction coordinate build | Used only for `chr_pos` SNP restrictions; if omitted or `auto`, the source build is assumed and logged. |
+| `--ref-panel-snps-file` | input | no | retained SNP universe restriction | Scalar file-like input; identifier mode comes from `GlobalConfig.snp_identifier`; `chr_pos` coordinates must align to the source PLINK build. |
+| `--snp-identifier` | input metadata | conditional | global SNP identifier mode | CLI-only way to construct `GlobalConfig.snp_identifier` for this invocation. |
 | `--keep-indivs-file` | input | no | PLINK individual keep file | Applied during PLINK loading. |
 | `--maf-min` | input metadata | no | retained SNP MAF filter | Applied during PLINK loading. |
 | `--output-dir` | output | yes | reference-panel artifact directory | Run identity is `Path(output_dir).name`; no separate label is accepted. |
@@ -222,6 +221,7 @@ Removed Python names: `bfile`, `r2_table`, `frqfile`, `keep`, `maf`,
 | Object/function | Argument | Direction | Object |
 |---|---:|---:|---|
 | `ReferencePanelBuildConfig` | `plink_prefix` | input | PLINK reference-panel prefix token |
+| `ReferencePanelBuildConfig` | `source_genome_build` | input metadata | optional PLINK source build; inferred from `.bim` when omitted |
 | `ReferencePanelBuildConfig` | `genetic_map_hg19_sources` | input | conditional hg19 genetic map |
 | `ReferencePanelBuildConfig` | `genetic_map_hg38_sources` | input | conditional hg38 genetic map |
 | `ReferencePanelBuildConfig` | `liftover_chain_hg19_to_hg38_file` | input | optional liftover chain |
@@ -230,8 +230,7 @@ Removed Python names: `bfile`, `r2_table`, `frqfile`, `keep`, `maf`,
 | `ReferencePanelBuildConfig` | `keep_indivs_file` | input | PLINK individual keep file |
 | `ReferencePanelBuildConfig` | `maf_min` | input metadata | retained SNP MAF filter |
 | `ReferencePanelBuildConfig` | `output_dir` | output | artifact directory |
-| `run_build_ref_panel(**kwargs)` | `snp_identifier`, `genome_build` | input metadata | optional overrides for `ref_panel_snps_file`; otherwise the registered `GlobalConfig` is used |
-| `run_build_ref_panel(**kwargs)` | same config field names | input/output | CLI-equivalent wrapper |
+| `run_build_ref_panel(**kwargs)` | same config field names except global settings | input/output | convenience wrapper; reads `snp_identifier` from the registered `GlobalConfig`; ignores `GlobalConfig.genome_build` |
 
 Removed Python names: `plink_path`, `bfile`, `out`, `panel_label`,
 `keep_indivs`, `maf`, old genetic-map and liftover names without `_file` /

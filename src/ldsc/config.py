@@ -90,8 +90,9 @@ class GlobalConfig:
         expects an explicit SNP column, while ``"chr_pos"`` builds identifiers
         from chromosome and base-pair position.
     genome_build : {"auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"} or None, optional
-        Genome-build context for ``chr_pos`` workflows. Required for
-        ``snp_identifier="chr_pos"`` and ignored for ``"rsid"``.
+        Genome-build context for ``chr_pos`` workflows that require
+        coordinate-build interpretation. Workflows that do not need this
+        setting may leave it ``None``. Ignored for ``"rsid"``.
     log_level : {"DEBUG", "INFO", "WARNING", "ERROR"}, optional
         Requested logging verbosity for workflow modules. Default is ``"INFO"``.
     fail_on_missing_metadata : bool, optional
@@ -115,11 +116,6 @@ class GlobalConfig:
             raise ValueError("snp_identifier must be 'rsid' or 'chr_pos'.")
         object.__setattr__(self, "genome_build", normalize_genome_build(self.genome_build))
         object.__setattr__(self, "log_level", _normalize_log_level(self.log_level))
-        if self.snp_identifier == "chr_pos" and self.genome_build is None:
-            raise ValueError(
-                "genome_build is required when snp_identifier='chr_pos'. "
-                "Pass 'auto' to infer from data, or 'hg19'/'hg38' explicitly."
-            )
         if self.snp_identifier == "rsid" and self.genome_build == "auto":
             raise ValueError("genome_build='auto' is not valid for snp_identifier='rsid'.")
         if self.snp_identifier == "rsid" and self.genome_build is not None:
@@ -374,8 +370,10 @@ class ReferencePanelBuildConfig:
     plink_prefix : str or os.PathLike[str]
         PLINK ``.bed/.bim/.fam`` prefix token. This may be a single prefix or an
         explicit ``@`` chromosome-suite token.
-    source_genome_build : {"hg19", "hg37", "GRCh37", "hg38", "GRCh38"}
-        Genome build of the input PLINK coordinates.
+    source_genome_build : {"hg19", "hg37", "GRCh37", "hg38", "GRCh38"} or None, optional
+        Genome build of the input PLINK coordinates. If ``None``, the
+        build-ref-panel workflow infers the build from PLINK ``.bim`` rows
+        before applying SNP restrictions.
     genetic_map_hg19_sources, genetic_map_hg38_sources : str or os.PathLike[str] or None, optional
         Genetic-map paths used to populate cM values for each emitted sidecar.
         Maps are required for every emitted build when ``ld_wind_cm`` is set.
@@ -388,19 +386,18 @@ class ReferencePanelBuildConfig:
         ``{build}/meta/chr{chrom}_meta.tsv.gz``.
     liftover_chain_hg19_to_hg38_file, liftover_chain_hg38_to_hg19_file : str or os.PathLike[str] or None, optional
         Chain files used to populate the opposite-build coordinates. If the
-        chain matching ``source_genome_build`` is omitted, the builder emits a
-        source-build-only panel.
+        chain matching the resolved ``source_genome_build`` is omitted, the
+        builder emits a source-build-only panel.
     ld_wind_snps, ld_wind_kb, ld_wind_cm : int, float, float, or None, optional
         LD window specification. Exactly one must be supplied.
     maf_min : float or None, optional
         Optional retained-SNP MAF threshold. Default is ``None``.
     ref_panel_snps_file : str or os.PathLike[str] or None, optional
         Optional SNP list restricting the emitted reference-panel universe.
-        Default is ``None``. The identifier mode for this file is deliberately
-        not a field on this dataclass: lower-level callers provide it through
-        ``ReferencePanelBuilder(GlobalConfig(...))``, while the CLI and
-        ``run_build_ref_panel(...)`` convenience wrapper accept
-        ``snp_identifier`` and ``genome_build`` overrides.
+        Default is ``None``. The identifier mode comes from
+        ``GlobalConfig.snp_identifier``. In ``chr_pos`` mode, the restriction
+        file must be aligned to the resolved source reference-panel build; the
+        builder never uses ``GlobalConfig.genome_build``.
     keep_indivs_file : str or os.PathLike[str] or None, optional
         Optional individual keep-file applied before R2 calculation. Default is
         ``None``.
@@ -413,7 +410,7 @@ class ReferencePanelBuildConfig:
     """
 
     plink_prefix: str | PathLike[str]
-    source_genome_build: GenomeBuildInput
+    source_genome_build: GenomeBuildInput | None = None
     genetic_map_hg19_sources: str | PathLike[str] | None = None
     genetic_map_hg38_sources: str | PathLike[str] | None = None
     output_dir: str | PathLike[str] | None = None
@@ -432,6 +429,8 @@ class ReferencePanelBuildConfig:
         """Normalize build paths and validate liftover and LD-window settings."""
         object.__setattr__(self, "plink_prefix", _normalize_required_path(self.plink_prefix))
         object.__setattr__(self, "source_genome_build", normalize_genome_build(self.source_genome_build))
+        if self.source_genome_build == "auto":
+            raise ValueError("source_genome_build must be hg19/hg38 or omitted for inference.")
         object.__setattr__(self, "genetic_map_hg19_sources", _normalize_optional_path(self.genetic_map_hg19_sources))
         object.__setattr__(self, "genetic_map_hg38_sources", _normalize_optional_path(self.genetic_map_hg38_sources))
         object.__setattr__(
@@ -450,12 +449,12 @@ class ReferencePanelBuildConfig:
         windows = [self.ld_wind_snps, self.ld_wind_kb, self.ld_wind_cm]
         if sum(value is not None for value in windows) != 1:
             raise ValueError("Exactly one LD-window option must be set.")
-        source_map = (
-            self.genetic_map_hg19_sources
-            if self.source_genome_build == "hg19"
-            else self.genetic_map_hg38_sources
-        )
-        if self.ld_wind_cm is not None and source_map is None:
+        source_map = None
+        if self.source_genome_build == "hg19":
+            source_map = self.genetic_map_hg19_sources
+        elif self.source_genome_build == "hg38":
+            source_map = self.genetic_map_hg38_sources
+        if self.ld_wind_cm is not None and self.source_genome_build is not None and source_map is None:
             raise ValueError(f"{self.source_genome_build} genetic map path is required when ld_wind_cm is set.")
         if self.ld_wind_snps is not None and self.ld_wind_snps <= 0:
             raise ValueError("ld_wind_snps must be positive.")

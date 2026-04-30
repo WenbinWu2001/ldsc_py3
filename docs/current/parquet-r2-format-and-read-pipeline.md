@@ -265,7 +265,7 @@ that sort build for row-group pruning to be correct.
 | Tier | Condition | Action |
 |---|---|---|
 | 1 | `ldsc:sorted_by_build` present **and matches** query build | Proceed silently |
-| 2 | `ldsc:sorted_by_build` present **and mismatches** query build | Raise `ValueError`: *"Parquet sorted for {parquet_build} but analysis uses {query_build}. Use the correct reference file or regenerate with `--genome-build {query_build}`."* |
+| 2 | `ldsc:sorted_by_build` present **and mismatches** query build | Raise `ValueError`: *"Parquet sorted for {parquet_build} but analysis uses {query_build}. Use the matching `{query_build}/r2` reference file or regenerate the panel with the correct source/liftover inputs."* |
 | 3 | `ldsc:sorted_by_build` absent or `None` | Infer build from first row group (see below); log `WARNING`; proceed if inferred build matches query build, raise `ValueError` if not |
 
 **Tier-3 inference:** read only the first row group, extract `(CHR, POS_1)` as a

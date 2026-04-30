@@ -7,6 +7,7 @@ primitive strings before the execution kernel sees them.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 import logging
 from pathlib import Path
 import re
@@ -34,6 +35,59 @@ from .identifiers import (
 
 LOGGER = logging.getLogger("LDSC.ref_panel")
 _REF_PANEL_R2_RE = re.compile(r"^chr(?P<chrom>.+)_r2\.parquet$", flags=re.IGNORECASE)
+
+
+@dataclass(frozen=True)
+class _R2SchemaMeta:
+    n_samples: int | None
+    r2_bias: str | None
+
+
+def _read_r2_schema_meta(path: str) -> _R2SchemaMeta:
+    """Read LDSC R2 metadata from one canonical parquet file's Arrow schema."""
+    try:
+        import pyarrow.parquet as pq
+    except ImportError:
+        return _R2SchemaMeta(n_samples=None, r2_bias=None)
+
+    raw_meta = pq.read_schema(path).metadata or {}
+    n_raw = raw_meta.get(b"ldsc:n_samples")
+    bias_raw = raw_meta.get(b"ldsc:r2_bias")
+    n_samples = int(n_raw.decode("utf-8")) if n_raw is not None else None
+    r2_bias = bias_raw.decode("utf-8") if bias_raw is not None else None
+
+    if n_samples is not None and r2_bias is None:
+        LOGGER.warning(f"'{path}' has ldsc:n_samples but no ldsc:r2_bias; treating as 'raw'.")
+        r2_bias = "raw"
+
+    return _R2SchemaMeta(n_samples=n_samples, r2_bias=r2_bias)
+
+
+def _resolve_r2_bias_from_meta(
+    r2_bias_mode: str | None,
+    r2_sample_size: float | None,
+    meta: _R2SchemaMeta,
+) -> tuple[str, float | None]:
+    """Resolve R2 bias mode and correction sample size from schema metadata."""
+    stored_bias = meta.r2_bias
+    stored_n = float(meta.n_samples) if meta.n_samples is not None else None
+
+    if stored_bias is None and stored_n is not None:
+        LOGGER.warning("R2 schema metadata has ldsc:n_samples but no ldsc:r2_bias; treating as 'raw'.")
+        stored_bias = "raw"
+
+    effective_bias = r2_bias_mode if r2_bias_mode is not None else (stored_bias or "unbiased")
+
+    if effective_bias == "unbiased":
+        if r2_sample_size is not None:
+            LOGGER.warning(
+                "r2_sample_size is ignored because R2 values are already unbiased "
+                "(ldsc:r2_bias=unbiased in parquet schema metadata)."
+            )
+        return "unbiased", None
+
+    resolved_n = r2_sample_size if r2_sample_size is not None else stored_n
+    return "raw", resolved_n
 
 
 class RefPanel(ABC):

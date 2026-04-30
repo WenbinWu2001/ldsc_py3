@@ -40,6 +40,132 @@ _HAS_PYARROW = importlib.util.find_spec("pyarrow") is not None
 _HAS_BITARRAY = importlib.util.find_spec("bitarray") is not None
 
 
+def _write_minimal_r2_parquet(path: Path, extra_meta: dict[bytes, bytes] | None = None) -> None:
+    """Write a zero-row canonical R2 parquet table with optional schema metadata."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    schema = pa.schema(
+        [
+            pa.field("CHR", pa.string()),
+            pa.field("POS_1", pa.int64()),
+            pa.field("POS_2", pa.int64()),
+            pa.field("R2", pa.float32()),
+            pa.field("SNP_1", pa.string()),
+            pa.field("SNP_2", pa.string()),
+        ]
+    )
+    meta = {
+        b"ldsc:sorted_by_build": b"hg19",
+        b"ldsc:row_group_size": b"50000",
+    }
+    if extra_meta:
+        meta.update(extra_meta)
+    table = pa.table({col: pa.array([], type=schema.field(col).type) for col in schema.names})
+    table = table.replace_schema_metadata(meta)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pq.write_table(table, str(path))
+
+
+class R2SchemaMetaReaderTest(unittest.TestCase):
+    """Tests for R2 parquet schema metadata reader and resolver helpers."""
+
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet schema coverage")
+    def test_read_r2_schema_meta_returns_both_fields(self):
+        from ldsc._kernel.ref_panel import _read_r2_schema_meta
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "chr1_r2.parquet"
+            _write_minimal_r2_parquet(
+                path,
+                {b"ldsc:n_samples": b"200", b"ldsc:r2_bias": b"unbiased"},
+            )
+            meta = _read_r2_schema_meta(str(path))
+
+        self.assertEqual(meta.n_samples, 200)
+        self.assertEqual(meta.r2_bias, "unbiased")
+
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet schema coverage")
+    def test_read_r2_schema_meta_legacy_file_returns_none_fields(self):
+        from ldsc._kernel.ref_panel import _read_r2_schema_meta
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "chr1_r2.parquet"
+            _write_minimal_r2_parquet(path)
+            meta = _read_r2_schema_meta(str(path))
+
+        self.assertIsNone(meta.n_samples)
+        self.assertIsNone(meta.r2_bias)
+
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet schema coverage")
+    def test_read_r2_schema_meta_warns_for_n_samples_without_bias(self):
+        from ldsc._kernel.ref_panel import _read_r2_schema_meta
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "chr1_r2.parquet"
+            _write_minimal_r2_parquet(path, {b"ldsc:n_samples": b"200"})
+            with self.assertLogs("LDSC", level="WARNING"):
+                meta = _read_r2_schema_meta(str(path))
+
+        self.assertEqual(meta.n_samples, 200)
+        self.assertEqual(meta.r2_bias, "raw")
+
+    def test_resolve_unbiased_no_user_n_returns_unbiased(self):
+        from ldsc._kernel.ref_panel import _R2SchemaMeta, _resolve_r2_bias_from_meta
+
+        meta = _R2SchemaMeta(n_samples=100, r2_bias="unbiased")
+        mode, n = _resolve_r2_bias_from_meta(None, None, meta)
+
+        self.assertEqual(mode, "unbiased")
+        self.assertIsNone(n)
+
+    def test_resolve_unbiased_with_user_n_warns_and_returns_unbiased(self):
+        from ldsc._kernel.ref_panel import _R2SchemaMeta, _resolve_r2_bias_from_meta
+
+        meta = _R2SchemaMeta(n_samples=100, r2_bias="unbiased")
+        with self.assertLogs("LDSC", level="WARNING"):
+            mode, n = _resolve_r2_bias_from_meta(None, 999.0, meta)
+
+        self.assertEqual(mode, "unbiased")
+        self.assertIsNone(n)
+
+    def test_resolve_raw_no_user_n_autofills_stored_n(self):
+        from ldsc._kernel.ref_panel import _R2SchemaMeta, _resolve_r2_bias_from_meta
+
+        meta = _R2SchemaMeta(n_samples=150, r2_bias="raw")
+        mode, n = _resolve_r2_bias_from_meta(None, None, meta)
+
+        self.assertEqual(mode, "raw")
+        self.assertEqual(n, 150.0)
+
+    def test_resolve_raw_user_n_overrides_stored_n(self):
+        from ldsc._kernel.ref_panel import _R2SchemaMeta, _resolve_r2_bias_from_meta
+
+        meta = _R2SchemaMeta(n_samples=150, r2_bias="raw")
+        mode, n = _resolve_r2_bias_from_meta(None, 999.0, meta)
+
+        self.assertEqual(mode, "raw")
+        self.assertEqual(n, 999.0)
+
+    def test_resolve_absent_metadata_defaults_to_unbiased(self):
+        from ldsc._kernel.ref_panel import _R2SchemaMeta, _resolve_r2_bias_from_meta
+
+        meta = _R2SchemaMeta(n_samples=None, r2_bias=None)
+        mode, n = _resolve_r2_bias_from_meta(None, None, meta)
+
+        self.assertEqual(mode, "unbiased")
+        self.assertIsNone(n)
+
+    def test_resolve_absent_metadata_raw_mode_with_user_n(self):
+        from ldsc._kernel.ref_panel import _R2SchemaMeta, _resolve_r2_bias_from_meta
+
+        meta = _R2SchemaMeta(n_samples=None, r2_bias=None)
+        mode, n = _resolve_r2_bias_from_meta("raw", 300.0, meta)
+
+        self.assertEqual(mode, "raw")
+        self.assertEqual(n, 300.0)
+
+
 @unittest.skipIf(ldscore_workflow is None, "ldscore_workflow module is not available")
 class LDScoreWorkflowTest(unittest.TestCase):
     def test_build_parser_genome_build_help_documents_chr_pos_requirement(self):

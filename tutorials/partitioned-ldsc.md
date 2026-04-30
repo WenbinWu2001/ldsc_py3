@@ -115,10 +115,8 @@ sumstats = SumstatsMunger().run(
 ref_panel = RefPanelLoader(GLOBAL_CONFIG).load(
     RefPanelConfig(
         backend="parquet_r2",
-        r2_sources="r2/reference.@.parquet",
-        metadata_sources="r2/reference_metadata.@.tsv.gz",
+        ref_panel_dir="r2_ref_panel_1kg30x_1cM_hm3/hg19",
         chromosomes=tuple(annotation_bundle.chromosomes),
-        genome_build="hg19",
         r2_bias_mode="unbiased",
         ref_panel_snps_file="filters/reference_universe.tsv.gz",
     )
@@ -189,8 +187,7 @@ ldsc ldscore \
   --output-dir tutorial_outputs/partitioned_ldscores \
   --baseline-annot-sources "annotations/baseline_chr/baseline.@.annot.gz" \
   --query-annot-bed-sources "beds/*.bed" \
-  --r2-sources "r2/reference.@.parquet" \
-  --metadata-sources "r2/reference_metadata.@.tsv.gz" \
+  --ref-panel-dir "r2_ref_panel_1kg30x_1cM_hm3/hg19" \
   --r2-bias-mode unbiased \
   --ref-panel-snps-file filters/reference_universe.tsv.gz \
   --regression-snps-file filters/hapmap3.tsv.gz \

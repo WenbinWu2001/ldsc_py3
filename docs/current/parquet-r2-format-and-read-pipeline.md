@@ -160,24 +160,30 @@ in multiple consecutive rows — one per right-side neighbor within the LD windo
 The R² parquet stores **only pairwise data** (`CHR`, `POS_1`, `POS_2`, `R2`,
 `SNP_1`, `SNP_2`). Per-SNP metadata — chromosome, base position, rsID, genetic
 distance, and minor allele frequency — is kept in a separate **metadata sidecar**
-file. The R² parquet alone is not sufficient to use the `parquet_r2` backend.
+file. The sidecar is optional, but strongly recommended for production use.
 
-Treat the parquet R² file and the metadata sidecar as a paired artifact. Together they
-define one logical reference panel: the parquet provides pairwise LD entries, while the
-sidecar provides the per-SNP metadata required to load and interpret those pairs.
+Treat the parquet R² file and the metadata sidecar as a paired artifact when
+possible. Together they define one logical reference panel: the parquet provides
+pairwise LD entries, while the sidecar provides the complete per-SNP metadata
+needed for MAF filtering, common counts, and cM windows.
 
-#### Hard-fail requirement
+#### Fallback when the sidecar is absent
 
-`ParquetR2RefPanel.load_metadata()` (`src/ldsc/_kernel/ref_panel.py`) raises
-`ImportError` immediately if no sidecar paths are supplied via `metadata_sources`:
+R2 parquet files are required. In `ref_panel_dir` mode, chromosome `N` must have
+`chrN_r2.parquet`; missing R2 is a hard error. If the matching
+`chrN_meta.tsv.gz` sidecar is absent and `fail_on_missing_metadata=False`,
+`ParquetR2RefPanel.load_metadata()` synthesizes a minimal metadata table by
+scanning the R2 endpoint columns:
 
-```python
-if not self.spec.metadata_sources:
-    raise ImportError("ParquetR2RefPanel.load_metadata requires metadata sidecar files.")
-```
+- `CHR`, `POS`, and `SNP` are derived from the union of `CHR/POS_1/SNP_1` and
+  `CHR/POS_2/SNP_2`.
+- `CM` is present but missing for every row.
+- `MAF` is unavailable.
 
-Callers must pass at least one sidecar file (or a chromosome-suite glob) via
-`RefPanelConfig(metadata_sources=...)`.
+This fallback cannot recover SNPs that have no emitted pair rows, cannot apply
+`--maf-min`, cannot compute common-SNP counts, and cannot support
+`--ld-wind-cm` unless annotation metadata supplies cM values. Setting
+`fail_on_missing_metadata=True` turns a missing sidecar into a hard error.
 
 #### Sidecar format
 
@@ -199,7 +205,7 @@ for production use.
 
 #### Role in the downstream workflow
 
-The metadata sidecar feeds directly into three steps of the partitioned-LDSC workflow
+When present, the metadata sidecar feeds directly into three steps of the partitioned-LDSC workflow
 (see `docs/design/partitioned-ldsc-workflow.md`, §6):
 
 1. **Reference panel universe (A').** `load_metadata()` reads the sidecar, optionally

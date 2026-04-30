@@ -9,7 +9,7 @@ Overview
 --------
 This module is the public entry point for the `build-ref-panel` workflow. It
 keeps path resolution, logging, and cross-file validation in the workflow
-    layer, then delegates pairwise-R2 generation and parquet serialization to
+layer, then delegates pairwise-R2 generation and parquet serialization to
 ``ldsc._kernel.ref_panel_builder``. Before chromosome processing begins, the
 workflow precomputes deterministic parquet and metadata sidecar destinations
 and refuses existing files unless ``overwrite=True`` was configured.
@@ -115,8 +115,8 @@ def _expected_ref_panel_output_paths(config: ReferencePanelBuildConfig, chromoso
         for build in _emitted_genome_builds(config):
             paths.extend(
                 [
-                    out_root / build / "r2" / f"chr{chrom}_r2.parquet",
-                    out_root / build / "meta" / f"chr{chrom}_meta.tsv.gz",
+                    out_root / build / f"chr{chrom}_r2.parquet",
+                    out_root / build / f"chr{chrom}_meta.tsv.gz",
                 ]
             )
     return paths
@@ -149,8 +149,7 @@ class ReferencePanelBuilder:
         -------
         ReferencePanelBuildResult
             Summary with ``panel_name`` inferred from ``config.output_dir`` and
-            build-specific artifact paths under ``{build}/r2`` and
-            ``{build}/meta``.
+            build-specific artifact paths directly under ``{build}``.
 
         Raises
         ------
@@ -464,8 +463,8 @@ class ReferencePanelBuilder:
                 hg19_positions=hg19_positions,
                 hg38_positions=hg38_positions,
             )
-            r2_path = Path(config.output_dir) / build / "r2" / f"chr{chrom}_r2.parquet"
-            meta_path = Path(config.output_dir) / build / "meta" / f"chr{chrom}_meta.tsv.gz"
+            r2_path = Path(config.output_dir) / build / f"chr{chrom}_r2.parquet"
+            meta_path = Path(config.output_dir) / build / f"chr{chrom}_meta.tsv.gz"
             kernel_builder.write_r2_parquet(
                 pair_rows=kernel_builder.yield_pairwise_r2_rows(
                     block_left=block_left,

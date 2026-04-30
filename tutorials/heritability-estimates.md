@@ -75,8 +75,7 @@ sumstats = SumstatsMunger().run(
 
 ldscore_result = run_ldscore(
     output_dir="tutorial_outputs/trait_ldscores",
-    r2_sources="r2/reference.@.parquet",
-    metadata_sources="r2/reference_metadata.@.tsv.gz",
+    ref_panel_dir="r2_ref_panel_1kg30x_1cM_hm3/hg38",
     r2_bias_mode="unbiased",
     regression_snps_file="filters/hapmap3.txt",
     common_maf_min=0.05,
@@ -138,8 +137,7 @@ ldsc munge-sumstats \
 
 ldsc ldscore \
   --output-dir tutorial_outputs/trait_ldscores \
-  --r2-sources "r2/reference.@.parquet" \
-  --metadata-sources "r2/reference_metadata.@.tsv.gz" \
+  --ref-panel-dir "r2_ref_panel_1kg30x_1cM_hm3/hg38" \
   --r2-bias-mode unbiased \
   --regression-snps-file filters/hapmap3.txt \
   --snp-identifier chr_pos \

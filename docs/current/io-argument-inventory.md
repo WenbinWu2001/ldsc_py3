@@ -58,11 +58,12 @@ Removed flags: `--bed-files`, `--baseline-annot`.
 | `--baseline-annot-sources` | input | no | baseline annotation files | Exact files, globs, comma lists, or `@` suites. If omitted with no query inputs, `ldscore` synthesizes an all-ones `base` column from retained reference-panel metadata. |
 | `--query-annot-sources` | input | no | prebuilt query annotation files | Mutually exclusive with `--query-annot-bed-sources`; requires `--baseline-annot-sources`. |
 | `--query-annot-bed-sources` | input | no | query BED interval files | Projected in memory onto the baseline SNP universe; requires `--baseline-annot-sources`. |
-| `--plink-prefix` | input | conditional | PLINK reference panel prefix | Required when not using `--r2-sources`; supports exact prefix, PLINK-prefix glob, or `@` suite. |
-| `--r2-sources` | input | conditional | parquet R2 files | Required when not using `--plink-prefix`; supports exact files, globs, comma lists, or `@` suites. |
-| `--r2-bias-mode` | input metadata | conditional | parquet R2 bias declaration | Required with `--r2-sources`; choose `raw` or `unbiased`. |
+| `--plink-prefix` | input | conditional | PLINK reference panel prefix | Required when not using parquet reference-panel input; supports exact prefix, PLINK-prefix glob, or `@` suite. |
+| `--ref-panel-dir` | input | conditional | package-built parquet reference-panel directory | Preferred parquet input; pass a build-specific directory such as `ref_panel/hg38`, containing `chr*_r2.parquet` plus optional `chr*_meta.tsv.gz`. |
+| `--r2-sources` | input | conditional | parquet R2 files | Advanced/compatibility parquet input when not using `--ref-panel-dir`; supports exact files, globs, comma lists, or `@` suites. |
+| `--r2-bias-mode` | input metadata | conditional | parquet R2 bias declaration | Required with `--ref-panel-dir` or `--r2-sources`; choose `raw` or `unbiased`. |
 | `--r2-sample-size` | input metadata | conditional | parquet R2 sample size | Required only when `--r2-bias-mode raw`. |
-| `--metadata-sources` | input | no | reference metadata or frequency sidecars | Used for MAF and centiMorgan metadata where needed. |
+| `--metadata-sources` | input | no | reference metadata or frequency sidecars | Advanced/compatibility sidecars used for MAF and centiMorgan metadata where needed. In `--ref-panel-dir` mode, matching `chr*_meta.tsv.gz` files are discovered automatically when present. |
 | `--ref-panel-snps-file` | input | no | reference-panel SNP universe restriction | Scalar file-like input. |
 | `--regression-snps-file` | input | no | persisted LD-score row-set restriction | Scalar file-like input. |
 | `--keep-indivs-file` | input | no | PLINK individual keep file | PLINK mode only. |
@@ -107,10 +108,10 @@ Removed flags: `--bfile`, `--out`, `--panel-label`, `--keep-indivs`, `--maf`,
 Fixed output names:
 
 ```text
-<output_dir>/hg19/r2/chr{chrom}_r2.parquet
-<output_dir>/hg19/meta/chr{chrom}_meta.tsv.gz
-<output_dir>/hg38/r2/chr{chrom}_r2.parquet
-<output_dir>/hg38/meta/chr{chrom}_meta.tsv.gz
+<output_dir>/hg19/chr{chrom}_r2.parquet
+<output_dir>/hg19/chr{chrom}_meta.tsv.gz
+<output_dir>/hg38/chr{chrom}_r2.parquet
+<output_dir>/hg38/chr{chrom}_meta.tsv.gz
 ```
 
 When no usable source-to-target liftover chain is provided, the builder logs
@@ -201,8 +202,9 @@ Removed Python names: `bed_paths`, `query_bed_paths`, `bed_files`,
 | Object/function | Argument | Direction | Object |
 |---|---:|---:|---|
 | `RefPanelConfig` | `plink_prefix` | input | PLINK reference-panel prefix token |
-| `RefPanelConfig` | `r2_sources` | input | parquet R2 group |
-| `RefPanelConfig` | `metadata_sources` | input | metadata/frequency sidecar group |
+| `RefPanelConfig` | `ref_panel_dir` | input | preferred package-built parquet reference-panel directory |
+| `RefPanelConfig` | `r2_sources` | input | advanced/compatibility parquet R2 group |
+| `RefPanelConfig` | `metadata_sources` | input | advanced/compatibility metadata/frequency sidecar group |
 | `RefPanelConfig` | `ref_panel_snps_file` | input | reference SNP restriction |
 | `RefPanelConfig` | `keep_indivs_file` | input | PLINK individual keep file |
 | `RefPanelConfig` | `maf_min` | input metadata | retained reference-panel MAF filter |
@@ -210,7 +212,7 @@ Removed Python names: `bed_paths`, `query_bed_paths`, `bed_files`,
 | `LDScoreConfig` | `common_maf_min` | input metadata | common-SNP count threshold only |
 | `LDScoreOutputConfig` | `output_dir` | output | canonical LD-score result directory |
 | `run_ldscore(**kwargs)` | `baseline_annot_sources`, `query_annot_sources`, `query_annot_bed_sources` | input | optional annotation sources; query inputs require baseline sources, and no-annotation runs synthesize `base` |
-| `run_ldscore(**kwargs)` | `plink_prefix`, `r2_sources`, `metadata_sources` | input | reference-panel sources |
+| `run_ldscore(**kwargs)` | `plink_prefix`, `ref_panel_dir`, `r2_sources`, `metadata_sources` | input | reference-panel sources |
 | `run_ldscore(**kwargs)` | `output_dir` | output | canonical result directory |
 
 Removed Python names: `bfile`, `r2_table`, `frqfile`, `keep`, `maf`,

@@ -179,6 +179,10 @@ Group-style inputs:
 - `r2_sources`
 - `metadata_sources`
 
+Directory-style inputs:
+
+- `ref_panel_dir`
+
 Scalar-style inputs:
 
 - `ref_panel_snps_file`
@@ -205,8 +209,7 @@ Examples:
 ```bash
 ldsc ldscore \
   --output-dir out/trait_ldscores \
-  --r2-sources "r2/reference.*.parquet" \
-  --metadata-sources "r2/reference_metadata.@.tsv.gz" \
+  --ref-panel-dir "r2_ref_panel_1kg30x_1cM_hm3/hg38" \
   --r2-bias-mode unbiased \
   --common-maf-min 0.05 \
   --ld-wind-cm 1.0
@@ -289,7 +292,7 @@ Output:
 
 - `--output-dir` is created when missing and reused when present.
 - Before chromosome processing starts, the builder checks the deterministic
-  candidate paths under `{build}/r2` and `{build}/meta`.
+  candidate paths under each emitted `{build}` directory.
 - Existing candidate parquet or metadata files are refused unless
   `--overwrite` or `ReferencePanelBuildConfig(overwrite=True)` is supplied.
 - The check covers source-build artifacts and covers target-build artifacts

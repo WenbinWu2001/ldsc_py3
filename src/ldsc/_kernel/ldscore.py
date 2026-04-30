@@ -82,8 +82,7 @@ Python
         output_dir="results/example_ldscores",
         baseline_annot_sources="data/baseline.@.annot.gz",
         query_annot_sources="data/query.annot.gz",
-        r2_sources="data/r2/chr@_sorted.parquet",
-        metadata_sources="data/r2/chr@_metadata.tsv.gz",
+        ref_panel_dir="data/ref_panel/hg38",
         r2_bias_mode="unbiased",
         ld_wind_cm=1,
     )
@@ -93,8 +92,7 @@ CLI
         --output-dir results/example_ldscores \
         --baseline-annot-sources data/baseline.@.annot.gz \
         --query-annot-sources data/query.annot.gz \
-        --r2-sources data/r2/chr@_sorted.parquet \
-        --metadata-sources data/r2/chr@_metadata.tsv.gz \
+        --ref-panel-dir data/ref_panel/hg38 \
         --snp-identifier rsid \
         --r2-bias-mode unbiased \
         --ld-wind-cm 1

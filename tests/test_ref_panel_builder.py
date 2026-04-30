@@ -842,10 +842,10 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             def fake_build(prefix, chrom, config, build_state):
                 out_root = Path(config.output_dir)
                 return {
-                    "r2_hg19": str(out_root / "hg19" / "r2" / f"chr{chrom}_r2.parquet"),
-                    "r2_hg38": str(out_root / "hg38" / "r2" / f"chr{chrom}_r2.parquet"),
-                    "meta_hg19": str(out_root / "hg19" / "meta" / f"chr{chrom}_meta.tsv.gz"),
-                    "meta_hg38": str(out_root / "hg38" / "meta" / f"chr{chrom}_meta.tsv.gz"),
+                    "r2_hg19": str(out_root / "hg19" / f"chr{chrom}_r2.parquet"),
+                    "r2_hg38": str(out_root / "hg38" / f"chr{chrom}_r2.parquet"),
+                    "meta_hg19": str(out_root / "hg19" / f"chr{chrom}_meta.tsv.gz"),
+                    "meta_hg38": str(out_root / "hg38" / f"chr{chrom}_meta.tsv.gz"),
                 }
 
             with mock.patch.object(
@@ -863,15 +863,15 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             self.assertEqual(
                 result.output_paths["r2_hg19"],
                 [
-                    str(tmpdir / "out" / "hg19" / "r2" / "chr1_r2.parquet"),
-                    str(tmpdir / "out" / "hg19" / "r2" / "chr2_r2.parquet"),
+                    str(tmpdir / "out" / "hg19" / "chr1_r2.parquet"),
+                    str(tmpdir / "out" / "hg19" / "chr2_r2.parquet"),
                 ],
             )
             self.assertEqual(
                 result.output_paths["meta_hg38"],
                 [
-                    str(tmpdir / "out" / "hg38" / "meta" / "chr1_meta.tsv.gz"),
-                    str(tmpdir / "out" / "hg38" / "meta" / "chr2_meta.tsv.gz"),
+                    str(tmpdir / "out" / "hg38" / "chr1_meta.tsv.gz"),
+                    str(tmpdir / "out" / "hg38" / "chr2_meta.tsv.gz"),
                 ],
             )
 
@@ -894,8 +894,8 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             def fake_build(prefix, chrom, config, build_state):
                 out_root = Path(config.output_dir)
                 return {
-                    "r2_hg19": str(out_root / "hg19" / "r2" / f"chr{chrom}_r2.parquet"),
-                    "meta_hg19": str(out_root / "hg19" / "meta" / f"chr{chrom}_meta.tsv.gz"),
+                    "r2_hg19": str(out_root / "hg19" / f"chr{chrom}_r2.parquet"),
+                    "meta_hg19": str(out_root / "hg19" / f"chr{chrom}_meta.tsv.gz"),
                 }
 
             with self.assertLogs("LDSC.ref_panel_builder", level="INFO") as logs:
@@ -919,7 +919,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             tmpdir = Path(tmpdir)
             self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
             config = self._build_config(tmpdir)
-            existing = tmpdir / "out" / "hg19" / "r2" / "chr1_r2.parquet"
+            existing = tmpdir / "out" / "hg19" / "chr1_r2.parquet"
             existing.parent.mkdir(parents=True)
             existing.write_text("existing\n", encoding="utf-8")
             builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
@@ -939,7 +939,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             tmpdir = Path(tmpdir)
             self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
             config = dataclass_replace(self._build_config(tmpdir), overwrite=True)
-            existing = tmpdir / "out" / "hg19" / "r2" / "chr1_r2.parquet"
+            existing = tmpdir / "out" / "hg19" / "chr1_r2.parquet"
             existing.parent.mkdir(parents=True)
             existing.write_text("existing\n", encoding="utf-8")
             builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
@@ -973,8 +973,8 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             def fake_build(prefix, chrom, config, build_state):
                 out_root = Path(config.output_dir)
                 return {
-                    "r2_hg38": str(out_root / "hg38" / "r2" / f"chr{chrom}_r2.parquet"),
-                    "meta_hg38": str(out_root / "hg38" / "meta" / f"chr{chrom}_meta.tsv.gz"),
+                    "r2_hg38": str(out_root / "hg38" / f"chr{chrom}_r2.parquet"),
+                    "meta_hg38": str(out_root / "hg38" / f"chr{chrom}_meta.tsv.gz"),
                 }
 
             with self.assertLogs("LDSC.ref_panel_builder", level="INFO") as logs:
@@ -1077,8 +1077,8 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             def fake_build(prefix, chrom, config, build_state):
                 captured["source_genome_build"] = config.source_genome_build
                 return {
-                    "r2_hg19": str(Path(config.output_dir) / "hg19" / "r2" / f"chr{chrom}_r2.parquet"),
-                    "meta_hg19": str(Path(config.output_dir) / "hg19" / "meta" / f"chr{chrom}_meta.tsv.gz"),
+                    "r2_hg19": str(Path(config.output_dir) / "hg19" / f"chr{chrom}_r2.parquet"),
+                    "meta_hg19": str(Path(config.output_dir) / "hg19" / f"chr{chrom}_meta.tsv.gz"),
                 }
 
             with mock.patch.object(ref_panel_builder, "resolve_genome_build", return_value="hg19") as patched_resolve:
@@ -1437,8 +1437,7 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
                 parquet = ldscore_calculator.run_ldscore(
                     output_dir=str(tmpdir / "parquet"),
                     baseline_annot_sources=str(baseline),
-                    r2_sources=str(r2_path),
-                    metadata_sources=str(meta_hg38_path),
+                    ref_panel_dir=str(tmpdir / "panel" / "hg38"),
                     r2_bias_mode="raw",
                     r2_sample_size=3202,
                     ld_wind_snps=10,

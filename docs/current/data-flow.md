@@ -109,8 +109,8 @@ flowchart LR
 
 ## 2. `build-ref-panel`: PLINK To Standard Parquet R2 Reference
 
-Before chromosome processing starts, the builder precomputes candidate paths
-under `{build}/r2` and `{build}/meta`. Existing candidates are
+Before chromosome processing starts, the builder precomputes flat candidate
+paths under each emitted `{build}` directory. Existing candidates are
 refused unless `--overwrite` or `ReferencePanelBuildConfig(overwrite=True)` is
 supplied; unrelated files in the output directory are left untouched.
 
@@ -154,15 +154,15 @@ flowchart LR
   I1 --> B1 --> B0 --> B3 --> B4 --> B5 --> B6 --> B7
   I2 --> B2 --> B4
   I3 --> B2 --> B8 --> B4
-  B7 --> O2[{build}/r2/chr*_r2.parquet + {build}/meta/chr*_meta.tsv.gz]
+  B7 --> O2[{build}/chr*_r2.parquet + {build}/chr*_meta.tsv.gz]
 ```
 
 ### Outputs
 
 | File | Example | Notes |
 | --- | --- | --- |
-| build-specific R2 parquet | `hg38/r2/chr22_r2.parquet` with columns `CHR`, `POS_1`, `POS_2`, `SNP_1`, `SNP_2`, `R2` | one row per unordered SNP pair inside the LD window; row groups are sorted by that build's `POS_1` |
-| build-specific runtime metadata sidecar | `hg38/meta/chr22_meta.tsv.gz` with `CHR POS SNP CM MAF` | authoritative SNP universe for the matching R2 parquet |
+| build-specific R2 parquet | `hg38/chr22_r2.parquet` with columns `CHR`, `POS_1`, `POS_2`, `SNP_1`, `SNP_2`, `R2` | one row per unordered SNP pair inside the LD window; row groups are sorted by that build's `POS_1` |
+| build-specific runtime metadata sidecar | `hg38/chr22_meta.tsv.gz` with `CHR POS SNP CM MAF` | authoritative SNP universe for the matching R2 parquet when present |
 
 ### Modules used
 
@@ -193,7 +193,7 @@ baseline annotations.
 | --- | --- | --- |
 | baseline annotation shard, optional | `CHR POS SNP CM base`<br/>`1 10583 rs58108140 0.0 1` | optional for unpartitioned runs; required when query annotations are supplied |
 | query annotation shard, optional | `CHR POS SNP CM enhancer_A`<br/>`1 10583 rs58108140 0.0 1` | optional extra annotation columns; valid only with explicit baseline annotations |
-| PLINK prefix or parquet R2 panel | `panel_chr@` or `hg38/r2/chr@_r2.parquet` | choose one backend |
+| PLINK prefix or parquet R2 panel | `panel_chr@` or build directory `ref_panel/hg38` | choose one backend |
 | frequency / metadata sidecar, optional | `CHR POS SNP CM MAF` | used for MAF and runtime metadata |
 | regression SNP list, optional | `rs123` | restricts the weight-table SNP set |
 

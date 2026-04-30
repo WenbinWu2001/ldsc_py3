@@ -19,7 +19,7 @@ Output directories stay literal; only input fields are expanded.
 Resolution behavior:
 
 - there is no separate `*_chr` argument anymore; the same public argument now accepts exact paths, globs, or explicit `@` suite tokens
-- group inputs such as `--baseline-annot-sources`, `--query-annot-sources`, `--query-annot-bed-sources`, `--r2-sources`, and `--metadata-sources` may resolve to many files
+- group inputs such as `--baseline-annot-sources`, `--query-annot-sources`, `--query-annot-bed-sources`, `--r2-sources`, and `--metadata-sources` may resolve to many files; package-built parquet panels can be supplied as one build directory with `--ref-panel-dir`
 - when a group token resolves to chromosome-sharded files, the workflow tries to keep only the files whose names match the active chromosome
 - if filename-based chromosome filtering is not possible, the workflow reads the matched files and filters rows by `CHR` internally
 - scalar inputs still must resolve to exactly one file
@@ -66,8 +66,7 @@ set_global_config(
 
 result = run_ldscore(
     output_dir="tutorial_outputs/unpartitioned_ldscores",
-    r2_sources="r2/reference.@.parquet",
-    metadata_sources="r2/reference_metadata.@.tsv.gz",
+    ref_panel_dir="r2_ref_panel_1kg30x_1cM_hm3/hg38",
     r2_bias_mode="unbiased",
     ref_panel_snps_file="filters/reference_universe.txt",
     regression_snps_file="filters/hapmap3.txt",
@@ -84,8 +83,7 @@ print(result.baseline_table.loc[:, ["CHR", "SNP", "POS", "regr_weight", "base"]]
 ```bash
 ldsc ldscore \
   --output-dir tutorial_outputs/unpartitioned_ldscores \
-  --r2-sources "r2/reference.@.parquet" \
-  --metadata-sources "r2/reference_metadata.@.tsv.gz" \
+  --ref-panel-dir "r2_ref_panel_1kg30x_1cM_hm3/hg38" \
   --r2-bias-mode unbiased \
   --ref-panel-snps-file filters/reference_universe.txt \
   --regression-snps-file filters/hapmap3.txt \
@@ -111,8 +109,7 @@ set_global_config(
 result = run_ldscore(
     output_dir="tutorial_outputs/r2_ldscores",
     baseline_annot_sources="annotations/baseline.@.annot.gz",
-    r2_sources="r2/reference.@.parquet",
-    metadata_sources="r2/reference_metadata.@.tsv.gz",
+    ref_panel_dir="r2_ref_panel_1kg30x_1cM_hm3/hg38",
     r2_bias_mode="unbiased",
     ref_panel_snps_file="filters/reference_universe.txt",
     regression_snps_file="filters/hapmap3.txt",
@@ -134,8 +131,7 @@ print(result.config_snapshot)
 ldsc ldscore \
   --output-dir tutorial_outputs/r2_ldscores \
   --baseline-annot-sources "annotations/baseline.@.annot.gz" \
-  --r2-sources "r2/reference.@.parquet" \
-  --metadata-sources "r2/reference_metadata.@.tsv.gz" \
+  --ref-panel-dir "r2_ref_panel_1kg30x_1cM_hm3/hg38" \
   --r2-bias-mode unbiased \
   --ref-panel-snps-file filters/reference_universe.txt \
   --regression-snps-file filters/hapmap3.txt \
@@ -165,8 +161,7 @@ result = run_ldscore(
     output_dir="tutorial_outputs/r2_ldscores_with_queries",
     baseline_annot_sources="annotations/baseline_chr/baseline.@.annot.gz",
     query_annot_bed_sources="beds/*.bed",
-    r2_sources="r2/reference.@.parquet",
-    metadata_sources="r2/reference_metadata.@.tsv.gz",
+    ref_panel_dir="r2_ref_panel_1kg30x_1cM_hm3/hg38",
     r2_bias_mode="unbiased",
     ref_panel_snps_file="filters/reference_universe.txt",
     regression_snps_file="filters/hapmap3.txt",
@@ -185,8 +180,7 @@ ldsc ldscore \
   --output-dir tutorial_outputs/r2_ldscores_with_queries \
   --baseline-annot-sources "annotations/baseline_chr/baseline.@.annot.gz" \
   --query-annot-bed-sources "beds/*.bed" \
-  --r2-sources "r2/reference.@.parquet" \
-  --metadata-sources "r2/reference_metadata.@.tsv.gz" \
+  --ref-panel-dir "r2_ref_panel_1kg30x_1cM_hm3/hg38" \
   --r2-bias-mode unbiased \
   --ref-panel-snps-file filters/reference_universe.txt \
   --regression-snps-file filters/hapmap3.txt \
@@ -300,8 +294,7 @@ For command-line runs, use auto mode on the workflow itself:
 ldsc ldscore \
   --output-dir tutorial_outputs/auto_build_ldscores \
   --baseline-annot-sources "annotations/baseline.@.annot.gz" \
-  --r2-sources "r2/reference.@.parquet" \
-  --metadata-sources "r2/reference_metadata.@.tsv.gz" \
+  --ref-panel-dir "r2_ref_panel_1kg30x_1cM_hm3/hg38" \
   --r2-bias-mode unbiased \
   --snp-identifier chr_pos \
   --genome-build auto \

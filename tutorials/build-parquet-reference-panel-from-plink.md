@@ -10,8 +10,8 @@ All example paths below are relative to the workspace root that contains both `r
 
 The `build-ref-panel` workflow converts PLINK genotypes into build-specific R2 reference-panel files for each chromosome:
 
-- one R2 parquet per emitted build (`hg19/r2` and/or `hg38/r2`): one row per unordered SNP pair within the chosen LD window
-- one runtime metadata sidecar per emitted build (`hg19/meta` and/or `hg38/meta`): one row per retained SNP, used by LDSC-style downstream tools
+- one R2 parquet per emitted build (`hg19/chr*_r2.parquet` and/or `hg38/chr*_r2.parquet`): one row per unordered SNP pair within the chosen LD window
+- one runtime metadata sidecar per emitted build (`hg19/chr*_meta.tsv.gz` and/or `hg38/chr*_meta.tsv.gz`): one row per retained SNP, used by LDSC-style downstream tools
 
 The R2 output is a long pairwise table, not a dense square matrix on disk. That is usually the practical format for large reference panels.
 
@@ -129,7 +129,7 @@ The bundled Alkes-group maps in `resources/genetic_maps/genetic_map_alkesgroup/`
   Plain-English meaning: output root directory.
   Recommended usage: point this to a dedicated directory for the new reference
   panel build. The run identity is the directory name; output filenames are
-  fixed under `{build}/r2/` and `{build}/meta/`. Missing directories are created
+  fixed directly under each `{build}/` directory. Missing directories are created
   and existing directories are reused, but existing candidate parquet or
   metadata files are refused before chromosome processing starts.
 
@@ -292,21 +292,17 @@ For the chr22 example above, the output tree looks like:
 ```text
 tutorial_outputs/ref_panel_chr22/
 ├── hg19/
-│   ├── r2/
-│   │   └── chr22_r2.parquet
-│   └── meta/
-│       └── chr22_meta.tsv.gz
+│   ├── chr22_r2.parquet
+│   └── chr22_meta.tsv.gz
 └── hg38/
-    ├── r2/
-    │   └── chr22_r2.parquet
-    └── meta/
-        └── chr22_meta.tsv.gz
+    ├── chr22_r2.parquet
+    └── chr22_meta.tsv.gz
 ```
 
-If you omit the matching liftover chain, only the source-build `r2/` and `meta/`
-directories are written. If you use `--ld-wind-snps` or `--ld-wind-kb`, you may
-omit genetic maps entirely; emitted metadata sidecars will keep their rows and
-write missing `CM` values.
+If you omit the matching liftover chain, only the source-build directory is
+written. If you use `--ld-wind-snps` or `--ld-wind-kb`, you may omit genetic
+maps entirely; emitted metadata sidecars will keep their rows and write missing
+`CM` values.
 
 For a genome-wide build, the same pattern repeats once per chromosome.
 
@@ -367,7 +363,7 @@ Schema:
 - `CM`
 - `MAF`
 
-Example `hg19/meta/chr22_meta.tsv.gz` rows:
+Example `hg19/chr22_meta.tsv.gz` rows:
 
 ```text
 CHR	POS	SNP	CM	MAF
@@ -376,7 +372,7 @@ CHR	POS	SNP	CM	MAF
 22	17385403	22:10685981:G:A	2.99174	0.0029669
 ```
 
-Example `hg38/meta/chr22_meta.tsv.gz` rows:
+Example `hg38/chr22_meta.tsv.gz` rows:
 
 ```text
 CHR	POS	SNP	CM	MAF
@@ -385,11 +381,11 @@ CHR	POS	SNP	CM	MAF
 22	10685981	22:10685981:G:A	0	0.0029669
 ```
 
-Use the R2 parquet and sidecar from the coordinate system you want downstream.
-For parquet-backed LD-score calculation, the sidecar is the authoritative raw
-reference-panel SNP universe. SNPs present in the sidecar but with no
-off-diagonal R2 pairs remain valid reference SNPs and receive the diagonal
-contribution during matrix construction.
+Use the build directory from the coordinate system you want downstream. For
+parquet-backed LD-score calculation, the sidecar is the authoritative
+reference-panel SNP universe when present. If it is absent, the loader falls
+back to the SNPs that appear as R2 endpoints, but cannot recover SNPs with no
+off-diagonal R2 pairs and cannot provide CM or MAF metadata.
 
 ## Downstream Use
 
@@ -402,11 +398,11 @@ import pandas as pd
 import pyarrow.parquet as pq
 
 meta_hg38 = pd.read_csv(
-    "tutorial_outputs/ref_panel_chr22/hg38/meta/chr22_meta.tsv.gz",
+    "tutorial_outputs/ref_panel_chr22/hg38/chr22_meta.tsv.gz",
     sep="\t",
 )
 
-r2_file = pq.ParquetFile("tutorial_outputs/ref_panel_chr22/hg38/r2/chr22_r2.parquet")
+r2_file = pq.ParquetFile("tutorial_outputs/ref_panel_chr22/hg38/chr22_r2.parquet")
 first_row_group = r2_file.read_row_group(0).to_pandas()
 
 print(meta_hg38.head())
@@ -415,15 +411,15 @@ print(first_row_group.head())
 
 ### Use the panel in LDSC-style downstream analysis
 
-After you have built a genome-wide parquet panel, you can feed the R2 parquet and matching metadata sidecar into `ldsc ldscore`.
+After you have built a genome-wide parquet panel, feed the build-specific
+directory into `ldsc ldscore`.
 
 Example:
 
 ```bash
 ldsc ldscore \
   --output-dir tutorial_outputs/ldscores_from_parquet_panel \
-  --r2-sources "tutorial_outputs/ref_panel/hg38/r2/chr@_r2.parquet" \
-  --metadata-sources "tutorial_outputs/ref_panel/hg38/meta/chr@_meta.tsv.gz" \
+  --ref-panel-dir "tutorial_outputs/ref_panel/hg38" \
   --r2-bias-mode unbiased \
   --snp-identifier rsid \
   --common-maf-min 0.05 \
@@ -467,8 +463,8 @@ ldsc build-ref-panel \
 ```
 
 If `--output-dir` does not exist yet, the workflow warns once and creates it automatically.
-If candidate files such as `hg38/r2/chr22_r2.parquet` or
-`hg38/meta/chr22_meta.tsv.gz` already exist, the build fails before processing
+If candidate files such as `hg38/chr22_r2.parquet` or
+`hg38/chr22_meta.tsv.gz` already exist, the build fails before processing
 chromosomes unless `--overwrite` is supplied.
 
 ### Restrict to a predefined SNP universe

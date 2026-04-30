@@ -248,6 +248,11 @@ class RefPanelConfig:
     metadata_sources : str, os.PathLike[str], or sequence of those, optional
         Sidecar frequency or metadata path tokens aligned to the reference
         panel. Default is ``()``.
+    ref_panel_dir : str or os.PathLike[str] or None, optional
+        Directory containing package-built parquet R2 files named
+        ``chr{chrom}_r2.parquet`` and optional sidecars named
+        ``chr{chrom}_meta.tsv.gz``. This is the preferred input for
+        ``ldsc build-ref-panel`` outputs. Default is ``None``.
     maf_min : float or None, optional
         Optional retained-reference-panel MAF threshold applied before LD-score
         computation. This is distinct from the common-SNP count threshold on
@@ -266,6 +271,7 @@ class RefPanelConfig:
     plink_prefix: str | PathLike[str] | None = None
     r2_sources: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
     metadata_sources: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
+    ref_panel_dir: str | PathLike[str] | None = None
     chromosomes: tuple[str, ...] | list[str] | None = None
     maf_min: float | None = None
     keep_indivs_file: str | PathLike[str] | None = None
@@ -291,6 +297,7 @@ class RefPanelConfig:
         object.__setattr__(self, "plink_prefix", _normalize_optional_path(self.plink_prefix))
         object.__setattr__(self, "r2_sources", _normalize_path_tuple(self.r2_sources))
         object.__setattr__(self, "metadata_sources", _normalize_path_tuple(self.metadata_sources))
+        object.__setattr__(self, "ref_panel_dir", _normalize_optional_path(self.ref_panel_dir))
         object.__setattr__(self, "keep_indivs_file", _normalize_optional_path(self.keep_indivs_file))
         object.__setattr__(self, "ref_panel_snps_file", _normalize_optional_path(self.ref_panel_snps_file))
         if self.chromosomes is not None:
@@ -382,8 +389,8 @@ class ReferencePanelBuildConfig:
     output_dir : str or os.PathLike[str]
         Output directory for the reference panel. The panel identity is
         ``Path(output_dir).name``; emitted artifacts are fixed as
-        ``{build}/r2/chr{chrom}_r2.parquet`` and
-        ``{build}/meta/chr{chrom}_meta.tsv.gz``.
+        ``{build}/chr{chrom}_r2.parquet`` and
+        ``{build}/chr{chrom}_meta.tsv.gz``.
     liftover_chain_hg19_to_hg38_file, liftover_chain_hg38_to_hg19_file : str or os.PathLike[str] or None, optional
         Chain files used to populate the opposite-build coordinates. If the
         chain matching the resolved ``source_genome_build`` is omitted, the

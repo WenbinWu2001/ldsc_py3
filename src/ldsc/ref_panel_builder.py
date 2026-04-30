@@ -397,8 +397,19 @@ class ReferencePanelBuilder:
             chrom_df=chrom_df,
             keep_snps=keep_snps,
         )
+        keep_snps, dropped_df = _resolve_unique_snp_set(
+            chrom=chrom,
+            chrom_df=chrom_df,
+            keep_snps=keep_snps,
+            hg19_lookup=hg19_lookup,
+            hg38_lookup=hg38_lookup,
+            policy=config.duplicate_position_policy,
+        )
+        if not dropped_df.empty:
+            sidecar_path = Path(config.output_dir) / f"chr{chrom}_dropped.tsv.gz"
+            _write_dropped_sidecar(dropped_df, sidecar_path, chrom)
         if len(keep_snps) == 0:
-            LOGGER.info(f"Skipping chromosome {chrom} because no SNPs remain after liftover filtering.")
+            LOGGER.info(f"Skipping chromosome {chrom}: no SNPs remain after duplicate-position filtering.")
             return None
 
         keep_indivs = None
@@ -918,6 +929,19 @@ def _resolve_unique_snp_set(
     else:
         dropped_df = pd.DataFrame(columns=columns)
     return cleaned, dropped_df
+
+
+def _write_dropped_sidecar(dropped_df: pd.DataFrame, path: Path, chrom: str) -> None:
+    """Write a provenance sidecar for dropped duplicate-position SNPs."""
+    dropped_df.to_csv(path, sep="\t", index=False, compression="gzip")
+    n_dropped = len(dropped_df)
+    n_source = int((dropped_df["reason"] == "source_duplicate").sum())
+    n_target = int((dropped_df["reason"] == "target_collision").sum())
+    LOGGER.warning(
+        f"Dropped {n_dropped} SNPs on chromosome {chrom} due to duplicate positions "
+        f"({n_source} source-build duplicates, {n_target} target-build collisions). "
+        f"Provenance written to '{path}'."
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:

@@ -1004,6 +1004,94 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             ld_wind_kb=1.0,
         )
 
+    def test_error_policy_raises_on_source_build_duplicates(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            self._write_plink_prefix_rows(
+                tmpdir,
+                "panel.1",
+                [
+                    ("1", "rs1", 100),
+                    ("1", "rs2", 100),
+                    ("1", "rs3", 200),
+                ],
+            )
+            config = ReferencePanelBuildConfig(
+                plink_prefix=tmpdir / "panel.@",
+                source_genome_build="hg19",
+                output_dir=tmpdir / "out",
+                ld_wind_kb=1.0,
+                duplicate_position_policy="error",
+            )
+            builder = ref_panel_builder.ReferencePanelBuilder(
+                global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg19")
+            )
+
+            def fake_resolve(*, chrom_df, keep_snps, **_kwargs):
+                keep = np.asarray(keep_snps, dtype=int)
+                hg19 = {int(idx): int(chrom_df.loc[idx, "BP"]) for idx in keep}
+                return keep, hg19, {}
+
+            with mock.patch.object(builder, "_resolve_mappable_snp_positions", side_effect=fake_resolve):
+                with self.assertRaisesRegex(ValueError, "source-build duplicate"):
+                    builder.run(config)
+
+    def test_drop_all_policy_writes_sidecar_at_panel_root(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            self._write_plink_prefix_rows(
+                tmpdir,
+                "panel.1",
+                [
+                    ("1", "rs1", 100),
+                    ("1", "rs2", 100),
+                    ("1", "rs3", 200),
+                ],
+            )
+            config = ReferencePanelBuildConfig(
+                plink_prefix=tmpdir / "panel.@",
+                source_genome_build="hg19",
+                output_dir=tmpdir / "out",
+                ld_wind_kb=1.0,
+                duplicate_position_policy="drop-all",
+            )
+            builder = ref_panel_builder.ReferencePanelBuilder(
+                global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg19")
+            )
+
+            def fake_resolve(*, chrom_df, keep_snps, **_kwargs):
+                keep = np.asarray(keep_snps, dtype=int)
+                hg19 = {int(idx): int(chrom_df.loc[idx, "BP"]) for idx in keep}
+                return keep, hg19, {}
+
+            with mock.patch.object(
+                builder,
+                "_resolve_mappable_snp_positions",
+                side_effect=fake_resolve,
+            ), mock.patch(
+                "ldsc.ref_panel_builder.kernel_builder.write_r2_parquet"
+            ), mock.patch(
+                "ldsc.ref_panel_builder.kernel_builder.write_runtime_metadata_sidecar"
+            ), mock.patch(
+                "ldsc.ref_panel_builder.kernel_ldscore.PlinkBEDFile"
+            ) as mock_bed:
+                mock_bed.return_value.kept_snps = [2]
+                mock_bed.return_value.maf = np.array([0.3])
+                mock_bed.return_value.m = 1
+                mock_bed.return_value.n = 1
+                mock_bed.return_value.nextSNPs = lambda: iter([np.array([0.0])])
+
+                with self.assertLogs("LDSC.ref_panel_builder", level="WARNING") as log_ctx:
+                    builder.run(config)
+
+            sidecar = tmpdir / "out" / "chr1_dropped.tsv.gz"
+            self.assertTrue(sidecar.exists(), "sidecar must be written at panel root")
+            with gzip.open(sidecar, "rt") as fh:
+                dropped_df = pd.read_csv(fh, sep="\t")
+            self.assertEqual(len(dropped_df), 2)
+            self.assertTrue((dropped_df["reason"] == "source_duplicate").all())
+            self.assertTrue(any("chr1_dropped.tsv.gz" in line for line in log_ctx.output))
+
     def test_builder_run_collects_artifact_paths_from_resolved_suite(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)

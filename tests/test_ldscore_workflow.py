@@ -166,6 +166,69 @@ class R2SchemaMetaReaderTest(unittest.TestCase):
         self.assertEqual(n, 300.0)
 
 
+@unittest.skipIf(kernel_ldscore is None, "ldscore kernel is not available")
+class R2AutoLoadCLITest(unittest.TestCase):
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet schema coverage")
+    def test_cli_autofills_unbiased_from_schema_when_mode_is_none(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "hg19" / "chr1_r2.parquet"
+            _write_minimal_r2_parquet(
+                path,
+                {b"ldsc:n_samples": b"200", b"ldsc:r2_bias": b"unbiased"},
+            )
+            args = kernel_ldscore.build_parser().parse_args(
+                [
+                    "--r2-table",
+                    str(Path(tmpdir) / "hg19"),
+                    "--snp-identifier",
+                    "rsid",
+                    "--baseline-annot",
+                    "fake",
+                    "--out",
+                    "fake",
+                    "--ld-wind-kb",
+                    "1",
+                ]
+            )
+            args.r2_bias_mode = None
+            args.r2_sample_size = None
+
+            kernel_ldscore.validate_args(args)
+
+        self.assertEqual(args.r2_bias_mode, "unbiased")
+        self.assertIsNone(args.r2_sample_size)
+
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet schema coverage")
+    def test_cli_autofills_raw_and_n_from_schema(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "hg19" / "chr1_r2.parquet"
+            _write_minimal_r2_parquet(
+                path,
+                {b"ldsc:n_samples": b"150", b"ldsc:r2_bias": b"raw"},
+            )
+            args = kernel_ldscore.build_parser().parse_args(
+                [
+                    "--r2-table",
+                    str(Path(tmpdir) / "hg19"),
+                    "--snp-identifier",
+                    "rsid",
+                    "--baseline-annot",
+                    "fake",
+                    "--out",
+                    "fake",
+                    "--ld-wind-kb",
+                    "1",
+                ]
+            )
+            args.r2_bias_mode = None
+            args.r2_sample_size = None
+
+            kernel_ldscore.validate_args(args)
+
+        self.assertEqual(args.r2_bias_mode, "raw")
+        self.assertAlmostEqual(args.r2_sample_size, 150.0)
+
+
 @unittest.skipIf(ldscore_workflow is None, "ldscore_workflow module is not available")
 class LDScoreWorkflowTest(unittest.TestCase):
     def test_build_parser_genome_build_help_documents_chr_pos_requirement(self):

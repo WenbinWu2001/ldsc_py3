@@ -9,11 +9,12 @@ dependencies:
 - setuptools
 - wheel
 - pip:
-  - bitarray>=3.0,<4
   - scipy>=1.15,<1.18
   - pandas>=2.3,<3.0
   - numpy>=2.1,<2.5
   - pyarrow>=21,<24
+  # Optional workflow extras included in the development environment.
+  - bitarray>=3.0,<4
   - pybedtools>=0.12,<0.13
   - pyliftover>=0.4.1,<0.5
   - pytest>=8,<10

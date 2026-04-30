@@ -19,18 +19,18 @@ accepted on **read** only; they are never written.
 | `CM` | `CMBP`, `CENTIMORGAN` | annotation, LD-score |
 | `MAF` | `FREQ`, `FREQUENCY` | ref panel, annotation |
 | `FRQ` | `EAF`, `MAF`, `FRQ_U` | sumstats only |
-| `A1` | `ALLELE1`, `EFFECT_ALLELE`, `INC_ALLELE`, `EA`, `REF` | alleles |
-| `A2` | `ALLELE2`, `OTHER_ALLELE`, `DEC_ALLELE`, `NEA`, `ALT` | alleles |
+| `A1` | `ALLELE1`, `ALLELE_1`, `EFFECT_ALLELE`, `REFERENCE_ALLELE`, `INC_ALLELE`, `EA` | alleles |
+| `A2` | `ALLELE2`, `ALLELE_2`, `OTHER_ALLELE`, `NON_EFFECT_ALLELE`, `DEC_ALLELE`, `NEA` | alleles |
 | `N` | `WEIGHT` | sumstats |
 | `N_CAS` | `NCASE`, `N_CASE`, `N_CASES`, `NCAS`, `CASES_N` | sumstats |
 | `N_CON` | `NCONTROL`, `N_CONTROL`, `N_CONTROLS`, `NCON`, `CONTROLS_N` | sumstats |
 | `NSTUDY` | `N_STUDY`, `NSTUDIES`, `N_STUDIES` | sumstats |
 | `Z` | `ZSCORE`, `GC_ZSCORE` | sumstats |
-| `P` | `PVALUE`, `P_VAL`, `GC_PVALUE` | sumstats |
+| `P` | `PVALUE`, `P_VALUE`, `PVAL`, `P_VAL`, `GC_PVALUE` | sumstats |
 | `BETA` | `B`, `EFFECT`, `EFFECTS` | sumstats |
 | `OR` | *(none)* | sumstats |
 | `LOG_ODDS` | *(none)* | sumstats |
-| `INFO` | *(none)* | sumstats |
+| `INFO` | `IMPINFO` | sumstats |
 | `R2` | *(none)* | pairwise LD |
 | `L2` | *(none)* | LD-score output |
 
@@ -66,7 +66,7 @@ governed by the number of decimal digits printed, not numpy dtype.
 
 | Parquet artifact | Columns cast to `float32` on write | Columns kept as-is |
 | --- | --- | --- |
-| `baseline.parquet`, `query.parquet` | `CM`, `MAF`, `regr_weight`, all `L2` / annotation columns | `CHR` (str), `POS` (int64), `SNP` (str) |
+| `baseline.parquet`, `query.parquet` | `regr_weight`, all LD-score / annotation columns | `CHR` (str), `POS` (int64), `SNP` (str) |
 | Pairwise R² parquet | `R2` | `CHR` (str), `POS_1`, `POS_2` (int64), `SNP_1`, `SNP_2` (str) |
 
 `N`, `N_CAS`, `N_CON`, `NSTUDY` are stored in `.sumstats.gz` (text), never in
@@ -111,8 +111,11 @@ normalized on read; their on-disk format is not changed.
 
 ## 3. Column Ordering in Written Artifacts
 
-**Rule:** SNP metadata columns appear in the order **(CHR, POS, SNP, ...)** in
-all written artifacts. CHR and POS are always adjacent and always precede SNP.
+**Rule:** SNP metadata columns appear in a stable workflow-specific order.
+Annotation, sumstats, and pairwise R2 artifacts use **(CHR, POS, SNP, ...)** or
+the documented pairwise variant. Public LD-score result tables currently use
+**(CHR, SNP, POS, ...)** to match `LDScoreResult` and regression-loader
+validation.
 
 This applies to artifacts **written by this package**. External input files
 (user-supplied annotation files, the hm3 curated map, PLINK BIM files, etc.) are
@@ -122,13 +125,14 @@ not preserved in any output.
 For annotation output files specifically: the kernel always reconstructs the
 column layout from its internal representation rather than passing through the
 input file unchanged. This means the leading metadata columns (`CHR, POS, SNP,
-CM`) follow the rule unconditionally. The annotation-specific columns that follow
+CM`) follow the annotation rule unconditionally. The annotation-specific columns that follow
 `CM` retain their input order (the kernel does not reorder them).
 
 | Artifact | Leading columns | Remaining columns |
 |----------|----------------|-------------------|
 | Annotation (`.annot.gz`) | `CHR, POS, SNP, CM` | annotation columns (input order preserved) |
-| LD-score output (`baseline.parquet`, `query.parquet`) | `CHR, POS, SNP, CM, MAF` | L2 / annotation columns |
+| LD-score output (`baseline.parquet`) | `CHR, SNP, POS, regr_weight` | baseline LD-score columns |
+| LD-score output (`query.parquet`) | `CHR, SNP, POS` | query LD-score columns |
 | Munged sumstats (`.sumstats.gz`) | `CHR, POS, SNP, A1, A2` | `N, Z, FRQ, ...` |
 | Canonical pairwise R² parquet | `CHR, POS_1, POS_2, SNP_1, SNP_2, R2` | |
 
@@ -141,10 +145,9 @@ The following locations must be kept consistent with this document.
 | Location | What to keep in sync |
 |----------|---------------------|
 | `src/ldsc/column_inference.py` — `INTERNAL_SUMSTATS_ARTIFACT_SPECS` | Tuple order: `CHR, POS, SNP, ...` |
-| `src/ldsc/column_inference.py` — `INTERNAL_LDSCORE_ARTIFACT_SPECS` | Tuple order: `CHR, POS, SNP, CM, MAF` |
+| `src/ldsc/column_inference.py` — `INTERNAL_LDSCORE_ARTIFACT_SPECS` | Strict reload specs still include optional metadata fields used by internal/legacy readers: `CHR, POS, SNP, CM, MAF` |
 | `src/ldsc/column_inference.py` — `INTERNAL_ANNOT_ARTIFACT_SPECS` | Already correct: `CHR, POS, SNP, CM, MAF` |
 | `src/ldsc/_kernel/ldscore.py` — `ANNOT_META_COLUMNS` | `("CHR", "POS", "SNP", "CM", "MAF")` |
-| `src/ldsc/_kernel/ldscore.py` — explicit reorder list (line ~1904) | `["CHR", "POS", "SNP", "CM", "MAF"]` |
+| `src/ldsc/ldscore_calculator.py` — `_split_ldscore_table` | Public output order: baseline `CHR, SNP, POS, regr_weight, ...`; query `CHR, SNP, POS, ...` |
 | `src/ldsc/outputs.py` — `_write_chromosome_aligned_parquet` | One row group per `CHR` in `baseline.parquet` and `query.parquet` |
-| `src/ldsc/outputs.py` — `required_baseline` / `required_query` validation lists | `["CHR", "POS", "SNP", ...]` |
-| Docstrings in `ldscore.py` referencing `CHR, SNP, POS` | Update to `CHR, POS, SNP` |
+| `src/ldsc/outputs.py` — `required_baseline` / `required_query` validation lists | Baseline requires `CHR`, `POS`, `SNP`, `regr_weight`, and baseline columns; query requires `CHR`, `POS`, `SNP`, and query columns |

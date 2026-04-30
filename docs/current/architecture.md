@@ -1,6 +1,6 @@
 # Architecture
 
-`ldsc_py3_restructured` is the refactored Python 3 LDSC package. It reads optional SNP-level annotations, PLINK or parquet R2 references, and GWAS summary statistics; resolves user-facing path and header conventions in the public workflow layer; delegates numerical work to `ldsc._kernel`; and writes LDSC-compatible artifacts that can be chained into later runs.
+`ldsc_py3_Jerry` is the refactored Python 3 LDSC package. It reads optional SNP-level annotations, PLINK or parquet R2 references, and GWAS summary statistics; resolves user-facing path and header conventions in the public workflow layer; delegates numerical work to `ldsc._kernel`; and writes LDSC-compatible artifacts that can be chained into later runs.
 
 Related docs:
 
@@ -29,12 +29,13 @@ Related docs:
 ## File Tree
 
 ```text
-ldsc_py3_restructured/
+ldsc_py3_Jerry/
 ├── docs/
-│   ├── architecture.md      # package-level architecture
-│   ├── class-and-features.md
-│   ├── code_structure.md
-│   ├── data_flow.md         # workflow-level file streams
+│   ├── current/
+│   │   ├── architecture.md      # package-level architecture
+│   │   ├── class-and-features.md
+│   │   ├── code-structure.md
+│   │   └── data-flow.md         # workflow-level file streams
 │   └── assets/
 ├── src/ldsc/
 │   ├── __init__.py          # public Python exports
@@ -122,6 +123,11 @@ The kernel layer contains the actual numerical methods and low-level readers. It
   output files are checked before writing. By default an existing artifact
   raises `FileExistsError`; `--overwrite` or `overwrite=True` makes replacement
   explicit without deleting unrelated files or cleaning the directory.
+- **Dependency split**: base package dependencies cover core pandas/numpy/SciPy
+  workflows and parquet I/O. PLINK-backed LD computation requires the
+  `plink` extra (`bitarray`), BED projection requires the `bed` extra
+  (`pybedtools` plus the external `bedtools` executable), and cross-build
+  reference-panel output requires the `liftover` extra (`pyliftover`).
 - **Chromosome ordering**: chromosome-sharded inputs are validated and reassembled in stable genomic order by the workflow layer.
 - **Testing approach**: tests under `tests/` cover file contracts, workflow behavior, and legacy compatibility expectations.
 

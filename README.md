@@ -1,4 +1,4 @@
-# ldsc_py3_restructured
+# ldsc_py3_Jerry
 
 This repository is the active refactored LDSC package.
 
@@ -8,7 +8,7 @@ This repository is the active refactored LDSC package.
 - `src/ldsc/_kernel/`: internal compute and file-format modules
 - `tests/`: local parity and workflow tests
 - `tutorials/`: package-level usage examples
-- `docs/architecture.md`, `docs/code_structure.md`, `docs/class-and-features.md`: active design and navigation docs
+- `docs/current/architecture.md`, `docs/current/code-structure.md`, `docs/current/class-and-features.md`: active design and navigation docs
 
 ## Install
 
@@ -24,7 +24,7 @@ One-time setup before running this package or the result-consistency pipelines:
 ```bash
 conda env create -f environment.yml
 conda activate ldsc3
-python -m pip install -e ".[test]"
+python -m pip install -e ".[dev]"
 ```
 
 For later runs, activate the environment before launching commands or scripts:
@@ -33,11 +33,15 @@ For later runs, activate the environment before launching commands or scripts:
 conda activate ldsc3
 ```
 
-The package supports Python 3.11 through 3.13. `pybedtools` is installed as a
-Python dependency; BED-based annotation projection also requires the external
-`bedtools` executable, which `environment.yml` installs from bioconda. For
-non-conda installs, make sure `bedtools` is available on `PATH` before running
-BED annotation workflows.
+The package supports Python 3.11 through 3.13. The base install includes the
+core NumPy/pandas/SciPy/PyArrow stack. Optional extras are split by workflow:
+`.[plink]` installs `bitarray` for PLINK-backed LD computation, `.[bed]`
+installs `pybedtools` for BED projection, and `.[liftover]` installs
+`pyliftover` for cross-build reference-panel output. `.[dev]` installs all of
+those extras plus pytest. BED-based annotation projection also requires the
+external `bedtools` executable, which `environment.yml` installs from bioconda.
+For non-conda installs, make sure `bedtools` is available on `PATH` before
+running BED annotation workflows.
 
 ## CLI
 
@@ -118,7 +122,7 @@ Public workflow APIs accept normalized string tokens for inputs:
 - exact paths
 - Python glob patterns such as `annotations/*.annot.gz`
 - explicit chromosome suites using `@`, for example `baseline.@`
-- legacy bare prefixes such as `baseline.`
+- PLINK prefix tokens for reference-panel inputs, such as `panel_chr@`
 
 Inputs are resolved before the internal kernel runs. Public outputs use fixed
 filenames inside the selected `output_dir`.

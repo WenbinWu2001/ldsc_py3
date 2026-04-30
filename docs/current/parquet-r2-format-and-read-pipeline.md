@@ -31,8 +31,9 @@ still accepted but trigger a startup warning (see §3.2).
 
 ### 2.1 Column Schema
 
-The canonical parquet has exactly these six columns. No additional columns are written
-or expected by the reader.
+Package-written canonical parquet files have these six columns. The reader
+requires these logical fields, with aliases accepted at load time; unrelated
+extra columns are ignored.
 
 | Column | Type | Description |
 |---|---|---|
@@ -206,7 +207,7 @@ for production use.
 #### Role in the downstream workflow
 
 When present, the metadata sidecar feeds directly into three steps of the partitioned-LDSC workflow
-(see `docs/design/partitioned-ldsc-workflow.md`, §6):
+(see `docs/current/partitioned-ldsc-workflow.md`, §6):
 
 1. **Reference panel universe (A').** `load_metadata()` reads the sidecar, optionally
    applies `_apply_snp_restriction()` when `ref_panel_snps_file` is set, and returns
@@ -239,7 +240,7 @@ This two-file design separates concerns: the parquet is a dense sorted pair tabl
 optimised for row-group pruning; the sidecar is a lightweight per-SNP lookup table
 that drives SNP universe construction and MAF/CM metadata.
 
-In the workflow notation of `docs/design/partitioned-ldsc-workflow.md`, the raw
+In the workflow notation of `docs/current/partitioned-ldsc-workflow.md`, the raw
 reference-panel SNP universe `A` comes from this paired artifact. When the
 sidecar is present, its SNP table is authoritative and parquet pair rows are
 used only to answer LD window queries once `ld_reference_snps = B ∩ A'` has been
@@ -387,13 +388,11 @@ reader emits a `WARNING` and falls back to the existing `pyarrow.Dataset` full-s
 path:
 
 > *"{path} uses the legacy raw schema. Row-group pruning is disabled and query
-> performance will be severely degraded. Convert to the canonical format with
-> `ldsc normalize-r2-parquet --input {path} --genome-build hg19 --output {new_path}`
-> to restore full performance."*
+> performance will be severely degraded."*
 
-The full-scan fallback is numerically identical to the current implementation;
-correctness is preserved. This compatibility path is planned for removal in a future
-major version once the ecosystem has migrated to the canonical schema.
+The full-scan fallback is numerically identical to the legacy implementation;
+correctness is preserved. There is no public `normalize-r2-parquet` subcommand
+in the current CLI; regenerate canonical files with `ldsc build-ref-panel`.
 
 ---
 

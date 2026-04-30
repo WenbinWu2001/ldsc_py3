@@ -440,6 +440,13 @@ class ReferencePanelBuilder:
             build_positions = hg19_positions if build == "hg19" else hg38_positions
             if build_positions is None:
                 raise ValueError(f"{build} positions are unavailable for chromosome {chrom}; provide a matching liftover chain.")
+            _validate_emitted_build_chr_pos_uniqueness(
+                metadata=metadata,
+                positions=build_positions,
+                genome_build=build,
+                chrom=chrom,
+                snp_identifier=self.global_config.snp_identifier,
+            )
 
             cm_values = (
                 kernel_builder.interpolate_genetic_map_cm(chrom, build_positions, build_state.genetic_map_hg19)
@@ -780,6 +787,25 @@ def _metadata_with_build_positions(metadata: pd.DataFrame, positions: np.ndarray
     build_metadata = metadata.copy()
     build_metadata["POS"] = np.asarray(positions, dtype=np.int64)
     return build_metadata
+
+
+def _validate_emitted_build_chr_pos_uniqueness(
+    *,
+    metadata: pd.DataFrame,
+    positions: np.ndarray,
+    genome_build: str,
+    chrom: str,
+    snp_identifier: str,
+) -> None:
+    """Reject emitted-build coordinate collisions when building for chr_pos matching."""
+    if normalize_snp_identifier_mode(snp_identifier) != "chr_pos":
+        return
+    build_metadata = _metadata_with_build_positions(metadata, positions)
+    kernel_identifiers.validate_unique_snp_ids(
+        build_metadata,
+        "chr_pos",
+        context=f"Reference-panel build output {genome_build}[{chrom}]",
+    )
 
 
 def _sort_retained_snps_by_build_position(

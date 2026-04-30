@@ -1062,6 +1062,41 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
         self.assertEqual(hg19_lookup, {})
         self.assertEqual(hg38_lookup, {7: 110})
 
+    def test_validate_emitted_chr_pos_rejects_liftover_collisions(self):
+        metadata = pd.DataFrame(
+            {
+                "CHR": ["1", "1", "1"],
+                "SNP": ["1:6205309:A:C", "1:6205308:A:G", "1:7000000:T:C"],
+                "POS": [6205309, 6205308, 7000000],
+            }
+        )
+
+        with self.assertRaisesRegex(ValueError, "hg19.*1:6265368.*1:6205309:A:C.*1:6205308:A:G"):
+            ref_panel_builder._validate_emitted_build_chr_pos_uniqueness(
+                metadata=metadata,
+                positions=np.array([6265368, 6265368, 7060000], dtype=np.int64),
+                genome_build="hg19",
+                chrom="1",
+                snp_identifier="chr_pos",
+            )
+
+    def test_validate_emitted_chr_pos_allows_duplicate_positions_in_rsid_mode(self):
+        metadata = pd.DataFrame(
+            {
+                "CHR": ["1", "1"],
+                "SNP": ["rs1", "rs2"],
+                "POS": [10, 11],
+            }
+        )
+
+        ref_panel_builder._validate_emitted_build_chr_pos_uniqueness(
+            metadata=metadata,
+            positions=np.array([20, 20], dtype=np.int64),
+            genome_build="hg19",
+            chrom="1",
+            snp_identifier="rsid",
+        )
+
     def test_builder_run_infers_source_genome_build_before_build_state_preparation(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)

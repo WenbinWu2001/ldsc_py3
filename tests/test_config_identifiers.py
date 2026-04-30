@@ -459,6 +459,17 @@ class IdentifierHelpersTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_unique_snp_ids(df, "rsid", context="test")
 
+    def test_validate_unique_chr_pos_ids_reports_colliding_snps(self):
+        df = pd.DataFrame(
+            {
+                "CHR": ["1", "1", "1"],
+                "POS": [10, 10, 20],
+                "SNP": ["rsA", "rsB", "rsC"],
+            }
+        )
+        with self.assertRaisesRegex(ValueError, "1:10.*rsA.*rsB.*prune duplicate-coordinate variants"):
+            validate_unique_snp_ids(df, "chr_pos", context="test")
+
 
 class RestrictionReadersTest(unittest.TestCase):
     def test_read_global_snp_restriction_rsid_requires_header(self):

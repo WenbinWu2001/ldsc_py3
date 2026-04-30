@@ -832,6 +832,94 @@ def _sort_retained_snps_by_build_position(
     )
 
 
+def _resolve_unique_snp_set(
+    chrom: str,
+    chrom_df: pd.DataFrame,
+    keep_snps: np.ndarray,
+    hg19_lookup: dict[int, int],
+    hg38_lookup: dict[int, int],
+    policy: str,
+) -> tuple[np.ndarray, pd.DataFrame]:
+    """Detect and resolve SNPs sharing a CHR:POS key in any emitted build."""
+    keep_list = keep_snps.tolist()
+    drop_set: set[int] = set()
+    prov_rows: list[dict[str, object]] = []
+
+    source_pos = chrom_df.loc[keep_list, "BP"].to_numpy(dtype=int)
+    source_dup_mask = pd.Series(source_pos).duplicated(keep=False).to_numpy()
+    if source_dup_mask.any():
+        if policy == "error":
+            dup_positions = sorted(set(source_pos[source_dup_mask]))
+            lines = []
+            for pos in dup_positions:
+                for idx, source_bp in zip(keep_list, source_pos):
+                    if source_bp == pos:
+                        lines.append(f"    CHR={chrom} source_pos={pos} SNP={chrom_df.loc[idx, 'SNP']}")
+            raise ValueError(
+                f"source-build duplicate CHR:POS on chromosome {chrom}. "
+                "Use --duplicate-position-policy=drop-all to drop colliding clusters.\n"
+                + "\n".join(lines)
+            )
+        for i, idx in enumerate(keep_list):
+            if source_dup_mask[i]:
+                drop_set.add(int(idx))
+                prov_rows.append(
+                    {
+                        "CHR": chrom,
+                        "SNP": chrom_df.loc[idx, "SNP"],
+                        "source_pos": int(source_pos[i]),
+                        "target_pos": pd.NA,
+                        "reason": "source_duplicate",
+                    }
+                )
+
+    source_survivors = [int(idx) for idx in keep_list if idx not in drop_set]
+    for lookup in (hg19_lookup, hg38_lookup):
+        if not lookup or len(source_survivors) < 2:
+            continue
+        target_pos = [lookup[idx] for idx in source_survivors]
+        target_dup_mask = pd.Series(target_pos).duplicated(keep=False).to_numpy()
+        if not target_dup_mask.any():
+            continue
+        if policy == "error":
+            target_array = np.asarray(target_pos, dtype=int)
+            dup_positions = sorted(set(target_array[target_dup_mask]))
+            lines = []
+            for pos in dup_positions:
+                for idx, target_bp in zip(source_survivors, target_pos):
+                    if target_bp == pos:
+                        lines.append(
+                            f"    CHR={chrom} source_pos={chrom_df.loc[idx, 'BP']} "
+                            f"target_pos={pos} SNP={chrom_df.loc[idx, 'SNP']}"
+                        )
+            raise ValueError(
+                f"target-build collision CHR:POS on chromosome {chrom}. "
+                "Use --duplicate-position-policy=drop-all to drop colliding clusters.\n"
+                + "\n".join(lines)
+            )
+        for i, idx in enumerate(source_survivors):
+            if target_dup_mask[i] and idx not in drop_set:
+                drop_set.add(int(idx))
+                prov_rows.append(
+                    {
+                        "CHR": chrom,
+                        "SNP": chrom_df.loc[idx, "SNP"],
+                        "source_pos": int(chrom_df.loc[idx, "BP"]),
+                        "target_pos": int(target_pos[i]),
+                        "reason": "target_collision",
+                    }
+                )
+
+    cleaned = np.asarray([idx for idx in keep_snps if idx not in drop_set], dtype=keep_snps.dtype)
+    columns = ["CHR", "SNP", "source_pos", "target_pos", "reason"]
+    if prov_rows:
+        dropped_df = pd.DataFrame(prov_rows, columns=columns)
+        dropped_df["target_pos"] = dropped_df["target_pos"].astype("Int64")
+    else:
+        dropped_df = pd.DataFrame(columns=columns)
+    return cleaned, dropped_df
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the feature parser for reference-panel generation."""
 

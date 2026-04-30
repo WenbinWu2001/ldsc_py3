@@ -843,6 +843,131 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
             )
 
 
+class DuplicatePositionPolicyTest(unittest.TestCase):
+    """Unit tests for _resolve_unique_snp_set()."""
+
+    def _make_chrom_df(self, snp_ids, bps):
+        """Build a minimal .bim-style DataFrame indexed by PLINK row indices."""
+        return pd.DataFrame(
+            {"SNP": snp_ids, "BP": bps},
+            index=list(range(len(snp_ids))),
+        )
+
+    def test_no_duplicates_returns_keep_snps_unchanged(self):
+        chrom_df = self._make_chrom_df(["rs1", "rs2", "rs3"], [100, 200, 300])
+        keep = np.array([0, 1, 2])
+        hg19 = {0: 100, 1: 200, 2: 300}
+        hg38 = {0: 1000, 1: 2000, 2: 3000}
+
+        cleaned, dropped = ref_panel_builder._resolve_unique_snp_set(
+            "1", chrom_df, keep, hg19, hg38, "error"
+        )
+
+        np.testing.assert_array_equal(cleaned, keep)
+        self.assertTrue(dropped.empty)
+
+    def test_source_duplicate_error_policy_raises(self):
+        chrom_df = self._make_chrom_df(["rs1", "rs2", "rs3"], [100, 100, 300])
+        keep = np.array([0, 1, 2])
+
+        with self.assertRaisesRegex(ValueError, "source-build duplicate"):
+            ref_panel_builder._resolve_unique_snp_set(
+                "1", chrom_df, keep, {0: 100, 1: 100, 2: 300}, {}, "error"
+            )
+
+    def test_source_duplicate_drop_all_removes_cluster(self):
+        chrom_df = self._make_chrom_df(["rs1", "rs2", "rs3"], [100, 100, 300])
+        keep = np.array([0, 1, 2])
+
+        cleaned, dropped = ref_panel_builder._resolve_unique_snp_set(
+            "1", chrom_df, keep, {0: 100, 1: 100, 2: 300}, {}, "drop-all"
+        )
+
+        np.testing.assert_array_equal(cleaned, np.array([2]))
+        self.assertEqual(len(dropped), 2)
+        self.assertTrue((dropped["reason"] == "source_duplicate").all())
+        self.assertTrue(dropped["target_pos"].isna().all())
+        self.assertSetEqual(set(dropped["SNP"]), {"rs1", "rs2"})
+
+    def test_target_collision_error_policy_raises(self):
+        chrom_df = self._make_chrom_df(["rs1", "rs2", "rs3"], [100, 200, 300])
+        keep = np.array([0, 1, 2])
+        hg38 = {0: 5000, 1: 5000, 2: 6000}
+
+        with self.assertRaisesRegex(ValueError, "target-build collision"):
+            ref_panel_builder._resolve_unique_snp_set(
+                "1", chrom_df, keep, {0: 100, 1: 200, 2: 300}, hg38, "error"
+            )
+
+    def test_target_collision_drop_all_removes_cluster_from_all_builds(self):
+        chrom_df = self._make_chrom_df(["rs1", "rs2", "rs3"], [100, 200, 300])
+        keep = np.array([0, 1, 2])
+        hg19 = {0: 100, 1: 200, 2: 300}
+        hg38 = {0: 5000, 1: 5000, 2: 6000}
+
+        cleaned, dropped = ref_panel_builder._resolve_unique_snp_set(
+            "1", chrom_df, keep, hg19, hg38, "drop-all"
+        )
+
+        np.testing.assert_array_equal(cleaned, np.array([2]))
+        self.assertEqual(len(dropped), 2)
+        self.assertTrue((dropped["reason"] == "target_collision").all())
+        self.assertSetEqual(set(dropped["SNP"]), {"rs1", "rs2"})
+        self.assertFalse(dropped["target_pos"].isna().any())
+
+    def test_target_collision_in_hg19_only_drops_both_snps(self):
+        chrom_df = self._make_chrom_df(["rs1", "rs2", "rs3"], [100, 200, 300])
+        keep = np.array([0, 1, 2])
+        hg19 = {0: 5000, 1: 5000, 2: 6000}
+        hg38 = {}
+
+        cleaned, dropped = ref_panel_builder._resolve_unique_snp_set(
+            "1", chrom_df, keep, hg19, hg38, "drop-all"
+        )
+
+        np.testing.assert_array_equal(cleaned, np.array([2]))
+        self.assertEqual(len(dropped), 2)
+        self.assertTrue((dropped["reason"] == "target_collision").all())
+
+    def test_collision_in_both_builds_deduplicates_provenance_rows(self):
+        chrom_df = self._make_chrom_df(["rs1", "rs2", "rs3"], [100, 200, 300])
+        keep = np.array([0, 1, 2])
+        hg19 = {0: 5000, 1: 5000, 2: 6000}
+        hg38 = {0: 7000, 1: 7000, 2: 8000}
+
+        cleaned, dropped = ref_panel_builder._resolve_unique_snp_set(
+            "1", chrom_df, keep, hg19, hg38, "drop-all"
+        )
+
+        np.testing.assert_array_equal(cleaned, np.array([2]))
+        self.assertEqual(len(dropped), 2)
+        self.assertSetEqual(set(dropped["SNP"]), {"rs1", "rs2"})
+
+    def test_all_snps_dropped_returns_empty_keep(self):
+        chrom_df = self._make_chrom_df(["rs1", "rs2"], [100, 100])
+        keep = np.array([0, 1])
+
+        cleaned, dropped = ref_panel_builder._resolve_unique_snp_set(
+            "1", chrom_df, keep, {0: 100, 1: 100}, {}, "drop-all"
+        )
+
+        self.assertEqual(len(cleaned), 0)
+        self.assertEqual(len(dropped), 2)
+
+    def test_provenance_columns_are_correct(self):
+        chrom_df = self._make_chrom_df(["rs1", "rs2", "rs3"], [100, 100, 300])
+        keep = np.array([0, 1, 2])
+
+        _, dropped = ref_panel_builder._resolve_unique_snp_set(
+            "1", chrom_df, keep, {0: 100, 1: 100, 2: 300}, {}, "drop-all"
+        )
+
+        self.assertListEqual(list(dropped.columns), ["CHR", "SNP", "source_pos", "target_pos", "reason"])
+        self.assertEqual(dropped["CHR"].iloc[0], "1")
+        self.assertEqual(dropped["source_pos"].dtype, int)
+        self.assertEqual(dropped["target_pos"].dtype.name, "Int64")
+
+
 class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
     def _write_dummy_plink_prefix(self, root: Path, stem: str, chrom: str):
         prefix = root / stem

@@ -4,9 +4,15 @@
 
 **Goal:** Store `ldsc:n_samples` and `ldsc:r2_bias` in every R2 parquet file's Arrow schema metadata, and auto-load them at both downstream read sites so users never need to manually supply `--r2-bias-mode` or `--r2-sample-size` for panels built by this codebase.
 
-**Architecture:** `write_r2_parquet` gains an `n_samples: int` parameter; `_build_chromosome` passes `geno.n`. A new helper `_read_r2_schema_meta()` and resolver `_resolve_r2_bias_from_meta()` in `_kernel/ref_panel.py` are called at two sites: the CLI validation block in `_kernel/ldscore.py` and `ParquetR2RefPanel.load_r2()`. `SortedR2BlockReader` is unchanged.
+**Architecture:** `write_r2_parquet` gains an `n_samples: int` parameter; `_build_chromosome` passes `geno.n`. A new helper `_read_r2_schema_meta()` and resolver `_resolve_r2_bias_from_meta()` in `_kernel/ref_panel.py` are called at two sites: the CLI validation block in `_kernel/ldscore.py` and `ParquetR2RefPanel.build_reader()`. `SortedR2BlockReader` is unchanged.
 
 **Tech Stack:** Python 3.11, pyarrow, pandas, unittest
+
+**Implementation status:** completed on `restructure` in commits `0f720e7`,
+`a98b79e`, `679b4f7`, and `04b6667`. Documentation/dependency follow-up records
+that PyArrow is required for canonical parquet schema metadata and that
+package-built panels no longer require users to repeat R2 bias/sample-size flags
+at downstream load time.
 
 ---
 

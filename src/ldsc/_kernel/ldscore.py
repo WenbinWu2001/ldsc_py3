@@ -1971,7 +1971,14 @@ def emit_outputs(results: Sequence[ChromComputationResult], args: argparse.Names
 
 
 def _first_resolved_r2_parquet(args: argparse.Namespace) -> str | None:
-    """Return the first existing R2 parquet path available during validation."""
+    """
+    Return the first existing R2 parquet path available during validation.
+
+    Validation remains permissive for legacy tests and callers that pass paths
+    not yet present on disk. When a direct parquet file or package-built R2
+    directory is resolvable, the caller can inspect its Arrow schema metadata
+    before applying default R2 bias settings.
+    """
     try:
         paths = resolve_parquet_files(args)
     except FileNotFoundError:

@@ -1,6 +1,8 @@
 # R2 Schema Metadata: Sample Size and Bias Mode
 
 **Date:** 2026-04-30
+**Implementation status:** implemented on `restructure` in commits
+`0f720e7`, `a98b79e`, `679b4f7`, and `04b6667`.
 **Scope:** `src/ldsc/_kernel/ref_panel_builder.py`, `src/ldsc/ref_panel_builder.py`,
 `src/ldsc/_kernel/ldscore.py`, `src/ldsc/_kernel/ref_panel.py`
 
@@ -31,7 +33,7 @@ Consequences:
 | Keys added | `ldsc:n_samples` (integer, UTF-8 encoded) and `ldsc:r2_bias` (`"unbiased"` or `"raw"`) |
 | Current builder always writes | `ldsc:r2_bias = "unbiased"` — no new flag needed now |
 | Reader helper location | `_kernel/ref_panel.py` — `_read_r2_schema_meta(path)` |
-| Auto-load call sites | (1) CLI validation block in `_kernel/ldscore.py`; (2) `ParquetR2RefPanel.load_r2()` in `_kernel/ref_panel.py` |
+| Auto-load call sites | (1) CLI validation block in `_kernel/ldscore.py`; (2) `ParquetR2RefPanel.build_reader()` in `_kernel/ref_panel.py` |
 | `SortedR2BlockReader` | **Unchanged** — receives fully resolved `r2_bias_mode` and `r2_sample_size` as before |
 
 ---
@@ -122,7 +124,7 @@ Replacement: before the `None → "unbiased"` promotion, read schema metadata fr
 the first resolved parquet file and apply the resolution rule. The promotion and
 the `"raw"` raise remain as a fallback for legacy files.
 
-### Site 2 — `ParquetR2RefPanel.load_r2()` in `_kernel/ref_panel.py`
+### Site 2 — `ParquetR2RefPanel.build_reader()` in `_kernel/ref_panel.py`
 
 Read schema metadata from the first resolved parquet path for the chromosome.
 Apply the resolution rule to determine `r2_bias_mode` and `r2_sample_size` before
@@ -144,8 +146,7 @@ In `tests/test_ref_panel_builder.py`:
 In `tests/test_ref_panel_builder.py` or a new `tests/test_ref_panel.py`:
 - File with both keys → returns correct `_R2SchemaMeta`
 - File with neither key (legacy) → returns `_R2SchemaMeta(None, None)`
-- File with `n_samples` but no `r2_bias` → returns `_R2SchemaMeta(n, None)` with
-  warning logged
+- File with `n_samples` but no `r2_bias` → warns and returns `_R2SchemaMeta(n, "raw")`
 
 ### Unit tests — `_resolve_r2_bias_from_meta`
 
@@ -162,10 +163,22 @@ In `tests/test_ldscore_workflow.py`:
   `r2_bias_mode=None`; verify `r2_bias_mode = "raw"` and `r2_sample_size = 100`
   are auto-populated without error
 
-### Integration test — `ParquetR2RefPanel.load_r2` auto-load
+### Integration test — `ParquetR2RefPanel.build_reader` auto-load
 
 In `tests/test_ldscore_workflow.py` or `tests/test_ref_panel.py`:
 - Panel parquet has `ldsc:n_samples = 200`, `ldsc:r2_bias = "raw"`;
-  `RefPanelSpec(r2_dir=..., r2_bias_mode=None, r2_sample_size=None)` → verify
+  `RefPanelConfig(r2_dir=..., r2_bias_mode=None, r2_sample_size=None)` → verify
   `SortedR2BlockReader` is constructed with `r2_bias_mode="raw"` and
   `r2_sample_size=200`
+
+---
+
+## Post-Implementation Notes
+
+- `requirements.txt`, `environment.yml`, and `setup.py` keep `pyarrow` as a base
+  dependency because schema metadata, row-group pruning, and canonical parquet
+  writing all require PyArrow APIs.
+- Package-built panels write `ldsc:r2_bias = "unbiased"` today, so downstream
+  examples can omit `--r2-bias-mode` and `--r2-sample-size`.
+- Manual `--r2-bias-mode raw --r2-sample-size N` remains supported for external
+  legacy raw-R2 parquet files that lack LDSC schema metadata.

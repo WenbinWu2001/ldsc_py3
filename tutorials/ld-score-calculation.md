@@ -9,6 +9,11 @@ For the parquet backend, the R2 file should use the canonical six-column schema
 (`CHR`, `POS_1`, `POS_2`, `R2`, `SNP_1`, `SNP_2`) written with PyArrow row groups.
 The matching `chr*_meta.tsv.gz` sidecars are optional but strongly recommended
 because they define the full reference-panel SNP universe and supply `MAF`/`CM`.
+Package-built R2 parquet files also store `ldsc:r2_bias` and `ldsc:n_samples`
+in Arrow schema metadata, so the examples omit R2 bias and sample-size
+arguments. Pass `r2_bias_mode` / `--r2-bias-mode` and
+`r2_sample_size` / `--r2-sample-size` manually only for legacy or external raw
+R2 parquet files that lack LDSC schema metadata.
 
 Input-token rules used below:
 
@@ -69,7 +74,6 @@ set_global_config(
 result = run_ldscore(
     output_dir="tutorial_outputs/unpartitioned_ldscores",
     r2_dir="r2_ref_panel_1kg30x_1cM_hm3/hg38",
-    r2_bias_mode="unbiased",
     ref_panel_snps_file="filters/reference_universe.txt",
     regression_snps_file="filters/hapmap3.txt",
     common_maf_min=0.05,
@@ -86,7 +90,6 @@ print(result.baseline_table.loc[:, ["CHR", "SNP", "POS", "regr_weight", "base"]]
 ldsc ldscore \
   --output-dir tutorial_outputs/unpartitioned_ldscores \
   --r2-dir "r2_ref_panel_1kg30x_1cM_hm3/hg38" \
-  --r2-bias-mode unbiased \
   --ref-panel-snps-file filters/reference_universe.txt \
   --regression-snps-file filters/hapmap3.txt \
   --snp-identifier rsid \
@@ -112,7 +115,6 @@ result = run_ldscore(
     output_dir="tutorial_outputs/r2_ldscores",
     baseline_annot_sources="annotations/baseline.@.annot.gz",
     r2_dir="r2_ref_panel_1kg30x_1cM_hm3/hg38",
-    r2_bias_mode="unbiased",
     ref_panel_snps_file="filters/reference_universe.txt",
     regression_snps_file="filters/hapmap3.txt",
     common_maf_min=0.05,
@@ -134,7 +136,6 @@ ldsc ldscore \
   --output-dir tutorial_outputs/r2_ldscores \
   --baseline-annot-sources "annotations/baseline.@.annot.gz" \
   --r2-dir "r2_ref_panel_1kg30x_1cM_hm3/hg38" \
-  --r2-bias-mode unbiased \
   --ref-panel-snps-file filters/reference_universe.txt \
   --regression-snps-file filters/hapmap3.txt \
   --snp-identifier rsid \
@@ -164,7 +165,6 @@ result = run_ldscore(
     baseline_annot_sources="annotations/baseline_chr/baseline.@.annot.gz",
     query_annot_bed_sources="beds/*.bed",
     r2_dir="r2_ref_panel_1kg30x_1cM_hm3/hg38",
-    r2_bias_mode="unbiased",
     ref_panel_snps_file="filters/reference_universe.txt",
     regression_snps_file="filters/hapmap3.txt",
     common_maf_min=0.05,
@@ -183,7 +183,6 @@ ldsc ldscore \
   --baseline-annot-sources "annotations/baseline_chr/baseline.@.annot.gz" \
   --query-annot-bed-sources "beds/*.bed" \
   --r2-dir "r2_ref_panel_1kg30x_1cM_hm3/hg38" \
-  --r2-bias-mode unbiased \
   --ref-panel-snps-file filters/reference_universe.txt \
   --regression-snps-file filters/hapmap3.txt \
   --snp-identifier rsid \
@@ -297,7 +296,6 @@ ldsc ldscore \
   --output-dir tutorial_outputs/auto_build_ldscores \
   --baseline-annot-sources "annotations/baseline.@.annot.gz" \
   --r2-dir "r2_ref_panel_1kg30x_1cM_hm3/hg38" \
-  --r2-bias-mode unbiased \
   --snp-identifier chr_pos \
   --genome-build auto \
   --common-maf-min 0.05 \

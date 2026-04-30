@@ -108,15 +108,25 @@ expected pairs-per-window for the target reference panel density.
 
 ### 2.4 Parquet Schema Metadata
 
-Two key-value entries are written into the parquet `schema.metadata` at file creation:
+Four key-value entries are written into the parquet `schema.metadata` at file creation:
 
 | Key | Type | Description |
 |---|---|---|
 | `ldsc:sorted_by_build` | string | Genome build used to define `POS_1`/`POS_2`. One of `"hg19"` or `"hg38"`. |
 | `ldsc:row_group_size` | string (int) | Intended row group size used when writing. Informational; reader uses actual footer stats. |
+| `ldsc:n_samples` | string (int) | Number of reference-panel individuals used when computing the stored R2 values. Package-built panels write `geno.n`. |
+| `ldsc:r2_bias` | string | Bias state of stored R2 values. Package-built panels currently write `"unbiased"`; `"raw"` is reserved for raw sample R2 values that need downstream correction. |
 
 These are accessed via `pq.ParquetFile(path).schema_arrow.metadata` and are stored
 as UTF-8 byte strings by PyArrow.
+
+Downstream readers inspect this metadata before applying R2-bias defaults. For
+package-built panels, users do not need to pass `--r2-bias-mode` or
+`--r2-sample-size`: unbiased panels resolve to `r2_bias_mode="unbiased"`, and a
+future raw-R2 panel with `ldsc:r2_bias="raw"` would auto-fill its correction
+sample size from `ldsc:n_samples`. Legacy parquet files without these keys keep
+the historical default of treating omitted bias mode as `"unbiased"`; users can
+still pass `--r2-bias-mode raw --r2-sample-size N` for external raw R2 files.
 
 ### 2.5 Canonical Example
 
@@ -125,6 +135,8 @@ as UTF-8 byte strings by PyArrow.
 ```
 ldsc:sorted_by_build = "hg19"
 ldsc:row_group_size  = "50000"
+ldsc:n_samples       = "3202"
+ldsc:r2_bias         = "unbiased"
 ```
 
 **Row group footer statistics (first three groups of a chr1 file):**

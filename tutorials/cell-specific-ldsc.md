@@ -8,7 +8,11 @@ Cell-type query annotations require explicit baseline annotations. The
 synthetic all-ones `base` annotation is reserved for ordinary unpartitioned
 LD-score generation when no query inputs are present.
 
-The examples below assume chromosome-pattern inputs such as `baseline.@.annot.gz`, `cell_type_beds/*.bed`, `reference.@.parquet`, and `reference_metadata.@.tsv.gz`.
+The examples below assume chromosome-pattern inputs such as
+`baseline.@.annot.gz`, `cell_type_beds/*.bed`, and a package-built
+build-specific R2 directory. Package-built R2 parquet files store
+`ldsc:r2_bias` and `ldsc:n_samples` in schema metadata, so the examples omit
+R2 bias and sample-size arguments.
 
 Output directories are literal destinations. Missing directories are created,
 existing directories are reused, and existing fixed files are refused before
@@ -56,7 +60,6 @@ ref_panel = RefPanelLoader(GLOBAL_CONFIG).load(
         backend="parquet_r2",
         r2_dir="r2_ref_panel_1kg30x_1cM_hm3/hg19",
         chromosomes=tuple(annotation_bundle.chromosomes),
-        r2_bias_mode="unbiased",
         ref_panel_snps_file="filters/reference_universe.tsv.gz",
     )
 )
@@ -113,7 +116,6 @@ ldsc ldscore \
   --baseline-annot-sources "annotations/baseline_chr/baseline.@.annot.gz" \
   --query-annot-bed-sources "annotations/cell_type_beds/*.bed" \
   --r2-dir "r2_ref_panel_1kg30x_1cM_hm3/hg19" \
-  --r2-bias-mode unbiased \
   --ref-panel-snps-file filters/reference_universe.tsv.gz \
   --regression-snps-file filters/hapmap3.tsv.gz \
   --snp-identifier chr_pos \

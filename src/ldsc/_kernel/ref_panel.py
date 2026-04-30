@@ -39,12 +39,21 @@ _REF_PANEL_R2_RE = re.compile(r"^chr(?P<chrom>.+)_r2\.parquet$", flags=re.IGNORE
 
 @dataclass(frozen=True)
 class _R2SchemaMeta:
+    """Parsed LDSC R2 schema metadata from one parquet file."""
+
     n_samples: int | None
     r2_bias: str | None
 
 
 def _read_r2_schema_meta(path: str) -> _R2SchemaMeta:
-    """Read LDSC R2 metadata from one canonical parquet file's Arrow schema."""
+    """
+    Read LDSC R2 sample-size and bias metadata from an Arrow parquet schema.
+
+    Missing keys are returned as ``None`` so legacy parquet files keep their
+    historical behavior. A file with ``ldsc:n_samples`` but no ``ldsc:r2_bias``
+    is treated as malformed raw-R2 metadata and resolved to ``r2_bias="raw"``
+    with a warning.
+    """
     try:
         import pyarrow.parquet as pq
     except ImportError:
@@ -68,7 +77,15 @@ def _resolve_r2_bias_from_meta(
     r2_sample_size: float | None,
     meta: _R2SchemaMeta,
 ) -> tuple[str, float | None]:
-    """Resolve R2 bias mode and correction sample size from schema metadata."""
+    """
+    Resolve effective R2 bias mode and correction sample size.
+
+    User-supplied values take precedence over parquet metadata. When no user
+    mode is supplied, stored ``ldsc:r2_bias`` selects ``"unbiased"`` or
+    ``"raw"``; raw mode auto-fills the sample size from ``ldsc:n_samples`` when
+    available. Legacy files with neither key default to unbiased, matching the
+    pre-metadata behavior.
+    """
     stored_bias = meta.r2_bias
     stored_n = float(meta.n_samples) if meta.n_samples is not None else None
 
@@ -369,7 +386,14 @@ class ParquetR2RefPanel(RefPanel):
         r2_bias_mode: str | None = None,
         r2_sample_size: float | None = None,
     ):
-        """Build a row-group-pruning block reader over one chromosome's R2 parquet."""
+        """
+        Build a row-group-pruning reader with R2 bias settings resolved.
+
+        Runtime overrides are merged with ``RefPanelConfig`` first, then the
+        first chromosome parquet's LDSC schema metadata is used to auto-fill
+        missing R2 bias mode and sample size before constructing
+        ``SortedR2BlockReader``.
+        """
         metadata = metadata if metadata is not None else self.load_metadata(chrom)
         paths = self.resolve_r2_paths(chrom)
         effective_bias = self.spec.r2_bias_mode if r2_bias_mode is None else r2_bias_mode

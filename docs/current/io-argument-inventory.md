@@ -63,8 +63,8 @@ Removed flags: `--bed-files`, `--baseline-annot`.
 | `--query-annot-bed-sources` | input | no | query BED interval files | Supplies BED intervals to project as query annotations; defaults to omitted/`None`, so no BED query annotations are projected. Requires `--baseline-annot-sources`. |
 | `--plink-prefix` | input | conditional | PLINK reference panel prefix | Selects PLINK reference-panel input; defaults to omitted/`None` and is required when `--r2-dir` is omitted. Supports exact prefix, PLINK-prefix glob, or `@` suite. |
 | `--r2-dir` | input | conditional | package-built parquet R2 directory | Selects parquet reference-panel input; defaults to omitted/`None` and is required when `--plink-prefix` is omitted. Use a build-specific directory such as `ref_panel/hg38`. |
-| `--r2-bias-mode` | input metadata | optional | parquet R2 bias declaration | Declares whether parquet R2 values are raw or unbiased; defaults to `unbiased`. Choose `raw` only for raw sample R2 values. |
-| `--r2-sample-size` | input metadata | conditional | parquet R2 sample size | Provides the sample size for correcting raw R2; defaults to omitted/`None` and is required only when `--r2-bias-mode raw`. |
+| `--r2-bias-mode` | input metadata | optional | parquet R2 bias declaration | Declares whether parquet R2 values are raw or unbiased. Package-built panels auto-load this from `ldsc:r2_bias`; legacy files without metadata still default to `unbiased`. Choose `raw` only for external raw sample R2 values. |
+| `--r2-sample-size` | input metadata | conditional | parquet R2 sample size | Provides the sample size for correcting raw R2. Package-built raw panels can auto-load this from `ldsc:n_samples`; legacy raw files still require an explicit value with `--r2-bias-mode raw`. |
 | `--ref-panel-snps-file` | input | no | reference-panel SNP universe restriction | Restricts the retained reference-panel SNP universe; defaults to omitted/`None`, so no additional restriction is applied. |
 | `--regression-snps-file` | input | no | persisted LD-score row-set restriction | Restricts the written LD-score row set; defaults to omitted/`None`, so rows are not restricted by a persisted regression SNP set. |
 | `--keep-indivs-file` | input | no | PLINK individual keep file | Restricts PLINK individuals before LD calculation; defaults to omitted/`None`, so no individual keep filter is applied. PLINK mode only. |
@@ -119,6 +119,12 @@ Fixed output names:
 <output_dir>/hg38/chr{chrom}_r2.parquet
 <output_dir>/hg38/chr{chrom}_meta.tsv.gz
 ```
+
+Each `chr{chrom}_r2.parquet` stores Arrow schema metadata for
+`ldsc:sorted_by_build`, `ldsc:row_group_size`, `ldsc:n_samples`, and
+`ldsc:r2_bias`. Current package-built panels write unbiased R2 values and record
+the PLINK sample count, so downstream LD-score runs can omit `--r2-bias-mode`
+and `--r2-sample-size` for panels produced by this codebase.
 
 When no usable source-to-target liftover chain is provided, the builder logs
 an INFO message and emits source-build-only outputs. When a matching liftover

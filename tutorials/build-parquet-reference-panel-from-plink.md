@@ -15,6 +15,11 @@ The `build-ref-panel` workflow converts PLINK genotypes into build-specific R2 r
 
 The R2 output is a long pairwise table, not a dense square matrix on disk. That is usually the practical format for large reference panels.
 
+Each package-built R2 parquet records the LD reference sample size and R2 bias
+state in Arrow schema metadata. Downstream `ldsc ldscore` runs can therefore
+read `ldsc:n_samples` and `ldsc:r2_bias` directly and do not need
+`--r2-bias-mode` or `--r2-sample-size` for panels built by this workflow.
+
 By default, the builder keeps all SNPs in the PLINK panel after:
 
 - optional user-requested filters
@@ -332,6 +337,8 @@ The parquet schema metadata includes:
 
 - `ldsc:sorted_by_build`: the emitted genome build used for `POS_1` and `POS_2`
 - `ldsc:row_group_size`: the intended row-group size, defaulting to `50000`
+- `ldsc:n_samples`: the number of PLINK samples used to compute LD
+- `ldsc:r2_bias`: currently `unbiased` for package-built panels
 
 Example rows from the same chr22 build:
 
@@ -345,6 +352,7 @@ Interpretation notes:
 
 - `R2` is the unbiased estimator used by LDSC-style workflows
 - because it is unbiased, very weak LD can produce slightly negative values near zero
+- downstream readers auto-load the bias state and sample size from schema metadata
 - `POS_1` and `POS_2` are in the emitted build recorded in `ldsc:sorted_by_build`
 - rows are sorted by non-decreasing `POS_1`; `POS_2` ordering within equal `POS_1` is not required
 - legacy columns such as `hg19_pos_1`, `hg38_pos_1`, `Dprime`, and `+/-corr` are intentionally not written
@@ -420,7 +428,6 @@ Example:
 ldsc ldscore \
   --output-dir tutorial_outputs/ldscores_from_parquet_panel \
   --r2-dir "tutorial_outputs/ref_panel/hg38" \
-  --r2-bias-mode unbiased \
   --snp-identifier rsid \
   --common-maf-min 0.05 \
   --ld-wind-cm 1.0

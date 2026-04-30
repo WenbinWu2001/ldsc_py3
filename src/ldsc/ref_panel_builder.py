@@ -883,6 +883,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--snp-identifier", default=None, choices=("rsid", "chr_pos"), help="SNP identifier mode for --ref-panel-snps-file.")
     parser.add_argument("--keep-indivs-file", default=None, help="Optional individual-keep file.")
     parser.add_argument("--chunk-size", default=128, type=int, help="Chunk size for block processing.")
+    parser.add_argument(
+        "--duplicate-position-policy",
+        default="error",
+        choices=("error", "drop-all"),
+        help=(
+            "How to handle SNPs that share a CHR:POS key in any emitted build. "
+            "'error' aborts and reports all duplicate clusters (default). "
+            "'drop-all' drops every SNP in each colliding cluster and writes a "
+            "provenance sidecar to {output_dir}/chr{chrom}_dropped.tsv.gz."
+        ),
+    )
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"))
     return parser
 
@@ -924,6 +935,7 @@ def config_from_args(args: argparse.Namespace) -> tuple[ReferencePanelBuildConfi
         ref_panel_snps_file=args.ref_panel_snps_file,
         keep_indivs_file=args.keep_indivs_file,
         chunk_size=args.chunk_size,
+        duplicate_position_policy=args.duplicate_position_policy,
     )
     global_config = GlobalConfig(
         snp_identifier=snp_identifier,

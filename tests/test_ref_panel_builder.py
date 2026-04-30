@@ -668,6 +668,31 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
         parser = ref_panel_builder.build_parser()
         self.assertEqual(parser.get_default("chunk_size"), 128)
 
+    def test_build_parser_defaults_duplicate_position_policy_to_error(self):
+        parser = ref_panel_builder.build_parser()
+        self.assertEqual(parser.get_default("duplicate_position_policy"), "error")
+
+    def test_build_parser_accepts_drop_all_policy(self):
+        parser = ref_panel_builder.build_parser()
+        args = parser.parse_args([
+            "--plink-prefix", "plink/panel.@",
+            "--output-dir", "out",
+            "--ld-wind-kb", "1",
+            "--duplicate-position-policy", "drop-all",
+        ])
+        self.assertEqual(args.duplicate_position_policy, "drop-all")
+
+    def test_config_from_args_passes_policy_to_config(self):
+        parser = ref_panel_builder.build_parser()
+        args = parser.parse_args([
+            "--plink-prefix", "plink/panel.@",
+            "--output-dir", "out",
+            "--ld-wind-kb", "1",
+            "--duplicate-position-policy", "drop-all",
+        ])
+        build_config, _ = ref_panel_builder.config_from_args(args)
+        self.assertEqual(build_config.duplicate_position_policy, "drop-all")
+
     def test_build_parser_does_not_accept_genome_build(self):
         parser = ref_panel_builder.build_parser()
         with self.assertRaises(SystemExit):

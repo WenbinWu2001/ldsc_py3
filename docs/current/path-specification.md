@@ -251,16 +251,22 @@ Accepted path forms:
 - `plink_prefix`: exact PLINK prefix, exact-one PLINK glob, or explicit `@` PLINK suite token
 - map and chain inputs, when provided: exact path or exact-one glob
 - `ref_panel_snps_file`, when provided: scalar file-like token interpreted
-  using the explicit `snp_identifier` mode
+  using explicit CLI identifier/build flags or the registered `GlobalConfig`
 
 How they are handled:
 
 - `plink_prefix` is resolved at the PLINK prefix level, not at the individual `.bed/.bim/.fam` file level
 - a chromosome suite such as `panel_chr@` is expanded one chromosome at a time
-- liftover chains are optional; the matching source-to-target chain enables cross-build metadata, while no matching chain produces source-build-only outputs
-- genetic maps are required only for source-build `--ld-wind-cm`; SNP- and kb-window builds may omit maps and write emitted metadata `CM` as `NA`
-- `snp_identifier` is required only when `ref_panel_snps_file` /
-  `--ref-panel-snps-file` is supplied; no identifier flag is needed otherwise
+- liftover chains are optional; the matching source-to-target chain enables
+  cross-build R2 and metadata outputs, while no matching chain produces
+  source-build-only outputs
+- genetic maps are required for every emitted build when `--ld-wind-cm` is set;
+  SNP- and kb-window builds may omit maps and write emitted metadata `CM` as
+  `NA`
+- `snp_identifier` for SNP restrictions comes from the explicit argument or
+  registered `GlobalConfig`; in `chr_pos` mode, `genome_build` selects the
+  restriction-file coordinate build, falling back to the source build when
+  omitted or `auto`
 
 Example:
 
@@ -279,11 +285,11 @@ Output:
 
 - `--output-dir` is created when missing and reused when present.
 - Before chromosome processing starts, the builder checks the deterministic
-  candidate paths under `parquet/ann`, `parquet/ld`, and `parquet/meta`.
+  candidate paths under `{build}/r2` and `{build}/meta`.
 - Existing candidate parquet or metadata files are refused unless
   `--overwrite` or `ReferencePanelBuildConfig(overwrite=True)` is supplied.
-- The check covers source-build metadata sidecars and covers target-build
-  sidecars only when the matching liftover chain is configured.
+- The check covers source-build artifacts and covers target-build artifacts
+  only when the matching liftover chain is configured.
 
 ### Sumstats munging and regression
 

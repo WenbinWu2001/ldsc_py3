@@ -1,6 +1,6 @@
-# Build a Standard LD Parquet Reference Panel from PLINK
+# Build a Standard R2 Parquet Reference Panel from PLINK
 
-Goal: start from a PLINK reference panel (`.bed/.bim/.fam`) and build a standard per-chromosome parquet representation of pairwise LD, plus sidecar metadata that can be used in downstream LDSC workflows.
+Goal: start from a PLINK reference panel (`.bed/.bim/.fam`) and build a standard per-chromosome parquet representation of pairwise R2, plus sidecar metadata that can be used in downstream LDSC workflows.
 
 This tutorial is written for first-time users. The examples use the chr22 1000 Genomes 30x example files bundled in this repository, but the same workflow applies to your own PLINK reference panel.
 
@@ -8,20 +8,19 @@ All example paths below are relative to the workspace root that contains both `r
 
 ## What This Builder Produces
 
-The `build-ref-panel` workflow converts PLINK genotypes into three kinds of files for each chromosome:
+The `build-ref-panel` workflow converts PLINK genotypes into build-specific R2 reference-panel files for each chromosome:
 
-- one SNP annotation parquet (`ann`): one row per retained SNP
-- one LD parquet (`ld`): one row per unordered SNP pair within the chosen LD window
-- one or two runtime metadata sidecars (`meta_hg19` and/or `meta_hg38`): one row per retained SNP, used by LDSC-style downstream tools
+- one R2 parquet per emitted build (`hg19/r2` and/or `hg38/r2`): one row per unordered SNP pair within the chosen LD window
+- one runtime metadata sidecar per emitted build (`hg19/meta` and/or `hg38/meta`): one row per retained SNP, used by LDSC-style downstream tools
 
-The LD output is a long pairwise table, not a dense square matrix on disk. That is usually the practical format for large reference panels.
+The R2 output is a long pairwise table, not a dense square matrix on disk. That is usually the practical format for large reference panels.
 
 By default, the builder keeps all SNPs in the PLINK panel after:
 
 - optional user-requested filters
 - automatic liftover sanity filtering, when a usable source-to-target chain is provided
 
-When a matching chain is provided, SNPs are dropped if they fail hg19/hg38 liftover or liftover onto a different chromosome in the target build. When no usable matching chain is provided, the builder warns, skips liftover, and writes source-build-only metadata.
+When a matching chain is provided, SNPs are dropped if they fail hg19/hg38 liftover or liftover onto a different chromosome in the target build, then both build-specific R2 and metadata outputs are written. When no usable matching chain is provided, the builder logs that it is skipping liftover and writes source-build-only outputs.
 
 ## Input Files
 
@@ -81,7 +80,7 @@ In other words, the old split between `--plink-prefix` and a dedicated per-chrom
 Genetic maps are optional unless the LD window is defined in centiMorgans.
 They serve two separate purposes:
 
-- the source-build map is required for `--ld-wind-cm`, because the map defines the LD window
+- every emitted build requires its matching map for `--ld-wind-cm`, because each build-specific R2 file is windowed and sorted in that build's coordinates
 - any provided map populates `CM` in the matching metadata sidecar
 - omitted maps are allowed for `--ld-wind-snps` and `--ld-wind-kb`; emitted metadata sidecars store `CM=NA` for builds without a map
 
@@ -111,23 +110,29 @@ The bundled Alkes-group maps in `resources/genetic_maps/genetic_map_alkesgroup/`
 
 - `--genetic-map-hg19-sources`
   Plain-English meaning: genetic map aligned to hg19 coordinates.
-  Recommended usage: provide it when you use `--ld-wind-cm` with hg19 source coordinates, or when you want hg19 metadata `CM` values. For SNP- or kb-window builds, omitting it writes hg19 `CM` as `NA` when hg19 metadata is emitted.
+  Recommended usage: provide it when hg19 output is emitted and you use
+  `--ld-wind-cm`, or when you want hg19 metadata `CM` values. For SNP- or
+  kb-window builds, omitting it writes hg19 `CM` as `NA` when hg19 metadata is
+  emitted.
 
 - `--genetic-map-hg38-sources`
   Plain-English meaning: genetic map aligned to hg38 coordinates.
-  Recommended usage: provide it when you use `--ld-wind-cm` with hg38 source coordinates, or when you want hg38 metadata `CM` values. For SNP- or kb-window builds, omitting it writes hg38 `CM` as `NA` when hg38 metadata is emitted.
+  Recommended usage: provide it when hg38 output is emitted and you use
+  `--ld-wind-cm`, or when you want hg38 metadata `CM` values. For SNP- or
+  kb-window builds, omitting it writes hg38 `CM` as `NA` when hg38 metadata is
+  emitted.
 
 - `--liftover-chain-hg19-to-hg38-file` or `--liftover-chain-hg38-to-hg19-file`
   Plain-English meaning: explicit chain file used to translate positions into the other genome build.
-  Recommended usage: pass the chain that matches `--source-genome-build` when you need both hg19 and hg38 outputs. If you omit it, the build completes with source-build-only outputs and logs a warning.
+  Recommended usage: pass the chain that matches `--source-genome-build` when you need both hg19 and hg38 outputs. If you omit it, the build completes with source-build-only outputs and logs an informational message.
 
 - `--output-dir`
   Plain-English meaning: output root directory.
   Recommended usage: point this to a dedicated directory for the new reference
   panel build. The run identity is the directory name; output filenames are
-  fixed under `parquet/`. Missing directories are created and existing
-  directories are reused, but existing candidate parquet or metadata files are
-  refused before chromosome processing starts.
+  fixed under `{build}/r2/` and `{build}/meta/`. Missing directories are created
+  and existing directories are reused, but existing candidate parquet or
+  metadata files are refused before chromosome processing starts.
 
 - `--overwrite`
   Plain-English meaning: allow replacement of the fixed parquet and metadata
@@ -166,9 +171,10 @@ Exactly one of the following must be set:
   Recommended usage: use this when you want to build a panel only on HM3 SNPs,
   a curated common-SNP list, or another pre-defined reference universe.
 
-  When this path is supplied, also pass `--snp-identifier`. No SNP identifier
-  flag is needed when you are not supplying a reference-panel SNP restriction
-  file.
+  When this path is supplied, the restriction key comes from explicit
+  `--snp-identifier` or the registered `GlobalConfig.snp_identifier`. No SNP
+  identifier setting is needed when you are not supplying a reference-panel SNP
+  restriction file.
 
 - `--snp-identifier`
   Plain-English meaning: how to interpret the SNP restriction file supplied by
@@ -177,9 +183,16 @@ Exactly one of the following must be set:
   Accepted values: `rsid`, `chr_pos`.
   Recommended usage: use `rsid` for one-column rsID/dbSNP-style lists, and use
   `chr_pos` for one-column `CHR:POS` lists or tables with `CHR` and `POS`
-  columns. In `chr_pos` mode, the builder interprets coordinates in the
-  explicit `--source-genome-build`; source-build inference is not part of this
-  workflow.
+  columns.
+
+- `--genome-build`
+  Plain-English meaning: genome build of `--ref-panel-snps-file` when
+  `--snp-identifier chr_pos` is used.
+  Optional: yes.
+  Accepted values: `auto`, `hg19`, `hg37`, `GRCh37`, `hg38`, `GRCh38`.
+  Recommended usage: set this when a `chr_pos` restriction file is not in the
+  source build. If omitted or `auto`, the builder assumes the source build and
+  logs that assumption.
 
 - `--keep-indivs-file`
   Plain-English meaning: restrict the individuals used to compute LD.
@@ -231,11 +244,10 @@ What this command is doing:
 - uses a 1 cM LD window
 - uses the explicit hg38->hg19 liftover chain to populate the hg19 coordinates
 - interpolates cM values from the provided hg19 and hg38 genetic maps
-- writes a standard parquet panel rooted at `tutorial_outputs/ref_panel_chr22`
+- writes a build-separated R2 parquet panel rooted at `tutorial_outputs/ref_panel_chr22`
 
-This example uses `--ld-wind-cm`, so the source-build hg38 map is required. The
-hg19 map is optional for the build itself, but providing it gives the emitted
-`meta_hg19` sidecar real cM values instead of `NA`.
+This example uses `--ld-wind-cm` and emits both hg38 and hg19 because a matching
+liftover chain is provided, so both genetic maps are required.
 
 ## Canonical Run: Python API
 
@@ -260,24 +272,28 @@ config = ReferencePanelBuildConfig(
 result = ReferencePanelBuilder(global_config=GLOBAL_CONFIG).run(config)
 
 print(result.chromosomes)
-print(result.output_paths["ann"][0])
-print(result.output_paths["ld"][0])
+print(result.output_paths["r2_hg38"][0])
+print(result.output_paths["r2_hg19"][0])
 print(result.output_paths["meta_hg38"][0])
 ```
 
 When you use the lower-level `ReferencePanelBuilder` API with
 `ReferencePanelBuildConfig(ref_panel_snps_file=...)`, put the restriction-file
-identifier mode on the injected `GlobalConfig`:
+identifier mode on the injected `GlobalConfig`. In `chr_pos` mode, also set
+`genome_build` when the restriction file is not in the source build:
 
 ```python
 GLOBAL_CONFIG = GlobalConfig(
     snp_identifier="rsid",
+    genome_build="hg38",
     log_level="INFO",
 )
 ```
 
 The convenience wrapper shown later mirrors the CLI and accepts
-`snp_identifier="rsid"` directly when `ref_panel_snps_file` is supplied.
+`snp_identifier="rsid"` and `genome_build="hg38"` directly when
+`ref_panel_snps_file` is supplied. If `genome_build` is omitted, the builder
+assumes the restriction file uses the source build and logs that assumption.
 
 ## Output Format
 
@@ -287,56 +303,26 @@ For the chr22 example above, the output tree looks like:
 
 ```text
 tutorial_outputs/ref_panel_chr22/
-└── parquet/
-    ├── ann/
-    │   └── chr22_ann.parquet
-    ├── ld/
-    │   └── chr22_LD.parquet
+├── hg19/
+│   ├── r2/
+│   │   └── chr22_r2.parquet
+│   └── meta/
+│       └── chr22_meta.tsv.gz
+└── hg38/
+    ├── r2/
+    │   └── chr22_r2.parquet
     └── meta/
-        ├── chr22_meta_hg19.tsv.gz
-        └── chr22_meta_hg38.tsv.gz
+        └── chr22_meta.tsv.gz
 ```
 
-If you omit the matching liftover chain, only the source-build metadata sidecar
-is written. The annotation parquet still has the standard hg19/hg38 columns,
-but the opposite-build coordinate and unique-ID columns are missing. If you use
-`--ld-wind-snps` or `--ld-wind-kb`, you may omit genetic maps entirely; emitted
-metadata sidecars will keep their rows and write missing `CM` values.
+If you omit the matching liftover chain, only the source-build `r2/` and `meta/`
+directories are written. If you use `--ld-wind-snps` or `--ld-wind-kb`, you may
+omit genetic maps entirely; emitted metadata sidecars will keep their rows and
+write missing `CM` values.
 
 For a genome-wide build, the same pattern repeats once per chromosome.
 
-### `ann`: SNP annotation parquet
-
-This file has one row per retained SNP.
-
-Columns:
-
-- `chr`
-- `hg19_pos`
-- `hg38_pos`
-- `hg19_Uniq_ID`
-- `hg38_Uniq_ID`
-- `rsID`
-- `MAF`
-- `REF`
-- `ALT`
-
-Example rows from a real chr22 build:
-
-```text
-chr	hg19_pos	hg38_pos	hg19_Uniq_ID	hg38_Uniq_ID	rsID	MAF	REF	ALT
-22	17383676	10684250	22:17383676:G:C	22:10684250:G:C	22:10684250:C:G	0.0065584009993754355	G	C
-22	17383725	10684299	22:17383725:A:C	22:10684299:A:C	22:10684302:C:A	0.0026545908806995255	A	C
-22	17385403	10685981	22:17385403:A:G	22:10685981:A:G	22:10685981:G:A	0.002966895690193594	A	G
-```
-
-Interpretation notes:
-
-- `rsID` is copied directly from the PLINK BIM `SNP` field
-- `REF` and `ALT` are currently copied from the PLINK BIM allele columns used by this pipeline
-- the `hg19_*` and `hg38_*` columns let you work in either coordinate system downstream
-
-### `ld`: pairwise LD parquet
+### `r2`: pairwise R2 parquet
 
 This file has one row per unordered SNP pair that falls inside the chosen LD window.
 It is written in the canonical row-group-prunable format used by the parquet R2
@@ -360,7 +346,7 @@ The physical schema is:
 
 The parquet schema metadata includes:
 
-- `ldsc:sorted_by_build`: the `--source-genome-build` used for `POS_1` and `POS_2`
+- `ldsc:sorted_by_build`: the emitted genome build used for `POS_1` and `POS_2`
 - `ldsc:row_group_size`: the intended row-group size, defaulting to `50000`
 
 Example rows from the same chr22 build:
@@ -375,11 +361,11 @@ Interpretation notes:
 
 - `R2` is the unbiased estimator used by LDSC-style workflows
 - because it is unbiased, very weak LD can produce slightly negative values near zero
-- `POS_1` and `POS_2` are in the source genome build recorded in `ldsc:sorted_by_build`
+- `POS_1` and `POS_2` are in the emitted build recorded in `ldsc:sorted_by_build`
 - rows are sorted by non-decreasing `POS_1`; `POS_2` ordering within equal `POS_1` is not required
 - legacy columns such as `hg19_pos_1`, `hg38_pos_1`, `Dprime`, and `+/-corr` are intentionally not written
 
-### `meta_hg19` and `meta_hg38`: LDSC runtime sidecars
+### `meta`: LDSC runtime sidecars
 
 These are gzip-compressed tab-separated files with one row per retained SNP.
 Only emitted builds have sidecars; source-build-only runs write just the source
@@ -393,7 +379,7 @@ Schema:
 - `CM`
 - `MAF`
 
-Example `meta_hg19` rows:
+Example `hg19/meta/chr22_meta.tsv.gz` rows:
 
 ```text
 CHR	POS	SNP	CM	MAF
@@ -402,7 +388,7 @@ CHR	POS	SNP	CM	MAF
 22	17385403	22:10685981:G:A	2.99174	0.0029669
 ```
 
-Example `meta_hg38` rows:
+Example `hg38/meta/chr22_meta.tsv.gz` rows:
 
 ```text
 CHR	POS	SNP	CM	MAF
@@ -411,47 +397,45 @@ CHR	POS	SNP	CM	MAF
 22	10685981	22:10685981:G:A	0	0.0029669
 ```
 
-Use the sidecar that matches the coordinate system you want downstream.
-For parquet-backed LD-score calculation, this sidecar is the authoritative raw
-reference-panel SNP universe. SNPs present in the sidecar but with no off-diagonal
-LD pairs remain valid reference SNPs and receive the diagonal LD contribution during
-matrix construction.
+Use the R2 parquet and sidecar from the coordinate system you want downstream.
+For parquet-backed LD-score calculation, the sidecar is the authoritative raw
+reference-panel SNP universe. SNPs present in the sidecar but with no
+off-diagonal R2 pairs remain valid reference SNPs and receive the diagonal
+contribution during matrix construction.
 
 ## Downstream Use
 
 ### Load the outputs in Python
 
-For small files, `pandas.read_parquet(...)` is enough. For large LD files, `pyarrow.parquet.ParquetFile(...)` is often a better first step because it lets you read row groups incrementally.
+For small files, `pandas.read_parquet(...)` is enough. For large R2 files, `pyarrow.parquet.ParquetFile(...)` is often a better first step because it lets you read row groups incrementally.
 
 ```python
 import pandas as pd
 import pyarrow.parquet as pq
 
-ann = pd.read_parquet("tutorial_outputs/ref_panel_chr22/parquet/ann/chr22_ann.parquet")
 meta_hg38 = pd.read_csv(
-    "tutorial_outputs/ref_panel_chr22/parquet/meta/chr22_meta_hg38.tsv.gz",
+    "tutorial_outputs/ref_panel_chr22/hg38/meta/chr22_meta.tsv.gz",
     sep="\t",
 )
 
-ld_file = pq.ParquetFile("tutorial_outputs/ref_panel_chr22/parquet/ld/chr22_LD.parquet")
-first_row_group = ld_file.read_row_group(0).to_pandas()
+r2_file = pq.ParquetFile("tutorial_outputs/ref_panel_chr22/hg38/r2/chr22_r2.parquet")
+first_row_group = r2_file.read_row_group(0).to_pandas()
 
-print(ann.head())
 print(meta_hg38.head())
 print(first_row_group.head())
 ```
 
 ### Use the panel in LDSC-style downstream analysis
 
-After you have built a genome-wide parquet panel, you can feed the LD parquet and matching metadata sidecar into `ldsc ldscore`.
+After you have built a genome-wide parquet panel, you can feed the R2 parquet and matching metadata sidecar into `ldsc ldscore`.
 
 Example:
 
 ```bash
 ldsc ldscore \
   --output-dir tutorial_outputs/ldscores_from_parquet_panel \
-  --r2-sources "tutorial_outputs/ref_panel/parquet/ld/chr@_LD.parquet" \
-  --metadata-sources "tutorial_outputs/ref_panel/parquet/meta/chr@_meta_hg38.tsv.gz" \
+  --r2-sources "tutorial_outputs/ref_panel/hg38/r2/chr@_r2.parquet" \
+  --metadata-sources "tutorial_outputs/ref_panel/hg38/meta/chr@_meta.tsv.gz" \
   --r2-bias-mode unbiased \
   --snp-identifier rsid \
   --common-maf-min 0.05 \
@@ -462,9 +446,10 @@ This ordinary unpartitioned example omits baseline and query annotations, so
 `ldsc ldscore` writes a synthetic all-ones `base` baseline column. Add explicit
 baseline annotations when computing partitioned or query LD scores.
 
-Use `meta_hg19` instead of `meta_hg38` when your downstream coordinate system
-is hg19/GRCh37. In source-build-only runs, choose the single emitted metadata
-sidecar and keep downstream coordinate settings aligned with that build.
+Use the `hg19/` files instead of the `hg38/` files when your downstream
+coordinate system is hg19/GRCh37. In source-build-only runs, choose the single
+emitted build directory and keep downstream coordinate settings aligned with
+that build.
 
 ### Other downstream tasks
 
@@ -474,7 +459,7 @@ These files are also useful outside of LDSC proper. Common examples include:
 - building custom SNP neighborhoods inside a physical or genetic window
 - comparing hg19 and hg38 coordinates for the same reference panel
 - computing custom summaries on retained SNPs, allele labels, or MAF
-- feeding pairwise LD edges into custom fine-mapping or graph-style workflows
+- feeding pairwise R2 edges into custom fine-mapping or graph-style workflows
 
 ## Appendix: Other Supported Options
 
@@ -494,10 +479,9 @@ ldsc build-ref-panel \
 ```
 
 If `--output-dir` does not exist yet, the workflow warns once and creates it automatically.
-If candidate files such as `parquet/ann/chr22_ann.parquet`,
-`parquet/ld/chr22_LD.parquet`, or configured `parquet/meta/chr22_meta_*.tsv.gz`
-already exist, the build fails before processing chromosomes unless
-`--overwrite` is supplied.
+If candidate files such as `hg38/r2/chr22_r2.parquet` or
+`hg38/meta/chr22_meta.tsv.gz` already exist, the build fails before processing
+chromosomes unless `--overwrite` is supplied.
 
 ### Restrict to a predefined SNP universe
 
@@ -506,9 +490,11 @@ example HapMap3 or another curated reference-panel universe.
 
 Accepted forms include:
 
-- plain one-column SNP lists with `--snp-identifier rsid`
-- one-column `chr:pos` lists with `--snp-identifier chr_pos`
-- tables with `CHR` and `POS` columns with `--snp-identifier chr_pos`
+- tables with an `SNP`/`rsID`-style column in `rsid` mode
+- tables with `CHR` and `POS` columns in `chr_pos` mode
+- tables with build-specific columns such as `hg19_POS` and `hg38_POS`; in
+  `chr_pos` mode, the builder reads the column matching `--genome-build` or the
+  registered `GlobalConfig.genome_build`
 
 Example:
 
@@ -521,6 +507,11 @@ ldsc build-ref-panel \
   --ld-wind-kb 1000 \
   --output-dir tutorial_outputs/ref_panel_hm3
 ```
+
+For `chr_pos` restriction files, add `--genome-build hg19` or
+`--genome-build hg38` when the restriction file is not in the source build. If
+you omit it, the builder assumes the restriction file uses
+`--source-genome-build` and logs that assumption.
 
 ### Restrict the sample set
 
@@ -564,21 +555,23 @@ result = run_build_ref_panel(
 )
 ```
 
-If you add `ref_panel_snps_file=...` to this wrapper call, also add
-`snp_identifier="rsid"` or `snp_identifier="chr_pos"`. The wrapper raises
-`ValueError` rather than guessing the restriction-file identifier mode.
+If you add `ref_panel_snps_file=...` to this wrapper call, set
+`snp_identifier="rsid"` or `snp_identifier="chr_pos"` either on the call or on
+the registered `GlobalConfig`. In `chr_pos` mode, set `genome_build` when the
+restriction file is not in the source build.
 
 ### A note on coordinate systems
 
-The builder keeps both hg19 and hg38 columns in the annotation parquet. When a
-matching liftover chain is provided, it emits one runtime metadata sidecar per
-build; otherwise it emits only the source-build sidecar. The LD parquet itself
-stores only the source build positions in `POS_1`/`POS_2`, with that build
-recorded in `ldsc:sorted_by_build`. That makes the panel easier to reuse across
-projects, but it
-also means you should stay intentional about which build you use downstream:
+The builder keeps an in-memory reference SNP table while constructing the R2
+rows, but it does not persist an annotation parquet. When a matching liftover
+chain is provided, it emits one R2 parquet and one metadata sidecar per build;
+otherwise it emits only the source build. Each R2 parquet stores positions from
+its own build in `POS_1`/`POS_2`, with that build recorded in
+`ldsc:sorted_by_build`. That makes the panel easier to reuse across projects,
+but it also means you should stay intentional about which build you use
+downstream:
 
-- use the metadata sidecar that matches your downstream coordinate system
+- use the R2 parquet and metadata sidecar from the same build directory
 - if you match SNPs by chromosome-position instead of by `rsID`, make sure the build is consistent all the way through
 - if you later load this panel through `RefPanelLoader`, keep the downstream
   `GlobalConfig.genome_build` aligned with the chosen sidecar build so LD-score

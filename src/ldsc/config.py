@@ -378,15 +378,14 @@ class ReferencePanelBuildConfig:
         Genome build of the input PLINK coordinates.
     genetic_map_hg19_sources, genetic_map_hg38_sources : str or os.PathLike[str] or None, optional
         Genetic-map paths used to populate cM values for each emitted sidecar.
-        The source-build map is required only for ``ld_wind_cm``. When maps are
-        omitted for SNP- or kb-window builds, emitted sidecars store missing CM
-        values.
+        Maps are required for every emitted build when ``ld_wind_cm`` is set.
+        When maps are omitted for SNP- or kb-window builds, emitted sidecars
+        store missing CM values.
     output_dir : str or os.PathLike[str]
         Output directory for the reference panel. The panel identity is
-        ``Path(output_dir).name``; artifact filenames inside ``parquet/`` are
-        fixed as ``chr{chrom}_ann.parquet``, ``chr{chrom}_LD.parquet``, and
-        emitted ``chr{chrom}_meta_hg19.tsv.gz`` /
-        ``chr{chrom}_meta_hg38.tsv.gz`` sidecars.
+        ``Path(output_dir).name``; emitted artifacts are fixed as
+        ``{build}/r2/chr{chrom}_r2.parquet`` and
+        ``{build}/meta/chr{chrom}_meta.tsv.gz``.
     liftover_chain_hg19_to_hg38_file, liftover_chain_hg38_to_hg19_file : str or os.PathLike[str] or None, optional
         Chain files used to populate the opposite-build coordinates. If the
         chain matching ``source_genome_build`` is omitted, the builder emits a
@@ -400,10 +399,10 @@ class ReferencePanelBuildConfig:
         Default is ``None``. The identifier mode for this file is deliberately
         not a field on this dataclass: lower-level callers provide it through
         ``ReferencePanelBuilder(GlobalConfig(...))``, while the CLI and
-        ``run_build_ref_panel(...)`` convenience wrapper accept a conditional
-        ``snp_identifier`` argument only when this path is supplied.
+        ``run_build_ref_panel(...)`` convenience wrapper accept
+        ``snp_identifier`` and ``genome_build`` overrides.
     keep_indivs_file : str or os.PathLike[str] or None, optional
-        Optional individual keep-file applied before LD calculation. Default is
+        Optional individual keep-file applied before R2 calculation. Default is
         ``None``.
     chunk_size : int, optional
         Block size used while computing pairwise LD. Default is ``128``.

@@ -17,7 +17,7 @@ This document summarizes the user-visible file streams for each public workflow.
 ```mermaid
 flowchart LR
   IN1[BED intervals]
-  IN2[PLINK or parquet LD reference]
+  IN2[PLINK or parquet R2 reference]
   IN3[Raw GWAS sumstats]
 
   subgraph CLI[CLI Layer (public)<br/>ldsc.cli]
@@ -107,10 +107,10 @@ flowchart LR
 - Kernel: `ldsc._kernel.annotation`
 - Postprocessing: gzip writer inside the annotation kernel
 
-## 2. `build-ref-panel`: PLINK To Standard Parquet LD Reference
+## 2. `build-ref-panel`: PLINK To Standard Parquet R2 Reference
 
 Before chromosome processing starts, the builder precomputes candidate paths
-under `parquet/ann`, `parquet/ld`, and `parquet/meta`. Existing candidates are
+under `{build}/r2` and `{build}/meta`. Existing candidates are
 refused unless `--overwrite` or `ReferencePanelBuildConfig(overwrite=True)` is
 supplied; unrelated files in the output directory are left untouched.
 
@@ -121,9 +121,9 @@ supplied; unrelated files in the output directory are left untouched.
 | PLINK prefix | `reference/genomes_30x_chr22` | resolves to `.bed`, `.bim`, `.fam` |
 | `.bim` row | `22 rs123 0.0 16050075 A G` | variant metadata |
 | `.fam` row | `fam1 iid1 0 0 0 -9` | sample metadata |
-| genetic map, conditional | `chr position Genetic_Map(cM)`<br/>`22 16050000 0.42` | source-build map required only for cM windows; missing emitted-build maps produce `CM=NA` |
-| liftover chain, optional | `hg38ToHg19.over.chain.gz` | matching source-to-target chain enables cross-build metadata; omitted chain produces source-build-only output |
-| keep or restrict file, optional | one IID per row or one SNP per row | filters individuals or variants; SNP restriction files require explicit `snp_identifier` at the CLI/convenience API boundary |
+| genetic map, conditional | `chr position Genetic_Map(cM)`<br/>`22 16050000 0.42` | required for every emitted build when cM windows are used; optional for SNP/kb windows |
+| liftover chain, optional | `hg38ToHg19.over.chain.gz` | matching source-to-target chain enables cross-build R2 and metadata; omitted chain produces source-build-only output |
+| keep or restrict file, optional | one IID per row or a headered SNP table | filters individuals or variants; SNP restriction matching uses explicit CLI identifier/build flags or registered `GlobalConfig` |
 
 ### Flow
 
@@ -136,7 +136,7 @@ flowchart LR
   subgraph P2[Preprocessing (public)<br/>config + path_resolution]
     B1[Resolve PLINK prefixes]
     B2[Resolve map and filter files]
-    B8[Interpret SNP restrictions using source build]
+    B8[Interpret SNP restrictions using effective restriction build]
   end
 
   subgraph W2[Workflow (public)<br/>ldsc.ref_panel_builder]
@@ -146,23 +146,22 @@ flowchart LR
 
   subgraph K2[Kernel (private)<br/>ldsc._kernel.ref_panel_builder]
     B5[Interpolate cM positions]
-    B6[Emit pairwise LD rows]
+    B6[Emit pairwise R2 rows]
     B7[Format standard schemas]
   end
 
   I1 --> B1 --> B3 --> B4 --> B5 --> B6 --> B7
   I2 --> B2 --> B4
   I3 --> B2 --> B8 --> B4
-  B7 --> O2[ann.parquet + LD.parquet + meta_*.tsv.gz]
+  B7 --> O2[{build}/r2/chr*_r2.parquet + {build}/meta/chr*_meta.tsv.gz]
 ```
 
 ### Outputs
 
 | File | Example | Notes |
 | --- | --- | --- |
-| annotation parquet | columns `chr`, `hg19_pos`, `hg38_pos`, `hg19_Uniq_ID`, `hg38_Uniq_ID`, `rsID`, `MAF`, `REF`, `ALT` | one row per retained SNP |
-| LD parquet | columns `CHR`, `POS_1`, `POS_2`, `SNP_1`, `SNP_2`, `R2` | one row per unordered SNP pair inside the LD window |
-| runtime metadata sidecar | `CHR POS SNP CM MAF`<br/>`22 16050075 rs123 0.42 0.18` | emitted once for hg19 and once for hg38 |
+| build-specific R2 parquet | `hg38/r2/chr22_r2.parquet` with columns `CHR`, `POS_1`, `POS_2`, `SNP_1`, `SNP_2`, `R2` | one row per unordered SNP pair inside the LD window; row groups are sorted by that build's `POS_1` |
+| build-specific runtime metadata sidecar | `hg38/meta/chr22_meta.tsv.gz` with `CHR POS SNP CM MAF` | authoritative SNP universe for the matching R2 parquet |
 
 ### Modules used
 
@@ -193,7 +192,7 @@ baseline annotations.
 | --- | --- | --- |
 | baseline annotation shard, optional | `CHR POS SNP CM base`<br/>`1 10583 rs58108140 0.0 1` | optional for unpartitioned runs; required when query annotations are supplied |
 | query annotation shard, optional | `CHR POS SNP CM enhancer_A`<br/>`1 10583 rs58108140 0.0 1` | optional extra annotation columns; valid only with explicit baseline annotations |
-| PLINK prefix or parquet LD panel | `panel_chr@` or `EUR_chr@_LD.parquet` | choose one backend |
+| PLINK prefix or parquet R2 panel | `panel_chr@` or `hg38/r2/chr@_r2.parquet` | choose one backend |
 | frequency / metadata sidecar, optional | `CHR POS SNP CM MAF` | used for MAF and runtime metadata |
 | regression SNP list, optional | `rs123` | restricts the weight-table SNP set |
 
@@ -202,7 +201,7 @@ baseline annotations.
 ```mermaid
 flowchart LR
   I1[Optional .annot(.gz) shards]
-  I2[PLINK or parquet LD reference]
+  I2[PLINK or parquet R2 reference]
   I3[Metadata / restriction files]
 
   subgraph P3[Preprocessing (public)<br/>config + path_resolution + column_inference]

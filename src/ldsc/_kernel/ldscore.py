@@ -868,7 +868,7 @@ def deduplicate_normalized_r2_pairs(df: pd.DataFrame) -> pd.DataFrame:
 def convert_r2_table_to_sorted_parquet(source_path: str, genome_build: str, output_path: str) -> str:
     """
     Convert a common tabular pairwise-R2 file into the normalized sorted parquet
-    format required by the runtime parquet LD-score path.
+    format required by the runtime parquet R2 path.
     """
     source_path = os.path.expanduser(os.path.expandvars(source_path))
     output_path = os.path.expanduser(os.path.expandvars(output_path))

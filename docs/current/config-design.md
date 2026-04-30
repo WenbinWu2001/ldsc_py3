@@ -222,7 +222,7 @@ ldsc.set_global_config(cfg)
 ref_panel = ldsc.RefPanelLoader(cfg).load(
     ldsc.RefPanelConfig(
         backend="parquet_r2",
-        ref_panel_dir="r2_ref_panel_1kg30x_1cM_hm3/hg38",
+        r2_dir="r2_ref_panel_1kg30x_1cM_hm3/hg38",
         r2_bias_mode="unbiased",
         ref_panel_snps_file="filters/reference_universe.txt",
     )
@@ -267,10 +267,10 @@ different configuration snapshot.
 ## Caveats and Known Limitations
 
 **Reference-panel runtime state does not carry its own full `GlobalConfig`.**
-`RefPanelConfig` owns backend and filtering options such as `ref_panel_dir`,
-`r2_sources`, `metadata_sources`, `maf_min`, and `ref_panel_snps_file`. The shared identifier
-and genome-build assumptions come from the `GlobalConfig` passed to
-`RefPanelLoader` and then captured by the LD-score workflow result snapshots.
+`RefPanelConfig` owns backend and filtering options such as `r2_dir`,
+`maf_min`, and `ref_panel_snps_file`. The shared identifier and genome-build
+assumptions come from the `GlobalConfig` passed to `RefPanelLoader` and then
+captured by the LD-score workflow result snapshots.
 
 **`AnnotationBundle` does not carry chromosome-level genome-build metadata.**
 Genome build for annotations is inferred from the reference metadata embedded in

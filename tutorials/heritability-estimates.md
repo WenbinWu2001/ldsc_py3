@@ -2,11 +2,12 @@
 
 Goal: estimate SNP heritability for one trait with the refactored package, starting from raw summary statistics and ordinary unpartitioned LD scores built from an R2-table reference panel.
 
-The examples below assume chromosome-pattern inputs such as `annotations/baseline.1.annot.gz`, `r2/reference.1.parquet`, and `r2/reference_metadata.1.tsv.gz`.
-For parquet-backed LD scores, `r2/reference.@.parquet` is the canonical pair table
-and `r2/reference_metadata.@.tsv.gz` is the required per-SNP sidecar. The sidecar
-defines the reference SNP universe and supplies `MAF`/`CM`; the parquet is used
-only for row-group-pruned LD window queries.
+The examples below assume chromosome-pattern annotation inputs such as
+`annotations/baseline.1.annot.gz` and a package-built R2 directory such as
+`r2_ref_panel_1kg30x_1cM_hm3/hg38`. For parquet-backed LD scores, each
+`chr*_r2.parquet` file is the canonical pair table and the matching
+`chr*_meta.tsv.gz` sidecar is optional but strongly recommended because it
+defines the complete reference SNP universe and supplies `MAF`/`CM`.
 
 Path-token rules:
 
@@ -19,7 +20,7 @@ Path-token rules:
 
 Resolution behavior:
 
-- there is no separate per-chromosome argument for LD-score inputs anymore; `baseline_annot_sources`, `r2_sources`, and `metadata_sources` all accept the unified token format
+- there is no separate per-chromosome argument for LD-score annotation inputs anymore; `baseline_annot_sources` accepts the unified token format, and the parquet R2 reference panel is supplied as one build directory with `r2_dir`
 - a group token may resolve to multiple files
 - when multiple matched files are chromosome-sharded and the chromosome can be inferred from the filenames, only the files for the active chromosome are used in that chromosome pass
 - otherwise the matched files are read and filtered by `CHR` internally
@@ -75,7 +76,7 @@ sumstats = SumstatsMunger().run(
 
 ldscore_result = run_ldscore(
     output_dir="tutorial_outputs/trait_ldscores",
-    ref_panel_dir="r2_ref_panel_1kg30x_1cM_hm3/hg38",
+    r2_dir="r2_ref_panel_1kg30x_1cM_hm3/hg38",
     r2_bias_mode="unbiased",
     regression_snps_file="filters/hapmap3.txt",
     common_maf_min=0.05,
@@ -137,7 +138,7 @@ ldsc munge-sumstats \
 
 ldsc ldscore \
   --output-dir tutorial_outputs/trait_ldscores \
-  --ref-panel-dir "r2_ref_panel_1kg30x_1cM_hm3/hg38" \
+  --r2-dir "r2_ref_panel_1kg30x_1cM_hm3/hg38" \
   --r2-bias-mode unbiased \
   --regression-snps-file filters/hapmap3.txt \
   --snp-identifier chr_pos \

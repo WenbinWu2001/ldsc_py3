@@ -54,7 +54,7 @@ annotation_bundle = AnnotationBuilder(GLOBAL_CONFIG, AnnotationBuildConfig()).ru
 ref_panel = RefPanelLoader(GLOBAL_CONFIG).load(
     RefPanelConfig(
         backend="parquet_r2",
-        ref_panel_dir="r2_ref_panel_1kg30x_1cM_hm3/hg19",
+        r2_dir="r2_ref_panel_1kg30x_1cM_hm3/hg19",
         chromosomes=tuple(annotation_bundle.chromosomes),
         r2_bias_mode="unbiased",
         ref_panel_snps_file="filters/reference_universe.tsv.gz",
@@ -112,7 +112,7 @@ ldsc ldscore \
   --output-dir tutorial_outputs/cell_specific_ldscores \
   --baseline-annot-sources "annotations/baseline_chr/baseline.@.annot.gz" \
   --query-annot-bed-sources "annotations/cell_type_beds/*.bed" \
-  --ref-panel-dir "r2_ref_panel_1kg30x_1cM_hm3/hg19" \
+  --r2-dir "r2_ref_panel_1kg30x_1cM_hm3/hg19" \
   --r2-bias-mode unbiased \
   --ref-panel-snps-file filters/reference_universe.tsv.gz \
   --regression-snps-file filters/hapmap3.tsv.gz \

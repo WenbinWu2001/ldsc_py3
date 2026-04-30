@@ -139,8 +139,7 @@ class GlobalConfigRegistryTest(unittest.TestCase):
                 ldscore_calculator.run_ldscore(
                     output_dir="results/example",
                     baseline_annot_sources="baseline.annot.gz",
-                    r2_sources="reference.parquet",
-                    metadata_sources="reference.tsv.gz",
+                    r2_dir="reference_panel/hg38",
                     ld_wind_cm=1.0,
                 )
 
@@ -149,8 +148,7 @@ class GlobalConfigRegistryTest(unittest.TestCase):
             ldscore_calculator.run_ldscore(
                 output_dir="results/example",
                 baseline_annot_sources="baseline.annot.gz",
-                r2_sources="reference.parquet",
-                metadata_sources="reference.tsv.gz",
+                r2_dir="reference_panel/hg38",
                 ld_wind_cm=1.0,
                 snp_identifier="rsid",
             )

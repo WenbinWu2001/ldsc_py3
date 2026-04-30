@@ -1437,7 +1437,7 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
                 parquet = ldscore_calculator.run_ldscore(
                     output_dir=str(tmpdir / "parquet"),
                     baseline_annot_sources=str(baseline),
-                    ref_panel_dir=str(tmpdir / "panel" / "hg38"),
+                    r2_dir=str(tmpdir / "panel" / "hg38"),
                     r2_bias_mode="raw",
                     r2_sample_size=3202,
                     ld_wind_snps=10,

@@ -169,7 +169,7 @@ needed for MAF filtering, common counts, and cM windows.
 
 #### Fallback when the sidecar is absent
 
-R2 parquet files are required. In `ref_panel_dir` mode, chromosome `N` must have
+R2 parquet files are required. In `r2_dir` mode, chromosome `N` must have
 `chrN_r2.parquet`; missing R2 is a hard error. If the matching
 `chrN_meta.tsv.gz` sidecar is absent and `fail_on_missing_metadata=False`,
 `ParquetR2RefPanel.load_metadata()` synthesizes a minimal metadata table by
@@ -240,10 +240,12 @@ optimised for row-group pruning; the sidecar is a lightweight per-SNP lookup tab
 that drives SNP universe construction and MAF/CM metadata.
 
 In the workflow notation of `docs/design/partitioned-ldsc-workflow.md`, the raw
-reference-panel SNP universe `A` comes from this paired artifact, but its authoritative
-materialization is the sidecar SNP table. The parquet pair rows are not scanned at
-runtime to define or validate `A`; they are used only to answer LD window queries once
-`ld_reference_snps = B ∩ A'` has been established from annotations plus sidecar metadata.
+reference-panel SNP universe `A` comes from this paired artifact. When the
+sidecar is present, its SNP table is authoritative and parquet pair rows are
+used only to answer LD window queries once `ld_reference_snps = B ∩ A'` has been
+established. When the sidecar is missing, the loader falls back to scanning
+parquet endpoint columns to synthesize a partial SNP table with the limitations
+listed above.
 
 ---
 

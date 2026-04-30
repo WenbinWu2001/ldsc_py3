@@ -24,7 +24,7 @@ Public CLI flags and Python config fields follow these rules:
 | Suffix | Meaning | Examples |
 |---|---|---|
 | `*_file` | one file-like input, exact-one glob allowed where the resolver supports it | `sumstats_file`, `sumstats_snps_file`, `keep_indivs_file` |
-| `*_sources` | one logical input that may resolve to many files via globs, comma lists, or `@` chromosome tokens | `baseline_annot_sources`, `query_annot_bed_sources`, `r2_sources` |
+| `*_sources` | one logical input that may resolve to many files via globs, comma lists, or `@` chromosome tokens | `baseline_annot_sources`, `query_annot_bed_sources` |
 | `*_dir` | directory input or output location | `ldscore_dir`, `output_dir` |
 
 Removed from public surfaces:
@@ -59,19 +59,18 @@ Removed flags: `--bed-files`, `--baseline-annot`.
 | `--query-annot-sources` | input | no | prebuilt query annotation files | Mutually exclusive with `--query-annot-bed-sources`; requires `--baseline-annot-sources`. |
 | `--query-annot-bed-sources` | input | no | query BED interval files | Projected in memory onto the baseline SNP universe; requires `--baseline-annot-sources`. |
 | `--plink-prefix` | input | conditional | PLINK reference panel prefix | Required when not using parquet reference-panel input; supports exact prefix, PLINK-prefix glob, or `@` suite. |
-| `--ref-panel-dir` | input | conditional | package-built parquet reference-panel directory | Preferred parquet input; pass a build-specific directory such as `ref_panel/hg38`, containing `chr*_r2.parquet` plus optional `chr*_meta.tsv.gz`. |
-| `--r2-sources` | input | conditional | parquet R2 files | Advanced/compatibility parquet input when not using `--ref-panel-dir`; supports exact files, globs, comma lists, or `@` suites. |
-| `--r2-bias-mode` | input metadata | conditional | parquet R2 bias declaration | Required with `--ref-panel-dir` or `--r2-sources`; choose `raw` or `unbiased`. |
+| `--r2-dir` | input | conditional | package-built parquet R2 directory | Parquet input; pass a build-specific directory such as `ref_panel/hg38`, containing `chr*_r2.parquet` plus optional `chr*_meta.tsv.gz`. |
+| `--r2-bias-mode` | input metadata | conditional | parquet R2 bias declaration | Required with `--r2-dir`; choose `raw` or `unbiased`. |
 | `--r2-sample-size` | input metadata | conditional | parquet R2 sample size | Required only when `--r2-bias-mode raw`. |
-| `--metadata-sources` | input | no | reference metadata or frequency sidecars | Advanced/compatibility sidecars used for MAF and centiMorgan metadata where needed. In `--ref-panel-dir` mode, matching `chr*_meta.tsv.gz` files are discovered automatically when present. |
 | `--ref-panel-snps-file` | input | no | reference-panel SNP universe restriction | Scalar file-like input. |
 | `--regression-snps-file` | input | no | persisted LD-score row-set restriction | Scalar file-like input. |
 | `--keep-indivs-file` | input | no | PLINK individual keep file | PLINK mode only. |
 | `--maf-min` | input metadata | no | retained reference-panel MAF filter | Applied in the reference-panel layer when MAF is available. |
 | `--common-maf-min` | input metadata | no | common-SNP count threshold | Default `0.05`; affects common count vectors only, using `MAF >= common_maf_min`. |
 
-Removed flags: `--bfile`, `--r2-table`, `--frqfile`, `--keep`, `--maf`,
-`--baseline-annot`, `--query-annot`, `--query-annot-bed`, legacy `--out`.
+Removed flags: `--bfile`, `--r2-table`, `--frqfile`, `--r2-sources`,
+`--metadata-sources`, `--keep`, `--maf`, `--baseline-annot`,
+`--query-annot`, `--query-annot-bed`, legacy `--out`.
 
 LD-score output schema:
 
@@ -202,9 +201,7 @@ Removed Python names: `bed_paths`, `query_bed_paths`, `bed_files`,
 | Object/function | Argument | Direction | Object |
 |---|---:|---:|---|
 | `RefPanelConfig` | `plink_prefix` | input | PLINK reference-panel prefix token |
-| `RefPanelConfig` | `ref_panel_dir` | input | preferred package-built parquet reference-panel directory |
-| `RefPanelConfig` | `r2_sources` | input | advanced/compatibility parquet R2 group |
-| `RefPanelConfig` | `metadata_sources` | input | advanced/compatibility metadata/frequency sidecar group |
+| `RefPanelConfig` | `r2_dir` | input | preferred package-built parquet reference-panel directory |
 | `RefPanelConfig` | `ref_panel_snps_file` | input | reference SNP restriction |
 | `RefPanelConfig` | `keep_indivs_file` | input | PLINK individual keep file |
 | `RefPanelConfig` | `maf_min` | input metadata | retained reference-panel MAF filter |
@@ -212,11 +209,12 @@ Removed Python names: `bed_paths`, `query_bed_paths`, `bed_files`,
 | `LDScoreConfig` | `common_maf_min` | input metadata | common-SNP count threshold only |
 | `LDScoreOutputConfig` | `output_dir` | output | canonical LD-score result directory |
 | `run_ldscore(**kwargs)` | `baseline_annot_sources`, `query_annot_sources`, `query_annot_bed_sources` | input | optional annotation sources; query inputs require baseline sources, and no-annotation runs synthesize `base` |
-| `run_ldscore(**kwargs)` | `plink_prefix`, `ref_panel_dir`, `r2_sources`, `metadata_sources` | input | reference-panel sources |
+| `run_ldscore(**kwargs)` | `plink_prefix`, `r2_dir` | input | reference-panel sources |
 | `run_ldscore(**kwargs)` | `output_dir` | output | canonical result directory |
 
 Removed Python names: `bfile`, `r2_table`, `frqfile`, `keep`, `maf`,
-`baseline_annot`, `query_annot`, `query_annot_bed`, `out`.
+`baseline_annot`, `query_annot`, `query_annot_bed`, `out`,
+`r2_ref_panel_dir`, `ref_panel_dir`, `r2_sources`, and `metadata_sources`.
 
 ### Reference-panel building
 
@@ -304,6 +302,11 @@ Regression therefore merges on literal `SNP` in `rsid` mode and on normalized
 - Keep `--plink-prefix` rather than forcing it into the `*_file` or
   `*_sources` suffix rules. PLINK inputs are a file stem for a related
   `.bed`/`.bim`/`.fam` trio, so `prefix` is the most accurate public name.
+- Prefer `--r2-dir` / `r2_dir` for package-built parquet
+  panels. It mirrors `--plink-prefix` as the single reference-panel input for
+  one backend. Direct R2-file and metadata-source groups are no longer part of
+  the LD-score public API; standard panels should use the fixed directory
+  layout with metadata sidecars next to their R2 parquet files.
 - Do not add `--output-name` or `--panel-name`. Fixed output names make
   downstream automation simpler; users name runs by naming the output
   directory.

@@ -243,16 +243,10 @@ class RefPanelConfig:
         ``"auto"``.
     plink_prefix : str or os.PathLike[str] or None, optional
         PLINK ``.bed/.bim/.fam`` prefix token. Default is ``None``.
-    r2_sources : str, os.PathLike[str], or sequence of those, optional
-        Sorted parquet R2 path tokens. Default is ``()``.
-    metadata_sources : str, os.PathLike[str], or sequence of those, optional
-        Sidecar frequency or metadata path tokens aligned to the reference
-        panel. Default is ``()``.
-    ref_panel_dir : str or os.PathLike[str] or None, optional
+    r2_dir : str or os.PathLike[str] or None, optional
         Directory containing package-built parquet R2 files named
-        ``chr{chrom}_r2.parquet`` and optional sidecars named
-        ``chr{chrom}_meta.tsv.gz``. This is the preferred input for
-        ``ldsc build-ref-panel`` outputs. Default is ``None``.
+        ``chr{chrom}_r2.parquet`` and optional metadata sidecars named
+        ``chr{chrom}_meta.tsv.gz``. Default is ``None``.
     maf_min : float or None, optional
         Optional retained-reference-panel MAF threshold applied before LD-score
         computation. This is distinct from the common-SNP count threshold on
@@ -269,9 +263,7 @@ class RefPanelConfig:
     """
     backend: RefPanelBackend = "auto"
     plink_prefix: str | PathLike[str] | None = None
-    r2_sources: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
-    metadata_sources: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
-    ref_panel_dir: str | PathLike[str] | None = None
+    r2_dir: str | PathLike[str] | None = None
     chromosomes: tuple[str, ...] | list[str] | None = None
     maf_min: float | None = None
     keep_indivs_file: str | PathLike[str] | None = None
@@ -295,9 +287,7 @@ class RefPanelConfig:
         if self.sample_size is None and self.r2_sample_size is not None:
             object.__setattr__(self, "sample_size", int(self.r2_sample_size))
         object.__setattr__(self, "plink_prefix", _normalize_optional_path(self.plink_prefix))
-        object.__setattr__(self, "r2_sources", _normalize_path_tuple(self.r2_sources))
-        object.__setattr__(self, "metadata_sources", _normalize_path_tuple(self.metadata_sources))
-        object.__setattr__(self, "ref_panel_dir", _normalize_optional_path(self.ref_panel_dir))
+        object.__setattr__(self, "r2_dir", _normalize_optional_path(self.r2_dir))
         object.__setattr__(self, "keep_indivs_file", _normalize_optional_path(self.keep_indivs_file))
         object.__setattr__(self, "ref_panel_snps_file", _normalize_optional_path(self.ref_panel_snps_file))
         if self.chromosomes is not None:

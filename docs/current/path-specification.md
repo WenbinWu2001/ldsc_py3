@@ -176,12 +176,10 @@ Group-style inputs:
 - `baseline_annot_sources`
 - `query_annot_sources`
 - `query_annot_bed_sources`
-- `r2_sources`
-- `metadata_sources`
 
 Directory-style inputs:
 
-- `ref_panel_dir`
+- `r2_dir`
 
 Scalar-style inputs:
 
@@ -202,14 +200,15 @@ How they are handled:
 Requirements:
 
 - annotation files must align on SNP rows within each chromosome
-- parquet and frequency inputs must have the schema expected by the downstream readers
+- parquet R2 directories must use the fixed `chr{chrom}_r2.parquet` naming
+  contract, with optional `chr{chrom}_meta.tsv.gz` sidecars
 
 Examples:
 
 ```bash
 ldsc ldscore \
   --output-dir out/trait_ldscores \
-  --ref-panel-dir "r2_ref_panel_1kg30x_1cM_hm3/hg38" \
+  --r2-dir "r2_ref_panel_1kg30x_1cM_hm3/hg38" \
   --r2-bias-mode unbiased \
   --common-maf-min 0.05 \
   --ld-wind-cm 1.0

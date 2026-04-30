@@ -1,9 +1,7 @@
 """Reference-panel configuration and workflow-to-kernel backend adapters.
 
-The public reference-panel config accepts normalized token strings, including
-glob patterns and explicit ``@`` chromosome-suite placeholders, but this module
-resolves those tokens to concrete primitive strings before the execution kernel
-sees them.
+This module resolves public reference-panel configuration into concrete
+primitive strings before the execution kernel sees them.
 """
 
 from __future__ import annotations
@@ -24,14 +22,7 @@ from ..column_inference import (
 )
 from ..config import GlobalConfig, RefPanelConfig
 from ..genome_build_inference import validate_auto_genome_build_mode
-from ..path_resolution import (
-    FREQUENCY_SUFFIXES,
-    PARQUET_SUFFIXES,
-    resolve_chromosome_group,
-    resolve_file_group,
-    resolve_plink_prefix,
-    resolve_plink_prefix_group,
-)
+from ..path_resolution import resolve_plink_prefix, resolve_plink_prefix_group
 from . import formats as legacy_parse
 from . import ldscore as kernel_ldscore
 from .identifiers import (
@@ -82,9 +73,7 @@ class RefPanel(ABC):
             "chromosomes": self.available_chromosomes(),
             "source": {
                 "plink_prefix": self.spec.plink_prefix,
-                "ref_panel_dir": self.spec.ref_panel_dir,
-                "r2_sources": list(self.spec.r2_sources),
-                "metadata_sources": list(self.spec.metadata_sources),
+                "r2_dir": self.spec.r2_dir,
             },
         }
 
@@ -257,16 +246,16 @@ class ParquetR2RefPanel(RefPanel):
     ``load_metadata()`` reads A, applies ``ref_panel_snps_file`` to form A', and
     returns that restricted table to the LD-score workflow. When no sidecar is
     present, ``load_metadata()`` scans R2 parquet endpoints to synthesize
-    minimal SNP metadata for compatibility with legacy parquet-only inputs.
+    minimal SNP metadata.
     """
     def available_chromosomes(self) -> list[str]:
         """List chromosomes from explicit config, panel directory, sidecars, or R2 files."""
         if self.spec.chromosomes is not None:
             return sorted(set(self.spec.chromosomes), key=_chrom_sort_key)
 
-        if self.spec.ref_panel_dir is not None:
-            paths = _ref_panel_dir_r2_paths(
-                self.spec.ref_panel_dir,
+        if self.spec.r2_dir is not None:
+            paths = _r2_dir_r2_paths(
+                self.spec.r2_dir,
                 genome_build=self.global_config.genome_build,
                 chrom=None,
             )
@@ -277,45 +266,9 @@ class ParquetR2RefPanel(RefPanel):
             }
             if chromosomes:
                 return sorted(chromosomes, key=_chrom_sort_key)
-            raise FileNotFoundError(f"No chr*_r2.parquet files found in reference panel directory '{self.spec.ref_panel_dir}'.")
+            raise FileNotFoundError(f"No chr*_r2.parquet files found in R2 directory '{self.spec.r2_dir}'.")
 
-        chromosomes: set[str] = set()
-        if self.spec.metadata_sources:
-            for path in resolve_file_group(
-                self.spec.metadata_sources,
-                suffixes=FREQUENCY_SUFFIXES,
-                label="reference metadata",
-                allow_chromosome_suite=True,
-            ):
-                df = _read_metadata_table(path, chrom=None, global_config=self.global_config)
-                if "CHR" in df.columns:
-                    chromosomes.update(df["CHR"].map(normalize_chromosome).unique().tolist())
-        if chromosomes:
-            return sorted(chromosomes, key=_chrom_sort_key)
-        if self.spec.r2_sources:
-            r2_paths = resolve_file_group(
-                self.spec.r2_sources,
-                suffixes=PARQUET_SUFFIXES,
-                label="parquet R2",
-                allow_chromosome_suite=True,
-            )
-            for path in r2_paths:
-                filename_chrom = _chromosome_from_ref_panel_r2_path(Path(path))
-                if filename_chrom is not None:
-                    chromosomes.add(filename_chrom)
-            if chromosomes:
-                return sorted(chromosomes, key=_chrom_sort_key)
-            for path in r2_paths:
-                metadata = _synthesize_metadata_from_r2_paths(
-                    [path],
-                    chrom=None,
-                    global_config=self.global_config,
-                )
-                if "CHR" in metadata.columns:
-                    chromosomes.update(metadata["CHR"].map(normalize_chromosome).unique().tolist())
-            if chromosomes:
-                return sorted(chromosomes, key=_chrom_sort_key)
-        raise ImportError("Chromosome discovery for parquet R2 requires explicit chromosomes, sidecar metadata, a reference-panel directory, or chromosome-coded R2 files.")
+        raise ImportError("Chromosome discovery for parquet R2 requires explicit chromosomes or r2_dir.")
 
     def load_metadata(self, chrom: str) -> pd.DataFrame:
         """Load, restrict, validate, and cache metadata for one chromosome."""
@@ -325,7 +278,7 @@ class ParquetR2RefPanel(RefPanel):
         if self.spec.keep_indivs_file is not None:
             raise ValueError("--keep-indivs-file is only supported in PLINK mode.")
 
-        r2_paths = self.resolve_r2_paths(chrom, required=bool(self.spec.ref_panel_dir))
+        r2_paths = self.resolve_r2_paths(chrom)
         metadata_paths = self.resolve_metadata_paths(chrom)
         if metadata_paths:
             frames = [_read_metadata_table(path, chrom=chrom, global_config=self.global_config) for path in metadata_paths]
@@ -375,44 +328,26 @@ class ParquetR2RefPanel(RefPanel):
         )
 
     def resolve_r2_paths(self, chrom: str, *, required: bool = True) -> list[str]:
-        """Resolve parquet R2 paths for one chromosome from directory or legacy tokens."""
+        """Resolve parquet R2 paths for one chromosome from ``r2_dir``."""
         chrom = normalize_chromosome(chrom)
-        if self.spec.ref_panel_dir is not None:
-            return _ref_panel_dir_r2_paths(
-                self.spec.ref_panel_dir,
+        if self.spec.r2_dir is not None:
+            return _r2_dir_r2_paths(
+                self.spec.r2_dir,
                 genome_build=self.global_config.genome_build,
                 chrom=chrom,
             )
-        return resolve_chromosome_group(
-            self.spec.r2_sources,
-            chrom=chrom,
-            suffixes=PARQUET_SUFFIXES,
-            label="parquet R2",
-            required=required,
-        )
+        raise FileNotFoundError("Parquet R2 reference-panel loading requires r2_dir.")
 
     def resolve_metadata_paths(self, chrom: str) -> list[str]:
         """Resolve optional metadata sidecars for one chromosome."""
         chrom = normalize_chromosome(chrom)
-        if self.spec.ref_panel_dir is not None:
-            paths = _ref_panel_dir_metadata_paths(
-                self.spec.ref_panel_dir,
+        if self.spec.r2_dir is not None:
+            return _r2_dir_metadata_paths(
+                self.spec.r2_dir,
                 genome_build=self.global_config.genome_build,
                 chrom=chrom,
             )
-            if paths:
-                return paths
-            if not self.spec.metadata_sources:
-                return []
-        if not self.spec.metadata_sources:
-            return []
-        return resolve_chromosome_group(
-            self.spec.metadata_sources,
-            chrom=chrom,
-            suffixes=FREQUENCY_SUFFIXES,
-            label="reference metadata",
-            required=False,
-        )
+        return []
 
 
 def _chromosome_from_ref_panel_r2_path(path: Path) -> str | None:
@@ -423,9 +358,9 @@ def _chromosome_from_ref_panel_r2_path(path: Path) -> str | None:
     return normalize_chromosome(match.group("chrom"), context=str(path))
 
 
-def _resolve_ref_panel_build_dir(ref_panel_dir: str | Path, genome_build: str | None) -> Path:
-    """Resolve a build-specific reference-panel directory from user input."""
-    root = Path(ref_panel_dir)
+def _resolve_r2_build_dir(r2_dir: str | Path, genome_build: str | None) -> Path:
+    """Resolve a build-specific R2 directory from user input."""
+    root = Path(r2_dir)
     if not root.exists():
         raise FileNotFoundError(f"Reference panel directory does not exist: {root}")
     if not root.is_dir():
@@ -450,9 +385,9 @@ def _resolve_ref_panel_build_dir(ref_panel_dir: str | Path, genome_build: str | 
     return root
 
 
-def _ref_panel_dir_r2_paths(ref_panel_dir: str | Path, *, genome_build: str | None, chrom: str | None) -> list[str]:
+def _r2_dir_r2_paths(r2_dir: str | Path, *, genome_build: str | None, chrom: str | None) -> list[str]:
     """Resolve required ``chr{chrom}_r2.parquet`` files inside a panel directory."""
-    build_dir = _resolve_ref_panel_build_dir(ref_panel_dir, genome_build)
+    build_dir = _resolve_r2_build_dir(r2_dir, genome_build)
     if chrom is not None:
         path = build_dir / f"chr{normalize_chromosome(chrom)}_r2.parquet"
         if not path.exists():
@@ -465,9 +400,9 @@ def _ref_panel_dir_r2_paths(ref_panel_dir: str | Path, *, genome_build: str | No
     return [str(path) for path in paths]
 
 
-def _ref_panel_dir_metadata_paths(ref_panel_dir: str | Path, *, genome_build: str | None, chrom: str) -> list[str]:
+def _r2_dir_metadata_paths(r2_dir: str | Path, *, genome_build: str | None, chrom: str) -> list[str]:
     """Resolve the optional ``chr{chrom}_meta.tsv.gz`` sidecar from a panel directory."""
-    build_dir = _resolve_ref_panel_build_dir(ref_panel_dir, genome_build)
+    build_dir = _resolve_r2_build_dir(r2_dir, genome_build)
     path = build_dir / f"chr{normalize_chromosome(chrom)}_meta.tsv.gz"
     return [str(path)] if path.exists() else []
 

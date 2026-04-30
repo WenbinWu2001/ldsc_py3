@@ -42,11 +42,8 @@ from .config import (
 from .genome_build_inference import resolve_genome_build
 from .outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
 from .path_resolution import (
-    FREQUENCY_SUFFIXES,
-    PARQUET_SUFFIXES,
     normalize_optional_path_token,
     normalize_path_token,
-    resolve_chromosome_group,
     resolve_plink_prefix,
     resolve_scalar_path,
     split_cli_path_tokens,
@@ -617,11 +614,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--plink-prefix", default=None, help="PLINK prefix token for the reference panel.")
     parser.add_argument(
-        "--ref-panel-dir",
+        "--r2-dir",
+        dest="r2_dir",
         default=None,
-        help="Build-specific parquet reference-panel directory containing chr*_r2.parquet and optional chr*_meta.tsv.gz files.",
+        help="Build-specific R2 directory containing chr*_r2.parquet and optional chr*_meta.tsv.gz sidecars.",
     )
-    parser.add_argument("--r2-sources", default=None, help="Comma-separated parquet R2 path tokens: exact paths, globs, or explicit @ suite tokens.")
     parser.add_argument("--snp-identifier", default="chr_pos", help="Identifier mode used to match annotations to the reference panel.")
     parser.add_argument(
         "--genome-build",
@@ -641,7 +638,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional SNP list defining the retained reference-panel universe A'; the workflow intersects each chromosome annotation bundle with this prepared panel before LD computation.",
     )
     parser.add_argument("--regression-snps-file", default=None, help="Optional SNP list defining the regression SNP set and the written LD-score row set.")
-    parser.add_argument("--metadata-sources", default=None, help="Optional frequency or metadata path tokens for MAF and CM.")
     parser.add_argument(
         "--keep-indivs-file",
         default=None,
@@ -748,7 +744,12 @@ def _has_cli_tokens(value: str | Sequence[str] | None) -> bool:
 
 def _uses_parquet_reference(args: argparse.Namespace) -> bool:
     """Return whether normalized args select parquet reference-panel mode."""
-    return _has_cli_tokens(getattr(args, "r2_sources", None)) or bool(getattr(args, "ref_panel_dir", None))
+    return bool(_r2_dir_from_args(args))
+
+
+def _r2_dir_from_args(args: argparse.Namespace) -> str | None:
+    """Return the R2 directory supplied to the LD-score workflow."""
+    return normalize_optional_path_token(getattr(args, "r2_dir", None))
 
 
 def _pseudo_base_annotation_bundle_from_ref_panel(ref_panel, global_config: GlobalConfig):
@@ -793,9 +794,8 @@ def run_ldscore(**kwargs) -> LDScoreResult:
 
     Keyword arguments are interpreted as CLI-equivalent option names without
     leading ``--``; for example ``baseline_annot_sources``, ``query_annot_sources``,
-    ``query_annot_bed_sources``, ``plink_prefix``, ``ref_panel_dir``,
-    ``r2_sources``, ``metadata_sources``, ``keep_indivs_file``,
-    ``common_maf_min``, and
+    ``query_annot_bed_sources``, ``plink_prefix``, ``r2_dir``,
+    ``keep_indivs_file``, ``common_maf_min``, and
     ``output_dir``. Shared runtime assumptions such as ``snp_identifier`` and
     ``genome_build`` must be supplied through ``set_global_config(...)`` first,
     while per-run controls such as ``ref_panel_snps_file`` and
@@ -833,6 +833,10 @@ def run_ldscore(**kwargs) -> LDScoreResult:
             "plink_path",
             "r2_paths",
             "metadata_paths",
+            "r2_ref_panel_dir",
+            "ref_panel_dir",
+            "r2_sources",
+            "metadata_sources",
             "ref_panel_snps_path",
             "regression_snps_path",
             "keep_indivs_path",
@@ -868,7 +872,7 @@ def _normalize_run_args(args: argparse.Namespace) -> tuple[argparse.Namespace, G
     for attr in ("query_annot_chr", "baseline_annot_chr", "bfile_chr", "r2_table_chr", "frqfile_chr"):
         if not hasattr(normalized_args, attr):
             setattr(normalized_args, attr, None)
-    for attr in ("query_annot_sources", "baseline_annot_sources", "plink_prefix", "ref_panel_dir", "r2_sources", "metadata_sources", "query_annot_bed_sources", "keep_indivs_file"):
+    for attr in ("query_annot_sources", "baseline_annot_sources", "plink_prefix", "r2_dir", "query_annot_bed_sources", "keep_indivs_file"):
         if not hasattr(normalized_args, attr):
             setattr(normalized_args, attr, None)
     for attr in ("ref_panel_snps_file", "regression_snps_file"):
@@ -880,7 +884,7 @@ def _normalize_run_args(args: argparse.Namespace) -> tuple[argparse.Namespace, G
         normalized_args.common_maf_min = 0.05
     normalized_args.snp_identifier = normalized_mode
     normalized_args.output_dir = normalize_path_token(args.output_dir)
-    normalized_args.ref_panel_dir = normalize_optional_path_token(getattr(args, "ref_panel_dir", None))
+    normalized_args.r2_dir = _r2_dir_from_args(normalized_args)
     normalized_args.keep_indivs_file = normalize_optional_path_token(getattr(args, "keep_indivs_file", None))
     normalized_args.ref_panel_snps_file = normalize_optional_path_token(getattr(args, "ref_panel_snps_file", None))
     normalized_args.regression_snps_file = normalize_optional_path_token(getattr(args, "regression_snps_file", None))
@@ -888,8 +892,8 @@ def _normalize_run_args(args: argparse.Namespace) -> tuple[argparse.Namespace, G
     normalized_args.query_annot = normalized_args.query_annot_sources
     normalized_args.baseline_annot = normalized_args.baseline_annot_sources
     normalized_args.bfile = normalized_args.plink_prefix
-    normalized_args.r2_table = normalized_args.r2_sources
-    normalized_args.frqfile = normalized_args.metadata_sources
+    normalized_args.r2_table = None
+    normalized_args.frqfile = None
     normalized_args.keep = normalized_args.keep_indivs_file
     if normalized_mode == "rsid":
         global_config = GlobalConfig(
@@ -942,35 +946,16 @@ def _resolve_ldscore_chr_pos_genome_build(args: argparse.Namespace, genome_build
             )
         )
         LOGGER.info(f"Resolved LD-score annotation genome build from '{sampled_path}'.")
-    r2_tokens = split_cli_path_tokens(getattr(args, "r2_sources", None))
-    if r2_tokens:
-        frame, sampled_path = sample_frame_from_chr_pattern(
-            r2_tokens,
-            context="LD-score reference panel inputs",
-        )
-        resolved.append(
-            (
-                "reference panel",
-                resolve_genome_build(
-                    "auto",
-                    "chr_pos",
-                    frame,
-                    context="LD-score reference panel inputs",
-                    logger=LOGGER,
-                ),
-            )
-        )
-        LOGGER.info(f"Resolved LD-score reference-panel genome build from '{sampled_path}'.")
-    ref_panel_dir = normalize_optional_path_token(getattr(args, "ref_panel_dir", None))
-    if ref_panel_dir is not None:
-        ref_panel_build = _infer_ref_panel_dir_genome_build(ref_panel_dir)
+    r2_dir = _r2_dir_from_args(args)
+    if r2_dir is not None:
+        ref_panel_build = _infer_r2_dir_genome_build(r2_dir)
         if ref_panel_build is not None:
             resolved.append(("reference panel", ref_panel_build))
-            LOGGER.info(f"Resolved LD-score reference-panel genome build from directory '{ref_panel_dir}'.")
+            LOGGER.info(f"Resolved LD-score reference-panel genome build from directory '{r2_dir}'.")
     if not resolved:
         raise ValueError(
             "Cannot infer --genome-build for LD-score chr_pos inputs because no chromosome-suite "
-            "annotation or parquet R2 path tokens were provided."
+            "annotation or --r2-dir was provided."
         )
     builds = {build for _label, build in resolved}
     if len(builds) != 1:
@@ -990,9 +975,9 @@ def _load_regression_snps(path: str | None, global_config: GlobalConfig) -> set[
     )
 
 
-def _infer_ref_panel_dir_genome_build(ref_panel_dir: str) -> str | None:
-    """Infer hg19/hg38 from a reference-panel directory name or child tree."""
-    path = Path(ref_panel_dir)
+def _infer_r2_dir_genome_build(r2_dir: str) -> str | None:
+    """Infer hg19/hg38 from an R2 directory name or child tree."""
+    path = Path(r2_dir)
     try:
         direct = normalize_genome_build(path.name)
     except ValueError:
@@ -1004,7 +989,7 @@ def _infer_ref_panel_dir_genome_build(ref_panel_dir: str) -> str | None:
         return existing_builds[0]
     if len(existing_builds) > 1:
         raise ValueError(
-            f"Cannot infer --genome-build from ambiguous reference-panel directory '{ref_panel_dir}'. "
+            f"Cannot infer --genome-build from ambiguous R2 directory '{r2_dir}'. "
             "Pass a build-specific directory or specify --genome-build hg19/hg38."
         )
     return None
@@ -1014,15 +999,12 @@ def _ref_panel_from_args(args: argparse.Namespace, global_config: GlobalConfig):
     """Build the reference-panel adapter that owns the ``A -> A'`` restriction."""
     from ._kernel.ref_panel import RefPanelLoader
 
-    metadata_tokens = split_cli_path_tokens(getattr(args, "metadata_sources", None))
     ref_panel_snps_file = normalize_optional_path_token(getattr(args, "ref_panel_snps_file", None))
-    if getattr(args, "ref_panel_dir", None) is not None or getattr(args, "r2_sources", None) is not None:
-        r2_tokens = split_cli_path_tokens(args.r2_sources)
+    r2_dir = _r2_dir_from_args(args)
+    if r2_dir is not None:
         spec = RefPanelConfig(
             backend="parquet_r2",
-            ref_panel_dir=getattr(args, "ref_panel_dir", None),
-            r2_sources=tuple(r2_tokens),
-            metadata_sources=tuple(metadata_tokens),
+            r2_dir=r2_dir,
             r2_bias_mode=getattr(args, "r2_bias_mode", None),
             sample_size=getattr(args, "r2_sample_size", None),
             ref_panel_snps_file=ref_panel_snps_file,
@@ -1033,7 +1015,6 @@ def _ref_panel_from_args(args: argparse.Namespace, global_config: GlobalConfig):
         spec = RefPanelConfig(
             backend="plink",
             plink_prefix=getattr(args, "plink_prefix", None),
-            metadata_sources=tuple(metadata_tokens),
             ref_panel_snps_file=ref_panel_snps_file,
             maf_min=getattr(args, "maf_min", None),
             keep_indivs_file=getattr(args, "keep_indivs_file", None),
@@ -1158,28 +1139,8 @@ def _namespace_from_configs(chrom: str, ref_panel, ldscore_config: LDScoreConfig
     if backend == "parquet_r2":
         if hasattr(ref_panel, "resolve_r2_paths"):
             r2_table = ",".join(ref_panel.resolve_r2_paths(chrom, required=False)) or None
-        elif getattr(spec, "r2_sources", ()):
-            r2_table = ",".join(
-                resolve_chromosome_group(
-                    getattr(spec, "r2_sources", ()),
-                    chrom=chrom,
-                    suffixes=PARQUET_SUFFIXES,
-                    label="parquet R2",
-                    required=False,
-                )
-            ) or None
     if hasattr(ref_panel, "resolve_metadata_paths"):
         frqfile = ",".join(ref_panel.resolve_metadata_paths(chrom)) or None
-    elif getattr(spec, "metadata_sources", ()):
-        frqfile = ",".join(
-            resolve_chromosome_group(
-                getattr(spec, "metadata_sources", ()),
-                chrom=chrom,
-                suffixes=FREQUENCY_SUFFIXES,
-                label="frequency or metadata",
-                required=False,
-            )
-        ) or None
     return argparse.Namespace(
         out=None,
         query_annot=None,

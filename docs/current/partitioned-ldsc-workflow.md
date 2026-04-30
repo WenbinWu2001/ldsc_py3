@@ -93,12 +93,12 @@ workflow with both baseline and query inputs.
 LD scores can be computed from:
 
 - PLINK input through `--plink-prefix`
-- package-built parquet R2 input through `--ref-panel-dir`
-- advanced/compatibility parquet R2 input through `--r2-sources`
+- package-built parquet R2 input through `--r2-dir`
 
-In `--ref-panel-dir` mode, matching `chr*_meta.tsv.gz` sidecars are discovered
-automatically when present. Advanced frequency or metadata sidecars can still be
-passed with `--metadata-sources` when needed for MAF or centiMorgan windows.
+In `--r2-dir` mode, matching `chr*_meta.tsv.gz` sidecars are discovered
+automatically when present. Sidecars are optional but strongly recommended:
+without them, the loader can only synthesize SNP presence from parquet endpoint
+columns and cannot recover MAF or complete cM metadata.
 
 ### Summary Statistics
 

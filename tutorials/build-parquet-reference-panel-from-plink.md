@@ -419,7 +419,7 @@ Example:
 ```bash
 ldsc ldscore \
   --output-dir tutorial_outputs/ldscores_from_parquet_panel \
-  --ref-panel-dir "tutorial_outputs/ref_panel/hg38" \
+  --r2-dir "tutorial_outputs/ref_panel/hg38" \
   --r2-bias-mode unbiased \
   --snp-identifier rsid \
   --common-maf-min 0.05 \

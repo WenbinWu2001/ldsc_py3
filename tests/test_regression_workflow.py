@@ -356,6 +356,16 @@ class RegressionWorkflowTest(unittest.TestCase):
             [8.0, 28.0],
         )
 
+    def test_build_dataset_empty_merge_error_includes_active_config(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        sumstats = replace(
+            self.make_sumstats_table(),
+            data=self.make_sumstats_table().data.assign(SNP=["missing1", "missing2", "missing3"]),
+        )
+
+        with self.assertRaisesRegex(ValueError, "Active config:"):
+            runner.build_dataset(sumstats, self.make_ldscore_result())
+
     def test_build_dataset_with_query_rejects_misaligned_query_table(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
         result = self.make_ldscore_result()

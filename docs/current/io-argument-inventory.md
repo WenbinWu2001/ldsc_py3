@@ -47,8 +47,8 @@ inside that directory are fixed and workflow-specific.
 | `--query-annot-bed-sources` | input | yes | BED interval files | Accepts exact files, globs, comma-separated tokens, and source-token lists. BED basenames become query annotation names. |
 | `--baseline-annot-sources` | input | yes | baseline `.annot[.gz]` templates | Accepts exact files, globs, and `@` chromosome-suite tokens. |
 | `--output-dir` | output | yes | generated query annotation directory | Writes combined `query.<chrom>.annot.gz` files, with all BED inputs represented as query columns. |
-| `--overwrite` | output mode | no | collision policy | Permits replacement of generated `query.<chrom>.annot.gz` files. |
-| `--snp-identifier`, `--genome-build` | config | no | coordinate interpretation | `--snp-identifier` defaults to `chr_pos`; `chr_pos` coordinate inputs need `--genome-build auto`, `hg19`, or `hg38`. |
+| `--overwrite` | output mode | no | collision policy | Controls whether generated annotation files may be replaced; defaults to `False`, so existing `query.<chrom>.annot.gz` files are refused. |
+| `--snp-identifier`, `--genome-build` | config | no | coordinate interpretation | Define how SNP coordinates are interpreted; `--snp-identifier` defaults to `chr_pos`, and `--genome-build` defaults to omitted/`None`, which is invalid for `chr_pos` inputs. |
 
 Removed flags: `--bed-files`, `--baseline-annot`.
 
@@ -57,21 +57,21 @@ Removed flags: `--bed-files`, `--baseline-annot`.
 | Flag | Direction | Required | Object | Notes |
 |---|---:|---:|---|---|
 | `--output-dir` | output | yes | canonical LD-score result directory | Writes `manifest.json`, `baseline.parquet`, and optional `query.parquet`; parquet row groups are chromosome-aligned. |
-| `--overwrite` | output mode | no | collision policy | Permits replacement of the fixed LD-score files in `output_dir`. |
-| `--baseline-annot-sources` | input | no | baseline annotation files | Exact files, globs, comma lists, or `@` suites. If omitted with no query inputs, `ldscore` synthesizes an all-ones `base` column from retained reference-panel metadata. |
-| `--query-annot-sources` | input | no | prebuilt query annotation files | Mutually exclusive with `--query-annot-bed-sources`; requires `--baseline-annot-sources`. |
-| `--query-annot-bed-sources` | input | no | query BED interval files | Projected in memory onto the baseline SNP universe; requires `--baseline-annot-sources`. |
-| `--plink-prefix` | input | conditional | PLINK reference panel prefix | Required when not using parquet reference-panel input; supports exact prefix, PLINK-prefix glob, or `@` suite. |
-| `--r2-dir` | input | conditional | package-built parquet R2 directory | Parquet input; pass a build-specific directory such as `ref_panel/hg38`, containing `chr*_r2.parquet` plus optional `chr*_meta.tsv.gz`. |
-| `--r2-bias-mode` | input metadata | conditional | parquet R2 bias declaration | Required with `--r2-dir`; choose `raw` or `unbiased`. |
-| `--r2-sample-size` | input metadata | conditional | parquet R2 sample size | Required only when `--r2-bias-mode raw`. |
-| `--ref-panel-snps-file` | input | no | reference-panel SNP universe restriction | Scalar file-like input. |
-| `--regression-snps-file` | input | no | persisted LD-score row-set restriction | Scalar file-like input. |
-| `--keep-indivs-file` | input | no | PLINK individual keep file | PLINK mode only. |
-| `--maf-min` | input metadata | no | retained reference-panel MAF filter | Applied in the reference-panel layer when MAF is available. |
-| `--common-maf-min` | input metadata | no | common-SNP count threshold | Default `0.05`; affects common count vectors only, using `MAF >= common_maf_min`. |
-| `--chunk-size` | performance | no | PLINK block size | Default `128`; used by legacy PLINK block computations. |
-| `--yes-really` | safety override | no | whole-chromosome LD windows | Allows whole-chromosome LD windows when no LD-window option is supplied. |
+| `--overwrite` | output mode | no | collision policy | Controls whether fixed LD-score files may be replaced; defaults to `False`, so existing files in `output_dir` are refused. |
+| `--baseline-annot-sources` | input | no | baseline annotation files | Supplies baseline annotation files; defaults to omitted/`None`, and if no query inputs are supplied `ldscore` synthesizes an all-ones `base` column. |
+| `--query-annot-sources` | input | no | prebuilt query annotation files | Supplies prebuilt query annotation files; defaults to omitted/`None`, so no prebuilt query annotations are used. Mutually exclusive with `--query-annot-bed-sources` and requires `--baseline-annot-sources`. |
+| `--query-annot-bed-sources` | input | no | query BED interval files | Supplies BED intervals to project as query annotations; defaults to omitted/`None`, so no BED query annotations are projected. Requires `--baseline-annot-sources`. |
+| `--plink-prefix` | input | conditional | PLINK reference panel prefix | Selects PLINK reference-panel input; defaults to omitted/`None` and is required when `--r2-dir` is omitted. Supports exact prefix, PLINK-prefix glob, or `@` suite. |
+| `--r2-dir` | input | conditional | package-built parquet R2 directory | Selects parquet reference-panel input; defaults to omitted/`None` and is required when `--plink-prefix` is omitted. Use a build-specific directory such as `ref_panel/hg38`. |
+| `--r2-bias-mode` | input metadata | optional | parquet R2 bias declaration | Declares whether parquet R2 values are raw or unbiased; defaults to `unbiased`. Choose `raw` only for raw sample R2 values. |
+| `--r2-sample-size` | input metadata | conditional | parquet R2 sample size | Provides the sample size for correcting raw R2; defaults to omitted/`None` and is required only when `--r2-bias-mode raw`. |
+| `--ref-panel-snps-file` | input | no | reference-panel SNP universe restriction | Restricts the retained reference-panel SNP universe; defaults to omitted/`None`, so no additional restriction is applied. |
+| `--regression-snps-file` | input | no | persisted LD-score row-set restriction | Restricts the written LD-score row set; defaults to omitted/`None`, so rows are not restricted by a persisted regression SNP set. |
+| `--keep-indivs-file` | input | no | PLINK individual keep file | Restricts PLINK individuals before LD calculation; defaults to omitted/`None`, so no individual keep filter is applied. PLINK mode only. |
+| `--maf-min` | input metadata | no | retained reference-panel MAF filter | Filters retained reference-panel SNPs by MAF; defaults to omitted/`None`, so no retained-reference MAF filter is applied. |
+| `--common-maf-min` | input metadata | no | common-SNP count threshold | Sets the MAF threshold for common-SNP count vectors; defaults to `0.05` and uses `MAF >= common_maf_min`. |
+| `--chunk-size` | performance | no | PLINK block size | Sets the legacy PLINK block-computation size; defaults to `128`. |
+| `--yes-really` | safety override | no | whole-chromosome LD windows | Allows whole-chromosome LD windows; defaults to `False`, so such windows are rejected unless this flag is supplied. |
 
 Removed flags: `--bfile`, `--r2-table`, `--frqfile`, `--r2-sources`,
 `--metadata-sources`, `--keep`, `--maf`, `--baseline-annot`,
@@ -94,18 +94,18 @@ LD-score output schema:
 | Flag | Direction | Required | Object | Notes |
 |---|---:|---:|---|---|
 | `--plink-prefix` | input | yes | PLINK reference panel prefix | Supports exact prefix, PLINK-prefix glob, or `@` suite. |
-| `--source-genome-build` | input metadata | no | source PLINK coordinate build | Not a filesystem argument; inferred from `.bim` before SNP restriction when omitted. |
-| `--genetic-map-hg19-sources` | input | conditional | hg19 genetic map file or suite | Required when `--ld-wind-cm` is used and hg19 output is emitted; otherwise optional and missing hg19 CM values are written as `NA`. |
-| `--genetic-map-hg38-sources` | input | conditional | hg38 genetic map file or suite | Required when `--ld-wind-cm` is used and hg38 output is emitted; otherwise optional and missing hg38 CM values are written as `NA`. |
-| `--liftover-chain-hg19-to-hg38-file` | input | no | liftover chain file | Optional; enables hg38 outputs for hg19 source builds. |
-| `--liftover-chain-hg38-to-hg19-file` | input | no | liftover chain file | Optional; enables hg19 outputs for hg38 source builds. |
-| `--ref-panel-snps-file` | input | no | retained SNP universe restriction | Scalar file-like input; identifier mode comes from `GlobalConfig.snp_identifier`; `chr_pos` coordinates must align to the source PLINK build. |
-| `--snp-identifier` | input metadata | conditional | global SNP identifier mode | CLI-only way to construct `GlobalConfig.snp_identifier` for this invocation. |
-| `--keep-indivs-file` | input | no | PLINK individual keep file | Applied during PLINK loading. |
-| `--maf-min` | input metadata | no | retained SNP MAF filter | Applied during PLINK loading. |
+| `--source-genome-build` | input metadata | no | source PLINK coordinate build | Declares the PLINK coordinate build; defaults to omitted/`None`, so the build is inferred from `.bim` before SNP restriction. |
+| `--genetic-map-hg19-sources` | input | conditional | hg19 genetic map file or suite | Supplies hg19 genetic-map CM values; defaults to omitted/`None` and is required when `--ld-wind-cm` is used and hg19 output is emitted. |
+| `--genetic-map-hg38-sources` | input | conditional | hg38 genetic map file or suite | Supplies hg38 genetic-map CM values; defaults to omitted/`None` and is required when `--ld-wind-cm` is used and hg38 output is emitted. |
+| `--liftover-chain-hg19-to-hg38-file` | input | no | liftover chain file | Enables hg38 outputs for hg19 source builds; defaults to omitted/`None`, so those target-build outputs are not emitted. |
+| `--liftover-chain-hg38-to-hg19-file` | input | no | liftover chain file | Enables hg19 outputs for hg38 source builds; defaults to omitted/`None`, so those target-build outputs are not emitted. |
+| `--ref-panel-snps-file` | input | no | retained SNP universe restriction | Restricts the emitted reference-panel SNP universe; defaults to omitted/`None`, so no retained SNP restriction is applied. |
+| `--snp-identifier` | input metadata | conditional | global SNP identifier mode | Overrides the registered SNP identifier mode for this invocation; defaults to omitted/`None`, so `GlobalConfig.snp_identifier` is used. |
+| `--keep-indivs-file` | input | no | PLINK individual keep file | Restricts PLINK individuals during panel building; defaults to omitted/`None`, so no individual keep filter is applied. |
+| `--maf-min` | input metadata | no | retained SNP MAF filter | Filters retained SNPs by MAF during PLINK loading; defaults to omitted/`None`, so no retained-SNP MAF filter is applied. |
 | `--output-dir` | output | yes | reference-panel artifact directory | Run identity is `Path(output_dir).name`; no separate label is accepted. |
-| `--overwrite` | output mode | no | collision policy | Permits replacement of deterministic parquet and metadata outputs. |
-| `--chunk-size` | performance | no | block size | Default `128`; used during block processing. |
+| `--overwrite` | output mode | no | collision policy | Controls whether reference-panel artifacts may be replaced; defaults to `False`, so existing deterministic parquet and metadata outputs are refused. |
+| `--chunk-size` | performance | no | block size | Sets the block-processing size; defaults to `128`. |
 
 Removed flags: `--bfile`, `--out`, `--panel-label`, `--keep-indivs`, `--maf`,
 `--genetic-map-hg19`, `--genetic-map-hg38`, old liftover-chain names without
@@ -134,11 +134,11 @@ build's LD window.
 | Flag | Direction | Required | Object | Notes |
 |---|---:|---:|---|---|
 | `--sumstats-file` | input | yes | raw summary-statistics file | Exact path or exact-one glob. |
-| `--sumstats-snps-file` | input | no | summary-statistics SNP keep-list | Exact path or exact-one glob. Restricts munged rows only; does not allele-match or reorder rows. |
+| `--sumstats-snps-file` | input | no | summary-statistics SNP keep-list | Restricts munged summary-statistics rows to a SNP keep-list; defaults to omitted/`None`, so no keep-list restriction is applied. |
 | `--output-dir` | output | yes | munged output directory | Internally uses `<output_dir>/sumstats` as the legacy kernel stem. |
-| `--chr`, `--pos` | input metadata | no | raw column hints | Explicit chromosome and base-pair position columns; common aliases such as `#CHROM`, `CHROM`, `CHR`, `POS`, and `BP` are also inferred. |
+| `--chr`, `--pos` | input metadata | no | raw column hints | Identify raw chromosome and position columns; default to omitted/`None`, so common aliases such as `#CHROM`, `CHROM`, `CHR`, `POS`, and `BP` are inferred. |
 | `--snp-identifier`, `--genome-build` | config | no | provenance | `--snp-identifier` defaults to `chr_pos`; `--genome-build` defaults to `hg38`; `--genome-build auto` can infer hg19/hg38 for complete `CHR`/`POS` rows. |
-| `--overwrite` | output mode | no | collision policy | Permits replacement of the fixed sumstats outputs. |
+| `--overwrite` | output mode | no | collision policy | Controls whether fixed sumstats outputs may be replaced; defaults to `False`, so existing outputs are refused. |
 
 Removed flags: `--sumstats`, `--merge-alleles`, `--merge-alleles-file`, `--out`.
 
@@ -156,9 +156,9 @@ Fixed output names:
 |---|---:|---:|---|---|
 | `--ldscore-dir` | input | yes | canonical LD-score result directory | Reads baseline LD scores and embedded `regr_weight`. |
 | `--sumstats-file` | input | yes | munged summary-statistics file | Exact path or exact-one glob. |
-| `--output-dir` | output | no | result output directory | Writes `h2.tsv` when supplied. |
-| `--count-kind` | model | no | count vector choice | `common` by default; `all` uses all-SNP counts. |
-| `--overwrite` | output mode | no | collision policy | Permits replacement of `h2.tsv`. |
+| `--output-dir` | output | no | result output directory | Selects where to write h2 results; defaults to omitted/`None`, so the result is returned without writing `h2.tsv`. |
+| `--count-kind` | model | no | count vector choice | Selects the count vector used by regression; defaults to `common`, while `all` uses all-SNP counts. |
+| `--overwrite` | output mode | no | collision policy | Controls whether `h2.tsv` may be replaced; defaults to `False`, so an existing file is refused. |
 
 Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 `--sumstats`, `--out`.
@@ -169,10 +169,10 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 |---|---:|---:|---|---|
 | `--ldscore-dir` | input | yes | canonical LD-score result directory | Reads baseline plus query LD scores. |
 | `--sumstats-file` | input | yes | munged summary-statistics file | Exact path or exact-one glob. |
-| `--output-dir` | output | no | result output directory | Writes `partitioned_h2.tsv` when supplied. |
-| `--count-kind` | model | no | count vector choice | `common` by default; `all` uses all-SNP counts. |
-| `--write-per-query-results` | output mode | no | per-query result tree | Also writes `query_annotations/manifest.tsv` plus one sanitized query folder under `--output-dir`. |
-| `--overwrite` | output mode | no | collision policy | Permits replacement of aggregate and requested per-query outputs. |
+| `--output-dir` | output | no | result output directory | Selects where to write partitioned-h2 results; defaults to omitted/`None`, so the result is returned without writing `partitioned_h2.tsv`. |
+| `--count-kind` | model | no | count vector choice | Selects the count vector used by regression; defaults to `common`, while `all` uses all-SNP counts. |
+| `--write-per-query-results` | output mode | no | per-query result tree | Requests per-query output folders; defaults to `False`, so only the aggregate table is returned/written. |
+| `--overwrite` | output mode | no | collision policy | Controls whether aggregate and per-query outputs may be replaced; defaults to `False`, so existing outputs are refused. |
 
 Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 `--query-columns`, `--sumstats`, `--out`.
@@ -184,9 +184,9 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 | `--ldscore-dir` | input | yes | canonical LD-score result directory | Reads baseline LD scores and embedded `regr_weight`. |
 | `--sumstats-1-file` | input | yes | first munged summary-statistics file | Exact path or exact-one glob. |
 | `--sumstats-2-file` | input | yes | second munged summary-statistics file | Exact path or exact-one glob. |
-| `--output-dir` | output | no | result output directory | Writes `rg.tsv` when supplied. |
-| `--count-kind` | model | no | count vector choice | `common` by default; `all` uses all-SNP counts. |
-| `--overwrite` | output mode | no | collision policy | Permits replacement of `rg.tsv`. |
+| `--output-dir` | output | no | result output directory | Selects where to write rg results; defaults to omitted/`None`, so the result is returned without writing `rg.tsv`. |
+| `--count-kind` | model | no | count vector choice | Selects the count vector used by regression; defaults to `common`, while `all` uses all-SNP counts. |
+| `--overwrite` | output mode | no | collision policy | Controls whether `rg.tsv` may be replaced; defaults to `False`, so an existing file is refused. |
 
 Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 `--sumstats-1`, `--sumstats-2`, `--out`.

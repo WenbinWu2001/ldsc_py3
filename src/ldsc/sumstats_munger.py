@@ -592,7 +592,7 @@ def _global_config_from_sumstats_metadata(metadata: dict[str, Any] | None) -> Gl
 
 def _effective_sumstats_config(config: GlobalConfig, coordinate_metadata: dict[str, Any]) -> GlobalConfig:
     """Return the config snapshot implied by coordinate metadata."""
-    genome_build = coordinate_metadata.get("genome_build", config.genome_build)
+    genome_build = coordinate_metadata.get("genome_build") or config.genome_build
     return GlobalConfig(
         snp_identifier=normalize_snp_identifier_mode(coordinate_metadata.get("snp_identifier", config.snp_identifier)),
         genome_build=normalize_genome_build(genome_build),

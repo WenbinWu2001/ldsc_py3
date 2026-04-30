@@ -630,7 +630,7 @@ def build_parser() -> argparse.ArgumentParser:
             "from data. Not used when --snp-identifier rsid."
         ),
     )
-    parser.add_argument("--r2-bias-mode", choices=("raw", "unbiased"), default=None, help="Whether parquet R2 values are raw or already unbiased.")
+    parser.add_argument("--r2-bias-mode", choices=("raw", "unbiased"), default="unbiased", help="Whether parquet R2 values are raw or already unbiased.")
     parser.add_argument("--r2-sample-size", default=None, type=float, help="LD reference sample size used to correct raw parquet R2 values.")
     parser.add_argument(
         "--ref-panel-snps-file",
@@ -718,7 +718,7 @@ def _validate_run_args(args: argparse.Namespace) -> None:
         if keep:
             raise ValueError("--keep-indivs-file is only supported in PLINK mode.")
         if args.r2_bias_mode is None:
-            raise ValueError("--r2-bias-mode is required in parquet mode.")
+            args.r2_bias_mode = "unbiased"
         if args.r2_bias_mode == "raw" and args.r2_sample_size is None:
             raise ValueError("--r2-sample-size is required when --r2-bias-mode raw.")
         if args.snp_identifier == "chr_pos" and args.genome_build is None:

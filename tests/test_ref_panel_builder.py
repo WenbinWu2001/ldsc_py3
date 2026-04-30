@@ -687,7 +687,7 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
         self.assertEqual(build_config.ref_panel_snps_file, "hm3.tsv")
         self.assertIsNone(build_config.source_genome_build)
         self.assertEqual(global_config.snp_identifier, "chr_pos")
-        self.assertIsNone(global_config.genome_build)
+        self.assertEqual(global_config.genome_build, "auto")
 
     def test_config_from_args_uses_explicit_snp_identifier_for_restriction_file(self):
         parser = ref_panel_builder.build_parser()
@@ -741,7 +741,7 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
 
         self.assertEqual(build_config.source_genome_build, "hg19")
         self.assertEqual(global_config.snp_identifier, "chr_pos")
-        self.assertIsNone(global_config.genome_build)
+        self.assertEqual(global_config.genome_build, "auto")
 
     def test_run_build_ref_panel_uses_registered_identifier_for_restriction_file(self):
         captured = {}
@@ -767,7 +767,7 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
 
         self.assertEqual(captured["config"].ref_panel_snps_file, "hm3.tsv")
         self.assertEqual(captured["global_config"].snp_identifier, "chr_pos")
-        self.assertIsNone(captured["global_config"].genome_build)
+        self.assertEqual(captured["global_config"].genome_build, "auto")
 
     def test_run_build_ref_panel_rejects_explicit_genome_build_keyword(self):
         with self.assertRaisesRegex(ValueError, "set_global_config"):

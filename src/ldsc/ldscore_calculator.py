@@ -951,11 +951,11 @@ def _resolve_ldscore_chr_pos_genome_build(args: argparse.Namespace, genome_build
         ref_panel_build = _infer_r2_dir_genome_build(r2_dir)
         if ref_panel_build is not None:
             resolved.append(("reference panel", ref_panel_build))
-            LOGGER.info(f"Resolved LD-score reference-panel genome build from directory '{r2_dir}'.")
+            LOGGER.info(f"Resolved LD-score reference-panel genome build from parquet schema metadata in '{r2_dir}'.")
     if not resolved:
         raise ValueError(
             "Cannot infer --genome-build for LD-score chr_pos inputs because no chromosome-suite "
-            "annotation or --r2-dir was provided."
+            "annotation or R2 parquet build metadata was available."
         )
     builds = {build for _label, build in resolved}
     if len(builds) != 1:
@@ -976,23 +976,48 @@ def _load_regression_snps(path: str | None, global_config: GlobalConfig) -> set[
 
 
 def _infer_r2_dir_genome_build(r2_dir: str) -> str | None:
-    """Infer hg19/hg38 from an R2 directory name or child tree."""
-    path = Path(r2_dir)
-    try:
-        direct = normalize_genome_build(path.name)
-    except ValueError:
-        direct = None
-    if direct in {"hg19", "hg38"}:
+    """Infer hg19/hg38 from R2 parquet schema metadata, never path names."""
+    builds_by_path: dict[str, str] = {}
+    for path in _candidate_r2_schema_paths(r2_dir):
+        build = _read_r2_sorted_by_build(path)
+        if build is not None:
+            builds_by_path[str(path)] = build
+
+    builds = set(builds_by_path.values())
+    if len(builds) > 1:
+        details = ", ".join(f"{path}={build}" for path, build in sorted(builds_by_path.items()))
+        raise ValueError(f"Conflicting R2 parquet genome-build metadata in '{r2_dir}': {details}.")
+    return next(iter(builds), None)
+
+
+def _candidate_r2_schema_paths(r2_dir: str) -> list[Path]:
+    """Return candidate R2 parquet files whose schema metadata can identify a panel build."""
+    root = Path(r2_dir)
+    if not root.is_dir():
+        return []
+
+    direct = sorted(root.glob("chr*_r2.parquet"))
+    if direct:
         return direct
-    existing_builds = [build for build in ("hg19", "hg38") if (path / build).is_dir()]
-    if len(existing_builds) == 1:
-        return existing_builds[0]
-    if len(existing_builds) > 1:
-        raise ValueError(
-            f"Cannot infer --genome-build from ambiguous R2 directory '{r2_dir}'. "
-            "Pass a build-specific directory or specify --genome-build hg19/hg38."
-        )
-    return None
+
+    paths: list[Path] = []
+    for build in ("hg19", "hg38"):
+        child = root / build
+        if child.is_dir():
+            paths.extend(sorted(child.glob("chr*_r2.parquet")))
+    return paths
+
+
+def _read_r2_sorted_by_build(path: Path) -> str | None:
+    """Read ``ldsc:sorted_by_build`` from one R2 parquet schema."""
+    import pyarrow.parquet as pq
+
+    raw_meta = pq.read_schema(str(path)).metadata or {}
+    raw_build = raw_meta.get(b"ldsc:sorted_by_build")
+    if raw_build is None:
+        return None
+    build = normalize_genome_build(raw_build.decode("utf-8"))
+    return build if build in {"hg19", "hg38"} else None
 
 
 def _ref_panel_from_args(args: argparse.Namespace, global_config: GlobalConfig):

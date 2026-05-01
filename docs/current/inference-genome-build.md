@@ -65,6 +65,7 @@ needs.
 | Packaged HM3 reference | Load full 11,000-SNP map once, then reuse from cache |
 | Raw sumstats text / `.gz` | Kernel-side normalization of munged `CHR` + `POS`, with build inference when requested |
 | Annotation chromosome-suite inputs | Read a small head sample from the first resolvable `@` chromosome file |
+| `ldscore --r2-dir` directory | Locate candidate R2 parquet files, then infer from `ldsc:sorted_by_build` schema metadata |
 | PLINK `.bim` source panel | `build-ref-panel` reads `.bim` `CHR/BP` rows before SNP restriction when `source_genome_build` is omitted |
 | build-ref-panel SNP restriction generic `POS` | Infer the restriction file's local build and require it to match the source PLINK build |
 | Canonical parquet R2 reference panel | Prefer schema metadata; otherwise inspect the first row group |
@@ -108,6 +109,53 @@ columns using the shared column-alias registry.
 
 If the sample does not contain enough informative HapMap3 matches, pass the
 build explicitly.
+
+## LD-Score Runtime Auto Build
+
+The `ldsc ldscore` CLI requires `--genome-build` in `chr_pos` mode. Passing
+`--genome-build auto` defers the choice until runtime, where the workflow
+collects build evidence from the supplied LD-score inputs and requires all
+available evidence to agree.
+
+There is no silent precedence between baseline annotations and the R2 reference
+panel. The workflow checks both sources when present:
+
+1. If `--baseline-annot-sources` is supplied, sample a chromosome-suite
+   annotation file and infer its coordinate build from `CHR` and `POS`.
+2. If `--r2-dir` is supplied, infer the reference-panel build from the
+   parquet schema metadata key `ldsc:sorted_by_build`.
+   - Directory names such as `hg19` or `hg38` are not build evidence.
+   - The directory layout is used only to find candidate files: first
+     `chr*_r2.parquet` directly under `--r2-dir`, otherwise files under
+     conventional `hg19/` and `hg38/` children.
+   - If no candidate parquet has `ldsc:sorted_by_build`, the R2 directory
+     contributes no build evidence.
+   - If candidate parquets report conflicting builds, the workflow raises.
+3. If both annotation and R2-directory evidence are available, they must infer
+   the same build. A disagreement raises an error instead of selecting one over
+   the other.
+
+Examples:
+
+```text
+--genome-build auto --r2-dir /panels/my_panel/hg38
+  -> the build recorded in /panels/my_panel/hg38/chr*_r2.parquet metadata
+
+--genome-build auto --r2-dir /panels/my_panel
+  where /panels/my_panel contains only hg19/
+  -> the build recorded in /panels/my_panel/hg19/chr*_r2.parquet metadata
+
+--genome-build auto --baseline-annot-sources baseline.@.annot.gz --r2-dir /panels/my_panel/hg38
+  -> succeeds only if the baseline annotation sample agrees with the parquet metadata
+
+--genome-build auto --r2-dir /panels/my_panel
+  where /panels/my_panel contains both hg19/ and hg38/
+  -> succeeds only if all candidate parquets report the same metadata build;
+     otherwise errors with conflicting R2 parquet genome-build metadata
+```
+
+For durable scripts, prefer a concrete build plus a build-specific R2
+directory, for example `--genome-build hg38 --r2-dir /panels/my_panel/hg38`.
 
 ## Parquet R2 Reference Panels
 

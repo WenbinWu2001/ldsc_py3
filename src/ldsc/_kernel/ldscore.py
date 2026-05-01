@@ -180,6 +180,7 @@ import logging
 import os
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Iterable, Sequence
 
 import numpy as np
@@ -1969,6 +1970,31 @@ def emit_outputs(results: Sequence[ChromComputationResult], args: argparse.Names
         LOGGER.warning(f"Skipping {args.out}.l2.M_5_50 because MAF is unavailable.")
 
 
+def _first_resolved_r2_parquet(args: argparse.Namespace) -> str | None:
+    """
+    Return the first existing R2 parquet path available during validation.
+
+    Validation remains permissive for legacy tests and callers that pass paths
+    not yet present on disk. When a direct parquet file or package-built R2
+    directory is resolvable, the caller can inspect its Arrow schema metadata
+    before applying default R2 bias settings.
+    """
+    try:
+        paths = resolve_parquet_files(args)
+    except FileNotFoundError:
+        return None
+    for path in paths:
+        candidate = Path(path)
+        if candidate.is_dir():
+            matches = sorted(candidate.glob("chr*_r2.parquet"))
+            if matches:
+                return str(matches[0])
+            continue
+        if candidate.is_file():
+            return str(candidate)
+    return None
+
+
 def validate_args(args: argparse.Namespace) -> None:
     """Validate top-level LD-score CLI arguments before any heavy work starts."""
     for attr in ("query_annot_chr", "baseline_annot_chr", "bfile_chr", "r2_table_chr", "frqfile_chr"):
@@ -1987,6 +2013,16 @@ def validate_args(args: argparse.Namespace) -> None:
     if args.r2_table:
         if keep:
             raise ValueError("--keep-indivs-file is only supported in PLINK mode.")
+        first_r2 = _first_resolved_r2_parquet(args)
+        if first_r2 is not None:
+            from . import ref_panel as ref_panel_mod
+
+            stored = ref_panel_mod._read_r2_schema_meta(first_r2)
+            args.r2_bias_mode, args.r2_sample_size = ref_panel_mod._resolve_r2_bias_from_meta(
+                args.r2_bias_mode,
+                getattr(args, "r2_sample_size", None),
+                stored,
+            )
         if args.r2_bias_mode is None:
             args.r2_bias_mode = "unbiased"
         if args.r2_bias_mode == "raw" and args.r2_sample_size is None:

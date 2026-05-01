@@ -443,6 +443,7 @@ class ReferencePanelBuildConfig:
     keep_indivs_file: str | PathLike[str] | None = None
     chunk_size: int = 128
     overwrite: bool = False
+    duplicate_position_policy: str = "error"
 
     def __post_init__(self) -> None:
         """Normalize build paths and validate liftover and LD-window settings."""
@@ -485,6 +486,11 @@ class ReferencePanelBuildConfig:
             raise ValueError("maf_min must lie in [0, 0.5].")
         if self.chunk_size <= 0:
             raise ValueError("chunk_size must be positive.")
+        if self.duplicate_position_policy not in {"error", "drop-all"}:
+            raise ValueError(
+                "duplicate_position_policy must be 'error' or 'drop-all', "
+                f"got {self.duplicate_position_policy!r}."
+            )
 
 
 @dataclass(frozen=True)
@@ -502,6 +508,10 @@ class MungeConfig:
     output_dir : str or os.PathLike[str]
         Directory that receives ``sumstats.sumstats.gz``, ``sumstats.log``, and
         ``sumstats.metadata.json``.
+    raw_sumstats_file : str or os.PathLike[str] or None, optional
+        Raw summary-statistics file to munge. Exact-one glob patterns are
+        resolved by the workflow before entering the legacy kernel. Default is
+        ``None``.
     N, N_cas, N_con : float or None, optional
         Sample-size overrides forwarded to the munging kernel. Defaults are
         ``None``.
@@ -535,7 +545,7 @@ class MungeConfig:
         collisions raise before the munging kernel runs. Default is ``False``.
     """
     output_dir: str | PathLike[str] | None = None
-    sumstats_file: str | PathLike[str] | None = None
+    raw_sumstats_file: str | PathLike[str] | None = None
     compression: str = "auto"
     trait_name: str | None = None
     column_hints: dict[str, str] = field(default_factory=dict)
@@ -566,7 +576,7 @@ class MungeConfig:
         if self.chunk_size <= 0:
             raise ValueError("chunk_size must be positive.")
         object.__setattr__(self, "output_dir", _normalize_optional_path(self.output_dir))
-        object.__setattr__(self, "sumstats_file", _normalize_optional_path(self.sumstats_file))
+        object.__setattr__(self, "raw_sumstats_file", _normalize_optional_path(self.raw_sumstats_file))
         object.__setattr__(self, "sumstats_snps_file", _normalize_optional_path(self.sumstats_snps_file))
         object.__setattr__(self, "ignore_columns", tuple(self.ignore_columns))
         object.__setattr__(self, "column_hints", dict(self.column_hints))

@@ -228,7 +228,7 @@ class SumstatsMunger:
 
     def run(
         self,
-        raw_source: MungeConfig,
+        raw_sumstats_config: MungeConfig,
         munge_config: MungeConfig | None = None,
         global_config: GlobalConfig | None = None,
     ) -> SumstatsTable:
@@ -236,7 +236,7 @@ class SumstatsMunger:
 
         Parameters
         ----------
-        raw_source : MungeConfig
+        raw_sumstats_config : MungeConfig
             Munging config with raw file path and optional column hints. When
             ``munge_config`` is omitted, this object also supplies output and
             QC settings.
@@ -268,17 +268,17 @@ class SumstatsMunger:
             through :meth:`build_run_summary`.
         """
         if munge_config is None:
-            munge_config = raw_source
+            munge_config = raw_sumstats_config
         elif isinstance(munge_config, GlobalConfig) and global_config is None:
             global_config = munge_config
-            munge_config = raw_source
-        if raw_source.sumstats_file is None:
-            raise ValueError("MungeConfig.sumstats_file is required to run summary-statistics munging.")
+            munge_config = raw_sumstats_config
+        if raw_sumstats_config.raw_sumstats_file is None:
+            raise ValueError("MungeConfig.raw_sumstats_file is required to run summary-statistics munging.")
         if munge_config.output_dir is None:
             raise ValueError("MungeConfig.output_dir is required to run summary-statistics munging.")
 
         config_snapshot = global_config or get_global_config()
-        source_path = resolve_scalar_path(raw_source.sumstats_file, label="raw sumstats")
+        source_path = resolve_scalar_path(raw_sumstats_config.raw_sumstats_file, label="raw sumstats")
         output_dir = ensure_output_directory(munge_config.output_dir, label="output directory")
         fixed_output_stem = str(output_dir / "sumstats")
         metadata_path = fixed_output_stem + ".metadata.json"
@@ -298,7 +298,7 @@ class SumstatsMunger:
             overwrite=munge_config.overwrite,
             label="munged output artifact",
         )
-        args = self._build_args(raw_source, munge_config, config_snapshot)
+        args = self._build_args(raw_sumstats_config, munge_config, config_snapshot)
         data = kernel_munge.munge_sumstats(args, p=True)
         coordinate_metadata = dict(getattr(args, "_coordinate_metadata", {}))
         table_config_snapshot = _effective_sumstats_config(config_snapshot, coordinate_metadata)
@@ -313,11 +313,11 @@ class SumstatsMunger:
             data=data.reset_index(drop=True),
             has_alleles=(not munge_config.no_alleles),
             source_path=source_path,
-            trait_name=raw_source.trait_name,
+            trait_name=raw_sumstats_config.trait_name,
             provenance={
-                "sumstats_file": source_path,
+                "raw_sumstats_file": source_path,
                 "output_dir": str(output_dir),
-                "column_hints": dict(raw_source.column_hints),
+                "column_hints": dict(raw_sumstats_config.column_hints),
                 "metadata_path": metadata_path,
                 "metadata": coordinate_metadata,
             },
@@ -328,7 +328,7 @@ class SumstatsMunger:
             n_input_rows=_count_data_rows(source_path),
             n_retained_rows=len(table.data),
             drop_counts={},
-            inferred_columns=dict(raw_source.column_hints),
+            inferred_columns=dict(raw_sumstats_config.column_hints),
             used_n_rule=_infer_used_n_rule(args),
             output_paths={
                 "sumstats_gz": fixed_output_stem + ".sumstats.gz",
@@ -381,13 +381,13 @@ class SumstatsMunger:
 
     def _build_args(
         self,
-        raw_source: MungeConfig,
+        raw_sumstats_config: MungeConfig,
         munge_config: MungeConfig,
         global_config: GlobalConfig,
     ) -> argparse.Namespace:
         """Translate dataclass configuration into the legacy parser namespace."""
         args = parser.parse_args("")
-        args.sumstats = resolve_scalar_path(raw_source.sumstats_file, label="raw sumstats")
+        args.sumstats = resolve_scalar_path(raw_sumstats_config.raw_sumstats_file, label="raw sumstats")
         output_dir = ensure_output_directory(munge_config.output_dir, label="output directory")
         args.out = str(output_dir / "sumstats")
         args.N = munge_config.N
@@ -413,7 +413,7 @@ class SumstatsMunger:
         args.daner_n = munge_config.daner_n
         args.snp_identifier = global_config.snp_identifier
         args.genome_build = global_config.genome_build
-        for key, value in raw_source.column_hints.items():
+        for key, value in raw_sumstats_config.column_hints.items():
             attr = _COLUMN_HINT_ATTRS.get(key)
             if attr is not None:
                 setattr(args, attr, value)
@@ -423,7 +423,7 @@ class SumstatsMunger:
 def main(argv: list[str] | None = None):
     """Run the historical munging parser and kernel entrypoint."""
     args = build_parser().parse_args(argv)
-    args.sumstats = resolve_scalar_path(args.sumstats_file, label="raw sumstats")
+    args.sumstats = resolve_scalar_path(args.raw_sumstats_file, label="raw sumstats")
     output_dir = ensure_output_directory(args.output_dir, label="output directory")
     args.out = str(output_dir / "sumstats")
     metadata_path = args.out + ".metadata.json"
@@ -486,7 +486,7 @@ def kernel_parser():
 def build_parser() -> argparse.ArgumentParser:
     """Build the public summary-statistics munging parser."""
     public = argparse.ArgumentParser(description=getattr(parser, "description", None), allow_abbrev=False)
-    public.add_argument("--sumstats-file", required=True, help="Raw summary-statistics file path.")
+    public.add_argument("--raw-sumstats-file", required=True, help="Raw summary-statistics file path.")
     public.add_argument("--output-dir", required=True, help="Output directory for munged sumstats and logs.")
     public.add_argument("--overwrite", action="store_true", default=False, help="Replace existing fixed output files.")
     public.add_argument("--sumstats-snps-file", default=None, help="Optional SNP keep-list for munged summary statistics.")

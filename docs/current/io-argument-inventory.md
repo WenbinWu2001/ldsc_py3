@@ -23,7 +23,7 @@ Public CLI flags and Python config fields follow these rules:
 
 | Suffix | Meaning | Examples |
 |---|---|---|
-| `*_file` | one file-like input, exact-one glob allowed where the resolver supports it | `sumstats_file`, `sumstats_snps_file`, `keep_indivs_file` |
+| `*_file` | one file-like input, exact-one glob allowed where the resolver supports it | `raw_sumstats_file`, `sumstats_file`, `sumstats_snps_file`, `keep_indivs_file` |
 | `*_sources` | one logical input that may resolve to many files via globs, comma lists, or `@` chromosome tokens | `baseline_annot_sources`, `query_annot_bed_sources` |
 | `*_dir` | directory input or output location | `ldscore_dir`, `output_dir` |
 
@@ -63,8 +63,8 @@ Removed flags: `--bed-files`, `--baseline-annot`.
 | `--query-annot-bed-sources` | input | no | query BED interval files | Supplies BED intervals to project as query annotations; defaults to omitted/`None`, so no BED query annotations are projected. Requires `--baseline-annot-sources`. |
 | `--plink-prefix` | input | conditional | PLINK reference panel prefix | Selects PLINK reference-panel input; defaults to omitted/`None` and is required when `--r2-dir` is omitted. Supports exact prefix, PLINK-prefix glob, or `@` suite. |
 | `--r2-dir` | input | conditional | package-built parquet R2 directory | Selects parquet reference-panel input; defaults to omitted/`None` and is required when `--plink-prefix` is omitted. Use a build-specific directory such as `ref_panel/hg38`. |
-| `--r2-bias-mode` | input metadata | optional | parquet R2 bias declaration | Declares whether parquet R2 values are raw or unbiased; defaults to `unbiased`. Choose `raw` only for raw sample R2 values. |
-| `--r2-sample-size` | input metadata | conditional | parquet R2 sample size | Provides the sample size for correcting raw R2; defaults to omitted/`None` and is required only when `--r2-bias-mode raw`. |
+| `--r2-bias-mode` | input metadata | optional | parquet R2 bias declaration | Declares whether parquet R2 values are raw or unbiased. Package-built panels auto-load this from `ldsc:r2_bias`; legacy files without metadata still default to `unbiased`. Choose `raw` only for external raw sample R2 values. |
+| `--r2-sample-size` | input metadata | conditional | parquet R2 sample size | Provides the sample size for correcting raw R2. Package-built raw panels can auto-load this from `ldsc:n_samples`; legacy raw files still require an explicit value with `--r2-bias-mode raw`. |
 | `--ref-panel-snps-file` | input | no | reference-panel SNP universe restriction | Restricts the retained reference-panel SNP universe; defaults to omitted/`None`, so no additional restriction is applied. |
 | `--regression-snps-file` | input | no | persisted LD-score row-set restriction | Restricts the written LD-score row set; defaults to omitted/`None`, so rows are not restricted by a persisted regression SNP set. |
 | `--keep-indivs-file` | input | no | PLINK individual keep file | Restricts PLINK individuals before LD calculation; defaults to omitted/`None`, so no individual keep filter is applied. PLINK mode only. |
@@ -120,6 +120,12 @@ Fixed output names:
 <output_dir>/hg38/chr{chrom}_meta.tsv.gz
 ```
 
+Each `chr{chrom}_r2.parquet` stores Arrow schema metadata for
+`ldsc:sorted_by_build`, `ldsc:row_group_size`, `ldsc:n_samples`, and
+`ldsc:r2_bias`. Current package-built panels write unbiased R2 values and record
+the PLINK sample count, so downstream LD-score runs can omit `--r2-bias-mode`
+and `--r2-sample-size` for panels produced by this codebase.
+
 When no usable source-to-target liftover chain is provided, the builder logs
 an INFO message and emits source-build-only outputs. When a matching liftover
 chain is provided, it emits both source and target build R2/metadata trees.
@@ -133,14 +139,15 @@ build's LD window.
 
 | Flag | Direction | Required | Object | Notes |
 |---|---:|---:|---|---|
-| `--sumstats-file` | input | yes | raw summary-statistics file | Exact path or exact-one glob. |
+| `--raw-sumstats-file` | input | yes | raw summary-statistics file | Exact path or exact-one glob. |
 | `--sumstats-snps-file` | input | no | summary-statistics SNP keep-list | Restricts munged summary-statistics rows to a SNP keep-list; defaults to omitted/`None`, so no keep-list restriction is applied. |
 | `--output-dir` | output | yes | munged output directory | Internally uses `<output_dir>/sumstats` as the legacy kernel stem. |
 | `--chr`, `--pos` | input metadata | no | raw column hints | Identify raw chromosome and position columns; default to omitted/`None`, so common aliases such as `#CHROM`, `CHROM`, `CHR`, `POS`, and `BP` are inferred. |
 | `--snp-identifier`, `--genome-build` | config | no | provenance | `--snp-identifier` defaults to `chr_pos`; `--genome-build` defaults to `hg38`; `--genome-build auto` can infer hg19/hg38 for complete `CHR`/`POS` rows. |
 | `--overwrite` | output mode | no | collision policy | Controls whether fixed sumstats outputs may be replaced; defaults to `False`, so existing outputs are refused. |
 
-Removed flags: `--sumstats`, `--merge-alleles`, `--merge-alleles-file`, `--out`.
+Removed flags: `--sumstats`, `--sumstats-file` for raw munge input,
+`--merge-alleles`, `--merge-alleles-file`, `--out`.
 
 Fixed output names:
 
@@ -254,7 +261,7 @@ Removed Python names: `plink_path`, `bfile`, `out`, `panel_label`,
 
 | Object/function | Argument | Direction | Object |
 |---|---:|---:|---|
-| `MungeConfig` | `sumstats_file` | input | raw summary-statistics file |
+| `MungeConfig` | `raw_sumstats_file` | input | raw summary-statistics file |
 | `MungeConfig` | `trait_name` | input metadata | optional trait label |
 | `MungeConfig` | `column_hints` | input metadata | optional source-column hints |
 | `MungeConfig` | `sumstats_snps_file` | input | summary-statistics SNP keep-list |
@@ -263,7 +270,8 @@ Removed Python names: `plink_path`, `bfile`, `out`, `panel_label`,
 | `SumstatsMunger.write_output(sumstats, output_dir)` | `output_dir` | output | writes fixed `sumstats.sumstats.gz` |
 
 Removed Python names: legacy separate source-path object field,
-`MungeConfig.out_prefix`, `write_output(..., out_prefix)`.
+`MungeConfig.sumstats_file`, `MungeConfig.out_prefix`,
+`write_output(..., out_prefix)`.
 
 ### Regression
 

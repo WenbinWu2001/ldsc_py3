@@ -204,6 +204,9 @@ Requirements:
 - annotation files must align on SNP rows within each chromosome
 - parquet R2 directories must use the fixed `chr{chrom}_r2.parquet` naming
   contract, with optional `chr{chrom}_meta.tsv.gz` sidecars
+- package-built R2 parquet files record `ldsc:r2_bias` and `ldsc:n_samples` in
+  schema metadata, so `--r2-bias-mode` and `--r2-sample-size` are only needed
+  for legacy or external raw-R2 parquet files without LDSC metadata
 
 Examples:
 
@@ -211,7 +214,6 @@ Examples:
 ldsc ldscore \
   --output-dir out/trait_ldscores \
   --r2-dir "r2_ref_panel_1kg30x_1cM_hm3/hg38" \
-  --r2-bias-mode unbiased \
   --common-maf-min 0.05 \
   --ld-wind-cm 1.0
 ```
@@ -303,7 +305,7 @@ Output:
 
 Relevant APIs:
 
-- `MungeConfig.sumstats_file`
+- `MungeConfig.raw_sumstats_file`
 - regression artifact paths such as `sumstats_file`, `sumstats_1_file`, and
   `sumstats_2_file`
 - `ldscore_dir` for the canonical LD-score result directory

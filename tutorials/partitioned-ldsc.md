@@ -7,6 +7,8 @@ The parquet R2 files are expected to use the canonical six-column schema
 (`CHR`, `POS_1`, `POS_2`, `R2`, `SNP_1`, `SNP_2`) with row-group statistics.
 The paired metadata sidecar is required; it defines the raw reference-panel SNP
 universe, while the parquet pair rows are queried only for LD values.
+Package-built panels carry `ldsc:r2_bias` and `ldsc:n_samples` in parquet
+schema metadata, so the examples omit R2 bias and sample-size arguments.
 The bundled `baseline_v1.2` annotations are hg19-based, so the parquet example uses `genome_build="hg19"` to align parquet coordinates to the annotation bundle.
 The workflow also accepts `hg37` and `GRCh37` as aliases for `hg19`, and `GRCh38` as an alias for `hg38`; outputs always normalize back to canonical `hg19` or `hg38`.
 If you are using `chr_pos` inputs and need the package to infer hg19/hg38 and
@@ -87,7 +89,7 @@ annotation_bundle = AnnotationBuilder(GLOBAL_CONFIG, AnnotationBuildConfig()).ru
 
 sumstats = SumstatsMunger().run(
     MungeConfig(
-        sumstats_file="data/trait.tsv.gz",
+        raw_sumstats_file="data/trait.tsv.gz",
         trait_name="trait",
         column_hints={
             "snp": "ID",
@@ -117,7 +119,6 @@ ref_panel = RefPanelLoader(GLOBAL_CONFIG).load(
         backend="parquet_r2",
         r2_dir="r2_ref_panel_1kg30x_1cM_hm3/hg19",
         chromosomes=tuple(annotation_bundle.chromosomes),
-        r2_bias_mode="unbiased",
         ref_panel_snps_file="filters/reference_universe.tsv.gz",
     )
 )
@@ -188,7 +189,6 @@ ldsc ldscore \
   --baseline-annot-sources "annotations/baseline_chr/baseline.@.annot.gz" \
   --query-annot-bed-sources "beds/*.bed" \
   --r2-dir "r2_ref_panel_1kg30x_1cM_hm3/hg19" \
-  --r2-bias-mode unbiased \
   --ref-panel-snps-file filters/reference_universe.tsv.gz \
   --regression-snps-file filters/hapmap3.tsv.gz \
   --snp-identifier chr_pos \
@@ -213,7 +213,7 @@ groups are chromosome-aligned and listed in the manifest for targeted reads.
 
 ```bash
 ldsc munge-sumstats \
-  --sumstats-file data/trait.tsv.gz \
+  --raw-sumstats-file data/trait.tsv.gz \
   --snp ID \
   --chr '#CHROM' \
   --pos POS \

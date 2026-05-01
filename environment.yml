@@ -12,6 +12,7 @@ dependencies:
   - scipy>=1.15,<1.18
   - pandas>=2.3,<3.0
   - numpy>=2.1,<2.5
+  # Required for canonical parquet I/O, row-group pruning, and LDSC schema metadata.
   - pyarrow>=21,<24
   # Optional workflow extras included in the development environment.
   - bitarray>=3.0,<4

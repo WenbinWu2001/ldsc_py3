@@ -7,6 +7,7 @@ primitive strings before the execution kernel sees them.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 import logging
 from pathlib import Path
 import re
@@ -34,6 +35,76 @@ from .identifiers import (
 
 LOGGER = logging.getLogger("LDSC.ref_panel")
 _REF_PANEL_R2_RE = re.compile(r"^chr(?P<chrom>.+)_r2\.parquet$", flags=re.IGNORECASE)
+
+
+@dataclass(frozen=True)
+class _R2SchemaMeta:
+    """Parsed LDSC R2 schema metadata from one parquet file."""
+
+    n_samples: int | None
+    r2_bias: str | None
+
+
+def _read_r2_schema_meta(path: str) -> _R2SchemaMeta:
+    """
+    Read LDSC R2 sample-size and bias metadata from an Arrow parquet schema.
+
+    Missing keys are returned as ``None`` so legacy parquet files keep their
+    historical behavior. A file with ``ldsc:n_samples`` but no ``ldsc:r2_bias``
+    is treated as malformed raw-R2 metadata and resolved to ``r2_bias="raw"``
+    with a warning.
+    """
+    try:
+        import pyarrow.parquet as pq
+    except ImportError:
+        return _R2SchemaMeta(n_samples=None, r2_bias=None)
+
+    raw_meta = pq.read_schema(path).metadata or {}
+    n_raw = raw_meta.get(b"ldsc:n_samples")
+    bias_raw = raw_meta.get(b"ldsc:r2_bias")
+    n_samples = int(n_raw.decode("utf-8")) if n_raw is not None else None
+    r2_bias = bias_raw.decode("utf-8") if bias_raw is not None else None
+
+    if n_samples is not None and r2_bias is None:
+        LOGGER.warning(f"'{path}' has ldsc:n_samples but no ldsc:r2_bias; treating as 'raw'.")
+        r2_bias = "raw"
+
+    return _R2SchemaMeta(n_samples=n_samples, r2_bias=r2_bias)
+
+
+def _resolve_r2_bias_from_meta(
+    r2_bias_mode: str | None,
+    r2_sample_size: float | None,
+    meta: _R2SchemaMeta,
+) -> tuple[str, float | None]:
+    """
+    Resolve effective R2 bias mode and correction sample size.
+
+    User-supplied values take precedence over parquet metadata. When no user
+    mode is supplied, stored ``ldsc:r2_bias`` selects ``"unbiased"`` or
+    ``"raw"``; raw mode auto-fills the sample size from ``ldsc:n_samples`` when
+    available. Legacy files with neither key default to unbiased, matching the
+    pre-metadata behavior.
+    """
+    stored_bias = meta.r2_bias
+    stored_n = float(meta.n_samples) if meta.n_samples is not None else None
+
+    if stored_bias is None and stored_n is not None:
+        LOGGER.warning("R2 schema metadata has ldsc:n_samples but no ldsc:r2_bias; treating as 'raw'.")
+        stored_bias = "raw"
+
+    effective_bias = r2_bias_mode if r2_bias_mode is not None else (stored_bias or "unbiased")
+
+    if effective_bias == "unbiased":
+        if r2_sample_size is not None:
+            LOGGER.warning(
+                "r2_sample_size is ignored because R2 values are already unbiased "
+                "(ldsc:r2_bias=unbiased in parquet schema metadata)."
+            )
+        return "unbiased", None
+
+    resolved_n = r2_sample_size if r2_sample_size is not None else stored_n
+    return "raw", resolved_n
 
 
 class RefPanel(ABC):
@@ -315,15 +386,34 @@ class ParquetR2RefPanel(RefPanel):
         r2_bias_mode: str | None = None,
         r2_sample_size: float | None = None,
     ):
-        """Build a row-group-pruning block reader over one chromosome's R2 parquet."""
+        """
+        Build a row-group-pruning reader with R2 bias settings resolved.
+
+        Runtime overrides are merged with ``RefPanelConfig`` first, then the
+        first chromosome parquet's LDSC schema metadata is used to auto-fill
+        missing R2 bias mode and sample size before constructing
+        ``SortedR2BlockReader``.
+        """
         metadata = metadata if metadata is not None else self.load_metadata(chrom)
+        paths = self.resolve_r2_paths(chrom)
+        effective_bias = self.spec.r2_bias_mode if r2_bias_mode is None else r2_bias_mode
+        effective_n = r2_sample_size if r2_sample_size is not None else self.spec.sample_size
+
+        if paths:
+            stored = _read_r2_schema_meta(paths[0])
+            effective_bias, effective_n = _resolve_r2_bias_from_meta(
+                effective_bias,
+                effective_n,
+                stored,
+            )
+
         return kernel_ldscore.SortedR2BlockReader(
-            paths=self.resolve_r2_paths(chrom),
+            paths=paths,
             chrom=chrom,
             metadata=metadata,
             identifier_mode=self.global_config.snp_identifier,
-            r2_bias_mode=self.spec.r2_bias_mode if r2_bias_mode is None else r2_bias_mode,
-            r2_sample_size=r2_sample_size if r2_sample_size is not None else self.spec.sample_size,
+            r2_bias_mode=effective_bias,
+            r2_sample_size=effective_n,
             genome_build=self.global_config.genome_build,
         )
 

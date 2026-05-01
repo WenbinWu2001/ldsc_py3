@@ -69,6 +69,11 @@ governed by the number of decimal digits printed, not numpy dtype.
 | `baseline.parquet`, `query.parquet` | `regr_weight`, all LD-score / annotation columns | `CHR` (str), `POS` (int64), `SNP` (str) |
 | Pairwise R² parquet | `R2` | `CHR` (str), `POS_1`, `POS_2` (int64), `SNP_1`, `SNP_2` (str) |
 
+Pairwise R² parquet schema metadata also stores `ldsc:sorted_by_build`,
+`ldsc:row_group_size`, `ldsc:n_samples`, and `ldsc:r2_bias`. The last two keys
+let downstream readers distinguish package-built unbiased R2 from raw sample R2
+without requiring users to repeat sample-size arguments.
+
 `N`, `N_CAS`, `N_CON`, `NSTUDY` are stored in `.sumstats.gz` (text), never in
 parquet. They remain `float64` everywhere and are **not** subject to float32
 narrowing.

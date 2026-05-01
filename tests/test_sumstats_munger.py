@@ -37,6 +37,17 @@ class SumstatsMungerTest(unittest.TestCase):
         parser = sumstats_workflow.build_parser()
         self.assertEqual(parser.get_default("chunksize"), 1_000_000)
 
+    def test_build_parser_uses_raw_sumstats_file_for_raw_input(self):
+        parser = sumstats_workflow.build_parser()
+
+        args = parser.parse_args(
+            ["--raw-sumstats-file", "raw.tsv", "--output-dir", "out"]
+        )
+
+        self.assertEqual(args.raw_sumstats_file, "raw.tsv")
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["--sumstats-file", "raw.tsv", "--output-dir", "out"])
+
     def test_kernel_reports_actionable_signed_sumstats_format_error(self):
         args = kernel_munge.parser.parse_args(["--signed-sumstats", "BETA"])
         log = mock.Mock(log=mock.Mock())
@@ -98,7 +109,7 @@ class SumstatsMungerTest(unittest.TestCase):
                 "rs2 C T 0.10 0.9 1000\n",
                 encoding="utf-8",
             )
-            raw = MungeConfig(sumstats_file=str(raw_path), trait_name="trait")
+            raw = MungeConfig(raw_sumstats_file=str(raw_path), trait_name="trait")
             config = MungeConfig(output_dir=str(tmpdir / "munged"))
             munger = SumstatsMunger()
             table = munger.run(raw, config, GlobalConfig(snp_identifier="rsid"))
@@ -127,7 +138,7 @@ class SumstatsMungerTest(unittest.TestCase):
                 encoding="utf-8",
             )
             config = MungeConfig(
-                sumstats_file=str(raw_path),
+                raw_sumstats_file=str(raw_path),
                 output_dir=str(tmpdir / "munged"),
                 trait_name="trait",
             )
@@ -163,7 +174,7 @@ class SumstatsMungerTest(unittest.TestCase):
             ) as patched_munge:
                 sumstats_workflow.main(
                     [
-                        "--sumstats-file",
+                        "--raw-sumstats-file",
                         str(raw_path),
                         "--output-dir",
                         str(tmpdir / "out"),
@@ -195,7 +206,7 @@ class SumstatsMungerTest(unittest.TestCase):
             ) as patched_munge:
                 sumstats_workflow.main(
                     [
-                        "--sumstats-file",
+                        "--raw-sumstats-file",
                         str(raw_path),
                         "--output-dir",
                         str(tmpdir / "out"),
@@ -215,7 +226,7 @@ class SumstatsMungerTest(unittest.TestCase):
                 "rs1 A G 0.05 1.0 1000\n",
                 encoding="utf-8",
             )
-            raw = MungeConfig(sumstats_file=str(raw_path), trait_name="trait")
+            raw = MungeConfig(raw_sumstats_file=str(raw_path), trait_name="trait")
             output_dir = tmpdir / "nested" / "dir" / "munged"
             config = MungeConfig(output_dir=str(output_dir))
 
@@ -238,7 +249,7 @@ class SumstatsMungerTest(unittest.TestCase):
             with mock.patch.object(kernel_munge, "munge_sumstats", side_effect=AssertionError("kernel should not run")):
                 with self.assertRaisesRegex(FileExistsError, "overwrite"):
                     SumstatsMunger().run(
-                        MungeConfig(sumstats_file=raw_path, trait_name="trait"),
+                        MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
                         MungeConfig(output_dir=output_dir),
                         GlobalConfig(snp_identifier="rsid"),
                     )
@@ -257,7 +268,7 @@ class SumstatsMungerTest(unittest.TestCase):
 
             with mock.patch.object(kernel_munge, "munge_sumstats", return_value=returned) as patched:
                 table = SumstatsMunger().run(
-                    MungeConfig(sumstats_file=raw_path, trait_name="trait"),
+                    MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
                     MungeConfig(output_dir=output_dir, overwrite=True),
                     GlobalConfig(snp_identifier="rsid"),
                 )
@@ -274,7 +285,7 @@ class SumstatsMungerTest(unittest.TestCase):
                 "rs1 A G 0.05 1.0 1000\n",
                 encoding="utf-8",
             )
-            raw = MungeConfig(sumstats_file=raw_path, trait_name="trait")
+            raw = MungeConfig(raw_sumstats_file=raw_path, trait_name="trait")
             output_dir = tmpdir / "nested" / "mdd2025"
 
             table = SumstatsMunger().run(raw, MungeConfig(output_dir=output_dir), GlobalConfig(snp_identifier="rsid"))
@@ -293,7 +304,7 @@ class SumstatsMungerTest(unittest.TestCase):
                 "rs1 A G 0.05 1.0 1000\n",
                 encoding="utf-8",
             )
-            raw = MungeConfig(sumstats_file=str(tmpdir / "trait.*.tsv"), trait_name="trait")
+            raw = MungeConfig(raw_sumstats_file=str(tmpdir / "trait.*.tsv"), trait_name="trait")
             output_dir = tmpdir / "out" / "munged"
 
             table = SumstatsMunger().run(raw, MungeConfig(output_dir=output_dir), GlobalConfig(snp_identifier="rsid"))
@@ -375,7 +386,7 @@ class SumstatsMungerTest(unittest.TestCase):
             keep_path.write_text("SNP\nrs3\nrs1\n", encoding="utf-8")
 
             table = SumstatsMunger().run(
-                MungeConfig(sumstats_file=raw_path, trait_name="trait"),
+                MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
                 MungeConfig(output_dir=tmpdir / "munged", sumstats_snps_file=keep_path),
                 GlobalConfig(snp_identifier="rsid"),
             )
@@ -400,7 +411,7 @@ class SumstatsMungerTest(unittest.TestCase):
             keep_path.write_text("CHR\tPOS\n1\t200\n", encoding="utf-8")
 
             table = SumstatsMunger().run(
-                MungeConfig(sumstats_file=raw_path, trait_name="trait"),
+                MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
                 MungeConfig(output_dir=tmpdir / "munged", sumstats_snps_file=keep_path),
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
             )
@@ -425,7 +436,7 @@ class SumstatsMungerTest(unittest.TestCase):
                 "Keep-list file: .*snp_identifier=rsid.*keep-list identifiers=1",
             ):
                 SumstatsMunger().run(
-                    MungeConfig(sumstats_file=raw_path, trait_name="trait"),
+                    MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
                     MungeConfig(output_dir=tmpdir / "munged", sumstats_snps_file=keep_path),
                     GlobalConfig(snp_identifier="rsid"),
                 )
@@ -444,7 +455,7 @@ class SumstatsMungerTest(unittest.TestCase):
             keep_path.write_text("CHR\thg19_POS\thg38_POS\n1\t200\t999\n", encoding="utf-8")
 
             table = SumstatsMunger().run(
-                MungeConfig(sumstats_file=raw_path, trait_name="trait"),
+                MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
                 MungeConfig(output_dir=tmpdir / "munged", sumstats_snps_file=keep_path),
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg19"),
             )
@@ -481,7 +492,7 @@ class SumstatsMungerTest(unittest.TestCase):
 
             with mock.patch.object(kernel_munge, "resolve_chr_pos_table", side_effect=fake_resolve_chr_pos_table):
                 table = SumstatsMunger().run(
-                    MungeConfig(sumstats_file=raw_path, trait_name="trait"),
+                    MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
                     MungeConfig(output_dir=tmpdir / "munged", sumstats_snps_file=keep_path),
                     GlobalConfig(snp_identifier="chr_pos", genome_build="auto"),
                 )
@@ -504,7 +515,7 @@ class SumstatsMungerTest(unittest.TestCase):
             keep_path.write_text("SNP\tA1\tA2\nrs1\tT\tC\n", encoding="utf-8")
 
             table = SumstatsMunger().run(
-                MungeConfig(sumstats_file=raw_path, trait_name="trait"),
+                MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
                 MungeConfig(output_dir=tmpdir / "munged", sumstats_snps_file=keep_path),
                 GlobalConfig(snp_identifier="rsid"),
             )
@@ -524,7 +535,7 @@ class SumstatsMungerTest(unittest.TestCase):
             )
 
             table = SumstatsMunger().run(
-                MungeConfig(sumstats_file=raw_path, trait_name="trait"),
+                MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
                 MungeConfig(output_dir=tmpdir / "munged"),
                 GlobalConfig(snp_identifier="rsid"),
             )
@@ -551,7 +562,7 @@ class SumstatsMungerTest(unittest.TestCase):
 
             munger = SumstatsMunger()
             table = munger.run(
-                MungeConfig(sumstats_file=raw_path, trait_name="trait"),
+                MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
                 MungeConfig(output_dir=tmpdir / "munged"),
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
             )
@@ -572,7 +583,7 @@ class SumstatsMungerTest(unittest.TestCase):
             )
 
             table = SumstatsMunger().run(
-                MungeConfig(sumstats_file=raw_path, trait_name="trait"),
+                MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
                 MungeConfig(output_dir=tmpdir / "munged"),
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
             )
@@ -595,7 +606,7 @@ class SumstatsMungerTest(unittest.TestCase):
 
             table = SumstatsMunger().run(
                 MungeConfig(
-                    sumstats_file=raw_path,
+                    raw_sumstats_file=raw_path,
                     trait_name="trait",
                     column_hints={"chr": "chromosome_name", "pos": "base_pair", "snp": "variant"},
                 ),
@@ -619,7 +630,7 @@ class SumstatsMungerTest(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "CHR"):
                 SumstatsMunger().run(
-                    MungeConfig(sumstats_file=raw_path, trait_name="trait"),
+                    MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
                     MungeConfig(output_dir=tmpdir / "munged"),
                     GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
                 )
@@ -636,7 +647,7 @@ class SumstatsMungerTest(unittest.TestCase):
             output_dir = tmpdir / "munged"
 
             SumstatsMunger().run(
-                MungeConfig(sumstats_file=raw_path, trait_name="trait"),
+                MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
                 MungeConfig(output_dir=output_dir),
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
             )

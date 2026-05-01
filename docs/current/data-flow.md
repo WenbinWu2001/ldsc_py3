@@ -161,7 +161,7 @@ flowchart LR
 
 | File | Example | Notes |
 | --- | --- | --- |
-| build-specific R2 parquet | `hg38/chr22_r2.parquet` with columns `CHR`, `POS_1`, `POS_2`, `SNP_1`, `SNP_2`, `R2` | one row per unordered SNP pair inside the LD window; row groups are sorted by that build's `POS_1` |
+| build-specific R2 parquet | `hg38/chr22_r2.parquet` with columns `CHR`, `POS_1`, `POS_2`, `SNP_1`, `SNP_2`, `R2` | one row per unordered SNP pair inside the LD window; row groups are sorted by that build's `POS_1`; schema metadata records `ldsc:n_samples` and `ldsc:r2_bias` for downstream auto-load |
 | build-specific runtime metadata sidecar | `hg38/chr22_meta.tsv.gz` with `CHR POS SNP CM MAF` | authoritative SNP universe for the matching R2 parquet when present |
 
 ### Modules used

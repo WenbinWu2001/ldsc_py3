@@ -8,6 +8,8 @@ The examples below assume chromosome-pattern annotation inputs such as
 `chr*_r2.parquet` file is the canonical pair table and the matching
 `chr*_meta.tsv.gz` sidecar is optional but strongly recommended because it
 defines the complete reference SNP universe and supplies `MAF`/`CM`.
+Package-built R2 parquet files carry `ldsc:r2_bias` and `ldsc:n_samples` in
+schema metadata, so the examples omit R2 bias and sample-size arguments.
 
 Path-token rules:
 
@@ -49,7 +51,7 @@ set_global_config(GLOBAL_CONFIG)
 
 sumstats = SumstatsMunger().run(
     MungeConfig(
-        sumstats_file="data/trait*.tsv.gz",
+        raw_sumstats_file="data/trait*.tsv.gz",
         trait_name="trait",
         column_hints={
             "snp": "ID",
@@ -77,7 +79,6 @@ sumstats = SumstatsMunger().run(
 ldscore_result = run_ldscore(
     output_dir="tutorial_outputs/trait_ldscores",
     r2_dir="r2_ref_panel_1kg30x_1cM_hm3/hg38",
-    r2_bias_mode="unbiased",
     regression_snps_file="filters/hapmap3.txt",
     common_maf_min=0.05,
     ld_wind_cm=1.0,
@@ -121,7 +122,7 @@ The regression CLI reads the canonical LD-score result directory written by
 
 ```bash
 ldsc munge-sumstats \
-  --sumstats-file "data/trait*.tsv.gz" \
+  --raw-sumstats-file "data/trait*.tsv.gz" \
   --snp ID \
   --chr '#CHROM' \
   --pos POS \
@@ -139,7 +140,6 @@ ldsc munge-sumstats \
 ldsc ldscore \
   --output-dir tutorial_outputs/trait_ldscores \
   --r2-dir "r2_ref_panel_1kg30x_1cM_hm3/hg38" \
-  --r2-bias-mode unbiased \
   --regression-snps-file filters/hapmap3.txt \
   --snp-identifier chr_pos \
   --genome-build auto \

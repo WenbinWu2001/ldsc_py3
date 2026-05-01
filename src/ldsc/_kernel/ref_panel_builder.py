@@ -618,17 +618,25 @@ def write_r2_parquet(
     reference_snp_table: pd.DataFrame,
     path: str | PathLike[str],
     genome_build: str,
+    n_samples: int,
     batch_size: int = 100_000,
     row_group_size: int = 50_000,
 ) -> str:
     """
-    Write a canonical R2 parquet table with row-group metadata.
+    Write one canonical R2 parquet table with LDSC schema metadata.
 
     The writer requires ``pyarrow`` because the canonical format depends on
     Arrow schema metadata and explicit row-group sizing. It writes exactly the
-    six canonical R2 columns, stores ``ldsc:sorted_by_build`` and
-    ``ldsc:row_group_size`` in schema metadata, and validates that incoming
-    pair rows are sorted by non-decreasing ``POS_1``.
+    six canonical R2 columns and records ``ldsc:sorted_by_build``,
+    ``ldsc:row_group_size``, ``ldsc:n_samples``, and ``ldsc:r2_bias`` in the
+    Arrow schema. Current package-built panels always store unbiased R2 values,
+    so ``ldsc:r2_bias`` is written as ``"unbiased"`` and ``n_samples`` captures
+    the PLINK reader's ``geno.n`` for downstream provenance and future raw-R2
+    compatibility.
+
+    Incoming pair rows must already be sorted by non-decreasing ``POS_1``. The
+    writer validates that invariant while streaming batches because row-group
+    pruning depends on monotonic footer statistics.
     """
 
     _ensure_parent_dir(path)
@@ -644,6 +652,8 @@ def write_r2_parquet(
     pa_meta = {
         b"ldsc:sorted_by_build": genome_build.encode("utf-8"),
         b"ldsc:row_group_size": str(row_group_size).encode("utf-8"),
+        b"ldsc:n_samples": str(n_samples).encode("utf-8"),
+        b"ldsc:r2_bias": b"unbiased",
     }
     writer = None
     batch: list[dict[str, float | int | str]] = []

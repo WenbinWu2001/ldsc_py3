@@ -1,4 +1,5 @@
 scipy>=1.15,<1.18
 numpy>=2.1,<2.5
 pandas>=2.3,<3.0
+# Required for canonical parquet I/O, row-group pruning, and LDSC schema metadata.
 pyarrow>=21,<24

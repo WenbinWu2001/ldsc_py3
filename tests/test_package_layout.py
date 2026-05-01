@@ -137,7 +137,7 @@ class PackageLayoutTest(unittest.TestCase):
             ],
             [
                 "munge-sumstats",
-                "--sumstats-file",
+                "--raw-sumstats-file",
                 "raw.tsv",
                 "--output-dir",
                 "out/trait",
@@ -238,7 +238,7 @@ class PackageLayoutTest(unittest.TestCase):
         args = parser.parse_args(
             [
                 "munge-sumstats",
-                "--sumstats-file",
+                "--raw-sumstats-file",
                 "raw.tsv",
                 "--output-dir",
                 "out/trait",
@@ -258,7 +258,7 @@ class PackageLayoutTest(unittest.TestCase):
             parser.parse_args(
                 [
                     "munge-sumstats",
-                    "--sumstats-file",
+                    "--raw-sumstats-file",
                     "raw.tsv",
                     "--output-dir",
                     "out/trait",

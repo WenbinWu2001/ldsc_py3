@@ -44,7 +44,7 @@ set_global_config(GLOBAL_CONFIG)
 # Option A: munge raw sumstats in the same workflow.
 trait_1 = SumstatsMunger().run(
     MungeConfig(
-        sumstats_file="data/trait_1.tsv.gz",
+        raw_sumstats_file="data/trait_1.tsv.gz",
         trait_name="trait_1",
         column_hints={"snp": "SNP", "a1": "A1", "a2": "A2", "p": "P", "N_col": "N"},
         # sumstats_snps_file="filters/hapmap3.tsv.gz",  # optional row keep-list
@@ -57,7 +57,7 @@ trait_1 = SumstatsMunger().run(
 
 trait_2 = SumstatsMunger().run(
     MungeConfig(
-        sumstats_file="data/trait_2.tsv.gz",
+        raw_sumstats_file="data/trait_2.tsv.gz",
         trait_name="trait_2",
         column_hints={"snp": "SNP", "a1": "A1", "a2": "A2", "p": "P", "N_col": "N"},
         # sumstats_snps_file="filters/hapmap3.tsv.gz",  # optional row keep-list
@@ -112,7 +112,7 @@ table merge by normalized `CHR:POS` coordinates.
 
 ```bash
 ldsc munge-sumstats \
-  --sumstats-file data/trait_1.tsv.gz \
+  --raw-sumstats-file data/trait_1.tsv.gz \
   --snp SNP \
   --a1 A1 \
   --a2 A2 \
@@ -123,7 +123,7 @@ ldsc munge-sumstats \
   --output-dir tutorial_outputs/trait_1
 
 ldsc munge-sumstats \
-  --sumstats-file data/trait_2.tsv.gz \
+  --raw-sumstats-file data/trait_2.tsv.gz \
   --snp SNP \
   --a1 A1 \
   --a2 A2 \

@@ -223,7 +223,6 @@ ref_panel = ldsc.RefPanelLoader(cfg).load(
     ldsc.RefPanelConfig(
         backend="parquet_r2",
         r2_dir="r2_ref_panel_1kg30x_1cM_hm3/hg38",
-        r2_bias_mode="unbiased",
         ref_panel_snps_file="filters/reference_universe.txt",
     )
 )
@@ -238,6 +237,12 @@ ldscore = ldsc.LDScoreCalculator().run(
     global_config=cfg,
 )
 ```
+
+For package-built parquet R2 panels, `RefPanelConfig.r2_bias_mode` and
+`sample_size` can usually stay omitted because the loader reads
+`ldsc:r2_bias` and `ldsc:n_samples` from the parquet schema. Set them explicitly
+only when loading legacy or external raw-R2 parquet files that lack LDSC schema
+metadata.
 
 ### Artifact contract
 

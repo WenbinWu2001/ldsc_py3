@@ -397,8 +397,19 @@ class ReferencePanelBuilder:
             chrom_df=chrom_df,
             keep_snps=keep_snps,
         )
+        keep_snps, dropped_df = _resolve_unique_snp_set(
+            chrom=chrom,
+            chrom_df=chrom_df,
+            keep_snps=keep_snps,
+            hg19_lookup=hg19_lookup,
+            hg38_lookup=hg38_lookup,
+            policy=config.duplicate_position_policy,
+        )
+        if not dropped_df.empty:
+            sidecar_path = Path(config.output_dir) / f"chr{chrom}_dropped.tsv.gz"
+            _write_dropped_sidecar(dropped_df, sidecar_path, chrom)
         if len(keep_snps) == 0:
-            LOGGER.info(f"Skipping chromosome {chrom} because no SNPs remain after liftover filtering.")
+            LOGGER.info(f"Skipping chromosome {chrom}: no SNPs remain after duplicate-position filtering.")
             return None
 
         keep_indivs = None
@@ -440,6 +451,13 @@ class ReferencePanelBuilder:
             build_positions = hg19_positions if build == "hg19" else hg38_positions
             if build_positions is None:
                 raise ValueError(f"{build} positions are unavailable for chromosome {chrom}; provide a matching liftover chain.")
+            _validate_emitted_build_chr_pos_uniqueness(
+                metadata=metadata,
+                positions=build_positions,
+                genome_build=build,
+                chrom=chrom,
+                snp_identifier=self.global_config.snp_identifier,
+            )
 
             cm_values = (
                 kernel_builder.interpolate_genetic_map_cm(chrom, build_positions, build_state.genetic_map_hg19)
@@ -476,6 +494,7 @@ class ReferencePanelBuilder:
                 reference_snp_table=reference_snp_table,
                 path=r2_path,
                 genome_build=build,
+                n_samples=geno.n,
             )
             runtime_metadata = kernel_builder.build_runtime_metadata_table(
                 metadata=metadata,
@@ -782,6 +801,25 @@ def _metadata_with_build_positions(metadata: pd.DataFrame, positions: np.ndarray
     return build_metadata
 
 
+def _validate_emitted_build_chr_pos_uniqueness(
+    *,
+    metadata: pd.DataFrame,
+    positions: np.ndarray,
+    genome_build: str,
+    chrom: str,
+    snp_identifier: str,
+) -> None:
+    """Reject emitted-build coordinate collisions when building for chr_pos matching."""
+    if normalize_snp_identifier_mode(snp_identifier) != "chr_pos":
+        return
+    build_metadata = _metadata_with_build_positions(metadata, positions)
+    kernel_identifiers.validate_unique_snp_ids(
+        build_metadata,
+        "chr_pos",
+        context=f"Reference-panel build output {genome_build}[{chrom}]",
+    )
+
+
 def _sort_retained_snps_by_build_position(
     keep_snps,
     *,
@@ -803,6 +841,107 @@ def _sort_retained_snps_by_build_position(
     return np.asarray(
         sorted(keep_snps.tolist(), key=lambda idx: (int(lookup[int(idx)]), int(idx))),
         dtype=int,
+    )
+
+
+def _resolve_unique_snp_set(
+    chrom: str,
+    chrom_df: pd.DataFrame,
+    keep_snps: np.ndarray,
+    hg19_lookup: dict[int, int],
+    hg38_lookup: dict[int, int],
+    policy: str,
+) -> tuple[np.ndarray, pd.DataFrame]:
+    """Detect and resolve SNPs sharing a CHR:POS key in any emitted build."""
+    keep_list = keep_snps.tolist()
+    drop_set: set[int] = set()
+    prov_rows: list[dict[str, object]] = []
+
+    source_pos = chrom_df.loc[keep_list, "BP"].to_numpy(dtype=int)
+    source_dup_mask = pd.Series(source_pos).duplicated(keep=False).to_numpy()
+    if source_dup_mask.any():
+        if policy == "error":
+            dup_positions = sorted(set(source_pos[source_dup_mask]))
+            lines = []
+            for pos in dup_positions:
+                for idx, source_bp in zip(keep_list, source_pos):
+                    if source_bp == pos:
+                        lines.append(f"    CHR={chrom} source_pos={pos} SNP={chrom_df.loc[idx, 'SNP']}")
+            raise ValueError(
+                f"source-build duplicate CHR:POS on chromosome {chrom}. "
+                "Use --duplicate-position-policy=drop-all to drop colliding clusters.\n"
+                + "\n".join(lines)
+            )
+        for i, idx in enumerate(keep_list):
+            if source_dup_mask[i]:
+                drop_set.add(int(idx))
+                prov_rows.append(
+                    {
+                        "CHR": chrom,
+                        "SNP": chrom_df.loc[idx, "SNP"],
+                        "source_pos": int(source_pos[i]),
+                        "target_pos": pd.NA,
+                        "reason": "source_duplicate",
+                    }
+                )
+
+    source_survivors = [int(idx) for idx in keep_list if idx not in drop_set]
+    for lookup in (hg19_lookup, hg38_lookup):
+        if not lookup or len(source_survivors) < 2:
+            continue
+        target_pos = [lookup[idx] for idx in source_survivors]
+        target_dup_mask = pd.Series(target_pos).duplicated(keep=False).to_numpy()
+        if not target_dup_mask.any():
+            continue
+        if policy == "error":
+            target_array = np.asarray(target_pos, dtype=int)
+            dup_positions = sorted(set(target_array[target_dup_mask]))
+            lines = []
+            for pos in dup_positions:
+                for idx, target_bp in zip(source_survivors, target_pos):
+                    if target_bp == pos:
+                        lines.append(
+                            f"    CHR={chrom} source_pos={chrom_df.loc[idx, 'BP']} "
+                            f"target_pos={pos} SNP={chrom_df.loc[idx, 'SNP']}"
+                        )
+            raise ValueError(
+                f"target-build collision CHR:POS on chromosome {chrom}. "
+                "Use --duplicate-position-policy=drop-all to drop colliding clusters.\n"
+                + "\n".join(lines)
+            )
+        for i, idx in enumerate(source_survivors):
+            if target_dup_mask[i] and idx not in drop_set:
+                drop_set.add(int(idx))
+                prov_rows.append(
+                    {
+                        "CHR": chrom,
+                        "SNP": chrom_df.loc[idx, "SNP"],
+                        "source_pos": int(chrom_df.loc[idx, "BP"]),
+                        "target_pos": int(target_pos[i]),
+                        "reason": "target_collision",
+                    }
+                )
+
+    cleaned = np.asarray([idx for idx in keep_snps if idx not in drop_set], dtype=keep_snps.dtype)
+    columns = ["CHR", "SNP", "source_pos", "target_pos", "reason"]
+    if prov_rows:
+        dropped_df = pd.DataFrame(prov_rows, columns=columns)
+        dropped_df["target_pos"] = dropped_df["target_pos"].astype("Int64")
+    else:
+        dropped_df = pd.DataFrame(columns=columns)
+    return cleaned, dropped_df
+
+
+def _write_dropped_sidecar(dropped_df: pd.DataFrame, path: Path, chrom: str) -> None:
+    """Write a provenance sidecar for dropped duplicate-position SNPs."""
+    dropped_df.to_csv(path, sep="\t", index=False, compression="gzip")
+    n_dropped = len(dropped_df)
+    n_source = int((dropped_df["reason"] == "source_duplicate").sum())
+    n_target = int((dropped_df["reason"] == "target_collision").sum())
+    LOGGER.warning(
+        f"Dropped {n_dropped} SNPs on chromosome {chrom} due to duplicate positions "
+        f"({n_source} source-build duplicates, {n_target} target-build collisions). "
+        f"Provenance written to '{path}'."
     )
 
 
@@ -857,6 +996,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--snp-identifier", default=None, choices=("rsid", "chr_pos"), help="SNP identifier mode for --ref-panel-snps-file.")
     parser.add_argument("--keep-indivs-file", default=None, help="Optional individual-keep file.")
     parser.add_argument("--chunk-size", default=128, type=int, help="Chunk size for block processing.")
+    parser.add_argument(
+        "--duplicate-position-policy",
+        default="error",
+        choices=("error", "drop-all"),
+        help=(
+            "How to handle SNPs that share a CHR:POS key in any emitted build. "
+            "'error' aborts and reports all duplicate clusters (default). "
+            "'drop-all' drops every SNP in each colliding cluster and writes a "
+            "provenance sidecar to {output_dir}/chr{chrom}_dropped.tsv.gz."
+        ),
+    )
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"))
     return parser
 
@@ -898,6 +1048,7 @@ def config_from_args(args: argparse.Namespace) -> tuple[ReferencePanelBuildConfi
         ref_panel_snps_file=args.ref_panel_snps_file,
         keep_indivs_file=args.keep_indivs_file,
         chunk_size=args.chunk_size,
+        duplicate_position_policy=args.duplicate_position_policy,
     )
     global_config = GlobalConfig(
         snp_identifier=snp_identifier,

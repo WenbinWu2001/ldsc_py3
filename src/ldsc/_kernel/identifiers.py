@@ -97,11 +97,36 @@ def build_snp_id_series(df: pd.DataFrame, mode: str) -> pd.Series:
 
 def validate_unique_snp_ids(df: pd.DataFrame, mode: str, context: str = "table") -> None:
     """Raise ``ValueError`` if a table does not have unique canonical SNP IDs."""
+    mode = normalize_snp_identifier_mode(mode)
     snp_ids = build_snp_id_series(df, mode)
     duplicated = snp_ids[snp_ids.duplicated()].unique().tolist()
     if duplicated:
         preview = ", ".join(map(str, duplicated[:5]))
-        raise ValueError(f"{context} contains non-unique SNP identifiers: {preview}")
+        details = _duplicate_identifier_details(df, snp_ids, duplicated[:5])
+        message = f"{context} contains non-unique SNP identifiers in {mode} mode: {preview}"
+        if details:
+            message += f". Colliding rows: {details}"
+        if mode == "chr_pos":
+            message += (
+                ". chr_pos mode requires one variant per chromosome/position; "
+                "use rsid mode or prune duplicate-coordinate variants before building or running the reference panel."
+            )
+        raise ValueError(message)
+
+
+def _duplicate_identifier_details(df: pd.DataFrame, snp_ids: pd.Series, duplicated: list[object]) -> str:
+    """Return a compact description of duplicate keys when SNP labels are available."""
+    try:
+        snp_col = infer_snp_column(df.columns)
+    except ValueError:
+        return ""
+    parts: list[str] = []
+    for identifier in duplicated:
+        rows = df.loc[snp_ids == identifier, snp_col].astype(str).dropna().unique().tolist()
+        if not rows:
+            continue
+        parts.append(f"{identifier} has SNPs {', '.join(rows[:5])}")
+    return "; ".join(parts)
 
 
 def read_global_snp_restriction(

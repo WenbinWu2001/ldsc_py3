@@ -1,3 +1,14 @@
+# Worktree and Branch Rule
+
+- Always make code, test, and documentation changes in the `restructure`
+  branch worktree:
+  `/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured`.
+- Do not work on the `main` branch worktree
+  `/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_Jerry`.
+  That worktree is for publish-only operations.
+- The only acceptable edits in the `main` worktree are explicit user-requested
+  publish/release actions or direct updates to this instruction file.
+
 # Build Commands
 
 ```bash

@@ -506,8 +506,8 @@ class MungeConfig:
     Parameters
     ----------
     output_dir : str or os.PathLike[str]
-        Directory that receives ``sumstats.sumstats.gz``, ``sumstats.log``, and
-        ``sumstats.metadata.json``.
+        Directory that receives workflow-owned ``sumstats.sumstats.gz``,
+        ``sumstats.log``, and ``sumstats.metadata.json`` artifacts.
     raw_sumstats_file : str or os.PathLike[str] or None, optional
         Raw summary-statistics file to munge. Exact-one glob patterns are
         resolved by the workflow before entering the legacy kernel. Default is

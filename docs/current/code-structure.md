@@ -48,14 +48,14 @@ ldsc_py3_Jerry/
 | `ldsc.annotation_builder` | public annotation bundle loading and BED projection surface |
 | `ldsc.ref_panel_builder` | parquet reference-panel build workflow |
 | `ldsc.ldscore_calculator` | LD-score orchestration, optional synthetic `base` annotation construction, aggregation, and output routing |
-| `ldsc.sumstats_munger` | raw-sumstats munging wrapper, canonical `CHR`/`POS` sumstats output, metadata sidecar handling, and curated sumstats loader |
+| `ldsc.sumstats_munger` | raw-sumstats CLI/API orchestration, fixed `sumstats.log` and metadata sidecar handling, canonical `CHR`/`POS` sumstats output, and curated sumstats loader |
 | `ldsc.regression_runner` | file-driven regression dataset assembly, `SNP` or `CHR:POS` merging, and estimator dispatch |
 | `ldsc.outputs` | artifact naming, LD-score parquet layout, partitioned-h2 per-query layout, manifest metadata, and serialization |
 | `ldsc._kernel.annotation` | annotation parsing, validation, BED intersection |
 | `ldsc._kernel.ref_panel_builder` | optional genetic-map parsing, optional liftover, parquet schemas, pairwise LD emission |
 | `ldsc._kernel.ref_panel` | runtime PLINK/parquet reference-panel adapters |
 | `ldsc._kernel.ldscore` | LD-score math and legacy-compatible computation helpers |
-| `ldsc._kernel.sumstats_munger` | legacy-compatible raw summary-statistics QC and normalization |
+| `ldsc._kernel.sumstats_munger` | legacy-compatible raw summary-statistics QC, normalization, and `.sumstats.gz` writing without public CLI or log-file ownership |
 | `ldsc._kernel.regression` | LDSC estimators for `Hsq` and `RG` |
 | `ldsc._kernel._jackknife`, `ldsc._kernel._irwls` | supporting numerical routines used by regression |
 | `ldsc._kernel.formats`, `ldsc._kernel.identifiers` | file-format readers and SNP identifier helpers |

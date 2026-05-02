@@ -138,7 +138,7 @@ def main(argv: Sequence[str] | None = None):
     if args.command == "build-ref-panel":
         return ref_panel_builder.run_build_ref_panel_from_args(args)
     if args.command == "munge-sumstats":
-        return _load_sumstats_munger().main(_namespace_to_argv(args, exclude={"command"}))
+        return _load_sumstats_munger().run_munge_sumstats_from_args(args)
     if args.command == "h2":
         return _load_regression_runner().run_h2_from_args(args)
     if args.command == "partitioned-h2":

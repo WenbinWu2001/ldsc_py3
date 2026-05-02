@@ -48,30 +48,81 @@ class SumstatsMungerTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             parser.parse_args(["--sumstats-file", "raw.tsv", "--output-dir", "out"])
 
+    def test_main_delegates_to_run_munge_sumstats_from_args(self):
+        with mock.patch.object(sumstats_workflow, "run_munge_sumstats_from_args", return_value=mock.sentinel.result) as patched:
+            result = sumstats_workflow.main(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out"])
+
+        self.assertIs(result, mock.sentinel.result)
+        self.assertEqual(patched.call_args.args[0].raw_sumstats_file, "raw.tsv")
+        self.assertEqual(patched.call_args.args[0].output_dir, "out")
+
+    def test_run_munge_sumstats_from_args_delegates_to_service_with_configs(self):
+        args = sumstats_workflow.build_parser().parse_args(
+            [
+                "--raw-sumstats-file",
+                "raw.tsv",
+                "--output-dir",
+                "out",
+                "--sumstats-snps-file",
+                "keep.tsv",
+                "--overwrite",
+                "--snp",
+                "variant_id",
+                "--chr",
+                "chrom",
+                "--pos",
+                "bp",
+                "--N",
+                "123",
+                "--chunksize",
+                "17",
+                "--ignore",
+                "DROP_ME,ALSO_DROP",
+                "--signed-sumstats",
+                "BETA,0",
+                "--snp-identifier",
+                "rsid",
+            ]
+        )
+
+        with mock.patch.object(SumstatsMunger, "run", return_value=mock.sentinel.table) as patched:
+            result = sumstats_workflow.run_munge_sumstats_from_args(args)
+
+        self.assertIs(result, mock.sentinel.table)
+        raw_config, run_config, global_config = patched.call_args.args
+        self.assertEqual(raw_config.raw_sumstats_file, "raw.tsv")
+        self.assertEqual(raw_config.column_hints, {"snp": "variant_id", "chr": "chrom", "pos": "bp"})
+        self.assertEqual(run_config.output_dir, "out")
+        self.assertEqual(run_config.sumstats_snps_file, "keep.tsv")
+        self.assertTrue(run_config.overwrite)
+        self.assertEqual(run_config.N, 123)
+        self.assertEqual(run_config.chunk_size, 17)
+        self.assertEqual(run_config.ignore_columns, ("DROP_ME", "ALSO_DROP"))
+        self.assertEqual(run_config.signed_sumstats_spec, "BETA,0")
+        self.assertEqual(global_config, GlobalConfig(snp_identifier="rsid"))
+
     def test_kernel_reports_actionable_signed_sumstats_format_error(self):
         args = kernel_munge.parser.parse_args(["--signed-sumstats", "BETA"])
-        log = mock.Mock(log=mock.Mock())
 
         with self.assertRaisesRegex(ValueError, "Invalid --signed-sumstats value 'BETA'.*BETA,0"):
-            kernel_munge.parse_flag_cnames(log, args)
+            kernel_munge.parse_flag_cnames(args)
 
     def test_kernel_p_to_z_matches_legacy_direction_convention(self):
         z = kernel_munge.p_to_z(pd.Series([0.1, 0.1, 0.1]), pd.Series([1, 2, 3]))
         np.testing.assert_allclose(np.asarray(z), [1.644854, 1.644854, 1.644854], atol=1e-5)
 
     def test_kernel_filters_reject_invalid_p_info_frq_and_alleles(self):
-        log = mock.Mock(log=mock.Mock())
         args = kernel_munge.parser.parse_args("")
         assert_series_equal(
-            kernel_munge.filter_pvals(pd.Series([0, 0.1, 1, 2]), log, args),
+            kernel_munge.filter_pvals(pd.Series([0, 0.1, 1, 2]), args),
             pd.Series([False, True, True, False]),
         )
         assert_series_equal(
-            kernel_munge.filter_info(pd.Series([0.8, 1.0, 1.0]), log, args),
+            kernel_munge.filter_info(pd.Series([0.8, 1.0, 1.0]), args),
             pd.Series([False, True, True]),
         )
         assert_series_equal(
-            kernel_munge.filter_frq(pd.Series([-1, 0, 0.005, 0.4, 0.6, 0.999, 1, 2]), log, args),
+            kernel_munge.filter_frq(pd.Series([-1, 0, 0.005, 0.4, 0.6, 0.999, 1, 2]), args),
             pd.Series([False, False, False, True, True, False, False, False]),
         )
         assert_series_equal(
@@ -170,7 +221,9 @@ class SumstatsMungerTest(unittest.TestCase):
             with mock.patch.object(
                 kernel_munge,
                 "munge_sumstats",
-                return_value=pd.DataFrame({"SNP": ["rs1"], "CHR": ["1"], "POS": [100], "Z": [1.0], "N": [1000]}),
+                return_value=pd.DataFrame(
+                    {"SNP": ["rs1"], "CHR": ["1"], "POS": [100], "A1": ["A"], "A2": ["G"], "Z": [1.0], "N": [1000]}
+                ),
             ) as patched_munge:
                 sumstats_workflow.main(
                     [
@@ -202,7 +255,9 @@ class SumstatsMungerTest(unittest.TestCase):
             with mock.patch.object(
                 kernel_munge,
                 "munge_sumstats",
-                return_value=pd.DataFrame({"SNP": ["rs1"], "CHR": ["1"], "POS": [100], "Z": [1.0], "N": [1000]}),
+                return_value=pd.DataFrame(
+                    {"SNP": ["rs1"], "CHR": ["1"], "POS": [100], "A1": ["A"], "A2": ["G"], "Z": [1.0], "N": [1000]}
+                ),
             ) as patched_munge:
                 sumstats_workflow.main(
                     [

@@ -141,7 +141,7 @@ build's LD window.
 |---|---:|---:|---|---|
 | `--raw-sumstats-file` | input | yes | raw summary-statistics file | Exact path or exact-one glob. |
 | `--sumstats-snps-file` | input | no | summary-statistics SNP keep-list | Restricts munged summary-statistics rows to a SNP keep-list; defaults to omitted/`None`, so no keep-list restriction is applied. |
-| `--output-dir` | output | yes | munged output directory | Internally uses `<output_dir>/sumstats` as the legacy kernel stem. |
+| `--output-dir` | output | yes | munged output directory | The workflow writes fixed `sumstats.*` artifacts under this directory and passes `<output_dir>/sumstats` as the kernel output stem. |
 | `--chr`, `--pos` | input metadata | no | raw column hints | Identify raw chromosome and position columns; default to omitted/`None`, so common aliases such as `#CHROM`, `CHROM`, `CHR`, `POS`, and `BP` are inferred. |
 | `--snp-identifier`, `--genome-build` | config | no | provenance | `--snp-identifier` defaults to `chr_pos`; `--genome-build` defaults to `hg38`; `--genome-build auto` can infer hg19/hg38 for complete `CHR`/`POS` rows. |
 | `--overwrite` | output mode | no | collision policy | Controls whether fixed sumstats outputs may be replaced; defaults to `False`, so existing outputs are refused. |
@@ -156,6 +156,10 @@ Fixed output names:
 <output_dir>/sumstats.log
 <output_dir>/sumstats.metadata.json
 ```
+
+`sumstats.log` is preflighted and opened by the public workflow layer. The
+kernel emits package logger records for QC progress and preserves only the
+legacy-compatible `.sumstats.gz` writer.
 
 ### `ldsc h2`
 
@@ -266,7 +270,7 @@ Removed Python names: `plink_path`, `bfile`, `out`, `panel_label`,
 | `MungeConfig` | `column_hints` | input metadata | optional source-column hints |
 | `MungeConfig` | `sumstats_snps_file` | input | summary-statistics SNP keep-list |
 | `MungeConfig` | `output_dir` | output | munged output directory |
-| `SumstatsMunger.run(munge_config, ...)` | `munge_config` | input/output | normalized munging workflow |
+| `SumstatsMunger.run(munge_config, ...)` | `munge_config` | input/output | normalized munging workflow; owns fixed output preflight, `sumstats.log`, metadata, and result construction |
 | `SumstatsMunger.write_output(sumstats, output_dir)` | `output_dir` | output | writes fixed `sumstats.sumstats.gz` |
 
 Removed Python names: legacy separate source-path object field,

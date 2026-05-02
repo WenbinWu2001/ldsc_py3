@@ -248,9 +248,11 @@ flowchart LR
 ## 4. `munge-sumstats`: Raw GWAS Table To Curated `.sumstats.gz`
 
 The munging workflow preflights the fixed outputs `sumstats.sumstats.gz`,
-`sumstats.log`, and `sumstats.metadata.json` before invoking the legacy munging
-kernel. This avoids a long run partially replacing one output while leaving the
-others from an earlier run.
+`sumstats.log`, and `sumstats.metadata.json` before delegating to
+`SumstatsMunger.run()` and then the legacy-compatible munging kernel. The
+workflow owns the log file and metadata sidecar; the kernel keeps the
+low-level parsing, QC, and `.sumstats.gz` serialization. This avoids a long run
+partially replacing one output while leaving the others from an earlier run.
 
 ### Required inputs
 
@@ -273,8 +275,8 @@ flowchart LR
   end
 
   subgraph W4[Workflow (public)<br/>ldsc.sumstats_munger]
-    D3[Build typed munging args]
-    D4[Capture run summary]
+    D3[Normalize CLI/API config<br/>Build typed munging args]
+    D4[Own sumstats.log + metadata<br/>Capture run summary]
   end
 
   subgraph K4[Kernel (private)<br/>ldsc._kernel.sumstats_munger]
@@ -292,7 +294,7 @@ flowchart LR
 | File | Example | Notes |
 | --- | --- | --- |
 | curated sumstats | `SNP CHR POS A1 A2 Z N`<br/>`rs3131969 1 754182 A G 0.74 829249.58` | written as `sumstats.sumstats.gz` under `output_dir`; `CHR`/`POS` are present and may be missing when absent from raw input; optional `FRQ` may also be present |
-| log file | plain-text QC log | written as `sumstats.log` under `output_dir` |
+| log file | plain-text QC log | workflow-owned `sumstats.log` under `output_dir`, populated from package logger messages emitted during kernel QC |
 | metadata sidecar | JSON with `snp_identifier`, nullable `genome_build`, coordinate columns, and build-inference details | written as `sumstats.metadata.json` under `output_dir`; used by `load_sumstats()` to recover config provenance |
 
 ### Modules used
@@ -300,7 +302,7 @@ flowchart LR
 - Preprocessing: `ldsc.config`, `ldsc.path_resolution`, `ldsc.column_inference`
 - Workflow: `ldsc.sumstats_munger`
 - Kernel: `ldsc._kernel.sumstats_munger`
-- Postprocessing: gzip and log writing inside the kernel
+- Postprocessing: kernel `.sumstats.gz` writing plus workflow-owned log and metadata writing
 
 ## 5. `h2`, `partitioned-h2`, and `rg`: Curated Artifacts To Regression Summaries
 

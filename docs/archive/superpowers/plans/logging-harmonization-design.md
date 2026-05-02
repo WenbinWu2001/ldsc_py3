@@ -2,8 +2,8 @@
 # `ldsc_py3_restructured`
 
 **Date:** 2026-05-01
-**Status:** Approved — ready for implementation
-**Revision:** 2026-05-01b (post-review: nested-context guard, log-level safety, shlex command, Failed/Finished, method-name fix)
+**Status:** Approved — pending refresh after munge-sumstats layering refactor
+**Revision:** 2026-05-02a (munge-sumstats now has workflow-owned `sumstats.log` and shared CLI/API orchestration)
 
 ---
 
@@ -11,14 +11,18 @@
 
 The package has 7 CLI subcommands with fragmented logging behavior:
 
-- **`munge-sumstats`** — writes a `.log` file via a legacy hand-rolled `Logger` class in the
-  kernel. Records the command, start/end times, and float stats (inconsistent format: `round() + str()`).
+- **`munge-sumstats`** — now writes its current `sumstats.log` from the public
+  workflow layer via package logging. The old kernel `Logger` class, masthead,
+  timing footer, and kernel `main()` have been removed. It still lacks the
+  future shared header/timing/command format and still uses the old
+  `sumstats.log` filename.
 - **All other workflows** (`ldscore`, `h2`, `partitioned-h2`, `rg`, `build-ref-panel`) — use
   Python's `logging` module only. No log file, no timing, no command recording.
 - Float formatting is inconsistent across the package (2–3 decimal places, `%.3f` in CSV,
   unformatted floats elsewhere).
-- Logging levels are mostly `INFO`-only; the kernel misuses `LOGGER.debug()` for errors
-  as a suppression hack.
+- Logging levels are mostly `INFO`-only; `munge-sumstats` no longer logs
+  re-raised kernel exceptions as duplicate errors, leaving user-facing errors
+  to `cli.run_cli()`.
 - No shared logging utilities exist.
 
 ---
@@ -58,9 +62,9 @@ The package has 7 CLI subcommands with fragmented logging behavior:
 | `WARNING` | Data quality issues (low SNP overlap, unusual statistics), deprecated usage |
 | `ERROR` | User-facing errors surfaced before exceptions are raised |
 
-**Bug to fix:** `_kernel/sumstats_munger.py` intentionally calls `LOGGER.debug(msg)` for errors
-to suppress duplicate CLI output. This is wrong — use `LOGGER.error(msg)` or `LOGGER.warning(msg)`
-as appropriate. The suppression issue is better solved at the handler level, not by lowering level.
+**Already fixed:** `_kernel/sumstats_munger.py` no longer calls `LOGGER.debug(msg)` for
+re-raised conversion failures. User-facing exceptions now propagate to
+`cli.run_cli()`, and data-quality issues use ordinary warning/info records.
 
 **Missing:** `h2`, `partitioned-h2`, `rg` subcommands currently have no `--log-level` argument.
 Add it to match `ldscore`, `build-ref-panel`, and `annotate`.
@@ -216,10 +220,10 @@ ReferencePanelBuilder().run(...)   [DECORATED @workflow_run("build-ref-panel")] 
 
 ldsc munge-sumstats
   → run_munge_sumstats_from_args() [DECORATED @workflow_run("munge-sumstats")]
-                                     (CLI path — does not call SumstatsMunger.run)
+                                     (CLI path — maps args to MungeConfig, then calls SumstatsMunger.run)
 
 SumstatsMunger.run()               [DECORATED @workflow_run("munge-sumstats")]
-                                     (Python API path — separate from CLI; no nesting)
+                                     (Python API path and shared CLI implementation)
 
 ldsc h2 → run_h2_from_args()                          [DECORATED @workflow_run("h2")]
 ldsc rg → run_rg_from_args()                          [DECORATED @workflow_run("rg")]
@@ -237,27 +241,29 @@ API usage of the class method). When invoked through the outer
 
 ## Munge-Sumstats Structural Alignment
 
-`sumstats_munger.main()` currently parses `argv` AND runs workflow logic. This violates the
-pattern used by all other workflows (`main` just parses, a `run_*_from_args` does the work).
+`sumstats_munger.main()` now follows the package pattern: it parses `argv` and
+delegates to `run_munge_sumstats_from_args(args)`.
 
-**Change:** Extract all logic from `main()` into a new `run_munge_sumstats_from_args(args)`.
-Decorate that new function. `main()` becomes:
+The remaining harmonization change is to decorate the parsed-args function and
+`SumstatsMunger.run()` with the shared workflow logging context once that
+context exists. `main()` is already:
 
 ```python
 def main(argv=None):
     return run_munge_sumstats_from_args(build_parser().parse_args(argv))
 ```
 
-This makes the decorator work correctly (it sees `args.output_dir` before the function body
-runs) and aligns munge with the rest of the package.
+This makes the decorator work correctly (it sees `args.output_dir` before the
+function body runs) and aligns munge with the rest of the package.
 
 ---
 
 ## Kernel Cleanup (`_kernel/sumstats_munger.py`)
 
-The legacy `Logger` class (lines 74–101), `sec_to_str` function (lines 59–71), `START_TIME`,
-`log = Logger(...)`, `log.close()`, the MASTHEAD+Call header, and the "Conversion finished"
-footer are all removed. The 35 `log.*()` call sites are replaced with `LOGGER.*()`.
+The legacy `Logger` class, `sec_to_str` function, `START_TIME`, `log =
+Logger(...)`, `log.close()`, the MASTHEAD+Call header, and the "Conversion
+finished" footer have already been removed. The `log.*()` call sites are now
+normal `LOGGER.*()` calls.
 
 Float formatting in the kernel uses a module-level lambda to avoid cross-layer imports:
 ```python
@@ -271,8 +277,8 @@ _fmt = lambda v: format(v, ".4g")
 | File | Action |
 |---|---|
 | `src/ldsc/_logging.py` | **Create** |
-| `src/ldsc/_kernel/sumstats_munger.py` | Remove legacy Logger infrastructure; replace 35 log calls |
-| `src/ldsc/sumstats_munger.py` | Add `run_munge_sumstats_from_args`; decorate it + `SumstatsMunger.run`; slim `main` |
+| `src/ldsc/_kernel/sumstats_munger.py` | Legacy Logger infrastructure already removed; later pass only needs float/message harmonization if desired |
+| `src/ldsc/sumstats_munger.py` | `run_munge_sumstats_from_args` and slim `main` already exist; later pass decorates it + `SumstatsMunger.run` and switches `sumstats.log` to the shared context |
 | `src/ldsc/ldscore_calculator.py` | Decorate **both** `run_ldscore_from_args` and `LDScoreCalculator.run` with `@workflow_run("ldscore")` |
 | `src/ldsc/regression_runner.py` | Decorate 3 entry functions; add `--log-level`; use `format_float` |
 | `src/ldsc/ref_panel_builder.py` | Decorate **both** `run_build_ref_panel_from_args` and `ReferencePanelBuilder.run` with `@workflow_run("build-ref-panel")` |

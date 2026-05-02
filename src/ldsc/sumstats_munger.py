@@ -11,7 +11,10 @@ This module converts the historical munging script behavior into explicit
 Python dataclasses and a small service object. The public workflow boundary
 accepts path-like inputs, normalizes them once, and then passes primitive
 values into the internal kernel so numerical behavior stays aligned with
-established LDSC outputs.
+established LDSC outputs. The workflow layer owns CLI orchestration, output
+preflight, the fixed ``sumstats.log`` file, metadata sidecars, and result
+objects; the kernel keeps the legacy-compatible parsing and filtering
+primitives.
 """
 
 from __future__ import annotations
@@ -241,14 +244,14 @@ class SumstatsMunger:
             ``munge_config`` is omitted, this object also supplies output and
             QC settings.
         munge_config : MungeConfig
-            Munging thresholds and output directory. The kernel writes fixed
-            files named ``sumstats.sumstats.gz`` and ``sumstats.log`` inside
-            ``munge_config.output_dir``. Existing fixed files are refused
-            before the legacy kernel runs unless ``munge_config.overwrite`` is
-            true. If ``munge_config.sumstats_snps_file`` is supplied, it is
-            treated as a headered keep-list and applied after munging QC and
-            coordinate normalization without allele matching or output
-            reordering.
+            Munging thresholds and output directory. The workflow writes fixed
+            files named ``sumstats.sumstats.gz``, ``sumstats.log``, and
+            ``sumstats.metadata.json`` inside ``munge_config.output_dir``.
+            Existing fixed files are refused before the kernel runs unless
+            ``munge_config.overwrite`` is true. If
+            ``munge_config.sumstats_snps_file`` is supplied, it is treated as a
+            headered keep-list and applied after munging QC and coordinate
+            normalization without allele matching or output reordering.
         global_config : GlobalConfig or None, optional
             Shared configuration snapshot to attach to the returned
             ``SumstatsTable``. When omitted, the current package-global
@@ -299,7 +302,7 @@ class SumstatsMunger:
             label="munged output artifact",
         )
         args = self._build_args(raw_sumstats_config, munge_config, config_snapshot)
-        data = kernel_munge.munge_sumstats(args, p=True)
+        data = _run_kernel_with_sumstats_log(args, fixed_output_stem + ".log")
         coordinate_metadata = dict(getattr(args, "_coordinate_metadata", {}))
         table_config_snapshot = _effective_sumstats_config(config_snapshot, coordinate_metadata)
         _write_sumstats_metadata(
@@ -420,43 +423,42 @@ class SumstatsMunger:
         return args
 
 
-def main(argv: list[str] | None = None):
-    """Run the historical munging parser and kernel entrypoint."""
-    args = build_parser().parse_args(argv)
-    args.sumstats = resolve_scalar_path(args.raw_sumstats_file, label="raw sumstats")
-    output_dir = ensure_output_directory(args.output_dir, label="output directory")
-    args.out = str(output_dir / "sumstats")
-    metadata_path = args.out + ".metadata.json"
-    ensure_output_paths_available(
-        [args.out + ".sumstats.gz", args.out + ".log", metadata_path],
-        overwrite=getattr(args, "overwrite", False),
-        label="munged output artifact",
-    )
-    args.merge_alleles = None
-    if getattr(args, "sumstats_snps_file", None):
-        args.sumstats_snps = resolve_scalar_path(args.sumstats_snps_file, label="sumstats SNPs file")
-    else:
-        args.sumstats_snps = None
-    config_snapshot = _resolve_main_global_config(args)
-    sumstats_snps_label = "none" if args.sumstats_snps is None else args.sumstats_snps
-    LOGGER.info(
-        f"Starting munge-sumstats for '{args.sumstats}' into '{output_dir}' "
-        f"with snp_identifier='{config_snapshot.snp_identifier}', "
-        f"genome_build='{config_snapshot.genome_build}', "
-        f"sumstats_snps_file='{sumstats_snps_label}'."
-    )
-    data = kernel_munge.munge_sumstats(args, p=True)
-    coordinate_metadata = dict(getattr(args, "_coordinate_metadata", {}))
-    config_snapshot = _effective_sumstats_config(config_snapshot, coordinate_metadata)
-    _write_sumstats_metadata(
-        metadata_path,
-        config_snapshot=config_snapshot,
-        coordinate_metadata=coordinate_metadata,
-        source_path=args.sumstats,
-        sumstats_file=args.out + ".sumstats.gz",
-    )
-    LOGGER.info(f"Munged {len(data)} retained summary-statistics rows; wrote '{args.out}.sumstats.gz'.")
-    return data
+def run_munge_sumstats_from_args(args: argparse.Namespace) -> SumstatsTable:
+    """Run summary-statistics munging from parsed CLI arguments.
+
+    The CLI path normalizes argparse values into the same ``MungeConfig``
+    objects used by the Python API, then delegates to :class:`SumstatsMunger`
+    so path resolution, output preflight, metadata, and result construction
+    stay in one workflow path.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed arguments from :func:`build_parser`. The namespace must include
+        ``raw_sumstats_file`` and ``output_dir`` plus any legacy-compatible
+        munging options copied from the kernel parser.
+
+    Returns
+    -------
+    SumstatsTable
+        Validated in-memory table produced by :meth:`SumstatsMunger.run`.
+
+    Raises
+    ------
+    ValueError
+        If required config fields are missing or incompatible with the chosen
+        SNP identifier mode.
+    FileExistsError
+        If fixed output artifacts already exist and ``args.overwrite`` is
+        false.
+    """
+    raw_config, munge_config = _munge_configs_from_args(args)
+    return SumstatsMunger().run(raw_config, munge_config, _resolve_main_global_config(args))
+
+
+def main(argv: list[str] | None = None) -> SumstatsTable:
+    """CLI entry point: parse arguments and delegate to workflow orchestration."""
+    return run_munge_sumstats_from_args(build_parser().parse_args(argv))
 
 
 def _resolve_main_global_config(args: argparse.Namespace) -> GlobalConfig:
@@ -476,6 +478,74 @@ def _resolve_main_global_config(args: argparse.Namespace) -> GlobalConfig:
         )
     args.genome_build = genome_build
     return GlobalConfig(snp_identifier="chr_pos", genome_build=genome_build)
+
+
+def _munge_configs_from_args(args: argparse.Namespace) -> tuple[MungeConfig, MungeConfig]:
+    """Convert parsed CLI arguments into raw-input and run configuration."""
+    raw_config = MungeConfig(
+        raw_sumstats_file=args.raw_sumstats_file,
+        column_hints=_column_hints_from_args(args),
+    )
+    munge_config = MungeConfig(
+        output_dir=args.output_dir,
+        N=getattr(args, "N", None),
+        N_cas=getattr(args, "N_cas", None),
+        N_con=getattr(args, "N_con", None),
+        info_min=args.info_min,
+        maf_min=args.maf_min,
+        n_min=getattr(args, "n_min", None),
+        nstudy_min=getattr(args, "nstudy_min", None),
+        chunk_size=args.chunksize,
+        sumstats_snps_file=getattr(args, "sumstats_snps_file", None),
+        signed_sumstats_spec=getattr(args, "signed_sumstats", None),
+        ignore_columns=_ignore_columns_from_args(args),
+        no_alleles=args.no_alleles,
+        a1_inc=args.a1_inc,
+        keep_maf=args.keep_maf,
+        daner=args.daner,
+        daner_n=args.daner_n,
+        overwrite=getattr(args, "overwrite", False),
+    )
+    return raw_config, munge_config
+
+
+def _column_hints_from_args(args: argparse.Namespace) -> dict[str, str]:
+    """Collect explicit raw-column hints from parsed CLI arguments."""
+    hints: dict[str, str] = {}
+    for key in _COLUMN_HINT_ARG_KEYS:
+        value = getattr(args, _COLUMN_HINT_ATTRS[key], None)
+        if value is not None:
+            hints[key] = value
+    return hints
+
+
+def _ignore_columns_from_args(args: argparse.Namespace) -> tuple[str, ...]:
+    """Return normalized ``--ignore`` column tokens from parsed CLI arguments."""
+    ignore = getattr(args, "ignore", None)
+    if not ignore:
+        return ()
+    return tuple(token.strip() for token in ignore.split(",") if token.strip())
+
+
+def _run_kernel_with_sumstats_log(args: argparse.Namespace, log_path: str) -> pd.DataFrame:
+    """Attach a temporary file handler and run the munger kernel.
+
+    The handler captures records from ``LDSC.sumstats_munger.kernel`` into the
+    fixed workflow-owned ``sumstats.log`` file, then restores the logger state
+    even when the kernel raises.
+    """
+    kernel_logger = logging.getLogger("LDSC.sumstats_munger.kernel")
+    previous_level = kernel_logger.level
+    handler = logging.FileHandler(log_path, mode="w", encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    kernel_logger.addHandler(handler)
+    kernel_logger.setLevel(logging.INFO)
+    try:
+        return kernel_munge.munge_sumstats(args, p=True)
+    finally:
+        kernel_logger.removeHandler(handler)
+        kernel_logger.setLevel(previous_level)
+        handler.close()
 
 
 def kernel_parser():
@@ -650,3 +720,18 @@ _COLUMN_HINT_ATTRS = {
     "info_list": "info_list",
     "nstudy": "nstudy",
 }
+_COLUMN_HINT_ARG_KEYS = (
+    "snp",
+    "chr",
+    "pos",
+    "N_col",
+    "N_cas_col",
+    "N_con_col",
+    "a1",
+    "a2",
+    "p",
+    "frq",
+    "info",
+    "info_list",
+    "nstudy",
+)

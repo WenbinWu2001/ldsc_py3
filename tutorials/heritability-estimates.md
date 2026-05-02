@@ -100,6 +100,11 @@ print("dataset_config =", dataset.config_snapshot)
 
 `SumstatsMunger` captures `GlobalConfig` provenance into `SumstatsTable.config_snapshot` and writes the same settings to `sumstats.metadata.json`. `RegressionRunner.build_dataset()` checks that known sumstats and LD-score snapshots agree on critical settings such as `snp_identifier` and `genome_build`. If both snapshots are known and incompatible, the workflow raises `ConfigMismatchError` instead of silently merging inconsistent artifacts. Sumstats loaded from current `.sumstats.gz` artifacts recover that snapshot from the sidecar; older files without the sidecar have `config_snapshot=None`, so regression treats their config provenance as unknown and validates the LD-score side only.
 
+`SumstatsMunger.run()` is also the shared implementation path behind
+`ldsc munge-sumstats`: the CLI parser maps arguments into `MungeConfig`, then
+the workflow writes `sumstats.sumstats.gz`, `sumstats.log`, and
+`sumstats.metadata.json` under the selected output directory.
+
 In `chr_pos` mode, regression merges sumstats and LD scores by normalized `CHR:POS`
 coordinates. The raw munger accepts common coordinate headers such as `#CHROM`,
 `CHROM`, `CHR`, `POS`, and `BP`; use `--chr` and `--pos` or `column_hints` when

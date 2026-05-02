@@ -266,16 +266,10 @@ def workflow_run(workflow_name: str, *, get_output_dir=None, get_overwrite=None)
 
 ## Task 2 — Refactor `src/ldsc/_kernel/sumstats_munger.py`
 
-This is the largest change. Work carefully — 35 call sites.
-
-### 2a — Remove legacy infrastructure
-
-Delete (or replace with nothing):
-
-- Lines 59–71: `sec_to_str` function
-- Lines 74–101: `Logger` class
-- Line 36: `import time` — keep (still used for `time.time()` elsewhere? Check; remove if unused after changes)
-- Line 47: `MASTHEAD` multiline string and `__version__` — remove (no longer used)
+Status after the munge-sumstats layering refactor: the legacy `Logger`,
+`sec_to_str`, `MASTHEAD`, `START_TIME`, kernel `main()`, and direct `.log`
+file ownership have already been removed. The later logging harmonization pass
+should not recreate those pieces.
 
 ### 2b — Add float format lambda at module level (after imports)
 
@@ -283,74 +277,24 @@ Delete (or replace with nothing):
 _fmt = lambda v: format(v, ".4g")
 ```
 
-### 2c — Replace the kernel entry `munge_sumstats()` preamble
+### 2c — Verify kernel entry `munge_sumstats()`
 
-Around line 799–821, replace:
-
-```python
-START_TIME = time.time()
-log = Logger(args.out + '.log')
-try:
-    if args.sumstats is None:
-        raise ValueError(...)
-    ...
-    if p:
-        defaults = vars(parser.parse_args(''))
-        opts = vars(args)
-        header = MASTHEAD
-        header += "Call: \n"
-        ...
-        log.log(header)
-```
-
-With:
-
-```python
-try:
-    if args.sumstats is None:
-        raise ValueError(...)
-    ...
-    # (remove the entire 'if p:' MASTHEAD/Call block — now handled by WorkflowRunContext)
-```
-
-### 2d — Replace all 35 `log.*` call sites
-
-Mechanical substitutions throughout the file:
-
-| Old | New |
-|---|---|
-| `log.log(msg)` | `LOGGER.info(msg)` |
-| `log.warning(msg)` | `LOGGER.warning(msg)` |
-| `log.error(msg)` | `LOGGER.error(msg)` |
+`munge_sumstats()` now validates primitive args, emits ordinary logger records,
+and leaves re-raised exception logging to `cli.run_cli()`. Confirm the later
+shared workflow context captures records from `LDSC.sumstats_munger.kernel`.
 
 ### 2e — Replace float formatting (3 sites near line 1010–1015)
 
 ```python
-# Old:
-log.log('Mean chi^2 = ' + str(round(mean_chisq, 3)))
-log.log('Lambda GC = ' + str(round(CHISQ.median() / 0.4549, 3)))
-log.log('Max chi^2 = ' + str(round(CHISQ.max(), 3)))
-
-# New:
 LOGGER.info(f"Mean chi^2 = {_fmt(mean_chisq)}")
 LOGGER.info(f"Lambda GC = {_fmt(CHISQ.median() / 0.4549)}")
 LOGGER.info(f"Max chi^2 = {_fmt(CHISQ.max())}")
 ```
 
-### 2f — Remove the `finally` block cleanup
+### 2f — Confirm timing ownership
 
-Near line 1023–1027:
-
-```python
-# Remove:
-finally:
-    log.log('\nConversion finished at {T}'.format(T=time.ctime()))
-    log.log('Total time elapsed: {T}'.format(T=sec_to_str(round(time.time() - START_TIME, 2))))
-    log.close()
-```
-
-Timing and the "finished" message are now handled by `WorkflowRunContext.__exit__()`.
-Keep the `finally:` block only if there are other cleanup actions; otherwise remove it.
+Timing and the "finished" message should remain owned by
+`WorkflowRunContext.__exit__()`. Do not add a kernel `finally` footer back.
 
 **Verification:** `python -c "from ldsc._kernel import sumstats_munger; print('OK')"` — must not raise.
 
@@ -366,61 +310,33 @@ import logging as _logging_module  # only if needed for setLevel
 from . import _logging as _ldsc_logging
 ```
 
-### 3b — Extract `run_munge_sumstats_from_args`
+### 3b — Refresh `run_munge_sumstats_from_args`
 
-Create a new decorated function containing all the current logic from `main()`:
+`run_munge_sumstats_from_args(args)` already exists after the layering refactor.
+It maps parsed CLI args into `MungeConfig` and delegates to
+`SumstatsMunger.run()`. Do not reintroduce a second CLI-only kernel path. The
+logging harmonization pass should decorate the existing function and add
+shared `log_inputs` / `log_outputs` calls around the existing delegation.
 
 ```python
 @workflow_run("munge-sumstats")
 def run_munge_sumstats_from_args(args: argparse.Namespace):
-    """Run munge-sumstats from a parsed CLI namespace."""
-    # Move all current main() body here (everything after parse_args):
-    args.sumstats = resolve_scalar_path(args.raw_sumstats_file, label="raw sumstats")
-    output_dir = ensure_output_directory(args.output_dir, label="output directory")
-    args.out = str(output_dir / "sumstats")
-    metadata_path = args.out + ".metadata.json"
-    ensure_output_paths_available(
-        [args.out + ".sumstats.gz", metadata_path],
-        overwrite=getattr(args, "overwrite", False),
-        label="munged output artifact",
-    )
-    # NOTE: "sumstats.log" removed from preflight — log file handled by decorator
-    args.merge_alleles = None
-    if getattr(args, "sumstats_snps_file", None):
-        args.sumstats_snps = resolve_scalar_path(args.sumstats_snps_file, label="sumstats SNPs file")
-    else:
-        args.sumstats_snps = None
+    """Run summary-statistics munging from parsed CLI arguments."""
+    raw_config, munge_config = _munge_configs_from_args(args)
     config_snapshot = _resolve_main_global_config(args)
-    sumstats_snps_label = "none" if args.sumstats_snps is None else str(args.sumstats_snps)
     _ldsc_logging.log_inputs(
-        source=str(args.sumstats),
-        output_dir=str(output_dir),
+        source=str(raw_config.raw_sumstats_file),
+        output_dir=str(munge_config.output_dir),
         snp_identifier=config_snapshot.snp_identifier,
         genome_build=str(config_snapshot.genome_build),
-        sumstats_snps=sumstats_snps_label,
+        sumstats_snps=str(munge_config.sumstats_snps_file or "none"),
     )
-    LOGGER.info(
-        f"Munging summary statistics from '{args.sumstats}' into '{output_dir}' "
-        f"with snp_identifier='{config_snapshot.snp_identifier}', "
-        f"genome_build='{config_snapshot.genome_build}'."
-    )
-    data = kernel_munge.munge_sumstats(args, p=True)
-    coordinate_metadata = dict(getattr(args, "_coordinate_metadata", {}))
-    config_snapshot = _effective_sumstats_config(config_snapshot, coordinate_metadata)
-    _write_sumstats_metadata(
-        metadata_path,
-        config_snapshot=config_snapshot,
-        coordinate_metadata=coordinate_metadata,
-        source_path=args.sumstats,
-        sumstats_file=args.out + ".sumstats.gz",
-    )
-    LOGGER.info(f"Munged {len(data)} retained summary-statistics rows; wrote '{args.out}.sumstats.gz'.")
+    munger = SumstatsMunger()
+    table = munger.run(raw_config, munge_config, config_snapshot)
     _ldsc_logging.log_outputs(
-        sumstats_gz=args.out + ".sumstats.gz",
-        log=str(output_dir / "munge-sumstats.log"),
-        metadata_json=metadata_path,
+        **munger.build_run_summary(table).output_paths,
     )
-    return data
+    return table
 ```
 
 ### 3c — Slim `main()` to parse-and-delegate
@@ -434,9 +350,9 @@ def main(argv: list[str] | None = None):
 ### 3d — Decorate `SumstatsMunger.run()` (Python API path)
 
 The actual class method is named `run()` (not `munge()`). It is decorated as
-the Python API entry point for munging. The CLI does NOT call this method —
-`run_munge_sumstats_from_args` calls the kernel directly — so there is no
-nesting here.
+the Python API entry point for munging. The CLI now also calls this method via
+`run_munge_sumstats_from_args`, so rely on the nested-context guard to avoid a
+second log context.
 
 The `munge_config` argument holds `output_dir` and `overwrite`. When called
 with a single config (no explicit `munge_config`), `raw_sumstats_config` is
@@ -468,7 +384,8 @@ def run(
 
 Also update `MungeRunSummary.output_paths["log"]` to use `"munge-sumstats.log"` instead of `"sumstats.log"`.
 Similarly update the preflight check in `SumstatsMunger.run()` body:
-- Remove `fixed_output_stem + ".log"` from `ensure_output_paths_available` (log file is now handled by decorator)
+- Remove `fixed_output_stem + ".log"` from `ensure_output_paths_available` once the decorator owns the log file
+- Remove the temporary `_run_kernel_with_sumstats_log(...)` helper once the shared context captures `LDSC.sumstats_munger.kernel`
 - Update `_last_summary.output_paths["log"]` to point to `str(output_dir / "munge-sumstats.log")`
 
 Add `log_inputs` / `log_outputs` calls inside `SumstatsMunger.run()` body as well (matching the CLI path).
@@ -736,8 +653,8 @@ Run each workflow that has end-to-end test data available and verify:
 ## Verification Checklist
 
 - [ ] Task 1: `_logging.py` imports cleanly
-- [ ] Task 2: kernel imports cleanly; no `Logger` class, no `sec_to_str`
-- [ ] Task 3: `run_munge_sumstats_from_args` exists and is exported; `main()` is one line
+- [x] Task 2 prerequisite: kernel imports cleanly; no `Logger` class, no `sec_to_str`
+- [x] Task 3 prerequisite: `run_munge_sumstats_from_args` exists; `main()` parses and delegates
 - [ ] Task 4: both `run_ldscore_from_args` and `LDScoreCalculator.run` decorated with `@workflow_run("ldscore")`; CLI run produces a single `ldscore.log` (no double header); direct `LDScoreCalculator().run(...)` produces a log too
 - [ ] Task 5: `run_h2_from_args`, `run_partitioned_h2_from_args`, `run_rg_from_args` decorated; `--log-level` works
 - [ ] Task 6: both `run_build_ref_panel_from_args` and `ReferencePanelBuilder.run` decorated with `@workflow_run("build-ref-panel")`; CLI run produces a single `build-ref-panel.log`

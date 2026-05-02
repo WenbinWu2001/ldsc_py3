@@ -45,13 +45,13 @@ ldsc_py3_Jerry/
 | `ldsc.column_inference` | resolve header aliases and normalize identifier/build tokens |
 | `ldsc.chromosome_inference` | canonical chromosome normalization and ordering |
 | `ldsc.genome_build_inference` | public `chr_pos` build and coordinate-basis inference helpers |
-| `ldsc.annotation_builder` | public annotation bundle loading and BED projection surface |
+| `ldsc.annotation_builder` | public annotation workflow: CLI args, parser entry point, path resolution, bundle loading, BED projection, and query `.annot.gz` writing |
 | `ldsc.ref_panel_builder` | parquet reference-panel build workflow |
 | `ldsc.ldscore_calculator` | LD-score orchestration, optional synthetic `base` annotation construction, aggregation, and output routing |
 | `ldsc.sumstats_munger` | raw-sumstats CLI/API orchestration, fixed `sumstats.log` and metadata sidecar handling, canonical `CHR`/`POS` sumstats output, and curated sumstats loader |
 | `ldsc.regression_runner` | file-driven regression dataset assembly, `SNP` or `CHR:POS` merging, and estimator dispatch |
 | `ldsc.outputs` | artifact naming, LD-score parquet layout, partitioned-h2 per-query layout, manifest metadata, and serialization |
-| `ldsc._kernel.annotation` | annotation parsing, validation, BED intersection |
+| `ldsc._kernel.annotation` | low-level annotation table reading and BED intersection helpers |
 | `ldsc._kernel.ref_panel_builder` | optional genetic-map parsing, optional liftover, parquet schemas, pairwise LD emission |
 | `ldsc._kernel.ref_panel` | runtime PLINK/parquet reference-panel adapters |
 | `ldsc._kernel.ldscore` | LD-score math and legacy-compatible computation helpers |
@@ -69,7 +69,7 @@ ldsc_py3_Jerry/
 | change output collision policy | `src/ldsc/path_resolution.py`, then the workflow writer that owns the artifact |
 | change header aliases or identifier/build normalization | `src/ldsc/column_inference.py` |
 | change automatic `chr_pos` genome-build inference | `src/ldsc/genome_build_inference.py` |
-| change annotation loading or BED projection | `src/ldsc/annotation_builder.py`, then `src/ldsc/_kernel/annotation.py` |
+| change annotation loading, `ldsc annotate` behavior, or BED projection | `src/ldsc/annotation_builder.py`, then `src/ldsc/_kernel/annotation.py` |
 | change parquet reference-panel build logic | `src/ldsc/ref_panel_builder.py`, then `src/ldsc/_kernel/ref_panel_builder.py` |
 | change runtime PLINK/parquet reference access | `src/ldsc/_kernel/ref_panel.py` |
 | change LD-score orchestration, optional-baseline behavior, or output packaging | `src/ldsc/ldscore_calculator.py`, `src/ldsc/outputs.py` |
@@ -85,6 +85,10 @@ ldsc_py3_Jerry/
 - Do not add user-facing path discovery to `_kernel`; pass concrete files in.
 - Keep public file contracts for `.annot(.gz)`, `.sumstats.gz` plus `sumstats.metadata.json`, canonical LD-score result directories, and regression summary directories stable unless the change is intentional and coordinated. LD-score parquet files remain flat files, with chromosome-aligned row groups documented through `manifest.json`. Legacy `.l2.ldscore(.gz)`, `.w.l2.ldscore(.gz)`, `.l2.M`, and `.l2.M_5_50` files are compatibility concerns rather than the public LD-score output surface.
 - Keep optional-baseline behavior in the public LD-score workflow layer: no baseline and no query means a synthetic all-ones `base`; query annotations require explicit baseline annotations.
+- Keep `ldsc annotate` orchestration in `ldsc.annotation_builder`. The CLI
+  registers annotation flags from that module and dispatches parsed namespaces
+  to `run_annotate_from_args()`; `_kernel.annotation` must not own parser
+  functions, result objects, or public workflow aliases.
 - Reuse `ensure_output_paths_available()` for fixed output files. Public
   workflows should create missing output directories, reuse existing
   directories, fail on existing known files by default, and require

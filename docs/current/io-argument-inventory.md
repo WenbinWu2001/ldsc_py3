@@ -214,12 +214,16 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 | `AnnotationBuildConfig` | `output_dir` | output | generated query annotation directory |
 | `AnnotationBuilder.run(config=None, chrom=None)` | `config` | input/output | annotation workflow config; defaults to the builder config |
 | `AnnotationBuilder.project_bed_annotations(...)` | `query_annot_bed_sources` | input | query BED group |
+| `add_annotate_arguments(parser)` | `parser` | CLI surface | shared annotate argument registration for standalone and top-level parsers |
+| `run_annotate_from_args(args)` / `main(argv)` | `query_annot_bed_sources` | input | query BED group |
+| `run_annotate_from_args(args)` / `main(argv)` | `baseline_annot_sources` | input | baseline annotation templates |
+| `run_annotate_from_args(args)` / `main(argv)` | `output_dir` | output | generated query annotation directory |
 | `run_bed_to_annot(...)` | `query_annot_bed_sources` | input | query BED group |
 | `run_bed_to_annot(...)` | `baseline_annot_sources` | input | baseline annotation templates |
 | `run_bed_to_annot(...)` | `output_dir` | output | generated query annotation directory |
 
 Removed Python names: `bed_paths`, `query_bed_paths`, `bed_files`,
-`baseline_annot`, `out_prefix`.
+`baseline_annot`, `out_prefix`, `main_bed_to_annot`.
 
 ### LD-score calculation
 

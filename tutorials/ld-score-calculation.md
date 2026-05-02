@@ -260,6 +260,12 @@ If `--output-dir` does not exist yet, the workflow warns once and creates it
 automatically. If a `query.<chrom>.annot.gz` shard already exists, the command
 fails before writing any shard; add `--overwrite` only for an intentional rerun.
 
+For script-style annotation runs, `ldsc.annotation_builder.main(argv)` is the
+parser entry point and returns the produced `AnnotationBundle`. If you already
+have an argparse namespace from the unified `ldsc` parser, call
+`ldsc.annotation_builder.run_annotate_from_args(args)`; it dispatches the
+workflow directly without converting the namespace back to argv.
+
 ## Optional: Inspect `chr_pos` Genome Build Before A Workflow
 
 Use the top-level Python API when you want to preflight a `CHR`/`POS` table in a

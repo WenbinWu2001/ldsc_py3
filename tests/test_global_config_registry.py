@@ -15,8 +15,7 @@ if str(SRC) not in sys.path:
 import ldsc
 from ldsc import GlobalConfig, set_global_config, reset_global_config
 from ldsc.config import ConfigMismatchError, validate_config_compatibility
-from ldsc import ldscore_calculator, ref_panel_builder, regression_runner
-from ldsc._kernel import annotation as kernel_annotation
+from ldsc import annotation_builder, ldscore_calculator, ref_panel_builder, regression_runner
 from ldsc.ldscore_calculator import LDScoreResult
 from ldsc.ref_panel_builder import ReferencePanelBuildConfig, ReferencePanelBuilder
 from ldsc.regression_runner import RegressionRunner
@@ -124,7 +123,7 @@ class GlobalConfigRegistryTest(unittest.TestCase):
         )
 
         with mock.patch.object(
-            kernel_annotation.AnnotationBuilder,
+            annotation_builder.AnnotationBuilder,
             "project_bed_annotations",
             autospec=True,
             return_value=mock.sentinel.bundle,

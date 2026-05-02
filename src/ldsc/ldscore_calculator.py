@@ -665,7 +665,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
     ``ref_panel.load_metadata(chrom)`` before calling the kernel, then returns
     the normalized public ``LDScoreResult`` with split baseline/query tables.
     """
-    from ._kernel.annotation import AnnotationBuilder
+    from .annotation_builder import AnnotationBuilder
 
     normalized_args, global_config = _normalize_run_args(args)
     print_global_config_banner("run_ldscore_from_args", global_config)
@@ -759,7 +759,7 @@ def _pseudo_base_annotation_bundle_from_ref_panel(ref_panel, global_config: Glob
     when ``load_metadata(chrom)`` returns. Later runtime regression-SNP
     restriction remains in the normal LD-score compute path.
     """
-    from ._kernel.annotation import AnnotationBundle
+    from .annotation_builder import AnnotationBundle
 
     metadata_frames = []
     chromosomes = [str(chrom) for chrom in ref_panel.available_chromosomes()]

@@ -129,6 +129,8 @@ AnnotationBuildConfig(
 
 Relevant APIs:
 
+- `annotation_builder.main(argv)`
+- `run_annotate_from_args(args)`
 - `run_bed_to_annot(...)`
 - `AnnotationBuilder.project_bed_annotations(...)`
 
@@ -141,6 +143,8 @@ How files are handled:
 
 - every resolved BED file becomes one annotation column
 - every resolved baseline annotation file is used as a SNP template
+- CLI dispatch through `ldsc annotate` calls the same workflow module directly;
+  parsed namespaces are not converted back to argv and reparsed
 
 Requirements:
 

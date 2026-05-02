@@ -59,6 +59,10 @@ Output directories are created when missing and reused when present. Existing
 `query.<chrom>.annot.gz` files are refused before any query shard is written
 unless the caller passes `--overwrite` or `overwrite=True`.
 
+`ldsc.annotation_builder` owns both command entry paths: `main(argv)` parses
+standalone annotation arguments, and `run_annotate_from_args(args)` consumes
+the namespace created by the unified `ldsc` CLI without reparsing.
+
 ### Required inputs
 
 | File | Example | Notes |
@@ -81,17 +85,18 @@ flowchart LR
   subgraph W1[Workflow (public)<br/>ldsc.annotation_builder]
     A3[Load baseline rows]
     A4[Project BEDs to SNP columns]
+    A7[Preflight and write query shards]
   end
 
   subgraph K1[Kernel (private)<br/>ldsc._kernel.annotation]
-    A5[Intersect regions with SNP grid]
-    A6[Assemble query masks]
+    A5[Normalize BED files]
+    A6[Intersect regions with SNP grid]
   end
 
-  I1 --> A1 --> A3 --> A4 --> A5 --> A6
+  I1 --> A1 --> A3 --> A4 --> A5 --> A6 --> A7
   I2 --> A1
   A2 --> A4
-  A6 --> O1[query.<chrom>.annot.gz]
+  A7 --> O1[query.<chrom>.annot.gz]
 ```
 
 ### Outputs
@@ -105,7 +110,7 @@ flowchart LR
 - Preprocessing: `ldsc.config`, `ldsc.path_resolution`, `ldsc.column_inference`
 - Workflow: `ldsc.annotation_builder`
 - Kernel: `ldsc._kernel.annotation`
-- Postprocessing: gzip writer inside the annotation kernel
+- Postprocessing: gzip writer inside `ldsc.annotation_builder`
 
 ## 2. `build-ref-panel`: PLINK To Standard Parquet R2 Reference
 

@@ -206,6 +206,11 @@ ldsc annotate \
   --output-dir annotations/query_from_beds
 ```
 
+The annotate command is implemented in the public `ldsc.annotation_builder`
+workflow module. Python code that wants the same parser behavior can call
+`ldsc.annotation_builder.main(argv)`, while code that already has parsed
+top-level CLI arguments can call `run_annotate_from_args(args)` directly.
+
 The regression CLI consumes the LD-score result directory directly. It reads
 baseline columns from `baseline.parquet`, query columns from `query.parquet`,
 and counts from `manifest.json`. Both parquet files stay flat, but their row

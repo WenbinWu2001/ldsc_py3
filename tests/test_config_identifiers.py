@@ -154,8 +154,15 @@ class WorkflowConfigTest(unittest.TestCase):
     def test_removed_compatibility_aliases_are_not_exported(self):
         removed_names_by_module = {
             "ldsc": ("AnnotationSourceSpec", "RawSumstatsSpec", "RefPanelSpec", "OutputSpec"),
-            "ldsc.annotation_builder": ("AnnotationSourceSpec",),
-            "ldsc._kernel.annotation": ("AnnotationSourceSpec",),
+            "ldsc.annotation_builder": ("AnnotationSourceSpec", "main_bed_to_annot"),
+            "ldsc._kernel.annotation": (
+                "AnnotationSourceSpec",
+                "AnnotationBuilder",
+                "AnnotationBundle",
+                "main_bed_to_annot",
+                "parse_bed_to_annot_args",
+                "run_bed_to_annot",
+            ),
             "ldsc._kernel.ref_panel": ("RefPanelSpec",),
             "ldsc.sumstats_munger": ("RawSumstatsSpec",),
             "ldsc.outputs": ("OutputSpec",),

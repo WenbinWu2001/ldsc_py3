@@ -67,6 +67,65 @@ class PackageLayoutTest(unittest.TestCase):
         )
         self.assertNotIn("infer-build", subparsers_action.choices)
 
+    def test_annotation_builder_owns_public_workflow_entrypoints(self):
+        from ldsc import annotation_builder
+
+        for name in (
+            "AnnotationBuilder",
+            "AnnotationBundle",
+            "run_bed_to_annot",
+            "run_annotate_from_args",
+            "add_annotate_arguments",
+            "build_parser",
+            "parse_bed_to_annot_args",
+            "main",
+        ):
+            self.assertTrue(hasattr(annotation_builder, name), f"{name} should be public")
+        self.assertFalse(hasattr(annotation_builder, "main_bed_to_annot"))
+
+    def test_annotate_direct_dispatch_calls_annotation_main_without_reparse(self):
+        from ldsc import annotation_builder, cli
+
+        subargv = [
+            "--query-annot-bed-sources",
+            "beds/query.bed",
+            "--baseline-annot-sources",
+            "baseline.1.annot.gz",
+            "--output-dir",
+            "out/annot",
+        ]
+        with mock.patch.object(annotation_builder, "main", return_value=mock.sentinel.bundle) as patched:
+            result = cli.main(["annotate", *subargv])
+
+        self.assertIs(result, mock.sentinel.bundle)
+        patched.assert_called_once_with(subargv)
+
+    def test_annotate_parsed_dispatch_calls_workflow_from_args(self):
+        from ldsc import annotation_builder, cli
+
+        parser = cli.build_parser()
+        args = parser.parse_args(
+            [
+                "annotate",
+                "--query-annot-bed-sources",
+                "beds/query.bed",
+                "--baseline-annot-sources",
+                "baseline.1.annot.gz",
+                "--output-dir",
+                "out/annot",
+            ]
+        )
+
+        with mock.patch.object(
+            annotation_builder,
+            "run_annotate_from_args",
+            return_value=mock.sentinel.bundle,
+        ) as patched:
+            result = cli._run_annotate(args)
+
+        self.assertIs(result, mock.sentinel.bundle)
+        patched.assert_called_once_with(args)
+
     def test_ldscore_subcommand_accepts_unified_path_flags(self):
         from ldsc import cli
 

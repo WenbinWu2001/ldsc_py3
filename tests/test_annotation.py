@@ -14,7 +14,7 @@ if str(SRC) not in sys.path:
 
 from ldsc._kernel import annotation as kernel_annotation
 from ldsc import annotation_builder
-from ldsc.annotation_builder import AnnotationBuilder, run_bed_to_annot
+from ldsc.annotation_builder import AnnotationBuilder, AnnotationBundle, run_bed_to_annot
 from ldsc.config import AnnotationBuildConfig, GlobalConfig
 
 
@@ -34,7 +34,7 @@ class AnnotationBuilderTest(unittest.TestCase):
         stdout = io.StringIO()
         with self.assertRaises(SystemExit):
             with contextlib.redirect_stdout(stdout):
-                kernel_annotation.parse_bed_to_annot_args(["--help"])
+                annotation_builder.parse_bed_to_annot_args(["--help"])
 
         help_text = stdout.getvalue()
         self.assertIn("Required when", help_text)
@@ -44,7 +44,7 @@ class AnnotationBuilderTest(unittest.TestCase):
         stderr = io.StringIO()
         with self.assertRaises(SystemExit):
             with contextlib.redirect_stderr(stderr):
-                kernel_annotation.parse_bed_to_annot_args(
+                annotation_builder.parse_bed_to_annot_args(
                     [
                         "--query-annot-bed-sources",
                         "query.bed",
@@ -65,6 +65,16 @@ class AnnotationBuilderTest(unittest.TestCase):
     def test_gene_set_functions_not_exported(self):
         for name in ("gene_set_to_bed", "make_annot_files", "main_make_annot", "parse_make_annot_args"):
             self.assertFalse(hasattr(annotation_builder, name), f"{name} should not be exported")
+
+    def test_kernel_annotation_does_not_export_workflow_api(self):
+        for name in (
+            "AnnotationBuilder",
+            "AnnotationBundle",
+            "run_bed_to_annot",
+            "parse_bed_to_annot_args",
+            "main_bed_to_annot",
+        ):
+            self.assertFalse(hasattr(kernel_annotation, name), f"{name} should live in ldsc.annotation_builder")
 
     def test_run_builds_bundle(self):
         builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
@@ -200,7 +210,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             output_dir.mkdir()
             existing = output_dir / "query.1.annot.gz"
             existing.write_text("existing\n", encoding="utf-8")
-            bundle = kernel_annotation.AnnotationBundle(
+            bundle = AnnotationBundle(
                 metadata=pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs1"], "CM": [0.1]}),
                 baseline_annotations=pd.DataFrame({"base": [1.0]}),
                 query_annotations=pd.DataFrame({"query": [1.0]}),
@@ -505,10 +515,10 @@ class AnnotationWrapperTest(unittest.TestCase):
                     baseline_annot_sources=[str(baseline)],
                 )
 
-            self.assertIsInstance(result, kernel_annotation.AnnotationBundle)
+            self.assertIsInstance(result, AnnotationBundle)
             self.assertEqual(result.query_columns, ["query"])
 
-    def test_main_bed_to_annot_chr_pos_auto_resolves_build_before_running(self):
+    def test_main_chr_pos_auto_resolves_build_before_running(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             baseline = tmpdir / "baseline.1.annot"
@@ -517,18 +527,19 @@ class AnnotationWrapperTest(unittest.TestCase):
             bed.write_text("chr1\t0\t100\tfeature\n", encoding="utf-8")
 
             with mock.patch.object(
-                kernel_annotation,
+                annotation_builder,
                 "sample_frame_from_chr_pattern",
                 return_value=(pd.DataFrame({"CHR": ["1"], "POS": [100]}), str(baseline)),
             ) as patched_sample, mock.patch.object(
-                kernel_annotation,
+                annotation_builder,
                 "resolve_genome_build",
                 return_value="hg19",
             ) as patched_resolve, mock.patch.object(
-                kernel_annotation,
+                annotation_builder,
                 "_run_bed_to_annot_with_global_config",
+                return_value=mock.sentinel.bundle,
             ) as patched_run:
-                rc = annotation_builder.main_bed_to_annot(
+                result = annotation_builder.main(
                     [
                         "--query-annot-bed-sources",
                         str(bed),
@@ -543,13 +554,10 @@ class AnnotationWrapperTest(unittest.TestCase):
                     ]
                 )
 
-            self.assertEqual(rc, 0)
+            self.assertIs(result, mock.sentinel.bundle)
             self.assertEqual(patched_sample.call_args.kwargs["context"], "annotation inputs")
             self.assertEqual(patched_resolve.call_args.args[0], "auto")
             self.assertEqual(patched_run.call_args.kwargs["global_config"].genome_build, "hg19")
 
-    def test_run_bed_wrapper_calls_main(self):
-        with mock.patch.object(annotation_builder, "main_bed_to_annot", return_value=5) as patched:
-            rc = annotation_builder.main_bed_to_annot(["--help"])
-        patched.assert_called_once()
-        self.assertEqual(rc, 5)
+    def test_main_bed_to_annot_public_entrypoint_is_removed(self):
+        self.assertFalse(hasattr(annotation_builder, "main_bed_to_annot"))

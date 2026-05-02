@@ -8,6 +8,7 @@ Related docs:
 - [class-and-features.md](class-and-features.md): public API surface and major types
 - [code-structure.md](code-structure.md): module map and change guide
 - [layer-structure.md](layer-structure.md): layer-by-function object matrix
+- [../../design_map.md](../../design_map.md): mapping from design docs to implementation modules
 
 ![Package overview](../assets/ldsc-package-overview.png)
 
@@ -53,7 +54,7 @@ ldsc_py3_Jerry/
 │   ├── regression_runner.py
 │   ├── outputs.py           # LD-score and partitioned-h2 artifact writers
 │   └── _kernel/
-│       ├── annotation.py    # annotation parsing and BED projection
+│       ├── annotation.py    # low-level annotation table/BED helpers
 │       ├── ref_panel_builder.py
 │       ├── ref_panel.py
 │       ├── ldscore.py
@@ -79,7 +80,7 @@ These modules define the package-wide contracts that every workflow shares. They
 
 ### `ldsc.annotation_builder`
 
-This is the public interface for annotation loading and BED projection. It re-exports `AnnotationBuilder`, `AnnotationBundle`, and `run_bed_to_annot()` while the implementation lives in `ldsc._kernel.annotation`. Public interface: users should start here rather than importing the kernel directly.
+This is the public interface and workflow implementation for annotation loading and BED projection. It owns `AnnotationBuilder`, `AnnotationBundle`, `run_bed_to_annot()`, `run_annotate_from_args()`, `main()`, parser construction, path-token resolution, genome-build inference for `--genome-build auto`, output preflight, and `query.<chrom>.annot.gz` writing. It delegates only low-level text-table and BED intersection primitives to `ldsc._kernel.annotation`. Public interface: users should start here rather than importing the kernel directly.
 
 ### `ldsc.ref_panel_builder`
 
@@ -111,7 +112,7 @@ policy, not per-run filename prefixes.
 
 ### `ldsc._kernel.*`
 
-The kernel layer contains the actual numerical methods and low-level readers. It includes annotation parsing, PLINK/parquet reference-panel access, LD-score math, legacy-compatible summary-statistics munging, and regression estimators. Private boundary: `_kernel` is not the supported import surface and should receive only resolved primitive inputs.
+The kernel layer contains the actual numerical methods and low-level readers. It includes annotation table/BED primitives, PLINK/parquet reference-panel access, LD-score math, legacy-compatible summary-statistics munging, and regression estimators. Private boundary: `_kernel` is not the supported import surface and should receive only resolved primitive inputs.
 
 ## Cross-Cutting Concerns
 

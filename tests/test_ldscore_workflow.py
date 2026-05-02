@@ -900,7 +900,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             annotation_bundle = self.make_annotation_bundle([("1", "rs1", 10)])
             ref_panel = self.make_ref_panel_stub(backend="plink")
             with mock.patch.object(ldscore_workflow.kernel_ldscore, "validate_args"), mock.patch(
-                "ldsc._kernel.annotation.AnnotationBuilder.run",
+                "ldsc.annotation_builder.AnnotationBuilder.run",
                 autospec=True,
                 return_value=annotation_bundle,
             ), mock.patch(
@@ -996,7 +996,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 )
 
             with mock.patch(
-                "ldsc._kernel.annotation.AnnotationBuilder.run",
+                "ldsc.annotation_builder.AnnotationBuilder.run",
                 autospec=True,
                 side_effect=AssertionError("AnnotationBuilder should not be called for pseudo-base LD scores."),
             ) as patched_builder, mock.patch(
@@ -1156,7 +1156,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             annotation_bundle = self.make_annotation_bundle([("1", "rs1", 10), ("1", "rs2", 20)])
             ref_panel = self.make_ref_panel_stub(backend="plink")
             with mock.patch.object(ldscore_workflow.kernel_ldscore, "validate_args"), mock.patch(
-                "ldsc._kernel.annotation.AnnotationBuilder.run",
+                "ldsc.annotation_builder.AnnotationBuilder.run",
                 autospec=True,
                 return_value=annotation_bundle,
             ), mock.patch(
@@ -1251,7 +1251,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             annotation_bundle = self.make_annotation_bundle([("1", "rs1", 10)])
             ref_panel = self.make_ref_panel_stub(backend="plink", plink_prefix=str(tmpdir / "panel.@"))
             with mock.patch.object(ldscore_workflow.kernel_ldscore, "validate_args"), mock.patch(
-                "ldsc._kernel.annotation.AnnotationBuilder.run",
+                "ldsc.annotation_builder.AnnotationBuilder.run",
                 autospec=True,
                 return_value=annotation_bundle,
             ) as patched_builder, mock.patch(
@@ -1310,7 +1310,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 genome_build=None,
             )
             with mock.patch.object(ldscore_workflow.kernel_ldscore, "validate_args"), mock.patch(
-                "ldsc._kernel.annotation.AnnotationBuilder.run",
+                "ldsc.annotation_builder.AnnotationBuilder.run",
                 autospec=True,
                 return_value=annotation_bundle,
             ), mock.patch(
@@ -1545,7 +1545,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             with warnings.catch_warnings(record=True) as caught:
                 warnings.simplefilter("always")
                 with mock.patch.object(ldscore_workflow.kernel_ldscore, "validate_args"), mock.patch(
-                    "ldsc._kernel.annotation.AnnotationBuilder.run",
+                    "ldsc.annotation_builder.AnnotationBuilder.run",
                     autospec=True,
                     return_value=annotation_bundle,
                 ), mock.patch(

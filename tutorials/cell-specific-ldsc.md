@@ -124,6 +124,10 @@ ldsc ldscore \
   --ld-wind-cm 1.0
 ```
 
+When reusable query `.annot.gz` shards are useful, use `ldsc annotate` or
+`run_bed_to_annot(...)`; both are public `ldsc.annotation_builder` workflow
+entry points and return the same `AnnotationBundle` shape used above.
+
 Then run partitioned h2 over the cell-type query columns:
 
 ```bash

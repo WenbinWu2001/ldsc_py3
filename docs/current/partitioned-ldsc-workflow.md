@@ -109,11 +109,11 @@ Regression commands still read munged summary statistics:
 - `ldsc rg --sumstats-1-file <file> --sumstats-2-file <file>`
 
 Current `ldsc munge-sumstats` outputs include canonical `CHR` and `POS` columns
-beside `SNP`, `Z`, and `N`, and write `sumstats.metadata.json` beside the table.
-The sidecar stores the effective `snp_identifier` and `genome_build`, including
-auto-inferred build details for `chr_pos` runs. Older `.sumstats.gz` files
-without the sidecar still load, but their config provenance is treated as
-unknown.
+beside `SNP`, `Z`, and `N`, write `sumstats.parquet` by default, and write
+`sumstats.metadata.json` beside the table. The sidecar stores the effective
+`snp_identifier`, `genome_build`, selected output files, and auto-inferred build
+details for `chr_pos` runs. Legacy `.sumstats.gz` files without the sidecar
+still load, but their config provenance is treated as unknown.
 
 ## 4. SNP Universes
 
@@ -215,7 +215,7 @@ Run ordinary h2:
 ```bash
 ldsc h2 \
   --ldscore-dir results/my_study_ldscore \
-  --sumstats-file my_gwas.sumstats.gz \
+  --sumstats-file my_gwas.parquet \
   --output-dir results/my_study_h2
 ```
 
@@ -224,7 +224,7 @@ Run partitioned h2:
 ```bash
 ldsc partitioned-h2 \
   --ldscore-dir results/my_study_ldscore \
-  --sumstats-file my_gwas.sumstats.gz \
+  --sumstats-file my_gwas.parquet \
   --output-dir results/my_study_partitioned_h2
 ```
 
@@ -233,7 +233,7 @@ Run partitioned h2 and save per-query folders:
 ```bash
 ldsc partitioned-h2 \
   --ldscore-dir results/my_study_ldscore \
-  --sumstats-file my_gwas.sumstats.gz \
+  --sumstats-file my_gwas.parquet \
   --output-dir results/my_study_partitioned_h2 \
   --write-per-query-results
 ```
@@ -243,8 +243,8 @@ Run rg:
 ```bash
 ldsc rg \
   --ldscore-dir results/my_study_ldscore \
-  --sumstats-1-file trait1.sumstats.gz \
-  --sumstats-2-file trait2.sumstats.gz \
+  --sumstats-1-file trait1.parquet \
+  --sumstats-2-file trait2.parquet \
   --output-dir results/trait1_trait2_rg
 ```
 

@@ -135,7 +135,7 @@ When scenario D (no provenance on either side) produces an empty merge, the
 error message includes the active `GlobalConfig`:
 
 ```
-No overlapping chr_pos SNPs remain after merging sumstats 'my_trait.sumstats.gz'
+No overlapping chr_pos SNPs remain after merging sumstats 'sumstats.parquet'
 with 45321 LD-score rows. Check that snp_identifier and genome_build match.
 Active config: GlobalConfig(snp_identifier='chr_pos', genome_build='auto', ...).
 ```

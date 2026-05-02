@@ -142,6 +142,7 @@ build's LD window.
 | `--raw-sumstats-file` | input | yes | raw summary-statistics file | Exact path or exact-one glob. |
 | `--sumstats-snps-file` | input | no | summary-statistics SNP keep-list | Restricts munged summary-statistics rows to a SNP keep-list; defaults to omitted/`None`, so no keep-list restriction is applied. |
 | `--output-dir` | output | yes | munged output directory | The workflow writes fixed `sumstats.*` artifacts under this directory and passes `<output_dir>/sumstats` as the kernel output stem. |
+| `--output-format` | output mode | no | curated sumstats format | One of `parquet`, `tsv.gz`, or `both`; defaults to `parquet`. |
 | `--chr`, `--pos` | input metadata | no | raw column hints | Identify raw chromosome and position columns; default to omitted/`None`, so common aliases such as `#CHROM`, `CHROM`, `CHR`, `POS`, and `BP` are inferred. |
 | `--snp-identifier`, `--genome-build` | config | no | provenance | `--snp-identifier` defaults to `chr_pos`; `--genome-build` defaults to `hg38`; `--genome-build auto` can infer hg19/hg38 for complete `CHR`/`POS` rows. |
 | `--overwrite` | output mode | no | collision policy | Controls whether fixed sumstats outputs may be replaced; defaults to `False`, so existing outputs are refused. |
@@ -153,13 +154,16 @@ Fixed output names:
 
 ```text
 <output_dir>/sumstats.sumstats.gz
+<output_dir>/sumstats.parquet
 <output_dir>/sumstats.log
 <output_dir>/sumstats.metadata.json
 ```
 
-`sumstats.log` is preflighted and opened by the public workflow layer. The
-kernel emits package logger records for QC progress and preserves only the
-legacy-compatible `.sumstats.gz` writer.
+`sumstats.parquet` is the default curated artifact. `sumstats.sumstats.gz` is
+written only for `--output-format tsv.gz` or `both`. `sumstats.log` is
+preflighted and opened by the public workflow layer. The kernel emits package
+logger records for QC progress and preserves its direct legacy-compatible
+`.sumstats.gz` writer for private/direct kernel calls.
 
 ### `ldsc h2`
 
@@ -274,8 +278,9 @@ Removed Python names: `plink_path`, `bfile`, `out`, `panel_label`,
 | `MungeConfig` | `column_hints` | input metadata | optional source-column hints |
 | `MungeConfig` | `sumstats_snps_file` | input | summary-statistics SNP keep-list |
 | `MungeConfig` | `output_dir` | output | munged output directory |
+| `MungeConfig` | `output_format` | output mode | `parquet`, `tsv.gz`, or `both`; defaults to `parquet` |
 | `SumstatsMunger.run(munge_config, ...)` | `munge_config` | input/output | normalized munging workflow; owns fixed output preflight, `sumstats.log`, metadata, and result construction |
-| `SumstatsMunger.write_output(sumstats, output_dir)` | `output_dir` | output | writes fixed `sumstats.sumstats.gz` |
+| `SumstatsMunger.write_output(sumstats, output_dir, output_format='parquet')` | `output_dir` | output | writes fixed `sumstats.parquet` and/or `sumstats.sumstats.gz` |
 
 Removed Python names: legacy separate source-path object field,
 `MungeConfig.sumstats_file`, `MungeConfig.out_prefix`,
@@ -299,9 +304,11 @@ Removed Python names: legacy separate source-path object field,
 Removed Python/public argparse names: `sumstats`, `sumstats_1`, `sumstats_2`,
 `out`, `ldscore`, `counts`, `w_ld`, `annotation_manifest`, `query_columns`.
 
-Current curated `.sumstats.gz` artifacts provide canonical `SNP`, `CHR`, `POS`,
-`Z`, and `N` fields when written by `ldsc munge-sumstats`, plus a neighboring
-metadata sidecar with the effective `snp_identifier` and `genome_build`.
+Current curated `sumstats.parquet` and `.sumstats.gz` artifacts provide
+canonical `SNP`, `CHR`, `POS`, `Z`, and `N` fields when written by
+`ldsc munge-sumstats`, plus a neighboring metadata sidecar with the effective
+`snp_identifier`, `genome_build`, selected output files, and parquet row groups
+when applicable.
 Regression therefore merges on literal `SNP` in `rsid` mode and on normalized
 `CHR:POS` coordinates in `chr_pos` mode.
 

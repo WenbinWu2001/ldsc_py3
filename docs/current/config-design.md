@@ -12,9 +12,10 @@ Two implementation details are important to know:
 - Compatibility checks run when both inputs carry real snapshots. Legacy objects
   with `config_snapshot=None` are still accepted for backward compatibility.
 - Current `ldsc munge-sumstats` writes `sumstats.metadata.json` beside
-  `sumstats.sumstats.gz`; `load_sumstats()` recovers the original munge-time
-  `GlobalConfig` from that sidecar. Older `.sumstats.gz` files without the
-  sidecar still warn and load with `config_snapshot=None`.
+  `sumstats.parquet` by default, or beside legacy `sumstats.sumstats.gz` when
+  `--output-format tsv.gz` is selected; `load_sumstats()` recovers the original
+  munge-time `GlobalConfig` from that sidecar. Older `.sumstats.gz` files
+  without the sidecar still warn and load with `config_snapshot=None`.
 - `load_ldscore_from_dir()` keeps strict format checks but treats missing or
   invalid manifest config provenance as unknown, warning and returning
   `config_snapshot=None`.
@@ -291,11 +292,12 @@ provenance should persist the `RefPanelConfig` / `LDScoreConfig` they used
 alongside the written artifacts.
 
 **`load_sumstats()` recovers provenance for current disk artifacts.**
-Curated `.sumstats(.gz)` artifacts written by the current munger have a
-neighboring `sumstats.metadata.json` sidecar that records the active or inferred
-`GlobalConfig`, including `snp_identifier` and `genome_build`. The loader uses
-that sidecar to populate `config_snapshot`. Older artifacts without the sidecar
-still emit a warning and load with `config_snapshot=None`.
+Curated `sumstats.parquet` and `.sumstats(.gz)` artifacts written by the current
+munger have a neighboring `sumstats.metadata.json` sidecar that records the
+active or inferred `GlobalConfig`, including `snp_identifier` and
+`genome_build`. The loader uses that sidecar to populate `config_snapshot`.
+Older artifacts without the sidecar still emit a warning and load with
+`config_snapshot=None`.
 
 **Legacy LD-score directories may also have unknown provenance.**
 Canonical LD-score directories written by the current workflow include a manifest

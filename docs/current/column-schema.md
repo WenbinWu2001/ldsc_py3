@@ -57,15 +57,19 @@ truth for any computation or validation.
 | `R2` | `float64` | |
 | `L2` (and annotation-specific LD columns) | `float64` | |
 
-### On-disk dtypes (parquet only)
+### On-disk dtypes (parquet)
 
-Float columns are narrowed to `float32` immediately before parquet writes. This
-halves the storage footprint for float data with no meaningful precision loss.
-Text-based formats (`.annot.gz`, `.sumstats.gz`) are unaffected -- their size is
-governed by the number of decimal digits printed, not numpy dtype.
+LD-score and pairwise R² float columns are narrowed to `float32` immediately
+before parquet writes. This halves the storage footprint for those dense float
+matrices with no meaningful precision loss. Munged sumstats Parquet preserves
+the numeric precision produced by the munger because downstream regression
+uses those values as primary trait data. Text-based formats (`.annot.gz` and
+legacy `.sumstats.gz`) are unaffected; their size is governed by the number of
+decimal digits printed, not numpy dtype.
 
 | Parquet artifact | Columns cast to `float32` on write | Columns kept as-is |
 | --- | --- | --- |
+| `sumstats.parquet` | none | `CHR` (str), `POS` (int64 when complete), `SNP` (str), alleles (str), `Z`/`N`/`FRQ` (numeric precision preserved) |
 | `baseline.parquet`, `query.parquet` | `regr_weight`, all LD-score / annotation columns | `CHR` (str), `POS` (int64), `SNP` (str) |
 | Pairwise R² parquet | `R2` | `CHR` (str), `POS_1`, `POS_2` (int64), `SNP_1`, `SNP_2` (str) |
 
@@ -74,15 +78,17 @@ Pairwise R² parquet schema metadata also stores `ldsc:sorted_by_build`,
 let downstream readers distinguish package-built unbiased R2 from raw sample R2
 without requiring users to repeat sample-size arguments.
 
-`N`, `N_CAS`, `N_CON`, `NSTUDY` are stored in `.sumstats.gz` (text), never in
-parquet. They remain `float64` everywhere and are **not** subject to float32
-narrowing.
+`N`, `N_CAS`, `N_CON`, and `NSTUDY` remain `float64` in memory and are **not**
+subject to float32 narrowing. Curated `sumstats.parquet` keeps `N` as numeric
+data; legacy `.sumstats.gz` writes the selected curated columns as text with the
+configured float format.
 
 The casting is applied by a narrow helper (`_cast_parquet_floats`) called at the
 write site in `outputs.py`. It selects all `float64` columns and recasts them;
 no column names need to be listed explicitly. LD-score output parquet files are
-also written with one row group per chromosome, and the row-group layout is
-recorded in `manifest.json`.
+written with one row group per chromosome and record that layout in
+`manifest.json`; sumstats Parquet is sorted by `CHR`, `POS`, and original row
+order, and records its row groups in `sumstats.metadata.json`.
 
 ### Why `object` dtype for strings?
 pandas has no native string dtype in the numpy layer. `str` columns are stored as
@@ -117,10 +123,11 @@ normalized on read; their on-disk format is not changed.
 ## 3. Column Ordering in Written Artifacts
 
 **Rule:** SNP metadata columns appear in a stable workflow-specific order.
-Annotation, sumstats, and pairwise R2 artifacts use **(CHR, POS, SNP, ...)** or
-the documented pairwise variant. Public LD-score result tables currently use
-**(CHR, SNP, POS, ...)** to match `LDScoreResult` and regression-loader
-validation.
+Annotation artifacts use **(CHR, POS, SNP, ...)**. Munged sumstats use
+**(SNP, CHR, POS, ...)** to keep the legacy leading `SNP` convention while
+adding coordinates. Pairwise R2 uses the documented pairwise coordinate
+variant. Public LD-score result tables currently use **(CHR, SNP, POS, ...)** to
+match `LDScoreResult` and regression-loader validation.
 
 This applies to artifacts **written by this package**. External input files
 (user-supplied annotation files, the hm3 curated map, PLINK BIM files, etc.) are
@@ -138,7 +145,7 @@ CM`) follow the annotation rule unconditionally. The annotation-specific columns
 | Annotation (`.annot.gz`) | `CHR, POS, SNP, CM` | annotation columns (input order preserved) |
 | LD-score output (`baseline.parquet`) | `CHR, SNP, POS, regr_weight` | baseline LD-score columns |
 | LD-score output (`query.parquet`) | `CHR, SNP, POS` | query LD-score columns |
-| Munged sumstats (`.sumstats.gz`) | `CHR, POS, SNP, A1, A2` | `N, Z, FRQ, ...` |
+| Munged sumstats (`sumstats.parquet` or `.sumstats.gz`) | `SNP, CHR, POS, A1, A2` | `Z, N, FRQ` |
 | Canonical pairwise R² parquet | `CHR, POS_1, POS_2, SNP_1, SNP_2, R2` | |
 
 ---

@@ -1,6 +1,7 @@
 from pathlib import Path
 import contextlib
 import gzip
+import importlib.util
 import io
 import json
 import sys
@@ -16,6 +17,8 @@ from pandas.testing import assert_series_equal
 SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
+
+_HAS_PYARROW = importlib.util.find_spec("pyarrow") is not None
 
 from ldsc.config import GlobalConfig, MungeConfig
 
@@ -36,6 +39,12 @@ class SumstatsMungerTest(unittest.TestCase):
     def test_build_parser_defaults_chunksize_to_one_million_rows(self):
         parser = sumstats_workflow.build_parser()
         self.assertEqual(parser.get_default("chunksize"), 1_000_000)
+
+    def test_build_parser_defaults_output_format_to_parquet(self):
+        parser = sumstats_workflow.build_parser()
+        self.assertEqual(parser.get_default("output_format"), "parquet")
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--output-format", "csv"])
 
     def test_build_parser_uses_raw_sumstats_file_for_raw_input(self):
         parser = sumstats_workflow.build_parser()
@@ -80,6 +89,8 @@ class SumstatsMungerTest(unittest.TestCase):
                 "DROP_ME,ALSO_DROP",
                 "--signed-sumstats",
                 "BETA,0",
+                "--output-format",
+                "both",
                 "--snp-identifier",
                 "rsid",
             ]
@@ -99,6 +110,7 @@ class SumstatsMungerTest(unittest.TestCase):
         self.assertEqual(run_config.chunk_size, 17)
         self.assertEqual(run_config.ignore_columns, ("DROP_ME", "ALSO_DROP"))
         self.assertEqual(run_config.signed_sumstats_spec, "BETA,0")
+        self.assertEqual(run_config.output_format, "both")
         self.assertEqual(global_config, GlobalConfig(snp_identifier="rsid"))
 
     def test_kernel_reports_actionable_signed_sumstats_format_error(self):
@@ -150,7 +162,58 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertIsNone(table.config_snapshot)
             self.assertTrue(any("cannot recover the GlobalConfig" in str(item.message) for item in caught))
 
-    def test_run_munges_and_writes_output(self):
+    def test_load_sumstats_reads_uncompressed_curated_sumstats(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            sumstats_file = tmpdir / "trait.sumstats"
+            sumstats_file.write_text("SNP\tZ\tN\nrs1\t1.5\t1000\n", encoding="utf-8")
+
+            with warnings.catch_warnings(record=True):
+                table = ldsc.load_sumstats(sumstats_file, trait_name="trait")
+
+            self.assertEqual(table.data.columns.tolist(), ["SNP", "N", "Z"])
+            self.assertEqual(table.data.loc[0, "SNP"], "rs1")
+
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
+    def test_load_sumstats_reads_parquet_with_exact_one_glob_and_sidecar(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            sumstats_file = tmpdir / "trait.parquet"
+            pd.DataFrame({"SNP": ["rs1"], "CHR": ["1"], "POS": [100], "Z": [1.5], "N": [1000.0]}).to_parquet(
+                sumstats_file,
+                index=False,
+            )
+            (tmpdir / "trait.metadata.json").write_text(
+                json.dumps(
+                    {
+                        "format": "ldsc.sumstats.v1",
+                        "snp_identifier": "chr_pos",
+                        "genome_build": "hg38",
+                        "config_snapshot": {"snp_identifier": "chr_pos", "genome_build": "hg38"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                table = ldsc.load_sumstats(str(tmpdir / "trait*.parquet"), trait_name="trait")
+
+            self.assertEqual(table.source_path, str(sumstats_file))
+            self.assertEqual(table.data.columns.tolist(), ["SNP", "CHR", "POS", "N", "Z"])
+            self.assertEqual(table.config_snapshot, GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
+            self.assertFalse(any("cannot recover the GlobalConfig" in str(item.message) for item in caught))
+
+    def test_load_sumstats_rejects_unknown_suffix(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "trait.csv"
+            path.write_text("SNP,Z,N\nrs1,1.5,1000\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "Unsupported munged sumstats format"):
+                ldsc.load_sumstats(path)
+
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for default parquet output")
+    def test_run_munges_and_writes_parquet_by_default(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             raw_path = tmpdir / "raw.tsv"
@@ -166,17 +229,139 @@ class SumstatsMungerTest(unittest.TestCase):
             table = munger.run(raw, config, GlobalConfig(snp_identifier="rsid"))
             self.assertEqual(table.trait_name, "trait")
             self.assertEqual(table.config_snapshot, GlobalConfig(snp_identifier="rsid"))
-            self.assertTrue((tmpdir / "munged" / "sumstats.sumstats.gz").exists())
-            with gzip.open(tmpdir / "munged" / "sumstats.sumstats.gz", "rt", encoding="utf-8") as handle:
-                output = pd.read_csv(handle, sep="\t")
+            self.assertTrue((tmpdir / "munged" / "sumstats.parquet").exists())
+            self.assertFalse((tmpdir / "munged" / "sumstats.sumstats.gz").exists())
+            output = pd.read_parquet(tmpdir / "munged" / "sumstats.parquet")
             self.assertEqual(output.columns.tolist(), ["SNP", "CHR", "POS", "A1", "A2", "Z", "N"])
             self.assertTrue(output["CHR"].isna().all())
             self.assertTrue(output["POS"].isna().all())
             self.assertTrue((tmpdir / "munged" / "sumstats.metadata.json").exists())
             summary = munger.build_run_summary(table)
             self.assertEqual(summary.n_retained_rows, 2)
-            self.assertIn("sumstats_gz", summary.output_paths)
+            self.assertIn("sumstats_parquet", summary.output_paths)
+            self.assertNotIn("sumstats_gz", summary.output_paths)
             self.assertIn("metadata_json", summary.output_paths)
+
+    def test_run_writes_tsv_gz_when_requested(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "SNP A1 A2 P OR N\n"
+                "rs1 A G 0.05 1.0 1000\n",
+                encoding="utf-8",
+            )
+
+            table = SumstatsMunger().run(
+                MungeConfig(raw_sumstats_file=str(raw_path), trait_name="trait"),
+                MungeConfig(output_dir=str(tmpdir / "munged"), output_format="tsv.gz"),
+                GlobalConfig(snp_identifier="rsid"),
+            )
+
+            self.assertEqual(len(table.data), 1)
+            self.assertTrue((tmpdir / "munged" / "sumstats.sumstats.gz").exists())
+            self.assertFalse((tmpdir / "munged" / "sumstats.parquet").exists())
+            with gzip.open(tmpdir / "munged" / "sumstats.sumstats.gz", "rt", encoding="utf-8") as handle:
+                output = pd.read_csv(handle, sep="\t")
+            self.assertEqual(output.columns.tolist(), ["SNP", "CHR", "POS", "A1", "A2", "Z", "N"])
+            metadata = json.loads((tmpdir / "munged" / "sumstats.metadata.json").read_text(encoding="utf-8"))
+            self.assertEqual(metadata["output_format"], "tsv.gz")
+            self.assertEqual(metadata["sumstats_file"], str(tmpdir / "munged" / "sumstats.sumstats.gz"))
+
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
+    def test_run_writes_both_formats_and_lists_outputs_in_metadata(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "SNP A1 A2 P OR N\n"
+                "rs1 A G 0.05 1.0 1000\n",
+                encoding="utf-8",
+            )
+
+            SumstatsMunger().run(
+                MungeConfig(raw_sumstats_file=str(raw_path), trait_name="trait"),
+                MungeConfig(output_dir=str(tmpdir / "munged"), output_format="both"),
+                GlobalConfig(snp_identifier="rsid"),
+            )
+
+            metadata = json.loads((tmpdir / "munged" / "sumstats.metadata.json").read_text(encoding="utf-8"))
+            self.assertTrue((tmpdir / "munged" / "sumstats.parquet").exists())
+            self.assertTrue((tmpdir / "munged" / "sumstats.sumstats.gz").exists())
+            self.assertEqual(metadata["output_format"], "both")
+            self.assertEqual(metadata["sumstats_file"], str(tmpdir / "munged" / "sumstats.parquet"))
+            self.assertEqual(
+                metadata["output_files"],
+                {
+                    "parquet": str(tmpdir / "munged" / "sumstats.parquet"),
+                    "tsv.gz": str(tmpdir / "munged" / "sumstats.sumstats.gz"),
+                },
+            )
+
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
+    def test_write_output_accepts_output_format(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            table = sumstats_workflow.SumstatsTable(
+                data=pd.DataFrame({"SNP": ["rs1"], "Z": [1.234567], "N": [1000.123], "A1": ["A"], "A2": ["G"]}),
+                has_alleles=True,
+                source_path="source.tsv",
+                trait_name="trait",
+                config_snapshot=GlobalConfig(snp_identifier="rsid"),
+            )
+
+            path = SumstatsMunger().write_output(table, tmpdir / "out", output_format="both")
+
+            self.assertEqual(path, str(tmpdir / "out" / "sumstats.parquet"))
+            self.assertTrue((tmpdir / "out" / "sumstats.parquet").exists())
+            self.assertTrue((tmpdir / "out" / "sumstats.sumstats.gz").exists())
+
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
+    def test_parquet_output_sorts_by_chr_pos_records_row_groups_and_preserves_precision(self):
+        import pyarrow.parquet as pq
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text("SNP A1 A2 P OR N\nrs1 A G 0.05 1.1 1000\n", encoding="utf-8")
+            returned = pd.DataFrame(
+                {
+                    "SNP": ["rs2", "rs1", "rs4", "rs3"],
+                    "CHR": ["2", "1", pd.NA, "1"],
+                    "POS": [200, 100, pd.NA, 50],
+                    "A1": ["A", "A", "T", "C"],
+                    "A2": ["G", "G", "C", "T"],
+                    "Z": [1.123456789, 2.987654321, 0.444444444, -0.333333333],
+                    "N": [1000.123456, 2000.987654, 4000.777777, 3000.555555],
+                }
+            )
+
+            with mock.patch.object(kernel_munge, "munge_sumstats", return_value=returned):
+                SumstatsMunger().run(
+                    MungeConfig(raw_sumstats_file=str(raw_path), trait_name="trait"),
+                    MungeConfig(output_dir=str(tmpdir / "munged")),
+                    GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+                )
+
+            parquet_path = tmpdir / "munged" / "sumstats.parquet"
+            output = pd.read_parquet(parquet_path)
+            self.assertEqual(output["SNP"].tolist(), ["rs3", "rs1", "rs2", "rs4"])
+            self.assertAlmostEqual(output.loc[0, "Z"], -0.333333333)
+            self.assertAlmostEqual(output.loc[1, "N"], 2000.987654)
+            self.assertTrue(pd.isna(output.loc[3, "CHR"]))
+            self.assertTrue(pd.isna(output.loc[3, "POS"]))
+            parquet_file = pq.ParquetFile(parquet_path)
+            self.assertEqual(parquet_file.num_row_groups, 3)
+            metadata = json.loads((tmpdir / "munged" / "sumstats.metadata.json").read_text(encoding="utf-8"))
+            self.assertEqual(metadata["parquet_compression"], "snappy")
+            self.assertEqual(
+                metadata["parquet_row_groups"],
+                [
+                    {"chrom": "1", "row_group_index": 0, "row_offset": 0, "n_rows": 2},
+                    {"chrom": "2", "row_group_index": 1, "row_offset": 2, "n_rows": 1},
+                    {"chrom": None, "row_group_index": 2, "row_offset": 3, "n_rows": 1},
+                ],
+            )
 
     def test_run_accepts_merged_munge_config(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -198,7 +383,7 @@ class SumstatsMungerTest(unittest.TestCase):
 
             self.assertEqual(table.trait_name, "trait")
             self.assertEqual(table.source_path, str(raw_path))
-            self.assertTrue((tmpdir / "munged" / "sumstats.sumstats.gz").exists())
+            self.assertTrue((tmpdir / "munged" / "sumstats.parquet").exists())
 
     def test_top_level_wrapper_calls_main(self):
         from ldsc import sumstats_munger as munge_sumstats
@@ -288,7 +473,7 @@ class SumstatsMungerTest(unittest.TestCase):
             table = SumstatsMunger().run(raw, config, GlobalConfig(snp_identifier="rsid"))
 
             self.assertEqual(len(table.data), 1)
-            self.assertTrue((output_dir / "sumstats.sumstats.gz").exists())
+            self.assertTrue((output_dir / "sumstats.parquet").exists())
             self.assertTrue((output_dir / "sumstats.log").exists())
 
     def test_run_refuses_existing_fixed_outputs_before_kernel_call(self):
@@ -298,7 +483,7 @@ class SumstatsMungerTest(unittest.TestCase):
             raw_path.write_text("SNP A1 A2 P OR N\nrs1 A G 0.05 1.0 1000\n", encoding="utf-8")
             output_dir = tmpdir / "munged"
             output_dir.mkdir()
-            existing = output_dir / "sumstats.sumstats.gz"
+            existing = output_dir / "sumstats.parquet"
             existing.write_text("existing\n", encoding="utf-8")
 
             with mock.patch.object(kernel_munge, "munge_sumstats", side_effect=AssertionError("kernel should not run")):
@@ -318,7 +503,7 @@ class SumstatsMungerTest(unittest.TestCase):
             raw_path.write_text("SNP A1 A2 P OR N\nrs1 A G 0.05 1.0 1000\n", encoding="utf-8")
             output_dir = tmpdir / "munged"
             output_dir.mkdir()
-            (output_dir / "sumstats.sumstats.gz").write_text("existing\n", encoding="utf-8")
+            (output_dir / "sumstats.parquet").write_text("existing\n", encoding="utf-8")
             returned = pd.DataFrame({"SNP": ["rs1"], "N": [1000.0], "Z": [1.5], "A1": ["A"], "A2": ["G"]})
 
             with mock.patch.object(kernel_munge, "munge_sumstats", return_value=returned) as patched:
@@ -347,7 +532,7 @@ class SumstatsMungerTest(unittest.TestCase):
 
             self.assertEqual(len(table.data), 1)
             self.assertEqual(table.source_path, str(raw_path))
-            self.assertTrue((output_dir / "sumstats.sumstats.gz").exists())
+            self.assertTrue((output_dir / "sumstats.parquet").exists())
             self.assertTrue((output_dir / "sumstats.log").exists())
 
     def test_run_resolves_glob_pattern_for_single_sumstats_input(self):
@@ -365,7 +550,7 @@ class SumstatsMungerTest(unittest.TestCase):
             table = SumstatsMunger().run(raw, MungeConfig(output_dir=output_dir), GlobalConfig(snp_identifier="rsid"))
 
             self.assertEqual(table.source_path, str(raw_path))
-            self.assertTrue((output_dir / "sumstats.sumstats.gz").exists())
+            self.assertTrue((output_dir / "sumstats.parquet").exists())
 
     def test_kernel_missing_sample_size_error_names_fix_options(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -645,8 +830,7 @@ class SumstatsMungerTest(unittest.TestCase):
 
             self.assertEqual(table.data["CHR"].tolist(), ["1"])
             self.assertEqual(table.data["POS"].tolist(), [123])
-            with gzip.open(tmpdir / "munged" / "sumstats.sumstats.gz", "rt", encoding="utf-8") as handle:
-                output = pd.read_csv(handle, sep="\t")
+            output = pd.read_parquet(tmpdir / "munged" / "sumstats.parquet")
             self.assertEqual(output.columns.tolist(), ["SNP", "CHR", "POS", "A1", "A2", "Z", "N"])
 
     def test_run_accepts_explicit_chr_and_pos_column_hints(self):
@@ -713,6 +897,6 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(metadata["genome_build"], "hg38")
             with warnings.catch_warnings(record=True) as caught:
                 warnings.simplefilter("always")
-                table = ldsc.load_sumstats(output_dir / "sumstats.sumstats.gz", trait_name="trait")
+                table = ldsc.load_sumstats(output_dir / "sumstats.parquet", trait_name="trait")
             self.assertEqual(table.config_snapshot, GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
             self.assertFalse(any("cannot recover the GlobalConfig" in str(item.message) for item in caught))

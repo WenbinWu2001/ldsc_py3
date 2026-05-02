@@ -250,14 +250,14 @@ flowchart LR
 - Kernel: `ldsc._kernel.ldscore`
 - Postprocessing: `ldsc.outputs`
 
-## 4. `munge-sumstats`: Raw GWAS Table To Curated `.sumstats.gz`
+## 4. `munge-sumstats`: Raw GWAS Table To Curated Sumstats
 
-The munging workflow preflights the fixed outputs `sumstats.sumstats.gz`,
-`sumstats.log`, and `sumstats.metadata.json` before delegating to
-`SumstatsMunger.run()` and then the legacy-compatible munging kernel. The
-workflow owns the log file and metadata sidecar; the kernel keeps the
-low-level parsing, QC, and `.sumstats.gz` serialization. This avoids a long run
-partially replacing one output while leaving the others from an earlier run.
+The munging workflow preflights the selected fixed output(s), `sumstats.log`,
+and `sumstats.metadata.json` before delegating to `SumstatsMunger.run()` and
+then the legacy-compatible munging kernel. The workflow owns the log file,
+metadata sidecar, and curated output writing; the kernel keeps the low-level
+parsing and QC. Default output is `sumstats.parquet`; `--output-format tsv.gz`
+or `both` also supports the legacy `sumstats.sumstats.gz` artifact.
 
 ### Required inputs
 
@@ -291,23 +291,23 @@ flowchart LR
 
   I1 --> D1 --> D2 --> D3 --> D5 --> D6 --> D4
   I2 --> D2
-  D4 --> O4[sumstats.sumstats.gz + sumstats.log + metadata JSON]
+  D4 --> O4[sumstats.parquet by default<br/>optional sumstats.sumstats.gz + log + metadata JSON]
 ```
 
 ### Outputs
 
 | File | Example | Notes |
 | --- | --- | --- |
-| curated sumstats | `SNP CHR POS A1 A2 Z N`<br/>`rs3131969 1 754182 A G 0.74 829249.58` | written as `sumstats.sumstats.gz` under `output_dir`; `CHR`/`POS` are present and may be missing when absent from raw input; optional `FRQ` may also be present |
+| curated sumstats | `SNP CHR POS A1 A2 Z N`<br/>`rs3131969 1 754182 A G 0.74 829249.58` | written as `sumstats.parquet` by default under `output_dir`; `--output-format tsv.gz` writes legacy `sumstats.sumstats.gz`, and `both` writes both; `CHR`/`POS` are present and may be missing when absent from raw input; optional `FRQ` may also be present |
 | log file | plain-text QC log | workflow-owned `sumstats.log` under `output_dir`, populated from package logger messages emitted during kernel QC |
-| metadata sidecar | JSON with `snp_identifier`, nullable `genome_build`, coordinate columns, and build-inference details | written as `sumstats.metadata.json` under `output_dir`; used by `load_sumstats()` to recover config provenance |
+| metadata sidecar | JSON with `snp_identifier`, nullable `genome_build`, coordinate columns, output files, parquet row groups, and build-inference details | written as `sumstats.metadata.json` under `output_dir`; used by `load_sumstats()` to recover config provenance |
 
 ### Modules used
 
 - Preprocessing: `ldsc.config`, `ldsc.path_resolution`, `ldsc.column_inference`
 - Workflow: `ldsc.sumstats_munger`
 - Kernel: `ldsc._kernel.sumstats_munger`
-- Postprocessing: kernel `.sumstats.gz` writing plus workflow-owned log and metadata writing
+- Postprocessing: workflow-owned Parquet/TSV writing, log, and metadata writing
 
 ## 5. `h2`, `partitioned-h2`, and `rg`: Curated Artifacts To Regression Summaries
 
@@ -329,7 +329,7 @@ stable summary entry point.
 
 ```mermaid
 flowchart LR
-  I1[Curated .sumstats.gz]
+  I1[Curated sumstats parquet or .sumstats.gz]
   I2[LD-score artifacts]
 
   subgraph P5[Preprocessing (public)<br/>path_resolution + column_inference]

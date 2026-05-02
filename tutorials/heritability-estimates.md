@@ -71,10 +71,11 @@ sumstats = SumstatsMunger().run(
     global_config=GLOBAL_CONFIG,
 )
 
-# If you already have a curated .sumstats.gz artifact on disk, load it directly.
-# Current artifacts recover config_snapshot from sumstats.metadata.json. Older
-# files without that sidecar warn and use config_snapshot=None.
-# sumstats = load_sumstats("tutorial_outputs/trait/sumstats.sumstats.gz", trait_name="trait")
+# If you already have a curated sumstats artifact on disk, load it directly.
+# Current parquet and legacy .sumstats.gz artifacts recover config_snapshot
+# from sumstats.metadata.json. Older files without that sidecar warn and use
+# config_snapshot=None.
+# sumstats = load_sumstats("tutorial_outputs/trait/sumstats.parquet", trait_name="trait")
 
 ldscore_result = run_ldscore(
     output_dir="tutorial_outputs/trait_ldscores",
@@ -98,11 +99,12 @@ print("sumstats_config =", sumstats.config_snapshot)
 print("dataset_config =", dataset.config_snapshot)
 ```
 
-`SumstatsMunger` captures `GlobalConfig` provenance into `SumstatsTable.config_snapshot` and writes the same settings to `sumstats.metadata.json`. `RegressionRunner.build_dataset()` checks that known sumstats and LD-score snapshots agree on critical settings such as `snp_identifier` and `genome_build`. If both snapshots are known and incompatible, the workflow raises `ConfigMismatchError` instead of silently merging inconsistent artifacts. Sumstats loaded from current `.sumstats.gz` artifacts recover that snapshot from the sidecar; older files without the sidecar have `config_snapshot=None`, so regression treats their config provenance as unknown and validates the LD-score side only.
+`SumstatsMunger` captures `GlobalConfig` provenance into `SumstatsTable.config_snapshot` and writes the same settings to `sumstats.metadata.json`. `RegressionRunner.build_dataset()` checks that known sumstats and LD-score snapshots agree on critical settings such as `snp_identifier` and `genome_build`. If both snapshots are known and incompatible, the workflow raises `ConfigMismatchError` instead of silently merging inconsistent artifacts. Sumstats loaded from current `sumstats.parquet` or legacy `.sumstats.gz` artifacts recover that snapshot from the sidecar; older files without the sidecar have `config_snapshot=None`, so regression treats their config provenance as unknown and validates the LD-score side only.
 
 `SumstatsMunger.run()` is also the shared implementation path behind
 `ldsc munge-sumstats`: the CLI parser maps arguments into `MungeConfig`, then
-the workflow writes `sumstats.sumstats.gz`, `sumstats.log`, and
+the workflow writes `sumstats.parquet` by default, optional
+`sumstats.sumstats.gz` compatibility output when requested, `sumstats.log`, and
 `sumstats.metadata.json` under the selected output directory.
 
 In `chr_pos` mode, regression merges sumstats and LD scores by normalized `CHR:POS`
@@ -152,13 +154,15 @@ ldsc ldscore \
   --ld-wind-cm 1.0
 
 ldsc h2 \
-  --sumstats-file tutorial_outputs/trait/sumstats.sumstats.gz \
+  --sumstats-file tutorial_outputs/trait/sumstats.parquet \
   --ldscore-dir tutorial_outputs/trait_ldscores \
   --count-kind common \
   --output-dir tutorial_outputs/trait_h2
 ```
 
 The command writes `tutorial_outputs/trait_h2/h2.tsv`.
-If `sumstats.sumstats.gz`, `sumstats.log`, `sumstats.metadata.json`, or `h2.tsv`
+If `sumstats.parquet`, `sumstats.log`, `sumstats.metadata.json`, or `h2.tsv`
 already exists from a previous run, the relevant command fails before writing.
-Add `--overwrite` only for an intentional rerun.
+If you request `--output-format tsv.gz` or `both`, `sumstats.sumstats.gz` is
+also part of the fixed-output collision check. Add `--overwrite` only for an
+intentional rerun.

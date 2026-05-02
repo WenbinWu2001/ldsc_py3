@@ -329,9 +329,11 @@ How they are handled:
 
 Output:
 
-- `ldsc munge-sumstats` writes `sumstats.sumstats.gz`, `sumstats.log`, and
-  `sumstats.metadata.json` under `output_dir`; existing files are refused
-  unless `--overwrite` or `MungeConfig(overwrite=True)` is supplied.
+- `ldsc munge-sumstats` writes `sumstats.parquet` by default, plus
+  `sumstats.log` and `sumstats.metadata.json` under `output_dir`;
+  `--output-format tsv.gz` writes legacy `sumstats.sumstats.gz`, and
+  `--output-format both` writes both curated artifacts. Existing selected files
+  are refused unless `--overwrite` or `MungeConfig(overwrite=True)` is supplied.
 - `ldsc h2`, `ldsc partitioned-h2`, and `ldsc rg` write `h2.tsv`,
   `partitioned_h2.tsv`, and `rg.tsv`, respectively, when `output_dir` is
   provided; existing files are refused unless `--overwrite` is supplied.
@@ -378,7 +380,7 @@ standalone `ldsc infer-build` command.
 These are the main cases where users can get confused or introduce bugs.
 
 - Ambiguous glob for an exact-one input
-  Example: `data/*.sumstats.gz` matching two files will raise.
+  Example: `data/*.parquet` or `data/*.sumstats.gz` matching two files will raise.
 - Filename does not encode chromosome
   A multi-file glob may still work, but the workflow cannot pre-filter by name
   and must rely on `CHR` inside the file.

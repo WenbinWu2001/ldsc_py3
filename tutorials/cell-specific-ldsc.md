@@ -81,7 +81,7 @@ ldscore_result = LDScoreCalculator().run(
 # Current disk-loaded sumstats recover config_snapshot from
 # sumstats.metadata.json. Older artifacts without that sidecar warn and use
 # config_snapshot=None.
-sumstats = load_sumstats("tutorial_outputs/trait/sumstats.sumstats.gz", trait_name="trait")
+sumstats = load_sumstats("tutorial_outputs/trait/sumstats.parquet", trait_name="trait")
 
 runner = RegressionRunner(
     global_config=GLOBAL_CONFIG,
@@ -132,7 +132,7 @@ Then run partitioned h2 over the cell-type query columns:
 
 ```bash
 ldsc partitioned-h2 \
-  --sumstats-file tutorial_outputs/trait/sumstats.sumstats.gz \
+  --sumstats-file tutorial_outputs/trait/sumstats.parquet \
   --trait-name trait \
   --ldscore-dir tutorial_outputs/cell_specific_ldscores \
   --count-kind common \

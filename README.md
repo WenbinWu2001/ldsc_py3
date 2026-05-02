@@ -65,24 +65,26 @@ Subcommands:
 - `ldsc partitioned-h2`
 - `ldsc rg`
 
-`ldsc munge-sumstats` writes canonical `SNP`, `CHR`, `POS`, `Z`, and `N`
-columns when possible and always includes `CHR`/`POS` in package-written
-artifacts. Raw files may provide chromosome and position columns through common
-aliases such as `#CHROM`, `CHROM`, `CHR`, `POS`, or `BP`, or explicitly through
-`--chr` and `--pos`; pass the raw input as `--raw-sumstats-file`. Leading `##`
+`ldsc munge-sumstats` writes `sumstats.parquet` by default, with optional
+legacy `sumstats.sumstats.gz` output through `--output-format tsv.gz` or
+`--output-format both`. Package-written artifacts use canonical `SNP`, `CHR`,
+`POS`, `Z`, and `N` columns when possible and always include `CHR`/`POS`. Raw
+files may provide chromosome and position columns through common aliases such as
+`#CHROM`, `CHROM`, `CHR`, `POS`, or `BP`, or explicitly through `--chr` and
+`--pos`; pass the raw input as `--raw-sumstats-file`. Leading `##`
 metadata/comment lines are skipped before the real header is parsed. Each
-munged run also writes `sumstats.metadata.json`
-beside `sumstats.sumstats.gz` so later regression commands can recover
-`snp_identifier` and `genome_build` provenance. Use `--sumstats-snps-file` when
-the munged artifact should be restricted to a headered SNP keep-list; this
-filter keeps matching rows only and does not allele-match or reorder the output.
+munged run also writes `sumstats.metadata.json` beside the selected artifact(s)
+so later regression commands can recover `snp_identifier` and `genome_build`
+provenance. Use `--sumstats-snps-file` when the munged artifact should be
+restricted to a headered SNP keep-list; this filter keeps matching rows only and
+does not allele-match or reorder the output.
 
 `ldsc ldscore` supports ordinary unpartitioned LD-score generation without
 baseline annotations:
 
 ```bash
 ldsc ldscore --output-dir ldscores --plink-prefix panel --ld-wind-snps 10
-ldsc h2 --sumstats-file trait.sumstats.gz --ldscore-dir ldscores --output-dir h2_out
+ldsc h2 --sumstats-file trait/sumstats.parquet --ldscore-dir ldscores --output-dir h2_out
 ```
 
 When no baseline and no query annotations are supplied, the workflow writes a

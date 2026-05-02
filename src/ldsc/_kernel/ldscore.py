@@ -209,7 +209,7 @@ from ..column_inference import (
     resolve_required_column,
     resolve_required_columns,
 )
-from ..chromosome_inference import chrom_sort_key, normalize_chromosome
+from ..chromosome_inference import chrom_sort_key, normalize_chromosome, normalize_chromosome_series
 from ..errors import LDSCDependencyError
 from ..genome_build_inference import (
     load_packaged_reference_table,
@@ -812,10 +812,15 @@ def validate_r2_source_columns(df: pd.DataFrame, path: str) -> None:
 
 
 def canonicalize_r2_pairs(df: pd.DataFrame, genome_build: str) -> pd.DataFrame:
-    """Orient pairwise-R2 rows so the selected build always satisfies ``pos_1 <= pos_2``."""
+    """Orient pairwise-R2 rows so the selected build satisfies ``pos_1 <= pos_2``.
+
+    Chromosome labels are normalized through the shared unique-token series
+    helper. That preserves scalar validation/logging semantics while avoiding a
+    row-wise normalization call on large R2 pair tables.
+    """
     df = normalize_r2_source_columns(df.copy())
     left_pos_col, right_pos_col = get_r2_build_columns(genome_build, df.columns)
-    df["chr"] = df["chr"].map(lambda value: normalize_chromosome(value, context="R2 chromosome column"))
+    df["chr"] = normalize_chromosome_series(df["chr"], context="R2 chromosome column")
 
     paired_columns = (
         ("rsID_1", "rsID_2"),

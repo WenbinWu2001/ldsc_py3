@@ -4,7 +4,8 @@ Goal: estimate genetic correlation between two traits from munged summary statis
 
 The regression step expects:
 
-- two curated `.sumstats.gz` files with at least `SNP`, `Z`, and `N`; current
+- two curated `sumstats.parquet` files, or explicit legacy `.sumstats.gz`
+  compatibility files, with at least `SNP`, `Z`, and `N`; current
   package-written artifacts also include `CHR` and `POS`, and `A1`/`A2` are
   recommended so the second trait can be allele-aligned
 - one canonical LD-score result directory containing `manifest.json` and `baseline.parquet`
@@ -16,8 +17,10 @@ full table, while inspection code can use the row-group metadata.
 
 Output directories are literal destinations. Missing directories are created,
 existing directories are reused, and existing fixed files such as
-`sumstats.sumstats.gz`, `sumstats.log`, `sumstats.metadata.json`, or `rg.tsv`
+`sumstats.parquet`, `sumstats.log`, `sumstats.metadata.json`, or `rg.tsv`
 are refused before writing unless you pass `--overwrite` or `overwrite=True`.
+If you request `--output-format tsv.gz` or `both`, `sumstats.sumstats.gz` is
+also checked as a fixed workflow output.
 
 ## Python API
 
@@ -71,8 +74,8 @@ trait_2 = SumstatsMunger().run(
 # Option B: load existing curated artifacts instead. Current artifacts recover
 # config_snapshot from sumstats.metadata.json. Older artifacts without that
 # sidecar warn and use config_snapshot=None.
-# trait_1 = load_sumstats("tutorial_outputs/trait_1/sumstats.sumstats.gz", trait_name="trait_1")
-# trait_2 = load_sumstats("tutorial_outputs/trait_2/sumstats.sumstats.gz", trait_name="trait_2")
+# trait_1 = load_sumstats("tutorial_outputs/trait_1/sumstats.parquet", trait_name="trait_1")
+# trait_2 = load_sumstats("tutorial_outputs/trait_2/sumstats.parquet", trait_name="trait_2")
 
 ldscore_result = load_ldscore_from_dir(
     "tutorial_outputs/baseline_ldscores",
@@ -134,8 +137,8 @@ ldsc munge-sumstats \
   --output-dir tutorial_outputs/trait_2
 
 ldsc rg \
-  --sumstats-1-file tutorial_outputs/trait_1/sumstats.sumstats.gz \
-  --sumstats-2-file tutorial_outputs/trait_2/sumstats.sumstats.gz \
+  --sumstats-1-file tutorial_outputs/trait_1/sumstats.parquet \
+  --sumstats-2-file tutorial_outputs/trait_2/sumstats.parquet \
   --trait-name-1 trait_1 \
   --trait-name-2 trait_2 \
   --ldscore-dir tutorial_outputs/baseline_ldscores \

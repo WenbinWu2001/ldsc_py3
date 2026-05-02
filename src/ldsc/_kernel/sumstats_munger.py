@@ -31,7 +31,7 @@ from ..column_inference import (
     normalize_genome_build,
     normalize_snp_identifier_mode,
 )
-from ..chromosome_inference import normalize_chromosome
+from ..chromosome_inference import normalize_chromosome, normalize_chromosome_series
 from ..genome_build_inference import resolve_chr_pos_table
 from . import regression as sumstats
 from .identifiers import build_snp_id_series, read_global_snp_restriction
@@ -603,8 +603,9 @@ def _finalize_coordinate_columns(dat, args):
             )
         else:
             normalized = coordinate_rows.copy()
-            normalized['CHR'] = normalized['CHR'].map(
-                lambda value: normalize_chromosome(value, context=getattr(args, 'sumstats', 'sumstats'))
+            normalized['CHR'] = normalize_chromosome_series(
+                normalized['CHR'],
+                context=getattr(args, 'sumstats', 'sumstats'),
             )
             normalized['POS'] = pd.to_numeric(normalized['POS'], errors='raise').astype('int64')
         dat['CHR'] = dat['CHR'].astype(object)
@@ -910,12 +911,19 @@ def munge_sumstats(args, p=True):
         c for c in ['SNP', 'CHR', 'POS', 'A1', 'A2', 'Z', 'N'] if c in dat.columns]
     if args.keep_maf and 'FRQ' in dat.columns:
         print_colnames.append('FRQ')
-    msg = 'Writing summary statistics for {M} SNPs ({N} with nonmissing beta) to {F}.'
-    LOGGER.info(
-        msg.format(M=len(dat), F=out_fname + '.gz', N=dat.N.notnull().sum()))
     if p:
+        msg = 'Writing summary statistics for {M} SNPs ({N} with nonmissing beta) to {F}.'
+        LOGGER.info(
+            msg.format(M=len(dat), F=out_fname + '.gz', N=dat.N.notnull().sum()))
         dat.to_csv(out_fname + '.gz', sep="\t", index=False,
                    columns=print_colnames, float_format='%.3f', compression = 'gzip')
+    else:
+        LOGGER.info(
+            'Prepared summary statistics for {M} SNPs ({N} with nonmissing beta).'.format(
+                M=len(dat),
+                N=dat.N.notnull().sum(),
+            )
+        )
 
     LOGGER.info('\nMetadata:')
     CHISQ = (dat.Z ** 2)

@@ -1830,6 +1830,32 @@ class LDScoreParquetNormalizationTest(unittest.TestCase):
         self.assertIn("hg19_pos_2", out.columns)
         self.assertNotIn("pair_chr", out.columns)
 
+    def test_canonicalize_r2_pairs_normalizes_mixed_chromosome_labels(self):
+        df = pd.DataFrame(
+            {
+                "chr": ["chr1.0", "1", "24"],
+                "rsID_1": ["rs2", "rs4", "rsY2"],
+                "rsID_2": ["rs1", "rs3", "rsY1"],
+                "hg38_pos_1": [120, 140, 80],
+                "hg38_pos_2": [100, 130, 70],
+                "hg19_pos_1": [20, 40, 8],
+                "hg19_pos_2": [10, 30, 7],
+                "hg38_Uniq_ID_1": ["1:120", "1:140", "Y:80"],
+                "hg38_Uniq_ID_2": ["1:100", "1:130", "Y:70"],
+                "hg19_Uniq_ID_1": ["1:20", "1:40", "Y:8"],
+                "hg19_Uniq_ID_2": ["1:10", "1:30", "Y:7"],
+                "R2": [0.4, 0.2, 0.1],
+                "Dprime": [0.5, 0.3, 0.2],
+                "+/-corr": ["+", "+", "-"],
+            }
+        )
+
+        out = kernel_ldscore.canonicalize_r2_pairs(df, "hg19")
+
+        self.assertEqual(out["chr"].tolist(), ["1", "1", "Y"])
+        self.assertEqual(out["pos_1"].tolist(), [10, 30, 7])
+        self.assertEqual(out["pos_2"].tolist(), [20, 40, 8])
+
     def test_require_runtime_genome_build_accepts_aliases(self):
         self.assertEqual(kernel_ldscore._require_runtime_genome_build("hg37"), "hg19")
         self.assertEqual(kernel_ldscore._require_runtime_genome_build("GRCh37"), "hg19")

@@ -380,7 +380,7 @@ def render() -> None:
         170,
         "Summary-stat\ninput",
         GREEN,
-        "Curated `.sumstats.gz`\n`load_sumstats()` -> `SumstatsTable`",
+        "Curated `sumstats.parquet`\n`load_sumstats()` -> `SumstatsTable`",
         title_fs=15,
         body_fs=11.6,
     )

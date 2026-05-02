@@ -506,8 +506,9 @@ class MungeConfig:
     Parameters
     ----------
     output_dir : str or os.PathLike[str]
-        Directory that receives workflow-owned ``sumstats.sumstats.gz``,
-        ``sumstats.log``, and ``sumstats.metadata.json`` artifacts.
+        Directory that receives workflow-owned ``sumstats.parquet`` and/or
+        ``sumstats.sumstats.gz``, ``sumstats.log``, and
+        ``sumstats.metadata.json`` artifacts.
     raw_sumstats_file : str or os.PathLike[str] or None, optional
         Raw summary-statistics file to munge. Exact-one glob patterns are
         resolved by the workflow before entering the legacy kernel. Default is
@@ -524,6 +525,9 @@ class MungeConfig:
         ``None``.
     chunk_size : int, optional
         Number of input rows processed per chunk. Default is ``1_000_000``.
+    output_format : {"parquet", "tsv.gz", "both"}, optional
+        Curated sumstats disk format written by the public workflow. Default is
+        ``"parquet"``.
     sumstats_snps_file : str or os.PathLike[str] or None, optional
         Optional headered summary-statistics SNP keep-list path. In ``rsid``
         mode, central ``SNP`` aliases identify the keep-list column. In
@@ -547,6 +551,7 @@ class MungeConfig:
     output_dir: str | PathLike[str] | None = None
     raw_sumstats_file: str | PathLike[str] | None = None
     compression: str = "auto"
+    output_format: str = "parquet"
     trait_name: str | None = None
     column_hints: dict[str, str] = field(default_factory=dict)
     N: float | None = None
@@ -575,6 +580,8 @@ class MungeConfig:
             raise ValueError("maf_min must lie in [0, 0.5].")
         if self.chunk_size <= 0:
             raise ValueError("chunk_size must be positive.")
+        if self.output_format not in {"parquet", "tsv.gz", "both"}:
+            raise ValueError("output_format must be one of 'parquet', 'tsv.gz', or 'both'.")
         object.__setattr__(self, "output_dir", _normalize_optional_path(self.output_dir))
         object.__setattr__(self, "raw_sumstats_file", _normalize_optional_path(self.raw_sumstats_file))
         object.__setattr__(self, "sumstats_snps_file", _normalize_optional_path(self.sumstats_snps_file))

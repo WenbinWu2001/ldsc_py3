@@ -2,8 +2,8 @@
 
 Core functionality:
     Expose a typed, package-level interface to the legacy-compatible munging
-    implementation and provide a public loader for curated ``.sumstats.gz``
-    artifacts.
+    implementation and provide a public loader for curated Parquet or legacy
+    ``.sumstats.gz`` artifacts.
 
 Overview
 --------
@@ -30,6 +30,7 @@ import warnings
 
 import pandas as pd
 
+from .chromosome_inference import chrom_sort_key, normalize_chromosome_series
 from .column_inference import (
     INTERNAL_SUMSTATS_ARTIFACT_SPEC_MAP,
     normalize_genome_build,
@@ -38,6 +39,7 @@ from .column_inference import (
     resolve_required_column,
 )
 from .config import GlobalConfig, MungeConfig, get_global_config
+from .errors import LDSCDependencyError
 from .path_resolution import ensure_output_directory, ensure_output_paths_available, resolve_scalar_path
 from ._kernel import sumstats_munger as kernel_munge
 
@@ -63,6 +65,9 @@ check_median = kernel_munge.check_median
 parse_flag_cnames = kernel_munge.parse_flag_cnames
 allele_merge = kernel_munge.allele_merge
 munge_sumstats = kernel_munge.munge_sumstats
+
+_SUMSTATS_OUTPUT_FORMATS = {"parquet", "tsv.gz", "both"}
+_SUMSTATS_PARQUET_COMPRESSION = "snappy"
 
 
 @dataclass(frozen=True)
@@ -157,14 +162,17 @@ class MungeRunSummary:
 
 
 def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> SumstatsTable:
-    """Load one curated LDSC ``.sumstats`` artifact into a ``SumstatsTable``.
+    """Load one curated LDSC sumstats artifact into a ``SumstatsTable``.
 
     Parameters
     ----------
     path : str or os.PathLike[str]
         Path token for the curated summary-statistics artifact. This may be a
         literal path or an exact-one glob pattern. Resolution happens at the
-        workflow layer before the artifact is parsed.
+        workflow layer before suffix inference. ``.parquet`` files are read
+        with :func:`pandas.read_parquet`; ``.sumstats.gz`` and ``.sumstats``
+        files are read as whitespace-delimited text. Other suffixes raise a
+        clear ``ValueError``.
     trait_name : str or None, optional
         Optional trait label propagated into downstream regression summaries.
         When omitted, the resolved filename is used. Default is ``None``.
@@ -185,6 +193,16 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
 
     Notes
     -----
+    Format inference is suffix-based after exact-one path resolution:
+    ``.parquet`` uses :func:`pandas.read_parquet`, ``.sumstats.gz`` uses a
+    gzip-compressed whitespace reader, and ``.sumstats`` uses a plain
+    whitespace reader. Other suffixes are refused so callers do not
+    accidentally parse CSV or raw GWAS input as curated sumstats.
+
+    Sidecar lookup strips one recognized artifact suffix, so
+    ``trait.parquet``, ``trait.sumstats.gz``, and ``trait.sumstats`` all look
+    for ``trait.metadata.json``.
+
     This loader emits a warning before returning an unknown-provenance table
     only when the metadata sidecar is absent. Regression compatibility
     validation is skipped for that sumstats side unless the caller supplies a
@@ -244,11 +262,12 @@ class SumstatsMunger:
             ``munge_config`` is omitted, this object also supplies output and
             QC settings.
         munge_config : MungeConfig
-            Munging thresholds and output directory. The workflow writes fixed
-            files named ``sumstats.sumstats.gz``, ``sumstats.log``, and
+            Munging thresholds, output directory, and curated output format. The
+            workflow writes fixed files named ``sumstats.parquet`` and/or
+            ``sumstats.sumstats.gz`` plus ``sumstats.log`` and
             ``sumstats.metadata.json`` inside ``munge_config.output_dir``.
-            Existing fixed files are refused before the kernel runs unless
-            ``munge_config.overwrite`` is true. If
+            Existing selected output files are refused before the kernel runs
+            unless ``munge_config.overwrite`` is true. If
             ``munge_config.sumstats_snps_file`` is supplied, it is treated as a
             headered keep-list and applied after munging QC and coordinate
             normalization without allele matching or output reordering.
@@ -266,7 +285,7 @@ class SumstatsMunger:
             same provenance into ``sumstats.metadata.json`` so downstream
             regression can detect incompatible LD-score results after reload.
             Optional ``sumstats_snps_file`` filtering is reflected in both the
-            returned table and the written ``sumstats.sumstats.gz`` artifact.
+            returned table and the written curated artifact(s).
             Output paths for the corresponding disk artifacts are available
             through :meth:`build_run_summary`.
         """
@@ -285,6 +304,8 @@ class SumstatsMunger:
         output_dir = ensure_output_directory(munge_config.output_dir, label="output directory")
         fixed_output_stem = str(output_dir / "sumstats")
         metadata_path = fixed_output_stem + ".metadata.json"
+        output_files = _sumstats_output_files(fixed_output_stem, munge_config.output_format)
+        log_path = fixed_output_stem + ".log"
         sumstats_snps_label = (
             "none"
             if munge_config.sumstats_snps_file is None
@@ -297,12 +318,17 @@ class SumstatsMunger:
             f"sumstats_snps_file='{sumstats_snps_label}'."
         )
         ensure_output_paths_available(
-            [fixed_output_stem + ".sumstats.gz", fixed_output_stem + ".log", metadata_path],
+            [*output_files.values(), log_path, metadata_path],
             overwrite=munge_config.overwrite,
             label="munged output artifact",
         )
         args = self._build_args(raw_sumstats_config, munge_config, config_snapshot)
-        data = _run_kernel_with_sumstats_log(args, fixed_output_stem + ".log")
+        data = _run_kernel_with_sumstats_log(args, log_path)
+        primary_sumstats_file, parquet_row_groups = _write_sumstats_outputs(
+            data,
+            output_files=output_files,
+            output_format=munge_config.output_format,
+        )
         coordinate_metadata = dict(getattr(args, "_coordinate_metadata", {}))
         table_config_snapshot = _effective_sumstats_config(config_snapshot, coordinate_metadata)
         _write_sumstats_metadata(
@@ -310,7 +336,15 @@ class SumstatsMunger:
             config_snapshot=table_config_snapshot,
             coordinate_metadata=coordinate_metadata,
             source_path=source_path,
-            sumstats_file=fixed_output_stem + ".sumstats.gz",
+            sumstats_file=primary_sumstats_file,
+            output_format=munge_config.output_format,
+            output_files=output_files,
+            parquet_compression=(
+                _SUMSTATS_PARQUET_COMPRESSION
+                if "parquet" in output_files
+                else None
+            ),
+            parquet_row_groups=parquet_row_groups,
         )
         table = SumstatsTable(
             data=data.reset_index(drop=True),
@@ -320,6 +354,8 @@ class SumstatsMunger:
             provenance={
                 "raw_sumstats_file": source_path,
                 "output_dir": str(output_dir),
+                "output_format": munge_config.output_format,
+                "output_files": dict(output_files),
                 "column_hints": dict(raw_sumstats_config.column_hints),
                 "metadata_path": metadata_path,
                 "metadata": coordinate_metadata,
@@ -327,21 +363,23 @@ class SumstatsMunger:
             config_snapshot=table_config_snapshot,
         )
         table.validate()
+        run_output_paths = {
+            **({"sumstats_parquet": output_files["parquet"]} if "parquet" in output_files else {}),
+            **({"sumstats_gz": output_files["tsv.gz"]} if "tsv.gz" in output_files else {}),
+            "log": log_path,
+            "metadata_json": metadata_path,
+        }
         self._last_summary = MungeRunSummary(
             n_input_rows=_count_data_rows(source_path),
             n_retained_rows=len(table.data),
             drop_counts={},
             inferred_columns=dict(raw_sumstats_config.column_hints),
             used_n_rule=_infer_used_n_rule(args),
-            output_paths={
-                "sumstats_gz": fixed_output_stem + ".sumstats.gz",
-                "log": fixed_output_stem + ".log",
-                "metadata_json": metadata_path,
-            },
+            output_paths=run_output_paths,
         )
         LOGGER.info(
             f"Munged {self._last_summary.n_input_rows} input rows to {self._last_summary.n_retained_rows} retained rows; "
-            f"wrote '{self._last_summary.output_paths['sumstats_gz']}'."
+            f"wrote '{primary_sumstats_file}'."
         )
         return table
 
@@ -349,32 +387,75 @@ class SumstatsMunger:
         self,
         sumstats: SumstatsTable,
         output_dir: str | PathLike[str],
+        output_format: str = "parquet",
         overwrite: bool = False,
     ) -> str:
-        """Write a munged table to ``<output_dir>/sumstats.sumstats.gz``.
+        """Write an in-memory sumstats table to fixed curated artifact names.
 
-        Existing files are refused unless ``overwrite=True``. The helper does
-        not remove unrelated files from ``output_dir``.
+        Parameters
+        ----------
+        sumstats : SumstatsTable
+            Validated LDSC-ready table to persist. Columns are curated to the
+            package output order ``SNP, CHR, POS, A1, A2, Z, N, FRQ`` where
+            present; missing ``CHR`` or ``POS`` columns are materialized as
+            missing values.
+        output_dir : str or os.PathLike[str]
+            Destination directory for fixed ``sumstats`` artifacts.
+        output_format : {"parquet", "tsv.gz", "both"}, optional
+            Disk format to write. ``"parquet"`` is the default and returns
+            ``sumstats.parquet``. ``"tsv.gz"`` writes legacy
+            ``sumstats.sumstats.gz``. ``"both"`` writes both and returns the
+            Parquet path.
+        overwrite : bool, optional
+            If ``True``, replace selected fixed output artifacts. If ``False``,
+            existing selected artifacts are refused before writing starts.
+            Default is ``False``.
+
+        Returns
+        -------
+        str
+            Primary sumstats artifact path. The primary path is Parquet for
+            ``"parquet"`` and ``"both"``, and gzip TSV for ``"tsv.gz"``.
+
+        Notes
+        -----
+        This helper follows the public workflow naming policy but does not
+        create ``sumstats.log`` because no raw munging kernel is run. When the
+        table has a config snapshot, a neighboring ``sumstats.metadata.json``
+        sidecar is written for downstream provenance recovery.
         """
-        output_path = ensure_output_directory(output_dir, label="output directory") / "sumstats.sumstats.gz"
-        metadata_path = output_path.with_name("sumstats.metadata.json")
-        ensure_output_paths_available([output_path, metadata_path], overwrite=overwrite, label="munged output artifact")
-        data = sumstats.data.copy()
-        if "CHR" not in data.columns:
-            data["CHR"] = pd.NA
-        if "POS" not in data.columns:
-            data["POS"] = pd.NA
-        columns = [col for col in ("SNP", "CHR", "POS", "A1", "A2", "Z", "N", "FRQ") if col in data.columns]
-        data.to_csv(output_path, sep="\t", index=False, columns=columns, float_format="%.3f", compression="gzip")
+        output_format = _normalize_output_format(output_format)
+        output_root = ensure_output_directory(output_dir, label="output directory")
+        fixed_output_stem = str(output_root / "sumstats")
+        metadata_path = fixed_output_stem + ".metadata.json"
+        output_files = _sumstats_output_files(fixed_output_stem, output_format)
+        ensure_output_paths_available(
+            [*output_files.values(), metadata_path],
+            overwrite=overwrite,
+            label="munged output artifact",
+        )
+        primary_sumstats_file, parquet_row_groups = _write_sumstats_outputs(
+            sumstats.data,
+            output_files=output_files,
+            output_format=output_format,
+        )
         if sumstats.config_snapshot is not None:
             _write_sumstats_metadata(
-                str(metadata_path),
+                metadata_path,
                 config_snapshot=sumstats.config_snapshot,
                 coordinate_metadata=sumstats.provenance.get("metadata", {}),
                 source_path=sumstats.source_path,
-                sumstats_file=str(output_path),
+                sumstats_file=primary_sumstats_file,
+                output_format=output_format,
+                output_files=output_files,
+                parquet_compression=(
+                    _SUMSTATS_PARQUET_COMPRESSION
+                    if "parquet" in output_files
+                    else None
+                ),
+                parquet_row_groups=parquet_row_groups,
             )
-        return str(output_path)
+        return primary_sumstats_file
 
     def build_run_summary(self, _sumstats: SumstatsTable | None = None) -> MungeRunSummary:
         """Return the summary captured from the most recent call to :meth:`run`."""
@@ -496,6 +577,7 @@ def _munge_configs_from_args(args: argparse.Namespace) -> tuple[MungeConfig, Mun
         n_min=getattr(args, "n_min", None),
         nstudy_min=getattr(args, "nstudy_min", None),
         chunk_size=args.chunksize,
+        output_format=args.output_format,
         sumstats_snps_file=getattr(args, "sumstats_snps_file", None),
         signed_sumstats_spec=getattr(args, "signed_sumstats", None),
         ignore_columns=_ignore_columns_from_args(args),
@@ -541,7 +623,7 @@ def _run_kernel_with_sumstats_log(args: argparse.Namespace, log_path: str) -> pd
     kernel_logger.addHandler(handler)
     kernel_logger.setLevel(logging.INFO)
     try:
-        return kernel_munge.munge_sumstats(args, p=True)
+        return kernel_munge.munge_sumstats(args, p=False)
     finally:
         kernel_logger.removeHandler(handler)
         kernel_logger.setLevel(previous_level)
@@ -560,6 +642,12 @@ def build_parser() -> argparse.ArgumentParser:
     public.add_argument("--output-dir", required=True, help="Output directory for munged sumstats and logs.")
     public.add_argument("--overwrite", action="store_true", default=False, help="Replace existing fixed output files.")
     public.add_argument("--sumstats-snps-file", default=None, help="Optional SNP keep-list for munged summary statistics.")
+    public.add_argument(
+        "--output-format",
+        choices=sorted(_SUMSTATS_OUTPUT_FORMATS),
+        default="parquet",
+        help="Curated sumstats output format. Default is parquet.",
+    )
     for action in parser._actions:
         if action.dest in {"help", "sumstats", "out", "merge_alleles"}:
             continue
@@ -607,10 +695,177 @@ def _infer_used_n_rule(args: argparse.Namespace) -> str:
     return "input_columns"
 
 
+def _normalize_output_format(output_format: str) -> str:
+    """Return a validated curated sumstats output-format token."""
+    if output_format not in _SUMSTATS_OUTPUT_FORMATS:
+        raise ValueError("output_format must be one of 'parquet', 'tsv.gz', or 'both'.")
+    return output_format
+
+
+def _sumstats_output_files(fixed_output_stem: str, output_format: str) -> dict[str, str]:
+    """Return selected sumstats artifact paths keyed by format token."""
+    output_format = _normalize_output_format(output_format)
+    paths: dict[str, str] = {}
+    if output_format in {"parquet", "both"}:
+        paths["parquet"] = fixed_output_stem + ".parquet"
+    if output_format in {"tsv.gz", "both"}:
+        paths["tsv.gz"] = fixed_output_stem + ".sumstats.gz"
+    return paths
+
+
+def _prepare_curated_sumstats_frame(data: pd.DataFrame) -> pd.DataFrame:
+    """Return a copy with fixed sumstats output columns and coordinate placeholders."""
+    frame = data.copy()
+    if "CHR" not in frame.columns:
+        frame["CHR"] = pd.NA
+    if "POS" not in frame.columns:
+        frame["POS"] = pd.NA
+    columns = [col for col in ("SNP", "CHR", "POS", "A1", "A2", "Z", "N", "FRQ") if col in frame.columns]
+    return frame.loc[:, columns]
+
+
+def _coordinate_missing_mask(series: pd.Series) -> pd.Series:
+    """Return rows whose coordinate token is missing or an NA-like string."""
+    tokens = series.astype("string")
+    return tokens.isna() | tokens.str.strip().str.lower().isin({"", "na", "nan", "none"})
+
+
+def _prepare_sumstats_parquet_frame(data: pd.DataFrame) -> pd.DataFrame:
+    """Return a precision-preserving frame sorted for chromosome row groups.
+
+    Complete-coordinate rows are normalized and ordered by chromosome sort key,
+    ``POS``, and original row order. Rows without a complete ``CHR``/``POS``
+    pair are kept, preserve original relative order, and sort after all
+    complete-coordinate rows so the writer can place them in one final
+    missing-coordinate row group.
+    """
+    frame = _prepare_curated_sumstats_frame(data)
+    frame["_ldsc_original_order"] = range(len(frame))
+    chr_missing = _coordinate_missing_mask(frame["CHR"])
+    pos_missing = _coordinate_missing_mask(frame["POS"])
+    pos_numeric = pd.to_numeric(frame["POS"], errors="coerce")
+    invalid_pos = (~pos_missing) & pos_numeric.isna()
+    if invalid_pos.any():
+        bad_value = frame.loc[invalid_pos, "POS"].iloc[0]
+        raise ValueError(f"POS values must be numeric base-pair positions; got {bad_value!r}.")
+
+    complete = ~(chr_missing | pos_missing)
+    if complete.any():
+        complete_pos = pos_numeric.loc[complete]
+        non_integral = (complete_pos % 1) != 0
+        if non_integral.any():
+            bad_value = frame.loc[complete, "POS"].loc[non_integral].iloc[0]
+            raise ValueError(f"POS values must be integer base-pair positions; got {bad_value!r}.")
+        if (complete_pos <= 0).any():
+            bad_value = frame.loc[complete, "POS"].loc[complete_pos <= 0].iloc[0]
+            raise ValueError(f"POS values must be positive base-pair positions; got {bad_value!r}.")
+        frame.loc[complete, "CHR"] = normalize_chromosome_series(
+            frame.loc[complete, "CHR"],
+            context="sumstats parquet output",
+        ).astype(object)
+        frame.loc[complete, "POS"] = complete_pos.astype("int64")
+
+    frame["_ldsc_missing_coordinate"] = ~complete
+    frame["_ldsc_pos_sort"] = pos_numeric.where(complete, pd.NA)
+    frame["_ldsc_chrom_rank"] = 10_000
+    if complete.any():
+        unique_chroms = pd.unique(frame.loc[complete, "CHR"])
+        rank_map = {chrom: chrom_sort_key(chrom)[1] for chrom in unique_chroms}
+        frame.loc[complete, "_ldsc_chrom_rank"] = frame.loc[complete, "CHR"].map(rank_map).astype("int64")
+
+    frame = frame.sort_values(
+        by=["_ldsc_missing_coordinate", "_ldsc_chrom_rank", "_ldsc_pos_sort", "_ldsc_original_order"],
+        kind="mergesort",
+    ).reset_index(drop=True)
+    return frame.drop(
+        columns=["_ldsc_original_order", "_ldsc_missing_coordinate", "_ldsc_pos_sort", "_ldsc_chrom_rank"]
+    )
+
+
+def _write_sumstats_tsv_gz(data: pd.DataFrame, path: str) -> None:
+    """Write the legacy-compatible gzip TSV artifact with rounded floats."""
+    frame = _prepare_curated_sumstats_frame(data)
+    frame.to_csv(path, sep="\t", index=False, float_format="%.3f", compression="gzip")
+
+
+def _write_sumstats_parquet(data: pd.DataFrame, path: str) -> list[dict[str, Any]]:
+    """Write snappy-compressed Parquet and return row-group metadata.
+
+    The Parquet payload keeps the munger's numeric precision. One row group is
+    emitted per normalized chromosome among complete-coordinate rows. If rows
+    without complete coordinates exist, they are emitted as the last row group
+    with ``chrom`` recorded as ``None``.
+    """
+    try:
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+    except ImportError as exc:
+        raise LDSCDependencyError("Writing sumstats parquet artifacts requires pyarrow.") from exc
+
+    frame = _prepare_sumstats_parquet_frame(data)
+    schema = pa.Schema.from_pandas(frame, preserve_index=False)
+    row_groups: list[dict[str, Any]] = []
+    offset = 0
+    with pq.ParquetWriter(path, schema, compression=_SUMSTATS_PARQUET_COMPRESSION) as writer:
+        if frame.empty:
+            writer.write_table(pa.Table.from_pandas(frame, schema=schema, preserve_index=False))
+            return row_groups
+        complete = ~(_coordinate_missing_mask(frame["CHR"]) | _coordinate_missing_mask(frame["POS"]))
+        for chrom, chrom_df in frame.loc[complete].groupby("CHR", sort=False):
+            writer.write_table(pa.Table.from_pandas(chrom_df, schema=schema, preserve_index=False))
+            row_groups.append(
+                {
+                    "chrom": str(chrom),
+                    "row_group_index": len(row_groups),
+                    "row_offset": offset,
+                    "n_rows": len(chrom_df),
+                }
+            )
+            offset += len(chrom_df)
+        missing_df = frame.loc[~complete]
+        if not missing_df.empty:
+            writer.write_table(pa.Table.from_pandas(missing_df, schema=schema, preserve_index=False))
+            row_groups.append(
+                {
+                    "chrom": None,
+                    "row_group_index": len(row_groups),
+                    "row_offset": offset,
+                    "n_rows": len(missing_df),
+                }
+            )
+    return row_groups
+
+
+def _write_sumstats_outputs(
+    data: pd.DataFrame,
+    *,
+    output_files: dict[str, str],
+    output_format: str,
+) -> tuple[str, list[dict[str, Any]]]:
+    """Write selected artifacts and return the primary path plus Parquet row groups."""
+    output_format = _normalize_output_format(output_format)
+    parquet_row_groups: list[dict[str, Any]] = []
+    if "tsv.gz" in output_files:
+        _write_sumstats_tsv_gz(data, output_files["tsv.gz"])
+    if "parquet" in output_files:
+        parquet_row_groups = _write_sumstats_parquet(data, output_files["parquet"])
+    primary = output_files["parquet"] if output_format in {"parquet", "both"} else output_files["tsv.gz"]
+    return primary, parquet_row_groups
+
+
 def _read_curated_sumstats_artifact(path: str) -> pd.DataFrame:
-    """Read one curated whitespace-delimited ``.sumstats`` artifact."""
-    compression = "gzip" if str(path).endswith(".gz") else "infer"
-    return pd.read_csv(path, sep=r"\s+", compression=compression)
+    """Read one curated sumstats artifact according to the public suffix policy."""
+    token = str(path)
+    if token.endswith(".parquet"):
+        return pd.read_parquet(path)
+    if token.endswith(".sumstats.gz"):
+        return pd.read_csv(path, sep=r"\s+", compression="gzip")
+    if token.endswith(".sumstats"):
+        return pd.read_csv(path, sep=r"\s+", compression="infer")
+    raise ValueError(
+        "Unsupported munged sumstats format. Expected a path ending in "
+        "'.parquet', '.sumstats.gz', or '.sumstats'."
+    )
 
 
 def _resolve_curated_sumstats_columns(columns: list[str], *, context: str) -> dict[str, str]:
@@ -627,8 +882,10 @@ def _resolve_curated_sumstats_columns(columns: list[str], *, context: str) -> di
 
 
 def _sumstats_metadata_path(path: str | PathLike[str]) -> Path:
-    """Return the sidecar metadata path for a curated sumstats artifact."""
+    """Return ``<stem>.metadata.json`` for a recognized sumstats artifact suffix."""
     token = str(path)
+    if token.endswith(".parquet"):
+        return Path(token[: -len(".parquet")] + ".metadata.json")
     if token.endswith(".sumstats.gz"):
         return Path(token[: -len(".sumstats.gz")] + ".metadata.json")
     if token.endswith(".sumstats"):
@@ -678,14 +935,20 @@ def _write_sumstats_metadata(
     coordinate_metadata: dict[str, Any],
     source_path: str | None,
     sumstats_file: str,
+    output_format: str,
+    output_files: dict[str, str],
+    parquet_compression: str | None = None,
+    parquet_row_groups: list[dict[str, Any]] | None = None,
 ) -> None:
-    """Write sidecar metadata for a curated sumstats artifact."""
+    """Write provenance, output-format, and Parquet-layout metadata sidecar."""
     payload = {
         "format": "ldsc.sumstats.v1",
         "snp_identifier": config_snapshot.snp_identifier,
         "genome_build": config_snapshot.genome_build,
         "source_path": source_path,
         "sumstats_file": sumstats_file,
+        "output_format": output_format,
+        "output_files": dict(output_files),
         "coordinate_metadata": dict(coordinate_metadata),
         "config_snapshot": {
             "snp_identifier": config_snapshot.snp_identifier,
@@ -694,6 +957,10 @@ def _write_sumstats_metadata(
             "fail_on_missing_metadata": config_snapshot.fail_on_missing_metadata,
         },
     }
+    if parquet_compression is not None:
+        payload["parquet_compression"] = parquet_compression
+    if parquet_row_groups is not None:
+        payload["parquet_row_groups"] = list(parquet_row_groups)
     if "genome_build_inferred" in coordinate_metadata:
         payload["genome_build_inferred"] = coordinate_metadata["genome_build_inferred"]
     if "coordinate_basis" in coordinate_metadata:

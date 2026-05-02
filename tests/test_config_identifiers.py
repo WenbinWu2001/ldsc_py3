@@ -289,7 +289,12 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertEqual(config.info_min, 0.9)
         self.assertEqual(config.maf_min, 0.01)
         self.assertEqual(config.chunk_size, 1_000_000)
+        self.assertEqual(config.output_format, "parquet")
         self.assertFalse(config.overwrite)
+
+    def test_munge_config_rejects_unknown_output_format(self):
+        with self.assertRaisesRegex(ValueError, "output_format"):
+            MungeConfig(output_dir="out", output_format="csv")
 
     def test_munge_config_normalizes_pathlike_fields(self):
         config = MungeConfig(

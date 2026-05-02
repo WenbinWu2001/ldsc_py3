@@ -7,7 +7,9 @@ per-query folders add the full category-level table for each fitted model.
 ## `partitioned_h2.tsv`
 
 The root `partitioned_h2.tsv` has one row per query annotation. Columns are
-written in this order:
+written in this order. The file is generated only for LD-score directories that
+contain query annotations; baseline-only LD-score directories should be analyzed
+with `ldsc h2` or `ldsc rg`, not `ldsc partitioned-h2`.
 
 | Column | Meaning |
 | --- | --- |

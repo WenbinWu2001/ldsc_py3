@@ -6,7 +6,9 @@ In this package, cell-specific LDSC is the `partitioned-h2` workflow applied to 
 
 Cell-type query annotations require explicit baseline annotations. The
 synthetic all-ones `base` annotation is reserved for ordinary unpartitioned
-LD-score generation when no query inputs are present.
+LD-score generation when no query inputs are present. `partitioned-h2` rejects
+baseline-only LD-score directories rather than treating `base` as a cell-type
+query.
 
 The examples below assume chromosome-pattern inputs such as
 `baseline.@.annot.gz`, `cell_type_beds/*.bed`, and a package-built

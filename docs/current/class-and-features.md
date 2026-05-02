@@ -12,7 +12,7 @@ This document summarizes the public package surface. For workflow-level file str
 | Infer `chr_pos` genome build | workflow flags only: `--genome-build auto`; no standalone CLI command | `infer_chr_pos_build()`, `resolve_genome_build()`, `resolve_chr_pos_table()` | pandas table with `CHR` and `POS`; optional reference table | `ChrPosBuildInference`, resolved `GlobalConfig`, and optionally a normalized 1-based table |
 | Munge GWAS summary statistics | `ldsc munge-sumstats` | `SumstatsMunger`, `load_sumstats()` | raw sumstats via `--raw-sumstats-file` or `MungeConfig.raw_sumstats_file`, column hints, QC thresholds, optional `--chr`/`--pos`, `--genome-build auto`, optional `--daner-old`/`--daner-new` schema handling, optional `--sumstats-snps-file` keep-list, optional `--output-format parquet\|tsv.gz\|both` | `sumstats.parquet` by default, optional `sumstats.sumstats.gz`, `sumstats.log`, `sumstats.metadata.json` |
 | Estimate heritability | `ldsc h2` | `RegressionRunner.estimate_h2()` | munged `sumstats.parquet` or `.sumstats.gz` plus sidecar when available, LD-score directory | `h2.tsv`; `h2.log` when `output_dir` is supplied |
-| Estimate partitioned heritability | `ldsc partitioned-h2` | `RegressionRunner.estimate_partitioned_h2_batch()`, `PartitionedH2DirectoryWriter` | munged `sumstats.parquet` or `.sumstats.gz` plus sidecar when available, LD-score directory | compact `partitioned_h2.tsv`; optional `query_annotations/manifest.tsv`, per-query `partitioned_h2.tsv`, `partitioned_h2_full.tsv`, and `metadata.json` with `--write-per-query-results`; `partitioned-h2.log` when `output_dir` is supplied |
+| Estimate partitioned heritability | `ldsc partitioned-h2` | `RegressionRunner.estimate_partitioned_h2()`, `RegressionRunner.estimate_partitioned_h2_batch()`, `PartitionedH2DirectoryWriter` | munged `sumstats.parquet` or `.sumstats.gz` plus sidecar when available, LD-score directory with non-empty query LD scores | compact `partitioned_h2.tsv`; optional `query_annotations/manifest.tsv`, per-query `partitioned_h2.tsv`, `partitioned_h2_full.tsv`, and `metadata.json` with `--write-per-query-results`; `partitioned-h2.log` when `output_dir` is supplied |
 | Estimate genetic correlation | `ldsc rg` | `RegressionRunner.estimate_rg()` | two munged `sumstats.parquet` or `.sumstats.gz` files plus sidecars when available, LD-score directory | `rg.tsv`; `rg.log` when `output_dir` is supplied |
 
 ## Workflow Logging
@@ -87,6 +87,10 @@ For log filenames and API boundary details, see
 - Workflow modules resolve input tokens before calling `_kernel`.
 - `ldsc ldscore` accepts no baseline/query inputs for ordinary unpartitioned LD-score generation; the workflow creates a synthetic all-ones baseline column named exactly `base` from retained reference-panel metadata.
 - `query_annot_sources` and `query_annot_bed_sources` require explicit `baseline_annot_sources`; users who want to test query annotations against an all-ones universe must materialize that `base` baseline annotation themselves and run the partitioned workflow.
+- `ldsc partitioned-h2` rejects baseline-only LD-score directories. Use
+  `ldsc h2` or `ldsc rg` with synthetic `base` outputs, and use
+  `partitioned-h2` only when `query.parquet` and non-empty `query_columns`
+  are present.
 - Public outputs use fixed workflow filenames under `output_dir`; run identity comes from the directory name.
 - LD-score `baseline.parquet` and `query.parquet` stay single flat files, but
   each parquet row group contains one chromosome. `manifest.json` records

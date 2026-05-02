@@ -87,7 +87,7 @@ ldsc_py3_Jerry/
 - Treat `src/ldsc/` as the only supported Python import surface.
 - Do not add user-facing path discovery to `_kernel`; pass concrete files in.
 - Keep public file contracts for `.annot(.gz)`, Parquet-first munged sumstats plus optional `.sumstats.gz` compatibility output and `sumstats.metadata.json`, canonical LD-score result directories, and regression summary directories stable unless the change is intentional and coordinated. LD-score parquet files remain flat files, with chromosome-aligned row groups documented through `manifest.json`; sumstats parquet row groups are documented in `sumstats.metadata.json`. Legacy `.l2.ldscore(.gz)`, `.w.l2.ldscore(.gz)`, `.l2.M`, and `.l2.M_5_50` files are compatibility concerns rather than the public LD-score output surface.
-- Keep optional-baseline behavior in the public LD-score workflow layer: no baseline and no query means a synthetic all-ones `base`; query annotations require explicit baseline annotations.
+- Keep optional-baseline behavior in the public LD-score workflow layer: no baseline and no query means a synthetic all-ones `base`; query annotations require explicit baseline annotations. Regression treats that synthetic `base` path as an `h2`/`rg` input only; `partitioned-h2` requires explicit query LD-score columns.
 - Keep `ldsc annotate` orchestration in `ldsc.annotation_builder`. The CLI
   registers annotation flags from that module and dispatches parsed namespaces
   to `run_annotate_from_args()`; `_kernel.annotation` must not own parser

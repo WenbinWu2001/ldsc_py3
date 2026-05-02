@@ -333,14 +333,16 @@ raise before the new table is written unless the command includes
 results and do not create log files.
 `partitioned-h2` can also write an opt-in per-query tree with
 `--write-per-query-results`; the aggregate `partitioned_h2.tsv` remains the
-stable summary entry point.
+stable summary entry point. It requires query LD scores in the LD-score
+directory; baseline-only directories are valid for `h2` and `rg` but are
+rejected by `partitioned-h2`.
 
 ### Required inputs
 
 | File | Example | Notes |
 | --- | --- | --- |
 | munged sumstats | `SNP CHR POS A1 A2 Z N`<br/>`rs1 1 754182 A G 1.96 1000` | one file for `h2` and `partitioned-h2`, two files for `rg`; a neighboring `sumstats.metadata.json` recovers config provenance when present |
-| LD-score directory | `manifest.json`, `baseline.parquet`, optional `query.parquet` | produced by the LD-score workflow and supplied as `ldscore_dir`; current parquet files have chromosome-aligned row groups; legacy directories without manifest config provenance load with a warning |
+| LD-score directory | `manifest.json`, `baseline.parquet`, optional `query.parquet` | produced by the LD-score workflow and supplied as `ldscore_dir`; `partitioned-h2` requires `query.parquet` and non-empty `query_columns`; current parquet files have chromosome-aligned row groups; legacy directories without manifest config provenance load with a warning |
 
 ### Flow
 

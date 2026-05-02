@@ -73,7 +73,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     partitioned_parser = subparsers.add_parser(
         "partitioned-h2",
-        help="Estimate partitioned heritability, optionally looping over query annotations.",
+        help="Estimate partitioned heritability by looping over query annotations.",
     )
     regression_runner.add_partitioned_h2_arguments(partitioned_parser)
 
@@ -118,7 +118,7 @@ def main(argv: Sequence[str] | None = None):
             regression_runner = _load_regression_runner()
             parser = _NoAbbrevArgumentParser(
                 prog="ldsc partitioned-h2",
-                description="Estimate partitioned heritability, optionally looping over query annotations.",
+                description="Estimate partitioned heritability by looping over query annotations.",
             )
             regression_runner.add_partitioned_h2_arguments(parser)
             return regression_runner.run_partitioned_h2_from_args(parser.parse_args(subargv))

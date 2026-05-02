@@ -111,7 +111,7 @@ This module wraps the historical munging behavior in typed public objects such a
 
 ### `ldsc.regression_runner`
 
-This module rebuilds an `LDScoreResult` from on-disk artifacts, merges it with munged sumstats, drops zero-variance LD-score columns, writes per-command logs when `output_dir` is supplied, and dispatches to the regression kernel for `h2`, partitioned `h2`, and `rg`. In `rsid` mode the merge uses `SNP`; in `chr_pos` mode it builds a private normalized `CHR:POS` key from sumstats and LD-score coordinates. Partitioned-h2 summaries are assembled here into the compact public schema, with optional full per-query category tables for the output writer. Architecture invariant: regression only consumes aggregated LD-score artifacts; it does not recompute LD scores.
+This module rebuilds an `LDScoreResult` from on-disk artifacts, merges it with munged sumstats, drops zero-variance LD-score columns, writes per-command logs when `output_dir` is supplied, and dispatches to the regression kernel for `h2`, partitioned `h2`, and `rg`. In `rsid` mode the merge uses `SNP`; in `chr_pos` mode it builds a private normalized `CHR:POS` key from sumstats and LD-score coordinates. Partitioned-h2 requires non-empty query LD-score columns and assembles one baseline-plus-query model per query annotation into the compact public schema, with optional full per-query category tables for the output writer. Architecture invariant: regression only consumes aggregated LD-score artifacts; it does not recompute LD scores.
 
 ### `ldsc.outputs`
 
@@ -164,7 +164,9 @@ The kernel layer contains the actual numerical methods and low-level readers. It
 - Public LD-score output layout is fixed by `LDScoreDirectoryWriter`;
   partitioned-h2 result tables use fixed compact/full schemas owned by
   `PartitionedH2DirectoryWriter`.
-- Query annotations are valid only with explicit baseline annotations; the synthetic `base` path is for ordinary unpartitioned LD-score generation.
+- Query annotations are valid only with explicit baseline annotations; the
+  synthetic `base` path is for ordinary unpartitioned LD-score generation and
+  downstream `h2`/`rg`, not for `partitioned-h2`.
 - Every workflow that writes fixed artifacts must precompute expected output
   paths, including its log path, and call the shared output preflight before
   the first write.

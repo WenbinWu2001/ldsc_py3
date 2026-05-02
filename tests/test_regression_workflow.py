@@ -525,6 +525,92 @@ class RegressionWorkflowTest(unittest.TestCase):
 
         self.assertEqual(dataset.config_snapshot, GlobalConfig(snp_identifier="rsid"))
 
+    def test_estimate_partitioned_h2_requires_query_annotations(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        ldscore_result = replace(
+            self.make_ldscore_result(),
+            query_table=None,
+            query_columns=[],
+            count_records=[
+                {
+                    "group": "baseline",
+                    "column": "base",
+                    "all_reference_snp_count": 10.0,
+                    "common_reference_snp_count": 8.0,
+                }
+            ],
+        )
+
+        with self.assertRaisesRegex(ValueError, "partitioned-h2 requires query annotations"):
+            runner.estimate_partitioned_h2(
+                self.make_sumstats_table(),
+                ldscore_result,
+                query_column="base",
+            )
+
+    def test_estimate_partitioned_h2_requires_explicit_query_column(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+
+        with self.assertRaises(TypeError):
+            runner.estimate_partitioned_h2(
+                self.make_sumstats_table(),
+                self.make_ldscore_result(),
+                self.make_annotation_bundle(),
+            )
+
+    def test_estimate_partitioned_h2_uses_requested_query_column(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        fake_hsq = mock.Mock(
+            coef=np.array([0.0, 1.0]),
+            coef_cov=np.diag([0.01, 0.04]),
+            coef_se=np.array([0.1, 0.2]),
+            cat=np.array([0.0, 0.3]),
+            cat_se=np.array([0.01, 0.03]),
+            prop=np.array([0.0, 0.4]),
+            prop_se=np.array([0.01, 0.04]),
+            enrichment=np.array([0.0, 2.0]),
+            n_blocks=200,
+        )
+
+        with mock.patch.object(
+            runner,
+            "build_dataset",
+            wraps=runner.build_dataset,
+        ) as build_dataset, mock.patch.object(runner, "estimate_h2", return_value=fake_hsq):
+            result = runner.estimate_partitioned_h2(
+                self.make_sumstats_table(),
+                self.make_ldscore_result(),
+                query_column="query1",
+            )
+
+        self.assertEqual(build_dataset.call_args.kwargs["query_columns"], ["query1"])
+        self.assertEqual(result["Category"].tolist(), ["query1"])
+
+    def test_estimate_partitioned_h2_rejects_unknown_query_column(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+
+        with self.assertRaisesRegex(ValueError, "Unknown query annotation requested.*missing"):
+            runner.estimate_partitioned_h2(
+                self.make_sumstats_table(),
+                self.make_ldscore_result(),
+                query_column="missing",
+            )
+
+    def test_estimate_partitioned_h2_batch_rejects_empty_query_columns(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        annotation_bundle = replace(
+            self.make_annotation_bundle(),
+            query_annotations=pd.DataFrame(index=pd.RangeIndex(3)),
+            query_columns=[],
+        )
+
+        with self.assertRaisesRegex(ValueError, "partitioned-h2 requires query annotations"):
+            runner.estimate_partitioned_h2_batch(
+                self.make_sumstats_table(),
+                self.make_ldscore_result(),
+                annotation_bundle,
+            )
+
     def test_estimate_partitioned_h2_batch_loops_over_queries(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
         table = self.make_sumstats_table()

@@ -344,6 +344,9 @@ Output:
   `partitioned_h2.tsv`, and `rg.tsv`, plus `h2.log`,
   `partitioned-h2.log`, or `rg.log`, respectively, when `output_dir` is
   provided; existing files are refused unless `--overwrite` is supplied.
+- `ldsc partitioned-h2` requires the LD-score directory to include
+  `query.parquet` and non-empty `query_columns`; baseline-only LD-score
+  directories are valid for `h2` and `rg`.
 - `ldsc partitioned-h2 --write-per-query-results` also writes a staged
   `query_annotations/` tree under `output_dir`. The tree contains
   `manifest.tsv` and one folder per query annotation, with per-query

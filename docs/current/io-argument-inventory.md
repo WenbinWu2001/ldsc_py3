@@ -197,7 +197,7 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 
 | Flag | Direction | Required | Object | Notes |
 |---|---:|---:|---|---|
-| `--ldscore-dir` | input | yes | canonical LD-score result directory | Reads baseline plus query LD scores. |
+| `--ldscore-dir` | input | yes | canonical LD-score result directory | Must contain baseline plus query LD scores; baseline-only directories are rejected. |
 | `--sumstats-file` | input | yes | munged summary-statistics file | Exact path or exact-one glob. |
 | `--output-dir` | output | no | result output directory | Selects where to write partitioned-h2 results; defaults to omitted/`None`, so the result is returned without writing `partitioned_h2.tsv` or `partitioned-h2.log`. |
 | `--count-kind` | model | no | count vector choice | Selects the count vector used by regression; defaults to `common`, while `all` uses all-SNP counts. |

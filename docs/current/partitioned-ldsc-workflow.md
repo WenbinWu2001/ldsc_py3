@@ -167,8 +167,11 @@ When the effective identifier mode is `rsid`, regression merges on `SNP`. When
 it is `chr_pos`, regression builds a normalized private `CHR:POS` key from both
 the sumstats and LD-score tables and merges on that coordinate key.
 
-`partitioned-h2` reads both tables and loops over query columns. For each query
-column, it builds a regression dataset with:
+`partitioned-h2` requires `query.parquet` and a non-empty `query_columns` list in
+the LD-score manifest. Baseline-only LD-score directories are valid inputs for
+`h2` and `rg`, but `partitioned-h2` rejects them instead of treating the
+baseline as a query annotation. For each query column, it builds a regression
+dataset with:
 
 ```text
 baseline LD-score columns + one query LD-score column

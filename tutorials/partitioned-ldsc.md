@@ -2,6 +2,11 @@
 
 Goal: run partitioned LDSC in the refactored package by building query annotations, computing baseline-plus-query LD scores, and fitting one partitioned model per query annotation.
 
+`partitioned-h2` requires explicit query annotations in the LD-score result
+directory. Baseline-only LD-score directories, including synthetic all-ones
+`base` outputs from ordinary `ldsc ldscore` runs, are valid for `h2` and `rg`
+but are rejected by `partitioned-h2`.
+
 The examples below assume chromosome-pattern inputs such as `annotations/baseline.1.annot.gz`, `r2/reference.1.parquet`, and `r2/reference_metadata.1.tsv.gz`.
 The parquet R2 files are expected to use the canonical six-column schema
 (`CHR`, `POS_1`, `POS_2`, `SNP_1`, `SNP_2`, `R2`) with row-group statistics.
@@ -222,6 +227,8 @@ The regression CLI consumes the LD-score result directory directly. It reads
 baseline columns from `baseline.parquet`, query columns from `query.parquet`,
 and counts from `manifest.json`. Both parquet files stay flat, but their row
 groups are chromosome-aligned and listed in the manifest for targeted reads.
+If the manifest has an empty `query_columns` list, use `ldsc h2`/`ldsc rg`
+instead of `ldsc partitioned-h2`.
 
 ```bash
 ldsc munge-sumstats \

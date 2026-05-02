@@ -96,6 +96,8 @@ ldsc h2 --sumstats-file trait/sumstats.parquet --ldscore-dir ldscores --output-d
 When no baseline and no query annotations are supplied, the workflow writes a
 synthetic all-ones baseline column named exactly `base` in `baseline.parquet`.
 Query annotation inputs still require explicit `--baseline-annot-sources`.
+Use this synthetic `base` directory for `ldsc h2` or `ldsc rg`; `ldsc
+partitioned-h2` requires query annotations in the LD-score directory.
 The LD-score parquet files remain flat `baseline.parquet` and `query.parquet`
 files, but they are written with one row group per chromosome. The manifest
 records `row_group_layout`, `baseline_row_groups`, and `query_row_groups` so

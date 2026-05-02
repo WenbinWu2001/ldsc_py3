@@ -15,8 +15,9 @@ weight, count, and annotation-manifest files.
 Regression chooses either the manifest ``common_reference_snp_counts`` vector or
 ``all_reference_snp_counts`` through ``--count-kind common|all``. The default
 ``common`` mode falls back to all-SNP counts when common counts are unavailable.
-Partitioned-h2 can optionally retain and write the full category table for each
-baseline-plus-one-query model through the output-layer
+Partitioned-h2 requires non-empty query LD-score columns and fits one
+baseline-plus-query model per query annotation. It can optionally retain and
+write the full category table for each fitted model through the output-layer
 ``PartitionedH2DirectoryWriter``.
 
 Regression commands create per-run logs only when an ``output_dir`` is supplied:
@@ -86,6 +87,10 @@ PARTITIONED_H2_FULL_COLUMNS = [
     "Coefficient_std_error",
     "Coefficient_p",
 ]
+PARTITIONED_H2_REQUIRES_QUERY_ANNOTATIONS_MESSAGE = (
+    "partitioned-h2 requires query annotations in --ldscore-dir. "
+    "Rerun `ldsc ldscore` with --query-annot-sources or --query-annot-bed-sources plus explicit baseline annotations."
+)
 
 
 @dataclass(frozen=True)
@@ -274,16 +279,40 @@ class RegressionRunner:
         self,
         sumstats_table: SumstatsTable,
         ldscore_result: LDScoreResult,
-        annotation_bundle,
+        *,
+        query_column: str,
         config: RegressionConfig | None = None,
     ) -> pd.DataFrame:
-        """Estimate partitioned heritability for one selected query annotation."""
-        del annotation_bundle  # grouping metadata is carried by the selected columns
-        query_column = ldscore_result.query_columns[-1] if ldscore_result.query_columns else ldscore_result.baseline_columns[-1]
-        selected_queries = [query_column] if query_column in ldscore_result.query_columns else []
+        """Estimate partitioned heritability for one query annotation.
+
+        Parameters
+        ----------
+        sumstats_table : SumstatsTable
+            Munged single-trait summary statistics.
+        ldscore_result : LDScoreResult
+            Canonical LD-score result containing baseline LD-score columns and
+            at least one query LD-score column.
+        query_column : str
+            Query annotation to test in the baseline-plus-query model. The
+            column must be present in ``ldscore_result.query_columns``.
+        config : RegressionConfig, optional
+            Regression settings. Defaults to the runner's config.
+
+        Returns
+        -------
+        pandas.DataFrame
+            One-row compact partitioned-h2 summary for ``query_column``.
+
+        Raises
+        ------
+        ValueError
+            If the LD-score result has no query annotations or ``query_column``
+            is not one of the available query annotations.
+        """
+        selected_queries = _validate_partitioned_query_columns(ldscore_result, [query_column])
         dataset = self.build_dataset(sumstats_table, ldscore_result, config=config, query_columns=selected_queries)
         hsq = self.estimate_h2(dataset, config=config)
-        return summarize_partitioned_h2(hsq, dataset, [query_column])
+        return summarize_partitioned_h2(hsq, dataset, selected_queries)
 
     def estimate_partitioned_h2_batch(
         self,
@@ -295,6 +324,10 @@ class RegressionRunner:
         include_model_categories: bool | None = None,
     ) -> pd.DataFrame | PartitionedH2BatchResult:
         """Estimate one baseline-plus-query model per query annotation.
+
+        Partitioned-h2 is only defined here for explicit query annotations.
+        Baseline-only LD-score directories should be analyzed with
+        :meth:`estimate_h2` or :meth:`estimate_rg`.
 
         Parameters
         ----------
@@ -319,14 +352,21 @@ class RegressionRunner:
         pandas.DataFrame or PartitionedH2BatchResult
             Aggregate summary by default, or aggregate plus per-query detail
             tables when ``include_full_partitioned_h2`` is enabled.
+
+        Raises
+        ------
+        ValueError
+            If no query annotations are available or any requested query column
+            is absent from ``ldscore_result.query_columns``.
         """
         if include_model_categories is not None:
             include_full_partitioned_h2 = include_model_categories
 
+        query_columns = _validate_partitioned_query_columns(ldscore_result, annotation_bundle.query_columns)
         rows = []
         per_query_category_tables: dict[str, pd.DataFrame] = {}
         per_query_metadata: dict[str, dict[str, object]] = {}
-        for query_column in annotation_bundle.query_columns:
+        for query_column in query_columns:
             dataset = self.build_dataset(sumstats_table, ldscore_result, config=config, query_columns=[query_column])
             hsq = self.estimate_h2(dataset, config=config)
             query_row = summarize_partitioned_h2(hsq, dataset, [query_column])
@@ -465,6 +505,21 @@ def _select_count_key(count_totals: dict[str, np.ndarray], use_common_counts: bo
     if ALL_COUNT_KEY in count_totals:
         return ALL_COUNT_KEY
     return sorted(count_totals.keys())[0]
+
+
+def _validate_partitioned_query_columns(ldscore_result: LDScoreResult, query_columns: Sequence[str]) -> list[str]:
+    """Return requested query columns after enforcing the partitioned-h2 contract."""
+    requested = list(query_columns)
+    if not ldscore_result.query_columns or not requested:
+        raise ValueError(PARTITIONED_H2_REQUIRES_QUERY_ANNOTATIONS_MESSAGE)
+    available = list(ldscore_result.query_columns)
+    missing = [column for column in requested if column not in available]
+    if missing:
+        raise ValueError(
+            f"Unknown query annotation requested for partitioned-h2: {missing}. "
+            f"Available query annotations: {available}"
+        )
+    return requested
 
 
 def _assemble_regression_ldscore_table(ldscore_result: LDScoreResult, query_columns: Sequence[str]) -> pd.DataFrame:
@@ -765,12 +820,9 @@ def run_partitioned_h2_from_args(args):
         )
         sumstats_table = _load_sumstats_table(args.sumstats_file, getattr(args, "trait_name", None))
         ldscore_result = load_ldscore_from_dir(args.ldscore_dir)
-        if not ldscore_result.query_columns:
-            raise ValueError(
-                "partitioned-h2 requires query annotations in --ldscore-dir. "
-                "Rerun `ldsc ldscore` with --query-annot-sources or --query-annot-bed-sources plus explicit baseline annotations."
-            )
-        query_bundle = SimpleNamespace(query_columns=list(ldscore_result.query_columns))
+        query_bundle = SimpleNamespace(
+            query_columns=_validate_partitioned_query_columns(ldscore_result, ldscore_result.query_columns)
+        )
         with suppress_global_config_banner():
             result = runner.estimate_partitioned_h2_batch(
                 sumstats_table,

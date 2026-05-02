@@ -4,7 +4,7 @@ Goal: run partitioned LDSC in the refactored package by building query annotatio
 
 The examples below assume chromosome-pattern inputs such as `annotations/baseline.1.annot.gz`, `r2/reference.1.parquet`, and `r2/reference_metadata.1.tsv.gz`.
 The parquet R2 files are expected to use the canonical six-column schema
-(`CHR`, `POS_1`, `POS_2`, `R2`, `SNP_1`, `SNP_2`) with row-group statistics.
+(`CHR`, `POS_1`, `POS_2`, `SNP_1`, `SNP_2`, `R2`) with row-group statistics.
 The paired metadata sidecar is required; it defines the raw reference-panel SNP
 universe, while the parquet pair rows are queried only for LD values.
 Package-built panels carry `ldsc:r2_bias` and `ldsc:n_samples` in parquet

@@ -420,8 +420,9 @@ class ReferencePanelBuildConfig:
     keep_indivs_file : str or os.PathLike[str] or None, optional
         Optional individual keep-file applied before R2 calculation. Default is
         ``None``.
-    chunk_size : int, optional
-        Block size used while computing pairwise LD. Default is ``128``.
+    snp_batch_size : int, optional
+        Number of SNPs loaded per pairwise-R2 computation batch. Larger values
+        may improve throughput but use more memory. Default is ``128``.
     overwrite : bool, optional
         If ``True``, replace existing fixed output files. If ``False``, output
         collisions raise before chromosome processing starts. Default is
@@ -441,7 +442,7 @@ class ReferencePanelBuildConfig:
     maf_min: float | None = None
     ref_panel_snps_file: str | PathLike[str] | None = None
     keep_indivs_file: str | PathLike[str] | None = None
-    chunk_size: int = 128
+    snp_batch_size: int = 128
     overwrite: bool = False
     duplicate_position_policy: str = "error"
 
@@ -484,8 +485,8 @@ class ReferencePanelBuildConfig:
             raise ValueError("ld_wind_cm must be positive.")
         if self.maf_min is not None and not 0 <= self.maf_min <= 0.5:
             raise ValueError("maf_min must lie in [0, 0.5].")
-        if self.chunk_size <= 0:
-            raise ValueError("chunk_size must be positive.")
+        if self.snp_batch_size <= 0:
+            raise ValueError("snp_batch_size must be positive.")
         if self.duplicate_position_policy not in {"error", "drop-all"}:
             raise ValueError(
                 "duplicate_position_policy must be 'error' or 'drop-all', "

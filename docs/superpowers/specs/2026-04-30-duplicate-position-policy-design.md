@@ -31,7 +31,7 @@ The current PLINK builder has no explicit detection or policy for either case.
 | Opt-in policy | `drop-all` — drop every SNP in a colliding cluster |
 | Keep-one rule | Not supported; any deterministic rule is arbitrary in `chr_pos` mode |
 | Cross-build consistency | Drops apply to all emitted builds when a collision is found in any build |
-| Provenance | Sidecar TSV at panel root + WARNING log pointing to it |
+| Provenance | Sidecar TSV under `dropped_snps/` + WARNING log pointing to it |
 
 ---
 
@@ -45,7 +45,7 @@ New flag on `build-ref-panel`:
 
     error     Abort and report all duplicate clusters. (default)
     drop-all  Drop every SNP in each colliding cluster; write a provenance
-              sidecar to {output_dir}/chr{chrom}_dropped.tsv.gz.
+              sidecar to {output_dir}/dropped_snps/chr{chrom}_dropped.tsv.gz.
 ```
 
 ### Config dataclass
@@ -104,8 +104,9 @@ provenance rows.
 
 ## Sidecar File
 
-**Path:** `{output_dir}/chr{chrom}_dropped.tsv.gz` — panel root, not under any
-`{build}/` subdirectory, because drops apply to all emitted builds.
+**Path:** `{output_dir}/dropped_snps/chr{chrom}_dropped.tsv.gz` — grouped under
+one workflow-owned provenance directory, not under any `{build}/` subdirectory,
+because drops apply to all emitted builds.
 
 **Columns:**
 
@@ -128,7 +129,7 @@ If nothing is dropped, no sidecar is written.
 ```
 Dropped {n} SNPs on chromosome {chrom} due to duplicate positions
 ({k} source-build duplicates, {m} target-build collisions).
-Provenance written to '{output_dir}/chr{chrom}_dropped.tsv.gz'.
+Provenance written to '{output_dir}/dropped_snps/chr{chrom}_dropped.tsv.gz'.
 ```
 
 ---
@@ -150,7 +151,10 @@ keep_snps, dropped_df = _resolve_unique_snp_set(
     policy=config.duplicate_position_policy,
 )
 if not dropped_df.empty:
-    _write_dropped_sidecar(dropped_df, Path(config.output_dir) / f"chr{chrom}_dropped.tsv.gz")
+    _write_dropped_sidecar(
+        dropped_df,
+        Path(config.output_dir) / "dropped_snps" / f"chr{chrom}_dropped.tsv.gz",
+    )
 
 if len(keep_snps) == 0:
     LOGGER.info(f"Skipping chromosome {chrom}: no SNPs remain after duplicate-position filtering.")
@@ -160,8 +164,9 @@ if len(keep_snps) == 0:
 `_write_dropped_sidecar()` is a small private helper: writes the TSV and emits
 the WARNING log message.
 
-`_expected_ref_panel_output_paths()` does **not** include the sidecar — it is
-conditional and optional, so it is not pre-checked in the output-path preflight.
+`_expected_ref_panel_output_paths()` includes the sidecar candidate path for each
+chromosome. The sidecar is conditional, but prechecking keeps overwrite behavior
+consistent when an old duplicate-provenance file already exists.
 
 The per-build emit loop receives the already-cleaned `keep_snps` and both
 lookups with no further changes.
@@ -187,5 +192,5 @@ lookups with no further changes.
 - `--duplicate-position-policy error` with a `.bim` containing source-build
   duplicates → `ValueError` raised, no output files written.
 - `--duplicate-position-policy drop-all` with target-build collisions → sidecar
-  written at panel root, both build parquets contain only unique positions, log
-  includes the WARNING with sidecar path.
+  written under `dropped_snps/`, both build parquets contain only unique
+  positions, log includes the WARNING with sidecar path.

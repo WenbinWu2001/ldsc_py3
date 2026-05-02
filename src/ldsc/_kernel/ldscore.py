@@ -27,7 +27,7 @@ Supported Inputs
 Canonical Parquet `R2` Format
 -----------------------------
 - Package-written parquet R2 files contain exactly six logical columns:
-  `CHR`, `POS_1`, `POS_2`, `R2`, `SNP_1`, and `SNP_2`.
+  `CHR`, `POS_1`, `POS_2`, `SNP_1`, `SNP_2`, and `R2`.
 - `POS_1` and `POS_2` are positions in one sorted genome build. The build is
   recorded in schema metadata under `ldsc:sorted_by_build`; the runtime query
   build must match it.

@@ -12,6 +12,7 @@ The `build-ref-panel` workflow converts PLINK genotypes into build-specific R2 r
 
 - one R2 parquet per emitted build (`hg19/chr*_r2.parquet` and/or `hg38/chr*_r2.parquet`): one row per unordered SNP pair within the chosen LD window
 - one runtime metadata sidecar per emitted build (`hg19/chr*_meta.tsv.gz` and/or `hg38/chr*_meta.tsv.gz`): one row per retained SNP, used by LDSC-style downstream tools
+- optional duplicate-position provenance under `dropped_snps/` when `--duplicate-position-policy drop-all` drops colliding SNPs
 - `build-ref-panel.log` when run through the CLI or convenience wrapper
 
 The R2 output is a long pairwise table, not a dense square matrix on disk. That is usually the practical format for large reference panels.
@@ -196,10 +197,10 @@ Exactly one of the following must be set:
   Optional: yes.
   Recommended usage: use a PLINK-style keep file when you want population-specific LD or want to exclude certain samples.
 
-- `--chunk-size`
-  Plain-English meaning: block size used by the sliding LD writer.
+- `--snp-batch-size`
+  Plain-English meaning: number of SNPs loaded per pairwise-R2 computation batch.
   Optional: yes; default is `128`.
-  Recommended usage: keep the default unless you are tuning memory and throughput on a large machine.
+  Recommended usage: keep the default unless you are tuning memory and throughput on a large machine. Larger values may improve throughput but use more memory.
 
 - `--log-level`
   Plain-English meaning: how much progress logging to print.
@@ -302,6 +303,7 @@ For the chr22 example above, the output tree looks like:
 ```text
 tutorial_outputs/ref_panel_chr22/
 ├── build-ref-panel.log        # CLI and convenience-wrapper runs
+├── dropped_snps/              # only present when duplicate SNPs are dropped
 ├── hg19/
 │   ├── chr22_r2.parquet
 │   └── chr22_meta.tsv.gz
@@ -329,9 +331,9 @@ Columns:
 - `CHR`
 - `POS_1`
 - `POS_2`
-- `R2`
 - `SNP_1`
 - `SNP_2`
+- `R2`
 
 The physical schema is:
 
@@ -349,9 +351,9 @@ The parquet schema metadata includes:
 Example rows from the same chr22 build:
 
 ```text
-CHR	POS_1	POS_2	R2	SNP_1	SNP_2
-22	10684250	10684299	-0.0002415361	22:10684250:C:G	22:10684302:C:A
-22	10684250	10685981	-0.0002331376	22:10684250:C:G	22:10685981:G:A
+CHR	POS_1	POS_2	SNP_1	SNP_2	R2
+22	10684250	10684299	22:10684250:C:G	22:10684302:C:A	-0.0002415361
+22	10684250	10685981	22:10684250:C:G	22:10685981:G:A	-0.0002331376
 ```
 
 Interpretation notes:

@@ -150,18 +150,18 @@ ldsc:r2_bias         = "unbiased"
 
 **Data rows (first 10 rows of the file):**
 
-| CHR | POS_1 | POS_2 | R2 | SNP_1 | SNP_2 |
+| CHR | POS_1 | POS_2 | SNP_1 | SNP_2 | R2 |
 |---|---|---|---|---|---|
-| 1 | 752 566 | 776 546 | 0.8214 | rs3094315 | rs2905036 |
-| 1 | 752 566 | 800 007 | 0.1342 | rs3094315 | rs11240777 |
-| 1 | 752 566 | 817 186 | 0.0891 | rs3094315 | rs4040617 |
-| 1 | 752 566 | 823 656 | 0.3124 | rs3094315 | rs2980319 |
-| 1 | 776 546 | 800 007 | 0.4451 | rs2905036 | rs11240777 |
-| 1 | 776 546 | 817 186 | 0.0674 | rs2905036 | rs4040617 |
-| 1 | 776 546 | 823 656 | 0.1982 | rs2905036 | rs2980319 |
-| 1 | 800 007 | 817 186 | 0.7231 | rs11240777 | rs4040617 |
-| 1 | 800 007 | 823 656 | 0.1562 | rs11240777 | rs2980319 |
-| 1 | 817 186 | 823 656 | 0.8913 | rs4040617 | rs2980319 |
+| 1 | 752 566 | 776 546 | rs3094315 | rs2905036 | 0.8214 |
+| 1 | 752 566 | 800 007 | rs3094315 | rs11240777 | 0.1342 |
+| 1 | 752 566 | 817 186 | rs3094315 | rs4040617 | 0.0891 |
+| 1 | 752 566 | 823 656 | rs3094315 | rs2980319 | 0.3124 |
+| 1 | 776 546 | 800 007 | rs2905036 | rs11240777 | 0.4451 |
+| 1 | 776 546 | 817 186 | rs2905036 | rs4040617 | 0.0674 |
+| 1 | 776 546 | 823 656 | rs2905036 | rs2980319 | 0.1982 |
+| 1 | 800 007 | 817 186 | rs11240777 | rs4040617 | 0.7231 |
+| 1 | 800 007 | 823 656 | rs11240777 | rs2980319 | 0.1562 |
+| 1 | 817 186 | 823 656 | rs4040617 | rs2980319 | 0.8913 |
 
 Note: rows are sorted by non-decreasing `POS_1`. The left SNP (`POS_1 = 752 566`) appears
 in multiple consecutive rows — one per right-side neighbor within the LD window.
@@ -170,8 +170,8 @@ in multiple consecutive rows — one per right-side neighbor within the LD windo
 
 ### 2.6 SNP Metadata Sidecar
 
-The R² parquet stores **only pairwise data** (`CHR`, `POS_1`, `POS_2`, `R2`,
-`SNP_1`, `SNP_2`). Per-SNP metadata — chromosome, base position, rsID, genetic
+The R² parquet stores **only pairwise data** (`CHR`, `POS_1`, `POS_2`,
+`SNP_1`, `SNP_2`, `R2`). Per-SNP metadata — chromosome, base position, rsID, genetic
 distance, and minor allele frequency — is kept in a separate **metadata sidecar**
 file. The sidecar is optional, but strongly recommended for production use.
 

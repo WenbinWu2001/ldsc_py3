@@ -70,7 +70,7 @@ After `overwrite: bool = False` (currently the last field, line ~445), add:
     duplicate_position_policy: str = "error"
 ```
 
-In `__post_init__` (after the `chunk_size` validation block), add:
+In `__post_init__` (after the `snp_batch_size` validation block), add:
 
 ```python
         if self.duplicate_position_policy not in {"error", "drop-all"}:
@@ -151,7 +151,7 @@ Expected: `FAILED` — `--duplicate-position-policy` not recognised.
 
 - [ ] **Step 3: Add the flag to `build_parser()` in `src/ldsc/ref_panel_builder.py`**
 
-After the `--chunk-size` argument (around line 859), add:
+After the `--snp-batch-size` argument, add:
 
 ```python
     parser.add_argument(
@@ -162,7 +162,7 @@ After the `--chunk-size` argument (around line 859), add:
             "How to handle SNPs that share a CHR:POS key in any emitted build. "
             "'error' aborts and reports all duplicate clusters (default). "
             "'drop-all' drops every SNP in each colliding cluster and writes a "
-            "provenance sidecar to {output_dir}/chr{chrom}_dropped.tsv.gz."
+            "provenance sidecar to {output_dir}/dropped_snps/chr{chrom}_dropped.tsv.gz."
         ),
     )
 ```
@@ -536,8 +536,8 @@ helpers so no real parquet is written.
                 with self.assertRaisesRegex(ValueError, "source-build duplicate"):
                     builder.run(config)
 
-    def test_drop_all_policy_writes_sidecar_at_panel_root(self):
-        """run() writes chr{chrom}_dropped.tsv.gz at panel root when duplicates are dropped."""
+    def test_drop_all_policy_writes_sidecar_under_dropped_snps(self):
+        """run() writes chr{chrom}_dropped.tsv.gz under dropped_snps when duplicates are dropped."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             self._write_plink_prefix_rows(tmpdir, "panel.1", [
@@ -582,8 +582,8 @@ helpers so no real parquet is written.
                 with self.assertLogs("LDSC.ref_panel_builder", level="WARNING") as log_ctx:
                     builder.run(config)
 
-            sidecar = tmpdir / "out" / "chr1_dropped.tsv.gz"
-            self.assertTrue(sidecar.exists(), "sidecar must be written at panel root, not under a build subdir")
+            sidecar = tmpdir / "out" / "dropped_snps" / "chr1_dropped.tsv.gz"
+            self.assertTrue(sidecar.exists(), "sidecar must be written under dropped_snps, not under a build subdir")
 
             import gzip
             with gzip.open(sidecar, "rt") as fh:
@@ -611,6 +611,7 @@ Add just before `build_parser()`:
 ```python
 def _write_dropped_sidecar(dropped_df: pd.DataFrame, path: Path, chrom: str) -> None:
     """Write a provenance sidecar for dropped duplicate-position SNPs."""
+    path.parent.mkdir(parents=True, exist_ok=True)
     dropped_df.to_csv(path, sep="\t", index=False, compression="gzip")
     n = len(dropped_df)
     n_source = int((dropped_df["reason"] == "source_duplicate").sum())
@@ -636,7 +637,7 @@ In `ReferencePanelBuilder._build_chromosome()`, after the call to `self._resolve
             policy=config.duplicate_position_policy,
         )
         if not dropped_df.empty:
-            sidecar_path = Path(config.output_dir) / f"chr{chrom}_dropped.tsv.gz"
+            sidecar_path = Path(config.output_dir) / "dropped_snps" / f"chr{chrom}_dropped.tsv.gz"
             _write_dropped_sidecar(dropped_df, sidecar_path, chrom)
         if len(keep_snps) == 0:
             LOGGER.info(f"Skipping chromosome {chrom}: no SNPs remain after duplicate-position filtering.")

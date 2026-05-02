@@ -123,7 +123,8 @@ flowchart LR
 ## 2. `build-ref-panel`: PLINK To Standard Parquet R2 Reference
 
 Before chromosome processing starts, the builder precomputes flat candidate
-paths under each emitted `{build}` directory plus `build-ref-panel.log`.
+paths under each emitted `{build}` directory, optional duplicate-drop
+provenance under `dropped_snps/`, plus `build-ref-panel.log`.
 Existing candidates are refused unless `--overwrite` or
 `ReferencePanelBuildConfig(overwrite=True)` is supplied; unrelated files in the
 output directory are left untouched.
@@ -168,7 +169,7 @@ flowchart LR
   I1 --> B1 --> B0 --> B3 --> B4 --> B5 --> B6 --> B7
   I2 --> B2 --> B4
   I3 --> B2 --> B8 --> B4
-  B7 --> O2[{build}/chr*_r2.parquet + {build}/chr*_meta.tsv.gz + build-ref-panel.log]
+  B7 --> O2[{build}/chr*_r2.parquet + {build}/chr*_meta.tsv.gz + dropped_snps/ + build-ref-panel.log]
 ```
 
 ### Outputs

@@ -33,7 +33,7 @@
 
 ### Context
 
-Currently `_STANDARD_LD_COLUMNS` has 14 columns including `hg19_pos_1`, `hg38_pos_1`, `Dprime`, `+/-corr`. The new canonical schema has 6 columns: `CHR`, `POS_1`, `POS_2`, `R2`, `SNP_1`, `SNP_2`. `Dprime` was always NaN. `+/-corr` is irrelevant to LD score regression. The build-specific position columns collapse to the single canonical `POS_1`/`POS_2` pair whose build is declared in schema metadata. The loader should accept alias columns such as `chr`, `bp_1`, `bp_2`, `rsid_1`, `rsid_2` and normalize them to these logical fields at read time.
+Currently `_STANDARD_LD_COLUMNS` has 14 columns including `hg19_pos_1`, `hg38_pos_1`, `Dprime`, `+/-corr`. The new canonical schema has 6 columns: `CHR`, `POS_1`, `POS_2`, `SNP_1`, `SNP_2`, `R2`. `Dprime` was always NaN. `+/-corr` is irrelevant to LD score regression. The build-specific position columns collapse to the single canonical `POS_1`/`POS_2` pair whose build is declared in schema metadata. The loader should accept alias columns such as `chr`, `bp_1`, `bp_2`, `rsid_1`, `rsid_2` and normalize them to these logical fields at read time.
 
 `build_standard_ld_table` currently takes `pair_rows` (list of `{i, j, R2, sign}` dicts) and `annotation_table`. It needs a `genome_build` parameter to select the right position column (`hg19_pos` vs `hg38_pos`).
 
@@ -68,7 +68,7 @@ def test_build_standard_ld_table_uses_exact_schema(self):
 
     self.assertEqual(
         table.columns.tolist(),
-        ["CHR", "POS_1", "POS_2", "R2", "SNP_1", "SNP_2"],
+        ["CHR", "POS_1", "POS_2", "SNP_1", "SNP_2", "R2"],
     )
     self.assertEqual(table.loc[0, "CHR"], "1")
     self.assertEqual(table.loc[0, "POS_1"], 100)
@@ -356,7 +356,7 @@ class CanonicalParquetRuntimeTest(unittest.TestCase):
         import pyarrow.parquet as pq
 
         pairs = [
-            {"CHR": "1", "POS_1": 100 + i * 10, "POS_2": 120 + i * 10, "R2": 0.5, "SNP_1": f"rs{i+1}", "SNP_2": f"rs{i+2}"}
+            {"CHR": "1", "POS_1": 100 + i * 10, "POS_2": 120 + i * 10, "SNP_1": f"rs{i+1}", "SNP_2": f"rs{i+2}", "R2": 0.5}
             for i in range(n_pairs)
         ]
         df = pd.DataFrame(pairs)
@@ -439,7 +439,7 @@ def test_canonical_init_warns_on_coarse_row_groups(self):
 
     with tempfile.TemporaryDirectory() as tmpdir:
         path = Path(tmpdir) / "chr1.parquet"
-        df = pd.DataFrame({"CHR": ["1"], "POS_1": [100], "POS_2": [120], "R2": [0.5], "SNP_1": ["rs1"], "SNP_2": ["rs2"]})
+        df = pd.DataFrame({"CHR": ["1"], "POS_1": [100], "POS_2": [120], "SNP_1": ["rs1"], "SNP_2": ["rs2"], "R2": [0.5]})
         table = pa.Table.from_pandas(df, preserve_index=False)
         meta = {b"ldsc:sorted_by_build": b"hg19", b"ldsc:row_group_size": b"50000"}
         enriched = table.schema.with_metadata({**(table.schema.metadata or {}), **meta})
@@ -485,7 +485,7 @@ def test_canonical_init_hard_fails_on_multiple_paths(self):
         path1 = Path(tmpdir) / "chr1_a.parquet"
         path2 = Path(tmpdir) / "chr1_b.parquet"
         for path in (path1, path2):
-            df = pd.DataFrame({"CHR": ["1"], "POS_1": [100], "POS_2": [120], "R2": [0.5], "SNP_1": ["rs1"], "SNP_2": ["rs2"]})
+            df = pd.DataFrame({"CHR": ["1"], "POS_1": [100], "POS_2": [120], "SNP_1": ["rs1"], "SNP_2": ["rs2"], "R2": [0.5]})
             table = pa.Table.from_pandas(df, preserve_index=False)
             meta = {b"ldsc:sorted_by_build": b"hg19", b"ldsc:row_group_size": b"50000"}
             enriched = table.schema.with_metadata({**(table.schema.metadata or {}), **meta})
@@ -922,7 +922,7 @@ def _query_union_rows_canonical(self, pos_min: int, pos_max: int, empty_cols: di
         return pd.DataFrame(empty_cols)
 
     if self.identifier_mode == "rsid":
-        read_cols = [cols["POS_1"], cols["POS_2"], "R2", cols["SNP_1"], cols["SNP_2"]]
+        read_cols = [cols["POS_1"], cols["POS_2"], cols["SNP_1"], cols["SNP_2"], "R2"]
     else:
         read_cols = [cols["POS_1"], cols["POS_2"], "R2"]
 

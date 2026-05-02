@@ -9,7 +9,7 @@ claim that can be confirmed by reading code or running a test.
 
 ## 1. Writer — Canonical 6-Column Schema
 
-- [ ] Output parquet contains exactly six columns: `CHR`, `POS_1`, `POS_2`, `R2`, `SNP_1`, `SNP_2`. No additional columns written.
+- [ ] Output parquet contains exactly six columns: `CHR`, `POS_1`, `POS_2`, `SNP_1`, `SNP_2`, `R2`. No additional columns written.
 - [ ] Legacy columns (`hg19_pos_1`, `hg38_pos_1`, `hg19_pos_2`, `hg38_pos_2`, `hg19_Uniq_ID_1/2`, `hg38_Uniq_ID_1/2`, `Dprime`, `+/-corr`) are absent.
 - [ ] `POS_1` and `POS_2` are populated from the column corresponding to the supplied `genome_build` parameter (e.g., `hg19_pos` when `genome_build="hg19"`).
 - [ ] `R2` column is written as `float32`.

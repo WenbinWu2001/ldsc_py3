@@ -122,6 +122,7 @@ def _expected_ref_panel_output_paths(config: ReferencePanelBuildConfig, chromoso
                     out_root / build / f"chr{chrom}_meta.tsv.gz",
                 ]
             )
+        paths.append(out_root / "dropped_snps" / f"chr{chrom}_dropped.tsv.gz")
     return paths
 
 
@@ -430,7 +431,7 @@ class ReferencePanelBuilder:
             policy=config.duplicate_position_policy,
         )
         if not dropped_df.empty:
-            sidecar_path = Path(config.output_dir) / f"chr{chrom}_dropped.tsv.gz"
+            sidecar_path = Path(config.output_dir) / "dropped_snps" / f"chr{chrom}_dropped.tsv.gz"
             _write_dropped_sidecar(dropped_df, sidecar_path, chrom)
         if len(keep_snps) == 0:
             LOGGER.info(f"Skipping chromosome {chrom}: no SNPs remain after duplicate-position filtering.")
@@ -510,7 +511,7 @@ class ReferencePanelBuilder:
             kernel_builder.write_r2_parquet(
                 pair_rows=kernel_builder.yield_pairwise_r2_rows(
                     block_left=block_left,
-                    chunk_size=config.chunk_size,
+                    snp_batch_size=config.snp_batch_size,
                     standardized_snp_getter=geno.nextSNPs,
                     m=geno.m,
                     n=geno.n,
@@ -853,7 +854,7 @@ def _sort_retained_snps_by_build_position(
 ) -> np.ndarray:
     """Return retained PLINK indices in one build's genomic position order."""
     # Monotone position order here makes index i → position monotone, which lets
-    # yield_pairwise_r2_rows flush cross-chunk pairs with non-decreasing POS_1.
+    # yield_pairwise_r2_rows flush cross-batch pairs with non-decreasing POS_1.
     keep_snps = np.asarray(keep_snps, dtype=int)
     lookup = _position_lookup_for_build(
         genome_build,
@@ -958,6 +959,7 @@ def _resolve_unique_snp_set(
 
 def _write_dropped_sidecar(dropped_df: pd.DataFrame, path: Path, chrom: str) -> None:
     """Write a provenance sidecar for dropped duplicate-position SNPs."""
+    path.parent.mkdir(parents=True, exist_ok=True)
     dropped_df.to_csv(path, sep="\t", index=False, compression="gzip")
     n_dropped = len(dropped_df)
     n_source = int((dropped_df["reason"] == "source_duplicate").sum())
@@ -1019,7 +1021,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--snp-identifier", default=None, choices=("rsid", "chr_pos"), help="SNP identifier mode for --ref-panel-snps-file.")
     parser.add_argument("--keep-indivs-file", default=None, help="Optional individual-keep file.")
-    parser.add_argument("--chunk-size", default=128, type=int, help="Chunk size for block processing.")
+    parser.add_argument(
+        "--snp-batch-size",
+        dest="snp_batch_size",
+        default=128,
+        type=int,
+        help="Number of SNPs loaded per pairwise-R2 computation batch. Larger values may improve throughput but use more memory.",
+    )
+    parser.add_argument(
+        "--chunk-size",
+        dest="snp_batch_size",
+        type=int,
+        help=argparse.SUPPRESS,
+    )
     parser.add_argument(
         "--duplicate-position-policy",
         default="error",
@@ -1028,7 +1042,7 @@ def build_parser() -> argparse.ArgumentParser:
             "How to handle SNPs that share a CHR:POS key in any emitted build. "
             "'error' aborts and reports all duplicate clusters (default). "
             "'drop-all' drops every SNP in each colliding cluster and writes a "
-            "provenance sidecar to {output_dir}/chr{chrom}_dropped.tsv.gz."
+            "provenance sidecar to {output_dir}/dropped_snps/chr{chrom}_dropped.tsv.gz."
         ),
     )
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"))
@@ -1071,7 +1085,7 @@ def config_from_args(args: argparse.Namespace) -> tuple[ReferencePanelBuildConfi
         maf_min=args.maf_min,
         ref_panel_snps_file=args.ref_panel_snps_file,
         keep_indivs_file=args.keep_indivs_file,
-        chunk_size=args.chunk_size,
+        snp_batch_size=args.snp_batch_size,
         duplicate_position_policy=args.duplicate_position_policy,
     )
     global_config = GlobalConfig(
@@ -1154,6 +1168,10 @@ def run_build_ref_panel(**kwargs: Any) -> ReferencePanelBuildResult:
     )
     global_config = get_global_config()
     defaults["log_level"] = global_config.log_level
+    if "chunk_size" in kwargs:
+        if "snp_batch_size" in kwargs:
+            raise ValueError("Pass only one of chunk_size or snp_batch_size.")
+        kwargs["snp_batch_size"] = kwargs.pop("chunk_size")
     defaults.update(kwargs)
     args = argparse.Namespace(**defaults)
     return run_build_ref_panel_from_args(args)

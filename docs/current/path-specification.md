@@ -301,9 +301,10 @@ Output:
 
 - `--output-dir` is created when missing and reused when present.
 - Before chromosome processing starts, the builder checks the deterministic
-  candidate paths under each emitted `{build}` directory plus
+  candidate paths under each emitted `{build}` directory, candidate
+  `dropped_snps/chr{chrom}_dropped.tsv.gz` provenance paths, plus
   `build-ref-panel.log`.
-- Existing candidate parquet or metadata files are refused unless
+- Existing candidate parquet, metadata, or duplicate-provenance files are refused unless
   `--overwrite` or `ReferencePanelBuildConfig(overwrite=True)` is supplied.
 - The check covers source-build artifacts and covers target-build artifacts
   only when the matching liftover chain is configured.

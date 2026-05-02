@@ -234,7 +234,7 @@ class PairwiseEmissionTest(unittest.TestCase):
 
         rows = kernel_builder.iter_pairwise_r2_rows(
             block_left=block_left,
-            chunk_size=2,
+            snp_batch_size=2,
             standardized_snp_getter=_SequentialSNPGetter(standardized),
             m=4,
             n=4,
@@ -270,7 +270,7 @@ class PairwiseEmissionTest(unittest.TestCase):
 
         rows = kernel_builder.iter_pairwise_r2_rows(
             block_left=block_left,
-            chunk_size=2,
+            snp_batch_size=2,
             standardized_snp_getter=_SequentialSNPGetter(standardized),
             m=5,
             n=4,
@@ -395,7 +395,7 @@ class StandardTableFormattingTest(unittest.TestCase):
 
         self.assertEqual(
             table.columns.tolist(),
-            ["CHR", "POS_1", "POS_2", "R2", "SNP_1", "SNP_2"],
+            ["CHR", "POS_1", "POS_2", "SNP_1", "SNP_2", "R2"],
         )
         self.assertEqual(table.loc[0, "CHR"], "1")
         self.assertEqual(table.loc[0, "POS_1"], 100)
@@ -433,7 +433,7 @@ class StandardTableFormattingTest(unittest.TestCase):
 
         self.assertEqual(
             table.columns.tolist(),
-            ["CHR", "POS_1", "POS_2", "R2", "SNP_1", "SNP_2"],
+            ["CHR", "POS_1", "POS_2", "SNP_1", "SNP_2", "R2"],
         )
         self.assertEqual(table["POS_1"].dtype, np.dtype("int64"))
         self.assertEqual(table["POS_2"].dtype, np.dtype("int64"))
@@ -698,9 +698,43 @@ class ReferencePanelBuildConfigDuplicatePolicyTest(unittest.TestCase):
 
 
 class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
-    def test_build_parser_defaults_chunk_size_to_128(self):
+    def test_build_parser_defaults_snp_batch_size_to_128(self):
         parser = ref_panel_builder.build_parser()
-        self.assertEqual(parser.get_default("chunk_size"), 128)
+        self.assertEqual(parser.get_default("snp_batch_size"), 128)
+
+    def test_build_parser_accepts_snp_batch_size(self):
+        parser = ref_panel_builder.build_parser()
+        args = parser.parse_args([
+            "--plink-prefix", "plink/panel.@",
+            "--output-dir", "out",
+            "--ld-wind-kb", "1",
+            "--snp-batch-size", "64",
+        ])
+        self.assertEqual(args.snp_batch_size, 64)
+
+    def test_build_parser_keeps_chunk_size_as_hidden_alias(self):
+        parser = ref_panel_builder.build_parser()
+        help_text = parser.format_help()
+        self.assertIn("--snp-batch-size", help_text)
+        self.assertNotIn("--chunk-size", help_text)
+        args = parser.parse_args([
+            "--plink-prefix", "plink/panel.@",
+            "--output-dir", "out",
+            "--ld-wind-kb", "1",
+            "--chunk-size", "64",
+        ])
+        self.assertEqual(args.snp_batch_size, 64)
+
+    def test_config_from_args_passes_snp_batch_size_to_config(self):
+        parser = ref_panel_builder.build_parser()
+        args = parser.parse_args([
+            "--plink-prefix", "plink/panel.@",
+            "--output-dir", "out",
+            "--ld-wind-kb", "1",
+            "--snp-batch-size", "64",
+        ])
+        build_config, _ = ref_panel_builder.config_from_args(args)
+        self.assertEqual(build_config.snp_batch_size, 64)
 
     def test_build_parser_defaults_duplicate_position_policy_to_error(self):
         parser = ref_panel_builder.build_parser()
@@ -850,6 +884,56 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
         self.assertEqual(captured["config"].ref_panel_snps_file, "hm3.tsv")
         self.assertEqual(captured["global_config"].snp_identifier, "chr_pos")
         self.assertEqual(captured["global_config"].genome_build, "auto")
+
+    def test_run_build_ref_panel_uses_snp_batch_size_keyword(self):
+        captured = {}
+
+        def fake_run(self, config):
+            captured["config"] = config
+            return ref_panel_builder.ReferencePanelBuildResult(panel_name="out", chromosomes=[])
+
+        with mock.patch.object(ref_panel_builder.ReferencePanelBuilder, "run", fake_run):
+            ref_panel_builder.run_build_ref_panel(
+                plink_prefix="plink/panel.@",
+                source_genome_build="hg19",
+                genetic_map_hg19_sources="maps/hg19.map",
+                output_dir="out",
+                ld_wind_kb=1,
+                snp_batch_size=64,
+            )
+
+        self.assertEqual(captured["config"].snp_batch_size, 64)
+
+    def test_run_build_ref_panel_maps_legacy_chunk_size_keyword(self):
+        captured = {}
+
+        def fake_run(self, config):
+            captured["config"] = config
+            return ref_panel_builder.ReferencePanelBuildResult(panel_name="out", chromosomes=[])
+
+        with mock.patch.object(ref_panel_builder.ReferencePanelBuilder, "run", fake_run):
+            ref_panel_builder.run_build_ref_panel(
+                plink_prefix="plink/panel.@",
+                source_genome_build="hg19",
+                genetic_map_hg19_sources="maps/hg19.map",
+                output_dir="out",
+                ld_wind_kb=1,
+                chunk_size=64,
+            )
+
+        self.assertEqual(captured["config"].snp_batch_size, 64)
+
+    def test_run_build_ref_panel_rejects_conflicting_batch_size_keywords(self):
+        with self.assertRaisesRegex(ValueError, "chunk_size or snp_batch_size"):
+            ref_panel_builder.run_build_ref_panel(
+                plink_prefix="plink/panel.@",
+                source_genome_build="hg19",
+                genetic_map_hg19_sources="maps/hg19.map",
+                output_dir="out",
+                ld_wind_kb=1,
+                chunk_size=64,
+                snp_batch_size=128,
+            )
 
     def test_run_build_ref_panel_rejects_explicit_genome_build_keyword(self):
         with self.assertRaisesRegex(ValueError, "set_global_config"):
@@ -1070,7 +1154,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "source-build duplicate"):
                     builder.run(config)
 
-    def test_drop_all_policy_writes_sidecar_at_panel_root(self):
+    def test_drop_all_policy_writes_sidecar_under_dropped_snps(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             self._write_plink_prefix_rows(
@@ -1118,8 +1202,8 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 with self.assertLogs("LDSC.ref_panel_builder", level="WARNING") as log_ctx:
                     builder.run(config)
 
-            sidecar = tmpdir / "out" / "chr1_dropped.tsv.gz"
-            self.assertTrue(sidecar.exists(), "sidecar must be written at panel root")
+            sidecar = tmpdir / "out" / "dropped_snps" / "chr1_dropped.tsv.gz"
+            self.assertTrue(sidecar.exists(), "sidecar must be written under dropped_snps")
             with gzip.open(sidecar, "rt") as fh:
                 dropped_df = pd.read_csv(fh, sep="\t")
             self.assertEqual(len(dropped_df), 2)
@@ -1661,7 +1745,7 @@ class ReferencePanelBuilderSourceOnlySmokeTest(unittest.TestCase):
                 output_dir=str(Path(tmpdir) / "panel"),
                 ld_wind_snps=10,
                 ld_wind_kb=None,
-                chunk_size=64,
+                snp_batch_size=64,
             )
 
             self.assertEqual(build_result.chromosomes, ["22"])
@@ -1707,7 +1791,7 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
                 output_dir=str(Path(tmpdir) / "panel"),
                 ld_wind_snps=10,
                 ld_wind_kb=None,
-                chunk_size=64,
+                snp_batch_size=64,
             )
 
             self.assertIn("meta_hg19", build_result.output_paths)
@@ -1745,7 +1829,7 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
                     output_dir=str(Path(tmpdir) / "panel"),
                     ld_wind_cm=1.0,
                     ld_wind_kb=None,
-                    chunk_size=64,
+                    snp_batch_size=64,
                 )
 
     def test_hm3_chr22_subset_runs_direct_and_parquet_ldscore_paths(self):
@@ -1773,7 +1857,7 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
                 output_dir=str(tmpdir / "panel"),
                 ld_wind_snps=10,
                 ld_wind_kb=None,
-                chunk_size=64,
+                snp_batch_size=64,
             )
 
             self.assertEqual(build_result.chromosomes, ["22"])

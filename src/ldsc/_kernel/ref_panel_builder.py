@@ -34,9 +34,9 @@ _STANDARD_R2_COLUMNS = [
     "CHR",
     "POS_1",
     "POS_2",
-    "R2",
     "SNP_1",
     "SNP_2",
+    "R2",
 ]
 
 
@@ -47,9 +47,9 @@ def _empty_standard_r2_table() -> pd.DataFrame:
             "CHR": pd.Series(dtype="string"),
             "POS_1": pd.Series(dtype=np.int64),
             "POS_2": pd.Series(dtype=np.int64),
-            "R2": pd.Series(dtype=np.float32),
             "SNP_1": pd.Series(dtype="string"),
             "SNP_2": pd.Series(dtype="string"),
+            "R2": pd.Series(dtype=np.float32),
         },
         columns=_STANDARD_R2_COLUMNS,
     )
@@ -277,7 +277,7 @@ def _emit_cross_block_pairs(
     block_left: np.ndarray,
     n_samples: int,
 ) -> list[dict[str, float | int | str]]:
-    """Build pair rows between the carry-over block and the current chunk."""
+    """Build pair rows between the carry-over block and the current SNP batch."""
     rows: list[dict[str, float | int | str]] = []
     for local_j, global_j in enumerate(b_indices):
         valid = (a_indices >= int(block_left[global_j])) & (a_indices < global_j)
@@ -300,7 +300,7 @@ def _emit_within_block_pairs(
     block_left: np.ndarray,
     n_samples: int,
 ) -> list[dict[str, float | int | str]]:
-    """Build pair rows within the current chunk subject to ``block_left``."""
+    """Build pair rows within the current SNP batch subject to ``block_left``."""
     rows: list[dict[str, float | int | str]] = []
     for local_j, global_j in enumerate(b_indices):
         for local_i in range(local_j):
@@ -332,7 +332,7 @@ def _pop_pair_rows_before(
     pending: dict[int, list[dict[str, float | int | str]]],
     min_future_i: int,
 ) -> Iterator[dict[str, float | int | str]]:
-    """Yield pending rows whose left index cannot appear in future chunks."""
+    """Yield pending rows whose left index cannot appear in future batches."""
     flushable = sorted(i for i in pending if i < int(min_future_i))
     for i in flushable:
         rows = pending.pop(i)
@@ -343,27 +343,34 @@ def _pop_pair_rows_before(
 def yield_pairwise_r2_rows(
     *,
     block_left: np.ndarray,
-    chunk_size: int,
+    snp_batch_size: int,
     standardized_snp_getter,
     m: int,
     n: int,
 ) -> Iterator[dict[str, float | int | str]]:
-    """Yield one unordered `R2` row per retained SNP pair inside the LD window."""
+    """
+    Yield one unordered `R2` row per retained SNP pair inside the LD window.
+
+    ``snp_batch_size`` controls the number of SNP genotype columns requested
+    from ``standardized_snp_getter`` per computation batch. Window-spanning
+    carry-over columns may be retained in memory in addition to the current
+    batch.
+    """
 
     block_left = np.asarray(block_left, dtype=int)
     if len(block_left) != m:
         raise ValueError("block_left length must match the SNP count.")
-    if chunk_size <= 0:
-        raise ValueError("chunk_size must be positive.")
+    if snp_batch_size <= 0:
+        raise ValueError("snp_batch_size must be positive.")
 
     block_sizes = np.array(np.arange(m) - block_left)
-    block_sizes = np.ceil(block_sizes / chunk_size) * chunk_size
+    block_sizes = np.ceil(block_sizes / snp_batch_size) * snp_batch_size
 
     first_nonzero = np.nonzero(block_left > 0)[0]
     b = int(first_nonzero[0]) if len(first_nonzero) > 0 else m
-    b = int(np.ceil(b / chunk_size) * chunk_size)
+    b = int(np.ceil(b / snp_batch_size) * snp_batch_size)
     if b > m:
-        chunk_size = 1
+        snp_batch_size = 1
         b = m
 
     # Flush in increasing-i order; non-decreasing POS_1 holds only because
@@ -371,8 +378,8 @@ def yield_pairwise_r2_rows(
     pending_rows: dict[int, list[dict[str, float | int | str]]] = {}
     l_A = 0
     A = standardized_snp_getter(b)
-    for l_B in range(0, b, chunk_size):
-        width = min(chunk_size, b - l_B)
+    for l_B in range(0, b, snp_batch_size):
+        width = min(snp_batch_size, b - l_B)
         yield from _pop_pair_rows_before(pending_rows, int(block_left[l_B]))
         B = A[:, l_B:l_B + width]
         correlation_matrix = np.dot(A.T, B / n)
@@ -388,10 +395,10 @@ def yield_pairwise_r2_rows(
         )
 
     b0 = b
-    md = int(chunk_size * np.floor(m / chunk_size))
+    md = int(snp_batch_size * np.floor(m / snp_batch_size))
     end = md + 1 if md != m else md
-    previous_chunk_width = chunk_size
-    for l_B in range(b0, end, chunk_size):
+    previous_chunk_width = snp_batch_size
+    for l_B in range(b0, end, snp_batch_size):
         yield from _pop_pair_rows_before(pending_rows, int(block_left[l_B]))
         old_b = b
         b = int(block_sizes[l_B])
@@ -405,7 +412,7 @@ def yield_pairwise_r2_rows(
             A = np.array(()).reshape((n, 0))
             l_A = l_B
 
-        current_chunk_width = chunk_size
+        current_chunk_width = snp_batch_size
         if l_B == md:
             current_chunk_width = m - md
         B = standardized_snp_getter(current_chunk_width)
@@ -441,7 +448,7 @@ def yield_pairwise_r2_rows(
 def iter_pairwise_r2_rows(
     *,
     block_left: np.ndarray,
-    chunk_size: int,
+    snp_batch_size: int,
     standardized_snp_getter,
     m: int,
     n: int,
@@ -451,7 +458,7 @@ def iter_pairwise_r2_rows(
     return list(
         yield_pairwise_r2_rows(
             block_left=block_left,
-            chunk_size=chunk_size,
+            snp_batch_size=snp_batch_size,
             standardized_snp_getter=standardized_snp_getter,
             m=m,
             n=n,
@@ -530,11 +537,11 @@ def build_standard_r2_table(
     genome_build: str,
 ) -> pd.DataFrame:
     """
-    Build one canonical six-column R2 table chunk for a chromosome.
+    Build one canonical six-column R2 table batch for a chromosome.
 
     The returned frame always uses the package-written parquet schema:
     string-valued ``CHR``/``SNP_1``/``SNP_2``, ``int64`` positions, and
-    ``float32`` R2 values. Empty chunks keep the same dtypes so chromosomes with
+    ``float32`` R2 values. Empty batches keep the same dtypes so chromosomes with
     no emitted pairs still serialize as canonical R2 parquet files.
     """
 
@@ -553,9 +560,9 @@ def build_standard_r2_table(
             "CHR": left[chr_col].astype(str),
             "POS_1": left[pos_col].to_numpy(dtype=np.int64),
             "POS_2": right[pos_col].to_numpy(dtype=np.int64),
-            "R2": r2,
             "SNP_1": left["rsID"].astype(str),
             "SNP_2": right["rsID"].astype(str),
+            "R2": r2,
         },
         columns=_STANDARD_R2_COLUMNS,
     )

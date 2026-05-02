@@ -227,7 +227,7 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertEqual(config.genetic_map_hg38_sources, "maps/hg38.txt")
         self.assertEqual(config.liftover_chain_hg38_to_hg19_file, "liftover/hg38ToHg19.over.chain")
         self.assertEqual(config.output_dir, "out")
-        self.assertEqual(config.chunk_size, 128)
+        self.assertEqual(config.snp_batch_size, 128)
         self.assertTrue(config.overwrite)
 
         with self.assertRaisesRegex(ValueError, "ld_wind_cm"):

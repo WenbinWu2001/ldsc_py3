@@ -98,7 +98,7 @@ This is the public interface and workflow implementation for annotation loading 
 
 ### `ldsc.ref_panel_builder`
 
-This module builds standard parquet R2 reference artifacts from PLINK inputs. It handles optional genetic-map loading, optional liftover selection, restriction filtering, output-path construction, and `build-ref-panel.log`, then delegates pairwise-R2 emission to the kernel. Architecture invariant: emitted parquet schemas are part of the public file contract for parquet-backed LDSC workflows.
+This module builds standard parquet R2 reference artifacts from PLINK inputs. It handles optional genetic-map loading, optional liftover selection, restriction filtering, duplicate-drop provenance, output-path construction, and `build-ref-panel.log`, then delegates pairwise-R2 emission to the kernel. Architecture invariant: emitted parquet schemas are part of the public file contract for parquet-backed LDSC workflows.
 
 ### `ldsc.ldscore_calculator`
 

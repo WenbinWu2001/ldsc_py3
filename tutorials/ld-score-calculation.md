@@ -6,7 +6,7 @@ The examples below assume chromosome-pattern annotation inputs such as
 `annotations/baseline.1.annot.gz` and a package-built R2 directory such as
 `r2_ref_panel_1kg30x_1cM_hm3/hg38`.
 For the parquet backend, the R2 file should use the canonical six-column schema
-(`CHR`, `POS_1`, `POS_2`, `R2`, `SNP_1`, `SNP_2`) written with PyArrow row groups.
+(`CHR`, `POS_1`, `POS_2`, `SNP_1`, `SNP_2`, `R2`) written with PyArrow row groups.
 The matching `chr*_meta.tsv.gz` sidecars are optional but strongly recommended
 because they define the full reference-panel SNP universe and supply `MAF`/`CM`.
 Package-built R2 parquet files also store `ldsc:r2_bias` and `ldsc:n_samples`

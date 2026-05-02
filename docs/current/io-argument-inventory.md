@@ -113,7 +113,7 @@ LD-score output schema:
 | `--output-dir` | output | yes | reference-panel artifact directory | Run identity is `Path(output_dir).name`; no separate label is accepted. |
 | `--overwrite` | output mode | no | collision policy | Controls whether reference-panel artifacts and `build-ref-panel.log` may be replaced; defaults to `False`, so existing deterministic outputs are refused. |
 | `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger records in console and `build-ref-panel.log`; lifecycle audit lines always appear in the file. |
-| `--chunk-size` | performance | no | block size | Sets the block-processing size; defaults to `128`. |
+| `--snp-batch-size` | performance | no | SNP computation batch size | Number of SNPs loaded per pairwise-R2 computation batch; larger values may improve throughput but use more memory. Defaults to `128`. |
 
 Removed flags: `--bfile`, `--out`, `--panel-label`, `--keep-indivs`, `--maf`,
 `--genetic-map-hg19`, `--genetic-map-hg38`, old liftover-chain names without
@@ -126,6 +126,7 @@ Fixed output names:
 <output_dir>/hg19/chr{chrom}_meta.tsv.gz
 <output_dir>/hg38/chr{chrom}_r2.parquet
 <output_dir>/hg38/chr{chrom}_meta.tsv.gz
+<output_dir>/dropped_snps/chr{chrom}_dropped.tsv.gz
 <output_dir>/build-ref-panel.log
 ```
 
@@ -278,6 +279,7 @@ Removed Python names: `bfile`, `r2_table`, `frqfile`, `keep`, `maf`,
 | `ReferencePanelBuildConfig` | `ref_panel_snps_file` | input | retained SNP restriction |
 | `ReferencePanelBuildConfig` | `keep_indivs_file` | input | PLINK individual keep file |
 | `ReferencePanelBuildConfig` | `maf_min` | input metadata | retained SNP MAF filter |
+| `ReferencePanelBuildConfig` | `snp_batch_size` | performance | SNP computation batch size |
 | `ReferencePanelBuildConfig` | `output_dir` | output | artifact directory |
 | `run_build_ref_panel(**kwargs)` | same config field names except global settings | input/output | convenience wrapper; reads `snp_identifier` from the registered `GlobalConfig`; ignores `GlobalConfig.genome_build`; writes `build-ref-panel.log` |
 

@@ -16,7 +16,7 @@ chr{chrom}_meta.tsv.gz
 The R2 parquet stores pairwise LD rows:
 
 ```text
-CHR  POS_1  POS_2  R2  SNP_1  SNP_2
+CHR  POS_1  POS_2  SNP_1  SNP_2  R2
 ```
 
 The metadata sidecar stores the retained SNP universe:

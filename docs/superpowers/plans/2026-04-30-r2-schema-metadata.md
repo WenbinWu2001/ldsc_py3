@@ -131,7 +131,7 @@ In `_build_chromosome`, the call to `kernel_builder.write_r2_parquet(...)` (arou
             kernel_builder.write_r2_parquet(
                 pair_rows=kernel_builder.yield_pairwise_r2_rows(
                     block_left=block_left,
-                    chunk_size=config.chunk_size,
+                    snp_batch_size=config.snp_batch_size,
                     standardized_snp_getter=geno.nextSNPs,
                     m=geno.m,
                     n=geno.n,

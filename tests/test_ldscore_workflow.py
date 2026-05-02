@@ -918,7 +918,9 @@ class LDScoreWorkflowTest(unittest.TestCase):
             self.assertIn("manifest", result.output_paths)
             self.assertIn("baseline", result.output_paths)
             self.assertIn("query", result.output_paths)
+            self.assertNotIn("log", result.output_paths)
             self.assertTrue(Path(result.output_paths["manifest"]).exists())
+            self.assertTrue((tmpdir / "ldscore_result" / "ldscore.log").exists())
             self.assertFalse(list((tmpdir / "ldscore_result").glob("*.l2.ldscore.gz")))
             self.assertFalse(list((tmpdir / "ldscore_result").glob("*.M*")))
 

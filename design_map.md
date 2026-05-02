@@ -31,3 +31,11 @@ contracts move.
   parsed namespaces to `run_annotate_from_args()` without reparsing.
 - `main_bed_to_annot()` is intentionally removed; `annotation_builder.main()`
   is the supported parser entry point.
+
+## Workflow Logging
+
+| Design document | Implementation |
+| --- | --- |
+| `docs/current/workflow-logging.md` | `src/ldsc/_logging.py`; workflow wrappers in `annotation_builder.py`, `ldscore_calculator.py`, `ref_panel_builder.py`, `sumstats_munger.py`, and `regression_runner.py` |
+| `docs/superpowers/specs/2026-05-02-logging-harmonization-design.md` | final logging harmonization decisions and result-contract boundaries |
+| `docs/superpowers/plans/2026-05-02-logging-harmonization-implementation-plan.md` | completed implementation checklist and verification commands |

@@ -10,7 +10,7 @@ This document summarizes the user-visible file streams for each public workflow.
 | Preprocessing | yes | `ldsc.config`, `ldsc.path_resolution`, `ldsc.column_inference`, `ldsc.chromosome_inference` | normalize tokens, headers, identifiers, chromosome order |
 | Workflow | yes | feature modules under `src/ldsc/` | build aligned in-memory tables |
 | Kernel | no | `ldsc._kernel.*` | low-level readers and numerical work |
-| Postprocessing | yes | `ldsc.outputs`, pandas writers in `ldsc.regression_runner` | preflight fixed output paths, emit files and summaries |
+| Postprocessing | yes | `ldsc.outputs`, pandas writers in `ldsc.regression_runner`, `ldsc._logging` | preflight fixed output paths, emit files, summaries, and workflow audit logs |
 
 ## Package Overview
 
@@ -41,6 +41,7 @@ flowchart LR
   subgraph OUT[Postprocessing (public)<br/>ldsc.outputs / regression_runner]
     O1[Write LDSC artifacts]
     O2[Write summary tables]
+    O3[Write workflow logs]
   end
 
   IN1 --> C1 --> W1 --> K1
@@ -50,14 +51,20 @@ flowchart LR
   IN3 --> C1 --> W4 --> K1
   W3 --> O1
   W4 --> O1
+  W1 --> O3
+  W2 --> O3
+  W3 --> O3
+  W4 --> O3
   O1 --> W5 --> K3 --> O2
+  W5 --> O3
 ```
 
 ## 1. `annotate`: BED Projection To SNP-Level `.annot.gz`
 
 Output directories are created when missing and reused when present. Existing
-`query.<chrom>.annot.gz` files are refused before any query shard is written
-unless the caller passes `--overwrite` or `overwrite=True`.
+`query.<chrom>.annot.gz` files and the workflow `annotate.log` are refused
+before any query shard is written unless the caller passes `--overwrite` or
+`overwrite=True`.
 
 `ldsc.annotation_builder` owns both command entry paths: `main(argv)` parses
 standalone annotation arguments, and `run_annotate_from_args(args)` consumes
@@ -85,7 +92,7 @@ flowchart LR
   subgraph W1[Workflow (public)<br/>ldsc.annotation_builder]
     A3[Load baseline rows]
     A4[Project BEDs to SNP columns]
-    A7[Preflight and write query shards]
+    A7[Preflight query shards + annotate.log<br/>Write query shards]
   end
 
   subgraph K1[Kernel (private)<br/>ldsc._kernel.annotation]
@@ -96,7 +103,7 @@ flowchart LR
   I1 --> A1 --> A3 --> A4 --> A5 --> A6 --> A7
   I2 --> A1
   A2 --> A4
-  A7 --> O1[query.<chrom>.annot.gz]
+  A7 --> O1[query.<chrom>.annot.gz + annotate.log]
 ```
 
 ### Outputs
@@ -104,6 +111,7 @@ flowchart LR
 | File | Example | Notes |
 | --- | --- | --- |
 | projected query annotation shard | `CHR POS SNP CM enhancer_A`<br/>`1 10583 rs58108140 0.0 1` | output name is `query.<chrom>.annot.gz` |
+| workflow log | plain-text lifecycle and package records | `annotate.log` under `output_dir`; not included in returned data paths |
 
 ### Modules used
 
@@ -115,9 +123,10 @@ flowchart LR
 ## 2. `build-ref-panel`: PLINK To Standard Parquet R2 Reference
 
 Before chromosome processing starts, the builder precomputes flat candidate
-paths under each emitted `{build}` directory. Existing candidates are
-refused unless `--overwrite` or `ReferencePanelBuildConfig(overwrite=True)` is
-supplied; unrelated files in the output directory are left untouched.
+paths under each emitted `{build}` directory plus `build-ref-panel.log`.
+Existing candidates are refused unless `--overwrite` or
+`ReferencePanelBuildConfig(overwrite=True)` is supplied; unrelated files in the
+output directory are left untouched.
 
 ### Required inputs
 
@@ -159,7 +168,7 @@ flowchart LR
   I1 --> B1 --> B0 --> B3 --> B4 --> B5 --> B6 --> B7
   I2 --> B2 --> B4
   I3 --> B2 --> B8 --> B4
-  B7 --> O2[{build}/chr*_r2.parquet + {build}/chr*_meta.tsv.gz]
+  B7 --> O2[{build}/chr*_r2.parquet + {build}/chr*_meta.tsv.gz + build-ref-panel.log]
 ```
 
 ### Outputs
@@ -168,6 +177,7 @@ flowchart LR
 | --- | --- | --- |
 | build-specific R2 parquet | `hg38/chr22_r2.parquet` with columns `CHR`, `POS_1`, `POS_2`, `SNP_1`, `SNP_2`, `R2` | one row per unordered SNP pair inside the LD window; row groups are sorted by that build's `POS_1`; schema metadata records `ldsc:n_samples` and `ldsc:r2_bias` for downstream auto-load |
 | build-specific runtime metadata sidecar | `hg38/chr22_meta.tsv.gz` with `CHR POS SNP CM MAF` | authoritative SNP universe for the matching R2 parquet when present |
+| workflow log | plain-text lifecycle and package records | `build-ref-panel.log` under `output_dir`; not included in `ReferencePanelBuildResult.output_paths` |
 
 ### Modules used
 
@@ -178,9 +188,10 @@ flowchart LR
 
 ## 3. `ldscore`: Reference Panel And Optional Annotations To LDSC Artifacts
 
-The canonical LD-score writer preflights `manifest.json`, `baseline.parquet`,
-and optional `query.parquet` before writing any of them. Use `--overwrite` or
-`LDScoreOutputConfig(overwrite=True)` only for intentional reruns.
+The canonical LD-score workflow preflights `manifest.json`,
+`baseline.parquet`, optional `query.parquet`, and `ldscore.log` before writing
+any of them. Use `--overwrite` or `LDScoreOutputConfig(overwrite=True)` only
+for intentional reruns.
 The parquet payloads remain single flat files, but each row group contains rows
 from exactly one chromosome. The manifest records the row-group layout and
 per-chromosome offsets so readers can load one chromosome without scanning the
@@ -242,6 +253,7 @@ flowchart LR
 | baseline LD-score table | `CHR POS SNP regr_weight base`<br/>`1 10 rs1 1.7 1.2` | `baseline.parquet` inside `output_dir`; one row group per chromosome |
 | query LD-score table | `CHR POS SNP enhancer_A`<br/>`1 10 rs1 0.4` | `query.parquet` inside `output_dir`; one row group per chromosome; omitted when no query annotations exist |
 | manifest | JSON metadata with files, columns, counts, chromosomes, config, row counts, and row-group metadata | `manifest.json` inside `output_dir` |
+| workflow log | plain-text lifecycle and package records | `ldscore.log` inside `output_dir`; not included in `LDScoreResult.output_paths` |
 
 ### Modules used
 
@@ -299,8 +311,8 @@ flowchart LR
 | File | Example | Notes |
 | --- | --- | --- |
 | curated sumstats | `SNP CHR POS A1 A2 Z N`<br/>`rs3131969 1 754182 A G 0.74 829249.58` | written as `sumstats.parquet` by default under `output_dir`; `--output-format tsv.gz` writes legacy `sumstats.sumstats.gz`, and `both` writes both; `CHR`/`POS` are present and may be missing when absent from raw input; optional `FRQ` may also be present |
-| log file | plain-text QC log | workflow-owned `sumstats.log` under `output_dir`, populated from package logger messages emitted during kernel QC |
-| metadata sidecar | JSON with `snp_identifier`, nullable `genome_build`, coordinate columns, output files, parquet row groups, and build-inference details | written as `sumstats.metadata.json` under `output_dir`; used by `load_sumstats()` to recover config provenance |
+| log file | plain-text lifecycle and QC log | workflow-owned `sumstats.log` under `output_dir`, populated from package logger messages emitted during kernel QC; excluded from `MungeRunSummary.output_paths` |
+| metadata sidecar | JSON with `snp_identifier`, nullable `genome_build`, coordinate columns, curated output files, parquet row groups, and build-inference details | written as `sumstats.metadata.json` under `output_dir`; used by `load_sumstats()` to recover config provenance; `output_files` does not include `sumstats.log` |
 
 ### Modules used
 
@@ -312,8 +324,11 @@ flowchart LR
 ## 5. `h2`, `partitioned-h2`, and `rg`: Curated Artifacts To Regression Summaries
 
 Regression summary commands write one fixed TSV when `output_dir` is supplied:
-`h2.tsv`, `partitioned_h2.tsv`, or `rg.tsv`. Existing summary TSVs raise before
-the new table is written unless the command includes `--overwrite`.
+`h2.tsv`, `partitioned_h2.tsv`, or `rg.tsv`, plus the matching workflow log
+`h2.log`, `partitioned-h2.log`, or `rg.log`. Existing summary TSVs or logs
+raise before the new table is written unless the command includes
+`--overwrite`. Without `output_dir`, regression commands return in-memory
+results and do not create log files.
 `partitioned-h2` can also write an opt-in per-query tree with
 `--write-per-query-results`; the aggregate `partitioned_h2.tsv` remains the
 stable summary entry point.
@@ -351,10 +366,10 @@ flowchart LR
 
   I1 --> E1 --> E4 --> E5
   I2 --> E1 --> E2 --> E3 --> E4
-  E5 --> E6 --> O5a[h2.tsv]
-  E5 --> E7 --> O5b[partitioned_h2.tsv]
+  E5 --> E6 --> O5a[h2.tsv + h2.log]
+  E5 --> E7 --> O5b[partitioned_h2.tsv + partitioned-h2.log]
   E7 --> O5d[query_annotations/]
-  E5 --> E8 --> O5c[rg.tsv]
+  E5 --> E8 --> O5c[rg.tsv + rg.log]
 ```
 
 ### Outputs
@@ -364,6 +379,9 @@ flowchart LR
 | `h2` | `trait_name`, `n_snps`, `total_h2`, `total_h2_se`, `intercept`, `intercept_se`, `mean_chisq`, `lambda_gc`, `ratio`, `ratio_se` | `trait 105234 0.18 0.03 1.02 0.01 1.11 1.05 0.08 0.03` |
 | `partitioned-h2` | `query_annotation`, `coefficient`, `coefficient_se`, `coefficient_z`, `coefficient_p`, `category_h2`, `category_h2_se`, `proportion_h2`, `proportion_h2_se`, `enrichment` | `enhancer_A 0.012 0.004 3.0 0.003 0.025 0.008 0.14 0.05 2.3` |
 | `rg` | `trait_1`, `trait_2`, `rg`, `rg_se`, `z`, `p` | `trait_a trait_b 0.42 0.09 4.7 2.6e-06` |
+
+When `output_dir` is supplied, the same directory also receives the matching
+workflow log. The log is not part of any returned result `output_paths` mapping.
 
 When `partitioned-h2 --write-per-query-results` is supplied, the command also
 writes `query_annotations/manifest.tsv` plus one ordinal-prefixed sanitized

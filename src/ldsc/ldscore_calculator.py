@@ -13,6 +13,10 @@ annotation named exactly ``base`` over the retained reference-panel metadata and
 continues through the same calculator and output writer used by partitioned
 runs. Query annotations remain partitioned-LDSC inputs: they are accepted only
 when explicit baseline annotations are supplied.
+
+Parsed workflow entry points write ``ldscore.log`` under ``output_dir`` after
+preflighting all deterministic outputs. Direct ``LDScoreCalculator.run(...)``
+calls remain data-oriented and do not create log files.
 """
 
 from __future__ import annotations
@@ -42,12 +46,15 @@ from .config import (
 from .genome_build_inference import resolve_genome_build
 from .outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
 from .path_resolution import (
+    ensure_output_directory,
+    ensure_output_paths_available,
     normalize_optional_path_token,
     normalize_path_token,
     resolve_plink_prefix,
     resolve_scalar_path,
     split_cli_path_tokens,
 )
+from ._logging import log_inputs, log_outputs, workflow_logging
 from ._kernel import ldscore as kernel_ldscore
 from ._kernel.identifiers import build_snp_id_series, read_global_snp_restriction
 from ._row_alignment import assert_same_snp_rows
@@ -660,10 +667,13 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
     The workflow resolves unified path tokens for baseline annotations, optional
     query annotations or BED files, and the reference panel. If no baseline or
     query annotations are supplied, it synthesizes an all-ones ``base``
-    annotation over the retained reference-panel metadata. For each
-    chromosome it intersects the annotation rows with
+    annotation over the retained reference-panel metadata. Before calculation
+    it preflights ``manifest.json``, ``baseline.parquet``, optional
+    ``query.parquet``, and ``ldscore.log`` under ``output_dir``. For each
+    chromosome it intersects annotation rows with
     ``ref_panel.load_metadata(chrom)`` before calling the kernel, then returns
     the normalized public ``LDScoreResult`` with split baseline/query tables.
+    The result ``output_paths`` mapping contains data artifacts only.
     """
     from .annotation_builder import AnnotationBuilder
 
@@ -689,15 +699,32 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
     else:
         ref_panel = _ref_panel_from_args(normalized_args, global_config)
         annotation_bundle = _pseudo_base_annotation_bundle_from_ref_panel(ref_panel, global_config)
-    calculator = LDScoreCalculator()
-    return calculator.run(
-        annotation_bundle=annotation_bundle,
-        ref_panel=ref_panel,
-        ldscore_config=ldscore_config,
-        global_config=global_config,
-        output_config=_output_config_from_args(normalized_args),
-        regression_snps=regression_snps,
+    output_config = _output_config_from_args(normalized_args)
+    output_dir = ensure_output_directory(output_config.output_dir, label="LD-score output directory")
+    log_path = output_dir / "ldscore.log"
+    ensure_output_paths_available(
+        [*_expected_ldscore_output_paths(output_dir, bool(annotation_bundle.query_columns)), log_path],
+        overwrite=output_config.overwrite,
+        label="LD-score output artifact",
     )
+    calculator = LDScoreCalculator()
+    with workflow_logging("ldscore", log_path, log_level=global_config.log_level):
+        log_inputs(
+            output_dir=str(output_dir),
+            reference_mode=ref_mode,
+            snp_identifier=global_config.snp_identifier,
+            genome_build=global_config.genome_build,
+        )
+        result = calculator.run(
+            annotation_bundle=annotation_bundle,
+            ref_panel=ref_panel,
+            ldscore_config=ldscore_config,
+            global_config=global_config,
+            output_config=output_config,
+            regression_snps=regression_snps,
+        )
+        log_outputs(**result.output_paths)
+    return result
 
 
 def _validate_run_args(args: argparse.Namespace) -> None:
@@ -1066,6 +1093,14 @@ def _output_config_from_args(args: argparse.Namespace) -> LDScoreOutputConfig:
         output_dir=normalize_path_token(args.output_dir),
         overwrite=getattr(args, "overwrite", False),
     )
+
+
+def _expected_ldscore_output_paths(output_dir: Path, has_query: bool) -> list[Path]:
+    """Return canonical LD-score output paths written by the directory writer."""
+    paths = [output_dir / "manifest.json", output_dir / "baseline.parquet"]
+    if has_query:
+        paths.append(output_dir / "query.parquet")
+    return paths
 
 
 def _replace_result_output_paths(result: LDScoreResult, output_paths: dict[str, str]) -> LDScoreResult:

@@ -5,7 +5,9 @@ Overview
 This module owns the supported annotation workflow: path-token resolution,
 annotation bundle loading, BED-to-SNP projection, CLI argument parsing, genome
 build resolution, output preflight, and fixed ``query.<chrom>.annot.gz``
-writing. Use this module for public annotation API calls; use
+writing. Parsed workflow entry points also write ``annotate.log`` beside the
+query shards; direct in-memory calls stay log-file free. Use this module for
+public annotation API calls; use
 ``ldsc._kernel.annotation`` only for low-level table and BED primitives.
 
 Key Functions
@@ -24,6 +26,8 @@ Design Notes
 - The workflow layer owns user-facing configuration and output policy.
 - The kernel layer receives resolved concrete files and performs primitive
   table/BED operations only.
+- Per-run logs are workflow audit artifacts and are not part of returned
+  annotation bundles.
 """
 
 from __future__ import annotations
@@ -73,6 +77,7 @@ from .path_resolution import (
     resolve_file_group,
     split_cli_path_tokens,
 )
+from ._logging import configure_package_logging, log_inputs, log_outputs, workflow_logging
 
 
 LOGGER = logging.getLogger("LDSC.annotation")
@@ -197,6 +202,7 @@ class AnnotationBuilder:
         )
         self.global_config = global_config
         self.build_config = build_config or AnnotationBuildConfig()
+        self._workflow_log_path: Path | None = None
 
     def run(self, source_spec: AnnotationBuildConfig | None = None, chrom: str | None = None) -> AnnotationBundle:
         """Build one aligned SNP-level annotation bundle.
@@ -514,6 +520,9 @@ class AnnotationBuilder:
         When ``output_dir`` is provided, projected query annotations are also
         written as per-chromosome ``query.<chrom>.annot.gz`` files. Existing
         fixed output files are refused before writing unless overwrite is true.
+        Public workflow wrappers may attach a private log path so the same
+        preflight also protects ``annotate.log``; ordinary direct calls do not
+        create a log file.
 
         Parameters
         ----------
@@ -527,7 +536,9 @@ class AnnotationBuilder:
             Directory for materialized ``query.<chrom>.annot.gz`` files. If
             omitted, projection stays in memory.
         log_level : str, optional
-            Logging threshold for standalone projection calls.
+            Logging threshold for standalone projection calls. When the method
+            is reached from the parsed workflow wrapper, the same threshold
+            controls records written to ``annotate.log``.
         overwrite : bool, optional
             Whether fixed output files may be replaced. Defaults to the
             builder configuration when omitted.
@@ -547,12 +558,23 @@ class AnnotationBuilder:
         bundle = self.run(source_spec)
         if output_dir is not None:
             output_path = ensure_output_directory(output_dir, label="output directory")
+            output_paths = _bundle_query_annot_output_paths(bundle, output_path)
+            preflight_paths: list[Path] = list(output_paths)
+            if self._workflow_log_path is not None:
+                preflight_paths.append(self._workflow_log_path)
             ensure_output_paths_available(
-                _bundle_query_annot_output_paths(bundle, output_path),
+                preflight_paths,
                 overwrite=overwrite,
                 label="annotation output artifact",
             )
-            _write_bundle_query_as_annot_files(bundle, output_path)
+            with workflow_logging("annotate", self._workflow_log_path, log_level=log_level or self.global_config.log_level):
+                log_inputs(
+                    query_annot_bed_sources=query_annot_bed_sources,
+                    baseline_annot_sources=baseline_annot_sources,
+                    output_dir=str(output_path),
+                )
+                written = _write_bundle_query_as_annot_files(bundle, output_path)
+                log_outputs(**{f"query_{chrom}": str(path) for chrom, path in zip(bundle.chromosomes, written)})
         return bundle
 
     def _ensure_aligned_rows(self, reference: pd.DataFrame, current: pd.DataFrame, path: str) -> None:
@@ -595,7 +617,9 @@ def run_bed_to_annot(
     Python workflows read shared identifier, genome-build, and logging settings
     from the registered ``GlobalConfig``. When ``output_dir`` is supplied,
     fixed ``query.<chrom>.annot.gz`` outputs are refused before writing unless
-    ``overwrite=True``.
+    ``overwrite=True``. The wrapper also writes ``annotate.log`` in the same
+    directory; the returned bundle remains an in-memory data object and does
+    not expose the log path.
 
     Parameters
     ----------
@@ -638,7 +662,10 @@ def _run_bed_to_annot_with_global_config(
     """Run BED-to-annotation projection with an explicit resolved GlobalConfig."""
     print_global_config_banner(entrypoint, global_config)
     build_config = AnnotationBuildConfig(query_annot_bed_sources=query_annot_bed_sources)
-    return AnnotationBuilder(global_config, build_config).project_bed_annotations(
+    builder = AnnotationBuilder(global_config, build_config)
+    if output_dir is not None:
+        builder._workflow_log_path = Path(output_dir) / "annotate.log"
+    return builder.project_bed_annotations(
         query_annot_bed_sources=query_annot_bed_sources,
         baseline_annot_sources=baseline_annot_sources,
         output_dir=output_dir,
@@ -797,7 +824,7 @@ def _resolve_annotation_cli_genome_build(args: argparse.Namespace, snp_identifie
 
 def _configure_logging(level: str) -> None:
     """Configure logging for standalone annotation entry points."""
-    logging.basicConfig(level=getattr(logging, level.upper()), format="%(levelname)s: %(message)s")
+    configure_package_logging(level)
 
 
 def _write_bundle_query_as_annot_files(bundle: AnnotationBundle, output_dir: Path) -> list[Path]:

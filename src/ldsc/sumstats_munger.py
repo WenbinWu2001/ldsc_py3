@@ -14,7 +14,8 @@ values into the internal kernel so numerical behavior stays aligned with
 established LDSC outputs. The workflow layer owns CLI orchestration, output
 preflight, the fixed ``sumstats.log`` file, metadata sidecars, and result
 objects; the kernel keeps the legacy-compatible parsing and filtering
-primitives.
+primitives. Run summaries and metadata expose curated data artifacts only;
+the log is an audit file and is not included in ``output_paths``.
 """
 
 from __future__ import annotations
@@ -41,6 +42,7 @@ from .column_inference import (
 from .config import GlobalConfig, MungeConfig, get_global_config
 from .errors import LDSCDependencyError
 from .path_resolution import ensure_output_directory, ensure_output_paths_available, resolve_scalar_path
+from ._logging import log_inputs, log_outputs, workflow_logging
 from ._kernel import sumstats_munger as kernel_munge
 
 
@@ -152,7 +154,12 @@ class SumstatsTable:
 
 @dataclass(frozen=True)
 class MungeRunSummary:
-    """Compact summary of one munging run."""
+    """Compact summary of one munging run.
+
+    ``output_paths`` records curated sumstats data artifacts and the metadata
+    sidecar. It intentionally excludes ``sumstats.log`` so Python result
+    contracts stay aligned with other workflow modules.
+    """
     n_input_rows: int
     n_retained_rows: int
     drop_counts: dict[str, int]
@@ -287,7 +294,8 @@ class SumstatsMunger:
             Optional ``sumstats_snps_file`` filtering is reflected in both the
             returned table and the written curated artifact(s).
             Output paths for the corresponding disk artifacts are available
-            through :meth:`build_run_summary`.
+            through :meth:`build_run_summary`; the workflow log is written to
+            ``sumstats.log`` but is not included in that result mapping.
         """
         if munge_config is None:
             munge_config = raw_sumstats_config
@@ -311,76 +319,83 @@ class SumstatsMunger:
             if munge_config.sumstats_snps_file is None
             else str(munge_config.sumstats_snps_file)
         )
-        LOGGER.info(
-            f"Munging summary statistics from '{source_path}' into '{output_dir}' "
-            f"with snp_identifier='{config_snapshot.snp_identifier}', "
-            f"genome_build='{config_snapshot.genome_build}', "
-            f"sumstats_snps_file='{sumstats_snps_label}'."
-        )
         ensure_output_paths_available(
             [*output_files.values(), log_path, metadata_path],
             overwrite=munge_config.overwrite,
             label="munged output artifact",
         )
         args = self._build_args(raw_sumstats_config, munge_config, config_snapshot)
-        data = _run_kernel_with_sumstats_log(args, log_path)
-        primary_sumstats_file, parquet_row_groups = _write_sumstats_outputs(
-            data,
-            output_files=output_files,
-            output_format=munge_config.output_format,
-        )
-        coordinate_metadata = dict(getattr(args, "_coordinate_metadata", {}))
-        table_config_snapshot = _effective_sumstats_config(config_snapshot, coordinate_metadata)
-        _write_sumstats_metadata(
-            metadata_path,
-            config_snapshot=table_config_snapshot,
-            coordinate_metadata=coordinate_metadata,
-            source_path=source_path,
-            sumstats_file=primary_sumstats_file,
-            output_format=munge_config.output_format,
-            output_files=output_files,
-            parquet_compression=(
-                _SUMSTATS_PARQUET_COMPRESSION
-                if "parquet" in output_files
-                else None
-            ),
-            parquet_row_groups=parquet_row_groups,
-        )
-        table = SumstatsTable(
-            data=data.reset_index(drop=True),
-            has_alleles=(not munge_config.no_alleles),
-            source_path=source_path,
-            trait_name=raw_sumstats_config.trait_name,
-            provenance={
-                "raw_sumstats_file": source_path,
-                "output_dir": str(output_dir),
-                "output_format": munge_config.output_format,
-                "output_files": dict(output_files),
-                "column_hints": dict(raw_sumstats_config.column_hints),
-                "metadata_path": metadata_path,
-                "metadata": coordinate_metadata,
-            },
-            config_snapshot=table_config_snapshot,
-        )
-        table.validate()
-        run_output_paths = {
-            **({"sumstats_parquet": output_files["parquet"]} if "parquet" in output_files else {}),
-            **({"sumstats_gz": output_files["tsv.gz"]} if "tsv.gz" in output_files else {}),
-            "log": log_path,
-            "metadata_json": metadata_path,
-        }
-        self._last_summary = MungeRunSummary(
-            n_input_rows=_count_data_rows(source_path),
-            n_retained_rows=len(table.data),
-            drop_counts={},
-            inferred_columns=dict(raw_sumstats_config.column_hints),
-            used_n_rule=_infer_used_n_rule(args),
-            output_paths=run_output_paths,
-        )
-        LOGGER.info(
-            f"Munged {self._last_summary.n_input_rows} input rows to {self._last_summary.n_retained_rows} retained rows; "
-            f"wrote '{primary_sumstats_file}'."
-        )
+        with workflow_logging("munge-sumstats", log_path, log_level=config_snapshot.log_level):
+            log_inputs(
+                raw_sumstats_file=source_path,
+                output_dir=str(output_dir),
+                output_format=munge_config.output_format,
+                sumstats_snps_file=sumstats_snps_label,
+            )
+            LOGGER.info(
+                f"Munging summary statistics from '{source_path}' into '{output_dir}' "
+                f"with snp_identifier='{config_snapshot.snp_identifier}', "
+                f"genome_build='{config_snapshot.genome_build}', "
+                f"sumstats_snps_file='{sumstats_snps_label}'."
+            )
+            data = kernel_munge.munge_sumstats(args, p=False)
+            primary_sumstats_file, parquet_row_groups = _write_sumstats_outputs(
+                data,
+                output_files=output_files,
+                output_format=munge_config.output_format,
+            )
+            coordinate_metadata = dict(getattr(args, "_coordinate_metadata", {}))
+            table_config_snapshot = _effective_sumstats_config(config_snapshot, coordinate_metadata)
+            _write_sumstats_metadata(
+                metadata_path,
+                config_snapshot=table_config_snapshot,
+                coordinate_metadata=coordinate_metadata,
+                source_path=source_path,
+                sumstats_file=primary_sumstats_file,
+                output_format=munge_config.output_format,
+                output_files=output_files,
+                parquet_compression=(
+                    _SUMSTATS_PARQUET_COMPRESSION
+                    if "parquet" in output_files
+                    else None
+                ),
+                parquet_row_groups=parquet_row_groups,
+            )
+            table = SumstatsTable(
+                data=data.reset_index(drop=True),
+                has_alleles=(not munge_config.no_alleles),
+                source_path=source_path,
+                trait_name=raw_sumstats_config.trait_name,
+                provenance={
+                    "raw_sumstats_file": source_path,
+                    "output_dir": str(output_dir),
+                    "output_format": munge_config.output_format,
+                    "output_files": dict(output_files),
+                    "column_hints": dict(raw_sumstats_config.column_hints),
+                    "metadata_path": metadata_path,
+                    "metadata": coordinate_metadata,
+                },
+                config_snapshot=table_config_snapshot,
+            )
+            table.validate()
+            run_output_paths = {
+                **({"sumstats_parquet": output_files["parquet"]} if "parquet" in output_files else {}),
+                **({"sumstats_gz": output_files["tsv.gz"]} if "tsv.gz" in output_files else {}),
+                "metadata_json": metadata_path,
+            }
+            self._last_summary = MungeRunSummary(
+                n_input_rows=_count_data_rows(source_path),
+                n_retained_rows=len(table.data),
+                drop_counts={},
+                inferred_columns=dict(raw_sumstats_config.column_hints),
+                used_n_rule=_infer_used_n_rule(args),
+                output_paths=run_output_paths,
+            )
+            log_outputs(**run_output_paths)
+            LOGGER.info(
+                f"Munged {self._last_summary.n_input_rows} input rows to {self._last_summary.n_retained_rows} retained rows; "
+                f"wrote '{primary_sumstats_file}'."
+            )
         return table
 
     def write_output(
@@ -548,6 +563,7 @@ def _resolve_main_global_config(args: argparse.Namespace) -> GlobalConfig:
         config = GlobalConfig(
             snp_identifier="rsid",
             genome_build=normalize_genome_build(getattr(args, "genome_build", None)),
+            log_level=getattr(args, "log_level", "INFO"),
         )
         args.genome_build = config.genome_build
         return config
@@ -558,7 +574,7 @@ def _resolve_main_global_config(args: argparse.Namespace) -> GlobalConfig:
             "Pass --genome-build auto, --genome-build hg19, or --genome-build hg38."
         )
     args.genome_build = genome_build
-    return GlobalConfig(snp_identifier="chr_pos", genome_build=genome_build)
+    return GlobalConfig(snp_identifier="chr_pos", genome_build=genome_build, log_level=getattr(args, "log_level", "INFO"))
 
 
 def _munge_configs_from_args(args: argparse.Namespace) -> tuple[MungeConfig, MungeConfig]:
@@ -609,27 +625,6 @@ def _ignore_columns_from_args(args: argparse.Namespace) -> tuple[str, ...]:
     return tuple(token.strip() for token in ignore.split(",") if token.strip())
 
 
-def _run_kernel_with_sumstats_log(args: argparse.Namespace, log_path: str) -> pd.DataFrame:
-    """Attach a temporary file handler and run the munger kernel.
-
-    The handler captures records from ``LDSC.sumstats_munger.kernel`` into the
-    fixed workflow-owned ``sumstats.log`` file, then restores the logger state
-    even when the kernel raises.
-    """
-    kernel_logger = logging.getLogger("LDSC.sumstats_munger.kernel")
-    previous_level = kernel_logger.level
-    handler = logging.FileHandler(log_path, mode="w", encoding="utf-8")
-    handler.setFormatter(logging.Formatter("%(message)s"))
-    kernel_logger.addHandler(handler)
-    kernel_logger.setLevel(logging.INFO)
-    try:
-        return kernel_munge.munge_sumstats(args, p=False)
-    finally:
-        kernel_logger.removeHandler(handler)
-        kernel_logger.setLevel(previous_level)
-        handler.close()
-
-
 def kernel_parser():
     """Expose the public munging parser for CLI action cloning."""
     return build_parser()
@@ -642,6 +637,7 @@ def build_parser() -> argparse.ArgumentParser:
     public.add_argument("--output-dir", required=True, help="Output directory for munged sumstats and logs.")
     public.add_argument("--overwrite", action="store_true", default=False, help="Replace existing fixed output files.")
     public.add_argument("--sumstats-snps-file", default=None, help="Optional SNP keep-list for munged summary statistics.")
+    public.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"), help="Logging verbosity.")
     public.add_argument(
         "--output-format",
         choices=sorted(_SUMSTATS_OUTPUT_FORMATS),

@@ -1,5 +1,7 @@
 from pathlib import Path
+import logging
 import sys
+import tempfile
 import unittest
 from unittest import mock
 
@@ -9,6 +11,64 @@ if str(SRC) not in sys.path:
 
 
 class LoggingRefactorTest(unittest.TestCase):
+    def test_workflow_logging_captures_ldsc_child_records_and_restores_state(self):
+        from ldsc._logging import log_inputs, log_outputs, workflow_logging
+
+        ldsc_logger = logging.getLogger("LDSC")
+        original_level = ldsc_logger.level
+        original_handlers = list(ldsc_logger.handlers)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = Path(tmpdir) / "workflow.log"
+
+            with workflow_logging("unit", log_path, log_level="INFO"):
+                log_inputs(source="input.tsv", output_dir=tmpdir)
+                logging.getLogger("LDSC.some_child").info("child logger message")
+                log_outputs(result="output.tsv")
+
+            text = log_path.read_text(encoding="utf-8")
+
+        self.assertEqual(ldsc_logger.level, original_level)
+        self.assertEqual(ldsc_logger.handlers, original_handlers)
+        self.assertIn("LDSC unit Started", text)
+        self.assertIn("Inputs:", text)
+        self.assertIn("source", text)
+        self.assertIn("child logger message", text)
+        self.assertIn("Outputs:", text)
+        self.assertIn("Finished", text)
+        self.assertIn("Elapsed:", text)
+
+    def test_workflow_logging_keeps_audit_lines_at_error_level(self):
+        from ldsc._logging import workflow_logging
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = Path(tmpdir) / "workflow.log"
+            with workflow_logging("unit", log_path, log_level="ERROR"):
+                logging.getLogger("LDSC.threshold").info("suppressed info")
+                logging.getLogger("LDSC.threshold").error("kept error")
+
+            text = log_path.read_text(encoding="utf-8")
+
+        self.assertIn("LDSC unit Started", text)
+        self.assertIn("kept error", text)
+        self.assertNotIn("suppressed info", text)
+        self.assertIn("Finished", text)
+        self.assertIn("Elapsed:", text)
+
+    def test_workflow_logging_failed_footer_does_not_record_exception_message(self):
+        from ldsc._logging import workflow_logging
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = Path(tmpdir) / "workflow.log"
+            with self.assertRaisesRegex(RuntimeError, "boom"):
+                with workflow_logging("unit", log_path, log_level="INFO"):
+                    raise RuntimeError("boom")
+
+            text = log_path.read_text(encoding="utf-8")
+
+        self.assertIn("Failed", text)
+        self.assertIn("Elapsed:", text)
+        self.assertNotIn("boom", text)
+
     def test_package_exports_domain_error_hierarchy(self):
         import ldsc
         from ldsc.config import ConfigMismatchError

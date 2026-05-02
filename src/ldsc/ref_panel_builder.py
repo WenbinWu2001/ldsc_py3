@@ -8,11 +8,13 @@ Core functionality:
 Overview
 --------
 This module is the public entry point for the `build-ref-panel` workflow. It
-keeps path resolution, logging, and cross-file validation in the workflow
-layer, then delegates pairwise-R2 generation and parquet serialization to
+keeps path resolution, logging configuration, and cross-file validation in the
+workflow layer, then delegates pairwise-R2 generation and parquet serialization to
 ``ldsc._kernel.ref_panel_builder``. Before chromosome processing begins, the
 workflow precomputes deterministic parquet and metadata sidecar destinations
-and refuses existing files unless ``overwrite=True`` was configured.
+and refuses existing files unless ``overwrite=True`` was configured. Parsed
+workflow wrappers write ``build-ref-panel.log``; direct builder calls return
+data artifact paths only and do not create a log file by default.
 """
 
 from __future__ import annotations
@@ -43,6 +45,7 @@ from .path_resolution import (
     resolve_plink_prefix_group,
     resolve_scalar_path,
 )
+from ._logging import configure_package_logging, log_inputs, log_outputs, workflow_logging
 from ._kernel import formats as legacy_parse
 from ._kernel import identifiers as kernel_identifiers
 from ._kernel import ldscore as kernel_ldscore
@@ -67,7 +70,7 @@ class ReferencePanelBuildResult:
     output_paths : dict of str to list of str, optional
         Paths grouped by artifact kind. Build-specific keys such as
         ``r2_hg19``, ``r2_hg38``, ``meta_hg19``, and ``meta_hg38`` are present
-        only for emitted builds.
+        only for emitted builds. Workflow log paths are not included.
     config_snapshot : dict, optional
         Build configuration and resolved input provenance.
     """
@@ -128,6 +131,7 @@ class ReferencePanelBuilder:
     def __init__(self, global_config: GlobalConfig | None = None) -> None:
         """Initialize the builder with shared identifier and build defaults."""
         self.global_config = global_config or get_global_config()
+        self._workflow_log_path: Path | None = None
 
     def run(self, config: ReferencePanelBuildConfig) -> ReferencePanelBuildResult:
         """Build fixed-name parquet reference artifacts for every chromosome.
@@ -143,13 +147,16 @@ class ReferencePanelBuilder:
             resolved source PLINK build. ``GlobalConfig.genome_build`` is not
             consulted by this workflow. Existing deterministic output
             paths are refused before chromosome processing unless
-            ``config.overwrite`` is true.
+            ``config.overwrite`` is true. Direct calls through this method do
+            not create a workflow log; parsed wrappers add
+            ``build-ref-panel.log`` through the shared logging context.
 
         Returns
         -------
         ReferencePanelBuildResult
             Summary with ``panel_name`` inferred from ``config.output_dir`` and
-            build-specific artifact paths directly under ``{build}``.
+            build-specific artifact paths directly under ``{build}``. The
+            result contains data artifacts only, not the workflow log path.
 
         Raises
         ------
@@ -157,9 +164,18 @@ class ReferencePanelBuilder:
             If no chromosome artifacts are produced or if multiple PLINK inputs
             resolve to the same chromosome.
         """
+        return self._run(config, workflow_log_path=self._workflow_log_path)
+
+    def _run(
+        self,
+        config: ReferencePanelBuildConfig,
+        *,
+        workflow_log_path: Path | None,
+    ) -> ReferencePanelBuildResult:
+        """Shared implementation for direct API and parsed workflow entry points."""
         print_global_config_banner(type(self).__name__, self.global_config)
         self._configure_logging()
-        ensure_output_directory(config.output_dir, label="output directory")
+        output_dir = ensure_output_directory(config.output_dir, label="output directory")
         resolved_prefixes = resolve_plink_prefix_group((config.plink_prefix,), allow_chromosome_suite=True)
         config = self._resolve_source_genome_build(config, resolved_prefixes)
         build_state = self._prepare_build_state(config)
@@ -173,42 +189,50 @@ class ReferencePanelBuilder:
                 seen_chromosomes.add(chrom)
                 chrom_sources.append((prefix, chrom))
 
+        preflight_paths = _expected_ref_panel_output_paths(config, [chrom for _, chrom in chrom_sources])
+        if workflow_log_path is not None:
+            preflight_paths.append(workflow_log_path)
         ensure_output_paths_available(
-            _expected_ref_panel_output_paths(config, [chrom for _, chrom in chrom_sources]),
+            preflight_paths,
             overwrite=config.overwrite,
             label="reference-panel output artifact",
         )
 
-        chrom_records: list[tuple[str, dict[str, str]]] = []
-        for prefix, chrom in chrom_sources:
-            chrom_paths = self._build_chromosome(prefix, chrom, config, build_state)
-            if chrom_paths is None:
-                continue
-            chrom_records.append((chrom, chrom_paths))
+        with workflow_logging("build-ref-panel", workflow_log_path, log_level=self.global_config.log_level):
+            log_inputs(
+                plink_prefix=config.plink_prefix,
+                output_dir=str(output_dir),
+                source_genome_build=config.source_genome_build,
+            )
+            chrom_records: list[tuple[str, dict[str, str]]] = []
+            for prefix, chrom in chrom_sources:
+                chrom_paths = self._build_chromosome(prefix, chrom, config, build_state)
+                if chrom_paths is None:
+                    continue
+                chrom_records.append((chrom, chrom_paths))
 
-        if not chrom_records:
-            raise ValueError("No chromosome artifacts were produced from the supplied PLINK inputs.")
+            if not chrom_records:
+                raise ValueError("No chromosome artifacts were produced from the supplied PLINK inputs.")
 
-        chrom_records.sort(key=lambda item: kernel_ldscore.chrom_sort_key(item[0]))
-        output_keys = sorted({key for _, paths in chrom_records for key in paths})
-        output_paths = {key: [paths[key] for _, paths in chrom_records] for key in output_keys}
-        return ReferencePanelBuildResult(
-            panel_name=Path(config.output_dir).name,
-            chromosomes=[chrom for chrom, _ in chrom_records],
-            output_paths=output_paths,
-            config_snapshot={
-                "build_config": asdict(config),
-                "global_config": asdict(self.global_config),
-                "resolved_plink_prefixes": list(resolved_prefixes),
-            },
-        )
+            chrom_records.sort(key=lambda item: kernel_ldscore.chrom_sort_key(item[0]))
+            output_keys = sorted({key for _, paths in chrom_records for key in paths})
+            output_paths = {key: [paths[key] for _, paths in chrom_records] for key in output_keys}
+            result = ReferencePanelBuildResult(
+                panel_name=Path(config.output_dir).name,
+                chromosomes=[chrom for chrom, _ in chrom_records],
+                output_paths=output_paths,
+                config_snapshot={
+                    "build_config": asdict(config),
+                    "global_config": asdict(self.global_config),
+                    "resolved_plink_prefixes": list(resolved_prefixes),
+                },
+            )
+            log_outputs(**{key: ", ".join(paths) for key, paths in output_paths.items()})
+            return result
 
     def _configure_logging(self) -> None:
         """Configure package logging for the current build run."""
-        logging.basicConfig(
-            level=getattr(logging, self.global_config.log_level),
-            format="%(levelname)s: %(message)s",
-        )
+        configure_package_logging(self.global_config.log_level)
 
     def _resolve_source_genome_build(
         self,
@@ -1059,10 +1083,17 @@ def config_from_args(args: argparse.Namespace) -> tuple[ReferencePanelBuildConfi
 
 
 def run_build_ref_panel_from_args(args: argparse.Namespace) -> ReferencePanelBuildResult:
-    """Run reference-panel building from parsed CLI arguments."""
+    """Run reference-panel building from parsed CLI arguments.
+
+    The parsed workflow preflights all deterministic panel artifacts plus
+    ``build-ref-panel.log`` before chromosome processing. The returned
+    ``ReferencePanelBuildResult`` contains panel artifact paths only.
+    """
 
     build_config, global_config = config_from_args(args)
-    return ReferencePanelBuilder(global_config=global_config).run(build_config)
+    builder = ReferencePanelBuilder(global_config=global_config)
+    builder._workflow_log_path = Path(build_config.output_dir) / "build-ref-panel.log"
+    return builder.run(build_config)
 
 
 def run_build_ref_panel(**kwargs: Any) -> ReferencePanelBuildResult:

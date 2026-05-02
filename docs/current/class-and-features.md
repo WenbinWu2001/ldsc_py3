@@ -6,14 +6,30 @@ This document summarizes the public package surface. For workflow-level file str
 
 | Feature | CLI | Python entry points | Main inputs | Main outputs |
 | --- | --- | --- | --- | --- |
-| Build query annotations | `ldsc annotate` | `AnnotationBuilder`, `run_bed_to_annot()`, `run_annotate_from_args()`, `annotation_builder.main()` | baseline `.annot(.gz)`, BED inputs | `query.<chrom>.annot.gz` |
-| Build parquet reference panels | `ldsc build-ref-panel` | `ReferencePanelBuilder`, `run_build_ref_panel()` | PLINK prefix, optional source build inferred from `.bim`, optional liftover chains, conditional genetic maps, optional keep/restrict files; restriction identifier read from `GlobalConfig` and coordinates interpreted in the source build | per-build `chr*_r2.parquet` and `chr*_meta.tsv.gz` artifacts |
-| Compute LD scores | `ldsc ldscore` | `LDScoreCalculator`, `run_ldscore()` | optional baseline annotation shards, optional query annotations only when baseline is explicit, PLINK or parquet reference panel, optional frequency metadata | `manifest.json`, `baseline.parquet`, optional `query.parquet` under `output_dir`; parquet row groups are chromosome-aligned; no-annotation runs write synthetic `base` |
+| Build query annotations | `ldsc annotate` | `AnnotationBuilder`, `run_bed_to_annot()`, `run_annotate_from_args()`, `annotation_builder.main()` | baseline `.annot(.gz)`, BED inputs | `query.<chrom>.annot.gz`; workflow wrappers also write `annotate.log` |
+| Build parquet reference panels | `ldsc build-ref-panel` | `ReferencePanelBuilder`, `run_build_ref_panel()` | PLINK prefix, optional source build inferred from `.bim`, optional liftover chains, conditional genetic maps, optional keep/restrict files; restriction identifier read from `GlobalConfig` and coordinates interpreted in the source build | per-build `chr*_r2.parquet` and `chr*_meta.tsv.gz` artifacts; workflow wrappers also write `build-ref-panel.log` |
+| Compute LD scores | `ldsc ldscore` | `LDScoreCalculator`, `run_ldscore()` | optional baseline annotation shards, optional query annotations only when baseline is explicit, PLINK or parquet reference panel, optional frequency metadata | `manifest.json`, `baseline.parquet`, optional `query.parquet` under `output_dir`; parquet row groups are chromosome-aligned; no-annotation runs write synthetic `base`; workflow wrappers also write `ldscore.log` |
 | Infer `chr_pos` genome build | workflow flags only: `--genome-build auto`; no standalone CLI command | `infer_chr_pos_build()`, `resolve_genome_build()`, `resolve_chr_pos_table()` | pandas table with `CHR` and `POS`; optional reference table | `ChrPosBuildInference`, resolved `GlobalConfig`, and optionally a normalized 1-based table |
 | Munge GWAS summary statistics | `ldsc munge-sumstats` | `SumstatsMunger`, `load_sumstats()` | raw sumstats via `--raw-sumstats-file` or `MungeConfig.raw_sumstats_file`, column hints, QC thresholds, optional `--chr`/`--pos`, `--genome-build auto`, optional `--sumstats-snps-file` keep-list, optional `--output-format parquet\|tsv.gz\|both` | `sumstats.parquet` by default, optional `sumstats.sumstats.gz`, `sumstats.log`, `sumstats.metadata.json` |
-| Estimate heritability | `ldsc h2` | `RegressionRunner.estimate_h2()` | munged `sumstats.parquet` or `.sumstats.gz` plus sidecar when available, LD-score directory | `h2.tsv` |
-| Estimate partitioned heritability | `ldsc partitioned-h2` | `RegressionRunner.estimate_partitioned_h2_batch()`, `PartitionedH2DirectoryWriter` | munged `sumstats.parquet` or `.sumstats.gz` plus sidecar when available, LD-score directory | `partitioned_h2.tsv`; optional `query_annotations/` tree with `--write-per-query-results` |
-| Estimate genetic correlation | `ldsc rg` | `RegressionRunner.estimate_rg()` | two munged `sumstats.parquet` or `.sumstats.gz` files plus sidecars when available, LD-score directory | `rg.tsv` |
+| Estimate heritability | `ldsc h2` | `RegressionRunner.estimate_h2()` | munged `sumstats.parquet` or `.sumstats.gz` plus sidecar when available, LD-score directory | `h2.tsv`; `h2.log` when `output_dir` is supplied |
+| Estimate partitioned heritability | `ldsc partitioned-h2` | `RegressionRunner.estimate_partitioned_h2_batch()`, `PartitionedH2DirectoryWriter` | munged `sumstats.parquet` or `.sumstats.gz` plus sidecar when available, LD-score directory | `partitioned_h2.tsv`; optional `query_annotations/` tree with `--write-per-query-results`; `partitioned-h2.log` when `output_dir` is supplied |
+| Estimate genetic correlation | `ldsc rg` | `RegressionRunner.estimate_rg()` | two munged `sumstats.parquet` or `.sumstats.gz` files plus sidecars when available, LD-score directory | `rg.tsv`; `rg.log` when `output_dir` is supplied |
+
+## Workflow Logging
+
+Artifact-writing workflow wrappers share a per-run logging contract. Logs are
+preflighted with the deterministic scientific outputs, opened only after
+preflight succeeds, and kept with a `Failed` footer when execution raises after
+the log is open. `--log-level` controls ordinary package records; lifecycle
+audit lines always appear in the file.
+
+Workflow logs are audit artifacts, not data outputs. Result objects and
+`output_paths` mappings exclude log paths, including
+`MungeRunSummary.output_paths`. `sumstats.metadata.json["output_files"]`
+records curated sumstats artifacts only.
+
+For log filenames and API boundary details, see
+[workflow-logging.md](workflow-logging.md).
 
 ## Public Classes And Result Types
 

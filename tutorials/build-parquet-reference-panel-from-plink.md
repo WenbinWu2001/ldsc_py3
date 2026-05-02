@@ -12,6 +12,7 @@ The `build-ref-panel` workflow converts PLINK genotypes into build-specific R2 r
 
 - one R2 parquet per emitted build (`hg19/chr*_r2.parquet` and/or `hg38/chr*_r2.parquet`): one row per unordered SNP pair within the chosen LD window
 - one runtime metadata sidecar per emitted build (`hg19/chr*_meta.tsv.gz` and/or `hg38/chr*_meta.tsv.gz`): one row per retained SNP, used by LDSC-style downstream tools
+- `build-ref-panel.log` when run through the CLI or convenience wrapper
 
 The R2 output is a long pairwise table, not a dense square matrix on disk. That is usually the practical format for large reference panels.
 
@@ -136,7 +137,8 @@ The bundled Alkes-group maps in `resources/genetic_maps/genetic_map_alkesgroup/`
   panel build. The run identity is the directory name; output filenames are
   fixed directly under each `{build}/` directory. Missing directories are created
   and existing directories are reused, but existing candidate parquet or
-  metadata files are refused before chromosome processing starts.
+  metadata files and `build-ref-panel.log` are refused before chromosome
+  processing starts.
 
 - `--overwrite`
   Plain-English meaning: allow replacement of the fixed parquet and metadata
@@ -240,13 +242,16 @@ What this command is doing:
 - uses the explicit hg38->hg19 liftover chain to populate the hg19 coordinates
 - interpolates cM values from the provided hg19 and hg38 genetic maps
 - writes a build-separated R2 parquet panel rooted at `tutorial_outputs/ref_panel_chr22`
+- writes `tutorial_outputs/ref_panel_chr22/build-ref-panel.log`
 
 This example uses `--ld-wind-cm` and emits both hg38 and hg19 because a matching
 liftover chain is provided, so both genetic maps are required.
 
 ## Canonical Run: Python API
 
-The most explicit Python API uses the public config object and builder class:
+The most explicit Python API uses the public config object and builder class.
+This direct class API writes only data artifacts; use `run_build_ref_panel(...)`
+or the CLI when you want the workflow log as well:
 
 ```python
 from ldsc import GlobalConfig, ReferencePanelBuildConfig, ReferencePanelBuilder, set_global_config
@@ -296,6 +301,7 @@ For the chr22 example above, the output tree looks like:
 
 ```text
 tutorial_outputs/ref_panel_chr22/
+├── build-ref-panel.log        # CLI and convenience-wrapper runs
 ├── hg19/
 │   ├── chr22_r2.parquet
 │   └── chr22_meta.tsv.gz

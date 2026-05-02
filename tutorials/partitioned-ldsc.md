@@ -163,7 +163,7 @@ print(ldscore_result.baseline_table.head())
 print(partitioned)
 ```
 
-The Python workflow registers `GlobalConfig` once, then reuses it across the compatible helper functions and workflow classes. In-process results such as `AnnotationBundle`, `SumstatsTable` from `SumstatsMunger.run()`, and `LDScoreResult` carry frozen `config_snapshot` values, and the regression step raises `ConfigMismatchError` if you accidentally mix known artifacts produced under incompatible `snp_identifier` or `genome_build` assumptions. A `SumstatsTable` loaded from a current disk artifact recovers this provenance from `sumstats.metadata.json`; older artifacts without the sidecar have unknown provenance (`config_snapshot=None`) and do not trigger sumstats-side compatibility validation. `SumstatsMunger.run()` is also the implementation path behind `ldsc munge-sumstats` after CLI parsing, and it owns fixed `sumstats.parquet` output by default, optional `sumstats.sumstats.gz` compatibility output, `sumstats.log`, and `sumstats.metadata.json`.
+The Python workflow registers `GlobalConfig` once, then reuses it across the compatible helper functions and workflow classes. In-process results such as `AnnotationBundle`, `SumstatsTable` from `SumstatsMunger.run()`, and `LDScoreResult` carry frozen `config_snapshot` values, and the regression step raises `ConfigMismatchError` if you accidentally mix known artifacts produced under incompatible `snp_identifier` or `genome_build` assumptions. A `SumstatsTable` loaded from a current disk artifact recovers this provenance from `sumstats.metadata.json`; older artifacts without the sidecar have unknown provenance (`config_snapshot=None`) and do not trigger sumstats-side compatibility validation. `SumstatsMunger.run()` is also the implementation path behind `ldsc munge-sumstats` after CLI parsing, and it owns fixed `sumstats.parquet` output by default, optional `sumstats.sumstats.gz` compatibility output, `sumstats.log`, and `sumstats.metadata.json`. Workflow logs are preflighted audit files; returned `output_paths` mappings and sumstats metadata `output_files` stay limited to data artifacts.
 
 Munged sumstats written by this workflow include canonical `CHR` and `POS`
 columns. The raw munger accepts common coordinate headers such as `#CHROM`,
@@ -207,10 +207,16 @@ ldsc annotate \
   --output-dir annotations/query_from_beds
 ```
 
+Both CLI paths preflight their workflow logs with the scientific outputs:
+`ldscore.log` under `tutorial_outputs/partitioned_ldscores` and `annotate.log`
+under `annotations/query_from_beds`.
+
 The annotate command is implemented in the public `ldsc.annotation_builder`
 workflow module. Python code that wants the same parser behavior can call
 `ldsc.annotation_builder.main(argv)`, while code that already has parsed
-top-level CLI arguments can call `run_annotate_from_args(args)` directly.
+top-level CLI arguments can call `run_annotate_from_args(args)` directly. When
+the workflow writes query shards, it also writes `annotate.log` under the output
+directory.
 
 The regression CLI consumes the LD-score result directory directly. It reads
 baseline columns from `baseline.parquet`, query columns from `query.parquet`,
@@ -241,9 +247,10 @@ ldsc partitioned-h2 \
   --output-dir tutorial_outputs/partitioned_h2
 ```
 
-The command writes `tutorial_outputs/partitioned_h2/partitioned_h2.tsv`.
-If that TSV already exists, the command fails before writing; add `--overwrite`
-only when replacing the previous summary is intentional.
+The command writes `tutorial_outputs/partitioned_h2/partitioned_h2.tsv` and
+`tutorial_outputs/partitioned_h2/partitioned-h2.log`.
+If either fixed output already exists, the command fails before writing; add
+`--overwrite` only when replacing the previous summary is intentional.
 
 To also materialize one result folder per query annotation, add
 `--write-per-query-results`:

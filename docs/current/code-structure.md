@@ -13,6 +13,7 @@ ldsc_py3_Jerry/
 │   ├── cli.py
 │   ├── config.py
 │   ├── path_resolution.py
+│   ├── _logging.py
 │   ├── column_inference.py
 │   ├── chromosome_inference.py
 │   ├── genome_build_inference.py
@@ -42,6 +43,7 @@ ldsc_py3_Jerry/
 | `ldsc.cli` | unified `ldsc` command and subcommand dispatch |
 | `ldsc.config` | frozen public config dataclasses and basic validation |
 | `ldsc.path_resolution` | normalize path tokens, resolve concrete input files, create output directories, and preflight fixed output paths |
+| `ldsc._logging` | shared workflow logging context, LDSC logger level handling, lifecycle audit lines, and log-only formatting helpers |
 | `ldsc.column_inference` | resolve header aliases and normalize identifier/build tokens |
 | `ldsc.chromosome_inference` | canonical chromosome normalization and ordering |
 | `ldsc.genome_build_inference` | public `chr_pos` build and coordinate-basis inference helpers |
@@ -67,6 +69,7 @@ ldsc_py3_Jerry/
 | change CLI flags or subcommand wiring | `src/ldsc/cli.py` |
 | change path-token behavior | `src/ldsc/path_resolution.py` |
 | change output collision policy | `src/ldsc/path_resolution.py`, then the workflow writer that owns the artifact |
+| change workflow log files, lifecycle lines, or log-level handling | `src/ldsc/_logging.py`, then the workflow orchestration function that owns the output directory |
 | change header aliases or identifier/build normalization | `src/ldsc/column_inference.py` |
 | change automatic `chr_pos` genome-build inference | `src/ldsc/genome_build_inference.py` |
 | change annotation loading, `ldsc annotate` behavior, or BED projection | `src/ldsc/annotation_builder.py`, then `src/ldsc/_kernel/annotation.py` |
@@ -89,13 +92,16 @@ ldsc_py3_Jerry/
   registers annotation flags from that module and dispatches parsed namespaces
   to `run_annotate_from_args()`; `_kernel.annotation` must not own parser
   functions, result objects, or public workflow aliases.
-- Reuse `ensure_output_paths_available()` for fixed output files. Public
-  workflows should create missing output directories, reuse existing
-  directories, fail on existing known files by default, and require
-  `--overwrite` or `overwrite=True` for replacement.
+- Reuse `ensure_output_paths_available()` for fixed output files, including
+  workflow log files. Public workflows should create missing output
+  directories, reuse existing directories, fail on existing known files by
+  default, and require `--overwrite` or `overwrite=True` for replacement.
 - Preflight deterministic output paths before expensive or multi-file writes.
   This is especially important for `build-ref-panel`, `munge-sumstats`,
   `annotate`, and summary-table regression commands.
+- Treat workflow logs as audit artifacts. Do not include log paths in
+  `output_paths` mappings or metadata `output_files` blocks that downstream
+  code interprets as scientific data artifacts.
 - Keep regression file-driven: it should be able to rebuild state from written artifacts without recomputing LD scores.
 - Prefer extending shared helpers or the workflow-owned writer over duplicating local parsing or writing logic.
 

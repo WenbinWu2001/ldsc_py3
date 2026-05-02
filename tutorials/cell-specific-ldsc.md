@@ -16,7 +16,9 @@ R2 bias and sample-size arguments.
 
 Output directories are literal destinations. Missing directories are created,
 existing directories are reused, and existing fixed files are refused before
-writing unless you pass `--overwrite` or `overwrite=True`.
+writing unless you pass `--overwrite` or `overwrite=True`. CLI workflow logs
+are part of that preflight policy, but they are audit files rather than
+returned data artifacts.
 
 For `chr_pos` workflows, `genome_build="auto"` can infer hg19/hg38 and
 0-based/1-based coordinates during annotation or LD-score loading. The same
@@ -145,7 +147,8 @@ The regression reads query annotation columns from
 `query.parquet`. The LD-score parquet files are flat files with
 chromosome-aligned row groups, and the manifest lists those row groups for
 targeted chromosome reads. The output file is
-`tutorial_outputs/cell_specific_ldsc/partitioned_h2.tsv`. Its key columns are
+`tutorial_outputs/cell_specific_ldsc/partitioned_h2.tsv`, with
+`partitioned-h2.log` in the same directory. Its key columns are
 `query_annotation`, `coefficient`, `coefficient_p`, `category_h2`,
 `proportion_h2`, and `enrichment`.
 With `--write-per-query-results`, the command also writes
@@ -154,4 +157,5 @@ sanitized folder per cell-type query annotation. Each folder contains the
 one-row query summary, the baseline-plus-query `model_categories.tsv`, and
 `metadata.json` with the original annotation name.
 If the partitioned summary already exists, `ldsc partitioned-h2` fails before
-writing; add `--overwrite` only when replacing it is intentional.
+writing; the same is true for `partitioned-h2.log`. Add `--overwrite` only when
+replacing it is intentional.

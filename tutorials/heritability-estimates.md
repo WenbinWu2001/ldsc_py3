@@ -105,7 +105,9 @@ print("dataset_config =", dataset.config_snapshot)
 `ldsc munge-sumstats`: the CLI parser maps arguments into `MungeConfig`, then
 the workflow writes `sumstats.parquet` by default, optional
 `sumstats.sumstats.gz` compatibility output when requested, `sumstats.log`, and
-`sumstats.metadata.json` under the selected output directory.
+`sumstats.metadata.json` under the selected output directory. The log is an
+audit file; `MungeRunSummary.output_paths` and metadata `output_files` list the
+curated sumstats artifacts, not `sumstats.log`.
 
 In `chr_pos` mode, regression merges sumstats and LD scores by normalized `CHR:POS`
 coordinates. The raw munger accepts common coordinate headers such as `#CHROM`,
@@ -160,9 +162,11 @@ ldsc h2 \
   --output-dir tutorial_outputs/trait_h2
 ```
 
-The command writes `tutorial_outputs/trait_h2/h2.tsv`.
-If `sumstats.parquet`, `sumstats.log`, `sumstats.metadata.json`, or `h2.tsv`
-already exists from a previous run, the relevant command fails before writing.
+The command writes `tutorial_outputs/trait_h2/h2.tsv` and
+`tutorial_outputs/trait_h2/h2.log`.
+If `sumstats.parquet`, `sumstats.log`, `sumstats.metadata.json`, `h2.tsv`, or
+`h2.log` already exists from a previous run, the relevant command fails before
+writing.
 If you request `--output-format tsv.gz` or `both`, `sumstats.sumstats.gz` is
 also part of the fixed-output collision check. Add `--overwrite` only for an
 intentional rerun.

@@ -7,6 +7,7 @@ Related docs:
 - [data-flow.md](data-flow.md): user-visible file streams and flowcharts
 - [class-and-features.md](class-and-features.md): public API surface and major types
 - [code-structure.md](code-structure.md): module map and change guide
+- [workflow-logging.md](workflow-logging.md): per-run log naming, preflight, and API boundaries
 - [layer-structure.md](layer-structure.md): layer-by-function object matrix
 - [../../design_map.md](../../design_map.md): mapping from design docs to implementation modules
 
@@ -19,6 +20,9 @@ Related docs:
 - **Compute LD scores**: align annotations to a reference panel and emit LDSC-compatible LD-score artifacts; ordinary unpartitioned runs may omit annotations and receive a synthetic all-ones `base` annotation. Entry points: `ldsc ldscore`, `ldsc.run_ldscore()`, `ldsc.LDScoreCalculator`
 - **Munge raw summary statistics**: normalize raw GWAS tables into curated Parquet-first sumstats artifacts, with optional legacy `.sumstats.gz` output. Entry points: `ldsc munge-sumstats`, `ldsc.SumstatsMunger`
 - **Run LDSC regression**: consume munged sumstats and LD-score artifacts to estimate `h2`, partitioned `h2`, or `rg`. Entry points: `ldsc h2`, `ldsc partitioned-h2`, `ldsc rg`, `ldsc.RegressionRunner`
+- **Audit workflow runs**: artifact-writing workflow wrappers create deterministic
+  per-run logs after output preflight. Logs are audit artifacts and are not
+  included in result `output_paths`.
 
 ## Layer Structure
 
@@ -43,6 +47,7 @@ ldsc_py3_Jerry/
 │   ├── __main__.py          # `python -m ldsc` entry point
 │   ├── cli.py               # unified `ldsc` command
 │   ├── config.py            # validated public config dataclasses
+│   ├── _logging.py          # workflow log context and LDSC logger control
 │   ├── path_resolution.py   # input-token normalization and discovery
 │   ├── column_inference.py  # header and identifier normalization
 │   ├── chromosome_inference.py
@@ -78,25 +83,34 @@ This is the only command-line entry point. It parses subcommands, preserves the 
 
 These modules define the package-wide contracts that every workflow shares. They normalize path tokens, chromosome ordering, genome-build aliases, SNP identifier modes, input header aliases, and `chr_pos` genome-build inference before the kernel is called. `ldsc.path_resolution` also owns output-directory creation and fixed-artifact collision preflight through `ensure_output_paths_available()`. `ldsc.genome_build_inference` is public for Python callers through the top-level `ldsc` exports, while the CLI exposes it only through `--genome-build auto` on existing workflows. Architecture invariant: path discovery, header inference, output preflight, and user-facing build inference happen here or in the workflow layer, never inside `_kernel`.
 
+### `ldsc._logging`
+
+This module owns the small shared logging context used by workflow wrappers.
+It sets the LDSC logger threshold, attaches a per-run file handler to the
+`LDSC` ancestor logger, writes lifecycle audit lines, restores logger state on
+exit, and exposes log-only formatting helpers. Architecture invariant:
+workflows preflight the log path with scientific outputs before entering the
+context, and result `output_paths` mappings do not include logs.
+
 ### `ldsc.annotation_builder`
 
-This is the public interface and workflow implementation for annotation loading and BED projection. It owns `AnnotationBuilder`, `AnnotationBundle`, `run_bed_to_annot()`, `run_annotate_from_args()`, `main()`, parser construction, path-token resolution, genome-build inference for `--genome-build auto`, output preflight, and `query.<chrom>.annot.gz` writing. It delegates only low-level text-table and BED intersection primitives to `ldsc._kernel.annotation`. Public interface: users should start here rather than importing the kernel directly.
+This is the public interface and workflow implementation for annotation loading and BED projection. It owns `AnnotationBuilder`, `AnnotationBundle`, `run_bed_to_annot()`, `run_annotate_from_args()`, `main()`, parser construction, path-token resolution, genome-build inference for `--genome-build auto`, output preflight, `annotate.log`, and `query.<chrom>.annot.gz` writing. It delegates only low-level text-table and BED intersection primitives to `ldsc._kernel.annotation`. Public interface: users should start here rather than importing the kernel directly.
 
 ### `ldsc.ref_panel_builder`
 
-This module builds standard parquet R2 reference artifacts from PLINK inputs. It handles optional genetic-map loading, optional liftover selection, restriction filtering, and output-path construction, then delegates pairwise-R2 emission to the kernel. Architecture invariant: emitted parquet schemas are part of the public file contract for parquet-backed LDSC workflows.
+This module builds standard parquet R2 reference artifacts from PLINK inputs. It handles optional genetic-map loading, optional liftover selection, restriction filtering, output-path construction, and `build-ref-panel.log`, then delegates pairwise-R2 emission to the kernel. Architecture invariant: emitted parquet schemas are part of the public file contract for parquet-backed LDSC workflows.
 
 ### `ldsc.ldscore_calculator`
 
-This module orchestrates chromosome-wise LD-score computation. It resolves annotation and reference-panel inputs, synthesizes the all-ones `base` annotation when an unpartitioned run omits baseline/query inputs, builds per-chromosome runs, aggregates them into `LDScoreResult`, and routes artifact writing through `ldsc.outputs`. Architecture invariant: computation stays chromosome-wise; the aggregate result is assembled only after all chromosome runs finish.
+This module orchestrates chromosome-wise LD-score computation. It resolves annotation and reference-panel inputs, synthesizes the all-ones `base` annotation when an unpartitioned run omits baseline/query inputs, builds per-chromosome runs, aggregates them into `LDScoreResult`, routes artifact writing through `ldsc.outputs`, and writes `ldscore.log` for parsed workflow runs. Architecture invariant: computation stays chromosome-wise; the aggregate result is assembled only after all chromosome runs finish.
 
 ### `ldsc.sumstats_munger`
 
-This module wraps the historical munging behavior in typed public objects such as `MungeConfig`, `SumstatsTable`, and `SumstatsMunger`. Raw heterogeneous GWAS input is named explicitly as `raw_sumstats_file` in Python and `--raw-sumstats-file` in the CLI. `main()` parses only, `run_munge_sumstats_from_args()` maps CLI arguments into `MungeConfig`, and `SumstatsMunger.run()` owns path resolution, fixed-output preflight, `sumstats.log`, metadata sidecars, and result construction before delegating primitive munging work to the kernel. It keeps raw-input parsing flexible, skips leading `##` raw metadata lines, writes canonical `CHR` and `POS` columns alongside `SNP`, `Z`, and `N`, optionally applies a headered `sumstats_snps_file` keep-list through the shared identifier parser, and persists `snp_identifier`/`genome_build` provenance in `sumstats.metadata.json`. Public interface: downstream workflows should consume `SumstatsTable` or curated `sumstats.parquet`/`.sumstats.gz` plus its sidecar, not raw heterogeneous GWAS tables.
+This module wraps the historical munging behavior in typed public objects such as `MungeConfig`, `SumstatsTable`, and `SumstatsMunger`. Raw heterogeneous GWAS input is named explicitly as `raw_sumstats_file` in Python and `--raw-sumstats-file` in the CLI. `main()` parses only, `run_munge_sumstats_from_args()` maps CLI arguments into `MungeConfig`, and `SumstatsMunger.run()` owns path resolution, fixed-output preflight, `sumstats.log`, metadata sidecars, and result construction before delegating primitive munging work to the kernel. It keeps raw-input parsing flexible, skips leading `##` raw metadata lines, writes canonical `CHR` and `POS` columns alongside `SNP`, `Z`, and `N`, optionally applies a headered `sumstats_snps_file` keep-list through the shared identifier parser, and persists `snp_identifier`/`genome_build` provenance in `sumstats.metadata.json`. `MungeRunSummary.output_paths` and metadata `output_files` list curated data artifacts, not `sumstats.log`. Public interface: downstream workflows should consume `SumstatsTable` or curated `sumstats.parquet`/`.sumstats.gz` plus its sidecar, not raw heterogeneous GWAS tables.
 
 ### `ldsc.regression_runner`
 
-This module rebuilds an `LDScoreResult` from on-disk artifacts, merges it with munged sumstats, drops zero-variance LD-score columns, and dispatches to the regression kernel for `h2`, partitioned `h2`, and `rg`. In `rsid` mode the merge uses `SNP`; in `chr_pos` mode it builds a private normalized `CHR:POS` key from sumstats and LD-score coordinates. Architecture invariant: regression only consumes aggregated LD-score artifacts; it does not recompute LD scores.
+This module rebuilds an `LDScoreResult` from on-disk artifacts, merges it with munged sumstats, drops zero-variance LD-score columns, writes per-command logs when `output_dir` is supplied, and dispatches to the regression kernel for `h2`, partitioned `h2`, and `rg`. In `rsid` mode the merge uses `SNP`; in `chr_pos` mode it builds a private normalized `CHR:POS` key from sumstats and LD-score coordinates. Architecture invariant: regression only consumes aggregated LD-score artifacts; it does not recompute LD scores.
 
 ### `ldsc.outputs`
 
@@ -121,9 +135,14 @@ The kernel layer contains the actual numerical methods and low-level readers. It
 - **Artifact compatibility**: Public downstream chaining uses `.annot.gz`, Parquet-first munged sumstats with optional `.sumstats.gz` compatibility output and `sumstats.metadata.json`, and canonical LD-score result directories. LD-score and sumstats parquet payloads use chromosome-aligned row groups where useful, so full-file readers still work while chromosome-specific readers can skip unrelated row groups. Legacy `.l2.ldscore(.gz)`, `.l2.M`, `.l2.M_5_50`, and separate `.w.l2.ldscore(.gz)` files remain internal/legacy file-format concerns, not the public LD-score writer contract.
 - **Output collision handling**: output directories are literal destinations.
   Missing directories are created, existing directories are reused, and fixed
-  output files are checked before writing. By default an existing artifact
-  raises `FileExistsError`; `--overwrite` or `overwrite=True` makes replacement
-  explicit without deleting unrelated files or cleaning the directory.
+  output files, including workflow logs, are checked before writing. By
+  default an existing artifact raises `FileExistsError`; `--overwrite` or
+  `overwrite=True` makes replacement explicit without deleting unrelated files
+  or cleaning the directory.
+- **Workflow logging**: `ldsc._logging.workflow_logging()` attaches file
+  handlers to the `LDSC` logger so workflow and kernel records are captured
+  together. Logs are audit files, not scientific outputs, so result
+  `output_paths` mappings exclude them.
 - **Dependency split**: base package dependencies cover core pandas/numpy/SciPy
   workflows and parquet I/O. PLINK-backed LD computation requires the
   `plink` extra (`bitarray`), BED projection requires the `bed` extra
@@ -143,4 +162,5 @@ The kernel layer contains the actual numerical methods and low-level readers. It
   `PartitionedH2DirectoryWriter`.
 - Query annotations are valid only with explicit baseline annotations; the synthetic `base` path is for ordinary unpartitioned LD-score generation.
 - Every workflow that writes fixed artifacts must precompute expected output
-  paths and call the shared output preflight before the first write.
+  paths, including its log path, and call the shared output preflight before
+  the first write.

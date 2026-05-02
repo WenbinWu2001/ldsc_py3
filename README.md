@@ -8,7 +8,7 @@ This repository is the active refactored LDSC package.
 - `src/ldsc/_kernel/`: internal compute and file-format modules
 - `tests/`: local parity and workflow tests
 - `tutorials/`: package-level usage examples
-- `docs/current/architecture.md`, `docs/current/code-structure.md`, `docs/current/class-and-features.md`: active design and navigation docs
+- `docs/current/architecture.md`, `docs/current/code-structure.md`, `docs/current/class-and-features.md`, `docs/current/workflow-logging.md`: active design and navigation docs
 
 ## Install
 
@@ -79,6 +79,12 @@ provenance. Use `--sumstats-snps-file` when the munged artifact should be
 restricted to a headered SNP keep-list; this filter keeps matching rows only and
 does not allele-match or reorder the output.
 
+Artifact-writing workflows also write per-run logs under their output
+directories. `munge-sumstats` keeps the historical `sumstats.log` name; other
+commands use `annotate.log`, `ldscore.log`, `build-ref-panel.log`, `h2.log`,
+`partitioned-h2.log`, or `rg.log`. Logs are audit artifacts, so Python result
+objects and `output_paths` mappings only list scientific data outputs.
+
 `ldsc ldscore` supports ordinary unpartitioned LD-score generation without
 baseline annotations:
 
@@ -139,6 +145,8 @@ Every workflow treats `--output-dir` or `output_dir` as a directory:
 - known output files fail the run before writing starts
 - reruns that intentionally replace known files must pass `--overwrite` on the
   CLI or `overwrite=True` in Python
+- per-run log files are preflighted with the scientific outputs, so a collision
+  fails before a new log is opened
 
 The overwrite flag applies only to the fixed files owned by that workflow. It
 does not remove unrelated files and never cleans a whole directory.

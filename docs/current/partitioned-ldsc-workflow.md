@@ -175,10 +175,11 @@ baseline LD-score columns + one query LD-score column
 ```
 
 This keeps baseline annotations fixed while estimating one query annotation at a
-time. By default the CLI writes the aggregate `partitioned_h2.tsv` table only.
-With `--write-per-query-results`, it also writes a staged
+time. By default the CLI writes the aggregate `partitioned_h2.tsv` table plus
+`partitioned-h2.log`. With `--write-per-query-results`, it also writes a staged
 `query_annotations/` tree containing a manifest and one sanitized folder per
-query annotation.
+query annotation. The log is preflighted with the table outputs, but it is not
+part of returned `output_paths`.
 
 ## 7. CLI Examples
 
@@ -277,3 +278,7 @@ The public `LDScoreResult` shape is split:
 - `chromosome_results`
 - `config_snapshot`
 - `output_paths`
+
+`output_paths` records scientific artifacts such as `manifest.json`,
+`baseline.parquet`, and optional `query.parquet`; workflow logs such as
+`ldscore.log` are audit files and are not included.

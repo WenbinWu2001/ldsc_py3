@@ -18,6 +18,10 @@ Regression chooses either the manifest ``common_reference_snp_counts`` vector or
 Partitioned-h2 can optionally retain and write the full category table for each
 baseline-plus-one-query model through the output-layer
 ``PartitionedH2DirectoryWriter``.
+
+Regression commands create per-run logs only when an ``output_dir`` is supplied:
+``h2.log``, ``partitioned-h2.log``, or ``rg.log``. In-memory regression calls
+and CLI invocations without an output directory remain console-only.
 """
 
 from __future__ import annotations
@@ -45,6 +49,7 @@ from .config import (
     validate_config_compatibility,
 )
 from .path_resolution import ensure_output_directory, ensure_output_paths_available, normalize_path_token
+from ._logging import log_inputs, log_outputs, workflow_logging
 from ._kernel import regression as reg
 from ._kernel.identifiers import build_snp_id_series
 from ._row_alignment import assert_same_snp_rows
@@ -574,113 +579,151 @@ def add_rg_arguments(parser) -> None:
 
 
 def run_h2_from_args(args):
-    """Run single-trait heritability estimation from parsed CLI arguments."""
-    runner, config = _runner_from_args(args)
-    print_global_config_banner("run_h2_from_args", runner.global_config)
-    LOGGER.info(f"Starting h2 regression for '{args.sumstats_file}' using LD-score directory '{args.ldscore_dir}'.")
-    sumstats_table = _load_sumstats_table(args.sumstats_file, getattr(args, "trait_name", None))
-    ldscore_result = load_ldscore_from_dir(args.ldscore_dir)
-    with suppress_global_config_banner():
-        dataset = runner.build_dataset(sumstats_table, ldscore_result, config=config)
-    hsq = runner.estimate_h2(dataset, config=config)
-    summary = summarize_total_h2(hsq, dataset, trait_name=sumstats_table.trait_name)
-    _maybe_write_dataframe(
-        summary,
-        getattr(args, "output_dir", None),
-        "h2.tsv",
-        overwrite=getattr(args, "overwrite", False),
-    )
-    LOGGER.info(f"Finished h2 regression with {len(dataset.merged)} regression SNPs.")
+    """Run single-trait heritability estimation from parsed CLI arguments.
+
+    When ``args.output_dir`` is provided, the workflow preflights ``h2.tsv`` and
+    ``h2.log`` before loading inputs. Without an output directory, it returns
+    the summary table without creating a log file.
+    """
+    output_dir, log_path = _preflight_regression_outputs(args, "h2", ["h2.tsv"])
+    with workflow_logging("h2", log_path, log_level=getattr(args, "log_level", "INFO")):
+        runner, config = _runner_from_args(args)
+        print_global_config_banner("run_h2_from_args", runner.global_config)
+        log_inputs(sumstats_file=args.sumstats_file, ldscore_dir=args.ldscore_dir, output_dir=output_dir or "none")
+        LOGGER.info(f"Starting h2 regression for '{args.sumstats_file}' using LD-score directory '{args.ldscore_dir}'.")
+        sumstats_table = _load_sumstats_table(args.sumstats_file, getattr(args, "trait_name", None))
+        ldscore_result = load_ldscore_from_dir(args.ldscore_dir)
+        with suppress_global_config_banner():
+            dataset = runner.build_dataset(sumstats_table, ldscore_result, config=config)
+        hsq = runner.estimate_h2(dataset, config=config)
+        summary = summarize_total_h2(hsq, dataset, trait_name=sumstats_table.trait_name)
+        _maybe_write_dataframe(
+            summary,
+            getattr(args, "output_dir", None),
+            "h2.tsv",
+            overwrite=getattr(args, "overwrite", False),
+        )
+        if output_dir is not None:
+            log_outputs(summary=str(Path(output_dir) / "h2.tsv"))
+        LOGGER.info(f"Finished h2 regression with {len(dataset.merged)} regression SNPs.")
     return summary
 
 
 def run_partitioned_h2_from_args(args):
-    """Run batch partitioned heritability from parsed CLI arguments."""
-    runner, config = _runner_from_args(args)
-    print_global_config_banner("run_partitioned_h2_from_args", runner.global_config)
-    LOGGER.info(
-        f"Starting partitioned-h2 regression for '{args.sumstats_file}' using LD-score directory '{args.ldscore_dir}'."
-    )
-    sumstats_table = _load_sumstats_table(args.sumstats_file, getattr(args, "trait_name", None))
-    ldscore_result = load_ldscore_from_dir(args.ldscore_dir)
-    if not ldscore_result.query_columns:
-        raise ValueError(
-            "partitioned-h2 requires query annotations in --ldscore-dir. "
-            "Rerun `ldsc ldscore` with --query-annot-sources or --query-annot-bed-sources plus explicit baseline annotations."
+    """Run batch partitioned heritability from parsed CLI arguments.
+
+    When ``args.output_dir`` is provided, the workflow preflights
+    ``partitioned_h2.tsv``, optional ``query_annotations/``, and
+    ``partitioned-h2.log`` before loading inputs. Without an output directory,
+    it returns the summary table without creating a log file.
+    """
+    preflight_names = ["partitioned_h2.tsv"]
+    if getattr(args, "write_per_query_results", False):
+        preflight_names.append("query_annotations")
+    output_dir, log_path = _preflight_regression_outputs(args, "partitioned-h2", preflight_names)
+    with workflow_logging("partitioned-h2", log_path, log_level=getattr(args, "log_level", "INFO")):
+        runner, config = _runner_from_args(args)
+        print_global_config_banner("run_partitioned_h2_from_args", runner.global_config)
+        log_inputs(sumstats_file=args.sumstats_file, ldscore_dir=args.ldscore_dir, output_dir=output_dir or "none")
+        LOGGER.info(
+            f"Starting partitioned-h2 regression for '{args.sumstats_file}' using LD-score directory '{args.ldscore_dir}'."
         )
-    query_bundle = SimpleNamespace(query_columns=list(ldscore_result.query_columns))
-    with suppress_global_config_banner():
-        result = runner.estimate_partitioned_h2_batch(
-            sumstats_table,
-            ldscore_result,
-            query_bundle,
-            config=config,
-            include_model_categories=getattr(args, "write_per_query_results", False),
+        sumstats_table = _load_sumstats_table(args.sumstats_file, getattr(args, "trait_name", None))
+        ldscore_result = load_ldscore_from_dir(args.ldscore_dir)
+        if not ldscore_result.query_columns:
+            raise ValueError(
+                "partitioned-h2 requires query annotations in --ldscore-dir. "
+                "Rerun `ldsc ldscore` with --query-annot-sources or --query-annot-bed-sources plus explicit baseline annotations."
+            )
+        query_bundle = SimpleNamespace(query_columns=list(ldscore_result.query_columns))
+        with suppress_global_config_banner():
+            result = runner.estimate_partitioned_h2_batch(
+                sumstats_table,
+                ldscore_result,
+                query_bundle,
+                config=config,
+                include_model_categories=getattr(args, "write_per_query_results", False),
+            )
+        if isinstance(result, PartitionedH2BatchResult):
+            summary = result.summary
+            per_query_category_tables = result.per_query_category_tables
+            per_query_metadata = result.per_query_metadata
+        else:
+            summary = result
+            per_query_category_tables = None
+            per_query_metadata = None
+        output_dir_arg = getattr(args, "output_dir", None)
+        if output_dir_arg:
+            written = PartitionedH2DirectoryWriter().write(
+                summary,
+                PartitionedH2OutputConfig(
+                    output_dir=output_dir_arg,
+                    overwrite=getattr(args, "overwrite", False),
+                    write_per_query_results=getattr(args, "write_per_query_results", False),
+                ),
+                per_query_category_tables=per_query_category_tables,
+                metadata={
+                    "trait_name": sumstats_table.trait_name,
+                    "count_kind": getattr(args, "count_kind", "common"),
+                    "ldscore_dir": getattr(args, "ldscore_dir", None),
+                },
+                per_query_metadata=per_query_metadata,
+            )
+            log_outputs(**written)
+        LOGGER.info(
+            f"Finished partitioned-h2 regression for {len(ldscore_result.query_columns)} query annotations "
+            f"and {len(summary)} summary rows."
         )
-    if isinstance(result, PartitionedH2BatchResult):
-        summary = result.summary
-        per_query_category_tables = result.per_query_category_tables
-        per_query_metadata = result.per_query_metadata
-    else:
-        summary = result
-        per_query_category_tables = None
-        per_query_metadata = None
-    output_dir = getattr(args, "output_dir", None)
-    if output_dir:
-        PartitionedH2DirectoryWriter().write(
-            summary,
-            PartitionedH2OutputConfig(
-                output_dir=output_dir,
-                overwrite=getattr(args, "overwrite", False),
-                write_per_query_results=getattr(args, "write_per_query_results", False),
-            ),
-            per_query_category_tables=per_query_category_tables,
-            metadata={
-                "trait_name": sumstats_table.trait_name,
-                "count_kind": getattr(args, "count_kind", "common"),
-                "ldscore_dir": getattr(args, "ldscore_dir", None),
-            },
-            per_query_metadata=per_query_metadata,
-        )
-    LOGGER.info(
-        f"Finished partitioned-h2 regression for {len(ldscore_result.query_columns)} query annotations "
-        f"and {len(summary)} summary rows."
-    )
     return summary
 
 
 def run_rg_from_args(args):
-    """Run genetic-correlation estimation from parsed CLI arguments."""
-    runner, config = _runner_from_args(args)
-    print_global_config_banner("run_rg_from_args", runner.global_config)
-    LOGGER.info(
-        f"Starting rg regression for '{args.sumstats_1_file}' and '{args.sumstats_2_file}' "
-        f"using LD-score directory '{args.ldscore_dir}'."
-    )
-    sumstats_table_1 = _load_sumstats_table(args.sumstats_1_file, getattr(args, "trait_name_1", None))
-    sumstats_table_2 = _load_sumstats_table(args.sumstats_2_file, getattr(args, "trait_name_2", None))
-    ldscore_result = load_ldscore_from_dir(args.ldscore_dir)
-    with suppress_global_config_banner():
-        rg_result = runner.estimate_rg(sumstats_table_1, sumstats_table_2, ldscore_result, config=config)
-    summary = pd.DataFrame(
-        [
-            {
-                "trait_1": sumstats_table_1.trait_name,
-                "trait_2": sumstats_table_2.trait_name,
-                "rg": getattr(rg_result, "rg_ratio", None),
-                "rg_se": getattr(rg_result, "rg_se", None),
-                "z": getattr(rg_result, "z", None),
-                "p": getattr(rg_result, "p", None),
-            }
-        ]
-    )
-    _maybe_write_dataframe(
-        summary,
-        getattr(args, "output_dir", None),
-        "rg.tsv",
-        overwrite=getattr(args, "overwrite", False),
-    )
-    LOGGER.info(f"Finished rg regression for {len(ldscore_result.ld_regression_snps)} LD-score regression SNPs.")
+    """Run genetic-correlation estimation from parsed CLI arguments.
+
+    When ``args.output_dir`` is provided, the workflow preflights ``rg.tsv`` and
+    ``rg.log`` before loading inputs. Without an output directory, it returns
+    the summary table without creating a log file.
+    """
+    output_dir, log_path = _preflight_regression_outputs(args, "rg", ["rg.tsv"])
+    with workflow_logging("rg", log_path, log_level=getattr(args, "log_level", "INFO")):
+        runner, config = _runner_from_args(args)
+        print_global_config_banner("run_rg_from_args", runner.global_config)
+        log_inputs(
+            sumstats_1_file=args.sumstats_1_file,
+            sumstats_2_file=args.sumstats_2_file,
+            ldscore_dir=args.ldscore_dir,
+            output_dir=output_dir or "none",
+        )
+        LOGGER.info(
+            f"Starting rg regression for '{args.sumstats_1_file}' and '{args.sumstats_2_file}' "
+            f"using LD-score directory '{args.ldscore_dir}'."
+        )
+        sumstats_table_1 = _load_sumstats_table(args.sumstats_1_file, getattr(args, "trait_name_1", None))
+        sumstats_table_2 = _load_sumstats_table(args.sumstats_2_file, getattr(args, "trait_name_2", None))
+        ldscore_result = load_ldscore_from_dir(args.ldscore_dir)
+        with suppress_global_config_banner():
+            rg_result = runner.estimate_rg(sumstats_table_1, sumstats_table_2, ldscore_result, config=config)
+        summary = pd.DataFrame(
+            [
+                {
+                    "trait_1": sumstats_table_1.trait_name,
+                    "trait_2": sumstats_table_2.trait_name,
+                    "rg": getattr(rg_result, "rg_ratio", None),
+                    "rg_se": getattr(rg_result, "rg_se", None),
+                    "z": getattr(rg_result, "z", None),
+                    "p": getattr(rg_result, "p", None),
+                }
+            ]
+        )
+        _maybe_write_dataframe(
+            summary,
+            getattr(args, "output_dir", None),
+            "rg.tsv",
+            overwrite=getattr(args, "overwrite", False),
+        )
+        if output_dir is not None:
+            log_outputs(summary=str(Path(output_dir) / "rg.tsv"))
+        LOGGER.info(f"Finished rg regression for {len(ldscore_result.ld_regression_snps)} LD-score regression SNPs.")
     return summary
 
 
@@ -702,6 +745,23 @@ def _add_common_regression_arguments(parser, include_h2_intercept: bool) -> None
         parser.add_argument("--intercept-h2", type=float, default=None, help="Fixed h2 intercept for single-trait runs.")
     parser.add_argument("--two-step-cutoff", type=float, default=None)
     parser.add_argument("--chisq-max", type=float, default=None)
+    parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"), help="Logging verbosity.")
+
+
+def _preflight_regression_outputs(args, workflow_name: str, output_names: list[str]) -> tuple[str | None, Path | None]:
+    """Preflight regression outputs and return normalized output dir plus log path."""
+    output_dir_arg = getattr(args, "output_dir", None)
+    if not output_dir_arg:
+        return None, None
+    output_dir = ensure_output_directory(output_dir_arg, label="output directory")
+    paths = [output_dir / name for name in output_names]
+    log_path = output_dir / f"{workflow_name}.log"
+    ensure_output_paths_available(
+        [*paths, log_path],
+        overwrite=getattr(args, "overwrite", False),
+        label="regression output artifact",
+    )
+    return str(output_dir), log_path
 
 
 def _runner_from_args(args) -> tuple[RegressionRunner, RegressionConfig]:

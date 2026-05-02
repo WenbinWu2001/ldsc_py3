@@ -42,16 +42,18 @@ Genome-build behavior for `chr_pos` inputs:
 Important output behavior:
 
 - the in-memory result is one merged `LDScoreResult` with split `baseline_table` and optional `query_table`
-- `--output-dir` writes a canonical LD-score result directory containing `manifest.json`, `baseline.parquet`, and optional `query.parquet`
+- `--output-dir` writes a canonical LD-score result directory containing `manifest.json`, `baseline.parquet`, optional `query.parquet`, and `ldscore.log`
 - `baseline.parquet` and `query.parquet` are still single flat files, but each parquet row group contains exactly one chromosome
 - `manifest.json` records `row_group_layout`, `baseline_row_groups`, and `query_row_groups` for readers that want to load one chromosome by row-group index
+- `LDScoreResult.output_paths` lists scientific data artifacts only; it does not include `ldscore.log`
 - regression weights live in the `regr_weight` column of `baseline.parquet`; there is no separate `.w.l2.ldscore.gz` output
 - annotation counts are stored as manifest records, not as separate `.M` files
 - if both baseline and query inputs are omitted, the workflow synthesizes an all-ones baseline column named exactly `base` over retained reference-panel metadata
 - query `.annot` and BED inputs require explicit baseline annotations; create an explicit all-ones `base` baseline annotation yourself if you intentionally want query annotations tested against that universe
 - missing output directories are created and existing directories are reused
-- existing fixed output files fail before writing starts; reruns that should
-  replace them must pass `--overwrite` or `overwrite=True`
+- existing fixed output files, including `ldscore.log`, fail before writing
+  starts; reruns that should replace them must pass `--overwrite` or
+  `overwrite=True`
 
 ## Case 1: Ordinary Unpartitioned LD Scores
 

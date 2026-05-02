@@ -1170,6 +1170,41 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 ],
             )
 
+    def test_run_build_ref_panel_from_args_writes_workflow_log(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
+            parser = ref_panel_builder.build_parser()
+            args = parser.parse_args(
+                [
+                    "--plink-prefix",
+                    str(tmpdir / "panel.@"),
+                    "--source-genome-build",
+                    "hg19",
+                    "--output-dir",
+                    str(tmpdir / "out"),
+                    "--ld-wind-kb",
+                    "1",
+                ]
+            )
+
+            def fake_build(prefix, chrom, config, build_state):
+                out_root = Path(config.output_dir)
+                return {
+                    "r2_hg19": str(out_root / "hg19" / f"chr{chrom}_r2.parquet"),
+                    "meta_hg19": str(out_root / "hg19" / f"chr{chrom}_meta.tsv.gz"),
+                }
+
+            with mock.patch.object(
+                ref_panel_builder.ReferencePanelBuilder,
+                "_build_chromosome",
+                side_effect=fake_build,
+            ):
+                result = ref_panel_builder.run_build_ref_panel_from_args(args)
+
+            self.assertTrue((tmpdir / "out" / "build-ref-panel.log").exists())
+            self.assertNotIn("log", result.output_paths)
+
     def test_builder_run_allows_source_only_output_paths_when_no_chain_is_available(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)

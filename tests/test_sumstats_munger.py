@@ -46,6 +46,12 @@ class SumstatsMungerTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--output-format", "csv"])
 
+    def test_build_parser_defaults_log_level_to_info(self):
+        parser = sumstats_workflow.build_parser()
+        self.assertEqual(parser.get_default("log_level"), "INFO")
+        args = parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--log-level", "DEBUG"])
+        self.assertEqual(args.log_level, "DEBUG")
+
     def test_build_parser_uses_raw_sumstats_file_for_raw_input(self):
         parser = sumstats_workflow.build_parser()
 
@@ -91,6 +97,8 @@ class SumstatsMungerTest(unittest.TestCase):
                 "BETA,0",
                 "--output-format",
                 "both",
+                "--log-level",
+                "DEBUG",
                 "--snp-identifier",
                 "rsid",
             ]
@@ -111,7 +119,7 @@ class SumstatsMungerTest(unittest.TestCase):
         self.assertEqual(run_config.ignore_columns, ("DROP_ME", "ALSO_DROP"))
         self.assertEqual(run_config.signed_sumstats_spec, "BETA,0")
         self.assertEqual(run_config.output_format, "both")
-        self.assertEqual(global_config, GlobalConfig(snp_identifier="rsid"))
+        self.assertEqual(global_config, GlobalConfig(snp_identifier="rsid", log_level="DEBUG"))
 
     def test_kernel_reports_actionable_signed_sumstats_format_error(self):
         args = kernel_munge.parser.parse_args(["--signed-sumstats", "BETA"])
@@ -240,6 +248,7 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(summary.n_retained_rows, 2)
             self.assertIn("sumstats_parquet", summary.output_paths)
             self.assertNotIn("sumstats_gz", summary.output_paths)
+            self.assertNotIn("log", summary.output_paths)
             self.assertIn("metadata_json", summary.output_paths)
 
     def test_run_writes_tsv_gz_when_requested(self):
@@ -475,6 +484,9 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(len(table.data), 1)
             self.assertTrue((output_dir / "sumstats.parquet").exists())
             self.assertTrue((output_dir / "sumstats.log").exists())
+            log_text = (output_dir / "sumstats.log").read_text(encoding="utf-8")
+            self.assertIn("LDSC munge-sumstats Started", log_text)
+            self.assertIn("Munging summary statistics", log_text)
 
     def test_run_refuses_existing_fixed_outputs_before_kernel_call(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -495,6 +507,7 @@ class SumstatsMungerTest(unittest.TestCase):
                     )
 
             self.assertEqual(existing.read_text(encoding="utf-8"), "existing\n")
+            self.assertFalse((output_dir / "sumstats.log").exists())
 
     def test_run_allows_existing_fixed_outputs_with_overwrite(self):
         with tempfile.TemporaryDirectory() as tmpdir:

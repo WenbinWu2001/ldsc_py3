@@ -17,8 +17,9 @@ full table, while inspection code can use the row-group metadata.
 
 Output directories are literal destinations. Missing directories are created,
 existing directories are reused, and existing fixed files such as
-`sumstats.parquet`, `sumstats.log`, `sumstats.metadata.json`, or `rg.tsv`
-are refused before writing unless you pass `--overwrite` or `overwrite=True`.
+`sumstats.parquet`, `sumstats.log`, `sumstats.metadata.json`, `rg.tsv`, or
+`rg.log` are refused before writing unless you pass `--overwrite` or
+`overwrite=True`.
 If you request `--output-format tsv.gz` or `both`, `sumstats.sumstats.gz` is
 also checked as a fixed workflow output.
 
@@ -146,6 +147,7 @@ ldsc rg \
   --output-dir tutorial_outputs/trait_1_trait_2
 ```
 
-The command writes `tutorial_outputs/trait_1_trait_2/rg.tsv`.
-If that TSV already exists, the command fails before writing; add `--overwrite`
-only when replacing the previous summary is intentional.
+The command writes `tutorial_outputs/trait_1_trait_2/rg.tsv` and
+`tutorial_outputs/trait_1_trait_2/rg.log`.
+If either fixed output already exists, the command fails before writing; add
+`--overwrite` only when replacing the previous summary is intentional.

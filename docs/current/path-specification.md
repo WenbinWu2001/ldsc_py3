@@ -166,9 +166,10 @@ Output:
 
 - `output_dir` is created when missing and reused when present.
 - Projection writes `query.<chrom>.annot.gz` for every chromosome in the
-  resulting bundle.
-- Existing `query.<chrom>.annot.gz` files are refused before any annotation
-  shard is written unless `overwrite=True` or CLI `--overwrite` is supplied.
+  resulting bundle, plus `annotate.log`.
+- Existing `query.<chrom>.annot.gz` files or `annotate.log` are refused before
+  any annotation shard is written unless `overwrite=True` or CLI `--overwrite`
+  is supplied.
 
 ### LD score calculation
 
@@ -234,13 +235,14 @@ ldsc ldscore \
 Output:
 
 - `--output-dir` is a literal directory destination.
-- LD-score calculation writes `manifest.json`, `baseline.parquet`, and
-  optional `query.parquet` inside that directory.
+- LD-score calculation writes `manifest.json`, `baseline.parquet`, optional
+  `query.parquet`, and `ldscore.log` inside that directory.
 - `baseline.parquet` and `query.parquet` remain flat parquet files, but each
   row group contains exactly one chromosome. The manifest records
   `row_group_layout`, `baseline_row_groups`, and `query_row_groups`.
-- Existing canonical LD-score files are refused before any of them are written
-  unless `--overwrite` or `LDScoreOutputConfig(overwrite=True)` is supplied.
+- Existing canonical LD-score files or `ldscore.log` are refused before any of
+  them are written unless `--overwrite` or
+  `LDScoreOutputConfig(overwrite=True)` is supplied.
 - `baseline.parquet` contains `CHR`, `POS`, `SNP`, `regr_weight`, and baseline
   LD-score columns. When both baseline and query inputs are omitted, the
   LD-score workflow writes a synthetic all-ones baseline column named `base`.
@@ -299,7 +301,8 @@ Output:
 
 - `--output-dir` is created when missing and reused when present.
 - Before chromosome processing starts, the builder checks the deterministic
-  candidate paths under each emitted `{build}` directory.
+  candidate paths under each emitted `{build}` directory plus
+  `build-ref-panel.log`.
 - Existing candidate parquet or metadata files are refused unless
   `--overwrite` or `ReferencePanelBuildConfig(overwrite=True)` is supplied.
 - The check covers source-build artifacts and covers target-build artifacts
@@ -334,8 +337,11 @@ Output:
   `--output-format tsv.gz` writes legacy `sumstats.sumstats.gz`, and
   `--output-format both` writes both curated artifacts. Existing selected files
   are refused unless `--overwrite` or `MungeConfig(overwrite=True)` is supplied.
+  `sumstats.log` is not recorded in `MungeRunSummary.output_paths` or
+  `sumstats.metadata.json["output_files"]`.
 - `ldsc h2`, `ldsc partitioned-h2`, and `ldsc rg` write `h2.tsv`,
-  `partitioned_h2.tsv`, and `rg.tsv`, respectively, when `output_dir` is
+  `partitioned_h2.tsv`, and `rg.tsv`, plus `h2.log`,
+  `partitioned-h2.log`, or `rg.log`, respectively, when `output_dir` is
   provided; existing files are refused unless `--overwrite` is supplied.
 - `ldsc partitioned-h2 --write-per-query-results` also writes a staged
   `query_annotations/` tree under `output_dir`; existing final per-query

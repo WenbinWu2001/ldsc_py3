@@ -221,6 +221,7 @@ class AnnotationBuilderTest(unittest.TestCase):
                 config_snapshot=GlobalConfig(snp_identifier="rsid"),
             )
             builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
+            builder._workflow_log_path = output_dir / "annotate.log"
 
             with mock.patch.object(builder, "run", return_value=bundle):
                 with self.assertRaisesRegex(FileExistsError, "overwrite"):
@@ -231,6 +232,47 @@ class AnnotationBuilderTest(unittest.TestCase):
                     )
 
             self.assertEqual(existing.read_text(encoding="utf-8"), "existing\n")
+            self.assertFalse((output_dir / "annotate.log").exists())
+
+    def test_run_annotate_from_args_writes_workflow_log(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            base = tmpdir / "base.annot"
+            bed = tmpdir / "query.bed"
+            output_dir = tmpdir / "out"
+            rows = [("1", 10, "rs1", 0.1), ("1", 20, "rs2", 0.2)]
+            _write_annot(base, rows, {"base": [1, 1]})
+            bed.write_text("chr1\t0\t100\tfeature\n", encoding="utf-8")
+            args = type(
+                "Args",
+                (),
+                {
+                    "query_annot_bed_sources": str(bed),
+                    "baseline_annot_sources": str(base),
+                    "output_dir": str(output_dir),
+                    "overwrite": False,
+                    "snp_identifier": "rsid",
+                    "genome_build": None,
+                    "log_level": "INFO",
+                },
+            )()
+
+            class _FakeBedTool:
+                def __init__(self, path: str):
+                    self.path = path
+
+            fake_pybedtools = mock.Mock()
+            fake_pybedtools.BedTool = _FakeBedTool
+            with mock.patch.object(kernel_annotation, "_get_pybedtools", return_value=fake_pybedtools), mock.patch.object(
+                kernel_annotation,
+                "_compute_bed_overlap_mask",
+                return_value=[True, False],
+            ):
+                bundle = annotation_builder.run_annotate_from_args(args)
+
+            self.assertEqual(bundle.query_columns, ["query"])
+            self.assertTrue((output_dir / "query.1.annot.gz").exists())
+            self.assertTrue((output_dir / "annotate.log").exists())
 
     def test_parse_fixture_annotation(self):
         builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())

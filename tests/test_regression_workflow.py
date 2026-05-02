@@ -604,12 +604,15 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "trait_name": "trait",
                     "ldscore_dir": str(ldscore_dir),
                     "count_kind": "common",
-                    "output_dir": None,
+                    "output_dir": str(tmpdir / "h2_out"),
+                    "overwrite": False,
+                    "log_level": "INFO",
                     "n_blocks": 200,
                     "no_intercept": False,
                     "intercept_h2": None,
                     "two_step_cutoff": None,
                     "chisq_max": None,
+                    "log_level": "INFO",
                 },
             )()
 
@@ -632,6 +635,52 @@ class RegressionWorkflowTest(unittest.TestCase):
             patched.assert_called_once()
             self.assertEqual(patched.call_args.args[0].retained_ld_columns, ["base"])
             self.assertEqual(summary.loc[0, "trait_name"], "trait")
+            self.assertTrue((tmpdir / "h2_out" / "h2.tsv").exists())
+            self.assertTrue((tmpdir / "h2_out" / "h2.log").exists())
+
+    def test_run_h2_from_args_without_output_dir_creates_no_log_file(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            set_global_config(GlobalConfig(snp_identifier="rsid"))
+            with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
+                handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
+            ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
+            args = type(
+                "Args",
+                (),
+                {
+                    "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
+                    "trait_name": "trait",
+                    "ldscore_dir": str(ldscore_dir),
+                    "count_kind": "common",
+                    "output_dir": None,
+                    "overwrite": False,
+                    "log_level": "INFO",
+                    "n_blocks": 200,
+                    "no_intercept": False,
+                    "intercept_h2": None,
+                    "two_step_cutoff": None,
+                    "chisq_max": None,
+                },
+            )()
+
+            with mock.patch.object(
+                regression_runner.RegressionRunner,
+                "estimate_h2",
+                return_value=mock.Mock(
+                    tot=np.array([0.1]),
+                    tot_se=np.array([0.01]),
+                    intercept=np.array([1.0]),
+                    intercept_se=0.01,
+                    mean_chisq=np.array([1.1]),
+                    lambda_gc=np.array([1.0]),
+                    ratio=0.0,
+                    ratio_se=0.0,
+                ),
+            ):
+                regression_runner.run_h2_from_args(args)
+
+            self.assertFalse(list(tmpdir.glob("*.log")))
 
     def test_common_regression_arguments_expose_only_ldscore_dir(self):
         parser = argparse.ArgumentParser()
@@ -642,10 +691,21 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertEqual(args.ldscore_dir, "ldscores")
         self.assertEqual(args.sumstats_file, "trait.sumstats.gz")
         self.assertEqual(args.count_kind, "common")
+        self.assertEqual(args.log_level, "INFO")
         parsed = parser.parse_args(
-            ["--ldscore-dir", "ldscores", "--sumstats-file", "trait.sumstats.gz", "--count-kind", "all"]
+            [
+                "--ldscore-dir",
+                "ldscores",
+                "--sumstats-file",
+                "trait.sumstats.gz",
+                "--count-kind",
+                "all",
+                "--log-level",
+                "DEBUG",
+            ]
         )
         self.assertEqual(parsed.count_kind, "all")
+        self.assertEqual(parsed.log_level, "DEBUG")
         with self.assertRaises(SystemExit):
             parser.parse_args(["--ldscore", "x", "--counts", "m", "--sumstats-file", "trait.sumstats.gz"])
         with self.assertRaises(SystemExit):
@@ -840,6 +900,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                     regression_runner.run_h2_from_args(args)
 
             self.assertEqual(existing.read_text(encoding="utf-8"), "existing\n")
+            self.assertFalse((output_dir / "h2.log").exists())
 
     def test_regression_cli_allows_existing_result_file_with_overwrite(self):
         with tempfile.TemporaryDirectory() as tmpdir:

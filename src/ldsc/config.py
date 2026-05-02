@@ -541,7 +541,7 @@ class MungeConfig:
         Default is ``None``.
     ignore_columns : tuple of str, optional
         Source columns ignored during auto-detection. Default is ``()``.
-    no_alleles, a1_inc, keep_maf, daner, daner_n : bool, optional
+    no_alleles, a1_inc, keep_maf, daner_old, daner_new : bool, optional
         Legacy munging switches preserved for behavior compatibility. Defaults
         are ``False``.
     overwrite : bool, optional
@@ -568,8 +568,8 @@ class MungeConfig:
     no_alleles: bool = False
     a1_inc: bool = False
     keep_maf: bool = False
-    daner: bool = False
-    daner_n: bool = False
+    daner_old: bool = False
+    daner_new: bool = False
     overwrite: bool = False
 
     def __post_init__(self) -> None:

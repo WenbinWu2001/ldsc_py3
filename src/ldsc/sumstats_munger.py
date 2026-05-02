@@ -508,8 +508,8 @@ class SumstatsMunger:
         args.no_alleles = munge_config.no_alleles
         args.a1_inc = munge_config.a1_inc
         args.keep_maf = munge_config.keep_maf
-        args.daner = munge_config.daner
-        args.daner_n = munge_config.daner_n
+        args.daner_old = munge_config.daner_old
+        args.daner_new = munge_config.daner_new
         args.snp_identifier = global_config.snp_identifier
         args.genome_build = global_config.genome_build
         for key, value in raw_sumstats_config.column_hints.items():
@@ -600,8 +600,8 @@ def _munge_configs_from_args(args: argparse.Namespace) -> tuple[MungeConfig, Mun
         no_alleles=args.no_alleles,
         a1_inc=args.a1_inc,
         keep_maf=args.keep_maf,
-        daner=args.daner,
-        daner_n=args.daner_n,
+        daner_old=args.daner_old,
+        daner_new=args.daner_new,
         overwrite=getattr(args, "overwrite", False),
     )
     return raw_config, munge_config

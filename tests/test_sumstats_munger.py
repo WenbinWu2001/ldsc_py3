@@ -52,6 +52,21 @@ class SumstatsMungerTest(unittest.TestCase):
         args = parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--log-level", "DEBUG"])
         self.assertEqual(args.log_level, "DEBUG")
 
+    def test_build_parser_accepts_daner_old_and_new_not_legacy_flags(self):
+        parser = sumstats_workflow.build_parser()
+
+        old_args = parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--daner-old"])
+        new_args = parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--daner-new"])
+
+        self.assertTrue(old_args.daner_old)
+        self.assertFalse(old_args.daner_new)
+        self.assertFalse(new_args.daner_old)
+        self.assertTrue(new_args.daner_new)
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--daner"])
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--daner-n"])
+
     def test_build_parser_uses_raw_sumstats_file_for_raw_input(self):
         parser = sumstats_workflow.build_parser()
 
@@ -95,6 +110,7 @@ class SumstatsMungerTest(unittest.TestCase):
                 "DROP_ME,ALSO_DROP",
                 "--signed-sumstats",
                 "BETA,0",
+                "--daner-new",
                 "--output-format",
                 "both",
                 "--log-level",
@@ -118,6 +134,8 @@ class SumstatsMungerTest(unittest.TestCase):
         self.assertEqual(run_config.chunk_size, 17)
         self.assertEqual(run_config.ignore_columns, ("DROP_ME", "ALSO_DROP"))
         self.assertEqual(run_config.signed_sumstats_spec, "BETA,0")
+        self.assertTrue(run_config.daner_new)
+        self.assertFalse(run_config.daner_old)
         self.assertEqual(run_config.output_format, "both")
         self.assertEqual(global_config, GlobalConfig(snp_identifier="rsid", log_level="DEBUG"))
 

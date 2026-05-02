@@ -434,7 +434,7 @@ def process_n(dat, args):
             LOGGER.info('Using N = {N}'.format(N=args.N))
         elif args.N_cas and args.N_con:
             dat['N'] = args.N_cas + args.N_con
-            if args.daner is None:
+            if not args.daner_old:
                 msg = 'Using N_cas = {N1}; N_con = {N2}'
                 LOGGER.info(msg.format(N1=args.N_cas, N2=args.N_con))
         else:
@@ -639,11 +639,12 @@ parser.add_argument('--info-min', default=0.9, type=float,
                     help="Minimum INFO score.")
 parser.add_argument('--maf-min', default=0.01, type=float,
                     help="Minimum MAF.")
-parser.add_argument('--daner', default=False, action='store_true',
-                    help="Use this flag to parse Stephan Ripke's daner* file format.")
-parser.add_argument('--daner-n', default=False, action='store_true',
-                    help="Use this flag to parse more recent daner* formatted files, which "
-		    "include sample size column 'Nca' and 'Nco'.")
+parser.add_argument('--daner-old', default=False, action='store_true',
+                    help="Parse old DANER format with case/control sample sizes encoded in FRQ_A_<Ncas> "
+                    "and FRQ_U_<Ncon> column names.")
+parser.add_argument('--daner-new', default=False, action='store_true',
+                    help="Parse new DANER format with per-SNP case/control sample sizes in exact "
+                    "Nca and Nco columns.")
 parser.add_argument('--no-alleles', default=False, action="store_true",
                     help="Don't require alleles. Useful if only unsigned summary statistics are available "
                     "and the goal is h2 / partitioned h2 estimation rather than rg estimation.")
@@ -730,9 +731,9 @@ def munge_sumstats(args, p=True):
     if args.no_alleles and args.merge_alleles:
         raise ValueError(
             '--no-alleles and --merge-alleles are not compatible.')
-    if args.daner and args.daner_n:
-        raise ValueError('--daner and --daner-n are not compatible. Use --daner for sample ' + 
-        'size from FRQ_A/FRQ_U headers, use --daner-n for values from Nca/Nco columns')
+    if args.daner_old and args.daner_new:
+        raise ValueError('--daner-old and --daner-new are not compatible. Use --daner-old for sample '
+        'size from FRQ_A/FRQ_U headers, use --daner-new for values from Nca/Nco columns')
 
     file_cnames = read_header(args.sumstats)  # note keys not cleaned
     flag_cnames, signed_sumstat_null = parse_flag_cnames(args)
@@ -750,7 +751,7 @@ def munge_sumstats(args, p=True):
 
     cname_map = get_cname_map(
         flag_cnames, mod_default_cnames, ignore_cnames)
-    if args.daner:
+    if args.daner_old:
         frq_u = list(filter(lambda x: x.startswith('FRQ_U_'), file_cnames))[0]
         frq_a = list(filter(lambda x: x.startswith('FRQ_A_'), file_cnames))[0]
         N_cas = float(frq_a[6:])
@@ -765,17 +766,17 @@ def munge_sumstats(args, p=True):
                 del cname_map[d]
         cname_map[frq_u] = 'FRQ'
 
-    if args.daner_n:
+    if args.daner_new:
         frq_u = list(filter(lambda x: x.startswith('FRQ_U_'), file_cnames))[0]
         cname_map[frq_u] = 'FRQ'
         try:
             dan_cas = clean_header(file_cnames[file_cnames.index('Nca')])
         except ValueError:
-            raise ValueError('Could not find Nca column expected for daner-n format')
+            raise ValueError('Could not find Nca column expected for daner-new format')
         try:
             dan_con = clean_header(file_cnames[file_cnames.index('Nco')])
         except ValueError:
-            raise ValueError('Could not find Nco column expected for daner-n format')
+            raise ValueError('Could not find Nco column expected for daner-new format')
         cname_map[dan_cas] = 'N_CAS'
         cname_map[dan_con] = 'N_CON'
 

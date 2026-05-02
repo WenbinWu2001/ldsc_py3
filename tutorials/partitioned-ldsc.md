@@ -143,7 +143,7 @@ partitioned_result = runner.estimate_partitioned_h2_batch(
     sumstats,
     ldscore_result,
     annotation_bundle,
-    include_model_categories=True,
+    include_full_partitioned_h2=True,
 )
 partitioned = partitioned_result.summary
 
@@ -249,6 +249,8 @@ ldsc partitioned-h2 \
 
 The command writes `tutorial_outputs/partitioned_h2/partitioned_h2.tsv` and
 `tutorial_outputs/partitioned_h2/partitioned-h2.log`.
+The summary columns are documented in
+[partitioned-h2-results.md](../docs/current/partitioned-h2-results.md).
 If either fixed output already exists, the command fails before writing; add
 `--overwrite` only when replacing the previous summary is intentional.
 
@@ -267,5 +269,5 @@ ldsc partitioned-h2 \
 This keeps the aggregate `partitioned_h2.tsv` and adds
 `query_annotations/manifest.tsv` plus sanitized query folders such as
 `query_annotations/0001_enhancer_a/`. Each query folder contains its one-row
-`partitioned_h2.tsv`, the fitted baseline-plus-query `model_categories.tsv`,
+`partitioned_h2.tsv`, the fitted baseline-plus-query `partitioned_h2_full.tsv`,
 and `metadata.json` with the original query annotation name.

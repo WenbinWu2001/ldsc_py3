@@ -63,6 +63,29 @@ COMMON_COUNT_KEY = "common_reference_snp_counts"
 ALL_COUNT_KEY = "all_reference_snp_counts"
 CHR_POS_KEY_COLUMN = "_ldsc_chr_pos_key"
 LOGGER = logging.getLogger("LDSC.regression_runner")
+PARTITIONED_H2_AGGREGATE_COLUMNS = [
+    "Category",
+    "Prop._SNPs",
+    "Prop._h2",
+    "Enrichment",
+    "Enrichment_p",
+    "Coefficient",
+    "Coefficient_p",
+]
+PARTITIONED_H2_FULL_COLUMNS = [
+    "Category",
+    "Prop._SNPs",
+    "Category_h2",
+    "Category_h2_std_error",
+    "Prop._h2",
+    "Prop._h2_std_error",
+    "Enrichment",
+    "Enrichment_std_error",
+    "Enrichment_p",
+    "Coefficient",
+    "Coefficient_std_error",
+    "Coefficient_p",
+]
 
 
 @dataclass(frozen=True)
@@ -91,9 +114,11 @@ class RegressionDataset:
 class PartitionedH2BatchResult:
     """Batch partitioned-h2 summaries plus optional per-query detail tables.
 
-    ``summary`` is the aggregate one-row-per-query table. The optional detail
-    dictionaries are keyed by original query annotation name and are populated
-    only when callers request per-query model category output.
+    ``summary`` is the compact one-row-per-query table written as
+    ``partitioned_h2.tsv``. The optional detail dictionaries are keyed by
+    original query annotation name and are populated only when callers request
+    the full baseline-plus-query tables that are written as
+    ``partitioned_h2_full.tsv``.
     """
     summary: pd.DataFrame
     per_query_category_tables: dict[str, pd.DataFrame]
@@ -266,7 +291,8 @@ class RegressionRunner:
         ldscore_result: LDScoreResult,
         annotation_bundle,
         config: RegressionConfig | None = None,
-        include_model_categories: bool = False,
+        include_full_partitioned_h2: bool = False,
+        include_model_categories: bool | None = None,
     ) -> pd.DataFrame | PartitionedH2BatchResult:
         """Estimate one baseline-plus-query model per query annotation.
 
@@ -281,17 +307,22 @@ class RegressionRunner:
             a lightweight namespace derived from the LD-score manifest.
         config : RegressionConfig, optional
             Regression settings. Defaults to the runner's config.
-        include_model_categories : bool, optional
+        include_full_partitioned_h2 : bool, optional
             If ``True``, return ``PartitionedH2BatchResult`` with per-query
             full category tables for output writers. If ``False``, return the
-            historical aggregate dataframe.
+            aggregate dataframe.
+        include_model_categories : bool, optional
+            Backward-compatible alias for ``include_full_partitioned_h2``.
 
         Returns
         -------
         pandas.DataFrame or PartitionedH2BatchResult
             Aggregate summary by default, or aggregate plus per-query detail
-            tables when ``include_model_categories`` is enabled.
+            tables when ``include_full_partitioned_h2`` is enabled.
         """
+        if include_model_categories is not None:
+            include_full_partitioned_h2 = include_model_categories
+
         rows = []
         per_query_category_tables: dict[str, pd.DataFrame] = {}
         per_query_metadata: dict[str, dict[str, object]] = {}
@@ -300,11 +331,12 @@ class RegressionRunner:
             hsq = self.estimate_h2(dataset, config=config)
             query_row = summarize_partitioned_h2(hsq, dataset, [query_column])
             rows.append(query_row)
-            if include_model_categories:
+            if include_full_partitioned_h2:
                 per_query_category_tables[query_column] = summarize_partitioned_h2(
                     hsq,
                     dataset,
                     dataset.retained_ld_columns,
+                    include_full_columns=True,
                 )
                 per_query_metadata[query_column] = {
                     "dropped_zero_variance_ld_columns": list(dataset.dropped_zero_variance_ld_columns),
@@ -312,10 +344,10 @@ class RegressionRunner:
                     "n_snps": len(dataset.merged),
                 }
         if not rows:
-            summary = pd.DataFrame(columns=["query_annotation"])
+            summary = pd.DataFrame(columns=PARTITIONED_H2_AGGREGATE_COLUMNS)
         else:
             summary = pd.concat(rows, axis=0, ignore_index=True)
-        if include_model_categories:
+        if include_full_partitioned_h2:
             return PartitionedH2BatchResult(
                 summary=summary,
                 per_query_category_tables=per_query_category_tables,
@@ -490,38 +522,141 @@ def summarize_total_h2(hsq, dataset: RegressionDataset, trait_name: str | None =
     )
 
 
-def summarize_partitioned_h2(hsq, dataset: RegressionDataset, annotation_columns: Sequence[str]) -> pd.DataFrame:
-    """Build category-level heritability rows from a fitted ``Hsq`` result."""
+def summarize_partitioned_h2(
+    hsq,
+    dataset: RegressionDataset,
+    annotation_columns: Sequence[str],
+    *,
+    include_full_columns: bool = False,
+) -> pd.DataFrame:
+    """Build public partitioned-h2 rows from a fitted ``Hsq`` result.
+
+    ``annotation_columns`` must be a subset of ``dataset.retained_ld_columns``.
+    Returned rows use legacy-style public column names. By default the result is
+    the compact query-summary schema; ``include_full_columns=True`` also emits
+    category h2 estimates and standard errors for full per-query model tables.
+    """
     rows = []
     coefficients = np.ravel(hsq.coef)
+    coefficient_covariance = _coefficient_covariance_matrix(hsq, coefficients)
     coefficient_ses = np.ravel(hsq.coef_se)
     category_h2 = np.ravel(hsq.cat)
     category_h2_ses = np.ravel(hsq.cat_se)
     proportions = np.ravel(hsq.prop)
     proportion_ses = np.ravel(hsq.prop_se)
     enrichments = np.ravel(hsq.enrichment) if getattr(hsq, "enrichment", None) is not None else None
+    snp_counts = _retained_snp_counts(dataset)
+    snp_proportions = _safe_vector_divide(snp_counts, float(np.sum(snp_counts)))
+    n_blocks = getattr(hsq, "n_blocks", None)
     for annotation_column in annotation_columns:
         annotation_index = dataset.retained_ld_columns.index(annotation_column)
         coefficient = float(coefficients[annotation_index])
         coefficient_se = float(coefficient_ses[annotation_index])
-        z_value = math.nan if coefficient_se == 0 else coefficient / coefficient_se
+        proportion_snps = float(snp_proportions[annotation_index])
+        proportion_h2_se = float(proportion_ses[annotation_index])
         rows.append(
             {
-                "query_annotation": annotation_column,
-                "coefficient": coefficient,
-                "coefficient_se": coefficient_se,
-                "coefficient_z": z_value,
-                "coefficient_p": (
-                    math.nan if coefficient_se == 0 else 2 * stats.norm.sf(abs(z_value))
+                "Category": annotation_column,
+                "Prop._SNPs": proportion_snps,
+                "Category_h2": float(category_h2[annotation_index]),
+                "Category_h2_std_error": float(category_h2_ses[annotation_index]),
+                "Prop._h2": float(proportions[annotation_index]),
+                "Prop._h2_std_error": proportion_h2_se,
+                "Enrichment": math.nan if enrichments is None else float(enrichments[annotation_index]),
+                "Enrichment_std_error": _safe_divide(proportion_h2_se, proportion_snps),
+                "Enrichment_p": _enrichment_p_value(
+                    annotation_index,
+                    coefficients,
+                    coefficient_covariance,
+                    snp_counts,
+                    n_blocks,
                 ),
-                "category_h2": float(category_h2[annotation_index]),
-                "category_h2_se": float(category_h2_ses[annotation_index]),
-                "proportion_h2": float(proportions[annotation_index]),
-                "proportion_h2_se": float(proportion_ses[annotation_index]),
-                "enrichment": math.nan if enrichments is None else float(enrichments[annotation_index]),
+                "Coefficient": coefficient,
+                "Coefficient_std_error": coefficient_se,
+                "Coefficient_p": _coefficient_p_value(coefficient, coefficient_se),
             }
         )
-    return pd.DataFrame(rows)
+    columns = PARTITIONED_H2_FULL_COLUMNS if include_full_columns else PARTITIONED_H2_AGGREGATE_COLUMNS
+    return pd.DataFrame(rows, columns=columns)
+
+
+def _retained_snp_counts(dataset: RegressionDataset) -> np.ndarray:
+    """Return reference SNP counts aligned to retained LD-score columns."""
+    counts = np.asarray(
+        dataset.reference_snp_count_totals[dataset.count_key_used_for_regression],
+        dtype=np.float64,
+    ).reshape(-1)
+    if len(counts) != len(dataset.retained_ld_columns):
+        raise ValueError(
+            "Reference SNP count vector is not aligned to retained LD-score columns."
+        )
+    return counts
+
+
+def _coefficient_covariance_matrix(hsq, coefficients: np.ndarray) -> np.ndarray:
+    """Return a coefficient covariance matrix, falling back to diagonal SEs."""
+    covariance = getattr(hsq, "coef_cov", None)
+    if covariance is not None:
+        covariance = np.asarray(covariance, dtype=np.float64)
+        if covariance.shape == (len(coefficients), len(coefficients)):
+            return covariance
+    coefficient_ses = np.ravel(getattr(hsq, "coef_se", np.full(len(coefficients), math.nan)))
+    return np.diag(np.square(coefficient_ses))
+
+
+def _coefficient_p_value(coefficient: float, coefficient_se: float) -> float:
+    """Return a two-sided normal p-value for a coefficient estimate."""
+    if not np.isfinite(coefficient) or not np.isfinite(coefficient_se) or coefficient_se == 0:
+        return math.nan
+    return float(2 * stats.norm.sf(abs(coefficient / coefficient_se)))
+
+
+def _enrichment_p_value(
+    annotation_index: int,
+    coefficients: np.ndarray,
+    coefficient_covariance: np.ndarray,
+    snp_counts: np.ndarray,
+    n_blocks,
+) -> float:
+    """Return the legacy-style category-vs-complement enrichment p-value.
+
+    The contrast compares the selected coefficient with the SNP-count-weighted
+    mean coefficient of all remaining retained categories. A missing complement,
+    unavailable jackknife block count, or non-positive variance yields NaN.
+    """
+    total_count = float(np.sum(snp_counts))
+    category_count = float(snp_counts[annotation_index])
+    complement_count = total_count - category_count
+    if (
+        total_count <= 0
+        or category_count <= 0
+        or complement_count <= 0
+        or n_blocks is None
+        or int(n_blocks) <= 0
+    ):
+        return math.nan
+    contrast = -snp_counts / complement_count
+    contrast[annotation_index] = 1.0
+    contrast_estimate = float(np.dot(contrast, coefficients))
+    contrast_variance = float(np.dot(np.dot(contrast, coefficient_covariance), contrast.T))
+    if not np.isfinite(contrast_variance) or contrast_variance <= 0:
+        return math.nan
+    contrast_se = math.sqrt(contrast_variance)
+    return float(2 * stats.t.sf(abs(contrast_estimate / contrast_se), int(n_blocks)))
+
+
+def _safe_divide(numerator: float, denominator: float) -> float:
+    """Return ``numerator / denominator`` or NaN for invalid ratios."""
+    if not np.isfinite(numerator) or not np.isfinite(denominator) or denominator == 0:
+        return math.nan
+    return float(numerator / denominator)
+
+
+def _safe_vector_divide(numerator: np.ndarray, denominator: float) -> np.ndarray:
+    """Vectorized safe division for scalar denominators."""
+    if not np.isfinite(denominator) or denominator == 0:
+        return np.full_like(numerator, math.nan, dtype=np.float64)
+    return numerator / denominator
 
 
 def _scalar(value) -> float:
@@ -642,7 +777,7 @@ def run_partitioned_h2_from_args(args):
                 ldscore_result,
                 query_bundle,
                 config=config,
-                include_model_categories=getattr(args, "write_per_query_results", False),
+                include_full_partitioned_h2=getattr(args, "write_per_query_results", False),
             )
         if isinstance(result, PartitionedH2BatchResult):
             summary = result.summary

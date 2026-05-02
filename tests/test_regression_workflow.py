@@ -11,6 +11,7 @@ from unittest import mock
 
 import numpy as np
 import pandas as pd
+from scipy import stats
 
 SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
@@ -531,17 +532,78 @@ class RegressionWorkflowTest(unittest.TestCase):
         annotation_bundle = self.make_annotation_bundle()
         fake_hsq = mock.Mock(
             coef=np.array([0.0, 1.0]),
+            coef_cov=np.diag([0.01, 0.04]),
             coef_se=np.array([0.1, 0.2]),
             cat=np.array([0.0, 0.3]),
             cat_se=np.array([0.01, 0.03]),
             prop=np.array([0.0, 0.4]),
             prop_se=np.array([0.01, 0.04]),
             enrichment=np.array([0.0, 2.0]),
+            n_blocks=200,
         )
         with mock.patch.object(runner, "estimate_h2", return_value=fake_hsq) as patched:
             result = runner.estimate_partitioned_h2_batch(table, ldscore_result, annotation_bundle)
         self.assertEqual(patched.call_count, 2)
-        self.assertEqual(result["query_annotation"].tolist(), ["query1", "query2"])
+        self.assertEqual(
+            result.columns.tolist(),
+            [
+                "Category",
+                "Prop._SNPs",
+                "Prop._h2",
+                "Enrichment",
+                "Enrichment_p",
+                "Coefficient",
+                "Coefficient_p",
+            ],
+        )
+        self.assertEqual(result["Category"].tolist(), ["query1", "query2"])
+        self.assertAlmostEqual(result.loc[0, "Prop._SNPs"], 18.0 / 26.0)
+        self.assertAlmostEqual(result.loc[0, "Coefficient_p"], 2 * stats.norm.sf(5.0))
+
+    def test_estimate_partitioned_h2_batch_can_return_full_partitioned_tables(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        table = self.make_sumstats_table()
+        ldscore_result = self.make_ldscore_result()
+        annotation_bundle = self.make_annotation_bundle()
+        fake_hsq = mock.Mock(
+            coef=np.array([0.0, 1.0]),
+            coef_cov=np.diag([0.01, 0.04]),
+            coef_se=np.array([0.1, 0.2]),
+            cat=np.array([0.0, 0.3]),
+            cat_se=np.array([0.01, 0.03]),
+            prop=np.array([0.0, 0.4]),
+            prop_se=np.array([0.01, 0.04]),
+            enrichment=np.array([0.0, 2.0]),
+            n_blocks=200,
+        )
+        with mock.patch.object(runner, "estimate_h2", return_value=fake_hsq):
+            result = runner.estimate_partitioned_h2_batch(
+                table,
+                ldscore_result,
+                annotation_bundle,
+                include_full_partitioned_h2=True,
+            )
+
+        self.assertIsInstance(result, regression_runner.PartitionedH2BatchResult)
+        self.assertEqual(result.summary["Category"].tolist(), ["query1", "query2"])
+        self.assertIn("query1", result.per_query_category_tables)
+        self.assertEqual(
+            result.per_query_category_tables["query1"].columns.tolist(),
+            [
+                "Category",
+                "Prop._SNPs",
+                "Category_h2",
+                "Category_h2_std_error",
+                "Prop._h2",
+                "Prop._h2_std_error",
+                "Enrichment",
+                "Enrichment_std_error",
+                "Enrichment_p",
+                "Coefficient",
+                "Coefficient_std_error",
+                "Coefficient_p",
+            ],
+        )
 
     def test_h2_and_partitioned_summaries_share_one_fitted_hsq_result(self):
         dataset = regression_runner.RegressionDataset(
@@ -572,22 +634,92 @@ class RegressionWorkflowTest(unittest.TestCase):
             ratio=0.05,
             ratio_se=0.01,
             coef=np.array([0.025]),
+            coef_cov=np.array([[0.000009]]),
             coef_se=np.array([0.003]),
             cat=np.array([0.25]),
             cat_se=np.array([0.03]),
             prop=np.array([1.0]),
             prop_se=np.array([0.0]),
             enrichment=np.array([1.0]),
+            n_blocks=200,
         )
 
         total = regression_runner.summarize_total_h2(hsq, dataset, trait_name="trait")
-        partitioned = regression_runner.summarize_partitioned_h2(hsq, dataset, ["base"])
+        partitioned = regression_runner.summarize_partitioned_h2(
+            hsq,
+            dataset,
+            ["base"],
+            include_full_columns=True,
+        )
 
-        self.assertEqual(total.loc[0, "total_h2"], partitioned.loc[0, "category_h2"])
-        self.assertEqual(total.loc[0, "total_h2_se"], partitioned.loc[0, "category_h2_se"])
-        self.assertEqual(partitioned.loc[0, "query_annotation"], "base")
-        self.assertEqual(partitioned.loc[0, "proportion_h2"], 1.0)
-        self.assertEqual(partitioned.loc[0, "enrichment"], 1.0)
+        self.assertEqual(total.loc[0, "total_h2"], partitioned.loc[0, "Category_h2"])
+        self.assertEqual(total.loc[0, "total_h2_se"], partitioned.loc[0, "Category_h2_std_error"])
+        self.assertEqual(partitioned.loc[0, "Category"], "base")
+        self.assertEqual(partitioned.loc[0, "Prop._h2"], 1.0)
+        self.assertEqual(partitioned.loc[0, "Enrichment"], 1.0)
+        self.assertTrue(np.isnan(partitioned.loc[0, "Enrichment_p"]))
+
+    def test_partitioned_full_summary_uses_legacy_column_order_and_enrichment_p(self):
+        dataset = regression_runner.RegressionDataset(
+            merged=pd.DataFrame(
+                {
+                    "SNP": ["rs1", "rs2", "rs3"],
+                    "Z": [1.0, 1.5, 2.0],
+                    "N": [1000.0, 1000.0, 1000.0],
+                    "regr_weight": [1.0, 1.0, 1.0],
+                }
+            ),
+            ref_ld_columns=["base", "query"],
+            weight_column="regr_weight",
+            reference_snp_count_totals={"common_reference_snp_counts": np.array([10.0, 30.0])},
+            count_key_used_for_regression="common_reference_snp_counts",
+            retained_ld_columns=["base", "query"],
+            dropped_zero_variance_ld_columns=[],
+            trait_names=["trait"],
+            chromosomes_aggregated=[],
+        )
+        hsq = mock.Mock(
+            coef=np.array([0.2, 0.5]),
+            coef_cov=np.diag([0.01, 0.04]),
+            coef_se=np.array([0.1, 0.2]),
+            cat=np.array([0.2, 0.6]),
+            cat_se=np.array([0.02, 0.06]),
+            prop=np.array([0.25, 0.75]),
+            prop_se=np.array([0.03, 0.09]),
+            enrichment=np.array([1.0, 1.0]),
+            n_blocks=200,
+        )
+
+        summary = regression_runner.summarize_partitioned_h2(
+            hsq,
+            dataset,
+            ["query"],
+            include_full_columns=True,
+        )
+
+        self.assertEqual(
+            summary.columns.tolist(),
+            [
+                "Category",
+                "Prop._SNPs",
+                "Category_h2",
+                "Category_h2_std_error",
+                "Prop._h2",
+                "Prop._h2_std_error",
+                "Enrichment",
+                "Enrichment_std_error",
+                "Enrichment_p",
+                "Coefficient",
+                "Coefficient_std_error",
+                "Coefficient_p",
+            ],
+        )
+        self.assertEqual(summary.loc[0, "Category"], "query")
+        self.assertAlmostEqual(summary.loc[0, "Prop._SNPs"], 0.75)
+        self.assertAlmostEqual(summary.loc[0, "Enrichment_std_error"], 0.09 / 0.75)
+        self.assertAlmostEqual(summary.loc[0, "Coefficient_p"], 2 * stats.norm.sf(2.5))
+        expected_enrichment_p = 2 * stats.t.sf(abs(0.3 / np.sqrt(0.05)), 200)
+        self.assertAlmostEqual(summary.loc[0, "Enrichment_p"], expected_enrichment_p)
 
     def test_run_h2_from_args_uses_ldscore_dir(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -757,13 +889,13 @@ class RegressionWorkflowTest(unittest.TestCase):
             with mock.patch.object(
                 regression_runner.RegressionRunner,
                 "estimate_partitioned_h2_batch",
-                return_value=pd.DataFrame([{"query_annotation": "query", "coefficient": 1.0}]),
+                return_value=pd.DataFrame([{"Category": "query", "Coefficient": 1.0}]),
             ) as patched:
                 summary = regression_runner.run_partitioned_h2_from_args(args)
 
         patched.assert_called_once()
         self.assertEqual(patched.call_args.args[2].query_columns, ["query"])
-        self.assertEqual(summary.loc[0, "query_annotation"], "query")
+        self.assertEqual(summary.loc[0, "Category"], "query")
 
     def test_run_partitioned_h2_from_args_writes_with_partitioned_writer(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -795,7 +927,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             with mock.patch.object(
                 regression_runner.RegressionRunner,
                 "estimate_partitioned_h2_batch",
-                return_value=pd.DataFrame([{"query_annotation": "query", "coefficient": 1.0}]),
+                return_value=pd.DataFrame([{"Category": "query", "Coefficient": 1.0}]),
             ), mock.patch.object(
                 regression_runner.PartitionedH2DirectoryWriter,
                 "write",
@@ -808,7 +940,7 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertTrue(output_config.write_per_query_results)
         self.assertEqual(writer.call_args.kwargs["metadata"]["count_kind"], "common")
         self.assertEqual(writer.call_args.kwargs["metadata"]["trait_name"], "trait")
-        self.assertEqual(summary.loc[0, "query_annotation"], "query")
+        self.assertEqual(summary.loc[0, "Category"], "query")
 
     def test_regression_cli_writes_fixed_result_filename_under_output_dir(self):
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -10,9 +10,11 @@ directories, reuses existing directories, and refuses existing canonical files
 unless the caller explicitly sets ``overwrite=True``.
 
 Partitioned-h2 regression summaries use the same directory-oriented output
-policy. ``PartitionedH2DirectoryWriter`` always writes the aggregate
+policy. ``PartitionedH2DirectoryWriter`` always writes the compact aggregate
 ``partitioned_h2.tsv`` and can optionally stage a per-query
-``query_annotations`` tree before moving it into place.
+``query_annotations`` tree with ``manifest.tsv``, one-row
+``partitioned_h2.tsv`` summaries, full ``partitioned_h2_full.tsv`` category
+tables, and ``metadata.json`` files before moving it into place.
 """
 
 from __future__ import annotations
@@ -80,6 +82,29 @@ DEFAULT_COUNT_CONFIG = {
     "common_reference_snp_maf_operator": ">=",
 }
 PARTITIONED_H2_RESULT_FORMAT = "ldsc.partitioned_h2_result.v1"
+PARTITIONED_H2_AGGREGATE_COLUMNS = [
+    "Category",
+    "Prop._SNPs",
+    "Prop._h2",
+    "Enrichment",
+    "Enrichment_p",
+    "Coefficient",
+    "Coefficient_p",
+]
+PARTITIONED_H2_FULL_COLUMNS = [
+    "Category",
+    "Prop._SNPs",
+    "Category_h2",
+    "Category_h2_std_error",
+    "Prop._h2",
+    "Prop._h2_std_error",
+    "Enrichment",
+    "Enrichment_std_error",
+    "Enrichment_p",
+    "Coefficient",
+    "Coefficient_std_error",
+    "Coefficient_p",
+]
 
 
 @dataclass(frozen=True)
@@ -262,11 +287,12 @@ class PartitionedH2DirectoryWriter:
     """Write aggregate and optional per-query partitioned-h2 outputs.
 
     The writer owns the fixed regression summary layout:
-    ``partitioned_h2.tsv`` at the output root and, when requested,
-    ``query_annotations/manifest.tsv`` plus one ordinal-prefixed sanitized
-    folder per query annotation. The per-query tree is written to a temporary
-    sibling directory before it is moved into the final location, so ordinary
-    validation and I/O failures do not expose a partially populated final tree.
+    ``partitioned_h2.tsv`` at the output root uses the compact public schema,
+    while optional query folders contain the same one-row summary plus a full
+    baseline-plus-query ``partitioned_h2_full.tsv`` table. The per-query tree
+    is written to a temporary sibling directory before it is moved into the
+    final location, so ordinary validation and I/O failures do not expose a
+    partially populated final tree.
     """
 
     def write(
@@ -282,13 +308,15 @@ class PartitionedH2DirectoryWriter:
         Parameters
         ----------
         summary : pandas.DataFrame
-            Aggregate partitioned-h2 table. Must contain ``query_annotation``.
+            Aggregate partitioned-h2 table with the compact public columns in
+            ``PARTITIONED_H2_AGGREGATE_COLUMNS``.
         output_config : PartitionedH2OutputConfig
             Output directory, overwrite policy, and per-query mode.
         per_query_category_tables : dict of str to pandas.DataFrame, optional
-            Optional full baseline-plus-query category tables keyed by original
-            query annotation name. Missing keys write empty
-            ``model_categories.tsv`` files.
+            Optional full baseline-plus-query category tables keyed by
+            original query annotation name. Tables must follow
+            ``PARTITIONED_H2_FULL_COLUMNS``; missing keys write empty
+            ``partitioned_h2_full.tsv`` files.
         metadata : dict, optional
             Run-level metadata copied into every per-query ``metadata.json``.
         per_query_metadata : dict of str to dict, optional
@@ -305,7 +333,7 @@ class PartitionedH2DirectoryWriter:
         Raises
         ------
         ValueError
-            If ``summary`` lacks the required ``query_annotation`` column.
+            If ``summary`` lacks the required ``Category`` column.
         FileExistsError
             If a final output path already exists and overwrite is disabled.
         """
@@ -324,7 +352,10 @@ class PartitionedH2DirectoryWriter:
 
         paths = {"summary": str(summary_path)}
         if not output_config.write_per_query_results:
-            _atomic_write_dataframe(summary, summary_path)
+            _atomic_write_dataframe(
+                _select_columns(summary, PARTITIONED_H2_AGGREGATE_COLUMNS, label="partitioned-h2 summary"),
+                summary_path,
+            )
             return paths
 
         query_records = self._query_records(summary)
@@ -342,7 +373,10 @@ class PartitionedH2DirectoryWriter:
                 per_query_metadata or {},
             )
             _atomic_write_dataframe(pd.DataFrame(manifest_rows), staging_dir / "manifest.tsv")
-            _atomic_write_dataframe(summary, summary_path)
+            _atomic_write_dataframe(
+                _select_columns(summary, PARTITIONED_H2_AGGREGATE_COLUMNS, label="partitioned-h2 summary"),
+                summary_path,
+            )
             if output_config.overwrite and query_root.exists():
                 backup_dir = Path(tempfile.mkdtemp(prefix=".query_annotations.backup.", dir=str(output_dir)))
                 backup_dir.rmdir()
@@ -364,14 +398,14 @@ class PartitionedH2DirectoryWriter:
 
     def _validate_summary(self, summary: pd.DataFrame) -> None:
         """Validate the aggregate summary before writing any final files."""
-        if "query_annotation" not in summary.columns:
-            raise ValueError("partitioned-h2 summary is missing required column: query_annotation")
+        if "Category" not in summary.columns:
+            raise ValueError("partitioned-h2 summary is missing required column: Category")
 
     def _query_records(self, summary: pd.DataFrame) -> list[dict[str, object]]:
         """Return ordered query records with deterministic safe folder names."""
         records: list[dict[str, object]] = []
         width = max(4, len(str(len(summary))))
-        for idx, query_name in enumerate(summary["query_annotation"].astype(str).tolist(), start=1):
+        for idx, query_name in enumerate(summary["Category"].astype(str).tolist(), start=1):
             slug = _slugify_query_name(query_name)
             folder = f"{idx:0{width}d}_{slug}"
             records.append(
@@ -400,15 +434,21 @@ class PartitionedH2DirectoryWriter:
             folder = str(record["folder"])
             query_dir = staging_dir / folder
             query_dir.mkdir(parents=True, exist_ok=False)
-            query_summary = summary.loc[summary["query_annotation"].astype(str) == query_name].reset_index(drop=True)
+            query_summary = summary.loc[summary["Category"].astype(str) == query_name].reset_index(drop=True)
             summary_rel = f"query_annotations/{folder}/partitioned_h2.tsv"
-            category_rel = f"query_annotations/{folder}/model_categories.tsv"
+            full_rel = f"query_annotations/{folder}/partitioned_h2_full.tsv"
             metadata_rel = f"query_annotations/{folder}/metadata.json"
-            _atomic_write_dataframe(query_summary, query_dir / "partitioned_h2.tsv")
+            _atomic_write_dataframe(
+                _select_columns(query_summary, PARTITIONED_H2_AGGREGATE_COLUMNS, label="query summary"),
+                query_dir / "partitioned_h2.tsv",
+            )
             category_table = per_query_category_tables.get(query_name)
             if category_table is None:
                 category_table = pd.DataFrame()
-            _atomic_write_dataframe(category_table, query_dir / "model_categories.tsv")
+            _atomic_write_dataframe(
+                _select_columns(category_table, PARTITIONED_H2_FULL_COLUMNS, label="full partitioned-h2 summary"),
+                query_dir / "partitioned_h2_full.tsv",
+            )
             payload = {
                 "format": PARTITIONED_H2_RESULT_FORMAT,
                 **metadata,
@@ -426,7 +466,7 @@ class PartitionedH2DirectoryWriter:
                     "slug": record["slug"],
                     "folder": folder,
                     "summary_path": summary_rel,
-                    "model_categories_path": category_rel,
+                    "partitioned_h2_full_path": full_rel,
                     "metadata_path": metadata_rel,
                 }
             )
@@ -438,6 +478,16 @@ def _slugify_query_name(value: str) -> str:
     normalized = unicodedata.normalize("NFKD", str(value)).encode("ascii", "ignore").decode("ascii")
     slug = re.sub(r"[^a-z0-9._-]+", "_", normalized.lower()).strip("._-")
     return slug or "annotation"
+
+
+def _select_columns(df: pd.DataFrame, columns: list[str], *, label: str) -> pd.DataFrame:
+    """Return ``df`` with required public output columns in canonical order."""
+    if df.empty and len(df.columns) == 0:
+        return df
+    missing = [column for column in columns if column not in df.columns]
+    if missing:
+        raise ValueError(f"{label} is missing required columns: {missing}")
+    return df.loc[:, columns]
 
 
 def _atomic_write_dataframe(df: pd.DataFrame, path: Path) -> None:

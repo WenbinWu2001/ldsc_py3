@@ -149,12 +149,14 @@ chromosome-aligned row groups, and the manifest lists those row groups for
 targeted chromosome reads. The output file is
 `tutorial_outputs/cell_specific_ldsc/partitioned_h2.tsv`, with
 `partitioned-h2.log` in the same directory. Its key columns are
-`query_annotation`, `coefficient`, `coefficient_p`, `category_h2`,
-`proportion_h2`, and `enrichment`.
+`Category`, `Prop._SNPs`, `Prop._h2`, `Enrichment`, `Enrichment_p`,
+`Coefficient`, and `Coefficient_p`.
+For full column definitions, see
+[partitioned-h2-results.md](../docs/current/partitioned-h2-results.md).
 With `--write-per-query-results`, the command also writes
 `tutorial_outputs/cell_specific_ldsc/query_annotations/manifest.tsv` and one
 sanitized folder per cell-type query annotation. Each folder contains the
-one-row query summary, the baseline-plus-query `model_categories.tsv`, and
+one-row query summary, the baseline-plus-query `partitioned_h2_full.tsv`, and
 `metadata.json` with the original annotation name.
 If the partitioned summary already exists, `ldsc partitioned-h2` fails before
 writing; the same is true for `partitioned-h2.log`. Add `--overwrite` only when

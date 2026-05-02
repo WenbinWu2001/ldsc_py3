@@ -175,10 +175,12 @@ baseline LD-score columns + one query LD-score column
 ```
 
 This keeps baseline annotations fixed while estimating one query annotation at a
-time. By default the CLI writes the aggregate `partitioned_h2.tsv` table plus
-`partitioned-h2.log`. With `--write-per-query-results`, it also writes a staged
-`query_annotations/` tree containing a manifest and one sanitized folder per
-query annotation. The log is preflighted with the table outputs, but it is not
+time. By default the CLI writes the compact aggregate `partitioned_h2.tsv` table
+plus `partitioned-h2.log`. With `--write-per-query-results`, it also writes a
+staged `query_annotations/` tree containing `manifest.tsv` and one sanitized
+folder per query annotation. Each query folder contains a one-row
+`partitioned_h2.tsv`, the full fitted-model `partitioned_h2_full.tsv`, and
+`metadata.json`. The log is preflighted with the table outputs, but it is not
 part of returned `output_paths`.
 
 ## 7. CLI Examples

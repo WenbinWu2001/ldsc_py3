@@ -303,10 +303,13 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
     def make_summary(self) -> pd.DataFrame:
         return pd.DataFrame(
             {
-                "query_annotation": ["IL-6/JAK STAT (Hallmark)", "IL 6 JAK STAT Hallmark"],
-                "coefficient": [1.0, 2.0],
-                "coefficient_se": [0.1, 0.2],
-                "category_h2": [0.3, 0.4],
+                "Category": ["IL-6/JAK STAT (Hallmark)", "IL 6 JAK STAT Hallmark"],
+                "Prop._SNPs": [0.1, 0.2],
+                "Prop._h2": [0.3, 0.4],
+                "Enrichment": [3.0, 2.0],
+                "Enrichment_p": [0.01, 0.02],
+                "Coefficient": [1.0, 2.0],
+                "Coefficient_p": [0.03, 0.04],
             }
         )
 
@@ -314,16 +317,34 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
         return {
             "IL-6/JAK STAT (Hallmark)": pd.DataFrame(
                 {
-                    "query_annotation": ["base", "IL-6/JAK STAT (Hallmark)"],
-                    "coefficient": [0.5, 1.0],
-                    "category_h2": [0.2, 0.3],
+                    "Category": ["base", "IL-6/JAK STAT (Hallmark)"],
+                    "Prop._SNPs": [0.9, 0.1],
+                    "Category_h2": [0.2, 0.3],
+                    "Category_h2_std_error": [0.02, 0.03],
+                    "Prop._h2": [0.7, 0.3],
+                    "Prop._h2_std_error": [0.07, 0.03],
+                    "Enrichment": [0.78, 3.0],
+                    "Enrichment_std_error": [0.08, 0.3],
+                    "Enrichment_p": [0.2, 0.01],
+                    "Coefficient": [0.5, 1.0],
+                    "Coefficient_std_error": [0.05, 0.1],
+                    "Coefficient_p": [0.04, 0.03],
                 }
             ),
             "IL 6 JAK STAT Hallmark": pd.DataFrame(
                 {
-                    "query_annotation": ["base", "IL 6 JAK STAT Hallmark"],
-                    "coefficient": [0.6, 2.0],
-                    "category_h2": [0.25, 0.4],
+                    "Category": ["base", "IL 6 JAK STAT Hallmark"],
+                    "Prop._SNPs": [0.8, 0.2],
+                    "Category_h2": [0.25, 0.4],
+                    "Category_h2_std_error": [0.025, 0.04],
+                    "Prop._h2": [0.6, 0.4],
+                    "Prop._h2_std_error": [0.06, 0.04],
+                    "Enrichment": [0.75, 2.0],
+                    "Enrichment_std_error": [0.075, 0.2],
+                    "Enrichment_p": [0.3, 0.02],
+                    "Coefficient": [0.6, 2.0],
+                    "Coefficient_std_error": [0.06, 0.2],
+                    "Coefficient_p": [0.05, 0.04],
                 }
             ),
         }
@@ -337,6 +358,19 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
             )
 
             self.assertTrue((output_dir / "partitioned_h2.tsv").exists())
+            summary = pd.read_csv(output_dir / "partitioned_h2.tsv", sep="\t")
+            self.assertEqual(
+                summary.columns.tolist(),
+                [
+                    "Category",
+                    "Prop._SNPs",
+                    "Prop._h2",
+                    "Enrichment",
+                    "Enrichment_p",
+                    "Coefficient",
+                    "Coefficient_p",
+                ],
+            )
             self.assertFalse((output_dir / "query_annotations").exists())
             self.assertEqual(paths, {"summary": str(output_dir / "partitioned_h2.tsv")})
 
@@ -361,15 +395,48 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
                 manifest["folder"].tolist(),
                 ["0001_il-6_jak_stat_hallmark", "0002_il_6_jak_stat_hallmark"],
             )
+            self.assertIn("partitioned_h2_full_path", manifest.columns)
+            self.assertNotIn("model_categories_path", manifest.columns)
             self.assertTrue((query_root / "0001_il-6_jak_stat_hallmark" / "partitioned_h2.tsv").exists())
-            self.assertTrue((query_root / "0001_il-6_jak_stat_hallmark" / "model_categories.tsv").exists())
+            self.assertTrue((query_root / "0001_il-6_jak_stat_hallmark" / "partitioned_h2_full.tsv").exists())
+            self.assertFalse((query_root / "0001_il-6_jak_stat_hallmark" / "model_categories.tsv").exists())
             metadata = json.loads(
                 (query_root / "0001_il-6_jak_stat_hallmark" / "metadata.json").read_text(encoding="utf-8")
             )
-            categories = pd.read_csv(query_root / "0001_il-6_jak_stat_hallmark" / "model_categories.tsv", sep="\t")
+            query_summary = pd.read_csv(query_root / "0001_il-6_jak_stat_hallmark" / "partitioned_h2.tsv", sep="\t")
+            categories = pd.read_csv(query_root / "0001_il-6_jak_stat_hallmark" / "partitioned_h2_full.tsv", sep="\t")
             self.assertEqual(metadata["query_annotation"], "IL-6/JAK STAT (Hallmark)")
             self.assertEqual(metadata["trait_name"], "trait")
-            self.assertEqual(categories["query_annotation"].tolist(), ["base", "IL-6/JAK STAT (Hallmark)"])
+            self.assertEqual(
+                query_summary.columns.tolist(),
+                [
+                    "Category",
+                    "Prop._SNPs",
+                    "Prop._h2",
+                    "Enrichment",
+                    "Enrichment_p",
+                    "Coefficient",
+                    "Coefficient_p",
+                ],
+            )
+            self.assertEqual(
+                categories.columns.tolist(),
+                [
+                    "Category",
+                    "Prop._SNPs",
+                    "Category_h2",
+                    "Category_h2_std_error",
+                    "Prop._h2",
+                    "Prop._h2_std_error",
+                    "Enrichment",
+                    "Enrichment_std_error",
+                    "Enrichment_p",
+                    "Coefficient",
+                    "Coefficient_std_error",
+                    "Coefficient_p",
+                ],
+            )
+            self.assertEqual(categories["Category"].tolist(), ["base", "IL-6/JAK STAT (Hallmark)"])
             self.assertEqual(paths["per_query_root"], str(query_root))
 
     def test_refuses_existing_outputs_before_writing(self):
@@ -409,7 +476,7 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
 
             self.assertFalse(stale.exists())
             self.assertTrue((output_dir / "query_annotations" / "manifest.tsv").exists())
-            self.assertIn("coefficient", (output_dir / "partitioned_h2.tsv").read_text(encoding="utf-8"))
+            self.assertIn("Coefficient", (output_dir / "partitioned_h2.tsv").read_text(encoding="utf-8"))
 
 
 class FixedOutputDirectoryTest(unittest.TestCase):

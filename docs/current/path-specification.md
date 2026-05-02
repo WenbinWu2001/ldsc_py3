@@ -345,8 +345,10 @@ Output:
   `partitioned-h2.log`, or `rg.log`, respectively, when `output_dir` is
   provided; existing files are refused unless `--overwrite` is supplied.
 - `ldsc partitioned-h2 --write-per-query-results` also writes a staged
-  `query_annotations/` tree under `output_dir`; existing final per-query
-  output is refused unless `--overwrite` is supplied.
+  `query_annotations/` tree under `output_dir`. The tree contains
+  `manifest.tsv` and one folder per query annotation, with per-query
+  `partitioned_h2.tsv`, `partitioned_h2_full.tsv`, and `metadata.json`.
+  Existing final per-query output is refused unless `--overwrite` is supplied.
 - Existing output directories are valid in every case. Only known files for the
   active command are checked.
 

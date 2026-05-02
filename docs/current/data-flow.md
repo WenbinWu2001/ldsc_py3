@@ -379,7 +379,7 @@ flowchart LR
 | Subcommand | Output columns | Example |
 | --- | --- | --- |
 | `h2` | `trait_name`, `n_snps`, `total_h2`, `total_h2_se`, `intercept`, `intercept_se`, `mean_chisq`, `lambda_gc`, `ratio`, `ratio_se` | `trait 105234 0.18 0.03 1.02 0.01 1.11 1.05 0.08 0.03` |
-| `partitioned-h2` | `query_annotation`, `coefficient`, `coefficient_se`, `coefficient_z`, `coefficient_p`, `category_h2`, `category_h2_se`, `proportion_h2`, `proportion_h2_se`, `enrichment` | `enhancer_A 0.012 0.004 3.0 0.003 0.025 0.008 0.14 0.05 2.3` |
+| `partitioned-h2` | `Category`, `Prop._SNPs`, `Prop._h2`, `Enrichment`, `Enrichment_p`, `Coefficient`, `Coefficient_p` | `enhancer_A 0.02 0.14 7.0 0.003 0.012 0.001` |
 | `rg` | `trait_1`, `trait_2`, `rg`, `rg_se`, `z`, `p` | `trait_a trait_b 0.42 0.09 4.7 2.6e-06` |
 
 When `output_dir` is supplied, the same directory also receives the matching
@@ -388,7 +388,9 @@ workflow log. The log is not part of any returned result `output_paths` mapping.
 When `partitioned-h2 --write-per-query-results` is supplied, the command also
 writes `query_annotations/manifest.tsv` plus one ordinal-prefixed sanitized
 folder per query annotation. Each query folder contains `partitioned_h2.tsv`,
-`model_categories.tsv`, and `metadata.json`.
+`partitioned_h2_full.tsv`, and `metadata.json`.
+For column definitions and interpretation, see
+[partitioned-h2-results.md](partitioned-h2-results.md).
 
 ### Modules used
 

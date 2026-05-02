@@ -78,7 +78,7 @@ ldsc_py3_Jerry/
 | change LD-score orchestration, optional-baseline behavior, or output packaging | `src/ldsc/ldscore_calculator.py`, `src/ldsc/outputs.py` |
 | change LD-score math | `src/ldsc/_kernel/ldscore.py` |
 | change raw sumstats ingestion, `CHR`/`POS` handling, sumstats SNP keep-list filtering, sidecar provenance, or curated loading | `src/ldsc/sumstats_munger.py`, then `src/ldsc/_kernel/sumstats_munger.py` |
-| change regression dataset assembly or CLI summaries | `src/ldsc/regression_runner.py`, then `src/ldsc/outputs.py` for partitioned-h2 output layout |
+| change regression dataset assembly or CLI summaries | `src/ldsc/regression_runner.py`, then `src/ldsc/outputs.py` and `docs/current/partitioned-h2-results.md` for partitioned-h2 output layout |
 | change LDSC estimators | `src/ldsc/_kernel/regression.py` |
 | change LD-score result-directory files, parquet row-group layout, partitioned-h2 per-query layout, or manifest metadata | `src/ldsc/outputs.py` |
 

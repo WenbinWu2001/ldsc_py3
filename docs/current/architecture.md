@@ -8,6 +8,7 @@ Related docs:
 - [class-and-features.md](class-and-features.md): public API surface and major types
 - [code-structure.md](code-structure.md): module map and change guide
 - [workflow-logging.md](workflow-logging.md): per-run log naming, preflight, and API boundaries
+- [partitioned-h2-results.md](partitioned-h2-results.md): partitioned-h2 result columns and interpretation
 - [layer-structure.md](layer-structure.md): layer-by-function object matrix
 - [../../design_map.md](../../design_map.md): mapping from design docs to implementation modules
 
@@ -110,19 +111,22 @@ This module wraps the historical munging behavior in typed public objects such a
 
 ### `ldsc.regression_runner`
 
-This module rebuilds an `LDScoreResult` from on-disk artifacts, merges it with munged sumstats, drops zero-variance LD-score columns, writes per-command logs when `output_dir` is supplied, and dispatches to the regression kernel for `h2`, partitioned `h2`, and `rg`. In `rsid` mode the merge uses `SNP`; in `chr_pos` mode it builds a private normalized `CHR:POS` key from sumstats and LD-score coordinates. Architecture invariant: regression only consumes aggregated LD-score artifacts; it does not recompute LD scores.
+This module rebuilds an `LDScoreResult` from on-disk artifacts, merges it with munged sumstats, drops zero-variance LD-score columns, writes per-command logs when `output_dir` is supplied, and dispatches to the regression kernel for `h2`, partitioned `h2`, and `rg`. In `rsid` mode the merge uses `SNP`; in `chr_pos` mode it builds a private normalized `CHR:POS` key from sumstats and LD-score coordinates. Partitioned-h2 summaries are assembled here into the compact public schema, with optional full per-query category tables for the output writer. Architecture invariant: regression only consumes aggregated LD-score artifacts; it does not recompute LD scores.
 
 ### `ldsc.outputs`
 
-This is the canonical LD-score result-directory writer. It owns fixed files
-inside `output_dir`: `manifest.json`, `baseline.parquet`, and optional
-`query.parquet`. The parquet files stay flat for compatibility, but are written
-with one row group per chromosome; `manifest.json` records row-group layout and
-per-chromosome offsets for chromosome-scoped reads. It reuses existing
-directories but refuses existing canonical files unless
-`LDScoreOutputConfig(overwrite=True)` is supplied. Architecture invariant:
-public output customization chooses the directory name and explicit overwrite
-policy, not per-run filename prefixes.
+This is the canonical LD-score and partitioned-h2 result writer. For LD-score
+results it owns fixed files inside `output_dir`: `manifest.json`,
+`baseline.parquet`, and optional `query.parquet`. The parquet files stay flat
+for compatibility, but are written with one row group per chromosome;
+`manifest.json` records row-group layout and per-chromosome offsets for
+chromosome-scoped reads. For partitioned-h2, it owns compact
+`partitioned_h2.tsv` plus the optional `query_annotations/` tree containing
+`manifest.tsv`, per-query `partitioned_h2.tsv`,
+`partitioned_h2_full.tsv`, and `metadata.json`. It reuses existing directories
+but refuses existing canonical files unless overwrite is supplied. Architecture
+invariant: public output customization chooses the directory name and explicit
+overwrite policy, not per-run filename prefixes.
 
 ### `ldsc._kernel.*`
 
@@ -157,8 +161,8 @@ The kernel layer contains the actual numerical methods and low-level readers. It
 - Kernel code must not resolve globs, `@` suites, or other user-facing path tokens.
 - `column_inference.py` owns alias families and internal artifact header strictness.
 - LD-score computation remains chromosome-wise; regression consumes only the aggregated artifacts.
-- Public LD-score output layout is fixed by `LDScoreDirectoryWriter`; optional
-  per-query partitioned-h2 output layout is fixed by
+- Public LD-score output layout is fixed by `LDScoreDirectoryWriter`;
+  partitioned-h2 result tables use fixed compact/full schemas owned by
   `PartitionedH2DirectoryWriter`.
 - Query annotations are valid only with explicit baseline annotations; the synthetic `base` path is for ordinary unpartitioned LD-score generation.
 - Every workflow that writes fixed artifacts must precompute expected output

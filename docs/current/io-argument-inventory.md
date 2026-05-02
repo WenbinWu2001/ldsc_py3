@@ -153,6 +153,7 @@ build's LD window.
 | `--output-dir` | output | yes | munged output directory | The workflow writes fixed `sumstats.*` artifacts under this directory and passes `<output_dir>/sumstats` as the kernel output stem. |
 | `--output-format` | output mode | no | curated sumstats format | One of `parquet`, `tsv.gz`, or `both`; defaults to `parquet`. |
 | `--chr`, `--pos` | input metadata | no | raw column hints | Identify raw chromosome and position columns; default to omitted/`None`, so common aliases such as `#CHROM`, `CHROM`, `CHR`, `POS`, and `BP` are inferred. |
+| `--daner-old`, `--daner-new` | input metadata | no | DANER schema interpretation | `--daner-old` parses case/control N from `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` headers; `--daner-new` parses exact `Nca` and `Nco` columns. |
 | `--snp-identifier`, `--genome-build` | config | no | provenance | `--snp-identifier` defaults to `chr_pos`; `--genome-build` defaults to `hg38`; `--genome-build auto` can infer hg19/hg38 for complete `CHR`/`POS` rows. |
 | `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger records in console and `sumstats.log`; lifecycle audit lines always appear in the file. |
 | `--overwrite` | output mode | no | collision policy | Controls whether fixed sumstats outputs may be replaced; defaults to `False`, so existing outputs are refused. |
@@ -291,6 +292,7 @@ Removed Python names: `plink_path`, `bfile`, `out`, `panel_label`,
 | `MungeConfig` | `raw_sumstats_file` | input | raw summary-statistics file |
 | `MungeConfig` | `trait_name` | input metadata | optional trait label |
 | `MungeConfig` | `column_hints` | input metadata | optional source-column hints |
+| `MungeConfig` | `daner_old`, `daner_new` | input metadata | optional DANER schema interpretation switches |
 | `MungeConfig` | `sumstats_snps_file` | input | summary-statistics SNP keep-list |
 | `MungeConfig` | `output_dir` | output | munged output directory; `SumstatsMunger.run()` writes `sumstats.log` |
 | `MungeConfig` | `output_format` | output mode | `parquet`, `tsv.gz`, or `both`; defaults to `parquet` |

@@ -14,6 +14,12 @@ rest of the refactored package gains a cleaner public interface. Public CLI
 orchestration, output preflight, metadata sidecars, and log-file ownership live
 in ``ldsc.sumstats_munger``; this module emits ordinary package logger records
 while retaining the legacy-compatible `.sumstats.gz` writer.
+
+The physical raw-input reader accepts plain, gzip-compressed, or bzip2-compressed
+whitespace-delimited text. DANER inputs are distinguished by schema flags rather
+than file suffix: ``--daner-old`` reads case/control counts from
+``FRQ_A_<Ncas>`` and ``FRQ_U_<Ncon>`` headers, while ``--daner-new`` reads
+per-SNP case/control counts from exact ``Nca`` and ``Nco`` columns.
 """
 import pandas as pd
 import numpy as np

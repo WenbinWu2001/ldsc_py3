@@ -276,6 +276,7 @@ or `both` also supports the legacy `sumstats.sumstats.gz` artifact.
 | File | Example | Notes |
 | --- | --- | --- |
 | raw sumstats | `#CHROM POS ID EA NEA PVAL BETA NEFF`<br/>`1 754182 rs3131969 A G 0.46 0.004 829249.58` | leading `##` metadata lines are skipped; header aliases are normalized in the workflow layer |
+| DANER raw sumstats, optional schema mode | old: `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` headers with `--daner-old`<br/>new: exact `Nca` and `Nco` columns with `--daner-new` | these flags change only schema interpretation; physical reading still uses the same whitespace text reader |
 | sumstats SNP keep-list, optional | headered `SNP` or `CHR`/`POS` restriction file | optional row filter; does not allele-match or reorder rows |
 | column hints, optional | `--snp ID --chr '#CHROM' --pos POS --a1 EA --a2 NEA` | useful when headers are ambiguous; `CHR` and `POS` also infer from common aliases |
 

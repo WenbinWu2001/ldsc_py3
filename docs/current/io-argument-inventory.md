@@ -77,12 +77,12 @@ Removed flags: `--bed-files`, `--baseline-annot`.
 | `--keep-indivs-file` | input | no | PLINK individual keep file | Restricts PLINK individuals before LD calculation; defaults to omitted/`None`, so no individual keep filter is applied. PLINK mode only. |
 | `--maf-min` | input metadata | no | retained reference-panel MAF filter | Filters retained reference-panel SNPs by MAF; defaults to omitted/`None`, so no retained-reference MAF filter is applied. |
 | `--common-maf-min` | input metadata | no | common-SNP count threshold | Sets the MAF threshold for common-SNP count vectors; defaults to `0.05` and uses `MAF >= common_maf_min`. |
-| `--chunk-size` | performance | no | PLINK block size | Sets the legacy PLINK block-computation size; defaults to `128`. |
+| `--snp-batch-size` | performance | no | LD-score SNP batch size | Number of SNPs processed per LD-score sliding batch; defaults to `128`. The canonical parquet reader sizes its decoded row-group cache automatically from this value and the chromosome LD window. |
 | `--yes-really` | safety override | no | whole-chromosome LD windows | Allows whole-chromosome LD windows; defaults to `False`, so such windows are rejected unless this flag is supplied. |
 
 Removed flags: `--bfile`, `--r2-table`, `--frqfile`, `--r2-sources`,
 `--metadata-sources`, `--keep`, `--maf`, `--baseline-annot`,
-`--query-annot`, `--query-annot-bed`, legacy `--out`.
+`--query-annot`, `--query-annot-bed`, `--chunk-size`, legacy `--out`.
 
 LD-score output schema:
 
@@ -256,6 +256,7 @@ Removed Python names: `bed_paths`, `query_bed_paths`, `bed_files`,
 | `RefPanelConfig` | `keep_indivs_file` | input | PLINK individual keep file |
 | `RefPanelConfig` | `maf_min` | input metadata | retained reference-panel MAF filter |
 | `LDScoreConfig` | `regression_snps_file` | input | regression SNP restriction |
+| `LDScoreConfig` | `snp_batch_size` | performance | LD-score SNP batch size |
 | `LDScoreConfig` | `common_maf_min` | input metadata | common-SNP count threshold only |
 | `LDScoreOutputConfig` | `output_dir` | output | canonical LD-score result directory |
 | `run_ldscore(**kwargs)` | `baseline_annot_sources`, `query_annot_sources`, `query_annot_bed_sources` | input | optional annotation sources; query inputs require baseline sources, and no-annotation runs synthesize `base` |
@@ -264,7 +265,8 @@ Removed Python names: `bed_paths`, `query_bed_paths`, `bed_files`,
 
 Removed Python names: `bfile`, `r2_table`, `frqfile`, `keep`, `maf`,
 `baseline_annot`, `query_annot`, `query_annot_bed`, `out`,
-`r2_ref_panel_dir`, `ref_panel_dir`, `r2_sources`, and `metadata_sources`.
+`r2_ref_panel_dir`, `ref_panel_dir`, `r2_sources`, `metadata_sources`, and
+LD-score `chunk_size`.
 
 ### Reference-panel building
 

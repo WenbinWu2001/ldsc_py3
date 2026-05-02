@@ -35,7 +35,8 @@ Canonical Parquet `R2` Format
   `POS_1` is not required.
 - Canonical files are opened with `pyarrow.parquet.ParquetFile`; footer
   statistics for `POS_1` form a row-group index so each genomic window reads
-  only overlapping row groups.
+  only overlapping row groups. Decoded canonical row groups are cached as
+  numeric endpoint arrays across overlapping sliding-window queries.
 - The loader resolves accepted aliases such as `chr`, `bp_1`, `bp_2`,
   `rsid_1`, and `rsid_2` to the six logical fields above.
 - Legacy raw-schema parquet files with `hg19_pos_1`, `hg38_pos_1`, `rsID_1`,
@@ -175,6 +176,7 @@ Dependencies
 from __future__ import annotations
 
 import argparse
+from collections import OrderedDict
 import gzip
 import logging
 import os
@@ -1210,6 +1212,53 @@ def check_whole_chromosome_window(block_left: np.ndarray, args: argparse.Namespa
 
 
 # Parquet R2 adapter.
+@dataclass(frozen=True)
+class _DecodedR2RowGroup:
+    """Decoded canonical parquet row group stored as numeric endpoint arrays."""
+
+    row_group_index: int
+    i: np.ndarray
+    j: np.ndarray
+    r2: np.ndarray
+
+
+class _RowGroupLRUCache:
+    """Small LRU cache for decoded canonical parquet R2 row groups."""
+
+    def __init__(self, capacity: int) -> None:
+        if capacity <= 0:
+            raise ValueError("row-group cache capacity must be positive.")
+        self.capacity = int(capacity)
+        self._entries: OrderedDict[int, _DecodedR2RowGroup] = OrderedDict()
+        self.hits = 0
+        self.misses = 0
+        self.evictions = 0
+        self.row_group_reads = 0
+
+    def get(self, row_group_index: int) -> _DecodedR2RowGroup | None:
+        """Return a cached decoded row group, updating LRU counters."""
+        key = int(row_group_index)
+        entry = self._entries.get(key)
+        if entry is None:
+            self.misses += 1
+            return None
+        self.hits += 1
+        self._entries.move_to_end(key)
+        return entry
+
+    def put(self, entry: _DecodedR2RowGroup) -> None:
+        """Insert ``entry`` and evict the least recently used group if needed."""
+        key = int(entry.row_group_index)
+        if key in self._entries:
+            self._entries[key] = entry
+            self._entries.move_to_end(key)
+            return
+        self._entries[key] = entry
+        while len(self._entries) > self.capacity:
+            self._entries.popitem(last=False)
+            self.evictions += 1
+
+
 class SortedR2BlockReader:
     """
     Query block-local dense R2 matrices from a per-chromosome parquet table.
@@ -1234,7 +1283,7 @@ class SortedR2BlockReader:
         if not paths:
             raise FileNotFoundError(f"No sorted parquet R2 files resolved for chromosome {chrom}.")
         self.chrom = normalize_chromosome(chrom)
-        self.identifier_mode = identifier_mode
+        self.identifier_mode = normalize_snp_identifier_mode(identifier_mode)
         self.r2_bias_mode = r2_bias_mode
         self.r2_sample_size = r2_sample_size
         self.genome_build = genome_build
@@ -1248,6 +1297,7 @@ class SortedR2BlockReader:
         self._rg_bounds: list[tuple[int, int, int]] = []
         self._raw_pos_columns: tuple[str, str] | None = None
         self._raw_query_columns: list[str] | None = None
+        self._row_group_cache: _RowGroupLRUCache | None = None
         metadata = metadata.copy()
         metadata_context = f"SortedR2BlockReader[{self.chrom}] metadata"
         renamed = {
@@ -1259,7 +1309,7 @@ class SortedR2BlockReader:
         if optional_cm is not None:
             renamed[optional_cm] = "CM"
         metadata = metadata.rename(columns=renamed)
-        validate_retained_identifier_uniqueness(metadata, identifier_mode, chrom)
+        validate_retained_identifier_uniqueness(metadata, self.identifier_mode, chrom)
         self.pos = metadata["POS"].to_numpy(dtype=np.int64)
         self.m = len(metadata)
         if self.identifier_mode == "rsid":
@@ -1406,79 +1456,223 @@ class SortedR2BlockReader:
             values = values - (1.0 - values) / denom
         return values
 
+    @staticmethod
+    def _empty_pair_rows() -> pd.DataFrame:
+        """Return an empty numeric pair-row table."""
+        return pd.DataFrame(
+            {
+                "i": pd.Series([], dtype=np.int64),
+                "j": pd.Series([], dtype=np.int64),
+                "R2": pd.Series([], dtype=np.float32),
+            }
+        )
+
+    def _row_group_indices_for_pos_window(self, pos_min: int, pos_max: int) -> list[int]:
+        """Return canonical row groups whose footer bounds overlap a POS window."""
+        if not self._rg_bounds:
+            return []
+        pos_min = int(pos_min)
+        pos_max = int(pos_max)
+        return [index for mn, mx, index in self._rg_bounds if mn <= pos_max and mx >= pos_min]
+
+    def _row_group_indices_for_index_window(self, start: int, stop: int) -> list[int]:
+        """Return canonical row groups needed for a retained-SNP index window."""
+        start = max(0, int(start))
+        stop = min(int(stop), int(getattr(self, "m", len(self.pos))))
+        if stop <= start:
+            return []
+        return self._row_group_indices_for_pos_window(int(self.pos[start]), int(self.pos[stop - 1]))
+
+    @staticmethod
+    def _sliding_query_index_windows(block_left: np.ndarray, snp_batch_size: int, m: int) -> list[tuple[int, int]]:
+        """Mirror parquet LD-score matrix query windows for cache sizing."""
+        if m <= 0:
+            return []
+        snp_batch_size = int(snp_batch_size)
+        if snp_batch_size <= 0:
+            raise ValueError("snp_batch_size must be positive.")
+
+        block_sizes = np.array(np.arange(m) - block_left)
+        block_sizes = np.ceil(block_sizes / snp_batch_size) * snp_batch_size
+        windows: list[tuple[int, int]] = []
+
+        positive = np.nonzero(block_left > 0)
+        if np.any(positive):
+            block_width = int(positive[0][0])
+        else:
+            block_width = m
+        block_width = int(np.ceil(block_width / snp_batch_size) * snp_batch_size)
+        if block_width > m:
+            snp_batch_size = 1
+            block_width = m
+
+        l_A = 0
+        for l_B in range(0, block_width, snp_batch_size):
+            chunk_width = min(snp_batch_size, m - l_B)
+            if chunk_width <= 0:
+                continue
+            windows.append((min(l_A, l_B), max(l_A + block_width, l_B + chunk_width)))
+
+        b0 = block_width
+        md = int(snp_batch_size * np.floor(m / snp_batch_size))
+        end = md + 1 if md != m else md
+        for l_B in range(b0, end, snp_batch_size):
+            old_block_width = block_width
+            block_width = int(block_sizes[l_B])
+            if l_B > b0 and block_width > 0:
+                l_A += old_block_width - block_width + snp_batch_size
+            elif l_B == b0 and block_width > 0:
+                l_A = b0 - block_width
+            elif block_width == 0:
+                l_A = l_B
+
+            chunk_width = snp_batch_size
+            if l_B == md:
+                chunk_width = m - md
+            if chunk_width <= 0:
+                continue
+            if block_width > 0:
+                windows.append((min(l_A, l_B), max(l_A + block_width, l_B + chunk_width)))
+            windows.append((l_B, l_B + chunk_width))
+
+        return windows
+
+    def configure_auto_row_group_cache(self, block_left: np.ndarray, snp_batch_size: int) -> None:
+        """Size the decoded row-group cache from this chromosome's sliding windows."""
+        if getattr(self, "_runtime_layout", None) != "canonical":
+            self._row_group_cache = None
+            return
+        num_row_groups = len(self._rg_bounds)
+        if num_row_groups == 0:
+            self._row_group_cache = None
+            LOGGER.debug(f"Chromosome {self.chrom} row-group cache disabled: no footer bounds available.")
+            return
+
+        m = int(getattr(self, "m", len(self.pos)))
+        query_sets = [
+            set(self._row_group_indices_for_index_window(start, stop))
+            for start, stop in self._sliding_query_index_windows(block_left, snp_batch_size, m)
+        ]
+        query_sets = [rg_set for rg_set in query_sets if rg_set]
+        if not query_sets:
+            self._row_group_cache = None
+            LOGGER.debug(f"Chromosome {self.chrom} row-group cache disabled: no row groups overlap LD windows.")
+            return
+
+        if len(query_sets) == 1:
+            max_adjacent_union = len(query_sets[0])
+        else:
+            max_adjacent_union = max(len(left | right) for left, right in zip(query_sets, query_sets[1:]))
+        capacity = min(max_adjacent_union + 1, num_row_groups)
+        self._row_group_cache = _RowGroupLRUCache(capacity)
+        LOGGER.debug(
+            f"Chromosome {self.chrom} row-group cache capacity={capacity}, "
+            f"row_groups={num_row_groups}, query_windows={len(query_sets)}."
+        )
+
+    def log_row_group_cache_summary(self) -> None:
+        """Log DEBUG-only cache diagnostics after a chromosome finishes."""
+        cache = self._row_group_cache
+        if cache is None:
+            return
+        LOGGER.debug(
+            f"Chromosome {self.chrom} row-group cache summary: capacity={cache.capacity}, "
+            f"hits={cache.hits}, misses={cache.misses}, evictions={cache.evictions}, "
+            f"row_group_reads={cache.row_group_reads}."
+        )
+
+    def _decode_canonical_row_group(self, row_group_index: int) -> _DecodedR2RowGroup:
+        """Read and decode one canonical parquet row group into numeric arrays."""
+        if self._pf is None or self._canonical_columns is None:
+            raise ValueError("Canonical parquet reader is not initialized.")
+
+        read_cols = [self._canonical_columns["R2"]]
+        if self.identifier_mode == "rsid":
+            read_cols.extend([self._canonical_columns["SNP_1"], self._canonical_columns["SNP_2"]])
+        else:
+            read_cols.extend([self._canonical_columns["POS_1"], self._canonical_columns["POS_2"]])
+
+        table = self._pf.read_row_group(int(row_group_index), columns=read_cols)
+        r2_raw = _arrow_column_to_numpy(table.column(self._canonical_columns["R2"])).astype(np.float32, copy=False)
+        r2 = self._transform_r2(r2_raw)
+
+        if self.identifier_mode == "rsid":
+            left_ids = _arrow_column_to_numpy(table.column(self._canonical_columns["SNP_1"])).astype(str)
+            right_ids = _arrow_column_to_numpy(table.column(self._canonical_columns["SNP_2"])).astype(str)
+            i_raw = np.fromiter((self.index_map.get(value, -1) for value in left_ids), dtype=np.int64, count=len(left_ids))
+            j_raw = np.fromiter((self.index_map.get(value, -1) for value in right_ids), dtype=np.int64, count=len(right_ids))
+        else:
+            pos_1 = _arrow_column_to_numpy(table.column(self._canonical_columns["POS_1"])).astype(np.int64, copy=False)
+            pos_2 = _arrow_column_to_numpy(table.column(self._canonical_columns["POS_2"])).astype(np.int64, copy=False)
+            i_raw = np.fromiter((self.index_map.get(int(value), -1) for value in pos_1), dtype=np.int64, count=len(pos_1))
+            j_raw = np.fromiter((self.index_map.get(int(value), -1) for value in pos_2), dtype=np.int64, count=len(pos_2))
+
+        keep = (i_raw >= 0) & (j_raw >= 0)
+        return _DecodedR2RowGroup(
+            row_group_index=int(row_group_index),
+            i=i_raw[keep].astype(np.int32, copy=False),
+            j=j_raw[keep].astype(np.int32, copy=False),
+            r2=r2[keep].astype(np.float32, copy=False),
+        )
+
+    def _get_decoded_canonical_row_group(self, row_group_index: int) -> _DecodedR2RowGroup:
+        """Return a decoded row group from cache or parquet."""
+        cache = self._row_group_cache
+        if cache is not None:
+            cached = cache.get(row_group_index)
+            if cached is not None:
+                return cached
+
+        decoded = self._decode_canonical_row_group(row_group_index)
+        if cache is not None:
+            cache.row_group_reads += 1
+            cache.put(decoded)
+        return decoded
+
+    def _query_union_rows_canonical_by_index(self, start: int, stop: int) -> pd.DataFrame:
+        """Query numeric pair rows spanning a retained-SNP index window."""
+        start = max(0, int(start))
+        stop = min(int(stop), self.m)
+        if stop <= start:
+            return self._empty_pair_rows()
+
+        rg_idxs = self._row_group_indices_for_index_window(start, stop)
+        if not rg_idxs:
+            return self._empty_pair_rows()
+
+        decoded = [self._get_decoded_canonical_row_group(index) for index in rg_idxs]
+        nonempty = [entry for entry in decoded if len(entry.i) > 0]
+        if not nonempty:
+            return self._empty_pair_rows()
+
+        i = np.concatenate([entry.i for entry in nonempty]).astype(np.int64, copy=False)
+        j = np.concatenate([entry.j for entry in nonempty]).astype(np.int64, copy=False)
+        r2 = np.concatenate([entry.r2 for entry in nonempty]).astype(np.float32, copy=False)
+        keep = (start <= i) & (i < stop) & (start <= j) & (j < stop)
+        if not keep.any():
+            return self._empty_pair_rows()
+        return pd.DataFrame({"i": i[keep], "j": j[keep], "R2": r2[keep]})
+
     def _query_union_rows(self, pos_min: int, pos_max: int) -> pd.DataFrame:
         """Query cached or on-disk pair rows spanning a union genomic window."""
+        if self._runtime_layout == "canonical":
+            return self._query_union_rows_canonical(pos_min, pos_max)
+
         key = (int(pos_min), int(pos_max))
         if self._last_query_key == key and self._last_query_rows is not None:
             return self._last_query_rows.copy()
 
-        if self._runtime_layout == "canonical":
-            rows = self._query_union_rows_canonical(pos_min, pos_max)
-        else:
-            rows = self._query_union_rows_raw(pos_min, pos_max)
+        rows = self._query_union_rows_raw(pos_min, pos_max)
 
         self._last_query_key = key
         self._last_query_rows = rows.copy()
         return rows
 
     def _query_union_rows_canonical(self, pos_min: int, pos_max: int) -> pd.DataFrame:
-        """Fast path using Parquet row-group footer statistics for pruning."""
-        if self._pf is None or self._canonical_columns is None:
-            raise ValueError("Canonical parquet reader is not initialized.")
-
-        rg_idxs = [index for mn, mx, index in self._rg_bounds if mn <= int(pos_max) and mx >= int(pos_min)]
-        if not rg_idxs:
-            return pd.DataFrame(
-                {
-                    "i": pd.Series([], dtype=np.int64),
-                    "j": pd.Series([], dtype=np.int64),
-                    "R2": pd.Series([], dtype=np.float32),
-                }
-            )
-
-        read_cols = [
-            self._canonical_columns["POS_1"],
-            self._canonical_columns["POS_2"],
-            self._canonical_columns["R2"],
-        ]
-        if self.identifier_mode == "rsid":
-            read_cols.extend([self._canonical_columns["SNP_1"], self._canonical_columns["SNP_2"]])
-
-        table = self._pf.read_row_groups(rg_idxs, columns=read_cols)
-        pos_1 = _arrow_column_to_numpy(table.column(self._canonical_columns["POS_1"])).astype(np.int64, copy=False)
-        pos_2 = _arrow_column_to_numpy(table.column(self._canonical_columns["POS_2"])).astype(np.int64, copy=False)
-        mask = (pos_1 >= int(pos_min)) & (pos_2 <= int(pos_max))
-        if not mask.any():
-            return pd.DataFrame(
-                {
-                    "i": pd.Series([], dtype=np.int64),
-                    "j": pd.Series([], dtype=np.int64),
-                    "R2": pd.Series([], dtype=np.float32),
-                }
-            )
-
-        r2_raw = _arrow_column_to_numpy(table.column(self._canonical_columns["R2"])).astype(np.float32, copy=False)
-        r2 = self._transform_r2(r2_raw[mask])
-        if self.identifier_mode == "rsid":
-            left_ids = _arrow_column_to_numpy(table.column(self._canonical_columns["SNP_1"])).astype(str)[mask]
-            right_ids = _arrow_column_to_numpy(table.column(self._canonical_columns["SNP_2"])).astype(str)[mask]
-            i_raw = [self.index_map.get(value) for value in left_ids]
-            j_raw = [self.index_map.get(value) for value in right_ids]
-        else:
-            i_raw = [self.index_map.get(int(value)) for value in pos_1[mask]]
-            j_raw = [self.index_map.get(int(value)) for value in pos_2[mask]]
-
-        rows = pd.DataFrame(
-            {
-                "i": pd.array(i_raw, dtype=pd.Int64Dtype()),
-                "j": pd.array(j_raw, dtype=pd.Int64Dtype()),
-                "R2": r2,
-            }
-        )
-        rows = rows.dropna(subset=["i", "j"]).copy()
-        rows["i"] = rows["i"].astype(np.int64)
-        rows["j"] = rows["j"].astype(np.int64)
-        return rows
+        """Fast path using decoded row-group cache and numeric endpoint filters."""
+        start = int(np.searchsorted(self.pos, int(pos_min), side="left"))
+        stop = int(np.searchsorted(self.pos, int(pos_max), side="right"))
+        return self._query_union_rows_canonical_by_index(start, stop)
 
     def _query_union_rows_raw(self, pos_min: int, pos_max: int) -> pd.DataFrame:
         """Legacy raw-schema path using Dataset filtering and runtime canonicalization."""
@@ -1547,10 +1741,16 @@ class SortedR2BlockReader:
 
         a_start, a_stop = l_A, l_A + b
         b_start, b_stop = l_B, l_B + c
-        union_min = int(self.pos[min(a_start, b_start)])
-        union_max = int(self.pos[max(a_stop - 1, b_stop - 1)])
+        union_start = min(a_start, b_start)
+        union_stop = max(a_stop, b_stop)
+        if self._runtime_layout == "canonical":
+            query_rows = self._query_union_rows_canonical_by_index(union_start, union_stop)
+        else:
+            union_min = int(self.pos[union_start])
+            union_max = int(self.pos[union_stop - 1])
+            query_rows = self._query_union_rows(union_min, union_max)
         rows = self._deduplicate_pairs(
-            self._query_union_rows(union_min, union_max),
+            query_rows,
             context=f"cross-block query {self.chrom}:{l_A}:{b}:{l_B}:{c}",
         )
 
@@ -1581,10 +1781,14 @@ class SortedR2BlockReader:
             return np.zeros((0, 0), dtype=np.float32)
 
         b_start, b_stop = l_B, l_B + c
-        pos_min = int(self.pos[b_start])
-        pos_max = int(self.pos[b_stop - 1])
+        if self._runtime_layout == "canonical":
+            query_rows = self._query_union_rows_canonical_by_index(b_start, b_stop)
+        else:
+            pos_min = int(self.pos[b_start])
+            pos_max = int(self.pos[b_stop - 1])
+            query_rows = self._query_union_rows(pos_min, pos_max)
         rows = self._deduplicate_pairs(
-            self._query_union_rows(pos_min, pos_max),
+            query_rows,
             context=f"within-block query {self.chrom}:{l_B}:{c}",
         )
 
@@ -1607,63 +1811,76 @@ class SortedR2BlockReader:
 
 def ld_score_var_blocks_from_r2_reader(
     block_left: np.ndarray,
-    c: int,
+    snp_batch_size: int,
     annot: np.ndarray,
     block_reader: SortedR2BlockReader,
 ) -> np.ndarray:
     """
     Mirror the old LDSC sliding-block accumulation while sourcing block-local
     dense R2 matrices from a sorted parquet reader instead of genotype blocks.
+    The canonical parquet reader configures a chromosome-local decoded
+    row-group cache from ``block_left`` and ``snp_batch_size`` before traversal.
     """
     m = annot.shape[0]
     n_a = annot.shape[1]
+    if snp_batch_size <= 0:
+        raise ValueError("snp_batch_size must be positive.")
     block_sizes = np.array(np.arange(m) - block_left)
-    block_sizes = np.ceil(block_sizes / c) * c
+    block_sizes = np.ceil(block_sizes / snp_batch_size) * snp_batch_size
     cor_sum = np.zeros((m, n_a), dtype=np.float64)
+    block_reader.configure_auto_row_group_cache(block_left, snp_batch_size)
 
-    b = np.nonzero(block_left > 0)
-    if np.any(b):
-        b = b[0][0]
-    else:
-        b = m
-    b = int(np.ceil(b / c) * c)
-    if b > m:
-        c = 1
-        b = m
+    try:
+        b = np.nonzero(block_left > 0)
+        if np.any(b):
+            b = b[0][0]
+        else:
+            b = m
+        b = int(np.ceil(b / snp_batch_size) * snp_batch_size)
+        if b > m:
+            snp_batch_size = 1
+            b = m
 
-    l_A = 0
-    for l_B in range(0, b, c):
-        rfuncAB = block_reader.cross_block_matrix(l_A, b, l_B, c)
-        cor_sum[l_A:l_A + b, :] += np.dot(rfuncAB, annot[l_B:l_B + c, :])
+        l_A = 0
+        for l_B in range(0, b, snp_batch_size):
+            chunk_width = min(snp_batch_size, m - l_B)
+            if chunk_width <= 0:
+                continue
+            rfuncAB = block_reader.cross_block_matrix(l_A, b, l_B, chunk_width)
+            cor_sum[l_A:l_A + b, :] += np.dot(rfuncAB, annot[l_B:l_B + chunk_width, :])
 
-    b0 = b
-    md = int(c * np.floor(m / c))
-    end = md + 1 if md != m else md
-    for l_B in range(b0, end, c):
-        old_b = b
-        b = int(block_sizes[l_B])
-        if l_B > b0 and b > 0:
-            l_A += old_b - b + c
-        elif l_B == b0 and b > 0:
-            l_A = b0 - b
-        elif b == 0:
-            l_A = l_B
+        b0 = b
+        md = int(snp_batch_size * np.floor(m / snp_batch_size))
+        end = md + 1 if md != m else md
+        for l_B in range(b0, end, snp_batch_size):
+            old_b = b
+            b = int(block_sizes[l_B])
+            if l_B > b0 and b > 0:
+                l_A += old_b - b + snp_batch_size
+            elif l_B == b0 and b > 0:
+                l_A = b0 - b
+            elif b == 0:
+                l_A = l_B
 
-        chunk_width = c
-        if l_B == md:
-            chunk_width = m - md
+            chunk_width = snp_batch_size
+            if l_B == md:
+                chunk_width = m - md
+            if chunk_width <= 0:
+                continue
 
-        p1 = np.all(annot[l_A:l_A + b, :] == 0)
-        p2 = np.all(annot[l_B:l_B + chunk_width, :] == 0)
-        if p1 and p2:
-            continue
+            p1 = np.all(annot[l_A:l_A + b, :] == 0)
+            p2 = np.all(annot[l_B:l_B + chunk_width, :] == 0)
+            if p1 and p2:
+                continue
 
-        rfuncAB = block_reader.cross_block_matrix(l_A, b, l_B, chunk_width)
-        cor_sum[l_A:l_A + b, :] += np.dot(rfuncAB, annot[l_B:l_B + chunk_width, :])
-        cor_sum[l_B:l_B + chunk_width, :] += np.dot(annot[l_A:l_A + b, :].T, rfuncAB).T
+            rfuncAB = block_reader.cross_block_matrix(l_A, b, l_B, chunk_width)
+            cor_sum[l_A:l_A + b, :] += np.dot(rfuncAB, annot[l_B:l_B + chunk_width, :])
+            cor_sum[l_B:l_B + chunk_width, :] += np.dot(annot[l_A:l_A + b, :].T, rfuncAB).T
 
-        rfuncBB = block_reader.within_block_matrix(l_B, chunk_width)
-        cor_sum[l_B:l_B + chunk_width, :] += np.dot(rfuncBB, annot[l_B:l_B + chunk_width, :])
+            rfuncBB = block_reader.within_block_matrix(l_B, chunk_width)
+            cor_sum[l_B:l_B + chunk_width, :] += np.dot(rfuncBB, annot[l_B:l_B + chunk_width, :])
+    finally:
+        block_reader.log_row_group_cache_summary()
 
     return np.asarray(cor_sum, dtype=np.float32)
 
@@ -1748,7 +1965,7 @@ def compute_chrom_from_parquet(
     )
     combined_scores = ld_score_var_blocks_from_r2_reader(
         block_left=block_left,
-        c=args.chunk_size,
+        snp_batch_size=args.snp_batch_size,
         annot=combined_annot,
         block_reader=block_reader,
     )
@@ -1853,10 +2070,10 @@ def compute_chrom_from_plink(
     block_left = legacy_ld.getBlockLefts(coords, max_dist)
     check_whole_chromosome_window(block_left, args, chrom)
 
-    ld_scores = geno.ldScoreVarBlocks(block_left, args.chunk_size, annot=annotation_matrix.to_numpy(dtype=np.float32))
+    ld_scores = geno.ldScoreVarBlocks(block_left, args.snp_batch_size, annot=annotation_matrix.to_numpy(dtype=np.float32))
     regression_mask = regression_mask_from_keys(geno_meta.drop(columns="_key"), regression_keys, args.snp_identifier)
     geno._currentSNP = 0
-    w_ld = geno.ldScoreVarBlocks(block_left, args.chunk_size, annot=regression_mask.reshape(-1, 1))
+    w_ld = geno.ldScoreVarBlocks(block_left, args.snp_batch_size, annot=regression_mask.reshape(-1, 1))
     out_metadata = geno_meta.drop(columns="_key").reset_index(drop=True)
     M, M_5_50 = compute_counts(
         out_metadata,
@@ -2044,8 +2261,8 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--maf-min must lie in [0, 0.5].")
     if not 0 <= getattr(args, "common_maf_min", 0.05) <= 0.5:
         raise ValueError("--common-maf-min must lie in [0, 0.5].")
-    if args.chunk_size <= 0:
-        raise ValueError("--chunk-size must be positive.")
+    if args.snp_batch_size <= 0:
+        raise ValueError("--snp-batch-size must be positive.")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -2076,7 +2293,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ld-wind-cm", default=None, type=float, help="LD window size in centiMorgans.")
     parser.add_argument("--maf-min", default=None, type=float, help="Optional MAF filter for retained SNPs when MAF is available.")
     parser.add_argument("--common-maf-min", default=0.05, type=float, help="MAF threshold used only for common-SNP annotation count vectors.")
-    parser.add_argument("--chunk-size", default=128, type=int, help="Chunk size for legacy PLINK block computations.")
+    parser.add_argument("--snp-batch-size", default=128, type=int, help="Number of SNPs processed per LD-score sliding batch.")
     parser.add_argument("--per-chr-output", default=False, action="store_true", help="Emit per-chromosome outputs instead of an aggregated output.")
     parser.add_argument("--yes-really", default=False, action="store_true", help="Allow whole-chromosome LD windows.")
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"), help="Logging verbosity.")
@@ -2158,7 +2375,7 @@ def run_ldscore(
     ld_wind_cm: float | None = None,
     maf_min: float | None = None,
     common_maf_min: float = 0.05,
-    chunk_size: int = 128,
+    snp_batch_size: int = 128,
     per_chr_output: bool = False,
     yes_really: bool = False,
     log_level: str = "INFO",
@@ -2192,7 +2409,7 @@ def run_ldscore(
         ld_wind_cm=ld_wind_cm,
         maf_min=maf_min,
         common_maf_min=common_maf_min,
-        chunk_size=chunk_size,
+        snp_batch_size=snp_batch_size,
         per_chr_output=per_chr_output,
         yes_really=yes_really,
         log_level=log_level,

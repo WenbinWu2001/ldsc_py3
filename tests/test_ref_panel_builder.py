@@ -1881,7 +1881,7 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
                     baseline_annot_sources=str(baseline),
                     plink_prefix=str(prefix),
                     ld_wind_snps=10,
-                    chunk_size=64,
+                    snp_batch_size=64,
                 )
                 parquet = ldscore_calculator.run_ldscore(
                     output_dir=str(tmpdir / "parquet"),
@@ -1890,7 +1890,7 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
                     r2_bias_mode="raw",
                     r2_sample_size=3202,
                     ld_wind_snps=10,
-                    chunk_size=64,
+                    snp_batch_size=64,
                 )
             finally:
                 reset_global_config()

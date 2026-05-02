@@ -55,6 +55,13 @@ Important output behavior:
   starts; reruns that should replace them must pass `--overwrite` or
   `overwrite=True`
 
+Performance behavior for canonical parquet R2 input:
+
+- `snp_batch_size` / `--snp-batch-size` controls the number of SNPs processed per LD-score sliding batch; the default is `128`
+- the canonical parquet reader automatically sizes a decoded row-group cache once per chromosome from the actual LD window and `snp_batch_size`
+- cache entries are decoded row groups with numeric endpoint indices and R2 values, not pandas DataFrames or SNP strings
+- the cache only avoids rereading overlapping parquet row groups; every query still computes its required row-group set and filters to the current SNP window, so cache state does not affect correctness
+
 ## Case 1: Ordinary Unpartitioned LD Scores
 
 For unpartitioned heritability, no baseline annotation input is needed. The
@@ -80,6 +87,7 @@ result = run_ldscore(
     regression_snps_file="filters/hapmap3.txt",
     common_maf_min=0.05,
     ld_wind_cm=1.0,
+    # snp_batch_size=128,  # optional; also controls parquet cache sizing
 )
 
 print(result.baseline_columns)
@@ -97,6 +105,7 @@ ldsc ldscore \
   --snp-identifier rsid \
   --common-maf-min 0.05 \
   --ld-wind-cm 1.0
+# Add --snp-batch-size 128 only when intentionally tuning the sliding batch size.
 ```
 
 ## Case 2: Existing SNP-Level Annotation Files

@@ -655,7 +655,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ld-wind-cm", default=None, type=float, help="LD window size in centiMorgans.")
     parser.add_argument("--maf-min", default=None, type=float, help="Optional MAF filter for retained reference-panel SNPs when MAF is available.")
     parser.add_argument("--common-maf-min", default=0.05, type=float, help="MAF threshold used only for common-SNP annotation count vectors.")
-    parser.add_argument("--chunk-size", default=128, type=int, help="Chunk size for legacy PLINK block computations.")
+    parser.add_argument("--snp-batch-size", default=128, type=int, help="Number of SNPs processed per LD-score sliding batch.")
     parser.add_argument("--yes-really", default=False, action="store_true", help="Allow whole-chromosome LD windows.")
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"), help="Logging verbosity.")
     return parser
@@ -760,8 +760,8 @@ def _validate_run_args(args: argparse.Namespace) -> None:
         raise ValueError("--maf-min must lie in [0, 0.5].")
     if not 0 <= getattr(args, "common_maf_min", 0.05) <= 0.5:
         raise ValueError("--common-maf-min must lie in [0, 0.5].")
-    if args.chunk_size <= 0:
-        raise ValueError("--chunk-size must be positive.")
+    if args.snp_batch_size <= 0:
+        raise ValueError("--snp-batch-size must be positive.")
 
 
 def _has_cli_tokens(value: str | Sequence[str] | None) -> bool:
@@ -822,7 +822,7 @@ def run_ldscore(**kwargs) -> LDScoreResult:
     Keyword arguments are interpreted as CLI-equivalent option names without
     leading ``--``; for example ``baseline_annot_sources``, ``query_annot_sources``,
     ``query_annot_bed_sources``, ``plink_prefix``, ``r2_dir``,
-    ``keep_indivs_file``, ``common_maf_min``, and
+    ``keep_indivs_file``, ``snp_batch_size``, ``common_maf_min``, and
     ``output_dir``. Shared runtime assumptions such as ``snp_identifier`` and
     ``genome_build`` must be supplied through ``set_global_config(...)`` first,
     while per-run controls such as ``ref_panel_snps_file`` and
@@ -867,6 +867,7 @@ def run_ldscore(**kwargs) -> LDScoreResult:
             "ref_panel_snps_path",
             "regression_snps_path",
             "keep_indivs_path",
+            "chunk_size",
             "maf",
         }
         & set(kwargs)
@@ -909,6 +910,8 @@ def _normalize_run_args(args: argparse.Namespace) -> tuple[argparse.Namespace, G
         normalized_args.maf_min = None
     if not hasattr(normalized_args, "common_maf_min"):
         normalized_args.common_maf_min = 0.05
+    if not hasattr(normalized_args, "snp_batch_size"):
+        normalized_args.snp_batch_size = 128
     normalized_args.snp_identifier = normalized_mode
     normalized_args.output_dir = normalize_path_token(args.output_dir)
     normalized_args.r2_dir = _r2_dir_from_args(normalized_args)
@@ -1081,7 +1084,7 @@ def _ldscore_config_from_args(args: argparse.Namespace) -> LDScoreConfig:
         ld_wind_kb=getattr(args, "ld_wind_kb", None),
         ld_wind_cm=getattr(args, "ld_wind_cm", None),
         regression_snps_file=getattr(args, "regression_snps_file", None),
-        chunk_size=getattr(args, "chunk_size", 50),
+        snp_batch_size=getattr(args, "snp_batch_size", 128),
         common_maf_min=getattr(args, "common_maf_min", 0.05),
         whole_chromosome_ok=getattr(args, "yes_really", False),
     )
@@ -1224,7 +1227,7 @@ def _namespace_from_configs(chrom: str, ref_panel, ldscore_config: LDScoreConfig
         maf=None,
         maf_min=None,
         common_maf_min=ldscore_config.common_maf_min,
-        chunk_size=ldscore_config.chunk_size,
+        snp_batch_size=ldscore_config.snp_batch_size,
         per_chr_output=False,
         yes_really=ldscore_config.whole_chromosome_ok,
         log_level=global_config.log_level,

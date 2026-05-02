@@ -212,6 +212,37 @@ class CanonicalParquetRuntimeTest(unittest.TestCase):
         with pq.ParquetWriter(str(path), enriched) as writer:
             writer.write_table(table.cast(enriched), row_group_size=row_group_size)
 
+    def _write_pair_parquet(self, path: Path, pairs: list[dict], *, row_group_size: int = 2) -> None:
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        table = pa.Table.from_pandas(pd.DataFrame(pairs), preserve_index=False)
+        meta = {
+            b"ldsc:sorted_by_build": b"hg19",
+            b"ldsc:row_group_size": str(row_group_size).encode("utf-8"),
+        }
+        enriched = table.schema.with_metadata({**(table.schema.metadata or {}), **meta})
+        with pq.ParquetWriter(str(path), enriched) as writer:
+            writer.write_table(table.cast(enriched), row_group_size=row_group_size)
+
+    def _four_snp_metadata(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "CHR": ["1"] * 4,
+                "SNP": ["rs1", "rs2", "rs3", "rs4"],
+                "BP": [100, 120, 140, 160],
+                "CM": [0.0] * 4,
+            }
+        )
+
+    def _four_snp_pairs(self) -> list[dict]:
+        return [
+            {"CHR": "1", "POS_1": 100, "POS_2": 120, "R2": 0.4, "SNP_1": "rs1", "SNP_2": "rs2"},
+            {"CHR": "1", "POS_1": 100, "POS_2": 140, "R2": 0.2, "SNP_1": "rs1", "SNP_2": "rs3"},
+            {"CHR": "1", "POS_1": 120, "POS_2": 140, "R2": 0.6, "SNP_1": "rs2", "SNP_2": "rs3"},
+            {"CHR": "1", "POS_1": 140, "POS_2": 160, "R2": 0.5, "SNP_1": "rs3", "SNP_2": "rs4"},
+        ]
+
     def test_canonical_init_builds_rg_bounds(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "chr1.parquet"
@@ -458,7 +489,7 @@ class CanonicalParquetRuntimeTest(unittest.TestCase):
             metadata = pd.DataFrame(
                 {
                     "CHR": ["1"] * 7,
-                    "SNP": [f"rs{i + 1}" for i in range(7)],
+                    "SNP": ["rs1", "rs2", "rs2b", "rs3", "rs4", "rs5", "rs6"],
                     "BP": [100, 120, 130, 200, 220, 300, 320],
                     "CM": [0.0] * 7,
                 }
@@ -473,13 +504,148 @@ class CanonicalParquetRuntimeTest(unittest.TestCase):
                 genome_build="hg19",
             )
             rg_idxs_used = []
-            original_read_row_groups = reader._pf.read_row_groups
+            original_read_row_group = reader._pf.read_row_group
 
-            def mock_read_row_groups(indexes, **kwargs):
-                rg_idxs_used.extend(indexes)
-                return original_read_row_groups(indexes, **kwargs)
+            def mock_read_row_group(index, **kwargs):
+                rg_idxs_used.append(index)
+                return original_read_row_group(index, **kwargs)
 
-            reader._pf.read_row_groups = mock_read_row_groups
+            reader._pf.read_row_group = mock_read_row_group
             rows = reader._query_union_rows(100, 130)
             self.assertEqual(sorted(set(rg_idxs_used)), [0])
             self.assertEqual(len(rows), 2)
+
+    def test_auto_row_group_cache_capacity_uses_adjacent_query_union(self):
+        reader = object.__new__(ld.SortedR2BlockReader)
+        reader.chrom = "1"
+        reader._runtime_layout = "canonical"
+        reader.pos = np.arange(8, dtype=np.int64) * 10
+        reader._rg_bounds = [(0, 19, 0), (20, 39, 1), (40, 59, 2), (60, 79, 3), (80, 99, 4)]
+        reader._row_group_cache = None
+        block_left = np.array([0, 0, 0, 1, 2, 3, 4, 5], dtype=np.int64)
+
+        reader.configure_auto_row_group_cache(block_left=block_left, snp_batch_size=2)
+
+        self.assertEqual(reader._row_group_cache.capacity, 4)
+
+    def test_auto_row_group_cache_capacity_uses_actual_cm_block_left(self):
+        reader = object.__new__(ld.SortedR2BlockReader)
+        reader.chrom = "1"
+        reader._runtime_layout = "canonical"
+        reader.pos = np.array([100, 110, 120, 130, 140, 150, 160, 170], dtype=np.int64)
+        reader._rg_bounds = [(100, 119, 0), (120, 139, 1), (140, 159, 2), (160, 179, 3)]
+        reader._row_group_cache = None
+        cm = np.array([0.0, 0.01, 0.02, 0.30, 0.31, 0.32, 0.70, 0.71], dtype=float)
+        block_left = ld.getBlockLefts(cm, 0.05)
+
+        reader.configure_auto_row_group_cache(block_left=block_left, snp_batch_size=2)
+
+        self.assertEqual(reader._row_group_cache.capacity, 4)
+
+    def test_cached_ld_score_matches_expected_and_preserves_absent_pairs(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "chr1.parquet"
+            self._write_pair_parquet(path, self._four_snp_pairs(), row_group_size=2)
+            reader = ld.SortedR2BlockReader(
+                paths=[str(path)],
+                chrom="1",
+                metadata=self._four_snp_metadata(),
+                identifier_mode="rsid",
+                r2_bias_mode="unbiased",
+                r2_sample_size=None,
+                genome_build="hg19",
+            )
+            scores = ld.ld_score_var_blocks_from_r2_reader(
+                block_left=np.zeros(4, dtype=np.int64),
+                snp_batch_size=2,
+                annot=np.ones((4, 1), dtype=np.float32),
+                block_reader=reader,
+            )
+
+            np.testing.assert_allclose(scores[:, 0], [1.6, 2.0, 2.3, 1.5], rtol=1e-6)
+            matrix = reader.within_block_matrix(l_B=0, c=4)
+            self.assertEqual(matrix[0, 3], 0.0)
+            np.testing.assert_allclose(np.diag(matrix), np.ones(4, dtype=np.float32))
+
+    def test_tiny_row_group_cache_preserves_results_but_reads_more(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "chr1.parquet"
+            self._write_pair_parquet(path, self._four_snp_pairs(), row_group_size=2)
+            block_left = np.zeros(4, dtype=np.int64)
+            annot = np.ones((4, 1), dtype=np.float32)
+            full_reader = ld.SortedR2BlockReader(
+                paths=[str(path)],
+                chrom="1",
+                metadata=self._four_snp_metadata(),
+                identifier_mode="rsid",
+                r2_bias_mode="unbiased",
+                r2_sample_size=None,
+                genome_build="hg19",
+            )
+            full_scores = ld.ld_score_var_blocks_from_r2_reader(
+                block_left=block_left,
+                snp_batch_size=2,
+                annot=annot,
+                block_reader=full_reader,
+            )
+            full_reads = full_reader._row_group_cache.row_group_reads
+
+            tiny_reader = ld.SortedR2BlockReader(
+                paths=[str(path)],
+                chrom="1",
+                metadata=self._four_snp_metadata(),
+                identifier_mode="rsid",
+                r2_bias_mode="unbiased",
+                r2_sample_size=None,
+                genome_build="hg19",
+            )
+            real_configure = tiny_reader.configure_auto_row_group_cache
+
+            def configure_tiny_cache(block_left, snp_batch_size):
+                real_configure(block_left, snp_batch_size)
+                tiny_reader._row_group_cache.capacity = 1
+
+            tiny_reader.configure_auto_row_group_cache = configure_tiny_cache
+            tiny_scores = ld.ld_score_var_blocks_from_r2_reader(
+                block_left=block_left,
+                snp_batch_size=2,
+                annot=annot,
+                block_reader=tiny_reader,
+            )
+
+            np.testing.assert_allclose(tiny_scores, full_scores, rtol=1e-6)
+            self.assertGreater(tiny_reader._row_group_cache.row_group_reads, full_reads)
+
+    def test_overlapping_windows_reuse_cached_decoded_row_groups(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "chr1.parquet"
+            pairs = [
+                {"CHR": "1", "POS_1": 100, "POS_2": 120, "R2": 0.4, "SNP_1": "rs1", "SNP_2": "rs2"},
+                {"CHR": "1", "POS_1": 100, "POS_2": 140, "R2": 0.2, "SNP_1": "rs1", "SNP_2": "rs3"},
+                {"CHR": "1", "POS_1": 120, "POS_2": 140, "R2": 0.6, "SNP_1": "rs2", "SNP_2": "rs3"},
+                {"CHR": "1", "POS_1": 120, "POS_2": 160, "R2": 0.3, "SNP_1": "rs2", "SNP_2": "rs4"},
+                {"CHR": "1", "POS_1": 140, "POS_2": 160, "R2": 0.5, "SNP_1": "rs3", "SNP_2": "rs4"},
+            ]
+            self._write_pair_parquet(path, pairs, row_group_size=2)
+            reader = ld.SortedR2BlockReader(
+                paths=[str(path)],
+                chrom="1",
+                metadata=self._four_snp_metadata(),
+                identifier_mode="rsid",
+                r2_bias_mode="unbiased",
+                r2_sample_size=None,
+                genome_build="hg19",
+            )
+            reader.configure_auto_row_group_cache(block_left=np.zeros(4, dtype=np.int64), snp_batch_size=2)
+            rg_idxs_used = []
+            original_read_row_group = reader._pf.read_row_group
+
+            def mock_read_row_group(index, **kwargs):
+                rg_idxs_used.append(index)
+                return original_read_row_group(index, **kwargs)
+
+            reader._pf.read_row_group = mock_read_row_group
+            reader.within_block_matrix(l_B=0, c=2)
+            reader.within_block_matrix(l_B=1, c=2)
+
+            self.assertEqual(rg_idxs_used.count(1), 1)

@@ -312,7 +312,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             ld_wind_cm=None,
             maf_min=None,
             common_maf_min=0.05,
-            chunk_size=50,
+            snp_batch_size=50,
         )
 
         ldscore_workflow._validate_run_args(args)
@@ -339,7 +339,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             ld_wind_cm=None,
             maf_min=None,
             common_maf_min=0.05,
-            chunk_size=50,
+            snp_batch_size=50,
         )
 
         with self.assertRaisesRegex(ValueError, "--r2-sample-size is required"):
@@ -358,6 +358,35 @@ class LDScoreWorkflowTest(unittest.TestCase):
         )
 
         self.assertEqual(args.r2_bias_mode, "unbiased")
+
+    def test_kernel_build_parser_accepts_snp_batch_size_and_rejects_chunk_size(self):
+        parser = kernel_ldscore.build_parser()
+        args = parser.parse_args(
+            [
+                "--out",
+                "out",
+                "--baseline-annot",
+                "baseline.annot.gz",
+                "--r2-table",
+                "panel.@.parquet",
+                "--snp-batch-size",
+                "64",
+            ]
+        )
+        self.assertEqual(args.snp_batch_size, 64)
+        with self.assertRaises(SystemExit):
+            parser.parse_args(
+                [
+                    "--out",
+                    "out",
+                    "--baseline-annot",
+                    "baseline.annot.gz",
+                    "--r2-table",
+                    "panel.@.parquet",
+                    "--chunk-size",
+                    "64",
+                ]
+            )
 
     def test_kernel_validate_args_accepts_omitted_r2_bias_mode_as_unbiased(self):
         args = Namespace(
@@ -383,7 +412,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             ld_wind_cm=None,
             maf_min=None,
             common_maf_min=0.05,
-            chunk_size=50,
+            snp_batch_size=50,
             per_chr_output=False,
             yes_really=False,
             log_level="INFO",
@@ -409,7 +438,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                     parser.parse_args(["--output-dir", "out", flag, "value"])
 
     def test_run_ldscore_rejects_removed_parquet_input_kwargs(self):
-        for name in ("r2_ref_panel_dir", "ref_panel_dir", "r2_sources", "metadata_sources"):
+        for name in ("r2_ref_panel_dir", "ref_panel_dir", "r2_sources", "metadata_sources", "chunk_size"):
             with self.subTest(name=name):
                 with self.assertRaisesRegex(ValueError, "no longer accepts"):
                     ldscore_workflow.run_ldscore(output_dir="out", **{name: "value"})
@@ -770,9 +799,16 @@ class LDScoreWorkflowTest(unittest.TestCase):
         )
         self.assertEqual(args.query_annot_bed_sources, "query.bed")
 
-    def test_build_parser_defaults_chunk_size_to_128(self):
+    def test_build_parser_defaults_snp_batch_size_to_128(self):
         parser = ldscore_workflow.build_parser()
-        self.assertEqual(parser.get_default("chunk_size"), 128)
+        self.assertEqual(parser.get_default("snp_batch_size"), 128)
+
+    def test_build_parser_accepts_snp_batch_size_and_rejects_chunk_size(self):
+        parser = ldscore_workflow.build_parser()
+        args = parser.parse_args(["--output-dir", "out", "--snp-batch-size", "64"])
+        self.assertEqual(args.snp_batch_size, 64)
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["--output-dir", "out", "--chunk-size", "64"])
 
     def test_build_parser_rejects_query_annot_and_query_annot_bed_together(self):
         parser = ldscore_workflow.build_parser()
@@ -892,7 +928,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 ld_wind_cm=None,
                 maf_min=None,
                 common_maf_min=0.05,
-                chunk_size=50,
+                snp_batch_size=50,
                 per_chr_output=False,
                 yes_really=False,
                 log_level="INFO",
@@ -949,7 +985,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 ld_wind_cm=None,
                 maf_min=None,
                 common_maf_min=0.05,
-                chunk_size=50,
+                snp_batch_size=50,
                 per_chr_output=False,
                 yes_really=False,
                 log_level="INFO",
@@ -1045,7 +1081,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             ld_wind_cm=None,
             maf_min=None,
             common_maf_min=0.05,
-            chunk_size=50,
+            snp_batch_size=50,
             per_chr_output=False,
             yes_really=False,
             log_level="INFO",
@@ -1077,7 +1113,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             ld_wind_cm=None,
             maf_min=None,
             common_maf_min=0.05,
-            chunk_size=50,
+            snp_batch_size=50,
             per_chr_output=False,
             yes_really=False,
             log_level="INFO",
@@ -1112,7 +1148,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 ld_wind_cm=None,
                 maf_min=None,
                 common_maf_min=0.05,
-                chunk_size=50,
+                snp_batch_size=50,
                 per_chr_output=False,
                 yes_really=False,
                 log_level="INFO",
@@ -1209,6 +1245,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 ref_panel=ref_panel,
                 ldscore_config=ldscore_workflow.LDScoreConfig(
                     ld_wind_cm=1.0,
+                    snp_batch_size=64,
                     common_maf_min=0.05,
                 ),
                 global_config=common,
@@ -1220,6 +1257,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
             self.assertEqual(args.frqfile, str(meta_path))
             self.assertIsNone(args.keep)
             self.assertEqual(args.genome_build, "hg19")
+            self.assertEqual(args.snp_batch_size, 64)
+            self.assertFalse(hasattr(args, "chunk_size"))
 
     def test_run_ldscore_from_args_passes_path_tokens_to_builder_and_ref_panel_loader(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1245,7 +1284,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 ld_wind_cm=None,
                 maf_min=None,
                 common_maf_min=0.05,
-                chunk_size=50,
+                snp_batch_size=50,
                 per_chr_output=False,
                 yes_really=False,
                 log_level="INFO",
@@ -1301,7 +1340,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 ld_wind_cm=None,
                 maf_min=None,
                 common_maf_min=0.05,
-                chunk_size=50,
+                snp_batch_size=50,
                 per_chr_output=False,
                 yes_really=False,
                 log_level="INFO",
@@ -1473,7 +1512,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             ld_wind_cm=None,
             maf_min=None,
             common_maf_min=0.05,
-            chunk_size=50,
+            snp_batch_size=50,
             per_chr_output=False,
             yes_really=False,
             log_level="INFO",
@@ -1507,7 +1546,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 ld_wind_cm=None,
                 maf_min=None,
                 common_maf_min=0.05,
-                chunk_size=50,
+                snp_batch_size=50,
                 per_chr_output=False,
                 yes_really=False,
                 log_level="INFO",

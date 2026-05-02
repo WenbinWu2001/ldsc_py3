@@ -338,8 +338,9 @@ class LDScoreConfig:
         the persisted ``baseline.parquet`` row set and, when query annotations
         are present, the aligned ``query.parquet`` row set. Default is
         ``None``.
-    chunk_size : int, optional
-        Chunk size for legacy PLINK block computations. Default is ``128``.
+    snp_batch_size : int, optional
+        Number of SNPs processed per LD-score sliding batch. Default is
+        ``128``.
     common_maf_min : float, optional
         Inclusive MAF threshold used only for common-SNP count vectors
         (``MAF >= common_maf_min``). It does not change retained reference
@@ -353,7 +354,7 @@ class LDScoreConfig:
     ld_wind_kb: float | None = None
     ld_wind_cm: float | None = None
     regression_snps_file: str | PathLike[str] | None = None
-    chunk_size: int = 128
+    snp_batch_size: int = 128
     common_maf_min: float = 0.05
     whole_chromosome_ok: bool = False
 
@@ -370,8 +371,8 @@ class LDScoreConfig:
             raise ValueError("ld_wind_cm must be positive.")
         if not 0 <= self.common_maf_min <= 0.5:
             raise ValueError("common_maf_min must lie in [0, 0.5].")
-        if self.chunk_size <= 0:
-            raise ValueError("chunk_size must be positive.")
+        if self.snp_batch_size <= 0:
+            raise ValueError("snp_batch_size must be positive.")
         object.__setattr__(self, "regression_snps_file", _normalize_optional_path(self.regression_snps_file))
 
 

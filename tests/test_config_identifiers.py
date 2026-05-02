@@ -188,12 +188,19 @@ class WorkflowConfigTest(unittest.TestCase):
     def test_ldscore_config_requires_one_window(self):
         config = LDScoreConfig(ld_wind_cm=1.0)
         self.assertEqual(config.ld_wind_cm, 1.0)
-        self.assertEqual(config.chunk_size, 128)
+        self.assertEqual(config.snp_batch_size, 128)
+        self.assertFalse(hasattr(config, "chunk_size"))
         self.assertEqual(config.common_maf_min, 0.05)
         with self.assertRaises(ValueError):
             LDScoreConfig()
         with self.assertRaises(ValueError):
             LDScoreConfig(ld_wind_cm=1.0, ld_wind_kb=100.0)
+
+    def test_ldscore_config_accepts_snp_batch_size_and_rejects_chunk_size(self):
+        config = LDScoreConfig(ld_wind_snps=10, snp_batch_size=64)
+        self.assertEqual(config.snp_batch_size, 64)
+        with self.assertRaises(TypeError):
+            LDScoreConfig(ld_wind_snps=10, chunk_size=64)
 
     def test_ldscore_config_rejects_reference_panel_filter_fields(self):
         with self.assertRaises(TypeError):

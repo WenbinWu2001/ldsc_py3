@@ -12,7 +12,10 @@ The parquet R² backend replaces repeated `pyarrow.Dataset.to_table(filter=...)`
 with a row-group index strategy modelled after tabix: parquet footer statistics
 (per-column min/max per row group) are read once at file open time and used to
 identify the minimal set of row groups that overlap each genomic query window.
-Only those row groups are read from disk per query.
+Canonical row groups are decoded into numeric endpoint arrays and held in a
+chromosome-local LRU cache sized automatically from the LD window and
+`snp_batch_size`, so overlapping sliding windows reuse decoded data instead of
+re-reading parquet row groups.
 
 Benchmark on a synthetic 25.6M-pair chromosome parquet:
 
@@ -325,31 +328,61 @@ Row groups without valid `POS_1` min/max footer statistics are excluded from
 pruned canonical query path; regenerate such files with PyArrow statistics enabled
 if those rows must be queryable.
 
-### 3.4 Window Queries (`_query_union_rows`)
+### 3.4 Auto Decoded Row-Group Cache
+
+Before the parquet sliding-block loop starts, `ld_score_var_blocks_from_r2_reader`
+calls `SortedR2BlockReader.configure_auto_row_group_cache(block_left, snp_batch_size)`.
+The reader simulates the same index-window query sequence that the LD-score
+sliding algorithm will issue for the chromosome. For every adjacent query pair it
+computes the union of required row groups from the footer bounds, then sets:
+
+```python
+capacity = min(max_adjacent_union + 1, num_row_groups)
+```
+
+The cache unit is one decoded parquet row group. The cached payload is numeric
+arrays only: endpoint matrix indices `i:int32`, `j:int32`, and `r2:float32`.
+In `rsid` mode, `SNP_1`/`SNP_2` strings are converted to retained-SNP matrix
+indices during row-group decode. In `chr_pos` mode, `POS_1`/`POS_2` are mapped
+to retained-SNP matrix indices during decode. Unmapped endpoints are dropped at
+decode time.
+
+The cache is per chromosome and is discarded when the next chromosome reader is
+created. There is no public row-group cache-size option. Cache diagnostics
+(capacity, hits, misses, evictions, and parquet row-group reads) are logged at
+`DEBUG` level only.
+
+Correctness does not depend on cache state. Every query recomputes its full
+required row-group set from footer bounds. A cache miss reads and decodes the
+row group from parquet; it never means that a pair is absent.
+
+### 3.5 Window Queries (`_query_union_rows`)
 
 For each sliding-window block, `cross_block_matrix` and `within_block_matrix` call
-`_query_union_rows(pos_min, pos_max)`, which:
+the canonical index-window query path, which:
 
 1. Identifies overlapping row groups from `_rg_bounds`:
    ```python
    rg_idxs = [i for mn, mx, i in self._rg_bounds if mn <= pos_max and mx >= pos_min]
    ```
-2. Reads only those row groups via:
+2. Retrieves each required row group from the decoded cache, or reads one row
+   group from parquet on cache miss:
    ```python
-   tbl = self._pf.read_row_groups(rg_idxs, columns=["POS_1", "POS_2", "R2"])
+   tbl = self._pf.read_row_group(rg_idx, columns=[...])
    ```
-3. Converts to numpy arrays using zero-copy `.to_numpy()` — no Python object
-   creation, no intermediate pandas DataFrame.
-4. Applies a positional mask: `(POS_1 >= pos_min) & (POS_2 <= pos_max)`.
-5. Maps `POS_1`/`POS_2` (or `SNP_1`/`SNP_2`) to matrix indices via `self.index_map`.
-6. Applies optional R² bias correction (`_transform_r2`).
-7. Returns `(i_array, j_array, r2_array)` as numpy arrays.
+3. Converts Arrow columns to numpy arrays and maps pair endpoints to retained-SNP
+   matrix indices during row-group decode.
+4. Applies optional R² bias correction (`_transform_r2`) during decode.
+5. Concatenates decoded row groups and filters numeric `i`/`j` endpoints to the
+   current union/index window.
+6. Returns numeric pair rows for the dense matrix builder. The dense matrix path
+   still filters to the block-local matrix region before assignment.
 
 **Coarse-file behaviour:** if the file has few, large row groups, step 1 may return
 all row groups for every query — performance degrades to O(N) per query but
 correctness is maintained.
 
-### 3.5 Dense Matrix Construction
+### 3.6 Dense Matrix Construction
 
 `cross_block_matrix` and `within_block_matrix` consume the output of
 `_query_union_rows` and fill a dense `float32` numpy matrix via vectorized
@@ -414,7 +447,8 @@ in the current CLI; regenerate canonical files with `ldsc build-ref-panel`.
 |---|---|
 | `_kernel/ref_panel_builder.py` | `write_r2_parquet`: require PyArrow; assert sort invariant on each incoming pair; write new 6-column schema; preserve canonical dtypes for empty outputs; write `ldsc:sorted_by_build` and `ldsc:row_group_size` metadata; default `row_group_size=50_000` |
 | `_kernel/ldscore.py` — `SortedR2BlockReader.__init__` | Detect schema (canonical vs legacy raw); canonical path: open as `pq.ParquetFile`, build `_rg_bounds` index from footer, validate build (3-tier), warn if coarse row groups; legacy path: open as `pyarrow.Dataset`, emit deprecation warning, proceed with full-scan fallback |
-| `_kernel/ldscore.py` — `SortedR2BlockReader._query_union_rows` | Canonical path: row-group index lookup + `read_row_groups` + `.to_numpy()`; legacy path: existing `dataset.to_table(filter=...)` behaviour unchanged |
+| `_kernel/ldscore.py` — `SortedR2BlockReader` decoded cache | Canonical path: auto-size a chromosome-local LRU cache from `block_left` and `snp_batch_size`; cache decoded row groups as numeric `i`, `j`, `r2` arrays; log DEBUG-only cache diagnostics |
+| `_kernel/ldscore.py` — `SortedR2BlockReader._query_union_rows` | Canonical path: row-group index lookup + decoded cache lookup or `read_row_group` miss + numeric endpoint filtering; legacy path: existing `dataset.to_table(filter=...)` behaviour unchanged |
 | `_kernel/ldscore.py` — `read_sorted_r2_presence` | Remove standalone function; the parquet backend no longer performs a runtime SNP-presence scan |
 | `_kernel/ldscore.py` — `compute_chrom_from_parquet` | Use the sidecar-defined `A'` directly when forming `ld_reference_snps`; no parquet presence scan is performed |
 | Tests — canonical schema | Add fixtures writing new 6-column sorted parquets; assert row-group index is built; assert window queries return correct pairs |

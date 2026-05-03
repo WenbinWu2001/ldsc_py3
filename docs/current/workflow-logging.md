@@ -12,6 +12,31 @@ Public workflow entry points share one logging policy:
   lines always appear in the file.
 - Workflow result objects and `output_paths` mappings do not include log files.
 
+## Log Layout
+
+Workflow logs begin with a lifecycle banner, then a multi-line `Call:` block.
+The executable is written first and each following option/value pair is written
+on its own continuation line where possible:
+
+```text
+Call:
+./munge_sumstats.py \
+--genome-build auto \
+--sumstats /path/raw.tsv \
+--out /path/sumstats
+```
+
+`Inputs:` and `Outputs:` are audit sections, not machine-readable manifests.
+`Outputs:` is separated from preceding workflow records by a blank line so
+summary blocks such as `Metadata:` remain visually distinct.
+
+The footer records final status and elapsed time with explicit units:
+
+```text
+Finished 2026-05-02 22:07:50
+Elapsed time: 2.0min:12s
+```
+
 ## Log Names
 
 | Workflow | Log path |

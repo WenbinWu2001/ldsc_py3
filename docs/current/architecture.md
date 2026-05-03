@@ -146,7 +146,9 @@ The kernel layer contains the actual numerical methods and low-level readers. It
 - **Workflow logging**: `ldsc._logging.workflow_logging()` attaches file
   handlers to the `LDSC` logger so workflow and kernel records are captured
   together. Logs are audit files, not scientific outputs, so result
-  `output_paths` mappings exclude them.
+  `output_paths` mappings exclude them. Lifecycle sections use a multi-line
+  `Call:` block, separated `Inputs:`/`Outputs:` audit blocks, and an explicit
+  elapsed-time footer such as `Elapsed time: 2.0min:12s`.
 - **Dependency split**: base package dependencies cover core pandas/numpy/SciPy
   workflows and parquet I/O. PLINK-backed LD computation requires the
   `plink` extra (`bitarray`), BED projection requires the `bed` extra

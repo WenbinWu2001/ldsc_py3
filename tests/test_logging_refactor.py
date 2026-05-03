@@ -35,7 +35,65 @@ class LoggingRefactorTest(unittest.TestCase):
         self.assertIn("child logger message", text)
         self.assertIn("Outputs:", text)
         self.assertIn("Finished", text)
-        self.assertIn("Elapsed:", text)
+        self.assertIn("Elapsed time:", text)
+
+    def test_workflow_logging_formats_call_over_multiple_lines(self):
+        from ldsc._logging import workflow_logging
+
+        argv = [
+            "./munge_sumstats.py",
+            "--genome-build",
+            "auto",
+            "--sumstats",
+            "/data/raw.tsv",
+            "--out",
+            "/out/sumstats",
+        ]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = Path(tmpdir) / "workflow.log"
+            with mock.patch.object(sys, "argv", argv):
+                with workflow_logging("unit", log_path, log_level="INFO"):
+                    pass
+
+            text = log_path.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "Call:\n"
+            "./munge_sumstats.py \\\n"
+            "--genome-build auto \\\n"
+            "--sumstats /data/raw.tsv \\\n"
+            "--out /out/sumstats\n",
+            text,
+        )
+        self.assertNotIn("Invocation:", text)
+
+    def test_workflow_logging_leaves_blank_line_before_outputs(self):
+        from ldsc._logging import log_outputs, workflow_logging
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = Path(tmpdir) / "workflow.log"
+            with workflow_logging("unit", log_path, log_level="INFO"):
+                logging.getLogger("LDSC.unit").info("Metadata:")
+                logging.getLogger("LDSC.unit").info("Mean chi^2 = 2.009")
+                log_outputs(sumstats_parquet="/out/sumstats.parquet")
+
+            text = log_path.read_text(encoding="utf-8")
+
+        self.assertIn("Mean chi^2 = 2.009\n\nOutputs:", text)
+
+    def test_workflow_logging_formats_elapsed_time_with_units(self):
+        from ldsc._logging import workflow_logging
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = Path(tmpdir) / "workflow.log"
+            with mock.patch("ldsc._logging.time.monotonic", side_effect=[100.0, 232.4]):
+                with workflow_logging("unit", log_path, log_level="INFO"):
+                    pass
+
+            text = log_path.read_text(encoding="utf-8")
+
+        self.assertIn("Elapsed time: 2.0min:12s", text)
+        self.assertNotIn("Elapsed: 2:12", text)
 
     def test_workflow_logging_keeps_audit_lines_at_error_level(self):
         from ldsc._logging import workflow_logging
@@ -52,7 +110,7 @@ class LoggingRefactorTest(unittest.TestCase):
         self.assertIn("kept error", text)
         self.assertNotIn("suppressed info", text)
         self.assertIn("Finished", text)
-        self.assertIn("Elapsed:", text)
+        self.assertIn("Elapsed time:", text)
 
     def test_workflow_logging_failed_footer_does_not_record_exception_message(self):
         from ldsc._logging import workflow_logging
@@ -66,7 +124,7 @@ class LoggingRefactorTest(unittest.TestCase):
             text = log_path.read_text(encoding="utf-8")
 
         self.assertIn("Failed", text)
-        self.assertIn("Elapsed:", text)
+        self.assertIn("Elapsed time:", text)
         self.assertNotIn("boom", text)
 
     def test_package_exports_domain_error_hierarchy(self):

@@ -4,9 +4,10 @@ Overview
 --------
 This module centralizes the small amount of logging orchestration that belongs
 at workflow boundaries: optional per-run file handlers, stable lifecycle audit
-lines, and a shared LDSC package logger threshold. It intentionally avoids
-decorating computational class methods so direct APIs stay focused on data
-execution unless a public wrapper supplies a workflow log path.
+lines, multi-line command recording, and a shared LDSC package logger
+threshold. It intentionally avoids decorating computational class methods so
+direct APIs stay focused on data execution unless a public wrapper supplies a
+workflow log path.
 
 Design Notes
 ------------
@@ -14,8 +15,10 @@ Design Notes
   child records are captured together.
 - Scientific output paths and log paths should be preflighted by callers before
   entering :func:`workflow_logging`.
-- Lifecycle audit lines are file-only; user-facing error reporting remains the
-  responsibility of the CLI boundary.
+- Lifecycle audit lines are file-only. They include a ``Call:`` block, optional
+  ``Inputs:`` and ``Outputs:`` blocks, and an elapsed-time footer formatted as
+  ``Elapsed time: <minutes>.0min:<seconds>s``.
+- User-facing error reporting remains the responsibility of the CLI boundary.
 """
 
 from __future__ import annotations
@@ -76,9 +79,11 @@ def workflow_logging(
     Notes
     -----
     Lifecycle audit lines are written directly to the file, so ``Started``,
-    ``Finished``/``Failed``, and elapsed-time lines are present even when
-    ``log_level`` suppresses ordinary INFO records. Escaping exceptions are not
-    logged here; callers and the CLI boundary decide how to present errors.
+    ``Call:``, ``Finished``/``Failed``, and ``Elapsed time:`` lines are present
+    even when ``log_level`` suppresses ordinary INFO records. The command line
+    is split into one executable line plus one option/value pair per following
+    line where possible. Escaping exceptions are not logged here; callers and
+    the CLI boundary decide how to present errors.
     """
     return _WorkflowLoggingContext(workflow_name, log_path, log_level=log_level)
 
@@ -91,7 +96,7 @@ def log_inputs(**items: Any) -> None:
 
 
 def log_outputs(**items: Any) -> None:
-    """Write an ``Outputs:`` audit section to the active workflow log, if any."""
+    """Write a separated ``Outputs:`` audit section to the active log, if any."""
     context = _active_context()
     if context is not None:
         context.log_outputs(**items)
@@ -112,7 +117,13 @@ def _level_number(level: str) -> int:
 
 
 class _WorkflowLoggingContext:
-    """Concrete context manager returned by :func:`workflow_logging`."""
+    """Concrete context manager returned by :func:`workflow_logging`.
+
+    The context owns only workflow-audit formatting and temporary logger state:
+    it writes the start banner, multi-line ``Call:`` section, optional
+    input/output sections, and completion footer while the caller performs the
+    actual scientific work.
+    """
 
     def __init__(
         self,
@@ -186,7 +197,7 @@ class _WorkflowLoggingContext:
         self._write_items("Inputs", items)
 
     def log_outputs(self, **items: Any) -> None:
-        self._write_items("Outputs", items)
+        self._write_items("Outputs", items, leading_blank=True)
 
     def _write_header(self) -> None:
         start_dt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -194,8 +205,7 @@ class _WorkflowLoggingContext:
         self._write_line(f"LDSC {self._workflow_name} Started {start_dt}")
         self._write_line(_BORDER)
         self._write_line("")
-        self._write_line("Invocation:")
-        self._write_line(f"  {shlex.join(sys.argv)}")
+        self._write_call_section(sys.argv)
         self._write_line("")
 
     def _write_footer(self, status: str) -> None:
@@ -208,14 +218,21 @@ class _WorkflowLoggingContext:
             seconds = 0
         self._write_line("")
         self._write_line(f"{status} {end_dt}")
-        self._write_line(f"Elapsed: {minutes}:{seconds:02d}")
+        self._write_line(f"Elapsed time: {float(minutes):.1f}min:{seconds}s")
         self._write_line(_BORDER)
 
-    def _write_items(self, title: str, items: dict[str, Any]) -> None:
+    def _write_items(self, title: str, items: dict[str, Any], *, leading_blank: bool = False) -> None:
+        if leading_blank:
+            self._write_line("")
         self._write_line(f"{title}:")
         for label, value in items.items():
             self._write_line(f"  {label:<18} {value}")
         self._write_line("")
+
+    def _write_call_section(self, argv: list[str]) -> None:
+        self._write_line("Call:")
+        for line in _format_call_lines(argv):
+            self._write_line(line)
 
     def _write_line(self, line: str) -> None:
         if self._handler is None:
@@ -226,6 +243,33 @@ class _WorkflowLoggingContext:
             self._handler.flush()
         finally:
             self._handler.release()
+
+
+def _format_call_lines(argv: list[str]) -> list[str]:
+    """Return shell-quoted invocation lines with continuation backslashes."""
+    if not argv:
+        return []
+    units = _group_invocation_units(argv)
+    out = []
+    for idx, unit in enumerate(units):
+        suffix = " \\" if idx < len(units) - 1 else ""
+        out.append(f"{unit}{suffix}")
+    return out
+
+
+def _group_invocation_units(argv: list[str]) -> list[str]:
+    """Group argv into executable and option/value display units."""
+    units = [shlex.quote(str(argv[0]))]
+    idx = 1
+    while idx < len(argv):
+        token = str(argv[idx])
+        if token.startswith("-") and idx + 1 < len(argv) and not str(argv[idx + 1]).startswith("-"):
+            units.append(shlex.join([token, str(argv[idx + 1])]))
+            idx += 2
+        else:
+            units.append(shlex.quote(token))
+            idx += 1
+    return units
 
 
 __all__ = [

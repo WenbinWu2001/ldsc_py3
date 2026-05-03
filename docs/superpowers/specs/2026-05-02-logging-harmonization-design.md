@@ -35,6 +35,9 @@ decorating direct class APIs.
 | Abstraction shape | Add a small explicit `workflow_logging(...)` context manager in `src/ldsc/_logging.py`; do not introduce workflow decorators. |
 | Handler target | Attach the per-run file handler to `logging.getLogger("LDSC")` so workflow and kernel child records are captured together. |
 | File format | Message-only records. Lifecycle audit lines are file-only and are written directly by the context. |
+| Invocation format | Write `Call:` followed by the executable and one shell-quoted option/value pair per continuation line where possible. |
+| Output section spacing | Write a blank line before `Outputs:` so preceding metadata or QC summaries remain visually separate. |
+| Elapsed-time format | Write footer duration as `Elapsed time: <minutes>.0min:<seconds>s`, for example `Elapsed time: 2.0min:12s`. |
 | Log level | `--log-level` controls the LDSC logger threshold for module records in console and file. Lifecycle audit lines are always present in the file. |
 | CLI boundary | `cli.run_cli()` remains the user-facing exception boundary. Workflows should not log an error and then re-raise only to duplicate CLI errors. |
 | Python convenience wrappers | Wrappers that delegate through `run_*_from_args(...)` may create logs because they use the same workflow boundary. |
@@ -74,8 +77,22 @@ create a log file.
 
 `workflow_logging(...)` saves the existing LDSC logger level, applies the
 requested level, optionally attaches a message-only `FileHandler`, writes a
-start header, and writes either a `Finished` or `Failed` footer with elapsed
-time. It always restores the LDSC logger level and removes its handler on exit.
+start header with a multi-line `Call:` block, and writes either a `Finished` or
+`Failed` footer with elapsed time. It always restores the LDSC logger level and
+removes its handler on exit.
+
+Example header and footer:
+
+```text
+Call:
+./munge_sumstats.py \
+--genome-build auto \
+--sumstats /path/raw.tsv \
+--out /path/sumstats
+
+Finished 2026-05-02 22:07:50
+Elapsed time: 2.0min:12s
+```
 
 Nested contexts are treated as no-op wrappers around the active outer context.
 This keeps helper code from accidentally replacing the active workflow log.

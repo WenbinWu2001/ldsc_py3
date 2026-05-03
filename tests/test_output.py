@@ -22,6 +22,7 @@ from ldsc.outputs import (
     PartitionedH2DirectoryWriter,
     PartitionedH2OutputConfig,
 )
+from ldsc.regression_runner import load_ldscore_from_dir
 
 
 def make_split_ldscore_result(query: bool = True) -> LDScoreResult:
@@ -239,6 +240,39 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
             manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(manifest["files"], {"baseline": "ldscore.baseline.parquet"})
             self.assertEqual(manifest["query_columns"], [])
+
+    def test_baseline_only_write_refuses_stale_query_parquet_without_overwrite(self):
+        result = make_split_ldscore_result(query=False)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "ldscores"
+            output_dir.mkdir()
+            stale = output_dir / "ldscore.query.parquet"
+            stale.write_text("stale\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(FileExistsError, "overwrite"):
+                LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=output_dir))
+
+            self.assertEqual(stale.read_text(encoding="utf-8"), "stale\n")
+            self.assertFalse((output_dir / "manifest.json").exists())
+            self.assertFalse((output_dir / "ldscore.baseline.parquet").exists())
+
+    def test_baseline_only_overwrite_removes_stale_query_parquet(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "ldscores"
+            LDScoreDirectoryWriter().write(make_split_ldscore_result(query=True), LDScoreOutputConfig(output_dir=output_dir))
+            self.assertTrue((output_dir / "ldscore.query.parquet").exists())
+
+            LDScoreDirectoryWriter().write(
+                make_split_ldscore_result(query=False),
+                LDScoreOutputConfig(output_dir=output_dir, overwrite=True),
+            )
+
+            manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+            loaded = load_ldscore_from_dir(str(output_dir))
+            self.assertEqual(manifest["files"], {"baseline": "ldscore.baseline.parquet"})
+            self.assertFalse((output_dir / "ldscore.query.parquet").exists())
+            self.assertIsNone(loaded.query_table)
+            self.assertNotIn("query", loaded.output_paths)
 
     def test_rejects_query_table_with_mismatched_row_keys(self):
         result = make_split_ldscore_result(query=True)
@@ -477,6 +511,40 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
             self.assertFalse(stale.exists())
             self.assertTrue((output_dir / "query_annotations" / "manifest.tsv").exists())
             self.assertIn("Coefficient", (output_dir / "partitioned_h2.tsv").read_text(encoding="utf-8"))
+
+    def test_aggregate_only_refuses_stale_per_query_tree_without_overwrite(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "partitioned"
+            stale = output_dir / "query_annotations" / "stale"
+            stale.mkdir(parents=True)
+            (stale / "old.txt").write_text("old\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(FileExistsError, "overwrite"):
+                PartitionedH2DirectoryWriter().write(
+                    self.make_summary(),
+                    PartitionedH2OutputConfig(output_dir=output_dir),
+                )
+
+            self.assertTrue(stale.exists())
+            self.assertFalse((output_dir / "partitioned_h2.tsv").exists())
+
+    def test_aggregate_only_overwrite_removes_stale_per_query_tree(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "partitioned"
+            PartitionedH2DirectoryWriter().write(
+                self.make_summary(),
+                PartitionedH2OutputConfig(output_dir=output_dir, write_per_query_results=True),
+                per_query_category_tables=self.make_category_tables(),
+            )
+            self.assertTrue((output_dir / "query_annotations" / "manifest.tsv").exists())
+
+            PartitionedH2DirectoryWriter().write(
+                self.make_summary(),
+                PartitionedH2OutputConfig(output_dir=output_dir, overwrite=True),
+            )
+
+            self.assertTrue((output_dir / "partitioned_h2.tsv").exists())
+            self.assertFalse((output_dir / "query_annotations").exists())
 
 
 class FixedOutputDirectoryTest(unittest.TestCase):

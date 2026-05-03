@@ -73,7 +73,8 @@ from .genome_build_inference import resolve_genome_build
 from .path_resolution import (
     ANNOTATION_SUFFIXES,
     ensure_output_directory,
-    ensure_output_paths_available,
+    preflight_output_artifact_family,
+    remove_output_artifacts,
     resolve_file_group,
     split_cli_path_tokens,
 )
@@ -519,10 +520,11 @@ class AnnotationBuilder:
 
         When ``output_dir`` is provided, projected query annotations are also
         written as per-chromosome ``query.<chrom>.annot.gz`` files. Existing
-        fixed output files are refused before writing unless overwrite is true.
-        Public workflow wrappers may attach a private log path so the same
-        preflight also protects ``annotate.log``; ordinary direct calls do not
-        create a log file.
+        root-level ``query.*.annot.gz`` siblings are refused before writing
+        unless overwrite is true; successful overwrites remove stale query
+        shards outside the current chromosome set. Public workflow wrappers may
+        attach a private log path so the same preflight also protects
+        ``annotate.log``; ordinary direct calls do not create a log file.
 
         Parameters
         ----------
@@ -540,8 +542,8 @@ class AnnotationBuilder:
             is reached from the parsed workflow wrapper, the same threshold
             controls records written to ``annotate.log``.
         overwrite : bool, optional
-            Whether fixed output files may be replaced. Defaults to the
-            builder configuration when omitted.
+            Whether fixed output files may be replaced and stale owned siblings
+            removed. Defaults to the builder configuration when omitted.
 
         Returns
         -------
@@ -559,11 +561,15 @@ class AnnotationBuilder:
         if output_dir is not None:
             output_path = ensure_output_directory(output_dir, label="output directory")
             output_paths = _bundle_query_annot_output_paths(bundle, output_path)
-            preflight_paths: list[Path] = list(output_paths)
+            produced_paths: list[Path] = list(output_paths)
+            owned_paths = sorted(output_path.glob("query.*.annot.gz"))
+            owned_paths.extend(produced_paths)
             if self._workflow_log_path is not None:
-                preflight_paths.append(self._workflow_log_path)
-            ensure_output_paths_available(
-                preflight_paths,
+                produced_paths.append(self._workflow_log_path)
+                owned_paths.append(self._workflow_log_path)
+            stale_paths = preflight_output_artifact_family(
+                produced_paths,
+                owned_paths,
                 overwrite=overwrite,
                 label="annotation output artifact",
             )
@@ -575,6 +581,7 @@ class AnnotationBuilder:
                 )
                 written = _write_bundle_query_as_annot_files(bundle, output_path)
                 log_outputs(**{f"query_{chrom}": str(path) for chrom, path in zip(bundle.chromosomes, written)})
+                remove_output_artifacts(stale_paths)
         return bundle
 
     def _ensure_aligned_rows(self, reference: pd.DataFrame, current: pd.DataFrame, path: str) -> None:
@@ -617,9 +624,10 @@ def run_bed_to_annot(
     Python workflows read shared identifier, genome-build, and logging settings
     from the registered ``GlobalConfig``. When ``output_dir`` is supplied,
     fixed ``query.<chrom>.annot.gz`` outputs are refused before writing unless
-    ``overwrite=True``. The wrapper also writes ``annotate.log`` in the same
-    directory; the returned bundle remains an in-memory data object and does
-    not expose the log path.
+    ``overwrite=True``. With overwrite enabled, stale query shards from earlier
+    chromosome sets are removed after successful writes. The wrapper also
+    writes ``annotate.log`` in the same directory; the returned bundle remains
+    an in-memory data object and does not expose the log path.
 
     Parameters
     ----------
@@ -697,7 +705,12 @@ def add_annotate_arguments(parser: argparse.ArgumentParser) -> None:
         required=True,
         help="Destination directory for generated .annot.gz files.",
     )
-    parser.add_argument("--overwrite", action="store_true", default=False, help="Replace existing fixed output files.")
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        default=False,
+        help="Replace annotation output artifacts and remove stale owned query shards.",
+    )
     parser.add_argument("--snp-identifier", default="chr_pos", help="Identifier mode used for bundle validation.")
     parser.add_argument(
         "--genome-build",

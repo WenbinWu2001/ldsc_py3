@@ -16,6 +16,13 @@ and refuses existing files unless ``overwrite=True`` was configured. Parsed
 workflow wrappers write ``build-ref-panel.log`` for multi-chromosome runs and
 chromosome-scoped logs for concrete single-chromosome runs; direct builder
 calls return data artifact paths only and do not create a log file by default.
+
+Unlike the user-facing result-directory writers, ``build-ref-panel`` keeps an
+expert-oriented overwrite contract: ``overwrite=True`` permits replacing
+candidate artifacts for the current chromosome/build set but does not remove
+stale optional target-build or ``dropped_snps`` siblings from earlier
+configurations. Use a fresh output directory when changing emitted builds,
+liftover configuration, duplicate-position policy, or chromosome scope.
 """
 
 from __future__ import annotations
@@ -1024,7 +1031,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional chain file for hg38->hg19 liftover. Enables hg19 outputs for hg38 source builds.",
     )
     parser.add_argument("--output-dir", required=True, help="Output root directory for emitted parquet artifacts.")
-    parser.add_argument("--overwrite", action="store_true", default=False, help="Replace existing fixed output files.")
+    parser.add_argument("--overwrite", action="store_true", default=False, help="Replace existing candidate panel output files.")
     parser.add_argument("--ld-wind-snps", default=None, type=int, help="LD window size in SNPs.")
     parser.add_argument("--ld-wind-kb", default=None, type=float, help="LD window size in kilobases.")
     parser.add_argument("--ld-wind-cm", default=None, type=float, help="LD window size in centiMorgans.")

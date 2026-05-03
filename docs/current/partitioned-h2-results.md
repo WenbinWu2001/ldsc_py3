@@ -24,6 +24,13 @@ with `ldsc h2` or `ldsc rg`, not `ldsc partitioned-h2`.
 The same seven-column schema is used for each one-row
 `query_annotations/<folder>/partitioned_h2.tsv` file.
 
+Output directories follow the coherent artifact-family policy. The root
+`partitioned_h2.tsv`, optional `query_annotations/` tree, and
+`partitioned-h2.log` are checked together by workflow entry points. Without
+overwrite, any existing owned sibling rejects the run. With overwrite, a
+successful aggregate-only run removes a stale `query_annotations/` tree from an
+earlier per-query run.
+
 ## `partitioned_h2_full.tsv`
 
 When `--write-per-query-results` is supplied, each query folder also contains

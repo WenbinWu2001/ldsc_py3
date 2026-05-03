@@ -16,7 +16,9 @@ Output helpers in this module intentionally use a stricter policy than input
 resolution: output directories are literal destinations, missing directories
 are created, existing directories are reused, and fixed output files are
 preflighted before workflow code writes. Existing files raise by default unless
-the caller passes an explicit overwrite flag.
+the caller passes an explicit overwrite flag. Workflows with fixed artifact
+families can also preflight the complete owned family and remove stale siblings
+after a successful overwrite.
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ from __future__ import annotations
 import glob
 import os
 import re
+import shutil
 import warnings
 from collections.abc import Iterable, Sequence
 from os import PathLike
@@ -499,6 +502,43 @@ def ensure_output_paths_available(
     return normalized_paths
 
 
+def preflight_output_artifact_family(
+    produced_paths: Iterable[str | PathLike[str]],
+    owned_paths: Iterable[str | PathLike[str]],
+    *,
+    overwrite: bool = False,
+    label: str = "output artifact",
+) -> list[Path]:
+    """Preflight an owned output artifact family and return stale siblings.
+
+    ``produced_paths`` is the subset written by this invocation. ``owned_paths``
+    is the full fixed family controlled by the workflow. Without overwrite, any
+    existing owned artifact raises before writing starts. With overwrite,
+    current outputs may be replaced and existing owned siblings that will not be
+    produced are returned for post-success cleanup.
+    """
+    produced = _dedupe_paths(Path(normalize_path_token(path)) for path in produced_paths)
+    owned = _dedupe_paths(Path(normalize_path_token(path)) for path in owned_paths)
+    if not overwrite:
+        existing = [path for path in owned if path.exists()]
+        if existing:
+            raise FileExistsError(_format_output_collision_message(existing, label=label))
+        return []
+    produced_set = set(produced)
+    return [path for path in owned if path.exists() and path not in produced_set]
+
+
+def remove_output_artifacts(paths: Iterable[str | PathLike[str]]) -> None:
+    """Remove stale workflow-owned output artifacts after a successful write."""
+    for path in _dedupe_paths(Path(normalize_path_token(path)) for path in paths):
+        if not path.exists():
+            continue
+        if path.is_dir() and not path.is_symlink():
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+
+
 def ensure_output_parent_directory(
     path: str | PathLike[str],
     *,
@@ -523,6 +563,18 @@ def _format_output_collision_message(paths: Sequence[Path], *, label: str) -> st
         f"Refusing to overwrite existing {noun}: {preview}. "
         "Pass --overwrite on the CLI or overwrite=True in Python to replace them."
     )
+
+
+def _dedupe_paths(paths: Iterable[Path]) -> list[Path]:
+    """Return paths without duplicates while preserving first-seen order."""
+    seen: set[Path] = set()
+    ordered: list[Path] = []
+    for path in paths:
+        if path in seen:
+            continue
+        seen.add(path)
+        ordered.append(path)
+    return ordered
 
 
 def _path_matches_chromosome(path: str, chrom: str) -> bool:

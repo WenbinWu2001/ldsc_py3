@@ -41,7 +41,12 @@ from .column_inference import (
 )
 from .config import GlobalConfig, MungeConfig, get_global_config
 from .errors import LDSCDependencyError
-from .path_resolution import ensure_output_directory, ensure_output_paths_available, resolve_scalar_path
+from .path_resolution import (
+    ensure_output_directory,
+    preflight_output_artifact_family,
+    remove_output_artifacts,
+    resolve_scalar_path,
+)
 from ._logging import log_inputs, log_outputs, workflow_logging
 from ._kernel import sumstats_munger as kernel_munge
 
@@ -272,9 +277,11 @@ class SumstatsMunger:
             Munging thresholds, output directory, and curated output format. The
             workflow writes fixed files named ``sumstats.parquet`` and/or
             ``sumstats.sumstats.gz`` plus ``sumstats.log`` and
-            ``sumstats.metadata.json`` inside ``munge_config.output_dir``.
-            Existing selected output files are refused before the kernel runs
-            unless ``munge_config.overwrite`` is true. If
+            ``sumstats.metadata.json`` inside ``munge_config.output_dir``. Any
+            existing owned ``sumstats.*`` artifact is refused before the kernel
+            runs unless ``munge_config.overwrite`` is true; successful
+            overwrites remove stale sibling formats that the current run did
+            not produce. If
             ``munge_config.sumstats_snps_file`` is supplied, it is treated as a
             headered keep-list and applied after munging QC and coordinate
             normalization without allele matching or output reordering.
@@ -319,8 +326,9 @@ class SumstatsMunger:
             if munge_config.sumstats_snps_file is None
             else str(munge_config.sumstats_snps_file)
         )
-        ensure_output_paths_available(
-            [*output_files.values(), log_path, metadata_path],
+        stale_paths = preflight_output_artifact_family(
+            [*output_files.values(), metadata_path, log_path],
+            [*_sumstats_output_files(fixed_output_stem, "both").values(), metadata_path, log_path],
             overwrite=munge_config.overwrite,
             label="munged output artifact",
         )
@@ -396,6 +404,7 @@ class SumstatsMunger:
                 f"Munged {self._last_summary.n_input_rows} input rows to {self._last_summary.n_retained_rows} retained rows; "
                 f"wrote '{primary_sumstats_file}'."
             )
+            remove_output_artifacts(stale_paths)
         return table
 
     def write_output(
@@ -422,9 +431,10 @@ class SumstatsMunger:
             ``sumstats.sumstats.gz``. ``"both"`` writes both and returns the
             Parquet path.
         overwrite : bool, optional
-            If ``True``, replace selected fixed output artifacts. If ``False``,
-            existing selected artifacts are refused before writing starts.
-            Default is ``False``.
+            If ``True``, replace current fixed output artifacts and remove
+            stale sibling formats after a successful write. If ``False``, any
+            existing owned ``sumstats.*`` artifact is refused before writing
+            starts. Default is ``False``.
 
         Returns
         -------
@@ -444,8 +454,12 @@ class SumstatsMunger:
         fixed_output_stem = str(output_root / "sumstats")
         metadata_path = fixed_output_stem + ".metadata.json"
         output_files = _sumstats_output_files(fixed_output_stem, output_format)
-        ensure_output_paths_available(
-            [*output_files.values(), metadata_path],
+        produced_paths = list(output_files.values())
+        if sumstats.config_snapshot is not None:
+            produced_paths.append(metadata_path)
+        stale_paths = preflight_output_artifact_family(
+            produced_paths,
+            [*_sumstats_output_files(fixed_output_stem, "both").values(), metadata_path],
             overwrite=overwrite,
             label="munged output artifact",
         )
@@ -470,6 +484,7 @@ class SumstatsMunger:
                 ),
                 parquet_row_groups=parquet_row_groups,
             )
+        remove_output_artifacts(stale_paths)
         return primary_sumstats_file
 
     def build_run_summary(self, _sumstats: SumstatsTable | None = None) -> MungeRunSummary:
@@ -635,7 +650,12 @@ def build_parser() -> argparse.ArgumentParser:
     public = argparse.ArgumentParser(description=getattr(parser, "description", None), allow_abbrev=False)
     public.add_argument("--raw-sumstats-file", required=True, help="Raw summary-statistics file path.")
     public.add_argument("--output-dir", required=True, help="Output directory for munged sumstats and logs.")
-    public.add_argument("--overwrite", action="store_true", default=False, help="Replace existing fixed output files.")
+    public.add_argument(
+        "--overwrite",
+        action="store_true",
+        default=False,
+        help="Replace sumstats output artifacts and remove stale owned siblings.",
+    )
     public.add_argument("--sumstats-snps-file", default=None, help="Optional SNP keep-list for munged summary statistics.")
     public.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"), help="Logging verbosity.")
     public.add_argument(

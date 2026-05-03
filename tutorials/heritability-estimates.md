@@ -17,8 +17,10 @@ Path-token rules:
 - group inputs may use globs or chromosome-suite tokens such as `baseline.@.annot.gz`
 - output directories are literal destinations
 - missing output directories are created and existing directories are reused
-- existing fixed files are refused before writing starts unless you pass
-  `--overwrite` or `overwrite=True`
+- existing owned workflow artifacts are refused before writing starts unless
+  you pass `--overwrite` or `overwrite=True`; successful overwrites remove
+  stale owned siblings that the current run did not produce and preserve
+  unrelated files
 
 Resolution behavior:
 
@@ -66,7 +68,7 @@ sumstats = SumstatsMunger().run(
         # sumstats_snps_file="filters/hapmap3.tsv.gz",  # optional row keep-list
         output_dir="tutorial_outputs/trait",
         signed_sumstats_spec="BETA,0",
-        # overwrite=True,  # enable only when intentionally replacing sumstats/log files
+        # overwrite=True,  # also removes stale unselected sumstats sibling formats
     ),
     global_config=GLOBAL_CONFIG,
 )
@@ -83,7 +85,7 @@ ldscore_result = run_ldscore(
     regression_snps_file="filters/hapmap3.txt",
     common_maf_min=0.05,
     ld_wind_cm=1.0,
-    # overwrite=True,  # enable only when intentionally replacing LD-score outputs
+    # overwrite=True,  # also removes stale ldscore.query.parquet if this run is baseline-only
 )
 
 runner = RegressionRunner(global_config=GLOBAL_CONFIG, regression_config=RegressionConfig())
@@ -121,8 +123,9 @@ Because this is ordinary unpartitioned heritability, `run_ldscore(...)` does
 not need baseline annotations. With no baseline and no query inputs, it writes
 a synthetic all-ones baseline column named `base`; `h2` reads that directory
 through the same manifest path as any other LD-score result. The written
-`baseline.parquet` file is flat, but its row groups are chromosome-aligned and
-listed in `manifest.json` for chromosome-scoped inspection.
+`ldscore.baseline.parquet` file is flat, but its row groups are
+chromosome-aligned and listed in `manifest.json` for chromosome-scoped
+inspection.
 
 ## CLI
 
@@ -164,9 +167,9 @@ ldsc h2 \
 
 The command writes `tutorial_outputs/trait_h2/h2.tsv` and
 `tutorial_outputs/trait_h2/h2.log`.
-If `sumstats.parquet`, `sumstats.log`, `sumstats.metadata.json`, `h2.tsv`, or
-`h2.log` already exists from a previous run, the relevant command fails before
-writing.
-If you request `--output-format tsv.gz` or `both`, `sumstats.sumstats.gz` is
-also part of the fixed-output collision check. Add `--overwrite` only for an
-intentional rerun.
+If any owned output-family file already exists from a previous run, the
+relevant command fails before writing. For `munge-sumstats`, that family is
+`sumstats.parquet`, `sumstats.sumstats.gz`, `sumstats.metadata.json`, and
+`sumstats.log`, even if the current `--output-format` would write only one data
+format. Add `--overwrite` only for an intentional rerun; when used, stale
+sumstats sibling formats not produced by the successful run are removed.

@@ -42,7 +42,7 @@ ldsc_py3_Jerry/
 | --- | --- |
 | `ldsc.cli` | unified `ldsc` command and subcommand dispatch |
 | `ldsc.config` | frozen public config dataclasses and basic validation |
-| `ldsc.path_resolution` | normalize path tokens, resolve concrete input files, create output directories, and preflight fixed output paths |
+| `ldsc.path_resolution` | normalize path tokens, resolve concrete input files, create output directories, preflight fixed output paths, and enforce coherent output artifact families |
 | `ldsc._logging` | shared workflow logging context, LDSC logger level handling, lifecycle audit lines, and log-only formatting helpers |
 | `ldsc.column_inference` | resolve header aliases and normalize identifier/build tokens |
 | `ldsc.chromosome_inference` | canonical chromosome normalization and ordering |
@@ -92,10 +92,18 @@ ldsc_py3_Jerry/
   registers annotation flags from that module and dispatches parsed namespaces
   to `run_annotate_from_args()`; `_kernel.annotation` must not own parser
   functions, result objects, or public workflow aliases.
-- Reuse `ensure_output_paths_available()` for fixed output files, including
+- Use the shared output preflight helpers for fixed output files, including
   workflow log files. Public workflows should create missing output
-  directories, reuse existing directories, fail on existing known files by
+  directories, reuse existing directories, fail on existing owned artifacts by
   default, and require `--overwrite` or `overwrite=True` for replacement.
+- Keep coherent output families consistent. For `munge-sumstats`, `ldscore`,
+  `partitioned-h2`, and `annotate`, no-overwrite mode rejects any owned sibling
+  from the workflow family. Overwrite mode writes the requested current outputs
+  and then removes stale owned siblings that were not produced by the
+  successful run. Unrelated files in the output directory must be preserved.
+- Treat `build-ref-panel` as the documented exception: its expert-oriented
+  overwrite mode replaces current candidate artifacts but does not clean stale
+  optional target-build or `dropped_snps` siblings from earlier configurations.
 - Preflight deterministic output paths before expensive or multi-file writes.
   This is especially important for `build-ref-panel`, `munge-sumstats`,
   `annotate`, and summary-table regression commands.

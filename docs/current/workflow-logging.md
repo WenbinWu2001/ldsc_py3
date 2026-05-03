@@ -5,12 +5,27 @@ Public workflow entry points share one logging policy:
 - Per-run file handlers attach to the `LDSC` logger, so workflow and kernel
   child records are captured together.
 - Known scientific outputs and the log path are preflighted before the log file
-  is opened. If preflight fails, no new log file is created.
+  is opened. For workflows with coherent output families, this preflight covers
+  owned siblings that are not produced by the current run. If preflight fails,
+  no new log file is created.
 - If execution fails after preflight, the log is kept and ends with a `Failed`
   footer plus elapsed time.
 - `--log-level` controls module records in console and file; lifecycle audit
   lines always appear in the file.
 - Workflow result objects and `output_paths` mappings do not include log files.
+
+## Output-Family Preflight
+
+`munge-sumstats`, `ldscore`, `partitioned-h2`, and `annotate` treat their fixed
+outputs plus workflow log as one owned family at the CLI/workflow layer.
+Without `--overwrite`, any existing owned artifact rejects the run before the
+log is opened. With `--overwrite`, stale owned siblings that the successful run
+did not produce are removed after the current outputs are written.
+
+This keeps an output directory from mixing artifacts from different
+configurations, while preserving unrelated user files. Direct Python writer
+APIs apply the same rule to their data artifacts and omit workflow logs unless
+they are reached through a wrapper that creates one.
 
 ## Log Layout
 

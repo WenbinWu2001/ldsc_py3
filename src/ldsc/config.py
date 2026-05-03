@@ -233,8 +233,10 @@ class AnnotationBuildConfig:
         Output compression preference for generated annotation files. Default is
         ``"gzip"``.
     overwrite : bool, optional
-        If ``True``, replace existing fixed output files. If ``False``, output
-        collisions raise before writing starts. Default is ``False``.
+        If ``True``, replace generated annotation outputs and remove stale
+        owned root-level ``query.*.annot.gz`` siblings after a successful
+        projection. If ``False``, output collisions raise before writing
+        starts. Default is ``False``.
     """
     baseline_annot_sources: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
     query_annot_sources: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
@@ -425,9 +427,10 @@ class ReferencePanelBuildConfig:
         Number of SNPs loaded per pairwise-R2 computation batch. Larger values
         may improve throughput but use more memory. Default is ``128``.
     overwrite : bool, optional
-        If ``True``, replace existing fixed output files. If ``False``, output
-        collisions raise before chromosome processing starts. Default is
-        ``False``.
+        If ``True``, replace current candidate panel artifacts. This expert
+        workflow does not clean stale optional target-build or ``dropped_snps``
+        siblings from earlier configurations. If ``False``, output collisions
+        raise before chromosome processing starts. Default is ``False``.
     """
 
     plink_prefix: str | PathLike[str]
@@ -547,8 +550,10 @@ class MungeConfig:
         Legacy munging switches preserved for behavior compatibility. Defaults
         are ``False``.
     overwrite : bool, optional
-        If ``True``, replace existing fixed output files. If ``False``, output
-        collisions raise before the munging kernel runs. Default is ``False``.
+        If ``True``, replace current fixed sumstats outputs and remove stale
+        owned ``sumstats.*`` siblings after a successful run. If ``False``, any
+        owned sumstats artifact collision raises before the munging kernel
+        runs. Default is ``False``.
     """
     output_dir: str | PathLike[str] | None = None
     raw_sumstats_file: str | PathLike[str] | None = None

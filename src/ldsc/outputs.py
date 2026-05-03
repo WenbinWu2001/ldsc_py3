@@ -7,8 +7,9 @@ output filenames inside that directory are fixed. The parquet payloads are
 written with one row group per chromosome and matching manifest metadata so
 downstream readers can load a single chromosome without scanning the whole
 table. The writer creates missing directories, reuses existing directories, and
-refuses existing canonical files unless the caller explicitly sets
-``overwrite=True``.
+refuses existing canonical family files unless the caller explicitly sets
+``overwrite=True``; successful overwrites remove stale owned siblings that the
+current result did not produce.
 
 Partitioned-h2 regression summaries use the same directory-oriented output
 policy. ``PartitionedH2DirectoryWriter`` always writes the compact aggregate
@@ -38,7 +39,11 @@ import pyarrow.parquet as pq
 
 from ._row_alignment import assert_same_snp_rows
 from .config import _normalize_required_path
-from .path_resolution import ensure_output_directory, ensure_output_paths_available
+from .path_resolution import (
+    ensure_output_directory,
+    preflight_output_artifact_family,
+    remove_output_artifacts,
+)
 
 
 def _cast_parquet_floats(df: pd.DataFrame) -> pd.DataFrame:
@@ -119,7 +124,8 @@ class LDScoreOutputConfig:
         ``ldscore.baseline.parquet``, and optional ``ldscore.query.parquet``.
     overwrite : bool, optional
         If ``True``, replace existing canonical LD-score files in
-        ``output_dir``. If ``False``, existing canonical files raise
+        ``output_dir`` and remove stale owned siblings after a successful
+        write. If ``False``, any existing canonical family file raises
         ``FileExistsError`` before any parquet or manifest file is written.
         Default is ``False``.
     parquet_compression : {"snappy", "gzip", "brotli", "zstd", "none", None}, optional
@@ -150,11 +156,11 @@ class LDScoreDirectoryWriter:
     def write(self, result: Any, output_config: LDScoreOutputConfig) -> dict[str, str]:
         """Write ``manifest.json`` and canonical LD-score parquet files.
 
-        Existing canonical files are checked before any output file is written.
-        Replacement requires ``output_config.overwrite=True``; unrelated files
-        in the directory are ignored. The returned paths map includes
-        ``"baseline"``, ``"manifest"``, and ``"query"`` when query annotations
-        were supplied.
+        Existing canonical family files are checked before any output file is
+        written. Replacement requires ``output_config.overwrite=True``;
+        unrelated files in the directory are ignored. The returned paths map
+        includes ``"baseline"``, ``"manifest"``, and ``"query"`` when query
+        annotations were supplied.
         """
         output_dir = ensure_output_directory(output_config.output_dir, label="LD-score output directory")
         baseline_table = getattr(result, "baseline_table", None)
@@ -169,8 +175,9 @@ class LDScoreDirectoryWriter:
         }
         if query_table is not None:
             paths["query"] = output_dir / "ldscore.query.parquet"
-        ensure_output_paths_available(
+        stale_paths = preflight_output_artifact_family(
             paths.values(),
+            _ldscore_output_family(output_dir),
             overwrite=output_config.overwrite,
             label="LD-score output artifact",
         )
@@ -187,6 +194,7 @@ class LDScoreDirectoryWriter:
             query_rg=query_rg,
         )
         paths["manifest"].write_text(json.dumps(_to_serializable(manifest), indent=2, sort_keys=True), encoding="utf-8")
+        remove_output_artifacts(stale_paths)
         return {name: str(path) for name, path in paths.items()}
 
     def build_manifest(
@@ -268,8 +276,8 @@ class PartitionedH2OutputConfig:
         Directory that receives ``partitioned_h2.tsv`` and, when requested,
         the optional ``query_annotations`` per-query result tree.
     overwrite : bool, optional
-        If ``True``, replace existing fixed partitioned-h2 outputs. Default is
-        ``False``.
+        If ``True``, replace existing fixed partitioned-h2 outputs and remove
+        stale owned siblings after a successful write. Default is ``False``.
     write_per_query_results : bool, optional
         If ``True``, also write one subdirectory per query annotation under
         ``query_annotations``. Default is ``False``.
@@ -342,11 +350,12 @@ class PartitionedH2DirectoryWriter:
         output_dir = ensure_output_directory(output_config.output_dir, label="output directory")
         summary_path = output_dir / "partitioned_h2.tsv"
         query_root = output_dir / "query_annotations"
-        preflight_paths = [summary_path]
+        produced_paths = [summary_path]
         if output_config.write_per_query_results:
-            preflight_paths.append(query_root)
-        ensure_output_paths_available(
-            preflight_paths,
+            produced_paths.append(query_root)
+        stale_paths = preflight_output_artifact_family(
+            produced_paths,
+            [summary_path, query_root],
             overwrite=output_config.overwrite,
             label="partitioned-h2 output artifact",
         )
@@ -357,6 +366,7 @@ class PartitionedH2DirectoryWriter:
                 _select_columns(summary, PARTITIONED_H2_AGGREGATE_COLUMNS, label="partitioned-h2 summary"),
                 summary_path,
             )
+            remove_output_artifacts(stale_paths)
             return paths
 
         query_records = self._query_records(summary)
@@ -393,6 +403,7 @@ class PartitionedH2DirectoryWriter:
             if backup_dir is not None and backup_dir.exists():
                 shutil.rmtree(backup_dir, ignore_errors=True)
 
+        remove_output_artifacts(stale_paths)
         paths["per_query_root"] = str(query_root)
         paths["per_query_manifest"] = str(query_root / "manifest.tsv")
         return paths
@@ -472,6 +483,15 @@ class PartitionedH2DirectoryWriter:
                 }
             )
         return manifest_rows
+
+
+def _ldscore_output_family(output_dir: Path) -> list[Path]:
+    """Return all fixed data artifacts owned by one LD-score result directory."""
+    return [
+        output_dir / "manifest.json",
+        output_dir / "ldscore.baseline.parquet",
+        output_dir / "ldscore.query.parquet",
+    ]
 
 
 def _slugify_query_name(value: str) -> str:

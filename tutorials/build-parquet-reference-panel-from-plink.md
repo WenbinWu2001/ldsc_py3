@@ -154,8 +154,15 @@ The bundled Alkes-group maps in `resources/genetic_maps/genetic_map_alkesgroup/`
   Plain-English meaning: allow replacement of the fixed parquet and metadata
   files that this build may write.
   Recommended usage: omit it for reproducible first runs. Add it only when you
-  intentionally want to replace an existing panel build. It does not delete
-  unrelated files or clean the output directory.
+  intentionally want to replace an existing panel build. `build-ref-panel`
+  keeps an expert-oriented overwrite contract: it does not delete unrelated
+  files, clean the output directory, or remove stale optional target-build or
+  `dropped_snps` siblings from earlier configurations.
+
+Use a fresh output directory when changing emitted builds, liftover
+configuration, duplicate-position policy, or chromosome scope. That keeps panel
+artifact directories easier to inspect and avoids mixing optional outputs from
+different expert configurations.
 
 ### Choose exactly one LD-window option
 
@@ -559,7 +566,7 @@ result = run_build_ref_panel(
     liftover_chain_hg38_to_hg19_file="resources/liftover/hg38ToHg19.over.chain",
     output_dir="tutorial_outputs/ref_panel_chr22",
     ld_wind_cm=1.0,
-    # overwrite=True,  # enable only when intentionally replacing panel files
+    # overwrite=True,  # replaces current panel candidates but does not clean stale optional siblings
 )
 ```
 

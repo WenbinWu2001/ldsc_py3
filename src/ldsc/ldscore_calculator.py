@@ -15,8 +15,9 @@ runs. Query annotations remain partitioned-LDSC inputs: they are accepted only
 when explicit baseline annotations are supplied.
 
 Parsed workflow entry points write ``ldscore.log`` under ``output_dir`` after
-preflighting all deterministic outputs. Direct ``LDScoreCalculator.run(...)``
-calls remain data-oriented and do not create log files.
+preflighting the complete LD-score artifact family. Direct
+``LDScoreCalculator.run(...)`` calls remain data-oriented and do not create log
+files.
 """
 
 from __future__ import annotations
@@ -47,7 +48,8 @@ from .genome_build_inference import resolve_genome_build
 from .outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
 from .path_resolution import (
     ensure_output_directory,
-    ensure_output_paths_available,
+    preflight_output_artifact_family,
+    remove_output_artifacts,
     normalize_optional_path_token,
     normalize_path_token,
     resolve_plink_prefix,
@@ -598,7 +600,12 @@ def build_parser() -> argparse.ArgumentParser:
         allow_abbrev=False,
     )
     parser.add_argument("--output-dir", required=True, help="Output directory for the canonical LD-score result.")
-    parser.add_argument("--overwrite", action="store_true", default=False, help="Replace existing fixed output files.")
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        default=False,
+        help="Replace LD-score output artifacts and remove stale owned siblings.",
+    )
     query_group = parser.add_mutually_exclusive_group()
     query_group.add_argument(
         "--query-annot-sources",
@@ -665,8 +672,9 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
     query annotations are supplied, it synthesizes an all-ones ``base``
     annotation over the retained reference-panel metadata. Before calculation
     it preflights ``manifest.json``, ``ldscore.baseline.parquet``, optional
-    ``ldscore.query.parquet``, and ``ldscore.log`` under ``output_dir``. For
-    each chromosome it intersects annotation rows with
+    ``ldscore.query.parquet``, and ``ldscore.log`` under ``output_dir``. With
+    overwrite enabled, successful baseline-only runs remove stale query parquet
+    siblings. For each chromosome it intersects annotation rows with
     ``ref_panel.load_metadata(chrom)`` before calling the kernel, then returns
     the normalized public ``LDScoreResult`` with split baseline/query tables.
     The result ``output_paths`` mapping contains data artifacts only.
@@ -698,8 +706,9 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
     output_config = _output_config_from_args(normalized_args)
     output_dir = ensure_output_directory(output_config.output_dir, label="LD-score output directory")
     log_path = output_dir / "ldscore.log"
-    ensure_output_paths_available(
+    stale_paths = preflight_output_artifact_family(
         [*_expected_ldscore_output_paths(output_dir, bool(annotation_bundle.query_columns)), log_path],
+        [*_ldscore_output_family(output_dir), log_path],
         overwrite=output_config.overwrite,
         label="LD-score output artifact",
     )
@@ -720,6 +729,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
             regression_snps=regression_snps,
         )
         log_outputs(**result.output_paths)
+        remove_output_artifacts(stale_paths)
     return result
 
 
@@ -1120,6 +1130,15 @@ def _expected_ldscore_output_paths(output_dir: Path, has_query: bool) -> list[Pa
     if has_query:
         paths.append(output_dir / "ldscore.query.parquet")
     return paths
+
+
+def _ldscore_output_family(output_dir: Path) -> list[Path]:
+    """Return all fixed artifacts owned by the LD-score workflow."""
+    return [
+        output_dir / "manifest.json",
+        output_dir / "ldscore.baseline.parquet",
+        output_dir / "ldscore.query.parquet",
+    ]
 
 
 def _replace_result_output_paths(result: LDScoreResult, output_paths: dict[str, str]) -> LDScoreResult:

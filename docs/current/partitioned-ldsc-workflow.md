@@ -197,6 +197,12 @@ folder per query annotation. Each query folder contains a one-row
 `metadata.json`. The log is preflighted with the table outputs, but it is not
 part of returned `output_paths`.
 
+`partitioned-h2` treats `partitioned_h2.tsv`, `query_annotations/`, and
+`partitioned-h2.log` as one owned output family. Without `--overwrite`, any
+existing owned sibling rejects the run. With `--overwrite`, a successful
+aggregate-only run removes a stale `query_annotations/` tree from a previous
+per-query configuration.
+
 ## 7. CLI Examples
 
 Compute LD scores:

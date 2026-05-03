@@ -8,20 +8,21 @@ The regression step expects:
   compatibility files, with at least `SNP`, `Z`, and `N`; current
   package-written artifacts also include `CHR` and `POS`, and `A1`/`A2` are
   recommended so the second trait can be allele-aligned
-- one canonical LD-score result directory containing `manifest.json` and `baseline.parquet`
+- one canonical LD-score result directory containing `manifest.json` and `ldscore.baseline.parquet`
 
 Use the same `GlobalConfig` assumptions for both traits and the LD-score reference. For cross-trait rg, the LD scores should usually be the baseline, non-cell-specific LD scores used for single-trait h2.
-Current LD-score directories keep `baseline.parquet` as one flat file with
-chromosome-aligned row groups listed in `manifest.json`; regression reads the
-full table, while inspection code can use the row-group metadata.
+Current LD-score directories keep `ldscore.baseline.parquet` as one flat file
+with chromosome-aligned row groups listed in `manifest.json`; regression reads
+the full table, while inspection code can use the row-group metadata.
 
 Output directories are literal destinations. Missing directories are created,
-existing directories are reused, and existing fixed files such as
-`sumstats.parquet`, `sumstats.log`, `sumstats.metadata.json`, `rg.tsv`, or
-`rg.log` are refused before writing unless you pass `--overwrite` or
-`overwrite=True`.
-If you request `--output-format tsv.gz` or `both`, `sumstats.sumstats.gz` is
-also checked as a fixed workflow output.
+existing directories are reused, and existing owned workflow artifacts are
+refused before writing unless you pass `--overwrite` or `overwrite=True`.
+For each trait's sumstats directory, that family includes `sumstats.parquet`,
+`sumstats.sumstats.gz`, `sumstats.log`, and `sumstats.metadata.json`, even when
+the current run would not write every format. Successful overwrites remove
+stale owned siblings not produced by the current configuration and preserve
+unrelated files.
 
 ## Python API
 
@@ -54,7 +55,7 @@ trait_1 = SumstatsMunger().run(
         # sumstats_snps_file="filters/hapmap3.tsv.gz",  # optional row keep-list
         output_dir="tutorial_outputs/trait_1",
         signed_sumstats_spec="BETA,0",
-        # overwrite=True,  # enable only when intentionally replacing trait_1 outputs
+        # overwrite=True,  # also removes stale unselected sumstats sibling formats
     ),
     global_config=GLOBAL_CONFIG,
 )
@@ -67,7 +68,7 @@ trait_2 = SumstatsMunger().run(
         # sumstats_snps_file="filters/hapmap3.tsv.gz",  # optional row keep-list
         output_dir="tutorial_outputs/trait_2",
         signed_sumstats_spec="BETA,0",
-        # overwrite=True,  # enable only when intentionally replacing trait_2 outputs
+        # overwrite=True,  # also removes stale unselected sumstats sibling formats
     ),
     global_config=GLOBAL_CONFIG,
 )

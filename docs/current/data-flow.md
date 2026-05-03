@@ -62,9 +62,10 @@ flowchart LR
 ## 1. `annotate`: BED Projection To SNP-Level `.annot.gz`
 
 Output directories are created when missing and reused when present. Existing
-`query.<chrom>.annot.gz` files and the workflow `annotate.log` are refused
+root-level `query.*.annot.gz` files and the workflow `annotate.log` are refused
 before any query shard is written unless the caller passes `--overwrite` or
-`overwrite=True`.
+`overwrite=True`. With overwrite enabled, stale query shards outside the
+current chromosome set are removed after the current shards are written.
 
 `ldsc.annotation_builder` owns both command entry paths: `main(argv)` parses
 standalone annotation arguments, and `run_annotate_from_args(args)` consumes
@@ -127,7 +128,11 @@ paths under each emitted `{build}` directory, optional duplicate-drop
 provenance under `dropped_snps/`, plus `build-ref-panel.log`.
 Existing candidates are refused unless `--overwrite` or
 `ReferencePanelBuildConfig(overwrite=True)` is supplied; unrelated files in the
-output directory are left untouched.
+output directory are left untouched. Unlike the result-directory workflows,
+`build-ref-panel` does not clean stale optional target-build or `dropped_snps`
+siblings from earlier configurations; use a fresh output directory when
+changing emitted builds, liftover, duplicate-position policy, or chromosome
+scope.
 
 ### Required inputs
 
@@ -190,9 +195,11 @@ flowchart LR
 ## 3. `ldscore`: Reference Panel And Optional Annotations To LDSC Artifacts
 
 The canonical LD-score workflow preflights `manifest.json`,
-`ldscore.baseline.parquet`, optional `ldscore.query.parquet`, and `ldscore.log` before writing
-any of them. Use `--overwrite` or `LDScoreOutputConfig(overwrite=True)` only
-for intentional reruns.
+`ldscore.baseline.parquet`, `ldscore.query.parquet`, and `ldscore.log` as one
+owned family before writing any of them. Use `--overwrite` or
+`LDScoreOutputConfig(overwrite=True)` only for intentional reruns. With
+overwrite enabled, a successful baseline-only run removes stale
+`ldscore.query.parquet`.
 The parquet payloads remain single flat files, but each row group contains rows
 from exactly one chromosome. The manifest records the row-group layout and
 per-chromosome offsets so readers can load one chromosome without scanning the
@@ -265,12 +272,15 @@ flowchart LR
 
 ## 4. `munge-sumstats`: Raw GWAS Table To Curated Sumstats
 
-The munging workflow preflights the selected fixed output(s), `sumstats.log`,
-and `sumstats.metadata.json` before delegating to `SumstatsMunger.run()` and
-then the legacy-compatible munging kernel. The workflow owns the log file,
-metadata sidecar, and curated output writing; the kernel keeps the low-level
-parsing and QC. Default output is `sumstats.parquet`; `--output-format tsv.gz`
-or `both` also supports the legacy `sumstats.sumstats.gz` artifact.
+The munging workflow preflights `sumstats.parquet`,
+`sumstats.sumstats.gz`, `sumstats.log`, and `sumstats.metadata.json` as one
+owned family before delegating to `SumstatsMunger.run()` and then the
+legacy-compatible munging kernel. The workflow owns the log file, metadata
+sidecar, and curated output writing; the kernel keeps the low-level parsing and
+QC. Default output is `sumstats.parquet`; `--output-format tsv.gz` or `both`
+also supports the legacy `sumstats.sumstats.gz` artifact. With overwrite
+enabled, stale sibling formats not produced by the current run are removed
+after successful writes.
 
 ### Required inputs
 
@@ -329,7 +339,10 @@ Regression summary commands write one fixed TSV when `output_dir` is supplied:
 `h2.tsv`, `partitioned_h2.tsv`, or `rg.tsv`, plus the matching workflow log
 `h2.log`, `partitioned-h2.log`, or `rg.log`. Existing summary TSVs or logs
 raise before the new table is written unless the command includes
-`--overwrite`. Without `output_dir`, regression commands return in-memory
+`--overwrite`. For `partitioned-h2`, `partitioned_h2.tsv`,
+`query_annotations/`, and `partitioned-h2.log` are treated as one owned family;
+aggregate-only overwrites remove stale `query_annotations/` after the new
+summary is written. Without `output_dir`, regression commands return in-memory
 results and do not create log files.
 `partitioned-h2` can also write an opt-in per-query tree with
 `--write-per-query-results`; the aggregate `partitioned_h2.tsv` remains the

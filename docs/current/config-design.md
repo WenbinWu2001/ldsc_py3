@@ -264,9 +264,19 @@ Stop passing these controls to `GlobalConfig()`:
 The old `--regression-snps` and `--print-snps` behavior is unified under
 `--regression-snps-file`. LD-score outputs are fixed files under `output_dir`;
 legacy `.l2.*` and `.w.l2.*` filenames are not emitted by the public writer.
-Existing fixed output files are refused by default and require `--overwrite` or
-`overwrite=True`, so reruns cannot silently replace artifacts produced under a
-different configuration snapshot.
+Existing owned LD-score family artifacts are refused by default and require
+`--overwrite` or `overwrite=True`, so reruns cannot silently replace artifacts
+produced under a different configuration snapshot. With overwrite enabled, a
+successful run removes stale owned siblings that the current run did not
+produce, such as `ldscore.query.parquet` after switching from query LD scores
+to baseline-only LD scores.
+
+The same coherent-family rule applies to `munge-sumstats`, `partitioned-h2`,
+and `annotate`: no-overwrite mode rejects any owned sibling, while successful
+overwrites delete stale owned siblings and preserve unrelated files. The
+`build-ref-panel` workflow is the documented expert exception; its overwrite
+mode replaces current candidate panel artifacts but does not clean stale
+optional target-build or `dropped_snps` siblings.
 
 ---
 

@@ -326,6 +326,54 @@ class SumstatsMungerTest(unittest.TestCase):
             )
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
+    def test_run_overwrite_removes_unselected_sumstats_sibling(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text("SNP A1 A2 P OR N\nrs1 A G 0.05 1.0 1000\n", encoding="utf-8")
+            output_dir = tmpdir / "munged"
+
+            SumstatsMunger().run(
+                MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
+                MungeConfig(output_dir=output_dir, output_format="both"),
+                GlobalConfig(snp_identifier="rsid"),
+            )
+            self.assertTrue((output_dir / "sumstats.sumstats.gz").exists())
+
+            SumstatsMunger().run(
+                MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
+                MungeConfig(output_dir=output_dir, output_format="parquet", overwrite=True),
+                GlobalConfig(snp_identifier="rsid"),
+            )
+
+            metadata = json.loads((output_dir / "sumstats.metadata.json").read_text(encoding="utf-8"))
+            self.assertTrue((output_dir / "sumstats.parquet").exists())
+            self.assertFalse((output_dir / "sumstats.sumstats.gz").exists())
+            self.assertEqual(metadata["output_format"], "parquet")
+            self.assertEqual(metadata["output_files"], {"parquet": str(output_dir / "sumstats.parquet")})
+
+    def test_run_refuses_unselected_owned_sumstats_sibling_without_overwrite(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text("SNP A1 A2 P OR N\nrs1 A G 0.05 1.0 1000\n", encoding="utf-8")
+            output_dir = tmpdir / "munged"
+            output_dir.mkdir()
+            stale = output_dir / "sumstats.sumstats.gz"
+            stale.write_text("stale\n", encoding="utf-8")
+
+            with mock.patch.object(kernel_munge, "munge_sumstats", side_effect=AssertionError("kernel should not run")):
+                with self.assertRaisesRegex(FileExistsError, "overwrite"):
+                    SumstatsMunger().run(
+                        MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
+                        MungeConfig(output_dir=output_dir, output_format="parquet"),
+                        GlobalConfig(snp_identifier="rsid"),
+                    )
+
+            self.assertEqual(stale.read_text(encoding="utf-8"), "stale\n")
+            self.assertFalse((output_dir / "sumstats.log").exists())
+
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
     def test_write_output_accepts_output_format(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -342,6 +390,47 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(path, str(tmpdir / "out" / "sumstats.parquet"))
             self.assertTrue((tmpdir / "out" / "sumstats.parquet").exists())
             self.assertTrue((tmpdir / "out" / "sumstats.sumstats.gz").exists())
+
+    def test_write_output_refuses_unselected_owned_sumstats_sibling_without_overwrite(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            output_dir = tmpdir / "out"
+            output_dir.mkdir()
+            stale = output_dir / "sumstats.sumstats.gz"
+            stale.write_text("stale\n", encoding="utf-8")
+            table = sumstats_workflow.SumstatsTable(
+                data=pd.DataFrame({"SNP": ["rs1"], "Z": [1.5], "N": [1000.0]}),
+                has_alleles=False,
+                source_path="source.tsv",
+                trait_name="trait",
+            )
+
+            with self.assertRaisesRegex(FileExistsError, "overwrite"):
+                SumstatsMunger().write_output(table, output_dir, output_format="parquet")
+
+            self.assertEqual(stale.read_text(encoding="utf-8"), "stale\n")
+
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
+    def test_write_output_overwrite_removes_unselected_sumstats_sibling(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            output_dir = tmpdir / "out"
+            output_dir.mkdir()
+            stale = output_dir / "sumstats.sumstats.gz"
+            stale.write_text("stale\n", encoding="utf-8")
+            table = sumstats_workflow.SumstatsTable(
+                data=pd.DataFrame({"SNP": ["rs1"], "Z": [1.5], "N": [1000.0]}),
+                has_alleles=False,
+                source_path="source.tsv",
+                trait_name="trait",
+                config_snapshot=GlobalConfig(snp_identifier="rsid"),
+            )
+
+            SumstatsMunger().write_output(table, output_dir, output_format="parquet", overwrite=True)
+
+            self.assertTrue((output_dir / "sumstats.parquet").exists())
+            self.assertTrue((output_dir / "sumstats.metadata.json").exists())
+            self.assertFalse(stale.exists())
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
     def test_parquet_output_sorts_by_chr_pos_records_row_groups_and_preserves_precision(self):

@@ -1028,6 +1028,99 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertEqual(writer.call_args.kwargs["metadata"]["trait_name"], "trait")
         self.assertEqual(summary.loc[0, "Category"], "query")
 
+    def test_run_partitioned_h2_from_args_refuses_stale_per_query_tree_without_overwrite(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            output_dir = tmpdir / "out"
+            stale = output_dir / "query_annotations" / "old"
+            stale.mkdir(parents=True)
+            (stale / "metadata.json").write_text("{}\n", encoding="utf-8")
+            args = type(
+                "Args",
+                (),
+                {
+                    "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
+                    "trait_name": "trait",
+                    "ldscore_dir": str(tmpdir / "ldscores"),
+                    "count_kind": "common",
+                    "output_dir": str(output_dir),
+                    "overwrite": False,
+                    "n_blocks": 200,
+                    "no_intercept": False,
+                    "intercept_h2": None,
+                    "two_step_cutoff": None,
+                    "chisq_max": None,
+                    "write_per_query_results": False,
+                },
+            )()
+
+            with mock.patch.object(
+                regression_runner.RegressionRunner,
+                "estimate_partitioned_h2_batch",
+                side_effect=AssertionError("estimation should not run after preflight failure"),
+            ):
+                with self.assertRaisesRegex(FileExistsError, "overwrite"):
+                    regression_runner.run_partitioned_h2_from_args(args)
+
+            self.assertTrue(stale.exists())
+            self.assertFalse((output_dir / "partitioned_h2.tsv").exists())
+            self.assertFalse((output_dir / "partitioned-h2.log").exists())
+
+    def test_run_partitioned_h2_from_args_overwrite_removes_stale_per_query_tree(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            set_global_config(GlobalConfig(snp_identifier="rsid"))
+            with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
+                handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
+            ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
+            output_dir = tmpdir / "out"
+            stale = output_dir / "query_annotations" / "old"
+            stale.mkdir(parents=True)
+            (stale / "metadata.json").write_text("{}\n", encoding="utf-8")
+            args = type(
+                "Args",
+                (),
+                {
+                    "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
+                    "trait_name": "trait",
+                    "ldscore_dir": str(ldscore_dir),
+                    "count_kind": "common",
+                    "output_dir": str(output_dir),
+                    "overwrite": True,
+                    "n_blocks": 200,
+                    "no_intercept": False,
+                    "intercept_h2": None,
+                    "two_step_cutoff": None,
+                    "chisq_max": None,
+                    "write_per_query_results": False,
+                },
+            )()
+            partitioned_summary = pd.DataFrame(
+                [
+                    {
+                        "Category": "query",
+                        "Prop._SNPs": 1.0,
+                        "Prop._h2": 1.0,
+                        "Enrichment": 1.0,
+                        "Enrichment_p": 0.5,
+                        "Coefficient": 1.0,
+                        "Coefficient_p": 0.5,
+                    }
+                ]
+            )
+
+            with mock.patch.object(
+                regression_runner.RegressionRunner,
+                "estimate_partitioned_h2_batch",
+                return_value=partitioned_summary,
+            ):
+                summary = regression_runner.run_partitioned_h2_from_args(args)
+
+            self.assertEqual(summary.loc[0, "Category"], "query")
+            self.assertTrue((output_dir / "partitioned_h2.tsv").exists())
+            self.assertTrue((output_dir / "partitioned-h2.log").exists())
+            self.assertFalse((output_dir / "query_annotations").exists())
+
     def test_regression_cli_writes_fixed_result_filename_under_output_dir(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)

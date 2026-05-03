@@ -49,7 +49,12 @@ from .config import (
     suppress_global_config_banner,
     validate_config_compatibility,
 )
-from .path_resolution import ensure_output_directory, ensure_output_paths_available, normalize_path_token
+from .path_resolution import (
+    ensure_output_directory,
+    ensure_output_paths_available,
+    normalize_path_token,
+    preflight_output_artifact_family,
+)
 from ._logging import log_inputs, log_outputs, workflow_logging
 from ._kernel import regression as reg
 from ._kernel.identifiers import build_snp_id_series
@@ -804,13 +809,20 @@ def run_partitioned_h2_from_args(args):
 
     When ``args.output_dir`` is provided, the workflow preflights
     ``partitioned_h2.tsv``, optional ``query_annotations/``, and
-    ``partitioned-h2.log`` before loading inputs. Without an output directory,
-    it returns the summary table without creating a log file.
+    ``partitioned-h2.log`` before loading inputs. With overwrite enabled,
+    successful aggregate-only runs remove stale ``query_annotations/`` trees.
+    Without an output directory, it returns the summary table without creating
+    a log file.
     """
     preflight_names = ["partitioned_h2.tsv"]
     if getattr(args, "write_per_query_results", False):
         preflight_names.append("query_annotations")
-    output_dir, log_path = _preflight_regression_outputs(args, "partitioned-h2", preflight_names)
+    output_dir, log_path = _preflight_regression_outputs(
+        args,
+        "partitioned-h2",
+        preflight_names,
+        owned_output_names=["partitioned_h2.tsv", "query_annotations"],
+    )
     with workflow_logging("partitioned-h2", log_path, log_level=getattr(args, "log_level", "INFO")):
         runner, config = _runner_from_args(args)
         print_global_config_banner("run_partitioned_h2_from_args", runner.global_config)
@@ -925,7 +937,7 @@ def _add_common_regression_arguments(parser, include_h2_intercept: bool) -> None
         help="Reference SNP count vector used by regression.",
     )
     parser.add_argument("--output-dir", default=None, help="Optional output directory for summary tables.")
-    parser.add_argument("--overwrite", action="store_true", default=False, help="Replace existing fixed output files.")
+    parser.add_argument("--overwrite", action="store_true", default=False, help="Replace existing workflow output artifacts.")
     parser.add_argument("--n-blocks", type=int, default=200)
     parser.add_argument("--no-intercept", action="store_true", default=False, help="Fix the intercept to the LDSC default.")
     if include_h2_intercept:
@@ -935,7 +947,12 @@ def _add_common_regression_arguments(parser, include_h2_intercept: bool) -> None
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"), help="Logging verbosity.")
 
 
-def _preflight_regression_outputs(args, workflow_name: str, output_names: list[str]) -> tuple[str | None, Path | None]:
+def _preflight_regression_outputs(
+    args,
+    workflow_name: str,
+    output_names: list[str],
+    owned_output_names: list[str] | None = None,
+) -> tuple[str | None, Path | None]:
     """Preflight regression outputs and return normalized output dir plus log path."""
     output_dir_arg = getattr(args, "output_dir", None)
     if not output_dir_arg:
@@ -943,11 +960,19 @@ def _preflight_regression_outputs(args, workflow_name: str, output_names: list[s
     output_dir = ensure_output_directory(output_dir_arg, label="output directory")
     paths = [output_dir / name for name in output_names]
     log_path = output_dir / f"{workflow_name}.log"
-    ensure_output_paths_available(
-        [*paths, log_path],
-        overwrite=getattr(args, "overwrite", False),
-        label="regression output artifact",
-    )
+    if owned_output_names is None:
+        ensure_output_paths_available(
+            [*paths, log_path],
+            overwrite=getattr(args, "overwrite", False),
+            label="regression output artifact",
+        )
+    else:
+        preflight_output_artifact_family(
+            [*paths, log_path],
+            [*(output_dir / name for name in owned_output_names), log_path],
+            overwrite=getattr(args, "overwrite", False),
+            label="regression output artifact",
+        )
     return str(output_dir), log_path
 
 

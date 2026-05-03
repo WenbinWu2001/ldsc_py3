@@ -30,8 +30,10 @@ Path-token rules used in this tutorial:
 - scalar inputs still resolve to exactly one file
 - output directories remain literal destinations
 - missing output directories are created and existing directories are reused
-- existing fixed files are refused before writing starts unless you pass
-  `--overwrite` or `overwrite=True`
+- existing owned workflow artifacts are refused before writing starts unless
+  you pass `--overwrite` or `overwrite=True`; successful overwrites remove
+  stale owned siblings not produced by the current configuration and preserve
+  unrelated files
 
 Resolution behavior:
 
@@ -89,7 +91,7 @@ annotation_bundle = AnnotationBuilder(GLOBAL_CONFIG, AnnotationBuildConfig()).ru
 #     query_annot_bed_sources="beds/*.bed",
 #     baseline_annot_sources="annotations/baseline_chr/baseline.@.annot.gz",
 #     output_dir="annotations/query_from_beds",
-#     overwrite=True,  # enable only when intentionally replacing query shards
+#     overwrite=True,  # also removes stale query shards outside the current chromosome set
 # )
 
 sumstats = SumstatsMunger().run(
@@ -109,7 +111,7 @@ sumstats = SumstatsMunger().run(
         # sumstats_snps_file="filters/hapmap3.tsv.gz",  # optional row keep-list
         output_dir="tutorial_outputs/trait",
         signed_sumstats_spec="BETA,0",
-        # overwrite=True,  # enable only when intentionally replacing sumstats/log files
+        # overwrite=True,  # also removes stale unselected sumstats sibling formats
     ),
     global_config=GLOBAL_CONFIG,
 )
@@ -139,7 +141,7 @@ ldscore_result = LDScoreCalculator().run(
     global_config=GLOBAL_CONFIG,
     output_config=LDScoreOutputConfig(
         output_dir="tutorial_outputs/partitioned_ldscores",
-        # overwrite=True,  # enable only when intentionally replacing LD-score outputs
+        # overwrite=True,  # also removes stale LD-score siblings not produced by this run
     ),
 )
 
@@ -168,7 +170,7 @@ print(ldscore_result.baseline_table.head())
 print(partitioned)
 ```
 
-The Python workflow registers `GlobalConfig` once, then reuses it across the compatible helper functions and workflow classes. In-process results such as `AnnotationBundle`, `SumstatsTable` from `SumstatsMunger.run()`, and `LDScoreResult` carry frozen `config_snapshot` values, and the regression step raises `ConfigMismatchError` if you accidentally mix known artifacts produced under incompatible `snp_identifier` or `genome_build` assumptions. A `SumstatsTable` loaded from a current disk artifact recovers this provenance from `sumstats.metadata.json`; older artifacts without the sidecar have unknown provenance (`config_snapshot=None`) and do not trigger sumstats-side compatibility validation. `SumstatsMunger.run()` is also the implementation path behind `ldsc munge-sumstats` after CLI parsing, and it owns fixed `sumstats.parquet` output by default, optional `sumstats.sumstats.gz` compatibility output, `sumstats.log`, and `sumstats.metadata.json`. Workflow logs are preflighted audit files; returned `output_paths` mappings and sumstats metadata `output_files` stay limited to data artifacts.
+The Python workflow registers `GlobalConfig` once, then reuses it across the compatible helper functions and workflow classes. In-process results such as `AnnotationBundle`, `SumstatsTable` from `SumstatsMunger.run()`, and `LDScoreResult` carry frozen `config_snapshot` values, and the regression step raises `ConfigMismatchError` if you accidentally mix known artifacts produced under incompatible `snp_identifier` or `genome_build` assumptions. A `SumstatsTable` loaded from a current disk artifact recovers this provenance from `sumstats.metadata.json`; older artifacts without the sidecar have unknown provenance (`config_snapshot=None`) and do not trigger sumstats-side compatibility validation. `SumstatsMunger.run()` is also the implementation path behind `ldsc munge-sumstats` after CLI parsing, and it owns fixed `sumstats.parquet` output by default, optional `sumstats.sumstats.gz` compatibility output, `sumstats.log`, and `sumstats.metadata.json`. Workflow logs are preflighted audit files; returned `output_paths` mappings and sumstats metadata `output_files` stay limited to data artifacts. For `munge-sumstats`, `ldscore`, `partitioned-h2`, and `annotate`, output directories represent coherent artifact families: no-overwrite runs reject any owned sibling, and successful overwrites delete stale owned siblings not produced by the current configuration.
 
 Munged sumstats written by this workflow include canonical `CHR` and `POS`
 columns. The raw munger accepts common coordinate headers such as `#CHROM`,
@@ -224,7 +226,7 @@ the workflow writes query shards, it also writes `annotate.log` under the output
 directory.
 
 The regression CLI consumes the LD-score result directory directly. It reads
-baseline columns from `baseline.parquet`, query columns from `query.parquet`,
+baseline columns from `ldscore.baseline.parquet`, query columns from `ldscore.query.parquet`,
 and counts from `manifest.json`. Both parquet files stay flat, but their row
 groups are chromosome-aligned and listed in the manifest for targeted reads.
 If the manifest has an empty `query_columns` list, use `ldsc h2`/`ldsc rg`
@@ -258,8 +260,10 @@ The command writes `tutorial_outputs/partitioned_h2/partitioned_h2.tsv` and
 `tutorial_outputs/partitioned_h2/partitioned-h2.log`.
 The summary columns are documented in
 [partitioned-h2-results.md](../docs/current/partitioned-h2-results.md).
-If either fixed output already exists, the command fails before writing; add
-`--overwrite` only when replacing the previous summary is intentional.
+If any partitioned-h2 owned output already exists, including a stale
+`query_annotations/` tree from an earlier per-query run, the command fails
+before writing; add `--overwrite` only when replacing the previous summary is
+intentional.
 
 To also materialize one result folder per query annotation, add
 `--write-per-query-results`:
@@ -278,3 +282,6 @@ This keeps the aggregate `partitioned_h2.tsv` and adds
 `query_annotations/0001_enhancer_a/`. Each query folder contains its one-row
 `partitioned_h2.tsv`, the fitted baseline-plus-query `partitioned_h2_full.tsv`,
 and `metadata.json` with the original query annotation name.
+If you later rerun the same output directory without `--write-per-query-results`
+and pass `--overwrite`, the old `query_annotations/` tree is removed after the
+new aggregate summary is written.

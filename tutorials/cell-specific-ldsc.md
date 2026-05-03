@@ -17,10 +17,11 @@ build-specific R2 directory. Package-built R2 parquet files store
 R2 bias and sample-size arguments.
 
 Output directories are literal destinations. Missing directories are created,
-existing directories are reused, and existing fixed files are refused before
-writing unless you pass `--overwrite` or `overwrite=True`. CLI workflow logs
-are part of that preflight policy, but they are audit files rather than
-returned data artifacts.
+existing directories are reused, and existing owned workflow artifacts are
+refused before writing unless you pass `--overwrite` or `overwrite=True`.
+Successful overwrites remove stale owned siblings not produced by the current
+configuration and preserve unrelated files. CLI workflow logs are part of that
+preflight policy, but they are audit files rather than returned data artifacts.
 
 For `chr_pos` workflows, `genome_build="auto"` can infer hg19/hg38 and
 0-based/1-based coordinates during annotation or LD-score loading. The same
@@ -78,7 +79,7 @@ ldscore_result = LDScoreCalculator().run(
     global_config=GLOBAL_CONFIG,
     output_config=LDScoreOutputConfig(
         output_dir="tutorial_outputs/cell_specific_ldscores",
-        # overwrite=True,  # enable only when intentionally replacing LD-score outputs
+        # overwrite=True,  # also removes stale LD-score siblings not produced by this run
     ),
 )
 
@@ -146,7 +147,7 @@ ldsc partitioned-h2 \
 
 The regression reads query annotation columns from
 `tutorial_outputs/cell_specific_ldscores/manifest.json` and
-`query.parquet`. The LD-score parquet files are flat files with
+`ldscore.query.parquet`. The LD-score parquet files are flat files with
 chromosome-aligned row groups, and the manifest lists those row groups for
 targeted chromosome reads. The output file is
 `tutorial_outputs/cell_specific_ldsc/partitioned_h2.tsv`, with
@@ -161,5 +162,7 @@ sanitized folder per cell-type query annotation. Each folder contains the
 one-row query summary, the baseline-plus-query `partitioned_h2_full.tsv`, and
 `metadata.json` with the original annotation name.
 If the partitioned summary already exists, `ldsc partitioned-h2` fails before
-writing; the same is true for `partitioned-h2.log`. Add `--overwrite` only when
-replacing it is intentional.
+writing; the same is true for `partitioned-h2.log` and any stale
+`query_annotations/` tree. Add `--overwrite` only when replacing it is
+intentional. If an overwrite rerun omits `--write-per-query-results`, the old
+per-query tree is removed after the new aggregate summary is written.

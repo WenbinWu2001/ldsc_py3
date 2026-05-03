@@ -43,6 +43,13 @@ scientific outputs before they are opened. They are not included in workflow
 `output_paths` mappings or metadata `output_files` blocks that downstream code
 interprets as data artifacts.
 
+For `munge-sumstats`, `ldscore`, `partitioned-h2`, and `annotate`, the fixed
+outputs are coherent artifact families. Without overwrite, any existing owned
+artifact in the family rejects the run, even when that artifact would not be
+written by the current configuration. With overwrite, the workflow writes the
+requested outputs and removes stale owned siblings not produced by the
+successful run. Unrelated files in `output_dir` are preserved.
+
 ## CLI Inventory
 
 ### `ldsc annotate`
@@ -52,7 +59,7 @@ interprets as data artifacts.
 | `--query-annot-bed-sources` | input | yes | BED interval files | Accepts exact files, globs, comma-separated tokens, and source-token lists. BED basenames become query annotation names. |
 | `--baseline-annot-sources` | input | yes | baseline `.annot[.gz]` templates | Accepts exact files, globs, and `@` chromosome-suite tokens. |
 | `--output-dir` | output | yes | generated query annotation directory | Writes combined `query.<chrom>.annot.gz` files, with all BED inputs represented as query columns, plus `annotate.log`. |
-| `--overwrite` | output mode | no | collision policy | Controls whether generated annotation files and `annotate.log` may be replaced; defaults to `False`, so existing fixed outputs are refused. |
+| `--overwrite` | output mode | no | collision policy | Controls whether generated annotation files and `annotate.log` may be replaced; defaults to `False`, so any existing root-level `query.*.annot.gz` shard is refused. With overwrite, stale query shards outside the current chromosome set are removed after a successful run. |
 | `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger records in console and `annotate.log`; lifecycle audit lines always appear in the file. |
 | `--snp-identifier`, `--genome-build` | config | no | coordinate interpretation | Define how SNP coordinates are interpreted; `--snp-identifier` defaults to `chr_pos`, and `--genome-build` defaults to omitted/`None`, which is invalid for `chr_pos` inputs. |
 
@@ -63,7 +70,7 @@ Removed flags: `--bed-files`, `--baseline-annot`.
 | Flag | Direction | Required | Object | Notes |
 |---|---:|---:|---|---|
 | `--output-dir` | output | yes | canonical LD-score result directory | Writes `manifest.json`, `ldscore.baseline.parquet`, optional `ldscore.query.parquet`, and `ldscore.log`; parquet row groups are chromosome-aligned. |
-| `--overwrite` | output mode | no | collision policy | Controls whether fixed LD-score files and `ldscore.log` may be replaced; defaults to `False`, so existing files in `output_dir` are refused. |
+| `--overwrite` | output mode | no | collision policy | Controls whether fixed LD-score files and `ldscore.log` may be replaced; defaults to `False`, so any existing owned LD-score artifact in `output_dir` is refused. With overwrite, stale `ldscore.query.parquet` is removed after successful baseline-only runs. |
 | `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger records in console and `ldscore.log`; lifecycle audit lines always appear in the file. |
 | `--baseline-annot-sources` | input | no | baseline annotation files | Supplies baseline annotation files; defaults to omitted/`None`, and if no query inputs are supplied `ldscore` synthesizes an all-ones `base` column. |
 | `--query-annot-sources` | input | no | prebuilt query annotation files | Supplies prebuilt query annotation files; defaults to omitted/`None`, so no prebuilt query annotations are used. Mutually exclusive with `--query-annot-bed-sources` and requires `--baseline-annot-sources`. |
@@ -111,7 +118,7 @@ LD-score output schema:
 | `--keep-indivs-file` | input | no | PLINK individual keep file | Restricts PLINK individuals during panel building; defaults to omitted/`None`, so no individual keep filter is applied. |
 | `--maf-min` | input metadata | no | retained SNP MAF filter | Filters retained SNPs by MAF during PLINK loading; defaults to omitted/`None`, so no retained-SNP MAF filter is applied. |
 | `--output-dir` | output | yes | reference-panel artifact directory | Run identity is `Path(output_dir).name`; no separate label is accepted. |
-| `--overwrite` | output mode | no | collision policy | Controls whether reference-panel artifacts and build-ref-panel workflow logs may be replaced; defaults to `False`, so existing deterministic outputs are refused. |
+| `--overwrite` | output mode | no | collision policy | Controls whether reference-panel artifacts and build-ref-panel workflow logs may be replaced; defaults to `False`, so existing deterministic outputs are refused. This expert workflow does not clean stale optional target-build or `dropped_snps` siblings from earlier configurations. |
 | `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger records in console and the build-ref-panel workflow log; lifecycle audit lines always appear in the file. |
 | `--snp-batch-size` | performance | no | SNP computation batch size | Number of SNPs loaded per pairwise-R2 computation batch; larger values may improve throughput but use more memory. Defaults to `128`. |
 
@@ -146,6 +153,9 @@ metadata sidecar is still written with `CM=NA`. cM-window builds require the
 genetic map for every emitted build because each build's map defines that
 build's LD window.
 
+Use a fresh `build-ref-panel` output directory when changing emitted builds,
+liftover configuration, duplicate-position policy, or chromosome scope.
+
 ### `ldsc munge-sumstats`
 
 | Flag | Direction | Required | Object | Notes |
@@ -158,7 +168,7 @@ build's LD window.
 | `--daner-old`, `--daner-new` | input metadata | no | DANER schema interpretation | `--daner-old` parses case/control N from `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` headers; `--daner-new` parses exact `Nca` and `Nco` columns. |
 | `--snp-identifier`, `--genome-build` | config | no | provenance | `--snp-identifier` defaults to `chr_pos`; `--genome-build` defaults to `hg38`; `--genome-build auto` can infer hg19/hg38 for complete `CHR`/`POS` rows. |
 | `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger records in console and `sumstats.log`; lifecycle audit lines always appear in the file. |
-| `--overwrite` | output mode | no | collision policy | Controls whether fixed sumstats outputs may be replaced; defaults to `False`, so existing outputs are refused. |
+| `--overwrite` | output mode | no | collision policy | Controls whether fixed sumstats outputs may be replaced; defaults to `False`, so any owned `sumstats.*` artifact is refused. With overwrite, stale sibling formats not produced by the current `--output-format` are removed after a successful run. |
 
 Removed flags: `--sumstats`, `--sumstats-file` for raw munge input,
 `--merge-alleles`, `--merge-alleles-file`, `--out`.
@@ -204,7 +214,7 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 | `--count-kind` | model | no | count vector choice | Selects the count vector used by regression; defaults to `common`, while `all` uses all-SNP counts. |
 | `--write-per-query-results` | output mode | no | per-query result tree | Requests per-query output folders; defaults to `False`, so only the aggregate table is returned/written. |
 | `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger records in console and `partitioned-h2.log` when `output_dir` is supplied; lifecycle audit lines always appear in the file. |
-| `--overwrite` | output mode | no | collision policy | Controls whether aggregate/per-query outputs and `partitioned-h2.log` may be replaced; defaults to `False`, so existing outputs are refused. |
+| `--overwrite` | output mode | no | collision policy | Controls whether aggregate/per-query outputs and `partitioned-h2.log` may be replaced; defaults to `False`, so any owned partitioned-h2 artifact is refused. With overwrite, aggregate-only runs remove stale `query_annotations/` trees after successful writes. |
 
 Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 `--query-columns`, `--sumstats`, `--out`.

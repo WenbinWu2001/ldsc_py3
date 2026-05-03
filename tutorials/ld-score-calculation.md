@@ -42,18 +42,21 @@ Genome-build behavior for `chr_pos` inputs:
 Important output behavior:
 
 - the in-memory result is one merged `LDScoreResult` with split `baseline_table` and optional `query_table`
-- `--output-dir` writes a canonical LD-score result directory containing `manifest.json`, `baseline.parquet`, optional `query.parquet`, and `ldscore.log`
-- `baseline.parquet` and `query.parquet` are still single flat files, but each parquet row group contains exactly one chromosome
+- `--output-dir` writes a canonical LD-score result directory containing `manifest.json`, `ldscore.baseline.parquet`, optional `ldscore.query.parquet`, and `ldscore.log`
+- `ldscore.baseline.parquet` and `ldscore.query.parquet` are still single flat files, but each parquet row group contains exactly one chromosome
 - `manifest.json` records `row_group_layout`, `baseline_row_groups`, and `query_row_groups` for readers that want to load one chromosome by row-group index
 - `LDScoreResult.output_paths` lists scientific data artifacts only; it does not include `ldscore.log`
-- regression weights live in the `regr_weight` column of `baseline.parquet`; there is no separate `.w.l2.ldscore.gz` output
+- regression weights live in the `regr_weight` column of `ldscore.baseline.parquet`; there is no separate `.w.l2.ldscore.gz` output
 - annotation counts are stored as manifest records, not as separate `.M` files
 - if both baseline and query inputs are omitted, the workflow synthesizes an all-ones baseline column named exactly `base` over retained reference-panel metadata
 - query `.annot` and BED inputs require explicit baseline annotations; create an explicit all-ones `base` baseline annotation yourself if you intentionally want query annotations tested against that universe
 - missing output directories are created and existing directories are reused
-- existing fixed output files, including `ldscore.log`, fail before writing
-  starts; reruns that should replace them must pass `--overwrite` or
-  `overwrite=True`
+- existing owned LD-score artifacts, including unselected siblings such as a
+  stale `ldscore.query.parquet`, fail before writing starts; reruns that should
+  replace them must pass `--overwrite` or `overwrite=True`
+- with overwrite enabled, successful baseline-only runs remove stale
+  `ldscore.query.parquet` so the result directory reflects the current
+  manifest
 
 Performance behavior for canonical parquet R2 input:
 
@@ -65,8 +68,8 @@ Performance behavior for canonical parquet R2 input:
 ## Case 1: Ordinary Unpartitioned LD Scores
 
 For unpartitioned heritability, no baseline annotation input is needed. The
-result directory still has the normal `baseline.parquet` and manifest layout,
-with `baseline_columns == ["base"]`.
+result directory still has the normal `ldscore.baseline.parquet` and manifest
+layout, with `baseline_columns == ["base"]`.
 
 ### Python API
 
@@ -130,7 +133,7 @@ result = run_ldscore(
     regression_snps_file="filters/hapmap3.txt",
     common_maf_min=0.05,
     ld_wind_cm=1.0,
-    # overwrite=True,  # enable only when intentionally replacing prior outputs
+    # overwrite=True,  # also removes stale LD-score siblings not produced by this run
 )
 
 print(result.baseline_table.columns.tolist())
@@ -152,7 +155,7 @@ ldsc ldscore \
   --snp-identifier rsid \
   --common-maf-min 0.05 \
   --ld-wind-cm 1.0
-# Add --overwrite only when intentionally replacing manifest/baseline/query files.
+# Add --overwrite only when intentionally replacing the LD-score artifact family.
 ```
 
 ## Case 3: Use BED Files Directly During LD-Score Calculation
@@ -203,9 +206,9 @@ ldsc ldscore \
 
 ## Optional: Read One Chromosome From A Result Directory
 
-Full-file readers such as `pd.read_parquet("baseline.parquet")` still work.
+Full-file readers such as `pd.read_parquet("ldscore.baseline.parquet")` still work.
 For large outputs, use the manifest row-group metadata to read exactly one
-chromosome from `baseline.parquet` or `query.parquet`.
+chromosome from `ldscore.baseline.parquet` or `ldscore.query.parquet`.
 
 ```python
 import json
@@ -224,7 +227,7 @@ baseline_rg_by_chrom = {
     for entry in manifest["baseline_row_groups"]
 }
 
-pf = pq.ParquetFile(ldscore_dir / "baseline.parquet")
+pf = pq.ParquetFile(ldscore_dir / "ldscore.baseline.parquet")
 baseline_chr22 = pf.read_row_group(baseline_rg_by_chrom["22"]).to_pandas()
 
 print(baseline_chr22["CHR"].unique())
@@ -232,7 +235,8 @@ print(baseline_chr22.head())
 ```
 
 If query annotations were supplied, `manifest["query_row_groups"]` has the same
-shape for `query.parquet`. It is `None` for baseline-only LD-score results.
+shape for `ldscore.query.parquet`. It is `None` for baseline-only LD-score
+results.
 
 ## Optional: Materialize BED Projections for Reuse
 
@@ -249,7 +253,7 @@ bundle = run_bed_to_annot(
     query_annot_bed_sources="beds/*.bed",
     baseline_annot_sources="annotations/baseline_chr/baseline.@.annot.gz",
     output_dir="annotations/query_from_beds",
-    # overwrite=True,  # enable only when intentionally replacing query shards
+    # overwrite=True,  # also removes stale query shards outside the current chromosome set
 )
 
 print(bundle.query_columns)
@@ -268,8 +272,10 @@ ldsc annotate \
 The generated query shards are named `query.<chrom>.annot.gz`, so downstream inputs should use a token such as `annotations/query_from_beds/query.@.annot.gz`.
 
 If `--output-dir` does not exist yet, the workflow warns once and creates it
-automatically. If a `query.<chrom>.annot.gz` shard already exists, the command
-fails before writing any shard; add `--overwrite` only for an intentional rerun.
+automatically. If any root-level `query.*.annot.gz` shard already exists, the
+command fails before writing any shard, even if that shard is outside the
+current chromosome set. Add `--overwrite` only for an intentional rerun; stale
+query shards not produced by the successful run are removed.
 
 For script-style annotation runs, `ldsc.annotation_builder.main(argv)` is the
 parser entry point and returns the produced `AnnotationBundle`. If you already

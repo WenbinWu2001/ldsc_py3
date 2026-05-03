@@ -82,7 +82,7 @@ This is the only command-line entry point. It parses subcommands, preserves the 
 
 ### `ldsc.config`, `ldsc.path_resolution`, `ldsc.column_inference`, `ldsc.chromosome_inference`, `ldsc.genome_build_inference`
 
-These modules define the package-wide contracts that every workflow shares. They normalize path tokens, chromosome ordering, genome-build aliases, SNP identifier modes, input header aliases, and `chr_pos` genome-build inference before the kernel is called. `ldsc.path_resolution` also owns output-directory creation and fixed-artifact collision preflight through `ensure_output_paths_available()`. `ldsc.genome_build_inference` is public for Python callers through the top-level `ldsc` exports, while the CLI exposes it only through `--genome-build auto` on existing workflows. Architecture invariant: path discovery, header inference, output preflight, and user-facing build inference happen here or in the workflow layer, never inside `_kernel`.
+These modules define the package-wide contracts that every workflow shares. They normalize path tokens, chromosome ordering, genome-build aliases, SNP identifier modes, input header aliases, and `chr_pos` genome-build inference before the kernel is called. `ldsc.path_resolution` also owns output-directory creation, fixed-artifact collision preflight, coherent artifact-family preflight, and stale owned-sibling cleanup helpers. `ldsc.genome_build_inference` is public for Python callers through the top-level `ldsc` exports, while the CLI exposes it only through `--genome-build auto` on existing workflows. Architecture invariant: path discovery, header inference, output preflight, and user-facing build inference happen here or in the workflow layer, never inside `_kernel`.
 
 ### `ldsc._logging`
 

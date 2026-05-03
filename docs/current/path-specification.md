@@ -31,10 +31,36 @@ Output paths are different:
 - if the directory already exists, it is reused
 - public workflows do not use output prefixes; output filenames inside
   `output_dir` are fixed by the workflow
-- existing fixed output files raise `FileExistsError` before the workflow writes
-  anything
+- existing workflow-owned output artifacts raise `FileExistsError` before the
+  workflow writes anything
 - pass `--overwrite` on the CLI or `overwrite=True` in Python to intentionally
-  replace those fixed files
+  replace those fixed files; for coherent result-directory workflows, a
+  successful overwrite also removes stale owned siblings that the current run
+  did not produce
+
+### Coherent output artifact families
+
+Several workflows write a fixed family of files that share one run identity
+through `output_dir`. These families are treated as one coherent set, not as
+independent optional files:
+
+- `munge-sumstats`: `sumstats.parquet`, `sumstats.sumstats.gz`,
+  `sumstats.metadata.json`, and `sumstats.log` for CLI/workflow runs
+- `ldscore`: `manifest.json`, `ldscore.baseline.parquet`,
+  `ldscore.query.parquet`, and `ldscore.log` for CLI/workflow runs
+- `partitioned-h2`: `partitioned_h2.tsv`, optional `query_annotations/`, and
+  `partitioned-h2.log` for CLI/workflow runs
+- `annotate`: root-level `query.<chrom>.annot.gz` shards, plus `annotate.log`
+  for CLI/workflow runs
+
+Without overwrite, any existing owned sibling in the family rejects the run,
+even if that sibling is not selected by the current output mode. With overwrite
+enabled, the workflow writes the requested current outputs and then removes
+stale owned siblings not produced by the successful run. Unrelated files in the
+directory are preserved.
+
+Direct Python data writers enforce the data artifact family they own. Workflow
+wrappers add their workflow log to the preflight family.
 
 ## General Resolution Rules
 
@@ -167,9 +193,10 @@ Output:
 - `output_dir` is created when missing and reused when present.
 - Projection writes `query.<chrom>.annot.gz` for every chromosome in the
   resulting bundle, plus `annotate.log`.
-- Existing `query.<chrom>.annot.gz` files or `annotate.log` are refused before
-  any annotation shard is written unless `overwrite=True` or CLI `--overwrite`
-  is supplied.
+- Existing root-level `query.*.annot.gz` files or `annotate.log` are refused
+  before any annotation shard is written unless `overwrite=True` or CLI
+  `--overwrite` is supplied. With overwrite enabled, stale query shards outside
+  the current chromosome set are removed after the current shards are written.
 
 ### LD score calculation
 
@@ -242,7 +269,8 @@ Output:
   `row_group_layout`, `baseline_row_groups`, and `query_row_groups`.
 - Existing canonical LD-score files or `ldscore.log` are refused before any of
   them are written unless `--overwrite` or
-  `LDScoreOutputConfig(overwrite=True)` is supplied.
+  `LDScoreOutputConfig(overwrite=True)` is supplied. With overwrite enabled, a
+  successful baseline-only run removes any stale `ldscore.query.parquet` sibling.
 - `ldscore.baseline.parquet` contains `CHR`, `POS`, `SNP`, `regr_weight`, and baseline
   LD-score columns. When both baseline and query inputs are omitted, the
   LD-score workflow writes a synthetic all-ones baseline column named `base`.
@@ -308,6 +336,12 @@ Output:
   `--overwrite` or `ReferencePanelBuildConfig(overwrite=True)` is supplied.
 - The check covers source-build artifacts and covers target-build artifacts
   only when the matching liftover chain is configured.
+- `build-ref-panel` keeps this expert-oriented overwrite behavior as an
+  exception to the coherent result-directory cleanup policy. `--overwrite`
+  permits replacing current candidate artifacts, but it does not remove stale
+  optional target-build or `dropped_snps` siblings from earlier configurations.
+  Use a fresh output directory when changing emitted builds, liftover
+  configuration, duplicate-position policy, or chromosome scope.
 
 ### Sumstats munging and regression
 
@@ -336,8 +370,11 @@ Output:
 - `ldsc munge-sumstats` writes `sumstats.parquet` by default, plus
   `sumstats.log` and `sumstats.metadata.json` under `output_dir`;
   `--output-format tsv.gz` writes legacy `sumstats.sumstats.gz`, and
-  `--output-format both` writes both curated artifacts. Existing selected files
-  are refused unless `--overwrite` or `MungeConfig(overwrite=True)` is supplied.
+  `--output-format both` writes both curated artifacts. Existing owned
+  `sumstats.*` artifacts are refused unless `--overwrite` or
+  `MungeConfig(overwrite=True)` is supplied. With overwrite enabled, a
+  successful run removes stale sibling formats not produced by the current
+  `--output-format`.
   `sumstats.log` is not recorded in `MungeRunSummary.output_paths` or
   `sumstats.metadata.json["output_files"]`.
 - `ldsc h2`, `ldsc partitioned-h2`, and `ldsc rg` write `h2.tsv`,
@@ -351,9 +388,11 @@ Output:
   `query_annotations/` tree under `output_dir`. The tree contains
   `manifest.tsv` and one folder per query annotation, with per-query
   `partitioned_h2.tsv`, `partitioned_h2_full.tsv`, and `metadata.json`.
-  Existing final per-query output is refused unless `--overwrite` is supplied.
+  Existing final per-query output is refused unless `--overwrite` is supplied;
+  with overwrite enabled, an aggregate-only run removes a stale
+  `query_annotations/` tree.
 - Existing output directories are valid in every case. Only known files for the
-  active command are checked.
+  workflow-owned artifact family are checked; unrelated files are preserved.
 
 ## Automatic Inference
 

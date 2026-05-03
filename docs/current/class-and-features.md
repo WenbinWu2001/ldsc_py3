@@ -95,11 +95,16 @@ For log filenames and API boundary details, see
 - LD-score `ldscore.baseline.parquet` and `ldscore.query.parquet` stay single flat files, but
   each parquet row group contains one chromosome. `manifest.json` records
   `row_group_layout`, `baseline_row_groups`, and `query_row_groups`.
-- Missing output directories are created, existing directories are reused, and
-  existing fixed files fail before writing starts unless the caller passes
-  `--overwrite` or `overwrite=True`.
-- `--overwrite` only permits replacement of the known files for the active
-  workflow; it does not remove unrelated files from the output directory.
+- Missing output directories are created and existing directories are reused.
+  For `munge-sumstats`, `ldscore`, `partitioned-h2`, and `annotate`, existing
+  owned siblings from the workflow artifact family fail before writing starts
+  unless the caller passes `--overwrite` or `overwrite=True`.
+- With overwrite enabled, successful runs remove stale owned siblings that the
+  current configuration did not produce. Unrelated files in the output
+  directory are preserved.
+- `build-ref-panel` keeps an expert-oriented exception: overwrite permits
+  replacement of current candidate artifacts, but it does not remove stale
+  optional target-build or `dropped_snps` siblings from earlier configurations.
 - Raw user-authored inputs use permissive alias resolution through `column_inference.py`.
 - Raw sumstats may begin with `##` metadata/comment lines; these are skipped before header inference, so `#CHROM` remains available as the chromosome header.
 - `chr_pos` workflows that interpret external coordinates require an explicit genome build or `--genome-build auto`; workflows such as `build-ref-panel` may ignore `GlobalConfig.genome_build` when they own a separate source-build contract. `rsid` workflows do not use genome-build metadata.

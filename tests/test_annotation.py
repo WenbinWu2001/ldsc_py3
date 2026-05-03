@@ -234,6 +234,66 @@ class AnnotationBuilderTest(unittest.TestCase):
             self.assertEqual(existing.read_text(encoding="utf-8"), "existing\n")
             self.assertFalse((output_dir / "annotate.log").exists())
 
+    def test_project_bed_annotations_refuses_stale_query_shard_without_overwrite(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            output_dir = tmpdir / "out"
+            output_dir.mkdir()
+            stale = output_dir / "query.2.annot.gz"
+            stale.write_text("stale\n", encoding="utf-8")
+            bundle = AnnotationBundle(
+                metadata=pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs1"], "CM": [0.1]}),
+                baseline_annotations=pd.DataFrame({"base": [1.0]}),
+                query_annotations=pd.DataFrame({"query": [1.0]}),
+                baseline_columns=["base"],
+                query_columns=["query"],
+                chromosomes=["1"],
+                source_summary={},
+                config_snapshot=GlobalConfig(snp_identifier="rsid"),
+            )
+            builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
+
+            with mock.patch.object(builder, "run", return_value=bundle):
+                with self.assertRaisesRegex(FileExistsError, "overwrite"):
+                    builder.project_bed_annotations(
+                        query_annot_bed_sources=("query.bed",),
+                        baseline_annot_sources=("baseline.1.annot.gz",),
+                        output_dir=output_dir,
+                    )
+
+            self.assertEqual(stale.read_text(encoding="utf-8"), "stale\n")
+            self.assertFalse((output_dir / "query.1.annot.gz").exists())
+
+    def test_project_bed_annotations_overwrite_removes_stale_query_shard(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            output_dir = tmpdir / "out"
+            output_dir.mkdir()
+            stale = output_dir / "query.2.annot.gz"
+            stale.write_text("stale\n", encoding="utf-8")
+            bundle = AnnotationBundle(
+                metadata=pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs1"], "CM": [0.1]}),
+                baseline_annotations=pd.DataFrame({"base": [1.0]}),
+                query_annotations=pd.DataFrame({"query": [1.0]}),
+                baseline_columns=["base"],
+                query_columns=["query"],
+                chromosomes=["1"],
+                source_summary={},
+                config_snapshot=GlobalConfig(snp_identifier="rsid"),
+            )
+            builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
+
+            with mock.patch.object(builder, "run", return_value=bundle):
+                builder.project_bed_annotations(
+                    query_annot_bed_sources=("query.bed",),
+                    baseline_annot_sources=("baseline.1.annot.gz",),
+                    output_dir=output_dir,
+                    overwrite=True,
+                )
+
+            self.assertTrue((output_dir / "query.1.annot.gz").exists())
+            self.assertFalse(stale.exists())
+
     def test_run_annotate_from_args_writes_workflow_log(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)

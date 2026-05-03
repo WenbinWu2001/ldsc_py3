@@ -12,14 +12,20 @@ This repository is the active refactored LDSC package.
 
 ## Install
 
-Download the package from GitHub:
+Choose the stable branch for routine use, or the `restructure` branch for the
+current development version. Both installs use an editable package install so
+local source changes are picked up immediately.
+
+### Stable version
+
+Clone the default `main` branch:
 
 ```bash
 git clone https://github.com/WenbinWu2001/ldsc_py3.git
 cd ldsc_py3
 ```
 
-One-time setup before running this package or the result-consistency pipelines:
+Create the conda environment and install the package with development extras:
 
 ```bash
 conda env create -f environment.yml
@@ -27,10 +33,36 @@ conda activate ldsc3
 python -m pip install -e ".[dev]"
 ```
 
-For later runs, activate the environment before launching commands or scripts:
+For later runs, activate the environment before launching LDSC commands or
+scripts:
 
 ```bash
 conda activate ldsc3
+```
+
+### Development version
+
+Clone the `restructure` branch:
+
+```bash
+git clone --branch restructure https://github.com/WenbinWu2001/ldsc_py3.git
+cd ldsc_py3
+```
+
+Create a separate development environment and install the package with
+development extras:
+
+```bash
+conda env create -f environment.yml -n ldsc3-dev
+conda activate ldsc3-dev
+python -m pip install -e ".[dev]"
+```
+
+For later runs, activate the development environment before launching LDSC
+commands or scripts:
+
+```bash
+conda activate ldsc3-dev
 ```
 
 The package supports Python 3.11 through 3.13. The base install includes the

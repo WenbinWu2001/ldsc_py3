@@ -62,7 +62,13 @@ The `.bim` file is especially important here because it supplies:
 - base-pair position
 - allele labels
 
-The builder copies the PLINK `SNP` field directly into the output `rsID` column. If your BIM uses dbSNP IDs, you will see dbSNP IDs. If your BIM uses IDs like `22:10684250:C:G`, those exact strings are preserved.
+The builder copies the PLINK `.bim` `SNP` field directly into the output SNP
+labels. If the `.bim` uses dbSNP IDs, downstream metadata and R2 endpoint
+columns will show dbSNP IDs. If the `.bim` uses labels like
+`22:10684250:C:G`, those exact strings are preserved; `build-ref-panel` does
+not convert them to rsIDs. The `--snp-identifier` option only controls how a
+`--ref-panel-snps-file` restriction is interpreted (`rsid` versus `chr_pos`);
+it does not rewrite the emitted `SNP`, `SNP_1`, or `SNP_2` values.
 
 ### Chromosome selection
 

@@ -54,6 +54,17 @@ CHR, SNP, POS, <query LD-score columns...>
 `ldscore.query.parquet` duplicates the SNP key columns intentionally. Loaders validate
 that query rows match baseline rows exactly on `CHR/SNP/POS`.
 
+The public `SNP` column in LD-score outputs is a carried label, not necessarily
+a dbSNP rsID. For package-built parquet reference panels it comes from the
+original PLINK `.bim` `SNP` field through the `chr*_meta.tsv.gz` sidecar. Thus a
+panel built from `.bim` IDs such as `22:10684250:C:G` will show those strings in
+synthetic unpartitioned LD-score rows. When explicit baseline annotations are
+supplied, the LD-score workflow keeps the annotation file's `SNP` labels and
+uses the reference panel only to filter/align rows. `snp_identifier="rsid"`
+therefore means "match on the literal `SNP` strings"; `snp_identifier="chr_pos"`
+uses private `CHR:POS` keys for matching and does not rewrite the visible `SNP`
+column.
+
 ## 3. Inputs
 
 ### Baseline Annotations

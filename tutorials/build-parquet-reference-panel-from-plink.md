@@ -13,7 +13,10 @@ The `build-ref-panel` workflow converts PLINK genotypes into build-specific R2 r
 - one R2 parquet per emitted build (`hg19/chr*_r2.parquet` and/or `hg38/chr*_r2.parquet`): one row per unordered SNP pair within the chosen LD window
 - one runtime metadata sidecar per emitted build (`hg19/chr*_meta.tsv.gz` and/or `hg38/chr*_meta.tsv.gz`): one row per retained SNP, used by LDSC-style downstream tools
 - optional duplicate-position provenance under `dropped_snps/` when `--duplicate-position-policy drop-all` drops colliding SNPs
-- `build-ref-panel.log` when run through the CLI or convenience wrapper
+- `build-ref-panel.log` when run through the CLI or convenience wrapper; a
+  concrete single-chromosome PLINK prefix writes
+  `build-ref-panel.chr<chrom>.log` so parallel per-chromosome jobs do not
+  share one log file
 
 The R2 output is a long pairwise table, not a dense square matrix on disk. That is usually the practical format for large reference panels.
 
@@ -138,8 +141,8 @@ The bundled Alkes-group maps in `resources/genetic_maps/genetic_map_alkesgroup/`
   panel build. The run identity is the directory name; output filenames are
   fixed directly under each `{build}/` directory. Missing directories are created
   and existing directories are reused, but existing candidate parquet or
-  metadata files and `build-ref-panel.log` are refused before chromosome
-  processing starts.
+  metadata files and build-ref-panel workflow logs are refused before
+  chromosome processing starts.
 
 - `--overwrite`
   Plain-English meaning: allow replacement of the fixed parquet and metadata
@@ -243,7 +246,7 @@ What this command is doing:
 - uses the explicit hg38->hg19 liftover chain to populate the hg19 coordinates
 - interpolates cM values from the provided hg19 and hg38 genetic maps
 - writes a build-separated R2 parquet panel rooted at `tutorial_outputs/ref_panel_chr22`
-- writes `tutorial_outputs/ref_panel_chr22/build-ref-panel.log`
+- writes `tutorial_outputs/ref_panel_chr22/build-ref-panel.chr22.log`
 
 This example uses `--ld-wind-cm` and emits both hg38 and hg19 because a matching
 liftover chain is provided, so both genetic maps are required.
@@ -302,7 +305,7 @@ For the chr22 example above, the output tree looks like:
 
 ```text
 tutorial_outputs/ref_panel_chr22/
-├── build-ref-panel.log        # CLI and convenience-wrapper runs
+├── build-ref-panel.chr22.log  # concrete single-chromosome CLI/convenience-wrapper runs
 ├── dropped_snps/              # only present when duplicate SNPs are dropped
 ├── hg19/
 │   ├── chr22_r2.parquet

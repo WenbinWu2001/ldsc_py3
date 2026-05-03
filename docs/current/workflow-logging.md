@@ -44,7 +44,7 @@ Elapsed time: 2.0min:12s
 | `munge-sumstats` | `<output_dir>/sumstats.log` |
 | `annotate` | `<output_dir>/annotate.log` |
 | `ldscore` | `<output_dir>/ldscore.log` |
-| `build-ref-panel` | `<output_dir>/build-ref-panel.log` |
+| `build-ref-panel` | `<output_dir>/build-ref-panel.log`, or `<output_dir>/build-ref-panel.chr<chrom>.log` for concrete single-chromosome PLINK-prefix runs |
 | `h2` | `<output_dir>/h2.log` |
 | `partitioned-h2` | `<output_dir>/partitioned-h2.log` |
 | `rg` | `<output_dir>/rg.log` |
@@ -61,7 +61,7 @@ Direct computational class APIs remain data-oriented:
 - `AnnotationBuilder.project_bed_annotations(...)` does not create
   `annotate.log` when called directly.
 - `LDScoreCalculator.run(...)` does not create `ldscore.log`.
-- `ReferencePanelBuilder.run(...)` does not create `build-ref-panel.log`.
+- `ReferencePanelBuilder.run(...)` does not create a build-ref-panel workflow log.
 - `RegressionRunner.estimate_*` methods do not create regression logs.
 
 `SumstatsMunger.run(...)` remains a workflow-level API and keeps writing

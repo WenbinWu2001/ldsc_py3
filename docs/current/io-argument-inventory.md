@@ -111,8 +111,8 @@ LD-score output schema:
 | `--keep-indivs-file` | input | no | PLINK individual keep file | Restricts PLINK individuals during panel building; defaults to omitted/`None`, so no individual keep filter is applied. |
 | `--maf-min` | input metadata | no | retained SNP MAF filter | Filters retained SNPs by MAF during PLINK loading; defaults to omitted/`None`, so no retained-SNP MAF filter is applied. |
 | `--output-dir` | output | yes | reference-panel artifact directory | Run identity is `Path(output_dir).name`; no separate label is accepted. |
-| `--overwrite` | output mode | no | collision policy | Controls whether reference-panel artifacts and `build-ref-panel.log` may be replaced; defaults to `False`, so existing deterministic outputs are refused. |
-| `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger records in console and `build-ref-panel.log`; lifecycle audit lines always appear in the file. |
+| `--overwrite` | output mode | no | collision policy | Controls whether reference-panel artifacts and build-ref-panel workflow logs may be replaced; defaults to `False`, so existing deterministic outputs are refused. |
+| `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger records in console and the build-ref-panel workflow log; lifecycle audit lines always appear in the file. |
 | `--snp-batch-size` | performance | no | SNP computation batch size | Number of SNPs loaded per pairwise-R2 computation batch; larger values may improve throughput but use more memory. Defaults to `128`. |
 
 Removed flags: `--bfile`, `--out`, `--panel-label`, `--keep-indivs`, `--maf`,
@@ -128,6 +128,7 @@ Fixed output names:
 <output_dir>/hg38/chr{chrom}_meta.tsv.gz
 <output_dir>/dropped_snps/chr{chrom}_dropped.tsv.gz
 <output_dir>/build-ref-panel.log
+<output_dir>/build-ref-panel.chr{chrom}.log  # concrete single-chromosome PLINK prefix
 ```
 
 Each `chr{chrom}_r2.parquet` stores Arrow schema metadata for
@@ -283,7 +284,7 @@ LD-score `chunk_size`.
 | `ReferencePanelBuildConfig` | `maf_min` | input metadata | retained SNP MAF filter |
 | `ReferencePanelBuildConfig` | `snp_batch_size` | performance | SNP computation batch size |
 | `ReferencePanelBuildConfig` | `output_dir` | output | artifact directory |
-| `run_build_ref_panel(**kwargs)` | same config field names except global settings | input/output | convenience wrapper; reads `snp_identifier` from the registered `GlobalConfig`; ignores `GlobalConfig.genome_build`; writes `build-ref-panel.log` |
+| `run_build_ref_panel(**kwargs)` | same config field names except global settings | input/output | convenience wrapper; reads `snp_identifier` from the registered `GlobalConfig`; ignores `GlobalConfig.genome_build`; writes the build-ref-panel workflow log |
 
 Removed Python names: `plink_path`, `bfile`, `out`, `panel_label`,
 `keep_indivs`, `maf`, old genetic-map and liftover names without `_file` /

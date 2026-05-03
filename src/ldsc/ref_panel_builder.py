@@ -13,8 +13,9 @@ workflow layer, then delegates pairwise-R2 generation and parquet serialization 
 ``ldsc._kernel.ref_panel_builder``. Before chromosome processing begins, the
 workflow precomputes deterministic parquet and metadata sidecar destinations
 and refuses existing files unless ``overwrite=True`` was configured. Parsed
-workflow wrappers write ``build-ref-panel.log``; direct builder calls return
-data artifact paths only and do not create a log file by default.
+workflow wrappers write ``build-ref-panel.log`` for multi-chromosome runs and
+chromosome-scoped logs for concrete single-chromosome runs; direct builder
+calls return data artifact paths only and do not create a log file by default.
 """
 
 from __future__ import annotations
@@ -106,6 +107,22 @@ def _emitted_genome_builds(config: ReferencePanelBuildConfig) -> list[str]:
     return [source_build] if matching_chain is None else [source_build, target_build]
 
 
+def _resolve_build_ref_panel_log_path(
+    workflow_log_path: Path | None,
+    config: ReferencePanelBuildConfig,
+    chrom_sources: Sequence[tuple[str, str]],
+) -> Path | None:
+    """Return a collision-resistant workflow log path for chromosome-scoped runs."""
+    if workflow_log_path is None:
+        return None
+    if len(chrom_sources) != 1:
+        return workflow_log_path
+    if "@" in str(config.plink_prefix):
+        return workflow_log_path
+    chrom = chrom_sources[0][1]
+    return workflow_log_path.with_name(f"{workflow_log_path.stem}.chr{chrom}{workflow_log_path.suffix}")
+
+
 def _expected_ref_panel_output_paths(config: ReferencePanelBuildConfig, chromosomes: Sequence[str]) -> list[Path]:
     """Return deterministic reference-panel artifact paths that may be written.
 
@@ -149,8 +166,8 @@ class ReferencePanelBuilder:
             consulted by this workflow. Existing deterministic output
             paths are refused before chromosome processing unless
             ``config.overwrite`` is true. Direct calls through this method do
-            not create a workflow log; parsed wrappers add
-            ``build-ref-panel.log`` through the shared logging context.
+            not create a workflow log; parsed wrappers add a build-ref-panel
+            workflow log through the shared logging context.
 
         Returns
         -------
@@ -190,6 +207,7 @@ class ReferencePanelBuilder:
                 seen_chromosomes.add(chrom)
                 chrom_sources.append((prefix, chrom))
 
+        workflow_log_path = _resolve_build_ref_panel_log_path(workflow_log_path, config, chrom_sources)
         preflight_paths = _expected_ref_panel_output_paths(config, [chrom for _, chrom in chrom_sources])
         if workflow_log_path is not None:
             preflight_paths.append(workflow_log_path)
@@ -1099,8 +1117,8 @@ def config_from_args(args: argparse.Namespace) -> tuple[ReferencePanelBuildConfi
 def run_build_ref_panel_from_args(args: argparse.Namespace) -> ReferencePanelBuildResult:
     """Run reference-panel building from parsed CLI arguments.
 
-    The parsed workflow preflights all deterministic panel artifacts plus
-    ``build-ref-panel.log`` before chromosome processing. The returned
+    The parsed workflow preflights all deterministic panel artifacts plus the
+    selected build-ref-panel log before chromosome processing. The returned
     ``ReferencePanelBuildResult`` contains panel artifact paths only.
     """
 

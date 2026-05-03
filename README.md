@@ -81,9 +81,12 @@ does not allele-match or reorder the output.
 
 Artifact-writing workflows also write per-run logs under their output
 directories. `munge-sumstats` keeps the historical `sumstats.log` name; other
-commands use `annotate.log`, `ldscore.log`, `build-ref-panel.log`, `h2.log`,
-`partitioned-h2.log`, or `rg.log`. Logs are audit artifacts, so Python result
-objects and `output_paths` mappings only list scientific data outputs.
+commands use `annotate.log`, `ldscore.log`, `build-ref-panel.log`,
+`h2.log`, `partitioned-h2.log`, or `rg.log`. Concrete single-chromosome
+`build-ref-panel` runs use `build-ref-panel.chr<chrom>.log` so parallel
+per-chromosome jobs can share an output directory without sharing one log file.
+Logs are audit artifacts, so Python result objects and `output_paths` mappings
+only list scientific data outputs.
 
 `ldsc ldscore` supports ordinary unpartitioned LD-score generation without
 baseline annotations:

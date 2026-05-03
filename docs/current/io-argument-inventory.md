@@ -17,6 +17,48 @@ Regression workflows consume this directory with `--ldscore-dir`; fragmented
 inputs such as LD-score files, count vectors, regression-weight files, and
 annotation manifests are no longer public inputs.
 
+## Format Policy
+
+The package separates machine-consumed internal artifacts from
+science-facing result tables. 
+Internal artifacts are machine-consumed intermediate products and should use Parquet as their primary format. This applies to package-built R2 pair tables,
+canonical LD-score result tables, and curated munged summary statistics. JSON
+manifests and metadata sidecars are allowed only as small provenance or layout
+descriptors for those artifacts.
+
+Science-facing result tables should use TSV. The public regression results are
+`h2.tsv`, `partitioned_h2.tsv`, optional per-query
+`partitioned_h2.tsv` / `partitioned_h2_full.tsv`, and `rg.tsv`. Logs are audit
+files and should not be treated as output results.
+
+
+### Current Adaptation Status
+
+Adapted public paths:
+
+- `ldsc ldscore` writes `ldscore.baseline.parquet` and optional
+  `ldscore.query.parquet`.
+- `ldsc munge-sumstats` writes `sumstats.parquet` by default.
+- `ldsc h2`, `ldsc partitioned-h2`, and `ldsc rg` write result tables as TSV
+  when an `output_dir` is supplied.
+- `ldsc build-ref-panel` writes the primary R2 pair matrix as
+  `chr{chrom}_r2.parquet`.
+
+Not fully adapted or retained for compatibility:
+
+- `ldsc annotate` writes generated query annotations as
+  `query.<chrom>.annot.gz`; these are intermediate annotation artifacts rather
+  than science-facing result tables.
+- `ldsc build-ref-panel` still writes runtime metadata sidecars as
+  `chr{chrom}_meta.tsv.gz` and duplicate-position provenance as
+  `dropped_snps/chr{chrom}_dropped.tsv.gz`.
+- `ldsc munge-sumstats` keeps `--output-format tsv.gz` and `both`, which write
+  `sumstats.sumstats.gz` compatibility artifacts even though parquet is the
+  default.
+- Private `_kernel` emitters still write legacy `.sumstats.gz`,
+  `.l2.ldscore.gz`, `.w.l2.ldscore.gz`, `.l2.M`, `.l2.M_5_50`, and
+  `.annotation_groups.tsv` files for direct kernel or compatibility paths.
+
 ## Naming Rules
 
 Public CLI flags and Python config fields follow these rules:

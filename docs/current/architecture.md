@@ -136,7 +136,7 @@ The kernel layer contains the actual numerical methods and low-level readers. It
 
 - **Input token language**: public inputs accept exact paths, globs, `@` chromosome suites, and some legacy bare prefixes. Output paths are normalized but remain literal destinations.
 - **Column and identifier normalization**: `column_inference.py` is the single source of truth for raw-input aliases, including `#CHROM`/`CHROM` as `CHR`, internal artifact headers, SNP identifier modes, and genome-build aliases. `genome_build_inference.py` owns automatic hg19/hg38 and 0-based/1-based inference for `chr_pos` tables.
-- **Artifact compatibility**: Public downstream chaining uses `.annot.gz`, Parquet-first munged sumstats with optional `.sumstats.gz` compatibility output and `sumstats.metadata.json`, and canonical LD-score result directories. LD-score and sumstats parquet payloads use chromosome-aligned row groups where useful, so full-file readers still work while chromosome-specific readers can skip unrelated row groups. Legacy `.l2.ldscore(.gz)`, `.l2.M`, `.l2.M_5_50`, and separate `.w.l2.ldscore(.gz)` files remain internal/legacy file-format concerns, not the public LD-score writer contract.
+- **Artifact compatibility**: Public downstream chaining uses `.annot.gz`, Parquet-first munged sumstats with optional `.sumstats.gz` compatibility output and `sumstats.metadata.json`, and canonical LD-score result directories. The forward format rule is parquet for internal artifacts and TSV for science-facing result tables. LD-score and sumstats parquet payloads use chromosome-aligned row groups where useful, so full-file readers still work while chromosome-specific readers can skip unrelated row groups. Legacy `.l2.ldscore(.gz)`, `.l2.M`, `.l2.M_5_50`, and separate `.w.l2.ldscore(.gz)` files remain internal/legacy file-format concerns, not the public LD-score writer contract.
 - **Output collision handling**: output directories are literal destinations.
   Missing directories are created, existing directories are reused, and fixed
   output files, including workflow logs, are checked before writing. By
@@ -166,6 +166,9 @@ The kernel layer contains the actual numerical methods and low-level readers. It
 - Public LD-score output layout is fixed by `LDScoreDirectoryWriter`;
   partitioned-h2 result tables use fixed compact/full schemas owned by
   `PartitionedH2DirectoryWriter`.
+- New internal or intermediate artifacts should be parquet by default; new
+  science-facing result tables should be TSV. Compatibility text outputs must
+  be called out as legacy or sidecar exceptions.
 - Query annotations are valid only with explicit baseline annotations; the
   synthetic `base` path is for ordinary unpartitioned LD-score generation and
   downstream `h2`/`rg`, not for `partitioned-h2`.

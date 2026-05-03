@@ -23,8 +23,8 @@ An LD-score run writes:
 ```text
 <ldscore_dir>/
   manifest.json
-  baseline.parquet
-  query.parquet        # omitted when no query annotations were supplied
+  ldscore.baseline.parquet
+  ldscore.query.parquet        # omitted when no query annotations were supplied
 ```
 
 `manifest.json` is the only metadata entry point. It contains:
@@ -39,19 +39,19 @@ An LD-score run writes:
 
 All paths inside the manifest are relative to `ldscore_dir`.
 
-`baseline.parquet` columns:
+`ldscore.baseline.parquet` columns:
 
 ```text
 CHR, SNP, POS, regr_weight, <baseline LD-score columns...>
 ```
 
-`query.parquet` columns:
+`ldscore.query.parquet` columns:
 
 ```text
 CHR, SNP, POS, <query LD-score columns...>
 ```
 
-`query.parquet` duplicates the SNP key columns intentionally. Loaders validate
+`ldscore.query.parquet` duplicates the SNP key columns intentionally. Loaders validate
 that query rows match baseline rows exactly on `CHR/SNP/POS`.
 
 ## 3. Inputs
@@ -60,7 +60,7 @@ that query rows match baseline rows exactly on `CHR/SNP/POS`.
 
 Baseline `.annot[.gz]` files are passed to `ldsc ldscore` with
 `--baseline-annot-sources`. They define the baseline annotation LD-score columns stored
-in `baseline.parquet`.
+in `ldscore.baseline.parquet`.
 
 Example:
 
@@ -76,7 +76,7 @@ is not a separate h2 workflow.
 
 ### Query Annotations
 
-Query annotations are optional and become `query.parquet` columns.
+Query annotations are optional and become `ldscore.query.parquet` columns.
 
 - `--query-annot-bed-sources`: BED intervals projected to the baseline SNP universe in
   memory.
@@ -161,13 +161,13 @@ unavailable. Regression falls back to `all_reference_snp_count` in that case.
 
 ## 6. Regression Behavior
 
-`h2` and `rg` use baseline LD scores only, even when `query.parquet` exists.
-They also use the embedded `regr_weight` column from `baseline.parquet`.
+`h2` and `rg` use baseline LD scores only, even when `ldscore.query.parquet` exists.
+They also use the embedded `regr_weight` column from `ldscore.baseline.parquet`.
 When the effective identifier mode is `rsid`, regression merges on `SNP`. When
 it is `chr_pos`, regression builds a normalized private `CHR:POS` key from both
 the sumstats and LD-score tables and merges on that coordinate key.
 
-`partitioned-h2` requires `query.parquet` and a non-empty `query_columns` list in
+`partitioned-h2` requires `ldscore.query.parquet` and a non-empty `query_columns` list in
 the LD-score manifest. Baseline-only LD-score directories are valid inputs for
 `h2` and `rg`, but `partitioned-h2` rejects them instead of treating the
 baseline as a query annotation. For each query column, it builds a regression
@@ -285,5 +285,5 @@ The public `LDScoreResult` shape is split:
 - `output_paths`
 
 `output_paths` records scientific artifacts such as `manifest.json`,
-`baseline.parquet`, and optional `query.parquet`; workflow logs such as
+`ldscore.baseline.parquet`, and optional `ldscore.query.parquet`; workflow logs such as
 `ldscore.log` are audit files and are not included.

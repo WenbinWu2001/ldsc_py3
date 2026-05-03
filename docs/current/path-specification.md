@@ -235,18 +235,18 @@ ldsc ldscore \
 Output:
 
 - `--output-dir` is a literal directory destination.
-- LD-score calculation writes `manifest.json`, `baseline.parquet`, optional
-  `query.parquet`, and `ldscore.log` inside that directory.
-- `baseline.parquet` and `query.parquet` remain flat parquet files, but each
+- LD-score calculation writes `manifest.json`, `ldscore.baseline.parquet`,
+  optional `ldscore.query.parquet`, and `ldscore.log` inside that directory.
+- `ldscore.baseline.parquet` and `ldscore.query.parquet` remain flat parquet files, but each
   row group contains exactly one chromosome. The manifest records
   `row_group_layout`, `baseline_row_groups`, and `query_row_groups`.
 - Existing canonical LD-score files or `ldscore.log` are refused before any of
   them are written unless `--overwrite` or
   `LDScoreOutputConfig(overwrite=True)` is supplied.
-- `baseline.parquet` contains `CHR`, `POS`, `SNP`, `regr_weight`, and baseline
+- `ldscore.baseline.parquet` contains `CHR`, `POS`, `SNP`, `regr_weight`, and baseline
   LD-score columns. When both baseline and query inputs are omitted, the
   LD-score workflow writes a synthetic all-ones baseline column named `base`.
-- `query.parquet` is present only when query annotations were supplied and
+- `ldscore.query.parquet` is present only when query annotations were supplied and
   contains `CHR`, `POS`, `SNP`, and query LD-score columns.
 - Regression commands consume this directory via `--ldscore-dir`; users do not
   pass count vectors, weight files, or annotation manifests.
@@ -345,7 +345,7 @@ Output:
   `partitioned-h2.log`, or `rg.log`, respectively, when `output_dir` is
   provided; existing files are refused unless `--overwrite` is supplied.
 - `ldsc partitioned-h2` requires the LD-score directory to include
-  `query.parquet` and non-empty `query_columns`; baseline-only LD-score
+  `ldscore.query.parquet` and non-empty `query_columns`; baseline-only LD-score
   directories are valid for `h2` and `rg`.
 - `ldsc partitioned-h2 --write-per-query-results` also writes a staged
   `query_annotations/` tree under `output_dir`. The tree contains

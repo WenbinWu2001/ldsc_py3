@@ -1,13 +1,14 @@
 """Output writers for the refactored LDSC workflows.
 
 The public LD-score workflow writes one canonical result directory containing
-``manifest.json``, ``baseline.parquet``, and optional ``query.parquet``. Run
-identity comes from the chosen directory name; output filenames inside that
-directory are fixed. The parquet payloads are written with one row group per
-chromosome and matching manifest metadata so downstream readers can load a
-single chromosome without scanning the whole table. The writer creates missing
-directories, reuses existing directories, and refuses existing canonical files
-unless the caller explicitly sets ``overwrite=True``.
+``manifest.json``, ``ldscore.baseline.parquet``, and optional
+``ldscore.query.parquet``. Run identity comes from the chosen directory name;
+output filenames inside that directory are fixed. The parquet payloads are
+written with one row group per chromosome and matching manifest metadata so
+downstream readers can load a single chromosome without scanning the whole
+table. The writer creates missing directories, reuses existing directories, and
+refuses existing canonical files unless the caller explicitly sets
+``overwrite=True``.
 
 Partitioned-h2 regression summaries use the same directory-oriented output
 policy. ``PartitionedH2DirectoryWriter`` always writes the compact aggregate
@@ -114,8 +115,8 @@ class LDScoreOutputConfig:
     Parameters
     ----------
     output_dir : str or os.PathLike[str]
-        Directory that receives ``manifest.json``, ``baseline.parquet``, and
-        optional ``query.parquet``.
+        Directory that receives ``manifest.json``,
+        ``ldscore.baseline.parquet``, and optional ``ldscore.query.parquet``.
     overwrite : bool, optional
         If ``True``, replace existing canonical LD-score files in
         ``output_dir``. If ``False``, existing canonical files raise
@@ -140,14 +141,14 @@ class LDScoreOutputConfig:
 class LDScoreDirectoryWriter:
     """Write canonical LD-score result directories.
 
-    The writer owns the fixed files ``manifest.json``, ``baseline.parquet``,
-    and optional ``query.parquet``. Parquet files are flat files for backward
-    compatibility, but their internal row groups are chromosome-aligned and
-    described in the manifest.
+    The writer owns the fixed files ``manifest.json``,
+    ``ldscore.baseline.parquet``, and optional ``ldscore.query.parquet``.
+    Parquet files are flat files for backward compatibility, but their internal
+    row groups are chromosome-aligned and described in the manifest.
     """
 
     def write(self, result: Any, output_config: LDScoreOutputConfig) -> dict[str, str]:
-        """Write ``manifest.json``, ``baseline.parquet``, and optional ``query.parquet``.
+        """Write ``manifest.json`` and canonical LD-score parquet files.
 
         Existing canonical files are checked before any output file is written.
         Replacement requires ``output_config.overwrite=True``; unrelated files
@@ -164,10 +165,10 @@ class LDScoreDirectoryWriter:
 
         paths = {
             "manifest": output_dir / "manifest.json",
-            "baseline": output_dir / "baseline.parquet",
+            "baseline": output_dir / "ldscore.baseline.parquet",
         }
         if query_table is not None:
-            paths["query"] = output_dir / "query.parquet"
+            paths["query"] = output_dir / "ldscore.query.parquet"
         ensure_output_paths_available(
             paths.values(),
             overwrite=output_config.overwrite,

@@ -70,7 +70,7 @@ decimal digits printed, not numpy dtype.
 | Parquet artifact | Columns cast to `float32` on write | Columns kept as-is |
 | --- | --- | --- |
 | `sumstats.parquet` | none | `CHR` (str), `POS` (int64 when complete), `SNP` (str), alleles (str), `Z`/`N`/`FRQ` (numeric precision preserved) |
-| `baseline.parquet`, `query.parquet` | `regr_weight`, all LD-score / annotation columns | `CHR` (str), `POS` (int64), `SNP` (str) |
+| `ldscore.baseline.parquet`, `ldscore.query.parquet` | `regr_weight`, all LD-score / annotation columns | `CHR` (str), `POS` (int64), `SNP` (str) |
 | Pairwise R² parquet | `R2` | `CHR` (str), `POS_1`, `POS_2` (int64), `SNP_1`, `SNP_2` (str) |
 
 Pairwise R² parquet schema metadata also stores `ldsc:sorted_by_build`,
@@ -143,8 +143,8 @@ CM`) follow the annotation rule unconditionally. The annotation-specific columns
 | Artifact | Leading columns | Remaining columns |
 |----------|----------------|-------------------|
 | Annotation (`.annot.gz`) | `CHR, POS, SNP, CM` | annotation columns (input order preserved) |
-| LD-score output (`baseline.parquet`) | `CHR, SNP, POS, regr_weight` | baseline LD-score columns |
-| LD-score output (`query.parquet`) | `CHR, SNP, POS` | query LD-score columns |
+| LD-score output (`ldscore.baseline.parquet`) | `CHR, SNP, POS, regr_weight` | baseline LD-score columns |
+| LD-score output (`ldscore.query.parquet`) | `CHR, SNP, POS` | query LD-score columns |
 | Munged sumstats (`sumstats.parquet` or `.sumstats.gz`) | `SNP, CHR, POS, A1, A2` | `Z, N, FRQ` |
 | Canonical pairwise R² parquet | `CHR, POS_1, POS_2, SNP_1, SNP_2, R2` | |
 
@@ -161,5 +161,5 @@ The following locations must be kept consistent with this document.
 | `src/ldsc/column_inference.py` — `INTERNAL_ANNOT_ARTIFACT_SPECS` | Already correct: `CHR, POS, SNP, CM, MAF` |
 | `src/ldsc/_kernel/ldscore.py` — `ANNOT_META_COLUMNS` | `("CHR", "POS", "SNP", "CM", "MAF")` |
 | `src/ldsc/ldscore_calculator.py` — `_split_ldscore_table` | Public output order: baseline `CHR, SNP, POS, regr_weight, ...`; query `CHR, SNP, POS, ...` |
-| `src/ldsc/outputs.py` — `_write_chromosome_aligned_parquet` | One row group per `CHR` in `baseline.parquet` and `query.parquet` |
+| `src/ldsc/outputs.py` — `_write_chromosome_aligned_parquet` | One row group per `CHR` in `ldscore.baseline.parquet` and `ldscore.query.parquet` |
 | `src/ldsc/outputs.py` — `required_baseline` / `required_query` validation lists | Baseline requires `CHR`, `POS`, `SNP`, `regr_weight`, and baseline columns; query requires `CHR`, `POS`, `SNP`, and query columns |

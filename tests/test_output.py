@@ -146,7 +146,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
             self.assertEqual(set(output_paths), {"manifest", "baseline", "query"})
             manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(manifest["format"], "ldsc.ldscore_result.v1")
-            self.assertEqual(manifest["files"], {"baseline": "baseline.parquet", "query": "query.parquet"})
+            self.assertEqual(manifest["files"], {"baseline": "ldscore.baseline.parquet", "query": "ldscore.query.parquet"})
             self.assertEqual(manifest["baseline_columns"], ["base"])
             self.assertEqual(manifest["query_columns"], ["query"])
             self.assertEqual(manifest["counts"][1]["column"], "query")
@@ -158,8 +158,8 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
                 },
             )
 
-            baseline = pd.read_parquet(output_dir / "baseline.parquet")
-            query = pd.read_parquet(output_dir / "query.parquet")
+            baseline = pd.read_parquet(output_dir / "ldscore.baseline.parquet")
+            query = pd.read_parquet(output_dir / "ldscore.query.parquet")
             self.assertEqual(baseline.columns.tolist(), ["CHR", "SNP", "POS", "regr_weight", "base"])
             self.assertEqual(query.columns.tolist(), ["CHR", "SNP", "POS", "query"])
 
@@ -171,7 +171,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
             output_dir = Path(tmpdir) / "out"
             LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=output_dir))
 
-            for fname in ("baseline.parquet", "query.parquet"):
+            for fname in ("ldscore.baseline.parquet", "ldscore.query.parquet"):
                 pf = pq.ParquetFile(output_dir / fname)
                 self.assertEqual(pf.metadata.num_row_groups, 3, f"{fname}: expected 3 row groups")
                 for i in range(pf.metadata.num_row_groups):
@@ -189,7 +189,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
             manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
             rg_by_chrom = {e["chrom"]: e["row_group_index"] for e in manifest["baseline_row_groups"]}
 
-            pf = pq.ParquetFile(output_dir / "baseline.parquet")
+            pf = pq.ParquetFile(output_dir / "ldscore.baseline.parquet")
             df = pf.read_row_group(rg_by_chrom["1"]).to_pandas()
             self.assertTrue((df["CHR"] == "1").all())
             self.assertNotIn("2", df["CHR"].values)
@@ -235,9 +235,9 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
             output_paths = writer.write(result, LDScoreOutputConfig(output_dir=output_dir))
 
             self.assertEqual(set(output_paths), {"manifest", "baseline"})
-            self.assertFalse((output_dir / "query.parquet").exists())
+            self.assertFalse((output_dir / "ldscore.query.parquet").exists())
             manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
-            self.assertEqual(manifest["files"], {"baseline": "baseline.parquet"})
+            self.assertEqual(manifest["files"], {"baseline": "ldscore.baseline.parquet"})
             self.assertEqual(manifest["query_columns"], [])
 
     def test_rejects_query_table_with_mismatched_row_keys(self):
@@ -254,25 +254,25 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
         result = make_split_ldscore_result(query=True)
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir)
-            (output_dir / "baseline.parquet").write_text("existing", encoding="utf-8")
+            (output_dir / "ldscore.baseline.parquet").write_text("existing", encoding="utf-8")
 
             with self.assertRaisesRegex(FileExistsError, "overwrite=True"):
                 LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=output_dir))
 
             self.assertFalse((output_dir / "manifest.json").exists())
-            self.assertEqual((output_dir / "baseline.parquet").read_text(encoding="utf-8"), "existing")
+            self.assertEqual((output_dir / "ldscore.baseline.parquet").read_text(encoding="utf-8"), "existing")
 
     def test_overwrite_true_replaces_existing_canonical_files(self):
         result = make_split_ldscore_result(query=True)
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir)
             (output_dir / "manifest.json").write_text("existing", encoding="utf-8")
-            (output_dir / "baseline.parquet").write_text("existing", encoding="utf-8")
+            (output_dir / "ldscore.baseline.parquet").write_text("existing", encoding="utf-8")
 
             LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=output_dir, overwrite=True))
 
             manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
-            baseline = pd.read_parquet(output_dir / "baseline.parquet")
+            baseline = pd.read_parquet(output_dir / "ldscore.baseline.parquet")
             self.assertEqual(manifest["format"], "ldsc.ldscore_result.v1")
             self.assertEqual(baseline["SNP"].tolist(), ["rs1", "rs2"])
 

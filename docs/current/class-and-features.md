@@ -8,7 +8,7 @@ This document summarizes the public package surface. For workflow-level file str
 | --- | --- | --- | --- | --- |
 | Build query annotations | `ldsc annotate` | `AnnotationBuilder`, `run_bed_to_annot()`, `run_annotate_from_args()`, `annotation_builder.main()` | baseline `.annot(.gz)`, BED inputs | `query.<chrom>.annot.gz`; workflow wrappers also write `annotate.log` |
 | Build parquet reference panels | `ldsc build-ref-panel` | `ReferencePanelBuilder`, `run_build_ref_panel()` | PLINK prefix, optional source build inferred from `.bim`, optional liftover chains, conditional genetic maps, optional keep/restrict files; restriction identifier read from `GlobalConfig` and coordinates interpreted in the source build | per-build `chr*_r2.parquet` and `chr*_meta.tsv.gz` artifacts; optional `dropped_snps/chr*_dropped.tsv.gz`; workflow wrappers also write `build-ref-panel.log` |
-| Compute LD scores | `ldsc ldscore` | `LDScoreCalculator`, `run_ldscore()` | optional baseline annotation shards, optional query annotations only when baseline is explicit, PLINK or parquet reference panel, optional frequency metadata | `manifest.json`, `baseline.parquet`, optional `query.parquet` under `output_dir`; parquet row groups are chromosome-aligned; no-annotation runs write synthetic `base`; workflow wrappers also write `ldscore.log` |
+| Compute LD scores | `ldsc ldscore` | `LDScoreCalculator`, `run_ldscore()` | optional baseline annotation shards, optional query annotations only when baseline is explicit, PLINK or parquet reference panel, optional frequency metadata | `manifest.json`, `ldscore.baseline.parquet`, optional `ldscore.query.parquet` under `output_dir`; parquet row groups are chromosome-aligned; no-annotation runs write synthetic `base`; workflow wrappers also write `ldscore.log` |
 | Infer `chr_pos` genome build | workflow flags only: `--genome-build auto`; no standalone CLI command | `infer_chr_pos_build()`, `resolve_genome_build()`, `resolve_chr_pos_table()` | pandas table with `CHR` and `POS`; optional reference table | `ChrPosBuildInference`, resolved `GlobalConfig`, and optionally a normalized 1-based table |
 | Munge GWAS summary statistics | `ldsc munge-sumstats` | `SumstatsMunger`, `load_sumstats()` | raw sumstats via `--raw-sumstats-file` or `MungeConfig.raw_sumstats_file`, column hints, QC thresholds, optional `--chr`/`--pos`, `--genome-build auto`, optional `--daner-old`/`--daner-new` schema handling, optional `--sumstats-snps-file` keep-list, optional `--output-format parquet\|tsv.gz\|both` | `sumstats.parquet` by default, optional `sumstats.sumstats.gz`, `sumstats.log`, `sumstats.metadata.json` |
 | Estimate heritability | `ldsc h2` | `RegressionRunner.estimate_h2()` | munged `sumstats.parquet` or `.sumstats.gz` plus sidecar when available, LD-score directory | `h2.tsv`; `h2.log` when `output_dir` is supplied |
@@ -89,10 +89,10 @@ For log filenames and API boundary details, see
 - `query_annot_sources` and `query_annot_bed_sources` require explicit `baseline_annot_sources`; users who want to test query annotations against an all-ones universe must materialize that `base` baseline annotation themselves and run the partitioned workflow.
 - `ldsc partitioned-h2` rejects baseline-only LD-score directories. Use
   `ldsc h2` or `ldsc rg` with synthetic `base` outputs, and use
-  `partitioned-h2` only when `query.parquet` and non-empty `query_columns`
+  `partitioned-h2` only when `ldscore.query.parquet` and non-empty `query_columns`
   are present.
 - Public outputs use fixed workflow filenames under `output_dir`; run identity comes from the directory name.
-- LD-score `baseline.parquet` and `query.parquet` stay single flat files, but
+- LD-score `ldscore.baseline.parquet` and `ldscore.query.parquet` stay single flat files, but
   each parquet row group contains one chromosome. `manifest.json` records
   `row_group_layout`, `baseline_row_groups`, and `query_row_groups`.
 - Missing output directories are created, existing directories are reused, and

@@ -154,12 +154,12 @@ class LDScoreResult:
     Parameters
     ----------
     baseline_table : pandas.DataFrame
-        Cross-chromosome table persisted as ``baseline.parquet`` when the result
-        is written. Required columns are ``CHR``, ``SNP``, ``POS``,
+        Cross-chromosome table persisted as ``ldscore.baseline.parquet`` when
+        the result is written. Required columns are ``CHR``, ``SNP``, ``POS``,
         ``regr_weight``, and every entry in ``baseline_columns``.
     query_table : pandas.DataFrame or None
-        Optional cross-chromosome table persisted as ``query.parquet``. Required
-        columns are ``CHR``, ``SNP``, ``POS``, and every entry in
+        Optional cross-chromosome table persisted as ``ldscore.query.parquet``.
+        Required columns are ``CHR``, ``SNP``, ``POS``, and every entry in
         ``query_columns``.
     count_records : list of dict
         Manifest-ready count records. Each record names an annotation column and
@@ -290,11 +290,7 @@ class LDScoreCalculator:
                 context="AnnotationBundle and LDScoreCalculator runtime config",
             )
         chromosomes = _chromosomes_from_bundle(annotation_bundle)
-        LOGGER.info(
-            f"Computing LD scores for {len(chromosomes)} chromosomes "
-            f"with {len(annotation_bundle.baseline_columns)} baseline columns "
-            f"and {len(annotation_bundle.query_columns)} query columns."
-        )
+        LOGGER.info(_format_ldscore_start_message(annotation_bundle, len(chromosomes)))
         chromosome_results: list[ChromLDScoreResult] = []
         for chrom in chromosomes:
             chrom_bundle = _slice_annotation_bundle(annotation_bundle, chrom)
@@ -668,9 +664,9 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
     query annotations or BED files, and the reference panel. If no baseline or
     query annotations are supplied, it synthesizes an all-ones ``base``
     annotation over the retained reference-panel metadata. Before calculation
-    it preflights ``manifest.json``, ``baseline.parquet``, optional
-    ``query.parquet``, and ``ldscore.log`` under ``output_dir``. For each
-    chromosome it intersects annotation rows with
+    it preflights ``manifest.json``, ``ldscore.baseline.parquet``, optional
+    ``ldscore.query.parquet``, and ``ldscore.log`` under ``output_dir``. For
+    each chromosome it intersects annotation rows with
     ``ref_panel.load_metadata(chrom)`` before calling the kernel, then returns
     the normalized public ``LDScoreResult`` with split baseline/query tables.
     The result ``output_paths`` mapping contains data artifacts only.
@@ -767,6 +763,26 @@ def _validate_run_args(args: argparse.Namespace) -> None:
 def _has_cli_tokens(value: str | Sequence[str] | None) -> bool:
     """Return whether a CLI path field contains at least one non-empty token."""
     return bool(split_cli_path_tokens(value))
+
+
+def _format_ldscore_start_message(annotation_bundle, n_chromosomes: int) -> str:
+    """Return the workflow-level LD-score start message for a bundle."""
+    source_summary = getattr(annotation_bundle, "source_summary", {}) or {}
+    baseline_source = str(source_summary.get("baseline", ""))
+    if (
+        list(getattr(annotation_bundle, "baseline_columns", [])) == ["base"]
+        and not list(getattr(annotation_bundle, "query_columns", []))
+        and baseline_source.startswith("synthetic all-ones base annotation")
+    ):
+        return (
+            f"Starting LD-score calculation for {n_chromosomes} chromosomes "
+            "with synthetic base annotation and no query annotations."
+        )
+    return (
+        f"Starting LD-score calculation for {n_chromosomes} chromosomes "
+        f"with {len(annotation_bundle.baseline_columns)} baseline columns "
+        f"and {len(annotation_bundle.query_columns)} query columns."
+    )
 
 
 def _uses_parquet_reference(args: argparse.Namespace) -> bool:
@@ -1100,9 +1116,9 @@ def _output_config_from_args(args: argparse.Namespace) -> LDScoreOutputConfig:
 
 def _expected_ldscore_output_paths(output_dir: Path, has_query: bool) -> list[Path]:
     """Return canonical LD-score output paths written by the directory writer."""
-    paths = [output_dir / "manifest.json", output_dir / "baseline.parquet"]
+    paths = [output_dir / "manifest.json", output_dir / "ldscore.baseline.parquet"]
     if has_query:
-        paths.append(output_dir / "query.parquet")
+        paths.append(output_dir / "ldscore.query.parquet")
     return paths
 
 

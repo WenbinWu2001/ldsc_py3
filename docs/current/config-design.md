@@ -210,7 +210,7 @@ When `None`, the workflow uses the full reference panel `A`.
 - The restriction is loaded once into the `regression_snps` set `C`.
 - LD scores and count totals are still computed over `ld_reference_snps = B ∩ A'`.
 - Only the persisted LD-score rows are reduced to `ld_regression_snps = B ∩ A' ∩ C`.
-- There is no separate public weight artifact; the selected baseline rows keep their regression weights in the embedded `regr_weight` column of `baseline.parquet`.
+- There is no separate public weight artifact; the selected baseline rows keep their regression weights in the embedded `regr_weight` column of `ldscore.baseline.parquet`.
 
 When `None`, the normalized/public row table uses all of `ld_reference_snps`.
 
@@ -252,7 +252,7 @@ metadata.
 - Query annotations are valid only with explicit baseline annotations, so the synthetic `base` path is not used for partitioned/query LDSC.
 - `ref_panel_snps_file` becomes visible only during LD-score calculation, when the workflow aligns `B_chrom` to `ref_panel.load_metadata(chrom)`.
 - Count records are accumulated over `ld_reference_snps = B ∩ A'` and stored in `manifest.json`.
-- Public `baseline.parquet` and optional `query.parquet` rows are `ld_regression_snps = B ∩ A' ∩ C`.
+- Public `ldscore.baseline.parquet` and optional `ldscore.query.parquet` rows are `ld_regression_snps = B ∩ A' ∩ C`.
 
 ### Migration Notes
 

@@ -65,9 +65,9 @@ materialize legacy prefix-based files for compatibility tests, but the public
 canonical directory:
 
 - ``manifest.json``
-- ``baseline.parquet``, containing ``CHR``, ``POS``, ``SNP``, ``regr_weight``,
+- ``ldscore.baseline.parquet``, containing ``CHR``, ``POS``, ``SNP``, ``regr_weight``,
   and baseline LD-score columns
-- optional ``query.parquet``, containing ``CHR``, ``POS``, ``SNP``, and query
+- optional ``ldscore.query.parquet``, containing ``CHR``, ``POS``, ``SNP``, and query
   LD-score columns
 
 Count records are stored in the manifest rather than as public ``.M`` sidecar

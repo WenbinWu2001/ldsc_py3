@@ -981,8 +981,9 @@ def load_ldscore_from_dir(
     Parameters
     ----------
     ldscore_dir : str
-        Directory containing ``manifest.json``, ``baseline.parquet``, and
-        optional ``query.parquet`` files written by the public LD-score writer.
+        Directory containing ``manifest.json``, ``ldscore.baseline.parquet``,
+        and optional ``ldscore.query.parquet`` files written by the public
+        LD-score writer.
     snp_identifier : {"rsid", "chr_pos"} or None, optional
         Identifier mode used to reconstruct the public regression SNP set from
         the baseline table. When omitted, the manifest value is used, falling

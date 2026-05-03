@@ -335,9 +335,9 @@ class LDScoreConfig:
         Window size measured in centiMorgans. Default is ``None``.
     regression_snps_file : str or os.PathLike[str] or None, optional
         Optional path to the SNP list defining the regression SNP set used for
-        the persisted ``baseline.parquet`` row set and, when query annotations
-        are present, the aligned ``query.parquet`` row set. Default is
-        ``None``.
+        the persisted ``ldscore.baseline.parquet`` row set and, when query
+        annotations are present, the aligned ``ldscore.query.parquet`` row set.
+        Default is ``None``.
     snp_batch_size : int, optional
         Number of SNPs processed per LD-score sliding batch. Default is
         ``128``.

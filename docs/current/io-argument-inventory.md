@@ -9,8 +9,8 @@ result directory as the baseline design:
 ```text
 <ldscore_dir>/
   manifest.json
-  baseline.parquet
-  query.parquet        # omitted when no query annotations exist
+  ldscore.baseline.parquet
+  ldscore.query.parquet        # omitted when no query annotations exist
 ```
 
 Regression workflows consume this directory with `--ldscore-dir`; fragmented
@@ -62,7 +62,7 @@ Removed flags: `--bed-files`, `--baseline-annot`.
 
 | Flag | Direction | Required | Object | Notes |
 |---|---:|---:|---|---|
-| `--output-dir` | output | yes | canonical LD-score result directory | Writes `manifest.json`, `baseline.parquet`, optional `query.parquet`, and `ldscore.log`; parquet row groups are chromosome-aligned. |
+| `--output-dir` | output | yes | canonical LD-score result directory | Writes `manifest.json`, `ldscore.baseline.parquet`, optional `ldscore.query.parquet`, and `ldscore.log`; parquet row groups are chromosome-aligned. |
 | `--overwrite` | output mode | no | collision policy | Controls whether fixed LD-score files and `ldscore.log` may be replaced; defaults to `False`, so existing files in `output_dir` are refused. |
 | `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger records in console and `ldscore.log`; lifecycle audit lines always appear in the file. |
 | `--baseline-annot-sources` | input | no | baseline annotation files | Supplies baseline annotation files; defaults to omitted/`None`, and if no query inputs are supplied `ldscore` synthesizes an all-ones `base` column. |
@@ -86,10 +86,10 @@ Removed flags: `--bfile`, `--r2-table`, `--frqfile`, `--r2-sources`,
 
 LD-score output schema:
 
-- `baseline.parquet`: `CHR`, `POS`, `SNP`, `regr_weight`, then baseline
+- `ldscore.baseline.parquet`: `CHR`, `POS`, `SNP`, `regr_weight`, then baseline
   LD-score columns. In no-annotation unpartitioned runs, the baseline column
   list is exactly `base`.
-- `query.parquet`: `CHR`, `POS`, `SNP`, then query LD-score columns; omitted
+- `ldscore.query.parquet`: `CHR`, `POS`, `SNP`, then query LD-score columns; omitted
   when there are no query annotations.
 - `manifest.json`: format version, relative file paths, baseline/query column
   names, count records, `count_config`, config metadata, chromosomes, row

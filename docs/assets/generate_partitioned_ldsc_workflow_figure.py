@@ -367,7 +367,7 @@ def render() -> None:
         175,
         "Written artifacts",
         SLATE,
-        "`LDScoreDirectoryWriter.write()`\n\n`baseline.parquet`, optional `query.parquet`,\n`manifest.json`\n\nManifest counts:\n`all_reference_snp_count`\noptional `common_reference_snp_count`\nplus top-level `count_config`",
+        "`LDScoreDirectoryWriter.write()`\n\n`ldscore.baseline.parquet`, optional `ldscore.query.parquet`,\n`manifest.json`\n\nManifest counts:\n`all_reference_snp_count`\noptional `common_reference_snp_count`\nplus top-level `count_config`",
         title_fs=15,
         body_fs=10.8,
     )

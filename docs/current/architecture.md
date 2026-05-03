@@ -117,7 +117,7 @@ This module rebuilds an `LDScoreResult` from on-disk artifacts, merges it with m
 
 This is the canonical LD-score and partitioned-h2 result writer. For LD-score
 results it owns fixed files inside `output_dir`: `manifest.json`,
-`baseline.parquet`, and optional `query.parquet`. The parquet files stay flat
+`ldscore.baseline.parquet`, and optional `ldscore.query.parquet`. The parquet files stay flat
 for compatibility, but are written with one row group per chromosome;
 `manifest.json` records row-group layout and per-chromosome offsets for
 chromosome-scoped reads. For partitioned-h2, it owns compact

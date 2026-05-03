@@ -291,6 +291,34 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
         self.assertEqual(args.r2_bias_mode, "unbiased")
 
+    def test_format_ldscore_start_message_describes_synthetic_base(self):
+        bundle = SimpleNamespace(
+            baseline_columns=["base"],
+            query_columns=[],
+            source_summary={"baseline": "synthetic all-ones base annotation from retained reference-panel metadata"},
+        )
+
+        message = ldscore_workflow._format_ldscore_start_message(bundle, 22)
+
+        self.assertEqual(
+            message,
+            "Starting LD-score calculation for 22 chromosomes with synthetic base annotation and no query annotations.",
+        )
+
+    def test_format_ldscore_start_message_describes_partitioned_columns(self):
+        bundle = SimpleNamespace(
+            baseline_columns=["base_a", "base_b"],
+            query_columns=["query"],
+            source_summary={"baseline": "baseline.@.annot.gz"},
+        )
+
+        message = ldscore_workflow._format_ldscore_start_message(bundle, 22)
+
+        self.assertEqual(
+            message,
+            "Starting LD-score calculation for 22 chromosomes with 2 baseline columns and 1 query columns.",
+        )
+
     def test_validate_run_args_accepts_omitted_r2_bias_mode_as_unbiased(self):
         args = Namespace(
             output_dir="out",

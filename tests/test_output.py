@@ -31,7 +31,7 @@ def make_split_ldscore_result(query: bool = True) -> LDScoreResult:
             "CHR": ["1", "1"],
             "SNP": ["rs1", "rs2"],
             "POS": [10, 20],
-            "regr_weight": [1.5, 2.5],
+            "regression_ld_scores": [1.5, 2.5],
             "base": [1.0, 2.0],
         }
     )
@@ -93,7 +93,7 @@ def make_multi_chrom_result(chromosomes: list[str] | None = None) -> LDScoreResu
                     "CHR": chrom,
                     "SNP": f"rs{snp_idx}",
                     "POS": (i + 1) * 100,
-                    "regr_weight": 1.0,
+                    "regression_ld_scores": 1.0,
                     "base": float(snp_idx),
                 }
             )
@@ -161,7 +161,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
 
             baseline = pd.read_parquet(output_dir / "ldscore.baseline.parquet")
             query = pd.read_parquet(output_dir / "ldscore.query.parquet")
-            self.assertEqual(baseline.columns.tolist(), ["CHR", "SNP", "POS", "regr_weight", "base"])
+            self.assertEqual(baseline.columns.tolist(), ["CHR", "SNP", "POS", "regression_ld_scores", "base"])
             self.assertEqual(query.columns.tolist(), ["CHR", "SNP", "POS", "query"])
 
     def test_one_row_group_per_chromosome(self):

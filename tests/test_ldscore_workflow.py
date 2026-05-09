@@ -598,7 +598,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 "CHR": [chrom],
                 "SNP": [f"rs{chrom}"],
                 "POS": [bp],
-                "regr_weight": [score + 2.0],
+                "regression_ld_scores": [score + 2.0],
                 "base": [score],
             }
         )
@@ -647,7 +647,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                     "CHR": [chrom],
                     "SNP": [f"rs{chrom}"],
                     "POS": [bp],
-                    "regr_weight": [score + 2.0],
+                    "regression_ld_scores": [score + 2.0],
                     "base": [score],
                 }
             ),
@@ -735,7 +735,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                     "CHR": ["1"],
                     "SNP": ["rs1"],
                     "POS": [10],
-                    "regr_weight": [3.0],
+                    "regression_ld_scores": [3.0],
                     "base": [1.0],
                 }
             ),
@@ -761,7 +761,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         self.assertFalse(hasattr(chrom_result, "reference_metadata"))
         self.assertFalse(hasattr(chrom_result, "w_ld"))
         self.assertFalse(hasattr(chrom_result, "ldscore_table"))
-        self.assertEqual(chrom_result.baseline_table["regr_weight"].tolist(), [3.0])
+        self.assertEqual(chrom_result.baseline_table["regression_ld_scores"].tolist(), [3.0])
         self.assertEqual(chrom_result.query_table["query"].tolist(), [2.0])
 
     def _build_annotation_bundle(self, prefix: Path) -> AnnotationBundle:
@@ -836,7 +836,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         )
         self.assertFalse(hasattr(result, "reference_metadata"))
         self.assertEqual(result.baseline_table["CHR"].tolist(), ["1", "2"])
-        self.assertEqual(result.baseline_table.columns.tolist(), ["CHR", "SNP", "POS", "regr_weight", "base"])
+        self.assertEqual(result.baseline_table.columns.tolist(), ["CHR", "SNP", "POS", "regression_ld_scores", "base"])
         self.assertEqual(result.query_table.columns.tolist(), ["CHR", "SNP", "POS", "query"])
         self.assertEqual(result.count_records[0]["all_reference_snp_count"], 30.0)
         self.assertEqual(result.count_records[1]["common_reference_snp_count"], 30.0)
@@ -1074,7 +1074,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                             "CHR": ["1", "1"],
                             "SNP": ["rs1", "rs2"],
                             "POS": [10, 20],
-                            "regr_weight": [3.0, 4.0],
+                            "regression_ld_scores": [3.0, 4.0],
                             "base": [1.0, 2.0],
                         }
                     ),
@@ -1115,7 +1115,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             self.assertIsNone(result.query_table)
             self.assertNotIn("query", result.output_paths)
             baseline_df = pd.read_parquet(result.output_paths["baseline"])
-            self.assertEqual(baseline_df.columns.tolist(), ["CHR", "SNP", "POS", "regr_weight", "base"])
+            self.assertEqual(baseline_df.columns.tolist(), ["CHR", "SNP", "POS", "regression_ld_scores", "base"])
             self.assertEqual(result.count_records[0]["column"], "base")
 
     def test_run_ldscore_from_args_refuses_stale_query_parquet_without_overwrite(self):
@@ -1326,7 +1326,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                             "CHR": ["1"],
                             "SNP": ["rs2"],
                             "POS": [20],
-                            "regr_weight": [6.0],
+                            "regression_ld_scores": [6.0],
                             "base": [3.0],
                         }
                     ),
@@ -1724,7 +1724,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                             "CHR": ["22"],
                             "SNP": ["rs22"],
                             "POS": [220],
-                            "regr_weight": [3.0],
+                            "regression_ld_scores": [3.0],
                             "base": [2.0],
                         }
                     ),
@@ -1847,7 +1847,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
             self.assertEqual(result.baseline_table["SNP"].tolist(), expected_metadata["SNP"].tolist())
             np.testing.assert_allclose(result.baseline_table["base"].to_numpy(), expected_ld)
-            np.testing.assert_allclose(result.baseline_table["regr_weight"].to_numpy(), expected_ld)
+            np.testing.assert_allclose(result.baseline_table["regression_ld_scores"].to_numpy(), expected_ld)
 
     @unittest.skipUnless(_HAS_BITARRAY, "bitarray is not installed")
     def test_ldscore_calculator_run_applies_ref_panel_snp_restriction_before_plink_compute(self):

@@ -71,10 +71,10 @@ Each item targets a specific constraint that is easy to get wrong or to leave ha
 
 ## 6. Public result shape — `ldscore_table` (`ldscore_calculator.py`, `regression_runner.py`)
 
-- [ ] `ChromLDScoreResult` has a single `ldscore_table: pd.DataFrame` field. Columns: `[CHR, SNP, BP, <annotation>_L2 ..., regr_weight]`. Rows = `ld_regression_snps`.
+- [ ] `ChromLDScoreResult` has a single `ldscore_table: pd.DataFrame` field. Columns: `[CHR, SNP, BP, <annotation>_L2 ..., regression_ld_scores]`. Rows = `ld_regression_snps`.
 - [ ] `LDScoreResult` has the same `ldscore_table` shape (aggregate across chromosomes).
 - [ ] Old split fields (`reference_metadata`, `ld_scores`, `regression_metadata`, `w_ld`) are **absent** from both dataclasses.
-- [ ] `ldscore_table` always contains a `regr_weight` column — never absent.
+- [ ] `ldscore_table` always contains a `regression_ld_scores` column — never absent.
 - [ ] `snp_count_totals` is computed over `ld_reference_snps`, not `ld_regression_snps`.
 - [ ] `chromosome_results: list[ChromLDScoreResult]` is preserved; each element uses the same normalized merged-table shape.
 - [ ] `_subset_ldscore_result()` in `regression_runner.py` operates on `ldscore_table` columns, not split tables.
@@ -85,7 +85,7 @@ Each item targets a specific constraint that is easy to get wrong or to leave ha
 
 - [ ] `ldsc ldscore` writes a canonical result directory with fixed files:
   `manifest.json`, `baseline.parquet`, and optional `query.parquet`.
-- [ ] `baseline.parquet` contains the embedded `regr_weight` column. No
+- [ ] `baseline.parquet` contains the embedded `regression_ld_scores` column. No
   `.w.l2.ldscore.gz` file is written by the public workflow.
 - [ ] Count records are accumulated over `ld_reference_snps` and stored in
   `manifest.json`; the count loop does not use `ld_regression_snps` rows.
@@ -122,10 +122,10 @@ Each item targets a specific constraint that is easy to get wrong or to leave ha
 
 - [ ] `load_ldscore_from_files` is a public function (no leading underscore).
 - [ ] `load_ldscore_from_files` is exported from `src/ldsc/__init__.py`.
-- [ ] New-format load (no `weight_path`): detects `regr_weight` column and uses it as regression weights.
+- [ ] New-format load (no `weight_path`): detects `regression_ld_scores` column and uses it as regression weights.
 - [ ] Legacy-format load: `weight_path` provided → loads weights from separate `.w.l2.ldscore.gz`.
-- [ ] When `weight_path` is absent and no `regr_weight` column is present, `ValueError` is raised.
-- [ ] `--w-ld` is optional on `partitioned-h2`, `h2`, and `rg` subcommands; regression works without it when `regr_weight` is embedded.
+- [ ] When `weight_path` is absent and no `regression_ld_scores` column is present, `ValueError` is raised.
+- [ ] `--w-ld` is optional on `partitioned-h2`, `h2`, and `rg` subcommands; regression works without it when `regression_ld_scores` is embedded.
 - [ ] `RegressionRunner` builds its dataset from `ldscore_table` — not from `reference_metadata` + `ld_scores` + `regression_metadata` + `w_ld`.
 
 ---
@@ -150,7 +150,7 @@ Each item targets a specific constraint that is easy to get wrong or to leave ha
 - [ ] `build_parser()` rejects `--query-annot` + `--query-annot-bed` simultaneously.
 - [ ] `run_ldscore_from_args()` result matches a direct `AnnotationBuilder` + `LDScoreCalculator` run on the same inputs (parity / regression test).
 - [ ] `load_ldscore_from_files` is importable from `ldsc` top-level.
-- [ ] New-format regression (embedded `regr_weight`, no `--w-ld`) produces consistent heritability estimates.
+- [ ] New-format regression (embedded `regression_ld_scores`, no `--w-ld`) produces consistent heritability estimates.
 - [ ] Legacy-format regression (separate weight file via `--w-ld`) still works.
 - [ ] `GlobalConfig` constructor raises `TypeError` or `AttributeError` when passed `ref_panel_snps_file` or `regression_snps_file`.
 - [ ] `RefPanelConfig` accepts `ref_panel_snps_file` and `r2_bias_mode`; both default to `None`.

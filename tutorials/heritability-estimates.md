@@ -96,7 +96,7 @@ print("h2 =", float(h2.tot))
 print("h2_se =", float(h2.tot_se))
 print("intercept =", float(h2.intercept))
 print("ldscore_rows =", len(ldscore_result.baseline_table))
-print("embedded_weight_column =", "regr_weight" in ldscore_result.baseline_table.columns)
+print("embedded_regression_ld_scores_column =", "regression_ld_scores" in ldscore_result.baseline_table.columns)
 print("sumstats_config =", sumstats.config_snapshot)
 print("dataset_config =", dataset.config_snapshot)
 ```
@@ -117,7 +117,7 @@ coordinates. The raw munger accepts common coordinate headers such as `#CHROM`,
 the header is ambiguous. Leading raw `##` metadata lines are skipped before the
 real header is parsed.
 
-When you set `regression_snps_file` during LD-score calculation, the same regression SNP subset defines the rows of the normalized `baseline_table`. Regression weights come from the embedded `regr_weight` column by default.
+When you set `regression_snps_file` during LD-score calculation, the same regression SNP subset defines the rows of the normalized `baseline_table`. Regression uses the embedded `regression_ld_scores` column as the historical `w_ld` component; final model-dependent weights are computed later in the regression kernel.
 
 Because this is ordinary unpartitioned heritability, `run_ldscore(...)` does
 not need baseline annotations. With no baseline and no query inputs, it writes

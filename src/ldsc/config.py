@@ -346,8 +346,8 @@ class LDScoreConfig:
     common_maf_min : float, optional
         Inclusive MAF threshold used only for common-SNP count vectors
         (``MAF >= common_maf_min``). It does not change retained reference
-        SNPs, LD-score rows, LD scores, or regression weights. Default is
-        ``0.05``.
+        SNPs, LD-score rows, LD scores, or persisted regression-universe LD
+        scores. Default is ``0.05``.
     whole_chromosome_ok : bool, optional
         Override the guard that rejects windows effectively spanning an entire
         chromosome. Default is ``False``.

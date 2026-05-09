@@ -58,7 +58,7 @@ def _make_ldscore_result() -> LDScoreResult:
             "CHR": ["1", "1"],
             "SNP": ["rs1", "rs2"],
             "BP": [10, 20],
-            "regr_weight": [3.0, 4.0],
+            "regression_ld_scores": [3.0, 4.0],
             "base": [1.0, 2.0],
         }
     )

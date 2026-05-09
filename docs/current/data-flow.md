@@ -242,7 +242,7 @@ flowchart LR
 
   subgraph K3[Kernel (private)<br/>ldsc._kernel.ldscore]
     C6[Compute chromosome LD scores]
-    C7[Compute regression weights]
+    C7[Compute regression-universe LD score]
   end
 
   subgraph O3[Postprocessing (public)<br/>ldsc.outputs]
@@ -258,7 +258,7 @@ flowchart LR
 
 | File | Example | Notes |
 | --- | --- | --- |
-| baseline LD-score table | `CHR POS SNP regr_weight base`<br/>`1 10 rs1 1.7 1.2` | `ldscore.baseline.parquet` inside `output_dir`; one row group per chromosome |
+| baseline LD-score table | `CHR POS SNP regression_ld_scores base`<br/>`1 10 rs1 1.7 1.2` | `ldscore.baseline.parquet` inside `output_dir`; `regression_ld_scores` is historical `w_ld`, not the final h2/rg regression weight; one row group per chromosome |
 | query LD-score table | `CHR POS SNP enhancer_A`<br/>`1 10 rs1 0.4` | `ldscore.query.parquet` inside `output_dir`; one row group per chromosome; omitted when no query annotations exist |
 | manifest | JSON metadata with files, columns, counts, chromosomes, config, row counts, and row-group metadata | `manifest.json` inside `output_dir` |
 | workflow log | plain-text lifecycle and package records | `ldscore.log` inside `output_dir`; not included in `LDScoreResult.output_paths` |

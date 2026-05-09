@@ -46,7 +46,7 @@ Important output behavior:
 - `ldscore.baseline.parquet` and `ldscore.query.parquet` are still single flat files, but each parquet row group contains exactly one chromosome
 - `manifest.json` records `row_group_layout`, `baseline_row_groups`, and `query_row_groups` for readers that want to load one chromosome by row-group index
 - `LDScoreResult.output_paths` lists scientific data artifacts only; it does not include `ldscore.log`
-- regression weights live in the `regr_weight` column of `ldscore.baseline.parquet`; there is no separate `.w.l2.ldscore.gz` output
+- regression-universe LD scores live in the `regression_ld_scores` column of `ldscore.baseline.parquet`; there is no separate `.w.l2.ldscore.gz` output
 - annotation counts are stored as manifest records, not as separate `.M` files
 - if both baseline and query inputs are omitted, the workflow synthesizes an all-ones baseline column named exactly `base` over retained reference-panel metadata
 - query `.annot` and BED inputs require explicit baseline annotations; create an explicit all-ones `base` baseline annotation yourself if you intentionally want query annotations tested against that universe
@@ -94,7 +94,7 @@ result = run_ldscore(
 )
 
 print(result.baseline_columns)
-print(result.baseline_table.loc[:, ["CHR", "SNP", "POS", "regr_weight", "base"]].head())
+print(result.baseline_table.loc[:, ["CHR", "SNP", "POS", "regression_ld_scores", "base"]].head())
 ```
 
 ### CLI

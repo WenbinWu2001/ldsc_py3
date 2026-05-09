@@ -42,7 +42,7 @@ All paths inside the manifest are relative to `ldscore_dir`.
 `ldscore.baseline.parquet` columns:
 
 ```text
-CHR, SNP, POS, regr_weight, <baseline LD-score columns...>
+CHR, SNP, POS, regression_ld_scores, <baseline LD-score columns...>
 ```
 
 `ldscore.query.parquet` columns:
@@ -173,7 +173,9 @@ unavailable. Regression falls back to `all_reference_snp_count` in that case.
 ## 6. Regression Behavior
 
 `h2` and `rg` use baseline LD scores only, even when `ldscore.query.parquet` exists.
-They also use the embedded `regr_weight` column from `ldscore.baseline.parquet`.
+They also use the embedded `regression_ld_scores` column from
+`ldscore.baseline.parquet`; this is the historical `w_ld` LD score over the
+regression SNP universe, not the final model-dependent regression weight.
 When the effective identifier mode is `rsid`, regression merges on `SNP`. When
 it is `chr_pos`, regression builds a normalized private `CHR:POS` key from both
 the sumstats and LD-score tables and merges on that coordinate key.

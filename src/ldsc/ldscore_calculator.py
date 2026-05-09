@@ -45,7 +45,11 @@ from .config import (
     validate_config_compatibility,
 )
 from .genome_build_inference import resolve_genome_build
-from .outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
+from .outputs import (
+    LDScoreDirectoryWriter,
+    LDScoreOutputConfig,
+    REGRESSION_LD_SCORE_COLUMN,
+)
 from .path_resolution import (
     ensure_output_directory,
     preflight_output_artifact_family,
@@ -94,7 +98,7 @@ class ChromLDScoreResult:
     chrom : str
         Chromosome label.
     baseline_table : pandas.DataFrame
-        Table with ``CHR``, ``SNP``, ``POS``, ``regr_weight``, and baseline
+        Table with ``CHR``, ``SNP``, ``POS``, ``regression_ld_scores``, and baseline
         LD-score columns.
     query_table : pandas.DataFrame or None
         Optional table with ``CHR``, ``SNP``, ``POS``, and query LD-score
@@ -124,7 +128,7 @@ class ChromLDScoreResult:
 
     def validate(self) -> None:
         """Check the normalized public contract for chromosome-level results."""
-        required = {"CHR", "SNP", "POS", "regr_weight", *self.baseline_columns}
+        required = {"CHR", "SNP", "POS", REGRESSION_LD_SCORE_COLUMN, *self.baseline_columns}
         missing = required - set(self.baseline_table.columns)
         if missing:
             raise ValueError(f"baseline_table is missing required columns: {sorted(missing)}")
@@ -158,7 +162,7 @@ class LDScoreResult:
     baseline_table : pandas.DataFrame
         Cross-chromosome table persisted as ``ldscore.baseline.parquet`` when
         the result is written. Required columns are ``CHR``, ``SNP``, ``POS``,
-        ``regr_weight``, and every entry in ``baseline_columns``.
+        ``regression_ld_scores``, and every entry in ``baseline_columns``.
     query_table : pandas.DataFrame or None
         Optional cross-chromosome table persisted as ``ldscore.query.parquet``.
         Required columns are ``CHR``, ``SNP``, ``POS``, and every entry in
@@ -194,7 +198,7 @@ class LDScoreResult:
 
     def validate(self, *, require_query_alignment: bool = True) -> None:
         """Check the normalized public contract for aggregated results."""
-        required = {"CHR", "SNP", "POS", "regr_weight", *self.baseline_columns}
+        required = {"CHR", "SNP", "POS", REGRESSION_LD_SCORE_COLUMN, *self.baseline_columns}
         missing = required - set(self.baseline_table.columns)
         if missing:
             raise ValueError(f"baseline_table is missing required columns: {sorted(missing)}")
@@ -396,7 +400,7 @@ class LDScoreCalculator:
             [
                 reference_metadata.loc[regression_keep, ["CHR", "SNP", pos_column]].rename(columns={pos_column: "POS"}).reset_index(drop=True),
                 ld_scores.loc[regression_keep].reset_index(drop=True),
-                pd.DataFrame({"regr_weight": regression_weights[regression_keep.to_numpy()]}).reset_index(drop=True),
+                pd.DataFrame({REGRESSION_LD_SCORE_COLUMN: regression_weights[regression_keep.to_numpy()]}).reset_index(drop=True),
             ],
             axis=1,
         )
@@ -519,7 +523,7 @@ def _split_ldscore_table(
 ) -> tuple[pd.DataFrame, pd.DataFrame | None]:
     """Split a merged LD-score table into baseline and optional query tables."""
     metadata_columns = ["CHR", "SNP", "POS"]
-    baseline_order = [*metadata_columns, "regr_weight", *baseline_columns]
+    baseline_order = [*metadata_columns, REGRESSION_LD_SCORE_COLUMN, *baseline_columns]
     query_order = [*metadata_columns, *query_columns]
     missing_baseline = [column for column in baseline_order if column not in ldscore_table.columns]
     if missing_baseline:

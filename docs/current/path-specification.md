@@ -271,9 +271,12 @@ Output:
   them are written unless `--overwrite` or
   `LDScoreOutputConfig(overwrite=True)` is supplied. With overwrite enabled, a
   successful baseline-only run removes any stale `ldscore.query.parquet` sibling.
-- `ldscore.baseline.parquet` contains `CHR`, `POS`, `SNP`, `regr_weight`, and baseline
-  LD-score columns. When both baseline and query inputs are omitted, the
-  LD-score workflow writes a synthetic all-ones baseline column named `base`.
+- `ldscore.baseline.parquet` contains `CHR`, `POS`, `SNP`,
+  `regression_ld_scores`, and baseline LD-score columns. `regression_ld_scores`
+  is the historical `w_ld` LD score over the regression SNP universe, not the
+  final h2/rg regression weight. When both baseline and query inputs are
+  omitted, the LD-score workflow writes a synthetic all-ones baseline column
+  named `base`.
 - `ldscore.query.parquet` is present only when query annotations were supplied and
   contains `CHR`, `POS`, `SNP`, and query LD-score columns.
 - Regression commands consume this directory via `--ldscore-dir`; users do not

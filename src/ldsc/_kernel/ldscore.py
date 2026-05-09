@@ -65,7 +65,7 @@ materialize legacy prefix-based files for compatibility tests, but the public
 canonical directory:
 
 - ``manifest.json``
-- ``ldscore.baseline.parquet``, containing ``CHR``, ``POS``, ``SNP``, ``regr_weight``,
+- ``ldscore.baseline.parquet``, containing ``CHR``, ``POS``, ``SNP``, ``regression_ld_scores``,
   and baseline LD-score columns
 - optional ``ldscore.query.parquet``, containing ``CHR``, ``POS``, ``SNP``, and query
   LD-score columns
@@ -2004,7 +2004,7 @@ def compute_chrom_from_plink(
     Main steps:
     1. Align annotation SNPs to the PLINK BIM table.
     2. Reuse the legacy PLINK genotype reader and LD-score kernel.
-    3. Compute partitioned reference LD scores and one-column regression weights.
+    3. Compute partitioned reference LD scores and one-column regression-universe LD scores.
     4. Return chromosome-level LD scores plus all-SNP and common-SNP counts.
     """
     legacy_ld = get_legacy_ld_module()

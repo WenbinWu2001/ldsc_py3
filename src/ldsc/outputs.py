@@ -83,6 +83,7 @@ def _write_chromosome_aligned_parquet(
 
 
 LDSCORE_RESULT_FORMAT = "ldsc.ldscore_result.v1"
+REGRESSION_LD_SCORE_COLUMN = "regression_ld_scores"
 DEFAULT_COUNT_CONFIG = {
     "common_reference_snp_maf_min": 0.05,
     "common_reference_snp_maf_operator": ">=",
@@ -240,7 +241,7 @@ class LDScoreDirectoryWriter:
         query_table = getattr(result, "query_table", None)
         baseline_columns = list(getattr(result, "baseline_columns", []))
         query_columns = list(getattr(result, "query_columns", []))
-        required_baseline = ["CHR", "POS", "SNP", "regr_weight", *baseline_columns]
+        required_baseline = ["CHR", "POS", "SNP", REGRESSION_LD_SCORE_COLUMN, *baseline_columns]
         missing = [column for column in required_baseline if column not in baseline_table.columns]
         if missing:
             raise ValueError(f"baseline_table is missing required columns: {missing}")

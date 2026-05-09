@@ -61,7 +61,12 @@ from ._kernel.identifiers import build_snp_id_series
 from ._row_alignment import assert_same_snp_rows
 from .column_inference import infer_chr_pos_columns, normalize_snp_identifier_mode
 from .ldscore_calculator import LDScoreResult
-from .outputs import LDSCORE_RESULT_FORMAT, PartitionedH2DirectoryWriter, PartitionedH2OutputConfig
+from .outputs import (
+    LDSCORE_RESULT_FORMAT,
+    PartitionedH2DirectoryWriter,
+    PartitionedH2OutputConfig,
+    REGRESSION_LD_SCORE_COLUMN,
+)
 from .sumstats_munger import SumstatsTable, load_sumstats
 
 
@@ -175,7 +180,7 @@ class RegressionRunner:
                 ldscore_result.config_snapshot,
                 context="SumstatsTable and LDScoreResult",
             )
-        weight_column = "regr_weight"
+        weight_column = REGRESSION_LD_SCORE_COLUMN
         selected_query_columns = list(query_columns or [])
         ref_ld_columns = list(ldscore_result.baseline_columns) + selected_query_columns
         ldscore_frame = _assemble_regression_ldscore_table(ldscore_result, selected_query_columns)

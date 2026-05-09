@@ -135,7 +135,7 @@ Removed flags: `--bfile`, `--r2-table`, `--frqfile`, `--r2-sources`,
 
 LD-score output schema:
 
-- `ldscore.baseline.parquet`: `CHR`, `POS`, `SNP`, `regr_weight`, then baseline
+- `ldscore.baseline.parquet`: `CHR`, `POS`, `SNP`, `regression_ld_scores`, then baseline
   LD-score columns. In no-annotation unpartitioned runs, the baseline column
   list is exactly `base`.
 - `ldscore.query.parquet`: `CHR`, `POS`, `SNP`, then query LD-score columns; omitted
@@ -236,7 +236,7 @@ records for QC progress and preserves its direct legacy-compatible
 
 | Flag | Direction | Required | Object | Notes |
 |---|---:|---:|---|---|
-| `--ldscore-dir` | input | yes | canonical LD-score result directory | Reads baseline LD scores and embedded `regr_weight`. |
+| `--ldscore-dir` | input | yes | canonical LD-score result directory | Reads baseline LD scores and embedded `regression_ld_scores`, the historical `w_ld` component used when final h2 weights are computed. |
 | `--sumstats-file` | input | yes | munged summary-statistics file | Exact path or exact-one glob. |
 | `--output-dir` | output | no | result output directory | Selects where to write h2 results; defaults to omitted/`None`, so the result is returned without writing `h2.tsv` or `h2.log`. |
 | `--count-kind` | model | no | count vector choice | Selects the count vector used by regression; defaults to `common`, while `all` uses all-SNP counts. |
@@ -265,7 +265,7 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 
 | Flag | Direction | Required | Object | Notes |
 |---|---:|---:|---|---|
-| `--ldscore-dir` | input | yes | canonical LD-score result directory | Reads baseline LD scores and embedded `regr_weight`. |
+| `--ldscore-dir` | input | yes | canonical LD-score result directory | Reads baseline LD scores and embedded `regression_ld_scores`, the historical `w_ld` component used when final rg/gencov weights are computed. |
 | `--sumstats-1-file` | input | yes | first munged summary-statistics file | Exact path or exact-one glob. |
 | `--sumstats-2-file` | input | yes | second munged summary-statistics file | Exact path or exact-one glob. |
 | `--output-dir` | output | no | result output directory | Selects where to write rg results; defaults to omitted/`None`, so the result is returned without writing `rg.tsv` or `rg.log`. |

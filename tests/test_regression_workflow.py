@@ -55,7 +55,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "CHR": ["1"],
                     "SNP": ["rs1"],
                     "POS": [10],
-                    "regr_weight": [3.0],
+                    "regression_ld_scores": [3.0],
                     "base": [1.0],
                 }
             ).to_parquet(tmpdir / "baseline.parquet", index=False)
@@ -98,7 +98,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             )
             result = load_ldscore_from_dir(str(tmpdir))
 
-        self.assertEqual(result.baseline_table.columns.tolist(), ["CHR", "SNP", "POS", "regr_weight", "base"])
+        self.assertEqual(result.baseline_table.columns.tolist(), ["CHR", "SNP", "POS", "regression_ld_scores", "base"])
         self.assertEqual(result.query_table.columns.tolist(), ["CHR", "SNP", "POS", "query"])
         self.assertEqual(result.count_records[0]["column"], "base")
         self.assertEqual(result.ld_regression_snps, frozenset({"rs1"}))
@@ -114,7 +114,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "CHR": ["1"],
                     "SNP": ["rs1"],
                     "BP": [10],
-                    "regr_weight": [3.0],
+                    "regression_ld_scores": [3.0],
                     "base": [1.0],
                 }
             ).to_parquet(tmpdir / "baseline.parquet", index=False)
@@ -186,7 +186,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                 "CHR": ["1", "1", "1"],
                 "SNP": ["rs1", "rs2", "rs3"],
                 "POS": [10, 20, 30],
-                "regr_weight": [2.0, 2.0, 2.0],
+                "regression_ld_scores": [2.0, 2.0, 2.0],
                 "base": [1.0, 2.0, 3.0],
             }
         )
@@ -274,7 +274,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                 "CHR": ["1"],
                 "SNP": ["rs1"],
                 "POS": [10],
-                "regr_weight": [2.0],
+                "regression_ld_scores": [2.0],
                 "base": [1.0],
             }
         ).to_parquet(root / "baseline.parquet", index=False)
@@ -329,6 +329,8 @@ class RegressionWorkflowTest(unittest.TestCase):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
         dataset = runner.build_dataset(self.make_sumstats_table(), self.make_ldscore_result())
         self.assertEqual(dataset.count_key_used_for_regression, "common_reference_snp_counts")
+        self.assertEqual(dataset.weight_column, "regression_ld_scores")
+        self.assertIn("regression_ld_scores", dataset.merged.columns)
         self.assertEqual(dataset.retained_ld_columns, ["base"])
         self.assertEqual(dataset.dropped_zero_variance_ld_columns, [])
         np.testing.assert_allclose(
@@ -698,11 +700,11 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "SNP": ["rs1", "rs2"],
                     "Z": [1.0, 2.0],
                     "N": [1000.0, 1000.0],
-                    "regr_weight": [1.0, 1.0],
+                    "regression_ld_scores": [1.0, 1.0],
                 }
             ),
             ref_ld_columns=["base"],
-            weight_column="regr_weight",
+            weight_column="regression_ld_scores",
             reference_snp_count_totals={"common_reference_snp_counts": np.array([10.0])},
             count_key_used_for_regression="common_reference_snp_counts",
             retained_ld_columns=["base"],
@@ -752,11 +754,11 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "SNP": ["rs1", "rs2", "rs3"],
                     "Z": [1.0, 1.5, 2.0],
                     "N": [1000.0, 1000.0, 1000.0],
-                    "regr_weight": [1.0, 1.0, 1.0],
+                    "regression_ld_scores": [1.0, 1.0, 1.0],
                 }
             ),
             ref_ld_columns=["base", "query"],
-            weight_column="regr_weight",
+            weight_column="regression_ld_scores",
             reference_snp_count_totals={"common_reference_snp_counts": np.array([10.0, 30.0])},
             count_key_used_for_regression="common_reference_snp_counts",
             retained_ld_columns=["base", "query"],

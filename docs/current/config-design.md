@@ -191,8 +191,8 @@ Annotation bundle rows B                      (AnnotationBuilder)
 | --- | --- | --- | --- | --- |
 | Reference-panel SNP restriction | `RefPanelConfig.ref_panel_snps_file` | `--ref-panel-snps-file` | `RefPanel.load_metadata()`; then `LDScoreCalculator.compute_chromosome()` aligns `B_chrom` to the restricted panel before the kernel call | Shrinks the compute-time universe to `ld_reference_snps = B ∩ A'`; affects LD scores and count records |
 | Reference-panel MAF/sample filters | `RefPanelConfig.maf_min`, `RefPanelConfig.keep_indivs_file` | `--maf-min`, `--keep-indivs-file` | `RefPanel.load_metadata()` and PLINK reader construction | Affects the prepared panel A' and LD computation; separate from `LDScoreConfig.common_maf_min` |
-| Regression row restriction | `LDScoreConfig.regression_snps_file` | `--regression-snps-file` | After LD computation, when normalized/public rows are selected | Shrinks written rows to `ld_regression_snps = B ∩ A' ∩ C`; `regr_weight` is embedded in the same row table |
-| Common-count threshold | `LDScoreConfig.common_maf_min` | `--common-maf-min` | During count-vector computation after LD scores are computed | Affects only `common_reference_snp_count` / `common_reference_snp_counts`; does not change LD rows, LD scores, or regression weights |
+| Regression row restriction | `LDScoreConfig.regression_snps_file` | `--regression-snps-file` | After LD computation, when normalized/public rows are selected | Shrinks written rows to `ld_regression_snps = B ∩ A' ∩ C`; `regression_ld_scores` is embedded in the same row table |
+| Common-count threshold | `LDScoreConfig.common_maf_min` | `--common-maf-min` | During count-vector computation after LD scores are computed | Affects only `common_reference_snp_count` / `common_reference_snp_counts`; does not change LD rows, LD scores, or the stored regression-universe LD score |
 
 ### What each control does
 
@@ -210,7 +210,11 @@ When `None`, the workflow uses the full reference panel `A`.
 - The restriction is loaded once into the `regression_snps` set `C`.
 - LD scores and count totals are still computed over `ld_reference_snps = B ∩ A'`.
 - Only the persisted LD-score rows are reduced to `ld_regression_snps = B ∩ A' ∩ C`.
-- There is no separate public weight artifact; the selected baseline rows keep their regression weights in the embedded `regr_weight` column of `ldscore.baseline.parquet`.
+- There is no separate public weight artifact. The selected baseline rows keep
+  `regression_ld_scores`, the historical `w_ld` LD score computed over the
+  regression SNP universe, in `ldscore.baseline.parquet`. Final h2 and rg
+  regression weights are computed later in the regression kernel from this
+  value plus model-specific quantities.
 
 When `None`, the normalized/public row table uses all of `ld_reference_snps`.
 

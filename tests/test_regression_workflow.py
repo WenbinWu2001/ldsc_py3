@@ -1,6 +1,8 @@
 import argparse
+import contextlib
 from dataclasses import replace
 import gzip
+import io
 import json
 from pathlib import Path
 import sys
@@ -21,6 +23,7 @@ from ldsc.config import ConfigMismatchError, GlobalConfig, RegressionConfig, res
 
 try:
     from ldsc.ldscore_calculator import LDScoreResult
+    from ldsc import cli
     from ldsc import regression_runner
     from ldsc.regression_runner import RegressionRunner
     from ldsc.sumstats_munger import SumstatsTable
@@ -248,6 +251,43 @@ class RegressionWorkflowTest(unittest.TestCase):
             config_snapshot=GlobalConfig(snp_identifier="rsid"),
         )
 
+    def make_rg_kernel_result(self, *, rg=0.25, rg_se=0.05, z=5.0, p=0.01):
+        hsq1 = mock.Mock(
+            tot=np.array([0.20]),
+            tot_se=np.array([0.02]),
+            intercept=np.array([1.01]),
+            intercept_se=0.01,
+            mean_chisq=np.array([1.20]),
+            lambda_gc=np.array([1.05]),
+            ratio=0.05,
+            ratio_se=0.01,
+        )
+        hsq2 = mock.Mock(
+            tot=np.array([0.30]),
+            tot_se=np.array([0.03]),
+            intercept=np.array([1.02]),
+            intercept_se=0.02,
+            mean_chisq=np.array([1.30]),
+            lambda_gc=np.array([1.06]),
+            ratio=0.06,
+            ratio_se=0.02,
+        )
+        gencov = mock.Mock(
+            tot=np.array([0.10]),
+            tot_se=np.array([0.01]),
+            intercept=np.array([0.001]),
+            intercept_se=0.0001,
+        )
+        return mock.Mock(
+            rg_ratio=rg,
+            rg_se=rg_se,
+            z=z,
+            p=p,
+            hsq1=hsq1,
+            hsq2=hsq2,
+            gencov=gencov,
+        )
+
     def make_annotation_bundle(self):
         metadata = pd.DataFrame(
             {
@@ -447,6 +487,107 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertIs(result, mock.sentinel.rg_result)
         self.assertEqual(patched.call_args.args[2].shape[1], 1)
 
+    def test_build_rg_dataset_uses_final_three_way_snp_intersection(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        sumstats_1 = self.make_sumstats_table()
+        sumstats_2 = replace(
+            self.make_sumstats_table(),
+            trait_name="trait2",
+            data=self.make_sumstats_table().data.assign(
+                SNP=["rs2", "rs3", "missing"],
+                Z=[1.5, 0.25, 9.0],
+                A1=["C", "G", "A"],
+                A2=["T", "A", "C"],
+            ),
+        )
+
+        dataset = runner.build_rg_dataset(sumstats_1, sumstats_2, self.make_ldscore_result())
+
+        self.assertEqual(dataset.merged["SNP"].tolist(), ["rs2", "rs3"])
+        np.testing.assert_allclose(dataset.merged["Z1"], [1.0, 0.5])
+        np.testing.assert_allclose(dataset.merged["Z2"], [1.5, 0.25])
+
+    def test_build_rg_dataset_harmonizes_alleles_and_flips_second_trait_z(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        sumstats_1 = replace(
+            self.make_sumstats_table(),
+            data=self.make_sumstats_table().data.assign(
+                A1=["A", "A", "A"],
+                A2=["C", "C", "C"],
+            ),
+        )
+        sumstats_2 = replace(
+            self.make_sumstats_table(),
+            trait_name="trait2",
+            data=self.make_sumstats_table().data.assign(
+                Z=[1.0, 2.0, 3.0],
+                A1=["C", "A", "A"],
+                A2=["A", "C", "T"],
+            ),
+        )
+
+        dataset = runner.build_rg_dataset(sumstats_1, sumstats_2, self.make_ldscore_result())
+
+        self.assertEqual(dataset.merged["SNP"].tolist(), ["rs1", "rs2"])
+        np.testing.assert_allclose(dataset.merged["Z2"], [-1.0, 2.0])
+
+    def test_build_rg_dataset_skips_allele_harmonization_when_alleles_are_absent(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        sumstats_1 = replace(
+            self.make_sumstats_table(),
+            has_alleles=False,
+            data=self.make_sumstats_table().data.drop(columns=["A1", "A2"]),
+        )
+        sumstats_2 = replace(
+            self.make_sumstats_table(),
+            has_alleles=False,
+            trait_name="trait2",
+            data=self.make_sumstats_table().data.drop(columns=["A1", "A2"]).assign(Z=[1.0, 2.0, 3.0]),
+        )
+
+        dataset = runner.build_rg_dataset(sumstats_1, sumstats_2, self.make_ldscore_result())
+
+        self.assertEqual(dataset.merged["SNP"].tolist(), ["rs1", "rs2", "rs3"])
+        self.assertFalse({"A1", "A2", "A1x", "A2x"} & set(dataset.merged.columns))
+        np.testing.assert_allclose(dataset.merged["Z2"], [1.0, 2.0, 3.0])
+
+    def test_build_rg_dataset_drops_zero_variance_ld_columns_after_final_merge(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        ldscore_result = replace(
+            self.make_ldscore_result(),
+            baseline_table=self.make_ldscore_result().baseline_table.assign(late_zero=[0.0, 1.0, 1.0]),
+            baseline_columns=["base", "late_zero"],
+            count_records=[
+                {
+                    "group": "baseline",
+                    "column": "base",
+                    "all_reference_snp_count": 10.0,
+                    "common_reference_snp_count": 8.0,
+                },
+                {
+                    "group": "baseline",
+                    "column": "late_zero",
+                    "all_reference_snp_count": 30.0,
+                    "common_reference_snp_count": 28.0,
+                },
+            ],
+        )
+        sumstats_2 = replace(
+            self.make_sumstats_table(),
+            trait_name="trait2",
+            data=self.make_sumstats_table().data.iloc[[1, 2]].reset_index(drop=True).assign(Z=[1.5, 0.25]),
+        )
+
+        dataset = runner.build_rg_dataset(self.make_sumstats_table(), sumstats_2, ldscore_result)
+
+        self.assertEqual(dataset.merged["SNP"].tolist(), ["rs2", "rs3"])
+        self.assertEqual(dataset.retained_ld_columns, ["base"])
+        self.assertEqual(dataset.dropped_zero_variance_ld_columns, ["late_zero"])
+        np.testing.assert_allclose(
+            dataset.reference_snp_count_totals["common_reference_snp_counts"],
+            [8.0],
+        )
+
     def test_estimate_rg_chr_pos_mode_merges_traits_on_coordinates(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"), RegressionConfig())
         ldscore_result = replace(
@@ -495,6 +636,186 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertIs(result, mock.sentinel.rg_result)
         self.assertEqual(patched.call_args.args[0].shape[0], 2)
         self.assertEqual(patched.call_args.args[1].shape[0], 2)
+
+    def test_build_rg_dataset_chr_pos_mode_merges_all_sources_on_coordinates(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"), RegressionConfig())
+        ldscore_result = replace(
+            self.make_ldscore_result(),
+            baseline_table=self.make_ldscore_result().baseline_table.assign(SNP=["ld1", "ld2", "ld3"]),
+            query_table=self.make_ldscore_result().query_table.assign(SNP=["ld1", "ld2", "ld3"]),
+            config_snapshot=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+        )
+        sumstats_1 = SumstatsTable(
+            data=pd.DataFrame(
+                {
+                    "SNP": ["trait1_a", "trait1_b", "trait1_missing"],
+                    "CHR": ["1", "1", "1"],
+                    "POS": [10, 20, 999],
+                    "Z": [2.0, 1.0, 9.0],
+                    "N": [1000.0, 1000.0, 1000.0],
+                    "A1": ["A", "A", "A"],
+                    "A2": ["C", "C", "C"],
+                }
+            ),
+            has_alleles=True,
+            source_path="sumstats1.gz",
+            trait_name="trait1",
+            provenance={},
+            config_snapshot=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+        )
+        sumstats_2 = replace(
+            sumstats_1,
+            data=pd.DataFrame(
+                {
+                    "SNP": ["trait2_a", "trait2_c"],
+                    "CHR": ["1", "1"],
+                    "POS": [10, 30],
+                    "Z": [1.0, 1.5],
+                    "N": [900.0, 900.0],
+                    "A1": ["A", "A"],
+                    "A2": ["C", "C"],
+                }
+            ),
+            trait_name="trait2",
+            source_path="sumstats2.gz",
+        )
+
+        dataset = runner.build_rg_dataset(sumstats_1, sumstats_2, ldscore_result)
+
+        self.assertEqual(dataset.merged["SNP"].tolist(), ["trait1_a"])
+        self.assertEqual(dataset.merged["_ldsc_chr_pos_key"].tolist(), ["1:10"])
+        np.testing.assert_allclose(dataset.merged["Z2"], [1.0])
+
+    def test_estimate_rg_preserves_legacy_rg_array_call_contract(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        sumstats_1 = self.make_sumstats_table()
+        sumstats_2 = replace(
+            self.make_sumstats_table(),
+            trait_name="trait2",
+            data=self.make_sumstats_table().data.assign(Z=[1.0, 1.5, 0.25], N=[900.0, 900.0, 900.0]),
+        )
+
+        with mock.patch.object(regression_runner.reg, "RG", return_value=mock.sentinel.rg_result) as patched:
+            result = runner.estimate_rg(sumstats_1, sumstats_2, self.make_ldscore_result())
+
+        self.assertIs(result, mock.sentinel.rg_result)
+        np.testing.assert_allclose(patched.call_args.args[0], [[2.0], [1.0], [0.5]])
+        np.testing.assert_allclose(patched.call_args.args[1], [[1.0], [1.5], [0.25]])
+        np.testing.assert_allclose(patched.call_args.args[2], [[1.0], [2.0], [3.0]])
+        np.testing.assert_allclose(patched.call_args.args[3], [[2.0], [2.0], [2.0]])
+        np.testing.assert_allclose(patched.call_args.args[4], [[1000.0], [1000.0], [1000.0]])
+        np.testing.assert_allclose(patched.call_args.args[5], [[900.0], [900.0], [900.0]])
+        np.testing.assert_allclose(patched.call_args.args[6], [[8.0]])
+
+    def test_estimate_rg_pairs_returns_explicit_result_family_in_input_order(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        traits = [
+            replace(self.make_sumstats_table(), trait_name="A", source_path="A.sumstats.gz"),
+            replace(self.make_sumstats_table(), trait_name="B", source_path="B.sumstats.gz"),
+            replace(self.make_sumstats_table(), trait_name="C", source_path="C.sumstats.gz"),
+        ]
+
+        with mock.patch.object(
+            runner,
+            "estimate_h2",
+            return_value=self.make_rg_kernel_result().hsq1,
+        ), mock.patch.object(
+            regression_runner.reg,
+            "RG",
+            side_effect=[
+                self.make_rg_kernel_result(rg=0.30, p=0.03),
+                self.make_rg_kernel_result(rg=0.10, p=0.01),
+                self.make_rg_kernel_result(rg=0.20, p=0.02),
+            ],
+        ):
+            result = runner.estimate_rg_pairs(traits, self.make_ldscore_result())
+
+        self.assertIsInstance(result, regression_runner.RgResultFamily)
+        self.assertEqual(result.rg[["trait_1", "trait_2"]].values.tolist(), [["A", "B"], ["A", "C"], ["B", "C"]])
+        self.assertEqual(result.rg_full["pair_kind"].tolist(), ["all_pairs", "all_pairs", "all_pairs"])
+        self.assertEqual(result.rg_full["status"].tolist(), ["ok", "ok", "ok"])
+        self.assertEqual(result.rg["n_snps_used"].tolist(), [3, 3, 3])
+        self.assertEqual(result.h2_per_trait["trait_name"].tolist(), ["A", "B", "C"])
+        self.assertEqual(len(result.per_pair_metadata), 3)
+
+    def test_estimate_rg_pairs_anchor_mode_uses_anchor_against_rest_in_input_order(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        traits = [
+            replace(self.make_sumstats_table(), trait_name="A", source_path="A.sumstats.gz"),
+            replace(self.make_sumstats_table(), trait_name="B", source_path="B.sumstats.gz"),
+            replace(self.make_sumstats_table(), trait_name="C", source_path="C.sumstats.gz"),
+        ]
+
+        with mock.patch.object(runner, "estimate_h2", return_value=self.make_rg_kernel_result().hsq1), mock.patch.object(
+            regression_runner.reg,
+            "RG",
+            return_value=self.make_rg_kernel_result(),
+        ):
+            result = runner.estimate_rg_pairs(traits, self.make_ldscore_result(), anchor_index=1)
+
+        self.assertEqual(result.rg[["trait_1", "trait_2"]].values.tolist(), [["B", "A"], ["B", "C"]])
+        self.assertEqual(result.rg_full["pair_kind"].tolist(), ["anchor", "anchor"])
+
+    def test_estimate_rg_pairs_records_pair_exceptions_and_continues(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        traits = [
+            replace(self.make_sumstats_table(), trait_name="A", source_path="A.sumstats.gz"),
+            replace(self.make_sumstats_table(), trait_name="B", source_path="B.sumstats.gz"),
+            replace(self.make_sumstats_table(), trait_name="C", source_path="C.sumstats.gz"),
+        ]
+
+        with mock.patch.object(runner, "estimate_h2", return_value=self.make_rg_kernel_result().hsq1), mock.patch.object(
+            regression_runner.reg,
+            "RG",
+            side_effect=[
+                self.make_rg_kernel_result(rg=0.30, p=0.03),
+                RuntimeError("pair exploded"),
+                self.make_rg_kernel_result(rg=0.20, p=0.02),
+            ],
+        ), self.assertLogs("LDSC.regression_runner", level="WARNING") as logs:
+            result = runner.estimate_rg_pairs(traits, self.make_ldscore_result())
+
+        self.assertEqual(result.rg_full["status"].tolist(), ["ok", "failed", "ok"])
+        self.assertEqual(result.rg_full.loc[1, "error"], "RuntimeError: pair exploded")
+        self.assertTrue(np.isnan(result.rg.loc[1, "rg"]))
+        self.assertIn("Failed", result.rg.loc[1, "note"])
+        self.assertTrue(any("pair exploded" in record for record in logs.output))
+
+    def test_estimate_rg_pairs_converts_kernel_na_to_failed_row_but_preserves_numeric_out_of_range_rg(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        traits = [
+            replace(self.make_sumstats_table(), trait_name="A", source_path="A.sumstats.gz"),
+            replace(self.make_sumstats_table(), trait_name="B", source_path="B.sumstats.gz"),
+            replace(self.make_sumstats_table(), trait_name="C", source_path="C.sumstats.gz"),
+        ]
+
+        with mock.patch.object(runner, "estimate_h2", return_value=self.make_rg_kernel_result().hsq1), mock.patch.object(
+            regression_runner.reg,
+            "RG",
+            side_effect=[
+                self.make_rg_kernel_result(rg="NA", rg_se="NA", z="NA", p="NA"),
+                self.make_rg_kernel_result(rg=1.5, rg_se=0.1, z=15.0, p=1e-6),
+                self.make_rg_kernel_result(rg=0.2, rg_se=0.1, z=2.0, p=0.04),
+            ],
+        ):
+            result = runner.estimate_rg_pairs(traits, self.make_ldscore_result())
+
+        self.assertEqual(result.rg_full.loc[0, "status"], "failed")
+        self.assertTrue(np.isnan(result.rg.loc[0, "rg"]))
+        self.assertIn("non-numeric", result.rg_full.loc[0, "error"])
+        self.assertEqual(result.rg_full.loc[1, "status"], "ok")
+        self.assertEqual(result.rg.loc[1, "rg"], 1.5)
+
+    def test_rg_multiple_testing_ignores_nan_p_values(self):
+        rg = pd.DataFrame({"p": [0.03, np.nan, 0.01, 0.02]})
+        rg_full = pd.DataFrame({"p": [0.03, np.nan, 0.01, 0.02]})
+
+        regression_runner._apply_rg_multiple_testing(rg, rg_full)
+
+        np.testing.assert_allclose(rg["p_fdr_bh"].iloc[[0, 2, 3]], [0.03, 0.03, 0.03])
+        self.assertTrue(np.isnan(rg.loc[1, "p_fdr_bh"]))
+        np.testing.assert_allclose(rg_full["p_bonferroni"].iloc[[0, 2, 3]], [0.09, 0.03, 0.06])
+        self.assertTrue(np.isnan(rg_full.loc[1, "p_bonferroni"]))
 
     def test_build_dataset_raises_on_mismatched_sumstats_and_ldscore_snapshots(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"), RegressionConfig())
@@ -902,6 +1223,62 @@ class RegressionWorkflowTest(unittest.TestCase):
 
             self.assertFalse(list(tmpdir.glob("*.log")))
 
+    def test_run_h2_from_args_uses_metadata_trait_name_when_cli_label_is_omitted(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            set_global_config(GlobalConfig(snp_identifier="rsid"))
+            with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
+                handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
+            (tmpdir / "trait.metadata.json").write_text(
+                json.dumps(
+                    {
+                        "format": "ldsc.sumstats.v1",
+                        "trait_name": "MDD",
+                        "snp_identifier": "rsid",
+                        "genome_build": None,
+                        "config_snapshot": {"snp_identifier": "rsid", "genome_build": None},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
+            args = type(
+                "Args",
+                (),
+                {
+                    "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
+                    "trait_name": None,
+                    "ldscore_dir": str(ldscore_dir),
+                    "count_kind": "common",
+                    "output_dir": None,
+                    "overwrite": False,
+                    "log_level": "INFO",
+                    "n_blocks": 200,
+                    "no_intercept": False,
+                    "intercept_h2": None,
+                    "two_step_cutoff": None,
+                    "chisq_max": None,
+                },
+            )()
+
+            with mock.patch.object(
+                regression_runner.RegressionRunner,
+                "estimate_h2",
+                return_value=mock.Mock(
+                    tot=np.array([0.1]),
+                    tot_se=np.array([0.01]),
+                    intercept=np.array([1.0]),
+                    intercept_se=0.01,
+                    mean_chisq=np.array([1.1]),
+                    lambda_gc=np.array([1.0]),
+                    ratio=0.0,
+                    ratio_se=0.0,
+                ),
+            ):
+                summary = regression_runner.run_h2_from_args(args)
+
+        self.assertEqual(summary.loc[0, "trait_name"], "MDD")
+
     def test_common_regression_arguments_expose_only_ldscore_dir(self):
         parser = argparse.ArgumentParser()
         regression_runner.add_h2_arguments(parser)
@@ -948,6 +1325,291 @@ class RegressionWorkflowTest(unittest.TestCase):
         )
 
         self.assertTrue(args.write_per_query_results)
+
+    def test_rg_arguments_use_sumstats_sources_and_reject_old_pairwise_flags(self):
+        parser = argparse.ArgumentParser()
+        regression_runner.add_rg_arguments(parser)
+
+        args = parser.parse_args(
+            [
+                "--ldscore-dir",
+                "ldscores",
+                "--sumstats-sources",
+                "a.sumstats.gz",
+                "b.sumstats.gz",
+                "--intercept-h2",
+                "1.02",
+                "--intercept-gencov",
+                "0.01",
+            ]
+        )
+
+        self.assertEqual(args.sumstats_sources, ["a.sumstats.gz", "b.sumstats.gz"])
+        self.assertEqual(args.intercept_h2, 1.02)
+        self.assertEqual(args.intercept_gencov, 0.01)
+        anchored = parser.parse_args(
+            [
+                "--ldscore-dir",
+                "ldscores",
+                "--sumstats-sources",
+                "a.sumstats.gz",
+                "b.sumstats.gz",
+                "--anchor-trait",
+                "MDD",
+            ]
+        )
+        self.assertEqual(anchored.anchor_trait, "MDD")
+        with self.assertRaises(SystemExit):
+            parser.parse_args(
+                [
+                    "--ldscore-dir",
+                    "ldscores",
+                    "--sumstats-1-file",
+                    "a.sumstats.gz",
+                    "--sumstats-2-file",
+                    "b.sumstats.gz",
+                ]
+            )
+        with self.assertRaises(SystemExit):
+            parser.parse_args(
+                [
+                    "--ldscore-dir",
+                    "ldscores",
+                    "--sumstats-sources",
+                    "a.sumstats.gz",
+                    "b.sumstats.gz",
+                    "--anchor-trait-file",
+                    "a.sumstats.gz",
+                ]
+            )
+
+    def test_run_rg_from_args_rejects_per_pair_detail_without_output_dir_before_loading_inputs(self):
+        args = type(
+            "Args",
+            (),
+            {
+                "sumstats_sources": ["a.sumstats.gz", "b.sumstats.gz"],
+                "anchor_trait": None,
+                "ldscore_dir": "ldscores",
+                "count_kind": "common",
+                "output_dir": None,
+                "overwrite": False,
+                "write_per_pair_detail": True,
+                "n_blocks": 200,
+                "no_intercept": False,
+                "intercept_h2": None,
+                "intercept_gencov": None,
+                "two_step_cutoff": None,
+                "chisq_max": None,
+                "log_level": "INFO",
+            },
+        )()
+
+        with mock.patch.object(
+            regression_runner,
+            "_load_sumstats_table",
+            side_effect=AssertionError("sumstats should not load"),
+        ):
+            with self.assertRaisesRegex(ValueError, "--write-per-pair-detail requires --output-dir"):
+                regression_runner.run_rg_from_args(args)
+
+    def test_run_rg_from_args_returns_result_family_without_printing_when_output_dir_is_absent(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            set_global_config(GlobalConfig(snp_identifier="rsid"))
+            for name in ("a", "b"):
+                with gzip.open(tmpdir / f"{name}.sumstats.gz", "wt", encoding="utf-8") as handle:
+                    handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
+            ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
+            expected = regression_runner.RgResultFamily(
+                rg=pd.DataFrame([{"trait_1": "a", "trait_2": "b", "n_snps_used": 1, "rg": 0.1, "rg_se": 0.01, "p": 0.02, "p_fdr_bh": 0.02, "note": ""}]),
+                rg_full=pd.DataFrame([{"trait_1": "a", "trait_2": "b", "n_snps_used": 1, "rg": 0.1, "rg_se": 0.01, "z": 10.0, "p": 0.02, "p_fdr_bh": 0.02, "p_bonferroni": 0.02, "status": "ok", "error": ""}]),
+                h2_per_trait=pd.DataFrame([{"trait_name": "a"}, {"trait_name": "b"}]),
+                per_pair_metadata=[],
+            )
+            args = type(
+                "Args",
+                (),
+                {
+                    "sumstats_sources": [str(tmpdir / "a.sumstats.gz"), str(tmpdir / "b.sumstats.gz")],
+                    "anchor_trait": None,
+                    "ldscore_dir": str(ldscore_dir),
+                    "count_kind": "common",
+                    "output_dir": None,
+                    "overwrite": False,
+                    "write_per_pair_detail": False,
+                    "n_blocks": 200,
+                    "no_intercept": False,
+                    "intercept_h2": None,
+                    "intercept_gencov": None,
+                    "two_step_cutoff": None,
+                    "chisq_max": None,
+                    "log_level": "INFO",
+                },
+            )()
+
+            stdout = io.StringIO()
+            with mock.patch.object(RegressionRunner, "estimate_rg_pairs", return_value=expected), contextlib.redirect_stdout(stdout):
+                result = regression_runner.run_rg_from_args(args)
+
+        self.assertIs(result, expected)
+        self.assertEqual(stdout.getvalue(), "")
+
+    def test_run_rg_from_args_recovers_metadata_labels_and_resolves_anchor_by_trait_name(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            set_global_config(GlobalConfig(snp_identifier="rsid"))
+            for stem, trait_name in (("a", "MDD"), ("b", "SCZ")):
+                with gzip.open(tmpdir / f"{stem}.sumstats.gz", "wt", encoding="utf-8") as handle:
+                    handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
+                (tmpdir / f"{stem}.metadata.json").write_text(
+                    json.dumps(
+                        {
+                            "format": "ldsc.sumstats.v1",
+                            "trait_name": trait_name,
+                            "snp_identifier": "rsid",
+                            "genome_build": None,
+                            "config_snapshot": {"snp_identifier": "rsid", "genome_build": None},
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+            ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
+            expected = regression_runner.RgResultFamily(
+                rg=pd.DataFrame(),
+                rg_full=pd.DataFrame(),
+                h2_per_trait=pd.DataFrame(),
+                per_pair_metadata=[],
+            )
+            args = type(
+                "Args",
+                (),
+                {
+                    "sumstats_sources": [str(tmpdir / "a.sumstats.gz"), str(tmpdir / "b.sumstats.gz")],
+                    "anchor_trait": "SCZ",
+                    "ldscore_dir": str(ldscore_dir),
+                    "count_kind": "common",
+                    "output_dir": None,
+                    "overwrite": False,
+                    "write_per_pair_detail": False,
+                    "n_blocks": 200,
+                    "no_intercept": False,
+                    "intercept_h2": None,
+                    "intercept_gencov": None,
+                    "two_step_cutoff": None,
+                    "chisq_max": None,
+                    "log_level": "INFO",
+                },
+            )()
+
+            with mock.patch.object(RegressionRunner, "estimate_rg_pairs", return_value=expected) as patched:
+                result = regression_runner.run_rg_from_args(args)
+
+        self.assertIs(result, expected)
+        tables = patched.call_args.args[0]
+        self.assertEqual([table.trait_name for table in tables], ["MDD", "SCZ"])
+        self.assertEqual(patched.call_args.kwargs["anchor_index"], 1)
+
+    def test_run_rg_from_args_resolves_anchor_by_path_when_no_trait_name_matches(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            set_global_config(GlobalConfig(snp_identifier="rsid"))
+            for name in ("a", "b"):
+                with gzip.open(tmpdir / f"{name}.sumstats.gz", "wt", encoding="utf-8") as handle:
+                    handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
+            ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
+            expected = regression_runner.RgResultFamily(
+                rg=pd.DataFrame(),
+                rg_full=pd.DataFrame(),
+                h2_per_trait=pd.DataFrame(),
+                per_pair_metadata=[],
+            )
+            args = type(
+                "Args",
+                (),
+                {
+                    "sumstats_sources": [str(tmpdir / "a.sumstats.gz"), str(tmpdir / "b.sumstats.gz")],
+                    "anchor_trait": str(tmpdir / "b.sumstats.gz"),
+                    "ldscore_dir": str(ldscore_dir),
+                    "count_kind": "common",
+                    "output_dir": None,
+                    "overwrite": False,
+                    "write_per_pair_detail": False,
+                    "n_blocks": 200,
+                    "no_intercept": False,
+                    "intercept_h2": None,
+                    "intercept_gencov": None,
+                    "two_step_cutoff": None,
+                    "chisq_max": None,
+                    "log_level": "INFO",
+                },
+            )()
+
+            with mock.patch.object(RegressionRunner, "estimate_rg_pairs", return_value=expected) as patched:
+                regression_runner.run_rg_from_args(args)
+
+        self.assertEqual(patched.call_args.kwargs["anchor_index"], 1)
+
+    def test_cli_prints_concise_rg_table_only_without_output_dir(self):
+        expected = type(
+            "Result",
+            (),
+            {
+                "rg": pd.DataFrame(
+                    [
+                        {
+                            "trait_1": "a",
+                            "trait_2": "b",
+                            "n_snps_used": 0,
+                            "rg": np.nan,
+                            "rg_se": np.nan,
+                            "p": np.nan,
+                            "p_fdr_bh": np.nan,
+                            "note": "Failed",
+                        }
+                    ]
+                )
+            },
+        )()
+
+        stdout = io.StringIO()
+        with mock.patch.object(regression_runner, "run_rg_from_args", return_value=expected), contextlib.redirect_stdout(stdout):
+            result = cli.main(
+                [
+                    "rg",
+                    "--ldscore-dir",
+                    "ldscores",
+                    "--sumstats-sources",
+                    "a.sumstats.gz",
+                    "b.sumstats.gz",
+                ]
+            )
+
+        self.assertIs(result, expected)
+        text = stdout.getvalue()
+        self.assertIn("trait_1\ttrait_2\tn_snps_used\trg\trg_se\tp\tp_fdr_bh\tnote", text)
+        self.assertIn("NaN", text)
+
+    def test_cli_does_not_print_rg_table_when_output_dir_is_supplied(self):
+        expected = type("Result", (), {"rg": pd.DataFrame([{"trait_1": "a"}])})()
+
+        stdout = io.StringIO()
+        with mock.patch.object(regression_runner, "run_rg_from_args", return_value=expected), contextlib.redirect_stdout(stdout):
+            result = cli.main(
+                [
+                    "rg",
+                    "--ldscore-dir",
+                    "ldscores",
+                    "--sumstats-sources",
+                    "a.sumstats.gz",
+                    "b.sumstats.gz",
+                    "--output-dir",
+                    "out",
+                ]
+            )
+
+        self.assertIs(result, expected)
+        self.assertEqual(stdout.getvalue(), "")
 
     def test_run_partitioned_h2_from_args_uses_query_columns_from_ldscore_dir(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1029,6 +1691,57 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertEqual(writer.call_args.kwargs["metadata"]["count_kind"], "common")
         self.assertEqual(writer.call_args.kwargs["metadata"]["trait_name"], "trait")
         self.assertEqual(summary.loc[0, "Category"], "query")
+
+    def test_run_partitioned_h2_from_args_uses_metadata_trait_name_when_cli_label_is_omitted(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            set_global_config(GlobalConfig(snp_identifier="rsid"))
+            with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
+                handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
+            (tmpdir / "trait.metadata.json").write_text(
+                json.dumps(
+                    {
+                        "format": "ldsc.sumstats.v1",
+                        "trait_name": "MDD",
+                        "snp_identifier": "rsid",
+                        "genome_build": None,
+                        "config_snapshot": {"snp_identifier": "rsid", "genome_build": None},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
+            output_dir = tmpdir / "out"
+            args = type(
+                "Args",
+                (),
+                {
+                    "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
+                    "trait_name": None,
+                    "ldscore_dir": str(ldscore_dir),
+                    "count_kind": "common",
+                    "output_dir": str(output_dir),
+                    "overwrite": False,
+                    "n_blocks": 200,
+                    "no_intercept": False,
+                    "intercept_h2": None,
+                    "two_step_cutoff": None,
+                    "chisq_max": None,
+                    "write_per_query_results": True,
+                },
+            )()
+
+            with mock.patch.object(
+                regression_runner.RegressionRunner,
+                "estimate_partitioned_h2_batch",
+                return_value=pd.DataFrame([{"Category": "query", "Coefficient": 1.0}]),
+            ), mock.patch.object(
+                regression_runner.PartitionedH2DirectoryWriter,
+                "write",
+            ) as writer:
+                regression_runner.run_partitioned_h2_from_args(args)
+
+        self.assertEqual(writer.call_args.kwargs["metadata"]["trait_name"], "MDD")
 
     def test_run_partitioned_h2_from_args_refuses_stale_per_query_tree_without_overwrite(self):
         with tempfile.TemporaryDirectory() as tmpdir:

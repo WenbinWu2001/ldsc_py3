@@ -71,6 +71,16 @@ def _normalize_path_tuple(values) -> tuple[str, ...]:
     return normalize_path_tokens(values)
 
 
+def _normalize_trait_name(value: str | None) -> str | None:
+    """Return a stripped trait label, rejecting blank user-provided labels."""
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    if not normalized:
+        raise ValueError("trait_name must not be blank.")
+    return normalized
+
+
 def _normalize_log_level(level: str) -> LogLevel:
     """Normalize a logging level string to the supported uppercase literal."""
     normalized = level.upper()
@@ -592,6 +602,7 @@ class MungeConfig:
         object.__setattr__(self, "output_dir", _normalize_optional_path(self.output_dir))
         object.__setattr__(self, "raw_sumstats_file", _normalize_optional_path(self.raw_sumstats_file))
         object.__setattr__(self, "sumstats_snps_file", _normalize_optional_path(self.sumstats_snps_file))
+        object.__setattr__(self, "trait_name", _normalize_trait_name(self.trait_name))
         object.__setattr__(self, "ignore_columns", tuple(self.ignore_columns))
         object.__setattr__(self, "column_hints", dict(self.column_hints))
 
@@ -611,8 +622,9 @@ class RegressionConfig:
     use_intercept : bool, optional
         If ``False``, constrain the intercept to the LDSC default for the model
         being fit. Default is ``True``.
-    intercept_h2, intercept_gencov : float, list of float, or None, optional
-        Fixed intercept values for single-trait and cross-trait models.
+    intercept_h2, intercept_gencov : float or None, optional
+        Fixed intercept values for single-trait and cross-trait models. In
+        multi-trait rg runs, scalar values are broadcast to every pair.
         Defaults are ``None``.
     two_step_cutoff : float or None, optional
         Threshold for the two-step estimator used by the regression kernel.
@@ -626,8 +638,8 @@ class RegressionConfig:
     n_blocks: int = 200
     use_common_counts: bool = True
     use_intercept: bool = True
-    intercept_h2: float | list[float] | None = None
-    intercept_gencov: float | list[float] | None = None
+    intercept_h2: float | None = None
+    intercept_gencov: float | None = None
     two_step_cutoff: float | None = None
     chisq_max: float | None = None
     samp_prev: float | list[float] | None = None

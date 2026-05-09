@@ -324,7 +324,7 @@ flowchart LR
 | --- | --- | --- |
 | curated sumstats | `SNP CHR POS A1 A2 Z N`<br/>`rs3131969 1 754182 A G 0.74 829249.58` | written as `sumstats.parquet` by default under `output_dir`; `--output-format tsv.gz` writes legacy `sumstats.sumstats.gz`, and `both` writes both; `CHR`/`POS` are present and may be missing when absent from raw input; optional `FRQ` may also be present |
 | log file | plain-text lifecycle and QC log | workflow-owned `sumstats.log` under `output_dir`, populated from package logger messages emitted during kernel QC; excluded from `MungeRunSummary.output_paths` |
-| metadata sidecar | JSON with `snp_identifier`, nullable `genome_build`, coordinate columns, curated output files, parquet row groups, and build-inference details | written as `sumstats.metadata.json` under `output_dir`; used by `load_sumstats()` to recover config provenance; `output_files` does not include `sumstats.log` |
+| metadata sidecar | JSON with `snp_identifier`, nullable `genome_build`, optional `trait_name`, coordinate columns, curated output files, parquet row groups, and build-inference details | written as `sumstats.metadata.json` under `output_dir`; used by `load_sumstats()` to recover config provenance and trait labels; `output_files` does not include `sumstats.log` |
 
 ### Modules used
 
@@ -335,15 +335,18 @@ flowchart LR
 
 ## 5. `h2`, `partitioned-h2`, and `rg`: Curated Artifacts To Regression Summaries
 
-Regression summary commands write one fixed TSV when `output_dir` is supplied:
-`h2.tsv`, `partitioned_h2.tsv`, or `rg.tsv`, plus the matching workflow log
-`h2.log`, `partitioned-h2.log`, or `rg.log`. Existing summary TSVs or logs
-raise before the new table is written unless the command includes
-`--overwrite`. For `partitioned-h2`, `partitioned_h2.tsv`,
-`query_annotations/`, and `partitioned-h2.log` are treated as one owned family;
-aggregate-only overwrites remove stale `query_annotations/` after the new
-summary is written. Without `output_dir`, regression commands return in-memory
-results and do not create log files.
+Regression summary commands write fixed result artifacts when `output_dir` is
+supplied. `h2` writes `h2.tsv` plus `h2.log`; `partitioned-h2` writes
+`partitioned_h2.tsv` plus `partitioned-h2.log`; `rg` writes `rg.tsv`,
+`rg_full.tsv`, `h2_per_trait.tsv`, optional `pairs/`, plus workflow-owned
+`rg.log`. Existing owned TSVs, optional trees, or logs raise before the new
+table is written unless the command includes `--overwrite`. For
+`partitioned-h2`, `partitioned_h2.tsv`, `query_annotations/`, and
+`partitioned-h2.log` are treated as one owned family; aggregate-only overwrites
+remove stale `query_annotations/` after the new summary is written. Without
+`output_dir`, regression commands return in-memory results and do not create
+log files; the rg CLI additionally prints the concise `rg.tsv` schema to
+stdout for quick runs.
 `partitioned-h2` can also write an opt-in per-query tree with
 `--write-per-query-results`; the aggregate `partitioned_h2.tsv` remains the
 stable summary entry point. It requires query LD scores in the LD-score
@@ -354,7 +357,7 @@ rejected by `partitioned-h2`.
 
 | File | Example | Notes |
 | --- | --- | --- |
-| munged sumstats | `SNP CHR POS A1 A2 Z N`<br/>`rs1 1 754182 A G 1.96 1000` | one file for `h2` and `partitioned-h2`, two files for `rg`; a neighboring `sumstats.metadata.json` recovers config provenance when present |
+| munged sumstats | `SNP CHR POS A1 A2 Z N`<br/>`rs1 1 754182 A G 1.96 1000` | one file for `h2` and `partitioned-h2`, two or more files for `rg`; a neighboring `sumstats.metadata.json` recovers config provenance and `trait_name` when present |
 | LD-score directory | `manifest.json`, `ldscore.baseline.parquet`, optional `ldscore.query.parquet` | produced by the LD-score workflow and supplied as `ldscore_dir`; `partitioned-h2` requires `ldscore.query.parquet` and non-empty `query_columns`; current parquet files have chromosome-aligned row groups; legacy directories without manifest config provenance load with a warning |
 
 ### Flow
@@ -365,7 +368,7 @@ flowchart LR
   I2[LD-score artifacts]
 
   subgraph P5[Preprocessing (public)<br/>path_resolution + column_inference]
-    E1[Resolve scalar artifact files]
+    E1[Resolve scalar files or rg file groups]
     E2[Reload canonical headers]
   end
 
@@ -386,7 +389,7 @@ flowchart LR
   E5 --> E6 --> O5a[h2.tsv + h2.log]
   E5 --> E7 --> O5b[partitioned_h2.tsv + partitioned-h2.log]
   E7 --> O5d[query_annotations/]
-  E5 --> E8 --> O5c[rg.tsv + rg.log]
+  E5 --> E8 --> O5c[rg.tsv + rg_full.tsv + h2_per_trait.tsv + optional pairs/ + rg.log]
 ```
 
 ### Outputs

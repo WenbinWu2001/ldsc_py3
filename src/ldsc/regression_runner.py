@@ -18,7 +18,10 @@ Regression chooses either the manifest ``common_reference_snp_counts`` vector or
 Partitioned-h2 requires non-empty query LD-score columns and fits one
 baseline-plus-query model per query annotation. It can optionally retain and
 write the full category table for each fitted model through the output-layer
-``PartitionedH2DirectoryWriter``.
+``PartitionedH2DirectoryWriter``. Genetic correlation accepts a list of two or
+more munged summary-statistic sources and returns the full rg output family:
+the concise headline table, a diagnostic full table, per-trait h2 summaries,
+and optional per-pair metadata for filesystem detail outputs.
 
 Regression commands create per-run logs only when an ``output_dir`` is supplied:
 ``h2.log``, ``partitioned-h2.log``, or ``rg.log``. In-memory regression calls
@@ -28,11 +31,12 @@ and CLI invocations without an output directory remain console-only.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import math
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Sequence
@@ -54,6 +58,7 @@ from .path_resolution import (
     ensure_output_paths_available,
     normalize_path_token,
     preflight_output_artifact_family,
+    resolve_file_group,
 )
 from ._logging import log_inputs, log_outputs, workflow_logging
 from ._kernel import regression as reg
@@ -66,6 +71,10 @@ from .outputs import (
     PartitionedH2DirectoryWriter,
     PartitionedH2OutputConfig,
     REGRESSION_LD_SCORE_COLUMN,
+    RG_CONCISE_COLUMNS,
+    RG_FULL_COLUMNS,
+    RgDirectoryWriter,
+    RgOutputConfig,
 )
 from .sumstats_munger import SumstatsTable, load_sumstats
 
@@ -101,6 +110,7 @@ PARTITIONED_H2_REQUIRES_QUERY_ANNOTATIONS_MESSAGE = (
     "partitioned-h2 requires query annotations in --ldscore-dir. "
     "Rerun `ldsc ldscore` with --query-annot-sources or --query-annot-bed-sources plus explicit baseline annotations."
 )
+FAILED_RG_NOTE = "Failed; see rg_full.tsv error column; use --output-dir for rg.log."
 
 
 @dataclass(frozen=True)
@@ -126,6 +136,28 @@ class RegressionDataset:
 
 
 @dataclass(frozen=True)
+class RGRegressionDataset:
+    """Merged genetic-correlation dataset built from two traits and LD scores."""
+    merged: pd.DataFrame
+    ref_ld_columns: list[str]
+    weight_column: str
+    reference_snp_count_totals: dict[str, np.ndarray]
+    count_key_used_for_regression: str
+    retained_ld_columns: list[str]
+    dropped_zero_variance_ld_columns: list[str]
+    trait_names: list[str]
+    chromosomes_aggregated: list[str]
+    config_snapshot: GlobalConfig | None = None
+
+    def validate(self) -> None:
+        """Validate that the merged table contains the required RG columns."""
+        required = {"SNP", self.weight_column, "Z1", "N1", "Z2", "N2"}
+        missing = required - set(self.merged.columns)
+        if missing:
+            raise ValueError(f"RGRegressionDataset is missing required columns: {sorted(missing)}")
+
+
+@dataclass(frozen=True)
 class PartitionedH2BatchResult:
     """Batch partitioned-h2 summaries plus optional per-query detail tables.
 
@@ -138,6 +170,34 @@ class PartitionedH2BatchResult:
     summary: pd.DataFrame
     per_query_category_tables: dict[str, pd.DataFrame]
     per_query_metadata: dict[str, dict[str, object]]
+
+
+@dataclass(frozen=True)
+class RgResultFamily:
+    """Result family returned by multi-trait genetic-correlation workflows.
+
+    Parameters
+    ----------
+    rg : pandas.DataFrame
+        Concise one-row-per-pair table with the publication-oriented rg schema:
+        trait names, SNP count, :math:`r_g`, standard error, p-value,
+        BH-adjusted p-value, and a failure note.
+    rg_full : pandas.DataFrame
+        Comprehensive diagnostic table with one row per attempted pair. Failed
+        pairs keep their row, set numeric fields to NaN, and store
+        ``status='failed'`` plus an ``error`` message.
+    h2_per_trait : pandas.DataFrame
+        One total-heritability summary per input trait, computed once per trait
+        on the trait's single-trait LDSC regression dataset.
+    per_pair_metadata : list of dict
+        Ordered metadata records aligned to ``rg_full`` rows. Writers use these
+        records for optional ``pairs/`` detail output.
+    """
+
+    rg: pd.DataFrame
+    rg_full: pd.DataFrame
+    h2_per_trait: pd.DataFrame
+    per_pair_metadata: list[dict[str, object]]
 
 
 class RegressionRunner:
@@ -170,7 +230,7 @@ class RegressionRunner:
 
         Zero-variance LD-score columns are dropped here so the estimator kernel
         receives only informative regressors. The selected count vector is
-        carried alongside the merged table for later use by ``Hsq`` and ``RG``.
+        carried alongside the merged table for later use by ``Hsq``.
         """
         print_global_config_banner(type(self).__name__, self.global_config)
         config = config or self.regression_config
@@ -239,6 +299,122 @@ class RegressionRunner:
             retained_ld_columns=retained_ld_columns,
             dropped_zero_variance_ld_columns=dropped_ld_columns,
             trait_names=[name for name in [sumstats_table.trait_name] if name],
+            chromosomes_aggregated=[result.chrom for result in ldscore_result.chromosome_results],
+            config_snapshot=ldscore_result.config_snapshot,
+        )
+        dataset.validate()
+        return dataset
+
+    def build_rg_dataset(
+        self,
+        sumstats_table_1: SumstatsTable,
+        sumstats_table_2: SumstatsTable,
+        ldscore_result: LDScoreResult,
+        config: RegressionConfig | None = None,
+    ) -> RGRegressionDataset:
+        """Build the complete genetic-correlation preprocessing dataset.
+
+        This helper merges trait 1, trait 2, and baseline LD scores on the
+        resolved SNP identifier, drops missing rows, harmonizes alleles when
+        possible, and only then removes zero-variance LD-score columns on the
+        final RG SNP set. Allele harmonization exists, but it is skipped if
+        allele columns are absent.
+        """
+        print_global_config_banner(type(self).__name__, self.global_config)
+        config = config or self.regression_config
+        for table, label in ((sumstats_table_1, "trait 1 SumstatsTable"), (sumstats_table_2, "trait 2 SumstatsTable")):
+            if table.config_snapshot is not None and ldscore_result.config_snapshot is not None:
+                validate_config_compatibility(
+                    table.config_snapshot,
+                    ldscore_result.config_snapshot,
+                    context=f"{label} and LDScoreResult",
+                )
+
+        weight_column = REGRESSION_LD_SCORE_COLUMN
+        ref_ld_columns = list(ldscore_result.baseline_columns)
+        ldscore_frame = _assemble_regression_ldscore_table(ldscore_result, [])
+        identifier_mode = _effective_snp_identifier_mode(sumstats_table_1, ldscore_result, self.global_config)
+
+        left = sumstats_table_1.data.rename(columns={"N": "N1", "Z": "Z1"})
+        right = sumstats_table_2.data.rename(columns={"A1": "A1x", "A2": "A2x", "N": "N2", "Z": "Z2"})
+        right_payload = [column for column in ["A1x", "A2x", "N2", "Z2"] if column in right.columns]
+        if identifier_mode == "rsid":
+            left_with_ld = pd.merge(
+                left,
+                ldscore_frame.loc[:, ["SNP", *ref_ld_columns, weight_column]].reset_index(drop=True),
+                how="inner",
+                on="SNP",
+                sort=False,
+            )
+            merged = pd.merge(
+                left_with_ld,
+                right.loc[:, ["SNP", *right_payload]],
+                how="inner",
+                on="SNP",
+                sort=False,
+            )
+        else:
+            left_keyed = _with_chr_pos_key(left, context=sumstats_table_1.source_path or "sumstats")
+            right_keyed = _with_chr_pos_key(right, context=sumstats_table_2.source_path or "sumstats")
+            ldscore_keyed = _with_chr_pos_key(ldscore_frame, context="LD-score table")
+            left_with_ld = pd.merge(
+                left_keyed,
+                ldscore_keyed.loc[:, [CHR_POS_KEY_COLUMN, *ref_ld_columns, weight_column]].reset_index(drop=True),
+                how="inner",
+                on=CHR_POS_KEY_COLUMN,
+                sort=False,
+            )
+            merged = pd.merge(
+                left_with_ld,
+                right_keyed.loc[:, [CHR_POS_KEY_COLUMN, *right_payload]],
+                how="inner",
+                on=CHR_POS_KEY_COLUMN,
+                sort=False,
+            )
+        merged = merged.dropna(how="any").reset_index(drop=True)
+        if merged.empty:
+            raise ValueError(
+                f"No overlapping {identifier_mode} SNPs remain after merging both sumstats tables "
+                f"with {len(ldscore_frame)} LD-score rows."
+            )
+
+        if {"A1", "A2", "A1x", "A2x"}.issubset(merged.columns):
+            alleles = merged["A1"] + merged["A2"] + merged["A1x"] + merged["A2x"]
+            keep = reg._filter_alleles(alleles)
+            kept_alleles = alleles.loc[keep].reset_index(drop=True)
+            merged = merged.loc[keep].reset_index(drop=True)
+            if merged.empty:
+                raise ValueError("No allele-compatible SNPs remain after harmonizing the two sumstats tables.")
+            merged["Z2"] = reg._align_alleles(merged["Z2"].copy(), kept_alleles)
+
+        retained_ld_columns = list(ref_ld_columns)
+        dropped_ld_columns: list[str] = []
+        if retained_ld_columns:
+            variances = merged.loc[:, retained_ld_columns].var()
+            dropped_ld_columns = variances.index[variances == 0].tolist()
+            retained_ld_columns = [column for column in retained_ld_columns if column not in dropped_ld_columns]
+            if retained_ld_columns:
+                merged = merged.loc[:, [column for column in merged.columns if column not in dropped_ld_columns]]
+            else:
+                raise ValueError("All LD-score columns have zero variance.")
+
+        count_totals = _count_totals_for_columns(ldscore_result.count_records, ref_ld_columns)
+        if dropped_ld_columns:
+            dropped_index = [ref_ld_columns.index(column) for column in dropped_ld_columns]
+            keep_index = [idx for idx in range(len(ref_ld_columns)) if idx not in dropped_index]
+            for key, values in list(count_totals.items()):
+                count_totals[key] = np.asarray(values)[keep_index]
+        count_key = _select_count_key(count_totals, config.use_common_counts)
+
+        dataset = RGRegressionDataset(
+            merged=merged.reset_index(drop=True),
+            ref_ld_columns=ref_ld_columns,
+            weight_column=weight_column,
+            reference_snp_count_totals=count_totals,
+            count_key_used_for_regression=count_key,
+            retained_ld_columns=retained_ld_columns,
+            dropped_zero_variance_ld_columns=dropped_ld_columns,
+            trait_names=[name for name in [sumstats_table_1.trait_name, sumstats_table_2.trait_name] if name],
             chromosomes_aggregated=[result.chrom for result in ldscore_result.chromosome_results],
             config_snapshot=ldscore_result.config_snapshot,
         )
@@ -412,56 +588,130 @@ class RegressionRunner:
         ldscore_result: LDScoreResult,
         config: RegressionConfig | None = None,
     ):
-        """Estimate genetic correlation between two munged summary-stat tables."""
+        """Estimate genetic correlation between two munged summary-stat tables.
+
+        RG preprocessing is delegated to :meth:`build_rg_dataset`, which keeps
+        the final trait1/trait2/LD-score SNP set explicit before arrays are
+        passed to the kernel. Allele harmonization exists, but it is skipped if
+        allele columns are absent.
+        """
         config = config or self.regression_config
-        identifier_mode = _effective_snp_identifier_mode(sumstats_table_1, ldscore_result, self.global_config)
-        dataset_1 = self.build_dataset(sumstats_table_1, ldscore_result, config=config)
-        left = dataset_1.merged.rename(columns={"N": "N1", "Z": "Z1", "A1": "A1", "A2": "A2"})
-        right = sumstats_table_2.data.rename(columns={"A1": "A1x", "A2": "A2x", "N": "N2", "Z": "Z2"})
-        right_payload = [column for column in ["A1x", "A2x", "N2", "Z2"] if column in right.columns]
-        if identifier_mode == "rsid":
-            merged = pd.merge(
-                left,
-                right.loc[:, ["SNP", *right_payload]],
-                how="inner",
-                on="SNP",
-                sort=False,
-            ).dropna(how="any")
-        else:
-            right_keyed = _with_chr_pos_key(right, context=sumstats_table_2.source_path or "sumstats")
-            merged = pd.merge(
-                left,
-                right_keyed.loc[:, [CHR_POS_KEY_COLUMN, *right_payload]],
-                how="inner",
-                on=CHR_POS_KEY_COLUMN,
-                sort=False,
-            ).dropna(how="any")
-            if merged.empty:
-                raise ValueError("No overlapping chr_pos SNPs remain after merging the two sumstats tables.")
-        if {"A1", "A2", "A1x", "A2x"}.issubset(merged.columns):
-            alleles = merged["A1"] + merged["A2"] + merged["A1x"] + merged["A2x"]
-            keep = reg._filter_alleles(alleles)
-            merged = merged.loc[keep].reset_index(drop=True)
-            merged["Z2"] = reg._align_alleles(merged["Z2"], alleles.loc[keep])
+        dataset = self.build_rg_dataset(sumstats_table_1, sumstats_table_2, ldscore_result, config=config)
+        return self._fit_rg_dataset(dataset, config=config)
+
+    def _fit_rg_dataset(
+        self,
+        dataset: RGRegressionDataset,
+        config: RegressionConfig | None = None,
+    ):
+        """Fit one prepared genetic-correlation dataset with the legacy kernel."""
+        config = config or self.regression_config
+        merged = dataset.merged
         n_snp = len(merged)
         n_blocks = min(n_snp, config.n_blocks)
-        intercept_hsq1 = _select_intercept(config.intercept_h2, index=0, use_intercept=config.use_intercept, default_when_disabled=1)
-        intercept_hsq2 = _select_intercept(config.intercept_h2, index=1, use_intercept=config.use_intercept, default_when_disabled=1)
-        intercept_gencov = _select_intercept(config.intercept_gencov, index=1, use_intercept=config.use_intercept, default_when_disabled=0)
+        intercept_hsq = _select_intercept(config.intercept_h2, use_intercept=config.use_intercept, default_when_disabled=1)
+        intercept_gencov = _select_intercept(
+            config.intercept_gencov,
+            use_intercept=config.use_intercept,
+            default_when_disabled=0,
+        )
         return reg.RG(
             np.asarray(merged[["Z1"]]),
             np.asarray(merged[["Z2"]]),
-            np.asarray(merged[dataset_1.retained_ld_columns]),
-            np.asarray(merged[[dataset_1.weight_column]]),
+            np.asarray(merged[dataset.retained_ld_columns]),
+            np.asarray(merged[[dataset.weight_column]]),
             np.asarray(merged[["N1"]]),
             np.asarray(merged[["N2"]]),
-            np.asarray(dataset_1.reference_snp_count_totals[dataset_1.count_key_used_for_regression]).reshape((1, -1)),
-            intercept_hsq1=intercept_hsq1,
-            intercept_hsq2=intercept_hsq2,
+            np.asarray(dataset.reference_snp_count_totals[dataset.count_key_used_for_regression]).reshape((1, -1)),
+            intercept_hsq1=intercept_hsq,
+            intercept_hsq2=intercept_hsq,
             intercept_gencov=intercept_gencov,
             n_blocks=n_blocks,
             twostep=config.two_step_cutoff,
         )
+
+    def estimate_rg_pairs(
+        self,
+        sumstats_tables: Sequence[SumstatsTable],
+        ldscore_result: LDScoreResult,
+        *,
+        anchor_index: int | None = None,
+        config: RegressionConfig | None = None,
+    ) -> RgResultFamily:
+        """Estimate genetic correlations for all requested trait pairs.
+
+        With no anchor, all unordered pairs are fit in input order. With an
+        anchor, only anchor-vs-rest pairs are fit, preserving the original input
+        order of non-anchor traits. Pair-level failures are recorded as NaN rows
+        with ``status='failed'`` and do not stop later pairs.
+
+        Parameters
+        ----------
+        sumstats_tables : sequence of SumstatsTable
+            Munged summary-statistic tables for two or more traits. Trait names
+            should already be unique; the CLI wrapper performs filename-based
+            disambiguation before calling this method.
+        ldscore_result : LDScoreResult
+            Canonical LD-score result. Only baseline LD scores are used for rg.
+        anchor_index : int or None, optional
+            If provided, index of the anchor trait. The method computes
+            ``anchor`` against every other trait and skips non-anchor pairs.
+            Default is ``None``, which computes all unordered pairs.
+        config : RegressionConfig or None, optional
+            Regression settings. Defaults to the runner's config.
+
+        Returns
+        -------
+        RgResultFamily
+            Concise rg table, full diagnostic table, per-trait h2 table, and
+            ordered per-pair metadata.
+
+        Raises
+        ------
+        ValueError
+            If fewer than two traits are supplied or ``anchor_index`` is out of
+            bounds. Whole-run input failures, such as incompatible h2 datasets,
+            also propagate as ordinary exceptions.
+        """
+        config = config or self.regression_config
+        tables = list(sumstats_tables)
+        if len(tables) < 2:
+            raise ValueError("--sumstats-sources must resolve to at least two sumstats files.")
+        if anchor_index is not None and not 0 <= anchor_index < len(tables):
+            raise ValueError(f"anchor_index must be in [0, {len(tables) - 1}], got {anchor_index}.")
+
+        h2_rows = []
+        for table in tables:
+            h2_dataset = self.build_dataset(table, ldscore_result, config=config)
+            hsq = self.estimate_h2(h2_dataset, config=config)
+            h2_rows.append(summarize_total_h2(hsq, h2_dataset, trait_name=_trait_label(table)))
+        h2_per_trait = pd.concat(h2_rows, axis=0, ignore_index=True) if h2_rows else pd.DataFrame()
+
+        rg_full_rows: list[dict[str, object]] = []
+        rg_rows: list[dict[str, object]] = []
+        per_pair_metadata: list[dict[str, object]] = []
+        pair_kind = "anchor" if anchor_index is not None else "all_pairs"
+        for i, j in _iter_rg_pairs(len(tables), anchor_index):
+            trait_1 = _trait_label(tables[i])
+            trait_2 = _trait_label(tables[j])
+            try:
+                dataset = self.build_rg_dataset(tables[i], tables[j], ldscore_result, config=config)
+                fitted = self._fit_rg_dataset(dataset, config=config)
+                full_row = _summarize_rg_pair(fitted, dataset, trait_1=trait_1, trait_2=trait_2, pair_kind=pair_kind)
+                metadata = _rg_pair_metadata(tables[i], tables[j], dataset, full_row, config, pair_kind)
+            except Exception as exc:
+                error = _format_exception(exc)
+                LOGGER.warning("Failed rg for pair '%s' vs '%s': %s", trait_1, trait_2, error, exc_info=True)
+                full_row = _failed_rg_full_row(trait_1=trait_1, trait_2=trait_2, pair_kind=pair_kind, error=error)
+                metadata = _failed_rg_pair_metadata(tables[i], tables[j], full_row, config, pair_kind)
+            rg_full_rows.append(full_row)
+            rg_rows.append(_concise_rg_row(full_row))
+            per_pair_metadata.append(metadata)
+
+        rg_full = pd.DataFrame(rg_full_rows, columns=RG_FULL_COLUMNS)
+        rg = pd.DataFrame(rg_rows, columns=RG_CONCISE_COLUMNS)
+        _apply_rg_multiple_testing(rg, rg_full)
+        return RgResultFamily(rg=rg, rg_full=rg_full, h2_per_trait=h2_per_trait, per_pair_metadata=per_pair_metadata)
 
 
 def _effective_snp_identifier_mode(
@@ -645,6 +895,268 @@ def summarize_partitioned_h2(
     return pd.DataFrame(rows, columns=columns)
 
 
+def _iter_rg_pairs(n_traits: int, anchor_index: int | None) -> list[tuple[int, int]]:
+    """Return rg pair indices in the public output order."""
+    if anchor_index is not None:
+        return [(anchor_index, idx) for idx in range(n_traits) if idx != anchor_index]
+    return [(i, j) for i in range(n_traits) for j in range(i + 1, n_traits)]
+
+
+def _summarize_rg_pair(
+    rg_result,
+    dataset: RGRegressionDataset,
+    *,
+    trait_1: str,
+    trait_2: str,
+    pair_kind: str,
+) -> dict[str, object]:
+    """Build the full public rg row from one fitted kernel result."""
+    return {
+        "trait_1": trait_1,
+        "trait_2": trait_2,
+        "n_snps_used": int(len(dataset.merged)),
+        "rg": _required_numeric_scalar(getattr(rg_result, "rg_ratio", None), "rg"),
+        "rg_se": _required_numeric_scalar(getattr(rg_result, "rg_se", None), "rg_se"),
+        "z": _required_numeric_scalar(getattr(rg_result, "z", None), "z"),
+        "p": _required_numeric_scalar(getattr(rg_result, "p", None), "p"),
+        "p_fdr_bh": math.nan,
+        "p_bonferroni": math.nan,
+        "h2_1": _numeric_attr(getattr(rg_result, "hsq1", None), "tot", "h2_1"),
+        "h2_1_se": _numeric_attr(getattr(rg_result, "hsq1", None), "tot_se", "h2_1_se"),
+        "h2_2": _numeric_attr(getattr(rg_result, "hsq2", None), "tot", "h2_2"),
+        "h2_2_se": _numeric_attr(getattr(rg_result, "hsq2", None), "tot_se", "h2_2_se"),
+        "gencov": _numeric_attr(getattr(rg_result, "gencov", None), "tot", "gencov"),
+        "gencov_se": _numeric_attr(getattr(rg_result, "gencov", None), "tot_se", "gencov_se"),
+        "intercept_h2_1": _numeric_attr(getattr(rg_result, "hsq1", None), "intercept", "intercept_h2_1"),
+        "intercept_h2_1_se": _numeric_attr(getattr(rg_result, "hsq1", None), "intercept_se", "intercept_h2_1_se"),
+        "intercept_h2_2": _numeric_attr(getattr(rg_result, "hsq2", None), "intercept", "intercept_h2_2"),
+        "intercept_h2_2_se": _numeric_attr(getattr(rg_result, "hsq2", None), "intercept_se", "intercept_h2_2_se"),
+        "intercept_gencov": _numeric_attr(getattr(rg_result, "gencov", None), "intercept", "intercept_gencov"),
+        "intercept_gencov_se": _numeric_attr(
+            getattr(rg_result, "gencov", None),
+            "intercept_se",
+            "intercept_gencov_se",
+        ),
+        "ratio_1": _numeric_attr(getattr(rg_result, "hsq1", None), "ratio", "ratio_1"),
+        "ratio_1_se": _numeric_attr(getattr(rg_result, "hsq1", None), "ratio_se", "ratio_1_se"),
+        "ratio_2": _numeric_attr(getattr(rg_result, "hsq2", None), "ratio", "ratio_2"),
+        "ratio_2_se": _numeric_attr(getattr(rg_result, "hsq2", None), "ratio_se", "ratio_2_se"),
+        "lambda_gc_1": _numeric_attr(getattr(rg_result, "hsq1", None), "lambda_gc", "lambda_gc_1"),
+        "lambda_gc_2": _numeric_attr(getattr(rg_result, "hsq2", None), "lambda_gc", "lambda_gc_2"),
+        "mean_chisq_1": _numeric_attr(getattr(rg_result, "hsq1", None), "mean_chisq", "mean_chisq_1"),
+        "mean_chisq_2": _numeric_attr(getattr(rg_result, "hsq2", None), "mean_chisq", "mean_chisq_2"),
+        "pair_kind": pair_kind,
+        "status": "ok",
+        "error": "",
+    }
+
+
+def _failed_rg_full_row(*, trait_1: str, trait_2: str, pair_kind: str, error: str) -> dict[str, object]:
+    """Build a full rg row for a failed pair."""
+    row = {column: math.nan for column in RG_FULL_COLUMNS}
+    row.update(
+        {
+            "trait_1": trait_1,
+            "trait_2": trait_2,
+            "n_snps_used": 0,
+            "pair_kind": pair_kind,
+            "status": "failed",
+            "error": error,
+        }
+    )
+    return row
+
+
+def _concise_rg_row(full_row: dict[str, object]) -> dict[str, object]:
+    """Build the concise public rg row from a full row."""
+    status = str(full_row.get("status", ""))
+    return {
+        "trait_1": full_row["trait_1"],
+        "trait_2": full_row["trait_2"],
+        "n_snps_used": full_row["n_snps_used"],
+        "rg": full_row["rg"],
+        "rg_se": full_row["rg_se"],
+        "p": full_row["p"],
+        "p_fdr_bh": full_row["p_fdr_bh"],
+        "note": "" if status == "ok" else FAILED_RG_NOTE,
+    }
+
+
+def _apply_rg_multiple_testing(rg: pd.DataFrame, rg_full: pd.DataFrame) -> None:
+    """Apply local BH-FDR and Bonferroni adjustments, ignoring NaN p-values."""
+    p_values = pd.to_numeric(rg_full.get("p", pd.Series(dtype=float)), errors="coerce").to_numpy(dtype=float)
+    fdr = _benjamini_hochberg(p_values)
+    bonferroni = _bonferroni(p_values)
+    for frame in (rg, rg_full):
+        if "p_fdr_bh" not in frame.columns:
+            frame["p_fdr_bh"] = math.nan
+        frame.loc[:, "p_fdr_bh"] = fdr
+    if "p_bonferroni" not in rg_full.columns:
+        rg_full["p_bonferroni"] = math.nan
+    rg_full.loc[:, "p_bonferroni"] = bonferroni
+
+
+def _benjamini_hochberg(p_values: np.ndarray) -> np.ndarray:
+    """Return BH-adjusted p-values with NaNs preserved."""
+    p = np.asarray(p_values, dtype=np.float64)
+    adjusted = np.full(p.shape, math.nan, dtype=np.float64)
+    finite = np.isfinite(p)
+    if not finite.any():
+        return adjusted
+    finite_indices = np.flatnonzero(finite)
+    finite_p = p[finite]
+    order = np.argsort(finite_p)
+    ranked = finite_p[order] * len(finite_p) / np.arange(1, len(finite_p) + 1, dtype=np.float64)
+    ranked = np.minimum.accumulate(ranked[::-1])[::-1]
+    adjusted[finite_indices[order]] = np.clip(ranked, 0.0, 1.0)
+    return adjusted
+
+
+def _bonferroni(p_values: np.ndarray) -> np.ndarray:
+    """Return Bonferroni-adjusted p-values with NaNs preserved."""
+    p = np.asarray(p_values, dtype=np.float64)
+    adjusted = np.full(p.shape, math.nan, dtype=np.float64)
+    finite = np.isfinite(p)
+    if not finite.any():
+        return adjusted
+    adjusted[finite] = np.clip(p[finite] * int(finite.sum()), 0.0, 1.0)
+    return adjusted
+
+
+def _rg_pair_metadata(
+    table_1: SumstatsTable,
+    table_2: SumstatsTable,
+    dataset: RGRegressionDataset,
+    full_row: dict[str, object],
+    config: RegressionConfig,
+    pair_kind: str,
+) -> dict[str, object]:
+    """Build per-pair metadata for an estimated rg pair."""
+    n_snps = int(len(dataset.merged))
+    return {
+        "trait_1": full_row["trait_1"],
+        "trait_2": full_row["trait_2"],
+        "source_1": table_1.source_path,
+        "source_2": table_2.source_path,
+        "pair_kind": pair_kind,
+        "status": full_row["status"],
+        "error": full_row["error"],
+        "n_snps_used": n_snps,
+        "n_blocks_used": min(n_snps, int(config.n_blocks)),
+        "count_key_used_for_regression": dataset.count_key_used_for_regression,
+        "retained_ld_columns": list(dataset.retained_ld_columns),
+        "dropped_zero_variance_ld_columns": list(dataset.dropped_zero_variance_ld_columns),
+        "intercept_h2_policy": _intercept_policy(config.intercept_h2, config.use_intercept, default_when_disabled=1),
+        "intercept_gencov_policy": _intercept_policy(
+            config.intercept_gencov,
+            config.use_intercept,
+            default_when_disabled=0,
+        ),
+    }
+
+
+def _failed_rg_pair_metadata(
+    table_1: SumstatsTable,
+    table_2: SumstatsTable,
+    full_row: dict[str, object],
+    config: RegressionConfig,
+    pair_kind: str,
+) -> dict[str, object]:
+    """Build per-pair metadata when a pair failed before a dataset was available."""
+    return {
+        "trait_1": full_row["trait_1"],
+        "trait_2": full_row["trait_2"],
+        "source_1": table_1.source_path,
+        "source_2": table_2.source_path,
+        "pair_kind": pair_kind,
+        "status": "failed",
+        "error": full_row["error"],
+        "n_snps_used": 0,
+        "n_blocks_used": 0,
+        "intercept_h2_policy": _intercept_policy(config.intercept_h2, config.use_intercept, default_when_disabled=1),
+        "intercept_gencov_policy": _intercept_policy(
+            config.intercept_gencov,
+            config.use_intercept,
+            default_when_disabled=0,
+        ),
+    }
+
+
+def _intercept_policy(value: float | None, use_intercept: bool, default_when_disabled: float) -> str:
+    """Describe the effective intercept policy in per-pair metadata."""
+    if not use_intercept:
+        return f"fixed:{default_when_disabled:g}"
+    if value is None:
+        return "free"
+    return f"fixed:{float(value):g}"
+
+
+def _trait_label(table: SumstatsTable) -> str:
+    """Return the public trait label for a sumstats table."""
+    if table.trait_name:
+        return str(table.trait_name)
+    if table.source_path:
+        return Path(table.source_path).name
+    return "trait"
+
+
+def _source_key(table: SumstatsTable) -> str:
+    """Return a stable source string for duplicate trait-name disambiguation."""
+    return str(Path(table.source_path).resolve()) if table.source_path else _trait_label(table)
+
+
+def _numeric_attr(obj: object | None, attr: str, field: str) -> float:
+    """Return a numeric scalar attribute or NaN when unavailable."""
+    if obj is None:
+        return math.nan
+    return _numeric_scalar(getattr(obj, attr, None), field)
+
+
+def _required_numeric_scalar(value: object, field: str) -> float:
+    """Return a numeric scalar or raise for kernel string/invalid headline values."""
+    return _numeric_scalar(value, field, fail_on_non_numeric=True)
+
+
+def _numeric_scalar(value: object, field: str, *, fail_on_non_numeric: bool = False) -> float:
+    """Return the first numeric scalar from common kernel return shapes."""
+    if value is None:
+        return math.nan
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped.upper() == "NA":
+            if fail_on_non_numeric:
+                raise ValueError(f"{field} is non-numeric kernel value 'NA'.")
+            return math.nan
+        try:
+            return float(stripped)
+        except ValueError as exc:
+            if fail_on_non_numeric:
+                raise ValueError(f"{field} is non-numeric kernel value {value!r}.") from exc
+            return math.nan
+    if hasattr(value, "__array__") or isinstance(value, (list, tuple)):
+        array = np.ravel(value)
+        if array.size == 0:
+            return math.nan
+        return _numeric_scalar(array[0].item() if hasattr(array[0], "item") else array[0], field, fail_on_non_numeric=fail_on_non_numeric)
+    try:
+        if pd.isna(value):
+            return math.nan
+    except TypeError:
+        pass
+    try:
+        return float(value)
+    except (TypeError, ValueError) as exc:
+        if fail_on_non_numeric:
+            raise ValueError(f"{field} is non-numeric kernel value {value!r}.") from exc
+        return math.nan
+
+
+def _format_exception(exc: Exception) -> str:
+    """Return compact user-facing error text for a pair failure."""
+    message = str(exc).strip()
+    return f"{exc.__class__.__name__}: {message}" if message else exc.__class__.__name__
+
+
 def _retained_snp_counts(dataset: RegressionDataset) -> np.ndarray:
     """Return reference SNP counts aligned to retained LD-score columns."""
     counts = np.asarray(
@@ -736,14 +1248,12 @@ def _scalar_or_value(value):
     return value
 
 
-def _select_intercept(value, index: int, use_intercept: bool, default_when_disabled: float):
+def _select_intercept(value: float | None, use_intercept: bool, default_when_disabled: float):
     """Resolve fixed-intercept config into the scalar expected by the kernel."""
     if not use_intercept:
         return default_when_disabled
     if value is None:
         return None
-    if isinstance(value, list):
-        return float(value[index])
     return float(value)
 
 
@@ -770,12 +1280,28 @@ def add_partitioned_h2_arguments(parser) -> None:
 def add_rg_arguments(parser) -> None:
     """Register genetic-correlation CLI arguments on ``parser``."""
     _add_common_regression_arguments(parser, include_h2_intercept=False)
-    parser.add_argument("--sumstats-1-file", required=True, help="First munged .sumstats(.gz) file.")
-    parser.add_argument("--sumstats-2-file", required=True, help="Second munged .sumstats(.gz) file.")
-    parser.add_argument("--trait-name-1", default=None, help="Optional label for the first trait.")
-    parser.add_argument("--trait-name-2", default=None, help="Optional label for the second trait.")
-    parser.add_argument("--intercept-h2", nargs=2, type=float, default=None, metavar=("H2_1", "H2_2"))
-    parser.add_argument("--intercept-gencov", type=float, default=None)
+    parser.add_argument(
+        "--sumstats-sources",
+        nargs="+",
+        required=True,
+        help=(
+            "Munged .sumstats(.gz) files or glob patterns. At least two resolved files are required; "
+            "use --output-dir for the complete rg output family."
+        ),
+    )
+    parser.add_argument(
+        "--anchor-trait",
+        default=None,
+        help="Optional anchor trait name or sumstats file path; compute only anchor-vs-rest correlations.",
+    )
+    parser.add_argument(
+        "--write-per-pair-detail",
+        action="store_true",
+        default=False,
+        help="Also write one sanitized result folder per tested trait pair under output_dir/pairs.",
+    )
+    parser.add_argument("--intercept-h2", type=float, default=None, help="Fixed h2 intercept broadcast to every rg pair.")
+    parser.add_argument("--intercept-gencov", type=float, default=None, help="Fixed genetic-covariance intercept for every rg pair.")
 
 
 def run_h2_from_args(args):
@@ -882,53 +1408,89 @@ def run_partitioned_h2_from_args(args):
 
 
 def run_rg_from_args(args):
-    """Run genetic-correlation estimation from parsed CLI arguments.
+    """Run multi-trait genetic-correlation estimation from parsed CLI args.
 
-    When ``args.output_dir`` is provided, the workflow preflights ``rg.tsv`` and
-    ``rg.log`` before loading inputs. Without an output directory, it returns
-    the summary table without creating a log file.
+    With ``--output-dir``, the workflow writes the rg result family:
+    ``rg.tsv``, ``rg_full.tsv``, ``h2_per_trait.tsv``, optional ``pairs/``,
+    and workflow-owned ``rg.log``. Without ``--output-dir``, it returns the same
+    in-memory result family and the CLI prints only ``rg.tsv`` to stdout.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed rg options. Required fields are ``sumstats_sources`` and
+        ``ldscore_dir``. Optional fields include ``anchor_trait``,
+        ``output_dir``, ``write_per_pair_detail``, intercept settings, and
+        common regression options.
+
+    Returns
+    -------
+    RgResultFamily
+        Complete in-memory result family. The function itself never prints; CLI
+        dispatch owns stdout behavior for no-output-dir runs.
+
+    Raises
+    ------
+    ValueError
+        If fewer than two sumstats paths resolve, per-pair detail is requested
+        without an output directory, or fixed-intercept flags conflict with
+        ``--no-intercept``.
     """
-    output_dir, log_path = _preflight_regression_outputs(args, "rg", ["rg.tsv"])
+    _validate_intercept_conflicts(args)
+    if getattr(args, "write_per_pair_detail", False) and not getattr(args, "output_dir", None):
+        raise ValueError("--write-per-pair-detail requires --output-dir.")
+    output_names = ["rg.tsv", "rg_full.tsv", "h2_per_trait.tsv"]
+    if getattr(args, "write_per_pair_detail", False):
+        output_names.append("pairs")
+    output_dir, log_path = _preflight_regression_outputs(
+        args,
+        "rg",
+        output_names,
+        owned_output_names=["rg.tsv", "rg_full.tsv", "h2_per_trait.tsv", "pairs"],
+    )
+    sumstats_paths = resolve_file_group(getattr(args, "sumstats_sources", ()), label="sumstats sources")
+    if len(sumstats_paths) < 2:
+        raise ValueError("--sumstats-sources must resolve to at least two sumstats files.")
     with workflow_logging("rg", log_path, log_level=getattr(args, "log_level", "INFO")):
         runner, config = _runner_from_args(args)
         print_global_config_banner("run_rg_from_args", runner.global_config)
         log_inputs(
-            sumstats_1_file=args.sumstats_1_file,
-            sumstats_2_file=args.sumstats_2_file,
+            sumstats_sources=[str(path) for path in sumstats_paths],
+            anchor_trait=getattr(args, "anchor_trait", None) or "none",
             ldscore_dir=args.ldscore_dir,
             output_dir=output_dir or "none",
         )
         LOGGER.info(
-            f"Starting rg regression for '{args.sumstats_1_file}' and '{args.sumstats_2_file}' "
+            f"Starting rg regression for {len(sumstats_paths)} sumstats files "
             f"using LD-score directory '{args.ldscore_dir}'."
         )
-        sumstats_table_1 = _load_sumstats_table(args.sumstats_1_file, getattr(args, "trait_name_1", None))
-        sumstats_table_2 = _load_sumstats_table(args.sumstats_2_file, getattr(args, "trait_name_2", None))
+        sumstats_tables = [_load_sumstats_table(str(path), None) for path in sumstats_paths]
+        sumstats_tables = _disambiguate_trait_names(sumstats_tables)
+        anchor_index = _resolve_anchor_index(getattr(args, "anchor_trait", None), sumstats_paths, sumstats_tables)
         ldscore_result = load_ldscore_from_dir(args.ldscore_dir)
         with suppress_global_config_banner():
-            rg_result = runner.estimate_rg(sumstats_table_1, sumstats_table_2, ldscore_result, config=config)
-        summary = pd.DataFrame(
-            [
-                {
-                    "trait_1": sumstats_table_1.trait_name,
-                    "trait_2": sumstats_table_2.trait_name,
-                    "rg": getattr(rg_result, "rg_ratio", None),
-                    "rg_se": getattr(rg_result, "rg_se", None),
-                    "z": getattr(rg_result, "z", None),
-                    "p": getattr(rg_result, "p", None),
-                }
-            ]
+            result = runner.estimate_rg_pairs(
+                sumstats_tables,
+                ldscore_result,
+                anchor_index=anchor_index,
+                config=config,
+            )
+        output_dir_arg = getattr(args, "output_dir", None)
+        if output_dir_arg:
+            written = RgDirectoryWriter().write(
+                result,
+                RgOutputConfig(
+                    output_dir=output_dir_arg,
+                    overwrite=getattr(args, "overwrite", False),
+                    write_per_pair_detail=getattr(args, "write_per_pair_detail", False),
+                ),
+            )
+            log_outputs(**written)
+        LOGGER.info(
+            f"Finished rg regression for {len(result.rg)} trait pairs "
+            f"and {len(result.h2_per_trait)} traits."
         )
-        _maybe_write_dataframe(
-            summary,
-            getattr(args, "output_dir", None),
-            "rg.tsv",
-            overwrite=getattr(args, "overwrite", False),
-        )
-        if output_dir is not None:
-            log_outputs(summary=str(Path(output_dir) / "rg.tsv"))
-        LOGGER.info(f"Finished rg regression for {len(ldscore_result.ld_regression_snps)} LD-score regression SNPs.")
-    return summary
+    return result
 
 
 def _add_common_regression_arguments(parser, include_h2_intercept: bool) -> None:
@@ -941,7 +1503,7 @@ def _add_common_regression_arguments(parser, include_h2_intercept: bool) -> None
         default="common",
         help="Reference SNP count vector used by regression.",
     )
-    parser.add_argument("--output-dir", default=None, help="Optional output directory for summary tables.")
+    parser.add_argument("--output-dir", default=None, help="Optional output directory for workflow result files; strongly recommended.")
     parser.add_argument("--overwrite", action="store_true", default=False, help="Replace existing workflow output artifacts.")
     parser.add_argument("--n-blocks", type=int, default=200)
     parser.add_argument("--no-intercept", action="store_true", default=False, help="Fix the intercept to the LDSC default.")
@@ -981,8 +1543,96 @@ def _preflight_regression_outputs(
     return str(output_dir), log_path
 
 
+def _validate_intercept_conflicts(args) -> None:
+    """Reject contradictory intercept options before inputs are loaded."""
+    if not getattr(args, "no_intercept", False):
+        return
+    conflicting = []
+    if getattr(args, "intercept_h2", None) is not None:
+        conflicting.append("--intercept-h2")
+    if getattr(args, "intercept_gencov", None) is not None:
+        conflicting.append("--intercept-gencov")
+    if conflicting:
+        raise ValueError(f"--no-intercept cannot be combined with {', '.join(conflicting)}.")
+
+
+def _disambiguate_trait_names(tables: Sequence[SumstatsTable]) -> list[SumstatsTable]:
+    """Return tables with deterministic unique trait names for rg outputs."""
+    labels = [_trait_label(table) for table in tables]
+    duplicates = {label for label in labels if labels.count(label) > 1}
+    if not duplicates:
+        return [replace(table, trait_name=label) for table, label in zip(tables, labels)]
+
+    proposed: list[str] = []
+    for table, label in zip(tables, labels):
+        if label not in duplicates:
+            proposed.append(label)
+            continue
+        source = Path(table.source_path) if table.source_path else Path(label)
+        parent = source.parent.name or "source"
+        proposed.append(f"{label}@{parent}")
+
+    seen: dict[str, int] = {}
+    unique: list[str] = []
+    for table, label in zip(tables, proposed):
+        if label not in seen:
+            seen[label] = 1
+            unique.append(label)
+            continue
+        source_hash = hashlib.sha1(_source_key(table).encode("utf-8")).hexdigest()[:8]
+        final = f"{label}@{source_hash}"
+        while final in seen:
+            source_hash = hashlib.sha1(f"{_source_key(table)}:{seen[label]}".encode("utf-8")).hexdigest()[:8]
+            final = f"{label}@{source_hash}"
+        seen[label] += 1
+        seen[final] = 1
+        unique.append(final)
+
+    for original, resolved in zip(labels, unique):
+        if original != resolved:
+            LOGGER.info("Disambiguated duplicate rg trait name '%s' as '%s'.", original, resolved)
+    return [replace(table, trait_name=label) for table, label in zip(tables, unique)]
+
+
+def _resolve_anchor_index(
+    anchor_trait: str | None,
+    sumstats_paths: Sequence[str],
+    sumstats_tables: Sequence[SumstatsTable],
+) -> int | None:
+    """Resolve ``--anchor-trait`` by trait label first, then source path."""
+    if not anchor_trait:
+        return None
+    token = normalize_path_token(anchor_trait)
+    trait_matches = {idx for idx, table in enumerate(sumstats_tables) if table.trait_name == token}
+    if len(trait_matches) == 1:
+        return next(iter(trait_matches))
+    if len(trait_matches) > 1:
+        available = [table.trait_name or Path(path).name for table, path in zip(sumstats_tables, sumstats_paths)]
+        raise ValueError(
+            f"--anchor-trait must match exactly one trait name or input path; "
+            f"got {len(trait_matches)} trait-name matches for {anchor_trait!r}. Available traits: {available}"
+        )
+
+    path_matches: set[int] = set()
+    try:
+        anchor_path = Path(token).resolve(strict=False)
+        for idx, path in enumerate(sumstats_paths):
+            if Path(path).resolve(strict=False) == anchor_path:
+                path_matches.add(idx)
+    except OSError:
+        pass
+    if len(path_matches) != 1:
+        available = [table.trait_name or Path(path).name for table, path in zip(sumstats_tables, sumstats_paths)]
+        raise ValueError(
+            f"--anchor-trait must match exactly one trait name or input path; "
+            f"got {len(path_matches)} path matches for {anchor_trait!r}. Available traits: {available}"
+        )
+    return next(iter(path_matches))
+
+
 def _runner_from_args(args) -> tuple[RegressionRunner, RegressionConfig]:
     """Build the regression workflow objects from parsed CLI arguments."""
+    _validate_intercept_conflicts(args)
     count_kind = getattr(args, "count_kind", "common")
     config = RegressionConfig(
         n_blocks=args.n_blocks,

@@ -117,7 +117,7 @@ Regression commands still read munged summary statistics:
 
 - `ldsc h2 --sumstats-file <file>`
 - `ldsc partitioned-h2 --sumstats-file <file>`
-- `ldsc rg --sumstats-1-file <file> --sumstats-2-file <file>`
+- `ldsc rg --sumstats-sources <file-or-glob> <file-or-glob> [...]`
 
 Current `ldsc munge-sumstats` outputs include canonical `CHR` and `POS` columns
 beside `SNP`, `Z`, and `N`, write `sumstats.parquet` by default, and write
@@ -268,9 +268,18 @@ Run rg:
 ```bash
 ldsc rg \
   --ldscore-dir results/my_study_ldscore \
-  --sumstats-1-file trait1.parquet \
-  --sumstats-2-file trait2.parquet \
+  --sumstats-sources trait1.parquet trait2.parquet \
   --output-dir results/trait1_trait2_rg
+```
+
+Run all pairwise rg estimates for a trait panel:
+
+```bash
+ldsc rg \
+  --ldscore-dir results/my_study_ldscore \
+  --sumstats-sources results/traits/*.parquet \
+  --output-dir results/trait_panel_rg \
+  --write-per-pair-detail
 ```
 
 ## 8. Python API Summary

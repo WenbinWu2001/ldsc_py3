@@ -39,7 +39,7 @@ from .column_inference import (
     resolve_optional_column,
     resolve_required_column,
 )
-from .config import GlobalConfig, MungeConfig, get_global_config
+from .config import GlobalConfig, MungeConfig, _normalize_trait_name, get_global_config
 from .errors import LDSCDependencyError
 from .path_resolution import (
     ensure_output_directory,
@@ -187,7 +187,9 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
         clear ``ValueError``.
     trait_name : str or None, optional
         Optional trait label propagated into downstream regression summaries.
-        When omitted, the resolved filename is used. Default is ``None``.
+        When supplied, this value overrides any metadata sidecar label. When
+        omitted, the loader uses ``sumstats.metadata.json`` ``trait_name`` when
+        present, then falls back to the resolved filename. Default is ``None``.
 
     Returns
     -------
@@ -242,7 +244,7 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
         data=df.reset_index(drop=True),
         has_alleles={"A1", "A2"}.issubset(df.columns),
         source_path=resolved,
-        trait_name=trait_name or Path(resolved).name,
+        trait_name=_resolve_sumstats_trait_name(trait_name, metadata, resolved),
         provenance={
             **({"metadata_path": str(metadata_path), "metadata": metadata} if metadata is not None else {}),
         },
@@ -359,6 +361,7 @@ class SumstatsMunger:
                 config_snapshot=table_config_snapshot,
                 coordinate_metadata=coordinate_metadata,
                 source_path=source_path,
+                trait_name=raw_sumstats_config.trait_name,
                 sumstats_file=primary_sumstats_file,
                 output_format=munge_config.output_format,
                 output_files=output_files,
@@ -474,6 +477,7 @@ class SumstatsMunger:
                 config_snapshot=sumstats.config_snapshot,
                 coordinate_metadata=sumstats.provenance.get("metadata", {}),
                 source_path=sumstats.source_path,
+                trait_name=sumstats.trait_name,
                 sumstats_file=primary_sumstats_file,
                 output_format=output_format,
                 output_files=output_files,
@@ -596,6 +600,7 @@ def _munge_configs_from_args(args: argparse.Namespace) -> tuple[MungeConfig, Mun
     """Convert parsed CLI arguments into raw-input and run configuration."""
     raw_config = MungeConfig(
         raw_sumstats_file=args.raw_sumstats_file,
+        trait_name=getattr(args, "trait_name", None),
         column_hints=_column_hints_from_args(args),
     )
     munge_config = MungeConfig(
@@ -657,6 +662,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Replace sumstats output artifacts and remove stale owned siblings.",
     )
     public.add_argument("--sumstats-snps-file", default=None, help="Optional SNP keep-list for munged summary statistics.")
+    public.add_argument("--trait-name", default=None, help="Optional biological trait label stored in sumstats metadata.")
     public.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"), help="Logging verbosity.")
     public.add_argument(
         "--output-format",
@@ -916,6 +922,22 @@ def _read_sumstats_metadata(path: Path) -> dict[str, Any] | None:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _resolve_sumstats_trait_name(
+    explicit_trait_name: str | None,
+    metadata: dict[str, Any] | None,
+    resolved_path: str,
+) -> str:
+    """Resolve the public trait label using CLI/API, sidecar, then filename."""
+    explicit = _normalize_trait_name(explicit_trait_name)
+    if explicit is not None:
+        return explicit
+    if isinstance(metadata, dict) and "trait_name" in metadata:
+        metadata_trait = _normalize_trait_name(metadata.get("trait_name"))
+        if metadata_trait is not None:
+            return metadata_trait
+    return Path(resolved_path).name
+
+
 def _global_config_from_sumstats_metadata(metadata: dict[str, Any] | None) -> GlobalConfig | None:
     """Recreate a GlobalConfig snapshot from a sumstats sidecar."""
     if not isinstance(metadata, dict):
@@ -950,6 +972,7 @@ def _write_sumstats_metadata(
     config_snapshot: GlobalConfig,
     coordinate_metadata: dict[str, Any],
     source_path: str | None,
+    trait_name: str | None,
     sumstats_file: str,
     output_format: str,
     output_files: dict[str, str],
@@ -962,6 +985,7 @@ def _write_sumstats_metadata(
         "snp_identifier": config_snapshot.snp_identifier,
         "genome_build": config_snapshot.genome_build,
         "source_path": source_path,
+        "trait_name": trait_name,
         "sumstats_file": sumstats_file,
         "output_format": output_format,
         "output_files": dict(output_files),

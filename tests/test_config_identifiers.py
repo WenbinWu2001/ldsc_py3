@@ -317,6 +317,15 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertEqual(config.trait_name, "trait")
         self.assertTrue(config.overwrite)
 
+    def test_munge_config_normalizes_trait_name(self):
+        config = MungeConfig(raw_sumstats_file="sumstats/trait.tsv.gz", trait_name=" MDD ")
+
+        self.assertEqual(config.trait_name, "MDD")
+
+    def test_munge_config_rejects_blank_trait_name(self):
+        with self.assertRaisesRegex(ValueError, "trait_name"):
+            MungeConfig(raw_sumstats_file="sumstats/trait.tsv.gz", trait_name="  ")
+
     def test_munge_config_accepts_source_fields(self):
         raw = MungeConfig(raw_sumstats_file=Path("sumstats") / "trait.tsv.gz", trait_name="trait")
         self.assertIsInstance(raw, MungeConfig)

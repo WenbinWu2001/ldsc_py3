@@ -112,6 +112,51 @@ PARTITIONED_H2_FULL_COLUMNS = [
     "Coefficient_std_error",
     "Coefficient_p",
 ]
+RG_RESULT_FORMAT = "ldsc.rg_result_family.v1"
+RG_CONCISE_COLUMNS = [
+    "trait_1",
+    "trait_2",
+    "n_snps_used",
+    "rg",
+    "rg_se",
+    "p",
+    "p_fdr_bh",
+    "note",
+]
+RG_FULL_COLUMNS = [
+    "trait_1",
+    "trait_2",
+    "n_snps_used",
+    "rg",
+    "rg_se",
+    "z",
+    "p",
+    "p_fdr_bh",
+    "p_bonferroni",
+    "h2_1",
+    "h2_1_se",
+    "h2_2",
+    "h2_2_se",
+    "gencov",
+    "gencov_se",
+    "intercept_h2_1",
+    "intercept_h2_1_se",
+    "intercept_h2_2",
+    "intercept_h2_2_se",
+    "intercept_gencov",
+    "intercept_gencov_se",
+    "ratio_1",
+    "ratio_1_se",
+    "ratio_2",
+    "ratio_2_se",
+    "lambda_gc_1",
+    "lambda_gc_2",
+    "mean_chisq_1",
+    "mean_chisq_2",
+    "pair_kind",
+    "status",
+    "error",
+]
 
 
 @dataclass(frozen=True)
@@ -486,6 +531,195 @@ class PartitionedH2DirectoryWriter:
         return manifest_rows
 
 
+@dataclass(frozen=True)
+class RgOutputConfig:
+    """Directory-oriented output config for genetic-correlation summaries.
+
+    Parameters
+    ----------
+    output_dir : str or os.PathLike[str]
+        Directory that receives ``rg.tsv``, ``rg_full.tsv``, and
+        ``h2_per_trait.tsv``.
+    overwrite : bool, optional
+        If ``True``, replace existing fixed rg outputs and remove stale owned
+        siblings after a successful write. Default is ``False``.
+    write_per_pair_detail : bool, optional
+        If ``True``, also write one subdirectory per tested pair under
+        ``pairs/``. Default is ``False``.
+    """
+
+    output_dir: str | PathLike[str]
+    overwrite: bool = False
+    write_per_pair_detail: bool = False
+
+    def __post_init__(self) -> None:
+        """Normalize the output directory."""
+        object.__setattr__(self, "output_dir", _normalize_required_path(self.output_dir))
+
+
+class RgDirectoryWriter:
+    """Write concise, full, per-trait, and optional per-pair rg outputs.
+
+    The workflow-level logger owns ``rg.log``. This writer owns only the data
+    artifacts in the rg output family:
+    ``rg.tsv``, ``rg_full.tsv``, ``h2_per_trait.tsv``, and optional ``pairs/``.
+    The optional pair tree is staged before replacement so a failed write does
+    not expose a partially populated final tree.
+    """
+
+    def write(self, result: Any, output_config: RgOutputConfig) -> dict[str, str]:
+        """Write an ``RgResultFamily``-like object to a result directory.
+
+        Parameters
+        ----------
+        result : object
+            Object exposing ``rg``, ``rg_full``, ``h2_per_trait``, and
+            ``per_pair_metadata`` attributes. The first two tables must contain
+            the canonical rg concise and full schemas.
+        output_config : RgOutputConfig
+            Output directory, overwrite policy, and optional per-pair detail
+            setting.
+
+        Returns
+        -------
+        dict of str to str
+            Written path map. Always includes ``rg``, ``rg_full``, and
+            ``h2_per_trait``; also includes ``pairs_root`` and
+            ``pairs_manifest`` when per-pair detail is enabled.
+
+        Raises
+        ------
+        ValueError
+            If required result columns are missing or the pair metadata length
+            does not match ``rg_full`` when detail output is requested.
+        FileExistsError
+            If an owned rg artifact already exists and overwrite is disabled.
+        """
+        rg = _select_columns(getattr(result, "rg"), RG_CONCISE_COLUMNS, label="rg summary")
+        rg_full = _select_columns(getattr(result, "rg_full"), RG_FULL_COLUMNS, label="full rg summary")
+        h2_per_trait = getattr(result, "h2_per_trait")
+        per_pair_metadata = list(getattr(result, "per_pair_metadata", []))
+        if output_config.write_per_pair_detail and len(per_pair_metadata) != len(rg_full):
+            raise ValueError("per_pair_metadata must contain one record per rg_full row when pair detail is enabled.")
+
+        output_dir = ensure_output_directory(output_config.output_dir, label="output directory")
+        rg_path = output_dir / "rg.tsv"
+        full_path = output_dir / "rg_full.tsv"
+        h2_path = output_dir / "h2_per_trait.tsv"
+        pairs_root = output_dir / "pairs"
+        produced_paths = [rg_path, full_path, h2_path]
+        if output_config.write_per_pair_detail:
+            produced_paths.append(pairs_root)
+        stale_paths = preflight_output_artifact_family(
+            produced_paths,
+            [rg_path, full_path, h2_path, pairs_root],
+            overwrite=output_config.overwrite,
+            label="rg output artifact",
+        )
+
+        paths = {
+            "rg": str(rg_path),
+            "rg_full": str(full_path),
+            "h2_per_trait": str(h2_path),
+        }
+        if not output_config.write_per_pair_detail:
+            _atomic_write_dataframe(rg, rg_path, na_rep="NaN")
+            _atomic_write_dataframe(rg_full, full_path, na_rep="NaN")
+            _atomic_write_dataframe(h2_per_trait, h2_path, na_rep="NaN")
+            remove_output_artifacts(stale_paths)
+            return paths
+
+        pair_records = self._pair_records(rg_full, per_pair_metadata)
+        staging_dir = Path(tempfile.mkdtemp(prefix=".pairs.tmp.", dir=str(output_dir)))
+        backup_dir: Path | None = None
+        try:
+            manifest_rows = self._write_staged_pair_tree(staging_dir, pair_records, rg_full)
+            _atomic_write_dataframe(pd.DataFrame(manifest_rows), staging_dir / "manifest.tsv", na_rep="NaN")
+            _atomic_write_dataframe(rg, rg_path, na_rep="NaN")
+            _atomic_write_dataframe(rg_full, full_path, na_rep="NaN")
+            _atomic_write_dataframe(h2_per_trait, h2_path, na_rep="NaN")
+            if output_config.overwrite and pairs_root.exists():
+                backup_dir = Path(tempfile.mkdtemp(prefix=".pairs.backup.", dir=str(output_dir)))
+                backup_dir.rmdir()
+                os.replace(pairs_root, backup_dir)
+            os.replace(staging_dir, pairs_root)
+        except Exception:
+            if staging_dir.exists():
+                shutil.rmtree(staging_dir, ignore_errors=True)
+            if backup_dir is not None and backup_dir.exists() and not pairs_root.exists():
+                os.replace(backup_dir, pairs_root)
+            raise
+        else:
+            if backup_dir is not None and backup_dir.exists():
+                shutil.rmtree(backup_dir, ignore_errors=True)
+
+        remove_output_artifacts(stale_paths)
+        paths["pairs_root"] = str(pairs_root)
+        paths["pairs_manifest"] = str(pairs_root / "manifest.tsv")
+        return paths
+
+    def _pair_records(self, rg_full: pd.DataFrame, per_pair_metadata: list[dict[str, object]]) -> list[dict[str, object]]:
+        """Return ordered pair records with deterministic safe folder names."""
+        width = max(4, len(str(len(rg_full))))
+        records: list[dict[str, object]] = []
+        for idx, (_, row) in enumerate(rg_full.iterrows(), start=1):
+            metadata = dict(per_pair_metadata[idx - 1])
+            trait_1 = str(row["trait_1"])
+            trait_2 = str(row["trait_2"])
+            slug = f"{_slugify_rg_trait_name(trait_1)}_vs_{_slugify_rg_trait_name(trait_2)}"
+            folder = f"{idx:0{width}d}_{slug}"
+            records.append(
+                {
+                    "ordinal": idx,
+                    "trait_1": trait_1,
+                    "trait_2": trait_2,
+                    "slug": slug,
+                    "folder": folder,
+                    "metadata": metadata,
+                }
+            )
+        return records
+
+    def _write_staged_pair_tree(
+        self,
+        staging_dir: Path,
+        pair_records: list[dict[str, object]],
+        rg_full: pd.DataFrame,
+    ) -> list[dict[str, object]]:
+        """Populate the staged pair result tree and return manifest rows."""
+        manifest_rows: list[dict[str, object]] = []
+        for record in pair_records:
+            folder = str(record["folder"])
+            pair_dir = staging_dir / folder
+            pair_dir.mkdir(parents=True, exist_ok=False)
+            row = rg_full.iloc[[int(record["ordinal"]) - 1]].reset_index(drop=True)
+            detail_rel = f"pairs/{folder}/rg_full.tsv"
+            metadata_rel = f"pairs/{folder}/metadata.json"
+            _atomic_write_dataframe(row, pair_dir / "rg_full.tsv", na_rep="NaN")
+            payload = {
+                "format": RG_RESULT_FORMAT,
+                **dict(record["metadata"]),
+                "ordinal": record["ordinal"],
+                "trait_1": record["trait_1"],
+                "trait_2": record["trait_2"],
+                "slug": record["slug"],
+                "folder": folder,
+            }
+            _atomic_write_json(payload, pair_dir / "metadata.json")
+            manifest_rows.append(
+                {
+                    "ordinal": record["ordinal"],
+                    "trait_1": record["trait_1"],
+                    "trait_2": record["trait_2"],
+                    "slug": record["slug"],
+                    "folder": folder,
+                    "rg_full_path": detail_rel,
+                    "metadata_path": metadata_rel,
+                }
+            )
+        return manifest_rows
+
+
 def _ldscore_output_family(output_dir: Path) -> list[Path]:
     """Return all fixed data artifacts owned by one LD-score result directory."""
     return [
@@ -502,6 +736,13 @@ def _slugify_query_name(value: str) -> str:
     return slug or "annotation"
 
 
+def _slugify_rg_trait_name(value: str) -> str:
+    """Return a filesystem-safe slug for an rg trait name."""
+    normalized = unicodedata.normalize("NFKD", str(value)).encode("ascii", "ignore").decode("ascii")
+    slug = re.sub(r"[^a-z0-9._-]+", "_", normalized.lower()).strip("._-")
+    return slug or "trait"
+
+
 def _select_columns(df: pd.DataFrame, columns: list[str], *, label: str) -> pd.DataFrame:
     """Return ``df`` with required public output columns in canonical order."""
     if df.empty and len(df.columns) == 0:
@@ -512,13 +753,16 @@ def _select_columns(df: pd.DataFrame, columns: list[str], *, label: str) -> pd.D
     return df.loc[:, columns]
 
 
-def _atomic_write_dataframe(df: pd.DataFrame, path: Path) -> None:
+def _atomic_write_dataframe(df: pd.DataFrame, path: Path, *, na_rep: str | None = None) -> None:
     """Write a dataframe through a temporary sibling file, then replace."""
     fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
     os.close(fd)
     tmp_path = Path(tmp_name)
     try:
-        df.to_csv(tmp_path, sep="\t", index=False)
+        kwargs = {"sep": "\t", "index": False}
+        if na_rep is not None:
+            kwargs["na_rep"] = na_rep
+        df.to_csv(tmp_path, **kwargs)
         os.replace(tmp_path, path)
     except Exception:
         tmp_path.unlink(missing_ok=True)

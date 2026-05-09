@@ -101,7 +101,7 @@ print("sumstats_config =", sumstats.config_snapshot)
 print("dataset_config =", dataset.config_snapshot)
 ```
 
-`SumstatsMunger` captures `GlobalConfig` provenance into `SumstatsTable.config_snapshot` and writes the same settings to `sumstats.metadata.json`. `RegressionRunner.build_dataset()` checks that known sumstats and LD-score snapshots agree on critical settings such as `snp_identifier` and `genome_build`. If both snapshots are known and incompatible, the workflow raises `ConfigMismatchError` instead of silently merging inconsistent artifacts. Sumstats loaded from current `sumstats.parquet` or legacy `.sumstats.gz` artifacts recover that snapshot from the sidecar; older files without the sidecar have `config_snapshot=None`, so regression treats their config provenance as unknown and validates the LD-score side only.
+`SumstatsMunger` captures `GlobalConfig` provenance into `SumstatsTable.config_snapshot` and writes the same settings to `sumstats.metadata.json`. If you pass `trait_name=` in Python or `--trait-name` in the CLI, the sidecar also stores that biological label for downstream result tables. `RegressionRunner.build_dataset()` checks that known sumstats and LD-score snapshots agree on critical settings such as `snp_identifier` and `genome_build`. If both snapshots are known and incompatible, the workflow raises `ConfigMismatchError` instead of silently merging inconsistent artifacts. Sumstats loaded from current `sumstats.parquet` or legacy `.sumstats.gz` artifacts recover that snapshot and trait label from the sidecar; older files without the sidecar have `config_snapshot=None`, so regression treats their config provenance as unknown and validates the LD-score side only.
 
 `SumstatsMunger.run()` is also the shared implementation path behind
 `ldsc munge-sumstats`: the CLI parser maps arguments into `MungeConfig`, then
@@ -135,6 +135,7 @@ The regression CLI reads the canonical LD-score result directory written by
 ```bash
 ldsc munge-sumstats \
   --raw-sumstats-file "data/trait*.tsv.gz" \
+  --trait-name trait \
   --snp ID \
   --chr '#CHROM' \
   --pos POS \

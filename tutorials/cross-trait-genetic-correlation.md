@@ -1,13 +1,13 @@
 # Cross-Trait Genetic Correlation
 
-Goal: estimate genetic correlation between two traits from munged summary statistics and one matched LD-score reference.
+Goal: estimate genetic correlation for two or more traits from munged summary statistics and one matched LD-score reference.
 
 The regression step expects:
 
-- two curated `sumstats.parquet` files, or explicit legacy `.sumstats.gz`
+- two or more curated `sumstats.parquet` files, or explicit legacy `.sumstats.gz`
   compatibility files, with at least `SNP`, `Z`, and `N`; current
   package-written artifacts also include `CHR` and `POS`, and `A1`/`A2` are
-  recommended so the second trait can be allele-aligned
+  recommended so each tested pair can be allele-aligned
 - one canonical LD-score result directory containing `manifest.json` and `ldscore.baseline.parquet`
 
 Use the same `GlobalConfig` assumptions for both traits and the LD-score reference. For cross-trait rg, the LD scores should usually be the baseline, non-cell-specific LD scores used for single-trait h2.
@@ -87,23 +87,17 @@ runner = RegressionRunner(
     global_config=GLOBAL_CONFIG,
     regression_config=RegressionConfig(),
 )
-rg = runner.estimate_rg(trait_1, trait_2, ldscore_result)
+result = runner.estimate_rg_pairs([trait_1, trait_2], ldscore_result)
 
-summary = pd.DataFrame(
-    [
-        {
-            "trait_1": trait_1.trait_name,
-            "trait_2": trait_2.trait_name,
-            "rg": getattr(rg, "rg_ratio", None),
-            "rg_se": getattr(rg, "rg_se", None),
-            "z": getattr(rg, "z", None),
-            "p": getattr(rg, "p", None),
-        }
-    ]
-)
-summary.to_csv("tutorial_outputs/trait_1_trait_2_rg.tsv", sep="\t", index=False)
-print(summary)
+result.rg.to_csv("tutorial_outputs/trait_1_trait_2_rg.tsv", sep="\t", index=False)
+result.rg_full.to_csv("tutorial_outputs/trait_1_trait_2_rg_full.tsv", sep="\t", index=False)
+result.h2_per_trait.to_csv("tutorial_outputs/trait_1_trait_2_h2_per_trait.tsv", sep="\t", index=False)
+print(result.rg)
 ```
+
+`RegressionRunner.estimate_rg()` remains available for low-level pairwise code
+that needs the raw kernel object. For user-facing analyses, prefer
+`estimate_rg_pairs()` because it returns the same output family as the CLI.
 
 When both traits are produced by `SumstatsMunger.run()` in the same workflow,
 their known `GlobalConfig` snapshots are checked against the LD-score snapshot
@@ -118,6 +112,7 @@ table merge by normalized `CHR:POS` coordinates.
 ```bash
 ldsc munge-sumstats \
   --raw-sumstats-file data/trait_1.tsv.gz \
+  --trait-name trait_1 \
   --snp SNP \
   --a1 A1 \
   --a2 A2 \
@@ -129,6 +124,7 @@ ldsc munge-sumstats \
 
 ldsc munge-sumstats \
   --raw-sumstats-file data/trait_2.tsv.gz \
+  --trait-name trait_2 \
   --snp SNP \
   --a1 A1 \
   --a2 A2 \
@@ -139,16 +135,35 @@ ldsc munge-sumstats \
   --output-dir tutorial_outputs/trait_2
 
 ldsc rg \
-  --sumstats-1-file tutorial_outputs/trait_1/sumstats.parquet \
-  --sumstats-2-file tutorial_outputs/trait_2/sumstats.parquet \
-  --trait-name-1 trait_1 \
-  --trait-name-2 trait_2 \
+  --sumstats-sources tutorial_outputs/trait_1/sumstats.parquet tutorial_outputs/trait_2/sumstats.parquet \
   --ldscore-dir tutorial_outputs/baseline_ldscores \
   --count-kind common \
   --output-dir tutorial_outputs/trait_1_trait_2
 ```
 
-The command writes `tutorial_outputs/trait_1_trait_2/rg.tsv` and
-`tutorial_outputs/trait_1_trait_2/rg.log`.
+The command writes `tutorial_outputs/trait_1_trait_2/rg.tsv`,
+`rg_full.tsv`, `h2_per_trait.tsv`, and `rg.log`.
 If either fixed output already exists, the command fails before writing; add
 `--overwrite` only when replacing the previous summary is intentional.
+
+For a trait panel, pass a glob. Without an anchor this computes all unordered
+pairs in input order:
+
+```bash
+ldsc rg \
+  --sumstats-sources tutorial_outputs/traits/*.parquet \
+  --ldscore-dir tutorial_outputs/baseline_ldscores \
+  --output-dir tutorial_outputs/panel_rg \
+  --write-per-pair-detail
+```
+
+To compare every trait against one anchor, add `--anchor-trait`. The anchor
+matches a recovered trait label first, then a resolved file path:
+
+```bash
+ldsc rg \
+  --sumstats-sources tutorial_outputs/traits/*.parquet \
+  --anchor-trait trait_1 \
+  --ldscore-dir tutorial_outputs/baseline_ldscores \
+  --output-dir tutorial_outputs/trait_1_anchor_rg
+```

@@ -13,7 +13,7 @@ This document summarizes the public package surface. For workflow-level file str
 | Munge GWAS summary statistics | `ldsc munge-sumstats` | `SumstatsMunger`, `load_sumstats()` | raw sumstats via `--raw-sumstats-file` or `MungeConfig.raw_sumstats_file`, column hints, QC thresholds, optional `--chr`/`--pos`, `--genome-build auto`, optional `--daner-old`/`--daner-new` schema handling, optional `--sumstats-snps-file` keep-list, optional `--output-format parquet\|tsv.gz\|both` | `sumstats.parquet` by default, optional `sumstats.sumstats.gz`, `sumstats.log`, `sumstats.metadata.json` |
 | Estimate heritability | `ldsc h2` | `RegressionRunner.estimate_h2()` | munged `sumstats.parquet` or `.sumstats.gz` plus sidecar when available, LD-score directory | `h2.tsv`; `h2.log` when `output_dir` is supplied |
 | Estimate partitioned heritability | `ldsc partitioned-h2` | `RegressionRunner.estimate_partitioned_h2()`, `RegressionRunner.estimate_partitioned_h2_batch()`, `PartitionedH2DirectoryWriter` | munged `sumstats.parquet` or `.sumstats.gz` plus sidecar when available, LD-score directory with non-empty query LD scores | compact `partitioned_h2.tsv`; optional `query_annotations/manifest.tsv`, per-query `partitioned_h2.tsv`, `partitioned_h2_full.tsv`, and `metadata.json` with `--write-per-query-results`; `partitioned-h2.log` when `output_dir` is supplied |
-| Estimate genetic correlation | `ldsc rg` | `RegressionRunner.estimate_rg()` | two munged `sumstats.parquet` or `.sumstats.gz` files plus sidecars when available, LD-score directory | `rg.tsv`; `rg.log` when `output_dir` is supplied |
+| Estimate genetic correlation | `ldsc rg` | `RegressionRunner.estimate_rg()`, `RegressionRunner.estimate_rg_pairs()`, `RgDirectoryWriter` | two or more munged `sumstats.parquet` or `.sumstats.gz` files plus sidecars when available, LD-score directory | concise `rg.tsv`; full `rg_full.tsv`; `h2_per_trait.tsv`; optional `pairs/` detail tree; `rg.log` when `output_dir` is supplied |
 
 ## Workflow Logging
 
@@ -69,6 +69,7 @@ For log filenames and API boundary details, see
 | `SumstatsTable` | validated LDSC-ready summary-statistics table with canonical `SNP`, `CHR`, `POS`, `Z`, and `N` when available, plus known or unknown `config_snapshot` provenance |
 | `MungeRunSummary` | compact record of a munging run |
 | `RegressionDataset` | merged sumstats plus LD-score matrix used by the estimator, plus propagated provenance when available |
+| `RgResultFamily` | complete multi-trait genetic-correlation result family: concise rg table, full diagnostic table, per-trait h2 table, and per-pair metadata |
 | `ChrPosBuildInference` | genome-build and coordinate-basis decision returned by `infer_chr_pos_build()` and `resolve_chr_pos_table()` |
 
 ### Global Config Registry

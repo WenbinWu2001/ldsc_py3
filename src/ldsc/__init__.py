@@ -71,6 +71,8 @@ from .outputs import (
     LDScoreOutputConfig,
     PartitionedH2DirectoryWriter,
     PartitionedH2OutputConfig,
+    RgDirectoryWriter,
+    RgOutputConfig,
 )
 from .ref_panel_builder import ReferencePanelBuildResult, ReferencePanelBuilder, run_build_ref_panel
 from ._kernel.ref_panel import ParquetR2RefPanel, PlinkRefPanel, RefPanel, RefPanelLoader
@@ -83,6 +85,7 @@ _LAZY_EXPORTS = {
     "load_ldscore_from_dir": (".regression_runner", "load_ldscore_from_dir"),
     "RegressionDataset": (".regression_runner", "RegressionDataset"),
     "RegressionRunner": (".regression_runner", "RegressionRunner"),
+    "RgResultFamily": (".regression_runner", "RgResultFamily"),
 }
 
 
@@ -134,6 +137,9 @@ __all__ = [
     "RegressionConfig",
     "RegressionDataset",
     "RegressionRunner",
+    "RgDirectoryWriter",
+    "RgOutputConfig",
+    "RgResultFamily",
     "SumstatsMunger",
     "SumstatsTable",
     "load_sumstats",

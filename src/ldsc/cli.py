@@ -126,7 +126,10 @@ def main(argv: Sequence[str] | None = None):
             regression_runner = _load_regression_runner()
             parser = _NoAbbrevArgumentParser(prog="ldsc rg", description="Estimate genetic correlation.")
             regression_runner.add_rg_arguments(parser)
-            return regression_runner.run_rg_from_args(parser.parse_args(subargv))
+            parsed = parser.parse_args(subargv)
+            result = regression_runner.run_rg_from_args(parsed)
+            _print_rg_stdout_if_needed(parsed, result)
+            return result
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command == "annotate":
@@ -142,7 +145,9 @@ def main(argv: Sequence[str] | None = None):
     if args.command == "partitioned-h2":
         return _load_regression_runner().run_partitioned_h2_from_args(args)
     if args.command == "rg":
-        return _load_regression_runner().run_rg_from_args(args)
+        result = _load_regression_runner().run_rg_from_args(args)
+        _print_rg_stdout_if_needed(args, result)
+        return result
     raise LDSCUsageError(f"Unsupported command: {args.command}")
 
 
@@ -174,6 +179,15 @@ def run_cli(argv: Sequence[str] | None = None) -> int:
 def _run_annotate(args: argparse.Namespace):
     """Dispatch the ``annotate`` subcommand."""
     return annotation_builder.run_annotate_from_args(args)
+
+
+def _print_rg_stdout_if_needed(args: argparse.Namespace, result) -> None:
+    """Print concise rg output for no-output-dir CLI runs."""
+    if getattr(args, "output_dir", None):
+        return
+    rg = getattr(result, "rg", None)
+    if rg is not None:
+        rg.to_csv(sys.stdout, sep="\t", index=False, na_rep="NaN")
 
 
 def _copy_actions(target: argparse.ArgumentParser, source: argparse.ArgumentParser) -> None:

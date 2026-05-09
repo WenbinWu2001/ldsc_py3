@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 import warnings
+from types import SimpleNamespace
 
 import pandas as pd
 
@@ -21,6 +22,8 @@ from ldsc.outputs import (
     LDScoreOutputConfig,
     PartitionedH2DirectoryWriter,
     PartitionedH2OutputConfig,
+    RgDirectoryWriter,
+    RgOutputConfig,
 )
 from ldsc.regression_runner import load_ldscore_from_dir
 
@@ -545,6 +548,176 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
 
             self.assertTrue((output_dir / "partitioned_h2.tsv").exists())
             self.assertFalse((output_dir / "query_annotations").exists())
+
+
+class RgDirectoryWriterTest(unittest.TestCase):
+    def make_result(self) -> SimpleNamespace:
+        rg = pd.DataFrame(
+            [
+                {
+                    "trait_1": "Trait A",
+                    "trait_2": "Trait/B",
+                    "n_snps_used": 100,
+                    "rg": 0.25,
+                    "rg_se": 0.05,
+                    "p": 0.01,
+                    "p_fdr_bh": 0.02,
+                    "note": "",
+                },
+                {
+                    "trait_1": "Trait A",
+                    "trait_2": "Trait C",
+                    "n_snps_used": 0,
+                    "rg": float("nan"),
+                    "rg_se": float("nan"),
+                    "p": float("nan"),
+                    "p_fdr_bh": float("nan"),
+                    "note": "Failed; see rg_full.tsv error column.",
+                },
+            ]
+        )
+        rg_full = pd.DataFrame(
+            [
+                {
+                    "trait_1": "Trait A",
+                    "trait_2": "Trait/B",
+                    "n_snps_used": 100,
+                    "rg": 0.25,
+                    "rg_se": 0.05,
+                    "z": 5.0,
+                    "p": 0.01,
+                    "p_fdr_bh": 0.02,
+                    "p_bonferroni": 0.02,
+                    "h2_1": 0.2,
+                    "h2_1_se": 0.02,
+                    "h2_2": 0.3,
+                    "h2_2_se": 0.03,
+                    "gencov": 0.1,
+                    "gencov_se": 0.01,
+                    "intercept_h2_1": 1.01,
+                    "intercept_h2_1_se": 0.01,
+                    "intercept_h2_2": 1.02,
+                    "intercept_h2_2_se": 0.02,
+                    "intercept_gencov": 0.001,
+                    "intercept_gencov_se": 0.0001,
+                    "ratio_1": 0.05,
+                    "ratio_1_se": 0.01,
+                    "ratio_2": 0.06,
+                    "ratio_2_se": 0.02,
+                    "lambda_gc_1": 1.05,
+                    "lambda_gc_2": 1.06,
+                    "mean_chisq_1": 1.2,
+                    "mean_chisq_2": 1.3,
+                    "pair_kind": "all_pairs",
+                    "status": "ok",
+                    "error": "",
+                },
+                {
+                    "trait_1": "Trait A",
+                    "trait_2": "Trait C",
+                    "n_snps_used": 0,
+                    "rg": float("nan"),
+                    "rg_se": float("nan"),
+                    "z": float("nan"),
+                    "p": float("nan"),
+                    "p_fdr_bh": float("nan"),
+                    "p_bonferroni": float("nan"),
+                    "h2_1": float("nan"),
+                    "h2_1_se": float("nan"),
+                    "h2_2": float("nan"),
+                    "h2_2_se": float("nan"),
+                    "gencov": float("nan"),
+                    "gencov_se": float("nan"),
+                    "intercept_h2_1": float("nan"),
+                    "intercept_h2_1_se": float("nan"),
+                    "intercept_h2_2": float("nan"),
+                    "intercept_h2_2_se": float("nan"),
+                    "intercept_gencov": float("nan"),
+                    "intercept_gencov_se": float("nan"),
+                    "ratio_1": float("nan"),
+                    "ratio_1_se": float("nan"),
+                    "ratio_2": float("nan"),
+                    "ratio_2_se": float("nan"),
+                    "lambda_gc_1": float("nan"),
+                    "lambda_gc_2": float("nan"),
+                    "mean_chisq_1": float("nan"),
+                    "mean_chisq_2": float("nan"),
+                    "pair_kind": "all_pairs",
+                    "status": "failed",
+                    "error": "RuntimeError: pair exploded",
+                },
+            ]
+        )
+        h2_per_trait = pd.DataFrame(
+            [
+                {"trait_name": "Trait A", "total_h2": 0.2},
+                {"trait_name": "Trait/B", "total_h2": 0.3},
+                {"trait_name": "Trait C", "total_h2": 0.4},
+            ]
+        )
+        metadata = [
+            {
+                "trait_1": "Trait A",
+                "trait_2": "Trait/B",
+                "source_1": "a.sumstats.gz",
+                "source_2": "b.sumstats.gz",
+                "status": "ok",
+            },
+            {
+                "trait_1": "Trait A",
+                "trait_2": "Trait C",
+                "source_1": "a.sumstats.gz",
+                "source_2": "c.sumstats.gz",
+                "status": "failed",
+                "error": "RuntimeError: pair exploded",
+            },
+        ]
+        return SimpleNamespace(rg=rg, rg_full=rg_full, h2_per_trait=h2_per_trait, per_pair_metadata=metadata)
+
+    def test_writes_rg_family_and_optional_pair_tree_with_nan_literals(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "rg"
+            paths = RgDirectoryWriter().write(
+                self.make_result(),
+                RgOutputConfig(output_dir=output_dir, write_per_pair_detail=True),
+            )
+
+            self.assertEqual(
+                set(paths),
+                {"rg", "rg_full", "h2_per_trait", "pairs_root", "pairs_manifest"},
+            )
+            rg_text = (output_dir / "rg.tsv").read_text(encoding="utf-8")
+            self.assertIn("NaN", rg_text)
+            self.assertTrue((output_dir / "rg_full.tsv").exists())
+            self.assertTrue((output_dir / "h2_per_trait.tsv").exists())
+            manifest = pd.read_csv(output_dir / "pairs" / "manifest.tsv", sep="\t")
+            self.assertEqual(
+                manifest["folder"].tolist(),
+                ["0001_trait_a_vs_trait_b", "0002_trait_a_vs_trait_c"],
+            )
+            metadata = json.loads(
+                (output_dir / "pairs" / "0001_trait_a_vs_trait_b" / "metadata.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(metadata["format"], "ldsc.rg_result_family.v1")
+            self.assertEqual(metadata["status"], "ok")
+            self.assertTrue((output_dir / "pairs" / "0001_trait_a_vs_trait_b" / "rg_full.tsv").exists())
+
+    def test_aggregate_only_overwrite_removes_stale_pair_tree(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "rg"
+            RgDirectoryWriter().write(
+                self.make_result(),
+                RgOutputConfig(output_dir=output_dir, write_per_pair_detail=True),
+            )
+            self.assertTrue((output_dir / "pairs" / "manifest.tsv").exists())
+
+            RgDirectoryWriter().write(
+                self.make_result(),
+                RgOutputConfig(output_dir=output_dir, overwrite=True),
+            )
+
+            self.assertTrue((output_dir / "rg.tsv").exists())
+            self.assertFalse((output_dir / "pairs").exists())
 
 
 class FixedOutputDirectoryTest(unittest.TestCase):

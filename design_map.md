@@ -39,3 +39,22 @@ contracts move.
 | `docs/current/workflow-logging.md` | `src/ldsc/_logging.py`; workflow wrappers in `annotation_builder.py`, `ldscore_calculator.py`, `ref_panel_builder.py`, `sumstats_munger.py`, and `regression_runner.py` |
 | `docs/superpowers/specs/2026-05-02-logging-harmonization-design.md` | final logging harmonization decisions and result-contract boundaries |
 | `docs/superpowers/plans/2026-05-02-logging-harmonization-implementation-plan.md` | completed implementation checklist and verification commands |
+
+## Regression And RG Results
+
+| Design document | Implementation |
+| --- | --- |
+| `docs/current/class-and-features.md` | public regression API surface, including `RegressionRunner.estimate_rg_pairs()`, `RgResultFamily`, `RgOutputConfig`, and `RgDirectoryWriter` |
+| `docs/current/data-flow.md` | regression data flow from curated sumstats and canonical LD-score directories to h2, partitioned-h2, and rg output families |
+| `docs/current/io-argument-inventory.md` | current `ldsc rg --sumstats-sources` CLI contract, anchor selection, and output-family flags |
+| `docs/current/layer-structure.md` | ownership split between `regression_runner.py`, `outputs.py`, CLI dispatch, and workflow logging |
+| `docs/current/path-specification.md` | scalar h2/partitioned-h2 sumstats path handling vs. group-style rg `sumstats_sources` resolution |
+| `docs/superpowers/specs/2026-05-09-batch-rg-design.md` | final multi-trait rg design decisions and output schemas |
+| `docs/superpowers/plans/2026-05-09-batch-rg-implementation-plan.md` | implemented rg refactor checklist and verification plan |
+
+## Regression Tutorials
+
+| Tutorial | Covered implementation path |
+| --- | --- |
+| `tutorials/cross-trait-genetic-correlation.md` | Python `estimate_rg_pairs()` flow, CLI `--sumstats-sources`, glob input, anchor mode, and rg output family |
+| `tutorials/cross-trait-genetic-correlation.ipynb` | executable toy `estimate_rg_pairs()` and `ldsc rg --sumstats-sources` smoke path |

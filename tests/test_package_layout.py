@@ -225,9 +225,8 @@ class PackageLayoutTest(unittest.TestCase):
             ],
             [
                 "rg",
-                "--sumstats-1-file",
+                "--sumstats-sources",
                 "trait1.sumstats.gz",
-                "--sumstats-2-file",
                 "trait2.sumstats.gz",
                 "--ldscore-dir",
                 "ldscores",

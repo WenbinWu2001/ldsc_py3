@@ -351,20 +351,23 @@ Output:
 Relevant APIs:
 
 - `MungeConfig.raw_sumstats_file`
-- regression artifact paths such as `sumstats_file`, `sumstats_1_file`, and
-  `sumstats_2_file`
+- regression artifact paths such as `sumstats_file` and rg
+  `sumstats_sources`
 - `ldscore_dir` for the canonical LD-score result directory
 
 Accepted path forms:
 
 - exact path
-- exact-one glob for sumstats file inputs
+- exact-one glob for scalar sumstats file inputs
+- multi-file glob or mixed path/glob list for rg `--sumstats-sources`
 - literal directory for `ldscore_dir`
 
 How they are handled:
 
-- these are scalar-style inputs
-- if a glob expands to more than one file, the workflow raises instead of combining them
+- h2 and partitioned-h2 sumstats are scalar-style inputs; if a glob expands to
+  more than one file, the workflow raises instead of combining them
+- rg `--sumstats-sources` is a group-style input; all resolved files are
+  deduplicated in first-seen order and then used for pair selection
 - `ldscore_dir` is not glob-resolved; it is opened as a directory containing
   `manifest.json` plus parquet payload files
 
@@ -380,10 +383,11 @@ Output:
   `--output-format`.
   `sumstats.log` is not recorded in `MungeRunSummary.output_paths` or
   `sumstats.metadata.json["output_files"]`.
-- `ldsc h2`, `ldsc partitioned-h2`, and `ldsc rg` write `h2.tsv`,
-  `partitioned_h2.tsv`, and `rg.tsv`, plus `h2.log`,
-  `partitioned-h2.log`, or `rg.log`, respectively, when `output_dir` is
-  provided; existing files are refused unless `--overwrite` is supplied.
+- `ldsc h2`, `ldsc partitioned-h2`, and `ldsc rg` write fixed result families
+  when `output_dir` is provided. For rg, that family is `rg.tsv`,
+  `rg_full.tsv`, `h2_per_trait.tsv`, optional `pairs/`, and workflow-owned
+  `rg.log`; existing owned artifacts are refused unless `--overwrite` is
+  supplied.
 - `ldsc partitioned-h2` requires the LD-score directory to include
   `ldscore.query.parquet` and non-empty `query_columns`; baseline-only LD-score
   directories are valid for `h2` and `rg`.

@@ -355,7 +355,7 @@ def render() -> None:
         175,
         "Aggregated normalized\nresult",
         MAGENTA,
-        "`LDScoreCalculator._aggregate_chromosome_results()`\n-> `LDScoreResult`\n\nRows = `ld_regression_snps = B ∩ A' ∩ C`\nColumns = `CHR`, `SNP`, `BP`, baseline L2,\nquery L2, `regr_weight`.\n\nPublic normalized results keep\n`ld_reference_snps = frozenset()`.",
+        "`LDScoreCalculator._aggregate_chromosome_results()`\n-> `LDScoreResult`\n\nRows = `ld_regression_snps = B ∩ A' ∩ C`\nColumns = `CHR`, `SNP`, `BP`, baseline L2,\nquery L2, `regression_ld_scores`.\n\nPublic normalized results keep\n`ld_reference_snps = frozenset()`.",
         title_fs=15,
         body_fs=10.8,
     )
@@ -404,7 +404,7 @@ def render() -> None:
         170,
         "Merged regression\ndataset",
         GREEN,
-        "`RegressionRunner.build_dataset()`\nmerges sumstats + `ldscore_table`\n+ embedded `regr_weight`",
+        "`RegressionRunner.build_dataset()`\nmerges sumstats + `ldscore_table`\n+ embedded `regression_ld_scores`",
         title_fs=15,
         body_fs=11.2,
     )

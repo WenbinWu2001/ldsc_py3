@@ -138,7 +138,7 @@ def make_multi_chrom_result(chromosomes: list[str] | None = None) -> LDScoreResu
         for i in range(n):
             baseline_rows.append({
                 "CHR": chrom, "SNP": f"rs{snp_idx}", "POS": (i + 1) * 100,
-                "regr_weight": 1.0, "base": float(snp_idx),
+                "regression_ld_scores": 1.0, "base": float(snp_idx),
             })
             query_rows.append({
                 "CHR": chrom, "SNP": f"rs{snp_idx}", "POS": (i + 1) * 100,

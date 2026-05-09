@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Refactor annotation processing and the partitioned-h2 pipeline to support in-memory BED → `AnnotationBundle` construction, a unified `run_ldscore_from_args` code path through `AnnotationBuilder` + `LDScoreCalculator`, a `--query-annot-bed` flag on `ldsc ldscore`, a single merged public `ldscore_table` result shape with embedded `regr_weight`, per-chromosome-only `.l2.ldscore.gz` output, and a cleaner config boundary where `ref_panel_snps_file` lives on `RefPanelConfig` and `regression_snps_file` lives on `LDScoreConfig` — both removed from `GlobalConfig`.
+**Goal:** Refactor annotation processing and the partitioned-h2 pipeline to support in-memory BED → `AnnotationBundle` construction, a unified `run_ldscore_from_args` code path through `AnnotationBuilder` + `LDScoreCalculator`, a `--query-annot-bed` flag on `ldsc ldscore`, a single merged public `ldscore_table` result shape with embedded `regression_ld_scores`, per-chromosome-only `.l2.ldscore.gz` output, and a cleaner config boundary where `ref_panel_snps_file` lives on `RefPanelConfig` and `regression_snps_file` lives on `LDScoreConfig` — both removed from `GlobalConfig`.
 
-**Architecture:** Nine sequential tasks. Each builds on the previous: (1) remove gene-set TSV support; (2) normalize public `LDScoreResult` / `ChromLDScoreResult` to the merged `ldscore_table` shape; (3) restructure SNP-restriction config — move `ref_panel_snps_file` to `RefPanelConfig` and `regression_snps_file` to `LDScoreConfig`, remove both from `GlobalConfig`, add `r2_bias_mode` to `RefPanelConfig`; (4) add in-memory BED projection to `AnnotationBuilder.run()`; (5) refactor `project_bed_annotations` to return an `AnnotationBundle`; (6) converge `run_ldscore_from_args` through the workflow layer and make per-chromosome output the only output mode; (7) add `--query-annot-bed` to the ldscore CLI; (8) make `load_ldscore_from_files` public; (9) make `--w-ld` optional when `regr_weight` is embedded.
+**Architecture:** Nine sequential tasks. Each builds on the previous: (1) remove gene-set TSV support; (2) normalize public `LDScoreResult` / `ChromLDScoreResult` to the merged `ldscore_table` shape; (3) restructure SNP-restriction config — move `ref_panel_snps_file` to `RefPanelConfig` and `regression_snps_file` to `LDScoreConfig`, remove both from `GlobalConfig`, add `r2_bias_mode` to `RefPanelConfig`; (4) add in-memory BED projection to `AnnotationBuilder.run()`; (5) refactor `project_bed_annotations` to return an `AnnotationBundle`; (6) converge `run_ldscore_from_args` through the workflow layer and make per-chromosome output the only output mode; (7) add `--query-annot-bed` to the ldscore CLI; (8) make `load_ldscore_from_files` public; (9) make `--w-ld` optional when `regression_ld_scores` is embedded.
 
 **Tech Stack:** Python 3.10+, pandas, numpy, pybedtools, argparse. Tests: `python -m unittest discover -s tests -p 'test*.py' -v`
 
@@ -182,7 +182,7 @@ def test_ldscore_result_uses_single_table_shape(self):
     self.assertFalse(hasattr(result, "regression_metadata"))
     self.assertFalse(hasattr(result, "w_ld"))
     # Public result mirrors written .l2.ldscore.gz rows
-    self.assertIn("regr_weight", result.ldscore_table.columns)
+    self.assertIn("regression_ld_scores", result.ldscore_table.columns)
     self.assertGreater(len(result.ldscore_table), 0)
     # ld_reference_snps is not recoverable from normalized row tables
     self.assertIsInstance(result.ld_reference_snps, frozenset)
@@ -213,7 +213,7 @@ ld_regression_snps: frozenset[str]
 #
 # Same shape change in LDScoreResult. The public result object becomes a
 # normalized/file-equivalent view:
-# - ldscore_table: one DataFrame with [CHR, SNP, BP, <annot columns>, regr_weight]
+# - ldscore_table: one DataFrame with [CHR, SNP, BP, <annot columns>, regression_ld_scores]
 # - snp_count_totals: counts already computed over the full ld_reference_snps
 # - ld_reference_snps: frozenset() on normalized/public results
 # - ld_regression_snps: reconstructed from ldscore_table rows
@@ -240,7 +240,7 @@ def _wrap_legacy_chrom_result(self, legacy_result, global_config, regression_snp
             reference_metadata.loc[regression_keep, ["CHR", "SNP", "BP"]].reset_index(drop=True),
             ld_scores.loc[regression_keep].reset_index(drop=True),
             pd.DataFrame(
-                {"regr_weight": np.asarray(legacy_result.w_ld, dtype=np.float32)[regression_keep.to_numpy()]}
+                {"regression_ld_scores": np.asarray(legacy_result.w_ld, dtype=np.float32)[regression_keep.to_numpy()]}
             ).reset_index(drop=True),
         ],
         axis=1,
@@ -313,7 +313,7 @@ grep -n "reference_metadata\|regression_metadata\|w_ld\|reference_snps\|regressi
 ```
 Fix any remaining references (method bodies in `summary()`, `validate()`, etc.). Validation
 should check the normalized/file-equivalent contract:
-- `ldscore_table` contains `CHR`, `SNP`, `BP`, and `regr_weight`
+- `ldscore_table` contains `CHR`, `SNP`, `BP`, and `regression_ld_scores`
 - `ld_reference_snps == frozenset()`
 - `ld_regression_snps` is derived from `ldscore_table` rows
 
@@ -344,7 +344,7 @@ Normalize public LDScoreResult to merged ldscore_table shape
 
 Replace the public split-table shape (reference_metadata /
 regression_metadata / w_ld) with a single normalized ldscore_table that
-matches the written .l2.ldscore.gz rows and embeds regr_weight. Public
+matches the written .l2.ldscore.gz rows and embeds regression_ld_scores. Public
 ld_reference_snps is now frozenset() because the full reference universe
 is not recoverable from normalized row tables.
 
@@ -911,7 +911,7 @@ def test_run_ldscore_from_args_produces_same_result_as_calculator_run(self):
     result = run_ldscore_from_args(args)
     self.assertIsNotNone(result)
     self.assertGreater(len(result.ldscore_table), 0)
-    self.assertIn("regr_weight", result.ldscore_table.columns)
+    self.assertIn("regression_ld_scores", result.ldscore_table.columns)
 ```
 
 - [ ] **Step 2: Run test to verify it passes with old code (baseline)**
@@ -1024,14 +1024,14 @@ grep -n "_filter_annotation_bundle_to_reference_universe\|_chromosome_set_from_a
 
 **Output format contract:**
 - Rows = `ld_regression_snps` (B ∩ A' ∩ C). When `regression_snps_file` is absent, C = A', so rows = `ld_reference_snps`.
-- Columns = `[CHR, SNP, BP, <baseline_L2 cols>, <query_L2 cols>, regr_weight]`
-- `regr_weight` is the per-SNP total LD score used as regression weight (the value that was previously written to `.w.l2.ldscore.gz`)
+- Columns = `[CHR, SNP, BP, <baseline_L2 cols>, <query_L2 cols>, regression_ld_scores]`
+- `regression_ld_scores` is the per-SNP total LD score used as regression weight (the value that was previously written to `.w.l2.ldscore.gz`)
 - No separate `.w.l2.ldscore.gz` file is emitted
 - `.M` and `.M_5_50` count files are unchanged: they track `ld_reference_snps` (B ∩ A') per annotation column
 - Public `LDScoreResult` / `ChromLDScoreResult` objects are normalized to this same merged row-table shape
 - Per-chromosome output is the only output mode; write `<out_prefix>.<chrom>.l2.ldscore.gz` for each chromosome
 
-In `LDScoreCalculator.run()` (or its per-chromosome output assembly), replace the two-file write with a single-file write that appends `regr_weight` as the last column before writing:
+In `LDScoreCalculator.run()` (or its per-chromosome output assembly), replace the two-file write with a single-file write that appends `regression_ld_scores` as the last column before writing:
 
 ```python
 # After computing per-chromosome ld_scores (rows = ld_reference_snps) and
@@ -1041,20 +1041,20 @@ regression_mask = build_snp_id_series(reference_metadata, global_config.snp_iden
     ld_regression_snps
 )
 output_df = ld_scores.loc[regression_mask].copy()
-output_df["regr_weight"] = regression_weights.values
+output_df["regression_ld_scores"] = regression_weights.values
 # Write output_df to <out_prefix>.<chrom>.l2.ldscore.gz
 ```
 
 Add a test:
 ```python
-def test_ldscore_output_has_regr_weight_column_and_no_w_ld_file(self):
+def test_ldscore_output_has_regression_ld_scores_column_and_no_w_ld_file(self):
     import os, pandas as pd
     # Run ldsc ldscore on fixture data and verify output
     result = run_ldscore_from_args(args)
-    # Output file has regr_weight column
+    # Output file has regression_ld_scores column
     out_path = str(FIXTURE_DIR / "test_parity_out.1.l2.ldscore.gz")
     df = pd.read_csv(out_path, sep="\t", compression="gzip")
-    self.assertIn("regr_weight", df.columns)
+    self.assertIn("regression_ld_scores", df.columns)
     # No separate w_ld file written
     w_ld_path = str(FIXTURE_DIR / "test_parity_out.1.w.l2.ldscore.gz")
     self.assertFalse(os.path.exists(w_ld_path))
@@ -1074,14 +1074,14 @@ Expected: all PASS, including the parity test from Step 1 and the output-format 
 ```bash
 git add src/ldsc/ldscore_calculator.py tests/test_ldscore_workflow.py
 git commit -m "$(cat <<'EOF'
-Converge run_ldscore_from_args; merge regr_weight into output ldscore file
+Converge run_ldscore_from_args; merge regression_ld_scores into output ldscore file
 
 Replace the per-chromosome combine_annotation_groups + direct kernel call
 loop with AnnotationBuilder.run() + LDScoreCalculator.run(). Add
 _ref_panel_from_args() and _ldscore_config_from_args() helpers. Remove
 _filter_annotation_bundle_to_reference_universe() and
 _chromosome_set_from_annotation_inputs() (dead code). Output .l2.ldscore.gz
-now has rows = ld_regression_snps and a regr_weight column; no separate
+now has rows = ld_regression_snps and a regression_ld_scores column; no separate
 .w.l2.ldscore.gz is written.
 
 Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
@@ -1200,9 +1200,9 @@ def test_load_ldscore_from_files_is_public(self):
     self.assertTrue(callable(load_ldscore_from_files))
 
 def test_load_ldscore_from_files_new_format_no_weight_path(self):
-    """New merged format: regr_weight column present; weight_path omitted."""
+    """New merged format: regression_ld_scores column present; weight_path omitted."""
     from ldsc import load_ldscore_from_files
-    # Fixture produced by the new writer: has regr_weight column, rows = ld_regression_snps
+    # Fixture produced by the new writer: has regression_ld_scores column, rows = ld_regression_snps
     ldscore_path = str(FIXTURE_DIR / "test_merged.l2.ldscore.gz")
     m_path = str(FIXTURE_DIR / "test.l2.M_5_50")
     result = load_ldscore_from_files(
@@ -1213,7 +1213,7 @@ def test_load_ldscore_from_files_new_format_no_weight_path(self):
     )
     self.assertIsNotNone(result)
     self.assertGreater(len(result.ldscore_table), 0)
-    self.assertIn("regr_weight", result.ldscore_table.columns)
+    self.assertIn("regression_ld_scores", result.ldscore_table.columns)
     # ld_reference_snps is not recoverable from disk; must be empty frozenset
     self.assertEqual(result.ld_reference_snps, frozenset())
     # ld_regression_snps reconstructed from file rows via build_snp_id_series
@@ -1221,7 +1221,7 @@ def test_load_ldscore_from_files_new_format_no_weight_path(self):
     self.assertGreater(len(result.ld_regression_snps), 0)
 
 def test_load_ldscore_from_files_legacy_format_separate_weight_file(self):
-    """Legacy format: no regr_weight column; weights loaded from separate weight_path."""
+    """Legacy format: no regression_ld_scores column; weights loaded from separate weight_path."""
     from ldsc import load_ldscore_from_files
     ldscore_path = str(FIXTURE_DIR / "test_legacy.l2.ldscore.gz")
     w_ld_path = str(FIXTURE_DIR / "test.w.l2.ldscore.gz")
@@ -1235,7 +1235,7 @@ def test_load_ldscore_from_files_legacy_format_separate_weight_file(self):
     )
     self.assertIsNotNone(result)
     self.assertGreater(len(result.ldscore_table), 0)
-    self.assertIn("regr_weight", result.ldscore_table.columns)
+    self.assertIn("regression_ld_scores", result.ldscore_table.columns)
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1262,7 +1262,7 @@ def load_ldscore_from_files(
     """Rebuild an LDScoreResult from previously written LD-score artifacts.
 
     Supports two file formats:
-    - New merged format: `.l2.ldscore.gz` has a `regr_weight` column; `weight_path` omitted.
+    - New merged format: `.l2.ldscore.gz` has a `regression_ld_scores` column; `weight_path` omitted.
     - Legacy format: weights in a separate `.w.l2.ldscore.gz`; pass via `weight_path`.
     """
 ```
@@ -1271,8 +1271,8 @@ def load_ldscore_from_files(
 
 ```python
 df = pd.read_csv(ldscore_path, sep="\t", compression="gzip")
-if "regr_weight" in df.columns:
-    regression_weights = df["regr_weight"].values
+if "regression_ld_scores" in df.columns:
+    regression_weights = df["regression_ld_scores"].values
     file_rows_df = df
 elif weight_path is not None:
     w_df = pd.read_csv(weight_path, sep="\t", compression="gzip")
@@ -1283,10 +1283,10 @@ else:
     file_rows_df = df
 
 # file_rows_df is the normalized/public row table:
-# - new format: df already includes regr_weight
-# - legacy format: append regr_weight from the separate weight file
-if "regr_weight" not in file_rows_df.columns and regression_weights is not None:
-    file_rows_df = file_rows_df.assign(regr_weight=regression_weights)
+# - new format: df already includes regression_ld_scores
+# - legacy format: append regression_ld_scores from the separate weight file
+if "regression_ld_scores" not in file_rows_df.columns and regression_weights is not None:
+    file_rows_df = file_rows_df.assign(regression_ld_scores=regression_weights)
 
 # ld_reference_snps is not recoverable from disk: column sums (M/M_5_50) were
 # computed over ld_reference_snps at write time, but the file rows are
@@ -1341,13 +1341,13 @@ EOF
 
 ---
 
-## Task 9: Make --w-ld optional on regression subcommands; fall back to regr_weight column
+## Task 9: Make --w-ld optional on regression subcommands; fall back to regression_ld_scores column
 
 After this task, `ldsc partitioned-h2` (and `h2`, `rg`) no longer require `--w-ld` when the
-input `.l2.ldscore.gz` was produced by the new writer with an embedded `regr_weight` column.
+input `.l2.ldscore.gz` was produced by the new writer with an embedded `regression_ld_scores` column.
 `--w-ld` remains a valid optional argument for backward compatibility with pre-computed weight
 files (e.g., EUR `w_ld_chr/` downloads). When `--w-ld` is absent the regression runner detects
-the `regr_weight` column and uses it as the per-SNP weight.
+the `regression_ld_scores` column and uses it as the per-SNP weight.
 
 **Files:**
 
@@ -1357,13 +1357,13 @@ the `regr_weight` column and uses it as the per-SNP weight.
 - [ ] **Step 1: Write the failing test**
 
 ```python
-def test_run_partitioned_h2_from_args_without_w_ld_uses_regr_weight(self):
-    """regression subcommand works when --w-ld is absent and ldscore file has regr_weight."""
+def test_run_partitioned_h2_from_args_without_w_ld_uses_regression_ld_scores(self):
+    """regression subcommand works when --w-ld is absent and ldscore file has regression_ld_scores."""
     import argparse
     from ldsc.regression_runner import run_partitioned_h2_from_args
     args = argparse.Namespace(
         ldscore_path=str(FIXTURE_DIR / "test_merged.l2.ldscore.gz"),
-        w_ld=None,          # absent — must fall back to regr_weight column
+        w_ld=None,          # absent — must fall back to regression_ld_scores column
         sumstats=str(FIXTURE_DIR / "test.sumstats.gz"),
         ref_ld_chr=str(FIXTURE_DIR / "test_merged.@"),
         # ...other required args...
@@ -1375,7 +1375,7 @@ def test_run_partitioned_h2_from_args_without_w_ld_uses_regr_weight(self):
 - [ ] **Step 2: Run test to verify it fails**
 
 ```
-python -m unittest tests.test_regression_workflow.TestRunPartitionedH2FromArgs.test_run_partitioned_h2_from_args_without_w_ld_uses_regr_weight -v
+python -m unittest tests.test_regression_workflow.TestRunPartitionedH2FromArgs.test_run_partitioned_h2_from_args_without_w_ld_uses_regression_ld_scores -v
 ```
 
 Expected: FAIL (error about missing weights)
@@ -1394,19 +1394,19 @@ def _resolve_regression_weights(
 
     Priority:
     1. If w_ld_path is provided, load from file (backward compatibility).
-    2. If ldscore_result has a 'regr_weight' column in ldscore_table, extract it.
+    2. If ldscore_result has a 'regression_ld_scores' column in ldscore_table, extract it.
     3. Raise ValueError — weights are required for regression.
     """
     if w_ld_path is not None:
         return pd.read_csv(w_ld_path, sep="\t", compression="infer")
     table = ldscore_result.ldscore_table
-    if "regr_weight" in table.columns:
-        return table[["CHR", "SNP", "BP", "regr_weight"]].rename(
-            columns={"regr_weight": "L2"}
+    if "regression_ld_scores" in table.columns:
+        return table[["CHR", "SNP", "BP", "regression_ld_scores"]].rename(
+            columns={"regression_ld_scores": "L2"}
         )
     raise ValueError(
         "Regression weights unavailable: provide --w-ld or use an .l2.ldscore.gz "
-        "produced by this tool (which embeds a regr_weight column)."
+        "produced by this tool (which embeds a regression_ld_scores column)."
     )
 ```
 
@@ -1445,9 +1445,9 @@ Expected: all PASS, including the new no-`--w-ld` test and any existing `--w-ld`
 ```bash
 git add src/ldsc/regression_runner.py tests/test_regression_workflow.py
 git commit -m "$(cat <<'EOF'
-Make --w-ld optional on regression subcommands; fall back to regr_weight column
+Make --w-ld optional on regression subcommands; fall back to regression_ld_scores column
 
-When the input .l2.ldscore.gz has a regr_weight column (new merged format),
+When the input .l2.ldscore.gz has a regression_ld_scores column (new merged format),
 regression subcommands no longer require --w-ld. _resolve_regression_weights()
 checks for the embedded column before raising an error. --w-ld remains valid
 for backward compatibility with pre-computed EUR w_ld files.
@@ -1506,8 +1506,8 @@ Add a completed section for this refactoring under "Completed" in `PLANS.md`.
 - [x] Q4 — Python API and CLI changes: in-memory BED path, `--query-annot-bed` flag mutually exclusive with `--query-annot` (Tasks 4–5, 7)
 - [x] Q5 — Gene-set TSV removed; BED only (Task 1)
 - [x] Q6 — `run_ldscore_from_args` converged through `AnnotationBuilder` + `LDScoreCalculator` (Task 6)
-- [x] Merged output format — `regr_weight` embedded in `.l2.ldscore.gz`; rows = `ld_regression_snps`; no `.w.l2.ldscore.gz` emitted (Task 6)
-- [x] `--w-ld` optional on regression subcommands — falls back to `regr_weight` column; backward compatible with pre-computed w_ld files (Task 9)
+- [x] Merged output format — `regression_ld_scores` embedded in `.l2.ldscore.gz`; rows = `ld_regression_snps`; no `.w.l2.ldscore.gz` emitted (Task 6)
+- [x] `--w-ld` optional on regression subcommands — falls back to `regression_ld_scores` column; backward compatible with pre-computed w_ld files (Task 9)
 - [x] Config restructure — `ref_panel_snps_file` on `RefPanelConfig`; `regression_snps_file` on `LDScoreConfig`; both removed from `GlobalConfig`; `--ref-panel-snps` and `--regression-snps` only on `ldsc ldscore` (Task 3)
 
 **Config restructure scope (Task 3) — all callers updated:**
@@ -1524,7 +1524,7 @@ Add a completed section for this refactoring under "Completed" in `PLANS.md`.
 **Public result-shape scope (Task 2) — all callers updated:**
 - `ChromLDScoreResult.ldscore_table`, `ld_reference_snps`, `ld_regression_snps`
 - `LDScoreResult.ldscore_table`, `ld_reference_snps`, `ld_regression_snps`
-- `_wrap_legacy_chrom_result()` normalizes to file-equivalent rows with embedded `regr_weight`
+- `_wrap_legacy_chrom_result()` normalizes to file-equivalent rows with embedded `regression_ld_scores`
 - `_aggregate_chromosome_results()`
 - `_replace_result_output_paths()`
 - `_subset_ldscore_result()` in regression_runner.py

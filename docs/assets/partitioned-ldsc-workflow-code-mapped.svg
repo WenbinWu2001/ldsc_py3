@@ -4658,7 +4658,7 @@ z
      <use xlink:href="#DejaVuSans-32" x="2121.484375"/>
      <use xlink:href="#DejaVuSans-2c" x="2185.107422"/>
     </g>
-    <!-- query L2, `regr_weight`. -->
+    <!-- query L2, `regression_ld_scores`. -->
     <g style="fill: #16202a" transform="translate(348.48 1039.981961) scale(0.108 -0.108)">
      <use xlink:href="#DejaVuSans-71"/>
      <use xlink:href="#DejaVuSans-75" x="63.476562"/>
@@ -5372,7 +5372,7 @@ z
      <use xlink:href="#DejaVuSans-65" x="1662.992188"/>
      <use xlink:href="#DejaVuSans-60" x="1724.515625"/>
     </g>
-    <!-- + embedded `regr_weight` -->
+    <!-- + embedded `regression_ld_scores` -->
     <g style="fill: #16202a" transform="translate(708.48 1238.49788) scale(0.112 -0.112)">
      <use xlink:href="#DejaVuSans-2b"/>
      <use xlink:href="#DejaVuSans-20" x="83.789062"/>

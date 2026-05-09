@@ -121,6 +121,28 @@ class RegressionDataset:
 
 
 @dataclass(frozen=True)
+class RGRegressionDataset:
+    """Merged genetic-correlation dataset built from two traits and LD scores."""
+    merged: pd.DataFrame
+    ref_ld_columns: list[str]
+    weight_column: str
+    reference_snp_count_totals: dict[str, np.ndarray]
+    count_key_used_for_regression: str
+    retained_ld_columns: list[str]
+    dropped_zero_variance_ld_columns: list[str]
+    trait_names: list[str]
+    chromosomes_aggregated: list[str]
+    config_snapshot: GlobalConfig | None = None
+
+    def validate(self) -> None:
+        """Validate that the merged table contains the required RG columns."""
+        required = {"SNP", self.weight_column, "Z1", "N1", "Z2", "N2"}
+        missing = required - set(self.merged.columns)
+        if missing:
+            raise ValueError(f"RGRegressionDataset is missing required columns: {sorted(missing)}")
+
+
+@dataclass(frozen=True)
 class PartitionedH2BatchResult:
     """Batch partitioned-h2 summaries plus optional per-query detail tables.
 
@@ -165,7 +187,7 @@ class RegressionRunner:
 
         Zero-variance LD-score columns are dropped here so the estimator kernel
         receives only informative regressors. The selected count vector is
-        carried alongside the merged table for later use by ``Hsq`` and ``RG``.
+        carried alongside the merged table for later use by ``Hsq``.
         """
         print_global_config_banner(type(self).__name__, self.global_config)
         config = config or self.regression_config
@@ -234,6 +256,122 @@ class RegressionRunner:
             retained_ld_columns=retained_ld_columns,
             dropped_zero_variance_ld_columns=dropped_ld_columns,
             trait_names=[name for name in [sumstats_table.trait_name] if name],
+            chromosomes_aggregated=[result.chrom for result in ldscore_result.chromosome_results],
+            config_snapshot=ldscore_result.config_snapshot,
+        )
+        dataset.validate()
+        return dataset
+
+    def build_rg_dataset(
+        self,
+        sumstats_table_1: SumstatsTable,
+        sumstats_table_2: SumstatsTable,
+        ldscore_result: LDScoreResult,
+        config: RegressionConfig | None = None,
+    ) -> RGRegressionDataset:
+        """Build the complete genetic-correlation preprocessing dataset.
+
+        This helper merges trait 1, trait 2, and baseline LD scores on the
+        resolved SNP identifier, drops missing rows, harmonizes alleles when
+        possible, and only then removes zero-variance LD-score columns on the
+        final RG SNP set. Allele harmonization exists, but it is skipped if
+        allele columns are absent.
+        """
+        print_global_config_banner(type(self).__name__, self.global_config)
+        config = config or self.regression_config
+        for table, label in ((sumstats_table_1, "trait 1 SumstatsTable"), (sumstats_table_2, "trait 2 SumstatsTable")):
+            if table.config_snapshot is not None and ldscore_result.config_snapshot is not None:
+                validate_config_compatibility(
+                    table.config_snapshot,
+                    ldscore_result.config_snapshot,
+                    context=f"{label} and LDScoreResult",
+                )
+
+        weight_column = "regr_weight"
+        ref_ld_columns = list(ldscore_result.baseline_columns)
+        ldscore_frame = _assemble_regression_ldscore_table(ldscore_result, [])
+        identifier_mode = _effective_snp_identifier_mode(sumstats_table_1, ldscore_result, self.global_config)
+
+        left = sumstats_table_1.data.rename(columns={"N": "N1", "Z": "Z1"})
+        right = sumstats_table_2.data.rename(columns={"A1": "A1x", "A2": "A2x", "N": "N2", "Z": "Z2"})
+        right_payload = [column for column in ["A1x", "A2x", "N2", "Z2"] if column in right.columns]
+        if identifier_mode == "rsid":
+            left_with_ld = pd.merge(
+                left,
+                ldscore_frame.loc[:, ["SNP", *ref_ld_columns, weight_column]].reset_index(drop=True),
+                how="inner",
+                on="SNP",
+                sort=False,
+            )
+            merged = pd.merge(
+                left_with_ld,
+                right.loc[:, ["SNP", *right_payload]],
+                how="inner",
+                on="SNP",
+                sort=False,
+            )
+        else:
+            left_keyed = _with_chr_pos_key(left, context=sumstats_table_1.source_path or "sumstats")
+            right_keyed = _with_chr_pos_key(right, context=sumstats_table_2.source_path or "sumstats")
+            ldscore_keyed = _with_chr_pos_key(ldscore_frame, context="LD-score table")
+            left_with_ld = pd.merge(
+                left_keyed,
+                ldscore_keyed.loc[:, [CHR_POS_KEY_COLUMN, *ref_ld_columns, weight_column]].reset_index(drop=True),
+                how="inner",
+                on=CHR_POS_KEY_COLUMN,
+                sort=False,
+            )
+            merged = pd.merge(
+                left_with_ld,
+                right_keyed.loc[:, [CHR_POS_KEY_COLUMN, *right_payload]],
+                how="inner",
+                on=CHR_POS_KEY_COLUMN,
+                sort=False,
+            )
+        merged = merged.dropna(how="any").reset_index(drop=True)
+        if merged.empty:
+            raise ValueError(
+                f"No overlapping {identifier_mode} SNPs remain after merging both sumstats tables "
+                f"with {len(ldscore_frame)} LD-score rows."
+            )
+
+        if {"A1", "A2", "A1x", "A2x"}.issubset(merged.columns):
+            alleles = merged["A1"] + merged["A2"] + merged["A1x"] + merged["A2x"]
+            keep = reg._filter_alleles(alleles)
+            kept_alleles = alleles.loc[keep].reset_index(drop=True)
+            merged = merged.loc[keep].reset_index(drop=True)
+            if merged.empty:
+                raise ValueError("No allele-compatible SNPs remain after harmonizing the two sumstats tables.")
+            merged["Z2"] = reg._align_alleles(merged["Z2"].copy(), kept_alleles)
+
+        retained_ld_columns = list(ref_ld_columns)
+        dropped_ld_columns: list[str] = []
+        if retained_ld_columns:
+            variances = merged.loc[:, retained_ld_columns].var()
+            dropped_ld_columns = variances.index[variances == 0].tolist()
+            retained_ld_columns = [column for column in retained_ld_columns if column not in dropped_ld_columns]
+            if retained_ld_columns:
+                merged = merged.loc[:, [column for column in merged.columns if column not in dropped_ld_columns]]
+            else:
+                raise ValueError("All LD-score columns have zero variance.")
+
+        count_totals = _count_totals_for_columns(ldscore_result.count_records, ref_ld_columns)
+        if dropped_ld_columns:
+            dropped_index = [ref_ld_columns.index(column) for column in dropped_ld_columns]
+            keep_index = [idx for idx in range(len(ref_ld_columns)) if idx not in dropped_index]
+            for key, values in list(count_totals.items()):
+                count_totals[key] = np.asarray(values)[keep_index]
+        count_key = _select_count_key(count_totals, config.use_common_counts)
+
+        dataset = RGRegressionDataset(
+            merged=merged.reset_index(drop=True),
+            ref_ld_columns=ref_ld_columns,
+            weight_column=weight_column,
+            reference_snp_count_totals=count_totals,
+            count_key_used_for_regression=count_key,
+            retained_ld_columns=retained_ld_columns,
+            dropped_zero_variance_ld_columns=dropped_ld_columns,
+            trait_names=[name for name in [sumstats_table_1.trait_name, sumstats_table_2.trait_name] if name],
             chromosomes_aggregated=[result.chrom for result in ldscore_result.chromosome_results],
             config_snapshot=ldscore_result.config_snapshot,
         )
@@ -407,37 +545,16 @@ class RegressionRunner:
         ldscore_result: LDScoreResult,
         config: RegressionConfig | None = None,
     ):
-        """Estimate genetic correlation between two munged summary-stat tables."""
+        """Estimate genetic correlation between two munged summary-stat tables.
+
+        RG preprocessing is delegated to :meth:`build_rg_dataset`, which keeps
+        the final trait1/trait2/LD-score SNP set explicit before arrays are
+        passed to the kernel. Allele harmonization exists, but it is skipped if
+        allele columns are absent.
+        """
         config = config or self.regression_config
-        identifier_mode = _effective_snp_identifier_mode(sumstats_table_1, ldscore_result, self.global_config)
-        dataset_1 = self.build_dataset(sumstats_table_1, ldscore_result, config=config)
-        left = dataset_1.merged.rename(columns={"N": "N1", "Z": "Z1", "A1": "A1", "A2": "A2"})
-        right = sumstats_table_2.data.rename(columns={"A1": "A1x", "A2": "A2x", "N": "N2", "Z": "Z2"})
-        right_payload = [column for column in ["A1x", "A2x", "N2", "Z2"] if column in right.columns]
-        if identifier_mode == "rsid":
-            merged = pd.merge(
-                left,
-                right.loc[:, ["SNP", *right_payload]],
-                how="inner",
-                on="SNP",
-                sort=False,
-            ).dropna(how="any")
-        else:
-            right_keyed = _with_chr_pos_key(right, context=sumstats_table_2.source_path or "sumstats")
-            merged = pd.merge(
-                left,
-                right_keyed.loc[:, [CHR_POS_KEY_COLUMN, *right_payload]],
-                how="inner",
-                on=CHR_POS_KEY_COLUMN,
-                sort=False,
-            ).dropna(how="any")
-            if merged.empty:
-                raise ValueError("No overlapping chr_pos SNPs remain after merging the two sumstats tables.")
-        if {"A1", "A2", "A1x", "A2x"}.issubset(merged.columns):
-            alleles = merged["A1"] + merged["A2"] + merged["A1x"] + merged["A2x"]
-            keep = reg._filter_alleles(alleles)
-            merged = merged.loc[keep].reset_index(drop=True)
-            merged["Z2"] = reg._align_alleles(merged["Z2"], alleles.loc[keep])
+        dataset = self.build_rg_dataset(sumstats_table_1, sumstats_table_2, ldscore_result, config=config)
+        merged = dataset.merged
         n_snp = len(merged)
         n_blocks = min(n_snp, config.n_blocks)
         intercept_hsq1 = _select_intercept(config.intercept_h2, index=0, use_intercept=config.use_intercept, default_when_disabled=1)
@@ -446,11 +563,11 @@ class RegressionRunner:
         return reg.RG(
             np.asarray(merged[["Z1"]]),
             np.asarray(merged[["Z2"]]),
-            np.asarray(merged[dataset_1.retained_ld_columns]),
-            np.asarray(merged[[dataset_1.weight_column]]),
+            np.asarray(merged[dataset.retained_ld_columns]),
+            np.asarray(merged[[dataset.weight_column]]),
             np.asarray(merged[["N1"]]),
             np.asarray(merged[["N2"]]),
-            np.asarray(dataset_1.reference_snp_count_totals[dataset_1.count_key_used_for_regression]).reshape((1, -1)),
+            np.asarray(dataset.reference_snp_count_totals[dataset.count_key_used_for_regression]).reshape((1, -1)),
             intercept_hsq1=intercept_hsq1,
             intercept_hsq2=intercept_hsq2,
             intercept_gencov=intercept_gencov,

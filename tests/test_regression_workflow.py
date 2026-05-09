@@ -445,6 +445,107 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertIs(result, mock.sentinel.rg_result)
         self.assertEqual(patched.call_args.args[2].shape[1], 1)
 
+    def test_build_rg_dataset_uses_final_three_way_snp_intersection(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        sumstats_1 = self.make_sumstats_table()
+        sumstats_2 = replace(
+            self.make_sumstats_table(),
+            trait_name="trait2",
+            data=self.make_sumstats_table().data.assign(
+                SNP=["rs2", "rs3", "missing"],
+                Z=[1.5, 0.25, 9.0],
+                A1=["C", "G", "A"],
+                A2=["T", "A", "C"],
+            ),
+        )
+
+        dataset = runner.build_rg_dataset(sumstats_1, sumstats_2, self.make_ldscore_result())
+
+        self.assertEqual(dataset.merged["SNP"].tolist(), ["rs2", "rs3"])
+        np.testing.assert_allclose(dataset.merged["Z1"], [1.0, 0.5])
+        np.testing.assert_allclose(dataset.merged["Z2"], [1.5, 0.25])
+
+    def test_build_rg_dataset_harmonizes_alleles_and_flips_second_trait_z(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        sumstats_1 = replace(
+            self.make_sumstats_table(),
+            data=self.make_sumstats_table().data.assign(
+                A1=["A", "A", "A"],
+                A2=["C", "C", "C"],
+            ),
+        )
+        sumstats_2 = replace(
+            self.make_sumstats_table(),
+            trait_name="trait2",
+            data=self.make_sumstats_table().data.assign(
+                Z=[1.0, 2.0, 3.0],
+                A1=["C", "A", "A"],
+                A2=["A", "C", "T"],
+            ),
+        )
+
+        dataset = runner.build_rg_dataset(sumstats_1, sumstats_2, self.make_ldscore_result())
+
+        self.assertEqual(dataset.merged["SNP"].tolist(), ["rs1", "rs2"])
+        np.testing.assert_allclose(dataset.merged["Z2"], [-1.0, 2.0])
+
+    def test_build_rg_dataset_skips_allele_harmonization_when_alleles_are_absent(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        sumstats_1 = replace(
+            self.make_sumstats_table(),
+            has_alleles=False,
+            data=self.make_sumstats_table().data.drop(columns=["A1", "A2"]),
+        )
+        sumstats_2 = replace(
+            self.make_sumstats_table(),
+            has_alleles=False,
+            trait_name="trait2",
+            data=self.make_sumstats_table().data.drop(columns=["A1", "A2"]).assign(Z=[1.0, 2.0, 3.0]),
+        )
+
+        dataset = runner.build_rg_dataset(sumstats_1, sumstats_2, self.make_ldscore_result())
+
+        self.assertEqual(dataset.merged["SNP"].tolist(), ["rs1", "rs2", "rs3"])
+        self.assertFalse({"A1", "A2", "A1x", "A2x"} & set(dataset.merged.columns))
+        np.testing.assert_allclose(dataset.merged["Z2"], [1.0, 2.0, 3.0])
+
+    def test_build_rg_dataset_drops_zero_variance_ld_columns_after_final_merge(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        ldscore_result = replace(
+            self.make_ldscore_result(),
+            baseline_table=self.make_ldscore_result().baseline_table.assign(late_zero=[0.0, 1.0, 1.0]),
+            baseline_columns=["base", "late_zero"],
+            count_records=[
+                {
+                    "group": "baseline",
+                    "column": "base",
+                    "all_reference_snp_count": 10.0,
+                    "common_reference_snp_count": 8.0,
+                },
+                {
+                    "group": "baseline",
+                    "column": "late_zero",
+                    "all_reference_snp_count": 30.0,
+                    "common_reference_snp_count": 28.0,
+                },
+            ],
+        )
+        sumstats_2 = replace(
+            self.make_sumstats_table(),
+            trait_name="trait2",
+            data=self.make_sumstats_table().data.iloc[[1, 2]].reset_index(drop=True).assign(Z=[1.5, 0.25]),
+        )
+
+        dataset = runner.build_rg_dataset(self.make_sumstats_table(), sumstats_2, ldscore_result)
+
+        self.assertEqual(dataset.merged["SNP"].tolist(), ["rs2", "rs3"])
+        self.assertEqual(dataset.retained_ld_columns, ["base"])
+        self.assertEqual(dataset.dropped_zero_variance_ld_columns, ["late_zero"])
+        np.testing.assert_allclose(
+            dataset.reference_snp_count_totals["common_reference_snp_counts"],
+            [8.0],
+        )
+
     def test_estimate_rg_chr_pos_mode_merges_traits_on_coordinates(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"), RegressionConfig())
         ldscore_result = replace(
@@ -493,6 +594,76 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertIs(result, mock.sentinel.rg_result)
         self.assertEqual(patched.call_args.args[0].shape[0], 2)
         self.assertEqual(patched.call_args.args[1].shape[0], 2)
+
+    def test_build_rg_dataset_chr_pos_mode_merges_all_sources_on_coordinates(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"), RegressionConfig())
+        ldscore_result = replace(
+            self.make_ldscore_result(),
+            baseline_table=self.make_ldscore_result().baseline_table.assign(SNP=["ld1", "ld2", "ld3"]),
+            query_table=self.make_ldscore_result().query_table.assign(SNP=["ld1", "ld2", "ld3"]),
+            config_snapshot=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+        )
+        sumstats_1 = SumstatsTable(
+            data=pd.DataFrame(
+                {
+                    "SNP": ["trait1_a", "trait1_b", "trait1_missing"],
+                    "CHR": ["1", "1", "1"],
+                    "POS": [10, 20, 999],
+                    "Z": [2.0, 1.0, 9.0],
+                    "N": [1000.0, 1000.0, 1000.0],
+                    "A1": ["A", "A", "A"],
+                    "A2": ["C", "C", "C"],
+                }
+            ),
+            has_alleles=True,
+            source_path="sumstats1.gz",
+            trait_name="trait1",
+            provenance={},
+            config_snapshot=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+        )
+        sumstats_2 = replace(
+            sumstats_1,
+            data=pd.DataFrame(
+                {
+                    "SNP": ["trait2_a", "trait2_c"],
+                    "CHR": ["1", "1"],
+                    "POS": [10, 30],
+                    "Z": [1.0, 1.5],
+                    "N": [900.0, 900.0],
+                    "A1": ["A", "A"],
+                    "A2": ["C", "C"],
+                }
+            ),
+            trait_name="trait2",
+            source_path="sumstats2.gz",
+        )
+
+        dataset = runner.build_rg_dataset(sumstats_1, sumstats_2, ldscore_result)
+
+        self.assertEqual(dataset.merged["SNP"].tolist(), ["trait1_a"])
+        self.assertEqual(dataset.merged["_ldsc_chr_pos_key"].tolist(), ["1:10"])
+        np.testing.assert_allclose(dataset.merged["Z2"], [1.0])
+
+    def test_estimate_rg_preserves_legacy_rg_array_call_contract(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        sumstats_1 = self.make_sumstats_table()
+        sumstats_2 = replace(
+            self.make_sumstats_table(),
+            trait_name="trait2",
+            data=self.make_sumstats_table().data.assign(Z=[1.0, 1.5, 0.25], N=[900.0, 900.0, 900.0]),
+        )
+
+        with mock.patch.object(regression_runner.reg, "RG", return_value=mock.sentinel.rg_result) as patched:
+            result = runner.estimate_rg(sumstats_1, sumstats_2, self.make_ldscore_result())
+
+        self.assertIs(result, mock.sentinel.rg_result)
+        np.testing.assert_allclose(patched.call_args.args[0], [[2.0], [1.0], [0.5]])
+        np.testing.assert_allclose(patched.call_args.args[1], [[1.0], [1.5], [0.25]])
+        np.testing.assert_allclose(patched.call_args.args[2], [[1.0], [2.0], [3.0]])
+        np.testing.assert_allclose(patched.call_args.args[3], [[2.0], [2.0], [2.0]])
+        np.testing.assert_allclose(patched.call_args.args[4], [[1000.0], [1000.0], [1000.0]])
+        np.testing.assert_allclose(patched.call_args.args[5], [[900.0], [900.0], [900.0]])
+        np.testing.assert_allclose(patched.call_args.args[6], [[8.0]])
 
     def test_build_dataset_raises_on_mismatched_sumstats_and_ldscore_snapshots(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"), RegressionConfig())

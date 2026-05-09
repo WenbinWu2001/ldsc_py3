@@ -205,6 +205,7 @@ liftover configuration, duplicate-position policy, or chromosome scope.
 |---|---:|---:|---|---|
 | `--raw-sumstats-file` | input | yes | raw summary-statistics file | Exact path or exact-one glob. |
 | `--sumstats-snps-file` | input | no | summary-statistics SNP keep-list | Restricts munged summary-statistics rows to a SNP keep-list; defaults to omitted/`None`, so no keep-list restriction is applied. |
+| `--trait-name` | input metadata | no | biological trait label | Optional label stored in `sumstats.metadata.json`; downstream regression uses it unless a regression CLI `--trait-name` override is supplied. |
 | `--output-dir` | output | yes | munged output directory | The workflow writes fixed `sumstats.*` artifacts under this directory and passes `<output_dir>/sumstats` as the kernel output stem. |
 | `--output-format` | output mode | no | curated sumstats format | One of `parquet`, `tsv.gz`, or `both`; defaults to `parquet`. |
 | `--chr`, `--pos` | input metadata | no | raw column hints | Identify raw chromosome and position columns; default to omitted/`None`, so common aliases such as `#CHROM`, `CHROM`, `CHR`, `POS`, and `BP` are inferred. |
@@ -239,6 +240,7 @@ records for QC progress and preserves its direct legacy-compatible
 |---|---:|---:|---|---|
 | `--ldscore-dir` | input | yes | canonical LD-score result directory | Reads baseline LD scores and embedded `regression_ld_scores`, the historical `w_ld` component used when final h2 weights are computed. |
 | `--sumstats-file` | input | yes | munged summary-statistics file | Exact path or exact-one glob. |
+| `--trait-name` | input metadata | no | output trait label | Optional label override. If omitted, regression uses `sumstats.metadata.json["trait_name"]` when present, then the filename fallback. |
 | `--output-dir` | output | no | result output directory | Selects where to write h2 results; defaults to omitted/`None`, so the result is returned without writing `h2.tsv` or `h2.log`. |
 | `--count-kind` | model | no | count vector choice | Selects the count vector used by regression; defaults to `common`, while `all` uses all-SNP counts. |
 | `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger records in console and `h2.log` when `output_dir` is supplied; lifecycle audit lines always appear in the file. |
@@ -253,6 +255,7 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 |---|---:|---:|---|---|
 | `--ldscore-dir` | input | yes | canonical LD-score result directory | Must contain baseline plus query LD scores; baseline-only directories are rejected. |
 | `--sumstats-file` | input | yes | munged summary-statistics file | Exact path or exact-one glob. |
+| `--trait-name` | input metadata | no | output trait label | Optional label override. If omitted, regression uses `sumstats.metadata.json["trait_name"]` when present, then the filename fallback. |
 | `--output-dir` | output | no | result output directory | Selects where to write partitioned-h2 results; defaults to omitted/`None`, so the result is returned without writing `partitioned_h2.tsv` or `partitioned-h2.log`. |
 | `--count-kind` | model | no | count vector choice | Selects the count vector used by regression; defaults to `common`, while `all` uses all-SNP counts. |
 | `--write-per-query-results` | output mode | no | per-query result tree | Requests per-query output folders; defaults to `False`, so only the aggregate table is returned/written. |
@@ -268,7 +271,7 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 |---|---:|---:|---|---|
 | `--ldscore-dir` | input | yes | canonical LD-score result directory | Reads baseline LD scores and embedded `regression_ld_scores`, the historical `w_ld` component used when final rg/gencov weights are computed. |
 | `--sumstats-sources` | input | yes | two or more munged summary-statistics files | Accepts exact paths and glob patterns. With two files, computes one pair; with three or more files and no anchor, computes all unordered pairs in input order. |
-| `--anchor-trait-file` | input selector | no | anchor path or trait label | When supplied, must match exactly one resolved input path or trait name; computes anchor-vs-rest pairs only. |
+| `--anchor-trait` | input selector | no | anchor trait label or path | When supplied, first matches a resolved trait name, then a resolved input path; computes anchor-vs-rest pairs only. |
 | `--output-dir` | output | no | result output directory | Selects where to write the rg output family. Without it, Python returns `RgResultFamily` and the CLI prints only the concise `rg.tsv` schema to stdout. |
 | `--write-per-pair-detail` | output mode | no | optional pair result tree | Requires `--output-dir`; writes `pairs/manifest.tsv` plus one `rg_full.tsv` and `metadata.json` per attempted pair. |
 | `--count-kind` | model | no | count vector choice | Selects the count vector used by regression; defaults to `common`, while `all` uses all-SNP counts. |
@@ -277,7 +280,7 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 
 Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 `--sumstats-1`, `--sumstats-2`, `--sumstats-1-file`, `--sumstats-2-file`,
-`--trait-name-1`, `--trait-name-2`, `--out`.
+`--trait-name-1`, `--trait-name-2`, `--anchor-trait-file`, `--out`.
 
 ## Public Python API Inventory
 
@@ -376,7 +379,7 @@ Removed Python names: legacy separate source-path object field,
 | `run_partitioned_h2_from_args(args)` | `write_per_query_results` | output mode | optionally writes `query_annotations/` |
 | `run_rg_from_args(args)` | `ldscore_dir` | input | LD-score result directory |
 | `run_rg_from_args(args)` | `sumstats_sources` | input | two or more munged summary-statistics files or glob patterns |
-| `run_rg_from_args(args)` | `anchor_trait_file` | input selector | optional anchor path or trait label for anchor-vs-rest output |
+| `run_rg_from_args(args)` | `anchor_trait` | input selector | optional anchor trait label or path for anchor-vs-rest output |
 | `run_rg_from_args(args)` | `output_dir` | output | writes `rg.tsv`, `rg_full.tsv`, `h2_per_trait.tsv`, optional `pairs/`, and `rg.log` when supplied |
 
 Removed Python/public argparse names: `sumstats`, `sumstats_1`, `sumstats_2`,
@@ -385,8 +388,10 @@ Removed Python/public argparse names: `sumstats`, `sumstats_1`, `sumstats_2`,
 Current curated `sumstats.parquet` and `.sumstats.gz` artifacts provide
 canonical `SNP`, `CHR`, `POS`, `Z`, and `N` fields when written by
 `ldsc munge-sumstats`, plus a neighboring metadata sidecar with the effective
-`snp_identifier`, `genome_build`, selected curated output files, and parquet
-row groups when applicable. The sidecar does not list `sumstats.log`.
+`snp_identifier`, `genome_build`, optional `trait_name`, selected curated
+output files, and parquet row groups when applicable. `load_sumstats()` resolves
+labels as explicit override, then sidecar `trait_name`, then filename fallback.
+The sidecar does not list `sumstats.log`.
 Regression therefore merges on literal `SNP` in `rsid` mode and on normalized
 `CHR:POS` coordinates in `chr_pos` mode.
 

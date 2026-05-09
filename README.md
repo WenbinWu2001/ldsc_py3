@@ -106,8 +106,8 @@ files may provide chromosome and position columns through common aliases such as
 `--pos`; pass the raw input as `--raw-sumstats-file`. Leading `##`
 metadata/comment lines are skipped before the real header is parsed. Each
 munged run also writes `sumstats.metadata.json` beside the selected artifact(s)
-so later regression commands can recover `snp_identifier` and `genome_build`
-provenance. Use `--sumstats-snps-file` when the munged artifact should be
+so later regression commands can recover `snp_identifier`, `genome_build`, and
+optional `--trait-name` provenance. Use `--sumstats-snps-file` when the munged artifact should be
 restricted to a headered SNP keep-list; this filter keeps matching rows only and
 does not allele-match or reorder the output.
 

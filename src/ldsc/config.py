@@ -71,6 +71,16 @@ def _normalize_path_tuple(values) -> tuple[str, ...]:
     return normalize_path_tokens(values)
 
 
+def _normalize_trait_name(value: str | None) -> str | None:
+    """Return a stripped trait label, rejecting blank user-provided labels."""
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    if not normalized:
+        raise ValueError("trait_name must not be blank.")
+    return normalized
+
+
 def _normalize_log_level(level: str) -> LogLevel:
     """Normalize a logging level string to the supported uppercase literal."""
     normalized = level.upper()
@@ -592,6 +602,7 @@ class MungeConfig:
         object.__setattr__(self, "output_dir", _normalize_optional_path(self.output_dir))
         object.__setattr__(self, "raw_sumstats_file", _normalize_optional_path(self.raw_sumstats_file))
         object.__setattr__(self, "sumstats_snps_file", _normalize_optional_path(self.sumstats_snps_file))
+        object.__setattr__(self, "trait_name", _normalize_trait_name(self.trait_name))
         object.__setattr__(self, "ignore_columns", tuple(self.ignore_columns))
         object.__setattr__(self, "column_hints", dict(self.column_hints))
 

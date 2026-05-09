@@ -324,7 +324,7 @@ flowchart LR
 | --- | --- | --- |
 | curated sumstats | `SNP CHR POS A1 A2 Z N`<br/>`rs3131969 1 754182 A G 0.74 829249.58` | written as `sumstats.parquet` by default under `output_dir`; `--output-format tsv.gz` writes legacy `sumstats.sumstats.gz`, and `both` writes both; `CHR`/`POS` are present and may be missing when absent from raw input; optional `FRQ` may also be present |
 | log file | plain-text lifecycle and QC log | workflow-owned `sumstats.log` under `output_dir`, populated from package logger messages emitted during kernel QC; excluded from `MungeRunSummary.output_paths` |
-| metadata sidecar | JSON with `snp_identifier`, nullable `genome_build`, coordinate columns, curated output files, parquet row groups, and build-inference details | written as `sumstats.metadata.json` under `output_dir`; used by `load_sumstats()` to recover config provenance; `output_files` does not include `sumstats.log` |
+| metadata sidecar | JSON with `snp_identifier`, nullable `genome_build`, optional `trait_name`, coordinate columns, curated output files, parquet row groups, and build-inference details | written as `sumstats.metadata.json` under `output_dir`; used by `load_sumstats()` to recover config provenance and trait labels; `output_files` does not include `sumstats.log` |
 
 ### Modules used
 
@@ -357,7 +357,7 @@ rejected by `partitioned-h2`.
 
 | File | Example | Notes |
 | --- | --- | --- |
-| munged sumstats | `SNP CHR POS A1 A2 Z N`<br/>`rs1 1 754182 A G 1.96 1000` | one file for `h2` and `partitioned-h2`, two or more files for `rg`; a neighboring `sumstats.metadata.json` recovers config provenance when present |
+| munged sumstats | `SNP CHR POS A1 A2 Z N`<br/>`rs1 1 754182 A G 1.96 1000` | one file for `h2` and `partitioned-h2`, two or more files for `rg`; a neighboring `sumstats.metadata.json` recovers config provenance and `trait_name` when present |
 | LD-score directory | `manifest.json`, `ldscore.baseline.parquet`, optional `ldscore.query.parquet` | produced by the LD-score workflow and supplied as `ldscore_dir`; `partitioned-h2` requires `ldscore.query.parquet` and non-empty `query_columns`; current parquet files have chromosome-aligned row groups; legacy directories without manifest config provenance load with a warning |
 
 ### Flow

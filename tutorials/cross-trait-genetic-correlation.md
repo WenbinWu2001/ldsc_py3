@@ -112,6 +112,7 @@ table merge by normalized `CHR:POS` coordinates.
 ```bash
 ldsc munge-sumstats \
   --raw-sumstats-file data/trait_1.tsv.gz \
+  --trait-name trait_1 \
   --snp SNP \
   --a1 A1 \
   --a2 A2 \
@@ -123,6 +124,7 @@ ldsc munge-sumstats \
 
 ldsc munge-sumstats \
   --raw-sumstats-file data/trait_2.tsv.gz \
+  --trait-name trait_2 \
   --snp SNP \
   --a1 A1 \
   --a2 A2 \
@@ -155,13 +157,13 @@ ldsc rg \
   --write-per-pair-detail
 ```
 
-To compare every trait against one anchor, add `--anchor-trait-file`. The anchor
-may be the resolved file path or a recovered trait label:
+To compare every trait against one anchor, add `--anchor-trait`. The anchor
+matches a recovered trait label first, then a resolved file path:
 
 ```bash
 ldsc rg \
   --sumstats-sources tutorial_outputs/traits/*.parquet \
-  --anchor-trait-file tutorial_outputs/traits/trait_1.parquet \
+  --anchor-trait trait_1 \
   --ldscore-dir tutorial_outputs/baseline_ldscores \
   --output-dir tutorial_outputs/trait_1_anchor_rg
 ```

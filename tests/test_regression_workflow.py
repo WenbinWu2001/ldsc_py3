@@ -1223,6 +1223,62 @@ class RegressionWorkflowTest(unittest.TestCase):
 
             self.assertFalse(list(tmpdir.glob("*.log")))
 
+    def test_run_h2_from_args_uses_metadata_trait_name_when_cli_label_is_omitted(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            set_global_config(GlobalConfig(snp_identifier="rsid"))
+            with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
+                handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
+            (tmpdir / "trait.metadata.json").write_text(
+                json.dumps(
+                    {
+                        "format": "ldsc.sumstats.v1",
+                        "trait_name": "MDD",
+                        "snp_identifier": "rsid",
+                        "genome_build": None,
+                        "config_snapshot": {"snp_identifier": "rsid", "genome_build": None},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
+            args = type(
+                "Args",
+                (),
+                {
+                    "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
+                    "trait_name": None,
+                    "ldscore_dir": str(ldscore_dir),
+                    "count_kind": "common",
+                    "output_dir": None,
+                    "overwrite": False,
+                    "log_level": "INFO",
+                    "n_blocks": 200,
+                    "no_intercept": False,
+                    "intercept_h2": None,
+                    "two_step_cutoff": None,
+                    "chisq_max": None,
+                },
+            )()
+
+            with mock.patch.object(
+                regression_runner.RegressionRunner,
+                "estimate_h2",
+                return_value=mock.Mock(
+                    tot=np.array([0.1]),
+                    tot_se=np.array([0.01]),
+                    intercept=np.array([1.0]),
+                    intercept_se=0.01,
+                    mean_chisq=np.array([1.1]),
+                    lambda_gc=np.array([1.0]),
+                    ratio=0.0,
+                    ratio_se=0.0,
+                ),
+            ):
+                summary = regression_runner.run_h2_from_args(args)
+
+        self.assertEqual(summary.loc[0, "trait_name"], "MDD")
+
     def test_common_regression_arguments_expose_only_ldscore_dir(self):
         parser = argparse.ArgumentParser()
         regression_runner.add_h2_arguments(parser)
@@ -1291,6 +1347,18 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertEqual(args.sumstats_sources, ["a.sumstats.gz", "b.sumstats.gz"])
         self.assertEqual(args.intercept_h2, 1.02)
         self.assertEqual(args.intercept_gencov, 0.01)
+        anchored = parser.parse_args(
+            [
+                "--ldscore-dir",
+                "ldscores",
+                "--sumstats-sources",
+                "a.sumstats.gz",
+                "b.sumstats.gz",
+                "--anchor-trait",
+                "MDD",
+            ]
+        )
+        self.assertEqual(anchored.anchor_trait, "MDD")
         with self.assertRaises(SystemExit):
             parser.parse_args(
                 [
@@ -1302,6 +1370,18 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "b.sumstats.gz",
                 ]
             )
+        with self.assertRaises(SystemExit):
+            parser.parse_args(
+                [
+                    "--ldscore-dir",
+                    "ldscores",
+                    "--sumstats-sources",
+                    "a.sumstats.gz",
+                    "b.sumstats.gz",
+                    "--anchor-trait-file",
+                    "a.sumstats.gz",
+                ]
+            )
 
     def test_run_rg_from_args_rejects_per_pair_detail_without_output_dir_before_loading_inputs(self):
         args = type(
@@ -1309,7 +1389,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             (),
             {
                 "sumstats_sources": ["a.sumstats.gz", "b.sumstats.gz"],
-                "anchor_trait_file": None,
+                "anchor_trait": None,
                 "ldscore_dir": "ldscores",
                 "count_kind": "common",
                 "output_dir": None,
@@ -1352,7 +1432,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                 (),
                 {
                     "sumstats_sources": [str(tmpdir / "a.sumstats.gz"), str(tmpdir / "b.sumstats.gz")],
-                    "anchor_trait_file": None,
+                    "anchor_trait": None,
                     "ldscore_dir": str(ldscore_dir),
                     "count_kind": "common",
                     "output_dir": None,
@@ -1374,6 +1454,101 @@ class RegressionWorkflowTest(unittest.TestCase):
 
         self.assertIs(result, expected)
         self.assertEqual(stdout.getvalue(), "")
+
+    def test_run_rg_from_args_recovers_metadata_labels_and_resolves_anchor_by_trait_name(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            set_global_config(GlobalConfig(snp_identifier="rsid"))
+            for stem, trait_name in (("a", "MDD"), ("b", "SCZ")):
+                with gzip.open(tmpdir / f"{stem}.sumstats.gz", "wt", encoding="utf-8") as handle:
+                    handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
+                (tmpdir / f"{stem}.metadata.json").write_text(
+                    json.dumps(
+                        {
+                            "format": "ldsc.sumstats.v1",
+                            "trait_name": trait_name,
+                            "snp_identifier": "rsid",
+                            "genome_build": None,
+                            "config_snapshot": {"snp_identifier": "rsid", "genome_build": None},
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+            ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
+            expected = regression_runner.RgResultFamily(
+                rg=pd.DataFrame(),
+                rg_full=pd.DataFrame(),
+                h2_per_trait=pd.DataFrame(),
+                per_pair_metadata=[],
+            )
+            args = type(
+                "Args",
+                (),
+                {
+                    "sumstats_sources": [str(tmpdir / "a.sumstats.gz"), str(tmpdir / "b.sumstats.gz")],
+                    "anchor_trait": "SCZ",
+                    "ldscore_dir": str(ldscore_dir),
+                    "count_kind": "common",
+                    "output_dir": None,
+                    "overwrite": False,
+                    "write_per_pair_detail": False,
+                    "n_blocks": 200,
+                    "no_intercept": False,
+                    "intercept_h2": None,
+                    "intercept_gencov": None,
+                    "two_step_cutoff": None,
+                    "chisq_max": None,
+                    "log_level": "INFO",
+                },
+            )()
+
+            with mock.patch.object(RegressionRunner, "estimate_rg_pairs", return_value=expected) as patched:
+                result = regression_runner.run_rg_from_args(args)
+
+        self.assertIs(result, expected)
+        tables = patched.call_args.args[0]
+        self.assertEqual([table.trait_name for table in tables], ["MDD", "SCZ"])
+        self.assertEqual(patched.call_args.kwargs["anchor_index"], 1)
+
+    def test_run_rg_from_args_resolves_anchor_by_path_when_no_trait_name_matches(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            set_global_config(GlobalConfig(snp_identifier="rsid"))
+            for name in ("a", "b"):
+                with gzip.open(tmpdir / f"{name}.sumstats.gz", "wt", encoding="utf-8") as handle:
+                    handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
+            ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
+            expected = regression_runner.RgResultFamily(
+                rg=pd.DataFrame(),
+                rg_full=pd.DataFrame(),
+                h2_per_trait=pd.DataFrame(),
+                per_pair_metadata=[],
+            )
+            args = type(
+                "Args",
+                (),
+                {
+                    "sumstats_sources": [str(tmpdir / "a.sumstats.gz"), str(tmpdir / "b.sumstats.gz")],
+                    "anchor_trait": str(tmpdir / "b.sumstats.gz"),
+                    "ldscore_dir": str(ldscore_dir),
+                    "count_kind": "common",
+                    "output_dir": None,
+                    "overwrite": False,
+                    "write_per_pair_detail": False,
+                    "n_blocks": 200,
+                    "no_intercept": False,
+                    "intercept_h2": None,
+                    "intercept_gencov": None,
+                    "two_step_cutoff": None,
+                    "chisq_max": None,
+                    "log_level": "INFO",
+                },
+            )()
+
+            with mock.patch.object(RegressionRunner, "estimate_rg_pairs", return_value=expected) as patched:
+                regression_runner.run_rg_from_args(args)
+
+        self.assertEqual(patched.call_args.kwargs["anchor_index"], 1)
 
     def test_cli_prints_concise_rg_table_only_without_output_dir(self):
         expected = type(
@@ -1516,6 +1691,57 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertEqual(writer.call_args.kwargs["metadata"]["count_kind"], "common")
         self.assertEqual(writer.call_args.kwargs["metadata"]["trait_name"], "trait")
         self.assertEqual(summary.loc[0, "Category"], "query")
+
+    def test_run_partitioned_h2_from_args_uses_metadata_trait_name_when_cli_label_is_omitted(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            set_global_config(GlobalConfig(snp_identifier="rsid"))
+            with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
+                handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
+            (tmpdir / "trait.metadata.json").write_text(
+                json.dumps(
+                    {
+                        "format": "ldsc.sumstats.v1",
+                        "trait_name": "MDD",
+                        "snp_identifier": "rsid",
+                        "genome_build": None,
+                        "config_snapshot": {"snp_identifier": "rsid", "genome_build": None},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
+            output_dir = tmpdir / "out"
+            args = type(
+                "Args",
+                (),
+                {
+                    "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
+                    "trait_name": None,
+                    "ldscore_dir": str(ldscore_dir),
+                    "count_kind": "common",
+                    "output_dir": str(output_dir),
+                    "overwrite": False,
+                    "n_blocks": 200,
+                    "no_intercept": False,
+                    "intercept_h2": None,
+                    "two_step_cutoff": None,
+                    "chisq_max": None,
+                    "write_per_query_results": True,
+                },
+            )()
+
+            with mock.patch.object(
+                regression_runner.RegressionRunner,
+                "estimate_partitioned_h2_batch",
+                return_value=pd.DataFrame([{"Category": "query", "Coefficient": 1.0}]),
+            ), mock.patch.object(
+                regression_runner.PartitionedH2DirectoryWriter,
+                "write",
+            ) as writer:
+                regression_runner.run_partitioned_h2_from_args(args)
+
+        self.assertEqual(writer.call_args.kwargs["metadata"]["trait_name"], "MDD")
 
     def test_run_partitioned_h2_from_args_refuses_stale_per_query_tree_without_overwrite(self):
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -52,6 +52,13 @@ class SumstatsMungerTest(unittest.TestCase):
         args = parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--log-level", "DEBUG"])
         self.assertEqual(args.log_level, "DEBUG")
 
+    def test_build_parser_accepts_trait_name(self):
+        parser = sumstats_workflow.build_parser()
+
+        args = parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--trait-name", "MDD"])
+
+        self.assertEqual(args.trait_name, "MDD")
+
     def test_build_parser_accepts_daner_old_and_new_not_legacy_flags(self):
         parser = sumstats_workflow.build_parser()
 
@@ -117,6 +124,8 @@ class SumstatsMungerTest(unittest.TestCase):
                 "DEBUG",
                 "--snp-identifier",
                 "rsid",
+                "--trait-name",
+                " MDD ",
             ]
         )
 
@@ -126,6 +135,7 @@ class SumstatsMungerTest(unittest.TestCase):
         self.assertIs(result, mock.sentinel.table)
         raw_config, run_config, global_config = patched.call_args.args
         self.assertEqual(raw_config.raw_sumstats_file, "raw.tsv")
+        self.assertEqual(raw_config.trait_name, "MDD")
         self.assertEqual(raw_config.column_hints, {"snp": "variant_id", "chr": "chrom", "pos": "bp"})
         self.assertEqual(run_config.output_dir, "out")
         self.assertEqual(run_config.sumstats_snps_file, "keep.tsv")
@@ -200,6 +210,74 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(table.data.columns.tolist(), ["SNP", "N", "Z"])
             self.assertEqual(table.data.loc[0, "SNP"], "rs1")
 
+    def test_load_sumstats_recovers_trait_name_from_sidecar(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            sumstats_file = tmpdir / "trait.sumstats.gz"
+            with gzip.open(sumstats_file, "wt", encoding="utf-8") as handle:
+                handle.write("SNP\tZ\tN\nrs1\t1.5\t1000\n")
+            (tmpdir / "trait.metadata.json").write_text(
+                json.dumps(
+                    {
+                        "format": "ldsc.sumstats.v1",
+                        "trait_name": "MDD",
+                        "snp_identifier": "rsid",
+                        "genome_build": None,
+                        "config_snapshot": {"snp_identifier": "rsid", "genome_build": None},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            table = ldsc.load_sumstats(sumstats_file)
+
+            self.assertEqual(table.trait_name, "MDD")
+
+    def test_load_sumstats_explicit_trait_name_overrides_sidecar(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            sumstats_file = tmpdir / "trait.sumstats.gz"
+            with gzip.open(sumstats_file, "wt", encoding="utf-8") as handle:
+                handle.write("SNP\tZ\tN\nrs1\t1.5\t1000\n")
+            (tmpdir / "trait.metadata.json").write_text(
+                json.dumps(
+                    {
+                        "format": "ldsc.sumstats.v1",
+                        "trait_name": "MDD",
+                        "snp_identifier": "rsid",
+                        "genome_build": None,
+                        "config_snapshot": {"snp_identifier": "rsid", "genome_build": None},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            table = ldsc.load_sumstats(sumstats_file, trait_name=" SCZ ")
+
+            self.assertEqual(table.trait_name, "SCZ")
+
+    def test_load_sumstats_rejects_blank_sidecar_trait_name(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            sumstats_file = tmpdir / "trait.sumstats.gz"
+            with gzip.open(sumstats_file, "wt", encoding="utf-8") as handle:
+                handle.write("SNP\tZ\tN\nrs1\t1.5\t1000\n")
+            (tmpdir / "trait.metadata.json").write_text(
+                json.dumps(
+                    {
+                        "format": "ldsc.sumstats.v1",
+                        "trait_name": " ",
+                        "snp_identifier": "rsid",
+                        "genome_build": None,
+                        "config_snapshot": {"snp_identifier": "rsid", "genome_build": None},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "trait_name"):
+                ldsc.load_sumstats(sumstats_file)
+
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
     def test_load_sumstats_reads_parquet_with_exact_one_glob_and_sidecar(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -262,6 +340,8 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertTrue(output["CHR"].isna().all())
             self.assertTrue(output["POS"].isna().all())
             self.assertTrue((tmpdir / "munged" / "sumstats.metadata.json").exists())
+            metadata = json.loads((tmpdir / "munged" / "sumstats.metadata.json").read_text(encoding="utf-8"))
+            self.assertEqual(metadata["trait_name"], "trait")
             summary = munger.build_run_summary(table)
             self.assertEqual(summary.n_retained_rows, 2)
             self.assertIn("sumstats_parquet", summary.output_paths)
@@ -293,6 +373,7 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(output.columns.tolist(), ["SNP", "CHR", "POS", "A1", "A2", "Z", "N"])
             metadata = json.loads((tmpdir / "munged" / "sumstats.metadata.json").read_text(encoding="utf-8"))
             self.assertEqual(metadata["output_format"], "tsv.gz")
+            self.assertEqual(metadata["trait_name"], "trait")
             self.assertEqual(metadata["sumstats_file"], str(tmpdir / "munged" / "sumstats.sumstats.gz"))
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")

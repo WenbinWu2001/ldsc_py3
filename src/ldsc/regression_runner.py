@@ -1290,9 +1290,9 @@ def add_rg_arguments(parser) -> None:
         ),
     )
     parser.add_argument(
-        "--anchor-trait-file",
+        "--anchor-trait",
         default=None,
-        help="Optional anchor sumstats file or trait name; compute only anchor-vs-rest correlations.",
+        help="Optional anchor trait name or sumstats file path; compute only anchor-vs-rest correlations.",
     )
     parser.add_argument(
         "--write-per-pair-detail",
@@ -1419,7 +1419,7 @@ def run_rg_from_args(args):
     ----------
     args : argparse.Namespace
         Parsed rg options. Required fields are ``sumstats_sources`` and
-        ``ldscore_dir``. Optional fields include ``anchor_trait_file``,
+        ``ldscore_dir``. Optional fields include ``anchor_trait``,
         ``output_dir``, ``write_per_pair_detail``, intercept settings, and
         common regression options.
 
@@ -1456,7 +1456,7 @@ def run_rg_from_args(args):
         print_global_config_banner("run_rg_from_args", runner.global_config)
         log_inputs(
             sumstats_sources=[str(path) for path in sumstats_paths],
-            anchor_trait_file=getattr(args, "anchor_trait_file", None) or "none",
+            anchor_trait=getattr(args, "anchor_trait", None) or "none",
             ldscore_dir=args.ldscore_dir,
             output_dir=output_dir or "none",
         )
@@ -1466,7 +1466,7 @@ def run_rg_from_args(args):
         )
         sumstats_tables = [_load_sumstats_table(str(path), None) for path in sumstats_paths]
         sumstats_tables = _disambiguate_trait_names(sumstats_tables)
-        anchor_index = _resolve_anchor_index(getattr(args, "anchor_trait_file", None), sumstats_paths, sumstats_tables)
+        anchor_index = _resolve_anchor_index(getattr(args, "anchor_trait", None), sumstats_paths, sumstats_tables)
         ldscore_result = load_ldscore_from_dir(args.ldscore_dir)
         with suppress_global_config_banner():
             result = runner.estimate_rg_pairs(
@@ -1595,32 +1595,39 @@ def _disambiguate_trait_names(tables: Sequence[SumstatsTable]) -> list[SumstatsT
 
 
 def _resolve_anchor_index(
-    anchor_trait_file: str | None,
+    anchor_trait: str | None,
     sumstats_paths: Sequence[str],
     sumstats_tables: Sequence[SumstatsTable],
 ) -> int | None:
-    """Resolve ``--anchor-trait-file`` against source paths or trait names."""
-    if not anchor_trait_file:
+    """Resolve ``--anchor-trait`` by trait label first, then source path."""
+    if not anchor_trait:
         return None
-    token = normalize_path_token(anchor_trait_file)
-    matches: set[int] = set()
+    token = normalize_path_token(anchor_trait)
+    trait_matches = {idx for idx, table in enumerate(sumstats_tables) if table.trait_name == token}
+    if len(trait_matches) == 1:
+        return next(iter(trait_matches))
+    if len(trait_matches) > 1:
+        available = [table.trait_name or Path(path).name for table, path in zip(sumstats_tables, sumstats_paths)]
+        raise ValueError(
+            f"--anchor-trait must match exactly one trait name or input path; "
+            f"got {len(trait_matches)} trait-name matches for {anchor_trait!r}. Available traits: {available}"
+        )
+
+    path_matches: set[int] = set()
     try:
         anchor_path = Path(token).resolve(strict=False)
         for idx, path in enumerate(sumstats_paths):
             if Path(path).resolve(strict=False) == anchor_path:
-                matches.add(idx)
+                path_matches.add(idx)
     except OSError:
         pass
-    for idx, table in enumerate(sumstats_tables):
-        if table.trait_name == token:
-            matches.add(idx)
-    if len(matches) != 1:
+    if len(path_matches) != 1:
         available = [table.trait_name or Path(path).name for table, path in zip(sumstats_tables, sumstats_paths)]
         raise ValueError(
-            f"--anchor-trait-file must match exactly one input path or trait name; "
-            f"got {len(matches)} matches for {anchor_trait_file!r}. Available traits: {available}"
+            f"--anchor-trait must match exactly one trait name or input path; "
+            f"got {len(path_matches)} path matches for {anchor_trait!r}. Available traits: {available}"
         )
-    return next(iter(matches))
+    return next(iter(path_matches))
 
 
 def _runner_from_args(args) -> tuple[RegressionRunner, RegressionConfig]:

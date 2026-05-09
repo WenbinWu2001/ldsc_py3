@@ -235,6 +235,7 @@ instead of `ldsc partitioned-h2`.
 ```bash
 ldsc munge-sumstats \
   --raw-sumstats-file data/trait.tsv.gz \
+  --trait-name trait \
   --snp ID \
   --chr '#CHROM' \
   --pos POS \

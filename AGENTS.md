@@ -138,7 +138,7 @@ citation to the source location (e.g., "Section 3.2", "Table 1", "Appendix A").
 
 # Skill Usage Policy
 
-Do NOT invoke `superpowers:using-superpowers`. It is disabled for this project. Do not invoke it proactively, reactively, or at the start of any conversation. Individual superpowers skills may be used normally when relevant, including: `superpowers:brainstorming`, `superpowers:writing-plans`, `superpowers:executing-plans`, `superpowers:systematic-debugging`, `superpowers:verification-before-completion`, `superpowers:test-driven-development`.
+`superpowers:using-superpowers` should only be invoked for non-trivial tasks. Individual superpowers skills may be used normally when relevant, including: `superpowers:brainstorming`, `superpowers:writing-plans`, `superpowers:executing-plans`, `superpowers:systematic-debugging`, `superpowers:verification-before-completion`, `superpowers:test-driven-development`.
 
 No need to invoke skills for trivial tasks (simple typo fixes, obvious one-liners).
 

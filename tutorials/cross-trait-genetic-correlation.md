@@ -53,6 +53,8 @@ trait_1 = SumstatsMunger().run(
         trait_name="trait_1",
         column_hints={"snp": "SNP", "a1": "A1", "a2": "A2", "p": "P", "N_col": "N"},
         # sumstats_snps_file="filters/hapmap3.tsv.gz",  # optional row keep-list
+        # target_genome_build="hg38",
+        # use_hm3_quick_liftover=True,
         output_dir="tutorial_outputs/trait_1",
         signed_sumstats_spec="BETA,0",
         # overwrite=True,  # also removes stale unselected sumstats sibling formats
@@ -66,6 +68,8 @@ trait_2 = SumstatsMunger().run(
         trait_name="trait_2",
         column_hints={"snp": "SNP", "a1": "A1", "a2": "A2", "p": "P", "N_col": "N"},
         # sumstats_snps_file="filters/hapmap3.tsv.gz",  # optional row keep-list
+        # target_genome_build="hg38",
+        # use_hm3_quick_liftover=True,
         output_dir="tutorial_outputs/trait_2",
         signed_sumstats_spec="BETA,0",
         # overwrite=True,  # also removes stale unselected sumstats sibling formats
@@ -105,7 +109,10 @@ before regression. Current disk artifacts recover that snapshot from
 `sumstats.metadata.json`; older `.sumstats.gz` files without the sidecar have
 unknown provenance and skip sumstats-side compatibility validation rather than
 fabricating a snapshot. In `chr_pos` mode, both trait tables and the LD-score
-table merge by normalized `CHR:POS` coordinates.
+table merge by normalized `CHR:POS` coordinates, and `SNP` is treated as a
+label. Optional munger liftover is valid only in `chr_pos` mode; use
+`target_genome_build` with either a chain file or HM3 quick liftover when both
+traits need to be converted to the LD-score build.
 
 ## CLI
 

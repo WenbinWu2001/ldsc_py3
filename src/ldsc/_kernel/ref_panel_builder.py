@@ -23,6 +23,7 @@ from ..column_inference import (
 )
 from ..errors import LDSCDependencyError
 from .identifiers import build_snp_id_series
+from .liftover import LiftOverMappingResult, LiftOverTranslator
 
 
 GENETIC_MAP_CM_SPEC = ColumnSpec(
@@ -53,17 +54,6 @@ def _empty_standard_r2_table() -> pd.DataFrame:
         },
         columns=_STANDARD_R2_COLUMNS,
     )
-
-
-@dataclass(frozen=True)
-class LiftOverMappingResult:
-    """Partial liftover result for one chromosome."""
-
-    translated_positions: np.ndarray
-    keep_mask: np.ndarray
-    unmapped_count: int
-    cross_chrom_count: int
-
 
 def _open_text(path: str | PathLike[str]):
     """Open a plain-text or gzip-compressed text file for reading."""
@@ -97,14 +87,6 @@ def _read_non_comment_lines(path: str | PathLike[str], limit: int = 5) -> list[s
 def _normalize_map_chromosome(value: object) -> str:
     """Normalize one genetic-map chromosome label to the package canon."""
     return normalize_chromosome(value)
-
-
-def _try_normalize_map_chromosome(value: object) -> str | None:
-    """Normalize a liftover hit chromosome, ignoring unsupported auxiliary contigs."""
-    try:
-        return _normalize_map_chromosome(value)
-    except ValueError:
-        return None
 
 
 def _chrom_sort_key(chrom: object) -> tuple[int, object]:
@@ -718,97 +700,6 @@ def write_runtime_metadata_sidecar(df: pd.DataFrame, path: str | PathLike[str]) 
     with gzip.open(path, "wt", encoding="utf-8") as handle:
         df.to_csv(handle, sep="\t", index=False, na_rep="NA", float_format="%.6g")
     return str(path)
-
-
-class LiftOverTranslator:
-    """Translate one chromosome's 1-based positions between explicit genome-build chain files."""
-
-    def __init__(
-        self,
-        *,
-        source_build: str,
-        target_build: str,
-        chain_path: str | PathLike[str] | None = None,
-    ) -> None:
-        """Initialize a build-to-build position translator for one run."""
-        self.source_build = source_build
-        self.target_build = target_build
-        self.chain_path = None if chain_path is None else Path(chain_path)
-        if source_build == target_build:
-            self._identity = True
-            self._liftover = None
-            return
-        self._identity = False
-        if self.chain_path is None:
-            flag = (
-                "--liftover-chain-hg19-to-hg38"
-                if (source_build, target_build) == ("hg19", "hg38")
-                else "--liftover-chain-hg38-to-hg19"
-            )
-            raise ValueError(
-                f"An explicit liftover chain path is required for {source_build} -> {target_build}. "
-                f"Provide it via {flag}."
-            )
-        try:
-            from pyliftover import LiftOver
-        except ImportError as exc:
-            raise LDSCDependencyError(
-                "Building reference panels across hg19/hg38 requires the optional dependency 'pyliftover'."
-            ) from exc
-        self.chain_path = Path(self.chain_path)
-        self._liftover = LiftOver(str(self.chain_path))
-
-    def map_positions(self, chrom: str, positions: Sequence[int] | np.ndarray) -> LiftOverMappingResult:
-        """Translate 1-based positions and retain only same-chromosome mappings."""
-
-        array = np.asarray(positions, dtype=np.int64)
-        if self._identity:
-            return LiftOverMappingResult(
-                translated_positions=array.copy(),
-                keep_mask=np.ones(len(array), dtype=bool),
-                unmapped_count=0,
-                cross_chrom_count=0,
-            )
-        chrom = _normalize_map_chromosome(chrom)
-        query_chrom = f"chr{chrom}"
-        translated = np.zeros(len(array), dtype=np.int64)
-        keep_mask = np.zeros(len(array), dtype=bool)
-        unmapped_count = 0
-        cross_chrom_count = 0
-        for idx, pos in enumerate(array):
-            hits = self._liftover.convert_coordinate(query_chrom, int(pos) - 1)
-            if not hits:
-                unmapped_count += 1
-                continue
-            hit = next(
-                (candidate for candidate in hits if _try_normalize_map_chromosome(candidate[0]) == chrom),
-                None,
-            )
-            if hit is None:
-                cross_chrom_count += 1
-                continue
-            translated[idx] = int(hit[1]) + 1
-            keep_mask[idx] = True
-        return LiftOverMappingResult(
-            translated_positions=translated[keep_mask],
-            keep_mask=keep_mask,
-            unmapped_count=unmapped_count,
-            cross_chrom_count=cross_chrom_count,
-        )
-
-    def translate_positions(self, chrom: str, positions: Sequence[int] | np.ndarray) -> np.ndarray:
-        """Translate 1-based positions and require complete same-chromosome mapping."""
-
-        result = self.map_positions(chrom, positions)
-        if not result.keep_mask.all():
-            failed = np.asarray(positions, dtype=np.int64)[~result.keep_mask]
-            preview = ", ".join(str(int(value)) for value in failed[:5])
-            raise ValueError(
-                f"Failed to liftover {len(failed)} positions on chromosome {chrom} "
-                f"from {self.source_build} to {self.target_build}: {preview}"
-            )
-        return result.translated_positions
-
 
 def build_restriction_mask(metadata: pd.DataFrame, restriction_values: set[str], mode: str) -> np.ndarray:
     """Build the retained-SNP boolean mask for one restriction universe."""

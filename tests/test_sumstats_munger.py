@@ -59,6 +59,39 @@ class SumstatsMungerTest(unittest.TestCase):
 
         self.assertEqual(args.trait_name, "MDD")
 
+    def test_build_parser_accepts_liftover_flags(self):
+        parser = sumstats_workflow.build_parser()
+
+        args = parser.parse_args(
+            [
+                "--raw-sumstats-file",
+                "raw.tsv",
+                "--output-dir",
+                "out",
+                "--target-genome-build",
+                "hg38",
+                "--liftover-chain-file",
+                "hg19ToHg38.over.chain",
+            ]
+        )
+
+        self.assertEqual(args.target_genome_build, "hg38")
+        self.assertEqual(args.liftover_chain_file, "hg19ToHg38.over.chain")
+        self.assertFalse(args.use_hm3_quick_liftover)
+
+        args = parser.parse_args(
+            [
+                "--raw-sumstats-file",
+                "raw.tsv",
+                "--output-dir",
+                "out",
+                "--target-genome-build",
+                "hg38",
+                "--use-hm3-quick-liftover",
+            ]
+        )
+        self.assertTrue(args.use_hm3_quick_liftover)
+
     def test_build_parser_accepts_daner_old_and_new_not_legacy_flags(self):
         parser = sumstats_workflow.build_parser()
 
@@ -148,6 +181,53 @@ class SumstatsMungerTest(unittest.TestCase):
         self.assertFalse(run_config.daner_old)
         self.assertEqual(run_config.output_format, "both")
         self.assertEqual(global_config, GlobalConfig(snp_identifier="rsid", log_level="DEBUG"))
+
+    def test_run_munge_sumstats_from_args_passes_liftover_config_in_chr_pos_mode(self):
+        args = sumstats_workflow.build_parser().parse_args(
+            [
+                "--raw-sumstats-file",
+                "raw.tsv",
+                "--output-dir",
+                "out",
+                "--snp-identifier",
+                "chr_pos",
+                "--genome-build",
+                "hg19",
+                "--target-genome-build",
+                "hg38",
+                "--use-hm3-quick-liftover",
+            ]
+        )
+
+        with mock.patch.object(SumstatsMunger, "run", return_value=mock.sentinel.table) as patched:
+            result = sumstats_workflow.run_munge_sumstats_from_args(args)
+
+        self.assertIs(result, mock.sentinel.table)
+        raw_config, run_config, global_config = patched.call_args.args
+        self.assertEqual(raw_config.raw_sumstats_file, "raw.tsv")
+        self.assertEqual(run_config.target_genome_build, "hg38")
+        self.assertTrue(run_config.use_hm3_quick_liftover)
+        self.assertIsNone(run_config.liftover_chain_file)
+        self.assertEqual(global_config, GlobalConfig(snp_identifier="chr_pos", genome_build="hg19"))
+
+    def test_munge_config_validates_liftover_flags(self):
+        config = MungeConfig(
+            output_dir="out",
+            target_genome_build="GRCh38",
+            liftover_chain_file=Path("liftover") / "hg19ToHg38.over.chain",
+        )
+        self.assertEqual(config.target_genome_build, "hg38")
+        self.assertEqual(config.liftover_chain_file, "liftover/hg19ToHg38.over.chain")
+
+        with self.assertRaisesRegex(ValueError, "target_genome_build"):
+            MungeConfig(output_dir="out", use_hm3_quick_liftover=True)
+        with self.assertRaisesRegex(ValueError, "mutually exclusive"):
+            MungeConfig(
+                output_dir="out",
+                target_genome_build="hg38",
+                liftover_chain_file="chain.over",
+                use_hm3_quick_liftover=True,
+            )
 
     def test_kernel_reports_actionable_signed_sumstats_format_error(self):
         args = kernel_munge.parser.parse_args(["--signed-sumstats", "BETA"])
@@ -307,6 +387,35 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(table.data.columns.tolist(), ["SNP", "CHR", "POS", "N", "Z"])
             self.assertEqual(table.config_snapshot, GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
             self.assertFalse(any("cannot recover the GlobalConfig" in str(item.message) for item in caught))
+
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
+    def test_load_sumstats_accepts_old_coordinate_metadata_sidecar(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            sumstats_file = tmpdir / "trait.parquet"
+            pd.DataFrame({"SNP": ["rs1"], "CHR": ["1"], "POS": [100], "Z": [1.0], "N": [100.0]}).to_parquet(
+                sumstats_file,
+                index=False,
+            )
+            (tmpdir / "trait.metadata.json").write_text(
+                json.dumps(
+                    {
+                        "format": "ldsc.sumstats.v1",
+                        "snp_identifier": "chr_pos",
+                        "genome_build": "hg38",
+                        "coordinate_metadata": {
+                            "snp_identifier": "chr_pos",
+                            "genome_build": "hg38",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            table = ldsc.load_sumstats(sumstats_file)
+
+            self.assertEqual(table.config_snapshot, GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
+            self.assertIn("coordinate_provenance", table.provenance["metadata"])
 
     def test_load_sumstats_rejects_unknown_suffix(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -559,6 +668,129 @@ class SumstatsMungerTest(unittest.TestCase):
                     {"chrom": None, "row_group_index": 2, "row_offset": 3, "n_rows": 1},
                 ],
             )
+
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for default parquet output")
+    def test_run_writes_coordinate_provenance_and_noop_liftover_metadata(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text("CHR POS SNP A1 A2 P BETA N\n1 100 rs1 A G 0.05 0.1 1000\n", encoding="utf-8")
+
+            def fake_munge(args, p=False):
+                args._coordinate_metadata = {
+                    "format": "ldsc.sumstats.v1",
+                    "snp_identifier": "chr_pos",
+                    "genome_build": "hg38",
+                    "genome_build_inferred": False,
+                    "coordinate_basis": "1-based",
+                }
+                return pd.DataFrame(
+                    {"SNP": ["rs1"], "CHR": ["1"], "POS": [100], "A1": ["A"], "A2": ["G"], "Z": [1.0], "N": [1000.0]}
+                )
+
+            with mock.patch.object(kernel_munge, "munge_sumstats", side_effect=fake_munge):
+                SumstatsMunger().run(
+                    MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
+                    MungeConfig(output_dir=tmpdir / "munged"),
+                    GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+                )
+
+            metadata = json.loads((tmpdir / "munged" / "sumstats.metadata.json").read_text(encoding="utf-8"))
+            self.assertIn("coordinate_provenance", metadata)
+            self.assertNotIn("coordinate_metadata", metadata)
+            self.assertEqual(metadata["coordinate_provenance"]["genome_build"], "hg38")
+            self.assertEqual(
+                metadata["liftover"],
+                {
+                    "applied": False,
+                    "source_build": "hg38",
+                    "target_build": None,
+                    "method": None,
+                    "chain_file": None,
+                    "hm3_map_file": None,
+                    "n_input": None,
+                    "n_lifted": None,
+                    "n_dropped": None,
+                    "n_unmapped": None,
+                    "n_cross_chrom": None,
+                    "n_duplicate_target_dropped": None,
+                },
+            )
+
+    def test_run_rejects_liftover_request_in_rsid_mode_before_kernel_call(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text("SNP A1 A2 P BETA N\nrs1 A G 0.05 0.1 1000\n", encoding="utf-8")
+
+            with mock.patch.object(kernel_munge, "munge_sumstats", side_effect=AssertionError("kernel should not run")):
+                with self.assertRaisesRegex(ValueError, "liftover.*chr_pos"):
+                    SumstatsMunger().run(
+                        MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
+                        MungeConfig(
+                            output_dir=tmpdir / "munged",
+                            target_genome_build="hg38",
+                            use_hm3_quick_liftover=True,
+                        ),
+                        GlobalConfig(snp_identifier="rsid"),
+                    )
+
+    def test_run_requires_liftover_method_when_target_differs_from_resolved_source(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text("CHR POS SNP A1 A2 P BETA N\n1 100 rs1 A G 0.05 0.1 1000\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "liftover method"):
+                SumstatsMunger().run(
+                    MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
+                    MungeConfig(output_dir=tmpdir / "munged", target_genome_build="hg38"),
+                    GlobalConfig(snp_identifier="chr_pos", genome_build="hg19"),
+                )
+
+    def test_sumstats_table_uses_chr_pos_identity_when_configured(self):
+        table = sumstats_workflow.SumstatsTable(
+            data=pd.DataFrame(
+                {
+                    "SNP": ["rs_label_1", "1:200"],
+                    "CHR": ["1", "1"],
+                    "POS": [100, 200],
+                    "Z": [1.0, 2.0],
+                    "N": [100.0, 100.0],
+                }
+            ),
+            has_alleles=False,
+            source_path=None,
+            trait_name="trait",
+            config_snapshot=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+        )
+        metadata = pd.DataFrame({"SNP": ["different_2", "different_1"], "CHR": ["1", "1"], "POS": [200, 100]})
+
+        self.assertEqual(table.snp_identifiers().tolist(), ["1:100", "1:200"])
+        self.assertEqual(table.subset_to({"1:200"}).data["SNP"].tolist(), ["1:200"])
+        self.assertEqual(table.align_to_metadata(metadata).data["SNP"].tolist(), ["1:200", "rs_label_1"])
+
+    def test_sumstats_table_unknown_config_defaults_to_chr_pos_identity(self):
+        table = sumstats_workflow.SumstatsTable(
+            data=pd.DataFrame(
+                {
+                    "SNP": ["rs_label_1", "1:200"],
+                    "CHR": ["1", "1"],
+                    "POS": [100, 200],
+                    "Z": [1.0, 2.0],
+                    "N": [100.0, 100.0],
+                }
+            ),
+            has_alleles=False,
+            source_path=None,
+            trait_name="trait",
+            config_snapshot=None,
+        )
+        metadata = pd.DataFrame({"SNP": ["different_2", "different_1"], "CHR": ["1", "1"], "POS": [200, 100]})
+
+        self.assertEqual(table.snp_identifiers().tolist(), ["1:100", "1:200"])
+        self.assertEqual(table.subset_to({"1:200"}).data["SNP"].tolist(), ["1:200"])
+        self.assertEqual(table.align_to_metadata(metadata).data["SNP"].tolist(), ["1:200", "rs_label_1"])
 
     def test_run_accepts_merged_munge_config(self):
         with tempfile.TemporaryDirectory() as tmpdir:

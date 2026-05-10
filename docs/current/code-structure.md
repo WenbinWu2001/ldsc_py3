@@ -47,6 +47,7 @@ ldsc_py3_Jerry/
 | `ldsc.column_inference` | resolve header aliases and normalize identifier/build tokens |
 | `ldsc.chromosome_inference` | canonical chromosome normalization and ordering |
 | `ldsc.genome_build_inference` | public `chr_pos` build and coordinate-basis inference helpers |
+| `ldsc._kernel.liftover` | shared hg19/hg38 liftover helpers, chain-file translation, and curated HM3 dual-build map loading |
 | `ldsc.annotation_builder` | public annotation workflow: CLI args, parser entry point, path resolution, bundle loading, BED projection, and query `.annot.gz` writing |
 | `ldsc.ref_panel_builder` | parquet reference-panel build workflow |
 | `ldsc.ldscore_calculator` | LD-score orchestration, optional synthetic `base` annotation construction, aggregation, and output routing |
@@ -57,7 +58,7 @@ ldsc_py3_Jerry/
 | `ldsc._kernel.ref_panel_builder` | optional genetic-map parsing, optional liftover, parquet schemas, pairwise LD emission |
 | `ldsc._kernel.ref_panel` | runtime PLINK/parquet reference-panel adapters |
 | `ldsc._kernel.ldscore` | LD-score math and legacy-compatible computation helpers |
-| `ldsc._kernel.sumstats_munger` | legacy-compatible raw summary-statistics QC, normalization, and `.sumstats.gz` writing without public CLI or log-file ownership |
+| `ldsc._kernel.sumstats_munger` | legacy-compatible raw summary-statistics QC, normalization, optional coordinate liftover, and `.sumstats.gz` writing without public CLI or log-file ownership |
 | `ldsc._kernel.regression` | LDSC estimators for `Hsq` and `RG` |
 | `ldsc._kernel._jackknife`, `ldsc._kernel._irwls` | supporting numerical routines used by regression |
 | `ldsc._kernel.formats`, `ldsc._kernel.identifiers` | file-format readers and SNP identifier helpers |

@@ -129,6 +129,11 @@ adding coordinates. Pairwise R2 uses the documented pairwise coordinate
 variant. Public LD-score result tables currently use **(CHR, SNP, POS, ...)** to
 match `LDScoreResult` and regression-loader validation.
 
+Column order does not define row identity. In `rsid` mode, `SNP` is the
+identifier. In `chr_pos` mode, `SNP` is only a label and matching uses `CHR` and
+`POS`; munger liftover updates those coordinate columns without rewriting
+`SNP`.
+
 This applies to artifacts **written by this package**. External input files
 (user-supplied annotation files, the hm3 curated map, PLINK BIM files, etc.) are
 normalized on read regardless of their on-disk column order; the input order is

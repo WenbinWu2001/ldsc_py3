@@ -724,7 +724,7 @@ def _effective_snp_identifier_mode(
         value = getattr(snapshot, "snp_identifier", None)
         if value is not None:
             return normalize_snp_identifier_mode(value)
-    return "rsid"
+    return "chr_pos"
 
 
 def _coordinate_missing_mask(series: pd.Series) -> pd.Series:
@@ -797,6 +797,7 @@ def _assemble_regression_ldscore_table(ldscore_result: LDScoreResult, query_colu
         baseline_table,
         query_table,
         context="query rows must match baseline rows on CHR/SNP/POS",
+        snp_identifier=getattr(ldscore_result.config_snapshot, "snp_identifier", "chr_pos"),
     )
     return pd.concat([baseline_table, query_table.loc[:, list(query_columns)]], axis=1)
 
@@ -1667,7 +1668,7 @@ def load_ldscore_from_dir(
     snp_identifier : {"rsid", "chr_pos"} or None, optional
         Identifier mode used to reconstruct the public regression SNP set from
         the baseline table. When omitted, the manifest value is used, falling
-        back to ``"rsid"`` for legacy directories.
+        back to the package default ``"chr_pos"`` for legacy directories.
 
     Returns
     -------
@@ -1705,7 +1706,7 @@ def load_ldscore_from_dir(
     baseline_columns = [str(column) for column in manifest.get("baseline_columns", [])]
     query_columns = [str(column) for column in manifest.get("query_columns", [])]
     count_records = [dict(record) for record in manifest.get("counts", [])]
-    effective_identifier = snp_identifier or manifest.get("snp_identifier") or "rsid"
+    effective_identifier = snp_identifier or manifest.get("snp_identifier") or "chr_pos"
     config_snapshot = _global_config_from_manifest(manifest)
     result = LDScoreResult(
         baseline_table=baseline_table,
@@ -1744,7 +1745,7 @@ def _global_config_from_manifest(manifest: dict[str, Any]) -> GlobalConfig | Non
         )
         return None
     try:
-        _recovered_snp = snapshot.get("snp_identifier") or manifest.get("snp_identifier") or "rsid"
+        _recovered_snp = snapshot.get("snp_identifier") or manifest.get("snp_identifier") or "chr_pos"
         return GlobalConfig(
             snp_identifier=_recovered_snp,
             genome_build=(

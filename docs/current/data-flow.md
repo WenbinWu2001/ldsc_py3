@@ -280,7 +280,13 @@ sidecar, and curated output writing; the kernel keeps the low-level parsing and
 QC. Default output is `sumstats.parquet`; `--output-format tsv.gz` or `both`
 also supports the legacy `sumstats.sumstats.gz` artifact. With overwrite
 enabled, stale sibling formats not produced by the current run are removed
-after successful writes.
+after successful writes. Optional sumstats liftover is a `chr_pos`-only step:
+the source build comes from `GlobalConfig.genome_build` or munger build
+inference, `--sumstats-snps-file` is interpreted in that source build before
+liftover, and `--target-genome-build` must be paired with exactly one method
+when the target differs from the source. Chain-file liftover uses
+`--liftover-chain-file`; HM3 quick liftover uses the packaged curated
+`hm3_curated_map.tsv.gz` and is coordinate-only, so it never rewrites `SNP`.
 
 ### Required inputs
 
@@ -289,6 +295,7 @@ after successful writes.
 | raw sumstats | `#CHROM POS ID EA NEA PVAL BETA NEFF`<br/>`1 754182 rs3131969 A G 0.46 0.004 829249.58` | leading `##` metadata lines are skipped; header aliases are normalized in the workflow layer |
 | DANER raw sumstats, optional schema mode | old: `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` headers with `--daner-old`<br/>new: exact `Nca` and `Nco` columns with `--daner-new` | these flags change only schema interpretation; physical reading still uses the same whitespace text reader |
 | sumstats SNP keep-list, optional | headered `SNP` or `CHR`/`POS` restriction file | optional row filter; does not allele-match or reorder rows |
+| sumstats liftover method, optional | `--target-genome-build hg38 --liftover-chain-file hg19ToHg38.over.chain` or `--target-genome-build hg38 --use-hm3-quick-liftover` | valid only when `snp_identifier=chr_pos`; updates `CHR`/`POS` after keep-list filtering and preserves `SNP` labels |
 | column hints, optional | `--snp ID --chr '#CHROM' --pos POS --a1 EA --a2 NEA` | useful when headers are ambiguous; `CHR` and `POS` also infer from common aliases |
 
 ### Flow
@@ -311,9 +318,10 @@ flowchart LR
   subgraph K4[Kernel (private)<br/>ldsc._kernel.sumstats_munger]
     D5[QC and infer columns]
     D6[Compute Z/N<br/>Finalize CHR/POS]
+    D7[Optional source-to-target liftover<br/>drop unmapped and duplicate targets]
   end
 
-  I1 --> D1 --> D2 --> D3 --> D5 --> D6 --> D4
+  I1 --> D1 --> D2 --> D3 --> D5 --> D6 --> D7 --> D4
   I2 --> D2
   D4 --> O4[sumstats.parquet by default<br/>optional sumstats.sumstats.gz + log + metadata JSON]
 ```
@@ -324,13 +332,13 @@ flowchart LR
 | --- | --- | --- |
 | curated sumstats | `SNP CHR POS A1 A2 Z N`<br/>`rs3131969 1 754182 A G 0.74 829249.58` | written as `sumstats.parquet` by default under `output_dir`; `--output-format tsv.gz` writes legacy `sumstats.sumstats.gz`, and `both` writes both; `CHR`/`POS` are present and may be missing when absent from raw input; optional `FRQ` may also be present |
 | log file | plain-text lifecycle and QC log | workflow-owned `sumstats.log` under `output_dir`, populated from package logger messages emitted during kernel QC; excluded from `MungeRunSummary.output_paths` |
-| metadata sidecar | JSON with `snp_identifier`, nullable `genome_build`, optional `trait_name`, coordinate columns, curated output files, parquet row groups, and build-inference details | written as `sumstats.metadata.json` under `output_dir`; used by `load_sumstats()` to recover config provenance and trait labels; `output_files` does not include `sumstats.log` |
+| metadata sidecar | JSON with `snp_identifier`, nullable output `genome_build`, optional `trait_name`, `coordinate_provenance`, `liftover`, curated output files, parquet row groups, and build-inference details | written as `sumstats.metadata.json` under `output_dir`; used by `load_sumstats()` to recover config provenance and trait labels; `output_files` does not include `sumstats.log`; old sidecars with `coordinate_metadata` still load |
 
 ### Modules used
 
 - Preprocessing: `ldsc.config`, `ldsc.path_resolution`, `ldsc.column_inference`
 - Workflow: `ldsc.sumstats_munger`
-- Kernel: `ldsc._kernel.sumstats_munger`
+- Kernel: `ldsc._kernel.sumstats_munger`, `ldsc._kernel.liftover`
 - Postprocessing: workflow-owned Parquet/TSV writing, log, and metadata writing
 
 ## 5. `h2`, `partitioned-h2`, and `rg`: Curated Artifacts To Regression Summaries

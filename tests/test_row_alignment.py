@@ -35,13 +35,40 @@ class RowAlignmentTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "test rows.*row 0"):
             assert_same_snp_rows(self.make_rows(), right, context="test rows")
 
-    def test_identity_column_mismatch_fails(self):
-        for column, value in (("CHR", "2"), ("SNP", "rs9"), ("POS", 99)):
+    def test_default_chr_pos_identity_column_mismatch_fails(self):
+        for column, value in (("CHR", "2"), ("POS", 99)):
             right = self.make_rows()
             right.loc[0, column] = value
             with self.subTest(column=column):
                 with self.assertRaisesRegex(ValueError, f"test rows.*{column}"):
                     assert_same_snp_rows(self.make_rows(), right, context="test rows")
+
+    def test_default_chr_pos_identity_ignores_snp_label_mismatch(self):
+        right = self.make_rows()
+        right.loc[0, "SNP"] = "rs9"
+
+        assert_same_snp_rows(self.make_rows(), right, context="test rows")
+
+    def test_explicit_rsid_identity_rejects_snp_label_mismatch(self):
+        right = self.make_rows()
+        right.loc[0, "SNP"] = "rs9"
+
+        with self.assertRaisesRegex(ValueError, "test rows.*SNP"):
+            assert_same_snp_rows(self.make_rows(), right, context="test rows", snp_identifier="rsid")
+
+    def test_chr_pos_mode_ignores_snp_label_mismatch(self):
+        right = self.make_rows()
+        right["SNP"] = ["ld_rs1", "ld_rs2"]
+
+        assert_same_snp_rows(self.make_rows(), right, context="test rows", snp_identifier="chr_pos")
+
+    def test_chr_pos_mode_still_rejects_coordinate_mismatch(self):
+        right = self.make_rows()
+        right["SNP"] = ["ld_rs1", "ld_rs2"]
+        right.loc[0, "POS"] = 99
+
+        with self.assertRaisesRegex(ValueError, "test rows.*POS"):
+            assert_same_snp_rows(self.make_rows(), right, context="test rows", snp_identifier="chr_pos")
 
     def test_float_metadata_within_float16_epsilon_passes(self):
         right = self.make_rows()

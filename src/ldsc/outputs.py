@@ -304,6 +304,7 @@ class LDScoreDirectoryWriter:
             baseline_table,
             query_table,
             context="query rows must match baseline rows on CHR/SNP/POS",
+            snp_identifier=getattr(getattr(result, "config_snapshot", None), "snp_identifier", "chr_pos"),
         )
 
 

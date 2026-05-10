@@ -590,6 +590,7 @@ class AnnotationBuilder:
             reference,
             current,
             context=f"Annotation SNP rows do not match across files: {path}",
+            snp_identifier=self.global_config.snp_identifier,
         )
 
     def _merge_missing_metadata(self, reference: pd.DataFrame, current: pd.DataFrame) -> pd.DataFrame:

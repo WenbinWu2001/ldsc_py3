@@ -109,7 +109,11 @@ munged run also writes `sumstats.metadata.json` beside the selected artifact(s)
 so later regression commands can recover `snp_identifier`, `genome_build`, and
 optional `--trait-name` provenance. Use `--sumstats-snps-file` when the munged artifact should be
 restricted to a headered SNP keep-list; this filter keeps matching rows only and
-does not allele-match or reorder the output.
+does not allele-match or reorder the output. In `chr_pos` mode, `SNP` is a
+label; matching uses `CHR` and `POS`. To convert coordinates after QC and after
+`--sumstats-snps-file`, pass `--target-genome-build` with either
+`--liftover-chain-file` or `--use-hm3-quick-liftover`. Liftover is invalid in
+`rsid` mode because positions are not the row identity there.
 
 Artifact-writing workflows also write per-run logs under their output
 directories. `munge-sumstats` keeps the historical `sumstats.log` name; other

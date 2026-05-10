@@ -96,6 +96,14 @@ LDScoreResult: 'hg38' vs 'hg19'. These objects were computed under different
 assumptions and cannot be safely merged.
 ```
 
+For regression merges, the active SNP identifier mode is resolved in this order:
+`LDScoreResult.config_snapshot.snp_identifier`, then
+`SumstatsTable.config_snapshot.snp_identifier`, then the runner's active
+`GlobalConfig.snp_identifier`, then the package default `chr_pos`. Disk-loaded
+LD-score artifacts therefore use their manifest provenance when present; if old
+manifests omit SNP-identifier provenance entirely, regression defaults to
+coordinate identity rather than `SNP` labels.
+
 ### 4. The global registry is a convenience default only
 
 `set_global_config()` and `get_global_config()` are retained for notebook UX:
@@ -309,7 +317,12 @@ alongside the written artifacts.
 Curated `sumstats.parquet` and `.sumstats(.gz)` artifacts written by the current
 munger have a neighboring `sumstats.metadata.json` sidecar that records the
 active or inferred `GlobalConfig`, including `snp_identifier` and
-`genome_build`. The loader uses that sidecar to populate `config_snapshot`.
+the output `genome_build`. New sidecars also include `coordinate_provenance`
+for debugging raw-coordinate inference and a top-level `liftover` block that
+records whether `CHR`/`POS` were converted, the source/target builds, method,
+and drop counts. The loader uses that sidecar to populate `config_snapshot`.
+Older sidecars that used `coordinate_metadata` instead of
+`coordinate_provenance` remain loadable.
 Older artifacts without the sidecar still emit a warning and load with
 `config_snapshot=None`.
 

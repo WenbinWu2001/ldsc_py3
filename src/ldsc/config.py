@@ -551,6 +551,18 @@ class MungeConfig:
         define retained coordinates. This option restricts rows only; it does
         not allele-match, rewrite alleles, or reorder output. Default is
         ``None``.
+    target_genome_build : {"hg19", "hg37", "GRCh37", "hg38", "GRCh38"} or None, optional
+        Desired output coordinate build for ``chr_pos`` munging. When it
+        differs from the resolved source build, exactly one liftover method is
+        required. Default is ``None``.
+    liftover_chain_file : str or os.PathLike[str] or None, optional
+        Chain file used to convert ``CHR``/``POS`` from the resolved source
+        build to ``target_genome_build``. Mutually exclusive with
+        ``use_hm3_quick_liftover``. Default is ``None``.
+    use_hm3_quick_liftover : bool, optional
+        If ``True``, use the packaged curated dual-build HM3 map for a
+        coordinate-only quick liftover. This is valid only for HM3 rows and is
+        mutually exclusive with ``liftover_chain_file``. Default is ``False``.
     signed_sumstats_spec : str or None, optional
         Signed statistic specification passed through to the legacy kernel.
         Default is ``None``.
@@ -580,6 +592,9 @@ class MungeConfig:
     nstudy_min: float | None = None
     chunk_size: int = 1_000_000
     sumstats_snps_file: str | PathLike[str] | None = None
+    target_genome_build: GenomeBuildInput | None = None
+    liftover_chain_file: str | PathLike[str] | None = None
+    use_hm3_quick_liftover: bool = False
     signed_sumstats_spec: str | None = None
     ignore_columns: tuple[str, ...] = field(default_factory=tuple)
     no_alleles: bool = False
@@ -599,12 +614,21 @@ class MungeConfig:
             raise ValueError("chunk_size must be positive.")
         if self.output_format not in {"parquet", "tsv.gz", "both"}:
             raise ValueError("output_format must be one of 'parquet', 'tsv.gz', or 'both'.")
+        target_genome_build = normalize_genome_build(self.target_genome_build)
+        if target_genome_build == "auto":
+            raise ValueError("target_genome_build must be hg19 or hg38; 'auto' is not a valid liftover target.")
         object.__setattr__(self, "output_dir", _normalize_optional_path(self.output_dir))
         object.__setattr__(self, "raw_sumstats_file", _normalize_optional_path(self.raw_sumstats_file))
         object.__setattr__(self, "sumstats_snps_file", _normalize_optional_path(self.sumstats_snps_file))
+        object.__setattr__(self, "target_genome_build", target_genome_build)
+        object.__setattr__(self, "liftover_chain_file", _normalize_optional_path(self.liftover_chain_file))
         object.__setattr__(self, "trait_name", _normalize_trait_name(self.trait_name))
         object.__setattr__(self, "ignore_columns", tuple(self.ignore_columns))
         object.__setattr__(self, "column_hints", dict(self.column_hints))
+        if self.liftover_chain_file is not None and self.use_hm3_quick_liftover:
+            raise ValueError("liftover_chain_file and use_hm3_quick_liftover are mutually exclusive.")
+        if (self.liftover_chain_file is not None or self.use_hm3_quick_liftover) and self.target_genome_build is None:
+            raise ValueError("target_genome_build is required when a liftover method is specified.")
 
 
 @dataclass(frozen=True)

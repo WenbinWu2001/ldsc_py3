@@ -142,6 +142,7 @@ class ChromLDScoreResult:
                 self.baseline_table,
                 self.query_table,
                 context="query rows must match baseline rows on CHR/SNP/POS",
+                snp_identifier=getattr(self.config_snapshot, "snp_identifier", "chr_pos"),
             )
 
     def summary(self) -> dict[str, Any]:
@@ -215,6 +216,7 @@ class LDScoreResult:
                     self.baseline_table,
                     self.query_table,
                     context="query rows must match baseline rows on CHR/SNP/POS",
+                    snp_identifier=getattr(self.config_snapshot, "snp_identifier", "chr_pos"),
                 )
 
     def summary(self) -> dict[str, Any]:
@@ -412,6 +414,7 @@ class LDScoreCalculator:
             ldscore_table,
             baseline_columns=list(legacy_result.baseline_columns),
             query_columns=list(legacy_result.query_columns),
+            snp_identifier=global_config.snp_identifier,
         )
         result = ChromLDScoreResult(
             chrom=str(legacy_result.chrom),
@@ -457,7 +460,15 @@ class LDScoreCalculator:
             for key in count_keys
         }
         merged_table = pd.concat(
-            [_join_split_tables(result.baseline_table, result.query_table, result.query_columns) for result in chromosome_results],
+            [
+                _join_split_tables(
+                    result.baseline_table,
+                    result.query_table,
+                    result.query_columns,
+                    snp_identifier=getattr(result.config_snapshot, "snp_identifier", global_config.snp_identifier),
+                )
+                for result in chromosome_results
+            ],
             axis=0,
             ignore_index=True,
         )
@@ -466,6 +477,7 @@ class LDScoreCalculator:
             merged_table,
             baseline_columns=list(chromosome_results[0].baseline_columns),
             query_columns=list(chromosome_results[0].query_columns),
+            snp_identifier=global_config.snp_identifier,
         )
         result = LDScoreResult(
             baseline_table=baseline_table,
@@ -520,6 +532,7 @@ def _split_ldscore_table(
     *,
     baseline_columns: list[str],
     query_columns: list[str],
+    snp_identifier: str = "chr_pos",
 ) -> tuple[pd.DataFrame, pd.DataFrame | None]:
     """Split a merged LD-score table into baseline and optional query tables."""
     metadata_columns = ["CHR", "SNP", "POS"]
@@ -539,6 +552,7 @@ def _split_ldscore_table(
             baseline_table,
             query_table,
             context="query rows must match baseline rows on CHR/SNP/POS",
+            snp_identifier=snp_identifier,
         )
     return baseline_table, query_table
 
@@ -547,6 +561,8 @@ def _join_split_tables(
     baseline_table: pd.DataFrame,
     query_table: pd.DataFrame | None,
     query_columns: Sequence[str],
+    *,
+    snp_identifier: str = "chr_pos",
 ) -> pd.DataFrame:
     """Join split LD-score tables for sorting or regression assembly."""
     if query_table is None:
@@ -555,6 +571,7 @@ def _join_split_tables(
         baseline_table,
         query_table,
         context="query rows must match baseline rows on CHR/SNP/POS",
+        snp_identifier=snp_identifier,
     )
     query_values = query_table.loc[:, list(query_columns)].reset_index(drop=True)
     return pd.concat([baseline_table.reset_index(drop=True), query_values], axis=1)

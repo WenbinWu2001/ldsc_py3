@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass, field
+from importlib import resources
 import json
 import logging
 from os import PathLike
@@ -48,6 +49,8 @@ from .path_resolution import (
     resolve_scalar_path,
 )
 from ._logging import log_inputs, log_outputs, workflow_logging
+from ._kernel.identifiers import build_snp_id_series
+from ._kernel.liftover import SumstatsLiftoverRequest, default_liftover_metadata
 from ._kernel import sumstats_munger as kernel_munge
 
 
@@ -120,12 +123,13 @@ class SumstatsTable:
             raise ValueError("SumstatsTable.has_alleles=True requires A1 and A2 columns.")
 
     def snp_identifiers(self) -> pd.Series:
-        """Return the SNP identifier column as a string series."""
-        return self.data["SNP"].astype(str)
+        """Return the active SNP identifiers for this table."""
+        mode = _sumstats_table_identifier_mode(self.config_snapshot)
+        return build_snp_id_series(self.data, mode).astype(str)
 
     def subset_to(self, snps: set[str] | list[str]) -> "SumstatsTable":
         """Return a copy restricted to ``snps`` while preserving metadata."""
-        keep = self.data["SNP"].astype(str).isin(set(snps))
+        keep = self.snp_identifiers().isin(set(snps))
         return SumstatsTable(
             data=self.data.loc[keep].reset_index(drop=True),
             has_alleles=self.has_alleles,
@@ -136,8 +140,17 @@ class SumstatsTable:
         )
 
     def align_to_metadata(self, metadata: pd.DataFrame) -> "SumstatsTable":
-        """Inner-join the table to ``metadata`` on ``SNP`` and preserve order."""
-        merged = pd.merge(metadata.loc[:, ["SNP"]], self.data, how="inner", on="SNP", sort=False)
+        """Inner-join the table to ``metadata`` using the active identifier mode."""
+        mode = _sumstats_table_identifier_mode(self.config_snapshot)
+        if mode == "rsid":
+            merged = pd.merge(metadata.loc[:, ["SNP"]], self.data, how="inner", on="SNP", sort=False)
+        else:
+            left = pd.DataFrame({"_ldsc_sumstats_key": build_snp_id_series(metadata, "chr_pos").astype(str)})
+            right = self.data.copy()
+            right["_ldsc_sumstats_key"] = build_snp_id_series(right, "chr_pos").astype(str)
+            merged = pd.merge(left, right, how="inner", on="_ldsc_sumstats_key", sort=False).drop(
+                columns=["_ldsc_sumstats_key"]
+            )
         return SumstatsTable(
             data=merged.reset_index(drop=True),
             has_alleles=self.has_alleles,
@@ -171,6 +184,13 @@ class MungeRunSummary:
     inferred_columns: dict[str, str]
     used_n_rule: str
     output_paths: dict[str, str]
+
+
+def _sumstats_table_identifier_mode(config_snapshot: GlobalConfig | None) -> str:
+    """Return the mode used for table-local identity helpers."""
+    if config_snapshot is None:
+        return "chr_pos"
+    return normalize_snp_identifier_mode(config_snapshot.snp_identifier)
 
 
 def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> SumstatsTable:
@@ -317,6 +337,8 @@ class SumstatsMunger:
             raise ValueError("MungeConfig.output_dir is required to run summary-statistics munging.")
 
         config_snapshot = global_config or get_global_config()
+        liftover_request = _liftover_request_from_config(munge_config)
+        _validate_liftover_request_before_io(config_snapshot, liftover_request)
         source_path = resolve_scalar_path(raw_sumstats_config.raw_sumstats_file, label="raw sumstats")
         output_dir = ensure_output_directory(munge_config.output_dir, label="output directory")
         fixed_output_stem = str(output_dir / "sumstats")
@@ -334,19 +356,23 @@ class SumstatsMunger:
             overwrite=munge_config.overwrite,
             label="munged output artifact",
         )
-        args = self._build_args(raw_sumstats_config, munge_config, config_snapshot)
+        args = self._build_args(raw_sumstats_config, munge_config, config_snapshot, liftover_request)
         with workflow_logging("munge-sumstats", log_path, log_level=config_snapshot.log_level):
             log_inputs(
                 raw_sumstats_file=source_path,
                 output_dir=str(output_dir),
                 output_format=munge_config.output_format,
                 sumstats_snps_file=sumstats_snps_label,
+                target_genome_build=liftover_request.target_build or "none",
+                liftover_method=liftover_request.method or "none",
             )
             LOGGER.info(
                 f"Munging summary statistics from '{source_path}' into '{output_dir}' "
                 f"with snp_identifier='{config_snapshot.snp_identifier}', "
                 f"genome_build='{config_snapshot.genome_build}', "
-                f"sumstats_snps_file='{sumstats_snps_label}'."
+                f"sumstats_snps_file='{sumstats_snps_label}', "
+                f"target_genome_build='{liftover_request.target_build}', "
+                f"liftover_method='{liftover_request.method}'."
             )
             data = kernel_munge.munge_sumstats(args, p=False)
             primary_sumstats_file, parquet_row_groups = _write_sumstats_outputs(
@@ -384,6 +410,7 @@ class SumstatsMunger:
                     "output_files": dict(output_files),
                     "column_hints": dict(raw_sumstats_config.column_hints),
                     "metadata_path": metadata_path,
+                    "coordinate_provenance": coordinate_metadata,
                     "metadata": coordinate_metadata,
                 },
                 config_snapshot=table_config_snapshot,
@@ -475,7 +502,10 @@ class SumstatsMunger:
             _write_sumstats_metadata(
                 metadata_path,
                 config_snapshot=sumstats.config_snapshot,
-                coordinate_metadata=sumstats.provenance.get("metadata", {}),
+                coordinate_metadata=sumstats.provenance.get(
+                    "coordinate_provenance",
+                    sumstats.provenance.get("metadata", {}),
+                ),
                 source_path=sumstats.source_path,
                 trait_name=sumstats.trait_name,
                 sumstats_file=primary_sumstats_file,
@@ -502,6 +532,7 @@ class SumstatsMunger:
         raw_sumstats_config: MungeConfig,
         munge_config: MungeConfig,
         global_config: GlobalConfig,
+        liftover_request: SumstatsLiftoverRequest | None = None,
     ) -> argparse.Namespace:
         """Translate dataclass configuration into the legacy parser namespace."""
         args = parser.parse_args("")
@@ -531,6 +562,7 @@ class SumstatsMunger:
         args.daner_new = munge_config.daner_new
         args.snp_identifier = global_config.snp_identifier
         args.genome_build = global_config.genome_build
+        args._liftover_request = liftover_request or _liftover_request_from_config(munge_config)
         for key, value in raw_sumstats_config.column_hints.items():
             attr = _COLUMN_HINT_ATTRS.get(key)
             if attr is not None:
@@ -596,6 +628,35 @@ def _resolve_main_global_config(args: argparse.Namespace) -> GlobalConfig:
     return GlobalConfig(snp_identifier="chr_pos", genome_build=genome_build, log_level=getattr(args, "log_level", "INFO"))
 
 
+def _packaged_hm3_curated_map_path() -> str:
+    """Return the package data path for the curated dual-build HM3 map."""
+    return str(resources.files("ldsc").joinpath("data", "hm3_curated_map.tsv.gz"))
+
+
+def _liftover_request_from_config(config: MungeConfig) -> SumstatsLiftoverRequest:
+    """Build the kernel liftover request from public munger config."""
+    hm3_map_file = _packaged_hm3_curated_map_path() if config.use_hm3_quick_liftover else None
+    return SumstatsLiftoverRequest(
+        target_build=config.target_genome_build,
+        liftover_chain_file=config.liftover_chain_file,
+        use_hm3_quick_liftover=config.use_hm3_quick_liftover,
+        hm3_map_file=hm3_map_file,
+    )
+
+
+def _validate_liftover_request_before_io(config: GlobalConfig, request: SumstatsLiftoverRequest) -> None:
+    """Reject liftover requests that can be proven invalid before input IO."""
+    if request.requested and config.snp_identifier != "chr_pos":
+        raise ValueError("Summary-statistics liftover is only valid when snp_identifier='chr_pos'.")
+    source_build = normalize_genome_build(config.genome_build)
+    if source_build not in {"hg19", "hg38"} or request.target_build is None:
+        return
+    if request.target_build == source_build and request.method is not None:
+        raise ValueError("A liftover method was specified, but target_genome_build equals the source genome build.")
+    if request.target_build != source_build and request.method is None:
+        raise ValueError("target_genome_build differs from the source genome build, but no liftover method was specified.")
+
+
 def _munge_configs_from_args(args: argparse.Namespace) -> tuple[MungeConfig, MungeConfig]:
     """Convert parsed CLI arguments into raw-input and run configuration."""
     raw_config = MungeConfig(
@@ -615,6 +676,9 @@ def _munge_configs_from_args(args: argparse.Namespace) -> tuple[MungeConfig, Mun
         chunk_size=args.chunksize,
         output_format=args.output_format,
         sumstats_snps_file=getattr(args, "sumstats_snps_file", None),
+        target_genome_build=getattr(args, "target_genome_build", None),
+        liftover_chain_file=getattr(args, "liftover_chain_file", None),
+        use_hm3_quick_liftover=getattr(args, "use_hm3_quick_liftover", False),
         signed_sumstats_spec=getattr(args, "signed_sumstats", None),
         ignore_columns=_ignore_columns_from_args(args),
         no_alleles=args.no_alleles,
@@ -662,6 +726,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="Replace sumstats output artifacts and remove stale owned siblings.",
     )
     public.add_argument("--sumstats-snps-file", default=None, help="Optional SNP keep-list for munged summary statistics.")
+    public.add_argument(
+        "--target-genome-build",
+        default=None,
+        choices=("hg19", "hg37", "GRCh37", "hg38", "GRCh38"),
+        help="Optional target genome build for chr_pos output coordinates.",
+    )
+    public.add_argument(
+        "--liftover-chain-file",
+        default=None,
+        help="Optional chain file used to liftover chr_pos sumstats coordinates to --target-genome-build.",
+    )
+    public.add_argument(
+        "--use-hm3-quick-liftover",
+        action="store_true",
+        default=False,
+        help="Use the packaged curated dual-build HM3 map for coordinate-only quick liftover.",
+    )
     public.add_argument("--trait-name", default=None, help="Optional biological trait label stored in sumstats metadata.")
     public.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"), help="Logging verbosity.")
     public.add_argument(
@@ -919,7 +1000,23 @@ def _read_sumstats_metadata(path: Path) -> dict[str, Any] | None:
     """Read a sumstats sidecar metadata file when it exists."""
     if not path.exists():
         return None
-    return json.loads(path.read_text(encoding="utf-8"))
+    return _normalize_sumstats_metadata(json.loads(path.read_text(encoding="utf-8")))
+
+
+def _normalize_sumstats_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    """Normalize old and new sidecar metadata shapes for in-process use."""
+    normalized = dict(metadata)
+    coordinate_provenance = normalized.get("coordinate_provenance")
+    if not isinstance(coordinate_provenance, dict):
+        legacy = normalized.get("coordinate_metadata")
+        coordinate_provenance = dict(legacy) if isinstance(legacy, dict) else {}
+        normalized["coordinate_provenance"] = coordinate_provenance
+    if "liftover" not in normalized:
+        normalized["liftover"] = default_liftover_metadata(
+            source_build=coordinate_provenance.get("genome_build", normalized.get("genome_build")),
+            snp_identifier=coordinate_provenance.get("snp_identifier", normalized.get("snp_identifier", "chr_pos")),
+        )
+    return normalized
 
 
 def _resolve_sumstats_trait_name(
@@ -956,7 +1053,7 @@ def _global_config_from_sumstats_metadata(metadata: dict[str, Any] | None) -> Gl
 
 
 def _effective_sumstats_config(config: GlobalConfig, coordinate_metadata: dict[str, Any]) -> GlobalConfig:
-    """Return the config snapshot implied by coordinate metadata."""
+    """Return the config snapshot implied by coordinate provenance."""
     genome_build = coordinate_metadata.get("genome_build") or config.genome_build
     return GlobalConfig(
         snp_identifier=normalize_snp_identifier_mode(coordinate_metadata.get("snp_identifier", config.snp_identifier)),
@@ -980,6 +1077,16 @@ def _write_sumstats_metadata(
     parquet_row_groups: list[dict[str, Any]] | None = None,
 ) -> None:
     """Write provenance, output-format, and Parquet-layout metadata sidecar."""
+    coordinate_provenance = dict(coordinate_metadata)
+    liftover = dict(
+        coordinate_provenance.pop(
+            "liftover",
+            default_liftover_metadata(
+                source_build=coordinate_provenance.get("genome_build"),
+                snp_identifier=coordinate_provenance.get("snp_identifier", config_snapshot.snp_identifier),
+            ),
+        )
+    )
     payload = {
         "format": "ldsc.sumstats.v1",
         "snp_identifier": config_snapshot.snp_identifier,
@@ -989,7 +1096,8 @@ def _write_sumstats_metadata(
         "sumstats_file": sumstats_file,
         "output_format": output_format,
         "output_files": dict(output_files),
-        "coordinate_metadata": dict(coordinate_metadata),
+        "coordinate_provenance": coordinate_provenance,
+        "liftover": liftover,
         "config_snapshot": {
             "snp_identifier": config_snapshot.snp_identifier,
             "genome_build": config_snapshot.genome_build,

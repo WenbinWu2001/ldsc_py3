@@ -109,6 +109,8 @@ sumstats = SumstatsMunger().run(
             "info": "IMPINFO",
         },
         # sumstats_snps_file="filters/hapmap3.tsv.gz",  # optional row keep-list
+        # target_genome_build="hg38",
+        # liftover_chain_file="resources/liftover/hg19ToHg38.over.chain",
         output_dir="tutorial_outputs/trait",
         signed_sumstats_spec="BETA,0",
         # overwrite=True,  # also removes stale unselected sumstats sibling formats
@@ -177,7 +179,10 @@ columns. The raw munger accepts common coordinate headers such as `#CHROM`,
 `CHROM`, `CHR`, `POS`, and `BP`, or explicit `--chr`/`--pos` flags. Leading
 raw `##` metadata lines are skipped before the real header is parsed. In
 `chr_pos` mode, downstream regression merges by normalized `CHR:POS` rather
-than by the literal rsID in `SNP`.
+than by the literal rsID in `SNP`; `SNP` is treated as a label. Optional munger
+liftover is also `chr_pos`-only, runs after the source-build keep-list filter,
+changes `CHR`/`POS` without rewriting `SNP`, and requires
+`--target-genome-build` plus one method flag.
 
 Within this design:
 
@@ -249,6 +254,10 @@ ldsc munge-sumstats \
   --snp-identifier chr_pos \
   --genome-build hg19 \
   --output-dir tutorial_outputs/trait
+
+# Optional if downstream LD scores/reference panels are hg38:
+#   --target-genome-build hg38 \
+#   --liftover-chain-file resources/liftover/hg19ToHg38.over.chain
 
 ldsc partitioned-h2 \
   --sumstats-file tutorial_outputs/trait/sumstats.parquet \

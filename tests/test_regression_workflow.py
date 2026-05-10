@@ -165,6 +165,23 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertIsNone(result.config_snapshot)
         self.assertTrue(any("GlobalConfig provenance is missing" in str(item.message) for item in caught))
 
+    def test_load_ldscore_from_dir_defaults_missing_snp_identifier_to_chr_pos(self):
+        from ldsc import load_ldscore_from_dir
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            self.write_ldscore_dir(tmpdir, include_query=False)
+            manifest_path = tmpdir / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            del manifest["snp_identifier"]
+            del manifest["config_snapshot"]["snp_identifier"]
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            result = load_ldscore_from_dir(str(tmpdir))
+
+        self.assertEqual(result.ld_regression_snps, frozenset({"1:10"}))
+        self.assertEqual(result.config_snapshot, GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
+
     def test_load_ldscore_from_dir_warns_when_config_snapshot_is_invalid(self):
         from ldsc import load_ldscore_from_dir
 
@@ -472,6 +489,70 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertEqual(dataset.merged["SNP"].tolist(), ["raw1", "raw2"])
         self.assertEqual(dataset.merged["base"].tolist(), [1.0, 2.0])
         self.assertIn("_ldsc_chr_pos_key", dataset.merged.columns)
+
+    def test_build_dataset_chr_pos_mode_ignores_query_snp_label_mismatch(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"), RegressionConfig())
+        ldscore_result = replace(
+            self.make_ldscore_result(),
+            baseline_table=self.make_ldscore_result().baseline_table.assign(SNP=["base1", "base2", "base3"]),
+            query_table=self.make_ldscore_result().query_table.assign(SNP=["query1", "query2", "query3"]),
+            config_snapshot=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+        )
+        sumstats = SumstatsTable(
+            data=pd.DataFrame(
+                {
+                    "SNP": ["trait1", "trait2", "trait3"],
+                    "CHR": ["1", "1", "1"],
+                    "POS": [10, 20, 30],
+                    "Z": [2.0, 1.0, 0.5],
+                    "N": [1000.0, 1000.0, 1000.0],
+                    "A1": ["A", "C", "G"],
+                    "A2": ["G", "T", "A"],
+                }
+            ),
+            has_alleles=True,
+            source_path="sumstats.gz",
+            trait_name="trait",
+            provenance={},
+            config_snapshot=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+        )
+
+        dataset = runner.build_dataset(sumstats, ldscore_result, query_columns=["query1"])
+
+        self.assertEqual(dataset.merged["SNP"].tolist(), ["trait1", "trait2", "trait3"])
+        self.assertEqual(dataset.retained_ld_columns, ["base", "query1"])
+
+    def test_build_dataset_unknown_ldscore_snapshot_defaults_query_alignment_to_chr_pos(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"), RegressionConfig())
+        ldscore_result = replace(
+            self.make_ldscore_result(),
+            baseline_table=self.make_ldscore_result().baseline_table.assign(SNP=["base1", "base2", "base3"]),
+            query_table=self.make_ldscore_result().query_table.assign(SNP=["query1", "query2", "query3"]),
+            config_snapshot=None,
+        )
+        sumstats = SumstatsTable(
+            data=pd.DataFrame(
+                {
+                    "SNP": ["trait1", "trait2", "trait3"],
+                    "CHR": ["1", "1", "1"],
+                    "POS": [10, 20, 30],
+                    "Z": [2.0, 1.0, 0.5],
+                    "N": [1000.0, 1000.0, 1000.0],
+                    "A1": ["A", "C", "G"],
+                    "A2": ["G", "T", "A"],
+                }
+            ),
+            has_alleles=True,
+            source_path="sumstats.gz",
+            trait_name="trait",
+            provenance={},
+            config_snapshot=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+        )
+
+        dataset = runner.build_dataset(sumstats, ldscore_result, query_columns=["query1"])
+
+        self.assertEqual(dataset.merged["SNP"].tolist(), ["trait1", "trait2", "trait3"])
+        self.assertEqual(dataset.retained_ld_columns, ["base", "query1"])
 
     def test_estimate_rg_uses_baseline_only_when_query_exists(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())

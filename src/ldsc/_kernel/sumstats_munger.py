@@ -41,6 +41,7 @@ from ..chromosome_inference import normalize_chromosome, normalize_chromosome_se
 from ..genome_build_inference import resolve_chr_pos_table
 from . import regression as sumstats
 from .identifiers import build_snp_id_series, read_global_snp_restriction
+from .liftover import SumstatsLiftoverRequest, apply_sumstats_liftover
 np.seterr(invalid='ignore')
 
 LOGGER = logging.getLogger("LDSC.sumstats_munger.kernel")
@@ -892,11 +893,15 @@ def munge_sumstats(args, p=True):
     if len(dat) == 0:
         raise ValueError('After applying filters, no SNPs remain.')
 
-    old = len(dat)
-    dat = dat.drop_duplicates(subset='SNP').reset_index(drop=True)
-    new = len(dat)
-    LOGGER.info('Removed {M} SNPs with duplicated rs numbers ({N} SNPs remain).'.format(
-        M=old - new, N=new))
+    if normalize_snp_identifier_mode(getattr(args, 'snp_identifier', 'chr_pos')) == 'rsid':
+        old = len(dat)
+        dat = dat.drop_duplicates(subset='SNP').reset_index(drop=True)
+        new = len(dat)
+        LOGGER.info('Removed {M} SNPs with duplicated rs numbers ({N} SNPs remain).'.format(
+            M=old - new, N=new))
+    else:
+        dat = dat.reset_index(drop=True)
+        LOGGER.info('Retained duplicated SNP labels because snp_identifier=chr_pos uses CHR/POS as row identity.')
     # filtering on N cannot be done chunkwise
     dat = process_n(dat, args)
     dat.P = p_to_z(dat.P, dat.N)
@@ -912,6 +917,7 @@ def munge_sumstats(args, p=True):
         dat = allele_merge(dat, merge_alleles)
     dat = _finalize_coordinate_columns(dat, args)
     dat = filter_sumstats_snps(dat, args)
+    dat = _apply_liftover_if_requested(dat, args)
 
     out_fname = args.out + '.sumstats'
     print_colnames = [
@@ -943,4 +949,22 @@ def munge_sumstats(args, p=True):
     LOGGER.info('Max chi^2 = ' + str(round(CHISQ.max(), 3)))
     LOGGER.info('{N} Genome-wide significant SNPs (some may have been removed by filtering).'.format(N=(CHISQ
                                                                                                     > 29).sum()))
+    return dat
+
+
+def _apply_liftover_if_requested(dat, args):
+    """Apply optional summary-statistics liftover after source-build filters."""
+    coordinate_metadata = dict(getattr(args, '_coordinate_metadata', {}))
+    request = getattr(args, '_liftover_request', None) or SumstatsLiftoverRequest()
+    dat, liftover_report = apply_sumstats_liftover(
+        dat,
+        request,
+        source_build=coordinate_metadata.get('genome_build', getattr(args, 'genome_build', None)),
+        snp_identifier=coordinate_metadata.get('snp_identifier', getattr(args, 'snp_identifier', 'chr_pos')),
+        logger=LOGGER,
+    )
+    coordinate_metadata['liftover'] = liftover_report
+    if liftover_report.get('applied'):
+        coordinate_metadata['genome_build'] = liftover_report['target_build']
+    args._coordinate_metadata = coordinate_metadata
     return dat

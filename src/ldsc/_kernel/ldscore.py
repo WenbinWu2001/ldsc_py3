@@ -1023,6 +1023,7 @@ def combine_annotation_groups(
                     reference,
                     meta,
                     context=f"Annotation SNP rows do not match across files for chromosome {chrom}: {path}",
+                    snp_identifier=identifier_mode,
                 )
                 missing_cm = reference["CM"].isna() & meta["CM"].notna()
                 if missing_cm.any():

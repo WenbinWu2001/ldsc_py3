@@ -5,21 +5,30 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from .column_inference import normalize_snp_identifier_mode
+
 
 SNP_ROW_COLUMNS = ("CHR", "SNP", "POS")
 NUMERIC_METADATA_COLUMNS = ("CM", "MAF")
 FLOAT_METADATA_TOLERANCE = float(np.finfo(np.float16).eps)
 
 
-def assert_same_snp_rows(left: pd.DataFrame, right: pd.DataFrame, *, context: str) -> None:
+def assert_same_snp_rows(
+    left: pd.DataFrame,
+    right: pd.DataFrame,
+    *,
+    context: str,
+    snp_identifier: str = "chr_pos",
+) -> None:
     """Raise if two normalized tables do not share identical SNP rows."""
-    _require_columns(left, side="left", context=context)
-    _require_columns(right, side="right", context=context)
+    mode = normalize_snp_identifier_mode(snp_identifier)
+    _require_columns(left, side="left", context=context, snp_identifier=mode)
+    _require_columns(right, side="right", context=context, snp_identifier=mode)
     if len(left) != len(right):
         raise ValueError(f"{context}: row count mismatch ({len(left)} != {len(right)}).")
 
-    left_keys = _row_key_frame(left, side="left", context=context)
-    right_keys = _row_key_frame(right, side="right", context=context)
+    left_keys = _row_key_frame(left, side="left", context=context, snp_identifier=mode)
+    right_keys = _row_key_frame(right, side="right", context=context, snp_identifier=mode)
     mismatched = left_keys.ne(right_keys).any(axis=1)
     if mismatched.any():
         row = int(np.flatnonzero(mismatched.to_numpy())[0])
@@ -34,20 +43,22 @@ def assert_same_snp_rows(left: pd.DataFrame, right: pd.DataFrame, *, context: st
             _assert_close_numeric_metadata(left, right, column=column, context=context)
 
 
-def _require_columns(frame: pd.DataFrame, *, side: str, context: str) -> None:
-    missing = [column for column in SNP_ROW_COLUMNS if column not in frame.columns]
+def _require_columns(frame: pd.DataFrame, *, side: str, context: str, snp_identifier: str) -> None:
+    required = ("CHR", "POS") if snp_identifier == "chr_pos" else SNP_ROW_COLUMNS
+    missing = [column for column in required if column not in frame.columns]
     if missing:
         raise ValueError(f"{context}: {side} table is missing required SNP row columns: {missing}")
 
 
-def _row_key_frame(frame: pd.DataFrame, *, side: str, context: str) -> pd.DataFrame:
-    return pd.DataFrame(
-        {
-            "CHR": frame["CHR"].astype(str).reset_index(drop=True),
-            "SNP": frame["SNP"].astype(str).reset_index(drop=True),
-            "POS": _integer_pos_series(frame["POS"], side=side, context=context),
-        }
-    )
+def _row_key_frame(frame: pd.DataFrame, *, side: str, context: str, snp_identifier: str) -> pd.DataFrame:
+    keys = {
+        "CHR": frame["CHR"].astype(str).reset_index(drop=True),
+        "POS": _integer_pos_series(frame["POS"], side=side, context=context),
+    }
+    if snp_identifier == "rsid":
+        keys["SNP"] = frame["SNP"].astype(str).reset_index(drop=True)
+        return pd.DataFrame({"CHR": keys["CHR"], "SNP": keys["SNP"], "POS": keys["POS"]})
+    return pd.DataFrame(keys)
 
 
 def _integer_pos_series(values: pd.Series, *, side: str, context: str) -> pd.Series:

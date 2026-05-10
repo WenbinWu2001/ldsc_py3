@@ -66,6 +66,8 @@ sumstats = SumstatsMunger().run(
             "info": "IMPINFO",
         },
         # sumstats_snps_file="filters/hapmap3.tsv.gz",  # optional row keep-list
+        # target_genome_build="hg38",
+        # use_hm3_quick_liftover=True,  # chr_pos-only quick liftover for HM3 rows
         output_dir="tutorial_outputs/trait",
         signed_sumstats_spec="BETA,0",
         # overwrite=True,  # also removes stale unselected sumstats sibling formats
@@ -112,10 +114,14 @@ audit file; `MungeRunSummary.output_paths` and metadata `output_files` list the
 curated sumstats artifacts, not `sumstats.log`.
 
 In `chr_pos` mode, regression merges sumstats and LD scores by normalized `CHR:POS`
-coordinates. The raw munger accepts common coordinate headers such as `#CHROM`,
-`CHROM`, `CHR`, `POS`, and `BP`; use `--chr` and `--pos` or `column_hints` when
-the header is ambiguous. Leading raw `##` metadata lines are skipped before the
-real header is parsed.
+coordinates. The `SNP` column is a label and may contain rsIDs even when
+coordinate mode is active. The raw munger accepts common coordinate headers
+such as `#CHROM`, `CHROM`, `CHR`, `POS`, and `BP`; use `--chr` and `--pos` or
+`column_hints` when the header is ambiguous. Leading raw `##` metadata lines are
+skipped before the real header is parsed. Optional munger liftover runs after
+the source-build keep-list filter, changes only `CHR`/`POS`, and requires
+`--target-genome-build` plus either `--liftover-chain-file` or
+`--use-hm3-quick-liftover`.
 
 When you set `regression_snps_file` during LD-score calculation, the same regression SNP subset defines the rows of the normalized `baseline_table`. Regression uses the embedded `regression_ld_scores` column as the historical `w_ld` component; final model-dependent weights are computed later in the regression kernel.
 
@@ -149,6 +155,10 @@ ldsc munge-sumstats \
   --snp-identifier chr_pos \
   --genome-build auto \
   --output-dir tutorial_outputs/trait
+
+# Optional chr_pos-only liftover when the resolved source build differs:
+#   --target-genome-build hg38 \
+#   --use-hm3-quick-liftover
 
 ldsc ldscore \
   --output-dir tutorial_outputs/trait_ldscores \

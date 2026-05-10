@@ -154,7 +154,7 @@ a concrete build.
 | `config.py` | `__post_init__` | Add raise for `chr_pos + None` with fix-it message |
 | `config.py` | `_GLOBAL_CONFIG` and `reset_global_config()` | `GlobalConfig()` — no explicit args needed |
 | `ref_panel_builder.py` | `config_from_args` | Add `genome_build="auto"` (satisfies invariant; value is ignored by the workflow) |
-| `sumstats_munger.py` | `_effective_sumstats_config` | Guard: `genome_build = coordinate_metadata.get("genome_build") or config.genome_build` so a `None` in old metadata does not override a valid config build |
+| `sumstats_munger.py` | `_effective_sumstats_config` | Guard: `genome_build = coordinate_provenance.get("genome_build") or config.genome_build` so a `None` in old metadata does not override a valid config build; new sidecars serialize `coordinate_provenance`, while old `coordinate_metadata` sidecars are normalized on load |
 | `regression_runner.py` | `_global_config_from_manifest` | For old chr_pos manifests with no recorded build, fall back to `"auto"` rather than `None` |
 | `regression_runner.py` | `build_dataset` empty-merge error | Append `f"Active config: {self.global_config!r}."` |
 

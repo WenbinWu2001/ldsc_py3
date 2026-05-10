@@ -357,6 +357,9 @@ Removed Python names: `plink_path`, `bfile`, `out`, `panel_label`,
 | `MungeConfig` | `column_hints` | input metadata | optional source-column hints |
 | `MungeConfig` | `daner_old`, `daner_new` | input metadata | optional DANER schema interpretation switches |
 | `MungeConfig` | `sumstats_snps_file` | input | summary-statistics SNP keep-list |
+| `MungeConfig` | `target_genome_build` | input metadata | optional target build for `chr_pos` output coordinates |
+| `MungeConfig` | `liftover_chain_file` | input | optional source-to-target chain file for munger liftover |
+| `MungeConfig` | `use_hm3_quick_liftover` | input mode | use packaged curated HM3 dual-build map for coordinate-only liftover |
 | `MungeConfig` | `output_dir` | output | munged output directory; `SumstatsMunger.run()` writes `sumstats.log` |
 | `MungeConfig` | `output_format` | output mode | `parquet`, `tsv.gz`, or `both`; defaults to `parquet` |
 | `SumstatsMunger.run(munge_config, ...)` | `munge_config` | input/output | normalized munging workflow; owns fixed output preflight, `sumstats.log`, metadata, and result construction; summary `output_paths` excludes logs |
@@ -389,11 +392,14 @@ Current curated `sumstats.parquet` and `.sumstats.gz` artifacts provide
 canonical `SNP`, `CHR`, `POS`, `Z`, and `N` fields when written by
 `ldsc munge-sumstats`, plus a neighboring metadata sidecar with the effective
 `snp_identifier`, `genome_build`, optional `trait_name`, selected curated
-output files, and parquet row groups when applicable. `load_sumstats()` resolves
-labels as explicit override, then sidecar `trait_name`, then filename fallback.
-The sidecar does not list `sumstats.log`.
+output files, a `coordinate_provenance` debugging block, a `liftover` block,
+and parquet row groups when applicable. `load_sumstats()` resolves labels as
+explicit override, then sidecar `trait_name`, then filename fallback. The
+sidecar does not list `sumstats.log`.
 Regression therefore merges on literal `SNP` in `rsid` mode and on normalized
-`CHR:POS` coordinates in `chr_pos` mode.
+`CHR:POS` coordinates in `chr_pos` mode. Munger liftover is valid only in
+`chr_pos` mode; it changes `CHR`/`POS`, never `SNP`, and runs after
+`sumstats_snps_file` filtering.
 
 ## Remaining Implementation Checklist
 

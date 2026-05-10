@@ -10,7 +10,7 @@ This document summarizes the public package surface. For workflow-level file str
 | Build parquet reference panels | `ldsc build-ref-panel` | `ReferencePanelBuilder`, `run_build_ref_panel()` | PLINK prefix, optional source build inferred from `.bim`, optional liftover chains, conditional genetic maps, optional keep/restrict files; restriction identifier read from `GlobalConfig` and coordinates interpreted in the source build | per-build `chr*_r2.parquet` and `chr*_meta.tsv.gz` artifacts; optional `dropped_snps/chr*_dropped.tsv.gz`; workflow wrappers also write `build-ref-panel.log` |
 | Compute LD scores | `ldsc ldscore` | `LDScoreCalculator`, `run_ldscore()` | optional baseline annotation shards, optional query annotations only when baseline is explicit, PLINK or parquet reference panel, optional frequency metadata | `manifest.json`, `ldscore.baseline.parquet`, optional `ldscore.query.parquet` under `output_dir`; parquet row groups are chromosome-aligned; no-annotation runs write synthetic `base`; workflow wrappers also write `ldscore.log` |
 | Infer `chr_pos` genome build | workflow flags only: `--genome-build auto`; no standalone CLI command | `infer_chr_pos_build()`, `resolve_genome_build()`, `resolve_chr_pos_table()` | pandas table with `CHR` and `POS`; optional reference table | `ChrPosBuildInference`, resolved `GlobalConfig`, and optionally a normalized 1-based table |
-| Munge GWAS summary statistics | `ldsc munge-sumstats` | `SumstatsMunger`, `load_sumstats()` | raw sumstats via `--raw-sumstats-file` or `MungeConfig.raw_sumstats_file`, optional `--trait-name`, column hints, QC thresholds, optional `--chr`/`--pos`, `--genome-build auto`, optional `--daner-old`/`--daner-new` schema handling, optional `--sumstats-snps-file` keep-list, optional `--output-format parquet\|tsv.gz\|both` | `sumstats.parquet` by default, optional `sumstats.sumstats.gz`, `sumstats.log`, `sumstats.metadata.json` |
+| Munge GWAS summary statistics | `ldsc munge-sumstats` | `SumstatsMunger`, `load_sumstats()` | raw sumstats via `--raw-sumstats-file` or `MungeConfig.raw_sumstats_file`, optional `--trait-name`, column hints, QC thresholds, optional `--chr`/`--pos`, `--genome-build auto`, optional `--daner-old`/`--daner-new` schema handling, optional `--sumstats-snps-file` keep-list, optional `chr_pos` liftover via `--target-genome-build` plus `--liftover-chain-file` or `--use-hm3-quick-liftover`, optional `--output-format parquet\|tsv.gz\|both` | `sumstats.parquet` by default, optional `sumstats.sumstats.gz`, `sumstats.log`, `sumstats.metadata.json` |
 | Estimate heritability | `ldsc h2` | `RegressionRunner.estimate_h2()` | munged `sumstats.parquet` or `.sumstats.gz` plus sidecar when available, LD-score directory | `h2.tsv`; `h2.log` when `output_dir` is supplied |
 | Estimate partitioned heritability | `ldsc partitioned-h2` | `RegressionRunner.estimate_partitioned_h2()`, `RegressionRunner.estimate_partitioned_h2_batch()`, `PartitionedH2DirectoryWriter` | munged `sumstats.parquet` or `.sumstats.gz` plus sidecar when available, LD-score directory with non-empty query LD scores | compact `partitioned_h2.tsv`; optional `query_annotations/manifest.tsv`, per-query `partitioned_h2.tsv`, `partitioned_h2_full.tsv`, and `metadata.json` with `--write-per-query-results`; `partitioned-h2.log` when `output_dir` is supplied |
 | Estimate genetic correlation | `ldsc rg` | `RegressionRunner.estimate_rg()`, `RegressionRunner.estimate_rg_pairs()`, `RgDirectoryWriter` | two or more munged `sumstats.parquet` or `.sumstats.gz` files plus sidecars when available, optional `--anchor-trait`, LD-score directory | concise `rg.tsv`; full `rg_full.tsv`; `h2_per_trait.tsv`; optional `pairs/` detail tree; `rg.log` when `output_dir` is supplied |
@@ -42,7 +42,7 @@ For log filenames and API boundary details, see
 | `RefPanelConfig` | choose and parameterize a runtime reference-panel backend and its source paths |
 | `ReferencePanelBuildConfig` | build a parquet reference panel from PLINK input |
 | `LDScoreConfig` | LD-window settings, common-count threshold, and optional regression row-set restriction |
-| `MungeConfig` | `raw_sumstats_file` input, optional `sumstats_snps_file` row restriction, column hints, DANER schema switches, munging thresholds, and output settings |
+| `MungeConfig` | `raw_sumstats_file` input, optional `sumstats_snps_file` row restriction, optional `chr_pos` liftover target/method, column hints, DANER schema switches, munging thresholds, and output settings |
 | `RegressionConfig` | regression-model settings such as intercept handling and jackknife blocks |
 | `ConfigMismatchError` | explicit failure raised when critical config assumptions disagree |
 
@@ -78,7 +78,7 @@ For log filenames and API boundary details, see
 | --- | --- |
 | `get_global_config()` | return the package-global Python workflow configuration |
 | `set_global_config()` | replace the package-global Python workflow configuration |
-| `reset_global_config()` | restore the default package-global configuration: `GlobalConfig(snp_identifier="rsid")` |
+| `reset_global_config()` | restore the default package-global configuration: `GlobalConfig(snp_identifier="chr_pos", genome_build="auto")` |
 | `validate_config_compatibility()` | compare two `GlobalConfig` snapshots and raise or warn on mismatch |
 
 ## Public Path And Header Contracts
@@ -110,6 +110,7 @@ For log filenames and API boundary details, see
 - Raw sumstats may begin with `##` metadata/comment lines; these are skipped before header inference, so `#CHROM` remains available as the chromosome header.
 - `chr_pos` workflows that interpret external coordinates require an explicit genome build or `--genome-build auto`; workflows such as `build-ref-panel` may ignore `GlobalConfig.genome_build` when they own a separate source-build contract. `rsid` workflows do not use genome-build metadata.
 - Package-written sumstats artifacts include canonical `CHR` and `POS` columns. They are populated from inferred or explicitly flagged raw columns and filled as missing when the raw file lacks coordinates.
+- In `chr_pos` mode, `SNP` is a label and row identity is `CHR/POS`; munger liftover updates only `CHR/POS` and is rejected in `rsid` mode.
 - Package-written artifacts use stricter internal headers so downstream workflows reload them deterministically.
 
 ## Public Import Boundary

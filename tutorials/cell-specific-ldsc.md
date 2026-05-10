@@ -109,7 +109,11 @@ The LD-score result and annotation bundle retain known `GlobalConfig`
 snapshots. Current disk-loaded sumstats recover the same provenance from
 `sumstats.metadata.json`. If an older sumstats artifact lacks that sidecar,
 regression treats the sumstats provenance as unknown. With `snp_identifier="chr_pos"`,
-the merge uses normalized `CHR:POS` coordinates rather than rsIDs.
+the merge uses normalized `CHR:POS` coordinates rather than rsIDs, and the
+`SNP` column remains a label. If raw sumstats coordinates need a build
+conversion before this regression step, run `munge-sumstats` with
+`--target-genome-build` plus either `--liftover-chain-file` or
+`--use-hm3-quick-liftover`.
 
 ## CLI
 

@@ -99,6 +99,14 @@ same normalized coordinate metadata is also used by munge-time
 `hg19_POS` and `hg38_POS` selects the position column matching the effective raw
 sumstats build.
 
+Optional munger liftover runs after this source-build resolution and after
+`--sumstats-snps-file` filtering. It is valid only in `chr_pos` mode because
+`rsid` mode does not use positions for row identity. Chain-file liftover and
+HM3 quick liftover both update `CHR`/`POS` only; `SNP` remains a label. The
+metadata sidecar records the final output build as `genome_build`, keeps
+source/target/method/drop counts in `liftover`, and keeps the coordinate
+inference details in `coordinate_provenance`.
+
 ## Annotation Inputs
 
 For annotation workflows that use chromosome-suite path tokens, such as

@@ -174,11 +174,37 @@ class LiftOverTranslatorTest(unittest.TestCase):
         self.assertEqual(result.cross_chrom_count, 1)
         self.assertEqual(result.unmapped_count, 0)
 
+    def test_map_positions_uses_first_same_chromosome_hit(self):
+        class _FakeLiftOver:
+            def convert_coordinate(self, chrom, pos0):
+                return [("chr21", 499, "+", 0), ("chr22", 999, "+", 0), ("chr22", 1499, "+", 0)]
+
+        translator = kernel_builder.LiftOverTranslator.__new__(kernel_builder.LiftOverTranslator)
+        translator.source_build = "hg38"
+        translator.target_build = "hg19"
+        translator.chain_path = None
+        translator._identity = False
+        translator._liftover = _FakeLiftOver()
+
+        result = translator.map_positions("22", np.array([100], dtype=np.int64))
+
+        np.testing.assert_array_equal(result.translated_positions, np.array([1000], dtype=np.int64))
+        np.testing.assert_array_equal(result.keep_mask, np.array([True]))
+        self.assertEqual(result.cross_chrom_count, 0)
+        self.assertEqual(result.unmapped_count, 0)
+
     def test_explicit_chain_path_is_required_for_cross_build_translation(self):
         with self.assertRaises(ValueError) as exc:
-            kernel_builder.LiftOverTranslator(source_build="hg38", target_build="hg19", chain_path=None)
+            kernel_builder.LiftOverTranslator(
+                source_build="hg38",
+                target_build="hg19",
+                chain_path=None,
+                chain_flag_hint="--liftover-chain-file",
+                workflow_label="summary-statistics liftover",
+            )
 
-        self.assertIn("--liftover-chain-hg38-to-hg19", str(exc.exception))
+        self.assertIn("summary-statistics liftover", str(exc.exception))
+        self.assertIn("--liftover-chain-file", str(exc.exception))
 
 
 class RestrictionModeDetectionTest(unittest.TestCase):
@@ -684,9 +710,9 @@ class ReferencePanelBuildConfigDuplicatePolicyTest(unittest.TestCase):
             **kwargs,
         )
 
-    def test_default_policy_is_error(self):
+    def test_default_policy_is_drop_all(self):
         config = self._base_config()
-        self.assertEqual(config.duplicate_position_policy, "error")
+        self.assertEqual(config.duplicate_position_policy, "drop-all")
 
     def test_drop_all_policy_is_accepted(self):
         config = self._base_config(duplicate_position_policy="drop-all")
@@ -736,9 +762,9 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
         build_config, _ = ref_panel_builder.config_from_args(args)
         self.assertEqual(build_config.snp_batch_size, 64)
 
-    def test_build_parser_defaults_duplicate_position_policy_to_error(self):
+    def test_build_parser_defaults_duplicate_position_policy_to_drop_all(self):
         parser = ref_panel_builder.build_parser()
-        self.assertEqual(parser.get_default("duplicate_position_policy"), "error")
+        self.assertEqual(parser.get_default("duplicate_position_policy"), "drop-all")
 
     def test_build_parser_accepts_drop_all_policy(self):
         parser = ref_panel_builder.build_parser()
@@ -1210,6 +1236,125 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             self.assertTrue((dropped_df["reason"] == "source_duplicate").all())
             self.assertTrue(any("chr1_dropped.tsv.gz" in line for line in log_ctx.output))
 
+    def test_rsid_source_only_build_ignores_duplicate_position_policy_once_per_run(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            self._write_plink_prefix_rows(
+                tmpdir,
+                "panel.1",
+                [
+                    ("1", "rs1", 100),
+                    ("1", "rs2", 100),
+                    ("1", "rs3", 200),
+                ],
+            )
+            config = ReferencePanelBuildConfig(
+                plink_prefix=tmpdir / "panel.@",
+                source_genome_build="hg19",
+                output_dir=tmpdir / "out",
+                ld_wind_kb=1.0,
+            )
+            builder = ref_panel_builder.ReferencePanelBuilder(
+                global_config=GlobalConfig(snp_identifier="rsid", genome_build="hg38")
+            )
+
+            def fake_resolve(*, chrom_df, keep_snps, **_kwargs):
+                keep = np.asarray(keep_snps, dtype=int)
+                hg19 = {int(idx): int(chrom_df.loc[idx, "BP"]) for idx in keep}
+                return keep, hg19, {}
+
+            with mock.patch.object(
+                builder,
+                "_resolve_mappable_snp_positions",
+                side_effect=fake_resolve,
+            ), mock.patch(
+                "ldsc.ref_panel_builder.kernel_builder.write_r2_parquet"
+            ), mock.patch(
+                "ldsc.ref_panel_builder.kernel_builder.write_runtime_metadata_sidecar"
+            ), mock.patch(
+                "ldsc.ref_panel_builder.kernel_ldscore.PlinkBEDFile"
+            ) as mock_bed:
+                mock_bed.return_value.kept_snps = [0, 1, 2]
+                mock_bed.return_value.maf = np.array([0.2, 0.2, 0.3])
+                mock_bed.return_value.m = 3
+                mock_bed.return_value.n = 1
+                mock_bed.return_value.nextSNPs = lambda: iter([np.zeros((1, 3))])
+
+                with self.assertLogs("LDSC.ref_panel_builder", level="INFO") as log_ctx:
+                    result = builder.run(config)
+
+            self.assertEqual(result.chromosomes, ["1"])
+            self.assertFalse((tmpdir / "out" / "dropped_snps" / "chr1_dropped.tsv.gz").exists())
+            self.assertEqual(mock_bed.call_args.kwargs["keep_snps"], [0, 1, 2])
+            messages = "\n".join(log_ctx.output)
+            self.assertEqual(messages.count("duplicate_position_policy applies only when snp_identifier='chr_pos'"), 1)
+
+    def test_builder_run_rejects_matching_chain_in_rsid_mode(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
+            config = ReferencePanelBuildConfig(
+                plink_prefix=tmpdir / "panel.@",
+                source_genome_build="hg19",
+                liftover_chain_hg19_to_hg38_file=tmpdir / "hg19ToHg38.over.chain",
+                output_dir=tmpdir / "out",
+                ld_wind_kb=1.0,
+            )
+            builder = ref_panel_builder.ReferencePanelBuilder(
+                global_config=GlobalConfig(snp_identifier="rsid", genome_build="hg38")
+            )
+
+            with mock.patch.object(
+                ref_panel_builder.ReferencePanelBuilder,
+                "_build_chromosome",
+                side_effect=AssertionError("chromosome build should not run"),
+            ):
+                with self.assertRaisesRegex(ValueError, "chain liftover.*snp_identifier='chr_pos'"):
+                    builder.run(config)
+
+    def test_all_dropped_chromosome_is_skipped_without_poisoning_other_chromosomes(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            self._write_plink_prefix_rows(tmpdir, "panel.1", [("1", "rs1", 100), ("1", "rs2", 100)])
+            self._write_plink_prefix_rows(tmpdir, "panel.2", [("2", "rs3", 200)])
+            config = ReferencePanelBuildConfig(
+                plink_prefix=tmpdir / "panel.@",
+                source_genome_build="hg19",
+                output_dir=tmpdir / "out",
+                ld_wind_kb=1.0,
+            )
+            builder = ref_panel_builder.ReferencePanelBuilder(
+                global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg19")
+            )
+
+            def fake_resolve(*, chrom_df, keep_snps, **_kwargs):
+                keep = np.asarray(keep_snps, dtype=int)
+                hg19 = {int(idx): int(chrom_df.loc[idx, "BP"]) for idx in keep}
+                return keep, hg19, {}
+
+            with mock.patch.object(
+                builder,
+                "_resolve_mappable_snp_positions",
+                side_effect=fake_resolve,
+            ), mock.patch(
+                "ldsc.ref_panel_builder.kernel_builder.write_r2_parquet"
+            ), mock.patch(
+                "ldsc.ref_panel_builder.kernel_builder.write_runtime_metadata_sidecar"
+            ), mock.patch(
+                "ldsc.ref_panel_builder.kernel_ldscore.PlinkBEDFile"
+            ) as mock_bed:
+                mock_bed.return_value.kept_snps = [0]
+                mock_bed.return_value.maf = np.array([0.3])
+                mock_bed.return_value.m = 1
+                mock_bed.return_value.n = 1
+                mock_bed.return_value.nextSNPs = lambda: iter([np.zeros((1, 1))])
+
+                result = builder.run(config)
+
+            self.assertEqual(result.chromosomes, ["2"])
+            self.assertTrue((tmpdir / "out" / "dropped_snps" / "chr1_dropped.tsv.gz").exists())
+            self.assertFalse((tmpdir / "out" / "dropped_snps" / "chr2_dropped.tsv.gz").exists())
+
     def test_builder_run_collects_artifact_paths_from_resolved_suite(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -1670,6 +1815,38 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
 
         self.assertEqual(captured["keep_snps"], [1])
 
+    def test_source_duplicates_are_dropped_before_liftover_mapping(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            prefix = self._write_plink_prefix_rows(
+                tmpdir,
+                "panel.1",
+                [("1", "rs1", 100), ("1", "rs2", 100), ("1", "rs3", 300)],
+            )
+            config = ReferencePanelBuildConfig(
+                plink_prefix=tmpdir / "panel.@",
+                source_genome_build="hg19",
+                output_dir=tmpdir / "out",
+                ld_wind_kb=1.0,
+            )
+            build_state = ref_panel_builder._BuildState(
+                genetic_map_hg19=None,
+                genetic_map_hg38=None,
+                liftover_chain_paths={("hg19", "hg38"): "chain.over"},
+            )
+            builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos"))
+            captured = {}
+
+            def stop_before_mapping(*, keep_snps, **_kwargs):
+                captured["keep_snps"] = list(map(int, keep_snps))
+                raise RuntimeError("stop before mapping")
+
+            with mock.patch.object(builder, "_resolve_mappable_snp_positions", side_effect=stop_before_mapping):
+                with self.assertRaisesRegex(RuntimeError, "stop before mapping"):
+                    builder._build_chromosome(str(prefix), "1", config, build_state)
+
+        self.assertEqual(captured["keep_snps"], [2])
+
     def test_rsid_restriction_filters_before_liftover_and_ignores_global_build(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -1759,6 +1936,8 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             source_build="hg38",
             target_build="hg19",
             chain_path="chains/hg38ToHg19.over.chain",
+            chain_flag_hint="--liftover-chain-hg38-to-hg19-file",
+            workflow_label="reference-panel liftover",
         )
 
 

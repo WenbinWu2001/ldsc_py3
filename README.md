@@ -8,7 +8,7 @@ This repository is the active refactored LDSC package.
 - `src/ldsc/_kernel/`: internal compute and file-format modules
 - `tests/`: local parity and workflow tests
 - `tutorials/`: package-level usage examples
-- `docs/current/architecture.md`, `docs/current/code-structure.md`, `docs/current/class-and-features.md`, `docs/current/workflow-logging.md`: active design and navigation docs
+- `docs/current/architecture.md`, `docs/current/code-structure.md`, `docs/current/class-and-features.md`, `docs/current/workflow-logging.md`, `docs/current/liftover-harmonization-decisions.md`: active design and navigation docs
 
 ## Install
 
@@ -69,7 +69,8 @@ The package supports Python 3.11 through 3.13. The base install includes the
 core NumPy/pandas/SciPy/PyArrow stack. Optional extras are split by workflow:
 `.[plink]` installs `bitarray` for PLINK-backed LD computation, `.[bed]`
 installs `pybedtools` for BED projection, and `.[liftover]` installs
-`pyliftover` for cross-build reference-panel output. `.[dev]` installs all of
+`pyliftover` for chain-file liftover in sumstats munging and cross-build
+reference-panel output. `.[dev]` installs all of
 those extras plus pytest. BED-based annotation projection also requires the
 external `bedtools` executable, which `environment.yml` installs from bioconda.
 For non-conda installs, make sure `bedtools` is available on `PATH` before
@@ -117,6 +118,14 @@ malformed non-missing coordinates remain errors. To convert coordinates after QC
 and after `--sumstats-snps-file`, pass `--target-genome-build` with either
 `--liftover-chain-file` or `--use-hm3-quick-liftover`. Liftover is invalid in
 `rsid` mode because positions are not the row identity there.
+
+`ldsc build-ref-panel` keeps a separate source-build contract for PLINK input:
+provide or infer `--source-genome-build`, and a matching chain file emits the
+opposite build. Chain-file liftover is invalid when the active
+`snp_identifier` is `rsid`; omit the chain for source-build-only rsID panels.
+In `chr_pos` mode, duplicate source or target coordinate groups are dropped by
+default (`--duplicate-position-policy drop-all`), with details in
+`build-ref-panel.log` and duplicate-only sidecars under `dropped_snps/`.
 
 Artifact-writing workflows also write per-run logs under their output
 directories. `munge-sumstats` keeps the historical `sumstats.log` name; other

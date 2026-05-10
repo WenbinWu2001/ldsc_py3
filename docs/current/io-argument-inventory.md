@@ -164,6 +164,7 @@ LD-score output schema:
 | `--overwrite` | output mode | no | collision policy | Controls whether reference-panel artifacts and build-ref-panel workflow logs may be replaced; defaults to `False`, so existing deterministic outputs are refused. This expert workflow does not clean stale optional target-build or `dropped_snps` siblings from earlier configurations. |
 | `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger records in console and the build-ref-panel workflow log; lifecycle audit lines always appear in the file. |
 | `--snp-batch-size` | performance | no | SNP computation batch size | Number of SNPs loaded per pairwise-R2 computation batch; larger values may improve throughput but use more memory. Defaults to `128`. |
+| `--duplicate-position-policy` | filtering mode | no | duplicate CHR/POS handling | In `chr_pos` builds, `drop-all` drops every SNP in duplicate source or target coordinate groups and writes duplicate-only sidecars under `dropped_snps`; `error` raises instead. Defaults to `drop-all`. The policy is ignored in `rsid` source-only builds. |
 
 Removed flags: `--bfile`, `--out`, `--panel-label`, `--keep-indivs`, `--maf`,
 `--genetic-map-hg19`, `--genetic-map-hg38`, old liftover-chain names without
@@ -190,6 +191,9 @@ and `--r2-sample-size` for panels produced by this codebase.
 When no usable source-to-target liftover chain is provided, the builder logs
 an INFO message and emits source-build-only outputs. When a matching liftover
 chain is provided, it emits both source and target build R2/metadata trees.
+Matching chain-file liftover is rejected when the active SNP identifier mode is
+`rsid`; use `chr_pos` mode for cross-build coordinate emission or omit the
+matching chain for source-build-only rsID panels.
 
 When SNP- or kb-window builds omit a genetic map for an emitted build, that
 metadata sidecar is still written with `CM=NA`. cM-window builds require the
@@ -399,7 +403,9 @@ Parquet row groups are log provenance, not sidecar metadata.
 Regression therefore merges on literal `SNP` in `rsid` mode and on normalized
 `CHR:POS` coordinates in `chr_pos` mode. Munger liftover is valid only in
 `chr_pos` mode; it changes `CHR`/`POS`, never `SNP`, and runs after
-`sumstats_snps_file` filtering.
+`sumstats_snps_file` filtering. Liftover drop counts and examples are written as
+readable log records; the sidecar remains compatibility-only and current
+sidecars must include `config_snapshot`.
 
 ## Remaining Implementation Checklist
 

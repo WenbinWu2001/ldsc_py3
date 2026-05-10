@@ -181,8 +181,10 @@ raw `##` metadata lines are skipped before the real header is parsed. In
 `chr_pos` mode, downstream regression merges by normalized `CHR:POS` rather
 than by the literal rsID in `SNP`; `SNP` is treated as a label. Optional munger
 liftover is also `chr_pos`-only, runs after the source-build keep-list filter,
-changes `CHR`/`POS` without rewriting `SNP`, and requires
-`--target-genome-build` plus one method flag.
+changes `CHR`/`POS` without rewriting `SNP`, drops duplicate source/target
+coordinate groups, and requires `--target-genome-build` plus one method flag.
+Drop counts and examples are written to `sumstats.log`; the metadata sidecar is
+only the compatibility snapshot.
 
 Within this design:
 

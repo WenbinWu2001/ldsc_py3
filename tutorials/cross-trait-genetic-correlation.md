@@ -112,7 +112,9 @@ fabricating a snapshot. In `chr_pos` mode, both trait tables and the LD-score
 table merge by normalized `CHR:POS` coordinates, and `SNP` is treated as a
 label. Optional munger liftover is valid only in `chr_pos` mode; use
 `target_genome_build` with either a chain file or HM3 quick liftover when both
-traits need to be converted to the LD-score build.
+traits need to be converted to the LD-score build. Liftover drops duplicate
+source/target coordinate groups and records readable drop counts/examples in
+`sumstats.log`, not in the compatibility sidecar.
 
 ## CLI
 

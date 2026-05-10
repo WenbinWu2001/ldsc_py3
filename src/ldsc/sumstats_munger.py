@@ -16,6 +16,8 @@ preflight, the fixed ``sumstats.log`` file, metadata sidecars, and result
 objects; the kernel keeps the legacy-compatible parsing and filtering
 primitives. Run summaries and metadata expose curated data artifacts only;
 the log is an audit file and is not included in ``output_paths``.
+Summary-statistics metadata sidecars stay thin for downstream compatibility;
+coordinate and liftover provenance is written as readable workflow-log text.
 """
 
 from __future__ import annotations
@@ -1098,31 +1100,43 @@ def _log_sumstats_provenance(
         ),
     )
     LOGGER.info(
-        "Summary-statistics output bookkeeping: %s",
-        json.dumps(
-            {
-                "output_format": output_format,
-                "output_files": dict(output_files),
-                "parquet_compression": parquet_compression,
-                "parquet_row_groups": list(parquet_row_groups),
-            },
-            sort_keys=True,
-        ),
+        "Summary-statistics output bookkeeping: output_format=%s; output_files=%s; "
+        "parquet_compression=%s; parquet_row_groups=%d",
+        output_format,
+        _format_log_mapping(dict(output_files)),
+        parquet_compression or "none",
+        len(parquet_row_groups),
     )
-    LOGGER.info("Summary-statistics coordinate provenance: %s", json.dumps(coordinate_provenance, sort_keys=True))
+    LOGGER.info(
+        "Summary-statistics coordinate provenance: %s",
+        _format_log_mapping(coordinate_provenance),
+    )
     if isinstance(liftover, dict):
-        LOGGER.info("Summary-statistics liftover report: %s", json.dumps(liftover, sort_keys=True))
+        LOGGER.info("Summary-statistics liftover report: %s", _format_log_mapping(liftover))
         if liftover.get("method") == "hm3_curated":
             LOGGER.info(
-                "Summary-statistics HM3 liftover provenance: %s",
-                json.dumps(
-                    {
-                        "method": liftover.get("method"),
-                        "hm3_map_file": liftover.get("hm3_map_file"),
-                    },
-                    sort_keys=True,
-                ),
+                "Summary-statistics HM3 liftover provenance: method=%s; hm3_map_file=%s",
+                liftover.get("method"),
+                liftover.get("hm3_map_file"),
             )
+
+
+def _format_log_mapping(values: dict[str, Any]) -> str:
+    """Format a small mapping as stable human-readable key/value text."""
+    if not values:
+        return "none"
+    return "; ".join(f"{key}={_format_log_value(values[key])}" for key in sorted(values))
+
+
+def _format_log_value(value: Any) -> str:
+    """Format one provenance value without emitting JSON payloads."""
+    if isinstance(value, dict):
+        return "{" + ", ".join(f"{key}={_format_log_value(value[key])}" for key in sorted(value)) + "}"
+    if isinstance(value, list):
+        return "[" + ", ".join(_format_log_value(item) for item in value) + "]"
+    if value is None:
+        return "none"
+    return str(value)
 
 
 _COLUMN_HINT_ATTRS = {

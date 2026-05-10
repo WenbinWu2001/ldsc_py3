@@ -1,4 +1,11 @@
-"""Shared coordinate liftover helpers for LDSC workflows."""
+"""Internal coordinate liftover helpers shared by LDSC workflows.
+
+The helpers in this module are deliberately package-private mechanics rather
+than a public liftover API. Workflow modules own user-facing validation and
+output contracts; this module owns reusable coordinate normalization, chain
+translation, duplicate-coordinate detection, drop accounting, and readable drop
+examples for sumstats munging and reference-panel building.
+"""
 
 from __future__ import annotations
 
@@ -60,12 +67,37 @@ HM3_HG38_POS_SPEC = ColumnSpec(
 
 @dataclass(frozen=True)
 class LiftOverMappingResult:
-    """Partial liftover result for one chromosome."""
+    """Partial 1-based liftover result for one chromosome.
+
+    ``translated_positions`` contains only retained same-chromosome mappings,
+    while ``keep_mask`` and the optional reason masks are aligned to the input
+    position sequence. Chain hits keep the first same-chromosome candidate and
+    treat all-cross-chromosome hits as drops.
+    """
 
     translated_positions: np.ndarray
     keep_mask: np.ndarray
     unmapped_count: int
     cross_chrom_count: int
+    unmapped_mask: np.ndarray | None = None
+    cross_chrom_mask: np.ndarray | None = None
+
+
+@dataclass(frozen=True)
+class LiftoverDropReport:
+    """Readable drop report shared by liftover-aware workflows."""
+
+    reason: str
+    n_dropped: int
+    examples: list[dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class DuplicateCoordinateDropResult:
+    """Result of dropping all rows in duplicate coordinate groups."""
+
+    keep_mask: np.ndarray
+    report: LiftoverDropReport
 
 
 class LiftOverTranslator:
@@ -77,6 +109,8 @@ class LiftOverTranslator:
         source_build: str,
         target_build: str,
         chain_path: str | PathLike[str] | None = None,
+        chain_flag_hint: str | None = None,
+        workflow_label: str = "liftover",
     ) -> None:
         """Initialize a build-to-build position translator for one run."""
         self.source_build = source_build
@@ -88,21 +122,17 @@ class LiftOverTranslator:
             return
         self._identity = False
         if self.chain_path is None:
-            flag = (
-                "--liftover-chain-hg19-to-hg38"
-                if (source_build, target_build) == ("hg19", "hg38")
-                else "--liftover-chain-hg38-to-hg19"
-            )
+            flag = chain_flag_hint or _default_chain_flag_hint(source_build, target_build)
             raise ValueError(
-                f"An explicit liftover chain path is required for {source_build} -> {target_build}. "
+                f"{workflow_label} requires an explicit liftover chain path for {source_build} -> {target_build}. "
                 f"Provide it via {flag}."
             )
         try:
             from pyliftover import LiftOver
         except ImportError as exc:
             raise LDSCDependencyError(
-                "Building reference panels or munging summary statistics across hg19/hg38 requires "
-                "the optional dependency 'pyliftover'."
+                f"{workflow_label} from {source_build} to {target_build} requires the optional dependency "
+                "'pyliftover'. Install pyliftover or use a workflow that does not request chain-file liftover."
             ) from exc
         self.chain_path = Path(self.chain_path)
         self._liftover = LiftOver(str(self.chain_path))
@@ -116,17 +146,22 @@ class LiftOverTranslator:
                 keep_mask=np.ones(len(array), dtype=bool),
                 unmapped_count=0,
                 cross_chrom_count=0,
+                unmapped_mask=np.zeros(len(array), dtype=bool),
+                cross_chrom_mask=np.zeros(len(array), dtype=bool),
             )
         chrom = _normalize_liftover_chromosome(chrom)
         query_chrom = f"chr{chrom}"
         translated = np.zeros(len(array), dtype=np.int64)
         keep_mask = np.zeros(len(array), dtype=bool)
+        unmapped_mask = np.zeros(len(array), dtype=bool)
+        cross_chrom_mask = np.zeros(len(array), dtype=bool)
         unmapped_count = 0
         cross_chrom_count = 0
         for idx, pos in enumerate(array):
             hits = self._liftover.convert_coordinate(query_chrom, int(pos) - 1)
             if not hits:
                 unmapped_count += 1
+                unmapped_mask[idx] = True
                 continue
             hit = next(
                 (candidate for candidate in hits if _try_normalize_liftover_chromosome(candidate[0]) == chrom),
@@ -134,6 +169,7 @@ class LiftOverTranslator:
             )
             if hit is None:
                 cross_chrom_count += 1
+                cross_chrom_mask[idx] = True
                 continue
             translated[idx] = int(hit[1]) + 1
             keep_mask[idx] = True
@@ -142,6 +178,8 @@ class LiftOverTranslator:
             keep_mask=keep_mask,
             unmapped_count=unmapped_count,
             cross_chrom_count=cross_chrom_count,
+            unmapped_mask=unmapped_mask,
+            cross_chrom_mask=cross_chrom_mask,
         )
 
     def translate_positions(self, chrom: str, positions: Sequence[int] | np.ndarray) -> np.ndarray:
@@ -248,8 +286,107 @@ def default_liftover_metadata(*, source_build: str | None, snp_identifier: str) 
         "n_missing_chr_pos_dropped": None,
         "n_unmapped": None,
         "n_cross_chrom": None,
+        "n_duplicate_source_dropped": None,
         "n_duplicate_target_dropped": None,
     }
+
+
+def duplicate_coordinate_drop_result(
+    frame: pd.DataFrame,
+    *,
+    chrom_col: str = "CHR",
+    pos_col: str = "POS",
+    source_pos_col: str | None = None,
+    target_pos_col: str | None = None,
+    snp_col: str = "SNP",
+    reason: str,
+    max_examples: int = 5,
+) -> DuplicateCoordinateDropResult:
+    """Return rows kept after dropping every row in duplicate coordinate groups.
+
+    The policy is intentionally "drop all duplicates" only; callers decide
+    whether to use this result, raise instead, or ignore coordinate duplicates
+    for workflows such as rsID source-only reference-panel builds.
+    """
+    if chrom_col not in frame.columns or pos_col not in frame.columns:
+        missing = [column for column in (chrom_col, pos_col) if column not in frame.columns]
+        raise ValueError(f"Duplicate coordinate detection requires columns: {missing}.")
+    duplicate_mask = frame.duplicated(subset=[chrom_col, pos_col], keep=False).to_numpy(dtype=bool)
+    report = liftover_drop_report(
+        frame,
+        duplicate_mask,
+        reason=reason,
+        chrom_col=chrom_col,
+        source_pos_col=source_pos_col or pos_col,
+        target_pos_col=target_pos_col,
+        snp_col=snp_col,
+        max_examples=max_examples,
+    )
+    return DuplicateCoordinateDropResult(keep_mask=~duplicate_mask, report=report)
+
+
+def liftover_drop_report(
+    frame: pd.DataFrame,
+    drop_mask: Sequence[bool] | np.ndarray,
+    *,
+    reason: str,
+    chrom_col: str = "CHR",
+    source_pos_col: str | None = "POS",
+    target_pos_col: str | None = None,
+    snp_col: str = "SNP",
+    max_examples: int = 5,
+) -> LiftoverDropReport:
+    """Build a compact readable drop report with shared core fields."""
+    mask = np.asarray(drop_mask, dtype=bool)
+    if len(mask) != len(frame):
+        raise ValueError("drop_mask length must match frame length.")
+    dropped = frame.loc[mask]
+    examples = _drop_examples(
+        dropped,
+        reason=reason,
+        chrom_col=chrom_col,
+        source_pos_col=source_pos_col,
+        target_pos_col=target_pos_col,
+        snp_col=snp_col,
+        max_examples=max_examples,
+    )
+    return LiftoverDropReport(reason=reason, n_dropped=int(mask.sum()), examples=examples)
+
+
+def log_liftover_drop_report(
+    logger: logging.Logger,
+    report: LiftoverDropReport,
+    *,
+    workflow_label: str,
+) -> None:
+    """Log one shared liftover drop report in readable text."""
+    if report.n_dropped == 0:
+        return
+    logger.info(
+        "%s dropped %d SNPs for %s. Examples: %s",
+        workflow_label,
+        report.n_dropped,
+        report.reason,
+        report.examples,
+    )
+
+
+def mapping_reason_masks(result: LiftOverMappingResult) -> tuple[np.ndarray, np.ndarray]:
+    """Return unmapped and cross-chromosome masks aligned to a mapping input."""
+    dropped_mask = ~np.asarray(result.keep_mask, dtype=bool)
+    if result.unmapped_mask is not None:
+        unmapped_mask = np.asarray(result.unmapped_mask, dtype=bool)
+    elif result.unmapped_count == int(dropped_mask.sum()) and result.cross_chrom_count == 0:
+        unmapped_mask = dropped_mask
+    else:
+        unmapped_mask = np.zeros_like(dropped_mask, dtype=bool)
+    if result.cross_chrom_mask is not None:
+        cross_chrom_mask = np.asarray(result.cross_chrom_mask, dtype=bool)
+    elif result.cross_chrom_count == int(dropped_mask.sum()) and result.unmapped_count == 0:
+        cross_chrom_mask = dropped_mask
+    else:
+        cross_chrom_mask = np.zeros_like(dropped_mask, dtype=bool)
+    return unmapped_mask, cross_chrom_mask
 
 
 def load_hm3_curated_map(path: str | PathLike[str]) -> pd.DataFrame:
@@ -287,7 +424,14 @@ def apply_sumstats_liftover(
     snp_identifier: str,
     logger: logging.Logger | None = None,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
-    """Apply a summary-statistics liftover request and return updated metadata."""
+    """Apply a summary-statistics liftover request and return log metadata.
+
+    Liftover is meaningful only in ``chr_pos`` mode. The munger drops missing
+    coordinates, source duplicate ``CHR/POS`` groups, unmapped/cross-chromosome
+    chain hits, and target duplicate ``CHR/POS`` groups only when a liftover
+    request reaches the mapping stage. It updates ``CHR``/``POS`` but preserves
+    ``SNP`` as a label field.
+    """
     logger = LOGGER if logger is None else logger
     request = request or SumstatsLiftoverRequest()
     mode = normalize_snp_identifier_mode(snp_identifier)
@@ -310,27 +454,70 @@ def apply_sumstats_liftover(
 
     _require_supported_pair(source, request.target_build)
     work, missing_report = _normalized_coordinate_frame(frame, drop_missing=True, logger=logger)
+    work = work.copy()
+    work["_ldsc_source_POS"] = work["POS"].astype(np.int64)
+    source_duplicate_result = duplicate_coordinate_drop_result(
+        work,
+        source_pos_col="_ldsc_source_POS",
+        reason="duplicate source coordinate",
+    )
+    source_duplicate_count = source_duplicate_result.report.n_dropped
+    log_liftover_drop_report(
+        logger,
+        source_duplicate_result.report,
+        workflow_label="Summary-statistics liftover",
+    )
+    work = work.loc[source_duplicate_result.keep_mask].copy()
+    if len(work) == 0:
+        _raise_sumstats_all_dropped(
+            source=source,
+            target=str(request.target_build),
+            method=str(request.method),
+            n_input=len(frame),
+            n_missing=missing_report.n_dropped,
+            n_source_duplicate=source_duplicate_count,
+            n_unmapped=0,
+            n_cross_chrom=0,
+            n_target_duplicate=0,
+        )
     if request.method == "hm3_curated":
-        lifted, unmapped_count = _apply_hm3_liftover(work, request, source_build=source)
+        lifted, unmapped_count = _apply_hm3_liftover(work, request, source_build=source, logger=logger)
         cross_chrom_count = 0
     else:
-        lifted, unmapped_count, cross_chrom_count = _apply_chain_liftover(work, request, source_build=source)
+        lifted, unmapped_count, cross_chrom_count = _apply_chain_liftover(
+            work,
+            request,
+            source_build=source,
+            logger=logger,
+        )
 
-    _log_drop_examples(work, lifted.index, "unmapped/cross-chromosome liftover", logger)
     before_duplicate_drop = len(lifted)
-    duplicate_mask = lifted.duplicated(subset=["CHR", "POS"], keep=False)
-    duplicate_count = int(duplicate_mask.sum())
-    if duplicate_count:
-        _log_drop_examples(lifted, lifted.index[~duplicate_mask], "duplicate target coordinate", logger)
-        lifted = lifted.loc[~duplicate_mask].copy()
-    lifted = lifted.reset_index(drop=True)
+    target_duplicate_result = duplicate_coordinate_drop_result(
+        lifted,
+        source_pos_col="_ldsc_source_POS",
+        target_pos_col="POS",
+        reason="duplicate target coordinate",
+    )
+    target_duplicate_count = target_duplicate_result.report.n_dropped
+    log_liftover_drop_report(
+        logger,
+        target_duplicate_result.report,
+        workflow_label="Summary-statistics liftover",
+    )
+    if target_duplicate_count:
+        lifted = lifted.loc[target_duplicate_result.keep_mask].copy()
+    lifted = lifted.drop(columns=["_ldsc_source_POS"], errors="ignore").reset_index(drop=True)
     if len(lifted) == 0:
-        raise ValueError(
-            "Summary-statistics liftover dropped all rows. "
-            f"source_build={source}; target_build={request.target_build}; method={request.method}; "
-            f"n_input={len(frame)}; n_missing_chr_pos_dropped={missing_report.n_dropped}; "
-            f"n_unmapped={unmapped_count}; n_cross_chrom={cross_chrom_count}; "
-            f"n_duplicate_target_dropped={duplicate_count}."
+        _raise_sumstats_all_dropped(
+            source=source,
+            target=str(request.target_build),
+            method=str(request.method),
+            n_input=len(frame),
+            n_missing=missing_report.n_dropped,
+            n_source_duplicate=source_duplicate_count,
+            n_unmapped=unmapped_count,
+            n_cross_chrom=cross_chrom_count,
+            n_target_duplicate=target_duplicate_count,
         )
     report = {
         "applied": True,
@@ -345,13 +532,14 @@ def apply_sumstats_liftover(
         "n_missing_chr_pos_dropped": int(missing_report.n_dropped),
         "n_unmapped": int(unmapped_count),
         "n_cross_chrom": int(cross_chrom_count),
-        "n_duplicate_target_dropped": int(duplicate_count),
+        "n_duplicate_source_dropped": int(source_duplicate_count),
+        "n_duplicate_target_dropped": int(target_duplicate_count),
     }
-    if duplicate_count:
+    if target_duplicate_count:
         logger.info(
             "Removed %d summary-statistics rows in duplicate target CHR/POS groups after liftover "
             "(%d rows before duplicate filtering; %d rows retained).",
-            duplicate_count,
+            target_duplicate_count,
             before_duplicate_drop,
             len(lifted),
         )
@@ -370,6 +558,49 @@ def apply_sumstats_liftover(
 def _positive_int_position(values: pd.Series, *, label: str, context: str) -> pd.Series:
     """Return positive integer coordinates with useful validation errors."""
     return positive_int_position_series(values, label=label, context=context).astype(np.int64)
+
+
+def _default_chain_flag_hint(source_build: str, target_build: str) -> str:
+    """Return the reference-panel chain flag for a build pair."""
+    return f"--liftover-chain-{source_build}-to-{target_build}-file"
+
+
+def _drop_examples(
+    dropped: pd.DataFrame,
+    *,
+    reason: str,
+    chrom_col: str,
+    source_pos_col: str | None,
+    target_pos_col: str | None,
+    snp_col: str,
+    max_examples: int,
+) -> list[dict[str, Any]]:
+    """Format up to ``max_examples`` dropped rows using the shared core fields."""
+    examples: list[dict[str, Any]] = []
+    for _, row in dropped.head(max_examples).iterrows():
+        example: dict[str, Any] = {}
+        if snp_col in dropped.columns:
+            example["SNP"] = _example_value(row[snp_col])
+        if chrom_col in dropped.columns:
+            example["CHR"] = _example_value(row[chrom_col])
+        if source_pos_col is not None and source_pos_col in dropped.columns:
+            example["source_POS"] = _example_value(row[source_pos_col])
+        if target_pos_col is not None and target_pos_col in dropped.columns:
+            example["target_POS"] = _example_value(row[target_pos_col])
+        example["reason"] = reason
+        examples.append(example)
+    return examples
+
+
+def _example_value(value: object) -> object:
+    """Return a JSON-like scalar for human-readable example logging."""
+    if pd.isna(value):
+        return None
+    if isinstance(value, np.integer):
+        return int(value)
+    if isinstance(value, np.floating):
+        return float(value)
+    return value
 
 
 def _normalize_liftover_chromosome(value: object) -> str:
@@ -420,11 +651,35 @@ def _normalized_coordinate_frame(
     )
 
 
+def _raise_sumstats_all_dropped(
+    *,
+    source: str,
+    target: str,
+    method: str,
+    n_input: int,
+    n_missing: int,
+    n_source_duplicate: int,
+    n_unmapped: int,
+    n_cross_chrom: int,
+    n_target_duplicate: int,
+) -> None:
+    """Raise the standardized hard error when liftover removes every row."""
+    raise ValueError(
+        "Summary-statistics liftover dropped all rows. "
+        f"source_build={source}; target_build={target}; method={method}; "
+        f"n_input={n_input}; n_missing_chr_pos_dropped={n_missing}; "
+        f"n_duplicate_source_dropped={n_source_duplicate}; "
+        f"n_unmapped={n_unmapped}; n_cross_chrom={n_cross_chrom}; "
+        f"n_duplicate_target_dropped={n_target_duplicate}."
+    )
+
+
 def _apply_hm3_liftover(
     frame: pd.DataFrame,
     request: SumstatsLiftoverRequest,
     *,
     source_build: str,
+    logger: logging.Logger | None = None,
 ) -> tuple[pd.DataFrame, int]:
     """Apply coordinate-only HM3 map liftover."""
     if request.hm3_map_file is None:
@@ -435,6 +690,17 @@ def _apply_hm3_liftover(
     lookup = mapping.loc[:, ["CHR", source_column, target_column]].rename(columns={source_column: "POS"})
     joined = frame.merge(lookup, on=["CHR", "POS"], how="left", sort=False)
     unmapped = joined[target_column].isna()
+    if logger is not None:
+        log_liftover_drop_report(
+            logger,
+            liftover_drop_report(
+                frame,
+                unmapped.to_numpy(dtype=bool),
+                reason="unmapped liftover",
+                source_pos_col="_ldsc_source_POS" if "_ldsc_source_POS" in frame.columns else "POS",
+            ),
+            workflow_label="Summary-statistics liftover",
+        )
     lifted = frame.loc[~unmapped.to_numpy()].copy()
     lifted["POS"] = joined.loc[~unmapped, target_column].to_numpy(dtype=np.int64)
     return lifted, int(unmapped.sum())
@@ -445,12 +711,15 @@ def _apply_chain_liftover(
     request: SumstatsLiftoverRequest,
     *,
     source_build: str,
+    logger: logging.Logger | None = None,
 ) -> tuple[pd.DataFrame, int, int]:
     """Apply chain-file liftover and drop unmapped or cross-chromosome hits."""
     translator = LiftOverTranslator(
         source_build=source_build,
         target_build=str(request.target_build),
         chain_path=request.liftover_chain_file,
+        chain_flag_hint="--liftover-chain-file",
+        workflow_label="summary-statistics liftover",
     )
     lifted_parts: list[pd.DataFrame] = []
     unmapped_count = 0
@@ -459,6 +728,28 @@ def _apply_chain_liftover(
         result = translator.map_positions(str(chrom), group["POS"].to_numpy(dtype=np.int64))
         unmapped_count += int(result.unmapped_count)
         cross_chrom_count += int(result.cross_chrom_count)
+        if logger is not None:
+            unmapped_mask, cross_chrom_mask = mapping_reason_masks(result)
+            log_liftover_drop_report(
+                logger,
+                liftover_drop_report(
+                    group,
+                    unmapped_mask,
+                    reason="unmapped liftover",
+                    source_pos_col="_ldsc_source_POS" if "_ldsc_source_POS" in group.columns else "POS",
+                ),
+                workflow_label="Summary-statistics liftover",
+            )
+            log_liftover_drop_report(
+                logger,
+                liftover_drop_report(
+                    group,
+                    cross_chrom_mask,
+                    reason="cross-chromosome liftover",
+                    source_pos_col="_ldsc_source_POS" if "_ldsc_source_POS" in group.columns else "POS",
+                ),
+                workflow_label="Summary-statistics liftover",
+            )
         kept = group.loc[result.keep_mask].copy()
         kept["POS"] = result.translated_positions.astype(np.int64)
         lifted_parts.append(kept)

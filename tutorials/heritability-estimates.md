@@ -119,9 +119,11 @@ coordinate mode is active. The raw munger accepts common coordinate headers
 such as `#CHROM`, `CHROM`, `CHR`, `POS`, and `BP`; use `--chr` and `--pos` or
 `column_hints` when the header is ambiguous. Leading raw `##` metadata lines are
 skipped before the real header is parsed. Optional munger liftover runs after
-the source-build keep-list filter, changes only `CHR`/`POS`, and requires
+the source-build keep-list filter, drops duplicate source/target coordinate
+groups, changes only `CHR`/`POS`, and requires
 `--target-genome-build` plus either `--liftover-chain-file` or
-`--use-hm3-quick-liftover`.
+`--use-hm3-quick-liftover`. Drop counts and examples are written to
+`sumstats.log`; the metadata sidecar remains compatibility-only.
 
 When you set `regression_snps_file` during LD-score calculation, the same regression SNP subset defines the rows of the normalized `baseline_table`. Regression uses the embedded `regression_ld_scores` column as the historical `w_ld` component; final model-dependent weights are computed later in the regression kernel.
 

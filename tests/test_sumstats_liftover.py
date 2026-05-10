@@ -155,6 +155,47 @@ class SumstatsLiftoverTest(unittest.TestCase):
         self.assertEqual(report["n_unmapped"], 0)
         self.assertEqual(report["n_dropped"], 1)
 
+    def test_source_duplicate_coordinate_groups_are_removed_before_mapping(self):
+        frame = pd.DataFrame(
+            {
+                "CHR": ["1", "1", "1"],
+                "POS": [100, 100, 300],
+                "SNP": ["rs1", "rs2", "rs3"],
+                "Z": [1.0, 2.0, 3.0],
+                "N": [100.0, 100.0, 100.0],
+            }
+        )
+        request = SumstatsLiftoverRequest(target_build="hg38", liftover_chain_file="chain.over")
+
+        fake_translator = mock.Mock()
+
+        def fake_map(chrom, positions):
+            self.assertEqual(chrom, "1")
+            np.testing.assert_array_equal(positions, np.asarray([300], dtype=np.int64))
+            return LiftOverMappingResult(
+                translated_positions=np.asarray([3000], dtype=np.int64),
+                keep_mask=np.asarray([True], dtype=bool),
+                unmapped_count=0,
+                cross_chrom_count=0,
+            )
+
+        fake_translator.map_positions.side_effect = fake_map
+        with mock.patch("ldsc._kernel.liftover.LiftOverTranslator", return_value=fake_translator):
+            with self.assertLogs("LDSC.liftover", level="INFO") as caught:
+                lifted, report = apply_sumstats_liftover(
+                    frame,
+                    request,
+                    source_build="hg19",
+                    snp_identifier="chr_pos",
+                )
+
+        self.assertEqual(lifted["SNP"].tolist(), ["rs3"])
+        self.assertEqual(lifted["POS"].tolist(), [3000])
+        self.assertEqual(report["n_duplicate_source_dropped"], 2)
+        self.assertEqual(report["n_duplicate_target_dropped"], 0)
+        self.assertIn("duplicate source coordinate", "\n".join(caught.output))
+        self.assertIn("rs1", "\n".join(caught.output))
+
     def test_duplicate_target_coordinate_groups_are_removed_entirely(self):
         frame = pd.DataFrame(
             {
@@ -184,6 +225,7 @@ class SumstatsLiftoverTest(unittest.TestCase):
 
         self.assertEqual(lifted["SNP"].tolist(), ["rs3"])
         self.assertEqual(lifted["POS"].tolist(), [3000])
+        self.assertEqual(report["n_duplicate_source_dropped"], 0)
         self.assertEqual(report["n_duplicate_target_dropped"], 2)
         self.assertEqual(report["n_lifted"], 1)
 
@@ -238,6 +280,18 @@ class SumstatsLiftoverTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "dropped all rows"):
                 apply_sumstats_liftover(unmapped, request, source_build="hg19", snp_identifier="chr_pos")
 
+            duplicate_source = pd.DataFrame(
+                {
+                    "CHR": ["1", "1"],
+                    "POS": [100, 100],
+                    "SNP": ["rs1", "rs2"],
+                    "Z": [1.0, 2.0],
+                    "N": [100.0, 100.0],
+                }
+            )
+            with self.assertRaisesRegex(ValueError, "dropped all rows"):
+                apply_sumstats_liftover(duplicate_source, request, source_build="hg19", snp_identifier="chr_pos")
+
     def test_noop_liftover_metadata_schema(self):
         frame = pd.DataFrame({"CHR": ["1"], "POS": [100], "SNP": ["rs1"], "Z": [1.0], "N": [100.0]})
         request = SumstatsLiftoverRequest()
@@ -265,6 +319,7 @@ class SumstatsLiftoverTest(unittest.TestCase):
                 "n_missing_chr_pos_dropped": None,
                 "n_unmapped": None,
                 "n_cross_chrom": None,
+                "n_duplicate_source_dropped": None,
                 "n_duplicate_target_dropped": None,
             },
         )

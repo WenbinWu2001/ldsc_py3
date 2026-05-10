@@ -113,7 +113,9 @@ the merge uses normalized `CHR:POS` coordinates rather than rsIDs, and the
 `SNP` column remains a label. If raw sumstats coordinates need a build
 conversion before this regression step, run `munge-sumstats` with
 `--target-genome-build` plus either `--liftover-chain-file` or
-`--use-hm3-quick-liftover`.
+`--use-hm3-quick-liftover`. Liftover drops duplicate source/target coordinate
+groups and writes readable drop counts/examples to `sumstats.log`; the metadata
+sidecar remains a thin compatibility artifact.
 
 ## CLI
 

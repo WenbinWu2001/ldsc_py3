@@ -302,8 +302,9 @@ How they are handled:
 - `plink_prefix` is resolved at the PLINK prefix level, not at the individual `.bed/.bim/.fam` file level
 - a chromosome suite such as `panel_chr@` is expanded one chromosome at a time
 - liftover chains are optional; the matching source-to-target chain enables
-  cross-build R2 and metadata outputs, while no matching chain produces
-  source-build-only outputs
+  cross-build R2 and metadata outputs in `chr_pos` mode, while no matching
+  chain produces source-build-only outputs; matching chains are rejected in
+  `rsid` mode
 - genetic maps are required for every emitted build when `--ld-wind-cm` is set;
   SNP- and kb-window builds may omit maps and write emitted metadata `CM` as
   `NA`
@@ -339,6 +340,9 @@ Output:
   `--overwrite` or `ReferencePanelBuildConfig(overwrite=True)` is supplied.
 - The check covers source-build artifacts and covers target-build artifacts
   only when the matching liftover chain is configured.
+- Duplicate-position provenance sidecars contain only coordinate duplicate
+  drops. Liftover unmapped/cross-chromosome drops are recorded in
+  `build-ref-panel.log`.
 - `build-ref-panel` keeps this expert-oriented overwrite behavior as an
   exception to the coherent result-directory cleanup policy. `--overwrite`
   permits replacing current candidate artifacts, but it does not remove stale

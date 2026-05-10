@@ -4,6 +4,13 @@
 
 **Goal:** Add `--duplicate-position-policy {error,drop-all}` to `build-ref-panel` so that SNPs sharing a `CHR:POS` key in any emitted build are either rejected loudly or dropped with a provenance sidecar.
 
+**2026-05-10 update:** Liftover harmonization changed the final contract from
+this original implementation plan. `duplicate_position_policy` now defaults to
+`drop-all`, coordinate duplicate handling applies only in `chr_pos` mode,
+source-only `rsid` builds log that the policy is not applicable, and matching
+reference-panel chain liftover is rejected in `rsid` mode. The `error` policy
+remains available explicitly.
+
 **Architecture:** A new helper `_resolve_unique_snp_set()` in `ref_panel_builder.py` runs two detection passes (source-build duplicates, then target-build collisions) on the restriction-filtered SNP set and returns a cleaned `keep_snps` array plus a provenance DataFrame. `_build_chromosome()` calls this helper after liftover and before the per-build emit loop. Cross-build consistency is enforced because the same cleaned set feeds every emitted build.
 
 **Tech Stack:** Python 3.11, pandas, numpy, unittest (existing test harness)
@@ -14,7 +21,7 @@
 
 | File | Change |
 |---|---|
-| `src/ldsc/config.py` | Add `duplicate_position_policy: str = "error"` field + validation to `ReferencePanelBuildConfig` |
+| `src/ldsc/config.py` | Add `duplicate_position_policy: str = "drop-all"` field + validation to `ReferencePanelBuildConfig` |
 | `src/ldsc/ref_panel_builder.py` | Add CLI flag, extend `config_from_args()`, add `_resolve_unique_snp_set()`, add `_write_dropped_sidecar()`, wire into `_build_chromosome()` |
 | `tests/test_ref_panel_builder.py` | Add `DuplicatePositionPolicyTest` unit-test class and two integration test methods |
 
@@ -41,9 +48,9 @@ class ReferencePanelBuildConfigDuplicatePolicyTest(unittest.TestCase):
             **kwargs,
         )
 
-    def test_default_policy_is_error(self):
+    def test_default_policy_is_drop_all(self):
         config = self._base_config()
-        self.assertEqual(config.duplicate_position_policy, "error")
+        self.assertEqual(config.duplicate_position_policy, "drop-all")
 
     def test_drop_all_policy_is_accepted(self):
         config = self._base_config(duplicate_position_policy="drop-all")
@@ -67,7 +74,7 @@ Expected: `FAILED` — `ReferencePanelBuildConfig` has no `duplicate_position_po
 After `overwrite: bool = False` (currently the last field, line ~445), add:
 
 ```python
-    duplicate_position_policy: str = "error"
+    duplicate_position_policy: str = "drop-all"
 ```
 
 In `__post_init__` (after the `snp_batch_size` validation block), add:
@@ -115,9 +122,9 @@ cd ldsc_py3_Jerry && git add src/ldsc/config.py tests/test_ref_panel_builder.py 
 Add these methods to `ReferencePanelBuildConfigFromArgsTest` in `tests/test_ref_panel_builder.py`:
 
 ```python
-    def test_build_parser_defaults_duplicate_position_policy_to_error(self):
+    def test_build_parser_defaults_duplicate_position_policy_to_drop_all(self):
         parser = ref_panel_builder.build_parser()
-        self.assertEqual(parser.get_default("duplicate_position_policy"), "error")
+        self.assertEqual(parser.get_default("duplicate_position_policy"), "drop-all")
 
     def test_build_parser_accepts_drop_all_policy(self):
         parser = ref_panel_builder.build_parser()
@@ -144,7 +151,7 @@ Add these methods to `ReferencePanelBuildConfigFromArgsTest` in `tests/test_ref_
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-cd ldsc_py3_Jerry && source /Users/wenbinwu/miniforge3/etc/profile.d/conda.sh && conda activate ldsc3 && pytest tests/test_ref_panel_builder.py::ReferencePanelBuildConfigFromArgsTest::test_build_parser_defaults_duplicate_position_policy_to_error tests/test_ref_panel_builder.py::ReferencePanelBuildConfigFromArgsTest::test_build_parser_accepts_drop_all_policy tests/test_ref_panel_builder.py::ReferencePanelBuildConfigFromArgsTest::test_config_from_args_passes_policy_to_config -v
+cd ldsc_py3_Jerry && source /Users/wenbinwu/miniforge3/etc/profile.d/conda.sh && conda activate ldsc3 && pytest tests/test_ref_panel_builder.py::ReferencePanelBuildConfigFromArgsTest::test_build_parser_defaults_duplicate_position_policy_to_drop_all tests/test_ref_panel_builder.py::ReferencePanelBuildConfigFromArgsTest::test_build_parser_accepts_drop_all_policy tests/test_ref_panel_builder.py::ReferencePanelBuildConfigFromArgsTest::test_config_from_args_passes_policy_to_config -v
 ```
 
 Expected: `FAILED` — `--duplicate-position-policy` not recognised.
@@ -156,13 +163,13 @@ After the `--snp-batch-size` argument, add:
 ```python
     parser.add_argument(
         "--duplicate-position-policy",
-        default="error",
+        default="drop-all",
         choices=("error", "drop-all"),
         help=(
             "How to handle SNPs that share a CHR:POS key in any emitted build. "
-            "'error' aborts and reports all duplicate clusters (default). "
             "'drop-all' drops every SNP in each colliding cluster and writes a "
-            "provenance sidecar to {output_dir}/dropped_snps/chr{chrom}_dropped.tsv.gz."
+            "provenance sidecar to {output_dir}/dropped_snps/chr{chrom}_dropped.tsv.gz (default). "
+            "'error' aborts and reports all duplicate clusters."
         ),
     )
 ```

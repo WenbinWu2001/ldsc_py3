@@ -27,6 +27,13 @@ coordinates. Liftover updates `CHR` and `POS`; it never rewrites `SNP`.
   filtering runs before liftover.
 - Newly written sidecars stay thin: only schema, trait label, and
   `config_snapshot` are stored. Liftover and coordinate provenance are logged.
+- Shared liftover mechanics live in an internal helper module, not a public API.
+  Sumstats and reference-panel workflows share chain mapping, drop reports,
+  duplicate-coordinate detection, and example formatting while retaining
+  separate workflow contracts.
+- Reference-panel PLINK builds keep the source-build plus optional opposite-build
+  UX. Matching chain-file liftover is rejected in `rsid` mode; duplicate
+  coordinate policy applies only in `chr_pos` mode and defaults to `drop-all`.
 
 ## CLI And Config
 
@@ -80,8 +87,9 @@ filtering are dropped before mapping and counted in the run log. Missing
 coordinates mean the SNP has no usable `chr_pos` identity for the map/match
 stage; they are not a fatal input error. Malformed non-missing coordinates still
 raise clear validation errors. Liftover may also drop rows for unmapped
-coordinates, cross-chromosome chain hits, or duplicated target coordinates, but
-it must not write an empty artifact.
+coordinates, cross-chromosome chain hits, duplicated source coordinates before
+mapping, or duplicated target coordinates after mapping, but it must not write
+an empty artifact.
 
 After successful liftover:
 
@@ -106,6 +114,8 @@ Chain behavior:
 - No-hit mappings are dropped and counted as unmapped.
 - Cross-chromosome hits are dropped, counted separately, and included in total
   dropped rows.
+- If a chain hit list contains both cross-chromosome and same-chromosome hits,
+  the first same-chromosome hit is kept.
 - Logs show up to 5 examples per drop category.
 
 ### HM3 Quick Liftover
@@ -141,15 +151,27 @@ Lookup is coordinate-only:
 Rows missing from the HM3 map are dropped and reported. Metadata records method
 `hm3_curated`; the CLI flag remains `--use-hm3-quick-liftover`.
 
-## Duplicate Target Coordinates
+## Duplicate Coordinates
 
-After either liftover method, if multiple original rows map to the same target
-`CHR/POS`, every row in that duplicated target-coordinate group is dropped. The
-munger does not keep the first row. It logs up to 5 examples and records
-`n_duplicate_target_dropped`.
+For sumstats liftover, duplicated source `CHR/POS` groups are dropped before
+mapping. After either liftover method, if multiple original rows map to the same
+target `CHR/POS`, every row in that duplicated target-coordinate group is
+dropped. The munger does not keep the first row. It logs up to 5 examples and
+records separate `n_duplicate_source_dropped` and
+`n_duplicate_target_dropped` counts.
 
-If duplicate-target removal leaves no rows, liftover errors instead of writing
-an empty artifact.
+If source or target duplicate removal leaves no rows, liftover errors instead
+of writing an empty artifact.
+
+For reference-panel PLINK builds, the same duplicate-coordinate mechanics apply
+only when the active `GlobalConfig.snp_identifier` is `chr_pos`. The default
+`duplicate_position_policy` is `drop-all`; `error` remains available for users
+who want duplicate coordinates to abort the run. Source duplicate groups are
+dropped before chain mapping, target duplicate groups after mapping, and
+duplicate-only sidecars continue to be written under `dropped_snps/`. If all SNPs
+drop for one chromosome, that chromosome is skipped; the full run errors only if
+no chromosome emits artifacts. In source-only `rsid` builds, duplicate-position
+policy is logged once as not applicable.
 
 ## Metadata And Logging
 
@@ -191,14 +213,16 @@ The log file records detailed provenance that does not belong in the sidecar:
   build-inference details;
 - liftover report: `applied`, source/target builds, method, method resource path
   when present, input/retained/drop counts, missing-coordinate drop count,
-  unmapped count, cross-chromosome count, and duplicate-target drop count;
+  unmapped count, cross-chromosome count, duplicate-source drop count, and
+  duplicate-target drop count;
 - HM3 provenance: method token and packaged HM3 map path when HM3 quick liftover
   is used;
 - output bookkeeping: selected output format, written output files, Parquet
   compression, and Parquet row-group layout.
 
 `n_lifted` means the final retained row count after all liftover-specific drops,
-so it should match the post-liftover output row count. In no-op reports,
+so it should match the post-liftover output row count. Log messages are readable
+key/value text with per-reason examples rather than JSON payloads. In no-op reports,
 `source_build` and `target_build` are both `null`; `null` means the field is not
 applicable because liftover did not run.
 
@@ -238,10 +262,10 @@ coordinate identity.
 
 | File | Change |
 |---|---|
-| `src/ldsc/_kernel/liftover.py` | New shared liftover module with relocated chain translator and HM3 curated-map loader/lifter. |
+| `src/ldsc/_kernel/liftover.py` | Shared internal liftover module with chain translator, HM3 curated-map loader/lifter, duplicate-coordinate helpers, and readable drop reports. |
 | `src/ldsc/_kernel/ref_panel_builder.py` | Import relocated translator. |
 | `src/ldsc/_kernel/sumstats_munger.py` | Insert liftover after SNP filtering and before output writing. |
-| `src/ldsc/config.py` | Add munger target/method fields only. |
+| `src/ldsc/config.py` | Add munger target/method fields only; set reference-panel duplicate-position default to `drop-all`. |
 | `src/ldsc/sumstats_munger.py` | Workflow validation, sidecar metadata, and mode-aware `SumstatsTable` helpers. |
 | `src/ldsc/_row_alignment.py` | Make row-alignment checks identifier-mode aware. |
 | `src/ldsc/data/hm3_curated_map.tsv.gz` | Packaged provided HM3 curated map. |

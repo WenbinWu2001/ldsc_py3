@@ -104,8 +104,8 @@ Optional munger liftover runs after this source-build resolution and after
 `rsid` mode does not use positions for row identity. Chain-file liftover and
 HM3 quick liftover both update `CHR`/`POS` only; `SNP` remains a label. The
 metadata sidecar records the final output build through `config_snapshot`; the
-source/target/method/drop counts and coordinate inference details are written to
-the run log.
+source/target/method/drop counts, duplicate-coordinate drops, and coordinate
+inference details are written to the run log.
 
 ## Annotation Inputs
 

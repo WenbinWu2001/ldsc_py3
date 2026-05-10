@@ -41,6 +41,10 @@ not.
 - Missing/unmapped rows are dropped and reported for both HM3 quick and chain
   liftover.
 - Chain cross-chromosome hits are dropped and counted separately.
+- Chain mapping keeps the first same-chromosome hit; mixed cross/same hit lists
+  keep the same-chromosome hit.
+- Duplicate source `CHR/POS` groups are dropped before mapping when a sumstats
+  liftover request enters the map stage.
 - Duplicate target `CHR/POS` groups are removed entirely: if multiple original
   rows map to the same target coordinate, none are retained.
 - If liftover drops all rows, error instead of writing an empty artifact.
@@ -51,6 +55,34 @@ not.
   bookkeeping are written to the log instead of the sidecar.
 - Metadata method for HM3 quick is `hm3_curated`; CLI flag remains
   `--use-hm3-quick-liftover`.
+- Reference-panel PLINK builds keep the current source-build plus optional
+  opposite-build emission contract. Do not add public target/method config
+  fields for that workflow.
+- Reference-panel matching chain liftover is invalid in `rsid` mode.
+- Reference-panel `duplicate_position_policy` defaults to `drop-all`; `error`
+  remains available.
+- Reference-panel coordinate duplicate handling applies only in `chr_pos` mode.
+  Source-only `rsid` builds log once that duplicate-position policy is not
+  applicable.
+- Reference-panel duplicate sidecars remain under `dropped_snps/` and contain
+  duplicate-coordinate drops only. Runtime metadata TSV/parquet schemas stay
+  unchanged.
+
+## Harmonization Addendum
+
+The liftover module is an internal service/helper layer, not a new public API.
+Both sumstats munging and reference-panel building use it for chain-file mapping,
+workflow-aware chain/dependency errors, drop reports, duplicate-coordinate
+detection, and readable examples. Workflow contracts stay separate:
+
+- Sumstats uses explicit source/target/method validation from `GlobalConfig` and
+  `MungeConfig`.
+- Reference-panel building uses explicit or inferred PLINK source build plus an
+  optional matching chain to emit the opposite build.
+- HM3 quick liftover remains sumstats-only.
+- Provenance details live in workflow `.log` files. Sumstats sidecars are
+  compatibility-only (`format`, `trait_name`, `config_snapshot`), and existing
+  sidecars that lack `config_snapshot` are invalid rather than migrated.
 
 ## Pre-Flight
 
@@ -145,6 +177,7 @@ pytest -q
   drop that row before mapping and log the count/examples.
 - [ ] Keep malformed non-missing `CHR/POS` values as validation errors.
 - [ ] Apply HM3 or chain mapping and update only `CHR/POS`; never rewrite `SNP`.
+- [ ] Drop every row in duplicated source `CHR/POS` groups before mapping.
 - [ ] Drop and count unmapped rows for both methods.
 - [ ] Drop and separately count chain cross-chromosome hits.
 - [ ] Drop every row in duplicated target `CHR/POS` groups; do not keep the
@@ -172,7 +205,7 @@ pytest -q
 - [ ] Log the liftover report with method, source/target build, path fields when
   present, `n_input`, `n_lifted`, `n_dropped`,
   `n_missing_chr_pos_dropped`, `n_unmapped`, `n_cross_chrom`, and
-  `n_duplicate_target_dropped`.
+  `n_duplicate_source_dropped`, `n_duplicate_target_dropped`.
 - [ ] Log HM3 provenance when HM3 quick liftover is selected.
 - [ ] In no-op liftover reports, use `source_build = null` and
   `target_build = null` because the source/target fields are not applicable.

@@ -679,8 +679,9 @@ class SumstatsMungerTest(unittest.TestCase):
             )
             log_text = (tmpdir / "munged" / "sumstats.log").read_text(encoding="utf-8")
             self.assertIn("Summary-statistics coordinate provenance", log_text)
-            self.assertIn('"coordinate_basis": "1-based"', log_text)
+            self.assertIn("coordinate_basis=1-based", log_text)
             self.assertIn("Summary-statistics liftover report", log_text)
+            self.assertNotIn('"coordinate_basis"', log_text)
             self.assertEqual(
                 set(metadata),
                 {"format", "trait_name", "config_snapshot"},

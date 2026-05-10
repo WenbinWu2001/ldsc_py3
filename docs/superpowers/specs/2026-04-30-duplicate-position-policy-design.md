@@ -3,6 +3,12 @@
 **Date:** 2026-04-30
 **Scope:** `src/ldsc/ref_panel_builder.py` (PLINK-based `build-ref-panel` workflow only)
 
+**2026-05-10 update:** Liftover harmonization changed the runtime contract. The
+policy now defaults to `drop-all`, applies only when the active SNP identifier
+mode is `chr_pos`, and is logged as not applicable in source-only `rsid` builds.
+Matching reference-panel chain liftover is rejected in `rsid` mode. The original
+`error` behavior remains available via `--duplicate-position-policy error`.
+
 ---
 
 ## Problem
@@ -27,8 +33,8 @@ The current PLINK builder has no explicit detection or policy for either case.
 | Question | Decision |
 |---|---|
 | Scope | PLINK builder only (`ref_panel_builder.py`); TOP-LD pipeline already has its own fix |
-| Default policy | `error` — fail fast, report clusters |
-| Opt-in policy | `drop-all` — drop every SNP in a colliding cluster |
+| Default policy | `drop-all` — drop every SNP in a colliding cluster |
+| Opt-in policy | `error` — fail fast, report clusters |
 | Keep-one rule | Not supported; any deterministic rule is arbitrary in `chr_pos` mode |
 | Cross-build consistency | Drops apply to all emitted builds when a collision is found in any build |
 | Provenance | Sidecar TSV under `dropped_snps/` + WARNING log pointing to it |
@@ -43,9 +49,10 @@ New flag on `build-ref-panel`:
 --duplicate-position-policy {error,drop-all}
     How to handle SNPs that share a CHR:POS key in any emitted build.
 
-    error     Abort and report all duplicate clusters. (default)
     drop-all  Drop every SNP in each colliding cluster; write a provenance
               sidecar to {output_dir}/dropped_snps/chr{chrom}_dropped.tsv.gz.
+              (default)
+    error     Abort and report all duplicate clusters.
 ```
 
 ### Config dataclass
@@ -53,7 +60,7 @@ New flag on `build-ref-panel`:
 `ReferencePanelBuildConfig` gains one field:
 
 ```python
-duplicate_position_policy: str = "error"  # "error" | "drop-all"
+duplicate_position_policy: str = "drop-all"  # "error" | "drop-all"
 ```
 
 `config_from_args()` passes `args.duplicate_position_policy` into the dataclass

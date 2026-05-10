@@ -419,7 +419,8 @@ class ReferencePanelBuildConfig:
     liftover_chain_hg19_to_hg38_file, liftover_chain_hg38_to_hg19_file : str or os.PathLike[str] or None, optional
         Chain files used to populate the opposite-build coordinates. If the
         chain matching the resolved ``source_genome_build`` is omitted, the
-        builder emits a source-build-only panel.
+        builder emits a source-build-only panel. Matching chain files are valid
+        only when the active ``GlobalConfig.snp_identifier`` is ``"chr_pos"``.
     ld_wind_snps, ld_wind_kb, ld_wind_cm : int, float, float, or None, optional
         LD window specification. Exactly one must be supplied.
     maf_min : float or None, optional
@@ -441,6 +442,13 @@ class ReferencePanelBuildConfig:
         workflow does not clean stale optional target-build or ``dropped_snps``
         siblings from earlier configurations. If ``False``, output collisions
         raise before chromosome processing starts. Default is ``False``.
+    duplicate_position_policy : {"drop-all", "error"}, optional
+        Policy for duplicate ``CHR/POS`` groups in ``chr_pos`` reference-panel
+        builds. ``"drop-all"`` drops every SNP in each source or target
+        coordinate collision and writes duplicate-only provenance under
+        ``dropped_snps``. ``"error"`` raises instead. The policy is ignored in
+        ``rsid`` source-only builds because row identity is the SNP label.
+        Default is ``"drop-all"``.
     """
 
     plink_prefix: str | PathLike[str]
@@ -458,7 +466,7 @@ class ReferencePanelBuildConfig:
     keep_indivs_file: str | PathLike[str] | None = None
     snp_batch_size: int = 128
     overwrite: bool = False
-    duplicate_position_policy: str = "error"
+    duplicate_position_policy: str = "drop-all"
 
     def __post_init__(self) -> None:
         """Normalize build paths and validate liftover and LD-window settings."""
@@ -558,7 +566,9 @@ class MungeConfig:
     liftover_chain_file : str or os.PathLike[str] or None, optional
         Chain file used to convert ``CHR``/``POS`` from the resolved source
         build to ``target_genome_build``. Mutually exclusive with
-        ``use_hm3_quick_liftover``. Default is ``None``.
+        ``use_hm3_quick_liftover``. Sumstats liftover is valid only in
+        ``chr_pos`` mode; it updates coordinates and does not rewrite ``SNP``.
+        Default is ``None``.
     use_hm3_quick_liftover : bool, optional
         If ``True``, use the packaged curated dual-build HM3 map for a
         coordinate-only quick liftover. This is valid only for HM3 rows and is

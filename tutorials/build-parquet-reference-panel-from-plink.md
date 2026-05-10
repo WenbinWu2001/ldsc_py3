@@ -12,7 +12,7 @@ The `build-ref-panel` workflow converts PLINK genotypes into build-specific R2 r
 
 - one R2 parquet per emitted build (`hg19/chr*_r2.parquet` and/or `hg38/chr*_r2.parquet`): one row per unordered SNP pair within the chosen LD window
 - one runtime metadata sidecar per emitted build (`hg19/chr*_meta.tsv.gz` and/or `hg38/chr*_meta.tsv.gz`): one row per retained SNP, used by LDSC-style downstream tools
-- optional duplicate-position provenance under `dropped_snps/` when `--duplicate-position-policy drop-all` drops colliding SNPs
+- optional duplicate-position provenance under `dropped_snps/` when the default `--duplicate-position-policy drop-all` drops colliding SNPs in `chr_pos` mode
 - `build-ref-panel.log` when run through the CLI or convenience wrapper; a
   concrete single-chromosome PLINK prefix writes
   `build-ref-panel.chr<chrom>.log` so parallel per-chromosome jobs do not
@@ -30,7 +30,7 @@ By default, the builder keeps all SNPs in the PLINK panel after:
 - optional user-requested filters
 - automatic liftover sanity filtering, when a usable source-to-target chain is provided
 
-When a matching chain is provided, SNPs are dropped if they fail hg19/hg38 liftover or liftover onto a different chromosome in the target build, then both build-specific R2 and metadata outputs are written. When no usable matching chain is provided, the builder logs that it is skipping liftover and writes source-build-only outputs.
+When a matching chain is provided in `chr_pos` mode, SNPs are dropped if they fail hg19/hg38 liftover or liftover onto a different chromosome in the target build, then both build-specific R2 and metadata outputs are written. Matching chain liftover is invalid in `rsid` mode because row identity is the SNP label there. When no usable matching chain is provided, the builder logs that it is skipping liftover and writes source-build-only outputs.
 
 ## Input Files
 
@@ -139,7 +139,7 @@ The bundled Alkes-group maps in `resources/genetic_maps/genetic_map_alkesgroup/`
 
 - `--liftover-chain-hg19-to-hg38-file` or `--liftover-chain-hg38-to-hg19-file`
   Plain-English meaning: explicit chain file used to translate positions into the other genome build.
-  Recommended usage: pass the chain that matches `--source-genome-build` when you need both hg19 and hg38 outputs. If you omit it, the build completes with source-build-only outputs and logs an informational message.
+  Recommended usage: pass the chain that matches `--source-genome-build` when you need both hg19 and hg38 outputs in `chr_pos` mode. If you omit it, the build completes with source-build-only outputs and logs an informational message. Do not pass a matching chain in `rsid` mode.
 
 - `--output-dir`
   Plain-English meaning: output root directory.
@@ -217,6 +217,16 @@ Exactly one of the following must be set:
   Plain-English meaning: number of SNPs loaded per pairwise-R2 computation batch.
   Optional: yes; default is `128`.
   Recommended usage: keep the default unless you are tuning memory and throughput on a large machine. Larger values may improve throughput but use more memory.
+
+- `--duplicate-position-policy`
+  Plain-English meaning: how to handle SNPs that share a source or target
+  `CHR/POS` key in `chr_pos` mode.
+  Optional: yes; default is `drop-all`.
+  Recommended usage: keep the default for production panels so duplicate
+  coordinate groups are removed consistently and recorded under
+  `dropped_snps/`. Use `error` when you want the build to abort and show the
+  duplicate clusters. In source-only `rsid` builds this policy is not
+  applicable and is logged once as ignored.
 
 - `--log-level`
   Plain-English meaning: how much progress logging to print.
@@ -319,7 +329,7 @@ For the chr22 example above, the output tree looks like:
 ```text
 tutorial_outputs/ref_panel_chr22/
 ├── build-ref-panel.chr22.log  # concrete single-chromosome CLI/convenience-wrapper runs
-├── dropped_snps/              # only present when duplicate SNPs are dropped
+├── dropped_snps/              # only present when duplicate-coordinate SNPs are dropped
 ├── hg19/
 │   ├── chr22_r2.parquet
 │   └── chr22_meta.tsv.gz
@@ -528,6 +538,10 @@ the explicit or inferred source PLINK build. If only generic `POS` is present,
 the builder infers that restriction file's build and errors if it differs from
 the source PLINK build.
 
+If you use `--snp-identifier rsid`, omit matching liftover chains. The builder
+will emit source-build-only outputs and will not apply duplicate-position
+filtering because rsID labels, not coordinates, define row identity.
+
 ### Restrict the sample set
 
 Use `--keep-indivs-file` when you want LD computed from only a subset of individuals, for example one ancestry group or a QC-passed subset.
@@ -579,7 +593,7 @@ PLINK build; `GlobalConfig.genome_build` is ignored by `build-ref-panel`.
 
 The builder keeps an in-memory reference SNP table while constructing the R2
 rows, but it does not persist an annotation parquet. When a matching liftover
-chain is provided, it emits one R2 parquet and one metadata sidecar per build;
+chain is provided in `chr_pos` mode, it emits one R2 parquet and one metadata sidecar per build;
 otherwise it emits only the source build. Each R2 parquet stores positions from
 its own build in `POS_1`/`POS_2`, with that build recorded in
 `ldsc:sorted_by_build`. That makes the panel easier to reuse across projects,

@@ -133,6 +133,10 @@ output directory are left untouched. Unlike the result-directory workflows,
 siblings from earlier configurations; use a fresh output directory when
 changing emitted builds, liftover, duplicate-position policy, or chromosome
 scope.
+Reference-panel chain liftover is coordinate behavior: it is valid only when
+the active SNP identifier mode is `chr_pos`. Duplicate-position filtering also
+applies only in `chr_pos` mode and defaults to dropping all colliding source or
+target coordinate groups with duplicate-only sidecars.
 
 ### Required inputs
 
@@ -142,7 +146,7 @@ scope.
 | `.bim` row | `22 rs123 0.0 16050075 A G` | variant metadata |
 | `.fam` row | `fam1 iid1 0 0 0 -9` | sample metadata |
 | genetic map, conditional | `chr position Genetic_Map(cM)`<br/>`22 16050000 0.42` | required for every emitted build when cM windows are used; optional for SNP/kb windows |
-| liftover chain, optional | `hg38ToHg19.over.chain.gz` | matching source-to-target chain enables cross-build R2 and metadata; omitted chain produces source-build-only output |
+| liftover chain, optional | `hg38ToHg19.over.chain.gz` | matching source-to-target chain enables cross-build R2 and metadata in `chr_pos` mode; omitted chain produces source-build-only output; matching chains are rejected in `rsid` mode |
 | keep or restrict file, optional | one IID per row or a headered SNP table | filters individuals or variants; SNP restriction matching uses `GlobalConfig.snp_identifier`; `chr_pos` restrictions must match the source PLINK build |
 
 ### Flow
@@ -287,6 +291,9 @@ liftover, and `--target-genome-build` must be paired with exactly one method
 when the target differs from the source. Chain-file liftover uses
 `--liftover-chain-file`; HM3 quick liftover uses the packaged curated
 `hm3_curated_map.tsv.gz` and is coordinate-only, so it never rewrites `SNP`.
+Missing coordinates, unmapped hits, cross-chromosome hits, and duplicate
+source/target coordinate groups are dropped with readable counts and examples
+in `sumstats.log`.
 
 ### Required inputs
 
@@ -331,7 +338,7 @@ flowchart LR
 | File | Example | Notes |
 | --- | --- | --- |
 | curated sumstats | `SNP CHR POS A1 A2 Z N`<br/>`rs3131969 1 754182 A G 0.74 829249.58` | written as `sumstats.parquet` by default under `output_dir`; `--output-format tsv.gz` writes legacy `sumstats.sumstats.gz`, and `both` writes both; `CHR`/`POS` are present and may be missing when absent from raw input; optional `FRQ` may also be present |
-| log file | plain-text lifecycle, QC log, coordinate provenance, liftover report, HM3 provenance, output bookkeeping, and row-count details | workflow-owned `sumstats.log` under `output_dir`, populated from package logger messages emitted during workflow orchestration and kernel QC; excluded from `MungeRunSummary.output_paths` |
+| log file | plain-text lifecycle, QC log, coordinate provenance, readable liftover reports, HM3 provenance, output bookkeeping, and row-count/drop-example details | workflow-owned `sumstats.log` under `output_dir`, populated from package logger messages emitted during workflow orchestration and kernel QC; excluded from `MungeRunSummary.output_paths` |
 | metadata sidecar | thin JSON with schema marker, optional `trait_name`, and `config_snapshot` | written as `sumstats.metadata.json` under `output_dir`; used by `load_sumstats()` to recover config provenance and trait labels |
 
 ### Modules used

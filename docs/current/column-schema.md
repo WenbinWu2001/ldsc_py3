@@ -132,7 +132,8 @@ match `LDScoreResult` and regression-loader validation.
 Column order does not define row identity. In `rsid` mode, `SNP` is the
 identifier. In `chr_pos` mode, `SNP` is only a label and matching uses `CHR` and
 `POS`; munger liftover updates those coordinate columns without rewriting
-`SNP`.
+`SNP`. Liftover-specific duplicate coordinate handling is therefore based on
+`CHR/POS` groups, not rsID labels.
 
 This applies to artifacts **written by this package**. External input files
 (user-supplied annotation files, the hm3 curated map, PLINK BIM files, etc.) are

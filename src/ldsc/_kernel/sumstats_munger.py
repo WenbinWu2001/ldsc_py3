@@ -29,6 +29,12 @@ import bz2
 import argparse
 import logging
 from scipy.stats import chi2
+from .._coordinates import (
+    CHR_POS_KEY_COLUMN,
+    build_chr_pos_key_frame,
+    coordinate_missing_mask,
+    positive_int_position_series,
+)
 from ..column_inference import (
     RAW_SUMSTATS_REQUIRED_OR_OPTIONAL_SPECS,
     RAW_SUMSTATS_SIGNED_STAT_SPECS,
@@ -40,7 +46,7 @@ from ..column_inference import (
 from ..chromosome_inference import normalize_chromosome, normalize_chromosome_series
 from ..genome_build_inference import resolve_chr_pos_table
 from . import regression as sumstats
-from .identifiers import build_snp_id_series, read_global_snp_restriction
+from .identifiers import read_global_snp_restriction
 from .liftover import SumstatsLiftoverRequest, apply_sumstats_liftover
 np.seterr(invalid='ignore')
 
@@ -351,18 +357,22 @@ def parse_dat(dat_gen, convert_colname, merge_alleles, args):
     return dat
 
 
-def _sumstats_snp_keys(dat, mode):
+def _sumstats_snp_keys(dat, mode, *, context='sumstats keep-list filtering', logger=None):
     """Return canonical SNP keys for rows with usable identifiers."""
     mode = normalize_snp_identifier_mode(mode)
     if mode == 'rsid':
         return pd.Series(dat['SNP'].astype(str), index=dat.index)
 
-    chr_missing = _coordinate_missing_mask(dat['CHR'])
-    pos_missing = _coordinate_missing_mask(dat['POS'])
-    complete = ~(chr_missing | pos_missing)
     keys = pd.Series(pd.NA, index=dat.index, dtype='object')
-    if complete.any():
-        keys.loc[complete] = build_snp_id_series(dat.loc[complete, ['CHR', 'POS']], mode).astype(str)
+    keyed, _report = build_chr_pos_key_frame(
+        dat,
+        context=context,
+        drop_missing=True,
+        logger=logger,
+        example_columns=('SNP', 'CHR', 'POS'),
+    )
+    if len(keyed):
+        keys.loc[keyed.index] = keyed[CHR_POS_KEY_COLUMN].astype(str)
     return keys
 
 
@@ -381,7 +391,12 @@ def filter_sumstats_snps(dat, args):
         genome_build=genome_build if mode == 'chr_pos' else None,
         logger=LOGGER,
     )
-    keys = _sumstats_snp_keys(dat, mode)
+    keys = _sumstats_snp_keys(
+        dat,
+        mode,
+        context=f"--sumstats-snps-file filtering for {getattr(args, 'sumstats', 'sumstats')}",
+        logger=LOGGER,
+    )
     old = len(dat)
     usable = int(keys.notna().sum())
     build_label = genome_build if mode == 'chr_pos' else 'not used'
@@ -543,12 +558,6 @@ def allele_merge(dat, alleles):
     return dat
 
 
-def _coordinate_missing_mask(series):
-    """Return rows whose coordinate token is missing or an NA-like string."""
-    tokens = series.astype('string')
-    return tokens.isna() | tokens.str.strip().str.lower().isin({'', 'na', 'nan', 'none'})
-
-
 def _finalize_coordinate_columns(dat, args):
     """Ensure canonical CHR/POS columns exist and normalize them when requested."""
     if 'CHR' not in dat.columns:
@@ -560,8 +569,8 @@ def _finalize_coordinate_columns(dat, args):
     genome_build = normalize_genome_build(getattr(args, 'genome_build', 'hg38'))
     source_columns = getattr(args, '_coordinate_source_columns', {})
 
-    chr_missing = _coordinate_missing_mask(dat['CHR'])
-    pos_missing = _coordinate_missing_mask(dat['POS'])
+    chr_missing = coordinate_missing_mask(dat['CHR'])
+    pos_missing = coordinate_missing_mask(dat['POS'])
     complete = ~(chr_missing | pos_missing)
     metadata = {
         'format': 'ldsc.sumstats.v1',
@@ -578,14 +587,11 @@ def _finalize_coordinate_columns(dat, args):
     }
 
     if complete.any():
-        pos_numeric = pd.to_numeric(dat.loc[complete, 'POS'], errors='raise')
-        non_integral = (pos_numeric % 1) != 0
-        if non_integral.any():
-            bad_value = dat.loc[complete, 'POS'].loc[non_integral].iloc[0]
-            raise ValueError('POS values must be integer base-pair positions; got {V!r}.'.format(V=bad_value))
-        if (pos_numeric <= 0).any():
-            bad_value = dat.loc[complete, 'POS'].loc[pos_numeric <= 0].iloc[0]
-            raise ValueError('POS values must be positive base-pair positions; got {V!r}.'.format(V=bad_value))
+        positive_int_position_series(
+            dat.loc[complete, 'POS'],
+            context=getattr(args, 'sumstats', 'sumstats'),
+            label='POS',
+        )
 
     if mode == 'chr_pos' and complete.any():
         coordinate_rows = dat.loc[complete, ['CHR', 'POS']].copy()

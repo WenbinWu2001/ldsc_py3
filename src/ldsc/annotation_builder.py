@@ -45,6 +45,7 @@ import numpy as np
 import pandas as pd
 
 from ._chr_sampler import sample_frame_from_chr_pattern
+from ._coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame
 from ._kernel import annotation as kernel_annotation
 from ._kernel.identifiers import (
     build_snp_id_series,
@@ -154,7 +155,16 @@ class AnnotationBundle:
             Canonical identifier mode used to build the SNP universe. Default is
             ``"chr_pos"``.
         """
-        return set(build_snp_id_series(self.metadata, snp_identifier))
+        mode = normalize_snp_identifier_mode(snp_identifier)
+        if mode == "rsid":
+            return set(build_snp_id_series(self.metadata, mode))
+        keyed, _report = build_chr_pos_key_frame(
+            self.metadata,
+            context="annotation reference SNP universe",
+            drop_missing=True,
+            logger=LOGGER,
+        )
+        return set(keyed[CHR_POS_KEY_COLUMN].astype(str))
 
     def has_full_baseline_cover(self) -> bool:
         """Return ``True`` when baseline annotations cover every metadata row."""

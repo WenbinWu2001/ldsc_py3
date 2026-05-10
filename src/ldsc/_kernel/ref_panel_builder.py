@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import gzip
+import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,6 +13,7 @@ from typing import Iterable, Iterator, Sequence
 import numpy as np
 import pandas as pd
 
+from .._coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame
 from ..chromosome_inference import chrom_sort_key, normalize_chromosome
 from ..column_inference import (
     CHR_COLUMN_SPEC,
@@ -22,8 +24,9 @@ from ..column_inference import (
     resolve_restriction_rsid_column,
 )
 from ..errors import LDSCDependencyError
-from .identifiers import build_snp_id_series
 from .liftover import LiftOverMappingResult, LiftOverTranslator
+
+LOGGER = logging.getLogger("LDSC.ref_panel_builder.kernel")
 
 
 GENETIC_MAP_CM_SPEC = ColumnSpec(
@@ -706,5 +709,12 @@ def build_restriction_mask(metadata: pd.DataFrame, restriction_values: set[str],
 
     if mode == "rsid":
         return metadata["SNP"].astype(str).isin(restriction_values).to_numpy(dtype=bool)
-    keys = build_snp_id_series(metadata.loc[:, ["CHR", "POS"]].copy(), "chr_pos")
-    return keys.isin(restriction_values).to_numpy(dtype=bool)
+    keyed, _report = build_chr_pos_key_frame(
+        metadata.loc[:, ["CHR", "POS"]].copy(),
+        context="reference-panel SNP restriction matching",
+        drop_missing=True,
+        logger=LOGGER,
+    )
+    keep = pd.Series(False, index=metadata.index)
+    keep.loc[keyed.index] = keyed[CHR_POS_KEY_COLUMN].isin(restriction_values).to_numpy(dtype=bool)
+    return keep.to_numpy(dtype=bool)

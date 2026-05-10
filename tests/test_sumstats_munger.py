@@ -1061,6 +1061,31 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(table.data["SNP"].tolist(), ["rs2"])
             self.assertEqual(table.data["POS"].tolist(), [200])
 
+    def test_run_restricts_sumstats_snps_file_by_chr_pos_logs_missing_coordinate_drops(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "CHR POS SNP A1 A2 P BETA N\n"
+                "1 100 rs1 A G 0.05 0.1 1000\n"
+                "NA 200 missing_chr C T 0.10 -0.1 1000\n"
+                "1 NA missing_pos G A 0.20 0.2 1000\n",
+                encoding="utf-8",
+            )
+            keep_path = tmpdir / "keep.tsv"
+            keep_path.write_text("CHR\tPOS\n1\t100\n", encoding="utf-8")
+
+            table = SumstatsMunger().run(
+                MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
+                MungeConfig(output_dir=tmpdir / "munged", sumstats_snps_file=keep_path),
+                GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+            )
+
+            self.assertEqual(table.data["SNP"].tolist(), ["rs1"])
+            log_text = (tmpdir / "munged" / "sumstats.log").read_text(encoding="utf-8")
+            self.assertIn("Dropped 2 SNPs with missing CHR/POS", log_text)
+            self.assertIn("missing_chr", log_text)
+
     def test_run_reports_context_when_sumstats_snps_file_removes_everything(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)

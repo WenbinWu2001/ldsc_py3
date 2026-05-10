@@ -45,6 +45,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
+from ._coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame
 from .config import (
     GlobalConfig,
     RegressionConfig,
@@ -81,7 +82,6 @@ from .sumstats_munger import SumstatsTable, load_sumstats
 
 COMMON_COUNT_KEY = "common_reference_snp_counts"
 ALL_COUNT_KEY = "all_reference_snp_counts"
-CHR_POS_KEY_COLUMN = "_ldsc_chr_pos_key"
 LOGGER = logging.getLogger("LDSC.regression_runner")
 PARTITIONED_H2_AGGREGATE_COLUMNS = [
     "Category",
@@ -727,34 +727,17 @@ def _effective_snp_identifier_mode(
     return "chr_pos"
 
 
-def _coordinate_missing_mask(series: pd.Series) -> pd.Series:
-    """Return rows with missing or NA-like coordinate tokens."""
-    tokens = series.astype("string")
-    return tokens.isna() | tokens.str.strip().str.lower().isin({"", "na", "nan", "none"})
-
-
 def _with_chr_pos_key(frame: pd.DataFrame, *, context: str) -> pd.DataFrame:
     """Return a copy with a private canonical ``CHR:POS`` merge key."""
     chr_col, pos_col = infer_chr_pos_columns(frame.columns, context=context)
-    chr_missing = _coordinate_missing_mask(frame[chr_col])
-    pos_missing = _coordinate_missing_mask(frame[pos_col])
-    pos_numeric = pd.to_numeric(frame[pos_col], errors="coerce")
-    invalid_pos = (~pos_missing) & pos_numeric.isna()
-    if invalid_pos.any():
-        bad_value = frame.loc[invalid_pos, pos_col].iloc[0]
-        raise ValueError(f"POS values in {context} must be numeric; got {bad_value!r}.")
-    complete = ~(chr_missing | pos_missing)
-    keyed = frame.loc[complete].copy()
-    if keyed.empty:
-        keyed[CHR_POS_KEY_COLUMN] = pd.Series(dtype="string")
-        return keyed
-    keyed[pos_col] = pos_numeric.loc[complete]
-    non_integral = (keyed[pos_col] % 1) != 0
-    if non_integral.any():
-        bad_value = keyed.loc[non_integral, pos_col].iloc[0]
-        raise ValueError(f"POS values in {context} must be integer base-pair positions; got {bad_value!r}.")
-    keyed[pos_col] = keyed[pos_col].astype("int64")
-    keyed[CHR_POS_KEY_COLUMN] = build_snp_id_series(keyed, "chr_pos")
+    keyed, _report = build_chr_pos_key_frame(
+        frame,
+        context=context,
+        chr_col=chr_col,
+        pos_col=pos_col,
+        drop_missing=True,
+        logger=LOGGER,
+    )
     return keyed
 
 

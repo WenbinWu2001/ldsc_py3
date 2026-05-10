@@ -15,6 +15,7 @@ from typing import Any
 
 import pandas as pd
 
+from .._coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame
 from ..chromosome_inference import chrom_sort_key, normalize_chromosome
 from ..column_inference import (
     REFERENCE_METADATA_SPEC_MAP,
@@ -35,6 +36,22 @@ from .identifiers import (
 
 LOGGER = logging.getLogger("LDSC.ref_panel")
 _REF_PANEL_R2_RE = re.compile(r"^chr(?P<chrom>.+)_r2\.parquet$", flags=re.IGNORECASE)
+
+
+def _snp_id_series_for_matching(metadata: pd.DataFrame, snp_identifier: str, *, context: str) -> pd.Series:
+    """Build SNP IDs for a match boundary, dropping missing CHR/POS in chr_pos mode."""
+    mode = normalize_snp_identifier_mode(snp_identifier)
+    if mode == "rsid":
+        return build_snp_id_series(metadata, mode)
+    keyed, _report = build_chr_pos_key_frame(
+        metadata,
+        context=context,
+        drop_missing=True,
+        logger=LOGGER,
+    )
+    keys = pd.Series(pd.NA, index=metadata.index, dtype="object")
+    keys.loc[keyed.index] = keyed[CHR_POS_KEY_COLUMN].astype(str)
+    return keys
 
 
 @dataclass(frozen=True)
@@ -134,7 +151,12 @@ class RefPanel(ABC):
     def filter_to_snps(self, chrom: str, snps: set[str] | list[str]) -> pd.DataFrame:
         """Subset chromosome metadata to the requested SNP identifiers."""
         metadata = self.load_metadata(chrom)
-        keep = build_snp_id_series(metadata, self.global_config.snp_identifier).isin(set(snps))
+        keys = _snp_id_series_for_matching(
+            metadata,
+            self.global_config.snp_identifier,
+            context=f"reference-panel SNP filtering for chromosome {chrom}",
+        )
+        keep = keys.isin(set(snps))
         return metadata.loc[keep].reset_index(drop=True)
 
     def summary(self) -> dict[str, Any]:
@@ -173,7 +195,12 @@ class RefPanel(ABC):
             genome_build=self.global_config.genome_build,
             logger=LOGGER,
         )
-        keep = build_snp_id_series(metadata, self.global_config.snp_identifier).isin(restrict_ids)
+        keys = _snp_id_series_for_matching(
+            metadata,
+            self.global_config.snp_identifier,
+            context=f"reference-panel restriction matching for {restrict_path}",
+        )
+        keep = keys.isin(restrict_ids)
         return metadata.loc[keep].reset_index(drop=True)
 
     def _validate_metadata(self, metadata: pd.DataFrame, chrom: str) -> pd.DataFrame:
@@ -228,8 +255,18 @@ class PlinkRefPanel(RefPanel):
             raw_metadata["POS"] = pd.to_numeric(raw_metadata["POS"], errors="raise").astype(int)
             raw_metadata = raw_metadata.loc[raw_metadata["CHR"] == normalize_chromosome(chrom)].reset_index(drop=True)
             kept = self.filter_to_snps(chrom, set(keep_snps))
-            key_to_index = dict(zip(build_snp_id_series(raw_metadata, self.global_config.snp_identifier), raw_metadata.index))
-            keep_snp_indices = [int(key_to_index[key]) for key in build_snp_id_series(kept, self.global_config.snp_identifier)]
+            raw_keys = _snp_id_series_for_matching(
+                raw_metadata,
+                self.global_config.snp_identifier,
+                context=f"PLINK raw SNP matching for chromosome {chrom}",
+            ).dropna()
+            kept_keys = _snp_id_series_for_matching(
+                kept,
+                self.global_config.snp_identifier,
+                context=f"PLINK kept SNP matching for chromosome {chrom}",
+            ).dropna()
+            key_to_index = dict(zip(raw_keys, raw_keys.index))
+            keep_snp_indices = [int(key_to_index[key]) for key in kept_keys]
 
         return kernel_ldscore.PlinkBEDFile(
             prefix + ".bed",

@@ -564,6 +564,29 @@ class RestrictionReadersTest(unittest.TestCase):
                 {"1:10"},
             )
 
+    def test_read_global_snp_restriction_chr_pos_treats_dot_as_missing(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "restrict.tsv"
+            path.write_text(
+                "CHR\tPOS\n"
+                "1\t10\n"
+                ".\t20\n"
+                "2\t.\n",
+                encoding="utf-8",
+            )
+            with self.assertLogs("LDSC.identifiers", level="WARNING") as caught:
+                values = read_global_snp_restriction(path, "chr_pos", genome_build="hg19")
+
+            self.assertEqual(values, {"1:10"})
+            self.assertIn("Dropped 2 SNPs with missing CHR/POS", "\n".join(caught.output))
+
+    def test_read_global_snp_restriction_chr_pos_errors_on_invalid_non_missing_pos(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "restrict.tsv"
+            path.write_text("CHR\tPOS\n1\tabc\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "POS values.*must be numeric"):
+                read_global_snp_restriction(path, "chr_pos", genome_build="hg19")
+
     def test_read_global_snp_restriction_chr_pos_requires_header(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "restrict.tsv"

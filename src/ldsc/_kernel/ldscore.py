@@ -188,6 +188,7 @@ from typing import Iterable, Sequence
 import numpy as np
 import pandas as pd
 
+from .._coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame
 from ..column_inference import (
     ANNOTATION_METADATA_SPEC_MAP,
     CHR_COLUMN_ALIASES,
@@ -615,7 +616,18 @@ else:
 
 def identifier_keys(df: pd.DataFrame, mode: str) -> pd.Series:
     """Build the canonical SNP identifier series used for matching within the kernel."""
-    return build_snp_id_series(df, normalize_snp_identifier_mode(mode))
+    mode = normalize_snp_identifier_mode(mode)
+    if mode == "rsid":
+        return build_snp_id_series(df, mode)
+    keyed, _report = build_chr_pos_key_frame(
+        df,
+        context="LD-score SNP matching",
+        drop_missing=True,
+        logger=LOGGER,
+    )
+    keys = pd.Series(pd.NA, index=df.index, dtype="object")
+    keys.loc[keyed.index] = keyed[CHR_POS_KEY_COLUMN].astype(str)
+    return keys
 
 
 def sort_frame_by_genomic_position(df: pd.DataFrame) -> pd.DataFrame:
@@ -1084,7 +1096,7 @@ def parse_frequency_metadata(path: str, chrom: str | None, identifier_mode: str)
     cm_col = resolve_optional_column(df.columns, REFERENCE_METADATA_SPEC_MAP["CM"], context=context)
     maf_col = resolve_optional_column(df.columns, REFERENCE_METADATA_SPEC_MAP["MAF"], context=context)
 
-    if chrom is not None and chr_col is not None:
+    if chrom is not None and chr_col is not None and identifier_mode == "rsid":
         keep = df[chr_col].map(lambda value: normalize_chromosome(value, context=path)) == normalize_chromosome(chrom, context=path)
         df = df.loc[keep].reset_index(drop=True)
 
@@ -1099,9 +1111,19 @@ def parse_frequency_metadata(path: str, chrom: str | None, identifier_mode: str)
     else:
         if chr_col is None or pos_col is None:
             raise ValueError(f"{path} must contain CHR and POS columns in chr_pos mode.")
-        chrom_norm = df[chr_col].map(lambda value: normalize_chromosome(value, context=path))
-        pos = pd.to_numeric(df[pos_col], errors="raise").astype(np.int64).astype(str)
-        out["_key"] = chrom_norm + ":" + pos
+        coord_frame = df.copy()
+        coord_frame["CHR"] = df[chr_col]
+        coord_frame["POS"] = df[pos_col]
+        keyed, _report = build_chr_pos_key_frame(
+            coord_frame,
+            context=f"frequency metadata matching for {path}",
+            drop_missing=True,
+            logger=LOGGER,
+        )
+        if chrom is not None:
+            keyed = keyed.loc[keyed["CHR"] == normalize_chromosome(chrom, context=path)]
+        out = pd.DataFrame(index=keyed.index)
+        out["_key"] = keyed[CHR_POS_KEY_COLUMN].astype(str)
 
     if cm_col is not None:
         out["CM"] = pd.to_numeric(df[cm_col], errors="coerce")

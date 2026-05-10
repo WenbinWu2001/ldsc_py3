@@ -75,10 +75,13 @@ The munger stage order is:
 4. Output writing in target-build coordinates
 ```
 
-If liftover is requested, every retained row must have complete `CHR/POS` after
-existing QC and filtering. Missing coordinates are an error. Liftover may drop
-rows for unmapped coordinates, cross-chromosome chain hits, or duplicated target
-coordinates, but it must not write an empty artifact.
+If liftover is requested, rows missing `CHR` or `POS` after existing QC and
+filtering are dropped before mapping and counted in the run log. Missing
+coordinates mean the SNP has no usable `chr_pos` identity for the map/match
+stage; they are not a fatal input error. Malformed non-missing coordinates still
+raise clear validation errors. Liftover may also drop rows for unmapped
+coordinates, cross-chromosome chain hits, or duplicated target coordinates, but
+it must not write an empty artifact.
 
 After successful liftover:
 
@@ -187,8 +190,8 @@ The log file records detailed provenance that does not belong in the sidecar:
   inference status, coordinate basis, missing-coordinate counts, and optional
   build-inference details;
 - liftover report: `applied`, source/target builds, method, method resource path
-  when present, input/retained/drop counts, unmapped count, cross-chromosome
-  count, and duplicate-target drop count;
+  when present, input/retained/drop counts, missing-coordinate drop count,
+  unmapped count, cross-chromosome count, and duplicate-target drop count;
 - HM3 provenance: method token and packaged HM3 map path when HM3 quick liftover
   is used;
 - output bookkeeping: selected output format, written output files, Parquet
@@ -205,6 +208,11 @@ This feature depends on a package-wide invariant:
 
 - In `rsid` mode, identity and merges use `SNP`.
 - In `chr_pos` mode, identity and merges use normalized `CHR/POS`.
+- In `chr_pos` mode, rows missing `CHR` or `POS` are dropped and logged at
+  merge, match, map, and restriction boundaries. They may still be preserved by
+  non-matching stages such as basic sumstats QC and artifact writing.
+- Invalid non-missing coordinates, such as non-numeric POS, zero/negative POS,
+  non-integer POS, or unsupported chromosome labels, remain errors.
 - `SNP` is always a label and should be assumed to contain rsIDs, even when it
   does not.
 

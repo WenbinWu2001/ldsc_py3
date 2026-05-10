@@ -187,7 +187,42 @@ class SumstatsLiftoverTest(unittest.TestCase):
         self.assertEqual(report["n_duplicate_target_dropped"], 2)
         self.assertEqual(report["n_lifted"], 1)
 
-    def test_all_dropped_and_missing_coordinates_are_errors(self):
+    def test_missing_coordinates_are_dropped_before_hm3_liftover(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = self.write_hm3_map(
+                Path(tmpdir),
+                "CHR\thg19_POS\thg38_POS\tSNP\n"
+                "1\t100\t1000\trs1\n",
+            )
+            request = SumstatsLiftoverRequest(target_build="hg38", use_hm3_quick_liftover=True, hm3_map_file=path)
+            frame = pd.DataFrame(
+                {
+                    "CHR": ["1", "1", pd.NA, "1"],
+                    "POS": [100, pd.NA, 200, 999],
+                    "SNP": ["rs1", "missing_pos", "missing_chr", "unmapped"],
+                    "Z": [1.0, 2.0, 3.0, 4.0],
+                    "N": [100.0, 100.0, 100.0, 100.0],
+                }
+            )
+
+            with self.assertLogs("LDSC.liftover", level="INFO") as caught:
+                lifted, report = apply_sumstats_liftover(
+                    frame,
+                    request,
+                    source_build="hg19",
+                    snp_identifier="chr_pos",
+                )
+
+            self.assertEqual(lifted["SNP"].tolist(), ["rs1"])
+            self.assertEqual(lifted["POS"].tolist(), [1000])
+            self.assertEqual(report["n_input"], 4)
+            self.assertEqual(report["n_lifted"], 1)
+            self.assertEqual(report["n_missing_chr_pos_dropped"], 2)
+            self.assertEqual(report["n_unmapped"], 1)
+            self.assertEqual(report["n_dropped"], 3)
+            self.assertIn("Dropped 2 SNPs with missing CHR/POS", "\n".join(caught.output))
+
+    def test_liftover_errors_after_missing_coordinate_drop_removes_everything(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = self.write_hm3_map(
                 Path(tmpdir),
@@ -196,7 +231,7 @@ class SumstatsLiftoverTest(unittest.TestCase):
             )
             request = SumstatsLiftoverRequest(target_build="hg38", use_hm3_quick_liftover=True, hm3_map_file=path)
             missing = pd.DataFrame({"CHR": ["1"], "POS": [pd.NA], "SNP": ["rs1"], "Z": [1.0], "N": [100.0]})
-            with self.assertRaisesRegex(ValueError, "complete CHR/POS"):
+            with self.assertRaisesRegex(ValueError, "dropped all rows"):
                 apply_sumstats_liftover(missing, request, source_build="hg19", snp_identifier="chr_pos")
 
             unmapped = pd.DataFrame({"CHR": ["1"], "POS": [999], "SNP": ["rs2"], "Z": [1.0], "N": [100.0]})
@@ -227,6 +262,7 @@ class SumstatsLiftoverTest(unittest.TestCase):
                 "n_input": None,
                 "n_lifted": None,
                 "n_dropped": None,
+                "n_missing_chr_pos_dropped": None,
                 "n_unmapped": None,
                 "n_cross_chrom": None,
                 "n_duplicate_target_dropped": None,

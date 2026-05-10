@@ -484,11 +484,14 @@ class RegressionWorkflowTest(unittest.TestCase):
             config_snapshot=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
         )
 
-        dataset = runner.build_dataset(sumstats, ldscore_result)
+        with self.assertLogs("LDSC.regression_runner", level="INFO") as caught:
+            dataset = runner.build_dataset(sumstats, ldscore_result)
 
         self.assertEqual(dataset.merged["SNP"].tolist(), ["raw1", "raw2"])
         self.assertEqual(dataset.merged["base"].tolist(), [1.0, 2.0])
         self.assertIn("_ldsc_chr_pos_key", dataset.merged.columns)
+        self.assertIn("Dropped 1 SNPs with missing CHR/POS", "\n".join(caught.output))
+        self.assertIn("sumstats.gz", "\n".join(caught.output))
 
     def test_build_dataset_chr_pos_mode_ignores_query_snp_label_mismatch(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"), RegressionConfig())

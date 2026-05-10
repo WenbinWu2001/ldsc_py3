@@ -12,7 +12,8 @@ from typing import Any, Sequence
 import numpy as np
 import pandas as pd
 
-from ..chromosome_inference import normalize_chromosome, normalize_chromosome_series
+from .._coordinates import normalize_chr_pos_frame, positive_int_position_series
+from ..chromosome_inference import normalize_chromosome
 from ..column_inference import (
     CHR_COLUMN_SPEC,
     SNP_COLUMN_SPEC,
@@ -219,7 +220,7 @@ class Hm3DualBuildLifter:
         """Return a lifted frame and the original indices that failed to map."""
         if self.source_build == self.target_build:
             return frame.copy(), np.asarray([], dtype=np.int64)
-        work = _normalized_coordinate_frame(frame)
+        work, _report = _normalized_coordinate_frame(frame)
         request = SumstatsLiftoverRequest(
             target_build=self.target_build,
             use_hm3_quick_liftover=True,
@@ -244,6 +245,7 @@ def default_liftover_metadata(*, source_build: str | None, snp_identifier: str) 
         "n_input": None,
         "n_lifted": None,
         "n_dropped": None,
+        "n_missing_chr_pos_dropped": None,
         "n_unmapped": None,
         "n_cross_chrom": None,
         "n_duplicate_target_dropped": None,
@@ -307,14 +309,14 @@ def apply_sumstats_liftover(
         raise ValueError("target_genome_build differs from the source genome build, but no liftover method was specified.")
 
     _require_supported_pair(source, request.target_build)
-    work = _normalized_coordinate_frame(frame)
+    work, missing_report = _normalized_coordinate_frame(frame, drop_missing=True, logger=logger)
     if request.method == "hm3_curated":
         lifted, unmapped_count = _apply_hm3_liftover(work, request, source_build=source)
         cross_chrom_count = 0
     else:
         lifted, unmapped_count, cross_chrom_count = _apply_chain_liftover(work, request, source_build=source)
 
-    _log_drop_examples(frame, lifted.index, "unmapped/cross-chromosome liftover", logger)
+    _log_drop_examples(work, lifted.index, "unmapped/cross-chromosome liftover", logger)
     before_duplicate_drop = len(lifted)
     duplicate_mask = lifted.duplicated(subset=["CHR", "POS"], keep=False)
     duplicate_count = int(duplicate_mask.sum())
@@ -326,7 +328,8 @@ def apply_sumstats_liftover(
         raise ValueError(
             "Summary-statistics liftover dropped all rows. "
             f"source_build={source}; target_build={request.target_build}; method={request.method}; "
-            f"n_input={len(frame)}; n_unmapped={unmapped_count}; n_cross_chrom={cross_chrom_count}; "
+            f"n_input={len(frame)}; n_missing_chr_pos_dropped={missing_report.n_dropped}; "
+            f"n_unmapped={unmapped_count}; n_cross_chrom={cross_chrom_count}; "
             f"n_duplicate_target_dropped={duplicate_count}."
         )
     report = {
@@ -339,6 +342,7 @@ def apply_sumstats_liftover(
         "n_input": int(len(frame)),
         "n_lifted": int(len(lifted)),
         "n_dropped": int(len(frame) - len(lifted)),
+        "n_missing_chr_pos_dropped": int(missing_report.n_dropped),
         "n_unmapped": int(unmapped_count),
         "n_cross_chrom": int(cross_chrom_count),
         "n_duplicate_target_dropped": int(duplicate_count),
@@ -365,15 +369,7 @@ def apply_sumstats_liftover(
 
 def _positive_int_position(values: pd.Series, *, label: str, context: str) -> pd.Series:
     """Return positive integer coordinates with useful validation errors."""
-    numeric = pd.to_numeric(values, errors="raise")
-    if numeric.isna().any():
-        raise ValueError(f"{context} contains missing {label} values.")
-    non_integral = (numeric % 1) != 0
-    if bool(non_integral.any()):
-        raise ValueError(f"{context} contains non-integer {label} values.")
-    if bool((numeric <= 0).any()):
-        raise ValueError(f"{context} contains non-positive {label} values.")
-    return numeric.astype(np.int64)
+    return positive_int_position_series(values, label=label, context=context).astype(np.int64)
 
 
 def _normalize_liftover_chromosome(value: object) -> str:
@@ -406,25 +402,22 @@ def _require_supported_pair(source_build: str, target_build: str | None) -> None
         raise ValueError("source and target genome builds are identical.")
 
 
-def _normalized_coordinate_frame(frame: pd.DataFrame) -> pd.DataFrame:
+def _normalized_coordinate_frame(
+    frame: pd.DataFrame,
+    *,
+    drop_missing: bool = False,
+    logger: logging.Logger | None = None,
+) -> tuple[pd.DataFrame, Any]:
     """Return a copy with complete normalized CHR/POS columns for liftover."""
     missing_columns = [column for column in ("CHR", "POS") if column not in frame.columns]
     if missing_columns:
         raise ValueError(f"Summary-statistics liftover requires CHR/POS columns; missing {missing_columns}.")
-    missing_chr = _missing_coordinate_mask(frame["CHR"])
-    missing_pos = _missing_coordinate_mask(frame["POS"])
-    if bool((missing_chr | missing_pos).any()):
-        raise ValueError("Summary-statistics liftover requires complete CHR/POS coordinates for every retained row.")
-    work = frame.copy()
-    work["CHR"] = normalize_chromosome_series(work["CHR"], context="sumstats liftover").astype(object)
-    work["POS"] = _positive_int_position(work["POS"], label="POS", context="sumstats liftover")
-    return work
-
-
-def _missing_coordinate_mask(values: pd.Series) -> pd.Series:
-    """Return missing or NA-like coordinate tokens."""
-    tokens = values.astype("string")
-    return tokens.isna() | tokens.str.strip().str.lower().isin({"", "na", "nan", "none"})
+    return normalize_chr_pos_frame(
+        frame,
+        context="sumstats liftover",
+        drop_missing=drop_missing,
+        logger=logger,
+    )
 
 
 def _apply_hm3_liftover(

@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from ._coordinates import positive_int_position_series
 from .column_inference import normalize_snp_identifier_mode
 
 
@@ -62,16 +63,7 @@ def _row_key_frame(frame: pd.DataFrame, *, side: str, context: str, snp_identifi
 
 
 def _integer_pos_series(values: pd.Series, *, side: str, context: str) -> pd.Series:
-    numeric = pd.to_numeric(values, errors="raise").reset_index(drop=True)
-    missing = numeric.isna()
-    if missing.any():
-        row = int(np.flatnonzero(missing.to_numpy())[0])
-        raise ValueError(f"{context}: {side} POS is missing at row {row}.")
-    non_integral = (numeric % 1) != 0
-    if non_integral.any():
-        row = int(np.flatnonzero(non_integral.to_numpy())[0])
-        raise ValueError(f"{context}: {side} POS must be integer-valued; got {numeric.iloc[row]!r} at row {row}.")
-    return numeric.astype(np.int64)
+    return positive_int_position_series(values.reset_index(drop=True), context=f"{context}: {side}", label="POS")
 
 
 def _numeric_array(frame: pd.DataFrame, column: str) -> np.ndarray:

@@ -136,20 +136,23 @@ pytest -q
 `tests/_kernel/test_sumstats_munger_liftover_stage.py`
 
 - [ ] Add request/plan/report structures for source build, target build, method,
-  chain file, HM3 map file, and count fields.
+  chain file, HM3 map file, and count fields, including
+  `n_missing_chr_pos_dropped`.
 - [ ] Insert liftover after `_finalize_coordinate_columns()` and
   `filter_sumstats_snps()`, before output writing.
 - [ ] Keep `--sumstats-snps-file` filtering in source-build coordinates.
 - [ ] If liftover is requested and any retained row lacks complete `CHR/POS`,
-  raise an error.
+  drop that row before mapping and log the count/examples.
+- [ ] Keep malformed non-missing `CHR/POS` values as validation errors.
 - [ ] Apply HM3 or chain mapping and update only `CHR/POS`; never rewrite `SNP`.
 - [ ] Drop and count unmapped rows for both methods.
 - [ ] Drop and separately count chain cross-chromosome hits.
 - [ ] Drop every row in duplicated target `CHR/POS` groups; do not keep the
   first row.
 - [ ] If all rows are dropped by liftover, raise an error.
-- [ ] Log warnings with up to 5 example rows for unmapped, cross-chromosome, and
-  duplicate-target-coordinate drops.
+- [ ] Log warnings or info records with up to 5 example rows for
+  missing-coordinate, unmapped, cross-chromosome, and duplicate-target-coordinate
+  drops.
 - [ ] On applied liftover, set logged coordinate provenance `genome_build` to
   the target build and attach the liftover report for logging.
 
@@ -167,8 +170,9 @@ pytest -q
   coordinate build, inference status, coordinate basis, missing-coordinate
   counts, and optional build-inference details.
 - [ ] Log the liftover report with method, source/target build, path fields when
-  present, `n_input`, `n_lifted`, `n_dropped`, `n_unmapped`, `n_cross_chrom`,
-  and `n_duplicate_target_dropped`.
+  present, `n_input`, `n_lifted`, `n_dropped`,
+  `n_missing_chr_pos_dropped`, `n_unmapped`, `n_cross_chrom`, and
+  `n_duplicate_target_dropped`.
 - [ ] Log HM3 provenance when HM3 quick liftover is selected.
 - [ ] In no-op liftover reports, use `source_build = null` and
   `target_build = null` because the source/target fields are not applicable.

@@ -105,13 +105,16 @@ files may provide chromosome and position columns through common aliases such as
 `#CHROM`, `CHROM`, `CHR`, `POS`, or `BP`, or explicitly through `--chr` and
 `--pos`; pass the raw input as `--raw-sumstats-file`. Leading `##`
 metadata/comment lines are skipped before the real header is parsed. Each
-munged run also writes `sumstats.metadata.json` beside the selected artifact(s)
-so later regression commands can recover `snp_identifier`, `genome_build`, and
-optional `--trait-name` provenance. Use `--sumstats-snps-file` when the munged artifact should be
-restricted to a headered SNP keep-list; this filter keeps matching rows only and
-does not allele-match or reorder the output. In `chr_pos` mode, `SNP` is a
-label; matching uses `CHR` and `POS`. To convert coordinates after QC and after
-`--sumstats-snps-file`, pass `--target-genome-build` with either
+munged run also writes a thin `sumstats.metadata.json` beside the selected
+artifact(s) so later regression commands can recover `snp_identifier`,
+`genome_build`, and optional `--trait-name` provenance; detailed coordinate and
+liftover bookkeeping is written to `sumstats.log`. Use `--sumstats-snps-file`
+when the munged artifact should be restricted to a headered SNP keep-list; this
+filter keeps matching rows only and does not allele-match or reorder the output.
+In `chr_pos` mode, `SNP` is a label; matching uses `CHR` and `POS`. Rows missing
+either coordinate are dropped and counted at `chr_pos` match/map stages, while
+malformed non-missing coordinates remain errors. To convert coordinates after QC
+and after `--sumstats-snps-file`, pass `--target-genome-build` with either
 `--liftover-chain-file` or `--use-hm3-quick-liftover`. Liftover is invalid in
 `rsid` mode because positions are not the row identity there.
 

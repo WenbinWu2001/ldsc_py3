@@ -41,6 +41,7 @@ from typing import Iterable
 
 import pandas as pd
 
+from .._coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame, positive_int_position_series
 from ..chromosome_inference import normalize_chromosome
 from ..column_inference import (
     clean_header,
@@ -58,10 +59,9 @@ LOGGER = logging.getLogger("LDSC.identifiers")
 
 def build_chr_pos_snp_id(chrom: object, pos: object, *, context: str | None = None) -> str:
     """Build the canonical ``CHR:POS`` identifier used in ``chr_pos`` mode."""
+    context = "CHR/POS identifier" if context is None else context
     chrom_norm = normalize_chromosome(chrom, context=context)
-    pos_int = int(pos)
-    if pos_int <= 0:
-        raise ValueError(f"Position must be positive; got {pos!r}.")
+    pos_int = int(positive_int_position_series(pd.Series([pos]), context=context).iloc[0])
     return f"{chrom_norm}:{pos_int}"
 
 
@@ -225,32 +225,14 @@ def _finalize_chr_pos_restriction_frame(
 ) -> set[str]:
     """Normalize one restriction frame, dropping rows missing CHR or POS."""
     frame = frame.loc[:, ["CHR", "POS"]].copy()
-    chr_tokens = frame["CHR"].astype("string")
-    chr_missing = chr_tokens.isna() | chr_tokens.str.strip().str.lower().isin({"", "na", "nan", "none"})
-
-    pos_tokens = frame["POS"].astype("string")
-    pos_missing = pos_tokens.isna() | pos_tokens.str.strip().str.lower().isin({"", "na", "nan", "none"})
-    pos_numeric = pd.to_numeric(frame["POS"], errors="coerce")
-    invalid_pos = (~pos_missing) & pos_numeric.isna()
-    if invalid_pos.any():
-        bad_value = pos_tokens.loc[invalid_pos].iloc[0]
-        raise ValueError(f"Restriction POS values in {path} must be numeric; got {bad_value!r}.")
-
-    keep = (~chr_missing) & (~pos_missing)
-    dropped = int((~keep).sum())
-    if dropped and logger is not None:
-        logger.warning(f"Dropped {dropped} restriction rows with missing CHR or POS from '{path}'.")
-
-    normalized = pd.DataFrame(
-        {
-            "CHR": chr_tokens.loc[keep].astype(str),
-            "POS": pos_numeric.loc[keep].astype(int),
-        }
+    keyed, _report = build_chr_pos_key_frame(
+        frame,
+        context=f"restriction file '{path}'",
+        drop_missing=True,
+        logger=logger,
+        log_level=logging.WARNING,
     )
-    return {
-        build_chr_pos_snp_id(chrom, pos, context=str(path))
-        for chrom, pos in normalized.itertuples(index=False, name=None)
-    }
+    return set(keyed[CHR_POS_KEY_COLUMN].astype(str))
 
 
 def _read_chr_pos_restriction(path: Path, genome_build: str | None = None, logger=None) -> set[str]:

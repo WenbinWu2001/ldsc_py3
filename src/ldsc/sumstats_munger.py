@@ -33,6 +33,12 @@ import warnings
 import pandas as pd
 
 from .chromosome_inference import chrom_sort_key, normalize_chromosome_series
+from ._coordinates import (
+    CHR_POS_KEY_COLUMN,
+    build_chr_pos_key_frame,
+    coordinate_missing_mask,
+    positive_int_position_series,
+)
 from .column_inference import (
     INTERNAL_SUMSTATS_ARTIFACT_SPEC_MAP,
     normalize_genome_build,
@@ -125,7 +131,12 @@ class SumstatsTable:
     def snp_identifiers(self) -> pd.Series:
         """Return the active SNP identifiers for this table."""
         mode = _sumstats_table_identifier_mode(self.config_snapshot)
-        return build_snp_id_series(self.data, mode).astype(str)
+        if mode == "rsid":
+            return build_snp_id_series(self.data, mode).astype(str)
+        return _chr_pos_keys_for_matching(
+            self.data,
+            context=f"sumstats identifiers for {self.source_path or self.trait_name or 'sumstats'}",
+        ).astype("string")
 
     def subset_to(self, snps: set[str] | list[str]) -> "SumstatsTable":
         """Return a copy restricted to ``snps`` while preserving metadata."""
@@ -145,9 +156,20 @@ class SumstatsTable:
         if mode == "rsid":
             merged = pd.merge(metadata.loc[:, ["SNP"]], self.data, how="inner", on="SNP", sort=False)
         else:
-            left = pd.DataFrame({"_ldsc_sumstats_key": build_snp_id_series(metadata, "chr_pos").astype(str)})
+            left = pd.DataFrame(
+                {
+                    "_ldsc_sumstats_key": _chr_pos_keys_for_matching(
+                        metadata,
+                        context="sumstats metadata alignment left table",
+                    )
+                }
+            ).dropna(subset=["_ldsc_sumstats_key"])
             right = self.data.copy()
-            right["_ldsc_sumstats_key"] = build_snp_id_series(right, "chr_pos").astype(str)
+            right["_ldsc_sumstats_key"] = _chr_pos_keys_for_matching(
+                right,
+                context=f"sumstats metadata alignment for {self.source_path or self.trait_name or 'sumstats'}",
+            )
+            right = right.dropna(subset=["_ldsc_sumstats_key"])
             merged = pd.merge(left, right, how="inner", on="_ldsc_sumstats_key", sort=False).drop(
                 columns=["_ldsc_sumstats_key"]
             )
@@ -191,6 +213,19 @@ def _sumstats_table_identifier_mode(config_snapshot: GlobalConfig | None) -> str
     if config_snapshot is None:
         return "chr_pos"
     return normalize_snp_identifier_mode(config_snapshot.snp_identifier)
+
+
+def _chr_pos_keys_for_matching(data: pd.DataFrame, *, context: str) -> pd.Series:
+    """Return CHR/POS keys for matching, dropping missing-coordinate rows as NA keys."""
+    keyed, _report = build_chr_pos_key_frame(
+        data,
+        context=context,
+        drop_missing=True,
+        logger=LOGGER,
+    )
+    keys = pd.Series(pd.NA, index=data.index, dtype="object")
+    keys.loc[keyed.index] = keyed[CHR_POS_KEY_COLUMN].astype(str)
+    return keys
 
 
 def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> SumstatsTable:
@@ -813,12 +848,6 @@ def _prepare_curated_sumstats_frame(data: pd.DataFrame) -> pd.DataFrame:
     return frame.loc[:, columns]
 
 
-def _coordinate_missing_mask(series: pd.Series) -> pd.Series:
-    """Return rows whose coordinate token is missing or an NA-like string."""
-    tokens = series.astype("string")
-    return tokens.isna() | tokens.str.strip().str.lower().isin({"", "na", "nan", "none"})
-
-
 def _prepare_sumstats_parquet_frame(data: pd.DataFrame) -> pd.DataFrame:
     """Return a precision-preserving frame sorted for chromosome row groups.
 
@@ -830,8 +859,8 @@ def _prepare_sumstats_parquet_frame(data: pd.DataFrame) -> pd.DataFrame:
     """
     frame = _prepare_curated_sumstats_frame(data)
     frame["_ldsc_original_order"] = range(len(frame))
-    chr_missing = _coordinate_missing_mask(frame["CHR"])
-    pos_missing = _coordinate_missing_mask(frame["POS"])
+    chr_missing = coordinate_missing_mask(frame["CHR"])
+    pos_missing = coordinate_missing_mask(frame["POS"])
     pos_numeric = pd.to_numeric(frame["POS"], errors="coerce")
     invalid_pos = (~pos_missing) & pos_numeric.isna()
     if invalid_pos.any():
@@ -840,14 +869,11 @@ def _prepare_sumstats_parquet_frame(data: pd.DataFrame) -> pd.DataFrame:
 
     complete = ~(chr_missing | pos_missing)
     if complete.any():
-        complete_pos = pos_numeric.loc[complete]
-        non_integral = (complete_pos % 1) != 0
-        if non_integral.any():
-            bad_value = frame.loc[complete, "POS"].loc[non_integral].iloc[0]
-            raise ValueError(f"POS values must be integer base-pair positions; got {bad_value!r}.")
-        if (complete_pos <= 0).any():
-            bad_value = frame.loc[complete, "POS"].loc[complete_pos <= 0].iloc[0]
-            raise ValueError(f"POS values must be positive base-pair positions; got {bad_value!r}.")
+        complete_pos = positive_int_position_series(
+            frame.loc[complete, "POS"],
+            context="sumstats parquet output",
+            label="POS",
+        )
         frame.loc[complete, "CHR"] = normalize_chromosome_series(
             frame.loc[complete, "CHR"],
             context="sumstats parquet output",
@@ -899,7 +925,7 @@ def _write_sumstats_parquet(data: pd.DataFrame, path: str) -> list[dict[str, Any
         if frame.empty:
             writer.write_table(pa.Table.from_pandas(frame, schema=schema, preserve_index=False))
             return row_groups
-        complete = ~(_coordinate_missing_mask(frame["CHR"]) | _coordinate_missing_mask(frame["POS"]))
+        complete = ~(coordinate_missing_mask(frame["CHR"]) | coordinate_missing_mask(frame["POS"]))
         for chrom, chrom_df in frame.loc[complete].groupby("CHR", sort=False):
             writer.write_table(pa.Table.from_pandas(chrom_df, schema=schema, preserve_index=False))
             row_groups.append(

@@ -25,8 +25,9 @@ audit lines always appear in the file.
 
 Workflow logs are audit artifacts, not data outputs. Result objects and
 `output_paths` mappings exclude log paths, including
-`MungeRunSummary.output_paths`. `sumstats.metadata.json["output_files"]`
-records curated sumstats artifacts only.
+`MungeRunSummary.output_paths`. Detailed sumstats provenance and output
+bookkeeping are written to `sumstats.log`, while `sumstats.metadata.json` stays
+limited to thin compatibility metadata.
 
 For log filenames and API boundary details, see
 [workflow-logging.md](workflow-logging.md).

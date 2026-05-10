@@ -25,8 +25,8 @@ coordinates. Liftover updates `CHR` and `POS`; it never rewrites `SNP`.
   `MungeConfig.genome_build`.
 - `--sumstats-snps-file` is interpreted in the source build because SNP
   filtering runs before liftover.
-- Newly written sidecars always include a top-level `liftover` block; old
-  sidecars without the block remain loadable.
+- Newly written sidecars stay thin: only schema, trait label, and
+  `config_snapshot` are stored. Liftover and coordinate provenance are logged.
 
 ## CLI And Config
 
@@ -84,9 +84,9 @@ After successful liftover:
 
 - `CHR` and `POS` are target-build coordinates.
 - `SNP` is unchanged.
-- `coordinate_provenance.genome_build` is the target build.
+- logged coordinate provenance records the target build.
 - `config_snapshot.genome_build` is the target build.
-- `coordinate_provenance.coordinate_basis` remains `"1-based"`.
+- logged coordinate provenance keeps coordinate basis as `"1-based"`.
 
 ## Liftover Methods
 
@@ -148,59 +148,29 @@ munger does not keep the first row. It logs up to 5 examples and records
 If duplicate-target removal leaves no rows, liftover errors instead of writing
 an empty artifact.
 
-## Metadata Schema
+## Metadata And Logging
 
-Rename the existing `coordinate_metadata` sidecar block to
-`coordinate_provenance`. The new name is intentional: this block is
-provenance/debug information about how the sumstats coordinate columns were
-derived. It is not the compatibility gate. Readers should continue accepting old
-sidecars with `coordinate_metadata` for backward compatibility, but new sidecars
-write `coordinate_provenance`.
-
-The sidecar structure is:
+The sidecar is intentionally thin. It stores only fields needed for downstream
+workflow behavior: the sidecar marker, optional trait label, and the full
+`GlobalConfig` snapshot used for compatibility checks and reloads.
 
 ```jsonc
 {
   "format": "ldsc.sumstats.v1",
-  "snp_identifier": "chr_pos",
-  "genome_build": "hg38",
-  "source_path": "/path/to/raw.sumstats.gz",
   "trait_name": "Trait label",
-  "sumstats_file": "sumstats.parquet",
-  "output_format": "parquet" | "tsv.gz" | "both",
-  "output_files": {
-    "parquet": "/path/to/sumstats.parquet",
-    "tsv.gz": "/path/to/sumstats.sumstats.gz"
-  },
-  "parquet_compression": "snappy",
-  "parquet_row_groups": [
-    {"chrom": "1", "row_group_index": 0, "row_offset": 0, "n_rows": 12345}
-  ],
-  "coordinate_provenance": {},
-  "liftover": {},
-  "config_snapshot": {}
+  "config_snapshot": {
+    "snp_identifier": "chr_pos",
+    "genome_build": "hg38",
+    "log_level": "INFO",
+    "fail_on_missing_metadata": false
+  }
 }
 ```
 
 Top-level entries:
 
 - `format`: sidecar schema identifier.
-- `snp_identifier`: effective output identity mode, copied from
-  `config_snapshot` for quick inspection.
-- `genome_build`: effective output compatibility build, copied from
-  `config_snapshot` for quick inspection.
-- `source_path`: original raw sumstats path when known.
 - `trait_name`: optional trait label used by downstream summaries.
-- `sumstats_file`: primary munged output file name/path.
-- `output_format`: requested output format.
-- `output_files`: written output artifacts, excluding logs.
-- `parquet_compression`: Parquet compression when Parquet was written.
-- `parquet_row_groups`: row-group layout for chromosome-aligned Parquet output.
-
-Legacy sidecars may also contain top-level `genome_build_inferred` and
-`coordinate_basis` mirrors. New sidecars should store those values inside
-`coordinate_provenance`; readers may continue accepting the old mirrors as
-fallbacks.
 
 `config_snapshot` is the compatibility block used by downstream modules:
 
@@ -211,85 +181,23 @@ fallbacks.
 - `fail_on_missing_metadata`: missing-metadata compatibility policy captured
   from the run.
 
-`coordinate_provenance` is the coordinate provenance/debug block:
+The log file records detailed provenance that does not belong in the sidecar:
 
-- `format`: provenance schema identifier for coordinate provenance.
-- `snp_identifier`: coordinate interpretation mode used by the munger.
-- `genome_build`: output coordinate build after inference and optional
-  liftover.
-- `genome_build_inferred`: whether source build was inferred from CHR/POS.
-- `coordinate_basis`: normalized coordinate basis, currently `"1-based"` when
-  known.
-- `coordinate_columns`: raw input columns used for canonical `CHR` and `POS`.
-- `n_rows`: row count at coordinate-finalization time.
-- `n_missing_chr_pos`: number of rows missing complete coordinates at
-  coordinate-finalization time.
-- `build_inference`: present only when build inference ran; records inspected
-  SNP count, match counts/fractions, and a summary message.
-
-`liftover` is the coordinate-liftover audit block:
-
-- `applied`: whether a liftover method actually ran.
-- `source_build`: resolved source build for applied liftover or chr_pos no-op;
-  `null` for rsID no-op artifacts.
-- `target_build`: requested output build only when liftover was applied;
-  `null` for no-op blocks.
-- `method`: `"hm3_curated"`, `"chain_file"`, or `null` for no-op blocks.
-- `chain_file`: absolute chain-file path for chain liftover; otherwise `null`.
-- `hm3_map_file`: packaged HM3 curated-map resource for HM3 liftover;
-  otherwise `null`.
-- `n_input`: rows entering the liftover stage when a method ran.
-- `n_lifted`: final retained rows after all liftover-specific drops.
-- `n_dropped`: total rows dropped by liftover-specific mapping/collision rules.
-- `n_unmapped`: rows with no mapping or missing HM3-map entry.
-- `n_cross_chrom`: chain-file hits dropped because they mapped to a different
-  chromosome.
-- `n_duplicate_target_dropped`: rows dropped because their target `CHR/POS`
-  belonged to a duplicated target-coordinate group.
-
-Newly written sidecars always include:
-
-```jsonc
-"liftover": {
-  "applied": true,
-  "source_build": "hg19",
-  "target_build": "hg38",
-  "method": "hm3_curated" | "chain_file",
-  "chain_file": "<abspath>" | null,
-  "hm3_map_file": "ldsc/data/hm3_curated_map.tsv.gz" | null,
-  "n_input": 1234567,
-  "n_lifted": 1200000,
-  "n_dropped": 34567,
-  "n_unmapped": 30000,
-  "n_cross_chrom": 100,
-  "n_duplicate_target_dropped": 4467
-}
-```
+- coordinate provenance: coordinate source columns, resolved/final build,
+  inference status, coordinate basis, missing-coordinate counts, and optional
+  build-inference details;
+- liftover report: `applied`, source/target builds, method, method resource path
+  when present, input/retained/drop counts, unmapped count, cross-chromosome
+  count, and duplicate-target drop count;
+- HM3 provenance: method token and packaged HM3 map path when HM3 quick liftover
+  is used;
+- output bookkeeping: selected output format, written output files, Parquet
+  compression, and Parquet row-group layout.
 
 `n_lifted` means the final retained row count after all liftover-specific drops,
-so it should match the post-liftover output row count.
-
-No-op block:
-
-```jsonc
-"liftover": {
-  "applied": false,
-  "source_build": "hg19",
-  "target_build": null,
-  "method": null,
-  "chain_file": null,
-  "hm3_map_file": null,
-  "n_input": null,
-  "n_lifted": null,
-  "n_dropped": null,
-  "n_unmapped": null,
-  "n_cross_chrom": null,
-  "n_duplicate_target_dropped": null
-}
-```
-
-For rsID no-op artifacts, `source_build` and `target_build` are both `null`
-because genome build is not meaningful in `GlobalConfig` for rsID mode.
+so it should match the post-liftover output row count. In no-op reports,
+`source_build` and `target_build` are both `null`; `null` means the field is not
+applicable because liftover did not run.
 
 ## Package-Wide chr_pos Identity Rule
 
@@ -346,7 +254,7 @@ Required test coverage:
 8. Missing coordinate error.
 9. `SNP` unchanged after liftover.
 10. No-op and applied metadata schema.
-11. Old sidecar backward compatibility.
+11. Thin sidecar metadata and detailed log provenance.
 12. Package-wide `chr_pos` identity helpers and merge behavior.
 13. Lifted hg38 `chr_pos` sumstats reject hg19 LD scores through existing
     `ConfigMismatchError`.

@@ -14,7 +14,7 @@ Two implementation details are important to know:
 - Current `ldsc munge-sumstats` writes `sumstats.metadata.json` beside
   `sumstats.parquet` by default, or beside legacy `sumstats.sumstats.gz` when
   `--output-format tsv.gz` is selected; `load_sumstats()` recovers the original
-  munge-time `GlobalConfig` from that sidecar. Older `.sumstats.gz` files
+  munge-time `GlobalConfig` from that thin sidecar. Older `.sumstats.gz` files
   without the sidecar still warn and load with `config_snapshot=None`.
 - `load_ldscore_from_dir()` keeps strict format checks but treats missing or
   invalid manifest config provenance as unknown, warning and returning
@@ -315,14 +315,12 @@ alongside the written artifacts.
 
 **`load_sumstats()` recovers provenance for current disk artifacts.**
 Curated `sumstats.parquet` and `.sumstats(.gz)` artifacts written by the current
-munger have a neighboring `sumstats.metadata.json` sidecar that records the
-active or inferred `GlobalConfig`, including `snp_identifier` and
-the output `genome_build`. New sidecars also include `coordinate_provenance`
-for debugging raw-coordinate inference and a top-level `liftover` block that
-records whether `CHR`/`POS` were converted, the source/target builds, method,
-and drop counts. The loader uses that sidecar to populate `config_snapshot`.
-Older sidecars that used `coordinate_metadata` instead of
-`coordinate_provenance` remain loadable.
+munger have a neighboring `sumstats.metadata.json` sidecar that records a thin
+metadata payload: schema marker, optional trait label, and the active or
+inferred `GlobalConfig` snapshot. Detailed coordinate provenance, liftover
+reports, HM3 provenance, output bookkeeping, and row counts are written to
+`sumstats.log` instead of the sidecar. The loader uses the sidecar to populate
+`config_snapshot`.
 Older artifacts without the sidecar still emit a warning and load with
 `config_snapshot=None`.
 

@@ -45,10 +45,10 @@ not.
   rows map to the same target coordinate, none are retained.
 - If liftover drops all rows, error instead of writing an empty artifact.
 - Log up to 5 example rows per drop category.
-- Sidecar `liftover` block is always written for new artifacts.
-- Old sidecars without `liftover` remain loadable.
-- Rename the sidecar `coordinate_metadata` block to `coordinate_provenance` for
-  new artifacts. Readers must still accept old `coordinate_metadata` sidecars.
+- Sidecar metadata stays thin: schema marker, trait label, and full
+  `config_snapshot` only.
+- Coordinate provenance, liftover reports, HM3 provenance, row counts, and output
+  bookkeeping are written to the log instead of the sidecar.
 - Metadata method for HM3 quick is `hm3_curated`; CLI flag remains
   `--use-hm3-quick-liftover`.
 
@@ -150,52 +150,28 @@ pytest -q
 - [ ] If all rows are dropped by liftover, raise an error.
 - [ ] Log warnings with up to 5 example rows for unmapped, cross-chromosome, and
   duplicate-target-coordinate drops.
-- [ ] On applied liftover, set `coordinate_provenance.genome_build` to target
-  build and attach the liftover report.
+- [ ] On applied liftover, set logged coordinate provenance `genome_build` to
+  the target build and attach the liftover report for logging.
 
-## Task 5 - Sidecar Metadata And Backward Compatibility
+## Task 5 - Thin Sidecar Metadata And Logging
 
 **Files:** `src/ldsc/sumstats_munger.py`,
 `tests/test_sumstats_munger_liftover.py`
 
-- [ ] Rename the written sidecar block from `coordinate_metadata` to
-  `coordinate_provenance`.
-- [ ] Keep loading old sidecars that still use `coordinate_metadata`; normalize
-  them internally to `coordinate_provenance`.
-- [ ] Always write a top-level `liftover` block for new artifacts.
-- [ ] Keep readers backward-compatible with old sidecars that lack `liftover`.
-- [ ] Document/write this sidecar structure:
-  - top-level run/output fields: `format`, `snp_identifier`, `genome_build`,
-    `source_path`, `trait_name`, `sumstats_file`, `output_format`,
-    `output_files`, `parquet_compression`, and `parquet_row_groups`;
-  - `config_snapshot`: downstream compatibility block with `snp_identifier`,
-    `genome_build`, `log_level`, and `fail_on_missing_metadata`;
-  - `coordinate_provenance`: provenance/debug block with coordinate source
-    columns, output coordinate build, inference status, coordinate basis,
-    missing-coordinate counts, and optional build-inference details;
-  - `liftover`: liftover audit block with request/result method and row-loss
-    counts.
-- [ ] Prefer `coordinate_provenance` for `genome_build_inferred` and
-  `coordinate_basis`; keep reading old top-level mirrors only as backward
-  compatibility fallbacks.
-- [ ] No-op metadata:
-  - `applied = false`
-  - `source_build = resolved build` for `chr_pos`, `null` for `rsid`
-  - `target_build = null`
-  - `method = null`
-  - `chain_file = null`
-  - `hm3_map_file = null`
-  - all count fields are `null`
-- [ ] Applied metadata:
-  - `method = "hm3_curated"` or `"chain_file"`
-  - `n_input`
-  - `n_lifted` as final retained row count
-  - `n_dropped`
-  - `n_unmapped`
-  - `n_cross_chrom`
-  - `n_duplicate_target_dropped`
-- [ ] Remove any internal `coordinate_provenance["liftover"]` helper from the
-  serialized coordinate provenance after copying it to top-level metadata.
+- [ ] Write only thin sidecar fields: `format`, `trait_name`, and
+  `config_snapshot`.
+- [ ] Keep `config_snapshot` as the downstream compatibility block with
+  `snp_identifier`, `genome_build`, `log_level`, and
+  `fail_on_missing_metadata`.
+- [ ] Log coordinate provenance, including coordinate source columns, output
+  coordinate build, inference status, coordinate basis, missing-coordinate
+  counts, and optional build-inference details.
+- [ ] Log the liftover report with method, source/target build, path fields when
+  present, `n_input`, `n_lifted`, `n_dropped`, `n_unmapped`, `n_cross_chrom`,
+  and `n_duplicate_target_dropped`.
+- [ ] Log HM3 provenance when HM3 quick liftover is selected.
+- [ ] In no-op liftover reports, use `source_build = null` and
+  `target_build = null` because the source/target fields are not applicable.
 
 ## Task 6 - Package-Wide chr_pos Identity Audit
 
@@ -239,7 +215,7 @@ or filter sites.
 - [ ] `SNP` unchanged after liftover.
 - [ ] No-op metadata schema.
 - [ ] Applied metadata schema.
-- [ ] Old sidecar backward compatibility.
+- [ ] Thin sidecar metadata and detailed log provenance.
 - [ ] Lifted hg38 `chr_pos` sumstats reject hg19 LD scores through existing
   `ConfigMismatchError`.
 - [ ] Lifted hg38 `chr_pos` sumstats proceed with hg38 LD scores.
@@ -288,5 +264,5 @@ Expected final behavior:
 - Liftover flags in `rsid` mode fail early.
 - `SNP` is unchanged by liftover.
 - `chr_pos` matching uses `CHR/POS` package-wide.
-- Output sidecars always include `liftover`.
+- Output sidecars contain only the thin compatibility metadata.
 - Existing regression build compatibility rejects mismatched concrete builds.

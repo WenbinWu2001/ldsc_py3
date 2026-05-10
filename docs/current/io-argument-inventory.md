@@ -83,7 +83,7 @@ inside that directory are fixed and workflow-specific.
 
 Workflow logs are fixed audit files under `output_dir`, preflighted with the
 scientific outputs before they are opened. They are not included in workflow
-`output_paths` mappings or metadata `output_files` blocks that downstream code
+`output_paths` mappings or thin metadata sidecars that downstream code
 interprets as data artifacts.
 
 For `munge-sumstats`, `ldscore`, `partitioned-h2`, and `annotate`, the fixed
@@ -229,10 +229,11 @@ Fixed output names:
 `sumstats.parquet` is the default curated artifact. `sumstats.sumstats.gz` is
 written only for `--output-format tsv.gz` or `both`. `sumstats.log` is
 preflighted and opened by the public workflow layer, but it is excluded from
-`MungeRunSummary.output_paths` and from
-`sumstats.metadata.json["output_files"]`. The kernel emits package logger
-records for QC progress and preserves its direct legacy-compatible
-`.sumstats.gz` writer for private/direct kernel calls.
+`MungeRunSummary.output_paths`. Detailed provenance and output bookkeeping are
+written to `sumstats.log`; `sumstats.metadata.json` stays limited to thin
+compatibility metadata. The kernel emits package logger records for QC progress
+and preserves its direct legacy-compatible `.sumstats.gz` writer for
+private/direct kernel calls.
 
 ### `ldsc h2`
 
@@ -390,12 +391,11 @@ Removed Python/public argparse names: `sumstats`, `sumstats_1`, `sumstats_2`,
 
 Current curated `sumstats.parquet` and `.sumstats.gz` artifacts provide
 canonical `SNP`, `CHR`, `POS`, `Z`, and `N` fields when written by
-`ldsc munge-sumstats`, plus a neighboring metadata sidecar with the effective
-`snp_identifier`, `genome_build`, optional `trait_name`, selected curated
-output files, a `coordinate_provenance` debugging block, a `liftover` block,
-and parquet row groups when applicable. `load_sumstats()` resolves labels as
-explicit override, then sidecar `trait_name`, then filename fallback. The
-sidecar does not list `sumstats.log`.
+`ldsc munge-sumstats`, plus a neighboring metadata sidecar with optional
+`trait_name` and the effective `config_snapshot`. `load_sumstats()` resolves
+labels as explicit override, then sidecar `trait_name`, then filename fallback.
+Liftover reports, coordinate provenance, selected curated output files, and
+Parquet row groups are log provenance, not sidecar metadata.
 Regression therefore merges on literal `SNP` in `rsid` mode and on normalized
 `CHR:POS` coordinates in `chr_pos` mode. Munger liftover is valid only in
 `chr_pos` mode; it changes `CHR`/`POS`, never `SNP`, and runs after

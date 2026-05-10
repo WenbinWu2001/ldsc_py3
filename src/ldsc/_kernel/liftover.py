@@ -231,12 +231,12 @@ class Hm3DualBuildLifter:
 
 
 def default_liftover_metadata(*, source_build: str | None, snp_identifier: str) -> dict[str, Any]:
-    """Return the no-op liftover sidecar block used for new artifacts."""
-    mode = normalize_snp_identifier_mode(snp_identifier)
-    source = normalize_genome_build(source_build) if mode == "chr_pos" else None
+    """Return the no-op liftover report used when liftover is not applicable."""
+    normalize_snp_identifier_mode(snp_identifier)
+    normalize_genome_build(source_build)
     return {
         "applied": False,
-        "source_build": source,
+        "source_build": None,
         "target_build": None,
         "method": None,
         "chain_file": None,

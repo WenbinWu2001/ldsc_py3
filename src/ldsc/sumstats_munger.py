@@ -382,13 +382,8 @@ class SumstatsMunger:
             )
             coordinate_metadata = dict(getattr(args, "_coordinate_metadata", {}))
             table_config_snapshot = _effective_sumstats_config(config_snapshot, coordinate_metadata)
-            _write_sumstats_metadata(
-                metadata_path,
-                config_snapshot=table_config_snapshot,
+            _log_sumstats_provenance(
                 coordinate_metadata=coordinate_metadata,
-                source_path=source_path,
-                trait_name=raw_sumstats_config.trait_name,
-                sumstats_file=primary_sumstats_file,
                 output_format=munge_config.output_format,
                 output_files=output_files,
                 parquet_compression=(
@@ -397,6 +392,11 @@ class SumstatsMunger:
                     else None
                 ),
                 parquet_row_groups=parquet_row_groups,
+            )
+            _write_sumstats_metadata(
+                metadata_path,
+                config_snapshot=table_config_snapshot,
+                trait_name=raw_sumstats_config.trait_name,
             )
             table = SumstatsTable(
                 data=data.reset_index(drop=True),
@@ -493,7 +493,7 @@ class SumstatsMunger:
             overwrite=overwrite,
             label="munged output artifact",
         )
-        primary_sumstats_file, parquet_row_groups = _write_sumstats_outputs(
+        primary_sumstats_file, _parquet_row_groups = _write_sumstats_outputs(
             sumstats.data,
             output_files=output_files,
             output_format=output_format,
@@ -502,21 +502,7 @@ class SumstatsMunger:
             _write_sumstats_metadata(
                 metadata_path,
                 config_snapshot=sumstats.config_snapshot,
-                coordinate_metadata=sumstats.provenance.get(
-                    "coordinate_provenance",
-                    sumstats.provenance.get("metadata", {}),
-                ),
-                source_path=sumstats.source_path,
                 trait_name=sumstats.trait_name,
-                sumstats_file=primary_sumstats_file,
-                output_format=output_format,
-                output_files=output_files,
-                parquet_compression=(
-                    _SUMSTATS_PARQUET_COMPRESSION
-                    if "parquet" in output_files
-                    else None
-                ),
-                parquet_row_groups=parquet_row_groups,
             )
         remove_output_artifacts(stale_paths)
         return primary_sumstats_file
@@ -1000,23 +986,7 @@ def _read_sumstats_metadata(path: Path) -> dict[str, Any] | None:
     """Read a sumstats sidecar metadata file when it exists."""
     if not path.exists():
         return None
-    return _normalize_sumstats_metadata(json.loads(path.read_text(encoding="utf-8")))
-
-
-def _normalize_sumstats_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
-    """Normalize old and new sidecar metadata shapes for in-process use."""
-    normalized = dict(metadata)
-    coordinate_provenance = normalized.get("coordinate_provenance")
-    if not isinstance(coordinate_provenance, dict):
-        legacy = normalized.get("coordinate_metadata")
-        coordinate_provenance = dict(legacy) if isinstance(legacy, dict) else {}
-        normalized["coordinate_provenance"] = coordinate_provenance
-    if "liftover" not in normalized:
-        normalized["liftover"] = default_liftover_metadata(
-            source_build=coordinate_provenance.get("genome_build", normalized.get("genome_build")),
-            snp_identifier=coordinate_provenance.get("snp_identifier", normalized.get("snp_identifier", "chr_pos")),
-        )
-    return normalized
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _resolve_sumstats_trait_name(
@@ -1040,13 +1010,14 @@ def _global_config_from_sumstats_metadata(metadata: dict[str, Any] | None) -> Gl
     if not isinstance(metadata, dict):
         return None
     snapshot = metadata.get("config_snapshot")
-    source = snapshot if isinstance(snapshot, dict) else metadata
+    if not isinstance(snapshot, dict):
+        raise ValueError("Sumstats metadata sidecar is missing config_snapshot.")
     try:
         return GlobalConfig(
-            snp_identifier=normalize_snp_identifier_mode(source.get("snp_identifier", "chr_pos")),
-            genome_build=normalize_genome_build(source.get("genome_build")),
-            log_level=source.get("log_level", "INFO"),
-            fail_on_missing_metadata=bool(source.get("fail_on_missing_metadata", False)),
+            snp_identifier=normalize_snp_identifier_mode(snapshot.get("snp_identifier", "chr_pos")),
+            genome_build=normalize_genome_build(snapshot.get("genome_build")),
+            log_level=snapshot.get("log_level", "INFO"),
+            fail_on_missing_metadata=bool(snapshot.get("fail_on_missing_metadata", False)),
         )
     except Exception as exc:
         raise ValueError("Sumstats metadata sidecar has invalid GlobalConfig provenance.") from exc
@@ -1067,37 +1038,12 @@ def _write_sumstats_metadata(
     path: str | PathLike[str],
     *,
     config_snapshot: GlobalConfig,
-    coordinate_metadata: dict[str, Any],
-    source_path: str | None,
     trait_name: str | None,
-    sumstats_file: str,
-    output_format: str,
-    output_files: dict[str, str],
-    parquet_compression: str | None = None,
-    parquet_row_groups: list[dict[str, Any]] | None = None,
 ) -> None:
-    """Write provenance, output-format, and Parquet-layout metadata sidecar."""
-    coordinate_provenance = dict(coordinate_metadata)
-    liftover = dict(
-        coordinate_provenance.pop(
-            "liftover",
-            default_liftover_metadata(
-                source_build=coordinate_provenance.get("genome_build"),
-                snp_identifier=coordinate_provenance.get("snp_identifier", config_snapshot.snp_identifier),
-            ),
-        )
-    )
+    """Write the thin metadata sidecar used for downstream compatibility."""
     payload = {
         "format": "ldsc.sumstats.v1",
-        "snp_identifier": config_snapshot.snp_identifier,
-        "genome_build": config_snapshot.genome_build,
-        "source_path": source_path,
         "trait_name": trait_name,
-        "sumstats_file": sumstats_file,
-        "output_format": output_format,
-        "output_files": dict(output_files),
-        "coordinate_provenance": coordinate_provenance,
-        "liftover": liftover,
         "config_snapshot": {
             "snp_identifier": config_snapshot.snp_identifier,
             "genome_build": config_snapshot.genome_build,
@@ -1105,15 +1051,52 @@ def _write_sumstats_metadata(
             "fail_on_missing_metadata": config_snapshot.fail_on_missing_metadata,
         },
     }
-    if parquet_compression is not None:
-        payload["parquet_compression"] = parquet_compression
-    if parquet_row_groups is not None:
-        payload["parquet_row_groups"] = list(parquet_row_groups)
-    if "genome_build_inferred" in coordinate_metadata:
-        payload["genome_build_inferred"] = coordinate_metadata["genome_build_inferred"]
-    if "coordinate_basis" in coordinate_metadata:
-        payload["coordinate_basis"] = coordinate_metadata["coordinate_basis"]
     Path(path).write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _log_sumstats_provenance(
+    *,
+    coordinate_metadata: dict[str, Any],
+    output_format: str,
+    output_files: dict[str, str],
+    parquet_compression: str | None,
+    parquet_row_groups: list[dict[str, Any]],
+) -> None:
+    """Log detailed provenance that is intentionally excluded from the sidecar."""
+    coordinate_provenance = dict(coordinate_metadata)
+    liftover = coordinate_provenance.pop(
+        "liftover",
+        default_liftover_metadata(
+            source_build=coordinate_provenance.get("genome_build"),
+            snp_identifier=coordinate_provenance.get("snp_identifier", "chr_pos"),
+        ),
+    )
+    LOGGER.info(
+        "Summary-statistics output bookkeeping: %s",
+        json.dumps(
+            {
+                "output_format": output_format,
+                "output_files": dict(output_files),
+                "parquet_compression": parquet_compression,
+                "parquet_row_groups": list(parquet_row_groups),
+            },
+            sort_keys=True,
+        ),
+    )
+    LOGGER.info("Summary-statistics coordinate provenance: %s", json.dumps(coordinate_provenance, sort_keys=True))
+    if isinstance(liftover, dict):
+        LOGGER.info("Summary-statistics liftover report: %s", json.dumps(liftover, sort_keys=True))
+        if liftover.get("method") == "hm3_curated":
+            LOGGER.info(
+                "Summary-statistics HM3 liftover provenance: %s",
+                json.dumps(
+                    {
+                        "method": liftover.get("method"),
+                        "hm3_map_file": liftover.get("hm3_map_file"),
+                    },
+                    sort_keys=True,
+                ),
+            )
 
 
 _COLUMN_HINT_ATTRS = {

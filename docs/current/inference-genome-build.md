@@ -103,9 +103,9 @@ Optional munger liftover runs after this source-build resolution and after
 `--sumstats-snps-file` filtering. It is valid only in `chr_pos` mode because
 `rsid` mode does not use positions for row identity. Chain-file liftover and
 HM3 quick liftover both update `CHR`/`POS` only; `SNP` remains a label. The
-metadata sidecar records the final output build as `genome_build`, keeps
-source/target/method/drop counts in `liftover`, and keeps the coordinate
-inference details in `coordinate_provenance`.
+metadata sidecar records the final output build through `config_snapshot`; the
+source/target/method/drop counts and coordinate inference details are written to
+the run log.
 
 ## Annotation Inputs
 
@@ -186,6 +186,7 @@ systems.
 
 When inference succeeds, logs include the selected build, whether the input was
 1-based or 0-based, and the support for all four hypotheses. For sumstats,
-the metadata sidecar also records the inferred build and coordinate basis.
+the metadata sidecar records only the final compatibility build through
+`config_snapshot`; inferred-build evidence and coordinate basis stay in the log.
 
 All normalized `chr_pos` coordinates used downstream are 1-based.

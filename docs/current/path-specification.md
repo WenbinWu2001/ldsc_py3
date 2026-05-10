@@ -381,8 +381,9 @@ Output:
   `MungeConfig(overwrite=True)` is supplied. With overwrite enabled, a
   successful run removes stale sibling formats not produced by the current
   `--output-format`.
-  `sumstats.log` is not recorded in `MungeRunSummary.output_paths` or
-  `sumstats.metadata.json["output_files"]`.
+  `sumstats.log` is not recorded in `MungeRunSummary.output_paths`; detailed
+  provenance and output bookkeeping are written to the log instead of the thin
+  metadata sidecar.
 - `ldsc h2`, `ldsc partitioned-h2`, and `ldsc rg` write fixed result families
   when `output_dir` is provided. For rg, that family is `rg.tsv`,
   `rg_full.tsv`, `h2_per_trait.tsv`, optional `pairs/`, and workflow-owned

@@ -219,7 +219,7 @@ class SumstatsLiftoverTest(unittest.TestCase):
             report,
             {
                 "applied": False,
-                "source_build": "hg38",
+                "source_build": None,
                 "target_build": None,
                 "method": None,
                 "chain_file": None,

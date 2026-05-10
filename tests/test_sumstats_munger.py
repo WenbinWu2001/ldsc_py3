@@ -301,8 +301,6 @@ class SumstatsMungerTest(unittest.TestCase):
                     {
                         "format": "ldsc.sumstats.v1",
                         "trait_name": "MDD",
-                        "snp_identifier": "rsid",
-                        "genome_build": None,
                         "config_snapshot": {"snp_identifier": "rsid", "genome_build": None},
                     }
                 ),
@@ -324,8 +322,6 @@ class SumstatsMungerTest(unittest.TestCase):
                     {
                         "format": "ldsc.sumstats.v1",
                         "trait_name": "MDD",
-                        "snp_identifier": "rsid",
-                        "genome_build": None,
                         "config_snapshot": {"snp_identifier": "rsid", "genome_build": None},
                     }
                 ),
@@ -347,8 +343,6 @@ class SumstatsMungerTest(unittest.TestCase):
                     {
                         "format": "ldsc.sumstats.v1",
                         "trait_name": " ",
-                        "snp_identifier": "rsid",
-                        "genome_build": None,
                         "config_snapshot": {"snp_identifier": "rsid", "genome_build": None},
                     }
                 ),
@@ -371,8 +365,6 @@ class SumstatsMungerTest(unittest.TestCase):
                 json.dumps(
                     {
                         "format": "ldsc.sumstats.v1",
-                        "snp_identifier": "chr_pos",
-                        "genome_build": "hg38",
                         "config_snapshot": {"snp_identifier": "chr_pos", "genome_build": "hg38"},
                     }
                 ),
@@ -388,34 +380,24 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(table.config_snapshot, GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
             self.assertFalse(any("cannot recover the GlobalConfig" in str(item.message) for item in caught))
 
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
-    def test_load_sumstats_accepts_old_coordinate_metadata_sidecar(self):
+    def test_load_sumstats_rejects_sidecar_without_config_snapshot(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
-            sumstats_file = tmpdir / "trait.parquet"
-            pd.DataFrame({"SNP": ["rs1"], "CHR": ["1"], "POS": [100], "Z": [1.0], "N": [100.0]}).to_parquet(
-                sumstats_file,
-                index=False,
-            )
+            sumstats_file = tmpdir / "trait.sumstats.gz"
+            with gzip.open(sumstats_file, "wt", encoding="utf-8") as handle:
+                handle.write("SNP\tCHR\tPOS\tZ\tN\nrs1\t1\t100\t1.0\t100.0\n")
             (tmpdir / "trait.metadata.json").write_text(
                 json.dumps(
                     {
                         "format": "ldsc.sumstats.v1",
-                        "snp_identifier": "chr_pos",
-                        "genome_build": "hg38",
-                        "coordinate_metadata": {
-                            "snp_identifier": "chr_pos",
-                            "genome_build": "hg38",
-                        },
+                        "trait_name": "trait",
                     }
                 ),
                 encoding="utf-8",
             )
 
-            table = ldsc.load_sumstats(sumstats_file)
-
-            self.assertEqual(table.config_snapshot, GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
-            self.assertIn("coordinate_provenance", table.provenance["metadata"])
+            with self.assertRaisesRegex(ValueError, "config_snapshot"):
+                ldsc.load_sumstats(sumstats_file)
 
     def test_load_sumstats_rejects_unknown_suffix(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -451,6 +433,10 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertTrue((tmpdir / "munged" / "sumstats.metadata.json").exists())
             metadata = json.loads((tmpdir / "munged" / "sumstats.metadata.json").read_text(encoding="utf-8"))
             self.assertEqual(metadata["trait_name"], "trait")
+            self.assertEqual(
+                set(metadata),
+                {"format", "trait_name", "config_snapshot"},
+            )
             summary = munger.build_run_summary(table)
             self.assertEqual(summary.n_retained_rows, 2)
             self.assertIn("sumstats_parquet", summary.output_paths)
@@ -481,9 +467,8 @@ class SumstatsMungerTest(unittest.TestCase):
                 output = pd.read_csv(handle, sep="\t")
             self.assertEqual(output.columns.tolist(), ["SNP", "CHR", "POS", "A1", "A2", "Z", "N"])
             metadata = json.loads((tmpdir / "munged" / "sumstats.metadata.json").read_text(encoding="utf-8"))
-            self.assertEqual(metadata["output_format"], "tsv.gz")
             self.assertEqual(metadata["trait_name"], "trait")
-            self.assertEqual(metadata["sumstats_file"], str(tmpdir / "munged" / "sumstats.sumstats.gz"))
+            self.assertEqual(set(metadata), {"format", "trait_name", "config_snapshot"})
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
     def test_run_writes_both_formats_and_lists_outputs_in_metadata(self):
@@ -505,15 +490,7 @@ class SumstatsMungerTest(unittest.TestCase):
             metadata = json.loads((tmpdir / "munged" / "sumstats.metadata.json").read_text(encoding="utf-8"))
             self.assertTrue((tmpdir / "munged" / "sumstats.parquet").exists())
             self.assertTrue((tmpdir / "munged" / "sumstats.sumstats.gz").exists())
-            self.assertEqual(metadata["output_format"], "both")
-            self.assertEqual(metadata["sumstats_file"], str(tmpdir / "munged" / "sumstats.parquet"))
-            self.assertEqual(
-                metadata["output_files"],
-                {
-                    "parquet": str(tmpdir / "munged" / "sumstats.parquet"),
-                    "tsv.gz": str(tmpdir / "munged" / "sumstats.sumstats.gz"),
-                },
-            )
+            self.assertEqual(set(metadata), {"format", "trait_name", "config_snapshot"})
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
     def test_run_overwrite_removes_unselected_sumstats_sibling(self):
@@ -539,8 +516,7 @@ class SumstatsMungerTest(unittest.TestCase):
             metadata = json.loads((output_dir / "sumstats.metadata.json").read_text(encoding="utf-8"))
             self.assertTrue((output_dir / "sumstats.parquet").exists())
             self.assertFalse((output_dir / "sumstats.sumstats.gz").exists())
-            self.assertEqual(metadata["output_format"], "parquet")
-            self.assertEqual(metadata["output_files"], {"parquet": str(output_dir / "sumstats.parquet")})
+            self.assertEqual(set(metadata), {"format", "trait_name", "config_snapshot"})
 
     def test_run_refuses_unselected_owned_sumstats_sibling_without_overwrite(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -659,18 +635,10 @@ class SumstatsMungerTest(unittest.TestCase):
             parquet_file = pq.ParquetFile(parquet_path)
             self.assertEqual(parquet_file.num_row_groups, 3)
             metadata = json.loads((tmpdir / "munged" / "sumstats.metadata.json").read_text(encoding="utf-8"))
-            self.assertEqual(metadata["parquet_compression"], "snappy")
-            self.assertEqual(
-                metadata["parquet_row_groups"],
-                [
-                    {"chrom": "1", "row_group_index": 0, "row_offset": 0, "n_rows": 2},
-                    {"chrom": "2", "row_group_index": 1, "row_offset": 2, "n_rows": 1},
-                    {"chrom": None, "row_group_index": 2, "row_offset": 3, "n_rows": 1},
-                ],
-            )
+            self.assertEqual(set(metadata), {"format", "trait_name", "config_snapshot"})
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for default parquet output")
-    def test_run_writes_coordinate_provenance_and_noop_liftover_metadata(self):
+    def test_run_writes_thin_sidecar_and_logs_coordinate_liftover_provenance(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             raw_path = tmpdir / "raw.tsv"
@@ -696,25 +664,26 @@ class SumstatsMungerTest(unittest.TestCase):
                 )
 
             metadata = json.loads((tmpdir / "munged" / "sumstats.metadata.json").read_text(encoding="utf-8"))
-            self.assertIn("coordinate_provenance", metadata)
-            self.assertNotIn("coordinate_metadata", metadata)
-            self.assertEqual(metadata["coordinate_provenance"]["genome_build"], "hg38")
             self.assertEqual(
-                metadata["liftover"],
+                metadata,
                 {
-                    "applied": False,
-                    "source_build": "hg38",
-                    "target_build": None,
-                    "method": None,
-                    "chain_file": None,
-                    "hm3_map_file": None,
-                    "n_input": None,
-                    "n_lifted": None,
-                    "n_dropped": None,
-                    "n_unmapped": None,
-                    "n_cross_chrom": None,
-                    "n_duplicate_target_dropped": None,
+                    "format": "ldsc.sumstats.v1",
+                    "trait_name": "trait",
+                    "config_snapshot": {
+                        "snp_identifier": "chr_pos",
+                        "genome_build": "hg38",
+                        "log_level": "INFO",
+                        "fail_on_missing_metadata": False,
+                    },
                 },
+            )
+            log_text = (tmpdir / "munged" / "sumstats.log").read_text(encoding="utf-8")
+            self.assertIn("Summary-statistics coordinate provenance", log_text)
+            self.assertIn('"coordinate_basis": "1-based"', log_text)
+            self.assertIn("Summary-statistics liftover report", log_text)
+            self.assertEqual(
+                set(metadata),
+                {"format", "trait_name", "config_snapshot"},
             )
 
     def test_run_rejects_liftover_request_in_rsid_mode_before_kernel_call(self):
@@ -1326,8 +1295,10 @@ class SumstatsMungerTest(unittest.TestCase):
 
             metadata = json.loads((output_dir / "sumstats.metadata.json").read_text(encoding="utf-8"))
             self.assertEqual(metadata["format"], "ldsc.sumstats.v1")
-            self.assertEqual(metadata["snp_identifier"], "chr_pos")
-            self.assertEqual(metadata["genome_build"], "hg38")
+            self.assertNotIn("snp_identifier", metadata)
+            self.assertNotIn("genome_build", metadata)
+            self.assertEqual(metadata["config_snapshot"]["snp_identifier"], "chr_pos")
+            self.assertEqual(metadata["config_snapshot"]["genome_build"], "hg38")
             with warnings.catch_warnings(record=True) as caught:
                 warnings.simplefilter("always")
                 table = ldsc.load_sumstats(output_dir / "sumstats.parquet", trait_name="trait")

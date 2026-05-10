@@ -331,8 +331,8 @@ flowchart LR
 | File | Example | Notes |
 | --- | --- | --- |
 | curated sumstats | `SNP CHR POS A1 A2 Z N`<br/>`rs3131969 1 754182 A G 0.74 829249.58` | written as `sumstats.parquet` by default under `output_dir`; `--output-format tsv.gz` writes legacy `sumstats.sumstats.gz`, and `both` writes both; `CHR`/`POS` are present and may be missing when absent from raw input; optional `FRQ` may also be present |
-| log file | plain-text lifecycle and QC log | workflow-owned `sumstats.log` under `output_dir`, populated from package logger messages emitted during kernel QC; excluded from `MungeRunSummary.output_paths` |
-| metadata sidecar | JSON with `snp_identifier`, nullable output `genome_build`, optional `trait_name`, `coordinate_provenance`, `liftover`, curated output files, parquet row groups, and build-inference details | written as `sumstats.metadata.json` under `output_dir`; used by `load_sumstats()` to recover config provenance and trait labels; `output_files` does not include `sumstats.log`; old sidecars with `coordinate_metadata` still load |
+| log file | plain-text lifecycle, QC log, coordinate provenance, liftover report, HM3 provenance, output bookkeeping, and row-count details | workflow-owned `sumstats.log` under `output_dir`, populated from package logger messages emitted during workflow orchestration and kernel QC; excluded from `MungeRunSummary.output_paths` |
+| metadata sidecar | thin JSON with schema marker, optional `trait_name`, and `config_snapshot` | written as `sumstats.metadata.json` under `output_dir`; used by `load_sumstats()` to recover config provenance and trait labels |
 
 ### Modules used
 

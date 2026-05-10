@@ -88,7 +88,7 @@ write site in `outputs.py`. It selects all `float64` columns and recasts them;
 no column names need to be listed explicitly. LD-score output parquet files are
 written with one row group per chromosome and record that layout in
 `manifest.json`; sumstats Parquet is sorted by `CHR`, `POS`, and original row
-order, and records its row groups in `sumstats.metadata.json`.
+order, and records its row groups in `sumstats.log`.
 
 ### Why `object` dtype for strings?
 pandas has no native string dtype in the numpy layer. `str` columns are stored as

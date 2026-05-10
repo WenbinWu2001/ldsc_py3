@@ -109,8 +109,8 @@ ldsc_py3_Jerry/
   This is especially important for `build-ref-panel`, `munge-sumstats`,
   `annotate`, and summary-table regression commands.
 - Treat workflow logs as audit artifacts. Do not include log paths in
-  `output_paths` mappings or metadata `output_files` blocks that downstream
-  code interprets as scientific data artifacts.
+  `output_paths` mappings or thin metadata sidecars that downstream code
+  interprets as scientific data artifacts.
 - Keep regression file-driven: it should be able to rebuild state from written artifacts without recomputing LD scores.
 - Prefer extending shared helpers or the workflow-owned writer over duplicating local parsing or writing logic.
 

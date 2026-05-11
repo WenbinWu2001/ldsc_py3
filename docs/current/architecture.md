@@ -31,7 +31,9 @@ Related docs:
 - **CLI Layer**: public command dispatch in `ldsc.cli`
 - **Workflow And Preprocessing Layer**: public services in `ldsc.annotation_builder`, `ldsc.ref_panel_builder`, `ldsc.ldscore_calculator`, `ldsc.sumstats_munger`, and `ldsc.regression_runner`, plus shared normalization in `ldsc.config`, `ldsc.path_resolution`, `ldsc.column_inference`, `ldsc.chromosome_inference`, and `ldsc.genome_build_inference`
 - **Compute Kernel**: private file-format and numerical code in `ldsc._kernel.*`
-- **Output Layer**: canonical LD-score and partitioned-h2 artifact writing in `ldsc.outputs`, plus fixed h2/rg summary writers in `ldsc.regression_runner`
+- **Output Layer**: canonical LD-score, partitioned-h2, and rg artifact writing
+  in `ldsc.outputs`, plus the fixed h2 summary writer in
+  `ldsc.regression_runner`
 
 ## File Tree
 
@@ -124,10 +126,12 @@ for compatibility, but are written with one row group per chromosome;
 chromosome-scoped reads. For partitioned-h2, it owns compact
 `partitioned_h2.tsv` plus the optional `query_annotations/` tree containing
 `manifest.tsv`, per-query `partitioned_h2.tsv`,
-`partitioned_h2_full.tsv`, and `metadata.json`. It reuses existing directories
-but refuses existing canonical files unless overwrite is supplied. Architecture
-invariant: public output customization chooses the directory name and explicit
-overwrite policy, not per-run filename prefixes.
+`partitioned_h2_full.tsv`, and `metadata.json`. For rg, it owns `rg.tsv`,
+`rg_full.tsv`, `h2_per_trait.tsv`, and the optional `pairs/` detail tree. It
+reuses existing directories but refuses existing canonical files unless
+overwrite is supplied. Architecture invariant: public output customization
+chooses the directory name and explicit overwrite policy, not per-run filename
+prefixes.
 
 ### `ldsc._kernel.*`
 
@@ -135,7 +139,9 @@ The kernel layer contains the actual numerical methods and low-level readers. It
 
 ## Cross-Cutting Concerns
 
-- **Input token language**: public inputs accept exact paths, globs, `@` chromosome suites, and some legacy bare prefixes. Output paths are normalized but remain literal destinations.
+- **Input token language**: public inputs accept exact paths, globs, and `@`
+  chromosome suites. Bare prefixes without `@` are intentionally unsupported.
+  Output paths are normalized but remain literal destinations.
 - **Column and identifier normalization**: `column_inference.py` is the single source of truth for raw-input aliases, including `#CHROM`/`CHROM` as `CHR`, internal artifact headers, SNP identifier modes, and genome-build aliases. `genome_build_inference.py` owns automatic hg19/hg38 and 0-based/1-based inference for `chr_pos` tables.
 - **Artifact compatibility**: Public downstream chaining uses `.annot.gz`, Parquet-first munged sumstats with optional `.sumstats.gz` compatibility output and `sumstats.metadata.json`, and canonical LD-score result directories. The forward format rule is parquet for internal artifacts and TSV for science-facing result tables. LD-score and sumstats parquet payloads use chromosome-aligned row groups where useful, so full-file readers still work while chromosome-specific readers can skip unrelated row groups. Legacy `.l2.ldscore(.gz)`, `.l2.M`, `.l2.M_5_50`, and separate `.w.l2.ldscore(.gz)` files remain internal/legacy file-format concerns, not the public LD-score writer contract.
 - **Output collision handling**: output directories are literal destinations.

@@ -291,7 +291,7 @@ and `annotate`: no-overwrite mode rejects any owned sibling, while successful
 overwrites delete stale owned siblings and preserve unrelated files. The
 `build-ref-panel` workflow is the documented expert exception; its overwrite
 mode replaces current candidate panel artifacts but does not clean stale
-optional target-build or `dropped_snps` siblings.
+optional target-build, out-of-scope chromosome, or dropped-SNP siblings.
 
 ---
 

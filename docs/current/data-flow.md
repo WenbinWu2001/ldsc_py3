@@ -329,7 +329,7 @@ flowchart LR
   subgraph K4[Kernel (private)<br/>ldsc._kernel.sumstats_munger]
     D5[QC and infer columns]
     D6[Compute Z/N<br/>Finalize CHR/POS]
-    D7[Optional source-to-target liftover<br/>drop unmapped and duplicate targets]
+    D7[Optional source-to-target liftover<br/>drop missing, unmapped, and colliding coordinates]
   end
 
   I1 --> D1 --> D2 --> D3 --> D5 --> D6 --> D7 --> D4
@@ -372,6 +372,10 @@ stdout for quick runs.
 stable summary entry point. It requires query LD scores in the LD-score
 directory; baseline-only directories are valid for `h2` and `rg` but are
 rejected by `partitioned-h2`.
+For rg, `--sumstats-sources` accepts two or more files; three or more files
+produce all unordered pairs unless `--anchor-trait` selects one trait label or
+source path for anchor-vs-rest estimation. `--write-per-pair-detail` adds the
+optional `pairs/` detail tree when an `output_dir` is supplied.
 
 ### Required inputs
 
@@ -436,4 +440,4 @@ For column definitions and interpretation, see
 - Workflow: `ldsc.regression_runner`, `ldsc.sumstats_munger.load_sumstats()`
 - Kernel: `ldsc._kernel.regression`, `ldsc._kernel._jackknife`, `ldsc._kernel._irwls`
 - Postprocessing: pandas TSV writers in `ldsc.regression_runner`; partitioned-h2
-  directory writing in `ldsc.outputs`
+  and rg directory writing in `ldsc.outputs`

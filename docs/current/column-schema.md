@@ -153,6 +153,15 @@ CM`) follow the annotation rule unconditionally. The annotation-specific columns
 | LD-score output (`ldscore.query.parquet`) | `CHR, SNP, POS` | query LD-score columns |
 | Munged sumstats (`sumstats.parquet` or `.sumstats.gz`) | `SNP, CHR, POS, A1, A2` | `Z, N, FRQ` |
 | Canonical pairwise R² parquet | `CHR, POS_1, POS_2, SNP_1, SNP_2, R2` | |
+| Dropped-SNP audit sidecar (`dropped_snps/*.tsv.gz`) | `CHR, SNP, source_pos, target_pos, reason` | |
+
+Dropped-SNP audit sidecars are always written by liftover-aware public
+workflows, including header-only files for clean processed outputs. They use
+nullable read dtypes: `CHR`, `SNP`, and `reason` as strings, and `source_pos`
+and `target_pos` as nullable integer positions. Sumstats sidecars may include
+`missing_coordinate`, `source_duplicate`, `unmapped_liftover`,
+`cross_chromosome_liftover`, and `target_collision`; reference-panel sidecars
+use the same schema but do not emit `missing_coordinate`.
 
 ---
 

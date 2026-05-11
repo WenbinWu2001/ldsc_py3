@@ -187,6 +187,8 @@ systems.
 When inference succeeds, logs include the selected build, whether the input was
 1-based or 0-based, and the support for all four hypotheses. For sumstats,
 the metadata sidecar records only the final compatibility build through
-`config_snapshot`; inferred-build evidence and coordinate basis stay in the log.
+`config_snapshot`; inferred-build evidence, coordinate basis, and count-level
+liftover provenance stay in the log. Row-level liftover drops are audited in
+`dropped_snps/dropped.tsv.gz`, while example SNPs remain `DEBUG`-only.
 
 All normalized `chr_pos` coordinates used downstream are 1-based.

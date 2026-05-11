@@ -36,15 +36,19 @@ on its own continuation line where possible:
 
 ```text
 Call:
-./munge_sumstats.py \
---genome-build auto \
---sumstats /path/raw.tsv \
---out /path/sumstats
+ldsc munge-sumstats \
+  --raw-sumstats-file /path/raw.tsv \
+  --output-dir /path/sumstats \
+  --genome-build auto
 ```
 
 `Inputs:` and `Outputs:` are audit sections, not machine-readable manifests.
 `Outputs:` is separated from preceding workflow records by a blank line so
 summary blocks such as `Metadata:` remain visually distinct.
+
+Liftover drop summaries in ordinary logs are count-only. Row-level drop audit
+records belong in the workflow's dropped-SNP sidecar, and example SNPs are
+emitted only when the logger is set to `DEBUG`.
 
 The footer records final status and elapsed time with explicit units:
 

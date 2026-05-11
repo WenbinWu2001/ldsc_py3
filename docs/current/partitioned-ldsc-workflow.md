@@ -283,10 +283,22 @@ ldsc rg \
   --write-per-pair-detail
 ```
 
+Run anchor-vs-rest rg estimates:
+
+```bash
+ldsc rg \
+  --ldscore-dir results/my_study_ldscore \
+  --sumstats-sources results/traits/*.parquet \
+  --anchor-trait BMI \
+  --output-dir results/bmi_anchor_rg
+```
+
 ## 8. Python API Summary
 
 ```python
 from ldsc import LDScoreCalculator, LDScoreOutputConfig, load_ldscore_from_dir
+from ldsc import load_sumstats
+from ldsc import RgDirectoryWriter, RgOutputConfig
 from ldsc import RegressionRunner
 
 result = LDScoreCalculator().run(
@@ -298,7 +310,22 @@ result = LDScoreCalculator().run(
 )
 
 loaded = load_ldscore_from_dir("results/my_study_ldscore")
+sumstats_table = load_sumstats("results/traits/BMI.parquet")
 dataset = RegressionRunner(global_config).build_dataset(sumstats_table, loaded)
+sumstats_tables = [
+    load_sumstats("results/traits/BMI.parquet"),
+    load_sumstats("results/traits/LDL.parquet"),
+    load_sumstats("results/traits/CAD.parquet"),
+]
+rg_result = RegressionRunner(global_config).estimate_rg_pairs(
+    sumstats_tables,
+    loaded,
+    anchor_index=0,
+)
+RgDirectoryWriter().write(
+    rg_result,
+    RgOutputConfig(output_dir="results/bmi_anchor_rg", write_per_pair_detail=True),
+)
 ```
 
 The public `LDScoreResult` shape is split:
@@ -316,3 +343,5 @@ The public `LDScoreResult` shape is split:
 `output_paths` records scientific artifacts such as `manifest.json`,
 `ldscore.baseline.parquet`, and optional `ldscore.query.parquet`; workflow logs such as
 `ldscore.log` are audit files and are not included.
+`RgOutputConfig(write_per_pair_detail=True)` controls the optional per-pair
+detail tree when writing `RgResultFamily` through `RgDirectoryWriter`.

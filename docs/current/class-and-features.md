@@ -60,6 +60,8 @@ For log filenames and API boundary details, see
 | `SumstatsMunger` | normalize raw GWAS tables into curated LDSC-ready tables |
 | `RegressionRunner` | build regression datasets and run `h2`, partitioned `h2`, and `rg` |
 | `LDScoreDirectoryWriter` | write the canonical LD-score result directory, including chromosome-aligned parquet row groups and manifest row-group metadata |
+| `PartitionedH2DirectoryWriter` | write compact and optional per-query partitioned-h2 result trees |
+| `RgDirectoryWriter` | write the genetic-correlation result family and optional per-pair detail tree |
 
 ### Data And Result Objects
 
@@ -86,7 +88,7 @@ For log filenames and API boundary details, see
 
 ## Public Path And Header Contracts
 
-- Public inputs accept exact paths, standard globs, explicit chromosome suites using `@`, and some legacy bare prefixes.
+- Public inputs accept exact paths, standard globs, and explicit chromosome suites using `@`.
 - Public dataclasses normalize `PathLike` objects to strings but do not expand inputs immediately.
 - Workflow modules resolve input tokens before calling `_kernel`.
 - `ldsc ldscore` accepts no baseline/query inputs for ordinary unpartitioned LD-score generation; the workflow creates a synthetic all-ones baseline column named exactly `base` from retained reference-panel metadata.
@@ -108,7 +110,8 @@ For log filenames and API boundary details, see
   directory are preserved.
 - `build-ref-panel` keeps an expert-oriented exception: overwrite permits
   replacement of current candidate artifacts, but it does not remove stale
-  optional target-build or `dropped_snps` siblings from earlier configurations.
+  optional target-build, out-of-scope chromosome, or dropped-SNP siblings from
+  earlier configurations.
 - Raw user-authored inputs use permissive alias resolution through `column_inference.py`.
 - Raw sumstats may begin with `##` metadata/comment lines; these are skipped before header inference, so `#CHROM` remains available as the chromosome header.
 - `chr_pos` workflows that interpret external coordinates require an explicit genome build or `--genome-build auto`; workflows such as `build-ref-panel` may ignore `GlobalConfig.genome_build` when they own a separate source-build contract. `rsid` workflows do not use genome-build metadata.

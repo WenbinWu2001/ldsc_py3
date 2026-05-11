@@ -212,6 +212,9 @@ liftover/coordinate configuration, or chromosome scope.
 | `--output-dir` | output | yes | munged output directory | The workflow writes fixed `sumstats.*` artifacts under this directory and passes `<output_dir>/sumstats` as the kernel output stem. |
 | `--output-format` | output mode | no | curated sumstats format | One of `parquet`, `tsv.gz`, or `both`; defaults to `parquet`. |
 | `--chr`, `--pos` | input metadata | no | raw column hints | Identify raw chromosome and position columns; default to omitted/`None`, so common aliases such as `#CHROM`, `CHROM`, `CHR`, `POS`, and `BP` are inferred. |
+| `--target-genome-build` | input metadata | no | optional liftover target build | Enables source-to-target coordinate liftover when paired with exactly one liftover method; valid only in `chr_pos` mode and never rewrites `SNP`. |
+| `--liftover-chain-file` | input | no | optional munger liftover chain | Uses a source-to-target chain file for coordinate-only sumstats liftover. Mutually exclusive with `--use-hm3-quick-liftover`. |
+| `--use-hm3-quick-liftover` | input mode | no | packaged HM3 coordinate map | Uses the curated dual-build HM3 map for sumstats-only quick liftover. Mutually exclusive with `--liftover-chain-file`. |
 | `--daner-old`, `--daner-new` | input metadata | no | DANER schema interpretation | `--daner-old` parses case/control N from `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` headers; `--daner-new` parses exact `Nca` and `Nco` columns. |
 | `--snp-identifier`, `--genome-build` | config | no | provenance | `--snp-identifier` defaults to `chr_pos`; `--genome-build` defaults to `hg38`; `--genome-build auto` can infer hg19/hg38 for complete `CHR`/`POS` rows. |
 | `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger records in console and `sumstats.log`; lifecycle audit lines always appear in the file. |
@@ -390,6 +393,7 @@ Removed Python names: legacy separate source-path object field,
 | `run_rg_from_args(args)` | `sumstats_sources` | input | two or more munged summary-statistics files or glob patterns |
 | `run_rg_from_args(args)` | `anchor_trait` | input selector | optional anchor trait label or path for anchor-vs-rest output |
 | `run_rg_from_args(args)` | `output_dir` | output | writes `rg.tsv`, `rg_full.tsv`, `h2_per_trait.tsv`, optional `pairs/`, and `rg.log` when supplied |
+| `run_rg_from_args(args)` | `write_per_pair_detail` | output mode | optionally writes `pairs/manifest.tsv` and per-pair diagnostic folders when `output_dir` is supplied |
 
 Removed Python/public argparse names: `sumstats`, `sumstats_1`, `sumstats_2`,
 `out`, `ldscore`, `counts`, `w_ld`, `annotation_manifest`, `query_columns`.
@@ -428,8 +432,8 @@ compatibility-only and current metadata sidecars must include `config_snapshot`.
 - [x] Removed the old prefix-based output compatibility pipeline from the
   public output module; `ldsc.outputs` now exposes
   `LDScoreOutputConfig`, `LDScoreDirectoryWriter`,
-  `PartitionedH2OutputConfig`, and `PartitionedH2DirectoryWriter` for output
-  writing.
+  `PartitionedH2OutputConfig`, `PartitionedH2DirectoryWriter`,
+  `RgOutputConfig`, and `RgDirectoryWriter` for output writing.
 
 ## Clarifications and Recommendations
 

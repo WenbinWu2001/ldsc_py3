@@ -47,13 +47,13 @@ ldsc_py3_Jerry/
 | `ldsc.column_inference` | resolve header aliases and normalize identifier/build tokens |
 | `ldsc.chromosome_inference` | canonical chromosome normalization and ordering |
 | `ldsc.genome_build_inference` | public `chr_pos` build and coordinate-basis inference helpers |
-| `ldsc._kernel.liftover` | shared hg19/hg38 liftover helpers, chain-file translation, and curated HM3 dual-build map loading |
+| `ldsc._kernel.liftover` | shared hg19/hg38 liftover helpers, chain-file translation, curated HM3 dual-build map loading, drop-all coordinate collision helpers, and readable drop reports |
 | `ldsc.annotation_builder` | public annotation workflow: CLI args, parser entry point, path resolution, bundle loading, BED projection, and query `.annot.gz` writing |
 | `ldsc.ref_panel_builder` | parquet reference-panel build workflow |
 | `ldsc.ldscore_calculator` | LD-score orchestration, optional synthetic `base` annotation construction, aggregation, and output routing |
 | `ldsc.sumstats_munger` | raw-sumstats CLI/API orchestration, Parquet/TSV curated output writing, fixed `sumstats.log`, metadata sidecar handling, dropped-SNP audit sidecar handling, canonical `CHR`/`POS` sumstats output, and curated sumstats loader |
-| `ldsc.regression_runner` | file-driven regression dataset assembly, `SNP` or `CHR:POS` merging, and estimator dispatch |
-| `ldsc.outputs` | artifact naming, LD-score parquet layout, partitioned-h2 per-query layout, manifest metadata, and serialization |
+| `ldsc.regression_runner` | file-driven regression dataset assembly, `SNP` or `CHR:POS` merging, h2/partitioned-h2/rg estimator dispatch, and rg result-family writing |
+| `ldsc.outputs` | artifact naming, LD-score parquet layout, partitioned-h2 per-query layout, rg result-family layout, manifest metadata, and serialization |
 | `ldsc._kernel.annotation` | low-level annotation table reading and BED intersection helpers |
 | `ldsc._kernel.ref_panel_builder` | optional genetic-map parsing, optional liftover, parquet schemas, pairwise LD emission |
 | `ldsc._kernel.ref_panel` | runtime PLINK/parquet reference-panel adapters |
@@ -78,10 +78,10 @@ ldsc_py3_Jerry/
 | change runtime PLINK/parquet reference access | `src/ldsc/_kernel/ref_panel.py` |
 | change LD-score orchestration, optional-baseline behavior, or output packaging | `src/ldsc/ldscore_calculator.py`, `src/ldsc/outputs.py` |
 | change LD-score math | `src/ldsc/_kernel/ldscore.py` |
-| change raw sumstats ingestion, `CHR`/`POS` handling, sumstats SNP keep-list filtering, sidecar provenance, or curated loading | `src/ldsc/sumstats_munger.py`, then `src/ldsc/_kernel/sumstats_munger.py` |
-| change regression dataset assembly or CLI summaries | `src/ldsc/regression_runner.py`, then `src/ldsc/outputs.py` and `docs/current/partitioned-h2-results.md` for partitioned-h2 output layout |
+| change raw sumstats ingestion, `CHR`/`POS` handling, sumstats SNP keep-list filtering, liftover drop audit sidecars, sidecar provenance, or curated loading | `src/ldsc/sumstats_munger.py`, then `src/ldsc/_kernel/sumstats_munger.py` |
+| change regression dataset assembly or CLI summaries | `src/ldsc/regression_runner.py`, then `src/ldsc/outputs.py`, `docs/current/partitioned-h2-results.md` for partitioned-h2 output layout, and `docs/current/partitioned-ldsc-workflow.md` for rg output contracts |
 | change LDSC estimators | `src/ldsc/_kernel/regression.py` |
-| change LD-score result-directory files, parquet row-group layout, partitioned-h2 per-query layout, or manifest metadata | `src/ldsc/outputs.py` |
+| change LD-score result-directory files, parquet row-group layout, partitioned-h2 per-query layout, rg result-family layout, or manifest metadata | `src/ldsc/outputs.py` |
 
 ## Architectural Rules That Matter In Practice
 
@@ -104,7 +104,8 @@ ldsc_py3_Jerry/
   successful run. Unrelated files in the output directory must be preserved.
 - Treat `build-ref-panel` as the documented exception: its expert-oriented
   overwrite mode replaces current candidate artifacts but does not clean stale
-  optional target-build or `dropped_snps` siblings from earlier configurations.
+  optional target-build, out-of-scope chromosome, or dropped-SNP siblings from
+  earlier configurations.
 - Preflight deterministic output paths before expensive or multi-file writes.
   This is especially important for `build-ref-panel`, `munge-sumstats`,
   `annotate`, and summary-table regression commands.

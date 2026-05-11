@@ -51,7 +51,7 @@ Not fully adapted or retained for compatibility:
   `query.<chrom>.annot.gz`; these are intermediate annotation artifacts rather
   than science-facing result tables.
 - `ldsc build-ref-panel` still writes runtime metadata sidecars as
-  `chr{chrom}_meta.tsv.gz` and duplicate-position provenance as
+  `chr{chrom}_meta.tsv.gz` and liftover-stage drop audit files as
   `dropped_snps/chr{chrom}_dropped.tsv.gz`.
 - `ldsc munge-sumstats` keeps `--output-format tsv.gz` and `both`, which write
   `sumstats.sumstats.gz` compatibility artifacts even though parquet is the
@@ -161,14 +161,13 @@ LD-score output schema:
 | `--keep-indivs-file` | input | no | PLINK individual keep file | Restricts PLINK individuals during panel building; defaults to omitted/`None`, so no individual keep filter is applied. |
 | `--maf-min` | input metadata | no | retained SNP MAF filter | Filters retained SNPs by MAF during PLINK loading; defaults to omitted/`None`, so no retained-SNP MAF filter is applied. |
 | `--output-dir` | output | yes | reference-panel artifact directory | Run identity is `Path(output_dir).name`; no separate label is accepted. |
-| `--overwrite` | output mode | no | collision policy | Controls whether reference-panel artifacts and build-ref-panel workflow logs may be replaced; defaults to `False`, so existing deterministic outputs are refused. This expert workflow does not clean stale optional target-build or `dropped_snps` siblings from earlier configurations. |
+| `--overwrite` | output mode | no | collision policy | Controls whether reference-panel artifacts, always-written `dropped_snps/chr{chrom}_dropped.tsv.gz` audit files, and build-ref-panel workflow logs may be replaced; defaults to `False`, so existing deterministic outputs are refused. This expert workflow does not clean stale optional target-build or out-of-scope chromosome siblings from earlier configurations. |
 | `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger records in console and the build-ref-panel workflow log; lifecycle audit lines always appear in the file. |
 | `--snp-batch-size` | performance | no | SNP computation batch size | Number of SNPs loaded per pairwise-R2 computation batch; larger values may improve throughput but use more memory. Defaults to `128`. |
-| `--duplicate-position-policy` | filtering mode | no | duplicate CHR/POS handling | In `chr_pos` builds, `drop-all` drops every SNP in duplicate source or target coordinate groups and writes duplicate-only sidecars under `dropped_snps`; `error` raises instead. Defaults to `drop-all`. The policy is ignored in `rsid` source-only builds. |
 
 Removed flags: `--bfile`, `--out`, `--panel-label`, `--keep-indivs`, `--maf`,
 `--genetic-map-hg19`, `--genetic-map-hg38`, old liftover-chain names without
-`_file` / `_sources`.
+`_file` / `_sources`, `--duplicate-position-policy`.
 
 Fixed output names:
 
@@ -201,7 +200,7 @@ genetic map for every emitted build because each build's map defines that
 build's LD window.
 
 Use a fresh `build-ref-panel` output directory when changing emitted builds,
-liftover configuration, duplicate-position policy, or chromosome scope.
+liftover/coordinate configuration, or chromosome scope.
 
 ### `ldsc munge-sumstats`
 
@@ -228,13 +227,15 @@ Fixed output names:
 <output_dir>/sumstats.parquet
 <output_dir>/sumstats.log
 <output_dir>/sumstats.metadata.json
+<output_dir>/dropped_snps/dropped.tsv.gz
 ```
 
 `sumstats.parquet` is the default curated artifact. `sumstats.sumstats.gz` is
 written only for `--output-format tsv.gz` or `both`. `sumstats.log` is
 preflighted and opened by the public workflow layer, but it is excluded from
 `MungeRunSummary.output_paths`. Detailed provenance and output bookkeeping are
-written to `sumstats.log`; `sumstats.metadata.json` stays limited to thin
+written to `sumstats.log`; row-level liftover drops are written to
+`dropped_snps/dropped.tsv.gz`; `sumstats.metadata.json` stays limited to thin
 compatibility metadata. The kernel emits package logger records for QC progress
 and preserves its direct legacy-compatible `.sumstats.gz` writer for
 private/direct kernel calls.
@@ -367,7 +368,7 @@ Removed Python names: `plink_path`, `bfile`, `out`, `panel_label`,
 | `MungeConfig` | `use_hm3_quick_liftover` | input mode | use packaged curated HM3 dual-build map for coordinate-only liftover |
 | `MungeConfig` | `output_dir` | output | munged output directory; `SumstatsMunger.run()` writes `sumstats.log` |
 | `MungeConfig` | `output_format` | output mode | `parquet`, `tsv.gz`, or `both`; defaults to `parquet` |
-| `SumstatsMunger.run(munge_config, ...)` | `munge_config` | input/output | normalized munging workflow; owns fixed output preflight, `sumstats.log`, metadata, and result construction; summary `output_paths` excludes logs |
+| `SumstatsMunger.run(munge_config, ...)` | `munge_config` | input/output | normalized munging workflow; owns fixed output preflight, `sumstats.log`, metadata, always-written `dropped_snps/dropped.tsv.gz`, and result construction; summary `output_paths` excludes logs |
 | `SumstatsMunger.write_output(sumstats, output_dir, output_format='parquet')` | `output_dir` | output | writes fixed `sumstats.parquet` and/or `sumstats.sumstats.gz` |
 
 Removed Python names: legacy separate source-path object field,
@@ -399,13 +400,14 @@ canonical `SNP`, `CHR`, `POS`, `Z`, and `N` fields when written by
 `trait_name` and the effective `config_snapshot`. `load_sumstats()` resolves
 labels as explicit override, then sidecar `trait_name`, then filename fallback.
 Liftover reports, coordinate provenance, selected curated output files, and
-Parquet row groups are log provenance, not sidecar metadata.
+Parquet row groups are log provenance, not metadata sidecar payload.
 Regression therefore merges on literal `SNP` in `rsid` mode and on normalized
 `CHR:POS` coordinates in `chr_pos` mode. Munger liftover is valid only in
 `chr_pos` mode; it changes `CHR`/`POS`, never `SNP`, and runs after
-`sumstats_snps_file` filtering. Liftover drop counts and examples are written as
-readable log records; the sidecar remains compatibility-only and current
-sidecars must include `config_snapshot`.
+`sumstats_snps_file` filtering. Liftover drop counts are written as readable log
+records, examples appear only at `DEBUG`, and row-level dropped-SNP details are
+written to `dropped_snps/dropped.tsv.gz`. The metadata sidecar remains
+compatibility-only and current metadata sidecars must include `config_snapshot`.
 
 ## Remaining Implementation Checklist
 

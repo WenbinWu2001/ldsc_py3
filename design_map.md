@@ -40,6 +40,30 @@ contracts move.
 | `docs/superpowers/specs/2026-05-02-logging-harmonization-design.md` | final logging harmonization decisions and result-contract boundaries |
 | `docs/superpowers/plans/2026-05-02-logging-harmonization-implementation-plan.md` | completed implementation checklist and verification commands |
 
+## Liftover Harmonization
+
+| Design document | Implementation |
+| --- | --- |
+| `docs/current/liftover-harmonization-decisions.md` | active liftover contracts for `munge-sumstats` and `build-ref-panel`; shared drop reasons and dropped-SNP sidecar schema |
+| `docs/current/architecture.md` | public workflow responsibilities for `ldsc.sumstats_munger`, `ldsc.ref_panel_builder`, and shared `_kernel.liftover` helpers |
+| `docs/current/data-flow.md` | sumstats liftover stage, reference-panel liftover/drop flow, and dropped-SNP audit outputs |
+| `docs/current/io-argument-inventory.md` | removed `--duplicate-position-policy`, remaining liftover flags, output paths, and Python config fields |
+| `docs/current/path-specification.md` | always-written sumstats dropped-SNP sidecar and reference-panel stale class-2 output-directory contract |
+| `docs/superpowers/specs/2026-05-10-liftover-harmonization.md` | final harmonization design: drop-all only, unified sidecars, DEBUG-only examples, and class-2 hygiene contract |
+| `docs/superpowers/plans/2026-05-10-liftover-harmonization.md` | implemented task plan and verification checklist for liftover harmonization |
+| `docs/superpowers/specs/2026-05-11-ref-panel-stale-class2-warning.md` | additive stale class-2 reference-panel warning design |
+| `docs/superpowers/plans/2026-05-11-ref-panel-stale-class2-warning.md` | implemented task plan for stale class-2 warning tests and helper |
+
+## Liftover Tutorials
+
+| Tutorial | Covered implementation path |
+| --- | --- |
+| `tutorials/build-parquet-reference-panel-from-plink.md` | reference-panel chain liftover, rsid-mode rejection, drop-all collision behavior, stale class-2 warning, and per-chromosome dropped-SNP sidecars |
+| `tutorials/heritability-estimates.md` | `munge-sumstats` liftover outputs, count-only logs, and `dropped_snps/dropped.tsv.gz` audit sidecar |
+| `tutorials/partitioned-ldsc.md` | `chr_pos` sumstats liftover identity and dropped-SNP audit sidecar in partitioned workflows |
+| `tutorials/cell-specific-ldsc.md` | liftover audit behavior before cell-specific regression |
+| `tutorials/cross-trait-genetic-correlation.md` | multi-trait `chr_pos` liftover audit behavior and coherent sumstats output family |
+
 ## Regression And RG Results
 
 | Design document | Implementation |

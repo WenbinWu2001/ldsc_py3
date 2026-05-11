@@ -116,7 +116,8 @@ Chain behavior:
   dropped rows.
 - If a chain hit list contains both cross-chromosome and same-chromosome hits,
   the first same-chromosome hit is kept.
-- Logs show up to 5 examples per drop category.
+- Logs show count summaries by default; up to 5 examples per drop category are
+  available only at `DEBUG`.
 
 ### HM3 Quick Liftover
 
@@ -148,30 +149,33 @@ Lookup is coordinate-only:
 - hg38 to hg19: key `(CHR, hg38_POS)`, write `hg19_POS`.
 - `SNP` from the map is used only for diagnostics/provenance, never for lookup.
 
-Rows missing from the HM3 map are dropped and reported. Metadata records method
-`hm3_curated`; the CLI flag remains `--use-hm3-quick-liftover`.
+Rows missing from the HM3 map are dropped and reported. Detailed HM3 provenance
+is recorded in the workflow log; the CLI flag remains
+`--use-hm3-quick-liftover`.
 
 ## Duplicate Coordinates
 
 For sumstats liftover, duplicated source `CHR/POS` groups are dropped before
 mapping. After either liftover method, if multiple original rows map to the same
 target `CHR/POS`, every row in that duplicated target-coordinate group is
-dropped. The munger does not keep the first row. It logs up to 5 examples and
-records separate `n_duplicate_source_dropped` and
-`n_duplicate_target_dropped` counts.
+dropped. The munger does not keep the first row. It records separate
+`n_duplicate_source_dropped` and `n_duplicate_target_dropped` counts and exposes
+examples only at `DEBUG`.
 
 If source or target duplicate removal leaves no rows, liftover errors instead
 of writing an empty artifact.
 
 For reference-panel PLINK builds, the same duplicate-coordinate mechanics apply
-only when the active `GlobalConfig.snp_identifier` is `chr_pos`. The default
-`duplicate_position_policy` is `drop-all`; `error` remains available for users
-who want duplicate coordinates to abort the run. Source duplicate groups are
-dropped before chain mapping, target duplicate groups after mapping, and
-duplicate-only sidecars continue to be written under `dropped_snps/`. If all SNPs
-drop for one chromosome, that chromosome is skipped; the full run errors only if
-no chromosome emits artifacts. In source-only `rsid` builds, duplicate-position
-policy is logged once as not applicable.
+only when the active `GlobalConfig.snp_identifier` is `chr_pos`. There is no
+public duplicate-position policy knob: source duplicate groups are dropped
+before chain mapping and target duplicate groups after mapping with `drop-all`.
+Per-chromosome `dropped_snps/chr{chrom}_dropped.tsv.gz` sidecars are always
+written for processed chromosomes and cover the ref-panel-applicable reasons:
+`source_duplicate`, `unmapped_liftover`, `cross_chromosome_liftover`, and
+`target_collision`. If all SNPs drop for one chromosome, that chromosome is
+skipped; the full run errors only if no chromosome emits artifacts. In
+source-only `rsid` builds, coordinate duplicate filtering is logged once as not
+applicable.
 
 ## Metadata And Logging
 
@@ -222,9 +226,10 @@ The log file records detailed provenance that does not belong in the sidecar:
 
 `n_lifted` means the final retained row count after all liftover-specific drops,
 so it should match the post-liftover output row count. Log messages are readable
-key/value text with per-reason examples rather than JSON payloads. In no-op reports,
-`source_build` and `target_build` are both `null`; `null` means the field is not
-applicable because liftover did not run.
+key/value text with count summaries at normal verbosity and examples only at
+`DEBUG`; they are not JSON payloads. In no-op reports, `source_build` and
+`target_build` are both `null`; `null` means the field is not applicable because
+liftover did not run.
 
 ## Package-Wide chr_pos Identity Rule
 
@@ -265,8 +270,8 @@ coordinate identity.
 | `src/ldsc/_kernel/liftover.py` | Shared internal liftover module with chain translator, HM3 curated-map loader/lifter, duplicate-coordinate helpers, and readable drop reports. |
 | `src/ldsc/_kernel/ref_panel_builder.py` | Import relocated translator. |
 | `src/ldsc/_kernel/sumstats_munger.py` | Insert liftover after SNP filtering and before output writing. |
-| `src/ldsc/config.py` | Add munger target/method fields only; set reference-panel duplicate-position default to `drop-all`. |
-| `src/ldsc/sumstats_munger.py` | Workflow validation, sidecar metadata, and mode-aware `SumstatsTable` helpers. |
+| `src/ldsc/config.py` | Add munger target/method fields only; reference-panel duplicate handling has no public policy field. |
+| `src/ldsc/sumstats_munger.py` | Workflow validation, sidecar metadata, dropped-SNP audit sidecar, and mode-aware `SumstatsTable` helpers. |
 | `src/ldsc/_row_alignment.py` | Make row-alignment checks identifier-mode aware. |
 | `src/ldsc/data/hm3_curated_map.tsv.gz` | Packaged provided HM3 curated map. |
 | `src/ldsc/cli.py` | Register new CLI flags. |
@@ -291,3 +296,25 @@ Required test coverage:
 13. Lifted hg38 `chr_pos` sumstats reject hg19 LD scores through existing
     `ConfigMismatchError`.
 14. Lifted hg38 `chr_pos` sumstats proceed with hg38 LD scores.
+
+## 2026-05-10/11 Harmonization Update
+
+The follow-up liftover harmonization design supersedes the reference-panel
+duplicate-policy details in this original sumstats-liftover spec. See
+[`2026-05-10-liftover-harmonization.md`](2026-05-10-liftover-harmonization.md).
+
+Updated contract:
+
+- Reference-panel `duplicate_position_policy` / `--duplicate-position-policy`
+  is removed. `drop-all` is the only coordinate duplicate behavior in
+  `chr_pos` mode.
+- Sumstats writes an always-present `dropped_snps/dropped.tsv.gz` audit sidecar
+  with unified columns `CHR`, `SNP`, `source_pos`, `target_pos`, and `reason`.
+  It may contain `missing_coordinate`, `source_duplicate`,
+  `unmapped_liftover`, `cross_chromosome_liftover`, and `target_collision`.
+- Reference-panel writes always-present per-chromosome
+  `dropped_snps/chr{chrom}_dropped.tsv.gz` sidecars for processed chromosomes.
+  It uses the same column names and nullable dtype contract, but never emits
+  `missing_coordinate` because PLINK BIM `BP` is structurally non-null.
+- Default logs are count-only with sidecar pointers. Row examples are available
+  only at `DEBUG`.

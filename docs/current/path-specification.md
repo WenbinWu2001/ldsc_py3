@@ -45,7 +45,8 @@ through `output_dir`. These families are treated as one coherent set, not as
 independent optional files:
 
 - `munge-sumstats`: `sumstats.parquet`, `sumstats.sumstats.gz`,
-  `sumstats.metadata.json`, and `sumstats.log` for CLI/workflow runs
+  `sumstats.metadata.json`, `dropped_snps/dropped.tsv.gz`, and `sumstats.log`
+  for CLI/workflow runs
 - `ldscore`: `manifest.json`, `ldscore.baseline.parquet`,
   `ldscore.query.parquet`, and `ldscore.log` for CLI/workflow runs
 - `partitioned-h2`: `partitioned_h2.tsv`, optional `query_annotations/`, and
@@ -334,21 +335,22 @@ Output:
 - `--output-dir` is created when missing and reused when present.
 - Before chromosome processing starts, the builder checks the deterministic
   candidate paths under each emitted `{build}` directory, candidate
-  `dropped_snps/chr{chrom}_dropped.tsv.gz` provenance paths, plus
+  `dropped_snps/chr{chrom}_dropped.tsv.gz` audit paths, plus
   `build-ref-panel.log`.
-- Existing candidate parquet, metadata, or duplicate-provenance files are refused unless
+- Existing candidate parquet, metadata, or dropped-SNP audit files are refused unless
   `--overwrite` or `ReferencePanelBuildConfig(overwrite=True)` is supplied.
 - The check covers source-build artifacts and covers target-build artifacts
   only when the matching liftover chain is configured.
-- Duplicate-position provenance sidecars contain only coordinate duplicate
-  drops. Liftover unmapped/cross-chromosome drops are recorded in
-  `build-ref-panel.log`.
+- Dropped-SNP audit sidecars are always written for processed chromosomes
+  (header-only when clean) and contain liftover-stage rows with reasons
+  `source_duplicate`, `unmapped_liftover`, `cross_chromosome_liftover`, and
+  `target_collision`.
 - `build-ref-panel` keeps this expert-oriented overwrite behavior as an
   exception to the coherent result-directory cleanup policy. `--overwrite`
   permits replacing current candidate artifacts, but it does not remove stale
-  optional target-build or `dropped_snps` siblings from earlier configurations.
-  Use a fresh output directory when changing emitted builds, liftover
-  configuration, duplicate-position policy, or chromosome scope.
+  optional target-build or out-of-scope chromosome siblings from earlier
+  configurations. Use a fresh output directory when changing emitted builds,
+  liftover/coordinate configuration, or chromosome scope.
 
 ### Sumstats munging and regression
 
@@ -378,7 +380,8 @@ How they are handled:
 Output:
 
 - `ldsc munge-sumstats` writes `sumstats.parquet` by default, plus
-  `sumstats.log` and `sumstats.metadata.json` under `output_dir`;
+  `sumstats.log`, `sumstats.metadata.json`, and
+  `dropped_snps/dropped.tsv.gz` under `output_dir`;
   `--output-format tsv.gz` writes legacy `sumstats.sumstats.gz`, and
   `--output-format both` writes both curated artifacts. Existing owned
   `sumstats.*` artifacts are refused unless `--overwrite` or
@@ -386,8 +389,9 @@ Output:
   successful run removes stale sibling formats not produced by the current
   `--output-format`.
   `sumstats.log` is not recorded in `MungeRunSummary.output_paths`; detailed
-  provenance and output bookkeeping are written to the log instead of the thin
-  metadata sidecar.
+  provenance and output bookkeeping are written to the log, row-level liftover
+  drops are written to `dropped_snps/dropped.tsv.gz`, and the metadata sidecar
+  stays thin.
 - `ldsc h2`, `ldsc partitioned-h2`, and `ldsc rg` write fixed result families
   when `output_dir` is provided. For rg, that family is `rg.tsv`,
   `rg_full.tsv`, `h2_per_trait.tsv`, optional `pairs/`, and workflow-owned

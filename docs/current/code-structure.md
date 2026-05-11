@@ -51,7 +51,7 @@ ldsc_py3_Jerry/
 | `ldsc.annotation_builder` | public annotation workflow: CLI args, parser entry point, path resolution, bundle loading, BED projection, and query `.annot.gz` writing |
 | `ldsc.ref_panel_builder` | parquet reference-panel build workflow |
 | `ldsc.ldscore_calculator` | LD-score orchestration, optional synthetic `base` annotation construction, aggregation, and output routing |
-| `ldsc.sumstats_munger` | raw-sumstats CLI/API orchestration, Parquet/TSV curated output writing, fixed `sumstats.log` and metadata sidecar handling, canonical `CHR`/`POS` sumstats output, and curated sumstats loader |
+| `ldsc.sumstats_munger` | raw-sumstats CLI/API orchestration, Parquet/TSV curated output writing, fixed `sumstats.log`, metadata sidecar handling, dropped-SNP audit sidecar handling, canonical `CHR`/`POS` sumstats output, and curated sumstats loader |
 | `ldsc.regression_runner` | file-driven regression dataset assembly, `SNP` or `CHR:POS` merging, and estimator dispatch |
 | `ldsc.outputs` | artifact naming, LD-score parquet layout, partitioned-h2 per-query layout, manifest metadata, and serialization |
 | `ldsc._kernel.annotation` | low-level annotation table reading and BED intersection helpers |
@@ -87,7 +87,7 @@ ldsc_py3_Jerry/
 
 - Treat `src/ldsc/` as the only supported Python import surface.
 - Do not add user-facing path discovery to `_kernel`; pass concrete files in.
-- Keep public file contracts for `.annot(.gz)`, Parquet-first munged sumstats plus optional `.sumstats.gz` compatibility output and thin `sumstats.metadata.json`, canonical LD-score result directories, and regression summary directories stable unless the change is intentional and coordinated. LD-score parquet files remain flat files, with chromosome-aligned row groups documented through `manifest.json`; sumstats coordinate/liftover provenance and parquet row-group bookkeeping are documented in `sumstats.log`. Legacy `.l2.ldscore(.gz)`, `.w.l2.ldscore(.gz)`, `.l2.M`, and `.l2.M_5_50` files are compatibility concerns rather than the public LD-score output surface.
+- Keep public file contracts for `.annot(.gz)`, Parquet-first munged sumstats plus optional `.sumstats.gz` compatibility output, thin `sumstats.metadata.json`, always-written `dropped_snps/dropped.tsv.gz`, canonical LD-score result directories, and regression summary directories stable unless the change is intentional and coordinated. LD-score parquet files remain flat files, with chromosome-aligned row groups documented through `manifest.json`; sumstats coordinate/liftover provenance and parquet row-group bookkeeping are documented in `sumstats.log`, while row-level liftover drops are audited in `dropped_snps/dropped.tsv.gz`. Legacy `.l2.ldscore(.gz)`, `.w.l2.ldscore(.gz)`, `.l2.M`, and `.l2.M_5_50` files are compatibility concerns rather than the public LD-score output surface.
 - Keep optional-baseline behavior in the public LD-score workflow layer: no baseline and no query means a synthetic all-ones `base`; query annotations require explicit baseline annotations. Regression treats that synthetic `base` path as an `h2`/`rg` input only; `partitioned-h2` requires explicit query LD-score columns.
 - Keep `ldsc annotate` orchestration in `ldsc.annotation_builder`. The CLI
   registers annotation flags from that module and dispatches parsed namespaces

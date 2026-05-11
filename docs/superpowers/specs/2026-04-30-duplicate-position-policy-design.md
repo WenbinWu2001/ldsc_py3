@@ -3,11 +3,17 @@
 **Date:** 2026-04-30
 **Scope:** `src/ldsc/ref_panel_builder.py` (PLINK-based `build-ref-panel` workflow only)
 
-**2026-05-10 update:** Liftover harmonization changed the runtime contract. The
-policy now defaults to `drop-all`, applies only when the active SNP identifier
-mode is `chr_pos`, and is logged as not applicable in source-only `rsid` builds.
-Matching reference-panel chain liftover is rejected in `rsid` mode. The original
-`error` behavior remains available via `--duplicate-position-policy error`.
+**2026-05-11 supersession:** Liftover harmonization changed the runtime
+contract. The public `--duplicate-position-policy` flag and
+`ReferencePanelBuildConfig.duplicate_position_policy` field were removed.
+Coordinate duplicate handling now applies only in `chr_pos` mode and always uses
+`drop-all`; source-only `rsid` builds skip coordinate duplicate filtering, and
+matching reference-panel chain liftover is rejected in `rsid` mode. The
+harmonized sidecar contract is documented in
+[`2026-05-10-liftover-harmonization.md`](2026-05-10-liftover-harmonization.md).
+
+The remainder of this document is retained as historical design context for the
+now-superseded duplicate-position policy.
 
 ---
 

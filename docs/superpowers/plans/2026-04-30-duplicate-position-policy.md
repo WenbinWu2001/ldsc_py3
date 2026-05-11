@@ -4,12 +4,15 @@
 
 **Goal:** Add `--duplicate-position-policy {error,drop-all}` to `build-ref-panel` so that SNPs sharing a `CHR:POS` key in any emitted build are either rejected loudly or dropped with a provenance sidecar.
 
-**2026-05-10 update:** Liftover harmonization changed the final contract from
-this original implementation plan. `duplicate_position_policy` now defaults to
-`drop-all`, coordinate duplicate handling applies only in `chr_pos` mode,
-source-only `rsid` builds log that the policy is not applicable, and matching
-reference-panel chain liftover is rejected in `rsid` mode. The `error` policy
-remains available explicitly.
+**2026-05-11 superseded:** This original implementation plan is superseded by
+[`docs/superpowers/plans/2026-05-10-liftover-harmonization.md`](2026-05-10-liftover-harmonization.md).
+The final harmonized contract removes `duplicate_position_policy` and
+`--duplicate-position-policy` entirely. Coordinate duplicate handling applies
+only in `chr_pos` mode and always uses `drop-all`; source-only `rsid` builds log
+that coordinate duplicate filtering is not applicable; matching reference-panel
+chain liftover remains rejected in `rsid` mode. The `error` policy no longer
+exists. The historical task details below are retained only as implementation
+history.
 
 **Architecture:** A new helper `_resolve_unique_snp_set()` in `ref_panel_builder.py` runs two detection passes (source-build duplicates, then target-build collisions) on the restriction-filtered SNP set and returns a cleaned `keep_snps` array plus a provenance DataFrame. `_build_chromosome()` calls this helper after liftover and before the per-build emit loop. Cross-build consistency is enforced because the same cleaned set feeds every emitted build.
 

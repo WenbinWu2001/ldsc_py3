@@ -12,7 +12,7 @@ The `build-ref-panel` workflow converts PLINK genotypes into build-specific R2 r
 
 - one R2 parquet per emitted build (`hg19/chr*_r2.parquet` and/or `hg38/chr*_r2.parquet`): one row per unordered SNP pair within the chosen LD window
 - one runtime metadata sidecar per emitted build (`hg19/chr*_meta.tsv.gz` and/or `hg38/chr*_meta.tsv.gz`): one row per retained SNP, used by LDSC-style downstream tools
-- optional duplicate-position provenance under `dropped_snps/` when the default `--duplicate-position-policy drop-all` drops colliding SNPs in `chr_pos` mode
+- one dropped-SNP audit file under `dropped_snps/` for each processed chromosome, header-only when no liftover-stage rows are dropped
 - `build-ref-panel.log` when run through the CLI or convenience wrapper; a
   concrete single-chromosome PLINK prefix writes
   `build-ref-panel.chr<chrom>.log` so parallel per-chromosome jobs do not
@@ -159,8 +159,8 @@ The bundled Alkes-group maps in `resources/genetic_maps/genetic_map_alkesgroup/`
   files, clean the output directory, or remove stale optional target-build or
   `dropped_snps` siblings from earlier configurations.
 
-Use a fresh output directory when changing emitted builds, liftover
-configuration, duplicate-position policy, or chromosome scope. That keeps panel
+Use a fresh output directory when changing emitted builds, liftover/coordinate
+configuration, or chromosome scope. That keeps panel
 artifact directories easier to inspect and avoids mixing optional outputs from
 different expert configurations.
 
@@ -218,15 +218,11 @@ Exactly one of the following must be set:
   Optional: yes; default is `128`.
   Recommended usage: keep the default unless you are tuning memory and throughput on a large machine. Larger values may improve throughput but use more memory.
 
-- `--duplicate-position-policy`
-  Plain-English meaning: how to handle SNPs that share a source or target
-  `CHR/POS` key in `chr_pos` mode.
-  Optional: yes; default is `drop-all`.
-  Recommended usage: keep the default for production panels so duplicate
-  coordinate groups are removed consistently and recorded under
-  `dropped_snps/`. Use `error` when you want the build to abort and show the
-  duplicate clusters. In source-only `rsid` builds this policy is not
-  applicable and is logged once as ignored.
+Coordinate duplicate handling has no public flag. In `chr_pos` mode, source and
+target coordinate collision groups are always handled with `drop-all`, and the
+dropped rows are recorded under `dropped_snps/`. In source-only `rsid` builds,
+coordinate duplicate filtering is not applicable because SNP labels define row
+identity.
 
 - `--log-level`
   Plain-English meaning: how much progress logging to print.
@@ -329,7 +325,8 @@ For the chr22 example above, the output tree looks like:
 ```text
 tutorial_outputs/ref_panel_chr22/
 ├── build-ref-panel.chr22.log  # concrete single-chromosome CLI/convenience-wrapper runs
-├── dropped_snps/              # only present when duplicate-coordinate SNPs are dropped
+├── dropped_snps/              # audit files, header-only when no SNPs dropped
+│   └── chr22_dropped.tsv.gz
 ├── hg19/
 │   ├── chr22_r2.parquet
 │   └── chr22_meta.tsv.gz
@@ -539,7 +536,7 @@ the builder infers that restriction file's build and errors if it differs from
 the source PLINK build.
 
 If you use `--snp-identifier rsid`, omit matching liftover chains. The builder
-will emit source-build-only outputs and will not apply duplicate-position
+will emit source-build-only outputs and will not apply coordinate duplicate
 filtering because rsID labels, not coordinates, define row identity.
 
 ### Restrict the sample set

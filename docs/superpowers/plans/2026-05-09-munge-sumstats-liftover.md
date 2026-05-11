@@ -48,7 +48,8 @@ not.
 - Duplicate target `CHR/POS` groups are removed entirely: if multiple original
   rows map to the same target coordinate, none are retained.
 - If liftover drops all rows, error instead of writing an empty artifact.
-- Log up to 5 example rows per drop category.
+- Log count summaries at normal verbosity. Example rows, if emitted, appear
+  only at `DEBUG`.
 - Sidecar metadata stays thin: schema marker, trait label, and full
   `config_snapshot` only.
 - Coordinate provenance, liftover reports, HM3 provenance, row counts, and output
@@ -59,14 +60,16 @@ not.
   opposite-build emission contract. Do not add public target/method config
   fields for that workflow.
 - Reference-panel matching chain liftover is invalid in `rsid` mode.
-- Reference-panel `duplicate_position_policy` defaults to `drop-all`; `error`
-  remains available.
+- Reference-panel `duplicate_position_policy` / `--duplicate-position-policy`
+  was removed by the 2026-05-10 harmonization. `drop-all` is the only
+  coordinate duplicate behavior.
 - Reference-panel coordinate duplicate handling applies only in `chr_pos` mode.
   Source-only `rsid` builds log once that duplicate-position policy is not
   applicable.
-- Reference-panel duplicate sidecars remain under `dropped_snps/` and contain
-  duplicate-coordinate drops only. Runtime metadata TSV/parquet schemas stay
-  unchanged.
+- Reference-panel dropped-SNP sidecars remain under `dropped_snps/`, are
+  always written for processed chromosomes, and contain the four
+  ref-panel-applicable liftover-stage reasons. Runtime metadata TSV/parquet
+  schemas stay unchanged.
 
 ## Harmonization Addendum
 
@@ -80,9 +83,11 @@ detection, and readable examples. Workflow contracts stay separate:
 - Reference-panel building uses explicit or inferred PLINK source build plus an
   optional matching chain to emit the opposite build.
 - HM3 quick liftover remains sumstats-only.
-- Provenance details live in workflow `.log` files. Sumstats sidecars are
-  compatibility-only (`format`, `trait_name`, `config_snapshot`), and existing
-  sidecars that lack `config_snapshot` are invalid rather than migrated.
+- Provenance details live in workflow `.log` files. Sumstats metadata sidecars
+  are compatibility-only (`format`, `trait_name`, `config_snapshot`), and
+  existing metadata sidecars that lack `config_snapshot` are invalid rather
+  than migrated. Row-level liftover drops are audited in the always-written
+  `dropped_snps/dropped.tsv.gz` sidecar.
 
 ## Pre-Flight
 

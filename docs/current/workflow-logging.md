@@ -80,8 +80,8 @@ Direct computational class APIs remain data-oriented:
 - `RegressionRunner.estimate_*` methods do not create regression logs.
 
 `SumstatsMunger.run(...)` remains a workflow-level API and keeps writing
-`sumstats.log` for compatibility, but `MungeRunSummary.output_paths` excludes
-the log path.
+`sumstats.log` for compatibility. `MungeRunSummary.output_paths` excludes the
+log path but includes data artifacts such as the dropped-SNP audit sidecar.
 
 For the implementation rationale, see
 `docs/superpowers/specs/2026-05-02-logging-harmonization-design.md`.

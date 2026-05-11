@@ -3,7 +3,12 @@
 Date: 2026-05-10
 Branch: `codex/liftover-sumstats-munger`
 
-This note records the current liftover contracts after harmonizing summary
+> **STATUS — 2026-05-11: implemented harmonization contract.** This document
+> records the liftover contracts for the harmonized workflows. The
+> implementation plan is
+> [`docs/superpowers/plans/2026-05-10-liftover-harmonization.md`](../superpowers/plans/2026-05-10-liftover-harmonization.md).
+
+This note records the agreed liftover contracts after harmonizing summary
 statistics munging and PLINK reference-panel building. It is intended as the
 handoff document for future liftover harmonization work.
 
@@ -23,9 +28,10 @@ output, and metadata contracts.
 - Positions with no same-chromosome hit are dropped and counted separately as
   unmapped or cross-chromosome drops when the reason is knowable.
 - Shared duplicate-coordinate helpers implement the `drop-all` primitive:
-  every row in a duplicate coordinate group is dropped.
+  every row in a duplicate coordinate group is dropped. In other words, if multiple SNPs are mapped to the same coordinate in target build, all of them are dropped.
 - Shared drop reports carry readable counts plus up to five examples with core
   fields: `SNP`, `CHR`, `source_POS`, optional `target_POS`, and `reason`.
+  Normal log levels are count-only; examples are emitted only at `DEBUG`.
 - Missing chain-file and missing optional dependency errors include
   workflow-aware labels and flag hints.
 
@@ -46,6 +52,12 @@ output, and metadata contracts.
 - If missing-coordinate, unmapped, cross-chromosome, source-duplicate, or
   target-duplicate filtering removes every row, sumstats munging raises a hard
   error.
+- `dropped_snps/dropped.tsv.gz` is always written under the sumstats output
+  directory. Clean runs produce a header-only gzip TSV. It uses columns `CHR`,
+  `SNP`, `source_pos`, `target_pos`, `reason` with nullable `string`/`Int64`
+  dtypes and may contain all five reasons: `missing_coordinate`,
+  `source_duplicate`, `unmapped_liftover`, `cross_chromosome_liftover`, and
+  `target_collision`.
 - Newly written `sumstats.metadata.json` sidecars are intentionally thin:
   `format`, optional `trait_name`, and `config_snapshot`.
 - Detailed coordinate provenance, liftover counts, HM3 map provenance, output
@@ -66,22 +78,31 @@ output, and metadata contracts.
 - Matching chain-file liftover is invalid when the active
   `GlobalConfig.snp_identifier` is `rsid`. In rsID mode, omit the matching
   chain and build source-genome coordinates only.
-- `duplicate_position_policy` now defaults to `drop-all`; `error` remains
-  available.
+- Coordinate duplicate groups are dropped with `drop-all`. There is no public
+  duplicate-position policy knob.
 - Duplicate-position handling applies only in `chr_pos` mode.
-- In `rsid` source-only builds, duplicate-position policy is ignored and logged
-  once per run.
+- In `rsid` source-only builds, coordinate duplicate filtering is skipped and
+  logged once per run.
 - Source duplicate groups are dropped before liftover mapping.
 - Target duplicate groups are dropped after target-build positions are known.
 - If all SNPs are dropped for one chromosome, that chromosome is skipped.
   The run fails only if no chromosome emits artifacts.
 - Existing runtime metadata TSV and parquet schemas remain stable.
-- Liftover/drop provenance goes to workflow logs and existing
+- Liftover/drop provenance goes to workflow logs and
   `dropped_snps/chr*_dropped.tsv.gz` sidecars.
-- `dropped_snps` sidecars contain duplicate drops only. Liftover unmapped and
-  cross-chromosome drops are logged but not written to those sidecars.
-- Output preflight still includes conditional duplicate sidecar paths so
+- Per-chromosome `dropped_snps` sidecars are always written for every
+  chromosome processed by the run. Clean chromosomes produce header-only gzip
+  TSVs. Ref-panel sidecars use the shared columns `CHR`, `SNP`, `source_pos`,
+  `target_pos`, `reason` and cover the four ref-panel-applicable reasons:
+  `source_duplicate`, `unmapped_liftover`, `cross_chromosome_liftover`, and
+  `target_collision`. `missing_coordinate` is not produced by ref-panel because
+  PLINK BIM `BP` is structurally non-null.
+- Output preflight includes the always-written dropped-SNP sidecar paths so
   overwrite behavior stays deterministic.
+- Before chromosome processing starts, the builder warns once when existing
+  class-2 parquet or metadata artifacts under `hg19/` or `hg38/` are outside
+  the current run's expected output set. The warning is informational; it does
+  not delete files or abort the run.
 
 ## GlobalConfig And Identity
 
@@ -105,8 +126,11 @@ output, and metadata contracts.
   artifacts, because older disk outputs may have no sidecar at all.
 - Reference-panel runtime metadata TSV and R2 parquet schemas must not change
   for this harmonization.
-- Duplicate-drop sidecar schema remains `CHR`, `SNP`, `source_pos`,
-  `target_pos`, `reason`.
+- Dropped-SNP sidecar column names are stable: `CHR`, `SNP`, `source_pos`,
+  `target_pos`, `reason`. Consumers should read with explicit nullable
+  `string`/`Int64` dtypes because empty/header-only files and nullable
+  `target_pos` cells cannot be represented safely with plain NumPy integer
+  dtypes.
 - Existing multi-build reference-panel loading ambiguity rules remain for old
   or external panels.
 
@@ -117,35 +141,17 @@ output, and metadata contracts.
   function/dataclass helper module.
 - Consider a common typed drop-report object that can be surfaced through
   Python results without expanding disk sidecars.
-- Decide whether HM3 quick liftover should ever be allowed for reference-panel
-  building. The current answer is no.
+- HM3 quick liftover remains sumstats-only. Revisit only with a separate design
+  that justifies applying a sparse HM3 map to dense PLINK panels.
 - Audit whether downstream loaders should expose liftover provenance from logs
   or leave logs as human audit artifacts only.
 - Consider adding a small compatibility validator for old external reference
   panels whose metadata predates the current build/identifier contracts.
 
-## Prompt For The Next Session
+## Current Maintenance Checklist
 
-Work in:
-
-`/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_Jerry/.worktrees/liftover-sumstats-munger`
-
-Start by reading this decision document:
-
-`docs/current/liftover-harmonization-decisions.md`
-
-Then inspect:
-
-- `src/ldsc/_kernel/liftover.py`
-- `src/ldsc/sumstats_munger.py`
-- `src/ldsc/ref_panel_builder.py`
-- `src/ldsc/config.py`
-- `docs/superpowers/specs/2026-05-09-munge-sumstats-liftover.md`
-- `docs/superpowers/plans/2026-05-09-munge-sumstats-liftover.md`
-
-Goal for a follow-up session: continue liftover harmonization without changing
-the public workflow contracts unless explicitly approved. Preserve these
-decisions: liftover is `chr_pos`-only, `SNP` is a label in `chr_pos`, sumstats
-liftover updates only `CHR/POS`, reference-panel chain liftover is rejected in
-`rsid`, HM3 quick liftover is sumstats-only, and detailed provenance belongs in
-workflow logs while compatibility sidecars stay thin or schema-stable.
+When touching liftover code, preserve these contracts unless a new design
+explicitly changes them: liftover is `chr_pos`-only, `SNP` is a label in
+`chr_pos`, sumstats liftover updates only `CHR/POS`, reference-panel chain
+liftover is rejected in `rsid`, HM3 quick liftover is sumstats-only, dropped-SNP
+sidecars stay schema-stable, and detailed provenance belongs in workflow logs.

@@ -124,19 +124,20 @@ flowchart LR
 ## 2. `build-ref-panel`: PLINK To Standard Parquet R2 Reference
 
 Before chromosome processing starts, the builder precomputes flat candidate
-paths under each emitted `{build}` directory, optional duplicate-drop
-provenance under `dropped_snps/`, plus `build-ref-panel.log`.
+paths under each emitted `{build}` directory, always-written per-chromosome
+dropped-SNP audit files under `dropped_snps/`, plus `build-ref-panel.log`.
 Existing candidates are refused unless `--overwrite` or
 `ReferencePanelBuildConfig(overwrite=True)` is supplied; unrelated files in the
 output directory are left untouched. Unlike the result-directory workflows,
-`build-ref-panel` does not clean stale optional target-build or `dropped_snps`
-siblings from earlier configurations; use a fresh output directory when
-changing emitted builds, liftover, duplicate-position policy, or chromosome
+`build-ref-panel` does not clean stale optional target-build or out-of-scope
+chromosome siblings from earlier configurations; use a fresh output directory
+when changing emitted builds, liftover/coordinate configuration, or chromosome
 scope.
 Reference-panel chain liftover is coordinate behavior: it is valid only when
 the active SNP identifier mode is `chr_pos`. Duplicate-position filtering also
-applies only in `chr_pos` mode and defaults to dropping all colliding source or
-target coordinate groups with duplicate-only sidecars.
+applies only in `chr_pos` mode and always drops all colliding source or target
+coordinate groups. The sidecar also records unmapped and cross-chromosome
+liftover drops; clean processed chromosomes get a header-only sidecar.
 
 ### Required inputs
 
@@ -187,6 +188,7 @@ flowchart LR
 | --- | --- | --- |
 | build-specific R2 parquet | `hg38/chr22_r2.parquet` with columns `CHR`, `POS_1`, `POS_2`, `SNP_1`, `SNP_2`, `R2` | one row per unordered SNP pair inside the LD window; row groups are sorted by that build's `POS_1`; schema metadata records `ldsc:n_samples` and `ldsc:r2_bias` for downstream auto-load |
 | build-specific runtime metadata sidecar | `hg38/chr22_meta.tsv.gz` with `CHR POS SNP CM MAF` | authoritative SNP universe for the matching R2 parquet when present |
+| dropped-SNP audit sidecar | `dropped_snps/chr22_dropped.tsv.gz` with `CHR SNP source_pos target_pos reason` | always written for each processed chromosome; header-only when no liftover-stage rows were dropped; reasons are `source_duplicate`, `unmapped_liftover`, `cross_chromosome_liftover`, and `target_collision` |
 | workflow log | plain-text lifecycle and package records | `build-ref-panel.log` under `output_dir`; not included in `ReferencePanelBuildResult.output_paths` |
 
 ### Modules used
@@ -277,8 +279,9 @@ flowchart LR
 ## 4. `munge-sumstats`: Raw GWAS Table To Curated Sumstats
 
 The munging workflow preflights `sumstats.parquet`,
-`sumstats.sumstats.gz`, `sumstats.log`, and `sumstats.metadata.json` as one
-owned family before delegating to `SumstatsMunger.run()` and then the
+`sumstats.sumstats.gz`, `sumstats.log`, `sumstats.metadata.json`, and
+`dropped_snps/dropped.tsv.gz` as one owned family before delegating to
+`SumstatsMunger.run()` and then the
 legacy-compatible munging kernel. The workflow owns the log file, metadata
 sidecar, and curated output writing; the kernel keeps the low-level parsing and
 QC. Default output is `sumstats.parquet`; `--output-format tsv.gz` or `both`
@@ -292,8 +295,9 @@ when the target differs from the source. Chain-file liftover uses
 `--liftover-chain-file`; HM3 quick liftover uses the packaged curated
 `hm3_curated_map.tsv.gz` and is coordinate-only, so it never rewrites `SNP`.
 Missing coordinates, unmapped hits, cross-chromosome hits, and duplicate
-source/target coordinate groups are dropped with readable counts and examples
-in `sumstats.log`.
+source/target coordinate groups are dropped. Counts are readable audit records
+in `sumstats.log`; row-level drops are written to
+`dropped_snps/dropped.tsv.gz`; examples appear only at `DEBUG`.
 
 ### Required inputs
 
@@ -319,7 +323,7 @@ flowchart LR
 
   subgraph W4[Workflow (public)<br/>ldsc.sumstats_munger]
     D3[Normalize CLI/API config<br/>Build typed munging args]
-    D4[Own sumstats.log + metadata<br/>Capture run summary]
+    D4[Own log + metadata + dropped_snps<br/>Capture run summary]
   end
 
   subgraph K4[Kernel (private)<br/>ldsc._kernel.sumstats_munger]
@@ -330,7 +334,7 @@ flowchart LR
 
   I1 --> D1 --> D2 --> D3 --> D5 --> D6 --> D7 --> D4
   I2 --> D2
-  D4 --> O4[sumstats.parquet by default<br/>optional sumstats.sumstats.gz + log + metadata JSON]
+  D4 --> O4[sumstats.parquet by default<br/>optional sumstats.sumstats.gz + log + metadata JSON + dropped_snps]
 ```
 
 ### Outputs
@@ -338,8 +342,9 @@ flowchart LR
 | File | Example | Notes |
 | --- | --- | --- |
 | curated sumstats | `SNP CHR POS A1 A2 Z N`<br/>`rs3131969 1 754182 A G 0.74 829249.58` | written as `sumstats.parquet` by default under `output_dir`; `--output-format tsv.gz` writes legacy `sumstats.sumstats.gz`, and `both` writes both; `CHR`/`POS` are present and may be missing when absent from raw input; optional `FRQ` may also be present |
-| log file | plain-text lifecycle, QC log, coordinate provenance, readable liftover reports, HM3 provenance, output bookkeeping, and row-count/drop-example details | workflow-owned `sumstats.log` under `output_dir`, populated from package logger messages emitted during workflow orchestration and kernel QC; excluded from `MungeRunSummary.output_paths` |
+| log file | plain-text lifecycle, QC log, coordinate provenance, readable liftover reports, HM3 provenance, output bookkeeping, and count-level drop summaries | workflow-owned `sumstats.log` under `output_dir`, populated from package logger messages emitted during workflow orchestration and kernel QC; excluded from `MungeRunSummary.output_paths` |
 | metadata sidecar | thin JSON with schema marker, optional `trait_name`, and `config_snapshot` | written as `sumstats.metadata.json` under `output_dir`; used by `load_sumstats()` to recover config provenance and trait labels |
+| dropped-SNP audit sidecar | `CHR SNP source_pos target_pos reason` | always written as `dropped_snps/dropped.tsv.gz`; header-only when no rows were dropped; reasons may include `missing_coordinate`, `source_duplicate`, `unmapped_liftover`, `cross_chromosome_liftover`, and `target_collision` |
 
 ### Modules used
 

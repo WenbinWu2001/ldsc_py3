@@ -108,10 +108,11 @@ print("dataset_config =", dataset.config_snapshot)
 `SumstatsMunger.run()` is also the shared implementation path behind
 `ldsc munge-sumstats`: the CLI parser maps arguments into `MungeConfig`, then
 the workflow writes `sumstats.parquet` by default, optional
-`sumstats.sumstats.gz` compatibility output when requested, `sumstats.log`, and
-`sumstats.metadata.json` under the selected output directory. The log is an
-audit file; `MungeRunSummary.output_paths` and metadata `output_files` list the
-curated sumstats artifacts, not `sumstats.log`.
+`sumstats.sumstats.gz` compatibility output when requested, `sumstats.log`,
+`sumstats.metadata.json`, and `dropped_snps/dropped.tsv.gz` under the selected
+output directory. The log is an audit file; `MungeRunSummary.output_paths` lists
+curated sumstats artifacts and the dropped-SNP audit sidecar, not
+`sumstats.log`.
 
 In `chr_pos` mode, regression merges sumstats and LD scores by normalized `CHR:POS`
 coordinates. The `SNP` column is a label and may contain rsIDs even when
@@ -122,8 +123,10 @@ skipped before the real header is parsed. Optional munger liftover runs after
 the source-build keep-list filter, drops duplicate source/target coordinate
 groups, changes only `CHR`/`POS`, and requires
 `--target-genome-build` plus either `--liftover-chain-file` or
-`--use-hm3-quick-liftover`. Drop counts and examples are written to
-`sumstats.log`; the metadata sidecar remains compatibility-only.
+`--use-hm3-quick-liftover`. Drop counts are written to `sumstats.log`,
+examples appear only at `DEBUG`, and row-level drops are audited in
+`dropped_snps/dropped.tsv.gz`; the metadata sidecar remains
+compatibility-only.
 
 When you set `regression_snps_file` during LD-score calculation, the same regression SNP subset defines the rows of the normalized `baseline_table`. Regression uses the embedded `regression_ld_scores` column as the historical `w_ld` component; final model-dependent weights are computed later in the regression kernel.
 
@@ -182,7 +185,7 @@ The command writes `tutorial_outputs/trait_h2/h2.tsv` and
 `tutorial_outputs/trait_h2/h2.log`.
 If any owned output-family file already exists from a previous run, the
 relevant command fails before writing. For `munge-sumstats`, that family is
-`sumstats.parquet`, `sumstats.sumstats.gz`, `sumstats.metadata.json`, and
-`sumstats.log`, even if the current `--output-format` would write only one data
-format. Add `--overwrite` only for an intentional rerun; when used, stale
+`sumstats.parquet`, `sumstats.sumstats.gz`, `sumstats.metadata.json`,
+`dropped_snps/dropped.tsv.gz`, and `sumstats.log`, even if the current
+`--output-format` would write only one data format. Add `--overwrite` only for an intentional rerun; when used, stale
 sumstats sibling formats not produced by the successful run are removed.

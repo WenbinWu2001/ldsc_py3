@@ -14,9 +14,11 @@ Two implementation details are important to know:
 - Current `ldsc munge-sumstats` writes `sumstats.metadata.json` beside
   `sumstats.parquet` by default, or beside legacy `sumstats.sumstats.gz` when
   `--output-format tsv.gz` is selected; `load_sumstats()` recovers the original
-  munge-time `GlobalConfig` from that thin sidecar. Older `.sumstats.gz` files
-  without the sidecar still warn and load with `config_snapshot=None`. Sidecars
-  that exist but lack `config_snapshot` are invalid and are not migrated.
+  munge-time `GlobalConfig` from that thin sidecar. Row-level liftover drops are
+  audited separately in the always-written `dropped_snps/dropped.tsv.gz` file.
+  Older `.sumstats.gz` files without the metadata sidecar still warn and load
+  with `config_snapshot=None`. Metadata sidecars that exist but lack
+  `config_snapshot` are invalid and are not migrated.
 - `load_ldscore_from_dir()` keeps strict format checks but treats missing or
   invalid manifest config provenance as unknown, warning and returning
   `config_snapshot=None`.
@@ -320,8 +322,9 @@ munger have a neighboring `sumstats.metadata.json` sidecar that records a thin
 metadata payload: schema marker, optional trait label, and the active or
 inferred `GlobalConfig` snapshot. Detailed coordinate provenance, liftover
 reports, HM3 provenance, output bookkeeping, and row counts are written to
-`sumstats.log` instead of the sidecar. The loader uses the sidecar to populate
-`config_snapshot`.
+`sumstats.log`; row-level liftover drops are written to
+`dropped_snps/dropped.tsv.gz`. Neither belongs in the metadata sidecar. The
+loader uses the sidecar to populate `config_snapshot`.
 Older artifacts without the sidecar still emit a warning and load with
 `config_snapshot=None`; pre-`config_snapshot` sidecars are treated as invalid
 metadata rather than a backward-compatible format.

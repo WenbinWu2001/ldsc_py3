@@ -19,8 +19,9 @@ Output directories are literal destinations. Missing directories are created,
 existing directories are reused, and existing owned workflow artifacts are
 refused before writing unless you pass `--overwrite` or `overwrite=True`.
 For each trait's sumstats directory, that family includes `sumstats.parquet`,
-`sumstats.sumstats.gz`, `sumstats.log`, and `sumstats.metadata.json`, even when
-the current run would not write every format. Successful overwrites remove
+`sumstats.sumstats.gz`, `sumstats.log`, `sumstats.metadata.json`, and
+`dropped_snps/dropped.tsv.gz`, even when the current run would not write every
+format. Successful overwrites remove
 stale owned siblings not produced by the current configuration and preserve
 unrelated files.
 
@@ -113,8 +114,9 @@ table merge by normalized `CHR:POS` coordinates, and `SNP` is treated as a
 label. Optional munger liftover is valid only in `chr_pos` mode; use
 `target_genome_build` with either a chain file or HM3 quick liftover when both
 traits need to be converted to the LD-score build. Liftover drops duplicate
-source/target coordinate groups and records readable drop counts/examples in
-`sumstats.log`, not in the compatibility sidecar.
+source/target coordinate groups, writes count summaries to `sumstats.log`, and
+audits row-level drops in `dropped_snps/dropped.tsv.gz`; examples appear only at
+`DEBUG`, not in the compatibility sidecar.
 
 ## CLI
 

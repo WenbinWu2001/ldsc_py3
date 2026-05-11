@@ -120,11 +120,12 @@ Regression commands still read munged summary statistics:
 - `ldsc rg --sumstats-sources <file-or-glob> <file-or-glob> [...]`
 
 Current `ldsc munge-sumstats` outputs include canonical `CHR` and `POS` columns
-beside `SNP`, `Z`, and `N`, write `sumstats.parquet` by default, and write
-`sumstats.metadata.json` beside the table. The sidecar stores the effective
-`snp_identifier`, `genome_build`, selected output files, and auto-inferred build
-details for `chr_pos` runs. Legacy `.sumstats.gz` files without the sidecar
-still load, but their config provenance is treated as unknown.
+beside `SNP`, `Z`, and `N`, write `sumstats.parquet` by default, write
+`sumstats.metadata.json` beside the table, and write
+`dropped_snps/dropped.tsv.gz` for row-level liftover-drop auditing. The metadata
+sidecar stores the thin compatibility payload: schema marker, optional trait
+label, and effective `config_snapshot`. Legacy `.sumstats.gz` files without the
+sidecar still load, but their config provenance is treated as unknown.
 
 ## 4. SNP Universes
 

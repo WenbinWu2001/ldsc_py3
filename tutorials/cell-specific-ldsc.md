@@ -114,7 +114,8 @@ the merge uses normalized `CHR:POS` coordinates rather than rsIDs, and the
 conversion before this regression step, run `munge-sumstats` with
 `--target-genome-build` plus either `--liftover-chain-file` or
 `--use-hm3-quick-liftover`. Liftover drops duplicate source/target coordinate
-groups and writes readable drop counts/examples to `sumstats.log`; the metadata
+groups, writes count summaries to `sumstats.log`, and audits row-level drops in
+`dropped_snps/dropped.tsv.gz`; examples appear only at `DEBUG`. The metadata
 sidecar remains a thin compatibility artifact.
 
 ## CLI

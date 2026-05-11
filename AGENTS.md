@@ -2,13 +2,13 @@
 
 ```bash
 cd /Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured
-conda env create -f environment.yml      # first-time environment setup
+conda env create -f environment.yml -n ldsc3-dev    # first-time development environment setup
 source /Users/wenbinwu/miniforge3/etc/profile.d/conda.sh
 conda activate ldsc3-dev
-pip install -e .                         # install editable package
-ldsc --help                              # installed console entry point
-python -m ldsc --help                    # module entry point
-pytest                                   # primary test suite
+python -m pip install -e ".[dev]"                   # install editable package with dev extras
+ldsc --help                                         # installed console entry point
+python -m ldsc --help                               # module entry point
+pytest                                              # primary test suite
 python -m unittest discover -s tests -p 'test*.py' -v
 ```
 
@@ -63,32 +63,49 @@ source /Users/wenbinwu/miniforge3/etc/profile.d/conda.sh && conda activate ldsc3
 
 # Principles
 
-- Keep it simple.
+- Keep it simple. The ultimate goal is to deliver the best user experience.
 
 - Be concise in responses.
 
-- After each major change, commit with a meaningful message, or remind the user to commit with a suggested one-line message.
+- After each major change, commit with a meaningful message, or remind the user to commit with a suggested one-line message. Use Conventional Commits: `<type>(<scope>): <description>`. Subject <= 50 chars; body lines <= 72 chars. Body explains *what* and *why*, not *how*. Footer for issue refs (`Fixes #123`) or breaking changes. Common types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`.
 
 - Avoid AI tools name (like Codex, Claude, Grok, Gemini, ...) in code comments or git commit message (including authorship) or PR body.
 
-- Record only significant and recurring mistakes. Ignore minor, one-off errors. When a meaningful pattern of errors is observed, document the correction and update this file to prevent future occurrences.
+- When a significant or recurring mistake occurs (same class of error seen 2+ times, or a non-obvious bug whose fix required real investigation), append an entry to `lessons.md` at the repo root. Each entry: one-line summary, root cause, and the correction. Skip one-off typos and trivial slips. Create `lessons.md` on the first such entry if it does not exist yet.
 
 ## Planning & Ambiguities
 
-For complex features or significant refactors, do not begin coding immediately. Follow this workflow:
+For anything more than a several-line modification, do NOT begin coding immediately:
 
-**Step 1.** Use `superpowers:brainstorming` to explore design and requirements. Ask clarifying questions -- and keep asking -- until the scope, approach, and every significant design choice is confirmed and fully understood. Resolve all ambiguities before moving on: you may suggest resolutions, but explain your reasoning and get explicit confirmation. Record each confirmed choice. For libraries you are unfamiliar with or not confident about, ask the user for guidance on correct usage.
+- **Ask clarifying questions first, and keep asking** until every ambiguity is resolved. Do not start coding while any non-trivial question is open.
+- For medium-scope changes (multiple functions, new code paths, or more than one file), prompt the user to turn on plan mode before editing.
+- For libraries you are not confident about, ask the user for guidance on correct usage before relying on them.
 
-**Step 2.** Use `superpowers:writing-plans` to produce the implementation plan. Surface any remaining ambiguities to the user before finalizing.
+A "several-line modification" means a localized edit (rename, small bug fix, obvious one-liner). Anything larger falls under the rules above.
 
-**Step 3.** Execute the plan with `superpowers:executing-plans`.
+### Complex features or significant refactors
+
+For complex features or significant refactors, use the following three steps with `superpowers`. This workflow produces **two separate documents**: a design doc (user-facing specs and concepts) and an implementation plan (codebase nitty-gritties for execution).
+
+**Step 1.** Use `superpowers:brainstorming` to explore design and requirements. Resolve all ambiguities and get explicit user confirmation on every significant design choice before moving on.
+
+**Step 2.** Produce both documents, each named with a date prefix (`YYYY-MM-DD`) plus the topic, sharing the same prefix and topic but differing in suffix and directory:
+
+- **Design doc**: `docs/superpowers/specs/<YYYY-MM-DD>-<topic>-design.md`
+  Specs and conceptual, user-facing content. Captures *what* and *why*, not *how*.
+- **Implementation plan**: `docs/superpowers/plans/<YYYY-MM-DD>-<topic>-plan.md`
+  Codebase nitty-gritties for execution only. Use `superpowers:writing-plans`.
+
+Surface any remaining ambiguities and obtain explicit user approval of both documents before proceeding.
+
+**Step 3.** Execute the implementation plan with `superpowers:executing-plans`.
 
 # Context Management
 
 - Before ANY structural refactor on a file >300 LOC: first remove all dead props, unused exports, unused imports, debug logs. Commit cleanup separately. Dead code burns tokens that trigger compaction faster.
 - Use sub-agents only when you have 2 or more large, genuinely independent tasks -- each touching a separate module with no shared dependencies. Default to sequential work; for a small project, parallelization rarely helps and makes progress harder to track.
-- After 10+ messages, or when resuming after any gap: re-read the active superpowers plan in `docs/superpowers/` (if any) and any source files you intend to edit before proceeding. Do not rely on memory of their contents.
-- Treat `docs/current/architecture.md`, `docs/current/class-and-features.md`, `docs/current/code_structure.md`, `docs/current/data_flow.md`, `docs/current/layer-structure.md`, `docs/current/`, and `docs/superpowers/` as the design source of truth over the current implementation when conflicts arise.
+- After 10+ messages, or when resuming after any gap: re-read the active plan document under `docs/superpowers/` (if any), `lessons.md` (if it exists), and any source files you intend to edit before proceeding. Do not rely on memory of their contents.
+- Treat `docs/current/architecture.md`, `docs/current/class-and-features.md`, `docs/current/code-structure.md`, `docs/current/data-flow.md`, `docs/current/layer-structure.md`, `docs/current/`, and `docs/superpowers/` as the design source of truth over the current implementation when conflicts arise.
 
 # Testing
 
@@ -99,7 +116,7 @@ Write tests before writing implementation code. Use `superpowers:test-driven-dev
 
 # Debugging
 
-When encountering a bug or unexpected behavior, use `superpowers:systematic-debugging`. Always find the root cause before proposing a fix. If 3 fix attempts fail, stop and ask the user -- repeated failures indicate a design problem, not a code problem.
+When encountering a bug or unexpected behavior, use `superpowers:systematic-debugging`. Always find the root cause before proposing a fix. Before proposing a fix, check `lessons.md` (if it exists) for prior occurrences of a similar bug. If 3 fix attempts fail, stop and ask the user -- repeated failures indicate a design problem, not a code problem.
 
 # Verification
 
@@ -126,15 +143,12 @@ Use `my-skills:architecture-doc` to create or update `architecture.md` whenever
 the module structure changes significantly, a new module is added, or a new
 contributor needs an overview of the codebase.
 
-## Explaining Code
+## Citations
 
-When explaining a workflow, processing pipeline, or mechanism, anchor each statement
-to the relevant source location (file path and line number, or function name).
+Anchor every claim to its source:
 
-## Research and Document Reading
-
-When reading papers or documents, back every major statement or conclusion with a
-citation to the source location (e.g., "Section 3.2", "Table 1", "Appendix A").
+- **Code**: when explaining a workflow, pipeline, or mechanism, cite the file path and line number (or function name).
+- **Papers and documents**: when summarizing or quoting, cite the section, table, or appendix (e.g., "Section 3.2", "Table 1", "Appendix A").
 
 # Skill Usage Policy
 
@@ -149,7 +163,7 @@ This policy takes highest priority and overrides any default skill invocation be
 - code repos: `/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured`
 - public package: `src/ldsc`
 - internal kernel: `src/ldsc/_kernel`
-- documents: `docs/current/architecture.md`, `docs/current/class-and-features.md`, `docs/current/code_structure.md`, `docs/current/data_flow.md`, `docs/current/layer-structure.md`, `docs/current/`
+- documents: `docs/current/architecture.md`, `docs/current/class-and-features.md`, `docs/current/code-structure.md`, `docs/current/data-flow.md`, `docs/current/layer-structure.md`, `docs/current/`
 - tutorials: `tutorials/`
 - prior plans: `docs/superpowers/`
 - tests: `tests/`

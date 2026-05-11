@@ -889,7 +889,7 @@ def munge_sumstats(args, p=True):
     # figure out which columns are going to involve sign information, so we can ensure
     # they're read as floats
     signed_sumstat_cols = [k for k,v in cname_translation.items() if v=='SIGNED_SUMSTAT']
-    dat_gen = pd.read_csv(args.sumstats, sep='\s+', header=0,
+    dat_gen = pd.read_csv(args.sumstats, sep=r'\s+', header=0,
             compression=compression, usecols=cname_translation.keys(),
             na_values=['.', 'NA'], iterator=True, chunksize=args.chunksize,
             skiprows=metadata_skiprows,

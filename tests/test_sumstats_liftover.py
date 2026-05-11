@@ -24,6 +24,14 @@ from ldsc._kernel.liftover import (
 
 
 class SumstatsLiftoverTest(unittest.TestCase):
+    SIDEcar_DTYPES = {
+        "CHR": "string",
+        "SNP": "string",
+        "source_pos": "Int64",
+        "target_pos": "Int64",
+        "reason": "string",
+    }
+
     def write_hm3_map(self, root: Path, text: str) -> Path:
         path = root / "hm3.tsv.gz"
         with gzip.open(path, "wt", encoding="utf-8") as handle:
@@ -87,7 +95,7 @@ class SumstatsLiftoverTest(unittest.TestCase):
             )
             request = SumstatsLiftoverRequest(target_build="hg38", use_hm3_quick_liftover=True, hm3_map_file=path)
 
-            lifted, report = apply_sumstats_liftover(
+            lifted, report, drop_frame = apply_sumstats_liftover(
                 frame,
                 request,
                 source_build="hg19",
@@ -100,6 +108,7 @@ class SumstatsLiftoverTest(unittest.TestCase):
             self.assertEqual(report["n_input"], 3)
             self.assertEqual(report["n_lifted"], 2)
             self.assertEqual(report["n_unmapped"], 1)
+            self.assertEqual(drop_frame["reason"].tolist(), ["unmapped_liftover"])
 
     def test_hm3_dual_build_lifter_supports_reverse_and_identity(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -141,7 +150,7 @@ class SumstatsLiftoverTest(unittest.TestCase):
             cross_chrom_count=1,
         )
         with mock.patch("ldsc._kernel.liftover.LiftOverTranslator", return_value=fake_translator):
-            lifted, report = apply_sumstats_liftover(
+            lifted, report, drop_frame = apply_sumstats_liftover(
                 frame,
                 request,
                 source_build="hg19",
@@ -154,6 +163,7 @@ class SumstatsLiftoverTest(unittest.TestCase):
         self.assertEqual(report["n_cross_chrom"], 1)
         self.assertEqual(report["n_unmapped"], 0)
         self.assertEqual(report["n_dropped"], 1)
+        self.assertEqual(drop_frame["reason"].tolist(), ["cross_chromosome_liftover"])
 
     def test_source_duplicate_coordinate_groups_are_removed_before_mapping(self):
         frame = pd.DataFrame(
@@ -182,7 +192,7 @@ class SumstatsLiftoverTest(unittest.TestCase):
         fake_translator.map_positions.side_effect = fake_map
         with mock.patch("ldsc._kernel.liftover.LiftOverTranslator", return_value=fake_translator):
             with self.assertLogs("LDSC.liftover", level="INFO") as caught:
-                lifted, report = apply_sumstats_liftover(
+                lifted, report, drop_frame = apply_sumstats_liftover(
                     frame,
                     request,
                     source_build="hg19",
@@ -193,8 +203,9 @@ class SumstatsLiftoverTest(unittest.TestCase):
         self.assertEqual(lifted["POS"].tolist(), [3000])
         self.assertEqual(report["n_duplicate_source_dropped"], 2)
         self.assertEqual(report["n_duplicate_target_dropped"], 0)
-        self.assertIn("duplicate source coordinate", "\n".join(caught.output))
-        self.assertIn("rs1", "\n".join(caught.output))
+        self.assertIn("source_duplicate", "\n".join(caught.output))
+        self.assertNotIn("rs1", "\n".join(caught.output))
+        self.assertEqual(drop_frame["reason"].tolist(), ["source_duplicate", "source_duplicate"])
 
     def test_duplicate_target_coordinate_groups_are_removed_entirely(self):
         frame = pd.DataFrame(
@@ -216,7 +227,7 @@ class SumstatsLiftoverTest(unittest.TestCase):
         )
 
         with mock.patch("ldsc._kernel.liftover.LiftOverTranslator", return_value=fake_translator):
-            lifted, report = apply_sumstats_liftover(
+            lifted, report, drop_frame = apply_sumstats_liftover(
                 frame,
                 request,
                 source_build="hg19",
@@ -228,6 +239,7 @@ class SumstatsLiftoverTest(unittest.TestCase):
         self.assertEqual(report["n_duplicate_source_dropped"], 0)
         self.assertEqual(report["n_duplicate_target_dropped"], 2)
         self.assertEqual(report["n_lifted"], 1)
+        self.assertEqual(drop_frame["reason"].tolist(), ["target_collision", "target_collision"])
 
     def test_missing_coordinates_are_dropped_before_hm3_liftover(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -248,7 +260,7 @@ class SumstatsLiftoverTest(unittest.TestCase):
             )
 
             with self.assertLogs("LDSC.liftover", level="INFO") as caught:
-                lifted, report = apply_sumstats_liftover(
+                lifted, report, drop_frame = apply_sumstats_liftover(
                     frame,
                     request,
                     source_build="hg19",
@@ -263,6 +275,65 @@ class SumstatsLiftoverTest(unittest.TestCase):
             self.assertEqual(report["n_unmapped"], 1)
             self.assertEqual(report["n_dropped"], 3)
             self.assertIn("Dropped 2 SNPs with missing CHR/POS", "\n".join(caught.output))
+            self.assertNotIn("missing_pos", "\n".join(caught.output))
+            self.assertEqual(
+                drop_frame["reason"].tolist(),
+                ["missing_coordinate", "missing_coordinate", "unmapped_liftover"],
+            )
+
+    def test_chain_liftover_drop_frame_contains_all_sumstats_reasons(self):
+        frame = pd.DataFrame(
+            {
+                "CHR": ["1", pd.NA, "1", "1", "1", "1", "1", "1", "1"],
+                "POS": [pd.NA, 150, 100, 100, 200, 300, 400, 500, 600],
+                "SNP": [
+                    "missing_pos",
+                    "missing_chr",
+                    "source_dup_a",
+                    "source_dup_b",
+                    "unmapped",
+                    "cross_chrom",
+                    "target_a",
+                    "target_b",
+                    "kept",
+                ],
+                "Z": [1.0] * 9,
+                "N": [100.0] * 9,
+            }
+        )
+        request = SumstatsLiftoverRequest(target_build="hg38", liftover_chain_file="chain.over")
+        fake_translator = mock.Mock()
+        fake_translator.map_positions.return_value = LiftOverMappingResult(
+            translated_positions=np.asarray([900, 900, 1600], dtype=np.int64),
+            keep_mask=np.asarray([False, False, True, True, True], dtype=bool),
+            unmapped_count=1,
+            cross_chrom_count=1,
+            unmapped_mask=np.asarray([True, False, False, False, False], dtype=bool),
+            cross_chrom_mask=np.asarray([False, True, False, False, False], dtype=bool),
+        )
+
+        with mock.patch("ldsc._kernel.liftover.LiftOverTranslator", return_value=fake_translator):
+            lifted, report, drop_frame = apply_sumstats_liftover(
+                frame,
+                request,
+                source_build="hg19",
+                snp_identifier="chr_pos",
+            )
+
+        self.assertEqual(lifted["SNP"].tolist(), ["kept"])
+        self.assertEqual(report["n_dropped"], 8)
+        self.assertEqual(
+            set(drop_frame["reason"]),
+            {
+                "missing_coordinate",
+                "source_duplicate",
+                "unmapped_liftover",
+                "cross_chromosome_liftover",
+                "target_collision",
+            },
+        )
+        self.assertEqual(drop_frame.columns.tolist(), ["CHR", "SNP", "source_pos", "target_pos", "reason"])
+        self.assertEqual({column: str(dtype) for column, dtype in drop_frame.dtypes.items()}, self.SIDEcar_DTYPES)
 
     def test_liftover_errors_after_missing_coordinate_drop_removes_everything(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -296,7 +367,7 @@ class SumstatsLiftoverTest(unittest.TestCase):
         frame = pd.DataFrame({"CHR": ["1"], "POS": [100], "SNP": ["rs1"], "Z": [1.0], "N": [100.0]})
         request = SumstatsLiftoverRequest()
 
-        lifted, report = apply_sumstats_liftover(
+        lifted, report, drop_frame = apply_sumstats_liftover(
             frame,
             request,
             source_build="hg38",
@@ -323,6 +394,9 @@ class SumstatsLiftoverTest(unittest.TestCase):
                 "n_duplicate_target_dropped": None,
             },
         )
+        self.assertEqual(drop_frame.columns.tolist(), ["CHR", "SNP", "source_pos", "target_pos", "reason"])
+        self.assertEqual(len(drop_frame), 0)
+        self.assertEqual({column: str(dtype) for column, dtype in drop_frame.dtypes.items()}, self.SIDEcar_DTYPES)
 
 
 if __name__ == "__main__":

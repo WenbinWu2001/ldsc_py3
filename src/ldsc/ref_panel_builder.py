@@ -22,12 +22,11 @@ expert-oriented overwrite contract: ``overwrite=True`` permits replacing
 candidate artifacts for the current chromosome/build set but does not remove
 stale optional target-build or ``dropped_snps`` siblings from earlier
 configurations. Use a fresh output directory when changing emitted builds,
-liftover configuration, duplicate-position policy, or chromosome scope.
+liftover/coordinate configuration, or chromosome scope.
 Reference-panel liftover keeps the historical source-build plus optional
 opposite-build UX, but matching chain files are valid only when the active
 identifier mode is ``chr_pos``. Duplicate-position handling is likewise
-``chr_pos``-only and writes only duplicate-drop sidecars; liftover drop details
-belong in the workflow log.
+``chr_pos``-only and uses drop-all for coordinate collisions.
 """
 
 from __future__ import annotations
@@ -64,6 +63,7 @@ from ._kernel import identifiers as kernel_identifiers
 from ._kernel import ldscore as kernel_ldscore
 from ._kernel import ref_panel_builder as kernel_builder
 from ._kernel.liftover import (
+    LIFTOVER_DROP_COLUMNS,
     duplicate_coordinate_drop_result,
     liftover_drop_report,
     log_liftover_drop_report,
@@ -157,8 +157,91 @@ def _expected_ref_panel_output_paths(config: ReferencePanelBuildConfig, chromoso
                     out_root / build / f"chr{chrom}_meta.tsv.gz",
                 ]
             )
+        # The per-chromosome dropped-SNP sidecar is class-1: always written
+        # for every chromosome this invocation processes, even when header-only.
         paths.append(out_root / "dropped_snps" / f"chr{chrom}_dropped.tsv.gz")
     return paths
+
+
+def _empty_unified_drop_frame() -> pd.DataFrame:
+    """Return the canonical empty dropped-SNP sidecar frame."""
+    return pd.DataFrame(
+        {
+            "CHR": pd.Series(dtype="string"),
+            "SNP": pd.Series(dtype="string"),
+            "source_pos": pd.Series(dtype="Int64"),
+            "target_pos": pd.Series(dtype="Int64"),
+            "reason": pd.Series(dtype="string"),
+        },
+        columns=LIFTOVER_DROP_COLUMNS,
+    )
+
+
+def _coerce_unified_drop_frame(frame: pd.DataFrame | None) -> pd.DataFrame:
+    """Return dropped-SNP rows with the unified nullable sidecar schema."""
+    if frame is None:
+        return _empty_unified_drop_frame()
+    output = frame.copy()
+    for column in LIFTOVER_DROP_COLUMNS:
+        if column not in output.columns:
+            output[column] = pd.NA
+    output = output.loc[:, LIFTOVER_DROP_COLUMNS]
+    output["CHR"] = output["CHR"].astype("string")
+    output["SNP"] = output["SNP"].astype("string")
+    output["source_pos"] = pd.to_numeric(output["source_pos"], errors="coerce").astype("Int64")
+    output["target_pos"] = pd.to_numeric(output["target_pos"], errors="coerce").astype("Int64")
+    output["reason"] = output["reason"].astype("string")
+    return output.reset_index(drop=True)
+
+
+def _concat_drop_frames(frames: Sequence[pd.DataFrame]) -> pd.DataFrame:
+    """Concatenate sidecar rows while preserving the unified nullable schema."""
+    non_empty = [frame for frame in frames if frame is not None and not frame.empty]
+    if not non_empty:
+        return _empty_unified_drop_frame()
+    return _coerce_unified_drop_frame(pd.concat(non_empty, ignore_index=True))
+
+
+def _warn_stale_class2_artifacts(output_dir: Path, expected_paths: Sequence[Path]) -> None:
+    """Warn when prior ref-panel parquet/meta artifacts are outside this run.
+
+    The helper only inspects workflow-owned class-2 territory under ``hg19/``
+    and ``hg38/``. It never deletes files; it emits one warning so users can
+    detect accidental mixed-output directories before chromosome processing.
+    """
+    expected = {str(Path(path)) for path in expected_paths}
+    stale: list[Path] = []
+    for build_subdir_name in ("hg19", "hg38"):
+        build_subdir = output_dir / build_subdir_name
+        if not build_subdir.is_dir():
+            continue
+        for pattern in ("chr*_r2.parquet", "chr*_meta.tsv.gz"):
+            for path in build_subdir.glob(pattern):
+                if str(path) not in expected:
+                    stale.append(path)
+    if not stale:
+        return
+    stale_sorted = sorted(stale, key=lambda path: str(path))
+    shown = stale_sorted[:10]
+    path_lines = "\n".join(f"  {path}" for path in shown)
+    if len(stale_sorted) > 10:
+        path_lines = f"{path_lines}\n  ... and {len(stale_sorted) - 10} more"
+    LOGGER.warning(
+        "Found %d pre-existing reference-panel artifacts in '%s' that this run "
+        "will NOT touch. If those came from a previous run with different "
+        "configuration (different chromosome scope, source build, liftover "
+        "settings, MAF filter, etc.), downstream tools that load this directory "
+        "as a complete reference panel will silently see a mix of two different "
+        "builds. If this is an intentional chromosome-by-chromosome batch with "
+        "consistent configuration, no action is needed.\n\n"
+        "To remove the silent-mix risk, either:\n"
+        "  (a) start fresh with a new --output-dir, or\n"
+        "  (b) delete the listed files before re-running.\n\n"
+        "Pre-existing artifacts not produced by this run:\n%s",
+        len(stale_sorted),
+        output_dir,
+        path_lines,
+    )
 
 
 class ReferencePanelBuilder:
@@ -235,6 +318,10 @@ class ReferencePanelBuilder:
             overwrite=config.overwrite,
             label="reference-panel output artifact",
         )
+        # Class-1 sidecars are always written by this run. Class-2 r2/meta
+        # siblings from other chromosome/build scopes are not removed here;
+        # warn early so users can choose fresh output dirs or manual cleanup.
+        _warn_stale_class2_artifacts(Path(config.output_dir), preflight_paths)
 
         with workflow_logging("build-ref-panel", workflow_log_path, log_level=self.global_config.log_level):
             log_inputs(
@@ -244,7 +331,7 @@ class ReferencePanelBuilder:
             )
             if snp_identifier_mode == "rsid" and len(_emitted_genome_builds(config)) == 1:
                 LOGGER.info(
-                    "duplicate_position_policy applies only when snp_identifier='chr_pos'; "
+                    "Coordinate duplicate filtering applies only when snp_identifier='chr_pos'; "
                     "keeping duplicate CHR/POS rows in rsid source-only reference-panel builds."
                 )
             chrom_records: list[tuple[str, dict[str, str]]] = []
@@ -441,8 +528,15 @@ class ReferencePanelBuilder:
         config: ReferencePanelBuildConfig,
         build_state: _BuildState,
     ) -> dict[str, str] | None:
-        """Build all parquet and metadata artifacts for one chromosome."""
+        """Build all parquet and metadata artifacts for one chromosome.
+
+        The per-chromosome dropped-SNP sidecar is always written for any
+        chromosome this method is invoked on. Reason rows cover liftover-stage
+        drops only; restriction-file and PLINK filtering drops are outside that
+        audit vocabulary.
+        """
         LOGGER.info(f"Building reference-panel artifacts for chromosome {chrom} from '{prefix}'.")
+        sidecar_path = Path(config.output_dir) / "dropped_snps" / f"chr{chrom}_dropped.tsv.gz"
         bim = legacy_parse.PlinkBIMFile(prefix + ".bim")
         fam = legacy_parse.PlinkFAMFile(prefix + ".fam")
         panel_df = bim.df.copy()
@@ -465,6 +559,7 @@ class ReferencePanelBuilder:
             )
             keep_snps = chrom_df.index[keep_mask].to_numpy(dtype=int)
             if len(keep_snps) == 0:
+                _write_dropped_sidecar(_empty_unified_drop_frame(), sidecar_path, chrom)
                 LOGGER.info(f"Skipping chromosome {chrom} because no SNPs remain after restriction.")
                 return None
 
@@ -477,24 +572,24 @@ class ReferencePanelBuilder:
                 keep_snps=keep_snps,
                 hg19_lookup={},
                 hg38_lookup={},
-                policy=config.duplicate_position_policy,
             )
             if not source_duplicate_df.empty:
                 dropped_frames.append(source_duplicate_df)
             if len(keep_snps) == 0:
-                dropped_df = pd.concat(dropped_frames, ignore_index=True)
-                sidecar_path = Path(config.output_dir) / "dropped_snps" / f"chr{chrom}_dropped.tsv.gz"
+                dropped_df = _concat_drop_frames(dropped_frames)
                 _write_dropped_sidecar(dropped_df, sidecar_path, chrom)
                 LOGGER.info(f"Skipping chromosome {chrom}: no SNPs remain after duplicate-position filtering.")
                 return None
 
-        keep_snps, hg19_lookup, hg38_lookup = self._resolve_mappable_snp_positions(
+        keep_snps, hg19_lookup, hg38_lookup, liftover_drop_frame = self._resolve_mappable_snp_positions(
             build_state=build_state,
             chrom=chrom,
             source_build=config.source_genome_build,
             chrom_df=chrom_df,
             keep_snps=keep_snps,
         )
+        if not liftover_drop_frame.empty:
+            dropped_frames.append(liftover_drop_frame)
         if duplicate_policy_applies:
             keep_snps, target_duplicate_df = _resolve_unique_snp_set(
                 chrom=chrom,
@@ -502,20 +597,13 @@ class ReferencePanelBuilder:
                 keep_snps=keep_snps,
                 hg19_lookup=hg19_lookup,
                 hg38_lookup=hg38_lookup,
-                policy=config.duplicate_position_policy,
             )
             if not target_duplicate_df.empty:
                 dropped_frames.append(target_duplicate_df)
-            dropped_df = (
-                pd.concat(dropped_frames, ignore_index=True)
-                if dropped_frames
-                else pd.DataFrame(columns=["CHR", "SNP", "source_pos", "target_pos", "reason"])
-            )
+            dropped_df = _concat_drop_frames(dropped_frames)
         else:
-            dropped_df = pd.DataFrame(columns=["CHR", "SNP", "source_pos", "target_pos", "reason"])
-        if not dropped_df.empty:
-            sidecar_path = Path(config.output_dir) / "dropped_snps" / f"chr{chrom}_dropped.tsv.gz"
-            _write_dropped_sidecar(dropped_df, sidecar_path, chrom)
+            dropped_df = _concat_drop_frames(dropped_frames)
+        _write_dropped_sidecar(dropped_df, sidecar_path, chrom)
         if len(keep_snps) == 0:
             LOGGER.info(f"Skipping chromosome {chrom}: no SNPs remain after duplicate-position filtering.")
             return None
@@ -624,8 +712,14 @@ class ReferencePanelBuilder:
         source_build: str,
         chrom_df,
         keep_snps,
-    ) -> tuple[Any, dict[int, int], dict[int, int]]:
-        """Resolve retained SNP positions, applying liftover only when configured."""
+    ) -> tuple[Any, dict[int, int], dict[int, int], pd.DataFrame]:
+        """Resolve retained SNP positions and liftover-stage dropped-SNP rows.
+
+        Returns retained PLINK row indices, source/target build position
+        lookups, and a unified nullable sidecar frame for unmapped or
+        cross-chromosome chain liftover drops. Source-only builds return an
+        empty sidecar frame with the same schema.
+        """
         keep_snps = list(keep_snps)
         candidate_positions = chrom_df.loc[keep_snps, "BP"].to_numpy(dtype=int)
         if source_build == "hg19":
@@ -635,7 +729,7 @@ class ReferencePanelBuilder:
                     int(idx): int(pos)
                     for idx, pos in zip(retained_snps, candidate_positions)
                 }
-                return retained_snps, hg19_lookup, {}
+                return retained_snps, hg19_lookup, {}, _empty_unified_drop_frame()
             mapping = self._map_positions(build_state, chrom, candidate_positions, "hg19", "hg38")
             retained_snps = np.asarray(keep_snps, dtype=int)[mapping.keep_mask]
             hg19_lookup = {
@@ -653,7 +747,7 @@ class ReferencePanelBuilder:
                     int(idx): int(pos)
                     for idx, pos in zip(retained_snps, candidate_positions)
                 }
-                return retained_snps, {}, hg38_lookup
+                return retained_snps, {}, hg38_lookup, _empty_unified_drop_frame()
             mapping = self._map_positions(build_state, chrom, candidate_positions, "hg38", "hg19")
             retained_snps = np.asarray(keep_snps, dtype=int)[mapping.keep_mask]
             hg38_lookup = {
@@ -666,6 +760,7 @@ class ReferencePanelBuilder:
             }
 
         dropped = len(keep_snps) - len(retained_snps)
+        liftover_drop_frame = _empty_unified_drop_frame()
         if dropped:
             drop_frame = pd.DataFrame(
                 {
@@ -676,12 +771,38 @@ class ReferencePanelBuilder:
                 index=keep_snps,
             )
             unmapped_mask, cross_chrom_mask = mapping_reason_masks(mapping)
+            liftover_drop_frame = _concat_drop_frames(
+                [
+                    _coerce_unified_drop_frame(
+                        pd.DataFrame(
+                            {
+                                "CHR": [chrom] * int(unmapped_mask.sum()),
+                                "SNP": drop_frame.loc[unmapped_mask, "SNP"].astype(str).tolist(),
+                                "source_pos": drop_frame.loc[unmapped_mask, "source_POS"].tolist(),
+                                "target_pos": [pd.NA] * int(unmapped_mask.sum()),
+                                "reason": ["unmapped_liftover"] * int(unmapped_mask.sum()),
+                            }
+                        )
+                    ),
+                    _coerce_unified_drop_frame(
+                        pd.DataFrame(
+                            {
+                                "CHR": [chrom] * int(cross_chrom_mask.sum()),
+                                "SNP": drop_frame.loc[cross_chrom_mask, "SNP"].astype(str).tolist(),
+                                "source_pos": drop_frame.loc[cross_chrom_mask, "source_POS"].tolist(),
+                                "target_pos": [pd.NA] * int(cross_chrom_mask.sum()),
+                                "reason": ["cross_chromosome_liftover"] * int(cross_chrom_mask.sum()),
+                            }
+                        )
+                    ),
+                ]
+            )
             log_liftover_drop_report(
                 LOGGER,
                 liftover_drop_report(
                     drop_frame,
                     unmapped_mask,
-                    reason="unmapped liftover",
+                    reason="unmapped_liftover",
                     source_pos_col="source_POS",
                 ),
                 workflow_label="Reference-panel liftover",
@@ -691,7 +812,7 @@ class ReferencePanelBuilder:
                 liftover_drop_report(
                     drop_frame,
                     cross_chrom_mask,
-                    reason="cross-chromosome liftover",
+                    reason="cross_chromosome_liftover",
                     source_pos_col="source_POS",
                 ),
                 workflow_label="Reference-panel liftover",
@@ -701,7 +822,7 @@ class ReferencePanelBuilder:
                 f"({mapping.unmapped_count} unmapped, {mapping.cross_chrom_count} cross-chromosome)."
             )
             LOGGER.warning(message)
-        return retained_snps, hg19_lookup, hg38_lookup
+        return retained_snps, hg19_lookup, hg38_lookup, liftover_drop_frame
 
     def _map_positions(
         self,
@@ -996,13 +1117,13 @@ def _resolve_unique_snp_set(
     keep_snps: np.ndarray,
     hg19_lookup: dict[int, int],
     hg38_lookup: dict[int, int],
-    policy: str,
 ) -> tuple[np.ndarray, pd.DataFrame]:
     """Detect and resolve duplicate coordinate groups for chr_pos panel builds.
 
     Source duplicates are detectable before liftover. Target collisions are
-    checked after position lookups are available. The returned provenance frame
-    preserves the existing duplicate-only sidecar schema.
+    checked after position lookups are available. Duplicate groups are always
+    resolved with drop-all, and returned rows use the shared dropped-SNP
+    sidecar schema.
     """
     keep_list = keep_snps.tolist()
     drop_set: set[int] = set()
@@ -1024,18 +1145,6 @@ def _resolve_unique_snp_set(
     )
     source_dup_mask = ~source_dup_result.keep_mask
     if source_dup_mask.any():
-        if policy == "error":
-            dup_positions = sorted(set(source_pos[source_dup_mask]))
-            lines = []
-            for pos in dup_positions:
-                for idx, source_bp in zip(keep_list, source_pos):
-                    if source_bp == pos:
-                        lines.append(f"    CHR={chrom} source_pos={pos} SNP={chrom_df.loc[idx, 'SNP']}")
-            raise ValueError(
-                f"source-build duplicate CHR:POS on chromosome {chrom}. "
-                "Use --duplicate-position-policy=drop-all to drop colliding clusters.\n"
-                + "\n".join(lines)
-            )
         for i, idx in enumerate(keep_list):
             if source_dup_mask[i]:
                 drop_set.add(int(idx))
@@ -1073,22 +1182,6 @@ def _resolve_unique_snp_set(
         target_dup_mask = ~target_dup_result.keep_mask
         if not target_dup_mask.any():
             continue
-        if policy == "error":
-            target_array = np.asarray(target_pos, dtype=int)
-            dup_positions = sorted(set(target_array[target_dup_mask]))
-            lines = []
-            for pos in dup_positions:
-                for idx, target_bp in zip(source_survivors, target_pos):
-                    if target_bp == pos:
-                        lines.append(
-                            f"    CHR={chrom} source_pos={chrom_df.loc[idx, 'BP']} "
-                            f"target_pos={pos} SNP={chrom_df.loc[idx, 'SNP']}"
-                        )
-            raise ValueError(
-                f"target-build collision CHR:POS on chromosome {chrom}. "
-                "Use --duplicate-position-policy=drop-all to drop colliding clusters.\n"
-                + "\n".join(lines)
-            )
         for i, idx in enumerate(source_survivors):
             if target_dup_mask[i] and idx not in drop_set:
                 drop_set.add(int(idx))
@@ -1113,16 +1206,19 @@ def _resolve_unique_snp_set(
 
 
 def _write_dropped_sidecar(dropped_df: pd.DataFrame, path: Path, chrom: str) -> None:
-    """Write a provenance sidecar for dropped duplicate-position SNPs."""
+    """Write the always-owned dropped-SNP audit sidecar for one chromosome."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    dropped_df.to_csv(path, sep="\t", index=False, compression="gzip")
+    dropped_df = _coerce_unified_drop_frame(dropped_df)
+    dropped_df.to_csv(path, sep="\t", index=False, compression="gzip", na_rep="")
     n_dropped = len(dropped_df)
-    n_source = int((dropped_df["reason"] == "source_duplicate").sum())
-    n_target = int((dropped_df["reason"] == "target_collision").sum())
-    LOGGER.warning(
-        f"Dropped {n_dropped} SNPs on chromosome {chrom} due to duplicate positions "
-        f"({n_source} source-build duplicates, {n_target} target-build collisions). "
-        f"Provenance written to '{path}'."
+    if n_dropped == 0:
+        LOGGER.info(f"No SNPs dropped on chromosome {chrom}; audit sidecar at '{path}'.")
+        return
+    counts = dropped_df["reason"].value_counts(sort=False)
+    count_text = ", ".join(f"{reason}={int(count)}" for reason, count in counts.items())
+    LOGGER.info(
+        f"Reference-panel liftover-stage drops: {n_dropped} SNPs on chromosome {chrom} "
+        f"({count_text}); audit sidecar at '{path}'."
     )
 
 
@@ -1195,17 +1291,6 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         help=argparse.SUPPRESS,
     )
-    parser.add_argument(
-        "--duplicate-position-policy",
-        default="drop-all",
-        choices=("error", "drop-all"),
-        help=(
-            "How to handle SNPs that share a CHR:POS key in any emitted build. "
-            "'drop-all' drops every SNP in each colliding cluster and writes a "
-            "provenance sidecar to {output_dir}/dropped_snps/chr{chrom}_dropped.tsv.gz (default). "
-            "'error' aborts and reports all duplicate clusters. Ignored in rsid source-only builds."
-        ),
-    )
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"))
     return parser
 
@@ -1247,7 +1332,6 @@ def config_from_args(args: argparse.Namespace) -> tuple[ReferencePanelBuildConfi
         ref_panel_snps_file=args.ref_panel_snps_file,
         keep_indivs_file=args.keep_indivs_file,
         snp_batch_size=args.snp_batch_size,
-        duplicate_position_policy=args.duplicate_position_policy,
     )
     global_config = GlobalConfig(
         snp_identifier=snp_identifier,

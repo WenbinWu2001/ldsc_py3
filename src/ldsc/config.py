@@ -439,16 +439,10 @@ class ReferencePanelBuildConfig:
         may improve throughput but use more memory. Default is ``128``.
     overwrite : bool, optional
         If ``True``, replace current candidate panel artifacts. This expert
-        workflow does not clean stale optional target-build or ``dropped_snps``
-        siblings from earlier configurations. If ``False``, output collisions
-        raise before chromosome processing starts. Default is ``False``.
-    duplicate_position_policy : {"drop-all", "error"}, optional
-        Policy for duplicate ``CHR/POS`` groups in ``chr_pos`` reference-panel
-        builds. ``"drop-all"`` drops every SNP in each source or target
-        coordinate collision and writes duplicate-only provenance under
-        ``dropped_snps``. ``"error"`` raises instead. The policy is ignored in
-        ``rsid`` source-only builds because row identity is the SNP label.
-        Default is ``"drop-all"``.
+        workflow does not clean stale optional target-build, out-of-scope
+        chromosome, or ``dropped_snps`` siblings from earlier configurations.
+        If ``False``, output collisions raise before chromosome processing
+        starts. Default is ``False``.
     """
 
     plink_prefix: str | PathLike[str]
@@ -466,7 +460,6 @@ class ReferencePanelBuildConfig:
     keep_indivs_file: str | PathLike[str] | None = None
     snp_batch_size: int = 128
     overwrite: bool = False
-    duplicate_position_policy: str = "drop-all"
 
     def __post_init__(self) -> None:
         """Normalize build paths and validate liftover and LD-window settings."""
@@ -509,11 +502,6 @@ class ReferencePanelBuildConfig:
             raise ValueError("maf_min must lie in [0, 0.5].")
         if self.snp_batch_size <= 0:
             raise ValueError("snp_batch_size must be positive.")
-        if self.duplicate_position_policy not in {"error", "drop-all"}:
-            raise ValueError(
-                "duplicate_position_policy must be 'error' or 'drop-all', "
-                f"got {self.duplicate_position_policy!r}."
-            )
 
 
 @dataclass(frozen=True)

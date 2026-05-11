@@ -511,19 +511,98 @@ def preflight_output_artifact_family(
 ) -> list[Path]:
     """Preflight an owned output artifact family and return stale siblings.
 
-    ``produced_paths`` is the subset written by this invocation. ``owned_paths``
-    is the full fixed family controlled by the workflow. Without overwrite, any
-    existing owned artifact raises before writing starts. With overwrite,
-    current outputs may be replaced and existing owned siblings that will not be
-    produced are returned for post-success cleanup.
+    Parameters
+    ----------
+    produced_paths : iterable of str or os.PathLike
+        Paths the **current invocation** will actually write. This subset
+        depends on the run's flags (e.g., output format, conditional sidecars).
+        Paths here are exempt from the overwrite-protection check because they
+        are about to be replaced by the current run.
+    owned_paths : iterable of str or os.PathLike
+        Every path the workflow could write under any configuration — its
+        stable "territory" inside the output directory. This is the union
+        across every supported flag combination, including conditional
+        sidecars that fire only on some runs. ``produced_paths`` is always a
+        subset of ``owned_paths``.
+    overwrite : bool, optional
+        If ``False``, refuse to start the run when any owned path already
+        exists on disk. If ``True``, allow the run to overwrite produced paths
+        and return stale-sibling paths for post-success cleanup. Default is
+        ``False``.
+
+    Returns
+    -------
+    list of pathlib.Path
+        With ``overwrite=False``: always ``[]`` (the function either passed
+        the existence check or raised). With ``overwrite=True``: paths that
+        are owned by the workflow, exist on disk, and are **not** in
+        ``produced_paths`` — i.e., leftovers from a previous run with
+        different flags that should be removed by
+        :func:`remove_output_artifacts` after the current run succeeds.
+
+    Raises
+    ------
+    FileExistsError
+        If ``overwrite=False`` and at least one owned path already exists on
+        disk.
+
+    Notes
+    -----
+    Why two lists instead of one — the ``owned_paths`` / ``produced_paths``
+    split is the core mechanism for safe stale cleanup across runs with
+    different flag combinations. A single list cannot express both "the
+    workflow controls this path" and "the current run will write this path,"
+    and conflating them produces silent bugs:
+
+    - Listing only what the run *produces* loses stale-cleanup ability: a
+      file written by an earlier run with a different flag combination would
+      survive forever, because the current run does not know to claim it.
+    - Listing the entire family as *produced* makes the preflight refuse to
+      overwrite siblings the current run is not actually touching, and
+      removes stale-cleanup ability entirely (every owned path is "produced"
+      and therefore exempt from the cleanup return list at the bottom of
+      this function).
+    - Conditionally written artifacts (sidecars or alternate formats that fire
+      only on some runs)
+      must always be in ``owned_paths`` so a stale copy from a prior run is
+      detected and either blocks the run (no-overwrite) or gets cleaned up
+      (overwrite). They must be in ``produced_paths`` only when the current
+      run will actually write them, so a clean re-run that no longer needs
+      the sidecar correctly identifies the old file as stale and removes it.
+      Always-written audit sidecars belong in both lists on every invocation,
+      including clean runs that write only a header row.
+
+    Concrete example. Run A writes ``output_format='both'`` so both
+    ``sumstats.parquet`` and ``sumstats.sumstats.gz`` exist. Run B reuses
+    the directory with ``output_format='parquet' --overwrite`` and produces
+    only ``sumstats.parquet``. The leftover ``sumstats.sumstats.gz`` is in
+    ``owned_paths`` (workflow controls it) but not in ``produced_paths``
+    (this run is not writing it), so it is returned here and unlinked by
+    :func:`remove_output_artifacts`.
+
+    For always-written audit sidecars such as the current
+    ``dropped_snps/dropped.tsv.gz`` sumstats liftover sidecar, include the path
+    in both ``owned_paths`` and ``produced_paths`` unconditionally. A clean run
+    still produces a header-only file, so the prior sidecar is replaced in
+    place rather than treated as a stale conditional artifact.
     """
     produced = _dedupe_paths(Path(normalize_path_token(path)) for path in produced_paths)
     owned = _dedupe_paths(Path(normalize_path_token(path)) for path in owned_paths)
     if not overwrite:
+        # No-overwrite contract: any owned path on disk is a hard collision,
+        # whether or not the current run intended to produce it. This is what
+        # makes a conditional sidecar from a prior run still block a fresh run
+        # without --overwrite.
         existing = [path for path in owned if path.exists()]
         if existing:
             raise FileExistsError(_format_output_collision_message(existing, label=label))
         return []
+    # Overwrite contract: paths the current run will produce get replaced in
+    # place by the writers; everything else the workflow owns that exists on
+    # disk is stale (left over from a previous run with different flags) and
+    # is returned here for the caller to feed into remove_output_artifacts().
+    # Membership test uses produced_set so a path declared as "produced" is
+    # never reported as stale, even if both lists contain it.
     produced_set = set(produced)
     return [path for path in owned if path.exists() and path not in produced_set]
 

@@ -962,7 +962,7 @@ def _apply_liftover_if_requested(dat, args):
     """Apply optional summary-statistics liftover after source-build filters."""
     coordinate_metadata = dict(getattr(args, '_coordinate_metadata', {}))
     request = getattr(args, '_liftover_request', None) or SumstatsLiftoverRequest()
-    dat, liftover_report = apply_sumstats_liftover(
+    dat, liftover_report, liftover_drop_frame = apply_sumstats_liftover(
         dat,
         request,
         source_build=coordinate_metadata.get('genome_build', getattr(args, 'genome_build', None)),
@@ -970,6 +970,7 @@ def _apply_liftover_if_requested(dat, args):
         logger=LOGGER,
     )
     coordinate_metadata['liftover'] = liftover_report
+    coordinate_metadata['liftover_drop_frame'] = liftover_drop_frame
     if liftover_report.get('applied'):
         coordinate_metadata['genome_build'] = liftover_report['target_build']
     args._coordinate_metadata = coordinate_metadata

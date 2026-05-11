@@ -186,9 +186,10 @@ def _log_drop_report(report: CoordinateDropReport, *, logger: logging.Logger | N
         return
     logger.log(
         level,
-        "Dropped %d SNPs with missing CHR/POS in %s; %d rows remain. Examples: %s",
+        "Dropped %d SNPs with missing CHR/POS in %s; %d rows remain.",
         report.n_dropped,
         report.context,
         report.n_retained,
-        report.examples,
     )
+    if report.examples:
+        logger.debug("Example rows dropped for missing CHR/POS in %s: %s", report.context, report.examples)

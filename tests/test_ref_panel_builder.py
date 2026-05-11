@@ -700,7 +700,7 @@ class ReferencePanelBuildConfigOptionalLiftoverTest(unittest.TestCase):
         self.assertEqual(config.liftover_chain_hg38_to_hg19_file, "chains/hg38ToHg19.over.chain")
 
 
-class ReferencePanelBuildConfigDuplicatePolicyTest(unittest.TestCase):
+class ReferencePanelBuildConfigNoDuplicatePolicyTest(unittest.TestCase):
     def _base_config(self, **kwargs):
         return ReferencePanelBuildConfig(
             plink_prefix="plink/panel.@",
@@ -710,17 +710,13 @@ class ReferencePanelBuildConfigDuplicatePolicyTest(unittest.TestCase):
             **kwargs,
         )
 
-    def test_default_policy_is_drop_all(self):
+    def test_duplicate_position_policy_field_is_removed(self):
         config = self._base_config()
-        self.assertEqual(config.duplicate_position_policy, "drop-all")
+        self.assertFalse(hasattr(config, "duplicate_position_policy"))
 
-    def test_drop_all_policy_is_accepted(self):
-        config = self._base_config(duplicate_position_policy="drop-all")
-        self.assertEqual(config.duplicate_position_policy, "drop-all")
-
-    def test_invalid_policy_raises(self):
-        with self.assertRaisesRegex(ValueError, "duplicate_position_policy"):
-            self._base_config(duplicate_position_policy="keep-one")
+    def test_duplicate_position_policy_constructor_argument_is_rejected(self):
+        with self.assertRaises(TypeError):
+            self._base_config(duplicate_position_policy="drop-all")
 
 
 class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
@@ -762,30 +758,19 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
         build_config, _ = ref_panel_builder.config_from_args(args)
         self.assertEqual(build_config.snp_batch_size, 64)
 
-    def test_build_parser_defaults_duplicate_position_policy_to_drop_all(self):
+    def test_build_parser_help_does_not_include_duplicate_position_policy(self):
         parser = ref_panel_builder.build_parser()
-        self.assertEqual(parser.get_default("duplicate_position_policy"), "drop-all")
+        self.assertNotIn("--duplicate-position-policy", parser.format_help())
 
-    def test_build_parser_accepts_drop_all_policy(self):
+    def test_build_parser_rejects_duplicate_position_policy(self):
         parser = ref_panel_builder.build_parser()
-        args = parser.parse_args([
-            "--plink-prefix", "plink/panel.@",
-            "--output-dir", "out",
-            "--ld-wind-kb", "1",
-            "--duplicate-position-policy", "drop-all",
-        ])
-        self.assertEqual(args.duplicate_position_policy, "drop-all")
-
-    def test_config_from_args_passes_policy_to_config(self):
-        parser = ref_panel_builder.build_parser()
-        args = parser.parse_args([
-            "--plink-prefix", "plink/panel.@",
-            "--output-dir", "out",
-            "--ld-wind-kb", "1",
-            "--duplicate-position-policy", "drop-all",
-        ])
-        build_config, _ = ref_panel_builder.config_from_args(args)
-        self.assertEqual(build_config.duplicate_position_policy, "drop-all")
+        with self.assertRaises(SystemExit):
+            parser.parse_args([
+                "--plink-prefix", "plink/panel.@",
+                "--output-dir", "out",
+                "--ld-wind-kb", "1",
+                "--duplicate-position-policy", "drop-all",
+            ])
 
     def test_build_parser_does_not_accept_genome_build(self):
         parser = ref_panel_builder.build_parser()
@@ -987,7 +972,7 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
             )
 
 
-class DuplicatePositionPolicyTest(unittest.TestCase):
+class DuplicatePositionDropAllTest(unittest.TestCase):
     """Unit tests for _resolve_unique_snp_set()."""
 
     def _make_chrom_df(self, snp_ids, bps):
@@ -1003,29 +988,16 @@ class DuplicatePositionPolicyTest(unittest.TestCase):
         hg19 = {0: 100, 1: 200, 2: 300}
         hg38 = {0: 1000, 1: 2000, 2: 3000}
 
-        cleaned, dropped = ref_panel_builder._resolve_unique_snp_set(
-            "1", chrom_df, keep, hg19, hg38, "error"
-        )
+        cleaned, dropped = ref_panel_builder._resolve_unique_snp_set("1", chrom_df, keep, hg19, hg38)
 
         np.testing.assert_array_equal(cleaned, keep)
         self.assertTrue(dropped.empty)
-
-    def test_source_duplicate_error_policy_raises(self):
-        chrom_df = self._make_chrom_df(["rs1", "rs2", "rs3"], [100, 100, 300])
-        keep = np.array([0, 1, 2])
-
-        with self.assertRaisesRegex(ValueError, "source-build duplicate"):
-            ref_panel_builder._resolve_unique_snp_set(
-                "1", chrom_df, keep, {0: 100, 1: 100, 2: 300}, {}, "error"
-            )
 
     def test_source_duplicate_drop_all_removes_cluster(self):
         chrom_df = self._make_chrom_df(["rs1", "rs2", "rs3"], [100, 100, 300])
         keep = np.array([0, 1, 2])
 
-        cleaned, dropped = ref_panel_builder._resolve_unique_snp_set(
-            "1", chrom_df, keep, {0: 100, 1: 100, 2: 300}, {}, "drop-all"
-        )
+        cleaned, dropped = ref_panel_builder._resolve_unique_snp_set("1", chrom_df, keep, {0: 100, 1: 100, 2: 300}, {})
 
         np.testing.assert_array_equal(cleaned, np.array([2]))
         self.assertEqual(len(dropped), 2)
@@ -1033,25 +1005,13 @@ class DuplicatePositionPolicyTest(unittest.TestCase):
         self.assertTrue(dropped["target_pos"].isna().all())
         self.assertSetEqual(set(dropped["SNP"]), {"rs1", "rs2"})
 
-    def test_target_collision_error_policy_raises(self):
-        chrom_df = self._make_chrom_df(["rs1", "rs2", "rs3"], [100, 200, 300])
-        keep = np.array([0, 1, 2])
-        hg38 = {0: 5000, 1: 5000, 2: 6000}
-
-        with self.assertRaisesRegex(ValueError, "target-build collision"):
-            ref_panel_builder._resolve_unique_snp_set(
-                "1", chrom_df, keep, {0: 100, 1: 200, 2: 300}, hg38, "error"
-            )
-
     def test_target_collision_drop_all_removes_cluster_from_all_builds(self):
         chrom_df = self._make_chrom_df(["rs1", "rs2", "rs3"], [100, 200, 300])
         keep = np.array([0, 1, 2])
         hg19 = {0: 100, 1: 200, 2: 300}
         hg38 = {0: 5000, 1: 5000, 2: 6000}
 
-        cleaned, dropped = ref_panel_builder._resolve_unique_snp_set(
-            "1", chrom_df, keep, hg19, hg38, "drop-all"
-        )
+        cleaned, dropped = ref_panel_builder._resolve_unique_snp_set("1", chrom_df, keep, hg19, hg38)
 
         np.testing.assert_array_equal(cleaned, np.array([2]))
         self.assertEqual(len(dropped), 2)
@@ -1065,9 +1025,7 @@ class DuplicatePositionPolicyTest(unittest.TestCase):
         hg19 = {0: 5000, 1: 5000, 2: 6000}
         hg38 = {}
 
-        cleaned, dropped = ref_panel_builder._resolve_unique_snp_set(
-            "1", chrom_df, keep, hg19, hg38, "drop-all"
-        )
+        cleaned, dropped = ref_panel_builder._resolve_unique_snp_set("1", chrom_df, keep, hg19, hg38)
 
         np.testing.assert_array_equal(cleaned, np.array([2]))
         self.assertEqual(len(dropped), 2)
@@ -1079,9 +1037,7 @@ class DuplicatePositionPolicyTest(unittest.TestCase):
         hg19 = {0: 5000, 1: 5000, 2: 6000}
         hg38 = {0: 7000, 1: 7000, 2: 8000}
 
-        cleaned, dropped = ref_panel_builder._resolve_unique_snp_set(
-            "1", chrom_df, keep, hg19, hg38, "drop-all"
-        )
+        cleaned, dropped = ref_panel_builder._resolve_unique_snp_set("1", chrom_df, keep, hg19, hg38)
 
         np.testing.assert_array_equal(cleaned, np.array([2]))
         self.assertEqual(len(dropped), 2)
@@ -1091,9 +1047,7 @@ class DuplicatePositionPolicyTest(unittest.TestCase):
         chrom_df = self._make_chrom_df(["rs1", "rs2"], [100, 100])
         keep = np.array([0, 1])
 
-        cleaned, dropped = ref_panel_builder._resolve_unique_snp_set(
-            "1", chrom_df, keep, {0: 100, 1: 100}, {}, "drop-all"
-        )
+        cleaned, dropped = ref_panel_builder._resolve_unique_snp_set("1", chrom_df, keep, {0: 100, 1: 100}, {})
 
         self.assertEqual(len(cleaned), 0)
         self.assertEqual(len(dropped), 2)
@@ -1102,9 +1056,7 @@ class DuplicatePositionPolicyTest(unittest.TestCase):
         chrom_df = self._make_chrom_df(["rs1", "rs2", "rs3"], [100, 100, 300])
         keep = np.array([0, 1, 2])
 
-        _, dropped = ref_panel_builder._resolve_unique_snp_set(
-            "1", chrom_df, keep, {0: 100, 1: 100, 2: 300}, {}, "drop-all"
-        )
+        _, dropped = ref_panel_builder._resolve_unique_snp_set("1", chrom_df, keep, {0: 100, 1: 100, 2: 300}, {})
 
         self.assertListEqual(list(dropped.columns), ["CHR", "SNP", "source_pos", "target_pos", "reason"])
         self.assertEqual(dropped["CHR"].iloc[0], "1")
@@ -1113,6 +1065,17 @@ class DuplicatePositionPolicyTest(unittest.TestCase):
 
 
 class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
+    DROPPED_SNP_DTYPES = {
+        "CHR": "string",
+        "SNP": "string",
+        "source_pos": "Int64",
+        "target_pos": "Int64",
+        "reason": "string",
+    }
+
+    def _read_dropped_sidecar(self, path: Path) -> pd.DataFrame:
+        return pd.read_csv(path, sep="\t", compression="gzip", dtype=self.DROPPED_SNP_DTYPES)
+
     def _write_dummy_plink_prefix(self, root: Path, stem: str, chrom: str):
         prefix = root / stem
         Path(str(prefix) + ".bed").write_bytes(b"")
@@ -1148,38 +1111,6 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             ld_wind_kb=1.0,
         )
 
-    def test_error_policy_raises_on_source_build_duplicates(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            self._write_plink_prefix_rows(
-                tmpdir,
-                "panel.1",
-                [
-                    ("1", "rs1", 100),
-                    ("1", "rs2", 100),
-                    ("1", "rs3", 200),
-                ],
-            )
-            config = ReferencePanelBuildConfig(
-                plink_prefix=tmpdir / "panel.@",
-                source_genome_build="hg19",
-                output_dir=tmpdir / "out",
-                ld_wind_kb=1.0,
-                duplicate_position_policy="error",
-            )
-            builder = ref_panel_builder.ReferencePanelBuilder(
-                global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg19")
-            )
-
-            def fake_resolve(*, chrom_df, keep_snps, **_kwargs):
-                keep = np.asarray(keep_snps, dtype=int)
-                hg19 = {int(idx): int(chrom_df.loc[idx, "BP"]) for idx in keep}
-                return keep, hg19, {}
-
-            with mock.patch.object(builder, "_resolve_mappable_snp_positions", side_effect=fake_resolve):
-                with self.assertRaisesRegex(ValueError, "source-build duplicate"):
-                    builder.run(config)
-
     def test_drop_all_policy_writes_sidecar_under_dropped_snps(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -1197,7 +1128,6 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 source_genome_build="hg19",
                 output_dir=tmpdir / "out",
                 ld_wind_kb=1.0,
-                duplicate_position_policy="drop-all",
             )
             builder = ref_panel_builder.ReferencePanelBuilder(
                 global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg19")
@@ -1206,7 +1136,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             def fake_resolve(*, chrom_df, keep_snps, **_kwargs):
                 keep = np.asarray(keep_snps, dtype=int)
                 hg19 = {int(idx): int(chrom_df.loc[idx, "BP"]) for idx in keep}
-                return keep, hg19, {}
+                return keep, hg19, {}, ref_panel_builder._empty_unified_drop_frame()
 
             with mock.patch.object(
                 builder,
@@ -1225,7 +1155,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 mock_bed.return_value.n = 1
                 mock_bed.return_value.nextSNPs = lambda: iter([np.array([0.0])])
 
-                with self.assertLogs("LDSC.ref_panel_builder", level="WARNING") as log_ctx:
+                with self.assertLogs("LDSC.ref_panel_builder", level="INFO") as log_ctx:
                     builder.run(config)
 
             sidecar = tmpdir / "out" / "dropped_snps" / "chr1_dropped.tsv.gz"
@@ -1236,7 +1166,127 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             self.assertTrue((dropped_df["reason"] == "source_duplicate").all())
             self.assertTrue(any("chr1_dropped.tsv.gz" in line for line in log_ctx.output))
 
-    def test_rsid_source_only_build_ignores_duplicate_position_policy_once_per_run(self):
+    def test_resolve_mappable_snp_positions_returns_unmapped_and_cross_chromosome_drop_frame(self):
+        builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos"))
+        build_state = ref_panel_builder._BuildState(
+            genetic_map_hg19=None,
+            genetic_map_hg38=None,
+            liftover_chain_paths={("hg19", "hg38"): "chain.over"},
+        )
+        chrom_df = pd.DataFrame({"SNP": ["rs1", "rs2", "rs3"], "BP": [100, 200, 300]}, index=[0, 1, 2])
+        mapping = kernel_builder.LiftOverMappingResult(
+            translated_positions=np.asarray([1300], dtype=np.int64),
+            keep_mask=np.asarray([False, False, True], dtype=bool),
+            unmapped_count=1,
+            cross_chrom_count=1,
+            unmapped_mask=np.asarray([True, False, False], dtype=bool),
+            cross_chrom_mask=np.asarray([False, True, False], dtype=bool),
+        )
+
+        with mock.patch.object(builder, "_map_positions", return_value=mapping):
+            retained, hg19_lookup, hg38_lookup, drop_frame = builder._resolve_mappable_snp_positions(
+                build_state=build_state,
+                chrom="1",
+                source_build="hg19",
+                chrom_df=chrom_df,
+                keep_snps=np.array([0, 1, 2], dtype=int),
+            )
+
+        self.assertEqual(retained.tolist(), [2])
+        self.assertEqual(hg19_lookup, {2: 300})
+        self.assertEqual(hg38_lookup, {2: 1300})
+        self.assertEqual(drop_frame["reason"].tolist(), ["unmapped_liftover", "cross_chromosome_liftover"])
+        self.assertEqual({column: str(dtype) for column, dtype in drop_frame.dtypes.items()}, self.DROPPED_SNP_DTYPES)
+
+    def test_dropped_snps_sidecar_written_as_header_only_when_no_drops(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            self._write_plink_prefix_rows(tmpdir, "panel.1", [("1", "rs1", 100)])
+            config = ReferencePanelBuildConfig(
+                plink_prefix=tmpdir / "panel.@",
+                source_genome_build="hg19",
+                output_dir=tmpdir / "out",
+                ld_wind_kb=1.0,
+            )
+            builder = ref_panel_builder.ReferencePanelBuilder(
+                global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg19")
+            )
+
+            with mock.patch("ldsc.ref_panel_builder.kernel_builder.write_r2_parquet"), mock.patch(
+                "ldsc.ref_panel_builder.kernel_builder.write_runtime_metadata_sidecar"
+            ), mock.patch("ldsc.ref_panel_builder.kernel_ldscore.PlinkBEDFile") as mock_bed:
+                mock_bed.return_value.kept_snps = [0]
+                mock_bed.return_value.maf = np.array([0.3])
+                mock_bed.return_value.m = 1
+                mock_bed.return_value.n = 1
+                mock_bed.return_value.nextSNPs = lambda: iter([np.zeros((1, 1))])
+
+                builder.run(config)
+
+            sidecar = tmpdir / "out" / "dropped_snps" / "chr1_dropped.tsv.gz"
+            self.assertTrue(sidecar.exists())
+            dropped = self._read_dropped_sidecar(sidecar)
+            self.assertEqual(len(dropped), 0)
+            self.assertEqual(dropped.columns.tolist(), ["CHR", "SNP", "source_pos", "target_pos", "reason"])
+            self.assertEqual({column: str(dtype) for column, dtype in dropped.dtypes.items()}, self.DROPPED_SNP_DTYPES)
+
+    def test_dropped_snps_sidecar_overwritten_in_place_on_rerun(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            self._write_plink_prefix_rows(tmpdir, "panel.1", [("1", "rs1", 100)])
+            sidecar = tmpdir / "out" / "dropped_snps" / "chr1_dropped.tsv.gz"
+            sidecar.parent.mkdir(parents=True)
+            sidecar.write_text("stale\n", encoding="utf-8")
+            config = ReferencePanelBuildConfig(
+                plink_prefix=tmpdir / "panel.@",
+                source_genome_build="hg19",
+                output_dir=tmpdir / "out",
+                ld_wind_kb=1.0,
+                overwrite=True,
+            )
+            builder = ref_panel_builder.ReferencePanelBuilder(
+                global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg19")
+            )
+
+            with mock.patch("ldsc.ref_panel_builder.kernel_builder.write_r2_parquet"), mock.patch(
+                "ldsc.ref_panel_builder.kernel_builder.write_runtime_metadata_sidecar"
+            ), mock.patch("ldsc.ref_panel_builder.kernel_ldscore.PlinkBEDFile") as mock_bed:
+                mock_bed.return_value.kept_snps = [0]
+                mock_bed.return_value.maf = np.array([0.3])
+                mock_bed.return_value.m = 1
+                mock_bed.return_value.n = 1
+                mock_bed.return_value.nextSNPs = lambda: iter([np.zeros((1, 1))])
+
+                builder.run(config)
+
+            dropped = self._read_dropped_sidecar(sidecar)
+            self.assertEqual(len(dropped), 0)
+
+    def test_dropped_snps_sidecar_written_header_only_on_restriction_empty_skip(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            prefix = self._write_plink_prefix_rows(tmpdir, "panel.1", [("1", "rs1", 100)])
+            restriction = tmpdir / "restrict.tsv"
+            restriction.write_text("SNP\nrs_not_present\n", encoding="utf-8")
+            config = ReferencePanelBuildConfig(
+                plink_prefix=prefix,
+                source_genome_build="hg19",
+                output_dir=tmpdir / "out",
+                ld_wind_kb=1.0,
+                ref_panel_snps_file=restriction,
+            )
+            builder = ref_panel_builder.ReferencePanelBuilder(
+                global_config=GlobalConfig(snp_identifier="rsid")
+            )
+
+            with self.assertRaisesRegex(ValueError, "No chromosome artifacts"):
+                builder.run(config)
+
+            sidecar = tmpdir / "out" / "dropped_snps" / "chr1_dropped.tsv.gz"
+            self.assertTrue(sidecar.exists())
+            self.assertEqual(len(self._read_dropped_sidecar(sidecar)), 0)
+
+    def test_rsid_source_only_build_logs_coordinate_duplicate_filtering_skipped_once(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             self._write_plink_prefix_rows(
@@ -1261,7 +1311,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             def fake_resolve(*, chrom_df, keep_snps, **_kwargs):
                 keep = np.asarray(keep_snps, dtype=int)
                 hg19 = {int(idx): int(chrom_df.loc[idx, "BP"]) for idx in keep}
-                return keep, hg19, {}
+                return keep, hg19, {}, ref_panel_builder._empty_unified_drop_frame()
 
             with mock.patch.object(
                 builder,
@@ -1284,10 +1334,11 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                     result = builder.run(config)
 
             self.assertEqual(result.chromosomes, ["1"])
-            self.assertFalse((tmpdir / "out" / "dropped_snps" / "chr1_dropped.tsv.gz").exists())
+            self.assertTrue((tmpdir / "out" / "dropped_snps" / "chr1_dropped.tsv.gz").exists())
+            self.assertEqual(len(self._read_dropped_sidecar(tmpdir / "out" / "dropped_snps" / "chr1_dropped.tsv.gz")), 0)
             self.assertEqual(mock_bed.call_args.kwargs["keep_snps"], [0, 1, 2])
             messages = "\n".join(log_ctx.output)
-            self.assertEqual(messages.count("duplicate_position_policy applies only when snp_identifier='chr_pos'"), 1)
+            self.assertEqual(messages.count("Coordinate duplicate filtering applies only when snp_identifier='chr_pos'"), 1)
 
     def test_builder_run_rejects_matching_chain_in_rsid_mode(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1330,7 +1381,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             def fake_resolve(*, chrom_df, keep_snps, **_kwargs):
                 keep = np.asarray(keep_snps, dtype=int)
                 hg19 = {int(idx): int(chrom_df.loc[idx, "BP"]) for idx in keep}
-                return keep, hg19, {}
+                return keep, hg19, {}, ref_panel_builder._empty_unified_drop_frame()
 
             with mock.patch.object(
                 builder,
@@ -1353,7 +1404,8 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
 
             self.assertEqual(result.chromosomes, ["2"])
             self.assertTrue((tmpdir / "out" / "dropped_snps" / "chr1_dropped.tsv.gz").exists())
-            self.assertFalse((tmpdir / "out" / "dropped_snps" / "chr2_dropped.tsv.gz").exists())
+            self.assertTrue((tmpdir / "out" / "dropped_snps" / "chr2_dropped.tsv.gz").exists())
+            self.assertEqual(len(self._read_dropped_sidecar(tmpdir / "out" / "dropped_snps" / "chr2_dropped.tsv.gz")), 0)
 
     def test_builder_run_collects_artifact_paths_from_resolved_suite(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1623,7 +1675,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
         chrom_df = pd.DataFrame({"BP": [100]}, index=[4])
 
         with mock.patch.object(kernel_builder, "LiftOverTranslator") as patched:
-            retained, hg19_lookup, hg38_lookup = builder._resolve_mappable_snp_positions(
+            retained, hg19_lookup, hg38_lookup, drop_frame = builder._resolve_mappable_snp_positions(
                 build_state=build_state,
                 chrom="1",
                 source_build="hg19",
@@ -1635,6 +1687,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
         self.assertEqual(retained.tolist(), [4])
         self.assertEqual(hg19_lookup, {4: 100})
         self.assertEqual(hg38_lookup, {})
+        self.assertEqual(len(drop_frame), 0)
 
     def test_resolve_mappable_snp_positions_keeps_hg38_source_positions_without_chain(self):
         builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
@@ -1645,7 +1698,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
         )
         chrom_df = pd.DataFrame({"BP": [110]}, index=[7])
 
-        retained, hg19_lookup, hg38_lookup = builder._resolve_mappable_snp_positions(
+        retained, hg19_lookup, hg38_lookup, drop_frame = builder._resolve_mappable_snp_positions(
             build_state=build_state,
             chrom="1",
             source_build="hg38",
@@ -1656,6 +1709,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
         self.assertEqual(retained.tolist(), [7])
         self.assertEqual(hg19_lookup, {})
         self.assertEqual(hg38_lookup, {7: 110})
+        self.assertEqual(len(drop_frame), 0)
 
     def test_validate_emitted_chr_pos_rejects_liftover_collisions(self):
         metadata = pd.DataFrame(
@@ -1945,6 +1999,70 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
     _HAS_BITARRAY and _HAS_PYARROW,
     "bitarray and pyarrow are required for the source-only builder smoke test",
 )
+class RefPanelStaleClass2WarningTest(unittest.TestCase):
+    def test_warn_on_stale_class2_artifacts_logs_warning(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out = Path(tmpdir) / "out"
+            stale_r2 = out / "hg19" / "chr1_r2.parquet"
+            stale_meta = out / "hg19" / "chr1_meta.tsv.gz"
+            stale_r2.parent.mkdir(parents=True)
+            stale_r2.write_text("stale\n", encoding="utf-8")
+            stale_meta.write_text("stale\n", encoding="utf-8")
+            expected = [out / "hg19" / "chr6_r2.parquet", out / "hg19" / "chr6_meta.tsv.gz"]
+
+            with self.assertLogs("LDSC.ref_panel_builder", level="WARNING") as logs:
+                ref_panel_builder._warn_stale_class2_artifacts(out, expected)
+
+            self.assertEqual(len(logs.records), 1)
+            message = logs.records[0].getMessage()
+            self.assertIn(str(stale_r2), message)
+            self.assertIn(str(stale_meta), message)
+            self.assertIn("new --output-dir", message)
+            self.assertIn("delete the listed files", message)
+
+    def test_no_warn_when_run_paths_match_existing(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out = Path(tmpdir) / "out"
+            existing = out / "hg19" / "chr6_r2.parquet"
+            existing.parent.mkdir(parents=True)
+            existing.write_text("current\n", encoding="utf-8")
+
+            with mock.patch.object(ref_panel_builder.LOGGER, "warning") as warning:
+                ref_panel_builder._warn_stale_class2_artifacts(out, [existing])
+
+            warning.assert_not_called()
+
+    def test_warn_truncates_stale_list_at_ten_paths(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out = Path(tmpdir) / "out"
+            stale_dir = out / "hg19"
+            stale_dir.mkdir(parents=True)
+            for chrom in range(1, 16):
+                (stale_dir / f"chr{chrom}_r2.parquet").write_text("stale\n", encoding="utf-8")
+
+            with self.assertLogs("LDSC.ref_panel_builder", level="WARNING") as logs:
+                ref_panel_builder._warn_stale_class2_artifacts(out, [out / "hg19" / "chr16_r2.parquet"])
+
+            message = logs.records[0].getMessage()
+            self.assertEqual(message.count("_r2.parquet"), 10)
+            self.assertIn("... and 5 more", message)
+
+    def test_warn_ignores_class1_and_unknown_subdirectories(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out = Path(tmpdir) / "out"
+            dropped = out / "dropped_snps" / "chr1_dropped.tsv.gz"
+            scratch = out / "scratch" / "chr1_r2.parquet"
+            dropped.parent.mkdir(parents=True)
+            scratch.parent.mkdir(parents=True)
+            dropped.write_text("class1\n", encoding="utf-8")
+            scratch.write_text("unknown\n", encoding="utf-8")
+
+            with mock.patch.object(ref_panel_builder.LOGGER, "warning") as warning:
+                ref_panel_builder._warn_stale_class2_artifacts(out, [])
+
+            warning.assert_not_called()
+
+
 class ReferencePanelBuilderSourceOnlySmokeTest(unittest.TestCase):
     def test_hm3_chr22_subset_builds_source_only_without_liftover_chain_or_map(self):
         prefix = MINIMAL_EXTERNAL_FIXTURES / "plink" / "hm3_chr22_subset"

@@ -36,6 +36,28 @@ except ImportError:
 
 @unittest.skipIf(SumstatsMunger is None, "sumstats_munger module is not available")
 class SumstatsMungerTest(unittest.TestCase):
+    DROPPED_SNP_DTYPES = {
+        "CHR": "string",
+        "SNP": "string",
+        "source_pos": "Int64",
+        "target_pos": "Int64",
+        "reason": "string",
+    }
+
+    def _read_dropped_snps_sidecar(self, path: Path) -> pd.DataFrame:
+        return pd.read_csv(
+            path,
+            sep="\t",
+            compression="gzip",
+            dtype=self.DROPPED_SNP_DTYPES,
+        )
+
+    def _write_raw_sumstats(self, path: Path) -> None:
+        path.write_text("SNP A1 A2 P BETA N\nrs1 A G 0.05 0.1 1000\n", encoding="utf-8")
+
+    def _fake_munged_frame(self) -> pd.DataFrame:
+        return pd.DataFrame({"SNP": ["rs1"], "A1": ["A"], "A2": ["G"], "Z": [1.0], "N": [1000.0]})
+
     def test_build_parser_defaults_chunksize_to_one_million_rows(self):
         parser = sumstats_workflow.build_parser()
         self.assertEqual(parser.get_default("chunksize"), 1_000_000)
@@ -717,6 +739,120 @@ class SumstatsMungerTest(unittest.TestCase):
                     MungeConfig(output_dir=tmpdir / "munged", target_genome_build="hg38"),
                     GlobalConfig(snp_identifier="chr_pos", genome_build="hg19"),
                 )
+
+    def test_run_writes_header_only_dropped_snps_sidecar_when_no_liftover_drops(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            self._write_raw_sumstats(raw_path)
+
+            def fake_munge(args, p=False):
+                args._coordinate_metadata = {"format": "ldsc.sumstats.v1"}
+                return self._fake_munged_frame()
+
+            with mock.patch.object(kernel_munge, "munge_sumstats", side_effect=fake_munge):
+                SumstatsMunger().run(
+                    MungeConfig(raw_sumstats_file=raw_path),
+                    MungeConfig(output_dir=tmpdir / "munged", output_format="tsv.gz"),
+                    GlobalConfig(snp_identifier="rsid"),
+                )
+
+            sidecar = tmpdir / "munged" / "dropped_snps" / "dropped.tsv.gz"
+            self.assertTrue(sidecar.exists())
+            dropped = self._read_dropped_snps_sidecar(sidecar)
+            self.assertEqual(len(dropped), 0)
+            self.assertEqual(dropped.columns.tolist(), ["CHR", "SNP", "source_pos", "target_pos", "reason"])
+            self.assertEqual({column: str(dtype) for column, dtype in dropped.dtypes.items()}, self.DROPPED_SNP_DTYPES)
+
+    def test_run_summary_includes_dropped_snps_sidecar_unconditionally(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            self._write_raw_sumstats(raw_path)
+            munger = SumstatsMunger()
+
+            with mock.patch.object(kernel_munge, "munge_sumstats", return_value=self._fake_munged_frame()):
+                table = munger.run(
+                    MungeConfig(raw_sumstats_file=raw_path),
+                    MungeConfig(output_dir=tmpdir / "munged", output_format="tsv.gz"),
+                    GlobalConfig(snp_identifier="rsid"),
+                )
+
+            summary = munger.build_run_summary(table)
+            self.assertEqual(
+                summary.output_paths["dropped_snps_tsv_gz"],
+                str(tmpdir / "munged" / "dropped_snps" / "dropped.tsv.gz"),
+            )
+
+    def test_dropped_snps_sidecar_preflight_blocks_existing_file(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            self._write_raw_sumstats(raw_path)
+            sidecar = tmpdir / "munged" / "dropped_snps" / "dropped.tsv.gz"
+            sidecar.parent.mkdir(parents=True)
+            sidecar.write_text("stale\n", encoding="utf-8")
+
+            with mock.patch.object(kernel_munge, "munge_sumstats", side_effect=AssertionError("kernel should not run")):
+                with self.assertRaises(FileExistsError):
+                    SumstatsMunger().run(
+                        MungeConfig(raw_sumstats_file=raw_path),
+                        MungeConfig(output_dir=tmpdir / "munged", output_format="tsv.gz"),
+                        GlobalConfig(snp_identifier="rsid"),
+                    )
+
+    def test_dropped_snps_sidecar_is_overwritten_when_overwrite_true(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            self._write_raw_sumstats(raw_path)
+            sidecar = tmpdir / "munged" / "dropped_snps" / "dropped.tsv.gz"
+            sidecar.parent.mkdir(parents=True)
+            sidecar.write_text("stale\n", encoding="utf-8")
+
+            with mock.patch.object(kernel_munge, "munge_sumstats", return_value=self._fake_munged_frame()):
+                SumstatsMunger().run(
+                    MungeConfig(raw_sumstats_file=raw_path),
+                    MungeConfig(output_dir=tmpdir / "munged", output_format="tsv.gz", overwrite=True),
+                    GlobalConfig(snp_identifier="rsid"),
+                )
+
+            dropped = self._read_dropped_snps_sidecar(sidecar)
+            self.assertEqual(len(dropped), 0)
+            with gzip.open(sidecar, "rt", encoding="utf-8") as handle:
+                self.assertEqual(handle.readline().strip(), "CHR\tSNP\tsource_pos\ttarget_pos\treason")
+
+    def test_sumstats_log_points_to_dropped_snps_sidecar_at_info(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            self._write_raw_sumstats(raw_path)
+            drop_frame = pd.DataFrame(
+                {
+                    "CHR": pd.Series(["1"], dtype="string"),
+                    "SNP": pd.Series(["rs_drop"], dtype="string"),
+                    "source_pos": pd.Series([100], dtype="Int64"),
+                    "target_pos": pd.Series([pd.NA], dtype="Int64"),
+                    "reason": pd.Series(["unmapped_liftover"], dtype="string"),
+                }
+            )
+
+            def fake_munge(args, p=False):
+                args._coordinate_metadata = {"liftover_drop_frame": drop_frame}
+                return self._fake_munged_frame()
+
+            with mock.patch.object(kernel_munge, "munge_sumstats", side_effect=fake_munge):
+                SumstatsMunger().run(
+                    MungeConfig(raw_sumstats_file=raw_path),
+                    MungeConfig(output_dir=tmpdir / "munged", output_format="tsv.gz"),
+                    GlobalConfig(snp_identifier="rsid"),
+                )
+
+            sidecar = tmpdir / "munged" / "dropped_snps" / "dropped.tsv.gz"
+            log_text = (tmpdir / "munged" / "sumstats.log").read_text(encoding="utf-8")
+            self.assertIn(str(sidecar), log_text)
+            self.assertIn("unmapped_liftover=1", log_text)
+            self.assertNotIn("rs_drop", log_text)
 
     def test_sumstats_table_uses_chr_pos_identity_when_configured(self):
         table = sumstats_workflow.SumstatsTable(

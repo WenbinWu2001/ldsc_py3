@@ -58,7 +58,7 @@ from .path_resolution import (
 )
 from ._logging import log_inputs, log_outputs, workflow_logging
 from ._kernel.identifiers import build_snp_id_series
-from ._kernel.liftover import SumstatsLiftoverRequest, default_liftover_metadata
+from ._kernel.liftover import LIFTOVER_DROP_COLUMNS, SumstatsLiftoverRequest, default_liftover_metadata
 from ._kernel import sumstats_munger as kernel_munge
 
 
@@ -382,14 +382,25 @@ class SumstatsMunger:
         metadata_path = fixed_output_stem + ".metadata.json"
         output_files = _sumstats_output_files(fixed_output_stem, munge_config.output_format)
         log_path = fixed_output_stem + ".log"
+        dropped_snps_path = output_dir / "dropped_snps" / "dropped.tsv.gz"
         sumstats_snps_label = (
             "none"
             if munge_config.sumstats_snps_file is None
             else str(munge_config.sumstats_snps_file)
         )
+        produced_paths = [*output_files.values(), metadata_path, log_path, dropped_snps_path]
+        owned_paths = [
+            *_sumstats_output_files(fixed_output_stem, "both").values(),
+            metadata_path,
+            log_path,
+            dropped_snps_path,
+        ]
+        # See path_resolution.preflight_output_artifact_family for the
+        # owned_paths/produced_paths split. The dropped-SNP sidecar is in both
+        # lists because it is always written, including clean header-only runs.
         stale_paths = preflight_output_artifact_family(
-            [*output_files.values(), metadata_path, log_path],
-            [*_sumstats_output_files(fixed_output_stem, "both").values(), metadata_path, log_path],
+            produced_paths,
+            owned_paths,
             overwrite=munge_config.overwrite,
             label="munged output artifact",
         )
@@ -418,6 +429,9 @@ class SumstatsMunger:
                 output_format=munge_config.output_format,
             )
             coordinate_metadata = dict(getattr(args, "_coordinate_metadata", {}))
+            drop_frame = _coerce_sumstats_dropped_snps_frame(
+                coordinate_metadata.pop("liftover_drop_frame", None)
+            )
             table_config_snapshot = _effective_sumstats_config(config_snapshot, coordinate_metadata)
             _log_sumstats_provenance(
                 coordinate_metadata=coordinate_metadata,
@@ -430,6 +444,10 @@ class SumstatsMunger:
                 ),
                 parquet_row_groups=parquet_row_groups,
             )
+            # Always write the audit sidecar so consumers can distinguish a
+            # clean run from a missing or stale dropped-SNP artifact.
+            _write_sumstats_dropped_snps_sidecar(drop_frame, dropped_snps_path)
+            _log_sumstats_dropped_snps_summary(drop_frame, dropped_snps_path)
             _write_sumstats_metadata(
                 metadata_path,
                 config_snapshot=table_config_snapshot,
@@ -457,6 +475,7 @@ class SumstatsMunger:
                 **({"sumstats_parquet": output_files["parquet"]} if "parquet" in output_files else {}),
                 **({"sumstats_gz": output_files["tsv.gz"]} if "tsv.gz" in output_files else {}),
                 "metadata_json": metadata_path,
+                "dropped_snps_tsv_gz": str(dropped_snps_path),
             }
             self._last_summary = MungeRunSummary(
                 n_input_rows=_count_data_rows(source_path),
@@ -968,6 +987,56 @@ def _write_sumstats_outputs(
         parquet_row_groups = _write_sumstats_parquet(data, output_files["parquet"])
     primary = output_files["parquet"] if output_format in {"parquet", "both"} else output_files["tsv.gz"]
     return primary, parquet_row_groups
+
+
+def _empty_sumstats_dropped_snps_frame() -> pd.DataFrame:
+    """Return the canonical empty sumstats dropped-SNP sidecar frame."""
+    return pd.DataFrame(
+        {
+            "CHR": pd.Series(dtype="string"),
+            "SNP": pd.Series(dtype="string"),
+            "source_pos": pd.Series(dtype="Int64"),
+            "target_pos": pd.Series(dtype="Int64"),
+            "reason": pd.Series(dtype="string"),
+        },
+        columns=LIFTOVER_DROP_COLUMNS,
+    )
+
+
+def _coerce_sumstats_dropped_snps_frame(frame: pd.DataFrame | None) -> pd.DataFrame:
+    """Return dropped-SNP rows with the unified nullable sidecar schema."""
+    if frame is None:
+        return _empty_sumstats_dropped_snps_frame()
+    output = frame.copy()
+    for column in LIFTOVER_DROP_COLUMNS:
+        if column not in output.columns:
+            output[column] = pd.NA
+    output = output.loc[:, LIFTOVER_DROP_COLUMNS]
+    output["CHR"] = output["CHR"].astype("string")
+    output["SNP"] = output["SNP"].astype("string")
+    output["source_pos"] = pd.to_numeric(output["source_pos"], errors="coerce").astype("Int64")
+    output["target_pos"] = pd.to_numeric(output["target_pos"], errors="coerce").astype("Int64")
+    output["reason"] = output["reason"].astype("string")
+    return output.reset_index(drop=True)
+
+
+def _write_sumstats_dropped_snps_sidecar(drop_frame: pd.DataFrame, path: Path) -> None:
+    """Write the always-owned dropped-SNP audit sidecar, even when header-only."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    drop_frame.to_csv(path, sep="\t", index=False, compression="gzip", na_rep="")
+
+
+def _log_sumstats_dropped_snps_summary(drop_frame: pd.DataFrame, path: Path) -> None:
+    """Log a count-only summary of the sumstats dropped-SNP sidecar."""
+    if drop_frame.empty:
+        LOGGER.info(f"No SNPs dropped during liftover stage; audit sidecar at '{path}'.")
+        return
+    counts = drop_frame["reason"].value_counts(sort=False)
+    count_text = ", ".join(f"{reason}={int(count)}" for reason, count in counts.items())
+    LOGGER.info(
+        f"Summary-statistics liftover-stage drops: {len(drop_frame)} SNPs "
+        f"({count_text}); audit sidecar at '{path}'."
+    )
 
 
 def _read_curated_sumstats_artifact(path: str) -> pd.DataFrame:

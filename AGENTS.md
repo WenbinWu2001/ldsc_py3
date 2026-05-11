@@ -4,7 +4,7 @@
 cd /Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured
 conda env create -f environment.yml      # first-time environment setup
 source /Users/wenbinwu/miniforge3/etc/profile.d/conda.sh
-conda activate ldsc3
+conda activate ldsc3-dev
 pip install -e .                         # install editable package
 ldsc --help                              # installed console entry point
 python -m ldsc --help                    # module entry point
@@ -15,7 +15,7 @@ python -m unittest discover -s tests -p 'test*.py' -v
 For non-interactive agent commands, activate the project environment with:
 
 ```bash
-source /Users/wenbinwu/miniforge3/etc/profile.d/conda.sh && conda activate ldsc3 && <command>
+source /Users/wenbinwu/miniforge3/etc/profile.d/conda.sh && conda activate ldsc3-dev && <command>
 ```
 
 # Key Architectural Invariants

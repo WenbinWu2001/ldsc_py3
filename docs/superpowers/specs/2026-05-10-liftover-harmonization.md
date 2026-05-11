@@ -354,11 +354,11 @@ liftover validation rule already locked in
 
 ### Log behavior summary
 
+- `DEBUG`: up to 5 example rows per reason (existing `examples` payload).
 - `INFO`: per-stage counts, total dropped, breakdown by reason, sidecar path
   pointer.
 - `WARNING`: large drop fractions or "all rows dropped on chromosome X"
   conditions (existing thresholds).
-- `DEBUG`: up to 5 example rows per reason (existing `examples` payload).
 - Sidecar is the source of truth for row-level audit; logs do not duplicate
   it at default verbosity.
 

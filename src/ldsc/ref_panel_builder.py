@@ -572,6 +572,7 @@ class ReferencePanelBuilder:
                 keep_snps=keep_snps,
                 hg19_lookup={},
                 hg38_lookup={},
+                sidecar_path=sidecar_path,
             )
             if not source_duplicate_df.empty:
                 dropped_frames.append(source_duplicate_df)
@@ -587,6 +588,7 @@ class ReferencePanelBuilder:
             source_build=config.source_genome_build,
             chrom_df=chrom_df,
             keep_snps=keep_snps,
+            sidecar_path=sidecar_path,
         )
         if not liftover_drop_frame.empty:
             dropped_frames.append(liftover_drop_frame)
@@ -597,6 +599,7 @@ class ReferencePanelBuilder:
                 keep_snps=keep_snps,
                 hg19_lookup=hg19_lookup,
                 hg38_lookup=hg38_lookup,
+                sidecar_path=sidecar_path,
             )
             if not target_duplicate_df.empty:
                 dropped_frames.append(target_duplicate_df)
@@ -712,6 +715,7 @@ class ReferencePanelBuilder:
         source_build: str,
         chrom_df,
         keep_snps,
+        sidecar_path: Path | None = None,
     ) -> tuple[Any, dict[int, int], dict[int, int], pd.DataFrame]:
         """Resolve retained SNP positions and liftover-stage dropped-SNP rows.
 
@@ -806,6 +810,7 @@ class ReferencePanelBuilder:
                     source_pos_col="source_POS",
                 ),
                 workflow_label="Reference-panel liftover",
+                sidecar_path=sidecar_path,
             )
             log_liftover_drop_report(
                 LOGGER,
@@ -816,12 +821,13 @@ class ReferencePanelBuilder:
                     source_pos_col="source_POS",
                 ),
                 workflow_label="Reference-panel liftover",
+                sidecar_path=sidecar_path,
             )
             message = (
                 f"Dropping {dropped} SNPs on chromosome {chrom} after liftover filtering "
                 f"({mapping.unmapped_count} unmapped, {mapping.cross_chrom_count} cross-chromosome)."
             )
-            LOGGER.warning(message)
+            LOGGER.info(message)
         return retained_snps, hg19_lookup, hg38_lookup, liftover_drop_frame
 
     def _map_positions(
@@ -1117,6 +1123,7 @@ def _resolve_unique_snp_set(
     keep_snps: np.ndarray,
     hg19_lookup: dict[int, int],
     hg38_lookup: dict[int, int],
+    sidecar_path: Path | None = None,
 ) -> tuple[np.ndarray, pd.DataFrame]:
     """Detect and resolve duplicate coordinate groups for chr_pos panel builds.
 
@@ -1145,6 +1152,12 @@ def _resolve_unique_snp_set(
     )
     source_dup_mask = ~source_dup_result.keep_mask
     if source_dup_mask.any():
+        log_liftover_drop_report(
+            LOGGER,
+            source_dup_result.report,
+            workflow_label="Reference-panel liftover",
+            sidecar_path=sidecar_path,
+        )
         for i, idx in enumerate(keep_list):
             if source_dup_mask[i]:
                 drop_set.add(int(idx))
@@ -1182,6 +1195,12 @@ def _resolve_unique_snp_set(
         target_dup_mask = ~target_dup_result.keep_mask
         if not target_dup_mask.any():
             continue
+        log_liftover_drop_report(
+            LOGGER,
+            target_dup_result.report,
+            workflow_label="Reference-panel liftover",
+            sidecar_path=sidecar_path,
+        )
         for i, idx in enumerate(source_survivors):
             if target_dup_mask[i] and idx not in drop_set:
                 drop_set.add(int(idx))

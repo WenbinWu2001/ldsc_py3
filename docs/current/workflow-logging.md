@@ -11,7 +11,8 @@ Public workflow entry points share one logging policy:
 - If execution fails after preflight, the log is kept and ends with a `Failed`
   footer plus elapsed time.
 - `--log-level` controls module records in console and file; lifecycle audit
-  lines always appear in the file.
+  lines always appear in the file. Supported levels are `DEBUG`, `INFO`,
+  `WARNING`, and `ERROR`.
 - Workflow result objects and `output_paths` mappings do not include log files.
 
 ## Output-Family Preflight

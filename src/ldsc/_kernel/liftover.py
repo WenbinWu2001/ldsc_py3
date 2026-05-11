@@ -371,19 +371,11 @@ def log_liftover_drop_report(
         else ""
     )
     logger.info(
-        "%s dropped %d SNPs for %s.%s",
-        workflow_label,
-        report.n_dropped,
-        report.reason,
-        sidecar_suffix,
+        f"{workflow_label} dropped {report.n_dropped} SNPs for "
+        f"{report.reason}.{sidecar_suffix}"
     )
     if report.examples:
-        logger.debug(
-            "%s example dropped (%s): %s",
-            workflow_label,
-            report.reason,
-            report.examples,
-        )
+        logger.debug(f"{workflow_label} example dropped ({report.reason}): {report.examples}")
 
 
 def mapping_reason_masks(result: LiftOverMappingResult) -> tuple[np.ndarray, np.ndarray]:
@@ -601,7 +593,7 @@ def apply_sumstats_liftover(
         lifted,
         source_pos_col="_ldsc_source_POS",
         target_pos_col="POS",
-        reason="duplicate target coordinate",
+        reason="target_collision",
     )
     target_duplicate_count = target_duplicate_result.report.n_dropped
     target_duplicate_frame = _liftover_drop_frame(
@@ -649,20 +641,12 @@ def apply_sumstats_liftover(
     }
     if target_duplicate_count:
         logger.info(
-            "Removed %d summary-statistics rows in duplicate target CHR/POS groups after liftover "
-            "(%d rows before duplicate filtering; %d rows retained).",
-            target_duplicate_count,
-            before_duplicate_drop,
-            len(lifted),
+            f"Removed {target_duplicate_count} summary-statistics rows in duplicate target CHR/POS groups "
+            f"after liftover ({before_duplicate_drop} rows before duplicate filtering; {len(lifted)} rows retained)."
         )
     logger.info(
-        "Applied summary-statistics liftover %s -> %s using %s: %d input rows, %d retained, %d dropped.",
-        source,
-        request.target_build,
-        request.method,
-        len(frame),
-        len(lifted),
-        report["n_dropped"],
+        f"Applied summary-statistics liftover {source} -> {request.target_build} using {request.method}: "
+        f"{len(frame)} input rows, {len(lifted)} retained, {report['n_dropped']} dropped."
     )
     drop_frame = _concat_liftover_drop_frames(
         [missing_drop_frame, source_duplicate_frame, method_drop_frame, target_duplicate_frame]
@@ -909,4 +893,7 @@ def _log_drop_examples(
         return
     columns = [column for column in ("SNP", "CHR", "POS") if column in dropped.columns]
     examples = dropped.loc[:, columns].head(5).to_dict("records")
-    logger.debug("Dropped %d rows for %s during summary-statistics liftover. Examples: %s", len(dropped), category, examples)
+    logger.debug(
+        f"Dropped {len(dropped)} rows for {category} during summary-statistics liftover. "
+        f"Examples: {examples}"
+    )

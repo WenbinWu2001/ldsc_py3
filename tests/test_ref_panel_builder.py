@@ -1,5 +1,6 @@
 import gzip
 import importlib.util
+import logging
 from dataclasses import replace as dataclass_replace
 from pathlib import Path
 import sys
@@ -1165,6 +1166,68 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             self.assertEqual(len(dropped_df), 2)
             self.assertTrue((dropped_df["reason"] == "source_duplicate").all())
             self.assertTrue(any("chr1_dropped.tsv.gz" in line for line in log_ctx.output))
+
+    def test_drop_all_policy_logs_examples_only_at_debug(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            self._write_plink_prefix_rows(
+                tmpdir,
+                "panel.1",
+                [
+                    ("1", "rs1", 100),
+                    ("1", "rs2", 100),
+                    ("1", "rs3", 200),
+                ],
+            )
+            config = ReferencePanelBuildConfig(
+                plink_prefix=tmpdir / "panel.@",
+                source_genome_build="hg19",
+                output_dir=tmpdir / "out",
+                ld_wind_kb=1.0,
+            )
+            builder = ref_panel_builder.ReferencePanelBuilder(
+                global_config=GlobalConfig(
+                    snp_identifier="chr_pos",
+                    genome_build="hg19",
+                    log_level="DEBUG",
+                )
+            )
+
+            def fake_resolve(*, chrom_df, keep_snps, **_kwargs):
+                keep = np.asarray(keep_snps, dtype=int)
+                hg19 = {int(idx): int(chrom_df.loc[idx, "BP"]) for idx in keep}
+                return keep, hg19, {}, ref_panel_builder._empty_unified_drop_frame()
+
+            with mock.patch.object(
+                builder,
+                "_resolve_mappable_snp_positions",
+                side_effect=fake_resolve,
+            ), mock.patch(
+                "ldsc.ref_panel_builder.kernel_builder.write_r2_parquet"
+            ), mock.patch(
+                "ldsc.ref_panel_builder.kernel_builder.write_runtime_metadata_sidecar"
+            ), mock.patch(
+                "ldsc.ref_panel_builder.kernel_ldscore.PlinkBEDFile"
+            ) as mock_bed:
+                mock_bed.return_value.kept_snps = [2]
+                mock_bed.return_value.maf = np.array([0.3])
+                mock_bed.return_value.m = 1
+                mock_bed.return_value.n = 1
+                mock_bed.return_value.nextSNPs = lambda: iter([np.array([0.0])])
+
+                with self.assertLogs("LDSC.ref_panel_builder", level="DEBUG") as log_ctx:
+                    builder.run(config)
+
+            info_text = "\n".join(
+                record.getMessage() for record in log_ctx.records if record.levelno == logging.INFO
+            )
+            debug_text = "\n".join(
+                record.getMessage() for record in log_ctx.records if record.levelno == logging.DEBUG
+            )
+            self.assertIn("source_duplicate", info_text)
+            self.assertNotIn("rs1", info_text)
+            self.assertIn("source_duplicate", debug_text)
+            self.assertIn("rs1", debug_text)
 
     def test_resolve_mappable_snp_positions_returns_unmapped_and_cross_chromosome_drop_frame(self):
         builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos"))

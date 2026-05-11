@@ -66,7 +66,7 @@ def workflow_logging(
     log_path : str, path-like, or None
         Destination for the per-run log file. When ``None``, the context only
         applies the package logger threshold and writes no file.
-    log_level : {"INFO", "DEBUG", "WARNING", "ERROR"}, optional
+    log_level : {"DEBUG", "INFO", "WARNING", "ERROR"}, optional
         Minimum level for module log records captured by the temporary file
         handler and emitted by existing console handlers. Default is ``"INFO"``.
 

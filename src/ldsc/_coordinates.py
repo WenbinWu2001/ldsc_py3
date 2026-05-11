@@ -184,12 +184,10 @@ def _example_rows(
 def _log_drop_report(report: CoordinateDropReport, *, logger: logging.Logger | None, level: int) -> None:
     if report.n_dropped == 0 or logger is None:
         return
-    logger.log(
-        level,
-        "Dropped %d SNPs with missing CHR/POS in %s; %d rows remain.",
-        report.n_dropped,
-        report.context,
-        report.n_retained,
+    message = (
+        f"Dropped {report.n_dropped} SNPs with missing CHR/POS in {report.context}; "
+        f"{report.n_retained} rows remain."
     )
+    logger.log(level, message)
     if report.examples:
-        logger.debug("Example rows dropped for missing CHR/POS in %s: %s", report.context, report.examples)
+        logger.debug(f"Example rows dropped for missing CHR/POS in {report.context}: {report.examples}")

@@ -41,6 +41,7 @@ SNPIdentifierMode = Literal["rsid", "chr_pos"]
 GenomeBuild = Literal["hg19", "hg38", "auto"]
 GenomeBuildInput = Literal["auto", "hg19", "hg37", "hg38", "GRCh37", "GRCh38"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
+LOG_LEVEL_CHOICES: tuple[LogLevel, ...] = ("DEBUG", "INFO", "WARNING", "ERROR")
 RefPanelBackend = Literal["auto", "plink", "parquet_r2"]
 CompressionMode = Literal["auto", "gzip", "bz2", "none"]
 R2BiasMode = Literal["raw", "unbiased"]
@@ -84,9 +85,9 @@ def _normalize_trait_name(value: str | None) -> str | None:
 def _normalize_log_level(level: str) -> LogLevel:
     """Normalize a logging level string to the supported uppercase literal."""
     normalized = level.upper()
-    allowed = {"DEBUG", "INFO", "WARNING", "ERROR"}
+    allowed = set(LOG_LEVEL_CHOICES)
     if normalized not in allowed:
-        raise ValueError(f"log_level must be one of {sorted(allowed)}; got {level!r}.")
+        raise ValueError(f"log_level must be one of {', '.join(LOG_LEVEL_CHOICES)}; got {level!r}.")
     return normalized  # type: ignore[return-value]
 
 

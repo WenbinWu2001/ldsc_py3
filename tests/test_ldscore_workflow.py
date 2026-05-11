@@ -727,6 +727,73 @@ class LDScoreWorkflowTest(unittest.TestCase):
         config = LDScoreConfig(ld_wind_snps=10, regression_snps_file="/path/to/snps.txt")
         self.assertEqual(config.regression_snps_file, "/path/to/snps.txt")
 
+    def test_build_parser_accepts_hm3_ref_panel_and_regression_flags(self):
+        parser = ldscore_workflow.build_parser()
+
+        args = parser.parse_args(
+            [
+                "--output-dir",
+                "out",
+                "--baseline-annot-sources",
+                "baseline.annot.gz",
+                "--plink-prefix",
+                "panel",
+                "--ld-wind-snps",
+                "10",
+                "--use-hm3-ref-panel-snps",
+                "--use-hm3-regression-snps",
+            ]
+        )
+
+        self.assertTrue(args.use_hm3_ref_panel_snps)
+        self.assertTrue(args.use_hm3_regression_snps)
+
+    def test_normalize_run_args_rejects_hm3_explicit_file_conflicts(self):
+        parser = ldscore_workflow.build_parser()
+        args = parser.parse_args(
+            [
+                "--output-dir",
+                "out",
+                "--baseline-annot-sources",
+                "baseline.annot.gz",
+                "--plink-prefix",
+                "panel",
+                "--ld-wind-snps",
+                "10",
+                "--snp-identifier",
+                "rsid",
+                "--use-hm3-regression-snps",
+                "--regression-snps-file",
+                "custom.tsv",
+            ]
+        )
+
+        with self.assertRaisesRegex(ValueError, "regression_snps_file.*use_hm3_regression_snps"):
+            ldscore_workflow._normalize_run_args(args)
+
+    def test_ldscore_config_from_args_preserves_hm3_regression_flag(self):
+        parser = ldscore_workflow.build_parser()
+        args = parser.parse_args(
+            [
+                "--output-dir",
+                "out",
+                "--baseline-annot-sources",
+                "baseline.annot.gz",
+                "--plink-prefix",
+                "panel",
+                "--ld-wind-snps",
+                "10",
+                "--snp-identifier",
+                "rsid",
+                "--use-hm3-regression-snps",
+            ]
+        )
+        normalized, _global_config = ldscore_workflow._normalize_run_args(args)
+
+        config = ldscore_workflow._ldscore_config_from_args(normalized)
+
+        self.assertTrue(config.use_hm3_regression_snps)
+
     def test_chrom_result_uses_split_table_shape(self):
         chrom_result = ldscore_workflow.ChromLDScoreResult(
             chrom="1",

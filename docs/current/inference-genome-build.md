@@ -16,9 +16,9 @@ canonical 1-based coordinates before downstream matching.
 
 ---
 
-## Reference Map
+## Reference Maps
 
-The packaged reference is
+Genome-build inference uses the compact packaged reference
 `src/ldsc/data/hm3_chr_pos_reference.tsv.gz` (~104 KB compressed). It contains
 11,000 autosomal HapMap3 SNP positions with columns:
 
@@ -35,6 +35,12 @@ positions, and are evenly spaced by position after filtering.
 
 The reference is loaded by `load_packaged_reference_table()` and cached once
 per Python process with `lru_cache`.
+
+The separate full curated map
+`src/ldsc/data/hm3_curated_map.tsv.gz` is the package-backed HM3 restriction and
+quick-liftover map. Public code loads it through `ldsc.load_hm3_curated_map()`,
+which preserves packaged columns while normalizing `CHR`, `hg19_POS`,
+`hg38_POS`, and `SNP`.
 
 ---
 
@@ -62,7 +68,7 @@ needs.
 
 | Input type | Strategy |
 |---|---|
-| Packaged HM3 reference | Load full 11,000-SNP map once, then reuse from cache |
+| Packaged inference reference | Load the compact 11,000-SNP HM3 coordinate reference once, then reuse from cache |
 | Raw sumstats text / `.gz` | Kernel-side normalization of munged `CHR` + `POS`, with build inference when requested |
 | Annotation chromosome-suite inputs | Read a small head sample from the first resolvable `@` chromosome file |
 | `ldscore --r2-dir` directory | Locate candidate R2 parquet files, then infer from `ldsc:sorted_by_build` schema metadata |
@@ -94,15 +100,17 @@ require:
 
 If those thresholds are not met, inference raises an actionable error that asks
 the user to pass `--genome-build hg19` or `--genome-build hg38` explicitly. The
-same normalized coordinate metadata is also used by munge-time
-`--sumstats-snps-file` filtering in `chr_pos` mode, so a keep-list with both
-`hg19_POS` and `hg38_POS` selects the position column matching the effective raw
-sumstats build.
+same normalized coordinate metadata is also used by munge-time SNP filtering in
+`chr_pos` mode. A keep-list, including the packaged map selected by
+`--use-hm3-snps`, with both `hg19_POS` and `hg38_POS` selects the position
+column matching the effective raw sumstats build.
 
 Optional munger liftover runs after this source-build resolution and after
-`--sumstats-snps-file` filtering. It is valid only in `chr_pos` mode because
-`rsid` mode does not use positions for row identity. Chain-file liftover and
-HM3 quick liftover both update `CHR`/`POS` only; `SNP` remains a label. The
+SNP filtering. It is valid only in `chr_pos` mode because `rsid` mode does not
+use positions for row identity. Chain-file liftover and HM3 quick liftover both
+update `CHR`/`POS` only; `SNP` remains a label. HM3 quick liftover requires
+`--use-hm3-snps`, so HM3 filtering and HM3 coordinate conversion are explicit
+separate steps. The
 metadata sidecar records the final output build through `config_snapshot`; the
 source/target/method/drop counts, duplicate-coordinate drops, and coordinate
 inference details are written to the run log.

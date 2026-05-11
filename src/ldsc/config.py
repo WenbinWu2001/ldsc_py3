@@ -295,6 +295,10 @@ class RefPanelConfig:
     r2_sample_size : float or None, optional
         Sample size used when correcting raw parquet R2 values. Default is
         ``None``.
+    use_hm3_ref_panel_snps : bool, optional
+        If ``True``, restrict the runtime reference-panel universe to the
+        packaged curated HM3 SNP map. Mutually exclusive with
+        ``ref_panel_snps_file``. Default is ``False``.
     """
     backend: RefPanelBackend = "auto"
     plink_prefix: str | PathLike[str] | None = None
@@ -306,6 +310,7 @@ class RefPanelConfig:
     r2_sample_size: float | None = None
     sample_size: int | None = None
     ref_panel_snps_file: str | PathLike[str] | None = None
+    use_hm3_ref_panel_snps: bool = False
 
     def __post_init__(self) -> None:
         """Normalize backend path tokens and validate parquet-R2 settings."""
@@ -325,6 +330,8 @@ class RefPanelConfig:
         object.__setattr__(self, "r2_dir", _normalize_optional_path(self.r2_dir))
         object.__setattr__(self, "keep_indivs_file", _normalize_optional_path(self.keep_indivs_file))
         object.__setattr__(self, "ref_panel_snps_file", _normalize_optional_path(self.ref_panel_snps_file))
+        if self.ref_panel_snps_file is not None and self.use_hm3_ref_panel_snps:
+            raise ValueError("ref_panel_snps_file and use_hm3_ref_panel_snps are mutually exclusive.")
         if self.chromosomes is not None:
             from .chromosome_inference import normalize_chromosome
 
@@ -351,6 +358,10 @@ class LDScoreConfig:
         the persisted ``ldscore.baseline.parquet`` row set and, when query
         annotations are present, the aligned ``ldscore.query.parquet`` row set.
         Default is ``None``.
+    use_hm3_regression_snps : bool, optional
+        If ``True``, use the packaged curated HM3 SNP map as the persisted
+        regression SNP set. Mutually exclusive with ``regression_snps_file``.
+        Default is ``False``.
     snp_batch_size : int, optional
         Number of SNPs processed per LD-score sliding batch. Default is
         ``128``.
@@ -367,6 +378,7 @@ class LDScoreConfig:
     ld_wind_kb: float | None = None
     ld_wind_cm: float | None = None
     regression_snps_file: str | PathLike[str] | None = None
+    use_hm3_regression_snps: bool = False
     snp_batch_size: int = 128
     common_maf_min: float = 0.05
     whole_chromosome_ok: bool = False
@@ -387,6 +399,8 @@ class LDScoreConfig:
         if self.snp_batch_size <= 0:
             raise ValueError("snp_batch_size must be positive.")
         object.__setattr__(self, "regression_snps_file", _normalize_optional_path(self.regression_snps_file))
+        if self.regression_snps_file is not None and self.use_hm3_regression_snps:
+            raise ValueError("regression_snps_file and use_hm3_regression_snps are mutually exclusive.")
 
 
 @dataclass(frozen=True)
@@ -432,6 +446,15 @@ class ReferencePanelBuildConfig:
         ``GlobalConfig.snp_identifier``. In ``chr_pos`` mode, the restriction
         file must be aligned to the resolved source reference-panel build; the
         builder never uses ``GlobalConfig.genome_build``.
+    use_hm3_snps : bool, optional
+        If ``True``, restrict the emitted reference-panel universe to the
+        packaged curated HM3 SNP map. Mutually exclusive with
+        ``ref_panel_snps_file``. Default is ``False``.
+    use_hm3_quick_liftover : bool, optional
+        If ``True``, emit the opposite-build reference-panel artifacts for the
+        HM3-restricted coordinate universe using the packaged curated HM3 map.
+        Requires ``use_hm3_snps``, is valid only in ``chr_pos`` mode, and is
+        mutually exclusive with chain-file liftover. Default is ``False``.
     keep_indivs_file : str or os.PathLike[str] or None, optional
         Optional individual keep-file applied before R2 calculation. Default is
         ``None``.
@@ -458,6 +481,8 @@ class ReferencePanelBuildConfig:
     ld_wind_cm: float | None = None
     maf_min: float | None = None
     ref_panel_snps_file: str | PathLike[str] | None = None
+    use_hm3_snps: bool = False
+    use_hm3_quick_liftover: bool = False
     keep_indivs_file: str | PathLike[str] | None = None
     snp_batch_size: int = 128
     overwrite: bool = False
@@ -483,6 +508,15 @@ class ReferencePanelBuildConfig:
         object.__setattr__(self, "output_dir", _normalize_required_path(self.output_dir))
         object.__setattr__(self, "ref_panel_snps_file", _normalize_optional_path(self.ref_panel_snps_file))
         object.__setattr__(self, "keep_indivs_file", _normalize_optional_path(self.keep_indivs_file))
+        if self.ref_panel_snps_file is not None and self.use_hm3_snps:
+            raise ValueError("ref_panel_snps_file and use_hm3_snps are mutually exclusive.")
+        if self.use_hm3_quick_liftover and not self.use_hm3_snps:
+            raise ValueError("use_hm3_quick_liftover requires use_hm3_snps.")
+        if self.use_hm3_quick_liftover and (
+            self.liftover_chain_hg19_to_hg38_file is not None
+            or self.liftover_chain_hg38_to_hg19_file is not None
+        ):
+            raise ValueError("Reference-panel chain liftover and use_hm3_quick_liftover are mutually exclusive.")
         windows = [self.ld_wind_snps, self.ld_wind_kb, self.ld_wind_cm]
         if sum(value is not None for value in windows) != 1:
             raise ValueError("Exactly one LD-window option must be set.")
@@ -548,6 +582,10 @@ class MungeConfig:
         define retained coordinates. This option restricts rows only; it does
         not allele-match, rewrite alleles, or reorder output. Default is
         ``None``.
+    use_hm3_snps : bool, optional
+        If ``True``, restrict summary-statistics rows to the packaged curated
+        HM3 SNP map. Mutually exclusive with ``sumstats_snps_file``. Default is
+        ``False``.
     target_genome_build : {"hg19", "hg37", "GRCh37", "hg38", "GRCh38"} or None, optional
         Desired output coordinate build for ``chr_pos`` munging. When it
         differs from the resolved source build, exactly one liftover method is
@@ -560,8 +598,9 @@ class MungeConfig:
         Default is ``None``.
     use_hm3_quick_liftover : bool, optional
         If ``True``, use the packaged curated dual-build HM3 map for a
-        coordinate-only quick liftover. This is valid only for HM3 rows and is
-        mutually exclusive with ``liftover_chain_file``. Default is ``False``.
+        coordinate-only quick liftover after HM3 SNP restriction. Requires
+        ``use_hm3_snps`` and is mutually exclusive with ``liftover_chain_file``.
+        Default is ``False``.
     signed_sumstats_spec : str or None, optional
         Signed statistic specification passed through to the legacy kernel.
         Default is ``None``.
@@ -591,6 +630,7 @@ class MungeConfig:
     nstudy_min: float | None = None
     chunk_size: int = 1_000_000
     sumstats_snps_file: str | PathLike[str] | None = None
+    use_hm3_snps: bool = False
     target_genome_build: GenomeBuildInput | None = None
     liftover_chain_file: str | PathLike[str] | None = None
     use_hm3_quick_liftover: bool = False
@@ -624,6 +664,10 @@ class MungeConfig:
         object.__setattr__(self, "trait_name", _normalize_trait_name(self.trait_name))
         object.__setattr__(self, "ignore_columns", tuple(self.ignore_columns))
         object.__setattr__(self, "column_hints", dict(self.column_hints))
+        if self.sumstats_snps_file is not None and self.use_hm3_snps:
+            raise ValueError("sumstats_snps_file and use_hm3_snps are mutually exclusive.")
+        if self.use_hm3_quick_liftover and not self.use_hm3_snps:
+            raise ValueError("use_hm3_quick_liftover requires use_hm3_snps.")
         if self.liftover_chain_file is not None and self.use_hm3_quick_liftover:
             raise ValueError("liftover_chain_file and use_hm3_quick_liftover are mutually exclusive.")
         if (self.liftover_chain_file is not None or self.use_hm3_quick_liftover) and self.target_genome_build is None:

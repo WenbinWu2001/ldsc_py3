@@ -65,6 +65,7 @@ from .genome_build_inference import (
     resolve_genome_build,
     resolve_chr_pos_table,
 )
+from .hm3 import load_hm3_curated_map
 from .ldscore_calculator import ChromLDScoreResult, LDScoreCalculator, LDScoreResult, run_ldscore
 from .outputs import (
     LDScoreDirectoryWriter,
@@ -122,6 +123,7 @@ __all__ = [
     "LDSCUsageError",
     "LDSCUserError",
     "load_ldscore_from_dir",
+    "load_hm3_curated_map",
     "MungeConfig",
     "MungeRunSummary",
     "ParquetR2RefPanel",

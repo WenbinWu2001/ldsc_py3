@@ -11,7 +11,6 @@ reference-panel building.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from functools import lru_cache
 import logging
 from os import PathLike
 from pathlib import Path
@@ -20,52 +19,16 @@ from typing import Any, Sequence
 import numpy as np
 import pandas as pd
 
-from .._coordinates import complete_coordinate_mask, normalize_chr_pos_frame, positive_int_position_series
+from .._coordinates import complete_coordinate_mask, normalize_chr_pos_frame
 from ..chromosome_inference import normalize_chromosome
-from ..column_inference import (
-    CHR_COLUMN_SPEC,
-    SNP_COLUMN_SPEC,
-    ColumnSpec,
-    normalize_genome_build,
-    normalize_snp_identifier_mode,
-    resolve_required_column,
-)
+from ..column_inference import normalize_genome_build, normalize_snp_identifier_mode
 from ..errors import LDSCDependencyError
+from ..hm3 import _load_hm3_curated_map_from_path
 
 LOGGER = logging.getLogger("LDSC.liftover")
 
 SUPPORTED_LIFTOVER_BUILDS = {"hg19", "hg38"}
 LIFTOVER_DROP_COLUMNS = ["CHR", "SNP", "source_pos", "target_pos", "reason"]
-
-HM3_HG19_POS_SPEC = ColumnSpec(
-    "hg19_POS",
-    (
-        "hg19_POS",
-        "hg19_BP",
-        "hg19_POSITION",
-        "hg37_POS",
-        "hg37_BP",
-        "GRCh37_POS",
-        "GRCh37_BP",
-        "GRCh37_POSITION",
-    ),
-    "hg19 position",
-    allow_suffix_match=False,
-)
-HM3_HG38_POS_SPEC = ColumnSpec(
-    "hg38_POS",
-    (
-        "hg38_POS",
-        "hg38_BP",
-        "hg38_POSITION",
-        "GRCh38_POS",
-        "GRCh38_BP",
-        "GRCh38_POSITION",
-    ),
-    "hg38 position",
-    allow_suffix_match=False,
-)
-
 
 @dataclass(frozen=True)
 class LiftOverMappingResult:
@@ -467,29 +430,7 @@ def _coerce_liftover_drop_frame(frame: pd.DataFrame) -> pd.DataFrame:
 
 def load_hm3_curated_map(path: str | PathLike[str]) -> pd.DataFrame:
     """Load the curated dual-build HM3 map into canonical columns."""
-    return _load_hm3_curated_map_cached(str(path)).copy()
-
-
-@lru_cache(maxsize=8)
-def _load_hm3_curated_map_cached(path: str) -> pd.DataFrame:
-    """Cached implementation for :func:`load_hm3_curated_map`."""
-    df = pd.read_csv(path, sep=None, engine="python")
-    context = str(path)
-    chr_col = resolve_required_column(df.columns, CHR_COLUMN_SPEC, context=context)
-    hg19_col = resolve_required_column(df.columns, HM3_HG19_POS_SPEC, context=context)
-    hg38_col = resolve_required_column(df.columns, HM3_HG38_POS_SPEC, context=context)
-    snp_col = resolve_required_column(df.columns, SNP_COLUMN_SPEC, context=context)
-    out = pd.DataFrame(
-        {
-            "CHR": [normalize_chromosome(value, context=context) for value in df[chr_col]],
-            "hg19_POS": _positive_int_position(df[hg19_col], label="hg19_POS", context=context),
-            "hg38_POS": _positive_int_position(df[hg38_col], label="hg38_POS", context=context),
-            "SNP": df[snp_col].astype(str),
-        }
-    )
-    _reject_duplicate_hm3_coordinates(out, build="hg19")
-    _reject_duplicate_hm3_coordinates(out, build="hg38")
-    return out
+    return _load_hm3_curated_map_from_path(path, preserve_extra_columns=False)
 
 
 def apply_sumstats_liftover(
@@ -652,11 +593,6 @@ def apply_sumstats_liftover(
         [missing_drop_frame, source_duplicate_frame, method_drop_frame, target_duplicate_frame]
     )
     return lifted, report, drop_frame
-
-
-def _positive_int_position(values: pd.Series, *, label: str, context: str) -> pd.Series:
-    """Return positive integer coordinates with useful validation errors."""
-    return positive_int_position_series(values, label=label, context=context).astype(np.int64)
 
 
 def _default_chain_flag_hint(source_build: str, target_build: str) -> str:

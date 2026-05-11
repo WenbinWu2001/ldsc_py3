@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass, field
-from importlib import resources
 import json
 import logging
 from os import PathLike
@@ -50,6 +49,7 @@ from .column_inference import (
 )
 from .config import GlobalConfig, MungeConfig, _normalize_trait_name, get_global_config
 from .errors import LDSCDependencyError
+from .hm3 import packaged_hm3_curated_map_path
 from .path_resolution import (
     ensure_output_directory,
     preflight_output_artifact_family,
@@ -383,11 +383,8 @@ class SumstatsMunger:
         output_files = _sumstats_output_files(fixed_output_stem, munge_config.output_format)
         log_path = fixed_output_stem + ".log"
         dropped_snps_path = output_dir / "dropped_snps" / "dropped.tsv.gz"
-        sumstats_snps_label = (
-            "none"
-            if munge_config.sumstats_snps_file is None
-            else str(munge_config.sumstats_snps_file)
-        )
+        sumstats_snps_path = _sumstats_snps_file_from_config(munge_config)
+        sumstats_snps_label = "none" if sumstats_snps_path is None else str(sumstats_snps_path)
         produced_paths = [*output_files.values(), metadata_path, log_path, dropped_snps_path]
         owned_paths = [
             *_sumstats_output_files(fixed_output_stem, "both").values(),
@@ -411,6 +408,8 @@ class SumstatsMunger:
                 output_dir=str(output_dir),
                 output_format=munge_config.output_format,
                 sumstats_snps_file=sumstats_snps_label,
+                use_hm3_snps=munge_config.use_hm3_snps,
+                hm3_map_file=packaged_hm3_curated_map_path() if munge_config.use_hm3_snps else "none",
                 target_genome_build=liftover_request.target_build or "none",
                 liftover_method=liftover_request.method or "none",
             )
@@ -419,6 +418,7 @@ class SumstatsMunger:
                 f"with snp_identifier='{config_snapshot.snp_identifier}', "
                 f"genome_build='{config_snapshot.genome_build}', "
                 f"sumstats_snps_file='{sumstats_snps_label}', "
+                f"use_hm3_snps='{munge_config.use_hm3_snps}', "
                 f"target_genome_build='{liftover_request.target_build}', "
                 f"liftover_method='{liftover_request.method}'."
             )
@@ -590,11 +590,7 @@ class SumstatsMunger:
         args.nstudy_min = munge_config.nstudy_min
         args.chunksize = munge_config.chunk_size
         args.merge_alleles = None
-        args.sumstats_snps = (
-            None
-            if munge_config.sumstats_snps_file is None
-            else resolve_scalar_path(munge_config.sumstats_snps_file, label="sumstats SNPs file")
-        )
+        args.sumstats_snps = _resolve_sumstats_snps_path(munge_config)
         args.signed_sumstats = munge_config.signed_sumstats_spec
         args.ignore = ",".join(munge_config.ignore_columns) if munge_config.ignore_columns else None
         args.no_alleles = munge_config.no_alleles
@@ -670,14 +666,25 @@ def _resolve_main_global_config(args: argparse.Namespace) -> GlobalConfig:
     return GlobalConfig(snp_identifier="chr_pos", genome_build=genome_build, log_level=getattr(args, "log_level", "INFO"))
 
 
-def _packaged_hm3_curated_map_path() -> str:
-    """Return the package data path for the curated dual-build HM3 map."""
-    return str(resources.files("ldsc").joinpath("data", "hm3_curated_map.tsv.gz"))
+def _sumstats_snps_file_from_config(config: MungeConfig) -> str | None:
+    """Return the explicit or packaged SNP keep-list path for one munger run."""
+    if config.use_hm3_snps:
+        return packaged_hm3_curated_map_path()
+    return config.sumstats_snps_file
+
+
+def _resolve_sumstats_snps_path(config: MungeConfig) -> str | None:
+    """Resolve the effective sumstats SNP restriction path."""
+    path = _sumstats_snps_file_from_config(config)
+    if path is None:
+        return None
+    label = "packaged HM3 SNP map" if config.use_hm3_snps else "sumstats SNPs file"
+    return resolve_scalar_path(path, label=label)
 
 
 def _liftover_request_from_config(config: MungeConfig) -> SumstatsLiftoverRequest:
     """Build the kernel liftover request from public munger config."""
-    hm3_map_file = _packaged_hm3_curated_map_path() if config.use_hm3_quick_liftover else None
+    hm3_map_file = packaged_hm3_curated_map_path() if config.use_hm3_quick_liftover else None
     return SumstatsLiftoverRequest(
         target_build=config.target_genome_build,
         liftover_chain_file=config.liftover_chain_file,
@@ -718,6 +725,7 @@ def _munge_configs_from_args(args: argparse.Namespace) -> tuple[MungeConfig, Mun
         chunk_size=args.chunksize,
         output_format=args.output_format,
         sumstats_snps_file=getattr(args, "sumstats_snps_file", None),
+        use_hm3_snps=getattr(args, "use_hm3_snps", False),
         target_genome_build=getattr(args, "target_genome_build", None),
         liftover_chain_file=getattr(args, "liftover_chain_file", None),
         use_hm3_quick_liftover=getattr(args, "use_hm3_quick_liftover", False),
@@ -768,6 +776,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Replace sumstats output artifacts and remove stale owned siblings.",
     )
     public.add_argument("--sumstats-snps-file", default=None, help="Optional SNP keep-list for munged summary statistics.")
+    public.add_argument(
+        "--use-hm3-snps",
+        action="store_true",
+        default=False,
+        help="Restrict munged summary statistics to the packaged curated HM3 SNP map.",
+    )
     public.add_argument(
         "--target-genome-build",
         default=None,

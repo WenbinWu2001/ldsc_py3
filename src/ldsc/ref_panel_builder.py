@@ -50,6 +50,7 @@ from .column_inference import (
 )
 from .config import GlobalConfig, ReferencePanelBuildConfig, get_global_config, print_global_config_banner
 from .genome_build_inference import resolve_genome_build
+from .hm3 import packaged_hm3_curated_map_path
 from .path_resolution import (
     ensure_output_directory,
     ensure_output_paths_available,
@@ -63,6 +64,7 @@ from ._kernel import identifiers as kernel_identifiers
 from ._kernel import ldscore as kernel_ldscore
 from ._kernel import ref_panel_builder as kernel_builder
 from ._kernel.liftover import (
+    Hm3DualBuildLifter,
     LIFTOVER_DROP_COLUMNS,
     duplicate_coordinate_drop_result,
     liftover_drop_report,
@@ -106,6 +108,8 @@ class _BuildState:
     genetic_map_hg19: Any | None
     genetic_map_hg38: Any | None
     liftover_chain_paths: dict[tuple[str, str], str | None] = field(default_factory=dict)
+    use_hm3_quick_liftover: bool = False
+    hm3_map_file: str | None = None
     restriction_mode: str | None = None
     restriction_values: set[str] | None = None
     translator_cache: dict[tuple[str, str], kernel_builder.LiftOverTranslator] = field(default_factory=dict)
@@ -117,6 +121,8 @@ def _emitted_genome_builds(config: ReferencePanelBuildConfig) -> list[str]:
     if source_build not in {"hg19", "hg38"}:
         raise ValueError("source_genome_build must be resolved before output paths are generated.")
     target_build = "hg38" if source_build == "hg19" else "hg19"
+    if config.use_hm3_quick_liftover:
+        return [source_build, target_build]
     matching_chain = (
         config.liftover_chain_hg19_to_hg38_file
         if source_build == "hg19"
@@ -261,10 +267,11 @@ class ReferencePanelBuilder:
             Public build configuration containing one PLINK prefix token,
             optional genetic maps, optional liftover chain paths, output
             directory, and exactly one LD window. If
-            ``config.ref_panel_snps_file`` is set, this builder interprets that
-            file using ``self.global_config.snp_identifier`` against the
-            resolved source PLINK build. ``GlobalConfig.genome_build`` is not
-            consulted by this workflow. Existing deterministic output
+            ``config.ref_panel_snps_file`` or ``config.use_hm3_snps`` is set,
+            this builder interprets the restriction using
+            ``self.global_config.snp_identifier`` against the resolved source
+            PLINK build. ``GlobalConfig.genome_build`` is not consulted by this
+            workflow. Existing deterministic output
             paths are refused before chromosome processing unless
             ``config.overwrite`` is true. Direct calls through this method do
             not create a workflow log; parsed wrappers add a build-ref-panel
@@ -426,11 +433,12 @@ class ReferencePanelBuilder:
             raise ValueError("source_genome_build must be resolved before loading build-ref-panel shared state.")
         restriction_mode = None
         restriction_values = None
-        if config.ref_panel_snps_file:
+        restriction_source = packaged_hm3_curated_map_path() if config.use_hm3_snps else config.ref_panel_snps_file
+        if restriction_source:
             restriction_path = resolve_scalar_path(
-                config.ref_panel_snps_file,
+                restriction_source,
                 suffixes=_TABLE_SUFFIXES,
-                label="reference-panel SNP restriction",
+                label="packaged HM3 SNP map" if config.use_hm3_snps else "reference-panel SNP restriction",
             )
             restriction_mode = normalize_snp_identifier_mode(self.global_config.snp_identifier)
             if restriction_mode == "chr_pos":
@@ -446,7 +454,8 @@ class ReferencePanelBuilder:
             )
             message = (
                 f"Loaded {len(restriction_values)} SNP restriction identifiers "
-                f"in {restriction_mode} mode from '{restriction_path}'."
+                f"in {restriction_mode} mode from '{restriction_path}'"
+                f"{' via use_hm3_snps' if config.use_hm3_snps else ''}."
             )
             LOGGER.info(message)
         target_build = "hg38" if source_build == "hg19" else "hg19"
@@ -460,12 +469,32 @@ class ReferencePanelBuilder:
             if source_build == "hg19"
             else config.liftover_chain_hg19_to_hg38_file
         )
+        if config.use_hm3_quick_liftover and normalize_snp_identifier_mode(self.global_config.snp_identifier) == "rsid":
+            raise ValueError("Reference-panel HM3 quick liftover is only valid when snp_identifier='chr_pos'.")
         if matching_chain is not None and normalize_snp_identifier_mode(self.global_config.snp_identifier) == "rsid":
             raise ValueError(
                 "Reference-panel chain liftover is only valid when snp_identifier='chr_pos'. "
                 "In rsid mode, omit the matching liftover chain and build source-genome coordinates only."
             )
-        if matching_chain is None:
+        if config.use_hm3_quick_liftover:
+            LOGGER.info(
+                f"Using packaged curated HM3 map for reference-panel quick liftover "
+                f"{source_build} -> {target_build}: {packaged_hm3_curated_map_path()}."
+            )
+        if config.use_hm3_quick_liftover or matching_chain is not None:
+            if config.ld_wind_cm is not None and (
+                (target_build == "hg38" and config.genetic_map_hg38_sources is None)
+                or (target_build == "hg19" and config.genetic_map_hg19_sources is None)
+            ):
+                raise ValueError(f"{target_build} genetic map path is required when ld_wind_cm is set and liftover emits {target_build}.")
+            if (target_build == "hg38" and config.genetic_map_hg38_sources is None) or (
+                target_build == "hg19" and config.genetic_map_hg19_sources is None
+            ):
+                LOGGER.warning(
+                    f"No {target_build} genetic map was provided; "
+                    f"{target_build} metadata CM values will be written as NA."
+                )
+        elif matching_chain is None:
             if nonmatching_chain is not None:
                 message = (
                     f"No usable liftover chain was provided for {source_build} -> {target_build}; "
@@ -477,18 +506,6 @@ class ReferencePanelBuilder:
                     f"No liftover chain was provided for {source_build} -> {target_build}; "
                     "running source-build-only."
                 )
-        elif config.ld_wind_cm is not None and (
-            (target_build == "hg38" and config.genetic_map_hg38_sources is None)
-            or (target_build == "hg19" and config.genetic_map_hg19_sources is None)
-        ):
-            raise ValueError(f"{target_build} genetic map path is required when ld_wind_cm is set and liftover emits {target_build}.")
-        elif (target_build == "hg38" and config.genetic_map_hg38_sources is None) or (
-            target_build == "hg19" and config.genetic_map_hg19_sources is None
-        ):
-            LOGGER.warning(
-                f"No {target_build} genetic map was provided; "
-                f"{target_build} metadata CM values will be written as NA."
-            )
         if config.ld_wind_cm is not None and (
             (source_build == "hg38" and config.genetic_map_hg38_sources is None)
             or (source_build == "hg19" and config.genetic_map_hg19_sources is None)
@@ -508,6 +525,8 @@ class ReferencePanelBuilder:
                 ("hg19", "hg38"): config.liftover_chain_hg19_to_hg38_file,
                 ("hg38", "hg19"): config.liftover_chain_hg38_to_hg19_file,
             },
+            use_hm3_quick_liftover=config.use_hm3_quick_liftover,
+            hm3_map_file=packaged_hm3_curated_map_path() if config.use_hm3_quick_liftover else None,
             restriction_mode=restriction_mode,
             restriction_values=restriction_values,
         )
@@ -726,6 +745,62 @@ class ReferencePanelBuilder:
         """
         keep_snps = list(keep_snps)
         candidate_positions = chrom_df.loc[keep_snps, "BP"].to_numpy(dtype=int)
+        if build_state.use_hm3_quick_liftover:
+            target_build = "hg38" if source_build == "hg19" else "hg19"
+            if build_state.hm3_map_file is None:
+                raise ValueError("HM3 quick liftover requires a packaged HM3 map path.")
+            query = pd.DataFrame(
+                {
+                    "CHR": [chrom] * len(keep_snps),
+                    "POS": candidate_positions,
+                    "SNP": chrom_df.loc[keep_snps, "SNP"].astype(str).tolist(),
+                },
+                index=keep_snps,
+            )
+            lifted, unmapped_indices = Hm3DualBuildLifter(source_build, target_build, build_state.hm3_map_file).lift(query)
+            unmapped_set = {int(idx) for idx in unmapped_indices}
+            retained_snps = np.asarray([int(idx) for idx in keep_snps if int(idx) not in unmapped_set], dtype=int)
+            retained_set = set(retained_snps.tolist())
+            source_lookup = {
+                int(idx): int(pos)
+                for idx, pos in zip(keep_snps, candidate_positions)
+                if int(idx) in retained_set
+            }
+            target_lookup = {int(idx): int(lifted.loc[idx, "POS"]) for idx in retained_snps}
+            if source_build == "hg19":
+                hg19_lookup, hg38_lookup = source_lookup, target_lookup
+            else:
+                hg38_lookup, hg19_lookup = source_lookup, target_lookup
+            liftover_drop_frame = _empty_unified_drop_frame()
+            if len(unmapped_indices):
+                unmapped_ordered = [int(idx) for idx in keep_snps if int(idx) in unmapped_set]
+                liftover_drop_frame = _coerce_unified_drop_frame(
+                    pd.DataFrame(
+                        {
+                            "CHR": [chrom] * len(unmapped_ordered),
+                            "SNP": chrom_df.loc[unmapped_ordered, "SNP"].astype(str).tolist(),
+                            "source_pos": chrom_df.loc[unmapped_ordered, "BP"].astype(int).tolist(),
+                            "target_pos": [pd.NA] * len(unmapped_ordered),
+                            "reason": ["unmapped_liftover"] * len(unmapped_ordered),
+                        }
+                    )
+                )
+                mask = np.asarray([idx in unmapped_set for idx in keep_snps], dtype=bool)
+                log_liftover_drop_report(
+                    LOGGER,
+                    liftover_drop_report(
+                        query,
+                        mask,
+                        reason="unmapped_liftover",
+                        source_pos_col="POS",
+                    ),
+                    workflow_label="Reference-panel liftover",
+                    sidecar_path=sidecar_path,
+                )
+                LOGGER.info(
+                    f"Dropping {len(unmapped_set)} SNPs on chromosome {chrom} after HM3 quick liftover filtering."
+                )
+            return retained_snps, hg19_lookup, hg38_lookup, liftover_drop_frame
         if source_build == "hg19":
             if build_state.liftover_chain_paths.get(("hg19", "hg38")) is None:
                 retained_snps = np.asarray(keep_snps, dtype=int)
@@ -1295,6 +1370,18 @@ def build_parser() -> argparse.ArgumentParser:
             "In chr_pos mode, coordinates must match the PLINK source genome build."
         ),
     )
+    parser.add_argument(
+        "--use-hm3-snps",
+        action="store_true",
+        default=False,
+        help="Restrict the emitted reference-panel universe to the packaged curated HM3 SNP map.",
+    )
+    parser.add_argument(
+        "--use-hm3-quick-liftover",
+        action="store_true",
+        default=False,
+        help="Use the packaged curated HM3 map for HM3-only coordinate liftover; requires --use-hm3-snps.",
+    )
     parser.add_argument("--snp-identifier", default=None, choices=("rsid", "chr_pos"), help="SNP identifier mode for --ref-panel-snps-file.")
     parser.add_argument("--keep-indivs-file", default=None, help="Optional individual-keep file.")
     parser.add_argument(
@@ -1349,6 +1436,8 @@ def config_from_args(args: argparse.Namespace) -> tuple[ReferencePanelBuildConfi
         ld_wind_cm=args.ld_wind_cm,
         maf_min=args.maf_min,
         ref_panel_snps_file=args.ref_panel_snps_file,
+        use_hm3_snps=getattr(args, "use_hm3_snps", False),
+        use_hm3_quick_liftover=getattr(args, "use_hm3_quick_liftover", False),
         keep_indivs_file=args.keep_indivs_file,
         snp_batch_size=args.snp_batch_size,
     )

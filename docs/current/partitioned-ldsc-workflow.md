@@ -135,9 +135,9 @@ The LD-score phase tracks these SNP sets:
 |--------|------|---------|
 | B | Baseline annotation SNPs | Rows in loaded baseline annotation files, or retained reference-panel metadata rows for synthetic `base` unpartitioned runs |
 | A | Raw reference panel SNPs | Rows in PLINK `.bim` or parquet metadata sidecar |
-| A' | Prepared reference panel | `A ∩ ref_panel_snps_file`, after optional retained-panel `maf_min` and PLINK `keep_indivs_file`; equals A when absent |
+| A' | Prepared reference panel | `A` after optional explicit or HM3 reference-panel SNP restriction, retained-panel `maf_min`, and PLINK `keep_indivs_file`; equals A when absent |
 | `ld_reference_snps` | LD computation universe | `B ∩ A'` |
-| C | Regression SNP mask | Optional mask from `regression_snps_file` |
+| C | Regression SNP mask | Optional mask from explicit `regression_snps_file` or packaged HM3 regression SNP restriction |
 | `ld_regression_snps` | Persisted row set | `B ∩ A' ∩ C`; equals `ld_reference_snps` when C is absent |
 
 LD-score column counts in the manifest are computed over `ld_reference_snps`.
@@ -216,8 +216,8 @@ ldsc ldscore \
   --baseline-annot-sources resources/baseline_v1.2/baseline.@.annot.gz \
   --query-annot-bed-sources my_peaks.bed \
   --plink-prefix resources/1kg/1KG_EUR_Phase3_chr@ \
-  --ref-panel-snps-file resources/w_hm3.snplist \
-  --regression-snps-file resources/w_hm3.snplist \
+  --use-hm3-ref-panel-snps \
+  --use-hm3-regression-snps \
   --snp-identifier rsid \
   --common-maf-min 0.05 \
   --ld-wind-cm 1.0
@@ -229,8 +229,8 @@ Compute ordinary unpartitioned LD scores without baseline annotations:
 ldsc ldscore \
   --output-dir results/my_unpartitioned_ldscore \
   --plink-prefix resources/1kg/1KG_EUR_Phase3_chr@ \
-  --ref-panel-snps-file resources/w_hm3.snplist \
-  --regression-snps-file resources/w_hm3.snplist \
+  --use-hm3-ref-panel-snps \
+  --use-hm3-regression-snps \
   --snp-identifier rsid \
   --common-maf-min 0.05 \
   --ld-wind-cm 1.0

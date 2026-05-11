@@ -195,30 +195,32 @@ that actually own those decisions.
 ```text
 Annotation bundle rows B                      (AnnotationBuilder)
   intersects prepared reference panel A'     (RefPanelConfig ref-panel filters)
-    then optional regression row subset C    (LDScoreConfig.regression_snps_file)
+    then optional regression row subset C    (LDScoreConfig regression SNP controls)
 ```
 
 | Concept | Owner | CLI flag | When applied | Artifact effect |
 | --- | --- | --- | --- | --- |
-| Reference-panel SNP restriction | `RefPanelConfig.ref_panel_snps_file` | `--ref-panel-snps-file` | `RefPanel.load_metadata()`; then `LDScoreCalculator.compute_chromosome()` aligns `B_chrom` to the restricted panel before the kernel call | Shrinks the compute-time universe to `ld_reference_snps = B ∩ A'`; affects LD scores and count records |
+| Reference-panel SNP restriction | `RefPanelConfig.ref_panel_snps_file` or `use_hm3_ref_panel_snps` | `--ref-panel-snps-file` or `--use-hm3-ref-panel-snps` | `RefPanel.load_metadata()`; then `LDScoreCalculator.compute_chromosome()` aligns `B_chrom` to the restricted panel before the kernel call | Shrinks the compute-time universe to `ld_reference_snps = B ∩ A'`; affects LD scores and count records |
 | Reference-panel MAF/sample filters | `RefPanelConfig.maf_min`, `RefPanelConfig.keep_indivs_file` | `--maf-min`, `--keep-indivs-file` | `RefPanel.load_metadata()` and PLINK reader construction | Affects the prepared panel A' and LD computation; separate from `LDScoreConfig.common_maf_min` |
-| Regression row restriction | `LDScoreConfig.regression_snps_file` | `--regression-snps-file` | After LD computation, when normalized/public rows are selected | Shrinks written rows to `ld_regression_snps = B ∩ A' ∩ C`; `regression_ld_scores` is embedded in the same row table |
+| Regression row restriction | `LDScoreConfig.regression_snps_file` or `use_hm3_regression_snps` | `--regression-snps-file` or `--use-hm3-regression-snps` | After LD computation, when normalized/public rows are selected | Shrinks written rows to `ld_regression_snps = B ∩ A' ∩ C`; `regression_ld_scores` is embedded in the same row table |
 | Common-count threshold | `LDScoreConfig.common_maf_min` | `--common-maf-min` | During count-vector computation after LD scores are computed | Affects only `common_reference_snp_count` / `common_reference_snp_counts`; does not change LD rows, LD scores, or the stored regression-universe LD score |
 
 ### What each control does
 
-**`RefPanelConfig.ref_panel_snps_file`** — the *reference-panel SNP universe*
+**`RefPanelConfig.ref_panel_snps_file` / `use_hm3_ref_panel_snps`** — the *reference-panel SNP universe*
 
 - `AnnotationBuilder.run()` still builds the full annotation universe `B`.
 - `run_bed_to_annot()` and `ldsc annotate` do **not** apply this restriction.
-- `RefPanel.load_metadata()` applies the restriction to the raw panel `A`, producing `A'`.
+- `RefPanel.load_metadata()` applies the explicit restriction or packaged HM3
+  restriction to the raw panel `A`, producing `A'`.
 - `LDScoreCalculator.compute_chromosome()` then intersects the chromosome-local annotation bundle with that prepared metadata so the kernel sees `B_chrom ∩ A'_chrom`.
 
 When `None`, the workflow uses the full reference panel `A`.
 
-**`LDScoreConfig.regression_snps_file`** — the *regression row set*
+**`LDScoreConfig.regression_snps_file` / `use_hm3_regression_snps`** — the *regression row set*
 
-- The restriction is loaded once into the `regression_snps` set `C`.
+- The explicit restriction file or packaged HM3 map is loaded once into the
+  `regression_snps` set `C`.
 - LD scores and count totals are still computed over `ld_reference_snps = B ∩ A'`.
 - Only the persisted LD-score rows are reduced to `ld_regression_snps = B ∩ A' ∩ C`.
 - There is no separate public weight artifact. The selected baseline rows keep
@@ -239,7 +241,7 @@ ref_panel = ldsc.RefPanelLoader(cfg).load(
     ldsc.RefPanelConfig(
         backend="parquet_r2",
         r2_dir="r2_ref_panel_1kg30x_1cM_hm3/hg38",
-        ref_panel_snps_file="filters/reference_universe.txt",
+        use_hm3_ref_panel_snps=True,
     )
 )
 
@@ -248,7 +250,7 @@ ldscore = ldsc.LDScoreCalculator().run(
     ref_panel,
     ldsc.LDScoreConfig(
         ld_wind_cm=1.0,
-        regression_snps_file="filters/hapmap3.txt",
+        use_hm3_regression_snps=True,
     ),
     global_config=cfg,
 )
@@ -263,9 +265,9 @@ metadata.
 ### Artifact contract
 
 - Materialized query `.annot.gz` files and in-memory `AnnotationBundle` objects stay on the annotation universe `B`.
-- Ordinary unpartitioned `run_ldscore()` calls may omit baseline/query annotation inputs; the workflow creates a synthetic all-ones `base` annotation after the reference panel has applied `ref_panel_snps_file`.
+- Ordinary unpartitioned `run_ldscore()` calls may omit baseline/query annotation inputs; the workflow creates a synthetic all-ones `base` annotation after the reference panel has applied any explicit or HM3 reference-panel restriction.
 - Query annotations are valid only with explicit baseline annotations, so the synthetic `base` path is not used for partitioned/query LDSC.
-- `ref_panel_snps_file` becomes visible only during LD-score calculation, when the workflow aligns `B_chrom` to `ref_panel.load_metadata(chrom)`.
+- Reference-panel SNP restrictions become visible only during LD-score calculation, when the workflow aligns `B_chrom` to `ref_panel.load_metadata(chrom)`.
 - Count records are accumulated over `ld_reference_snps = B ∩ A'` and stored in `manifest.json`.
 - Public `ldscore.baseline.parquet` and optional `ldscore.query.parquet` rows are `ld_regression_snps = B ∩ A' ∩ C`.
 
@@ -275,6 +277,9 @@ Stop passing these controls to `GlobalConfig()`:
 
 - move reference-panel restriction to `RefPanelConfig(ref_panel_snps_file=...)`
 - move regression row restriction to `LDScoreConfig(regression_snps_file=...)` or `run_ldscore(...)`
+- for the packaged HM3 map, prefer `RefPanelConfig(use_hm3_ref_panel_snps=True)`
+  and `LDScoreConfig(use_hm3_regression_snps=True)` instead of wiring a custom
+  HM3 path.
 
 The old `--regression-snps` and `--print-snps` behavior is unified under
 `--regression-snps-file`. LD-score outputs are fixed files under `output_dir`;
@@ -299,7 +304,7 @@ optional target-build, out-of-scope chromosome, or dropped-SNP siblings.
 
 **Reference-panel runtime state does not carry its own full `GlobalConfig`.**
 `RefPanelConfig` owns backend and filtering options such as `r2_dir`,
-`maf_min`, and `ref_panel_snps_file`. The shared identifier and genome-build
+`maf_min`, `ref_panel_snps_file`, and `use_hm3_ref_panel_snps`. The shared identifier and genome-build
 assumptions come from the `GlobalConfig` passed to `RefPanelLoader` and then
 captured by the LD-score workflow result snapshots.
 
@@ -311,10 +316,11 @@ snapshot rather than re-inferring the build from coordinates.
 **Workflow-specific SNP controls are not part of `config_snapshot`.**
 `config_snapshot` records shared assumptions such as `genome_build` and
 `snp_identifier`. Per-run LD-score controls such as
-`RefPanelConfig.ref_panel_snps_file` and `LDScoreConfig.regression_snps_file`
-still materially affect the outputs, but callers who need to preserve that
-provenance should persist the `RefPanelConfig` / `LDScoreConfig` they used
-alongside the written artifacts.
+`RefPanelConfig.ref_panel_snps_file`, `RefPanelConfig.use_hm3_ref_panel_snps`,
+`LDScoreConfig.regression_snps_file`, and
+`LDScoreConfig.use_hm3_regression_snps` still materially affect the outputs, but
+callers who need to preserve that provenance should persist the
+`RefPanelConfig` / `LDScoreConfig` they used alongside the written artifacts.
 
 **`load_sumstats()` recovers provenance for current disk artifacts.**
 Curated `sumstats.parquet` and `.sumstats(.gz)` artifacts written by the current

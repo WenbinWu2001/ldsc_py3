@@ -5,6 +5,8 @@ import unittest
 import warnings
 from unittest import mock
 
+import pandas as pd
+
 SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
@@ -53,6 +55,31 @@ class PackageLayoutTest(unittest.TestCase):
         self.assertIn("ChrPosBuildInference", ldsc.__all__)
         self.assertIn("infer_chr_pos_build", ldsc.__all__)
         self.assertIn("resolve_chr_pos_table", ldsc.__all__)
+
+    def test_top_level_exports_hm3_curated_map_loader(self):
+        import ldsc
+        from ldsc import load_hm3_curated_map
+
+        self.assertIs(load_hm3_curated_map, ldsc.load_hm3_curated_map)
+        self.assertIn("load_hm3_curated_map", ldsc.__all__)
+        with self.assertRaises(TypeError):
+            load_hm3_curated_map("custom.tsv.gz")
+
+    def test_load_hm3_curated_map_returns_canonical_full_schema(self):
+        from ldsc import load_hm3_curated_map
+
+        frame = load_hm3_curated_map()
+
+        self.assertIn("CHR", frame.columns)
+        self.assertIn("hg19_POS", frame.columns)
+        self.assertIn("hg38_POS", frame.columns)
+        self.assertIn("SNP", frame.columns)
+        self.assertIn("A1", frame.columns)
+        self.assertGreater(len(frame), 1_000_000)
+        self.assertEqual(str(frame["CHR"].dtype), "string")
+        self.assertTrue(pd.api.types.is_integer_dtype(frame["hg19_POS"]))
+        self.assertTrue(pd.api.types.is_integer_dtype(frame["hg38_POS"]))
+        self.assertEqual(str(frame["SNP"].dtype), "string")
 
     def test_cli_exposes_expected_subcommands(self):
         from ldsc import cli
@@ -289,6 +316,30 @@ class PackageLayoutTest(unittest.TestCase):
         self.assertEqual(args.command, "ldscore")
         self.assertEqual(args.regression_snps_file, "filters/hm3.txt")
 
+    def test_ldscore_subcommand_accepts_explicit_hm3_flags(self):
+        from ldsc import cli
+
+        parser = cli.build_parser()
+        args = parser.parse_args(
+            [
+                "ldscore",
+                "--output-dir",
+                "out/ldscores",
+                "--baseline-annot-sources",
+                "baseline.annot.gz",
+                "--plink-prefix",
+                "panel",
+                "--ld-wind-snps",
+                "10",
+                "--use-hm3-ref-panel-snps",
+                "--use-hm3-regression-snps",
+            ]
+        )
+
+        self.assertEqual(args.command, "ldscore")
+        self.assertTrue(args.use_hm3_ref_panel_snps)
+        self.assertTrue(args.use_hm3_regression_snps)
+
     def test_munge_sumstats_subcommand_accepts_sumstats_snps_file(self):
         from ldsc import cli
 
@@ -307,6 +358,24 @@ class PackageLayoutTest(unittest.TestCase):
 
         self.assertEqual(args.command, "munge-sumstats")
         self.assertEqual(args.sumstats_snps_file, "filters/hm3.tsv.gz")
+
+    def test_munge_sumstats_subcommand_accepts_use_hm3_snps(self):
+        from ldsc import cli
+
+        parser = cli.build_parser()
+        args = parser.parse_args(
+            [
+                "munge-sumstats",
+                "--raw-sumstats-file",
+                "raw.tsv",
+                "--output-dir",
+                "out/trait",
+                "--use-hm3-snps",
+            ]
+        )
+
+        self.assertEqual(args.command, "munge-sumstats")
+        self.assertTrue(args.use_hm3_snps)
 
     def test_munge_sumstats_subcommand_rejects_removed_merge_alleles_file(self):
         from ldsc import cli

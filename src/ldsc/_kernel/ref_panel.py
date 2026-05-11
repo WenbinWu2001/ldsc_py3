@@ -23,7 +23,8 @@ from ..column_inference import (
     resolve_required_column,
 )
 from ..config import GlobalConfig, RefPanelConfig
-from ..genome_build_inference import validate_auto_genome_build_mode
+from ..genome_build_inference import resolve_genome_build, validate_auto_genome_build_mode
+from ..hm3 import packaged_hm3_curated_map_path
 from ..path_resolution import resolve_plink_prefix, resolve_plink_prefix_group
 from . import formats as legacy_parse
 from . import ldscore as kernel_ldscore
@@ -186,9 +187,11 @@ class RefPanel(ABC):
 
     def _apply_snp_restriction(self, metadata: pd.DataFrame) -> pd.DataFrame:
         """Filter metadata rows to ``RefPanelConfig.ref_panel_snps_file`` when set."""
-        restrict_path = self.spec.ref_panel_snps_file
+        restrict_path = packaged_hm3_curated_map_path() if self.spec.use_hm3_ref_panel_snps else self.spec.ref_panel_snps_file
         if restrict_path is None or len(metadata) == 0:
             return metadata
+        if self.spec.use_hm3_ref_panel_snps:
+            LOGGER.info(f"Using packaged curated HM3 map for reference-panel SNP restriction: {restrict_path}.")
         restrict_ids = read_global_snp_restriction(
             restrict_path,
             self.global_config.snp_identifier,
@@ -662,12 +665,128 @@ class RefPanelLoader:
 
     def load(self, ref_panel_spec: RefPanelConfig) -> RefPanel:
         """Return a concrete reference-panel adapter for ``ref_panel_spec``."""
+        global_config = self._global_config_for_spec(ref_panel_spec)
         backend = ref_panel_spec.backend
         if backend == "plink":
-            return PlinkRefPanel(self.global_config, ref_panel_spec)
+            return PlinkRefPanel(global_config, ref_panel_spec)
         if backend == "parquet_r2":
-            return ParquetR2RefPanel(self.global_config, ref_panel_spec)
+            return ParquetR2RefPanel(global_config, ref_panel_spec)
         raise ValueError(f"Unsupported reference-panel backend: {backend}")
+
+    def _global_config_for_spec(self, ref_panel_spec: RefPanelConfig) -> GlobalConfig:
+        """Resolve direct Python auto-build restrictions before backend loading."""
+        mode = normalize_snp_identifier_mode(self.global_config.snp_identifier)
+        if mode != "chr_pos" or self.global_config.genome_build != "auto":
+            return self.global_config
+        if not (ref_panel_spec.ref_panel_snps_file or ref_panel_spec.use_hm3_ref_panel_snps):
+            return self.global_config
+        resolved_build = _infer_restricted_ref_panel_build(ref_panel_spec)
+        return GlobalConfig(
+            snp_identifier="chr_pos",
+            genome_build=resolved_build,
+            log_level=self.global_config.log_level,
+            fail_on_missing_metadata=self.global_config.fail_on_missing_metadata,
+        )
+
+
+def _infer_restricted_ref_panel_build(ref_panel_spec: RefPanelConfig) -> str:
+    """Infer a concrete build for direct ``chr_pos`` ref-panel restrictions."""
+    if ref_panel_spec.ref_panel_snps_file:
+        header_build = _infer_restriction_header_build(Path(ref_panel_spec.ref_panel_snps_file))
+        if header_build is not None:
+            return header_build
+    try:
+        if ref_panel_spec.backend == "parquet_r2":
+            inferred = _infer_parquet_r2_build(ref_panel_spec)
+        elif ref_panel_spec.backend == "plink":
+            inferred = _infer_plink_ref_panel_build(ref_panel_spec)
+        else:
+            inferred = None
+    except Exception as exc:
+        raise ValueError(
+            "Cannot infer genome_build='auto' before applying chr_pos reference-panel SNP restrictions. "
+            "Pass GlobalConfig(genome_build='hg19') or GlobalConfig(genome_build='hg38') explicitly."
+        ) from exc
+    if inferred not in {"hg19", "hg38"}:
+        raise ValueError(
+            "Cannot infer genome_build='auto' before applying chr_pos reference-panel SNP restrictions. "
+            "Pass GlobalConfig(genome_build='hg19') or GlobalConfig(genome_build='hg38') explicitly."
+        )
+    return inferred
+
+
+def _infer_restriction_header_build(path: Path) -> str | None:
+    """Infer build from an unambiguous build-specific restriction POS header."""
+    header, _rows, _delimiter = _parse_restriction_rows(path)
+    normalized = {str(column).upper().replace("-", "_") for column in header}
+    has_hg19 = any(token in normalized for token in {"HG19_POS", "HG19_BP", "HG37_POS", "GRCH37_POS"})
+    has_hg38 = any(token in normalized for token in {"HG38_POS", "HG38_BP", "GRCH38_POS"})
+    if has_hg19 and not has_hg38:
+        return "hg19"
+    if has_hg38 and not has_hg19:
+        return "hg38"
+    return None
+
+
+def _parse_restriction_rows(path: Path):
+    """Reuse the identifier parser for header inspection."""
+    from .identifiers import _parse_restriction_rows as parse_rows
+
+    return parse_rows(path)
+
+
+def _infer_parquet_r2_build(ref_panel_spec: RefPanelConfig) -> str | None:
+    """Infer reference-panel build from parquet R2 schema metadata."""
+    if ref_panel_spec.r2_dir is None:
+        return None
+    root = Path(ref_panel_spec.r2_dir)
+    paths: list[Path] = []
+    if root.is_dir():
+        paths.extend(sorted(root.glob("chr*_r2.parquet")))
+        for build in ("hg19", "hg38"):
+            child = root / build
+            if child.is_dir():
+                paths.extend(sorted(child.glob("chr*_r2.parquet")))
+    builds = {_read_r2_sorted_by_build(path) for path in paths}
+    builds.discard(None)
+    if len(builds) == 1:
+        return next(iter(builds))
+    return None
+
+
+def _read_r2_sorted_by_build(path: Path) -> str | None:
+    """Read ``ldsc:sorted_by_build`` from a parquet R2 schema."""
+    try:
+        import pyarrow.parquet as pq
+    except ImportError:
+        return None
+    raw_meta = pq.read_schema(str(path)).metadata or {}
+    raw_build = raw_meta.get(b"ldsc:sorted_by_build")
+    if raw_build is None:
+        return None
+    build = raw_build.decode("utf-8")
+    return build if build in {"hg19", "hg38"} else None
+
+
+def _infer_plink_ref_panel_build(ref_panel_spec: RefPanelConfig) -> str | None:
+    """Infer reference-panel build from PLINK BIM coordinates."""
+    if ref_panel_spec.plink_prefix is None:
+        return None
+    prefixes = resolve_plink_prefix_group((ref_panel_spec.plink_prefix,), allow_chromosome_suite=True)
+    frames: list[pd.DataFrame] = []
+    for prefix in prefixes:
+        frame = pd.read_csv(
+            prefix + ".bim",
+            sep=r"\s+",
+            header=None,
+            usecols=[0, 3],
+            names=["CHR", "POS"],
+        )
+        frames.append(frame)
+    if not frames:
+        return None
+    sample = pd.concat(frames, ignore_index=True)
+    return resolve_genome_build("auto", "chr_pos", sample, context="reference-panel SNP restriction", logger=LOGGER)
 
 
 def _chrom_sort_key(chrom: str) -> tuple[int, str]:

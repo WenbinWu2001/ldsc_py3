@@ -44,6 +44,7 @@ from .config import (
     print_global_config_banner,
     validate_config_compatibility,
 )
+from .hm3 import packaged_hm3_curated_map_path
 from .genome_build_inference import resolve_genome_build
 from .outputs import (
     LDScoreDirectoryWriter,
@@ -668,7 +669,19 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional SNP list defining the retained reference-panel universe A'; the workflow intersects each chromosome annotation bundle with this prepared panel before LD computation.",
     )
+    parser.add_argument(
+        "--use-hm3-ref-panel-snps",
+        action="store_true",
+        default=False,
+        help="Restrict the reference-panel universe to the packaged curated HM3 SNP map.",
+    )
     parser.add_argument("--regression-snps-file", default=None, help="Optional SNP list defining the regression SNP set and the written LD-score row set.")
+    parser.add_argument(
+        "--use-hm3-regression-snps",
+        action="store_true",
+        default=False,
+        help="Use the packaged curated HM3 SNP map as the regression SNP set.",
+    )
     parser.add_argument(
         "--keep-indivs-file",
         default=None,
@@ -706,7 +719,12 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
     print_global_config_banner("run_ldscore_from_args", global_config)
     _validate_run_args(normalized_args)
     ldscore_config = _ldscore_config_from_args(normalized_args)
-    regression_snps = _load_regression_snps(ldscore_config.regression_snps_file, global_config)
+    regression_snps_path = _regression_snps_file_from_config(ldscore_config)
+    regression_snps = _load_regression_snps(
+        regression_snps_path,
+        global_config,
+        label="packaged HM3 regression SNP map" if ldscore_config.use_hm3_regression_snps else "regression SNP list",
+    )
     ref_mode = "parquet" if _uses_parquet_reference(normalized_args) else "plink"
     LOGGER.info(
         f"Starting LD-score workflow with reference mode '{ref_mode}', "
@@ -740,6 +758,11 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
             reference_mode=ref_mode,
             snp_identifier=global_config.snp_identifier,
             genome_build=global_config.genome_build,
+            use_hm3_ref_panel_snps=getattr(normalized_args, "use_hm3_ref_panel_snps", False),
+            use_hm3_regression_snps=ldscore_config.use_hm3_regression_snps,
+            hm3_map_file=packaged_hm3_curated_map_path()
+            if getattr(normalized_args, "use_hm3_ref_panel_snps", False) or ldscore_config.use_hm3_regression_snps
+            else "none",
         )
         result = calculator.run(
             annotation_bundle=annotation_bundle,
@@ -953,6 +976,9 @@ def _normalize_run_args(args: argparse.Namespace) -> tuple[argparse.Namespace, G
     for attr in ("ref_panel_snps_file", "regression_snps_file"):
         if not hasattr(normalized_args, attr):
             setattr(normalized_args, attr, None)
+    for attr in ("use_hm3_ref_panel_snps", "use_hm3_regression_snps"):
+        if not hasattr(normalized_args, attr):
+            setattr(normalized_args, attr, False)
     if not hasattr(normalized_args, "maf_min"):
         normalized_args.maf_min = None
     if not hasattr(normalized_args, "common_maf_min"):
@@ -965,6 +991,10 @@ def _normalize_run_args(args: argparse.Namespace) -> tuple[argparse.Namespace, G
     normalized_args.keep_indivs_file = normalize_optional_path_token(getattr(args, "keep_indivs_file", None))
     normalized_args.ref_panel_snps_file = normalize_optional_path_token(getattr(args, "ref_panel_snps_file", None))
     normalized_args.regression_snps_file = normalize_optional_path_token(getattr(args, "regression_snps_file", None))
+    if normalized_args.ref_panel_snps_file is not None and normalized_args.use_hm3_ref_panel_snps:
+        raise ValueError("ref_panel_snps_file and use_hm3_ref_panel_snps are mutually exclusive.")
+    if normalized_args.regression_snps_file is not None and normalized_args.use_hm3_regression_snps:
+        raise ValueError("regression_snps_file and use_hm3_regression_snps are mutually exclusive.")
     # The numerical kernel still consumes the historical namespace shape.
     normalized_args.query_annot = normalized_args.query_annot_sources
     normalized_args.baseline_annot = normalized_args.baseline_annot_sources
@@ -1041,15 +1071,22 @@ def _resolve_ldscore_chr_pos_genome_build(args: argparse.Namespace, genome_build
     return resolved[0][1]
 
 
-def _load_regression_snps(path: str | None, global_config: GlobalConfig) -> set[str] | None:
+def _load_regression_snps(path: str | None, global_config: GlobalConfig, *, label: str = "regression SNP list") -> set[str] | None:
     """Load ``LDScoreConfig.regression_snps_file`` using the active identifier mode."""
     if not path:
         return None
     return read_global_snp_restriction(
-        resolve_scalar_path(path, label="regression SNP list"),
+        resolve_scalar_path(path, label=label),
         global_config.snp_identifier,
         genome_build=global_config.genome_build,
     )
+
+
+def _regression_snps_file_from_config(config: LDScoreConfig) -> str | None:
+    """Return the explicit or packaged regression SNP restriction path."""
+    if config.use_hm3_regression_snps:
+        return packaged_hm3_curated_map_path()
+    return config.regression_snps_file
 
 
 def _infer_r2_dir_genome_build(r2_dir: str) -> str | None:
@@ -1110,6 +1147,7 @@ def _ref_panel_from_args(args: argparse.Namespace, global_config: GlobalConfig):
             r2_bias_mode=getattr(args, "r2_bias_mode", None),
             sample_size=getattr(args, "r2_sample_size", None),
             ref_panel_snps_file=ref_panel_snps_file,
+            use_hm3_ref_panel_snps=getattr(args, "use_hm3_ref_panel_snps", False),
             maf_min=getattr(args, "maf_min", None),
             keep_indivs_file=getattr(args, "keep_indivs_file", None),
         )
@@ -1118,6 +1156,7 @@ def _ref_panel_from_args(args: argparse.Namespace, global_config: GlobalConfig):
             backend="plink",
             plink_prefix=getattr(args, "plink_prefix", None),
             ref_panel_snps_file=ref_panel_snps_file,
+            use_hm3_ref_panel_snps=getattr(args, "use_hm3_ref_panel_snps", False),
             maf_min=getattr(args, "maf_min", None),
             keep_indivs_file=getattr(args, "keep_indivs_file", None),
         )
@@ -1131,6 +1170,7 @@ def _ldscore_config_from_args(args: argparse.Namespace) -> LDScoreConfig:
         ld_wind_kb=getattr(args, "ld_wind_kb", None),
         ld_wind_cm=getattr(args, "ld_wind_cm", None),
         regression_snps_file=getattr(args, "regression_snps_file", None),
+        use_hm3_regression_snps=getattr(args, "use_hm3_regression_snps", False),
         snp_batch_size=getattr(args, "snp_batch_size", 128),
         common_maf_min=getattr(args, "common_maf_min", 0.05),
         whole_chromosome_ok=getattr(args, "yes_really", False),

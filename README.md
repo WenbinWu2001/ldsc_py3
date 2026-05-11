@@ -110,22 +110,27 @@ munged run also writes a thin `sumstats.metadata.json` beside the selected
 artifact(s) so later regression commands can recover `snp_identifier`,
 `genome_build`, and optional `--trait-name` provenance; detailed coordinate and
 liftover bookkeeping is written to `sumstats.log`. Use `--sumstats-snps-file`
-when the munged artifact should be restricted to a headered SNP keep-list; this
-filter keeps matching rows only and does not allele-match or reorder the output.
-In `chr_pos` mode, `SNP` is a label; matching uses `CHR` and `POS`. Rows missing
-either coordinate are dropped and counted at `chr_pos` match/map stages, while
-malformed non-missing coordinates remain errors. To convert coordinates after QC
-and after `--sumstats-snps-file`, pass `--target-genome-build` with either
-`--liftover-chain-file` or `--use-hm3-quick-liftover`. Liftover is invalid in
-`rsid` mode because positions are not the row identity there.
+when the munged artifact should be restricted to a headered SNP keep-list, or
+`--use-hm3-snps` to use the packaged curated HM3 map. These filters keep matching
+rows only and do not allele-match or reorder the output. In `chr_pos` mode,
+`SNP` is a label; matching uses source-build `CHR` and `POS`. Rows missing either
+coordinate are dropped and counted at `chr_pos` match/map stages, while malformed
+non-missing coordinates remain errors. To convert coordinates after QC and after
+SNP restriction, pass `--target-genome-build` with `--liftover-chain-file`, or
+pair `--target-genome-build --use-hm3-snps --use-hm3-quick-liftover` for the HM3
+coordinate shortcut. Liftover is invalid in `rsid` mode because positions are
+not the row identity there.
 
 `ldsc build-ref-panel` keeps a separate source-build contract for PLINK input:
 provide or infer `--source-genome-build`, and a matching chain file emits the
-opposite build. Chain-file liftover is invalid when the active
-`snp_identifier` is `rsid`; omit the chain for source-build-only rsID panels.
-In `chr_pos` mode, duplicate source or target coordinate groups are dropped by
-default (`--duplicate-position-policy drop-all`), with details in
-`build-ref-panel.log` and duplicate-only sidecars under `dropped_snps/`.
+opposite build. `--use-hm3-snps` restricts the emitted SNP universe to the
+packaged curated HM3 map, and `--use-hm3-quick-liftover` can emit the opposite
+build for that HM3-restricted coordinate universe without a chain file.
+Chain-file and HM3 quick liftover are invalid when the active `snp_identifier`
+is `rsid`; omit liftover for source-build-only rsID panels. In `chr_pos` mode,
+duplicate source or target coordinate groups are dropped by default
+(`--duplicate-position-policy drop-all`), with details in `build-ref-panel.log`
+and duplicate-only sidecars under `dropped_snps/`.
 
 Artifact-writing workflows also write per-run logs under their output
 directories. `munge-sumstats` keeps the historical `sumstats.log` name; other

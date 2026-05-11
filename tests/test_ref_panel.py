@@ -134,6 +134,28 @@ class PlinkRefPanelTest(unittest.TestCase):
             metadata = panel.load_metadata("22")
             self.assertEqual(set(metadata["SNP"]), {PLINK_SNPS[0]})
 
+    def test_chr_pos_restriction_with_auto_build_infers_before_filtering(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            restrict = Path(tmpdir) / "restrict.tsv"
+            restrict.write_text(
+                "CHR\thg38_POS\n"
+                "22\t16406147\n"
+                "22\t16805059\n",
+                encoding="utf-8",
+            )
+            panel = RefPanelLoader(GlobalConfig(snp_identifier="chr_pos")).load(
+                RefPanelConfig(
+                    backend="plink",
+                    plink_prefix=str(PLINK_PREFIX),
+                    ref_panel_snps_file=str(restrict),
+                )
+            )
+
+            metadata = panel.load_metadata("22")
+
+        self.assertEqual(set(metadata["SNP"]), set(PLINK_SNPS))
+        self.assertEqual(panel.global_config.genome_build, "hg38")
+
     @unittest.skipUnless(_has_module("bitarray"), "bitarray is not installed")
     def test_plink_metadata_includes_genotype_maf_and_applies_maf_min(self):
         panel = PlinkRefPanel(

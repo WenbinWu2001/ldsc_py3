@@ -123,7 +123,9 @@ Removed flags: `--bed-files`, `--baseline-annot`.
 | `--r2-bias-mode` | input metadata | optional | parquet R2 bias declaration | Declares whether parquet R2 values are raw or unbiased. Package-built panels auto-load this from `ldsc:r2_bias`; legacy files without metadata still default to `unbiased`. Choose `raw` only for external raw sample R2 values. |
 | `--r2-sample-size` | input metadata | conditional | parquet R2 sample size | Provides the sample size for correcting raw R2. Package-built raw panels can auto-load this from `ldsc:n_samples`; legacy raw files still require an explicit value with `--r2-bias-mode raw`. |
 | `--ref-panel-snps-file` | input | no | reference-panel SNP universe restriction | Restricts the retained reference-panel SNP universe; defaults to omitted/`None`, so no additional restriction is applied. |
+| `--use-hm3-ref-panel-snps` | input mode | no | packaged HM3 reference-panel SNP restriction | Restricts the retained reference-panel SNP universe to the packaged curated HM3 map. Mutually exclusive with `--ref-panel-snps-file`. |
 | `--regression-snps-file` | input | no | persisted LD-score row-set restriction | Restricts the written LD-score row set; defaults to omitted/`None`, so rows are not restricted by a persisted regression SNP set. |
+| `--use-hm3-regression-snps` | input mode | no | packaged HM3 regression SNP restriction | Restricts the persisted LD-score row set to the packaged curated HM3 map. Mutually exclusive with `--regression-snps-file`. |
 | `--keep-indivs-file` | input | no | PLINK individual keep file | Restricts PLINK individuals before LD calculation; defaults to omitted/`None`, so no individual keep filter is applied. PLINK mode only. |
 | `--maf-min` | input metadata | no | retained reference-panel MAF filter | Filters retained reference-panel SNPs by MAF; defaults to omitted/`None`, so no retained-reference MAF filter is applied. |
 | `--common-maf-min` | input metadata | no | common-SNP count threshold | Sets the MAF threshold for common-SNP count vectors; defaults to `0.05` and uses `MAF >= common_maf_min`. |
@@ -157,6 +159,8 @@ LD-score output schema:
 | `--liftover-chain-hg19-to-hg38-file` | input | no | liftover chain file | Enables hg38 outputs for hg19 source builds; defaults to omitted/`None`, so those target-build outputs are not emitted. |
 | `--liftover-chain-hg38-to-hg19-file` | input | no | liftover chain file | Enables hg19 outputs for hg38 source builds; defaults to omitted/`None`, so those target-build outputs are not emitted. |
 | `--ref-panel-snps-file` | input | no | retained SNP universe restriction | Restricts the emitted reference-panel SNP universe; defaults to omitted/`None`, so no retained SNP restriction is applied. |
+| `--use-hm3-snps` | input mode | no | packaged HM3 SNP restriction | Restricts the emitted reference-panel SNP universe to the packaged curated HM3 map. Mutually exclusive with `--ref-panel-snps-file`. |
+| `--use-hm3-quick-liftover` | input mode | no | packaged HM3 coordinate map | Emits source and opposite-build R2/metadata for the HM3-restricted coordinate universe. Requires `--use-hm3-snps`, is valid only in `chr_pos` mode, and is mutually exclusive with chain-file liftover. |
 | `--snp-identifier` | input metadata | conditional | global SNP identifier mode | Overrides the registered SNP identifier mode for this invocation; defaults to omitted/`None`, so `GlobalConfig.snp_identifier` is used. |
 | `--keep-indivs-file` | input | no | PLINK individual keep file | Restricts PLINK individuals during panel building; defaults to omitted/`None`, so no individual keep filter is applied. |
 | `--maf-min` | input metadata | no | retained SNP MAF filter | Filters retained SNPs by MAF during PLINK loading; defaults to omitted/`None`, so no retained-SNP MAF filter is applied. |
@@ -187,12 +191,14 @@ Each `chr{chrom}_r2.parquet` stores Arrow schema metadata for
 the PLINK sample count, so downstream LD-score runs can omit `--r2-bias-mode`
 and `--r2-sample-size` for panels produced by this codebase.
 
-When no usable source-to-target liftover chain is provided, the builder logs
-an INFO message and emits source-build-only outputs. When a matching liftover
-chain is provided, it emits both source and target build R2/metadata trees.
-Matching chain-file liftover is rejected when the active SNP identifier mode is
-`rsid`; use `chr_pos` mode for cross-build coordinate emission or omit the
-matching chain for source-build-only rsID panels.
+When no usable source-to-target liftover method is provided, the builder logs an
+INFO message and emits source-build-only outputs. When a matching liftover chain
+is provided, it emits both source and target build R2/metadata trees. HM3 quick
+liftover emits the same source and target tree shapes for the HM3-restricted
+coordinate universe, backed by the packaged map rather than a chain file.
+Reference-panel liftover is rejected when the active SNP identifier mode is
+`rsid`; use `chr_pos` mode for cross-build coordinate emission or omit liftover
+for source-build-only rsID panels.
 
 When SNP- or kb-window builds omit a genetic map for an emitted build, that
 metadata sidecar is still written with `CM=NA`. cM-window builds require the
@@ -208,13 +214,14 @@ liftover/coordinate configuration, or chromosome scope.
 |---|---:|---:|---|---|
 | `--raw-sumstats-file` | input | yes | raw summary-statistics file | Exact path or exact-one glob. |
 | `--sumstats-snps-file` | input | no | summary-statistics SNP keep-list | Restricts munged summary-statistics rows to a SNP keep-list; defaults to omitted/`None`, so no keep-list restriction is applied. |
+| `--use-hm3-snps` | input mode | no | packaged HM3 SNP restriction | Restricts munged summary-statistics rows to the packaged curated HM3 map. Mutually exclusive with `--sumstats-snps-file`. |
 | `--trait-name` | input metadata | no | biological trait label | Optional label stored in `sumstats.metadata.json`; downstream regression uses it unless a regression CLI `--trait-name` override is supplied. |
 | `--output-dir` | output | yes | munged output directory | The workflow writes fixed `sumstats.*` artifacts under this directory and passes `<output_dir>/sumstats` as the kernel output stem. |
 | `--output-format` | output mode | no | curated sumstats format | One of `parquet`, `tsv.gz`, or `both`; defaults to `parquet`. |
 | `--chr`, `--pos` | input metadata | no | raw column hints | Identify raw chromosome and position columns; default to omitted/`None`, so common aliases such as `#CHROM`, `CHROM`, `CHR`, `POS`, and `BP` are inferred. |
 | `--target-genome-build` | input metadata | no | optional liftover target build | Enables source-to-target coordinate liftover when paired with exactly one liftover method; valid only in `chr_pos` mode and never rewrites `SNP`. |
 | `--liftover-chain-file` | input | no | optional munger liftover chain | Uses a source-to-target chain file for coordinate-only sumstats liftover. Mutually exclusive with `--use-hm3-quick-liftover`. |
-| `--use-hm3-quick-liftover` | input mode | no | packaged HM3 coordinate map | Uses the curated dual-build HM3 map for sumstats-only quick liftover. Mutually exclusive with `--liftover-chain-file`. |
+| `--use-hm3-quick-liftover` | input mode | no | packaged HM3 coordinate map | Uses the curated dual-build HM3 map for HM3-only quick liftover. Requires `--use-hm3-snps` and is mutually exclusive with `--liftover-chain-file`. |
 | `--daner-old`, `--daner-new` | input metadata | no | DANER schema interpretation | `--daner-old` parses case/control N from `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` headers; `--daner-new` parses exact `Nca` and `Nco` columns. |
 | `--snp-identifier`, `--genome-build` | config | no | provenance | `--snp-identifier` defaults to `chr_pos`; `--genome-build` defaults to `hg38`; `--genome-build auto` can infer hg19/hg38 for complete `CHR`/`POS` rows. |
 | `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger records in console and `sumstats.log`; lifecycle audit lines always appear in the file. |
@@ -321,9 +328,11 @@ Removed Python names: `bed_paths`, `query_bed_paths`, `bed_files`,
 | `RefPanelConfig` | `plink_prefix` | input | PLINK reference-panel prefix token |
 | `RefPanelConfig` | `r2_dir` | input | preferred package-built parquet reference-panel directory |
 | `RefPanelConfig` | `ref_panel_snps_file` | input | reference SNP restriction |
+| `RefPanelConfig` | `use_hm3_ref_panel_snps` | input mode | packaged HM3 reference-panel SNP restriction |
 | `RefPanelConfig` | `keep_indivs_file` | input | PLINK individual keep file |
 | `RefPanelConfig` | `maf_min` | input metadata | retained reference-panel MAF filter |
 | `LDScoreConfig` | `regression_snps_file` | input | regression SNP restriction |
+| `LDScoreConfig` | `use_hm3_regression_snps` | input mode | packaged HM3 regression SNP restriction |
 | `LDScoreConfig` | `snp_batch_size` | performance | LD-score SNP batch size |
 | `LDScoreConfig` | `common_maf_min` | input metadata | common-SNP count threshold only |
 | `LDScoreOutputConfig` | `output_dir` | output | canonical LD-score result directory |
@@ -347,6 +356,8 @@ LD-score `chunk_size`.
 | `ReferencePanelBuildConfig` | `liftover_chain_hg19_to_hg38_file` | input | optional liftover chain |
 | `ReferencePanelBuildConfig` | `liftover_chain_hg38_to_hg19_file` | input | optional liftover chain |
 | `ReferencePanelBuildConfig` | `ref_panel_snps_file` | input | retained SNP restriction |
+| `ReferencePanelBuildConfig` | `use_hm3_snps` | input mode | packaged HM3 retained SNP restriction |
+| `ReferencePanelBuildConfig` | `use_hm3_quick_liftover` | input mode | packaged HM3-only coordinate liftover |
 | `ReferencePanelBuildConfig` | `keep_indivs_file` | input | PLINK individual keep file |
 | `ReferencePanelBuildConfig` | `maf_min` | input metadata | retained SNP MAF filter |
 | `ReferencePanelBuildConfig` | `snp_batch_size` | performance | SNP computation batch size |
@@ -366,6 +377,7 @@ Removed Python names: `plink_path`, `bfile`, `out`, `panel_label`,
 | `MungeConfig` | `column_hints` | input metadata | optional source-column hints |
 | `MungeConfig` | `daner_old`, `daner_new` | input metadata | optional DANER schema interpretation switches |
 | `MungeConfig` | `sumstats_snps_file` | input | summary-statistics SNP keep-list |
+| `MungeConfig` | `use_hm3_snps` | input mode | packaged HM3 summary-statistics SNP restriction |
 | `MungeConfig` | `target_genome_build` | input metadata | optional target build for `chr_pos` output coordinates |
 | `MungeConfig` | `liftover_chain_file` | input | optional source-to-target chain file for munger liftover |
 | `MungeConfig` | `use_hm3_quick_liftover` | input mode | use packaged curated HM3 dual-build map for coordinate-only liftover |

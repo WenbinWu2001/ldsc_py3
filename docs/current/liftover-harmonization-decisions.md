@@ -42,7 +42,8 @@ output, and metadata contracts.
   only `CHR` and `POS`; it never rewrites `SNP`.
 - Sumstats liftover requires explicit source/target/method validation:
   `--target-genome-build` plus exactly one of `--liftover-chain-file` or
-  `--use-hm3-quick-liftover` when source and target differ.
+  `--use-hm3-quick-liftover` when source and target differ. HM3 quick liftover
+  additionally requires `--use-hm3-snps`, so HM3 filtering is explicit.
 - Missing `CHR`/`POS` rows are dropped before mapping and logged.
 - Source duplicate `CHR/POS` groups are dropped before mapping.
 - Target duplicate `CHR/POS` groups are dropped after mapping.
@@ -66,18 +67,21 @@ output, and metadata contracts.
 - Old pre-`config_snapshot` sidecars are not supported. Completely missing
   sidecars remain legacy unknown-provenance inputs for existing loader
   compatibility.
-- HM3 quick liftover remains sumstats-only unless a later design explicitly
-  expands it.
+- HM3 quick liftover is a packaged-map coordinate shortcut, not a general
+  chain-liftover replacement.
 
 ## Reference-Panel Builder Contract
 
 - PLINK reference-panel building keeps its existing UX: the source build is
   explicit or inferred, and a matching chain file emits the opposite build.
-- No new public `target_genome_build` or liftover-method config field was added
-  for reference-panel building.
-- Matching chain-file liftover is invalid when the active
+- `--use-hm3-snps` restricts the retained reference-panel universe to the
+  packaged curated HM3 map. `--use-hm3-quick-liftover` requires that restriction
+  and emits the opposite build using the packaged map.
+- No new public `target_genome_build` field was added for reference-panel
+  building.
+- Matching chain-file liftover and HM3 quick liftover are invalid when the active
   `GlobalConfig.snp_identifier` is `rsid`. In rsID mode, omit the matching
-  chain and build source-genome coordinates only.
+  chain or quick-liftover flag and build source-genome coordinates only.
 - Coordinate duplicate groups are dropped with `drop-all`. There is no public
   duplicate-position policy knob.
 - Duplicate-position handling applies only in `chr_pos` mode.
@@ -141,8 +145,8 @@ output, and metadata contracts.
   function/dataclass helper module.
 - Consider a common typed drop-report object that can be surfaced through
   Python results without expanding disk sidecars.
-- HM3 quick liftover remains sumstats-only. Revisit only with a separate design
-  that justifies applying a sparse HM3 map to dense PLINK panels.
+- HM3 quick liftover remains an HM3-restricted coordinate shortcut. Revisit only
+  with a separate design if broader non-HM3 liftover behavior is needed.
 - Audit whether downstream loaders should expose liftover provenance from logs
   or leave logs as human audit artifacts only.
 - Consider adding a small compatibility validator for old external reference
@@ -152,6 +156,6 @@ output, and metadata contracts.
 
 When touching liftover code, preserve these contracts unless a new design
 explicitly changes them: liftover is `chr_pos`-only, `SNP` is a label in
-`chr_pos`, sumstats liftover updates only `CHR/POS`, reference-panel chain
-liftover is rejected in `rsid`, HM3 quick liftover is sumstats-only, dropped-SNP
+`chr_pos`, sumstats liftover updates only `CHR/POS`, reference-panel liftover is
+rejected in `rsid`, HM3 quick liftover requires HM3 SNP restriction, dropped-SNP
 sidecars stay schema-stable, and detailed provenance belongs in workflow logs.

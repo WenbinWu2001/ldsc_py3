@@ -133,11 +133,14 @@ output directory are left untouched. Unlike the result-directory workflows,
 chromosome siblings from earlier configurations; use a fresh output directory
 when changing emitted builds, liftover/coordinate configuration, or chromosome
 scope.
-Reference-panel chain liftover is coordinate behavior: it is valid only when
-the active SNP identifier mode is `chr_pos`. Duplicate-position filtering also
-applies only in `chr_pos` mode and always drops all colliding source or target
-coordinate groups. The sidecar also records unmapped and cross-chromosome
-liftover drops; clean processed chromosomes get a header-only sidecar.
+Reference-panel liftover is coordinate behavior: chain-file liftover and HM3
+quick liftover are valid only when the active SNP identifier mode is `chr_pos`.
+HM3 quick liftover requires the packaged HM3 SNP restriction flag and emits the
+opposite build only for the retained HM3 coordinate universe. Duplicate-position
+filtering also applies only in `chr_pos` mode and always drops all colliding
+source or target coordinate groups. The sidecar also records unmapped and
+cross-chromosome liftover drops; clean processed chromosomes get a header-only
+sidecar.
 
 ### Required inputs
 
@@ -147,8 +150,8 @@ liftover drops; clean processed chromosomes get a header-only sidecar.
 | `.bim` row | `22 rs123 0.0 16050075 A G` | variant metadata |
 | `.fam` row | `fam1 iid1 0 0 0 -9` | sample metadata |
 | genetic map, conditional | `chr position Genetic_Map(cM)`<br/>`22 16050000 0.42` | required for every emitted build when cM windows are used; optional for SNP/kb windows |
-| liftover chain, optional | `hg38ToHg19.over.chain.gz` | matching source-to-target chain enables cross-build R2 and metadata in `chr_pos` mode; omitted chain produces source-build-only output; matching chains are rejected in `rsid` mode |
-| keep or restrict file, optional | one IID per row or a headered SNP table | filters individuals or variants; SNP restriction matching uses `GlobalConfig.snp_identifier`; `chr_pos` restrictions must match the source PLINK build |
+| liftover method, optional | `hg38ToHg19.over.chain.gz` or `--use-hm3-snps --use-hm3-quick-liftover` | matching source-to-target chain enables cross-build R2 and metadata in `chr_pos` mode; HM3 quick liftover uses the packaged map and requires HM3 restriction; omitted liftover produces source-build-only output; liftover is rejected in `rsid` mode |
+| keep or restrict file, optional | one IID per row, a headered SNP table, or `--use-hm3-snps` | filters individuals or variants; SNP restriction matching uses `GlobalConfig.snp_identifier`; `chr_pos` restrictions must match the source PLINK build |
 
 ### Flow
 
@@ -289,11 +292,12 @@ also supports the legacy `sumstats.sumstats.gz` artifact. With overwrite
 enabled, stale sibling formats not produced by the current run are removed
 after successful writes. Optional sumstats liftover is a `chr_pos`-only step:
 the source build comes from `GlobalConfig.genome_build` or munger build
-inference, `--sumstats-snps-file` is interpreted in that source build before
+inference, SNP restrictions are interpreted in that source build before
 liftover, and `--target-genome-build` must be paired with exactly one method
 when the target differs from the source. Chain-file liftover uses
-`--liftover-chain-file`; HM3 quick liftover uses the packaged curated
-`hm3_curated_map.tsv.gz` and is coordinate-only, so it never rewrites `SNP`.
+`--liftover-chain-file`; HM3 quick liftover requires `--use-hm3-snps`, uses the
+packaged curated `hm3_curated_map.tsv.gz`, and is coordinate-only, so it never
+rewrites `SNP`.
 Missing coordinates, unmapped hits, cross-chromosome hits, and duplicate
 source/target coordinate groups are dropped. Counts are readable audit records
 in `sumstats.log`; row-level drops are written to
@@ -305,8 +309,8 @@ in `sumstats.log`; row-level drops are written to
 | --- | --- | --- |
 | raw sumstats | `#CHROM POS ID EA NEA PVAL BETA NEFF`<br/>`1 754182 rs3131969 A G 0.46 0.004 829249.58` | leading `##` metadata lines are skipped; header aliases are normalized in the workflow layer |
 | DANER raw sumstats, optional schema mode | old: `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` headers with `--daner-old`<br/>new: exact `Nca` and `Nco` columns with `--daner-new` | these flags change only schema interpretation; physical reading still uses the same whitespace text reader |
-| sumstats SNP keep-list, optional | headered `SNP` or `CHR`/`POS` restriction file | optional row filter; does not allele-match or reorder rows |
-| sumstats liftover method, optional | `--target-genome-build hg38 --liftover-chain-file hg19ToHg38.over.chain` or `--target-genome-build hg38 --use-hm3-quick-liftover` | valid only when `snp_identifier=chr_pos`; updates `CHR`/`POS` after keep-list filtering and preserves `SNP` labels |
+| sumstats SNP keep-list, optional | headered `SNP` or `CHR`/`POS` restriction file, or `--use-hm3-snps` | optional row filter; does not allele-match or reorder rows |
+| sumstats liftover method, optional | `--target-genome-build hg38 --liftover-chain-file hg19ToHg38.over.chain` or `--target-genome-build hg38 --use-hm3-snps --use-hm3-quick-liftover` | valid only when `snp_identifier=chr_pos`; updates `CHR`/`POS` after SNP restriction and preserves `SNP` labels |
 | column hints, optional | `--snp ID --chr '#CHROM' --pos POS --a1 EA --a2 NEA` | useful when headers are ambiguous; `CHR` and `POS` also infer from common aliases |
 
 ### Flow

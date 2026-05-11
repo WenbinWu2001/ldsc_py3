@@ -65,7 +65,7 @@ ref_panel = RefPanelLoader(GLOBAL_CONFIG).load(
         backend="parquet_r2",
         r2_dir="r2_ref_panel_1kg30x_1cM_hm3/hg19",
         chromosomes=tuple(annotation_bundle.chromosomes),
-        ref_panel_snps_file="filters/reference_universe.tsv.gz",
+        use_hm3_ref_panel_snps=True,
     )
 )
 
@@ -74,7 +74,7 @@ ldscore_result = LDScoreCalculator().run(
     ref_panel=ref_panel,
     ldscore_config=LDScoreConfig(
         ld_wind_cm=1.0,
-        regression_snps_file="filters/hapmap3.tsv.gz",
+        use_hm3_regression_snps=True,
     ),
     global_config=GLOBAL_CONFIG,
     output_config=LDScoreOutputConfig(
@@ -113,7 +113,7 @@ the merge uses normalized `CHR:POS` coordinates rather than rsIDs, and the
 `SNP` column remains a label. If raw sumstats coordinates need a build
 conversion before this regression step, run `munge-sumstats` with
 `--target-genome-build` plus either `--liftover-chain-file` or
-`--use-hm3-quick-liftover`. Liftover drops duplicate source/target coordinate
+`--use-hm3-snps --use-hm3-quick-liftover`. Liftover drops duplicate source/target coordinate
 groups, writes count summaries to `sumstats.log`, and audits row-level drops in
 `dropped_snps/dropped.tsv.gz`; examples appear only at `DEBUG`. The metadata
 sidecar remains a thin compatibility artifact.
@@ -128,8 +128,8 @@ ldsc ldscore \
   --baseline-annot-sources "annotations/baseline_chr/baseline.@.annot.gz" \
   --query-annot-bed-sources "annotations/cell_type_beds/*.bed" \
   --r2-dir "r2_ref_panel_1kg30x_1cM_hm3/hg19" \
-  --ref-panel-snps-file filters/reference_universe.tsv.gz \
-  --regression-snps-file filters/hapmap3.tsv.gz \
+  --use-hm3-ref-panel-snps \
+  --use-hm3-regression-snps \
   --snp-identifier chr_pos \
   --genome-build hg19 \
   --common-maf-min 0.05 \

@@ -199,6 +199,20 @@ Exactly one of the following must be set:
   be aligned to the PLINK source build. Target-build restriction files are not
   lifted over by the builder.
 
+- `--use-hm3-snps`
+  Plain-English meaning: restrict the retained reference-panel SNP rows to the
+  packaged curated HM3 map.
+  Optional: yes.
+  Recommended usage: prefer this over a custom HM3 file path when the desired
+  universe is HapMap3. It is mutually exclusive with `--ref-panel-snps-file`.
+
+- `--use-hm3-quick-liftover`
+  Plain-English meaning: for an HM3-restricted `chr_pos` build, emit the
+  opposite genome build using the packaged curated HM3 coordinate map.
+  Optional: yes.
+  Recommended usage: use this only with `--use-hm3-snps` when a chain-file
+  liftover is unnecessary for an HM3-only reference panel.
+
 - `--snp-identifier`
   Plain-English meaning: how to interpret the SNP restriction file supplied by
   `--ref-panel-snps-file`.
@@ -302,9 +316,10 @@ print(result.output_paths["meta_hg38"][0])
 
 When you use the lower-level `ReferencePanelBuilder` API with
 `ReferencePanelBuildConfig(ref_panel_snps_file=...)`, put the restriction-file
-identifier mode on the injected `GlobalConfig`. In `chr_pos` mode,
-`GlobalConfig.genome_build` is ignored by this builder; the restriction file
-must be in the same build as `source_genome_build`:
+identifier mode on the injected `GlobalConfig`. For the packaged HapMap3 map,
+use `ReferencePanelBuildConfig(use_hm3_snps=True)` instead of a custom file
+path. In `chr_pos` mode, `GlobalConfig.genome_build` is ignored by this builder;
+the restriction file must be in the same build as `source_genome_build`:
 
 ```python
 GLOBAL_CONFIG = GlobalConfig(
@@ -507,8 +522,8 @@ chromosomes unless `--overwrite` is supplied.
 
 ### Restrict to a predefined SNP universe
 
-Use `--ref-panel-snps-file` when you want to keep only a specific SNP set, for
-example HapMap3 or another curated reference-panel universe.
+Use `--use-hm3-snps` when you want the packaged HapMap3 universe. Use
+`--ref-panel-snps-file` when you want to keep another specific SNP set.
 
 Accepted forms include:
 
@@ -523,7 +538,7 @@ Example:
 ldsc build-ref-panel \
   --plink-prefix data/reference/genomes_30x_chr@ \
   --source-genome-build hg38 \
-  --ref-panel-snps-file filters/hapmap3_rsids.txt \
+  --use-hm3-snps \
   --snp-identifier rsid \
   --ld-wind-kb 1000 \
   --output-dir tutorial_outputs/ref_panel_hm3
@@ -581,10 +596,11 @@ result = run_build_ref_panel(
 )
 ```
 
-If you add `ref_panel_snps_file=...` to this wrapper call, set
-`snp_identifier="rsid"` or `snp_identifier="chr_pos"` on the registered
-`GlobalConfig`. In `chr_pos` mode, the restriction file must be in the source
-PLINK build; `GlobalConfig.genome_build` is ignored by `build-ref-panel`.
+If you add `ref_panel_snps_file=...` or `use_hm3_snps=True` to this wrapper
+call, set `snp_identifier="rsid"` or `snp_identifier="chr_pos"` on the
+registered `GlobalConfig`. In `chr_pos` mode, explicit restriction files must be
+in the source PLINK build; `GlobalConfig.genome_build` is ignored by
+`build-ref-panel`.
 
 ### A note on coordinate systems
 

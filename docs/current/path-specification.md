@@ -221,6 +221,11 @@ Scalar-style inputs:
 - `ref_panel_snps_file`
 - `regression_snps_file`
 
+Packaged HM3 convenience flags:
+
+- `use_hm3_ref_panel_snps`
+- `use_hm3_regression_snps`
+
 PLINK prefix input:
 
 - `plink_prefix`
@@ -297,6 +302,8 @@ Accepted path forms:
 - `ref_panel_snps_file`, when provided: scalar file-like token interpreted
   using `GlobalConfig.snp_identifier`; `chr_pos` coordinates must be aligned to
   the PLINK source build
+- `use_hm3_snps`, when set: uses the packaged curated HM3 map instead of an
+  explicit `ref_panel_snps_file`
 
 How they are handled:
 
@@ -304,8 +311,9 @@ How they are handled:
 - a chromosome suite such as `panel_chr@` is expanded one chromosome at a time
 - liftover chains are optional; the matching source-to-target chain enables
   cross-build R2 and metadata outputs in `chr_pos` mode, while no matching
-  chain produces source-build-only outputs; matching chains are rejected in
-  `rsid` mode
+  chain produces source-build-only outputs; `use_hm3_quick_liftover` also emits
+  the opposite build for the HM3-restricted coordinate universe and requires
+  `use_hm3_snps`; all reference-panel liftover is rejected in `rsid` mode
 - genetic maps are required for every emitted build when `--ld-wind-cm` is set;
   SNP- and kb-window builds may omit maps and write emitted metadata `CM` as
   `NA`
@@ -340,7 +348,7 @@ Output:
 - Existing candidate parquet, metadata, or dropped-SNP audit files are refused unless
   `--overwrite` or `ReferencePanelBuildConfig(overwrite=True)` is supplied.
 - The check covers source-build artifacts and covers target-build artifacts
-  only when the matching liftover chain is configured.
+  only when a matching liftover chain or HM3 quick liftover is configured.
 - Dropped-SNP audit sidecars are always written for processed chromosomes
   (header-only when clean) and contain liftover-stage rows with reasons
   `source_duplicate`, `unmapped_liftover`, `cross_chromosome_liftover`, and
@@ -389,9 +397,12 @@ Output:
   successful run removes stale sibling formats not produced by the current
   `--output-format`.
   `sumstats.log` is not recorded in `MungeRunSummary.output_paths`; detailed
-  provenance and output bookkeeping are written to the log, row-level liftover
-  drops are written to `dropped_snps/dropped.tsv.gz`, and the metadata sidecar
-  stays thin.
+	  provenance and output bookkeeping are written to the log, row-level liftover
+	  drops are written to `dropped_snps/dropped.tsv.gz`, and the metadata sidecar
+	  stays thin.
+- `--use-hm3-snps` uses the packaged curated HM3 map as the sumstats SNP
+  restriction and conflicts with `--sumstats-snps-file`. HM3 quick liftover
+  requires `--use-hm3-snps`.
 - `ldsc h2`, `ldsc partitioned-h2`, and `ldsc rg` write fixed result families
   when `output_dir` is provided. For rg, that family is `rg.tsv`,
   `rg_full.tsv`, `h2_per_trait.tsv`, optional `pairs/`, and workflow-owned

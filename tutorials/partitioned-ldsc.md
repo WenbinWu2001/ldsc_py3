@@ -108,7 +108,7 @@ sumstats = SumstatsMunger().run(
             "N_col": "NEFF",
             "info": "IMPINFO",
         },
-        # sumstats_snps_file="filters/hapmap3.tsv.gz",  # optional row keep-list
+        # use_hm3_snps=True,  # packaged HM3 row restriction
         # target_genome_build="hg38",
         # liftover_chain_file="resources/liftover/hg19ToHg38.over.chain",
         output_dir="tutorial_outputs/trait",
@@ -129,7 +129,7 @@ ref_panel = RefPanelLoader(GLOBAL_CONFIG).load(
         backend="parquet_r2",
         r2_dir="r2_ref_panel_1kg30x_1cM_hm3/hg19",
         chromosomes=tuple(annotation_bundle.chromosomes),
-        ref_panel_snps_file="filters/reference_universe.tsv.gz",
+        use_hm3_ref_panel_snps=True,
     )
 )
 
@@ -138,7 +138,7 @@ ldscore_result = LDScoreCalculator().run(
     ref_panel=ref_panel,
     ldscore_config=LDScoreConfig(
         ld_wind_cm=1.0,
-        regression_snps_file="filters/hapmap3.tsv.gz",
+        use_hm3_regression_snps=True,
     ),
     global_config=GLOBAL_CONFIG,
     output_config=LDScoreOutputConfig(
@@ -189,9 +189,9 @@ sidecar is only the compatibility snapshot.
 
 Within this design:
 
-- `ref_panel_snps_file` belongs to `RefPanelConfig` and restricts the retained reference-panel rows
+- `ref_panel_snps_file` or `use_hm3_ref_panel_snps` belongs to `RefPanelConfig` and restricts the retained reference-panel rows
 - `LDScoreCalculator.compute_chromosome()` intersects each chromosome-local annotation bundle with `ref_panel.load_metadata(chrom)`, so the LD-score compute universe is `B ∩ A'`; parquet pair rows are not scanned to define SNP presence
-- `regression_snps_file` belongs to `LDScoreConfig` and further restricts the normalized `baseline_table` rows to `B ∩ A' ∩ C`
+- `regression_snps_file` or `use_hm3_regression_snps` belongs to `LDScoreConfig` and further restricts the normalized `baseline_table` rows to `B ∩ A' ∩ C`
 - regression-universe LD scores are embedded as `regression_ld_scores`; there is no separate `.w.l2.ldscore.gz` artifact in the new default format
 - query `.annot` and BED inputs are accepted only when baseline annotations are supplied explicitly
 
@@ -205,8 +205,8 @@ ldsc ldscore \
   --baseline-annot-sources "annotations/baseline_chr/baseline.@.annot.gz" \
   --query-annot-bed-sources "beds/*.bed" \
   --r2-dir "r2_ref_panel_1kg30x_1cM_hm3/hg19" \
-  --ref-panel-snps-file filters/reference_universe.tsv.gz \
-  --regression-snps-file filters/hapmap3.tsv.gz \
+  --use-hm3-ref-panel-snps \
+  --use-hm3-regression-snps \
   --snp-identifier chr_pos \
   --genome-build hg19 \
   --common-maf-min 0.05 \
@@ -252,7 +252,7 @@ ldsc munge-sumstats \
   --p PVAL \
   --N-col NEFF \
   --info IMPINFO \
-  --sumstats-snps-file filters/hapmap3.tsv.gz \
+  --use-hm3-snps \
   --signed-sumstats BETA,0 \
   --snp-identifier chr_pos \
   --genome-build hg19 \

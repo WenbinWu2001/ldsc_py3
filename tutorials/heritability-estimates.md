@@ -65,9 +65,9 @@ sumstats = SumstatsMunger().run(
             "N_col": "NEFF",
             "info": "IMPINFO",
         },
-        # sumstats_snps_file="filters/hapmap3.tsv.gz",  # optional row keep-list
+        # use_hm3_snps=True,  # packaged HM3 row restriction
         # target_genome_build="hg38",
-        # use_hm3_quick_liftover=True,  # chr_pos-only quick liftover for HM3 rows
+        # use_hm3_quick_liftover=True,  # requires use_hm3_snps=True
         output_dir="tutorial_outputs/trait",
         signed_sumstats_spec="BETA,0",
         # overwrite=True,  # also removes stale unselected sumstats sibling formats
@@ -84,7 +84,7 @@ sumstats = SumstatsMunger().run(
 ldscore_result = run_ldscore(
     output_dir="tutorial_outputs/trait_ldscores",
     r2_dir="r2_ref_panel_1kg30x_1cM_hm3/hg38",
-    regression_snps_file="filters/hapmap3.txt",
+    use_hm3_regression_snps=True,
     common_maf_min=0.05,
     ld_wind_cm=1.0,
     # overwrite=True,  # also removes stale ldscore.query.parquet if this run is baseline-only
@@ -120,15 +120,15 @@ coordinate mode is active. The raw munger accepts common coordinate headers
 such as `#CHROM`, `CHROM`, `CHR`, `POS`, and `BP`; use `--chr` and `--pos` or
 `column_hints` when the header is ambiguous. Leading raw `##` metadata lines are
 skipped before the real header is parsed. Optional munger liftover runs after
-the source-build keep-list filter, drops duplicate source/target coordinate
+the source-build SNP filter, drops duplicate source/target coordinate
 groups, changes only `CHR`/`POS`, and requires
 `--target-genome-build` plus either `--liftover-chain-file` or
-`--use-hm3-quick-liftover`. Drop counts are written to `sumstats.log`,
+`--use-hm3-snps --use-hm3-quick-liftover`. Drop counts are written to `sumstats.log`,
 examples appear only at `DEBUG`, and row-level drops are audited in
 `dropped_snps/dropped.tsv.gz`; the metadata sidecar remains
 compatibility-only.
 
-When you set `regression_snps_file` during LD-score calculation, the same regression SNP subset defines the rows of the normalized `baseline_table`. Regression uses the embedded `regression_ld_scores` column as the historical `w_ld` component; final model-dependent weights are computed later in the regression kernel.
+When you set `regression_snps_file` or `use_hm3_regression_snps` during LD-score calculation, the same regression SNP subset defines the rows of the normalized `baseline_table`. Regression uses the embedded `regression_ld_scores` column as the historical `w_ld` component; final model-dependent weights are computed later in the regression kernel.
 
 Because this is ordinary unpartitioned heritability, `run_ldscore(...)` does
 not need baseline annotations. With no baseline and no query inputs, it writes
@@ -155,7 +155,7 @@ ldsc munge-sumstats \
   --p PVAL \
   --N-col NEFF \
   --info IMPINFO \
-  --sumstats-snps-file filters/hapmap3.tsv.gz \
+  --use-hm3-snps \
   --signed-sumstats BETA,0 \
   --snp-identifier chr_pos \
   --genome-build auto \
@@ -163,12 +163,13 @@ ldsc munge-sumstats \
 
 # Optional chr_pos-only liftover when the resolved source build differs:
 #   --target-genome-build hg38 \
+#   --use-hm3-snps \
 #   --use-hm3-quick-liftover
 
 ldsc ldscore \
   --output-dir tutorial_outputs/trait_ldscores \
   --r2-dir "r2_ref_panel_1kg30x_1cM_hm3/hg38" \
-  --regression-snps-file filters/hapmap3.txt \
+  --use-hm3-regression-snps \
   --snp-identifier chr_pos \
   --genome-build auto \
   --common-maf-min 0.05 \

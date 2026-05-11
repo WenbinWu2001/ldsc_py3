@@ -224,10 +224,11 @@ for production use.
 When present, the metadata sidecar feeds directly into three steps of the partitioned-LDSC workflow
 (see `docs/current/partitioned-ldsc-workflow.md`, §6):
 
-1. **Reference panel universe (A').** `load_metadata()` reads the sidecar, optionally
-   applies `_apply_snp_restriction()` when `ref_panel_snps_file` is set, and returns
-   the restricted per-SNP table A'. This is what the annotation bundle is aligned
-   against (`B_chrom ∩ A'_chrom`) to materialize `ld_reference_snps`.
+1. **Reference panel universe (A').** `load_metadata()` reads the sidecar,
+   optionally applies `_apply_snp_restriction()` when `ref_panel_snps_file` or
+   `use_hm3_ref_panel_snps` is set, and returns the restricted per-SNP table A'.
+   This is what the annotation bundle is aligned against (`B_chrom ∩ A'_chrom`)
+   to materialize `ld_reference_snps`.
 
 2. **All and common count vectors.** The `MAF` column propagates through the
    metadata DataFrame and is consumed by `compute_counts()` to compute

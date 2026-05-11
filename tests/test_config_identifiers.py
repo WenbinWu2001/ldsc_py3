@@ -202,6 +202,17 @@ class WorkflowConfigTest(unittest.TestCase):
         with self.assertRaises(TypeError):
             LDScoreConfig(ld_wind_snps=10, chunk_size=64)
 
+    def test_ldscore_config_accepts_hm3_regression_flag_and_rejects_conflict(self):
+        config = LDScoreConfig(ld_wind_snps=10, use_hm3_regression_snps=True)
+
+        self.assertTrue(config.use_hm3_regression_snps)
+        with self.assertRaisesRegex(ValueError, "regression_snps_file.*use_hm3_regression_snps"):
+            LDScoreConfig(
+                ld_wind_snps=10,
+                regression_snps_file="custom.tsv",
+                use_hm3_regression_snps=True,
+            )
+
     def test_ldscore_config_rejects_reference_panel_filter_fields(self):
         with self.assertRaises(TypeError):
             LDScoreConfig(ld_wind_snps=10, maf_min=0.01)
@@ -291,6 +302,46 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertEqual(config.ref_panel_snps_file, "restrict/snps.txt")
         self.assertEqual(config.keep_indivs_file, "samples/keep.txt")
 
+    def test_ref_panel_build_config_accepts_hm3_flags_and_rejects_conflicts(self):
+        config = ReferencePanelBuildConfig(
+            plink_prefix="plink/panel",
+            source_genome_build="hg19",
+            output_dir="out",
+            ld_wind_snps=500,
+            use_hm3_snps=True,
+            use_hm3_quick_liftover=True,
+        )
+
+        self.assertTrue(config.use_hm3_snps)
+        self.assertTrue(config.use_hm3_quick_liftover)
+        with self.assertRaisesRegex(ValueError, "ref_panel_snps_file.*use_hm3_snps"):
+            ReferencePanelBuildConfig(
+                plink_prefix="plink/panel",
+                source_genome_build="hg19",
+                output_dir="out",
+                ld_wind_snps=500,
+                ref_panel_snps_file="custom.tsv",
+                use_hm3_snps=True,
+            )
+        with self.assertRaisesRegex(ValueError, "use_hm3_snps"):
+            ReferencePanelBuildConfig(
+                plink_prefix="plink/panel",
+                source_genome_build="hg19",
+                output_dir="out",
+                ld_wind_snps=500,
+                use_hm3_quick_liftover=True,
+            )
+        with self.assertRaisesRegex(ValueError, "mutually exclusive"):
+            ReferencePanelBuildConfig(
+                plink_prefix="plink/panel",
+                source_genome_build="hg19",
+                output_dir="out",
+                ld_wind_snps=500,
+                use_hm3_snps=True,
+                use_hm3_quick_liftover=True,
+                liftover_chain_hg19_to_hg38_file="chain.over",
+            )
+
     def test_munge_config_defaults(self):
         config = MungeConfig(output_dir="out")
         self.assertEqual(config.info_min, 0.9)
@@ -316,6 +367,21 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertEqual(config.sumstats_snps_file, "resources/alleles.tsv")
         self.assertEqual(config.trait_name, "trait")
         self.assertTrue(config.overwrite)
+
+    def test_munge_config_accepts_hm3_flags_and_rejects_conflicts(self):
+        config = MungeConfig(
+            output_dir="out",
+            target_genome_build="hg38",
+            use_hm3_snps=True,
+            use_hm3_quick_liftover=True,
+        )
+
+        self.assertTrue(config.use_hm3_snps)
+        self.assertTrue(config.use_hm3_quick_liftover)
+        with self.assertRaisesRegex(ValueError, "sumstats_snps_file.*use_hm3_snps"):
+            MungeConfig(output_dir="out", sumstats_snps_file="custom.tsv", use_hm3_snps=True)
+        with self.assertRaisesRegex(ValueError, "use_hm3_snps"):
+            MungeConfig(output_dir="out", target_genome_build="hg38", use_hm3_quick_liftover=True)
 
     def test_munge_config_normalizes_trait_name(self):
         config = MungeConfig(raw_sumstats_file="sumstats/trait.tsv.gz", trait_name=" MDD ")
@@ -354,6 +420,17 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertEqual(config.ref_panel_snps_file, "filters/snps.txt")
         self.assertEqual(config.keep_indivs_file, "filters/samples.keep")
         self.assertEqual(config.maf_min, 0.02)
+
+    def test_ref_panel_config_accepts_hm3_flag_and_rejects_conflict(self):
+        config = RefPanelConfig(backend="plink", use_hm3_ref_panel_snps=True)
+
+        self.assertTrue(config.use_hm3_ref_panel_snps)
+        with self.assertRaisesRegex(ValueError, "ref_panel_snps_file.*use_hm3_ref_panel_snps"):
+            RefPanelConfig(
+                backend="plink",
+                ref_panel_snps_file="custom.tsv",
+                use_hm3_ref_panel_snps=True,
+            )
 
     def test_ref_panel_config_accepts_runtime_source_fields(self):
         config = RefPanelConfig(backend="plink", plink_prefix=Path("plink") / "panel")

@@ -687,6 +687,54 @@ class ReferencePanelBuildConfigOptionalLiftoverTest(unittest.TestCase):
         self.assertEqual(config.liftover_chain_hg19_to_hg38_file, "chains/hg19ToHg38.over.chain")
         self.assertIsNone(config.genetic_map_hg38_sources)
 
+    def test_hm3_quick_liftover_emits_source_and_target_builds(self):
+        config = ReferencePanelBuildConfig(
+            plink_prefix="plink/panel.@",
+            source_genome_build="hg19",
+            output_dir="out",
+            ld_wind_kb=1.0,
+            use_hm3_snps=True,
+            use_hm3_quick_liftover=True,
+        )
+
+        self.assertEqual(ref_panel_builder._emitted_genome_builds(config), ["hg19", "hg38"])
+
+    def test_hm3_quick_liftover_drops_unmapped_rows_with_sidecar_frame(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            hm3_path = tmpdir / "hm3.tsv"
+            hm3_path.write_text("CHR\thg19_POS\thg38_POS\tSNP\n1\t100\t1000\trs1\n", encoding="utf-8")
+            chrom_df = pd.DataFrame(
+                {
+                    "CHR": ["1", "1"],
+                    "SNP": ["rs1", "rs_unmapped"],
+                    "BP": [100, 200],
+                }
+            )
+            state = ref_panel_builder._BuildState(
+                genetic_map_hg19=None,
+                genetic_map_hg38=None,
+                use_hm3_quick_liftover=True,
+                hm3_map_file=str(hm3_path),
+            )
+
+            keep, hg19_lookup, hg38_lookup, drop_frame = ref_panel_builder.ReferencePanelBuilder(
+                GlobalConfig(snp_identifier="chr_pos", genome_build="hg19")
+            )._resolve_mappable_snp_positions(
+                build_state=state,
+                chrom="1",
+                source_build="hg19",
+                chrom_df=chrom_df,
+                keep_snps=np.asarray([0, 1], dtype=int),
+                sidecar_path=tmpdir / "dropped.tsv.gz",
+            )
+
+        self.assertEqual(keep.tolist(), [0])
+        self.assertEqual(hg19_lookup, {0: 100})
+        self.assertEqual(hg38_lookup, {0: 1000})
+        self.assertEqual(drop_frame["SNP"].tolist(), ["rs_unmapped"])
+        self.assertEqual(drop_frame["reason"].tolist(), ["unmapped_liftover"])
+
     def test_non_matching_chain_does_not_require_target_map(self):
         config = ReferencePanelBuildConfig(
             plink_prefix="plink/panel.@",
@@ -735,6 +783,19 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
         ])
         self.assertEqual(args.snp_batch_size, 64)
 
+    def test_build_parser_accepts_hm3_flags(self):
+        parser = ref_panel_builder.build_parser()
+        args = parser.parse_args([
+            "--plink-prefix", "plink/panel.@",
+            "--output-dir", "out",
+            "--ld-wind-kb", "1",
+            "--use-hm3-snps",
+            "--use-hm3-quick-liftover",
+        ])
+
+        self.assertTrue(args.use_hm3_snps)
+        self.assertTrue(args.use_hm3_quick_liftover)
+
     def test_build_parser_keeps_chunk_size_as_hidden_alias(self):
         parser = ref_panel_builder.build_parser()
         help_text = parser.format_help()
@@ -758,6 +819,22 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
         ])
         build_config, _ = ref_panel_builder.config_from_args(args)
         self.assertEqual(build_config.snp_batch_size, 64)
+
+    def test_config_from_args_passes_hm3_flags_to_config(self):
+        parser = ref_panel_builder.build_parser()
+        args = parser.parse_args([
+            "--plink-prefix", "plink/panel.@",
+            "--source-genome-build", "hg19",
+            "--output-dir", "out",
+            "--ld-wind-kb", "1",
+            "--use-hm3-snps",
+            "--use-hm3-quick-liftover",
+        ])
+
+        build_config, _ = ref_panel_builder.config_from_args(args)
+
+        self.assertTrue(build_config.use_hm3_snps)
+        self.assertTrue(build_config.use_hm3_quick_liftover)
 
     def test_build_parser_help_does_not_include_duplicate_position_policy(self):
         parser = ref_panel_builder.build_parser()

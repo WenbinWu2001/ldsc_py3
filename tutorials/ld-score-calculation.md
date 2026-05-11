@@ -86,8 +86,8 @@ set_global_config(
 result = run_ldscore(
     output_dir="tutorial_outputs/unpartitioned_ldscores",
     r2_dir="r2_ref_panel_1kg30x_1cM_hm3/hg38",
-    ref_panel_snps_file="filters/reference_universe.txt",
-    regression_snps_file="filters/hapmap3.txt",
+    use_hm3_ref_panel_snps=True,
+    use_hm3_regression_snps=True,
     common_maf_min=0.05,
     ld_wind_cm=1.0,
     # snp_batch_size=128,  # optional; also controls parquet cache sizing
@@ -103,8 +103,8 @@ print(result.baseline_table.loc[:, ["CHR", "SNP", "POS", "regression_ld_scores",
 ldsc ldscore \
   --output-dir tutorial_outputs/unpartitioned_ldscores \
   --r2-dir "r2_ref_panel_1kg30x_1cM_hm3/hg38" \
-  --ref-panel-snps-file filters/reference_universe.txt \
-  --regression-snps-file filters/hapmap3.txt \
+  --use-hm3-ref-panel-snps \
+  --use-hm3-regression-snps \
   --snp-identifier rsid \
   --common-maf-min 0.05 \
   --ld-wind-cm 1.0
@@ -129,8 +129,8 @@ result = run_ldscore(
     output_dir="tutorial_outputs/r2_ldscores",
     baseline_annot_sources="annotations/baseline.@.annot.gz",
     r2_dir="r2_ref_panel_1kg30x_1cM_hm3/hg38",
-    ref_panel_snps_file="filters/reference_universe.txt",
-    regression_snps_file="filters/hapmap3.txt",
+    use_hm3_ref_panel_snps=True,
+    use_hm3_regression_snps=True,
     common_maf_min=0.05,
     ld_wind_cm=1.0,
     # overwrite=True,  # also removes stale LD-score siblings not produced by this run
@@ -150,8 +150,8 @@ ldsc ldscore \
   --output-dir tutorial_outputs/r2_ldscores \
   --baseline-annot-sources "annotations/baseline.@.annot.gz" \
   --r2-dir "r2_ref_panel_1kg30x_1cM_hm3/hg38" \
-  --ref-panel-snps-file filters/reference_universe.txt \
-  --regression-snps-file filters/hapmap3.txt \
+  --use-hm3-ref-panel-snps \
+  --use-hm3-regression-snps \
   --snp-identifier rsid \
   --common-maf-min 0.05 \
   --ld-wind-cm 1.0
@@ -179,8 +179,8 @@ result = run_ldscore(
     baseline_annot_sources="annotations/baseline_chr/baseline.@.annot.gz",
     query_annot_bed_sources="beds/*.bed",
     r2_dir="r2_ref_panel_1kg30x_1cM_hm3/hg38",
-    ref_panel_snps_file="filters/reference_universe.txt",
-    regression_snps_file="filters/hapmap3.txt",
+    use_hm3_ref_panel_snps=True,
+    use_hm3_regression_snps=True,
     common_maf_min=0.05,
     ld_wind_cm=1.0,
 )
@@ -197,8 +197,8 @@ ldsc ldscore \
   --baseline-annot-sources "annotations/baseline_chr/baseline.@.annot.gz" \
   --query-annot-bed-sources "beds/*.bed" \
   --r2-dir "r2_ref_panel_1kg30x_1cM_hm3/hg38" \
-  --ref-panel-snps-file filters/reference_universe.txt \
-  --regression-snps-file filters/hapmap3.txt \
+  --use-hm3-ref-panel-snps \
+  --use-hm3-regression-snps \
   --snp-identifier rsid \
   --common-maf-min 0.05 \
   --ld-wind-cm 1.0
@@ -335,9 +335,9 @@ For Python workflows, `GlobalConfig` now carries only shared runtime settings su
 
 Per-run SNP-universe controls are owned by the workflow-specific configs instead:
 
-- `ref_panel_snps_file` belongs to the LD-score reference-panel input and is passed through `run_ldscore(...)` into `RefPanelConfig`
-- the LD-score workflow intersects each chromosome bundle with `ref_panel.load_metadata(chrom)`, so `ref_panel_snps_file` shrinks the sidecar-defined compute-time universe from `B` to `B ∩ A'`; in the no-annotation unpartitioned case, synthetic `B` is the retained reference-panel metadata itself
-- `regression_snps_file` belongs to the LD-score calculation config and further restricts the normalized `baseline_table` rows from `B ∩ A'` to `B ∩ A' ∩ C`
+- `ref_panel_snps_file` or `use_hm3_ref_panel_snps` belongs to the LD-score reference-panel input and is passed through `run_ldscore(...)` into `RefPanelConfig`
+- the LD-score workflow intersects each chromosome bundle with `ref_panel.load_metadata(chrom)`, so reference-panel SNP restriction shrinks the sidecar-defined compute-time universe from `B` to `B ∩ A'`; in the no-annotation unpartitioned case, synthetic `B` is the retained reference-panel metadata itself
+- `regression_snps_file` or `use_hm3_regression_snps` belongs to the LD-score calculation config and further restricts the normalized `baseline_table` rows from `B ∩ A'` to `B ∩ A' ∩ C`
 
 `run_bed_to_annot()` no longer applies a reference-panel SNP restriction. It projects BED intervals onto the baseline annotation rows and returns an `AnnotationBundle`; any reference-panel restriction is applied later, during LD-score calculation, when the workflow aligns each chromosome bundle to the prepared reference-panel metadata.
 

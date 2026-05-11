@@ -1,10 +1,8 @@
 name: ldsc3
 channels:
 - conda-forge
-- bioconda
 dependencies:
-- python>=3.11,<3.14
-- bedtools>=2.31,<3
+- python=3.11
 - pip
 - setuptools
 - wheel
@@ -16,6 +14,8 @@ dependencies:
   - pyarrow>=21,<24
   # Optional workflow extras included in the development environment.
   - bitarray>=3.0,<4
+  # Requires a bedtools executable on PATH; install bedtools separately
+  # when exercising BED-backed workflows.
   - pybedtools>=0.12,<0.13
   - pyliftover>=0.4.1,<0.5
   - pytest>=8,<10

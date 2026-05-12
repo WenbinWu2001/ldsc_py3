@@ -81,7 +81,6 @@ process_n = kernel_munge.process_n
 p_to_z = kernel_munge.p_to_z
 check_median = kernel_munge.check_median
 parse_flag_cnames = kernel_munge.parse_flag_cnames
-allele_merge = kernel_munge.allele_merge
 munge_sumstats = kernel_munge.munge_sumstats
 
 _SUMSTATS_OUTPUT_FORMATS = {"parquet", "tsv.gz", "both"}
@@ -624,7 +623,6 @@ class SumstatsMunger:
         args.n_min = munge_config.n_min
         args.nstudy_min = munge_config.nstudy_min
         args.chunksize = munge_config.chunk_size
-        args.merge_alleles = None
         args.sumstats_snps = _resolve_sumstats_snps_path(munge_config)
         args.signed_sumstats = munge_config.signed_sumstats_spec
         args.ignore = ",".join(munge_config.ignore_columns) if munge_config.ignore_columns else None
@@ -877,7 +875,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Curated sumstats output format. Default is parquet.",
     )
     for action in parser._actions:
-        if action.dest in {"help", "sumstats", "out", "merge_alleles"}:
+        if action.dest in {"help", "sumstats", "out"}:
             continue
         option_strings = list(action.option_strings)
         if not option_strings:

@@ -123,49 +123,6 @@ def read_header(fh):
         return [x.rstrip('\n') for x in line.split()]
 
 
-def _read_first_non_metadata_line(fh):
-    """Return the first non-``##`` line from a plain or compressed text file."""
-    (openfunc, _compression) = get_compression(fh)
-    with openfunc(fh) as handle:
-        for raw_line in handle:
-            line = _decode_header_line(raw_line)
-            if not line.startswith('##'):
-                return line
-    return ''
-
-
-def _merge_alleles_sep(fh):
-    """Choose the delimiter for a merge-alleles file from its header line."""
-    header = _read_first_non_metadata_line(fh)
-    return '\t' if '\t' in header else r'\s+'
-
-
-def _read_merge_alleles(path):
-    """Read a merge-alleles file while preserving allele columns as strings."""
-    (_openfunc, compression) = get_compression(path)
-    merge_alleles = pd.read_csv(
-        path,
-        compression=compression,
-        header=0,
-        sep=_merge_alleles_sep(path),
-        na_values='.',
-        keep_default_na=False,
-        usecols=lambda column: column in {'SNP', 'A1', 'A2'},
-    )
-    if any(x not in merge_alleles.columns for x in ["SNP", "A1", "A2"]):
-        raise ValueError(
-            '--merge-alleles must have columns SNP, A1, A2.')
-    missing_required = merge_alleles[["SNP", "A1", "A2"]].isna() | (
-        merge_alleles[["SNP", "A1", "A2"]].astype(str).apply(lambda col: col.str.strip()) == ''
-    )
-    if missing_required.any(axis=None):
-        bad_col = missing_required.any(axis=0).idxmax()
-        raise ValueError('--merge-alleles has missing values in required column {C}.'.format(C=bad_col))
-    for column in ["SNP", "A1", "A2"]:
-        merge_alleles[column] = merge_alleles[column].astype(str).str.strip()
-    return merge_alleles
-
-
 def get_cname_map(flag, default, ignore):
     '''
     Figure out which column names to use.
@@ -300,14 +257,14 @@ def _coerce_info_list_columns(dat, convert_colname, args):
     return dat
 
 
-def parse_dat(dat_gen, convert_colname, merge_alleles, args):
+def parse_dat(dat_gen, convert_colname, args):
     '''Parse and filter a sumstats file chunk-wise'''
     tot_snps = 0
     dat_list = []
     msg = 'Reading sumstats from {F} into memory {N} SNPs at a time.'
     LOGGER.info(msg.format(F=args.sumstats, N=int(args.chunksize)))
     drops = {'NA': 0, 'P': 0, 'INFO': 0,
-             'FRQ': 0, 'A': 0, 'SNP': 0, 'MERGE': 0}
+             'FRQ': 0, 'A': 0, 'SNP': 0}
     for block_num, dat in enumerate(dat_gen):
         tot_snps += len(dat)
         old = len(dat)
@@ -325,16 +282,6 @@ def parse_dat(dat_gen, convert_colname, merge_alleles, args):
             raise ValueError('Columns {} are expected to be numeric'.format(wrong_types))
 
         ii = np.array([True for i in range(len(dat))])
-        if args.merge_alleles:
-            old = ii.sum()
-            ii = dat.SNP.isin(merge_alleles.SNP)
-            drops['MERGE'] += old - ii.sum()
-            if ii.sum() == 0:
-                continue
-
-            dat = dat[ii].reset_index(drop=True)
-            ii = np.array([True for i in range(len(dat))])
-
         if 'INFO' in dat.columns:
             old = ii.sum()
             ii &= filter_info(dat['INFO'], args)
@@ -375,10 +322,6 @@ def parse_dat(dat_gen, convert_colname, merge_alleles, args):
 
     dat = pd.concat(dat_list, axis=0).reset_index(drop=True)
     msg = 'Read {N} SNPs from --sumstats file.\n'.format(N=tot_snps)
-    if args.merge_alleles:
-        msg += 'Removed {N} SNPs not in --merge-alleles.\n'.format(
-            N=drops['MERGE'])
-
     msg += 'Removed {N} SNPs with missing values.\n'.format(N=drops['NA'])
     msg += 'Removed {N} SNPs with INFO <= {I}.\n'.format(
         N=drops['INFO'], I=args.info_min)
@@ -623,33 +566,6 @@ def _suggest_n_fix(file_cnames):
     return ""
 
 
-def allele_merge(dat, alleles):
-    '''
-    WARNING: dat now contains a bunch of NA's~
-    Note: dat now has the same SNPs in the same order as --merge alleles.
-    '''
-    dat = pd.merge(
-        alleles, dat, how='left', on='SNP', sort=False).reset_index(drop=True)
-    ii = dat.A1.notnull()
-    a1234 = dat.A1[ii] + dat.A2[ii] + dat.MA[ii]
-    #series can use pd.apply
-    match = a1234.apply(lambda y: y in sumstats.MATCH_ALLELES)
-    jj = pd.Series(np.zeros(len(dat))).astype(bool)
-    jj[ii] = match
-    old = ii.sum()
-    n_mismatch = (~match).sum()
-    if n_mismatch < old:
-        LOGGER.info('Removed {M} SNPs whose alleles did not match --merge-alleles ({N} SNPs remain).'.format(M=n_mismatch,
-                                                                                                         N=old - n_mismatch))
-    else:
-        raise ValueError(
-            'All SNPs have alleles that do not match --merge-alleles.')
-
-    dat.loc[~jj.astype('bool'), [i for i in dat.columns if i != 'SNP']] = float('nan')
-    dat.drop(['MA'], axis=1, inplace=True)
-    return dat
-
-
 def _finalize_coordinate_columns(dat, args):
     """Ensure canonical CHR/POS columns exist and normalize them when requested."""
     if 'CHR' not in dat.columns:
@@ -753,9 +669,6 @@ parser.add_argument('--daner-new', default=False, action='store_true',
 parser.add_argument('--no-alleles', default=False, action="store_true",
                     help="Don't require alleles. Useful if only unsigned summary statistics are available "
                     "and the goal is h2 / partitioned h2 estimation rather than rg estimation.")
-parser.add_argument('--merge-alleles', default=None, type=str,
-                    help="Same as --merge, except the file should have three columns: SNP, A1, A2, "
-                    "and all alleles will be matched to the --merge-alleles file alleles.")
 parser.add_argument('--n-min', default=None, type=float,
                     help='Minimum N (sample size). Default is (90th percentile N) / 2.')
 parser.add_argument('--chunksize', default=1_000_000, type=int,
@@ -833,9 +746,6 @@ def munge_sumstats(args, p=True):
 
     if args.sumstats is None:
         raise ValueError('The --sumstats flag is required.')
-    if args.no_alleles and args.merge_alleles:
-        raise ValueError(
-            '--no-alleles and --merge-alleles are not compatible.')
     if args.daner_old and args.daner_new:
         raise ValueError('--daner-old and --daner-new are not compatible. Use --daner-old for sample '
         'size from FRQ_A/FRQ_U headers, use --daner-new for values from Nca/Nco columns')
@@ -964,20 +874,6 @@ def munge_sumstats(args, p=True):
     LOGGER.info('\n'.join([x + ':\t' + cname_description[x]
                        for x in cname_description]) + '\n')
 
-    if args.merge_alleles:
-        LOGGER.info(
-            f"Reading list of SNPs for legacy allele merge from {args.merge_alleles}.")
-        merge_alleles = _read_merge_alleles(args.merge_alleles)
-
-        LOGGER.info(
-            f"Read {len(merge_alleles)} SNPs for legacy allele merge.")
-        merge_alleles['MA'] = (
-            merge_alleles.A1 + merge_alleles.A2).apply(lambda y: y.upper())
-        merge_alleles.drop(
-            [x for x in merge_alleles.columns if x not in ['SNP', 'MA']], axis=1, inplace=True)
-    else:
-        merge_alleles = None
-
     (openfunc, compression) = get_compression(args.sumstats)
     metadata_skiprows = count_leading_sumstats_comment_lines(args.sumstats)
 
@@ -990,7 +886,7 @@ def munge_sumstats(args, p=True):
             skiprows=metadata_skiprows,
             dtype={c:np.float64 for c in signed_sumstat_cols})
 
-    dat = parse_dat(dat_gen, cname_translation, merge_alleles, args)
+    dat = parse_dat(dat_gen, cname_translation, args)
     if len(dat) == 0:
         raise ValueError('After applying filters, no SNPs remain.')
 
@@ -1012,10 +908,6 @@ def munge_sumstats(args, p=True):
             check_median(dat.SIGNED_SUMSTAT, signed_sumstat_null, 0.1, sign_cname))
         dat.Z *= (-1) ** (dat.SIGNED_SUMSTAT < signed_sumstat_null)
         dat.drop('SIGNED_SUMSTAT', inplace=True, axis=1)
-    # do this last so we don't have to worry about NA values in the rest of
-    # the program
-    if args.merge_alleles:
-        dat = allele_merge(dat, merge_alleles)
     dat = _finalize_coordinate_columns(dat, args)
     dat = filter_sumstats_snps(dat, args)
     dat = _apply_liftover_if_requested(dat, args)

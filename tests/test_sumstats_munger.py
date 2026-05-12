@@ -1228,30 +1228,9 @@ class SumstatsMungerTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "--signed-sumstats EFFECT_SIZE,0"):
                 kernel_munge.munge_sumstats(args, p=True)
 
-    def test_kernel_reads_tab_delimited_merge_alleles_with_extra_spaced_columns(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            raw_path = tmpdir / "raw.tsv"
-            raw_path.write_text(
-                "SNP A1 A2 P BETA N\n"
-                "rs1 A G 0.05 0.1 1000\n"
-                "rs2 C T 0.10 -0.1 1000\n",
-                encoding="utf-8",
-            )
-            merge_path = tmpdir / "hm3.tsv.gz"
-            with gzip.open(merge_path, "wt", encoding="utf-8") as handle:
-                handle.write("CHR\thg19_POS\tSNP\tA1\tA2\thm3_alleles\n")
-                handle.write("1\t100\trs1\tA\tG\tfrozenset({'A', 'G'})\n")
-
-            args = kernel_munge.parser.parse_args(
-                ["--sumstats", str(raw_path), "--out", str(tmpdir / "sumstats"), "--merge-alleles", str(merge_path)]
-            )
-
-            table = kernel_munge.munge_sumstats(args, p=True)
-
-            self.assertEqual(table["SNP"].tolist(), ["rs1"])
-            self.assertEqual(table["A1"].tolist(), ["A"])
-            self.assertEqual(table["A2"].tolist(), ["G"])
+    def test_kernel_parser_rejects_removed_merge_alleles(self):
+        with self.assertRaises(SystemExit):
+            kernel_munge.parser.parse_args(["--sumstats", "raw.tsv", "--out", "sumstats", "--merge-alleles", "hm3.tsv.gz"])
 
     def test_run_restricts_sumstats_snps_file_by_rsid_without_reordering(self):
         with tempfile.TemporaryDirectory() as tmpdir:

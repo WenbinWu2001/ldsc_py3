@@ -55,21 +55,13 @@ sumstats = SumstatsMunger().run(
     MungeConfig(
         raw_sumstats_file="data/trait*.tsv.gz",
         trait_name="trait",
-        column_hints={
-            "snp": "ID",
-            "chr": "#CHROM",
-            "pos": "POS",
-            "a1": "EA",
-            "a2": "NEA",
-            "p": "PVAL",
-            "N_col": "NEFF",
-            "info": "IMPINFO",
-        },
+        # Most common columns are inferred automatically. If this file has
+        # NEFF and you want to use it as the munger's N, pass this explicitly:
+        # column_hints={"N_col": "NEFF"},
         # use_hm3_snps=True,  # packaged HM3 row restriction
         # target_genome_build="hg38",
         # use_hm3_quick_liftover=True,  # requires use_hm3_snps=True
         output_dir="tutorial_outputs/trait",
-        signed_sumstats_spec="BETA,0",
         # overwrite=True,  # also removes stale unselected sumstats sibling formats
     ),
     global_config=GLOBAL_CONFIG,
@@ -119,7 +111,13 @@ coordinates. The `SNP` column is a label and may contain rsIDs even when
 coordinate mode is active. The raw munger accepts common coordinate headers
 such as `#CHROM`, `CHROM`, `CHR`, `POS`, and `BP`; use `--chr` and `--pos` or
 `column_hints` when the header is ambiguous. Leading raw `##` metadata lines are
-skipped before the real header is parsed. Optional munger liftover runs after
+skipped before the real header is parsed. `--format auto` is the default and
+detects plain text, old DANER, new DANER, and PGC VCF-style headers. Use
+`ldsc munge-sumstats --raw-sumstats-file raw.txt --infer-only` to inspect
+format, column, INFO-list, and missing-field decisions without writing output.
+`A1` is the allele that the signed statistic is relative to, not necessarily
+the genome reference allele; `NEFF` is not inferred as `N` unless you opt in
+with `--N-col NEFF` or `column_hints={"N_col": "NEFF"}`. Optional munger liftover runs after
 the source-build SNP filter, drops duplicate source/target coordinate
 groups, changes only `CHR`/`POS`, and requires
 `--target-genome-build` plus either `--liftover-chain-file` or
@@ -147,19 +145,13 @@ The regression CLI reads the canonical LD-score result directory written by
 ldsc munge-sumstats \
   --raw-sumstats-file "data/trait*.tsv.gz" \
   --trait-name trait \
-  --snp ID \
-  --chr '#CHROM' \
-  --pos POS \
-  --a1 EA \
-  --a2 NEA \
-  --p PVAL \
-  --N-col NEFF \
-  --info IMPINFO \
   --use-hm3-snps \
-  --signed-sumstats BETA,0 \
   --snp-identifier chr_pos \
   --genome-build auto \
   --output-dir tutorial_outputs/trait
+
+# Add explicit repair flags only when --infer-only reports that they are needed,
+# for example --N-col NEFF if that is appropriate for the analysis.
 
 # Optional chr_pos-only liftover when the resolved source build differs:
 #   --target-genome-build hg38 \

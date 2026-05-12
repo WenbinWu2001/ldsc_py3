@@ -80,8 +80,10 @@ from ._kernel.ref_panel import ParquetR2RefPanel, PlinkRefPanel, RefPanel, RefPa
 
 _LAZY_EXPORTS = {
     "MungeRunSummary": (".sumstats_munger", "MungeRunSummary"),
+    "RawSumstatsInference": (".sumstats_munger", "RawSumstatsInference"),
     "SumstatsMunger": (".sumstats_munger", "SumstatsMunger"),
     "SumstatsTable": (".sumstats_munger", "SumstatsTable"),
+    "infer_raw_sumstats": (".sumstats_munger", "infer_raw_sumstats"),
     "load_sumstats": (".sumstats_munger", "load_sumstats"),
     "load_ldscore_from_dir": (".regression_runner", "load_ldscore_from_dir"),
     "RegressionDataset": (".regression_runner", "RegressionDataset"),
@@ -126,6 +128,7 @@ __all__ = [
     "load_hm3_curated_map",
     "MungeConfig",
     "MungeRunSummary",
+    "RawSumstatsInference",
     "ParquetR2RefPanel",
     "PartitionedH2DirectoryWriter",
     "PartitionedH2OutputConfig",
@@ -145,6 +148,7 @@ __all__ = [
     "SumstatsMunger",
     "SumstatsTable",
     "load_sumstats",
+    "infer_raw_sumstats",
     "run_build_ref_panel",
     "run_bed_to_annot",
     "run_ldscore",

@@ -98,21 +98,13 @@ sumstats = SumstatsMunger().run(
     MungeConfig(
         raw_sumstats_file="data/trait.tsv.gz",
         trait_name="trait",
-        column_hints={
-            "snp": "ID",
-            "chr": "#CHROM",
-            "pos": "POS",
-            "a1": "EA",
-            "a2": "NEA",
-            "p": "PVAL",
-            "N_col": "NEFF",
-            "info": "IMPINFO",
-        },
+        # Most common columns are inferred automatically. If this file has
+        # NEFF and you want to use it as the munger's N, pass this explicitly:
+        # column_hints={"N_col": "NEFF"},
         # use_hm3_snps=True,  # packaged HM3 row restriction
         # target_genome_build="hg38",
         # liftover_chain_file="resources/liftover/hg19ToHg38.over.chain",
         output_dir="tutorial_outputs/trait",
-        signed_sumstats_spec="BETA,0",
         # overwrite=True,  # also removes stale unselected sumstats sibling formats
     ),
     global_config=GLOBAL_CONFIG,
@@ -244,19 +236,13 @@ instead of `ldsc partitioned-h2`.
 ldsc munge-sumstats \
   --raw-sumstats-file data/trait.tsv.gz \
   --trait-name trait \
-  --snp ID \
-  --chr '#CHROM' \
-  --pos POS \
-  --a1 EA \
-  --a2 NEA \
-  --p PVAL \
-  --N-col NEFF \
-  --info IMPINFO \
   --use-hm3-snps \
-  --signed-sumstats BETA,0 \
   --snp-identifier chr_pos \
   --genome-build hg19 \
   --output-dir tutorial_outputs/trait
+
+# Add explicit repair flags only when --infer-only reports that they are needed,
+# for example --N-col NEFF if that is appropriate for the analysis.
 
 # Optional if downstream LD scores/reference panels are hg38:
 #   --target-genome-build hg38 \

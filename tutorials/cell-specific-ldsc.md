@@ -116,7 +116,10 @@ conversion before this regression step, run `munge-sumstats` with
 `--use-hm3-snps --use-hm3-quick-liftover`. Liftover drops duplicate source/target coordinate
 groups, writes count summaries to `sumstats.log`, and audits row-level drops in
 `dropped_snps/dropped.tsv.gz`; examples appear only at `DEBUG`. The metadata
-sidecar remains a thin compatibility artifact.
+sidecar remains a thin compatibility artifact. `munge-sumstats` defaults to
+`--format auto`; run it with `--infer-only` to inspect the detected raw format,
+inferred columns, INFO-list handling, and missing fields before writing
+outputs.
 
 ## CLI
 

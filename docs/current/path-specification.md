@@ -375,6 +375,8 @@ Accepted path forms:
 - exact-one glob for scalar sumstats file inputs
 - multi-file glob or mixed path/glob list for rg `--sumstats-sources`
 - literal directory for `ldscore_dir`
+- `ldsc munge-sumstats --infer-only` resolves only `--raw-sumstats-file`;
+  `--output-dir` is not required because no artifacts are written
 
 How they are handled:
 
@@ -384,6 +386,10 @@ How they are handled:
   deduplicated in first-seen order and then used for pair selection
 - `ldscore_dir` is not glob-resolved; it is opened as a directory containing
   `manifest.json` plus parquet payload files
+- `ldsc munge-sumstats` uses `--format auto` by default after the raw path is
+  resolved. The inference layer can detect plain text, old DANER, new DANER,
+  and PGC VCF-style headers before applying the usual column aliases and
+  repair suggestions.
 
 Output:
 
@@ -397,9 +403,9 @@ Output:
   successful run removes stale sibling formats not produced by the current
   `--output-format`.
   `sumstats.log` is not recorded in `MungeRunSummary.output_paths`; detailed
-	  provenance and output bookkeeping are written to the log, row-level liftover
-	  drops are written to `dropped_snps/dropped.tsv.gz`, and the metadata sidecar
-	  stays thin.
+  provenance and output bookkeeping are written to the log, row-level liftover
+  drops are written to `dropped_snps/dropped.tsv.gz`, and the metadata sidecar
+  stays thin.
 - `--use-hm3-snps` uses the packaged curated HM3 map as the sumstats SNP
   restriction and conflicts with `--sumstats-snps-file`. HM3 quick liftover
   requires `--use-hm3-snps`.

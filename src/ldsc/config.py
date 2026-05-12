@@ -606,6 +606,15 @@ class MungeConfig:
         Default is ``None``.
     ignore_columns : tuple of str, optional
         Source columns ignored during auto-detection. Default is ``()``.
+    sumstats_format : {"auto", "plain", "daner-old", "daner-new", "pgc-vcf"}, optional
+        Raw summary-statistics format profile. ``"auto"`` detects common
+        formats from headers and leading metadata. Default is ``"auto"``.
+    info_list_columns : tuple of str, optional
+        INFO-like columns with comma-separated per-study values. Values are
+        summarized before INFO filtering by taking the mean of numeric,
+        non-missing tokens, for example ``IMPINFO=0.852,0.113,NA``. Mixed
+        nonnumeric tokens are rejected with a repair suggestion. Default is
+        ``()``.
     no_alleles, a1_inc, keep_maf, daner_old, daner_new : bool, optional
         Legacy munging switches preserved for behavior compatibility. Defaults
         are ``False``.
@@ -636,6 +645,8 @@ class MungeConfig:
     use_hm3_quick_liftover: bool = False
     signed_sumstats_spec: str | None = None
     ignore_columns: tuple[str, ...] = field(default_factory=tuple)
+    info_list_columns: tuple[str, ...] = field(default_factory=tuple)
+    sumstats_format: str = "auto"
     no_alleles: bool = False
     a1_inc: bool = False
     keep_maf: bool = False
@@ -653,6 +664,8 @@ class MungeConfig:
             raise ValueError("chunk_size must be positive.")
         if self.output_format not in {"parquet", "tsv.gz", "both"}:
             raise ValueError("output_format must be one of 'parquet', 'tsv.gz', or 'both'.")
+        if self.sumstats_format not in {"auto", "plain", "daner-old", "daner-new", "pgc-vcf"}:
+            raise ValueError("sumstats_format must be one of 'auto', 'plain', 'daner-old', 'daner-new', or 'pgc-vcf'.")
         target_genome_build = normalize_genome_build(self.target_genome_build)
         if target_genome_build == "auto":
             raise ValueError("target_genome_build must be hg19 or hg38; 'auto' is not a valid liftover target.")
@@ -663,6 +676,7 @@ class MungeConfig:
         object.__setattr__(self, "liftover_chain_file", _normalize_optional_path(self.liftover_chain_file))
         object.__setattr__(self, "trait_name", _normalize_trait_name(self.trait_name))
         object.__setattr__(self, "ignore_columns", tuple(self.ignore_columns))
+        object.__setattr__(self, "info_list_columns", tuple(self.info_list_columns))
         object.__setattr__(self, "column_hints", dict(self.column_hints))
         if self.sumstats_snps_file is not None and self.use_hm3_snps:
             raise ValueError("sumstats_snps_file and use_hm3_snps are mutually exclusive.")

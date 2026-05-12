@@ -52,12 +52,12 @@ trait_1 = SumstatsMunger().run(
     MungeConfig(
         raw_sumstats_file="data/trait_1.tsv.gz",
         trait_name="trait_1",
-        column_hints={"snp": "SNP", "a1": "A1", "a2": "A2", "p": "P", "N_col": "N"},
+        # Common SNP, allele, p-value, N, and signed-statistic headers are
+        # inferred automatically. Use column_hints only for ambiguous files.
         # use_hm3_snps=True,  # packaged HM3 row restriction
         # target_genome_build="hg38",
         # use_hm3_quick_liftover=True,  # requires use_hm3_snps=True
         output_dir="tutorial_outputs/trait_1",
-        signed_sumstats_spec="BETA,0",
         # overwrite=True,  # also removes stale unselected sumstats sibling formats
     ),
     global_config=GLOBAL_CONFIG,
@@ -67,12 +67,12 @@ trait_2 = SumstatsMunger().run(
     MungeConfig(
         raw_sumstats_file="data/trait_2.tsv.gz",
         trait_name="trait_2",
-        column_hints={"snp": "SNP", "a1": "A1", "a2": "A2", "p": "P", "N_col": "N"},
+        # Common SNP, allele, p-value, N, and signed-statistic headers are
+        # inferred automatically. Use column_hints only for ambiguous files.
         # use_hm3_snps=True,  # packaged HM3 row restriction
         # target_genome_build="hg38",
         # use_hm3_quick_liftover=True,  # requires use_hm3_snps=True
         output_dir="tutorial_outputs/trait_2",
-        signed_sumstats_spec="BETA,0",
         # overwrite=True,  # also removes stale unselected sumstats sibling formats
     ),
     global_config=GLOBAL_CONFIG,
@@ -111,7 +111,10 @@ before regression. Current disk artifacts recover that snapshot from
 unknown provenance and skip sumstats-side compatibility validation rather than
 fabricating a snapshot. In `chr_pos` mode, both trait tables and the LD-score
 table merge by normalized `CHR:POS` coordinates, and `SNP` is treated as a
-label. Optional munger liftover is valid only in `chr_pos` mode; use
+label. The munger defaults to `--format auto`, and `--infer-only` can report
+missing fields or exact repair flags without writing outputs. `A1` is the
+allele that the signed statistic is relative to; `A2` is its counterpart.
+`NEFF` is not inferred as total `N` automatically. Optional munger liftover is valid only in `chr_pos` mode; use
 `target_genome_build` with either a chain file or `use_hm3_snps=True` plus HM3 quick liftover when both
 traits need to be converted to the LD-score build. Liftover drops duplicate
 source/target coordinate groups, writes count summaries to `sumstats.log`, and
@@ -124,25 +127,13 @@ audits row-level drops in `dropped_snps/dropped.tsv.gz`; examples appear only at
 ldsc munge-sumstats \
   --raw-sumstats-file data/trait_1.tsv.gz \
   --trait-name trait_1 \
-  --snp SNP \
-  --a1 A1 \
-  --a2 A2 \
-  --p P \
-  --N-col N \
   --use-hm3-snps \
-  --signed-sumstats BETA,0 \
   --output-dir tutorial_outputs/trait_1
 
 ldsc munge-sumstats \
   --raw-sumstats-file data/trait_2.tsv.gz \
   --trait-name trait_2 \
-  --snp SNP \
-  --a1 A1 \
-  --a2 A2 \
-  --p P \
-  --N-col N \
   --use-hm3-snps \
-  --signed-sumstats BETA,0 \
   --output-dir tutorial_outputs/trait_2
 
 ldsc rg \

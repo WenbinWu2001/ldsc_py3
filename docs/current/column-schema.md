@@ -112,6 +112,19 @@ These measure the same quantity but in different contexts:
   on allele coding. When a raw sumstats file provides a column named `MAF`, the
   munger renames it to `FRQ` on output.
 
+### `A1` and `A2`
+
+`A1` and `A2` remain the canonical written LDSC column names for compatibility.
+`A1` is the allele that the signed statistic is relative to; in most GWAS
+formats this is the effect or increasing allele. `A2` is the counterpart
+allele. Positive `Z`, positive `BETA`, positive `LOG_ODDS`, and `OR > 1` mean
+the effect is increasing with respect to `A1`.
+
+Aliases such as `REFERENCE_ALLELE` are interpreted in this signed-statistic
+sense only. They do not claim that `A1` is the genome reference allele. Genome
+`REF`/`ALT` columns are therefore not global aliases; they are applied only by
+format-aware inference when the workflow can make the semantics explicit.
+
 ### `CHR` format
 `normalize_chromosome` (in `chromosome_inference.py`) strips the `chr` prefix on
 read. All Python-written artifacts store bare labels: `"1"`, `"22"`, `"X"`,

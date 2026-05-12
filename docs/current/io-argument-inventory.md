@@ -213,10 +213,12 @@ liftover/coordinate configuration, or chromosome scope.
 | Flag | Direction | Required | Object | Notes |
 |---|---:|---:|---|---|
 | `--raw-sumstats-file` | input | yes | raw summary-statistics file | Exact path or exact-one glob. |
+| `--format` | input metadata | no | raw summary-statistics format profile | One of `auto`, `plain`, `daner-old`, `daner-new`, or `pgc-vcf`; defaults to `auto`, which detects common plain text, old DANER, new DANER, and PGC VCF-style headers. Conflicts with incompatible legacy DANER flags are rejected. |
+| `--infer-only` | diagnostic | no | raw summary-statistics inference report | Reads the raw header and first data row, prints detected format, inferred hints, missing fields, notes, and a suggested minimal command. Does not require `--output-dir` and writes no artifacts. |
 | `--sumstats-snps-file` | input | no | summary-statistics SNP keep-list | Restricts munged summary-statistics rows to a SNP keep-list; defaults to omitted/`None`, so no keep-list restriction is applied. |
 | `--use-hm3-snps` | input mode | no | packaged HM3 SNP restriction | Restricts munged summary-statistics rows to the packaged curated HM3 map. Mutually exclusive with `--sumstats-snps-file`. |
 | `--trait-name` | input metadata | no | biological trait label | Optional label stored in `sumstats.metadata.json`; downstream regression uses it unless a regression CLI `--trait-name` override is supplied. |
-| `--output-dir` | output | yes | munged output directory | The workflow writes fixed `sumstats.*` artifacts under this directory and passes `<output_dir>/sumstats` as the kernel output stem. |
+| `--output-dir` | output | yes, except `--infer-only` | munged output directory | The workflow writes fixed `sumstats.*` artifacts under this directory and passes `<output_dir>/sumstats` as the kernel output stem. |
 | `--output-format` | output mode | no | curated sumstats format | One of `parquet`, `tsv.gz`, or `both`; defaults to `parquet`. |
 | `--chr`, `--pos` | input metadata | no | raw column hints | Identify raw chromosome and position columns; default to omitted/`None`, so common aliases such as `#CHROM`, `CHROM`, `CHR`, `POS`, and `BP` are inferred. |
 | `--target-genome-build` | input metadata | no | optional liftover target build | Enables source-to-target coordinate liftover when paired with exactly one liftover method; valid only in `chr_pos` mode and never rewrites `SNP`. |
@@ -249,6 +251,18 @@ written to `sumstats.log`; row-level liftover drops are written to
 compatibility metadata. The kernel emits package logger records for QC progress
 and preserves its direct legacy-compatible `.sumstats.gz` writer for
 private/direct kernel calls.
+
+Column-name flags should usually be omitted. The workflow infers safe aliases
+for common text tables and format profiles, including `EA`/`EFFECT_ALLELE` as
+`A1`, `NEA`/`NON_EFFECT_ALLELE` as `A2`, `PVAL` as `P`, and `IMPINFO` as
+`INFO`. `A1` is the allele that the signed statistic is relative to, not the
+genome reference allele; `A2` is its counterpart. Positive signed statistics
+are interpreted relative to `A1`. `NEFF` is not treated as `N` automatically;
+use `--N-col NEFF` only when that is analytically appropriate. Comma-separated
+numeric/NA INFO values such as `IMPINFO=0.852,0.113,0.842,0.88,NA` are filtered
+on the mean of numeric non-missing tokens; mixed values such as
+`IMPINFO=0.95,LOW,0.88` raise with suggestions to use `--ignore` or explicit
+INFO flags.
 
 ### `ldsc h2`
 

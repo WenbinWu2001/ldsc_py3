@@ -287,7 +287,11 @@ The munging workflow preflights `sumstats.parquet`,
 `SumstatsMunger.run()` and then the
 legacy-compatible munging kernel. The workflow owns the log file, metadata
 sidecar, and curated output writing; the kernel keeps the low-level parsing and
-QC. Default output is `sumstats.parquet`; `--output-format tsv.gz` or `both`
+QC. Before calling the kernel, the workflow runs format and column inference:
+`--format auto` is the default and detects plain whitespace text, old DANER,
+new DANER, and PGC VCF-style headers. `--infer-only` runs that inference pass
+without requiring `--output-dir` and prints missing fields plus exact repair
+suggestions. Default output is `sumstats.parquet`; `--output-format tsv.gz` or `both`
 also supports the legacy `sumstats.sumstats.gz` artifact. With overwrite
 enabled, stale sibling formats not produced by the current run are removed
 after successful writes. Optional sumstats liftover is a `chr_pos`-only step:
@@ -307,11 +311,12 @@ in `sumstats.log`; row-level drops are written to
 
 | File | Example | Notes |
 | --- | --- | --- |
-| raw sumstats | `#CHROM POS ID EA NEA PVAL BETA NEFF`<br/>`1 754182 rs3131969 A G 0.46 0.004 829249.58` | leading `##` metadata lines are skipped; header aliases are normalized in the workflow layer |
-| DANER raw sumstats, optional schema mode | old: `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` headers with `--daner-old`<br/>new: exact `Nca` and `Nco` columns with `--daner-new` | these flags change only schema interpretation; physical reading still uses the same whitespace text reader |
+| raw sumstats | `#CHROM POS ID EA NEA PVAL BETA NEFF`<br/>`1 754182 rs3131969 A G 0.46 0.004 829249.58` | leading `##` metadata lines are skipped; header aliases are normalized in the workflow layer; `NEFF` is not inferred as `N` unless the user explicitly passes `--N-col NEFF` |
+| DANER or PGC VCF-style raw sumstats, optional schema mode | old DANER: `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` headers<br/>new DANER: exact `Nca` and `Nco` columns<br/>PGC VCF-style: leading `##` metadata and `#CHROM` header | `--format auto` detects these profiles; explicit `--format daner-old`, `--format daner-new`, or `--format pgc-vcf` overrides auto-detection; legacy `--daner-old`/`--daner-new` remain supported |
 | sumstats SNP keep-list, optional | headered `SNP` or `CHR`/`POS` restriction file, or `--use-hm3-snps` | optional row filter; does not allele-match or reorder rows |
 | sumstats liftover method, optional | `--target-genome-build hg38 --liftover-chain-file hg19ToHg38.over.chain` or `--target-genome-build hg38 --use-hm3-snps --use-hm3-quick-liftover` | valid only when `snp_identifier=chr_pos`; updates `CHR`/`POS` after SNP restriction and preserves `SNP` labels |
-| column hints, optional | `--snp ID --chr '#CHROM' --pos POS --a1 EA --a2 NEA` | useful when headers are ambiguous; `CHR` and `POS` also infer from common aliases |
+| column hints, optional | `--snp ID --chr '#CHROM' --pos POS --a1 EA --a2 NEA` | useful when headers are ambiguous; common aliases infer automatically, and `--infer-only` reports the hints it would apply |
+| INFO lists, optional | `IMPINFO=0.852,0.113,0.842,0.88,NA` | numeric/NA comma-separated per-study values are filtered on their mean; mixed nonnumeric lists such as `0.95,LOW,0.88` are rejected with `--ignore` / `--info-list` suggestions |
 
 ### Flow
 
@@ -322,7 +327,7 @@ flowchart LR
 
   subgraph P4[Preprocessing (public)<br/>config + path_resolution + column_inference]
     D1[Resolve one raw file]
-    D2[Skip leading ## lines<br/>Normalize header aliases]
+    D2[Skip leading ## lines<br/>Detect format + normalize aliases]
   end
 
   subgraph W4[Workflow (public)<br/>ldsc.sumstats_munger]
@@ -356,6 +361,12 @@ flowchart LR
 - Workflow: `ldsc.sumstats_munger`
 - Kernel: `ldsc._kernel.sumstats_munger`, `ldsc._kernel.liftover`
 - Postprocessing: workflow-owned Parquet/TSV writing, log, and metadata writing
+
+Allele columns keep the LDSC-compatible names `A1` and `A2`. `A1` means the
+allele that the signed statistic is relative to; `A2` is the counterpart
+allele. This is a signed-statistic convention, not a genome reference-allele
+claim. Positive `Z`, positive `BETA`, positive `LOG_ODDS`, and `OR > 1` are
+interpreted relative to `A1`.
 
 ## 5. `h2`, `partitioned-h2`, and `rg`: Curated Artifacts To Regression Summaries
 

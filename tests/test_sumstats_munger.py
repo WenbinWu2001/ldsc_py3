@@ -123,20 +123,47 @@ class SumstatsMungerTest(unittest.TestCase):
 
         self.assertTrue(args.use_hm3_snps)
 
+    def test_build_parser_defaults_sumstats_format_to_auto(self):
+        parser = sumstats_workflow.build_parser()
+
+        args = parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out"])
+
+        self.assertEqual(args.sumstats_format, "auto")
+
+    def test_build_parser_accepts_infer_only_without_output_dir(self):
+        parser = sumstats_workflow.build_parser()
+
+        args = parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--infer-only"])
+
+        self.assertTrue(args.infer_only)
+        self.assertIsNone(args.output_dir)
+
     def test_build_parser_accepts_daner_old_and_new_not_legacy_flags(self):
         parser = sumstats_workflow.build_parser()
 
         old_args = parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--daner-old"])
         new_args = parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--daner-new"])
+        format_old_args = parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--format", "daner-old"])
+        format_new_args = parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--format", "daner-new"])
 
         self.assertTrue(old_args.daner_old)
         self.assertFalse(old_args.daner_new)
         self.assertFalse(new_args.daner_old)
         self.assertTrue(new_args.daner_new)
+        self.assertEqual(format_old_args.sumstats_format, "daner-old")
+        self.assertEqual(format_new_args.sumstats_format, "daner-new")
         with self.assertRaises(SystemExit):
             parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--daner"])
         with self.assertRaises(SystemExit):
             parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--daner-n"])
+
+    def test_run_munge_sumstats_rejects_conflicting_format_flags(self):
+        args = sumstats_workflow.build_parser().parse_args(
+            ["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--format", "daner-old", "--daner-new"]
+        )
+
+        with self.assertRaisesRegex(ValueError, "--format daner-old.*--daner-new"):
+            sumstats_workflow.run_munge_sumstats_from_args(args)
 
     def test_build_parser_uses_raw_sumstats_file_for_raw_input(self):
         parser = sumstats_workflow.build_parser()
@@ -1140,6 +1167,36 @@ class SumstatsMungerTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "--a1.*--a2.*--no-alleles"):
                 kernel_munge.munge_sumstats(args, p=True)
 
+    def test_kernel_missing_allele_error_suggests_ref_alt_columns(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text("SNP REF ALT P OR N\nrs1 A G 0.05 1.1 1000\n", encoding="utf-8")
+            args = kernel_munge.parser.parse_args(["--sumstats", str(raw_path), "--out", str(tmpdir / "sumstats")])
+
+            with self.assertRaisesRegex(ValueError, "--a1 REF --a2 ALT"):
+                kernel_munge.munge_sumstats(args, p=True)
+
+    def test_kernel_missing_sample_size_error_explains_neff_is_not_n(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text("SNP A1 A2 P OR NEFF\nrs1 A G 0.05 1.1 1000\n", encoding="utf-8")
+            args = kernel_munge.parser.parse_args(["--sumstats", str(raw_path), "--out", str(tmpdir / "sumstats")])
+
+            with self.assertRaisesRegex(ValueError, "NEFF is not treated as N.*--N-col NEFF"):
+                kernel_munge.munge_sumstats(args, p=True)
+
+    def test_kernel_missing_signed_stat_error_suggests_likely_effect_column(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text("SNP A1 A2 P EFFECT_SIZE N\nrs1 A G 0.05 0.2 1000\n", encoding="utf-8")
+            args = kernel_munge.parser.parse_args(["--sumstats", str(raw_path), "--out", str(tmpdir / "sumstats")])
+
+            with self.assertRaisesRegex(ValueError, "--signed-sumstats EFFECT_SIZE,0"):
+                kernel_munge.munge_sumstats(args, p=True)
+
     def test_kernel_reads_tab_delimited_merge_alleles_with_extra_spaced_columns(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -1400,7 +1457,7 @@ class SumstatsMungerTest(unittest.TestCase):
 
             table = SumstatsMunger().run(
                 MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
-                MungeConfig(output_dir=tmpdir / "munged"),
+                MungeConfig(output_dir=tmpdir / "munged", keep_maf=True),
                 GlobalConfig(snp_identifier="rsid"),
             )
 
@@ -1408,6 +1465,95 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(table.data["N"].tolist(), [1000.0])
             self.assertEqual(table.data["CHR"].tolist(), [1])
             self.assertEqual(table.data["POS"].tolist(), [123])
+
+    def test_run_auto_detects_old_daner_sample_sizes(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "daner.tsv"
+            raw_path.write_text(
+                "CHR SNP BP A1 A2 FRQ_A_40 FRQ_U_60 INFO OR SE P\n"
+                "1 rs1 100 A G 0.2 0.3 0.99 1.02 0.1 0.05\n",
+                encoding="utf-8",
+            )
+
+            table = SumstatsMunger().run(
+                MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
+                MungeConfig(output_dir=tmpdir / "munged"),
+                GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+            )
+
+            self.assertEqual(table.data["N"].tolist(), [100.0])
+
+    def test_run_does_not_treat_neff_as_total_n(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "#CHROM\tPOS\tID\tEA\tNEA\tBETA\tPVAL\tNEFF\n"
+                "1\t123\trs1\tA\tG\t0.1\t0.05\t1000\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "NEFF is not treated as N"):
+                SumstatsMunger().run(
+                    MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
+                    MungeConfig(output_dir=tmpdir / "munged"),
+                    GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+                )
+
+    def test_run_auto_detects_new_daner_frequency_and_sample_sizes(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "daner_new.tsv"
+            raw_path.write_text(
+                "SNP A1 A2 FRQ_U_60 P OR Nca Nco\n"
+                "rs1 A G 0.3 0.05 1.02 40 60\n",
+                encoding="utf-8",
+            )
+
+            table = SumstatsMunger().run(
+                MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
+                MungeConfig(output_dir=tmpdir / "munged", keep_maf=True),
+                GlobalConfig(snp_identifier="rsid"),
+            )
+
+            self.assertEqual(table.data["N"].tolist(), [100])
+            self.assertEqual(table.data["FRQ"].tolist(), [0.3])
+
+    def test_run_auto_treats_comma_separated_impinfo_as_info_list(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "#CHROM\tPOS\tID\tEA\tNEA\tBETA\tPVAL\tIMPINFO\tN\n"
+                "1\t123\trs1\tA\tG\t0.1\t0.05\t0.95,0.91,NA\t1000\n",
+                encoding="utf-8",
+            )
+
+            table = SumstatsMunger().run(
+                MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
+                MungeConfig(output_dir=tmpdir / "munged"),
+                GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+            )
+
+            self.assertEqual(table.data["SNP"].tolist(), ["rs1"])
+
+    def test_run_invalid_comma_separated_impinfo_suggests_ignore_or_info_list(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "#CHROM\tPOS\tID\tEA\tNEA\tBETA\tPVAL\tIMPINFO\tN\n"
+                "1\t123\trs1\tA\tG\t0.1\t0.05\t0.95,LOW,0.85\t1000\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "--ignore IMPINFO.*--info-list IMPINFO"):
+                SumstatsMunger().run(
+                    MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
+                    MungeConfig(output_dir=tmpdir / "munged"),
+                    GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+                )
 
     def test_run_skips_leading_double_hash_sumstats_metadata_lines(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1456,6 +1602,124 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(table.data["POS"].tolist(), [123])
             output = pd.read_parquet(tmpdir / "munged" / "sumstats.parquet")
             self.assertEqual(output.columns.tolist(), ["SNP", "CHR", "POS", "A1", "A2", "Z", "N"])
+
+    def test_a1_a2_descriptions_explain_signed_statistic_orientation(self):
+        self.assertIn("signed statistic", kernel_munge.describe_cname["A1"])
+        self.assertIn("counterpart", kernel_munge.describe_cname["A2"])
+        self.assertNotIn("ref allele", kernel_munge.describe_cname["A1"].lower())
+        self.assertNotIn("non-ref allele", kernel_munge.describe_cname["A2"].lower())
+
+    def test_signed_statistic_orients_output_z_relative_to_a1(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "SNP A1 A2 P BETA N\n"
+                "rs_positive A G 0.05 0.2 1000\n"
+                "rs_negative C T 0.05 -0.2 1000\n",
+                encoding="utf-8",
+            )
+
+            table = SumstatsMunger().run(
+                MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
+                MungeConfig(output_dir=tmpdir / "munged"),
+                GlobalConfig(snp_identifier="rsid"),
+            )
+
+            z_by_snp = dict(zip(table.data["SNP"], table.data["Z"]))
+            self.assertGreater(z_by_snp["rs_positive"], 0)
+            self.assertLess(z_by_snp["rs_negative"], 0)
+
+    def test_infer_only_reports_detected_format_and_suggested_command(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "CHR SNP BP A1 A2 FRQ_A_40 FRQ_U_60 INFO OR SE P\n"
+                "1 rs1 100 A G 0.2 0.3 0.99 1.2 0.1 0.05\n",
+                encoding="utf-8",
+            )
+            stdout = io.StringIO()
+
+            with contextlib.redirect_stdout(stdout):
+                result = sumstats_workflow.main(["--raw-sumstats-file", str(raw_path), "--infer-only"])
+
+            output = stdout.getvalue()
+            self.assertEqual(result.detected_format, "daner-old")
+            self.assertIn("Detected format: daner-old", output)
+            self.assertIn("Runnable: yes", output)
+            self.assertIn("--format daner-old", output)
+
+    def test_infer_auto_detects_new_daner_case_control_columns(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "daner_new.tsv"
+            raw_path.write_text(
+                "SNP A1 A2 P OR Nca Nco\n"
+                "rs1 A G 0.05 1.02 40 60\n",
+                encoding="utf-8",
+            )
+
+            result = sumstats_workflow.infer_raw_sumstats(raw_path)
+
+            self.assertEqual(result.detected_format, "daner-new")
+            self.assertFalse(result.column_hints)
+            self.assertTrue(result.runnable)
+
+    def test_infer_auto_detects_pgc_vcf_style_header_and_ref_alt_hints(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "pgc_vcf.tsv"
+            raw_path.write_text(
+                "##fileformat=VCFv4.2\n"
+                "#CHROM POS ID REF ALT BETA PVAL N\n"
+                "1 123 rs1 A G 0.1 0.05 1000\n",
+                encoding="utf-8",
+            )
+
+            result = sumstats_workflow.infer_raw_sumstats(raw_path)
+
+            self.assertEqual(result.detected_format, "pgc-vcf")
+            self.assertEqual(result.column_hints, {"a1": "REF", "a2": "ALT"})
+            self.assertTrue(result.runnable)
+
+    def test_infer_only_suggests_likely_signed_sumstats_flag(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "SNP A1 A2 P EFFECT_SIZE N\n"
+                "rs1 A G 0.05 0.2 1000\n",
+                encoding="utf-8",
+            )
+            stdout = io.StringIO()
+
+            with contextlib.redirect_stdout(stdout):
+                result = sumstats_workflow.main(["--raw-sumstats-file", str(raw_path), "--infer-only"])
+
+            output = stdout.getvalue()
+            self.assertEqual(result.signed_sumstats_spec, "EFFECT_SIZE,0")
+            self.assertIn("Signed statistic hint: EFFECT_SIZE,0", output)
+            self.assertIn("--signed-sumstats EFFECT_SIZE,0", output)
+
+    def test_infer_only_reports_neff_as_missing_n_not_inferred(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "#CHROM\tPOS\tID\tEA\tNEA\tBETA\tPVAL\tNEFF\n"
+                "1\t123\trs1\tA\tG\t0.1\t0.05\t1000\n",
+                encoding="utf-8",
+            )
+            stdout = io.StringIO()
+
+            with contextlib.redirect_stdout(stdout):
+                result = sumstats_workflow.main(["--raw-sumstats-file", str(raw_path), "--infer-only"])
+
+            output = stdout.getvalue()
+            self.assertFalse(result.runnable)
+            self.assertIn("Missing fields: N", output)
+            self.assertIn("NEFF is not treated as N", output)
 
     def test_run_accepts_explicit_chr_and_pos_column_hints(self):
         with tempfile.TemporaryDirectory() as tmpdir:

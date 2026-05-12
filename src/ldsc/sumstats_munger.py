@@ -23,7 +23,7 @@ coordinate and liftover provenance is written as readable workflow-log text.
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import json
 import logging
 from os import PathLike
@@ -85,7 +85,34 @@ allele_merge = kernel_munge.allele_merge
 munge_sumstats = kernel_munge.munge_sumstats
 
 _SUMSTATS_OUTPUT_FORMATS = {"parquet", "tsv.gz", "both"}
+_RAW_SUMSTATS_FORMATS = {"auto", "plain", "daner-old", "daner-new", "pgc-vcf"}
 _SUMSTATS_PARQUET_COMPRESSION = "snappy"
+
+
+@dataclass(frozen=True)
+class RawSumstatsInference:
+    """Header-level inference report for one raw summary-statistics file.
+
+    The report is produced by ``--infer-only`` and by the normal munging
+    workflow before the kernel is called. It records only safe, format-aware
+    decisions: detected raw format, column hints that can be applied without
+    changing statistical meaning, INFO-list handling, missing required fields,
+    and command-line repair suggestions.
+    """
+
+    detected_format: str
+    column_hints: dict[str, str] = field(default_factory=dict)
+    signed_sumstats_spec: str | None = None
+    ignore_columns: tuple[str, ...] = ()
+    info_list_columns: tuple[str, ...] = ()
+    missing_fields: tuple[str, ...] = ()
+    suggested_args: tuple[str, ...] = ()
+    notes: tuple[str, ...] = ()
+
+    @property
+    def runnable(self) -> bool:
+        """Return whether inferred configuration contains all required fields."""
+        return len(self.missing_fields) == 0
 
 
 @dataclass(frozen=True)
@@ -331,7 +358,9 @@ class SumstatsMunger:
         raw_sumstats_config : MungeConfig
             Munging config with raw file path and optional column hints. When
             ``munge_config`` is omitted, this object also supplies output and
-            QC settings.
+            QC settings. Common plain-text, old DANER, new DANER, and PGC
+            VCF-style headers are inferred by default before the kernel runs;
+            explicit column hints still take priority.
         munge_config : MungeConfig
             Munging thresholds, output directory, and curated output format. The
             workflow writes fixed files named ``sumstats.parquet`` and/or
@@ -344,6 +373,9 @@ class SumstatsMunger:
             ``munge_config.sumstats_snps_file`` is supplied, it is treated as a
             headered keep-list and applied after munging QC and coordinate
             normalization without allele matching or output reordering.
+            ``sumstats_format="auto"`` is the default; use
+            ``sumstats_format="plain"``, ``"daner-old"``, ``"daner-new"``, or
+            ``"pgc-vcf"`` only when overriding auto-detection.
         global_config : GlobalConfig or None, optional
             Shared configuration snapshot to attach to the returned
             ``SumstatsTable``. When omitted, the current package-global
@@ -377,6 +409,9 @@ class SumstatsMunger:
         liftover_request = _liftover_request_from_config(munge_config)
         _validate_liftover_request_before_io(config_snapshot, liftover_request)
         source_path = resolve_scalar_path(raw_sumstats_config.raw_sumstats_file, label="raw sumstats")
+        raw_sumstats_config, munge_config, inference = _apply_raw_sumstats_inference(
+            source_path, raw_sumstats_config, munge_config
+        )
         output_dir = ensure_output_directory(munge_config.output_dir, label="output directory")
         fixed_output_stem = str(output_dir / "sumstats")
         metadata_path = fixed_output_stem + ".metadata.json"
@@ -481,7 +516,7 @@ class SumstatsMunger:
                 n_input_rows=_count_data_rows(source_path),
                 n_retained_rows=len(table.data),
                 drop_counts={},
-                inferred_columns=dict(raw_sumstats_config.column_hints),
+                inferred_columns={**dict(raw_sumstats_config.column_hints), "format": inference.detected_format},
                 used_n_rule=_infer_used_n_rule(args),
                 output_paths=run_output_paths,
             )
@@ -593,6 +628,7 @@ class SumstatsMunger:
         args.sumstats_snps = _resolve_sumstats_snps_path(munge_config)
         args.signed_sumstats = munge_config.signed_sumstats_spec
         args.ignore = ",".join(munge_config.ignore_columns) if munge_config.ignore_columns else None
+        args.info_list = ",".join(munge_config.info_list_columns) if munge_config.info_list_columns else None
         args.no_alleles = munge_config.no_alleles
         args.a1_inc = munge_config.a1_inc
         args.keep_maf = munge_config.keep_maf
@@ -605,10 +641,12 @@ class SumstatsMunger:
             attr = _COLUMN_HINT_ATTRS.get(key)
             if attr is not None:
                 setattr(args, attr, value)
+        if munge_config.info_list_columns:
+            args.info_list = ",".join(munge_config.info_list_columns)
         return args
 
 
-def run_munge_sumstats_from_args(args: argparse.Namespace) -> SumstatsTable:
+def run_munge_sumstats_from_args(args: argparse.Namespace) -> SumstatsTable | RawSumstatsInference:
     """Run summary-statistics munging from parsed CLI arguments.
 
     The CLI path normalizes argparse values into the same ``MungeConfig``
@@ -620,13 +658,15 @@ def run_munge_sumstats_from_args(args: argparse.Namespace) -> SumstatsTable:
     ----------
     args : argparse.Namespace
         Parsed arguments from :func:`build_parser`. The namespace must include
-        ``raw_sumstats_file`` and ``output_dir`` plus any legacy-compatible
-        munging options copied from the kernel parser.
+        ``raw_sumstats_file`` plus any legacy-compatible munging options copied
+        from the kernel parser. ``output_dir`` is required unless
+        ``infer_only`` is true.
 
     Returns
     -------
-    SumstatsTable
-        Validated in-memory table produced by :meth:`SumstatsMunger.run`.
+    SumstatsTable or RawSumstatsInference
+        Validated in-memory table produced by :meth:`SumstatsMunger.run`, or a
+        header-level inference report when ``infer_only`` is true.
 
     Raises
     ------
@@ -638,10 +678,16 @@ def run_munge_sumstats_from_args(args: argparse.Namespace) -> SumstatsTable:
         false.
     """
     raw_config, munge_config = _munge_configs_from_args(args)
+    _validate_sumstats_format_flags(munge_config)
+    if getattr(args, "infer_only", False):
+        source_path = resolve_scalar_path(raw_config.raw_sumstats_file, label="raw sumstats")
+        inference = infer_raw_sumstats(source_path, raw_config, munge_config)
+        print(_render_inference_report(inference, source_path))
+        return inference
     return SumstatsMunger().run(raw_config, munge_config, _resolve_main_global_config(args))
 
 
-def main(argv: list[str] | None = None) -> SumstatsTable:
+def main(argv: list[str] | None = None) -> SumstatsTable | RawSumstatsInference:
     """CLI entry point: parse arguments and delegate to workflow orchestration."""
     return run_munge_sumstats_from_args(build_parser().parse_args(argv))
 
@@ -731,6 +777,8 @@ def _munge_configs_from_args(args: argparse.Namespace) -> tuple[MungeConfig, Mun
         use_hm3_quick_liftover=getattr(args, "use_hm3_quick_liftover", False),
         signed_sumstats_spec=getattr(args, "signed_sumstats", None),
         ignore_columns=_ignore_columns_from_args(args),
+        info_list_columns=_info_list_columns_from_args(args),
+        sumstats_format=getattr(args, "sumstats_format", "auto"),
         no_alleles=args.no_alleles,
         a1_inc=args.a1_inc,
         keep_maf=args.keep_maf,
@@ -759,6 +807,14 @@ def _ignore_columns_from_args(args: argparse.Namespace) -> tuple[str, ...]:
     return tuple(token.strip() for token in ignore.split(",") if token.strip())
 
 
+def _info_list_columns_from_args(args: argparse.Namespace) -> tuple[str, ...]:
+    """Return normalized ``--info-list`` column tokens from parsed CLI arguments."""
+    info_list = getattr(args, "info_list", None)
+    if not info_list:
+        return ()
+    return tuple(token.strip() for token in info_list.split(",") if token.strip())
+
+
 def kernel_parser():
     """Expose the public munging parser for CLI action cloning."""
     return build_parser()
@@ -768,7 +824,20 @@ def build_parser() -> argparse.ArgumentParser:
     """Build the public summary-statistics munging parser."""
     public = argparse.ArgumentParser(description=getattr(parser, "description", None), allow_abbrev=False)
     public.add_argument("--raw-sumstats-file", required=True, help="Raw summary-statistics file path.")
-    public.add_argument("--output-dir", required=True, help="Output directory for munged sumstats and logs.")
+    public.add_argument("--output-dir", default=None, help="Output directory for munged sumstats and logs.")
+    public.add_argument(
+        "--format",
+        dest="sumstats_format",
+        choices=sorted(_RAW_SUMSTATS_FORMATS),
+        default="auto",
+        help="Raw summary-statistics format profile. Default is auto.",
+    )
+    public.add_argument(
+        "--infer-only",
+        action="store_true",
+        default=False,
+        help="Inspect the raw file, print inferred columns and a suggested command, and write no outputs.",
+    )
     public.add_argument(
         "--overwrite",
         action="store_true",
@@ -852,6 +921,231 @@ def _infer_used_n_rule(args: argparse.Namespace) -> str:
     if getattr(args, "N_cas", None) is not None and getattr(args, "N_con", None) is not None:
         return "fixed_case_control_N"
     return "input_columns"
+
+
+def infer_raw_sumstats(
+    raw_sumstats_file: str | PathLike[str],
+    raw_config: MungeConfig | None = None,
+    munge_config: MungeConfig | None = None,
+) -> RawSumstatsInference:
+    """Infer raw summary-statistics format and minimal parser hints.
+
+    The inference pass reads the header and first data row only. It detects
+    plain text, old DANER, new DANER, and PGC VCF-style inputs; reports missing
+    required fields; identifies numeric/NA comma-separated INFO lists; and
+    returns exact CLI hints for cases that still need user confirmation. It
+    intentionally does not treat ``NEFF`` as total sample size ``N``.
+    """
+    raw_config = raw_config or MungeConfig(raw_sumstats_file=raw_sumstats_file)
+    munge_config = munge_config or MungeConfig()
+    path = resolve_scalar_path(raw_sumstats_file, label="raw sumstats")
+    file_cnames = read_header(path)
+    clean_headers = [clean_header(column) for column in file_cnames]
+    clean_set = set(clean_headers)
+    sample = _read_first_data_row(path)
+    requested_format = munge_config.sumstats_format
+    detected_format = _detect_sumstats_format(path, clean_set, requested_format)
+    column_hints: dict[str, str] = {}
+    info_list_columns: list[str] = list(munge_config.info_list_columns)
+    ignore_columns: list[str] = list(munge_config.ignore_columns)
+    suggested_args: list[str] = []
+    notes: list[str] = []
+
+    if detected_format == "daner-old":
+        suggested_args.extend(["--format", "daner-old"])
+    elif detected_format == "daner-new":
+        suggested_args.extend(["--format", "daner-new"])
+        frq_u_column = _first_column_with_clean_prefix(file_cnames, "FRQ_U_")
+        if frq_u_column is not None:
+            column_hints.setdefault("frq", frq_u_column)
+    elif detected_format == "pgc-vcf":
+        suggested_args.extend(["--format", "pgc-vcf"])
+        if "REF" in clean_set and "ALT" in clean_set and not {"A1", "A2", "EA", "NEA"} & clean_set:
+            column_hints.setdefault("a1", _original_column(file_cnames, "REF"))
+            column_hints.setdefault("a2", _original_column(file_cnames, "ALT"))
+
+    for column in file_cnames:
+        if default_cnames.get(clean_header(column)) == "INFO" and _sample_value_is_info_list(sample.get(column)):
+            info_list_columns.append(column)
+            notes.append(f"{column} appears to contain comma-separated per-study INFO values.")
+
+    translated = _inferred_targets(file_cnames, {**column_hints, **raw_config.column_hints})
+    old_daner_n = detected_format == "daner-old"
+    has_case_control_n = {"N_CAS", "N_CON"}.issubset(translated)
+    has_total_n = "N" in translated or munge_config.N is not None or (
+        munge_config.N_cas is not None and munge_config.N_con is not None
+    )
+    missing: list[str] = []
+    if not (has_total_n or has_case_control_n or old_daner_n):
+        missing.append("N")
+        if "NEFF" in clean_set:
+            notes.append("NEFF is not treated as N automatically; pass --N-col NEFF only if appropriate.")
+
+    has_signed = bool(translated & set(null_values)) or munge_config.signed_sumstats_spec is not None
+    signed_sumstats_spec = None
+    if not has_signed and not munge_config.a1_inc:
+        missing.append("signed statistic")
+        signed_column = _likely_signed_sumstat_column(file_cnames)
+        if signed_column is not None:
+            signed_sumstats_spec = f"{signed_column},0"
+            suggested_args.extend(["--signed-sumstats", signed_sumstats_spec])
+            notes.append(
+                f"{signed_column} may be a signed effect column; pass --signed-sumstats {signed_sumstats_spec} "
+                "if its null value is 0 and it is oriented relative to A1."
+            )
+
+    has_alleles = {"A1", "A2"}.issubset(translated) or munge_config.no_alleles
+    if not has_alleles:
+        missing.append("A1/A2")
+        if "REF" in clean_set and "ALT" in clean_set:
+            notes.append(
+                "REF and ALT are present; pass --a1 REF --a2 ALT only if the signed statistic is relative to REF."
+            )
+
+    return RawSumstatsInference(
+        detected_format=detected_format,
+        column_hints=column_hints,
+        signed_sumstats_spec=signed_sumstats_spec,
+        ignore_columns=tuple(dict.fromkeys(ignore_columns)),
+        info_list_columns=tuple(dict.fromkeys(info_list_columns)),
+        missing_fields=tuple(missing),
+        suggested_args=tuple(suggested_args),
+        notes=tuple(notes),
+    )
+
+
+def _read_first_data_row(path: str) -> dict[str, str]:
+    """Return the first data row keyed by raw header names."""
+    file_cnames = read_header(path)
+    openfunc, _compression = get_compression(path)
+    skiprows = kernel_munge.count_leading_sumstats_comment_lines(path)
+    with openfunc(path) as handle:
+        for _idx in range(skiprows + 1):
+            handle.readline()
+        for line in handle:
+            if line.strip():
+                values = line.split()
+                return {column: values[idx] for idx, column in enumerate(file_cnames) if idx < len(values)}
+    return {}
+
+
+def _detect_sumstats_format(path: str, clean_headers: set[str], requested_format: str) -> str:
+    if requested_format != "auto":
+        return requested_format
+    has_old_daner_n = any(column.startswith("FRQ_A_") for column in clean_headers) and any(
+        column.startswith("FRQ_U_") for column in clean_headers
+    )
+    if has_old_daner_n:
+        return "daner-old"
+    if kernel_munge.count_leading_sumstats_comment_lines(path) > 0 and "#CHROM" in clean_headers:
+        return "pgc-vcf"
+    if {"NCA", "NCO"}.issubset(clean_headers) or {"NCAS", "NCON"}.issubset(clean_headers):
+        return "daner-new"
+    return "plain"
+
+
+def _original_column(file_cnames: list[str], cleaned: str) -> str:
+    for column in file_cnames:
+        if clean_header(column) == cleaned:
+            return column
+    return cleaned
+
+
+def _first_column_with_clean_prefix(file_cnames: list[str], prefix: str) -> str | None:
+    for column in file_cnames:
+        if clean_header(column).startswith(prefix):
+            return column
+    return None
+
+
+def _likely_signed_sumstat_column(file_cnames: list[str]) -> str | None:
+    likely = {"EFFECT_SIZE", "EFFECTSIZE", "LOGOR", "LOG_OR", "BETA_HAT"}
+    for column in file_cnames:
+        if clean_header(column) in likely:
+            return column
+    return None
+
+
+def _sample_value_is_info_list(value: str | None) -> bool:
+    return value is not None and "," in str(value)
+
+
+def _inferred_targets(file_cnames: list[str], column_hints: dict[str, str]) -> set[str]:
+    targets = {default_cnames[clean_header(column)] for column in file_cnames if clean_header(column) in default_cnames}
+    for key, value in column_hints.items():
+        attr = _COLUMN_HINT_ATTRS.get(key)
+        if value is None or attr is None:
+            continue
+        target = {
+            "snp": "SNP",
+            "chr": "CHR",
+            "pos": "POS",
+            "N_col": "N",
+            "N_cas_col": "N_CAS",
+            "N_con_col": "N_CON",
+            "a1": "A1",
+            "a2": "A2",
+            "p": "P",
+            "frq": "FRQ",
+            "info": "INFO",
+            "nstudy": "NSTUDY",
+        }.get(attr)
+        if target is not None:
+            targets.add(target)
+    return targets
+
+
+def _apply_raw_sumstats_inference(
+    source_path: str,
+    raw_config: MungeConfig,
+    munge_config: MungeConfig,
+) -> tuple[MungeConfig, MungeConfig, RawSumstatsInference]:
+    """Return configs updated with auto-inferred raw-format hints."""
+    _validate_sumstats_format_flags(munge_config)
+    inference = infer_raw_sumstats(source_path, raw_config, munge_config)
+    column_hints = {**inference.column_hints, **raw_config.column_hints}
+    daner_old = munge_config.daner_old or inference.detected_format == "daner-old"
+    daner_new = munge_config.daner_new or munge_config.sumstats_format == "daner-new"
+    raw_config = replace(raw_config, column_hints=column_hints)
+    munge_config = replace(
+        munge_config,
+        daner_old=daner_old,
+        daner_new=daner_new,
+        info_list_columns=tuple(dict.fromkeys([*munge_config.info_list_columns, *inference.info_list_columns])),
+        ignore_columns=tuple(dict.fromkeys([*munge_config.ignore_columns, *inference.ignore_columns])),
+    )
+    return raw_config, munge_config, inference
+
+
+def _validate_sumstats_format_flags(munge_config: MungeConfig) -> None:
+    fmt = munge_config.sumstats_format
+    if fmt == "daner-old" and munge_config.daner_new:
+        raise ValueError("--format daner-old conflicts with --daner-new.")
+    if fmt == "daner-new" and munge_config.daner_old:
+        raise ValueError("--format daner-new conflicts with --daner-old.")
+    if fmt in {"plain", "pgc-vcf"} and (munge_config.daner_old or munge_config.daner_new):
+        raise ValueError(f"--format {fmt} conflicts with DANER-specific flags.")
+
+
+def _render_inference_report(inference: RawSumstatsInference, raw_sumstats_file: str) -> str:
+    lines = [
+        f"Raw sumstats file: {raw_sumstats_file}",
+        f"Detected format: {inference.detected_format}",
+        f"Runnable: {'yes' if inference.runnable else 'no'}",
+        "Missing fields: " + (", ".join(inference.missing_fields) if inference.missing_fields else "none"),
+    ]
+    if inference.column_hints:
+        lines.append("Column hints: " + ", ".join(f"{key}={value}" for key, value in sorted(inference.column_hints.items())))
+    if inference.signed_sumstats_spec is not None:
+        lines.append(f"Signed statistic hint: {inference.signed_sumstats_spec}")
+    if inference.info_list_columns:
+        lines.append("INFO list columns: " + ", ".join(inference.info_list_columns))
+    if inference.notes:
+        lines.extend(f"Note: {note}" for note in inference.notes)
+    command = ["ldsc", "munge-sumstats", "--raw-sumstats-file", raw_sumstats_file, "--output-dir", "<out>"]
+    command.extend(inference.suggested_args)
+    lines.append("Suggested command: " + " ".join(command))
+    return "\n".join(lines)
 
 
 def _normalize_output_format(output_format: str) -> str:

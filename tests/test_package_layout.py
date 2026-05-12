@@ -56,6 +56,19 @@ class PackageLayoutTest(unittest.TestCase):
         self.assertIn("infer_chr_pos_build", ldsc.__all__)
         self.assertIn("resolve_chr_pos_table", ldsc.__all__)
 
+    def test_top_level_exports_sumstats_inference_api(self):
+        import ldsc
+        from ldsc import RawSumstatsInference, infer_raw_sumstats
+        from ldsc.sumstats_munger import (
+            RawSumstatsInference as ModuleRawSumstatsInference,
+            infer_raw_sumstats as module_infer_raw_sumstats,
+        )
+
+        self.assertIs(RawSumstatsInference, ModuleRawSumstatsInference)
+        self.assertIs(infer_raw_sumstats, module_infer_raw_sumstats)
+        self.assertIn("RawSumstatsInference", ldsc.__all__)
+        self.assertIn("infer_raw_sumstats", ldsc.__all__)
+
     def test_top_level_exports_hm3_curated_map_loader(self):
         import ldsc
         from ldsc import load_hm3_curated_map

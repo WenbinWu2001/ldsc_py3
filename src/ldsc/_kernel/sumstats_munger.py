@@ -74,8 +74,8 @@ describe_cname = {
     'CHR': 'Chromosome',
     'POS': 'Base-pair position',
     'P': 'p-Value',
-    'A1': 'Allele 1, interpreted as ref allele for signed sumstat.',
-    'A2': 'Allele 2, interpreted as non-ref allele for signed sumstat.',
+    'A1': 'Allele 1; the allele that the signed statistic is relative to, usually the effect/increasing allele.',
+    'A2': 'Allele 2; the counterpart allele to A1.',
     'N': 'Sample size',
     'N_CAS': 'Number of cases',
     'N_CON': 'Number of controls',
@@ -265,6 +265,41 @@ def filter_signed_sumstats(x, null_value):
     return ii
 
 
+def _looks_missing_info_token(value):
+    return str(value).strip().upper() in {'', '.', 'NA', 'NAN'}
+
+
+def _mean_info_list_value(value, column):
+    """Return the mean of a comma-separated INFO list, ignoring missing tokens."""
+    if pd.isna(value):
+        return np.nan
+    tokens = [token.strip() for token in str(value).split(',')]
+    numeric = []
+    for token in tokens:
+        if _looks_missing_info_token(token):
+            continue
+        try:
+            numeric.append(float(token))
+        except ValueError as exc:
+            raise ValueError(
+                f"Column {column} contains comma-separated INFO values but token {token!r} is not numeric. "
+                f"Use --ignore {column} to skip it, or pass --info-list {column} only for numeric/NA per-study INFO lists."
+            ) from exc
+    if not numeric:
+        return np.nan
+    return float(np.mean(numeric))
+
+
+def _coerce_info_list_columns(dat, convert_colname, args):
+    if not getattr(args, 'info_list', None):
+        return dat
+    info_list = {clean_header(column) for column in args.info_list.split(',') if column.strip()}
+    for raw_col in list(dat.columns):
+        if clean_header(raw_col) in info_list and convert_colname.get(raw_col) == 'INFO':
+            dat[raw_col] = dat[raw_col].map(lambda value, column=raw_col: _mean_info_list_value(value, column))
+    return dat
+
+
 def parse_dat(dat_gen, convert_colname, merge_alleles, args):
     '''Parse and filter a sumstats file chunk-wise'''
     tot_snps = 0
@@ -282,6 +317,7 @@ def parse_dat(dat_gen, convert_colname, merge_alleles, args):
         ]
         dat = dat.dropna(axis=0, how="any", subset=required_raw_cols).reset_index(drop=True)
         drops['NA'] += old - len(dat)
+        dat = _coerce_info_list_columns(dat, convert_colname, args)
         dat.columns = map(lambda x: convert_colname[x], dat.columns)
 
         wrong_types = [c for c in dat.columns if c in numeric_cols and not np.issubdtype(dat[c].dtype, np.number)]
@@ -531,6 +567,27 @@ def parse_flag_cnames(args):
     return [flag_cnames, null_value]
 
 
+def _suggest_allele_fix(file_cnames):
+    clean_to_original = {clean_header(column): column for column in file_cnames}
+    if 'REF' in clean_to_original and 'ALT' in clean_to_original:
+        return f" Try --a1 {clean_to_original['REF']} --a2 {clean_to_original['ALT']} if the signed statistic is relative to REF."
+    return ""
+
+
+def _suggest_signed_sumstat_fix(file_cnames):
+    likely = {'EFFECT_SIZE', 'EFFECTSIZE', 'LOGOR', 'LOG_OR', 'BETA_HAT'}
+    for column in file_cnames:
+        if clean_header(column) in likely:
+            return f" Try --signed-sumstats {column},0 if that column is the signed effect relative to A1."
+    return ""
+
+
+def _suggest_n_fix(file_cnames):
+    if any(clean_header(column) == 'NEFF' for column in file_cnames):
+        return " NEFF is not treated as N automatically; pass --N-col NEFF only if that is appropriate for this analysis."
+    return ""
+
+
 def allele_merge(dat, alleles):
     '''
     WARNING: dat now contains a bunch of NA's~
@@ -683,19 +740,19 @@ parser.add_argument('--N-cas-col', default=None, type=str,
 parser.add_argument('--N-con-col', default=None, type=str,
                     help='Name of N column (if not a name that ldsc understands). NB: case insensitive.')
 parser.add_argument('--a1', default=None, type=str,
-                    help='Name of A1 column (if not a name that ldsc understands). NB: case insensitive.')
+                    help='Name of A1 column: the allele that the signed statistic is relative to. NB: case insensitive.')
 parser.add_argument('--a2', default=None, type=str,
-                    help='Name of A2 column (if not a name that ldsc understands). NB: case insensitive.')
+                    help='Name of A2 column: the counterpart allele to A1. NB: case insensitive.')
 parser.add_argument('--p', default=None, type=str,
                     help='Name of p-value column (if not a name that ldsc understands). NB: case insensitive.')
 parser.add_argument('--frq', default=None, type=str,
                     help='Name of FRQ or MAF column (if not a name that ldsc understands). NB: case insensitive.')
 parser.add_argument('--signed-sumstats', default=None, type=str,
-                    help='Name of signed sumstat column, comma null value (e.g., Z,0 or OR,1). NB: case insensitive.')
+                    help='Name of signed sumstat column, comma null value (e.g., Z,0 or OR,1), oriented relative to A1. NB: case insensitive.')
 parser.add_argument('--info', default=None, type=str,
                     help='Name of INFO column (if not a name that ldsc understands). NB: case insensitive.')
 parser.add_argument('--info-list', default=None, type=str,
-                    help='Comma-separated list of INFO columns. Will filter on the mean. NB: case insensitive.')
+                    help='Comma-separated list of numeric/NA per-study INFO columns. Filters on the mean, e.g. IMPINFO=0.852,0.113,NA. NB: case insensitive.')
 parser.add_argument('--nstudy', default=None, type=str,
                     help='Name of NSTUDY column (if not a name that ldsc understands). NB: case insensitive.')
 parser.add_argument('--nstudy-min', default=None, type=float,
@@ -814,6 +871,7 @@ def munge_sumstats(args, p=True):
                 f"Could not find a signed summary statistic column in --sumstats input. "
                 f"Available columns: {available}. Expected one of: {accepted}, "
                 "or pass --signed-sumstats <column>,<null_value>."
+                f"{_suggest_signed_sumstat_fix(file_cnames)}"
             )
         sign_cname = sign_cnames[0]
         signed_sumstat_null = null_values[cname_translation[sign_cname]]
@@ -852,6 +910,7 @@ def munge_sumstats(args, p=True):
         raise ValueError(
             'Could not determine N. Provide --N, provide both --N-cas and --N-con, '
             'or include an inferable N column in the input summary statistics.'
+            f"{_suggest_n_fix(file_cnames)}"
         )
     if ('N' in cname_translation.values() or all(x in cname_translation.values() for x in ['N_CAS', 'N_CON']))\
             and 'NSTUDY' in cname_translation.values():
@@ -863,6 +922,7 @@ def munge_sumstats(args, p=True):
         raise ValueError(
             'Could not find A1/A2 columns. Provide allele columns with --a1 and --a2, '
             'or pass --no-alleles for h2/partitioned-h2 workflows that do not require allele matching.'
+            f"{_suggest_allele_fix(file_cnames)}"
         )
 
     LOGGER.info('Interpreting column names as follows:')

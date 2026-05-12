@@ -39,7 +39,23 @@ runtime LD-score and munging restrictions use the workflow's resolved
 ### Raw summary statistics
 
 Used by `src/ldsc/_kernel/sumstats_munger.py` through the same central
-registry.
+registry. The public `ldsc.sumstats_munger` workflow now runs a lightweight
+header inference pass before delegating to the kernel. The default raw format
+profile is `--format auto`, which detects plain whitespace text, old DANER, new
+DANER, and PGC VCF-style headers. Users can inspect the decision without
+writing outputs:
+
+```bash
+ldsc munge-sumstats --raw-sumstats-file raw.txt --infer-only
+```
+
+`--infer-only` reports the detected format, safe column hints, missing required
+fields, INFO-list columns, notes, and a suggested minimal command. Normal runs
+still use the same minimal form when headers are inferable:
+
+```bash
+ldsc munge-sumstats --raw-sumstats-file raw.txt --output-dir out
+```
 
 | Canonical field | Accepted aliases |
 |---|---|
@@ -50,11 +66,33 @@ registry.
 | `A1` | `A1`, `ALLELE1`, `ALLELE_1`, `EFFECT_ALLELE`, `REFERENCE_ALLELE`, `INC_ALLELE`, `EA` |
 | `A2` | `A2`, `ALLELE2`, `ALLELE_2`, `OTHER_ALLELE`, `NON_EFFECT_ALLELE`, `DEC_ALLELE`, `NEA` |
 | `N` | `N`, `WEIGHT` |
-| `N_CAS` | `NCASE`, `CASES_N`, `N_CASE`, `N_CASES`, `N_CAS`, `NCAS` |
-| `N_CON` | `N_CONTROLS`, `N_CON`, `NCONTROL`, `CONTROLS_N`, `N_CONTROL`, `NCON` |
-| `INFO` | `INFO` |
+| `N_CAS` | `NCASE`, `CASES_N`, `N_CASE`, `N_CASES`, `N_CAS`, `NCAS`, `Nca` |
+| `N_CON` | `N_CONTROLS`, `N_CON`, `NCONTROL`, `CONTROLS_N`, `N_CONTROL`, `NCON`, `Nco` |
+| `INFO` | `INFO`, `IMPINFO` |
 | `FRQ` | `EAF`, `FRQ`, `MAF`, `FRQ_U`, `F_U` |
 | `NSTUDY` | `NSTUDY`, `N_STUDY`, `NSTUDIES`, `N_STUDIES` |
+
+`A1` and `A2` are legacy LDSC output column names and remain the canonical
+written schema for compatibility. Their semantics are:
+
+- `A1` is the allele that the signed statistic is relative to; in practice this
+  is usually the effect or increasing allele.
+- `A2` is the counterpart allele.
+- Positive `Z`, positive `BETA`, positive `LOG_ODDS`, and `OR > 1` mean the
+  trait or risk is increasing with respect to `A1`.
+- Alias names containing "reference" mean reference for the signed summary
+  statistic, not the genome reference allele.
+
+Do not add genome-oriented allele aliases to the global A1/A2 registry unless
+their signed-statistic semantics are known. `REF`/`ALT` are handled only through
+format-aware inference, currently for PGC VCF-style inputs. `ALT_ALLELE` is not
+an accepted alias. `BEAA` is not an accepted alias because it is a privacy-masked
+form of `BETA`, not a public header convention.
+
+`NEFF` is intentionally not an alias for `N`. Effective sample size and total
+sample size are different quantities. If a user decides a particular analysis
+should use `NEFF` as the munger's `N`, they must pass `--N-col NEFF`
+explicitly.
 
 Signed statistic aliases:
 
@@ -69,6 +107,20 @@ Signed statistic aliases:
 Explicit column hints still take priority over inferred raw-sumstats aliases.
 The useful hints are `--snp`, `--chr`, `--pos`, `--a1`, `--a2`, `--p`, and
 signed-statistic options such as `--signed-sumstats`.
+
+INFO handling accepts ordinary scalar values such as `IMPINFO=0.97`. If an
+INFO-like column contains comma-separated per-study values with numeric and
+missing tokens, for example `IMPINFO=0.852,0.113,0.842,0.88,NA`, the munger
+can treat it as `--info-list IMPINFO` and filter on the mean of the numeric
+non-missing values. A mixed list such as `IMPINFO=0.95,LOW,0.88` is rejected
+instead of coerced; the error suggests either `--ignore IMPINFO` or an explicit
+`--info-list` only when the list is genuinely numeric/NA.
+
+Error messages are expected to suggest exact repair flags when likely columns
+exist: missing alleles with `REF`/`ALT` suggests `--a1 REF --a2 ALT` with the
+signed-statistic caveat; missing signed statistics with likely effect columns
+suggests `--signed-sumstats <col>,0`; missing `N` with `NEFF` explains that
+`NEFF` is not inferred automatically.
 
 ### Parquet R2 input
 

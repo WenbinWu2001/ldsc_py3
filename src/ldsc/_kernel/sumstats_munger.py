@@ -46,7 +46,7 @@ from ..column_inference import (
 from ..chromosome_inference import normalize_chromosome, normalize_chromosome_series
 from ..genome_build_inference import resolve_chr_pos_table
 from . import regression as sumstats
-from .identifiers import read_global_snp_restriction
+from .identifiers import build_packed_chr_pos_series, read_global_chr_pos_restriction_key_set, read_global_snp_restriction
 from .liftover import SumstatsLiftoverRequest, apply_sumstats_liftover
 np.seterr(invalid='ignore')
 
@@ -421,27 +421,39 @@ def filter_sumstats_snps(dat, args):
     mode = normalize_snp_identifier_mode(getattr(args, 'snp_identifier', 'chr_pos'))
     coordinate_metadata = getattr(args, '_coordinate_metadata', {})
     genome_build = coordinate_metadata.get('genome_build', getattr(args, 'genome_build', None))
-    restriction = read_global_snp_restriction(
-        snps_path,
-        mode,
-        genome_build=genome_build if mode == 'chr_pos' else None,
-        logger=LOGGER,
-    )
-    keys = _sumstats_snp_keys(
-        dat,
-        mode,
-        context=f"--sumstats-snps-file filtering for {getattr(args, 'sumstats', 'sumstats')}",
-        logger=LOGGER,
-    )
+    if mode == 'chr_pos':
+        restriction = read_global_chr_pos_restriction_key_set(
+            snps_path,
+            genome_build=genome_build,
+            logger=LOGGER,
+        )
+        keys, usable_mask = _sumstats_chr_pos_packed_keys(
+            dat,
+            context=f"--sumstats-snps-file filtering for {getattr(args, 'sumstats', 'sumstats')}",
+        )
+    else:
+        restriction = read_global_snp_restriction(
+            snps_path,
+            mode,
+            genome_build=None,
+            logger=LOGGER,
+        )
+        keys = _sumstats_snp_keys(
+            dat,
+            mode,
+            context=f"--sumstats-snps-file filtering for {getattr(args, 'sumstats', 'sumstats')}",
+            logger=LOGGER,
+        )
+        usable_mask = keys.notna()
     old = len(dat)
-    usable = int(keys.notna().sum())
+    usable = int(usable_mask.sum())
     build_label = genome_build if mode == 'chr_pos' else 'not used'
     LOGGER.info(
         f"Applying --sumstats-snps-file keep-list from {snps_path} "
         f"using snp_identifier={mode}, genome_build={build_label}; "
         f"read {len(restriction)} keep-list identifiers and found {usable}/{old} usable row identifiers."
     )
-    keep = keys.astype('string').isin(restriction)
+    keep = keys.isin(restriction) & usable_mask
     out = dat.loc[keep].reset_index(drop=True)
     removed = old - len(out)
     LOGGER.info(
@@ -458,6 +470,29 @@ def filter_sumstats_snps(dat, args):
             "Check that the keep-list uses the same identifier mode and genome build as the munged sumstats."
         )
     return out
+
+
+def _sumstats_chr_pos_packed_keys(dat, *, context):
+    """Return compact CHR/POS keys and a usable-coordinate mask for sumstats rows."""
+    usable = ~(coordinate_missing_mask(dat['CHR']) | coordinate_missing_mask(dat['POS']))
+    missing_count = int((~usable).sum())
+    if missing_count:
+        LOGGER.info(
+            f"Dropped {missing_count} SNPs with missing CHR/POS in {context}; "
+            f"{int(usable.sum())} rows remain."
+        )
+        example_columns = [column for column in ('SNP', 'CHR', 'POS') if column in dat.columns]
+        if example_columns:
+            examples = dat.loc[~usable, example_columns].head(5).to_dict(orient='records')
+            LOGGER.info(f"Example rows dropped for missing CHR/POS in {context}: {examples}")
+    keys = pd.Series(np.uint64(0), index=dat.index, dtype='uint64')
+    if bool(usable.any()):
+        keys.loc[usable] = build_packed_chr_pos_series(
+            dat.loc[usable, 'CHR'].reset_index(drop=True),
+            dat.loc[usable, 'POS'].reset_index(drop=True),
+            context=context,
+        ).to_numpy(dtype=np.uint64)
+    return keys, usable
 
 
 def process_n(dat, args):

@@ -321,6 +321,37 @@ class SumstatsMungerTest(unittest.TestCase):
             pd.Series([True, True, False, False, False]),
         )
 
+    def test_filter_sumstats_snps_chr_pos_avoids_large_string_key_frame(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            restrict_path = Path(tmpdir) / "hm3.tsv"
+            restrict_path.write_text(
+                "SNP\tCHR\thg19_POS\thg38_POS\n"
+                "rs1\t1\t10\t100\n"
+                "rs2\t2\t20\t200\n",
+                encoding="utf-8",
+            )
+            dat = pd.DataFrame(
+                {
+                    "SNP": ["label_a", "label_b", "label_c"],
+                    "CHR": ["1", "1", "2"],
+                    "POS": [10, 11, 20],
+                    "Z": [1.0, 2.0, 3.0],
+                    "N": [100.0, 100.0, 100.0],
+                }
+            )
+            args = kernel_munge.parser.parse_args("")
+            args.sumstats = "raw.tsv"
+            args.sumstats_snps = str(restrict_path)
+            args.snp_identifier = "chr_pos"
+            args.genome_build = "hg19"
+            args._coordinate_metadata = {"genome_build": "hg19"}
+
+            with mock.patch.object(kernel_munge, "_sumstats_snp_keys", side_effect=AssertionError("string keys")):
+                filtered = kernel_munge.filter_sumstats_snps(dat, args)
+
+            self.assertEqual(filtered["SNP"].tolist(), ["label_a", "label_c"])
+            self.assertEqual(filtered["POS"].tolist(), [10, 20])
+
     def test_load_sumstats_reads_curated_sumstats_gz_with_exact_one_glob(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)

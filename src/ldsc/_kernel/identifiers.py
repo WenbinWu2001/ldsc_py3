@@ -39,10 +39,16 @@ import re
 from pathlib import Path
 from typing import Iterable
 
+import numpy as np
 import pandas as pd
 
-from .._coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame, positive_int_position_series
-from ..chromosome_inference import normalize_chromosome
+from .._coordinates import (
+    CHR_POS_KEY_COLUMN,
+    build_chr_pos_key_frame,
+    coordinate_missing_mask,
+    positive_int_position_series,
+)
+from ..chromosome_inference import normalize_chromosome, normalize_chromosome_series
 from ..column_inference import (
     clean_header,
     infer_chr_bp_columns,
@@ -55,6 +61,14 @@ from ..column_inference import (
 )
 
 LOGGER = logging.getLogger("LDSC.identifiers")
+_CHROMOSOME_PACK_CODES = {
+    **{str(chrom): chrom for chrom in range(1, 23)},
+    "X": 23,
+    "Y": 24,
+    "M": 25,
+    "MT": 26,
+}
+_MAX_PACKED_POS = (1 << 32) - 1
 
 
 def build_chr_pos_snp_id(chrom: object, pos: object, *, context: str | None = None) -> str:
@@ -93,6 +107,30 @@ def build_snp_id_series(df: pd.DataFrame, mode: str) -> pd.Series:
         index=df.index,
         name="snp_id",
     )
+
+
+def build_packed_chr_pos_series(
+    chrom: pd.Series,
+    pos: pd.Series,
+    *,
+    context: str,
+) -> pd.Series:
+    """Return compact uint64 CHR/POS keys for memory-sensitive matching."""
+    normalized_chrom = normalize_chromosome_series(chrom, context=context)
+    chrom_codes = normalized_chrom.map(_CHROMOSOME_PACK_CODES)
+    if bool(chrom_codes.isna().any()):
+        bad = normalized_chrom.loc[chrom_codes.isna()].iloc[0]
+        raise ValueError(f"Unsupported chromosome label {bad!r} in {context}.")
+    pos_values = positive_int_position_series(pos, context=context)
+    too_large = pos_values > _MAX_PACKED_POS
+    if bool(too_large.any()):
+        bad = int(pos_values.loc[too_large].iloc[0])
+        raise ValueError(f"POS values in {context} must be <= {_MAX_PACKED_POS}; got {bad}.")
+
+    chrom_array = chrom_codes.to_numpy(dtype=np.uint64)
+    pos_array = pos_values.to_numpy(dtype=np.uint64)
+    packed = (chrom_array << np.uint64(32)) | pos_array
+    return pd.Series(packed, index=chrom.index, dtype="uint64")
 
 
 def validate_unique_snp_ids(df: pd.DataFrame, mode: str, context: str = "table") -> None:
@@ -154,6 +192,34 @@ def read_global_snp_restriction(
     return _read_chr_pos_restriction(path, genome_build=genome_build, logger=LOGGER if logger is None else logger)
 
 
+def read_global_chr_pos_restriction_key_set(
+    path: str | Path,
+    *,
+    genome_build: str | None = None,
+    logger=None,
+) -> set[int]:
+    """Read a CHR/POS restriction file as compact packed coordinate keys."""
+    genome_build = normalize_genome_build(genome_build)
+    assert genome_build in {"hg19", "hg38", None}, (
+        f"genome_build reached kernel as {genome_build!r}; "
+        "should have been resolved at workflow entry."
+    )
+    path = Path(path)
+    header, row_iter, _delimiter = _iter_restriction_rows(path)
+    if not header:
+        return set()
+    chr_col, pos_col = resolve_restriction_chr_pos_columns(header, genome_build=genome_build, context=str(path))
+    chr_idx = header.index(chr_col)
+    pos_idx = header.index(pos_col)
+    return _read_packed_chr_pos_restriction_rows(
+        path=path,
+        rows=row_iter,
+        chr_idx=chr_idx,
+        pos_idx=pos_idx,
+        logger=LOGGER if logger is None else logger,
+    )
+
+
 def _open_text(path: Path):
     """Open a plain-text or gzipped restriction file for text iteration."""
     if path.suffix.lower() == ".gz":
@@ -182,6 +248,36 @@ def _non_comment_lines(path: Path) -> list[str]:
                 continue
             lines.append(line.rstrip("\n"))
         return lines
+
+
+def _iter_non_comment_lines(path: Path):
+    """Yield non-empty, non-comment lines from a restriction file."""
+    with _open_text(path) as handle:
+        for line in handle:
+            stripped = line.lstrip()
+            if not stripped.strip():
+                continue
+            if stripped.startswith("#") and not stripped.upper().startswith("#CHROM"):
+                continue
+            yield line.rstrip("\n")
+
+
+def _split_restriction_row(line: str, delimiter: str | None) -> list[str]:
+    if delimiter is None:
+        return re.split(r"\s+", line.strip())
+    return next(csv.reader([line], delimiter=delimiter))
+
+
+def _iter_restriction_rows(path: Path):
+    """Return a header plus a streaming row iterator for one restriction file."""
+    lines = _iter_non_comment_lines(path)
+    try:
+        first = next(lines)
+    except StopIteration:
+        return [], iter(()), None
+    delimiter = _detect_delimiter(first)
+    header = _split_restriction_row(first, delimiter)
+    return header, (_split_restriction_row(line, delimiter) for line in lines), delimiter
 
 
 def _parse_restriction_rows(path: Path) -> tuple[list[str], list[list[str]], str | None]:
@@ -252,3 +348,58 @@ def _read_chr_pos_restriction(path: Path, genome_build: str | None = None, logge
         values.append((row[chr_idx], row[pos_idx]))
     frame = pd.DataFrame(values, columns=["CHR", "POS"])
     return _finalize_chr_pos_restriction_frame(frame, path=path, logger=logger)
+
+
+def _read_packed_chr_pos_restriction_rows(
+    *,
+    path: Path,
+    rows: Iterable[list[str]],
+    chr_idx: int,
+    pos_idx: int,
+    logger,
+    chunk_size: int = 100_000,
+) -> set[int]:
+    values: set[int] = set()
+    chrom_chunk: list[object] = []
+    pos_chunk: list[object] = []
+    missing_dropped = 0
+    retained = 0
+
+    def flush() -> None:
+        nonlocal chrom_chunk, pos_chunk, missing_dropped, retained
+        if not chrom_chunk:
+            return
+        chrom = pd.Series(chrom_chunk)
+        pos = pd.Series(pos_chunk)
+        missing = coordinate_missing_mask(chrom) | coordinate_missing_mask(pos)
+        missing_dropped += int(missing.sum())
+        retained += int((~missing).sum())
+        if not bool((~missing).any()):
+            chrom_chunk = []
+            pos_chunk = []
+            return
+        keys = build_packed_chr_pos_series(
+            chrom.loc[~missing].reset_index(drop=True),
+            pos.loc[~missing].reset_index(drop=True),
+            context=f"restriction file '{path}'",
+        )
+        values.update(int(value) for value in keys.to_numpy(dtype=np.uint64))
+        chrom_chunk = []
+        pos_chunk = []
+
+    for row in rows:
+        if not row:
+            continue
+        if len(row) <= max(chr_idx, pos_idx):
+            raise ValueError(f"Restriction row in {path} is missing the CHR or POS column.")
+        chrom_chunk.append(row[chr_idx])
+        pos_chunk.append(row[pos_idx])
+        if len(chrom_chunk) >= chunk_size:
+            flush()
+    flush()
+    if missing_dropped and logger is not None:
+        logger.warning(
+            f"Dropped {missing_dropped} SNPs with missing CHR/POS in restriction file '{path}'; "
+            f"{retained} rows remain."
+        )
+    return values

@@ -329,6 +329,36 @@ class RegressionWorkflowTest(unittest.TestCase):
             config_snapshot=GlobalConfig(snp_identifier="rsid"),
         )
 
+    def make_sumstats_table_from_frame(self, frame, *, snp_identifier="rsid", trait_name="trait"):
+        return SumstatsTable(
+            data=frame,
+            has_alleles={"A1", "A2"}.issubset(frame.columns),
+            source_path=f"{trait_name}.sumstats.gz",
+            trait_name=trait_name,
+            provenance={},
+            config_snapshot=GlobalConfig(snp_identifier=snp_identifier, genome_build="hg38"),
+        )
+
+    def make_ldscore_result_from_frame(self, frame, *, snp_identifier="rsid"):
+        return LDScoreResult(
+            baseline_table=frame,
+            query_table=None,
+            count_records=[
+                {
+                    "group": "baseline",
+                    "column": "base",
+                    "all_reference_snp_count": 10.0,
+                    "common_reference_snp_count": 8.0,
+                }
+            ],
+            baseline_columns=["base"],
+            query_columns=[],
+            ld_reference_snps=frozenset(),
+            ld_regression_snps=frozenset(frame["SNP"].astype(str)),
+            chromosome_results=[],
+            config_snapshot=GlobalConfig(snp_identifier=snp_identifier, genome_build="hg38"),
+        )
+
     def make_rg_kernel_result(self, *, rg=0.25, rg_se=0.05, z=5.0, p=0.01):
         hsq1 = mock.Mock(
             tot=np.array([0.20]),
@@ -481,6 +511,268 @@ class RegressionWorkflowTest(unittest.TestCase):
             dataset.reference_snp_count_totals["common_reference_snp_counts"],
             [8.0, 28.0],
         )
+
+    def test_build_dataset_allele_aware_mode_merges_by_effective_identity(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid_allele_aware"), RegressionConfig())
+        sumstats = self.make_sumstats_table_from_frame(
+            pd.DataFrame(
+                {
+                    "CHR": ["1", "1"],
+                    "SNP": ["rs1", "rs2"],
+                    "POS": [10, 20],
+                    "A1": ["A", "A"],
+                    "A2": ["C", "C"],
+                    "Z": [2.0, 3.0],
+                    "N": [1000.0, 1000.0],
+                }
+            ),
+            snp_identifier="rsid_allele_aware",
+        )
+        ldscore_result = self.make_ldscore_result_from_frame(
+            pd.DataFrame(
+                {
+                    "CHR": ["1", "1"],
+                    "SNP": ["rs1", "rs2"],
+                    "POS": [10, 20],
+                    "A1": ["A", "A"],
+                    "A2": ["C", "G"],
+                    "regression_ld_scores": [2.0, 2.0],
+                    "base": [1.0, 2.0],
+                }
+            ),
+            snp_identifier="rsid_allele_aware",
+        )
+
+        dataset = runner.build_dataset(sumstats, ldscore_result)
+
+        self.assertEqual(dataset.merged["SNP"].tolist(), ["rs1"])
+        self.assertEqual(dataset.effective_snp_identifier, "rsid_allele_aware")
+        self.assertFalse(dataset.identity_downgrade_applied)
+
+    def test_build_dataset_cross_family_modes_reject_even_with_identity_downgrade(self):
+        runner = RegressionRunner(
+            GlobalConfig(snp_identifier="rsid_allele_aware", genome_build="hg38"),
+            RegressionConfig(allow_identity_downgrade=True),
+        )
+        sumstats = self.make_sumstats_table_from_frame(
+            pd.DataFrame(
+                {
+                    "CHR": ["1"],
+                    "SNP": ["rs1"],
+                    "POS": [10],
+                    "A1": ["A"],
+                    "A2": ["C"],
+                    "Z": [2.0],
+                    "N": [1000.0],
+                }
+            ),
+            snp_identifier="rsid_allele_aware",
+        )
+        ldscore_result = self.make_ldscore_result_from_frame(
+            pd.DataFrame(
+                {
+                    "CHR": ["1"],
+                    "SNP": ["rs1"],
+                    "POS": [10],
+                    "regression_ld_scores": [2.0],
+                    "base": [1.0],
+                }
+            ),
+            snp_identifier="chr_pos",
+        )
+
+        with self.assertRaisesRegex(ValueError, "Cannot mix SNP identifier families"):
+            runner.build_dataset(sumstats, ldscore_result)
+
+    def test_build_dataset_rejects_same_family_mode_mismatch_by_default(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="chr_pos_allele_aware"), RegressionConfig())
+        sumstats = self.make_sumstats_table_from_frame(
+            pd.DataFrame(
+                {
+                    "CHR": ["1"],
+                    "SNP": ["rs1"],
+                    "POS": [10],
+                    "A1": ["A"],
+                    "A2": ["C"],
+                    "Z": [2.0],
+                    "N": [1000.0],
+                }
+            ),
+            snp_identifier="chr_pos_allele_aware",
+        )
+        ldscore_result = self.make_ldscore_result_from_frame(
+            pd.DataFrame(
+                {
+                    "CHR": ["1"],
+                    "SNP": ["ld1"],
+                    "POS": [10],
+                    "regression_ld_scores": [2.0],
+                    "base": [1.0],
+                }
+            ),
+            snp_identifier="chr_pos",
+        )
+
+        with self.assertRaisesRegex(ValueError, "allow-identity-downgrade"):
+            runner.build_dataset(sumstats, ldscore_result)
+
+    def test_build_dataset_allows_chr_pos_identity_downgrade_with_effective_base_mode(self):
+        runner = RegressionRunner(
+            GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
+            RegressionConfig(allow_identity_downgrade=True),
+        )
+        sumstats = self.make_sumstats_table_from_frame(
+            pd.DataFrame(
+                {
+                    "CHR": ["1", "1"],
+                    "SNP": ["sum1", "sum2"],
+                    "POS": [10, 20],
+                    "A1": ["A", "A"],
+                    "A2": ["C", "G"],
+                    "Z": [2.0, 3.0],
+                    "N": [1000.0, 1000.0],
+                }
+            ),
+            snp_identifier="chr_pos_allele_aware",
+        )
+        ldscore_result = self.make_ldscore_result_from_frame(
+            pd.DataFrame(
+                {
+                    "CHR": ["1", "1"],
+                    "SNP": ["ld1", "ld2"],
+                    "POS": [10, 20],
+                    "regression_ld_scores": [2.0, 2.0],
+                    "base": [1.0, 2.0],
+                }
+            ),
+            snp_identifier="chr_pos",
+        )
+
+        dataset = runner.build_dataset(sumstats, ldscore_result)
+
+        self.assertEqual(dataset.merged["SNP"].tolist(), ["sum1", "sum2"])
+        self.assertEqual(dataset.effective_snp_identifier, "chr_pos")
+        self.assertTrue(dataset.identity_downgrade_applied)
+
+    def test_build_dataset_allows_rsid_identity_downgrade_with_effective_base_mode(self):
+        runner = RegressionRunner(
+            GlobalConfig(snp_identifier="rsid_allele_aware", genome_build="hg38"),
+            RegressionConfig(allow_identity_downgrade=True),
+        )
+        sumstats = self.make_sumstats_table_from_frame(
+            pd.DataFrame(
+                {
+                    "CHR": ["1", "1"],
+                    "SNP": ["rs1", "rs2"],
+                    "POS": [10, 20],
+                    "A1": ["A", "A"],
+                    "A2": ["C", "G"],
+                    "Z": [2.0, 3.0],
+                    "N": [1000.0, 1000.0],
+                }
+            ),
+            snp_identifier="rsid_allele_aware",
+        )
+        ldscore_result = self.make_ldscore_result_from_frame(
+            pd.DataFrame(
+                {
+                    "CHR": ["1", "1"],
+                    "SNP": ["rs1", "rs2"],
+                    "POS": [100, 200],
+                    "regression_ld_scores": [2.0, 2.0],
+                    "base": [1.0, 2.0],
+                }
+            ),
+            snp_identifier="rsid",
+        )
+
+        dataset = runner.build_dataset(sumstats, ldscore_result)
+
+        self.assertEqual(dataset.merged["SNP"].tolist(), ["rs1", "rs2"])
+        self.assertEqual(dataset.effective_snp_identifier, "rsid")
+        self.assertTrue(dataset.identity_downgrade_applied)
+
+    def test_identity_downgrade_drops_duplicate_effective_keys_before_merge_and_logs(self):
+        runner = RegressionRunner(
+            GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
+            RegressionConfig(allow_identity_downgrade=True),
+        )
+        sumstats = self.make_sumstats_table_from_frame(
+            pd.DataFrame(
+                {
+                    "CHR": ["1", "1", "1"],
+                    "SNP": ["dup_a", "dup_b", "keep"],
+                    "POS": [10, 10, 20],
+                    "A1": ["A", "A", "A"],
+                    "A2": ["C", "G", "C"],
+                    "Z": [9.0, 8.0, 2.0],
+                    "N": [1000.0, 1000.0, 1000.0],
+                }
+            ),
+            snp_identifier="chr_pos_allele_aware",
+        )
+        ldscore_result = self.make_ldscore_result_from_frame(
+            pd.DataFrame(
+                {
+                    "CHR": ["1", "1", "1"],
+                    "SNP": ["keep_ld", "dup_ld_a", "dup_ld_b"],
+                    "POS": [20, 30, 30],
+                    "regression_ld_scores": [2.0, 2.0, 2.0],
+                    "base": [1.0, 3.0, 4.0],
+                }
+            ),
+            snp_identifier="chr_pos",
+        )
+
+        with self.assertLogs("LDSC.regression_runner", level="WARNING") as caught:
+            dataset = runner.build_dataset(sumstats, ldscore_result)
+
+        self.assertEqual(dataset.merged["SNP"].tolist(), ["keep"])
+        self.assertEqual(dataset.merged["base"].tolist(), [1.0])
+        log_text = "\n".join(caught.output)
+        self.assertIn("Identity downgrade enabled", log_text)
+        self.assertIn("LD-score mode chr_pos", log_text)
+        self.assertIn("sumstats mode chr_pos_allele_aware", log_text)
+        self.assertIn("effective snp_identifier='chr_pos'", log_text)
+        self.assertIn("Dropped 4 duplicate effective-key rows", log_text)
+
+    def test_h2_allele_aware_mode_orients_sumstats_z_to_ldscore_alleles(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid_allele_aware"), RegressionConfig())
+        sumstats = self.make_sumstats_table_from_frame(
+            pd.DataFrame(
+                {
+                    "CHR": ["1", "1", "1"],
+                    "SNP": ["rs1", "rs2", "rs3"],
+                    "POS": [10, 20, 30],
+                    "A1": ["A", "C", "A"],
+                    "A2": ["C", "A", "C"],
+                    "Z": [2.0, 3.0, 4.0],
+                    "N": [1000.0, 1000.0, 1000.0],
+                }
+            ),
+            snp_identifier="rsid_allele_aware",
+        )
+        ldscore_result = self.make_ldscore_result_from_frame(
+            pd.DataFrame(
+                {
+                    "CHR": ["1", "1", "1"],
+                    "SNP": ["rs1", "rs2", "rs3"],
+                    "POS": [10, 20, 30],
+                    "A1": ["A", "A", "T"],
+                    "A2": ["C", "C", "G"],
+                    "regression_ld_scores": [2.0, 2.0, 2.0],
+                    "base": [1.0, 2.0, 3.0],
+                }
+            ),
+            snp_identifier="rsid_allele_aware",
+        )
+
+        with self.assertLogs("LDSC.regression_runner", level="WARNING") as caught:
+            dataset = runner.build_dataset(sumstats, ldscore_result)
+
+        self.assertEqual(dataset.merged["SNP"].tolist(), ["rs1", "rs2"])
+        np.testing.assert_allclose(dataset.merged["Z"], [2.0, -3.0])
+        self.assertIn("Dropping 1 SNPs with incompatible sumstats and LD-score allele order", "\n".join(caught.output))
 
     def test_build_dataset_empty_merge_error_includes_active_config(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
@@ -682,6 +974,60 @@ class RegressionWorkflowTest(unittest.TestCase):
 
         self.assertEqual(dataset.merged["SNP"].tolist(), ["rs1", "rs2"])
         np.testing.assert_allclose(dataset.merged["Z2"], [-1.0, 2.0])
+
+    def test_build_rg_dataset_allele_aware_mode_harmonizes_after_identity_merge(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid_allele_aware"), RegressionConfig())
+        ldscore_result = self.make_ldscore_result_from_frame(
+            pd.DataFrame(
+                {
+                    "CHR": ["1", "1"],
+                    "SNP": ["rs1", "rs2"],
+                    "POS": [10, 20],
+                    "A1": ["A", "A"],
+                    "A2": ["C", "G"],
+                    "regression_ld_scores": [2.0, 2.0],
+                    "base": [1.0, 2.0],
+                }
+            ),
+            snp_identifier="rsid_allele_aware",
+        )
+        sumstats_1 = self.make_sumstats_table_from_frame(
+            pd.DataFrame(
+                {
+                    "CHR": ["1", "1"],
+                    "SNP": ["rs1", "rs2"],
+                    "POS": [10, 20],
+                    "A1": ["A", "A"],
+                    "A2": ["C", "G"],
+                    "Z": [2.0, 1.0],
+                    "N": [1000.0, 1000.0],
+                }
+            ),
+            snp_identifier="rsid_allele_aware",
+            trait_name="trait1",
+        )
+        sumstats_2 = self.make_sumstats_table_from_frame(
+            pd.DataFrame(
+                {
+                    "CHR": ["1", "1"],
+                    "SNP": ["rs1", "rs2"],
+                    "POS": [10, 20],
+                    "A1": ["C", "A"],
+                    "A2": ["A", "C"],
+                    "Z": [5.0, 9.0],
+                    "N": [900.0, 900.0],
+                }
+            ),
+            snp_identifier="rsid_allele_aware",
+            trait_name="trait2",
+        )
+
+        dataset = runner.build_rg_dataset(sumstats_1, sumstats_2, ldscore_result)
+
+        self.assertEqual(dataset.merged["SNP"].tolist(), ["rs1"])
+        np.testing.assert_allclose(dataset.merged["Z2"], [-5.0])
+        self.assertEqual(dataset.effective_snp_identifier, "rsid_allele_aware")
+        self.assertFalse(dataset.identity_downgrade_applied)
 
     def test_build_rg_dataset_skips_allele_harmonization_when_alleles_are_absent(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
@@ -889,6 +1235,8 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertEqual(result.rg["n_snps_used"].tolist(), [3, 3, 3])
         self.assertEqual(result.h2_per_trait["trait_name"].tolist(), ["A", "B", "C"])
         self.assertEqual(len(result.per_pair_metadata), 3)
+        self.assertEqual(result.per_pair_metadata[0]["effective_snp_identifier"], "rsid")
+        self.assertFalse(result.per_pair_metadata[0]["identity_downgrade_applied"])
 
     def test_estimate_rg_pairs_anchor_mode_uses_anchor_against_rest_in_input_order(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
@@ -1148,6 +1496,8 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertIsInstance(result, regression_runner.PartitionedH2BatchResult)
         self.assertEqual(result.summary["Category"].tolist(), ["query1", "query2"])
         self.assertIn("query1", result.per_query_category_tables)
+        self.assertEqual(result.per_query_metadata["query1"]["effective_snp_identifier"], "rsid")
+        self.assertFalse(result.per_query_metadata["query1"]["identity_downgrade_applied"])
         self.assertEqual(
             result.per_query_category_tables["query1"].columns.tolist(),
             [

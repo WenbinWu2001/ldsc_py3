@@ -65,6 +65,14 @@ class RestrictionIdentityKeys:
     n_retained_keys: int
 
 
+@dataclass(frozen=True)
+class IdentityCompatibility:
+    """Effective regression identity mode and whether downgrade was used."""
+
+    effective_mode: str
+    downgrade_applied: bool
+
+
 def normalize_snp_identifier_mode(value: str) -> str:
     """Validate one exact public SNP identifier mode."""
     if value in SNP_IDENTIFIER_MODES:
@@ -108,6 +116,27 @@ def identity_mode_family(mode: str) -> Literal["rsid", "chr_pos"]:
 def identity_base_mode(mode: str) -> Literal["rsid", "chr_pos"]:
     """Return the allele-blind base mode for ``mode``."""
     return identity_mode_family(mode)
+
+
+def resolve_regression_identity_mode(
+    left_mode: str,
+    right_mode: str,
+    *,
+    allow_identity_downgrade: bool,
+) -> IdentityCompatibility:
+    """Resolve two regression inputs to one effective SNP identity mode."""
+    left = normalize_snp_identifier_mode(left_mode)
+    right = normalize_snp_identifier_mode(right_mode)
+    if left == right:
+        return IdentityCompatibility(effective_mode=left, downgrade_applied=False)
+    if identity_mode_family(left) != identity_mode_family(right):
+        raise ValueError(f"Cannot mix SNP identifier families in regression: {left!r} vs {right!r}.")
+    if not allow_identity_downgrade:
+        raise ValueError(
+            f"snp_identifier mismatch: {left!r} vs {right!r}. "
+            "Use --allow-identity-downgrade to run same-family allele-aware/base inputs under the base mode."
+        )
+    return IdentityCompatibility(effective_mode=identity_base_mode(left), downgrade_applied=True)
 
 
 def is_allele_aware_mode(mode: str) -> bool:

@@ -52,7 +52,6 @@ from .config import (
     get_global_config,
     print_global_config_banner,
     suppress_global_config_banner,
-    validate_config_compatibility,
 )
 from .path_resolution import (
     ensure_output_directory,
@@ -64,7 +63,16 @@ from .path_resolution import (
 from ._logging import log_inputs, log_outputs, workflow_logging
 from ._kernel import regression as reg
 from ._kernel.identifiers import build_snp_id_series
-from ._kernel.snp_identity import REGENERATE_ARTIFACT_MESSAGE, identity_mode_family, validate_identity_artifact_metadata
+from ._kernel.snp_identity import (
+    REGENERATE_ARTIFACT_MESSAGE,
+    clean_identity_artifact_table,
+    effective_merge_key_series,
+    identity_base_mode,
+    identity_mode_family,
+    is_allele_aware_mode,
+    resolve_regression_identity_mode,
+    validate_identity_artifact_metadata,
+)
 from ._row_alignment import assert_same_snp_rows
 from .column_inference import infer_chr_pos_columns, normalize_snp_identifier_mode
 from .ldscore_calculator import LDScoreResult
@@ -113,6 +121,7 @@ PARTITIONED_H2_REQUIRES_QUERY_ANNOTATIONS_MESSAGE = (
     "Rerun `ldsc ldscore` with --query-annot-sources or --query-annot-bed-sources plus explicit baseline annotations."
 )
 FAILED_RG_NOTE = "Failed; see rg_full.tsv error column; use --output-dir for rg.log."
+REGRESSION_IDENTITY_KEY_COLUMN = "_ldsc_regression_identity_key"
 
 
 @dataclass(frozen=True)
@@ -128,6 +137,8 @@ class RegressionDataset:
     trait_names: list[str]
     chromosomes_aggregated: list[str]
     config_snapshot: GlobalConfig | None = None
+    effective_snp_identifier: str = "chr_pos_allele_aware"
+    identity_downgrade_applied: bool = False
 
     def validate(self) -> None:
         """Validate that the merged table contains the required LDSC columns."""
@@ -150,6 +161,8 @@ class RGRegressionDataset:
     trait_names: list[str]
     chromosomes_aggregated: list[str]
     config_snapshot: GlobalConfig | None = None
+    effective_snp_identifier: str = "chr_pos_allele_aware"
+    identity_downgrade_applied: bool = False
 
     def validate(self) -> None:
         """Validate that the merged table contains the required RG columns."""
@@ -236,27 +249,80 @@ class RegressionRunner:
         """
         print_global_config_banner(type(self).__name__, self.global_config)
         config = config or self.regression_config
+        weight_column = REGRESSION_LD_SCORE_COLUMN
+        selected_query_columns = list(query_columns or [])
+        ref_ld_columns = list(ldscore_result.baseline_columns) + selected_query_columns
+        identity = _resolve_h2_identity(sumstats_table, ldscore_result, self.global_config, config)
         if sumstats_table.config_snapshot is not None and ldscore_result.config_snapshot is not None:
-            validate_config_compatibility(
+            _validate_regression_config_compatibility(
                 sumstats_table.config_snapshot,
                 ldscore_result.config_snapshot,
                 context="SumstatsTable and LDScoreResult",
             )
-        weight_column = REGRESSION_LD_SCORE_COLUMN
-        selected_query_columns = list(query_columns or [])
-        ref_ld_columns = list(ldscore_result.baseline_columns) + selected_query_columns
-        ldscore_frame = _assemble_regression_ldscore_table(ldscore_result, selected_query_columns)
-        identifier_mode = _effective_snp_identifier_mode(sumstats_table, ldscore_result, self.global_config)
-        if identity_mode_family(identifier_mode) == "rsid":
+        identifier_mode = identity.effective_mode
+        ldscore_mode = _ldscore_identity_mode(ldscore_result, self.global_config, fallback_mode=identifier_mode)
+        ldscore_frame = _assemble_regression_ldscore_table(
+            ldscore_result,
+            selected_query_columns,
+            snp_identifier=ldscore_mode,
+        )
+        sumstats_frame = sumstats_table.data
+        dropped_identity_rows = 0
+        if identity.downgrade_applied:
+            sumstats_frame, sumstats_dropped = _prepare_regression_identity_table(
+                sumstats_frame,
+                identifier_mode,
+                context=sumstats_table.source_path or "sumstats",
+                logger=LOGGER,
+            )
+            ldscore_frame, ldscore_dropped = _prepare_regression_identity_table(
+                ldscore_frame,
+                identifier_mode,
+                context="LD-score table",
+                logger=LOGGER,
+            )
+            dropped_identity_rows = int(len(sumstats_dropped) + len(ldscore_dropped))
+            sumstats_mode = _sumstats_identity_mode(sumstats_table, self.global_config, fallback_mode=ldscore_mode)
+            LOGGER.warning(
+                "Identity downgrade enabled: LD-score mode %s, sumstats mode %s; "
+                "running regression with effective snp_identifier=%r. "
+                "Dropped %d duplicate effective-key rows before merge.",
+                ldscore_mode,
+                sumstats_mode,
+                identifier_mode,
+                dropped_identity_rows,
+            )
+        if is_allele_aware_mode(identifier_mode):
+            sumstats_keyed = _with_effective_identity_key(
+                sumstats_frame,
+                identifier_mode,
+                context=sumstats_table.source_path or "sumstats",
+            )
+            ldscore_keyed = _with_effective_identity_key(ldscore_frame, identifier_mode, context="LD-score table")
+            ldscore_columns = [REGRESSION_IDENTITY_KEY_COLUMN, *ref_ld_columns, weight_column]
+            ldscore_payload = ldscore_keyed.loc[:, ldscore_columns].copy()
+            if {"A1", "A2"}.issubset(ldscore_keyed.columns):
+                ldscore_payload["A1_ld"] = ldscore_keyed["A1"]
+                ldscore_payload["A2_ld"] = ldscore_keyed["A2"]
             merged = pd.merge(
-                sumstats_table.data,
+                sumstats_keyed,
+                ldscore_payload.reset_index(drop=True),
+                how="inner",
+                on=REGRESSION_IDENTITY_KEY_COLUMN,
+                sort=False,
+            )
+            if {"A1", "A2", "A1_ld", "A2_ld"}.issubset(merged.columns):
+                merged = _orient_sumstats_z_to_reference_alleles(merged)
+        elif identity_mode_family(identifier_mode) == "rsid":
+            merged = pd.merge(
+                sumstats_frame,
                 ldscore_frame.loc[:, ["SNP", *ref_ld_columns, weight_column]].reset_index(drop=True),
                 how="inner",
                 on="SNP",
                 sort=False,
             )
         else:
-            sumstats_keyed = _with_chr_pos_key(sumstats_table.data, context=sumstats_table.source_path or "sumstats")
+            sumstats_keyed = _with_chr_pos_key(sumstats_frame, context=sumstats_table.source_path or "sumstats")
             ldscore_keyed = _with_chr_pos_key(ldscore_frame, context="LD-score table")
             merged = pd.merge(
                 sumstats_keyed,
@@ -303,6 +369,8 @@ class RegressionRunner:
             trait_names=[name for name in [sumstats_table.trait_name] if name],
             chromosomes_aggregated=[result.chrom for result in ldscore_result.chromosome_results],
             config_snapshot=ldscore_result.config_snapshot,
+            effective_snp_identifier=identifier_mode,
+            identity_downgrade_applied=identity.downgrade_applied,
         )
         dataset.validate()
         return dataset
@@ -324,9 +392,10 @@ class RegressionRunner:
         """
         print_global_config_banner(type(self).__name__, self.global_config)
         config = config or self.regression_config
+        identity = _resolve_rg_identity(sumstats_table_1, sumstats_table_2, ldscore_result, self.global_config, config)
         for table, label in ((sumstats_table_1, "trait 1 SumstatsTable"), (sumstats_table_2, "trait 2 SumstatsTable")):
             if table.config_snapshot is not None and ldscore_result.config_snapshot is not None:
-                validate_config_compatibility(
+                _validate_regression_config_compatibility(
                     table.config_snapshot,
                     ldscore_result.config_snapshot,
                     context=f"{label} and LDScoreResult",
@@ -334,13 +403,69 @@ class RegressionRunner:
 
         weight_column = REGRESSION_LD_SCORE_COLUMN
         ref_ld_columns = list(ldscore_result.baseline_columns)
-        ldscore_frame = _assemble_regression_ldscore_table(ldscore_result, [])
-        identifier_mode = _effective_snp_identifier_mode(sumstats_table_1, ldscore_result, self.global_config)
+        identifier_mode = identity.effective_mode
+        ldscore_mode = _ldscore_identity_mode(ldscore_result, self.global_config, fallback_mode=identifier_mode)
+        trait_1_mode = _sumstats_identity_mode(sumstats_table_1, self.global_config, fallback_mode=ldscore_mode)
+        trait_2_mode = _sumstats_identity_mode(sumstats_table_2, self.global_config, fallback_mode=ldscore_mode)
+        ldscore_frame = _assemble_regression_ldscore_table(ldscore_result, [], snp_identifier=ldscore_mode)
+        left_frame = sumstats_table_1.data
+        right_frame = sumstats_table_2.data
+        if identity.downgrade_applied:
+            left_frame, left_dropped = _prepare_regression_identity_table(
+                left_frame,
+                identifier_mode,
+                context=sumstats_table_1.source_path or "trait 1 sumstats",
+                logger=LOGGER,
+            )
+            right_frame, right_dropped = _prepare_regression_identity_table(
+                right_frame,
+                identifier_mode,
+                context=sumstats_table_2.source_path or "trait 2 sumstats",
+                logger=LOGGER,
+            )
+            ldscore_frame, ldscore_dropped = _prepare_regression_identity_table(
+                ldscore_frame,
+                identifier_mode,
+                context="LD-score table",
+                logger=LOGGER,
+            )
+            dropped_identity_rows = int(len(left_dropped) + len(right_dropped) + len(ldscore_dropped))
+            LOGGER.warning(
+                "Identity downgrade enabled: LD-score mode %s, trait 1 mode %s, trait 2 mode %s; "
+                "running rg with effective snp_identifier=%r. "
+                "Dropped %d duplicate effective-key rows before merge.",
+                ldscore_mode,
+                trait_1_mode,
+                trait_2_mode,
+                identifier_mode,
+                dropped_identity_rows,
+            )
 
-        left = sumstats_table_1.data.rename(columns={"N": "N1", "Z": "Z1"})
-        right = sumstats_table_2.data.rename(columns={"A1": "A1x", "A2": "A2x", "N": "N2", "Z": "Z2"})
+        left = left_frame.rename(columns={"N": "N1", "Z": "Z1"})
+        right = right_frame.rename(columns={"A1": "A1x", "A2": "A2x", "N": "N2", "Z": "Z2"})
         right_payload = [column for column in ["A1x", "A2x", "N2", "Z2"] if column in right.columns]
-        if identity_mode_family(identifier_mode) == "rsid":
+        if is_allele_aware_mode(identifier_mode):
+            left_keyed = _with_effective_identity_key(left_frame, identifier_mode, context=sumstats_table_1.source_path or "sumstats")
+            left = left_keyed.rename(columns={"N": "N1", "Z": "Z1"})
+            right_keyed = _with_effective_identity_key(right_frame, identifier_mode, context=sumstats_table_2.source_path or "sumstats")
+            right = right_keyed.rename(columns={"A1": "A1x", "A2": "A2x", "N": "N2", "Z": "Z2"})
+            right_payload = [column for column in ["A1x", "A2x", "N2", "Z2"] if column in right.columns]
+            ldscore_keyed = _with_effective_identity_key(ldscore_frame, identifier_mode, context="LD-score table")
+            left_with_ld = pd.merge(
+                left,
+                ldscore_keyed.loc[:, [REGRESSION_IDENTITY_KEY_COLUMN, *ref_ld_columns, weight_column]].reset_index(drop=True),
+                how="inner",
+                on=REGRESSION_IDENTITY_KEY_COLUMN,
+                sort=False,
+            )
+            merged = pd.merge(
+                left_with_ld,
+                right.loc[:, [REGRESSION_IDENTITY_KEY_COLUMN, *right_payload]],
+                how="inner",
+                on=REGRESSION_IDENTITY_KEY_COLUMN,
+                sort=False,
+            )
+        elif identity_mode_family(identifier_mode) == "rsid":
             left_with_ld = pd.merge(
                 left,
                 ldscore_frame.loc[:, ["SNP", *ref_ld_columns, weight_column]].reset_index(drop=True),
@@ -419,6 +544,8 @@ class RegressionRunner:
             trait_names=[name for name in [sumstats_table_1.trait_name, sumstats_table_2.trait_name] if name],
             chromosomes_aggregated=[result.chrom for result in ldscore_result.chromosome_results],
             config_snapshot=ldscore_result.config_snapshot,
+            effective_snp_identifier=identifier_mode,
+            identity_downgrade_applied=identity.downgrade_applied,
         )
         dataset.validate()
         return dataset
@@ -570,6 +697,8 @@ class RegressionRunner:
                     "dropped_zero_variance_ld_columns": list(dataset.dropped_zero_variance_ld_columns),
                     "retained_ld_columns": list(dataset.retained_ld_columns),
                     "n_snps": len(dataset.merged),
+                    "effective_snp_identifier": dataset.effective_snp_identifier,
+                    "identity_downgrade_applied": dataset.identity_downgrade_applied,
                 }
         if not rows:
             summary = pd.DataFrame(columns=PARTITIONED_H2_AGGREGATE_COLUMNS)
@@ -716,17 +845,145 @@ class RegressionRunner:
         return RgResultFamily(rg=rg, rg_full=rg_full, h2_per_trait=h2_per_trait, per_pair_metadata=per_pair_metadata)
 
 
-def _effective_snp_identifier_mode(
+def _validate_regression_config_compatibility(
+    a: GlobalConfig,
+    b: GlobalConfig,
+    context: str = "",
+) -> None:
+    """Validate regression provenance fields outside SNP identity mode."""
+    prefix = f" when combining {context}" if context else ""
+    if a.genome_build != b.genome_build:
+        raise ConfigMismatchError(
+            f"genome_build mismatch{prefix}: {a.genome_build!r} vs "
+            f"{b.genome_build!r}. These objects were computed under different "
+            "genome-build assumptions and cannot be safely merged."
+        )
+
+
+def _snapshot_identity_mode(snapshot: GlobalConfig | None) -> str | None:
+    """Return a normalized SNP identity mode from ``snapshot`` if present."""
+    value = getattr(snapshot, "snp_identifier", None)
+    if value is None:
+        return None
+    return normalize_snp_identifier_mode(value)
+
+
+def _sumstats_identity_mode(
+    sumstats_table: SumstatsTable,
+    runner_config: GlobalConfig,
+    *,
+    fallback_mode: str,
+) -> str:
+    """Return the mode represented by one sumstats input for regression."""
+    return _snapshot_identity_mode(sumstats_table.config_snapshot) or normalize_snp_identifier_mode(fallback_mode)
+
+
+def _ldscore_identity_mode(
+    ldscore_result: LDScoreResult,
+    runner_config: GlobalConfig,
+    *,
+    fallback_mode: str | None = None,
+) -> str:
+    """Return the mode represented by one LD-score input for regression."""
+    return (
+        _snapshot_identity_mode(ldscore_result.config_snapshot)
+        or normalize_snp_identifier_mode(fallback_mode or runner_config.snp_identifier)
+    )
+
+
+def _resolve_h2_identity(
     sumstats_table: SumstatsTable,
     ldscore_result: LDScoreResult,
     runner_config: GlobalConfig,
-) -> str:
-    """Resolve the SNP identifier mode for a regression merge."""
-    for snapshot in (ldscore_result.config_snapshot, sumstats_table.config_snapshot, runner_config):
-        value = getattr(snapshot, "snp_identifier", None)
-        if value is not None:
-            return normalize_snp_identifier_mode(value)
-    return "chr_pos_allele_aware"
+    regression_config: RegressionConfig,
+):
+    """Resolve one sumstats table and one LD-score result for h2 merging."""
+    ldscore_mode = _ldscore_identity_mode(ldscore_result, runner_config)
+    sumstats_mode = _sumstats_identity_mode(sumstats_table, runner_config, fallback_mode=ldscore_mode)
+    return resolve_regression_identity_mode(
+        sumstats_mode,
+        ldscore_mode,
+        allow_identity_downgrade=regression_config.allow_identity_downgrade,
+    )
+
+
+def _resolve_rg_identity(
+    sumstats_table_1: SumstatsTable,
+    sumstats_table_2: SumstatsTable,
+    ldscore_result: LDScoreResult,
+    runner_config: GlobalConfig,
+    regression_config: RegressionConfig,
+):
+    """Resolve trait 1, trait 2, and LD-score identity modes for rg."""
+    ldscore_mode = _ldscore_identity_mode(ldscore_result, runner_config)
+    trait_1_mode = _sumstats_identity_mode(sumstats_table_1, runner_config, fallback_mode=ldscore_mode)
+    trait_2_mode = _sumstats_identity_mode(sumstats_table_2, runner_config, fallback_mode=ldscore_mode)
+    pairwise = [
+        resolve_regression_identity_mode(
+            trait_1_mode,
+            ldscore_mode,
+            allow_identity_downgrade=regression_config.allow_identity_downgrade,
+        ),
+        resolve_regression_identity_mode(
+            trait_2_mode,
+            ldscore_mode,
+            allow_identity_downgrade=regression_config.allow_identity_downgrade,
+        ),
+        resolve_regression_identity_mode(
+            trait_1_mode,
+            trait_2_mode,
+            allow_identity_downgrade=regression_config.allow_identity_downgrade,
+        ),
+    ]
+    if len({trait_1_mode, trait_2_mode, ldscore_mode}) == 1:
+        return pairwise[0]
+    effective_mode = identity_base_mode(trait_1_mode)
+    return replace(pairwise[0], effective_mode=effective_mode, downgrade_applied=True)
+
+
+def _prepare_regression_identity_table(
+    frame: pd.DataFrame,
+    mode: str,
+    *,
+    context: str,
+    logger: logging.Logger,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Clean duplicate effective identities before downgraded regression merge."""
+    cleanup = clean_identity_artifact_table(
+        frame,
+        mode,
+        context=context,
+        stage="regression_identity_downgrade",
+        logger=logger,
+    )
+    return cleanup.cleaned, cleanup.dropped
+
+
+def _with_effective_identity_key(frame: pd.DataFrame, mode: str, *, context: str) -> pd.DataFrame:
+    """Return a copy with the active effective regression identity key."""
+    keyed = frame.copy()
+    keyed[REGRESSION_IDENTITY_KEY_COLUMN] = effective_merge_key_series(keyed, mode, context=context)
+    return keyed.loc[keyed[REGRESSION_IDENTITY_KEY_COLUMN].notna()].reset_index(drop=True)
+
+
+def _orient_sumstats_z_to_reference_alleles(merged: pd.DataFrame) -> pd.DataFrame:
+    """Orient h2 sumstats Z values to LD-score/reference-panel allele order."""
+    sumstats_a1 = merged["A1"].astype("string").str.upper()
+    sumstats_a2 = merged["A2"].astype("string").str.upper()
+    ld_a1 = merged["A1_ld"].astype("string").str.upper()
+    ld_a2 = merged["A2_ld"].astype("string").str.upper()
+    same = (sumstats_a1 == ld_a1) & (sumstats_a2 == ld_a2)
+    flipped = (sumstats_a1 == ld_a2) & (sumstats_a2 == ld_a1)
+    incompatible = ~(same | flipped)
+    if bool(incompatible.any()):
+        LOGGER.warning(
+            "Dropping %d SNPs with incompatible sumstats and LD-score allele order.",
+            int(incompatible.sum()),
+        )
+    oriented = merged.loc[~incompatible].copy()
+    flip_index = flipped.loc[~incompatible]
+    oriented.loc[flip_index.index[flip_index], "Z"] *= -1
+    return oriented.reset_index(drop=True)
 
 
 def _with_chr_pos_key(frame: pd.DataFrame, *, context: str) -> pd.DataFrame:
@@ -767,7 +1024,12 @@ def _validate_partitioned_query_columns(ldscore_result: LDScoreResult, query_col
     return requested
 
 
-def _assemble_regression_ldscore_table(ldscore_result: LDScoreResult, query_columns: Sequence[str]) -> pd.DataFrame:
+def _assemble_regression_ldscore_table(
+    ldscore_result: LDScoreResult,
+    query_columns: Sequence[str],
+    *,
+    snp_identifier: str | None = None,
+) -> pd.DataFrame:
     """Build the table used for one regression dataset from split LD-score tables."""
     baseline_table = ldscore_result.baseline_table.reset_index(drop=True)
     if not query_columns:
@@ -782,7 +1044,7 @@ def _assemble_regression_ldscore_table(ldscore_result: LDScoreResult, query_colu
         baseline_table,
         query_table,
         context="query rows must match baseline rows on CHR/SNP/POS",
-        snp_identifier=getattr(ldscore_result.config_snapshot, "snp_identifier", "chr_pos_allele_aware"),
+        snp_identifier=snp_identifier or getattr(ldscore_result.config_snapshot, "snp_identifier", "chr_pos_allele_aware"),
     )
     return pd.concat([baseline_table, query_table.loc[:, list(query_columns)]], axis=1)
 
@@ -1032,6 +1294,8 @@ def _rg_pair_metadata(
         "count_key_used_for_regression": dataset.count_key_used_for_regression,
         "retained_ld_columns": list(dataset.retained_ld_columns),
         "dropped_zero_variance_ld_columns": list(dataset.dropped_zero_variance_ld_columns),
+        "effective_snp_identifier": dataset.effective_snp_identifier,
+        "identity_downgrade_applied": dataset.identity_downgrade_applied,
         "intercept_h2_policy": _intercept_policy(config.intercept_h2, config.use_intercept, default_when_disabled=1),
         "intercept_gencov_policy": _intercept_policy(
             config.intercept_gencov,

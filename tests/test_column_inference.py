@@ -166,7 +166,18 @@ class ColumnInferenceTest(unittest.TestCase):
 
     def test_resolve_canonical_parquet_columns_accepts_aliases(self):
         mapping = resolve_required_columns(
-            ["chr", "bp_1", "bp2", "rsid_1", "rs_2", "R2"],
+            [
+                "chr",
+                "bp_1",
+                "bp2",
+                "rsid_1",
+                "rs_2",
+                "allele1_1",
+                "allele2_1",
+                "allele1_2",
+                "allele2_2",
+                "R2",
+            ],
             PARQUET_R2_CANONICAL_SPECS,
             context="test-canonical-parquet-aliases",
         )
@@ -176,6 +187,10 @@ class ColumnInferenceTest(unittest.TestCase):
         self.assertEqual(mapping["POS_2"], "bp2")
         self.assertEqual(mapping["SNP_1"], "rsid_1")
         self.assertEqual(mapping["SNP_2"], "rs_2")
+        self.assertEqual(mapping["A1_1"], "allele1_1")
+        self.assertEqual(mapping["A2_1"], "allele2_1")
+        self.assertEqual(mapping["A1_2"], "allele1_2")
+        self.assertEqual(mapping["A2_2"], "allele2_2")
         self.assertEqual(mapping["R2"], "R2")
 
     def test_resolve_restriction_rsid_column_uses_registry_aliases(self):

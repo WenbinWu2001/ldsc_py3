@@ -59,6 +59,7 @@ from .identifiers import (
 from .liftover import SumstatsLiftoverRequest, apply_sumstats_liftover
 from .snp_identity import (
     RestrictionIdentityKeys,
+    allele_set_series,
     clean_identity_artifact_table,
     identity_base_mode,
     identity_mode_family,
@@ -307,10 +308,9 @@ def parse_dat(dat_gen, convert_colname, args, restriction=None):
     for block_num, dat in enumerate(dat_gen):
         tot_snps += len(dat)
         old = len(dat)
-        passive_allele_targets = {'A1', 'A2'} if not is_allele_aware_mode(mode) else set()
         required_raw_cols = [
             raw_col for raw_col in dat.columns
-            if convert_colname[raw_col] not in {'INFO', 'CHR', 'POS', *passive_allele_targets}
+            if convert_colname[raw_col] not in {'INFO', 'CHR', 'POS', 'A1', 'A2'}
         ]
         dat = dat.dropna(axis=0, how="any", subset=required_raw_cols).reset_index(drop=True)
         drops['NA'] += old - len(dat)
@@ -460,16 +460,10 @@ def _filter_sumstats_chunk_to_restriction(dat, restriction, args):
     if restriction is None or len(dat) == 0:
         return dat
 
-    old = len(dat)
     if restriction.identity_keys is not None:
-        keep = restriction_membership_mask(
-            dat,
-            restriction.identity_keys,
-            restriction.mode,
-            context=f"--sumstats-snps-file filtering for {getattr(args, 'sumstats', 'sumstats')}",
-        )
-        usable_mask = pd.Series(True, index=dat.index)
-    elif identity_mode_family(restriction.mode) == 'rsid':
+        return _filter_allele_aware_chunk_to_identity_restriction(dat, restriction, args)
+    old = len(dat)
+    if identity_mode_family(restriction.mode) == 'rsid':
         keys = dat['SNP'].astype(str)
         usable_mask = keys.notna()
         keep = keys.isin(restriction.identifiers) & usable_mask
@@ -487,6 +481,47 @@ def _filter_sumstats_chunk_to_restriction(dat, restriction, args):
     restriction.n_usable_row_identifiers += int(usable_mask.sum())
     restriction.n_rows_kept += kept
     return dat.loc[keep].reset_index(drop=True)
+
+
+def _filter_allele_aware_chunk_to_identity_restriction(dat, restriction, args):
+    """
+    Apply an allele-aware restriction without raising on raw rows with bad alleles.
+
+    Invalid raw allele rows must reach final global identity cleanup so the
+    dropped-SNP sidecar reports identity-specific reasons.  For membership
+    matching, use only the chunk rows that can produce effective identity keys.
+    """
+    original_row_column = '_ldsc_original_chunk_row'
+    work = dat.copy()
+    work[original_row_column] = range(len(work))
+    _, allele_reasons = allele_set_series(
+        work,
+        context=f"--sumstats-snps-file filtering for {getattr(args, 'sumstats', 'sumstats')}",
+    )
+    matchable = work.loc[allele_reasons.isna()].copy()
+    if len(matchable) > 0:
+        keep_matchable = restriction_membership_mask(
+            matchable,
+            restriction.identity_keys,
+            restriction.mode,
+            context=f"--sumstats-snps-file filtering for {getattr(args, 'sumstats', 'sumstats')}",
+        )
+        kept_matchable = matchable.loc[keep_matchable].copy()
+        kept = int(keep_matchable.sum())
+        matchable_original_rows = set(matchable[original_row_column].tolist())
+    else:
+        kept_matchable = matchable
+        kept = 0
+        matchable_original_rows = set()
+
+    unmatchable = work.loc[~work[original_row_column].isin(matchable_original_rows)].copy()
+    retained = pd.concat([kept_matchable, unmatchable], axis=0, ignore_index=True)
+    retained = retained.drop(columns=[original_row_column], errors='ignore')
+
+    restriction.n_rows_before_filter += len(dat)
+    restriction.n_usable_row_identifiers += len(matchable)
+    restriction.n_rows_kept += kept
+    return retained.reset_index(drop=True)
 
 
 def _log_sumstats_restriction_summary(restriction):

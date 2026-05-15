@@ -61,7 +61,8 @@ the file metadata (see §2.4).
 #### Alias-tolerant loading
 
 The default on-disk column names are the uppercase canonical fields above:
-`CHR`, `POS_1`, `POS_2`, `SNP_1`, `SNP_2`, `R2`. At load time, the parquet reader
+`CHR`, `POS_1`, `POS_2`, `SNP_1`, `SNP_2`, `R2`, plus endpoint
+`A1_1/A2_1/A1_2/A2_2` columns in allele-aware package-built files. At load time, the parquet reader
 resolves aliases through `src/ldsc/column_inference.py` before using the file.
 For example, a file with columns `chr`, `bp_1`, `bp_2`, `rsid_1`, `rsid_2`, `R2`
 is treated as the same logical schema as `CHR`, `POS_1`, `POS_2`, `SNP_1`,

@@ -5,15 +5,17 @@ Goal: compute LDSC-compatible LD scores from a reference panel alone, from pre-b
 The examples below assume chromosome-pattern annotation inputs such as
 `annotations/baseline.1.annot.gz` and a package-built R2 directory such as
 `r2_ref_panel_1kg30x_1cM_hm3/hg38`.
-For the parquet backend, the R2 file should use the canonical six-column schema
-(`CHR`, `POS_1`, `POS_2`, `SNP_1`, `SNP_2`, `R2`) written with PyArrow row groups.
-The matching `chr*_meta.tsv.gz` sidecars are optional but strongly recommended
-because they define the full reference-panel SNP universe and supply `MAF`/`CM`.
+For the parquet backend, package-built R2 files use canonical pair columns
+(`CHR`, `POS_1`, `POS_2`, `SNP_1`, `SNP_2`, `R2`) plus endpoint allele columns
+(`A1_1`, `A2_1`, `A1_2`, `A2_2`) in allele-aware modes, written with PyArrow
+row groups. The matching `chr*_meta.tsv.gz` sidecars define the full
+reference-panel SNP universe and supply `MAF`/`CM`; they are required in
+allele-aware modes because reference metadata must carry usable `A1/A2`.
 Package-built R2 parquet files also store `ldsc:r2_bias` and `ldsc:n_samples`
 in Arrow schema metadata, so the examples omit R2 bias and sample-size
 arguments. Pass `r2_bias_mode` / `--r2-bias-mode` and
 `r2_sample_size` / `--r2-sample-size` manually only for legacy or external raw
-R2 parquet files that lack LDSC schema metadata. External raw R2 parquet inputs
+six-column R2 parquet files that lack LDSC schema metadata. External raw R2 parquet inputs
 are supported only in `rsid` and `chr_pos`; allele-aware modes require
 package-built canonical R2 parquet with endpoint allele columns
 `A1_1/A2_1/A1_2/A2_2`.

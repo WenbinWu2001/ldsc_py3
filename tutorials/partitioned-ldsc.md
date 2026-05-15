@@ -8,10 +8,13 @@ directory. Baseline-only LD-score directories, including synthetic all-ones
 but are rejected by `partitioned-h2`.
 
 The examples below assume chromosome-pattern inputs such as `annotations/baseline.1.annot.gz`, `r2/reference.1.parquet`, and `r2/reference_metadata.1.tsv.gz`.
-The parquet R2 files are expected to use the canonical six-column schema
-(`CHR`, `POS_1`, `POS_2`, `SNP_1`, `SNP_2`, `R2`) with row-group statistics.
-The paired metadata sidecar is required; it defines the raw reference-panel SNP
-universe, while the parquet pair rows are queried only for LD values.
+Package-built parquet R2 files use canonical pair columns (`CHR`, `POS_1`,
+`POS_2`, `SNP_1`, `SNP_2`, `R2`) plus endpoint allele columns
+(`A1_1`, `A2_1`, `A1_2`, `A2_2`) in allele-aware modes, with row-group
+statistics. The paired metadata sidecar is required; it defines the raw
+reference-panel SNP universe, while the parquet pair rows are queried only for
+LD values. Six-column external/raw R2 inputs are supported only in base `rsid`
+and `chr_pos` modes.
 Package-built panels carry `ldsc:r2_bias` and `ldsc:n_samples` in parquet
 schema metadata, so the examples omit R2 bias and sample-size arguments.
 The bundled `baseline_v1.2` annotations are hg19-based, so the parquet example uses `genome_build="hg19"` to align parquet coordinates to the annotation bundle.

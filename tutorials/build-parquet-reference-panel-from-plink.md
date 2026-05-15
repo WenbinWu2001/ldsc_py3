@@ -199,7 +199,9 @@ Exactly one of the following must be set:
 
   When this path is supplied, the restriction key comes from the invocation
   `GlobalConfig.snp_identifier`. Restriction files may omit alleles and then
-  match by base key. In `chr_pos`-family modes, the restriction file must be
+  match by base key. Allele-bearing restrictions in allele-aware modes match by
+  the effective allele-aware key. The packaged HM3 restriction is allele-free and
+  matches by base key. In `chr_pos`-family modes, the restriction file must be
   aligned to the PLINK source build. Target-build restriction files are not
   lifted over by the builder.
 

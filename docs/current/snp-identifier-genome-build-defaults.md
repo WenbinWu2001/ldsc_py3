@@ -137,8 +137,9 @@ Effective identifier resolution selects the mode in priority order:
 LD-score snapshot → sumstats snapshot → runner config → "chr_pos_allele_aware" fallback
 ```
 
-The runner's live config is only the fallback for fully un-instrumented inputs.
-Persisted provenance always dominates.
+The runner's live config is only the fallback for manually constructed in-memory
+objects that do not carry provenance. Package-written disk artifacts must carry
+current identity provenance, and persisted provenance always dominates.
 
 By default, regression requires exact mode compatibility when both artifacts
 carry current provenance. `--allow-identity-downgrade` is regression-only. It
@@ -155,8 +156,8 @@ are logged, not persisted in detail metadata.
 | `rsid_allele_aware` | `rsid` | Raises unless `--allow-identity-downgrade`; with downgrade, merge uses `SNP` and base-mode duplicate cleanup. |
 | `rsid` | `chr_pos` | Error: rsID-family and coordinate-family modes cannot mix. |
 | `chr_pos_allele_aware` | `chr_pos_allele_aware` | Pair check passes; merge uses `CHR:POS:<allele_set>`. |
-| `chr_pos_allele_aware` | none | Pair check skipped; mode resolution returns `chr_pos_allele_aware` from manifest. |
-| none | none | Pair check skipped; mode resolution falls through to runner → usually `chr_pos_allele_aware`. If required columns are missing, column/allele validation raises. If merge is empty, runtime error includes active config. |
+| `chr_pos_allele_aware` | missing current provenance | Package-written sumstats are rejected; regenerate them with the current LDSC package. |
+| missing current provenance | missing current provenance | Package-written artifacts are rejected; manually constructed in-memory objects without provenance fall back to runner config and still undergo column/allele validation. |
 
 The key implication: on-disk provenance is transparent to the
 `chr_pos_allele_aware + auto` registry default. An rsID-keyed pipeline whose

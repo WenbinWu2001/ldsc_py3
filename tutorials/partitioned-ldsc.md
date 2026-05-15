@@ -111,9 +111,9 @@ sumstats = SumstatsMunger().run(
 )
 
 # If you already have a curated sumstats artifact on disk, load it directly.
-# Current parquet and legacy .sumstats.gz artifacts recover config_snapshot
-# from sumstats.metadata.json. Older files without that sidecar warn and use
-# config_snapshot=None.
+# Current parquet and .sumstats.gz artifacts recover config_snapshot from
+# sumstats.metadata.json. Old package-written files without current provenance
+# must be regenerated with the current LDSC package.
 # sumstats = load_sumstats("tutorial_outputs/trait/sumstats.parquet", trait_name="trait")
 
 ref_panel = RefPanelLoader(GLOBAL_CONFIG).load(
@@ -164,7 +164,7 @@ print(ldscore_result.baseline_table.head())
 print(partitioned)
 ```
 
-The Python workflow registers `GlobalConfig` once, then reuses it across the compatible helper functions and workflow classes. In-process results such as `AnnotationBundle`, `SumstatsTable` from `SumstatsMunger.run()`, and `LDScoreResult` carry frozen `config_snapshot` values, and the regression step raises `ConfigMismatchError` if you accidentally mix known artifacts produced under incompatible `snp_identifier` or `genome_build` assumptions. A `SumstatsTable` loaded from a current disk artifact recovers this provenance from `sumstats.metadata.json`; older artifacts without the sidecar have unknown provenance (`config_snapshot=None`) and do not trigger sumstats-side compatibility validation. `SumstatsMunger.run()` is also the implementation path behind `ldsc munge-sumstats` after CLI parsing, and it owns fixed `sumstats.parquet` output by default, optional `sumstats.sumstats.gz` compatibility output, `sumstats.log`, `sumstats.metadata.json`, and `dropped_snps/dropped.tsv.gz`. Workflow logs are preflighted audit files; returned `output_paths` mappings include data artifacts and the dropped-SNP audit sidecar, but not logs. For `munge-sumstats`, `ldscore`, `partitioned-h2`, and `annotate`, output directories represent coherent artifact families: no-overwrite runs reject any owned sibling, and successful overwrites delete stale owned siblings not produced by the current configuration.
+The Python workflow registers `GlobalConfig` once, then reuses it across the compatible helper functions and workflow classes. In-process results such as `AnnotationBundle`, `SumstatsTable` from `SumstatsMunger.run()`, and `LDScoreResult` carry frozen `config_snapshot` values, and the regression step raises `ConfigMismatchError` if you accidentally mix artifacts produced under incompatible `snp_identifier` or `genome_build` assumptions. A `SumstatsTable` loaded from a current disk artifact recovers this provenance from `sumstats.metadata.json`; old package-written sumstats without current provenance must be regenerated with the current LDSC package. `SumstatsMunger.run()` is also the implementation path behind `ldsc munge-sumstats` after CLI parsing, and it owns fixed `sumstats.parquet` output by default, optional `sumstats.sumstats.gz` compatibility output, `sumstats.log`, `sumstats.metadata.json`, and `dropped_snps/dropped.tsv.gz`. Workflow logs are preflighted audit files; returned `output_paths` mappings include data artifacts and the dropped-SNP audit sidecar, but not logs. For `munge-sumstats`, `ldscore`, `partitioned-h2`, and `annotate`, output directories represent coherent artifact families: no-overwrite runs reject any owned sibling, and successful overwrites delete stale owned siblings not produced by the current configuration.
 
 Munged sumstats written by this workflow include canonical `CHR` and `POS`
 columns. The raw munger accepts common coordinate headers such as `#CHROM`,

@@ -150,8 +150,10 @@ merge-key clusters. The duplicate policy is drop-all after computing the
 effective merge key for the active mode.
 
 Restriction files may omit alleles. Allele-free restrictions match by base key
-and can keep multiple candidate rows until later artifact cleanup. Annotation
-files may omit alleles even in allele-aware modes because they describe genomic
+and can keep multiple candidate rows until later artifact cleanup. Packaged HM3
+restrictions are allele-free base-key filters. Allele-bearing restrictions in
+allele-aware modes match by the effective allele-aware key. Annotation files may
+omit alleles even in allele-aware modes because they describe genomic
 membership; if annotation files include alleles, those alleles participate in
 allele-aware matching.
 

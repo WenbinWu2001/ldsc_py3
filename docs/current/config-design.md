@@ -7,21 +7,22 @@ core design: `GlobalConfig` remains immutable, workflow result objects carry
 `config_snapshot`, and critical compatibility checks are enforced at combination
 points.
 
-Two implementation details are important to know:
+Three implementation details are important to know:
 
-- Compatibility checks run when both inputs carry real snapshots. Legacy objects
-  with `config_snapshot=None` are still accepted for backward compatibility.
+- Compatibility checks run against the current provenance recorded on
+  package-written artifacts. Old package-written sumstats and LD-score artifacts
+  without the current schema/provenance contract are rejected and must be
+  regenerated with the current LDSC package.
 - Current `ldsc munge-sumstats` writes `sumstats.metadata.json` beside
   `sumstats.parquet` by default, or beside legacy `sumstats.sumstats.gz` when
   `--output-format tsv.gz` is selected; `load_sumstats()` recovers the original
   munge-time `GlobalConfig` from that thin sidecar. Row-level liftover drops are
   audited separately in the always-written `dropped_snps/dropped.tsv.gz` file.
-  Older `.sumstats.gz` files without the metadata sidecar still warn and load
-  with `config_snapshot=None`. Metadata sidecars that exist but lack
-  `config_snapshot` are invalid and are not migrated.
-- `load_ldscore_from_dir()` keeps strict format checks but treats missing or
-  invalid manifest config provenance as unknown, warning and returning
-  `config_snapshot=None`.
+  Package-written sumstats artifacts without current identity provenance are not
+  migrated.
+- `load_ldscore_from_dir()` keeps strict format checks and rejects missing or
+  invalid package-written manifest identity provenance with a regeneration
+  message.
 
 ## The Problem This Design Solves
 
@@ -61,16 +62,15 @@ in-process results, that field stores the `GlobalConfig` frozen at the moment
 of computation. This snapshot is the authoritative record of what assumptions
 were active when that object was produced.
 
-File-reloaded artifacts may instead use `config_snapshot=None` when the on-disk
-format cannot prove its original settings. For example, `load_sumstats()` can
-recover provenance from `sumstats.metadata.json` written by the current munger,
-but warns and returns unknown provenance for older `.sumstats.gz` files that do
-not have that sidecar.
+File-reloaded package-written artifacts must prove their original settings with
+current identity provenance. For example, `load_sumstats()` recovers provenance
+from `sumstats.metadata.json` written by the current munger, while older
+package-written `.sumstats.gz` files without the current sidecar are rejected
+and must be regenerated.
 
-This means reproducibility is structural when provenance exists: interrogating a
-result object tells you the frozen config it was computed under, or tells you
-explicitly that the provenance is unknown, regardless of what the global
-registry currently holds.
+This means reproducibility is structural for package-written artifacts:
+interrogating a loaded result object tells you the frozen config it was computed
+under, regardless of what the global registry currently holds.
 
 ### 3. Compatibility is validated at combination points
 
@@ -339,23 +339,22 @@ reports, HM3 provenance, output bookkeeping, and row counts are written to
 `sumstats.log`; row-level liftover drops are written to
 `dropped_snps/dropped.tsv.gz`. Neither belongs in the metadata sidecar. The
 loader uses the sidecar to populate `config_snapshot`.
-Older artifacts without the sidecar still emit a warning and load with
-`config_snapshot=None`; pre-`config_snapshot` sidecars are treated as invalid
-metadata rather than a backward-compatible format.
+Older package-written artifacts without the current sidecar are rejected with a
+regeneration message; pre-`config_snapshot` sidecars are treated as invalid
+metadata rather than a migrated older format.
 
-**Legacy LD-score directories may also have unknown provenance.**
+**LD-score directories must carry current identity provenance.**
 Canonical LD-score directories written by the current workflow include a manifest
-config snapshot. Older or malformed manifests may not. `load_ldscore_from_dir()`
-warns and returns `LDScoreResult.config_snapshot=None` in that case while still
-loading the baseline/query tables if the rest of the manifest is usable.
+config snapshot and minimal identity provenance. Older or malformed
+package-written manifests are rejected with a regeneration message instead of
+loading with inferred provenance.
 
-**Legacy objects with `config_snapshot=None` skip strict compatibility checks.**
-The package preserves backward compatibility for objects constructed before this
-design shipped, or for file-reloaded artifacts that do not carry full provenance.
-When either side of a compatibility boundary has `config_snapshot=None`, the merge
-is allowed to proceed rather than raising immediately. This is intentional: the
-package prefers explicit checks when provenance exists, without fabricating a false
-history for older objects.
+**Package-written artifacts do not use missing snapshots as a compatibility
+bypass.**
+Objects constructed manually with missing provenance are not a promise of disk
+artifact compatibility. Package-written sumstats and LD-score artifacts that lack
+the current schema/provenance contract must be regenerated before they can be
+combined in downstream workflows.
 
 **Notebook re-execution order still matters for the registry.**
 The global registry is process-wide. If a user calls `set_global_config()` in a cell,

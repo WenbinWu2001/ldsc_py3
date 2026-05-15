@@ -244,7 +244,7 @@ Requirements:
   contract, with optional `chr{chrom}_meta.tsv.gz` sidecars
 - package-built R2 parquet files record `ldsc:r2_bias` and `ldsc:n_samples` in
   schema metadata, so `--r2-bias-mode` and `--r2-sample-size` are only needed
-  for legacy or external raw-R2 parquet files without LDSC metadata
+  for external raw-R2 parquet files without LDSC metadata
 
 Examples:
 
@@ -301,8 +301,10 @@ Accepted path forms:
 - map and chain inputs, when provided: exact path or exact-one glob
 - `ref_panel_snps_file`, when provided: scalar file-like token interpreted
   using `GlobalConfig.snp_identifier`; restriction files may omit alleles and
-  then match by base key; `chr_pos`-family coordinates must be aligned to the
-  PLINK source build
+  then match by base key, while allele-bearing restrictions in allele-aware
+  modes match by the effective allele-aware key; packaged HM3 restrictions are
+  allele-free base-key filters; `chr_pos`-family coordinates must be aligned to
+  the PLINK source build
 - `use_hm3_snps`, when set: uses the packaged curated HM3 map instead of an
   explicit `ref_panel_snps_file`
 

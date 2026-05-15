@@ -114,10 +114,13 @@ liftover bookkeeping is written to `sumstats.log`. The default
 with `--snp-identifier chr_pos` to use coordinate identity without
 allele-aware matching. Use `--sumstats-snps-file`
 when the munged artifact should be restricted to a headered SNP keep-list, or
-`--use-hm3-snps` to use the packaged curated HM3 map. These filters are loaded
-once before raw chunk parsing and applied while chunks are still streaming, after
-canonical columns and coordinate normalization are available. They keep matching
-rows only and do not allele-match or reorder the output. In `chr_pos` mode,
+`--use-hm3-snps` to use the packaged curated HM3 map. Restriction files may omit
+alleles; allele-free restrictions, including packaged HM3 restrictions, match by
+base key. Allele-bearing restrictions in allele-aware modes match by the
+effective allele-aware key. These filters are loaded once before raw chunk
+parsing and applied while chunks are still streaming, after canonical columns and
+coordinate normalization are available. They keep matching rows only and do not
+reorder the output. In `chr_pos` mode,
 `SNP` is a label; matching uses source-build `CHR` and `POS`, represented
 internally as compact packed coordinate keys. Rows with missing or invalid
 coordinates are dropped and counted at `chr_pos` match/map stages. To convert

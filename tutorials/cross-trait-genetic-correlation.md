@@ -79,8 +79,8 @@ trait_2 = SumstatsMunger().run(
 )
 
 # Option B: load existing curated artifacts instead. Current artifacts recover
-# config_snapshot from sumstats.metadata.json. Older artifacts without that
-# sidecar warn and use config_snapshot=None.
+# config_snapshot from sumstats.metadata.json. Old package-written artifacts
+# without current provenance must be regenerated with the current LDSC package.
 # trait_1 = load_sumstats("tutorial_outputs/trait_1/sumstats.parquet", trait_name="trait_1")
 # trait_2 = load_sumstats("tutorial_outputs/trait_2/sumstats.parquet", trait_name="trait_2")
 
@@ -107,10 +107,10 @@ that needs the raw kernel object. For user-facing analyses, prefer
 When both traits are produced by `SumstatsMunger.run()` in the same workflow,
 their known `GlobalConfig` snapshots are checked against the LD-score snapshot
 before regression. Current disk artifacts recover that snapshot from
-`sumstats.metadata.json`; older `.sumstats.gz` files without the sidecar have
-unknown provenance and skip sumstats-side compatibility validation rather than
-fabricating a snapshot. In `chr_pos_allele_aware` mode, both trait tables and
-the LD-score table merge by normalized `CHR:POS:<allele_set>` identity, and
+`sumstats.metadata.json`; old package-written `.sumstats.gz` files without
+current provenance must be regenerated rather than loaded with inferred
+provenance. In `chr_pos_allele_aware` mode, both trait tables and the
+LD-score table merge by normalized `CHR:POS:<allele_set>` identity, and
 `SNP` is treated as a label. To run coordinate identity without allele-aware
 matching, set `snp_identifier="chr_pos"` or pass `--snp-identifier chr_pos`.
 The munger defaults to `--format auto`, and `--infer-only` can report

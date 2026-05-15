@@ -32,9 +32,11 @@ endpoints, and LD-score artifacts. Artifact duplicate filtering always computes
 the effective merge key for the active mode, then drops all rows in duplicate
 clusters.
 
-Restriction files may omit alleles and then match by base key. Annotation files
-may omit alleles in allele-aware modes because they describe genomic membership;
-if annotation alleles are present, they participate in allele-aware matching.
+Restriction files may omit alleles and then match by base key; packaged HM3
+restrictions are allele-free base-key filters. Allele-bearing restrictions in
+allele-aware modes match by the effective allele-aware key. Annotation files may
+omit alleles in allele-aware modes because they describe genomic membership; if
+annotation alleles are present, they participate in allele-aware matching.
 External raw R2 parquet inputs are supported only in `rsid` and `chr_pos`;
 allele-aware modes require package-built canonical R2 parquet with
 `A1_1/A2_1/A1_2/A2_2`.
@@ -453,8 +455,9 @@ canonical `SNP`, `CHR`, `POS`, `Z`, and `N` fields when written by
 labels as explicit override, then sidecar `trait_name`, then filename fallback.
 Liftover reports, coordinate provenance, selected curated output files, and
 Parquet row groups are log provenance, not metadata sidecar payload.
-Regression therefore merges on literal `SNP` in `rsid` mode and on normalized
-`CHR:POS` coordinates in `chr_pos`-family modes. Munger liftover is valid only in
+Regression therefore merges on the effective identity key: literal `SNP` in
+`rsid`, `SNP:<allele_set>` in `rsid_allele_aware`, `CHR:POS` in `chr_pos`, and
+`CHR:POS:<allele_set>` in `chr_pos_allele_aware`. Munger liftover is valid only in
 `chr_pos`-family modes; it changes `CHR`/`POS`, never `SNP`, and runs after
 `sumstats_snps_file` filtering. Liftover drop counts are written as readable log
 records, examples appear only at `DEBUG`, and row-level dropped-SNP details are

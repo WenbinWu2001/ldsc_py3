@@ -124,10 +124,10 @@ output, and metadata contracts.
 
 - Sumstats sidecars written by the current workflow must include
   `config_snapshot`.
-- Old sumstats metadata sidecars without `config_snapshot` do not need
-  backward compatibility.
-- Missing sumstats sidecars remain tolerated as unknown-provenance legacy
-  artifacts, because older disk outputs may have no sidecar at all.
+- Old package-written sumstats metadata sidecars without current identity
+  provenance do not need migration support.
+- Missing sumstats sidecars on package-written artifacts are rejected; those
+  artifacts must be regenerated with the current LDSC package.
 - Reference-panel runtime metadata TSV and R2 parquet schemas must not change
   for this harmonization.
 - Dropped-SNP sidecar column names are stable: `CHR`, `SNP`, `source_pos`,

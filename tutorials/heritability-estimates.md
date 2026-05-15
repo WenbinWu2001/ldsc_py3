@@ -68,9 +68,9 @@ sumstats = SumstatsMunger().run(
 )
 
 # If you already have a curated sumstats artifact on disk, load it directly.
-# Current parquet and legacy .sumstats.gz artifacts recover config_snapshot
-# from sumstats.metadata.json. Older files without that sidecar warn and use
-# config_snapshot=None.
+# Current parquet and .sumstats.gz artifacts recover config_snapshot from
+# sumstats.metadata.json. Old package-written files without current provenance
+# must be regenerated with the current LDSC package.
 # sumstats = load_sumstats("tutorial_outputs/trait/sumstats.parquet", trait_name="trait")
 
 ldscore_result = run_ldscore(
@@ -95,7 +95,7 @@ print("sumstats_config =", sumstats.config_snapshot)
 print("dataset_config =", dataset.config_snapshot)
 ```
 
-`SumstatsMunger` captures `GlobalConfig` provenance into `SumstatsTable.config_snapshot` and writes the same settings to `sumstats.metadata.json`. If you pass `trait_name=` in Python or `--trait-name` in the CLI, the sidecar also stores that biological label for downstream result tables. `RegressionRunner.build_dataset()` checks that known sumstats and LD-score snapshots agree on critical settings such as `snp_identifier` and `genome_build`. If both snapshots are known and incompatible, the workflow raises `ConfigMismatchError` instead of silently merging inconsistent artifacts. Sumstats loaded from current `sumstats.parquet` or legacy `.sumstats.gz` artifacts recover that snapshot and trait label from the sidecar; older files without the sidecar have `config_snapshot=None`, so regression treats their config provenance as unknown and validates the LD-score side only.
+`SumstatsMunger` captures `GlobalConfig` provenance into `SumstatsTable.config_snapshot` and writes the same settings to `sumstats.metadata.json`. If you pass `trait_name=` in Python or `--trait-name` in the CLI, the sidecar also stores that biological label for downstream result tables. `RegressionRunner.build_dataset()` checks that current sumstats and LD-score snapshots agree on critical settings such as `snp_identifier` and `genome_build`. If current snapshots are incompatible, the workflow raises `ConfigMismatchError` instead of silently merging inconsistent artifacts. Sumstats loaded from current `sumstats.parquet` or `.sumstats.gz` artifacts recover that snapshot and trait label from the sidecar; old package-written files without current provenance must be regenerated with the current LDSC package.
 
 `SumstatsMunger.run()` is also the shared implementation path behind
 `ldsc munge-sumstats`: the CLI parser maps arguments into `MungeConfig`, then

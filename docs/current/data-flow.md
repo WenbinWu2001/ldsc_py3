@@ -78,10 +78,12 @@ the effective key for the active mode, then drops all rows in duplicate-key
 clusters.
 
 Restriction files may omit alleles. Allele-free restrictions match by base key
-and can retain multiple candidate rows before later artifact cleanup.
-Annotation files may also omit alleles in allele-aware modes because they
-describe genomic membership; when annotation alleles are present, they
-participate in allele-aware matching.
+and can retain multiple candidate rows before later artifact cleanup. Packaged
+HM3 restrictions are allele-free base-key filters. Allele-bearing restrictions
+in allele-aware modes match by the effective allele-aware key. Annotation files
+may also omit alleles in allele-aware modes because they describe genomic
+membership; when annotation alleles are present, they participate in
+allele-aware matching.
 
 ## 1. `annotate`: BED Projection To SNP-Level `.annot.gz`
 
@@ -176,7 +178,7 @@ sidecar.
 | `.fam` row | `fam1 iid1 0 0 0 -9` | sample metadata |
 | genetic map, conditional | `chr position Genetic_Map(cM)`<br/>`22 16050000 0.42` | required for every emitted build when cM windows are used; optional for SNP/kb windows |
 | liftover method, optional | `hg38ToHg19.over.chain.gz` or `--use-hm3-snps --use-hm3-quick-liftover` | matching source-to-target chain enables cross-build R2 and metadata in `chr_pos` mode; HM3 quick liftover uses the packaged map and requires HM3 restriction; omitted liftover produces source-build-only output; liftover is rejected in `rsid` mode |
-| keep or restrict file, optional | one IID per row, a headered SNP table, or `--use-hm3-snps` | filters individuals or variants; SNP restriction matching uses `GlobalConfig.snp_identifier`; `chr_pos`-family restrictions must match the source PLINK build; allele-free restrictions match by base key |
+| keep or restrict file, optional | one IID per row, a headered SNP table, or `--use-hm3-snps` | filters individuals or variants; SNP restriction matching uses `GlobalConfig.snp_identifier`; `chr_pos`-family restrictions must match the source PLINK build; allele-free restrictions, including HM3, match by base key; allele-bearing restrictions in allele-aware modes match by effective allele-aware key |
 
 ### Flow
 
@@ -253,7 +255,7 @@ baseline annotations.
 | query annotation shard, optional | `CHR POS SNP CM enhancer_A`<br/>`1 10583 rs58108140 0.0 1` | optional extra annotation columns; valid only with explicit baseline annotations |
 | PLINK prefix or parquet R2 panel | `panel_chr@` or build directory `ref_panel/hg38` | choose one backend |
 | frequency / metadata sidecar, optional | `CHR POS SNP CM MAF A1 A2` | used for MAF and runtime metadata; `A1/A2` are required for allele-aware modes |
-| regression SNP list, optional | `rs123` or `CHR POS` table | restricts the weight-table SNP set; allele columns may be omitted and then match by base key |
+| regression SNP list, optional | `rs123` or `CHR POS` table | restricts the weight-table SNP set; allele columns may be omitted and then match by base key; allele-bearing restrictions in allele-aware modes match by effective allele-aware key |
 
 ### Flow
 
@@ -338,7 +340,7 @@ in `sumstats.log`; row-level drops are written to
 | --- | --- | --- |
 | raw sumstats | `#CHROM POS ID EA NEA PVAL BETA NEFF`<br/>`1 754182 rs3131969 A G 0.46 0.004 829249.58` | leading `##` metadata lines are skipped; header aliases are normalized in the workflow layer; `NEFF` is not inferred as `N` unless the user explicitly passes `--N-col NEFF` |
 | DANER or PGC VCF-style raw sumstats, optional schema mode | old DANER: `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` headers<br/>new DANER: exact `Nca` and `Nco` columns<br/>PGC VCF-style: leading `##` metadata and `#CHROM` header | `--format auto` detects these profiles; explicit `--format daner-old`, `--format daner-new`, or `--format pgc-vcf` overrides auto-detection; legacy `--daner-old`/`--daner-new` remain supported |
-| sumstats SNP keep-list, optional | headered `SNP` or `CHR`/`POS` restriction file, or `--use-hm3-snps` | optional row filter loaded once before parsing and applied inside each retained chunk; allele columns may be omitted and then match by base key before later identity cleanup |
+| sumstats SNP keep-list, optional | headered `SNP` or `CHR`/`POS` restriction file, or `--use-hm3-snps` | optional row filter loaded once before parsing and applied inside each retained chunk; allele-free restrictions, including HM3, match by base key before later identity cleanup; allele-bearing restrictions in allele-aware modes match by effective allele-aware key |
 | sumstats liftover method, optional | `--target-genome-build hg38 --liftover-chain-file hg19ToHg38.over.chain` or `--target-genome-build hg38 --use-hm3-snps --use-hm3-quick-liftover` | valid only in `chr_pos`-family modes; updates `CHR`/`POS` after SNP restriction and preserves `SNP` labels |
 | column hints, optional | `--snp ID --chr '#CHROM' --pos POS --a1 EA --a2 NEA` | useful when headers are ambiguous; common aliases infer automatically, and `--infer-only` reports the hints it would apply |
 | INFO lists, optional | `IMPINFO=0.852,0.113,0.842,0.88,NA` | numeric/NA comma-separated per-study values are filtered on their mean; mixed nonnumeric lists such as `0.95,LOW,0.88` are rejected with `--ignore` / `--info-list` suggestions |
@@ -429,7 +431,7 @@ merge. rsID-family and coordinate-family modes never mix.
 | File | Example | Notes |
 | --- | --- | --- |
 | munged sumstats | `SNP CHR POS A1 A2 Z N`<br/>`rs1 1 754182 A G 1.96 1000` | one file for `h2` and `partitioned-h2`, two or more files for `rg`; a neighboring `sumstats.metadata.json` recovers config provenance and `trait_name` when present |
-| LD-score directory | `manifest.json`, `ldscore.baseline.parquet`, optional `ldscore.query.parquet` | produced by the LD-score workflow and supplied as `ldscore_dir`; `partitioned-h2` requires `ldscore.query.parquet` and non-empty `query_columns`; current parquet files have chromosome-aligned row groups; legacy directories without manifest config provenance load with a warning |
+| LD-score directory | `manifest.json`, `ldscore.baseline.parquet`, optional `ldscore.query.parquet` | produced by the LD-score workflow and supplied as `ldscore_dir`; `partitioned-h2` requires `ldscore.query.parquet` and non-empty `query_columns`; current parquet files have chromosome-aligned row groups; package-written directories without current manifest identity provenance are rejected and must be regenerated |
 
 ### Flow
 

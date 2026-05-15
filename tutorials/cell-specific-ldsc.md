@@ -84,8 +84,8 @@ ldscore_result = LDScoreCalculator().run(
 )
 
 # Current disk-loaded sumstats recover config_snapshot from
-# sumstats.metadata.json. Older artifacts without that sidecar warn and use
-# config_snapshot=None.
+# sumstats.metadata.json. Old package-written artifacts without current
+# provenance must be regenerated with the current LDSC package.
 sumstats = load_sumstats("tutorial_outputs/trait/sumstats.parquet", trait_name="trait")
 
 runner = RegressionRunner(
@@ -107,8 +107,8 @@ print(cell_specific)
 
 The LD-score result and annotation bundle retain known `GlobalConfig`
 snapshots. Current disk-loaded sumstats recover the same provenance from
-`sumstats.metadata.json`. If an older sumstats artifact lacks that sidecar,
-regression treats the sumstats provenance as unknown. With
+`sumstats.metadata.json`. Old package-written sumstats artifacts without current
+provenance must be regenerated with the current LDSC package. With
 `snp_identifier="chr_pos_allele_aware"`, the merge uses normalized
 `CHR:POS:<allele_set>` identity rather than rsIDs, and the `SNP` column remains
 a label. To run coordinate identity without allele-aware matching, set

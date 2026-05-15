@@ -1339,7 +1339,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         self.assertEqual(merged["CM"].tolist(), [0.1, 0.2])
         self.assertEqual(merged["MAF"].tolist(), [0.2, 0.3])
 
-    def test_frequency_metadata_duplicate_keys_keep_first_row(self):
+    def test_frequency_metadata_duplicate_keys_drop_all_cluster_values(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             freq_path = Path(tmpdir) / "freq.tsv"
             freq_path.write_text(
@@ -1358,17 +1358,20 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 }
             )
 
-            merged = kernel_ldscore.merge_frequency_metadata(
-                metadata,
-                Namespace(frqfile=str(freq_path)),
-                chrom="1",
-                identifier_mode="chr_pos",
-            )
+            with self.assertLogs("LDSC.ldscore", level="WARNING"):
+                merged = kernel_ldscore.merge_frequency_metadata(
+                    metadata,
+                    Namespace(frqfile=str(freq_path)),
+                    chrom="1",
+                    identifier_mode="chr_pos",
+                )
 
-        self.assertEqual(merged["CM"].tolist(), [0.1, 0.2])
-        self.assertEqual(merged["MAF"].tolist(), [0.2, 0.3])
+        self.assertTrue(pd.isna(merged.loc[0, "CM"]))
+        self.assertTrue(pd.isna(merged.loc[0, "MAF"]))
+        self.assertEqual(merged.loc[1, "CM"], 0.2)
+        self.assertEqual(merged.loc[1, "MAF"], 0.3)
 
-    def test_allele_aware_frequency_metadata_without_alleles_deduplicates_base_keys(self):
+    def test_allele_aware_frequency_metadata_without_alleles_drops_duplicate_base_key_cluster_values(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             freq_path = Path(tmpdir) / "freq.tsv"
             freq_path.write_text(
@@ -1389,15 +1392,18 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 }
             )
 
-            merged = kernel_ldscore.merge_frequency_metadata(
-                metadata,
-                Namespace(frqfile=str(freq_path)),
-                chrom="1",
-                identifier_mode="chr_pos_allele_aware",
-            )
+            with self.assertLogs("LDSC.ldscore", level="WARNING"):
+                merged = kernel_ldscore.merge_frequency_metadata(
+                    metadata,
+                    Namespace(frqfile=str(freq_path)),
+                    chrom="1",
+                    identifier_mode="chr_pos_allele_aware",
+                )
 
-        self.assertEqual(merged["CM"].tolist(), [0.1, 0.2])
-        self.assertEqual(merged["MAF"].tolist(), [0.2, 0.3])
+        self.assertTrue(pd.isna(merged.loc[0, "CM"]))
+        self.assertTrue(pd.isna(merged.loc[0, "MAF"]))
+        self.assertEqual(merged.loc[1, "CM"], 0.2)
+        self.assertEqual(merged.loc[1, "MAF"], 0.3)
 
     def test_plink_compute_accepts_restriction_identity_keys(self):
         with tempfile.TemporaryDirectory() as tmpdir:

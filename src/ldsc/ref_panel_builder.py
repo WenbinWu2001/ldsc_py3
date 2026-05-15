@@ -1483,7 +1483,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--ref-panel-snps-file",
         default=None,
         help=(
-            "Optional SNP restriction file defining the retained reference-panel universe. "
+            "Optional identity-only SNP restriction file defining the retained reference-panel universe. "
+            "Duplicate restriction keys collapse to one retained key; non-identity columns such as CM or MAF are ignored. "
             "In chr_pos-family modes, coordinates must match the PLINK source genome build."
         ),
     )

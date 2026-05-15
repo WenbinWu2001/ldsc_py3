@@ -221,6 +221,9 @@ Annotation bundle rows B                      (AnnotationBuilder)
 - `run_bed_to_annot()` and `ldsc annotate` do **not** apply this restriction.
 - `RefPanel.load_metadata()` applies the explicit restriction or packaged HM3
   restriction to the raw panel `A`, producing `A'`.
+- SNP restriction files are identity-only. Duplicate restriction keys collapse
+  to one retained key, and non-identity columns such as `CM`, `MAF`, or other
+  metadata are ignored rather than carried into LD-score or regression outputs.
 - `LDScoreCalculator.compute_chromosome()` then intersects the chromosome-local annotation bundle with that prepared metadata so the kernel sees `B_chrom ∩ A'_chrom`.
 
 When `None`, the workflow uses the full reference panel `A`.

@@ -691,7 +691,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--ref-panel-snps-file",
         default=None,
-        help="Optional SNP list defining the retained reference-panel universe A'; the workflow intersects each chromosome annotation bundle with this prepared panel before LD computation.",
+        help=(
+            "Optional identity-only SNP list defining the retained reference-panel universe A'. "
+            "Duplicate restriction keys collapse to one retained key; non-identity columns such as CM or MAF are ignored. "
+            "The workflow intersects each chromosome annotation bundle with this prepared panel before LD computation."
+        ),
     )
     parser.add_argument(
         "--use-hm3-ref-panel-snps",
@@ -699,7 +703,14 @@ def build_parser() -> argparse.ArgumentParser:
         default=False,
         help="Restrict the reference-panel universe to the packaged curated HM3 SNP map.",
     )
-    parser.add_argument("--regression-snps-file", default=None, help="Optional SNP list defining the regression SNP set and the written LD-score row set.")
+    parser.add_argument(
+        "--regression-snps-file",
+        default=None,
+        help=(
+            "Optional identity-only SNP list defining the regression SNP set and the written LD-score row set. "
+            "Duplicate restriction keys collapse to one retained key; non-identity columns such as CM or MAF are ignored."
+        ),
+    )
     parser.add_argument(
         "--use-hm3-regression-snps",
         action="store_true",

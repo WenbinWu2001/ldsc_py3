@@ -1243,10 +1243,11 @@ def merge_frequency_metadata(
 
     frames = [parse_frequency_metadata(path, chrom=chrom, identifier_mode=identifier_mode) for path in files]
     freq_df = pd.concat(frames, axis=0, ignore_index=True) if frames else pd.DataFrame(columns=["_key", "_key_mode", "CM", "MAF"])
-    duplicate_mask = freq_df[["_key_mode", "_key"]].duplicated(keep="first")
+    duplicate_mask = freq_df[["_key_mode", "_key"]].duplicated(keep=False)
     if bool(duplicate_mask.any()):
         LOGGER.warning(
-            "Dropping %d duplicate frequency metadata rows for chromosome %s using first-seen SNP identity keys.",
+            "Dropping %d frequency metadata rows in duplicate SNP identity clusters for chromosome %s; "
+            "CM/MAF will remain missing for those keys unless already present in annotation metadata.",
             int(duplicate_mask.sum()),
             chrom,
         )
@@ -2473,7 +2474,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--r2-bias-mode", choices=("raw", "unbiased"), default="unbiased", help="Whether sorted parquet R2 values are raw sample r^2 or already unbiased.")
     parser.add_argument("--r2-sample-size", default=None, type=float, help="LD reference sample size used to correct raw parquet R2 values.")
-    parser.add_argument("--regression-snps-file", default=None, help="Optional SNP list defining the regression SNP set for weight LD computation and written LD-score rows.")
+    parser.add_argument(
+        "--regression-snps-file",
+        default=None,
+        help=(
+            "Optional identity-only SNP list defining the regression SNP set for weight LD computation and written LD-score rows. "
+            "Duplicate restriction keys collapse to one retained key; non-identity columns such as CM or MAF are ignored."
+        ),
+    )
     parser.add_argument("--frqfile", default=None, help="Optional frequency/metadata inputs for MAF and CM. Each token may be an exact path, glob, or explicit @ chromosome-suite token.")
     parser.add_argument("--keep", default=None, help="File with individuals to include in LD Score estimation. The file should contain one IID per row.")
     parser.add_argument("--ld-wind-snps", default=None, type=int, help="LD window size in SNPs.")

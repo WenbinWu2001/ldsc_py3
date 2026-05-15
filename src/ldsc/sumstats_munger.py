@@ -870,7 +870,14 @@ def build_parser() -> argparse.ArgumentParser:
         default=False,
         help="Replace sumstats output artifacts and remove stale owned siblings.",
     )
-    public.add_argument("--sumstats-snps-file", default=None, help="Optional SNP keep-list for munged summary statistics.")
+    public.add_argument(
+        "--sumstats-snps-file",
+        default=None,
+        help=(
+            "Optional identity-only SNP keep-list for munged summary statistics. "
+            "Duplicate restriction keys collapse to one retained key; non-identity columns such as CM or MAF are ignored."
+        ),
+    )
     public.add_argument(
         "--use-hm3-snps",
         action="store_true",

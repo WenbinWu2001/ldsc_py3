@@ -296,9 +296,15 @@ class LDScoreDirectoryWriter:
         if config_snapshot is None:
             raise ValueError("LDScoreResult.config_snapshot is required to write current LD-score artifacts.")
         snp_identifier = config_snapshot.snp_identifier
-        required_baseline = ["CHR", "POS", "SNP", REGRESSION_LD_SCORE_COLUMN, *baseline_columns]
+        identity_columns = ["A1", "A2"] if is_allele_aware_mode(snp_identifier) else []
+        required_baseline = ["CHR", "POS", "SNP", *identity_columns, REGRESSION_LD_SCORE_COLUMN, *baseline_columns]
         missing = [column for column in required_baseline if column not in baseline_table.columns]
         if missing:
+            if any(column in missing for column in ("A1", "A2")):
+                raise ValueError(
+                    f"baseline_table is missing required columns: {missing}; allele-aware LD-score artifacts "
+                    "require A1/A2 columns. Regenerate it with the current LDSC package."
+                )
             raise ValueError(f"baseline_table is missing required columns: {missing}")
         _validate_ldscore_allele_columns(baseline_table, table_name="baseline_table", snp_identifier=snp_identifier)
         if query_columns and query_table is None:
@@ -307,9 +313,14 @@ class LDScoreDirectoryWriter:
             raise ValueError("query_table was provided but query_columns is empty.")
         if query_table is None:
             return
-        required_query = ["CHR", "POS", "SNP", *query_columns]
+        required_query = ["CHR", "POS", "SNP", *identity_columns, *query_columns]
         missing = [column for column in required_query if column not in query_table.columns]
         if missing:
+            if any(column in missing for column in ("A1", "A2")):
+                raise ValueError(
+                    f"query_table is missing required columns: {missing}; allele-aware LD-score artifacts "
+                    "require A1/A2 columns. Regenerate it with the current LDSC package."
+                )
             raise ValueError(f"query_table is missing required columns: {missing}")
         _validate_ldscore_allele_columns(query_table, table_name="query_table", snp_identifier=snp_identifier)
         assert_same_snp_rows(

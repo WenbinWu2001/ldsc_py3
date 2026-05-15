@@ -880,6 +880,53 @@ class LDScoreWorkflowTest(unittest.TestCase):
         self.assertEqual(baseline["A1"].tolist(), ["A", "A"])
         self.assertEqual(baseline["A2"].tolist(), ["C", "G"])
 
+    def test_split_ldscore_table_requires_alleles_in_allele_aware_mode(self):
+        ldscore_table = pd.DataFrame(
+            {
+                "CHR": ["1"],
+                "SNP": ["rs1"],
+                "POS": [10],
+                "regression_ld_scores": [1.0],
+                "base": [2.0],
+            }
+        )
+
+        with self.assertRaisesRegex(ValueError, "A1/A2"):
+            ldscore_workflow._split_ldscore_table(
+                ldscore_table,
+                baseline_columns=["base"],
+                query_columns=[],
+                snp_identifier="chr_pos_allele_aware",
+            )
+
+    def test_kernel_parse_annotation_file_preserves_optional_alleles_as_metadata(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "alleles.annot"
+            path.write_text(
+                "CHR\tBP\tSNP\tCM\tA1\tA2\tbase_a\n"
+                "1\t10\trs1\t0.1\tA\tC\t1\n",
+                encoding="utf-8",
+            )
+
+            metadata, annotations = kernel_ldscore.parse_annotation_file(str(path))
+
+        self.assertEqual(list(metadata.columns), ["CHR", "POS", "SNP", "CM", "A1", "A2"])
+        self.assertEqual(metadata["A1"].tolist(), ["A"])
+        self.assertEqual(metadata["A2"].tolist(), ["C"])
+        self.assertEqual(list(annotations.columns), ["base_a"])
+
+    def test_kernel_parse_annotation_file_rejects_single_allele_column(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "one_allele.annot"
+            path.write_text(
+                "CHR\tBP\tSNP\tCM\tA2\tbase_a\n"
+                "1\t10\trs1\t0.1\tC\t1\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "Annotation file has only one allele column"):
+                kernel_ldscore.parse_annotation_file(str(path))
+
     def _build_annotation_bundle(self, prefix: Path) -> AnnotationBundle:
         bim = pd.read_csv(
             prefix.with_suffix(".bim"),
@@ -2119,6 +2166,99 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
         ref_panel.load_metadata.assert_called_once_with("1")
         self.assertEqual(result.baseline_table["SNP"].tolist(), ["rs1", "rs3"])
+
+    def test_compute_chromosome_uses_annotation_alleles_for_allele_aware_matching(self):
+        annotation_bundle = AnnotationBundle(
+            metadata=pd.DataFrame(
+                {
+                    "CHR": ["1"],
+                    "SNP": ["rs1"],
+                    "POS": [10],
+                    "CM": [0.1],
+                    "A1": ["A"],
+                    "A2": ["C"],
+                }
+            ),
+            baseline_annotations=pd.DataFrame({"base": [1.0]}),
+            query_annotations=pd.DataFrame(index=pd.RangeIndex(1)),
+            baseline_columns=["base"],
+            query_columns=[],
+            chromosomes=["1"],
+            source_summary={},
+            config_snapshot=None,
+        )
+        ref_panel = self.make_ref_panel_stub(backend="parquet_r2")
+        ref_panel.load_metadata = mock.Mock(
+            return_value=pd.DataFrame(
+                {
+                    "CHR": ["1"],
+                    "SNP": ["rs1"],
+                    "CM": [0.1],
+                    "POS": [10],
+                    "A1": ["A"],
+                    "A2": ["G"],
+                }
+            )
+        )
+
+        with mock.patch.object(ldscore_workflow.kernel_ldscore, "compute_chrom_from_parquet") as patched_compute:
+            with self.assertRaisesRegex(ValueError, "No retained annotation SNPs remain"):
+                ldscore_workflow.LDScoreCalculator().compute_chromosome(
+                    chrom="1",
+                    annotation_bundle=annotation_bundle,
+                    ref_panel=ref_panel,
+                    ldscore_config=LDScoreConfig(ld_wind_snps=10),
+                    global_config=GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
+                )
+
+        patched_compute.assert_not_called()
+
+    def test_compute_chromosome_matches_cleaned_reference_panel_before_annotation_alignment(self):
+        annotation_bundle = self.make_annotation_bundle(
+            [("1", "rs1", 10), ("1", "rs2", 20)],
+        )
+        ref_panel = self.make_ref_panel_stub(backend="parquet_r2")
+        ref_panel.load_metadata = mock.Mock(
+            return_value=pd.DataFrame(
+                {
+                    "CHR": ["1"],
+                    "SNP": ["rs2"],
+                    "CM": [0.2],
+                    "POS": [20],
+                    "A1": ["A"],
+                    "A2": ["C"],
+                }
+            )
+        )
+
+        def _compute_side_effect(chrom, bundle, args, regression_snps):
+            self.assertEqual(bundle.metadata["SNP"].tolist(), ["rs2"])
+            return ldscore_workflow._LegacyChromResult(
+                chrom=chrom,
+                metadata=bundle.metadata.assign(MAF=0.2),
+                ld_scores=np.array([[1.0]], dtype=np.float32),
+                w_ld=np.array([[2.0]], dtype=np.float32),
+                M=np.array([1.0]),
+                M_5_50=None,
+                ldscore_columns=["base"],
+                baseline_columns=["base"],
+                query_columns=[],
+            )
+
+        with mock.patch.object(
+            ldscore_workflow.kernel_ldscore,
+            "compute_chrom_from_parquet",
+            side_effect=_compute_side_effect,
+        ):
+            result = ldscore_workflow.LDScoreCalculator().compute_chromosome(
+                chrom="1",
+                annotation_bundle=annotation_bundle,
+                ref_panel=ref_panel,
+                ldscore_config=LDScoreConfig(ld_wind_snps=10),
+                global_config=GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
+            )
+
+        self.assertEqual(result.baseline_table["SNP"].tolist(), ["rs2"])
 
     def test_pseudo_base_annotation_preserves_ref_panel_alleles(self):
         ref_panel = self.make_ref_panel_stub(

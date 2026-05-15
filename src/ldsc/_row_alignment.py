@@ -6,11 +6,10 @@ import numpy as np
 import pandas as pd
 
 from ._coordinates import positive_int_position_series
-from ._kernel.snp_identity import identity_mode_family
+from ._kernel.snp_identity import effective_merge_key_series, identity_mode_family, is_allele_aware_mode
 from .column_inference import normalize_snp_identifier_mode
 
 
-SNP_ROW_COLUMNS = ("CHR", "SNP", "POS")
 NUMERIC_METADATA_COLUMNS = ("CM", "MAF")
 FLOAT_METADATA_TOLERANCE = float(np.finfo(np.float16).eps)
 
@@ -29,8 +28,9 @@ def assert_same_snp_rows(
     if len(left) != len(right):
         raise ValueError(f"{context}: row count mismatch ({len(left)} != {len(right)}).")
 
-    left_keys = _row_key_frame(left, side="left", context=context, snp_identifier=mode)
-    right_keys = _row_key_frame(right, side="right", context=context, snp_identifier=mode)
+    extra_columns = _extra_row_metadata_columns(left, right, snp_identifier=mode)
+    left_keys = _row_key_frame(left, side="left", context=context, snp_identifier=mode, extra_columns=extra_columns)
+    right_keys = _row_key_frame(right, side="right", context=context, snp_identifier=mode, extra_columns=extra_columns)
     mismatched = left_keys.ne(right_keys).any(axis=1)
     if mismatched.any():
         row = int(np.flatnonzero(mismatched.to_numpy())[0])
@@ -46,25 +46,43 @@ def assert_same_snp_rows(
 
 
 def _require_columns(frame: pd.DataFrame, *, side: str, context: str, snp_identifier: str) -> None:
-    required = ("CHR", "POS") if identity_mode_family(snp_identifier) == "chr_pos" else SNP_ROW_COLUMNS
+    required = ["SNP"] if identity_mode_family(snp_identifier) == "rsid" else ["CHR", "POS"]
+    if is_allele_aware_mode(snp_identifier):
+        required.extend(["A1", "A2"])
     missing = [column for column in required if column not in frame.columns]
     if missing:
         raise ValueError(f"{context}: {side} table is missing required SNP row columns: {missing}")
 
 
-def _row_key_frame(frame: pd.DataFrame, *, side: str, context: str, snp_identifier: str) -> pd.DataFrame:
-    keys = {
-        "CHR": frame["CHR"].astype(str).reset_index(drop=True),
-        "POS": _integer_pos_series(frame["POS"], side=side, context=context),
-    }
-    if identity_mode_family(snp_identifier) == "rsid":
-        keys["SNP"] = frame["SNP"].astype(str).reset_index(drop=True)
-        return pd.DataFrame({"CHR": keys["CHR"], "SNP": keys["SNP"], "POS": keys["POS"]})
+def _extra_row_metadata_columns(left: pd.DataFrame, right: pd.DataFrame, *, snp_identifier: str) -> list[str]:
+    if identity_mode_family(snp_identifier) != "rsid":
+        return []
+    return [column for column in ("CHR", "POS") if column in left.columns and column in right.columns]
+
+
+def _row_key_frame(
+    frame: pd.DataFrame,
+    *,
+    side: str,
+    context: str,
+    snp_identifier: str,
+    extra_columns: list[str],
+) -> pd.DataFrame:
+    key = effective_merge_key_series(
+        frame.reset_index(drop=True),
+        snp_identifier,
+        context=f"{context}: {side}",
+    ).reset_index(drop=True)
+    keys = {"identity_key": key}
+    if "CHR" in extra_columns:
+        keys["CHR"] = frame["CHR"].astype(str).reset_index(drop=True)
+    if "POS" in extra_columns:
+        keys["POS"] = positive_int_position_series(
+            frame["POS"].reset_index(drop=True),
+            context=f"{context}: {side}",
+            label="POS",
+        )
     return pd.DataFrame(keys)
-
-
-def _integer_pos_series(values: pd.Series, *, side: str, context: str) -> pd.Series:
-    return positive_int_position_series(values.reset_index(drop=True), context=f"{context}: {side}", label="POS")
 
 
 def _numeric_array(frame: pd.DataFrame, column: str) -> np.ndarray:

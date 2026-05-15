@@ -26,8 +26,10 @@ Supported Inputs
 
 Canonical Parquet `R2` Format
 -----------------------------
-- Package-written parquet R2 files contain exactly six logical columns:
-  `CHR`, `POS_1`, `POS_2`, `SNP_1`, `SNP_2`, and `R2`.
+- Package-written parquet R2 files contain canonical endpoint identity columns:
+  `CHR`, `POS_1`, `POS_2`, `SNP_1`, `SNP_2`, optional endpoint `A1/A2`
+  allele columns, and `R2`. Endpoint alleles are required in allele-aware
+  modes.
 - `POS_1` and `POS_2` are positions in one sorted genome build. The build is
   recorded in schema metadata under `ldsc:sorted_by_build`; the runtime query
   build must match it.
@@ -38,7 +40,8 @@ Canonical Parquet `R2` Format
   only overlapping row groups. Decoded canonical row groups are cached as
   numeric endpoint arrays across overlapping sliding-window queries.
 - The loader resolves accepted aliases such as `chr`, `bp_1`, `bp_2`,
-  `rsid_1`, and `rsid_2` to the six logical fields above.
+  `rsid_1`, `rsid_2`, and endpoint allele aliases to the canonical fields
+  above.
 - Legacy raw-schema parquet files with `hg19_pos_1`, `hg38_pos_1`, `rsID_1`,
   `rsID_2`, `Dprime`, or `+/-corr` are still accepted through the slower
   `pyarrow.Dataset` fallback, but row-group pruning is disabled.
@@ -48,10 +51,11 @@ Canonical Parquet `R2` Format
 
 Identifier and Genome-Build Rules
 ---------------------------------
-- Supported SNP identifier modes in v1 are `chr_pos` and `rsid`.
-- No allele matching is attempted in v1.
-- In `chr_pos` mode, retained reference SNP rows are matched by chromosome and
-  position and must be unique within each chromosome.
+- Supported SNP identifier modes are `rsid`, `rsid_allele_aware`, `chr_pos`,
+  and `chr_pos_allele_aware`.
+- In chr-pos-family modes, retained reference SNP rows are matched by
+  chromosome and position, plus A1/A2 identity when the active mode and input
+  schema require it.
 - Canonical parquet files are build-specific. If `ldsc:sorted_by_build`
   conflicts with the selected `genome_build`, reader initialization raises a
   `ValueError`. If the metadata key is absent, the reader infers the build from
@@ -155,13 +159,9 @@ MAF and Common-Count Rules
 - If MAF is unavailable, `MAF` is written as `NA` in LD-score outputs and
   common counts are not emitted.
 
-Current Limitations
--------------------
-- v1 supports only `chr_pos` and `rsid` matching.
-- v1 does not attempt allele-aware reconciliation between annotations and
-  parquet pairs.
 - Runtime parquet input may be either normalized sorted parquet or raw parquet
-  with the legacy pairwise schema.
+  with the legacy pairwise schema in base modes. Allele-aware modes require
+  package-written canonical parquet with endpoint allele columns.
 - parquet input requires `pyarrow` at runtime.
 - Per-query partitioned LDSC wrappers are intentionally out of scope for this
   module; this module computes LD scores only.
@@ -197,6 +197,7 @@ from ..column_inference import (
     CHR_COLUMN_SPEC,
     CM_COLUMN_ALIASES,
     CM_COLUMN_SPEC,
+    ColumnSpec,
     MAF_COLUMN_ALIASES,
     MAF_COLUMN_SPEC,
     PARQUET_R2_CANONICAL_SPECS,
@@ -249,7 +250,19 @@ except ImportError:  # pragma: no cover - optional dependency
 
 LOGGER = logging.getLogger("LDSC.ldscore")
 REQUIRED_ANNOT_COLUMNS = ("CHR", "POS", "SNP", "CM")
-ANNOT_META_COLUMNS = ("CHR", "POS", "SNP", "CM", "MAF")
+ANNOT_META_COLUMNS = ("CHR", "POS", "SNP", "A1", "A2", "CM", "MAF")
+ANNOTATION_A1_COLUMN_SPEC = ColumnSpec(
+    A1_COLUMN_SPEC.canonical,
+    A1_COLUMN_SPEC.aliases,
+    A1_COLUMN_SPEC.label,
+    allow_suffix_match=False,
+)
+ANNOTATION_A2_COLUMN_SPEC = ColumnSpec(
+    A2_COLUMN_SPEC.canonical,
+    A2_COLUMN_SPEC.aliases,
+    A2_COLUMN_SPEC.label,
+    allow_suffix_match=False,
+)
 CHROM_ALIASES = CHR_COLUMN_ALIASES
 POS_ALIASES = POS_COLUMN_ALIASES
 SNP_ALIASES = SNP_COLUMN_ALIASES
@@ -984,6 +997,10 @@ def parse_annotation_file(path: str, chrom: str | None = None) -> tuple[pd.DataF
     snp_col = resolve_required_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["SNP"], context=context)
     cm_col = resolve_required_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["CM"], context=context)
     maf_col = resolve_optional_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["MAF"], context=context)
+    a1_col = resolve_optional_column(df.columns, ANNOTATION_A1_COLUMN_SPEC, context=context)
+    a2_col = resolve_optional_column(df.columns, ANNOTATION_A2_COLUMN_SPEC, context=context)
+    if (a1_col is None) ^ (a2_col is None):
+        raise ValueError("Annotation file has only one allele column; provide both A1 and A2 or neither.")
 
     meta = pd.DataFrame(
         {
@@ -997,6 +1014,9 @@ def parse_annotation_file(path: str, chrom: str | None = None) -> tuple[pd.DataF
     meta["POS"] = pd.to_numeric(meta["POS"], errors="raise").astype(np.int64)
     meta["SNP"] = meta["SNP"].astype(str)
     meta["CM"] = pd.to_numeric(meta["CM"], errors="coerce")
+    if a1_col is not None and a2_col is not None:
+        meta["A1"] = df[a1_col]
+        meta["A2"] = df[a2_col]
     if maf_col is not None:
         meta["MAF"] = pd.to_numeric(df[maf_col], errors="coerce")
 
@@ -1011,7 +1031,8 @@ def parse_annotation_file(path: str, chrom: str | None = None) -> tuple[pd.DataF
         return meta, pd.DataFrame(index=meta.index)
 
     meta = sort_frame_by_genomic_position(meta)
-    annotation_columns = [col for col in df.columns if col not in {chr_col, pos_col, snp_col, cm_col, maf_col}]
+    metadata_source_columns = {chr_col, pos_col, snp_col, cm_col, maf_col, a1_col, a2_col}
+    annotation_columns = [col for col in df.columns if col not in metadata_source_columns]
     if not annotation_columns:
         raise ValueError(f"{path} does not contain any annotation columns.")
 
@@ -2254,7 +2275,7 @@ def weight_result_to_dataframe(result: ChromComputationResult) -> pd.DataFrame:
 def write_ldscore_file(df: pd.DataFrame, path: str) -> None:
     """Write one LDSC-compatible LD-score table, preserving metadata columns first."""
     out = df.copy()
-    out = out.loc[:, [col for col in ["CHR", "POS", "SNP", "CM", "MAF"] if col in out.columns] + [col for col in out.columns if col not in ANNOT_META_COLUMNS]]
+    out = out.loc[:, [col for col in ANNOT_META_COLUMNS if col in out.columns] + [col for col in out.columns if col not in ANNOT_META_COLUMNS]]
     with gzip.open(path, "wt") as handle:
         out.to_csv(handle, sep="\t", index=False, na_rep="NA", float_format="%.6g")
 

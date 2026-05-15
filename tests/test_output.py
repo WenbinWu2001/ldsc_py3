@@ -207,6 +207,16 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "query_table.*A1/A2"):
                 LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=tmpdir))
 
+    def test_ldscore_writer_rejects_allele_aware_query_allele_mismatch(self):
+        result = make_allele_aware_ldscore_result(query=True)
+        query = result.query_table.copy()
+        query.loc[1, "A2"] = "C"
+        result = dataclass_replace(result, query_table=query)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with self.assertRaisesRegex(ValueError, "query rows must match baseline rows"):
+                LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=tmpdir))
+
     def test_ldscore_writer_round_trips_through_public_loader(self):
         result = make_allele_aware_ldscore_result(query=True)
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -170,6 +170,22 @@ class AnnotationBuilderTest(unittest.TestCase):
             bundle = builder.run(AnnotationBuildConfig(baseline_annot_sources=(str(base),)))
             self.assertEqual(bundle.reference_snps("chr_pos"), {"1:10", "1:20", "2:30"})
 
+    def test_run_in_allele_aware_mode_accepts_allele_free_annotations(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            base = tmpdir / "base.annot"
+            rows = [("1", 10, "rs1", 0.1), ("1", 20, "rs2", 0.2)]
+            _write_annot(base, rows, {"base_a": [1, 0]})
+
+            builder = AnnotationBuilder(
+                GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
+                AnnotationBuildConfig(),
+            )
+            bundle = builder.run(AnnotationBuildConfig(baseline_annot_sources=(str(base),)))
+
+        self.assertNotIn("A1", bundle.metadata.columns)
+        self.assertEqual(bundle.reference_snps("chr_pos_allele_aware"), {"1:10", "1:20"})
+
     def test_run_with_bed_paths_returns_bundle_with_binary_query_columns(self):
         builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -355,6 +371,42 @@ class AnnotationBuilderTest(unittest.TestCase):
             self.assertEqual(list(metadata.columns), ["CHR", "POS", "SNP", "CM"])
             self.assertEqual(metadata["POS"].tolist(), [10])
             self.assertEqual(list(annotations.columns), ["base_a"])
+
+    def test_parse_annotation_file_preserves_optional_alleles_as_metadata(self):
+        builder = AnnotationBuilder(
+            GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
+            AnnotationBuildConfig(),
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "alleles.annot"
+            path.write_text(
+                "CHR\tBP\tSNP\tCM\tA1\tA2\tbase_a\n"
+                "1\t10\trs1\t0.1\tA\tC\t1\n",
+                encoding="utf-8",
+            )
+
+            metadata, annotations = builder.parse_annotation_file(path)
+
+        self.assertEqual(list(metadata.columns), ["CHR", "POS", "SNP", "CM", "A1", "A2"])
+        self.assertEqual(metadata["A1"].tolist(), ["A"])
+        self.assertEqual(metadata["A2"].tolist(), ["C"])
+        self.assertEqual(list(annotations.columns), ["base_a"])
+
+    def test_parse_annotation_file_rejects_single_allele_column(self):
+        builder = AnnotationBuilder(
+            GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
+            AnnotationBuildConfig(),
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "one_allele.annot"
+            path.write_text(
+                "CHR\tBP\tSNP\tCM\tA1\tbase_a\n"
+                "1\t10\trs1\t0.1\tA\t1\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "Annotation file has only one allele column"):
+                builder.parse_annotation_file(path)
 
     def test_annotation_builder_accepts_auto_genome_build(self):
         builder = AnnotationBuilder(GlobalConfig(snp_identifier="chr_pos", genome_build="auto"), AnnotationBuildConfig())

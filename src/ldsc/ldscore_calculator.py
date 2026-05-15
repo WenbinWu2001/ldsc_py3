@@ -553,6 +553,8 @@ def _split_ldscore_table(
     snp_identifier: str = "chr_pos_allele_aware",
 ) -> tuple[pd.DataFrame, pd.DataFrame | None]:
     """Split a merged LD-score table into baseline and optional query tables."""
+    if is_allele_aware_mode(snp_identifier) and not {"A1", "A2"}.issubset(ldscore_table.columns):
+        raise ValueError("LD-score table is missing A1/A2 columns required by allele-aware SNP identity.")
     metadata_columns = ["CHR", "SNP", "POS", *[column for column in ("A1", "A2") if column in ldscore_table.columns]]
     baseline_order = [*metadata_columns, REGRESSION_LD_SCORE_COLUMN, *baseline_columns]
     query_order = [*metadata_columns, *query_columns]

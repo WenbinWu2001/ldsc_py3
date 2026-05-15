@@ -56,7 +56,10 @@ from ._kernel.snp_identity import identity_base_mode, identity_mode_family, is_a
 from ._row_alignment import assert_same_snp_rows
 from .chromosome_inference import normalize_chromosome
 from .column_inference import (
+    A1_COLUMN_SPEC,
+    A2_COLUMN_SPEC,
     ANNOTATION_METADATA_SPEC_MAP,
+    ColumnSpec,
     CHR_COLUMN_SPEC,
     CM_COLUMN_SPEC,
     POS_COLUMN_SPEC,
@@ -84,6 +87,18 @@ from ._logging import configure_package_logging, log_inputs, log_outputs, workfl
 
 
 LOGGER = logging.getLogger("LDSC.annotation")
+_ANNOTATION_A1_COLUMN_SPEC = ColumnSpec(
+    A1_COLUMN_SPEC.canonical,
+    A1_COLUMN_SPEC.aliases,
+    A1_COLUMN_SPEC.label,
+    allow_suffix_match=False,
+)
+_ANNOTATION_A2_COLUMN_SPEC = ColumnSpec(
+    A2_COLUMN_SPEC.canonical,
+    A2_COLUMN_SPEC.aliases,
+    A2_COLUMN_SPEC.label,
+    allow_suffix_match=False,
+)
 
 
 @dataclass(frozen=True)
@@ -494,6 +509,10 @@ class AnnotationBuilder:
         pos_col = resolve_required_column(df.columns, POS_COLUMN_SPEC, context=context)
         snp_col = resolve_required_column(df.columns, SNP_COLUMN_SPEC, context=context)
         cm_col = resolve_required_column(df.columns, CM_COLUMN_SPEC, context=context)
+        a1_col = resolve_optional_column(df.columns, _ANNOTATION_A1_COLUMN_SPEC, context=context)
+        a2_col = resolve_optional_column(df.columns, _ANNOTATION_A2_COLUMN_SPEC, context=context)
+        if (a1_col is None) ^ (a2_col is None):
+            raise ValueError("Annotation file has only one allele column; provide both A1 and A2 or neither.")
         metadata = pd.DataFrame(
             {
                 "CHR": df[chr_col],
@@ -506,6 +525,9 @@ class AnnotationBuilder:
         metadata["POS"] = pd.to_numeric(metadata["POS"], errors="raise").astype(np.int64)
         metadata["SNP"] = metadata["SNP"].astype(str)
         metadata["CM"] = pd.to_numeric(metadata["CM"], errors="coerce")
+        if a1_col is not None and a2_col is not None:
+            metadata["A1"] = df[a1_col]
+            metadata["A2"] = df[a2_col]
         maf_col = resolve_optional_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["MAF"], context=context)
         if maf_col is not None:
             metadata["MAF"] = pd.to_numeric(df[maf_col], errors="coerce")
@@ -517,9 +539,8 @@ class AnnotationBuilder:
         if len(metadata) == 0:
             return metadata, pd.DataFrame(index=metadata.index)
 
-        annotation_columns = [
-            column for column in df.columns if column not in {chr_col, pos_col, snp_col, cm_col, "MAF"}
-        ]
+        metadata_source_columns = {chr_col, pos_col, snp_col, cm_col, maf_col, a1_col, a2_col}
+        annotation_columns = [column for column in df.columns if column not in metadata_source_columns]
         if not annotation_columns:
             raise ValueError(f"{path} does not contain any annotation columns.")
         annotations = df.loc[:, annotation_columns].astype(np.float32).reset_index(drop=True)

@@ -34,6 +34,7 @@ from .identifiers import (
     read_global_snp_restriction,
     validate_unique_snp_ids,
 )
+from .snp_identity import identity_mode_family
 
 LOGGER = logging.getLogger("LDSC.ref_panel")
 _REF_PANEL_R2_RE = re.compile(r"^chr(?P<chrom>.+)_r2\.parquet$", flags=re.IGNORECASE)
@@ -42,7 +43,7 @@ _REF_PANEL_R2_RE = re.compile(r"^chr(?P<chrom>.+)_r2\.parquet$", flags=re.IGNORE
 def _snp_id_series_for_matching(metadata: pd.DataFrame, snp_identifier: str, *, context: str) -> pd.Series:
     """Build SNP IDs for a match boundary, dropping missing CHR/POS in chr_pos mode."""
     mode = normalize_snp_identifier_mode(snp_identifier)
-    if mode == "rsid":
+    if identity_mode_family(mode) == "rsid":
         return build_snp_id_series(metadata, mode)
     keyed, _report = build_chr_pos_key_frame(
         metadata,
@@ -676,13 +677,13 @@ class RefPanelLoader:
     def _global_config_for_spec(self, ref_panel_spec: RefPanelConfig) -> GlobalConfig:
         """Resolve direct Python auto-build restrictions before backend loading."""
         mode = normalize_snp_identifier_mode(self.global_config.snp_identifier)
-        if mode != "chr_pos" or self.global_config.genome_build != "auto":
+        if identity_mode_family(mode) != "chr_pos" or self.global_config.genome_build != "auto":
             return self.global_config
         if not (ref_panel_spec.ref_panel_snps_file or ref_panel_spec.use_hm3_ref_panel_snps):
             return self.global_config
         resolved_build = _infer_restricted_ref_panel_build(ref_panel_spec)
         return GlobalConfig(
-            snp_identifier="chr_pos",
+            snp_identifier=mode,
             genome_build=resolved_build,
             log_level=self.global_config.log_level,
             fail_on_missing_metadata=self.global_config.fail_on_missing_metadata,
@@ -821,9 +822,10 @@ def _read_metadata_table(path: str | Path, chrom: str | None, global_config: Glo
         # whether the missing SNP column is an error.
         pass
 
-    if snp_identifier == "rsid" and snp_col is None:
+    family = identity_mode_family(snp_identifier)
+    if family == "rsid" and snp_col is None:
         raise ValueError(f"{path} must contain a SNP column in rsid mode.")
-    if snp_identifier == "chr_pos" and (chr_col is None or pos_col is None):
+    if family == "chr_pos" and (chr_col is None or pos_col is None):
         raise ValueError(f"{path} must contain CHR and POS columns in chr_pos mode.")
 
     out = pd.DataFrame(index=df.index)

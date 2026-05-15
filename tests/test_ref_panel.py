@@ -13,7 +13,14 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from ldsc.config import GlobalConfig, RefPanelConfig
-from ldsc._kernel.ref_panel import ParquetR2RefPanel, PlinkRefPanel, RefPanelLoader
+from ldsc._kernel.ref_panel import (
+    ParquetR2RefPanel,
+    PlinkRefPanel,
+    RefPanelLoader,
+    _read_metadata_table,
+    _snp_id_series_for_matching,
+)
+from ldsc._kernel.ref_panel_builder import build_restriction_mask
 
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "minimal_external_resources" / "plink"
@@ -86,6 +93,22 @@ class RefPanelLoaderTest(unittest.TestCase):
         panel = loader.load(spec)
         self.assertIsInstance(panel, ParquetR2RefPanel)
 
+    def test_auto_build_resolution_uses_coordinate_family(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            restriction = Path(tmpdir) / "snps.tsv"
+            restriction.write_text("CHR\tHG38_POS\n1\t10\n", encoding="utf-8")
+            loader = RefPanelLoader(
+                GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="auto"),
+                RefPanelConfig(),
+            )
+
+            resolved = loader._global_config_for_spec(
+                RefPanelConfig(backend="plink", ref_panel_snps_file=str(restriction))
+            )
+
+            self.assertEqual(resolved.snp_identifier, "chr_pos_allele_aware")
+            self.assertEqual(resolved.genome_build, "hg38")
+
 
 class PlinkRefPanelTest(unittest.TestCase):
     def test_available_chromosomes_and_metadata(self):
@@ -105,6 +128,32 @@ class PlinkRefPanelTest(unittest.TestCase):
         )
         filtered = panel.filter_to_snps("22", set(PLINK_SNPS))
         self.assertEqual(set(filtered["SNP"]), set(PLINK_SNPS))
+
+    def test_matching_ids_use_rsid_family(self):
+        metadata = pd.DataFrame({"SNP": ["rs1", "rs2"], "A1": ["A", "A"], "A2": ["C", "G"]})
+
+        ids = _snp_id_series_for_matching(metadata, "rsid_allele_aware", context="test")
+
+        self.assertEqual(ids.tolist(), ["rs1:A:C", "rs2:A:G"])
+
+    def test_build_restriction_mask_uses_rsid_family(self):
+        metadata = pd.DataFrame({"SNP": ["rs1", "rs2"]})
+
+        mask = build_restriction_mask(metadata, {"rs2"}, "rsid_allele_aware")
+
+        self.assertEqual(mask.tolist(), [False, True])
+
+    def test_metadata_reader_requires_snp_for_rsid_family(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "meta.tsv"
+            path.write_text("CHR\tPOS\n1\t10\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "SNP column"):
+                _read_metadata_table(
+                    path,
+                    None,
+                    GlobalConfig(snp_identifier="rsid_allele_aware"),
+                )
 
     def test_duplicate_rsid_raises(self):
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -28,7 +28,8 @@ from typing import Iterable
 import pandas as pd
 
 from ._coordinates import CoordinateDropReport, CoordinatePolicy, normalize_chr_pos_frame
-from .column_inference import normalize_genome_build, normalize_snp_identifier_mode
+from ._kernel.snp_identity import identity_mode_family, normalize_snp_identifier_mode
+from .column_inference import normalize_genome_build
 
 
 AUTO_GENOME_BUILD = "auto"
@@ -93,11 +94,11 @@ def is_auto_genome_build(genome_build: str | None) -> bool:
 
 
 def validate_auto_genome_build_mode(snp_identifier: str, genome_build: str | None) -> None:
-    """Reject ``genome_build='auto'`` outside ``chr_pos`` mode."""
+    """Reject ``genome_build='auto'`` outside coordinate-family modes."""
     if not is_auto_genome_build(genome_build):
         return
-    if normalize_snp_identifier_mode(snp_identifier) != "chr_pos":
-        raise ValueError("genome_build='auto' is only supported when snp_identifier='chr_pos'.")
+    if identity_mode_family(snp_identifier) != "chr_pos":
+        raise ValueError("genome_build='auto' is only supported for chr_pos-family snp_identifier modes.")
 
 
 def resolve_genome_build(
@@ -122,12 +123,12 @@ def resolve_genome_build(
         Raw value from CLI or config. Accepted values are ``"auto"``,
         ``"hg19"``, ``"hg38"``, aliases accepted by
         :func:`normalize_genome_build`, or ``None``.
-    snp_identifier : {"rsid", "chr_pos"}
+    snp_identifier : {"rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"}
         Already-normalized SNP identifier mode.
     sample_frame : pandas.DataFrame or None
         DataFrame with ``CHR`` and ``POS`` columns. Required when
-        ``hint="auto"`` and ``snp_identifier="chr_pos"``; pass ``None`` in all
-        other cases.
+        ``hint="auto"`` and a coordinate-family ``snp_identifier``; pass
+        ``None`` in all other cases.
     context : str
         Human-readable data-source label used in log and error messages.
     logger : logging.Logger-like, optional
@@ -137,7 +138,7 @@ def resolve_genome_build(
     -------
     str or None
         ``"hg19"``, ``"hg38"``, or ``None``. Returns ``None`` when
-        ``snp_identifier="rsid"``, regardless of ``hint``.
+        an rsID-family ``snp_identifier``, regardless of ``hint``.
 
     Raises
     ------
@@ -148,7 +149,7 @@ def resolve_genome_build(
     snp_identifier = normalize_snp_identifier_mode(snp_identifier)
     hint = normalize_genome_build(hint)
 
-    if snp_identifier == "rsid":
+    if identity_mode_family(snp_identifier) == "rsid":
         return None
     if hint != AUTO_GENOME_BUILD:
         return hint

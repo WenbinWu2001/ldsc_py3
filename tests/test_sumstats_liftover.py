@@ -401,6 +401,33 @@ class SumstatsLiftoverTest(unittest.TestCase):
         self.assertEqual(len(drop_frame), 0)
         self.assertEqual({column: str(dtype) for column, dtype in drop_frame.dtypes.items()}, self.SIDEcar_DTYPES)
 
+    def test_noop_liftover_accepts_coordinate_family_mode(self):
+        frame = pd.DataFrame({"CHR": ["1"], "POS": [100], "SNP": ["rs1"], "Z": [1.0], "N": [100.0]})
+        request = SumstatsLiftoverRequest(target_build="hg38")
+
+        lifted, report, drop_frame = apply_sumstats_liftover(
+            frame,
+            request,
+            source_build="hg38",
+            snp_identifier="chr_pos_allele_aware",
+        )
+
+        pd.testing.assert_frame_equal(lifted, frame)
+        self.assertFalse(report["applied"])
+        self.assertEqual(len(drop_frame), 0)
+
+    def test_liftover_rejects_rsid_family_mode(self):
+        frame = pd.DataFrame({"CHR": ["1"], "POS": [100], "SNP": ["rs1"], "Z": [1.0], "N": [100.0]})
+        request = SumstatsLiftoverRequest(target_build="hg38")
+
+        with self.assertRaisesRegex(ValueError, "chr_pos-family"):
+            apply_sumstats_liftover(
+                frame,
+                request,
+                source_build="hg38",
+                snp_identifier="rsid_allele_aware",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

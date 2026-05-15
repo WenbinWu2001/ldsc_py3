@@ -24,6 +24,7 @@ from ..chromosome_inference import normalize_chromosome
 from ..column_inference import normalize_genome_build, normalize_snp_identifier_mode
 from ..errors import LDSCDependencyError
 from ..hm3 import _load_hm3_curated_map_from_path
+from .snp_identity import identity_mode_family
 
 LOGGER = logging.getLogger("LDSC.liftover")
 
@@ -443,12 +444,12 @@ def apply_sumstats_liftover(
 ) -> tuple[pd.DataFrame, dict[str, Any], pd.DataFrame]:
     """Apply a summary-statistics liftover request and return metadata plus drops.
 
-    Liftover is meaningful only in ``chr_pos`` mode. The munger drops missing
-    coordinates, source duplicate ``CHR/POS`` groups, unmapped/cross-chromosome
-    chain hits, and target duplicate ``CHR/POS`` groups only when a liftover
-    request reaches the mapping stage. It updates ``CHR``/``POS`` but preserves
-    ``SNP`` as a label field. The third return value is a unified nullable
-    dropped-SNP frame with columns ``CHR``, ``SNP``, ``source_pos``,
+    Liftover is meaningful only in coordinate-family modes. The munger drops
+    missing coordinates, source duplicate ``CHR/POS`` groups, unmapped/cross-
+    chromosome chain hits, and target duplicate ``CHR/POS`` groups only when a
+    liftover request reaches the mapping stage. It updates ``CHR``/``POS`` but
+    preserves ``SNP`` as a label field. The third return value is a unified
+    nullable dropped-SNP frame with columns ``CHR``, ``SNP``, ``source_pos``,
     ``target_pos``, and ``reason``; clean/no-op runs return the same schema
     with zero rows.
     """
@@ -456,8 +457,8 @@ def apply_sumstats_liftover(
     request = request or SumstatsLiftoverRequest()
     mode = normalize_snp_identifier_mode(snp_identifier)
     source = normalize_genome_build(source_build)
-    if request.requested and mode != "chr_pos":
-        raise ValueError("Summary-statistics liftover is only valid when snp_identifier='chr_pos'.")
+    if request.requested and identity_mode_family(mode) != "chr_pos":
+        raise ValueError("Summary-statistics liftover is only valid for chr_pos-family snp_identifier modes.")
     if not request.requested:
         return frame, default_liftover_metadata(source_build=source, snp_identifier=mode), _empty_liftover_drop_frame()
     if source not in SUPPORTED_LIFTOVER_BUILDS:

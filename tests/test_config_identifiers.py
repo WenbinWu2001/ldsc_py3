@@ -23,6 +23,7 @@ from ldsc.config import (
     RegressionConfig,
     normalize_genome_build,
 )
+from ldsc.genome_build_inference import resolve_genome_build, validate_auto_genome_build_mode
 from ldsc._kernel.identifiers import (
     build_chr_pos_snp_id,
     build_snp_id_series,
@@ -34,6 +35,7 @@ from ldsc._kernel.identifiers import (
     read_global_snp_restriction,
     validate_unique_snp_ids,
 )
+from ldsc._row_alignment import assert_same_snp_rows
 
 
 class GlobalConfigTest(unittest.TestCase):
@@ -135,6 +137,23 @@ class TestGlobalConfigValidation(unittest.TestCase):
         cfg = reset_global_config()
         self.assertEqual(cfg.snp_identifier, "chr_pos_allele_aware")
         self.assertEqual(cfg.genome_build, "auto")
+
+    def test_auto_genome_build_validation_uses_identifier_family(self):
+        validate_auto_genome_build_mode("chr_pos_allele_aware", "auto")
+        with self.assertRaisesRegex(ValueError, "chr_pos"):
+            validate_auto_genome_build_mode("rsid_allele_aware", "auto")
+
+    def test_resolve_genome_build_treats_rsid_family_as_buildless(self):
+        self.assertIsNone(resolve_genome_build("hg38", "rsid_allele_aware", None, context="test"))
+
+    def test_row_alignment_uses_identifier_family(self):
+        left = pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs1"]})
+        right_chr_pos = pd.DataFrame({"CHR": ["1"], "POS": [10]})
+        assert_same_snp_rows(left, right_chr_pos, context="test", snp_identifier="chr_pos_allele_aware")
+
+        right_rsid = pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs2"]})
+        with self.assertRaisesRegex(ValueError, "SNP"):
+            assert_same_snp_rows(left, right_rsid, context="test", snp_identifier="rsid_allele_aware")
 
 
 class WorkflowConfigTest(unittest.TestCase):

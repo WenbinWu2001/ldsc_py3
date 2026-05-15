@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 from ._coordinates import positive_int_position_series
+from ._kernel.snp_identity import identity_mode_family
 from .column_inference import normalize_snp_identifier_mode
 
 
@@ -19,7 +20,7 @@ def assert_same_snp_rows(
     right: pd.DataFrame,
     *,
     context: str,
-    snp_identifier: str = "chr_pos",
+    snp_identifier: str = "chr_pos_allele_aware",
 ) -> None:
     """Raise if two normalized tables do not share identical SNP rows."""
     mode = normalize_snp_identifier_mode(snp_identifier)
@@ -45,7 +46,7 @@ def assert_same_snp_rows(
 
 
 def _require_columns(frame: pd.DataFrame, *, side: str, context: str, snp_identifier: str) -> None:
-    required = ("CHR", "POS") if snp_identifier == "chr_pos" else SNP_ROW_COLUMNS
+    required = ("CHR", "POS") if identity_mode_family(snp_identifier) == "chr_pos" else SNP_ROW_COLUMNS
     missing = [column for column in required if column not in frame.columns]
     if missing:
         raise ValueError(f"{context}: {side} table is missing required SNP row columns: {missing}")
@@ -56,7 +57,7 @@ def _row_key_frame(frame: pd.DataFrame, *, side: str, context: str, snp_identifi
         "CHR": frame["CHR"].astype(str).reset_index(drop=True),
         "POS": _integer_pos_series(frame["POS"], side=side, context=context),
     }
-    if snp_identifier == "rsid":
+    if identity_mode_family(snp_identifier) == "rsid":
         keys["SNP"] = frame["SNP"].astype(str).reset_index(drop=True)
         return pd.DataFrame({"CHR": keys["CHR"], "SNP": keys["SNP"], "POS": keys["POS"]})
     return pd.DataFrame(keys)

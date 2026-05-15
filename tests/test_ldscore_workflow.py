@@ -270,7 +270,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         help_text = ldscore_workflow.build_parser().format_help()
 
         self.assertIn("Required when", help_text)
-        self.assertIn("Not used when --snp-identifier rsid", help_text)
+        self.assertIn("Not used for rsid-family modes", help_text)
 
     def test_build_parser_accepts_r2_dir(self):
         args = ldscore_workflow.build_parser().parse_args(
@@ -2173,7 +2173,7 @@ class LDScoreParquetNormalizationTest(unittest.TestCase):
                 paths=[str(path)],
                 chrom="1",
                 metadata=metadata,
-                identifier_mode="rsID",
+                identifier_mode="rsid",
                 r2_bias_mode="unbiased",
                 r2_sample_size=None,
                 genome_build="hg19",

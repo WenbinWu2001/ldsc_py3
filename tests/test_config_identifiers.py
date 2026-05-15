@@ -151,11 +151,23 @@ class TestGlobalConfigValidation(unittest.TestCase):
     def test_row_alignment_uses_identifier_family(self):
         left = pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs1"]})
         right_chr_pos = pd.DataFrame({"CHR": ["1"], "POS": [10]})
-        assert_same_snp_rows(left, right_chr_pos, context="test", snp_identifier="chr_pos_allele_aware")
+        assert_same_snp_rows(left, right_chr_pos, context="test", snp_identifier="chr_pos")
 
-        right_rsid = pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs2"]})
+        left_alleles = pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs1"], "A1": ["A"], "A2": ["C"]})
+        right_chr_pos_alleles = pd.DataFrame({"CHR": ["1"], "POS": [10], "A1": ["A"], "A2": ["C"]})
+        assert_same_snp_rows(
+            left_alleles,
+            right_chr_pos_alleles,
+            context="test",
+            snp_identifier="chr_pos_allele_aware",
+        )
+
+        with self.assertRaisesRegex(ValueError, "missing required.*A1.*A2"):
+            assert_same_snp_rows(left, right_chr_pos, context="test", snp_identifier="chr_pos_allele_aware")
+
+        right_rsid = pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs2"], "A1": ["A"], "A2": ["C"]})
         with self.assertRaisesRegex(ValueError, "SNP"):
-            assert_same_snp_rows(left, right_rsid, context="test", snp_identifier="rsid_allele_aware")
+            assert_same_snp_rows(left_alleles, right_rsid, context="test", snp_identifier="rsid_allele_aware")
 
 
 class WorkflowConfigTest(unittest.TestCase):

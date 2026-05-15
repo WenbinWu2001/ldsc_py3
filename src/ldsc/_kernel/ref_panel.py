@@ -925,6 +925,8 @@ def _read_metadata_table(path: str | Path, chrom: str | None, global_config: Glo
     a2_col = resolve_optional_column(df.columns, A2_COLUMN_SPEC, context=context)
     if (a1_col is None) != (a2_col is None):
         raise ValueError(f"{path} has only one allele column; provide both A1 and A2 or neither.")
+    if is_allele_aware_mode(snp_identifier) and (a1_col is None or a2_col is None):
+        raise ValueError(f"{path} is malformed for allele-aware SNP identity: A1/A2 columns are required.")
     if a1_col is not None and a2_col is not None:
         out["A1"] = df[a1_col].astype(str)
         out["A2"] = df[a2_col].astype(str)

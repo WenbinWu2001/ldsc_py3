@@ -239,6 +239,30 @@ PARQUET_R2_CANONICAL_SPECS = (
     ),
     _index_spec(SNP_COLUMN_ALIASES, 1, "SNP_1", "canonical parquet R2 left SNP"),
     _index_spec(SNP_COLUMN_ALIASES, 2, "SNP_2", "canonical parquet R2 right SNP"),
+    ColumnSpec(
+        "A1_1",
+        ("A1_1", "A11", "ALLELE1_1", "ALLELE_1_1"),
+        "canonical parquet R2 left A1",
+        allow_suffix_match=False,
+    ),
+    ColumnSpec(
+        "A2_1",
+        ("A2_1", "A21", "ALLELE2_1", "ALLELE_2_1"),
+        "canonical parquet R2 left A2",
+        allow_suffix_match=False,
+    ),
+    ColumnSpec(
+        "A1_2",
+        ("A1_2", "A12", "ALLELE1_2", "ALLELE_1_2"),
+        "canonical parquet R2 right A1",
+        allow_suffix_match=False,
+    ),
+    ColumnSpec(
+        "A2_2",
+        ("A2_2", "A22", "ALLELE2_2", "ALLELE_2_2"),
+        "canonical parquet R2 right A2",
+        allow_suffix_match=False,
+    ),
     ColumnSpec("R2", ("R2",), "canonical parquet R2 value", allow_suffix_match=False),
 )
 PARQUET_R2_CANONICAL_SPEC_MAP = {spec.canonical: spec for spec in PARQUET_R2_CANONICAL_SPECS}

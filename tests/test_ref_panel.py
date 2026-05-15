@@ -359,6 +359,23 @@ class ParquetRefPanelTest(unittest.TestCase):
             self.assertEqual(metadata["A2"].tolist(), ["C", "G"])
 
     @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
+    def test_metadata_sidecar_missing_alleles_is_malformed_in_allele_aware_mode(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            build_dir = Path(tmpdir) / "panel" / "hg38"
+            _write_canonical_r2_parquet(
+                build_dir / "chr1_r2.parquet",
+                snp_identifier="chr_pos_allele_aware",
+            )
+            _write_meta_sidecar(build_dir / "chr1_meta.tsv.gz", "CHR\tPOS\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n")
+            panel = ParquetR2RefPanel(
+                GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
+                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
+            )
+
+            with self.assertRaisesRegex(ValueError, "malformed.*A1/A2"):
+                panel.load_metadata("1")
+
+    @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
     def test_package_canonical_r2_rejects_missing_identity_schema_metadata(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             build_dir = Path(tmpdir) / "panel" / "hg38"

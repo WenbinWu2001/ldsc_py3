@@ -232,7 +232,14 @@ from ..path_resolution import (
 from .._row_alignment import assert_same_snp_rows
 from . import formats as legacy_parse
 from .identifiers import build_snp_id_series, read_snp_restriction_keys
-from .snp_identity import RestrictionIdentityKeys, identity_base_mode, identity_mode_family, is_allele_aware_mode, restriction_membership_mask
+from .snp_identity import (
+    RestrictionIdentityKeys,
+    effective_merge_key_series,
+    identity_base_mode,
+    identity_mode_family,
+    is_allele_aware_mode,
+    restriction_membership_mask,
+)
 
 try:  # pragma: no cover - optional dependency
     import bitarray as ba
@@ -250,6 +257,12 @@ CM_ALIASES = CM_COLUMN_ALIASES
 MAF_ALIASES = MAF_COLUMN_ALIASES
 R2_CANONICAL_SOURCE_COLUMNS = tuple(spec.canonical for spec in R2_SOURCE_COLUMN_SPECS)
 PARQUET_R2_CANONICAL_COLUMNS = tuple(spec.canonical for spec in PARQUET_R2_CANONICAL_SPECS)
+PARQUET_R2_CANONICAL_BASE_COLUMNS = ("CHR", "POS_1", "POS_2", "SNP_1", "SNP_2", "R2")
+PARQUET_R2_ENDPOINT_ALLELE_COLUMNS = ("A1_1", "A2_1", "A1_2", "A2_2")
+ALLELE_AWARE_R2_ENDPOINT_ERROR = (
+    "allele-aware SNP identity requires package-built canonical R2 parquet with "
+    "A1_1/A2_1/A1_2/A2_2 endpoint allele columns; external raw R2 parquet is supported only for rsid and chr_pos."
+)
 
 
 @dataclass
@@ -716,9 +729,18 @@ def _resolve_r2_source_columns(schema_names: Iterable[str], context: str | None 
 def _resolve_canonical_parquet_columns(
     schema_names: Iterable[str],
     context: str | None = None,
+    *,
+    require_endpoint_alleles: bool = False,
 ) -> dict[str, str]:
     """Resolve canonical parquet logical fields from an on-disk schema."""
-    return resolve_required_columns(schema_names, PARQUET_R2_CANONICAL_SPECS, context=context)
+    required = list(PARQUET_R2_CANONICAL_BASE_COLUMNS)
+    if require_endpoint_alleles:
+        required.extend(PARQUET_R2_ENDPOINT_ALLELE_COLUMNS)
+    spec_map = {spec.canonical: spec for spec in PARQUET_R2_CANONICAL_SPECS}
+    return {
+        canonical: resolve_required_column(schema_names, spec_map[canonical], context=context)
+        for canonical in required
+    }
 
 
 def _resolve_r2_source_subset(
@@ -771,7 +793,7 @@ def get_pyarrow_modules():
 def _parquet_schema_layout(schema_names: Sequence[str]) -> str:
     """Classify a runtime parquet schema as canonical, raw, or unsupported."""
     try:
-        _resolve_canonical_parquet_columns(schema_names)
+        _resolve_canonical_parquet_columns(schema_names, require_endpoint_alleles=False)
     except ValueError:
         # Canonical schema did not match; try the legacy raw schema before
         # classifying the file as unsupported.
@@ -912,6 +934,20 @@ def convert_r2_table_to_sorted_parquet(source_path: str, genome_build: str, outp
 
 def validate_retained_identifier_uniqueness(metadata: pd.DataFrame, identifier_mode: str, chrom: str) -> None:
     """Reject ambiguous retained SNP identifiers before parquet matching begins."""
+    if is_allele_aware_mode(identifier_mode):
+        keys = effective_merge_key_series(
+            metadata,
+            identifier_mode,
+            context=f"retained SNP metadata for chromosome {chrom}",
+        )
+        duplicated = keys.duplicated(keep=False)
+        if duplicated.any():
+            raise ValueError(
+                f"Chromosome {chrom} has duplicate retained SNP identities. "
+                f"This is ambiguous in {identifier_mode} mode."
+            )
+        return
+
     if identity_mode_family(identifier_mode) == "chr_pos":
         duplicated = metadata.duplicated(subset=["CHR", "POS"], keep=False)
         if duplicated.any():
@@ -1291,6 +1327,15 @@ class _RowGroupLRUCache:
             self.evictions += 1
 
 
+def _endpoint_identity_keys(table: pd.DataFrame, *, side: int, mode: str) -> pd.Series:
+    """Build allele-aware identity keys for one canonical R2 endpoint side."""
+    if side == 1:
+        frame = table.rename(columns={"SNP_1": "SNP", "POS_1": "POS", "A1_1": "A1", "A2_1": "A2"})
+    else:
+        frame = table.rename(columns={"SNP_2": "SNP", "POS_2": "POS", "A1_2": "A1", "A2_2": "A2"})
+    return effective_merge_key_series(frame, mode, context=f"R2 endpoint {side}")
+
+
 class SortedR2BlockReader:
     """
     Query block-local dense R2 matrices from a per-chromosome parquet table.
@@ -1341,10 +1386,17 @@ class SortedR2BlockReader:
         if optional_cm is not None:
             renamed[optional_cm] = "CM"
         metadata = metadata.rename(columns=renamed)
+        if is_allele_aware_mode(self.identifier_mode):
+            a1_col = resolve_required_column(metadata.columns, A1_COLUMN_SPEC, context=metadata_context)
+            a2_col = resolve_required_column(metadata.columns, A2_COLUMN_SPEC, context=metadata_context)
+            metadata = metadata.rename(columns={a1_col: "A1", a2_col: "A2"})
         validate_retained_identifier_uniqueness(metadata, self.identifier_mode, chrom)
         self.pos = metadata["POS"].to_numpy(dtype=np.int64)
         self.m = len(metadata)
-        if identity_mode_family(self.identifier_mode) == "rsid":
+        if is_allele_aware_mode(self.identifier_mode):
+            keys = effective_merge_key_series(metadata, self.identifier_mode, context=metadata_context)
+            self.index_map = {str(key): idx for idx, key in enumerate(keys) if pd.notna(key)}
+        elif identity_mode_family(self.identifier_mode) == "rsid":
             self.index_map = {str(snp): idx for idx, snp in enumerate(metadata["SNP"].astype(str))}
         else:
             self.index_map = {int(pos): idx for idx, pos in enumerate(metadata["POS"].astype(np.int64))}
@@ -1365,6 +1417,8 @@ class SortedR2BlockReader:
             probe_schema_names = list(ds.dataset(list(paths), format="parquet").schema.names)
 
         layout = _parquet_schema_layout(probe_schema_names)
+        if layout == "raw" and is_allele_aware_mode(self.identifier_mode):
+            raise ValueError(ALLELE_AWARE_R2_ENDPOINT_ERROR)
         if layout == "canonical":
             if len(paths) != 1:
                 raise ValueError(
@@ -1405,10 +1459,16 @@ class SortedR2BlockReader:
             raise ValueError("Canonical parquet reader is not initialized.")
 
         schema_names = self._pf.schema_arrow.names
-        self._canonical_columns = _resolve_canonical_parquet_columns(
-            schema_names,
-            context="canonical parquet R2 schema",
-        )
+        try:
+            self._canonical_columns = _resolve_canonical_parquet_columns(
+                schema_names,
+                context="canonical parquet R2 schema",
+                require_endpoint_alleles=is_allele_aware_mode(self.identifier_mode),
+            )
+        except ValueError as exc:
+            if is_allele_aware_mode(self.identifier_mode):
+                raise ValueError(ALLELE_AWARE_R2_ENDPOINT_ERROR) from exc
+            raise
 
         schema_meta = self._pf.schema_arrow.metadata or {}
         parquet_build_raw = schema_meta.get(b"ldsc:sorted_by_build")
@@ -1616,7 +1676,21 @@ class SortedR2BlockReader:
             raise ValueError("Canonical parquet reader is not initialized.")
 
         read_cols = [self._canonical_columns["R2"]]
-        if identity_mode_family(self.identifier_mode) == "rsid":
+        if is_allele_aware_mode(self.identifier_mode):
+            read_cols.extend(
+                [
+                    self._canonical_columns["CHR"],
+                    self._canonical_columns["POS_1"],
+                    self._canonical_columns["POS_2"],
+                    self._canonical_columns["SNP_1"],
+                    self._canonical_columns["SNP_2"],
+                    self._canonical_columns["A1_1"],
+                    self._canonical_columns["A2_1"],
+                    self._canonical_columns["A1_2"],
+                    self._canonical_columns["A2_2"],
+                ]
+            )
+        elif identity_mode_family(self.identifier_mode) == "rsid":
             read_cols.extend([self._canonical_columns["SNP_1"], self._canonical_columns["SNP_2"]])
         else:
             read_cols.extend([self._canonical_columns["POS_1"], self._canonical_columns["POS_2"]])
@@ -1625,7 +1699,15 @@ class SortedR2BlockReader:
         r2_raw = _arrow_column_to_numpy(table.column(self._canonical_columns["R2"])).astype(np.float32, copy=False)
         r2 = self._transform_r2(r2_raw)
 
-        if identity_mode_family(self.identifier_mode) == "rsid":
+        if is_allele_aware_mode(self.identifier_mode):
+            rows = table.to_pandas().rename(
+                columns={actual: canonical for canonical, actual in self._canonical_columns.items()}
+            )
+            left_keys = _endpoint_identity_keys(rows, side=1, mode=self.identifier_mode)
+            right_keys = _endpoint_identity_keys(rows, side=2, mode=self.identifier_mode)
+            i_raw = np.fromiter((self.index_map.get(str(value), -1) for value in left_keys), dtype=np.int64, count=len(left_keys))
+            j_raw = np.fromiter((self.index_map.get(str(value), -1) for value in right_keys), dtype=np.int64, count=len(right_keys))
+        elif identity_mode_family(self.identifier_mode) == "rsid":
             left_ids = _arrow_column_to_numpy(table.column(self._canonical_columns["SNP_1"])).astype(str)
             right_ids = _arrow_column_to_numpy(table.column(self._canonical_columns["SNP_2"])).astype(str)
             i_raw = np.fromiter((self.index_map.get(value, -1) for value in left_ids), dtype=np.int64, count=len(left_ids))

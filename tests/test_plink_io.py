@@ -138,27 +138,42 @@ class PlinkBedFileTest(unittest.TestCase):
 @unittest.skipIf(ld is None, "ldscore kernel is not available")
 @unittest.skipUnless(_has_module("pyarrow"), "pyarrow dependency is not installed")
 class RawParquetRuntimeTest(unittest.TestCase):
+    def _write_raw_parquet(self, path: Path) -> None:
+        pd.DataFrame(
+            {
+                "chr": ["1"],
+                "rsID_1": ["rs2"],
+                "rsID_2": ["rs1"],
+                "hg38_bp1": [120],
+                "hg38_bp2": [100],
+                "hg19_bp_1": [20],
+                "hg19_bp_2": [10],
+                "hg38_Uniq_ID_1": ["1:120"],
+                "hg38_Uniq_ID_2": ["1:100"],
+                "hg19_Uniq_ID_1": ["1:20"],
+                "hg19_Uniq_ID_2": ["1:10"],
+                "R2": [0.4],
+                "Dprime": [0.5],
+                "+/-corr": ["+"],
+            }
+        ).to_parquet(path, index=False)
+
+    def _metadata(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "CHR": ["1", "1"],
+                "SNP": ["rs1", "rs2"],
+                "BP": [10, 20],
+                "CM": [0.1, 0.2],
+                "A1": ["A", "A"],
+                "A2": ["C", "C"],
+            }
+        )
+
     def test_raw_parquet_reader_support_hg19(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "raw_chr1.parquet"
-            pd.DataFrame(
-                {
-                    "chr": ["1"],
-                    "rsID_1": ["rs2"],
-                    "rsID_2": ["rs1"],
-                    "hg38_bp1": [120],
-                    "hg38_bp2": [100],
-                    "hg19_bp_1": [20],
-                    "hg19_bp_2": [10],
-                    "hg38_Uniq_ID_1": ["1:120"],
-                    "hg38_Uniq_ID_2": ["1:100"],
-                    "hg19_Uniq_ID_1": ["1:20"],
-                    "hg19_Uniq_ID_2": ["1:10"],
-                    "R2": [0.4],
-                    "Dprime": [0.5],
-                    "+/-corr": ["+"],
-                }
-            ).to_parquet(path, index=False)
+            self._write_raw_parquet(path)
 
             metadata = pd.DataFrame(
                 {
@@ -181,13 +196,51 @@ class RawParquetRuntimeTest(unittest.TestCase):
             expected = np.array([[1.0, 0.4], [0.4, 1.0]], dtype=np.float32)
             assert_array_almost_equal(matrix, expected)
 
+    def test_external_raw_r2_loads_only_in_base_modes(self):
+        message = "allele-aware SNP identity requires package-built canonical R2 parquet with A1_1/A2_1/A1_2/A2_2 endpoint allele columns"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "raw_chr1.parquet"
+            self._write_raw_parquet(path)
+
+            for mode in ("rsid", "chr_pos"):
+                reader = ld.SortedR2BlockReader(
+                    paths=[str(path)],
+                    chrom="1",
+                    metadata=self._metadata(),
+                    identifier_mode=mode,
+                    r2_bias_mode="unbiased",
+                    r2_sample_size=None,
+                    genome_build="hg19",
+                )
+                self.assertEqual(reader._runtime_layout, "raw")
+
+            for mode in ("rsid_allele_aware", "chr_pos_allele_aware"):
+                with self.assertRaisesRegex(ValueError, message):
+                    ld.SortedR2BlockReader(
+                        paths=[str(path)],
+                        chrom="1",
+                        metadata=self._metadata(),
+                        identifier_mode=mode,
+                        r2_bias_mode="unbiased",
+                        r2_sample_size=None,
+                        genome_build="hg19",
+                    )
+
 
 @unittest.skipIf(ld is None, "ldscore kernel is not available")
 @unittest.skipUnless(_has_module("pyarrow"), "pyarrow dependency is not installed")
 class CanonicalParquetRuntimeTest(unittest.TestCase):
     """Tests for the canonical 6-column parquet schema path."""
 
-    def _write_canonical_parquet(self, path: Path, *, genome_build: str = "hg19", n_pairs: int = 5, row_group_size: int = 3) -> None:
+    def _write_canonical_parquet(
+        self,
+        path: Path,
+        *,
+        genome_build: str = "hg19",
+        n_pairs: int = 5,
+        row_group_size: int = 3,
+        include_endpoint_alleles: bool = False,
+    ) -> None:
         import pyarrow as pa
         import pyarrow.parquet as pq
 
@@ -203,6 +256,11 @@ class CanonicalParquetRuntimeTest(unittest.TestCase):
             for i in range(n_pairs)
         ]
         df = pd.DataFrame(pairs)
+        if include_endpoint_alleles:
+            df["A1_1"] = "A"
+            df["A2_1"] = "C"
+            df["A1_2"] = "A"
+            df["A2_2"] = "C"
         table = pa.Table.from_pandas(df, preserve_index=False)
         meta = {
             b"ldsc:sorted_by_build": genome_build.encode("utf-8"),
@@ -234,6 +292,12 @@ class CanonicalParquetRuntimeTest(unittest.TestCase):
                 "CM": [0.0] * 4,
             }
         )
+
+    def _four_snp_allele_metadata(self) -> pd.DataFrame:
+        metadata = self._four_snp_metadata()
+        metadata["A1"] = "A"
+        metadata["A2"] = "C"
+        return metadata
 
     def _four_snp_pairs(self) -> list[dict]:
         return [
@@ -270,6 +334,60 @@ class CanonicalParquetRuntimeTest(unittest.TestCase):
             for mn, mx, idx in reader._rg_bounds:
                 self.assertLessEqual(mn, mx)
                 self.assertIsInstance(idx, int)
+
+    def test_package_canonical_r2_with_endpoint_alleles_loads_in_all_identifier_modes(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "chr1.parquet"
+            self._write_canonical_parquet(path, n_pairs=1, row_group_size=1, include_endpoint_alleles=True)
+
+            for mode in ("rsid", "chr_pos", "rsid_allele_aware", "chr_pos_allele_aware"):
+                metadata = self._four_snp_allele_metadata() if "allele_aware" in mode else self._four_snp_metadata()
+                reader = ld.SortedR2BlockReader(
+                    paths=[str(path)],
+                    chrom="1",
+                    metadata=metadata,
+                    identifier_mode=mode,
+                    r2_bias_mode="unbiased",
+                    r2_sample_size=None,
+                    genome_build="hg19",
+                )
+
+                self.assertEqual(reader._runtime_layout, "canonical")
+                matrix = reader.within_block_matrix(l_B=0, c=2)
+                np.testing.assert_allclose(
+                    matrix,
+                    np.array([[1.0, 0.5], [0.5, 1.0]], dtype=np.float32),
+                )
+
+    def test_package_canonical_r2_missing_endpoint_alleles_loads_only_in_base_modes(self):
+        message = "allele-aware SNP identity requires package-built canonical R2 parquet with A1_1/A2_1/A1_2/A2_2 endpoint allele columns"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "chr1.parquet"
+            self._write_canonical_parquet(path, n_pairs=1, row_group_size=1, include_endpoint_alleles=False)
+
+            for mode in ("rsid", "chr_pos"):
+                reader = ld.SortedR2BlockReader(
+                    paths=[str(path)],
+                    chrom="1",
+                    metadata=self._four_snp_metadata(),
+                    identifier_mode=mode,
+                    r2_bias_mode="unbiased",
+                    r2_sample_size=None,
+                    genome_build="hg19",
+                )
+                self.assertEqual(reader._runtime_layout, "canonical")
+
+            for mode in ("rsid_allele_aware", "chr_pos_allele_aware"):
+                with self.assertRaisesRegex(ValueError, message):
+                    ld.SortedR2BlockReader(
+                        paths=[str(path)],
+                        chrom="1",
+                        metadata=self._four_snp_allele_metadata(),
+                        identifier_mode=mode,
+                        r2_bias_mode="unbiased",
+                        r2_sample_size=None,
+                        genome_build="hg19",
+                    )
 
     def test_canonical_init_excludes_row_groups_without_min_max_stats(self):
         import pyarrow.parquet as pq

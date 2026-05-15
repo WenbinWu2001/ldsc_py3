@@ -15,7 +15,7 @@ if str(SRC) not in sys.path:
 from ldsc._kernel import annotation as kernel_annotation
 from ldsc import annotation_builder
 from ldsc.annotation_builder import AnnotationBuilder, AnnotationBundle, run_bed_to_annot
-from ldsc.config import AnnotationBuildConfig, GlobalConfig
+from ldsc.config import AnnotationBuildConfig, GlobalConfig, reset_global_config, set_global_config
 
 
 ANNOT_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "annotation" / "test.annot"
@@ -38,7 +38,7 @@ class AnnotationBuilderTest(unittest.TestCase):
 
         help_text = stdout.getvalue()
         self.assertIn("Required when", help_text)
-        self.assertIn("Not used when --snp-identifier rsid", help_text)
+        self.assertIn("Not used for rsid-family modes", help_text)
 
     def test_bed_to_annot_parser_rejects_removed_no_batch_flag(self):
         stderr = io.StringIO()
@@ -607,15 +607,19 @@ class AnnotationWrapperTest(unittest.TestCase):
             fake_pybedtools = mock.Mock()
             fake_pybedtools.BedTool = _FakeBedTool
 
-            with mock.patch.object(kernel_annotation, "_get_pybedtools", return_value=fake_pybedtools), mock.patch.object(
-                kernel_annotation,
-                "_compute_bed_overlap_mask",
-                return_value=[True, False],
-            ):
-                result = run_bed_to_annot(
-                    query_annot_bed_sources=[str(bed)],
-                    baseline_annot_sources=[str(baseline)],
-                )
+            set_global_config(GlobalConfig(snp_identifier="chr_pos"))
+            try:
+                with mock.patch.object(kernel_annotation, "_get_pybedtools", return_value=fake_pybedtools), mock.patch.object(
+                    kernel_annotation,
+                    "_compute_bed_overlap_mask",
+                    return_value=[True, False],
+                ):
+                    result = run_bed_to_annot(
+                        query_annot_bed_sources=[str(bed)],
+                        baseline_annot_sources=[str(baseline)],
+                    )
+            finally:
+                reset_global_config()
 
             self.assertIsInstance(result, AnnotationBundle)
             self.assertEqual(result.query_columns, ["query"])

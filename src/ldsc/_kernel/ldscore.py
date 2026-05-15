@@ -1086,16 +1086,17 @@ def combine_annotation_groups(
             if len(meta) == 0:
                 continue
             meta = meta.copy()
-            meta["_key"] = identifier_keys(meta, identifier_mode)
+            meta["_key"] = identifier_keys(meta, _annotation_available_precision_mode(meta, identifier_mode))
             if not frames:
                 frames.append(meta)
             else:
                 reference = frames[0]
+                alignment_mode = _annotation_pair_alignment_mode(reference, meta, identifier_mode)
                 assert_same_snp_rows(
                     reference,
                     meta,
                     context=f"Annotation SNP rows do not match across files for chromosome {chrom}: {path}",
-                    snp_identifier=identifier_mode,
+                    snp_identifier=alignment_mode,
                 )
                 missing_cm = reference["CM"].isna() & meta["CM"].notna()
                 if missing_cm.any():
@@ -1131,6 +1132,24 @@ def combine_annotation_groups(
         baseline_columns=baseline_columns,
         query_columns=query_columns,
     )
+
+
+def _annotation_available_precision_mode(metadata: pd.DataFrame, identifier_mode: str) -> str:
+    """Return allele-aware annotation identity only when metadata has A1/A2."""
+    mode = normalize_snp_identifier_mode(identifier_mode)
+    if is_allele_aware_mode(mode) and not {"A1", "A2"}.issubset(metadata.columns):
+        return identity_base_mode(mode)
+    return mode
+
+
+def _annotation_pair_alignment_mode(left: pd.DataFrame, right: pd.DataFrame, identifier_mode: str) -> str:
+    """Return the row-alignment mode supported by both annotation tables."""
+    mode = normalize_snp_identifier_mode(identifier_mode)
+    if is_allele_aware_mode(mode) and not (
+        {"A1", "A2"}.issubset(left.columns) and {"A1", "A2"}.issubset(right.columns)
+    ):
+        return identity_base_mode(mode)
+    return mode
 
 
 def read_identifier_list(path: str, mode: str) -> RestrictionIdentityKeys:

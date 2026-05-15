@@ -927,6 +927,27 @@ class LDScoreWorkflowTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Annotation file has only one allele column"):
                 kernel_ldscore.parse_annotation_file(str(path))
 
+    def test_kernel_combine_annotation_groups_aligns_allele_free_annotations_in_allele_aware_mode(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            base = tmpdir / "base.annot"
+            query = tmpdir / "query.annot"
+            rows = "CHR\tBP\tSNP\tCM\t{column}\n1\t10\trs1\t0.1\t{first}\n1\t20\trs2\t0.2\t{second}\n"
+            base.write_text(rows.format(column="base_a", first=1, second=0), encoding="utf-8")
+            query.write_text(rows.format(column="query_a", first=0, second=1), encoding="utf-8")
+
+            bundle = kernel_ldscore.combine_annotation_groups(
+                baseline_files=(str(base),),
+                query_files=(str(query),),
+                chrom="1",
+                identifier_mode="chr_pos_allele_aware",
+            )
+
+        self.assertIsNotNone(bundle)
+        self.assertEqual(bundle.baseline_columns, ["base_a"])
+        self.assertEqual(bundle.query_columns, ["query_a"])
+        self.assertNotIn("A1", bundle.metadata.columns)
+
     def _build_annotation_bundle(self, prefix: Path) -> AnnotationBundle:
         bim = pd.read_csv(
             prefix.with_suffix(".bim"),

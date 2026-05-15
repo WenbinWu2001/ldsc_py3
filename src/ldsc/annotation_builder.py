@@ -625,11 +625,14 @@ class AnnotationBuilder:
 
     def _ensure_aligned_rows(self, reference: pd.DataFrame, current: pd.DataFrame, path: str) -> None:
         """Raise if two annotation tables do not share identical SNP row order."""
+        snp_identifier = self.global_config.snp_identifier
+        if not ({"A1", "A2"}.issubset(reference.columns) and {"A1", "A2"}.issubset(current.columns)):
+            snp_identifier = identity_base_mode(snp_identifier)
         assert_same_snp_rows(
             reference,
             current,
             context=f"Annotation SNP rows do not match across files: {path}",
-            snp_identifier=self.global_config.snp_identifier,
+            snp_identifier=snp_identifier,
         )
 
     def _merge_missing_metadata(self, reference: pd.DataFrame, current: pd.DataFrame) -> pd.DataFrame:

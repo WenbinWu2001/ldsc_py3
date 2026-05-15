@@ -186,6 +186,30 @@ class AnnotationBuilderTest(unittest.TestCase):
         self.assertNotIn("A1", bundle.metadata.columns)
         self.assertEqual(bundle.reference_snps("chr_pos_allele_aware"), {"1:10", "1:20"})
 
+    def test_run_in_allele_aware_mode_aligns_allele_free_baseline_and_query(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            base = tmpdir / "base.annot"
+            query = tmpdir / "query.annot"
+            rows = [("1", 10, "rs1", 0.1), ("1", 20, "rs2", 0.2)]
+            _write_annot(base, rows, {"base_a": [1, 0]})
+            _write_annot(query, rows, {"query_a": [0, 1]})
+
+            builder = AnnotationBuilder(
+                GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
+                AnnotationBuildConfig(),
+            )
+            bundle = builder.run(
+                AnnotationBuildConfig(
+                    baseline_annot_sources=(str(base),),
+                    query_annot_sources=(str(query),),
+                )
+            )
+
+        self.assertEqual(bundle.baseline_columns, ["base_a"])
+        self.assertEqual(bundle.query_columns, ["query_a"])
+        self.assertNotIn("A1", bundle.metadata.columns)
+
     def test_run_with_bed_paths_returns_bundle_with_binary_query_columns(self):
         builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
         with tempfile.TemporaryDirectory() as tmpdir:

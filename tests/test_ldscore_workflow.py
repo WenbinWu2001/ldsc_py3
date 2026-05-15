@@ -841,6 +841,37 @@ class LDScoreWorkflowTest(unittest.TestCase):
         self.assertEqual(chrom_result.baseline_table["regression_ld_scores"].tolist(), [3.0])
         self.assertEqual(chrom_result.query_table["query"].tolist(), [2.0])
 
+    def test_wrap_legacy_result_derives_allele_aware_regression_ids_before_split(self):
+        legacy_result = ldscore_workflow._LegacyChromResult(
+            chrom="1",
+            metadata=pd.DataFrame(
+                {
+                    "CHR": ["1", "1"],
+                    "SNP": ["rs1", "rs2"],
+                    "POS": [10, 20],
+                    "A1": ["A", "A"],
+                    "A2": ["C", "G"],
+                    "CM": [0.1, 0.2],
+                    "MAF": [0.2, 0.3],
+                }
+            ),
+            ld_scores=np.array([[1.0], [2.0]], dtype=np.float32),
+            w_ld=np.array([[3.0], [4.0]], dtype=np.float32),
+            M=np.array([2.0]),
+            M_5_50=None,
+            ldscore_columns=["base"],
+            baseline_columns=["base"],
+            query_columns=[],
+        )
+
+        result = ldscore_workflow.LDScoreCalculator()._wrap_legacy_chrom_result(
+            legacy_result,
+            global_config=GlobalConfig(snp_identifier="chr_pos_allele_aware"),
+        )
+
+        self.assertEqual(result.baseline_table.columns.tolist(), ["CHR", "SNP", "POS", "regression_ld_scores", "base"])
+        self.assertEqual(result.ld_regression_snps, frozenset({"1:10:A:C", "1:20:A:G"}))
+
     def _build_annotation_bundle(self, prefix: Path) -> AnnotationBundle:
         bim = pd.read_csv(
             prefix.with_suffix(".bim"),

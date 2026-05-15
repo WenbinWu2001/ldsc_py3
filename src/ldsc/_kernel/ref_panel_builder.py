@@ -572,15 +572,21 @@ def build_runtime_metadata_table(
         else pd.Series(np.asarray(cm_values, dtype=float))
     )
 
-    return pd.DataFrame(
-        {
-            "CHR": metadata["CHR"].map(_normalize_map_chromosome).astype(str),
-            "POS": np.asarray(positions, dtype=np.int64),
-            "SNP": metadata["SNP"].astype(str),
-            "CM": cm_column,
-            "MAF": pd.to_numeric(metadata["MAF"], errors="coerce").astype(float),
-        }
-    ).reset_index(drop=True)
+    values = {
+        "CHR": metadata["CHR"].map(_normalize_map_chromosome).astype(str),
+        "POS": np.asarray(positions, dtype=np.int64),
+        "SNP": metadata["SNP"].astype(str),
+        "CM": cm_column,
+        "MAF": pd.to_numeric(metadata["MAF"], errors="coerce").astype(float),
+    }
+    has_a1 = "A1" in metadata.columns
+    has_a2 = "A2" in metadata.columns
+    if has_a1 != has_a2:
+        raise ValueError("Runtime metadata requires both A1 and A2 allele columns when either is present.")
+    if has_a1 and has_a2:
+        values["A1"] = metadata["A1"].astype(str)
+        values["A2"] = metadata["A2"].astype(str)
+    return pd.DataFrame(values).reset_index(drop=True)
 
 
 def _ensure_parent_dir(path: str | PathLike[str]) -> None:

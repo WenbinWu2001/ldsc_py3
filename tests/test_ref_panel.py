@@ -336,6 +336,29 @@ class ParquetRefPanelTest(unittest.TestCase):
             self.assertEqual(metadata["CM"].round(3).tolist(), [0.1, 0.2])
 
     @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
+    def test_r2_dir_loads_allele_metadata_sidecar_in_allele_aware_mode(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            build_dir = Path(tmpdir) / "panel" / "hg38"
+            _write_canonical_r2_parquet(
+                build_dir / "chr1_r2.parquet",
+                snp_identifier="chr_pos_allele_aware",
+            )
+            _write_meta_sidecar(
+                build_dir / "chr1_meta.tsv.gz",
+                "CHR\tPOS\tSNP\tCM\tMAF\tA1\tA2\n1\t10\trs1\t0.1\t0.2\tA\tC\n1\t20\trs2\t0.2\t0.3\tA\tG\n",
+            )
+            panel = ParquetR2RefPanel(
+                GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
+                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
+            )
+
+            metadata = panel.load_metadata("1")
+
+            self.assertEqual(metadata["SNP"].tolist(), ["rs1", "rs2"])
+            self.assertEqual(metadata["A1"].tolist(), ["A", "A"])
+            self.assertEqual(metadata["A2"].tolist(), ["C", "G"])
+
+    @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
     def test_package_canonical_r2_rejects_missing_identity_schema_metadata(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             build_dir = Path(tmpdir) / "panel" / "hg38"

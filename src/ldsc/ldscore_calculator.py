@@ -407,6 +407,12 @@ class LDScoreCalculator:
         else:
             retained_regression_snps = frozenset(reference_ids.intersection(regression_snps))
             regression_keep = build_snp_id_series(reference_metadata, global_config.snp_identifier).isin(retained_regression_snps)
+        ld_regression_snps = frozenset(
+            build_snp_id_series(
+                reference_metadata.loc[regression_keep],
+                global_config.snp_identifier,
+            )
+        )
         pos_column = "POS" if "POS" in reference_metadata.columns else "BP"
         regression_weights = np.asarray(legacy_result.w_ld, dtype=np.float32).reshape(-1)
         ldscore_table = pd.concat(
@@ -439,7 +445,7 @@ class LDScoreCalculator:
             baseline_columns=list(legacy_result.baseline_columns),
             query_columns=list(legacy_result.query_columns),
             ld_reference_snps=frozenset(),
-            ld_regression_snps=frozenset(build_snp_id_series(baseline_table, global_config.snp_identifier)),
+            ld_regression_snps=ld_regression_snps,
             snp_count_totals=count_map,
             count_config={},
             config_snapshot=global_config,

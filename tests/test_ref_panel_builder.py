@@ -624,6 +624,27 @@ class StandardTableFormattingTest(unittest.TestCase):
         self.assertEqual(table.loc[0, "POS"], 120)
         self.assertEqual(table.loc[0, "CM"], 0.5)
 
+    def test_build_runtime_metadata_table_preserves_alleles(self):
+        metadata = pd.DataFrame(
+            {
+                "CHR": ["1"],
+                "SNP": ["rs1"],
+                "MAF": [0.2],
+                "A1": ["A"],
+                "A2": ["C"],
+            }
+        )
+
+        table = kernel_builder.build_runtime_metadata_table(
+            metadata=metadata,
+            positions=np.array([120], dtype=np.int64),
+            cm_values=np.array([0.5], dtype=float),
+        )
+
+        self.assertEqual(table.columns.tolist(), ["CHR", "POS", "SNP", "CM", "MAF", "A1", "A2"])
+        self.assertEqual(table.loc[0, "A1"], "A")
+        self.assertEqual(table.loc[0, "A2"], "C")
+
     def test_build_runtime_metadata_table_allows_missing_cm_values(self):
         metadata = pd.DataFrame(
             {

@@ -389,8 +389,9 @@ class SumstatsMunger:
             is treated as a headered keep-list, loaded once before raw chunk
             parsing, and applied to each parsed chunk after munging QC and
             coordinate normalization. The keep-list does not allele-match or
-            reorder output rows. In ``chr_pos`` mode, keep-list filtering uses
-            source-build coordinates before any optional output liftover.
+            reorder output rows. In coordinate-family modes, keep-list
+            filtering uses source-build coordinates before any optional output
+            liftover.
             ``sumstats_format="auto"`` is the default; use
             ``sumstats_format="plain"``, ``"daner-old"``, ``"daner-new"``, or
             ``"pgc-vcf"`` only when overriding auto-detection.
@@ -880,12 +881,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--target-genome-build",
         default=None,
         choices=("hg19", "hg37", "GRCh37", "hg38", "GRCh38"),
-        help="Optional target genome build for chr_pos output coordinates.",
+        help="Optional target genome build for chr_pos-family output coordinates.",
     )
     public.add_argument(
         "--liftover-chain-file",
         default=None,
-        help="Optional chain file used to liftover chr_pos sumstats coordinates to --target-genome-build.",
+        help="Optional chain file used to liftover chr_pos-family sumstats coordinates to --target-genome-build.",
     )
     public.add_argument(
         "--use-hm3-quick-liftover",

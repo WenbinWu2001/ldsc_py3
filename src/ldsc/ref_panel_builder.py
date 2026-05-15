@@ -412,9 +412,9 @@ class ReferencePanelBuilder:
         """Resolve optional maps, chain paths, and source-build restrictions.
 
         A chain matching the resolved source build enables opposite-build
-        emission in ``chr_pos`` mode. The same matching chain is rejected in
-        ``rsid`` mode because row identity is the SNP label and cross-build
-        coordinate emission would be ambiguous.
+        emission in ``chr_pos``-family modes. The same matching chain is
+        rejected in ``rsID``-family modes because row identity is the SNP label
+        and cross-build coordinate emission would be ambiguous.
         """
         hg19_files = None
         hg38_files = None
@@ -1479,7 +1479,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Optional SNP restriction file defining the retained reference-panel universe. "
-            "In chr_pos mode, coordinates must match the PLINK source genome build."
+            "In chr_pos-family modes, coordinates must match the PLINK source genome build."
         ),
     )
     parser.add_argument(

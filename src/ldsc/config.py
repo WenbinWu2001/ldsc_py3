@@ -596,15 +596,15 @@ class MungeConfig:
         HM3 SNP map. Mutually exclusive with ``sumstats_snps_file``. Default is
         ``False``.
     target_genome_build : {"hg19", "hg37", "GRCh37", "hg38", "GRCh38"} or None, optional
-        Desired output coordinate build for ``chr_pos`` munging. When it
-        differs from the resolved source build, exactly one liftover method is
-        required. Default is ``None``.
+        Desired output coordinate build for ``chr_pos``-family munging. When
+        it differs from the resolved source build, exactly one liftover method
+        is required. Default is ``None``.
     liftover_chain_file : str or os.PathLike[str] or None, optional
         Chain file used to convert ``CHR``/``POS`` from the resolved source
         build to ``target_genome_build``. Mutually exclusive with
         ``use_hm3_quick_liftover``. Sumstats liftover is valid only in
-        ``chr_pos`` mode; it updates coordinates and does not rewrite ``SNP``.
-        Default is ``None``.
+        ``chr_pos``-family modes; it updates coordinates and does not rewrite
+        ``SNP``. Default is ``None``.
     use_hm3_quick_liftover : bool, optional
         If ``True``, use the packaged curated dual-build HM3 map for a
         coordinate-only quick liftover after HM3 SNP restriction. Requires

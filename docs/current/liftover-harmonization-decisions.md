@@ -45,20 +45,24 @@ output, and metadata contracts.
   `--use-hm3-quick-liftover` when source and target differ. HM3 quick liftover
   additionally requires `--use-hm3-snps`, so HM3 filtering is explicit.
 - Missing `CHR`/`POS` rows are dropped before mapping and logged.
-- Source duplicate `CHR/POS` groups are dropped before mapping.
-- Target duplicate `CHR/POS` groups are dropped after mapping.
-- Duplicate dropping happens only when a liftover request reaches the map
-  stage; ordinary no-liftover `chr_pos` munging does not drop duplicate
-  coordinates just because they are duplicated.
-- If missing-coordinate, unmapped, cross-chromosome, source-duplicate, or
-  target-duplicate filtering removes every row, sumstats munging raises a hard
-  error.
+- Source duplicate `CHR/POS` groups are dropped before liftover mapping.
+- Target duplicate `CHR/POS` groups are dropped after target-build positions are
+  known.
+- Identity duplicate cleanup is package-wide and independent of liftover. Base
+  `chr_pos` drops duplicate `CHR:POS` effective-key clusters with
+  `duplicate_identity`; allele-aware modes additionally drop unusable alleles,
+  multi-allelic base-key clusters, and duplicate effective-key clusters.
+- If identity cleanup or missing-coordinate, unmapped, cross-chromosome,
+  source-duplicate, or target-duplicate filtering removes every row, sumstats
+  munging raises a hard error.
 - `dropped_snps/dropped.tsv.gz` is always written under the sumstats output
-  directory. Clean runs produce a header-only gzip TSV. It uses columns `CHR`,
-  `SNP`, `source_pos`, `target_pos`, `reason` with nullable `string`/`Int64`
-  dtypes and may contain all five reasons: `missing_coordinate`,
-  `source_duplicate`, `unmapped_liftover`, `cross_chromosome_liftover`, and
-  `target_collision`.
+  directory. Clean runs produce a header-only gzip TSV. It uses the shared
+  columns `CHR`, `SNP`, `source_pos`, `target_pos`, `reason`, `base_key`,
+  `identity_key`, `allele_set`, and `stage` with nullable dtypes. Reasons may
+  include identity drops (`duplicate_identity`, `missing_allele`,
+  `invalid_allele`, `strand_ambiguous_allele`, `multi_allelic_base_key`) and
+  liftover drops (`missing_coordinate`, `source_duplicate`,
+  `unmapped_liftover`, `cross_chromosome_liftover`, `target_collision`).
 - Newly written `sumstats.metadata.json` sidecars are intentionally thin:
   `format`, optional `trait_name`, and `config_snapshot`.
 - Detailed coordinate provenance, liftover counts, HM3 map provenance, output
@@ -99,10 +103,11 @@ output, and metadata contracts.
 - Per-chromosome `dropped_snps` sidecars are always written for every
   chromosome processed by the run. Clean chromosomes produce header-only gzip
   TSVs. Ref-panel sidecars use the shared columns `CHR`, `SNP`, `source_pos`,
-  `target_pos`, `reason` and cover the four ref-panel-applicable reasons:
-  `source_duplicate`, `unmapped_liftover`, `cross_chromosome_liftover`, and
-  `target_collision`. `missing_coordinate` is not produced by ref-panel because
-  PLINK BIM `BP` is structurally non-null.
+  `target_pos`, `reason`, `base_key`, `identity_key`, `allele_set`, and
+  `stage`. Reasons can include identity drops plus the ref-panel-applicable
+  liftover reasons `source_duplicate`, `unmapped_liftover`,
+  `cross_chromosome_liftover`, and `target_collision`. `missing_coordinate` is
+  not produced by ref-panel because PLINK BIM `BP` is structurally non-null.
 - Output preflight includes the always-written dropped-SNP sidecar paths so
   overwrite behavior stays deterministic.
 - Before chromosome processing starts, the builder warns once when existing

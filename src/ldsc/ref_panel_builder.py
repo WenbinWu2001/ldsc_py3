@@ -24,9 +24,9 @@ stale optional target-build or ``dropped_snps`` siblings from earlier
 configurations. Use a fresh output directory when changing emitted builds,
 liftover/coordinate configuration, or chromosome scope.
 Reference-panel liftover keeps the historical source-build plus optional
-opposite-build UX, but matching chain files are valid only when the active
-identifier mode is ``chr_pos``. Duplicate-position handling is likewise
-``chr_pos``-only and uses drop-all for coordinate collisions.
+opposite-build UX, but matching chain files are valid only in ``chr_pos``-family
+modes and are rejected in rsID-family modes. Duplicate-position handling is
+likewise coordinate-family behavior and uses drop-all for coordinate collisions.
 """
 
 from __future__ import annotations

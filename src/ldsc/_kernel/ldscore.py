@@ -1098,6 +1098,9 @@ def combine_annotation_groups(
                     context=f"Annotation SNP rows do not match across files for chromosome {chrom}: {path}",
                     snp_identifier=alignment_mode,
                 )
+                if {"A1", "A2"}.issubset(meta.columns) and not {"A1", "A2"}.issubset(frames[0].columns):
+                    frames[0]["A1"] = meta["A1"].to_numpy()
+                    frames[0]["A2"] = meta["A2"].to_numpy()
                 missing_cm = reference["CM"].isna() & meta["CM"].notna()
                 if missing_cm.any():
                     frames[0].loc[missing_cm, "CM"] = meta.loc[missing_cm, "CM"].to_numpy()

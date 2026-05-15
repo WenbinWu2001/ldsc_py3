@@ -210,6 +210,40 @@ class AnnotationBuilderTest(unittest.TestCase):
         self.assertEqual(bundle.query_columns, ["query_a"])
         self.assertNotIn("A1", bundle.metadata.columns)
 
+    def test_run_in_allele_aware_mode_promotes_later_query_alleles_after_alignment(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            base = tmpdir / "base.annot"
+            query = tmpdir / "query.annot"
+            base.write_text(
+                "CHR\tBP\tSNP\tCM\tbase_a\n"
+                "1\t10\trs1\t0.1\t1\n"
+                "1\t20\trs2\t0.2\t0\n",
+                encoding="utf-8",
+            )
+            query.write_text(
+                "CHR\tBP\tSNP\tCM\tA1\tA2\tquery_a\n"
+                "1\t10\trs1\t0.1\tA\tG\t0\n"
+                "1\t20\trs2\t0.2\tC\tT\t1\n",
+                encoding="utf-8",
+            )
+
+            builder = AnnotationBuilder(
+                GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
+                AnnotationBuildConfig(),
+            )
+            bundle = builder.run(
+                AnnotationBuildConfig(
+                    baseline_annot_sources=(str(base),),
+                    query_annot_sources=(str(query),),
+                )
+            )
+
+        self.assertEqual(bundle.metadata["A1"].tolist(), ["A", "C"])
+        self.assertEqual(bundle.metadata["A2"].tolist(), ["G", "T"])
+        self.assertEqual(bundle.baseline_columns, ["base_a"])
+        self.assertEqual(bundle.query_columns, ["query_a"])
+
     def test_run_with_bed_paths_returns_bundle_with_binary_query_columns(self):
         builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
         with tempfile.TemporaryDirectory() as tmpdir:

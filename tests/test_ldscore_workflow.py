@@ -21,12 +21,21 @@ if str(SRC) not in sys.path:
 from ldsc.config import ConfigMismatchError, GlobalConfig
 
 try:
-    from ldsc import AnnotationBundle, LDScoreConfig, PlinkRefPanel, RefPanelConfig
+    from ldsc import (
+        AnnotationBuildConfig,
+        AnnotationBuilder,
+        AnnotationBundle,
+        LDScoreConfig,
+        PlinkRefPanel,
+        RefPanelConfig,
+    )
     from ldsc import ldscore_calculator as ldscore_workflow
     from ldsc._kernel import formats as kernel_formats
     from ldsc._kernel import ldscore as kernel_ldscore
     from ldsc._kernel.snp_identity import RestrictionIdentityKeys, empty_identity_drop_frame
 except ImportError:
+    AnnotationBuildConfig = None
+    AnnotationBuilder = None
     AnnotationBundle = None
     LDScoreConfig = None
     PlinkRefPanel = None
@@ -947,6 +956,35 @@ class LDScoreWorkflowTest(unittest.TestCase):
         self.assertEqual(bundle.baseline_columns, ["base_a"])
         self.assertEqual(bundle.query_columns, ["query_a"])
         self.assertNotIn("A1", bundle.metadata.columns)
+
+    def test_kernel_combine_annotation_groups_promotes_later_query_alleles_after_alignment(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            base = tmpdir / "base.annot"
+            query = tmpdir / "query.annot"
+            base.write_text(
+                "CHR\tBP\tSNP\tCM\tbase_a\n"
+                "1\t10\trs1\t0.1\t1\n",
+                encoding="utf-8",
+            )
+            query.write_text(
+                "CHR\tBP\tSNP\tCM\tA1\tA2\tquery_a\n"
+                "1\t10\trs1\t0.1\tA\tG\t0\n",
+                encoding="utf-8",
+            )
+
+            bundle = kernel_ldscore.combine_annotation_groups(
+                baseline_files=(str(base),),
+                query_files=(str(query),),
+                chrom="1",
+                identifier_mode="chr_pos_allele_aware",
+            )
+
+        self.assertIsNotNone(bundle)
+        self.assertEqual(bundle.metadata["A1"].tolist(), ["A"])
+        self.assertEqual(bundle.metadata["A2"].tolist(), ["G"])
+        self.assertEqual(bundle.baseline_columns, ["base_a"])
+        self.assertEqual(bundle.query_columns, ["query_a"])
 
     def _build_annotation_bundle(self, prefix: Path) -> AnnotationBundle:
         bim = pd.read_csv(
@@ -2218,6 +2256,57 @@ class LDScoreWorkflowTest(unittest.TestCase):
                     "POS": [10],
                     "A1": ["A"],
                     "A2": ["G"],
+                }
+            )
+        )
+
+        with mock.patch.object(ldscore_workflow.kernel_ldscore, "compute_chrom_from_parquet") as patched_compute:
+            with self.assertRaisesRegex(ValueError, "No retained annotation SNPs remain"):
+                ldscore_workflow.LDScoreCalculator().compute_chromosome(
+                    chrom="1",
+                    annotation_bundle=annotation_bundle,
+                    ref_panel=ref_panel,
+                    ldscore_config=LDScoreConfig(ld_wind_snps=10),
+                    global_config=GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
+                )
+
+        patched_compute.assert_not_called()
+
+    def test_compute_chromosome_uses_later_query_alleles_for_allele_aware_matching(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            base = tmpdir / "base.annot"
+            query = tmpdir / "query.annot"
+            base.write_text(
+                "CHR\tBP\tSNP\tCM\tbase\n"
+                "1\t10\trs1\t0.1\t1\n",
+                encoding="utf-8",
+            )
+            query.write_text(
+                "CHR\tBP\tSNP\tCM\tA1\tA2\tquery\n"
+                "1\t10\trs1\t0.1\tA\tG\t1\n",
+                encoding="utf-8",
+            )
+            annotation_bundle = AnnotationBuilder(
+                GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38")
+            ).run(
+                AnnotationBuildConfig(
+                    baseline_annot_sources=(str(base),),
+                    query_annot_sources=(str(query),),
+                )
+            )
+
+        self.assertEqual(annotation_bundle.metadata["A2"].tolist(), ["G"])
+        ref_panel = self.make_ref_panel_stub(backend="parquet_r2")
+        ref_panel.load_metadata = mock.Mock(
+            return_value=pd.DataFrame(
+                {
+                    "CHR": ["1"],
+                    "SNP": ["rs1"],
+                    "CM": [0.1],
+                    "POS": [10],
+                    "A1": ["A"],
+                    "A2": ["C"],
                 }
             )
         )

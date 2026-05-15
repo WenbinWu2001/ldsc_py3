@@ -636,8 +636,11 @@ class AnnotationBuilder:
         )
 
     def _merge_missing_metadata(self, reference: pd.DataFrame, current: pd.DataFrame) -> pd.DataFrame:
-        """Backfill missing ``CM`` or ``MAF`` metadata from another aligned table."""
+        """Backfill metadata from another already-aligned annotation table."""
         merged = reference.copy()
+        if {"A1", "A2"}.issubset(current.columns) and not {"A1", "A2"}.issubset(merged.columns):
+            merged["A1"] = current["A1"].to_numpy()
+            merged["A2"] = current["A2"].to_numpy()
         if "MAF" in current.columns:
             if "MAF" not in merged.columns:
                 merged["MAF"] = np.nan

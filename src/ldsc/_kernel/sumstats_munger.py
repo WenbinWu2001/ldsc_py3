@@ -1166,8 +1166,6 @@ def munge_sumstats(args, p=True):
     )
     restriction = _prepare_sumstats_restriction(args)
     args._prepared_sumstats_restriction = restriction
-    if normalize_snp_identifier_mode(getattr(args, 'snp_identifier', 'chr_pos')) == 'chr_pos':
-        args._coordinates_finalized_chunkwise = True
 
     # figure out which columns are going to involve sign information, so we can ensure
     # they're read as floats

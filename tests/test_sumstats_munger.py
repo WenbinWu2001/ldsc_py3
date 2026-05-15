@@ -423,6 +423,9 @@ class SumstatsMungerTest(unittest.TestCase):
                 self.assertEqual(args._coordinate_metadata["genome_build"], "hg19")
                 self.assertTrue(args._coordinate_metadata["genome_build_inferred"])
                 self.assertEqual(args._coordinate_metadata["coordinate_basis"], "0-based")
+                args._coordinates_finalized_chunkwise = True
+                args._coordinate_drop_counts = kernel_munge._empty_coordinate_drop_counts()
+                args._coordinate_drop_counts.update({"n_input": 1, "n_retained": 1})
                 return pd.DataFrame(
                     {
                         "SNP": ["rs1"],
@@ -1443,6 +1446,8 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(table.data["SNP"].tolist(), ["rs1"])
             log_text = (tmpdir / "munged" / "sumstats.log").read_text(encoding="utf-8")
             self.assertIn("Dropped 2 SNPs with invalid or missing CHR/POS", log_text)
+            self.assertIn("Removed 0 SNPs with missing values.", log_text)
+            self.assertIn("Removed 0 SNPs with out-of-bounds p-values.", log_text)
             self.assertIn("missing_chr", log_text)
 
     def test_run_drops_invalid_chr_pos_rows_before_writing_outputs(self):
@@ -1468,6 +1473,8 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(table.provenance["coordinate_provenance"]["n_dropped_invalid_chr_pos"], 2)
             log_text = (tmpdir / "munged" / "sumstats.log").read_text(encoding="utf-8")
             self.assertIn("Dropped 2 SNPs with invalid or missing CHR/POS", log_text)
+            self.assertIn("Removed 0 SNPs with missing values.", log_text)
+            self.assertIn("Removed 0 SNPs with out-of-bounds p-values.", log_text)
             self.assertIn("bad_chr", log_text)
 
     def test_run_reports_context_when_sumstats_snps_file_removes_everything(self):

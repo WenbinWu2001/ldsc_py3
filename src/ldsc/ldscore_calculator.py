@@ -33,7 +33,7 @@ import numpy as np
 import pandas as pd
 
 from ._chr_sampler import sample_frame_from_chr_pattern
-from ._kernel.snp_identity import identity_base_mode, identity_mode_family, is_allele_aware_mode
+from ._kernel.snp_identity import clean_identity_artifact_table, identity_base_mode, identity_mode_family, is_allele_aware_mode
 from .column_inference import normalize_genome_build, normalize_snp_identifier_mode
 from .config import (
     ConfigMismatchError,
@@ -1285,6 +1285,14 @@ def _align_annotation_bundle_to_ref_panel(annotation_bundle, ref_panel, chrom: s
     the kernel.
     """
     reference_metadata = ref_panel.load_metadata(chrom)
+    reference_cleanup = clean_identity_artifact_table(
+        reference_metadata,
+        global_config.snp_identifier,
+        context=f"reference panel chromosome {chrom}",
+        stage="annotation_reference_identity_cleanup",
+        logger=LOGGER,
+    )
+    reference_metadata = reference_cleanup.cleaned
     match_mode = _annotation_reference_match_mode(annotation_bundle.metadata, global_config.snp_identifier)
     reference_keys = build_snp_id_series(reference_metadata, match_mode)
     annotation_keys = build_snp_id_series(annotation_bundle.metadata, match_mode)

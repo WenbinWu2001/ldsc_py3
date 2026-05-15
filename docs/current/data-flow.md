@@ -92,6 +92,10 @@ root-level `query.*.annot.gz` files and the workflow `annotate.log` are refused
 before any query shard is written unless the caller passes `--overwrite` or
 `overwrite=True`. With overwrite enabled, stale query shards outside the
 current chromosome set are removed after the current shards are written.
+Annotation rows are cleaned before BED projection by computing the effective
+SNP identity key for the active mode and dropping all rows in duplicate-key
+clusters. Runs with an output directory also write
+`dropped_snps/dropped.tsv.gz`, header-only when no rows are dropped.
 
 `ldsc.annotation_builder` owns both command entry paths: `main(argv)` parses
 standalone annotation arguments, and `run_annotate_from_args(args)` consumes
@@ -118,8 +122,9 @@ flowchart LR
 
   subgraph W1[Workflow (public)<br/>ldsc.annotation_builder]
     A3[Load baseline rows]
+    A8[Drop duplicate identity clusters]
     A4[Project BEDs to SNP columns]
-    A7[Preflight query shards + annotate.log<br/>Write query shards]
+    A7[Preflight query shards + dropped sidecar + annotate.log<br/>Write outputs]
   end
 
   subgraph K1[Kernel (private)<br/>ldsc._kernel.annotation]
@@ -127,10 +132,10 @@ flowchart LR
     A6[Intersect regions with SNP grid]
   end
 
-  I1 --> A1 --> A3 --> A4 --> A5 --> A6 --> A7
+  I1 --> A1 --> A3 --> A8 --> A4 --> A5 --> A6 --> A7
   I2 --> A1
   A2 --> A4
-  A7 --> O1[query.<chrom>.annot.gz + annotate.log]
+  A7 --> O1[query.<chrom>.annot.gz + dropped_snps/dropped.tsv.gz + annotate.log]
 ```
 
 ### Outputs
@@ -138,6 +143,7 @@ flowchart LR
 | File | Example | Notes |
 | --- | --- | --- |
 | projected query annotation shard | `CHR POS SNP CM enhancer_A`<br/>`1 10583 rs58108140 0.0 1` | output name is `query.<chrom>.annot.gz` |
+| dropped-SNP audit sidecar | `CHR SNP source_pos target_pos reason base_key identity_key allele_set stage` | always written as `dropped_snps/dropped.tsv.gz`; records annotation identity cleanup rows |
 | workflow log | plain-text lifecycle and package records | `annotate.log` under `output_dir`; not included in returned data paths |
 
 ### Modules used

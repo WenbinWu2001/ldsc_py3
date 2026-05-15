@@ -99,7 +99,7 @@ context, and result `output_paths` mappings do not include logs.
 
 ### `ldsc.annotation_builder`
 
-This is the public interface and workflow implementation for annotation loading and BED projection. It owns `AnnotationBuilder`, `AnnotationBundle`, `run_bed_to_annot()`, `run_annotate_from_args()`, `main()`, parser construction, path-token resolution, genome-build inference for `--genome-build auto`, output preflight, `annotate.log`, and `query.<chrom>.annot.gz` writing. It delegates only low-level text-table and BED intersection primitives to `ldsc._kernel.annotation`. Public interface: users should start here rather than importing the kernel directly.
+This is the public interface and workflow implementation for annotation loading and BED projection. It owns `AnnotationBuilder`, `AnnotationBundle`, `run_bed_to_annot()`, `run_annotate_from_args()`, `main()`, parser construction, path-token resolution, genome-build inference for `--genome-build auto`, annotation identity cleanup, output preflight, `annotate.log`, `dropped_snps/dropped.tsv.gz`, and `query.<chrom>.annot.gz` writing. It delegates only low-level text-table and BED intersection primitives to `ldsc._kernel.annotation`. Public interface: users should start here rather than importing the kernel directly.
 
 ### `ldsc.ref_panel_builder`
 

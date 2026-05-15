@@ -50,9 +50,15 @@ from ._kernel import annotation as kernel_annotation
 from ._kernel.identifiers import (
     build_snp_id_series,
     normalize_snp_identifier_mode,
-    validate_unique_snp_ids,
 )
-from ._kernel.snp_identity import identity_base_mode, identity_mode_family, is_allele_aware_mode
+from ._kernel.snp_identity import (
+    clean_identity_artifact_table,
+    coerce_identity_drop_frame,
+    empty_identity_drop_frame,
+    identity_base_mode,
+    identity_mode_family,
+    is_allele_aware_mode,
+)
 from ._row_alignment import assert_same_snp_rows
 from .chromosome_inference import normalize_chromosome
 from .column_inference import (
@@ -143,15 +149,14 @@ class AnnotationBundle:
     config_snapshot: GlobalConfig | None = None
 
     def validate(self, snp_identifier: str = "chr_pos_allele_aware") -> None:
-        """Validate row alignment and uniqueness assumptions for the bundle.
+        """Validate row alignment assumptions for the bundle.
 
         Parameters
         ----------
         snp_identifier : str, optional
-            Canonical identifier mode used for uniqueness checks. Default is
-            ``"chr_pos_allele_aware"``.
+            Accepted for API compatibility; builder-produced bundles perform
+            SNP identity cleanup before construction.
         """
-        snp_identifier = self._annotation_identity_mode(snp_identifier)
         if len(self.metadata) != len(self.baseline_annotations):
             raise ValueError("metadata and baseline_annotations must have the same number of rows.")
         if len(self.metadata) != len(self.query_annotations):
@@ -160,7 +165,6 @@ class AnnotationBundle:
             raise ValueError("baseline_annotations columns do not match baseline_columns.")
         if list(self.query_annotations.columns) != list(self.query_columns):
             raise ValueError("query_annotations columns do not match query_columns.")
-        validate_unique_snp_ids(self.metadata, snp_identifier, context="AnnotationBundle.metadata")
 
     def reference_snps(self, snp_identifier: str = "chr_pos_allele_aware") -> set[str]:
         """Return the retained reference SNP universe for this bundle.
@@ -184,10 +188,7 @@ class AnnotationBundle:
 
     def _annotation_identity_mode(self, snp_identifier: str) -> str:
         """Return the effective annotation identity mode for this metadata."""
-        mode = normalize_snp_identifier_mode(snp_identifier)
-        if is_allele_aware_mode(mode) and not {"A1", "A2"}.issubset(self.metadata.columns):
-            return identity_base_mode(mode)
-        return mode
+        return _annotation_identity_mode_for_metadata(self.metadata, snp_identifier)
 
     def has_full_baseline_cover(self) -> bool:
         """Return ``True`` when baseline annotations cover every metadata row."""
@@ -237,6 +238,7 @@ class AnnotationBuilder:
         self.global_config = global_config
         self.build_config = build_config or AnnotationBuildConfig()
         self._workflow_log_path: Path | None = None
+        self._identity_drop_frame = empty_identity_drop_frame()
 
     def run(self, source_spec: AnnotationBuildConfig | None = None, chrom: str | None = None) -> AnnotationBundle:
         """Build one aligned SNP-level annotation bundle.
@@ -263,6 +265,7 @@ class AnnotationBuilder:
             snapshot.
         """
         source_spec = source_spec or self.build_config
+        self._identity_drop_frame = empty_identity_drop_frame()
         if not source_spec.baseline_annot_sources:
             raise ValueError("AnnotationBuildConfig must include at least one baseline annotation file.")
         baseline_files = resolve_file_group(
@@ -339,6 +342,12 @@ class AnnotationBuilder:
 
         if metadata is None:
             raise ValueError("No annotation rows were loaded from the supplied sources.")
+
+        metadata, baseline_blocks, query_blocks = self._apply_identity_cleanup(
+            metadata,
+            baseline_blocks,
+            query_blocks,
+        )
 
         if source_spec.query_annot_bed_sources:
             resolved_bed_paths = [
@@ -444,6 +453,34 @@ class AnnotationBuilder:
             chromosomes=chromosomes,
             source_spec=source_spec,
         )
+
+    def _apply_identity_cleanup(
+        self,
+        metadata: pd.DataFrame,
+        baseline_blocks: list[pd.DataFrame],
+        query_blocks: list[pd.DataFrame],
+    ) -> tuple[pd.DataFrame, list[pd.DataFrame], list[pd.DataFrame]]:
+        """Drop annotation rows that cannot provide a unique active identity."""
+        row_column = "_ldsc_annotation_row"
+        metadata_reset = metadata.reset_index(drop=True)
+        cleanup_input = metadata_reset.copy()
+        cleanup_input[row_column] = np.arange(len(cleanup_input), dtype=int)
+        mode = _annotation_identity_mode_for_metadata(metadata_reset, self.global_config.snp_identifier)
+        cleanup = clean_identity_artifact_table(
+            cleanup_input,
+            mode,
+            context="annotation metadata",
+            stage="annotation_identity_cleanup",
+            logger=LOGGER,
+        )
+        self._identity_drop_frame = _concat_annotation_drop_frames([self._identity_drop_frame, cleanup.dropped])
+        if len(cleanup.cleaned) == 0:
+            raise ValueError("no annotation rows remain after SNP identity cleanup.")
+        retained_rows = cleanup.cleaned[row_column].astype(int).to_numpy()
+        cleaned_metadata = metadata_reset.iloc[retained_rows].reset_index(drop=True)
+        cleaned_baseline = [block.reset_index(drop=True).iloc[retained_rows].reset_index(drop=True) for block in baseline_blocks]
+        cleaned_query = [block.reset_index(drop=True).iloc[retained_rows].reset_index(drop=True) for block in query_blocks]
+        return cleaned_metadata, cleaned_baseline, cleaned_query
 
     def _build_bundle(
         self,
@@ -599,8 +636,9 @@ class AnnotationBuilder:
         bundle = self.run(source_spec)
         if output_dir is not None:
             output_path = ensure_output_directory(output_dir, label="output directory")
+            drop_sidecar_path = _annotation_dropped_snps_path(output_path)
             output_paths = _bundle_query_annot_output_paths(bundle, output_path)
-            produced_paths: list[Path] = list(output_paths)
+            produced_paths: list[Path] = [*output_paths, drop_sidecar_path]
             owned_paths = sorted(output_path.glob("query.*.annot.gz"))
             owned_paths.extend(produced_paths)
             if self._workflow_log_path is not None:
@@ -619,7 +657,13 @@ class AnnotationBuilder:
                     output_dir=str(output_path),
                 )
                 written = _write_bundle_query_as_annot_files(bundle, output_path)
-                log_outputs(**{f"query_{chrom}": str(path) for chrom, path in zip(bundle.chromosomes, written)})
+                drop_frame = _coerce_annotation_dropped_snps_frame(self._identity_drop_frame)
+                _write_annotation_dropped_snps_sidecar(drop_frame, drop_sidecar_path)
+                _log_annotation_dropped_snps_summary(drop_frame, drop_sidecar_path)
+                log_outputs(
+                    **{f"query_{chrom}": str(path) for chrom, path in zip(bundle.chromosomes, written)},
+                    dropped_snps=str(drop_sidecar_path),
+                )
                 remove_output_artifacts(stale_paths)
         return bundle
 
@@ -903,6 +947,61 @@ def _write_bundle_query_as_annot_files(bundle: AnnotationBundle, output_dir: Pat
             pd.concat([chrom_meta, chrom_query], axis=1).to_csv(handle, sep="\t", index=False)
         output_paths.append(out_path)
     return output_paths
+
+
+def _annotation_dropped_snps_path(output_dir: Path) -> Path:
+    """Return the aggregate annotation identity-cleanup audit sidecar path."""
+    return output_dir / "dropped_snps" / "dropped.tsv.gz"
+
+
+def _annotation_identity_mode_for_metadata(metadata: pd.DataFrame, snp_identifier: str) -> str:
+    """Return the effective annotation identity mode for one metadata table."""
+    mode = normalize_snp_identifier_mode(snp_identifier)
+    if is_allele_aware_mode(mode) and not {"A1", "A2"}.issubset(metadata.columns):
+        return identity_base_mode(mode)
+    return mode
+
+
+def _concat_annotation_drop_frames(frames: Sequence[pd.DataFrame | None]) -> pd.DataFrame:
+    """Concatenate annotation dropped-SNP frames using the shared schema."""
+    nonempty = [coerce_identity_drop_frame(frame) for frame in frames if frame is not None and not frame.empty]
+    if not nonempty:
+        return empty_identity_drop_frame()
+    return coerce_identity_drop_frame(pd.concat(nonempty, ignore_index=True))
+
+
+def _coerce_annotation_dropped_snps_frame(frame: pd.DataFrame | None) -> pd.DataFrame:
+    """Return dropped annotation SNP rows with stable nullable sidecar dtypes."""
+    output = coerce_identity_drop_frame(frame)
+    output["CHR"] = output["CHR"].astype("string")
+    output["SNP"] = output["SNP"].astype("string")
+    output["source_pos"] = pd.to_numeric(output["source_pos"], errors="coerce").astype("Int64")
+    output["target_pos"] = pd.to_numeric(output["target_pos"], errors="coerce").astype("Int64")
+    output["reason"] = output["reason"].astype("string")
+    output["base_key"] = output["base_key"].astype("string")
+    output["identity_key"] = output["identity_key"].astype("string")
+    output["allele_set"] = output["allele_set"].astype("string")
+    output["stage"] = output["stage"].astype("string")
+    return output.reset_index(drop=True)
+
+
+def _write_annotation_dropped_snps_sidecar(drop_frame: pd.DataFrame, path: Path) -> None:
+    """Write the always-owned annotation dropped-SNP audit sidecar."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    drop_frame.to_csv(path, sep="\t", index=False, compression="gzip", na_rep="")
+
+
+def _log_annotation_dropped_snps_summary(drop_frame: pd.DataFrame, path: Path) -> None:
+    """Log a count-only summary for annotation identity cleanup."""
+    if drop_frame.empty:
+        LOGGER.info(f"No SNPs dropped during annotation identity cleanup; audit sidecar at '{path}'.")
+        return
+    counts = drop_frame["reason"].value_counts(sort=False)
+    count_text = ", ".join(f"{reason}={int(count)}" for reason, count in counts.items())
+    LOGGER.info(
+        f"Annotation identity cleanup drops: {len(drop_frame)} SNPs "
+        f"({count_text}); audit sidecar at '{path}'."
+    )
 
 
 def _bundle_query_annot_output_paths(bundle: AnnotationBundle, output_dir: Path) -> list[Path]:

@@ -125,8 +125,8 @@ successful run. Unrelated files in `output_dir` are preserved.
 |---|---:|---:|---|---|
 | `--query-annot-bed-sources` | input | yes | BED interval files | Accepts exact files, globs, comma-separated tokens, and source-token lists. BED basenames become query annotation names. |
 | `--baseline-annot-sources` | input | yes | baseline `.annot[.gz]` templates | Accepts exact files, globs, and `@` chromosome-suite tokens. |
-| `--output-dir` | output | yes | generated query annotation directory | Writes combined `query.<chrom>.annot.gz` files, with all BED inputs represented as query columns, plus `annotate.log`. |
-| `--overwrite` | output mode | no | collision policy | Controls whether generated annotation files and `annotate.log` may be replaced; defaults to `False`, so any existing root-level `query.*.annot.gz` shard is refused. With overwrite, stale query shards outside the current chromosome set are removed after a successful run. |
+| `--output-dir` | output | yes | generated query annotation directory | Writes combined `query.<chrom>.annot.gz` files, with all BED inputs represented as query columns, plus `dropped_snps/dropped.tsv.gz` and `annotate.log`. |
+| `--overwrite` | output mode | no | collision policy | Controls whether generated annotation files, the dropped-SNP sidecar, and `annotate.log` may be replaced; defaults to `False`, so any existing root-level `query.*.annot.gz` shard or sidecar is refused. With overwrite, stale query shards outside the current chromosome set are removed after a successful run. |
 | `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger records in console and `annotate.log`; lifecycle audit lines always appear in the file. |
 | `--snp-identifier`, `--genome-build` | config | no | coordinate interpretation | Define how SNP coordinates are interpreted; `--snp-identifier` defaults to `chr_pos_allele_aware`, and `--genome-build` defaults to omitted/`None`, which is invalid for coordinate-family inputs unless the workflow can infer it. |
 

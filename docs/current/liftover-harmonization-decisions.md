@@ -79,14 +79,16 @@ output, and metadata contracts.
   and emits the opposite build using the packaged map.
 - No new public `target_genome_build` field was added for reference-panel
   building.
-- Matching chain-file liftover and HM3 quick liftover are invalid when the active
-  `GlobalConfig.snp_identifier` is `rsid`. In rsID mode, omit the matching
-  chain or quick-liftover flag and build source-genome coordinates only.
+- Matching chain-file liftover and HM3 quick liftover are coordinate-family
+  behavior, valid when the active `GlobalConfig.snp_identifier` is `chr_pos` or
+  `chr_pos_allele_aware`. They are invalid in rsID-family modes (`rsid` and
+  `rsid_allele_aware`); omit the matching chain or quick-liftover flag and build
+  source-genome coordinates only.
 - Coordinate duplicate groups are dropped with `drop-all`. There is no public
   duplicate-position policy knob.
-- Duplicate-position handling applies only in `chr_pos` mode.
-- In `rsid` source-only builds, coordinate duplicate filtering is skipped and
-  logged once per run.
+- Duplicate-position handling applies to chr_pos-family builds.
+- In rsID-family source-only builds, coordinate duplicate filtering is skipped
+  and logged once per run.
 - Source duplicate groups are dropped before liftover mapping.
 - Target duplicate groups are dropped after target-build positions are known.
 - If all SNPs are dropped for one chromosome, that chromosome is skipped.
@@ -114,8 +116,9 @@ output, and metadata contracts.
   under a concrete genome build.
 - `GlobalConfig.snp_identifier='rsid'` means row identity is `SNP`; genome build
   is ignored and normalized to `None`.
-- Liftover is coordinate behavior and therefore valid only when the relevant
-  workflow is operating in `chr_pos` mode.
+- Liftover is coordinate-family behavior and therefore valid only when the
+  relevant workflow is operating in `chr_pos` or `chr_pos_allele_aware`. It is
+  invalid in rsID-family modes (`rsid` and `rsid_allele_aware`).
 - Build aliases continue to normalize through the existing rules:
   `hg37`/`GRCh37` to `hg19`, `GRCh38` to `hg38`, and `auto` only where a
   workflow supports inference.
@@ -128,13 +131,16 @@ output, and metadata contracts.
   provenance do not need migration support.
 - Missing sumstats sidecars on package-written artifacts are rejected; those
   artifacts must be regenerated with the current LDSC package.
-- Reference-panel runtime metadata TSV and R2 parquet schemas must not change
-  for this harmonization.
-- Dropped-SNP sidecar column names are stable: `CHR`, `SNP`, `source_pos`,
-  `target_pos`, `reason`. Consumers should read with explicit nullable
-  `string`/`Int64` dtypes because empty/header-only files and nullable
-  `target_pos` cells cannot be represented safely with plain NumPy integer
-  dtypes.
+- Package-built reference-panel R2 parquet and runtime metadata artifacts carry
+  current identity provenance.
+- In allele-aware modes, R2 parquet endpoint columns `A1_1`, `A2_1`, `A1_2`, and
+  `A2_2` are required; reference-panel metadata sidecars require `A1` and `A2`;
+  LD-score artifacts require `A1` and `A2`.
+- Dropped-SNP sidecars include `CHR`, `SNP`, `source_pos`, `target_pos`,
+  `reason`, `base_key`, `identity_key`, `allele_set`, and `stage`. Consumers
+  should read with explicit nullable `string`/`Int64` dtypes because
+  empty/header-only files and nullable cells cannot be represented safely with
+  plain NumPy integer dtypes.
 - Existing multi-build reference-panel loading ambiguity rules remain for old
   or external panels.
 

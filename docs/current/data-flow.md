@@ -177,7 +177,7 @@ sidecar.
 | `.bim` row | `22 rs123 0.0 16050075 A G` | variant metadata |
 | `.fam` row | `fam1 iid1 0 0 0 -9` | sample metadata |
 | genetic map, conditional | `chr position Genetic_Map(cM)`<br/>`22 16050000 0.42` | required for every emitted build when cM windows are used; optional for SNP/kb windows |
-| liftover method, optional | `hg38ToHg19.over.chain.gz` or `--use-hm3-snps --use-hm3-quick-liftover` | matching source-to-target chain enables cross-build R2 and metadata in `chr_pos` mode; HM3 quick liftover uses the packaged map and requires HM3 restriction; omitted liftover produces source-build-only output; liftover is rejected in `rsid` mode |
+| liftover method, optional | `hg38ToHg19.over.chain.gz` or `--use-hm3-snps --use-hm3-quick-liftover` | matching source-to-target chain enables cross-build R2 and metadata in chr_pos-family modes (`chr_pos`, `chr_pos_allele_aware`); HM3 quick liftover uses the packaged map and requires HM3 restriction; omitted liftover produces source-build-only output; liftover is rejected in rsID-family modes (`rsid`, `rsid_allele_aware`) |
 | keep or restrict file, optional | one IID per row, a headered SNP table, or `--use-hm3-snps` | filters individuals or variants; SNP restriction matching uses `GlobalConfig.snp_identifier`; `chr_pos`-family restrictions must match the source PLINK build; allele-free restrictions, including HM3, match by base key; allele-bearing restrictions in allele-aware modes match by effective allele-aware key |
 
 ### Flow

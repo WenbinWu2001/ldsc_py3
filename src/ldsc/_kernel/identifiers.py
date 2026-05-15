@@ -262,7 +262,7 @@ def read_snp_restriction_keys(
 def restriction_file_has_allele_columns(path: str | Path, *, context: str | None = None) -> bool:
     """Return whether a restriction file header has a complete A1/A2 pair."""
     path = Path(path)
-    header, _rows, _delimiter = _parse_restriction_rows(path)
+    header = _read_restriction_header(path)
     if not header:
         return False
     _a1_col, _a2_col, has_allele_columns = _resolve_restriction_allele_columns(
@@ -365,6 +365,19 @@ def _iter_restriction_rows(path: Path):
     delimiter = _detect_delimiter(first)
     header = _split_restriction_row(first, delimiter)
     return header, (_split_restriction_row(line, delimiter) for line in lines), delimiter
+
+
+def _read_restriction_header(path: Path) -> list[str]:
+    """Read only the first non-comment restriction-file row as a header."""
+    with _open_text(path) as handle:
+        for line in handle:
+            stripped = line.lstrip()
+            if not stripped.strip():
+                continue
+            if stripped.startswith("#") and not stripped.upper().startswith("#CHROM"):
+                continue
+            return _split_restriction_row(line.rstrip("\n"), _detect_delimiter(line))
+    return []
 
 
 def _parse_restriction_rows(path: Path) -> tuple[list[str], list[list[str]], str | None]:

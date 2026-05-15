@@ -214,6 +214,25 @@ class PlinkRefPanelTest(unittest.TestCase):
 
             self.assertEqual(filtered["A2"].tolist(), ["C"])
 
+    def test_plink_ref_panel_restriction_uses_bim_alleles(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            restrict_path = Path(tmpdir) / "restrict.tsv"
+            restrict_path.write_text(f"SNP\tA1\tA2\n{PLINK_SNPS[0]}\tG\tA\n", encoding="utf-8")
+            panel = PlinkRefPanel(
+                GlobalConfig(snp_identifier="rsid_allele_aware"),
+                RefPanelConfig(
+                    backend="plink",
+                    plink_prefix=str(PLINK_PREFIX),
+                    ref_panel_snps_file=str(restrict_path),
+                ),
+            )
+
+            metadata = panel.load_metadata("22")
+
+            self.assertEqual(metadata["SNP"].tolist(), [PLINK_SNPS[0]])
+            self.assertEqual(metadata["A1"].tolist(), ["G"])
+            self.assertEqual(metadata["A2"].tolist(), ["A"])
+
     def test_metadata_reader_requires_snp_for_rsid_family(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "meta.tsv"

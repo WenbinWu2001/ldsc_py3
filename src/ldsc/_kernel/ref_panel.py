@@ -18,6 +18,8 @@ import pandas as pd
 from .._coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame
 from ..chromosome_inference import chrom_sort_key, normalize_chromosome
 from ..column_inference import (
+    A1_COLUMN_SPEC,
+    A2_COLUMN_SPEC,
     REFERENCE_METADATA_SPEC_MAP,
     resolve_optional_column,
     resolve_required_column,
@@ -37,6 +39,7 @@ from .identifiers import (
 from .snp_identity import (
     REGENERATE_ARTIFACT_MESSAGE,
     identity_mode_family,
+    is_allele_aware_mode,
     restriction_membership_mask,
     validate_identity_artifact_metadata,
 )
@@ -48,7 +51,7 @@ _REF_PANEL_R2_RE = re.compile(r"^chr(?P<chrom>.+)_r2\.parquet$", flags=re.IGNORE
 def _snp_id_series_for_matching(metadata: pd.DataFrame, snp_identifier: str, *, context: str) -> pd.Series:
     """Build SNP IDs for a match boundary, dropping missing CHR/POS in chr_pos mode."""
     mode = normalize_snp_identifier_mode(snp_identifier)
-    if identity_mode_family(mode) == "rsid":
+    if identity_mode_family(mode) == "rsid" or is_allele_aware_mode(mode):
         return build_snp_id_series(metadata, mode)
     keyed, _report = build_chr_pos_key_frame(
         metadata,
@@ -293,7 +296,7 @@ class PlinkRefPanel(RefPanel):
         df["SNP"] = df["SNP"].astype(str)
         df["CM"] = pd.to_numeric(df["CM"], errors="coerce")
         df["POS"] = pd.to_numeric(df["POS"], errors="raise").astype(int)
-        metadata = df.loc[df["CHR"] == chrom, ["_raw_index", "CHR", "SNP", "CM", "POS"]].reset_index(drop=True)
+        metadata = df.loc[df["CHR"] == chrom, ["_raw_index", "CHR", "SNP", "CM", "POS", "A1", "A2"]].reset_index(drop=True)
         if len(metadata) == 0:
             raise ValueError(f"No PLINK metadata rows found for chromosome {chrom}.")
         metadata = self._apply_snp_restriction(metadata)
@@ -365,6 +368,7 @@ class PlinkRefPanel(RefPanel):
             LOGGER.debug(f"Falling back to BIM-only PLINK metadata for chromosome {chrom}: {exc}", exc_info=True)
             return metadata.drop(columns="_raw_index", errors="ignore").reset_index(drop=True)
 
+        allele_metadata = metadata.loc[:, ["CHR", "SNP", "POS", "A1", "A2"]].copy()
         out = pd.DataFrame(bed.df, columns=bed.colnames)
         if "BP" in out.columns:
             out = out.rename(columns={"BP": "POS"})
@@ -373,7 +377,13 @@ class PlinkRefPanel(RefPanel):
         out["POS"] = pd.to_numeric(out["POS"], errors="raise").astype(int)
         out["CM"] = pd.to_numeric(out["CM"], errors="coerce")
         out["MAF"] = pd.to_numeric(out["MAF"], errors="coerce")
-        return out.loc[out["CHR"] == normalize_chromosome(chrom)].reset_index(drop=True)
+        out = out.loc[out["CHR"] == normalize_chromosome(chrom)].reset_index(drop=True)
+        allele_metadata["CHR"] = allele_metadata["CHR"].map(lambda value: normalize_chromosome(value, context=prefix + ".bim"))
+        allele_metadata["SNP"] = allele_metadata["SNP"].astype(str)
+        allele_metadata["POS"] = pd.to_numeric(allele_metadata["POS"], errors="raise").astype(int)
+        allele_metadata["A1"] = allele_metadata["A1"].astype(str)
+        allele_metadata["A2"] = allele_metadata["A2"].astype(str)
+        return out.merge(allele_metadata, how="left", on=["CHR", "SNP", "POS"], sort=False).reset_index(drop=True)
 
     def _resolve_keep_individuals(self, fam) -> list[int] | None:
         """Return FAM row indices retained by ``RefPanelConfig.keep_indivs_file``."""
@@ -403,7 +413,7 @@ class PlinkRefPanel(RefPanel):
                 sep=r"\s+",
                 header=None,
                 names=["CHR", "SNP", "CM", "POS", "A1", "A2"],
-                usecols=[0, 1, 2, 3],
+                usecols=[0, 1, 2, 3, 4, 5],
             )
             for prefix in prefixes
         ]
@@ -910,6 +920,14 @@ def _read_metadata_table(path: str | Path, chrom: str | None, global_config: Glo
         out["MAF"] = pd.Series(maf).map(lambda value: value if pd.isna(value) else min(value, 1.0 - value))
     elif global_config.fail_on_missing_metadata:
         raise ValueError(f"{path} is missing MAF metadata.")
+
+    a1_col = resolve_optional_column(df.columns, A1_COLUMN_SPEC, context=context)
+    a2_col = resolve_optional_column(df.columns, A2_COLUMN_SPEC, context=context)
+    if (a1_col is None) != (a2_col is None):
+        raise ValueError(f"{path} has only one allele column; provide both A1 and A2 or neither.")
+    if a1_col is not None and a2_col is not None:
+        out["A1"] = df[a1_col].astype(str)
+        out["A2"] = df[a2_col].astype(str)
 
     if chrom is not None and "CHR" in out.columns:
         out = out.loc[out["CHR"] == normalize_chromosome(chrom, context=context)].reset_index(drop=True)

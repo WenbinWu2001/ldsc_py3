@@ -2112,6 +2112,20 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
 
         self.assertEqual(mask.tolist(), [True, False, True])
 
+    def test_base_chr_pos_restriction_ignores_single_allele_like_column(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "restrict.tsv"
+            path.write_text("CHR\thg19_POS\tREF\n1\t100\tA\n", encoding="utf-8")
+
+            restriction = ref_panel_builder._read_ref_panel_snp_restriction(
+                path,
+                "chr_pos",
+                source_genome_build="hg19",
+            )
+
+            self.assertEqual(restriction.match_kind, "base")
+            self.assertEqual(restriction.keys, {"1:100"})
+
     def test_builder_run_rejects_duplicate_chromosome_across_inputs(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)

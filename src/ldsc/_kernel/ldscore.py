@@ -230,7 +230,7 @@ from ..path_resolution import (
 from .._row_alignment import assert_same_snp_rows
 from . import formats as legacy_parse
 from .identifiers import build_snp_id_series, read_snp_restriction_keys
-from .snp_identity import RestrictionIdentityKeys, identity_mode_family, restriction_membership_mask
+from .snp_identity import RestrictionIdentityKeys, identity_mode_family, is_allele_aware_mode, restriction_membership_mask
 
 try:  # pragma: no cover - optional dependency
     import bitarray as ba
@@ -618,7 +618,7 @@ else:
 def identifier_keys(df: pd.DataFrame, mode: str) -> pd.Series:
     """Build the canonical SNP identifier series used for matching within the kernel."""
     mode = normalize_snp_identifier_mode(mode)
-    if identity_mode_family(mode) == "rsid":
+    if identity_mode_family(mode) == "rsid" or is_allele_aware_mode(mode):
         return build_snp_id_series(df, mode)
     keyed, _report = build_chr_pos_key_frame(
         df,
@@ -1075,7 +1075,7 @@ def combine_annotation_groups(
 
 
 def read_identifier_list(path: str, mode: str) -> RestrictionIdentityKeys:
-    """Read a SNP list file into the canonical identifier set for ``mode``."""
+    """Read a SNP list file into base or allele-aware restriction keys for ``mode``."""
     return read_snp_restriction_keys(path, normalize_snp_identifier_mode(mode))
 
 
@@ -2046,11 +2046,13 @@ def compute_chrom_from_plink(
 
     bim = legacy_parse.PlinkBIMFile(prefix + ".bim")
     fam = legacy_parse.PlinkFAMFile(prefix + ".fam")
-    panel_df = bim.df.loc[:, ["CHR", "SNP", "CM", "BP"]].copy().rename(columns={"BP": "POS"})
+    panel_df = bim.df.loc[:, ["CHR", "SNP", "CM", "BP", "A1", "A2"]].copy().rename(columns={"BP": "POS"})
     panel_df["CHR"] = panel_df["CHR"].map(lambda value: normalize_chromosome(value, context=prefix + ".bim"))
     panel_df["SNP"] = panel_df["SNP"].astype(str)
     panel_df["POS"] = pd.to_numeric(panel_df["POS"], errors="raise").astype(np.int64)
     panel_df["CM"] = pd.to_numeric(panel_df["CM"], errors="coerce")
+    panel_df["A1"] = panel_df["A1"].astype(str)
+    panel_df["A2"] = panel_df["A2"].astype(str)
     panel_df = panel_df.loc[panel_df["CHR"] == normalize_chromosome(chrom, context=prefix + ".bim")].copy()
     if len(panel_df) == 0:
         raise ValueError(f"No PLINK SNPs found for chromosome {chrom} in {prefix}.")
@@ -2070,7 +2072,7 @@ def compute_chrom_from_plink(
         )
     metadata = metadata.loc[keep].reset_index(drop=True)
     annotations = annotations.loc[keep].reset_index(drop=True)
-    if regression_keys is not None:
+    if regression_keys is not None and not isinstance(regression_keys, RestrictionIdentityKeys):
         regression_keys = regression_keys.intersection(set(metadata["_key"]))
     if len(metadata) == 0:
         raise ValueError(f"No retained annotation SNPs remain on chromosome {chrom} after PLINK intersection.")
@@ -2094,6 +2096,12 @@ def compute_chrom_from_plink(
     geno_meta["POS"] = pd.to_numeric(geno_meta["POS"], errors="raise").astype(np.int64)
     geno_meta["CM"] = pd.to_numeric(geno_meta["CM"], errors="coerce")
     geno_meta["MAF"] = pd.to_numeric(geno_meta["MAF"], errors="coerce")
+    geno_meta = geno_meta.merge(
+        panel_df.loc[:, ["CHR", "SNP", "POS", "A1", "A2"]],
+        how="left",
+        on=["CHR", "SNP", "POS"],
+        sort=False,
+    )
     geno_meta["_key"] = identifier_keys(geno_meta, args.snp_identifier)
 
     annotation_matrix = annotations.set_index(metadata["_key"]).loc[geno_meta["_key"]]

@@ -48,7 +48,12 @@ from .column_inference import (
     normalize_snp_identifier_mode,
     resolve_required_column,
 )
-from ._kernel.snp_identity import RestrictionIdentityKeys, collapse_restriction_identity_keys, identity_mode_family
+from ._kernel.snp_identity import (
+    RestrictionIdentityKeys,
+    collapse_restriction_identity_keys,
+    identity_mode_family,
+    is_allele_aware_mode,
+)
 from .config import GlobalConfig, ReferencePanelBuildConfig, get_global_config, print_global_config_banner
 from ._coordinates import normalize_chr_pos_frame
 from .genome_build_inference import resolve_genome_build
@@ -1028,7 +1033,11 @@ def _read_ref_panel_snp_restriction(
         return kernel_identifiers.read_snp_restriction_keys(path, restriction_mode, logger=LOGGER)
     if source_genome_build not in {"hg19", "hg38"}:
         raise ValueError("source_genome_build must be resolved before CHR/POS SNP restriction loading.")
-    frame, has_allele_columns = _read_source_build_chr_pos_restriction_frame(Path(path), source_genome_build)
+    frame, has_allele_columns = _read_source_build_chr_pos_restriction_frame(
+        Path(path),
+        source_genome_build,
+        inspect_alleles=is_allele_aware_mode(restriction_mode),
+    )
     frame, _report = normalize_chr_pos_frame(
         frame,
         context=f"reference-panel SNP restriction '{path}'",
@@ -1081,15 +1090,19 @@ def _restriction_frame_from_columns(
     rows: Sequence[Sequence[str]],
     chr_col: str,
     pos_col: str,
+    inspect_alleles: bool,
 ) -> pd.DataFrame:
     """Materialize CHR/POS restriction rows from selected source columns."""
     header = list(header)
     chr_idx = header.index(chr_col)
     pos_idx = header.index(pos_col)
-    a1_col, a2_col, has_allele_columns = kernel_identifiers._resolve_restriction_allele_columns(
-        header,
-        context=str(path),
-    )
+    if inspect_alleles:
+        a1_col, a2_col, has_allele_columns = kernel_identifiers._resolve_restriction_allele_columns(
+            header,
+            context=str(path),
+        )
+    else:
+        a1_col, a2_col, has_allele_columns = None, None, False
     allele_indices = (header.index(a1_col), header.index(a2_col)) if has_allele_columns else None
     values: list[dict[str, object]] = []
     for row in rows:
@@ -1135,7 +1148,12 @@ def _infer_generic_restriction_build(frame: pd.DataFrame, path: Path) -> str:
     return inferred_build
 
 
-def _read_source_build_chr_pos_restriction_frame(path: Path, source_genome_build: str) -> tuple[pd.DataFrame, bool]:
+def _read_source_build_chr_pos_restriction_frame(
+    path: Path,
+    source_genome_build: str,
+    *,
+    inspect_alleles: bool = True,
+) -> tuple[pd.DataFrame, bool]:
     """Read CHR/POS restriction rows that must align to the source build."""
     header, rows, _delimiter = kernel_identifiers._parse_restriction_rows(path)
     if not header:
@@ -1145,10 +1163,13 @@ def _read_source_build_chr_pos_restriction_frame(path: Path, source_genome_build
         RESTRICTION_CHRPOS_SPEC_MAP["CHR"],
         context=str(path),
     )
-    _a1_col, _a2_col, has_allele_columns = kernel_identifiers._resolve_restriction_allele_columns(
-        header,
-        context=str(path),
-    )
+    if inspect_alleles:
+        _a1_col, _a2_col, has_allele_columns = kernel_identifiers._resolve_restriction_allele_columns(
+            header,
+            context=str(path),
+        )
+    else:
+        has_allele_columns = False
     source_pos_col = _resolve_build_specific_position_column(
         header,
         source_genome_build=source_genome_build,
@@ -1165,6 +1186,7 @@ def _read_source_build_chr_pos_restriction_frame(path: Path, source_genome_build
             rows=rows,
             chr_col=chr_col,
             pos_col=source_pos_col,
+            inspect_alleles=inspect_alleles,
         )
         return frame, has_allele_columns
 
@@ -1179,6 +1201,7 @@ def _read_source_build_chr_pos_restriction_frame(path: Path, source_genome_build
         rows=rows,
         chr_col=chr_col,
         pos_col=generic_pos_col,
+        inspect_alleles=inspect_alleles,
     )
     restriction_build = _infer_generic_restriction_build(frame, path)
     if restriction_build != source_genome_build:

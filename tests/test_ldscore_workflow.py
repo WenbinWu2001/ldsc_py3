@@ -1038,6 +1038,43 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
         np.testing.assert_array_equal(mask, np.array([1.0, 0.0, 1.0], dtype=np.float32))
 
+    def test_plink_compute_accepts_restriction_identity_keys(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            prefix = self._copy_plink_fixture_with_distinct_fids(Path(tmpdir))
+            workflow_bundle = self._build_annotation_bundle(prefix)
+            bundle = kernel_ldscore.AnnotationBundle(
+                metadata=workflow_bundle.metadata,
+                annotations=workflow_bundle.baseline_annotations,
+                baseline_columns=workflow_bundle.baseline_columns,
+                query_columns=workflow_bundle.query_columns,
+            )
+            args = Namespace(
+                bfile=str(prefix),
+                keep=None,
+                maf_min=None,
+                maf=None,
+                ld_wind_snps=10,
+                ld_wind_kb=None,
+                ld_wind_cm=None,
+                yes_really=True,
+                snp_batch_size=50,
+                common_maf_min=0.05,
+                snp_identifier="rsid",
+            )
+            restriction = RestrictionIdentityKeys(
+                keys={"rs_1", "rs_2"},
+                match_kind="base",
+                dropped=empty_identity_drop_frame(),
+                n_input_rows=2,
+                n_retained_keys=2,
+            )
+
+            result = kernel_ldscore.compute_chrom_from_plink("1", bundle, args, restriction)
+
+            self.assertEqual(result.chrom, "1")
+            self.assertGreater(len(result.metadata), 0)
+            self.assertEqual(result.w_ld.shape[0], len(result.metadata))
+
     def test_run_rejects_annotation_bundle_snapshot_mismatch(self):
         calc = ldscore_workflow.LDScoreCalculator()
         annotation_bundle = AnnotationBundle(

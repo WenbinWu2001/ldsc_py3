@@ -54,6 +54,7 @@ from .identifiers import (
     read_global_chr_pos_restriction_key_set,
     read_global_snp_restriction,
     read_snp_restriction_keys,
+    restriction_file_has_allele_columns,
 )
 from .liftover import SumstatsLiftoverRequest, apply_sumstats_liftover
 from .snp_identity import RestrictionIdentityKeys, identity_mode_family, restriction_membership_mask
@@ -400,7 +401,9 @@ def _prepare_sumstats_restriction(args):
     mode = normalize_snp_identifier_mode(getattr(args, 'snp_identifier', 'chr_pos_allele_aware'))
     coordinate_metadata = getattr(args, '_coordinate_metadata', {})
     genome_build = coordinate_metadata.get('genome_build', getattr(args, 'genome_build', None))
-    if mode == 'chr_pos':
+    if identity_mode_family(mode) == 'chr_pos' and (
+        mode == 'chr_pos' or not restriction_file_has_allele_columns(snps_path, context=str(snps_path))
+    ):
         identifiers = read_global_chr_pos_restriction_key_set(
             snps_path,
             genome_build=genome_build,
@@ -432,6 +435,12 @@ def _prepare_sumstats_restriction(args):
         identity_keys=identity_keys,
     )
     if len(restriction.identifiers) == 0:
+        if restriction.identity_keys is not None:
+            _raise_sumstats_restriction_empty(
+                restriction,
+                input_rows=restriction.identity_keys.n_input_rows,
+                usable_rows=restriction.identity_keys.n_retained_keys,
+            )
         _raise_sumstats_restriction_empty(restriction, input_rows='not inspected', usable_rows=0)
     return restriction
 
@@ -494,12 +503,17 @@ def _raise_sumstats_restriction_empty(restriction, *, input_rows=None, usable_ro
     build_label = restriction.genome_build if identity_mode_family(restriction.mode) == 'chr_pos' else 'not used'
     input_rows = restriction.n_rows_before_filter if input_rows is None else input_rows
     usable_rows = restriction.n_usable_row_identifiers if usable_rows is None else usable_rows
+    drop_details = ""
+    if restriction.identity_keys is not None and not restriction.identity_keys.dropped.empty:
+        counts = restriction.identity_keys.dropped["reason"].value_counts(sort=False).to_dict()
+        drop_details = f" Restriction rows dropped before matching: {counts}."
     raise ValueError(
         "After applying --sumstats-snps-file, no SNPs remain. "
         f"Keep-list file: {restriction.path}. "
         f"snp_identifier={restriction.mode}; genome_build={build_label}; "
         f"input rows before filtering={input_rows}; usable row identifiers={usable_rows}; "
-        f"keep-list identifiers={len(restriction.identifiers)}. "
+        f"keep-list identifiers={len(restriction.identifiers)}."
+        f"{drop_details} "
         "Check that the keep-list uses the same identifier mode and genome build as the munged sumstats."
     )
 

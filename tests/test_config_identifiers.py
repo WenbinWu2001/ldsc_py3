@@ -821,3 +821,14 @@ class RestrictionReadersTest(unittest.TestCase):
             self.assertEqual(restriction.match_kind, "base")
             self.assertEqual(restriction.keys, {"1:10", "2:20"})
             self.assertTrue(restriction.dropped.empty)
+
+    def test_read_snp_restriction_keys_base_modes_ignore_single_allele_like_column(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "restrict.tsv"
+            path.write_text("SNP\tREF\nrs1\tA\nrs2\tT\n", encoding="utf-8")
+
+            restriction = read_snp_restriction_keys(path, "rsid")
+
+            self.assertEqual(restriction.match_kind, "base")
+            self.assertEqual(restriction.keys, {"rs1", "rs2"})
+            self.assertTrue(restriction.dropped.empty)

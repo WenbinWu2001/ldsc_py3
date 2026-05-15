@@ -31,10 +31,15 @@ from . import ldscore as kernel_ldscore
 from .identifiers import (
     build_snp_id_series,
     normalize_snp_identifier_mode,
-    read_global_snp_restriction,
+    read_snp_restriction_keys,
     validate_unique_snp_ids,
 )
-from .snp_identity import REGENERATE_ARTIFACT_MESSAGE, identity_mode_family, validate_identity_artifact_metadata
+from .snp_identity import (
+    REGENERATE_ARTIFACT_MESSAGE,
+    identity_mode_family,
+    restriction_membership_mask,
+    validate_identity_artifact_metadata,
+)
 
 LOGGER = logging.getLogger("LDSC.ref_panel")
 _REF_PANEL_R2_RE = re.compile(r"^chr(?P<chrom>.+)_r2\.parquet$", flags=re.IGNORECASE)
@@ -248,18 +253,18 @@ class RefPanel(ABC):
             return metadata
         if self.spec.use_hm3_ref_panel_snps:
             LOGGER.info(f"Using packaged curated HM3 map for reference-panel SNP restriction: {restrict_path}.")
-        restrict_ids = read_global_snp_restriction(
+        restriction = read_snp_restriction_keys(
             restrict_path,
             self.global_config.snp_identifier,
             genome_build=self.global_config.genome_build,
             logger=LOGGER,
         )
-        keys = _snp_id_series_for_matching(
+        keep = restriction_membership_mask(
             metadata,
+            restriction,
             self.global_config.snp_identifier,
             context=f"reference-panel restriction matching for {restrict_path}",
         )
-        keep = keys.isin(restrict_ids)
         return metadata.loc[keep].reset_index(drop=True)
 
     def _validate_metadata(self, metadata: pd.DataFrame, chrom: str) -> pd.DataFrame:

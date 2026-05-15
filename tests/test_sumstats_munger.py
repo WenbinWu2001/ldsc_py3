@@ -409,17 +409,20 @@ class SumstatsMungerTest(unittest.TestCase):
                 packed_key_calls.append(keys)
                 return keys
 
-            with mock.patch.object(kernel_munge, "build_packed_chr_pos_series", side_effect=assert_packed_keys), \
-                 mock.patch.object(kernel_munge, "process_n", side_effect=assert_restricted_before_process_n):
-                table = SumstatsMunger().run(
-                    MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
-                    MungeConfig(output_dir=tmpdir / "munged", sumstats_snps_file=restrict_path),
-                    GlobalConfig(snp_identifier="chr_pos", genome_build="hg19"),
-                )
+            for mode in ("chr_pos", "chr_pos_allele_aware"):
+                with self.subTest(mode=mode):
+                    packed_key_calls.clear()
+                    with mock.patch.object(kernel_munge, "build_packed_chr_pos_series", side_effect=assert_packed_keys), \
+                         mock.patch.object(kernel_munge, "process_n", side_effect=assert_restricted_before_process_n):
+                        table = SumstatsMunger().run(
+                            MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
+                            MungeConfig(output_dir=tmpdir / f"munged_{mode}", sumstats_snps_file=restrict_path),
+                            GlobalConfig(snp_identifier=mode, genome_build="hg19"),
+                        )
 
-            self.assertEqual(table.data["SNP"].tolist(), ["label_a", "label_c"])
-            self.assertEqual(table.data["POS"].tolist(), [10, 20])
-            self.assertTrue(packed_key_calls)
+                    self.assertEqual(table.data["SNP"].tolist(), ["label_a", "label_c"])
+                    self.assertEqual(table.data["POS"].tolist(), [10, 20])
+                    self.assertTrue(packed_key_calls)
 
     def test_prepare_sumstats_restriction_uses_rich_reader_for_allele_aware_modes(self):
         with tempfile.TemporaryDirectory() as tmpdir:

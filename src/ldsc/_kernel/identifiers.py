@@ -259,6 +259,19 @@ def read_snp_restriction_keys(
     )
 
 
+def restriction_file_has_allele_columns(path: str | Path, *, context: str | None = None) -> bool:
+    """Return whether a restriction file header has a complete A1/A2 pair."""
+    path = Path(path)
+    header, _rows, _delimiter = _parse_restriction_rows(path)
+    if not header:
+        return False
+    _a1_col, _a2_col, has_allele_columns = _resolve_restriction_allele_columns(
+        header,
+        context=context or str(path),
+    )
+    return has_allele_columns
+
+
 def read_global_chr_pos_restriction_key_set(
     path: str | Path,
     *,
@@ -412,11 +425,13 @@ def _canonicalize_snp_restriction_table(
         data["CHR"] = raw_frame[chr_col]
         data["POS"] = raw_frame[pos_col]
 
-    a1_col, a2_col, has_allele_columns = _resolve_restriction_allele_columns(columns, context=context)
-    if has_allele_columns:
-        assert a1_col is not None and a2_col is not None
-        data["A1"] = raw_frame[a1_col]
-        data["A2"] = raw_frame[a2_col]
+    has_allele_columns = False
+    if is_allele_aware_mode(mode):
+        a1_col, a2_col, has_allele_columns = _resolve_restriction_allele_columns(columns, context=context)
+        if has_allele_columns:
+            assert a1_col is not None and a2_col is not None
+            data["A1"] = raw_frame[a1_col]
+            data["A2"] = raw_frame[a2_col]
     return pd.DataFrame(data), has_allele_columns
 
 

@@ -192,6 +192,28 @@ class PlinkRefPanelTest(unittest.TestCase):
 
         self.assertEqual(mask.tolist(), [False, True])
 
+    def test_ref_panel_restriction_uses_allele_aware_identity_keys(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            restrict_path = Path(tmpdir) / "restrict.tsv"
+            restrict_path.write_text("SNP\tA1\tA2\nrs1\tA\tC\n", encoding="utf-8")
+            panel = ParquetR2RefPanel(
+                GlobalConfig(snp_identifier="rsid_allele_aware"),
+                RefPanelConfig(backend="parquet_r2", r2_dir=tmpdir, ref_panel_snps_file=str(restrict_path)),
+            )
+            metadata = pd.DataFrame(
+                {
+                    "CHR": ["1", "1"],
+                    "POS": [10, 10],
+                    "SNP": ["rs1", "rs1"],
+                    "A1": ["A", "A"],
+                    "A2": ["C", "G"],
+                }
+            )
+
+            filtered = panel._apply_snp_restriction(metadata)
+
+            self.assertEqual(filtered["A2"].tolist(), ["C"])
+
     def test_metadata_reader_requires_snp_for_rsid_family(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "meta.tsv"

@@ -1951,7 +1951,7 @@ def compute_chrom_from_parquet(
     chrom: str,
     bundle: AnnotationBundle,
     args: argparse.Namespace,
-    regression_keys: set[str] | None,
+    regression_keys: set[str] | RestrictionIdentityKeys | None,
 ) -> ChromComputationResult:
     """
     Compute all LD-score outputs for one chromosome from sorted parquet R2 input.
@@ -2028,7 +2028,7 @@ def compute_chrom_from_plink(
     chrom: str,
     bundle: AnnotationBundle,
     args: argparse.Namespace,
-    regression_keys: set[str] | None,
+    regression_keys: set[str] | RestrictionIdentityKeys | None,
 ) -> ChromComputationResult:
     """
     Compute all LD-score outputs for one chromosome from a PLINK reference panel.

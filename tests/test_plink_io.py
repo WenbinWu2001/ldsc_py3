@@ -170,6 +170,9 @@ class RawParquetRuntimeTest(unittest.TestCase):
             }
         )
 
+    def _allele_free_metadata(self) -> pd.DataFrame:
+        return self._metadata().drop(columns=["A1", "A2"])
+
     def test_raw_parquet_reader_support_hg19(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "raw_chr1.parquet"
@@ -225,6 +228,23 @@ class RawParquetRuntimeTest(unittest.TestCase):
                         r2_sample_size=None,
                         genome_build="hg19",
                     )
+
+    def test_external_raw_r2_allele_aware_rejects_before_metadata_allele_validation(self):
+        message = "allele-aware SNP identity requires package-built canonical R2 parquet with A1_1/A2_1/A1_2/A2_2 endpoint allele columns"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "raw_chr1.parquet"
+            self._write_raw_parquet(path)
+
+            with self.assertRaisesRegex(ValueError, message):
+                ld.SortedR2BlockReader(
+                    paths=[str(path)],
+                    chrom="1",
+                    metadata=self._allele_free_metadata(),
+                    identifier_mode="rsid_allele_aware",
+                    r2_bias_mode="unbiased",
+                    r2_sample_size=None,
+                    genome_build="hg19",
+                )
 
 
 @unittest.skipIf(ld is None, "ldscore kernel is not available")
@@ -388,6 +408,54 @@ class CanonicalParquetRuntimeTest(unittest.TestCase):
                         r2_sample_size=None,
                         genome_build="hg19",
                     )
+
+    def test_endpoint_allele_mismatch_is_ignored_only_in_allele_aware_modes(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "chr1.parquet"
+            pairs = [
+                {
+                    "CHR": "1",
+                    "POS_1": 100,
+                    "POS_2": 120,
+                    "R2": 0.4,
+                    "SNP_1": "rs1",
+                    "SNP_2": "rs2",
+                    "A1_1": "A",
+                    "A2_1": "G",
+                    "A1_2": "A",
+                    "A2_2": "G",
+                }
+            ]
+            self._write_pair_parquet(path, pairs, row_group_size=1)
+
+            for mode in ("rsid", "chr_pos"):
+                reader = ld.SortedR2BlockReader(
+                    paths=[str(path)],
+                    chrom="1",
+                    metadata=self._four_snp_metadata(),
+                    identifier_mode=mode,
+                    r2_bias_mode="unbiased",
+                    r2_sample_size=None,
+                    genome_build="hg19",
+                )
+                matrix = reader.within_block_matrix(l_B=0, c=2)
+                np.testing.assert_allclose(
+                    matrix,
+                    np.array([[1.0, 0.4], [0.4, 1.0]], dtype=np.float32),
+                )
+
+            for mode in ("rsid_allele_aware", "chr_pos_allele_aware"):
+                reader = ld.SortedR2BlockReader(
+                    paths=[str(path)],
+                    chrom="1",
+                    metadata=self._four_snp_allele_metadata(),
+                    identifier_mode=mode,
+                    r2_bias_mode="unbiased",
+                    r2_sample_size=None,
+                    genome_build="hg19",
+                )
+                matrix = reader.within_block_matrix(l_B=0, c=2)
+                np.testing.assert_allclose(matrix, np.eye(2, dtype=np.float32))
 
     def test_canonical_init_excludes_row_groups_without_min_max_stats(self):
         import pyarrow.parquet as pq

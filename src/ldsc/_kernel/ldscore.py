@@ -1386,6 +1386,23 @@ class SortedR2BlockReader:
         if optional_cm is not None:
             renamed[optional_cm] = "CM"
         metadata = metadata.rename(columns=renamed)
+
+        try:
+            import pyarrow.parquet as pq
+        except ImportError:
+            pq = None
+
+        probe_schema_names: list[str]
+        if pq is not None:
+            probe_schema_names = list(pq.ParquetFile(paths[0]).schema_arrow.names)
+        else:
+            ds = get_pyarrow_modules()
+            probe_schema_names = list(ds.dataset(list(paths), format="parquet").schema.names)
+
+        layout = _parquet_schema_layout(probe_schema_names)
+        if layout == "raw" and is_allele_aware_mode(self.identifier_mode):
+            raise ValueError(ALLELE_AWARE_R2_ENDPOINT_ERROR)
+
         if is_allele_aware_mode(self.identifier_mode):
             a1_col = resolve_required_column(metadata.columns, A1_COLUMN_SPEC, context=metadata_context)
             a2_col = resolve_required_column(metadata.columns, A2_COLUMN_SPEC, context=metadata_context)
@@ -1404,21 +1421,6 @@ class SortedR2BlockReader:
         self._last_query_key: tuple[int, int] | None = None
         self._last_query_rows: pd.DataFrame | None = None
 
-        try:
-            import pyarrow.parquet as pq
-        except ImportError:
-            pq = None
-
-        probe_schema_names: list[str]
-        if pq is not None:
-            probe_schema_names = list(pq.ParquetFile(paths[0]).schema_arrow.names)
-        else:
-            ds = get_pyarrow_modules()
-            probe_schema_names = list(ds.dataset(list(paths), format="parquet").schema.names)
-
-        layout = _parquet_schema_layout(probe_schema_names)
-        if layout == "raw" and is_allele_aware_mode(self.identifier_mode):
-            raise ValueError(ALLELE_AWARE_R2_ENDPOINT_ERROR)
         if layout == "canonical":
             if len(paths) != 1:
                 raise ValueError(

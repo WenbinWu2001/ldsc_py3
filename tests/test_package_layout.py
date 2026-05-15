@@ -424,11 +424,28 @@ class PackageLayoutTest(unittest.TestCase):
                 ]
             )
 
+    def test_munge_sumstats_subcommand_rejects_removed_no_alleles(self):
+        from ldsc import cli
+
+        parser = cli.build_parser()
+        with self.assertRaises(SystemExit):
+            parser.parse_args(
+                [
+                    "munge-sumstats",
+                    "--raw-sumstats-file",
+                    "raw.tsv",
+                    "--output-dir",
+                    "out/trait",
+                    "--no-alleles",
+                ]
+            )
+
     def test_sumstats_munger_public_api_excludes_removed_merge_alleles(self):
         from ldsc import sumstats_munger
 
         self.assertFalse(hasattr(sumstats_munger, "allele_merge"))
         self.assertNotIn("--merge-alleles", sumstats_munger.parser.format_help())
+        self.assertNotIn("--no-alleles", sumstats_munger.parser.format_help())
 
     def test_ldscore_subcommand_rejects_removed_print_snps_and_regression_snps_flags(self):
         from ldsc import cli

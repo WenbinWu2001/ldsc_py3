@@ -76,6 +76,9 @@ invalid/non-SNP, identical, strand-ambiguous, multi-allelic base-key, and
 duplicate effective-key clusters. Artifact duplicate filtering always computes
 the effective key for the active mode, then drops all rows in duplicate-key
 clusters.
+Allele-free summary-statistics munging is selected by using the base
+`--snp-identifier rsid` or `--snp-identifier chr_pos` mode, not by a separate
+allele-skip flag.
 
 Restriction files may omit alleles. Allele-free restrictions match by base key
 and can retain multiple candidate rows before later artifact cleanup. Packaged

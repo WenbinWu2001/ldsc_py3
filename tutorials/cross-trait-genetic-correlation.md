@@ -112,7 +112,9 @@ current provenance must be regenerated rather than loaded with inferred
 provenance. In `chr_pos_allele_aware` mode, both trait tables and the
 LD-score table merge by normalized `CHR:POS:<allele_set>` identity, and
 `SNP` is treated as a label. To run coordinate identity without allele-aware
-matching, set `snp_identifier="chr_pos"` or pass `--snp-identifier chr_pos`.
+matching, set `snp_identifier="chr_pos"` or pass `--snp-identifier chr_pos`;
+use the base `rsid` mode for rsID-only identity. The removed `--no-alleles`
+flag is not accepted.
 The munger defaults to `--format auto`, and `--infer-only` can report
 missing fields or exact repair flags without writing outputs. `A1` is the
 allele that the signed statistic is relative to; `A2` is its counterpart.

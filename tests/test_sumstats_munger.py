@@ -1476,25 +1476,17 @@ class SumstatsMungerTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "snp_identifier='chr_pos_allele_aware'.*--snp-identifier chr_pos"):
                 kernel_munge.munge_sumstats(args, p=True)
 
-    def test_allele_aware_mode_rejects_no_alleles_flag_with_base_mode_hint(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            raw_path = tmpdir / "raw.tsv"
-            raw_path.write_text("CHR POS SNP A1 A2 P BETA N\n1 100 rs1 A C 0.05 0.1 1000\n", encoding="utf-8")
-            args = kernel_munge.parser.parse_args(
+    def test_kernel_parser_rejects_removed_no_alleles_flag(self):
+        with self.assertRaises(SystemExit):
+            kernel_munge.parser.parse_args(
                 [
                     "--sumstats",
-                    str(raw_path),
+                    "raw.tsv",
                     "--out",
-                    str(tmpdir / "sumstats"),
+                    "sumstats",
                     "--no-alleles",
-                    "--snp-identifier",
-                    "chr_pos_allele_aware",
                 ]
             )
-
-            with self.assertRaisesRegex(ValueError, "--no-alleles.*snp_identifier='chr_pos_allele_aware'.*--snp-identifier chr_pos"):
-                kernel_munge.munge_sumstats(args, p=True)
 
     def test_kernel_missing_allele_error_suggests_ref_alt_columns(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1534,7 +1526,7 @@ class SumstatsMungerTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "snp_identifier='rsid_allele_aware'.*--snp-identifier rsid"):
                 kernel_munge.munge_sumstats(args, p=True)
 
-    def test_base_modes_run_without_alleles_when_no_alleles_is_passed(self):
+    def test_base_modes_run_without_alleles_without_extra_flag(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             rsid_raw = tmpdir / "rsid.tsv"
@@ -1550,7 +1542,6 @@ class SumstatsMungerTest(unittest.TestCase):
                     str(tmpdir / "rsid_out"),
                     "--snp-identifier",
                     "rsid",
-                    "--no-alleles",
                 ]
             )
             chr_pos_args = kernel_munge.parser.parse_args(
@@ -1563,7 +1554,6 @@ class SumstatsMungerTest(unittest.TestCase):
                     "chr_pos",
                     "--genome-build",
                     "hg38",
-                    "--no-alleles",
                 ]
             )
 
@@ -2365,6 +2355,30 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertFalse(result.runnable)
             self.assertIn("Missing fields: N", output)
             self.assertIn("NEFF is not treated as N", output)
+
+    def test_infer_only_base_mode_does_not_report_missing_alleles(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text("CHR POS SNP P BETA N\n1 100 rs1 0.05 0.1 1000\n", encoding="utf-8")
+            stdout = io.StringIO()
+
+            with contextlib.redirect_stdout(stdout):
+                result = sumstats_workflow.main(
+                    [
+                        "--raw-sumstats-file",
+                        str(raw_path),
+                        "--infer-only",
+                        "--snp-identifier",
+                        "chr_pos",
+                        "--genome-build",
+                        "hg38",
+                    ]
+                )
+
+            self.assertTrue(result.runnable)
+            self.assertNotIn("A1/A2", result.missing_fields)
+            self.assertNotIn("A1/A2", stdout.getvalue())
 
     def test_run_accepts_explicit_chr_and_pos_column_hints(self):
         with tempfile.TemporaryDirectory() as tmpdir:

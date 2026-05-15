@@ -238,7 +238,7 @@ liftover/coordinate configuration, or chromosome scope.
 |---|---:|---:|---|---|
 | `--raw-sumstats-file` | input | yes | raw summary-statistics file | Exact path or exact-one glob. |
 | `--format` | input metadata | no | raw summary-statistics format profile | One of `auto`, `plain`, `daner-old`, `daner-new`, or `pgc-vcf`; defaults to `auto`, which detects common plain text, old DANER, new DANER, and PGC VCF-style headers. Conflicts with incompatible legacy DANER flags are rejected. |
-| `--infer-only` | diagnostic | no | raw summary-statistics inference report | Reads the raw header and first data row, prints detected format, inferred hints, missing fields, notes, and a suggested minimal command. Does not require `--output-dir` and writes no artifacts. |
+| `--infer-only` | diagnostic | no | raw summary-statistics inference report | Reads the raw header and first data row, prints detected format, inferred hints, missing fields, notes, and a suggested minimal command. Missing `A1/A2` is reported only in allele-aware modes. Does not require `--output-dir` and writes no artifacts. |
 | `--sumstats-snps-file` | input | no | summary-statistics SNP keep-list | Restricts munged summary-statistics rows to a SNP keep-list loaded before parsing and applied while chunks are streaming; defaults to omitted/`None`, so no keep-list restriction is applied. |
 | `--use-hm3-snps` | input mode | no | packaged HM3 SNP restriction | Restricts munged summary-statistics rows to the packaged curated HM3 map while chunks are streaming. Mutually exclusive with `--sumstats-snps-file`. |
 | `--trait-name` | input metadata | no | biological trait label | Optional label stored in `sumstats.metadata.json`; downstream regression uses it unless a regression CLI `--trait-name` override is supplied. |
@@ -249,12 +249,12 @@ liftover/coordinate configuration, or chromosome scope.
 | `--liftover-chain-file` | input | no | optional munger liftover chain | Uses a source-to-target chain file for coordinate-only sumstats liftover. Mutually exclusive with `--use-hm3-quick-liftover`. |
 | `--use-hm3-quick-liftover` | input mode | no | packaged HM3 coordinate map | Uses the curated dual-build HM3 map for HM3-only quick liftover. Requires `--use-hm3-snps` and is mutually exclusive with `--liftover-chain-file`. |
 | `--daner-old`, `--daner-new` | input metadata | no | DANER schema interpretation | `--daner-old` parses case/control N from `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` headers; `--daner-new` parses exact `Nca` and `Nco` columns. |
-| `--snp-identifier`, `--genome-build` | config | no | provenance | `--snp-identifier` defaults to `chr_pos_allele_aware`; `--genome-build` defaults to `hg38`; `--genome-build auto` can infer hg19/hg38 for complete `CHR`/`POS` rows. Allele-aware modes require usable `A1/A2`; rerun with `--snp-identifier chr_pos` to disable allele-aware identity for coordinate workflows. |
+| `--snp-identifier`, `--genome-build` | config | no | provenance | `--snp-identifier` defaults to `chr_pos_allele_aware`; `--genome-build` defaults to `hg38`; `--genome-build auto` can infer hg19/hg38 for complete `CHR`/`POS` rows. Allele-aware modes require usable `A1/A2`; rerun with `--snp-identifier chr_pos` or `--snp-identifier rsid` to run without allele-aware identity. |
 | `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger records in console and `sumstats.log`; lifecycle audit lines always appear in the file. |
 | `--overwrite` | output mode | no | collision policy | Controls whether fixed sumstats outputs may be replaced; defaults to `False`, so any owned `sumstats.*` artifact is refused. With overwrite, stale sibling formats not produced by the current `--output-format` are removed after a successful run. |
 
 Removed flags: `--sumstats`, `--sumstats-file` for raw munge input,
-`--merge-alleles`, `--merge-alleles-file`, `--out`.
+`--merge-alleles`, `--merge-alleles-file`, `--no-alleles`, `--out`.
 
 Fixed output names:
 

@@ -112,8 +112,9 @@ provenance must be regenerated with the current LDSC package. With
 `snp_identifier="chr_pos_allele_aware"`, the merge uses normalized
 `CHR:POS:<allele_set>` identity rather than rsIDs, and the `SNP` column remains
 a label. To run coordinate identity without allele-aware matching, set
-`snp_identifier="chr_pos"` or pass `--snp-identifier chr_pos`. If raw sumstats
-coordinates need a build
+`snp_identifier="chr_pos"` or pass `--snp-identifier chr_pos`; use the base
+`rsid` mode for rsID-only identity. The removed `--no-alleles` flag is not
+accepted. If raw sumstats coordinates need a build
 conversion before this regression step, run `munge-sumstats` with
 `--target-genome-build` plus either `--liftover-chain-file` or
 `--use-hm3-snps --use-hm3-quick-liftover`. Liftover drops duplicate source/target coordinate

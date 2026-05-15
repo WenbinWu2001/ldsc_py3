@@ -624,7 +624,7 @@ class MungeConfig:
         non-missing tokens, for example ``IMPINFO=0.852,0.113,NA``. Mixed
         nonnumeric tokens are rejected with a repair suggestion. Default is
         ``()``.
-    no_alleles, a1_inc, keep_maf, daner_old, daner_new : bool, optional
+    a1_inc, keep_maf, daner_old, daner_new : bool, optional
         Legacy munging switches preserved for behavior compatibility. Defaults
         are ``False``.
     overwrite : bool, optional
@@ -656,7 +656,6 @@ class MungeConfig:
     ignore_columns: tuple[str, ...] = field(default_factory=tuple)
     info_list_columns: tuple[str, ...] = field(default_factory=tuple)
     sumstats_format: str = "auto"
-    no_alleles: bool = False
     a1_inc: bool = False
     keep_maf: bool = False
     daner_old: bool = False

@@ -100,7 +100,7 @@ because they serve different user models.
 | Workflow | Identifier default | Genome-build default | Notes |
 |---|---|---|---|
 | `annotate` | `chr_pos_allele_aware` | `None` (CLI requires explicit for coordinate-family modes) | Raises unless `--genome-build` is supplied or inferable by that workflow. |
-| `munge-sumstats` | `chr_pos_allele_aware` | workflow default/inference | Requires usable `A1/A2`; rerun with `--snp-identifier chr_pos` to disable allele-aware identity. |
+| `munge-sumstats` | `chr_pos_allele_aware` | workflow default/inference | Requires usable `A1/A2`; rerun with `--snp-identifier chr_pos` or `--snp-identifier rsid` to run without allele-aware identity. The removed `--no-alleles` flag is not accepted. |
 | `ldscore` | `chr_pos_allele_aware` | `None` (CLI requires explicit for coordinate-family modes) | Allele-aware parquet mode requires package-built canonical R2 endpoint alleles. |
 | `build-ref-panel` | registry or `--snp-identifier` | **ignored** | Uses `--source-genome-build` (separate field); `GlobalConfig.genome_build` is never consulted. |
 | `h2`, `partitioned-h2`, `rg` | registry at construction | registry at construction | On-disk provenance from LD-score manifests and sumstats sidecars takes precedence over the runner's live config. |

@@ -153,6 +153,8 @@ missing alleles, invalid or non-SNP alleles, identical pairs, strand-ambiguous
 pairs, package-wide multi-allelic base-key clusters, and duplicate effective
 merge-key clusters. The duplicate policy is drop-all after computing the
 effective merge key for the active mode.
+To munge raw summary statistics without allele columns, choose the base `rsid`
+or `chr_pos` SNP identifier mode; there is no separate allele-skip flag.
 
 Restriction files may omit alleles. Allele-free restrictions match by base key
 and can keep multiple candidate rows until later artifact cleanup. Packaged HM3

@@ -112,7 +112,8 @@ artifact(s) so later regression commands can recover `snp_identifier`,
 liftover bookkeeping is written to `sumstats.log`. The default
 `snp_identifier` is `chr_pos_allele_aware`, which requires usable `A1/A2`; rerun
 with `--snp-identifier chr_pos` to use coordinate identity without
-allele-aware matching. Use `--sumstats-snps-file`
+allele-aware matching. The legacy `--no-alleles` escape hatch is no longer
+accepted; choose the base `rsid` or `chr_pos` identity mode instead. Use `--sumstats-snps-file`
 when the munged artifact should be restricted to a headered SNP keep-list, or
 `--use-hm3-snps` to use the packaged curated HM3 map. Restriction files may omit
 alleles; allele-free restrictions, including packaged HM3 restrictions, match by

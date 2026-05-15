@@ -1042,9 +1042,6 @@ parser.add_argument('--daner-old', default=False, action='store_true',
 parser.add_argument('--daner-new', default=False, action='store_true',
                     help="Parse new DANER format with per-SNP case/control sample sizes in exact "
                     "Nca and Nco columns.")
-parser.add_argument('--no-alleles', default=False, action="store_true",
-                    help="Disable raw allele requirements only for base SNP identifier modes. "
-                    "Allele-aware modes, including the default chr_pos_allele_aware, still require usable A1/A2.")
 parser.add_argument('--n-min', default=None, type=float,
                     help='Minimum N (sample size). Default is (90th percentile N) / 2.')
 parser.add_argument('--chunksize', default=1_000_000, type=int,
@@ -1241,11 +1238,6 @@ def munge_sumstats(args, p=True):
             del cname_translation[x]
     mode = normalize_snp_identifier_mode(getattr(args, 'snp_identifier', 'chr_pos_allele_aware'))
     requires_alleles = is_allele_aware_mode(mode)
-    if args.no_alleles and requires_alleles:
-        raise ValueError(
-            f"--no-alleles cannot be used with snp_identifier={mode!r}. "
-            f"Rerun with --snp-identifier {identity_base_mode(mode)}."
-        )
     if requires_alleles and not all(x in cname_translation.values() for x in ['A1', 'A2']):
         raise ValueError(
             f"This run is using snp_identifier={mode!r}, which requires A1/A2 allele columns. "

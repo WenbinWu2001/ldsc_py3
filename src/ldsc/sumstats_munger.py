@@ -656,7 +656,6 @@ class SumstatsMunger:
         args.signed_sumstats = munge_config.signed_sumstats_spec
         args.ignore = ",".join(munge_config.ignore_columns) if munge_config.ignore_columns else None
         args.info_list = ",".join(munge_config.info_list_columns) if munge_config.info_list_columns else None
-        args.no_alleles = munge_config.no_alleles
         args.a1_inc = munge_config.a1_inc
         args.keep_maf = munge_config.keep_maf
         args.daner_old = munge_config.daner_old
@@ -707,8 +706,9 @@ def run_munge_sumstats_from_args(args: argparse.Namespace) -> SumstatsTable | Ra
     raw_config, munge_config = _munge_configs_from_args(args)
     _validate_sumstats_format_flags(munge_config)
     if getattr(args, "infer_only", False):
+        global_config = _resolve_main_global_config(args)
         source_path = resolve_scalar_path(raw_config.raw_sumstats_file, label="raw sumstats")
-        inference = infer_raw_sumstats(source_path, raw_config, munge_config)
+        inference = infer_raw_sumstats(source_path, raw_config, munge_config, global_config)
         print(_render_inference_report(inference, source_path))
         return inference
     return SumstatsMunger().run(raw_config, munge_config, _resolve_main_global_config(args))
@@ -806,7 +806,6 @@ def _munge_configs_from_args(args: argparse.Namespace) -> tuple[MungeConfig, Mun
         ignore_columns=_ignore_columns_from_args(args),
         info_list_columns=_info_list_columns_from_args(args),
         sumstats_format=getattr(args, "sumstats_format", "auto"),
-        no_alleles=args.no_alleles,
         a1_inc=args.a1_inc,
         keep_maf=args.keep_maf,
         daner_old=args.daner_old,
@@ -954,6 +953,7 @@ def infer_raw_sumstats(
     raw_sumstats_file: str | PathLike[str],
     raw_config: MungeConfig | None = None,
     munge_config: MungeConfig | None = None,
+    global_config: GlobalConfig | None = None,
 ) -> RawSumstatsInference:
     """Infer raw summary-statistics format and minimal parser hints.
 
@@ -961,10 +961,14 @@ def infer_raw_sumstats(
     plain text, old DANER, new DANER, and PGC VCF-style inputs; reports missing
     required fields; identifies numeric/NA comma-separated INFO lists; and
     returns exact CLI hints for cases that still need user confirmation. It
-    intentionally does not treat ``NEFF`` as total sample size ``N``.
+    intentionally does not treat ``NEFF`` as total sample size ``N``. Missing
+    ``A1/A2`` is reported only when the resolved ``global_config`` uses an
+    allele-aware SNP identifier mode; base modes are allele-blind and can munge
+    raw summary statistics without allele columns.
     """
     raw_config = raw_config or MungeConfig(raw_sumstats_file=raw_sumstats_file)
     munge_config = munge_config or MungeConfig()
+    global_config = global_config or get_global_config()
     path = resolve_scalar_path(raw_sumstats_file, label="raw sumstats")
     file_cnames = read_header(path)
     clean_headers = [clean_header(column) for column in file_cnames]
@@ -1021,8 +1025,9 @@ def infer_raw_sumstats(
                 "if its null value is 0 and it is oriented relative to A1."
             )
 
-    has_alleles = {"A1", "A2"}.issubset(translated) or munge_config.no_alleles
-    if not has_alleles:
+    requires_alleles = is_allele_aware_mode(global_config.snp_identifier)
+    has_alleles = {"A1", "A2"}.issubset(translated)
+    if requires_alleles and not has_alleles:
         missing.append("A1/A2")
         if "REF" in clean_set and "ALT" in clean_set:
             notes.append(

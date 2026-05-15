@@ -766,7 +766,12 @@ class ReferencePanelBuilder:
                 positions=build_positions,
                 cm_values=cm_values,
             )
-            kernel_builder.write_runtime_metadata_sidecar(runtime_metadata, meta_path)
+            kernel_builder.write_runtime_metadata_sidecar(
+                runtime_metadata,
+                meta_path,
+                genome_build=build,
+                snp_identifier=self.global_config.snp_identifier,
+            )
             output_paths[f"r2_{build}"] = str(r2_path)
             output_paths[f"meta_{build}"] = str(meta_path)
             retained_count = len(metadata)
@@ -1498,7 +1503,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--snp-identifier",
         default="chr_pos_allele_aware",
         choices=("rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"),
-        help="SNP identifier mode for --ref-panel-snps-file.",
+        help=(
+            "SNP identity mode for reference-panel cleanup, duplicate policy, "
+            "--ref-panel-snps-file matching, and emitted artifact provenance. "
+            "Allele-aware modes require usable A1/A2; base modes are allele-blind."
+        ),
     )
     parser.add_argument("--keep-indivs-file", default=None, help="Optional individual-keep file.")
     parser.add_argument(

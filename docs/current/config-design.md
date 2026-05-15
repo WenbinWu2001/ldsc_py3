@@ -333,15 +333,15 @@ callers who need to preserve that provenance should persist the
 **`load_sumstats()` recovers provenance for current disk artifacts.**
 Curated `sumstats.parquet` and `.sumstats(.gz)` artifacts written by the current
 munger have a neighboring `sumstats.metadata.json` sidecar that records a thin
-metadata payload: schema marker, optional trait label, and the active or
-inferred `GlobalConfig` snapshot. Detailed coordinate provenance, liftover
+metadata payload: `schema_version`, `artifact_type`, `snp_identifier`,
+`genome_build`, and optional `trait_name`. Detailed coordinate provenance, liftover
 reports, HM3 provenance, output bookkeeping, and row counts are written to
 `sumstats.log`; row-level liftover drops are written to
 `dropped_snps/dropped.tsv.gz`. Neither belongs in the metadata sidecar. The
-loader uses the sidecar to populate `config_snapshot`.
+loader reconstructs `config_snapshot` from the sidecar identity fields.
 Older package-written artifacts without the current sidecar are rejected with a
-regeneration message; pre-`config_snapshot` sidecars are treated as invalid
-metadata rather than a migrated older format.
+regeneration message; sidecars missing the current identity provenance are
+treated as invalid metadata rather than a migrated older format.
 
 **LD-score directories must carry current identity provenance.**
 Canonical LD-score directories written by the current workflow include a manifest

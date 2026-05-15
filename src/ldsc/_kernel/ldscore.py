@@ -733,7 +733,7 @@ def resolve_frequency_files(args: argparse.Namespace, chrom: str | None = None) 
 def read_text_table(path: str) -> pd.DataFrame:
     """Read a whitespace-delimited kernel input table with optional gzip compression."""
     compression = "gzip" if path.endswith(".gz") else None
-    return pd.read_csv(path, sep=r"\s+", compression=compression)
+    return pd.read_csv(path, sep=r"\s+", compression=compression, comment="#")
 
 
 def _resolve_r2_source_columns(schema_names: Iterable[str], context: str | None = None) -> dict[str, str]:

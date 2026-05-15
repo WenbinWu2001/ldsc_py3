@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+import gzip
 import logging
 from pathlib import Path
 import re
@@ -463,7 +464,16 @@ class ParquetR2RefPanel(RefPanel):
         r2_paths = self.resolve_r2_paths(chrom)
         metadata_paths = self.resolve_metadata_paths(chrom)
         if metadata_paths:
-            frames = [_read_metadata_table(path, chrom=chrom, global_config=self.global_config) for path in metadata_paths]
+            require_identity_metadata = any(_r2_path_has_ldsc_package_schema(path) for path in r2_paths)
+            frames = [
+                _read_metadata_table(
+                    path,
+                    chrom=chrom,
+                    global_config=self.global_config,
+                    require_identity_metadata=require_identity_metadata,
+                )
+                for path in metadata_paths
+            ]
             frames = [frame for frame in frames if len(frame) > 0]
             if not frames:
                 raise ValueError(f"No parquet metadata rows found for chromosome {chrom}.")
@@ -868,13 +878,72 @@ def _chrom_sort_key(chrom: str) -> tuple[int, str]:
     return chrom_sort_key(chrom)
 
 
-def _read_metadata_table(path: str | Path, chrom: str | None, global_config: GlobalConfig) -> pd.DataFrame:
+def _read_metadata_sidecar_identity(path: str | Path) -> dict[str, object] | None:
+    """Read leading ``# ldsc:*`` identity metadata from a runtime sidecar."""
+    opener = gzip.open if str(path).endswith(".gz") else open
+    raw: dict[str, str] = {}
+    with opener(path, "rt", encoding="utf-8") as handle:
+        for line in handle:
+            if not line.startswith("#"):
+                break
+            marker = "# ldsc:"
+            if not line.startswith(marker):
+                continue
+            key, sep, value = line[len(marker) :].strip().partition("=")
+            if sep != "":
+                raw[key] = value
+    if not raw:
+        return None
+    required = {"schema_version", "artifact_type", "snp_identifier", "genome_build"}
+    if not required.issubset(raw):
+        raise ValueError(REGENERATE_ARTIFACT_MESSAGE)
+    return {
+        "schema_version": int(raw["schema_version"]),
+        "artifact_type": raw["artifact_type"],
+        "snp_identifier": raw["snp_identifier"],
+        "genome_build": raw["genome_build"],
+    }
+
+
+def _validate_metadata_identity_matches_config(metadata: dict[str, object], global_config: GlobalConfig) -> None:
+    """Reject package metadata sidecars built under different identity assumptions."""
+    artifact_config = GlobalConfig(
+        snp_identifier=str(metadata["snp_identifier"]),
+        genome_build=metadata.get("genome_build"),
+    )
+    validate_config_compatibility(
+        artifact_config,
+        global_config,
+        context="runtime config and reference-panel metadata artifact",
+    )
+
+
+def _read_metadata_table(
+    path: str | Path,
+    chrom: str | None,
+    global_config: GlobalConfig,
+    *,
+    require_identity_metadata: bool = False,
+) -> pd.DataFrame:
     """Read one reference-panel metadata table into the normalized column set."""
-    df = pd.read_csv(path, sep=r"\s+", compression="gzip" if str(path).endswith(".gz") else None)
     snp_identifier = normalize_snp_identifier_mode(global_config.snp_identifier)
     assert global_config.genome_build in {"hg19", "hg38", None}, (
         f"genome_build reached kernel as {global_config.genome_build!r}; "
         "should have been resolved at workflow entry."
+    )
+
+    identity_metadata = _read_metadata_sidecar_identity(path)
+    if require_identity_metadata and identity_metadata is None:
+        raise ValueError(REGENERATE_ARTIFACT_MESSAGE)
+    if identity_metadata is not None:
+        validate_identity_artifact_metadata(identity_metadata, expected_artifact_type="ref_panel_metadata")
+        _validate_metadata_identity_matches_config(identity_metadata, global_config)
+
+    df = pd.read_csv(
+        path,
+        sep=r"\s+",
+        compression="gzip" if str(path).endswith(".gz") else None,
+        comment="#",
     )
     context = str(path)
 

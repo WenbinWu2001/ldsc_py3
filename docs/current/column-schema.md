@@ -82,6 +82,11 @@ requiring users to repeat sample-size arguments. Old package-written artifacts
 without current identity provenance must be regenerated with the current
 package.
 
+Reference-panel metadata sidecars (`chr{chrom}_meta.tsv.gz`) remain TSV files,
+but current package-written sidecars start with comment lines carrying the same
+minimal identity provenance as `ldsc:schema_version`, `ldsc:artifact_type`,
+`ldsc:snp_identifier`, and `ldsc:genome_build`.
+
 `N`, `N_CAS`, `N_CON`, and `NSTUDY` remain `float64` in memory and are **not**
 subject to float32 narrowing. Curated `sumstats.parquet` keeps `N` as numeric
 data; legacy `.sumstats.gz` writes the selected curated columns as text with the

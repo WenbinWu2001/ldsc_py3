@@ -70,7 +70,7 @@ The implementation must keep a hard branch between base and allele-aware modes:
 | `src/ldsc/sumstats_munger.py` | Enforce allele-aware inputs, write/read minimal identity metadata, run global identity cleanup after liftover, extend dropped-SNP sidecar schema. |
 | `src/ldsc/_kernel/sumstats_munger.py` | Use four modes in parser and chunk filtering; remove rsID-only duplicate keep-first behavior and call shared cleanup at final identity point. |
 | `src/ldsc/ref_panel_builder.py` | Apply shared identity cleanup after restrictions and after liftover synchronization; reject rsID-family liftover; add allele-aware metadata and sidecar rows. |
-| `src/ldsc/_kernel/ref_panel_builder.py` | Emit endpoint allele columns in R2 parquet; write identity schema metadata to parquet; write `A1/A2` in runtime metadata sidecars. |
+| `src/ldsc/_kernel/ref_panel_builder.py` | Emit endpoint allele columns in R2 parquet; write identity schema metadata to parquet and runtime metadata sidecars; write `A1/A2` in runtime metadata sidecars. |
 | `src/ldsc/_kernel/ref_panel.py` | Validate package-built R2 and metadata artifacts; reject old package artifacts; reject external raw R2 in allele-aware modes. |
 | `src/ldsc/_kernel/ldscore.py` | Use identity keys in annotation/reference/R2 matching; validate canonical R2 endpoint alleles in allele-aware modes; write LD-score rows with `A1/A2`. |
 | `src/ldsc/ldscore_calculator.py` | Preserve `A1/A2` through `ChromLDScoreResult`/`LDScoreResult`, manifest, and split baseline/query tables. |
@@ -1995,7 +1995,7 @@ git commit -m "fix: handle allele-aware identity edge cases"
 - [ ] Restrictions with alleles match by effective key in allele-aware modes.
 - [ ] Raw external R2 parquet works only in `rsid` and `chr_pos`.
 - [ ] Canonical R2 parquet writes `A1_1`, `A2_1`, `A1_2`, `A2_2`.
-- [ ] Reference metadata sidecars write `A1`, `A2`.
+- [ ] Reference metadata sidecars write identity provenance plus `A1`, `A2`.
 - [ ] LD-score outputs include `A1`, `A2` in allele-aware modes.
 - [ ] Old package-written artifacts are rejected with a regeneration message.
 - [ ] Regression exact-mode compatibility is enforced by default.

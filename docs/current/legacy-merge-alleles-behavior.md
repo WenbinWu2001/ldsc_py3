@@ -45,10 +45,14 @@ error.
 
 ## Important distinction from `sumstats_snps_file`
 
-`sumstats_snps_file` is only an identity keep-list. It filters rows by `rsid`
-or by packed `chr_pos` keys, depending on `GlobalConfig.snp_identifier`.
+`sumstats_snps_file` is only an identity keep-list. It filters rows by the
+effective key for `GlobalConfig.snp_identifier`: `SNP` in `rsid`,
+`SNP:<allele_set>` in `rsid_allele_aware`, `CHR:POS` in `chr_pos`, and
+`CHR:POS:<allele_set>` in `chr_pos_allele_aware`. Headered keep-lists in
+allele-aware modes may provide `A1/A2`; base modes ignore allele columns for
+retention.
 
-It does not read reference `A1/A2`, does not reorder output to a reference
-allele file, and does not validate, flip, or harmonize alleles. Future A1/A2
-harmonization should be designed as an explicit workflow rather than reusing
-the deprecated `merge-alleles` interface.
+It does not reorder output to a reference allele file and does not perform
+post-filter harmonization. Sumstats signed statistics are oriented by the
+munger's own `A1` convention, and regression performs pairwise allele
+orientation when matching current allele-aware sumstats and LD-score artifacts.

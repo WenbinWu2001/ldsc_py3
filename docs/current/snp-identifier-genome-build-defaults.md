@@ -124,7 +124,7 @@ Regression workflows (`h2`, `partitioned-h2`, `rg`) can see three independent
 `GlobalConfig` sources for any given run:
 
 1. The LD-score manifest snapshot — `LDScoreResult.config_snapshot`
-2. The sumstats sidecar snapshot — `SumstatsTable.config_snapshot`
+2. The reconstructed sumstats artifact snapshot — `SumstatsTable.config_snapshot`
 3. The runner's live `self.global_config` — from the process registry at construction time
 
 **Pair validation** (`build_dataset`, lines 132–137) fires when both on-disk
@@ -189,7 +189,7 @@ must supply `genome_build="auto"` or a concrete build.
 | `config.py` | `__post_init__` | Raise for coordinate-family `genome_build=None` with fix-it message |
 | `config.py` | `_GLOBAL_CONFIG` and `reset_global_config()` | `GlobalConfig()` — no explicit args needed |
 | `ref_panel_builder.py` | `config_from_args` | Add `genome_build="auto"` (satisfies invariant; value is ignored by the workflow) |
-| `sumstats_munger.py` | `_effective_sumstats_config` | Guard: `genome_build = coordinate_metadata.get("genome_build") or config.genome_build` so the effective snapshot uses inferred or lifted coordinates when available; new sidecars serialize only the thin `config_snapshot` needed on reload |
+| `sumstats_munger.py` | `_effective_sumstats_config` | Guard: `genome_build = coordinate_metadata.get("genome_build") or config.genome_build` so the effective in-memory snapshot uses inferred or lifted coordinates when available; new sidecars serialize only minimal identity provenance used to reconstruct that snapshot on reload |
 | `regression_runner.py` | manifest loading | Current manifests must carry minimal identity provenance; old package-written artifacts should be regenerated |
 | `regression_runner.py` | `build_dataset` empty-merge error | Append `f"Active config: {self.global_config!r}."` |
 

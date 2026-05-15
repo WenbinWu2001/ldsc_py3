@@ -727,11 +727,24 @@ def write_r2_parquet(
     return str(path)
 
 
-def write_runtime_metadata_sidecar(df: pd.DataFrame, path: str | PathLike[str]) -> str:
+def write_runtime_metadata_sidecar(
+    df: pd.DataFrame,
+    path: str | PathLike[str],
+    *,
+    genome_build: str,
+    snp_identifier: str,
+) -> str:
     """Write one gzip-compressed LDSC runtime metadata sidecar."""
 
     _ensure_parent_dir(path)
+    identity_metadata = identity_artifact_metadata(
+        artifact_type="ref_panel_metadata",
+        snp_identifier=snp_identifier,
+        genome_build=genome_build,
+    )
     with gzip.open(path, "wt", encoding="utf-8") as handle:
+        for key, value in identity_metadata.items():
+            handle.write(f"# ldsc:{key}={value}\n")
         df.to_csv(handle, sep="\t", index=False, na_rep="NA", float_format="%.6g")
     return str(path)
 

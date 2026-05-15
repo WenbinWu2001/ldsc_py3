@@ -64,13 +64,14 @@ output, and metadata contracts.
   liftover drops (`missing_coordinate`, `source_duplicate`,
   `unmapped_liftover`, `cross_chromosome_liftover`, `target_collision`).
 - Newly written `sumstats.metadata.json` sidecars are intentionally thin:
-  `format`, optional `trait_name`, and `config_snapshot`.
+  `schema_version`, `artifact_type`, `snp_identifier`, `genome_build`, and
+  optional `trait_name`.
 - Detailed coordinate provenance, liftover counts, HM3 map provenance, output
   paths, and row-group details are readable `sumstats.log` entries rather than
   sidecar payloads.
-- Old pre-`config_snapshot` sidecars are not supported, and package-written
-  sumstats artifacts with missing sidecars must be regenerated with the current
-  LDSC package.
+- Old sidecars without the current identity provenance are not supported, and
+  package-written sumstats artifacts with missing sidecars must be regenerated
+  with the current LDSC package.
 - HM3 quick liftover is a packaged-map coordinate shortcut, not a general
   chain-liftover replacement.
 
@@ -131,7 +132,7 @@ output, and metadata contracts.
 ## Backward Compatibility Rules
 
 - Sumstats sidecars written by the current workflow must include
-  `config_snapshot`.
+  `schema_version`, `artifact_type`, `snp_identifier`, and `genome_build`.
 - Old package-written sumstats metadata sidecars without current identity
   provenance do not need migration support.
 - Missing sumstats sidecars on package-written artifacts are rejected; those

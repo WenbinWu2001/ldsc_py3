@@ -217,7 +217,7 @@ flowchart LR
 | File | Example | Notes |
 | --- | --- | --- |
 | build-specific R2 parquet | `hg38/chr22_r2.parquet` with columns `CHR`, `POS_1`, `POS_2`, `SNP_1`, `SNP_2`, `R2`, plus endpoint `A1_1/A2_1/A1_2/A2_2` when available | one row per unordered SNP pair inside the LD window; endpoint allele columns are required in allele-aware modes; row groups are sorted by that build's `POS_1`; schema metadata records minimal identity provenance plus `ldsc:n_samples` and `ldsc:r2_bias` |
-| build-specific runtime metadata sidecar | `hg38/chr22_meta.tsv.gz` with `CHR POS SNP CM MAF A1 A2` when alleles are available | authoritative SNP universe for the matching R2 parquet when present; `A1/A2` are required in allele-aware modes |
+| build-specific runtime metadata sidecar | `hg38/chr22_meta.tsv.gz` with leading `# ldsc:*` identity-provenance comments and `CHR POS SNP CM MAF A1 A2` when alleles are available | authoritative SNP universe for the matching R2 parquet when present; current package-written sidecars carry `schema_version`, `artifact_type`, `snp_identifier`, and `genome_build`; `A1/A2` are required in allele-aware modes |
 | dropped-SNP audit sidecar | `dropped_snps/chr22_dropped.tsv.gz` with `CHR SNP source_pos target_pos reason base_key identity_key allele_set stage` | always written for each processed chromosome; header-only when no rows were dropped; identity reasons include `missing_allele`, `invalid_allele`, `strand_ambiguous_allele`, `multi_allelic_base_key`, and `duplicate_identity`; liftover reasons include `source_duplicate`, `unmapped_liftover`, `cross_chromosome_liftover`, and `target_collision` |
 | workflow log | plain-text lifecycle and package records | `build-ref-panel.log` under `output_dir`; not included in `ReferencePanelBuildResult.output_paths` |
 
@@ -379,7 +379,7 @@ flowchart LR
 | --- | --- | --- |
 | curated sumstats | `SNP CHR POS A1 A2 Z N`<br/>`rs3131969 1 754182 A G 0.74 829249.58` | written as `sumstats.parquet` by default under `output_dir`; `--output-format tsv.gz` writes legacy `sumstats.sumstats.gz`, and `both` writes both; `CHR`/`POS` are present and may be missing when absent from raw input; optional `FRQ` may also be present |
 | log file | plain-text lifecycle, QC log, coordinate provenance, readable liftover reports, HM3 provenance, output bookkeeping, and count-level drop summaries | workflow-owned `sumstats.log` under `output_dir`, populated from package logger messages emitted during workflow orchestration and kernel QC; excluded from `MungeRunSummary.output_paths` |
-| metadata sidecar | thin JSON with schema marker, optional `trait_name`, and `config_snapshot` | written as `sumstats.metadata.json` under `output_dir`; used by `load_sumstats()` to recover config provenance and trait labels |
+| metadata sidecar | thin JSON with `schema_version`, `artifact_type`, `snp_identifier`, `genome_build`, and optional `trait_name` | written as `sumstats.metadata.json` under `output_dir`; used by `load_sumstats()` to reconstruct config provenance and trait labels |
 | dropped-SNP audit sidecar | `CHR SNP source_pos target_pos reason base_key identity_key allele_set stage` | always written as `dropped_snps/dropped.tsv.gz`; header-only when no rows were dropped; reasons may include identity drops (`missing_allele`, `invalid_allele`, `strand_ambiguous_allele`, `multi_allelic_base_key`, `duplicate_identity`) and liftover drops (`missing_coordinate`, `source_duplicate`, `unmapped_liftover`, `cross_chromosome_liftover`, `target_collision`) |
 
 ### Modules used

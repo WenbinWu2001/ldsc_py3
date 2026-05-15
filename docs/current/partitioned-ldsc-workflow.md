@@ -129,9 +129,10 @@ Current `ldsc munge-sumstats` outputs include canonical `CHR` and `POS` columns
 beside `SNP`, `Z`, and `N`, write `sumstats.parquet` by default, write
 `sumstats.metadata.json` beside the table, and write
 `dropped_snps/dropped.tsv.gz` for row-level liftover-drop auditing. The metadata
-sidecar stores the thin compatibility payload: schema marker, optional trait
-label, and effective `config_snapshot`. Legacy `.sumstats.gz` files without the
-sidecar still load, but their config provenance is treated as unknown.
+sidecar stores the thin compatibility payload: `schema_version`,
+`artifact_type`, `snp_identifier`, `genome_build`, and optional `trait_name`.
+Legacy package-written `.sumstats.gz`
+files without the current sidecar are rejected and must be regenerated.
 In allele-aware modes, current sumstats artifacts require usable `A1/A2`. To
 run without allele-aware SNP identity, set `--snp-identifier chr_pos` or
 `--snp-identifier rsid` intentionally.

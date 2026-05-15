@@ -450,9 +450,11 @@ Removed Python/public argparse names: `sumstats`, `sumstats_1`, `sumstats_2`,
 
 Current curated `sumstats.parquet` and `.sumstats.gz` artifacts provide
 canonical `SNP`, `CHR`, `POS`, `Z`, and `N` fields when written by
-`ldsc munge-sumstats`, plus a neighboring metadata sidecar with optional
-`trait_name` and the effective `config_snapshot`. `load_sumstats()` resolves
-labels as explicit override, then sidecar `trait_name`, then filename fallback.
+`ldsc munge-sumstats`, plus a neighboring metadata sidecar with
+`schema_version`, `artifact_type`, `snp_identifier`, `genome_build`, and
+optional `trait_name`. `load_sumstats()` reconstructs the config snapshot from
+that identity provenance and resolves labels as explicit override, then sidecar
+`trait_name`, then filename fallback.
 Liftover reports, coordinate provenance, selected curated output files, and
 Parquet row groups are log provenance, not metadata sidecar payload.
 Regression therefore merges on the effective identity key: literal `SNP` in
@@ -462,7 +464,8 @@ Regression therefore merges on the effective identity key: literal `SNP` in
 `sumstats_snps_file` filtering. Liftover drop counts are written as readable log
 records, examples appear only at `DEBUG`, and row-level dropped-SNP details are
 written to `dropped_snps/dropped.tsv.gz`. The metadata sidecar stays limited
-to current artifact provenance and must include `config_snapshot`.
+to current artifact provenance and must include the minimal identity fields
+`schema_version`, `artifact_type`, `snp_identifier`, and `genome_build`.
 
 ## Remaining Implementation Checklist
 

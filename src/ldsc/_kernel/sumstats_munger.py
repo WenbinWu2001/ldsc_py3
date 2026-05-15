@@ -1089,7 +1089,7 @@ parser.add_argument('--a1-inc', default=False, action='store_true',
 parser.add_argument('--keep-maf', default=False, action='store_true',
                     help='Keep the MAF column (if one exists).')
 parser.add_argument('--snp-identifier', default='chr_pos_allele_aware', choices=('rsid', 'rsid_allele_aware', 'chr_pos', 'chr_pos_allele_aware'),
-                    help="SNP identifier mode recorded in munged metadata.")
+                    help="SNP identity mode for filtering, duplicate policy, and emitted artifact provenance. Allele-aware modes require usable A1/A2; base modes are allele-blind.")
 parser.add_argument('--genome-build', default='hg38', choices=('auto', 'hg19', 'hg37', 'GRCh37', 'hg38', 'GRCh38'),
                     help="Genome build for CHR/POS coordinates, or 'auto' to infer when possible.")
 

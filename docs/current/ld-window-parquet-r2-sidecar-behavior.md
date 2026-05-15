@@ -13,16 +13,21 @@ chr{chrom}_r2.parquet
 chr{chrom}_meta.tsv.gz
 ```
 
-The R2 parquet stores pairwise LD rows:
+The R2 parquet stores pairwise LD rows. Allele-aware package artifacts also
+carry endpoint alleles:
 
 ```text
-CHR  POS_1  POS_2  SNP_1  SNP_2  R2
+CHR  POS_1  POS_2  SNP_1  SNP_2  A1_1  A2_1  A1_2  A2_2  R2
 ```
 
 The metadata sidecar stores the retained SNP universe:
 
 ```text
-CHR  POS  SNP  CM  MAF
+# ldsc:schema_version=1
+# ldsc:artifact_type=ref_panel_metadata
+# ldsc:snp_identifier=chr_pos_allele_aware
+# ldsc:genome_build=hg38
+CHR  POS  SNP  CM  MAF  A1  A2
 ```
 
 At LD-score runtime, pairwise R2 values come from `chr{chrom}_r2.parquet`.
@@ -105,7 +110,9 @@ Consequences:
 ## Practical Contract
 
 Package-built parquet R2 panels should keep `chr{chrom}_meta.tsv.gz` alongside
-`chr{chrom}_r2.parquet` for every chromosome and emitted build.
+`chr{chrom}_r2.parquet` for every chromosome and emitted build. Current
+package-written metadata sidecars carry leading identity-provenance comments;
+old package-written sidecars without those comments must be regenerated.
 
 The missing-sidecar fallback is a compatibility path for limited external or
 legacy inputs. It is acceptable for some SNP- and kb-window runs, but it is not

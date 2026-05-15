@@ -112,10 +112,10 @@ SNP filtering. It is valid for chr_pos-family modes because rsID-family modes
 do not use positions for row identity. Chain-file liftover and HM3 quick liftover both
 update `CHR`/`POS` only; `SNP` remains a label. HM3 quick liftover requires
 `--use-hm3-snps`, so HM3 filtering and HM3 coordinate conversion are explicit
-separate steps. The
-metadata sidecar records the final output build through `config_snapshot`; the
-source/target/method/drop counts, duplicate-coordinate drops, and coordinate
-inference details are written to the run log.
+separate steps. The metadata sidecar records the final output build in its
+`genome_build` identity field; the source/target/method/drop counts,
+duplicate-coordinate drops, and coordinate inference details are written to the
+run log.
 
 ## Annotation Inputs
 
@@ -195,10 +195,11 @@ systems.
 ## Output Behavior
 
 When inference succeeds, logs include the selected build, whether the input was
-1-based or 0-based, and the support for all four hypotheses. For sumstats,
-the metadata sidecar records only the final compatibility build through
-`config_snapshot`; inferred-build evidence, coordinate basis, and count-level
-liftover provenance stay in the log. Row-level liftover drops are audited in
-`dropped_snps/dropped.tsv.gz`, while example SNPs remain `DEBUG`-only.
+1-based or 0-based, and the support for all four hypotheses. For sumstats, the
+metadata sidecar records only the final compatibility build through the minimal
+`genome_build` identity field; inferred-build evidence, coordinate basis, and
+count-level liftover provenance stay in the log. Row-level liftover drops are
+audited in `dropped_snps/dropped.tsv.gz`, while example SNPs remain
+`DEBUG`-only.
 
 All normalized `chr_pos` coordinates used downstream are 1-based.

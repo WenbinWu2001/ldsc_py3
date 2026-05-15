@@ -2646,7 +2646,7 @@ class ReferencePanelBuilderSourceOnlySmokeTest(unittest.TestCase):
             self.assertTrue(Path(build_result.output_paths["r2_hg38"][0]).exists())
             self.assertTrue(Path(build_result.output_paths["meta_hg38"][0]).exists())
 
-            meta_hg38 = pd.read_csv(build_result.output_paths["meta_hg38"][0], sep="\t")
+            meta_hg38 = pd.read_csv(build_result.output_paths["meta_hg38"][0], sep="\t", comment="#")
             self.assertTrue(meta_hg38["CM"].isna().all())
 
 
@@ -2685,8 +2685,8 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
             self.assertIn("meta_hg38", build_result.output_paths)
             self.assertIn("r2_hg19", build_result.output_paths)
             self.assertIn("r2_hg38", build_result.output_paths)
-            meta_hg19 = pd.read_csv(build_result.output_paths["meta_hg19"][0], sep="\t")
-            meta_hg38 = pd.read_csv(build_result.output_paths["meta_hg38"][0], sep="\t")
+            meta_hg19 = pd.read_csv(build_result.output_paths["meta_hg19"][0], sep="\t", comment="#")
+            meta_hg38 = pd.read_csv(build_result.output_paths["meta_hg38"][0], sep="\t", comment="#")
             self.assertTrue(meta_hg19["CM"].isna().all())
             self.assertFalse(meta_hg38["CM"].isna().any())
             self.assertTrue(Path(build_result.output_paths["r2_hg19"][0]).exists())
@@ -2754,14 +2754,14 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
             self.assertTrue(Path(meta_hg38_path).exists())
 
             with gzip.open(meta_hg38_path, "rt", encoding="utf-8") as handle:
-                meta = pd.read_csv(handle, sep="\t")
+                meta = pd.read_csv(handle, sep="\t", comment="#")
             baseline = tmpdir / "baseline.annot.gz"
             baseline_df = meta.loc[:, ["CHR", "POS", "SNP", "CM"]].rename(columns={"POS": "BP"})
             baseline_df["base"] = 1.0
             with gzip.open(baseline, "wt", encoding="utf-8") as handle:
                 baseline_df.to_csv(handle, sep="\t", index=False)
 
-            set_global_config(GlobalConfig(snp_identifier="rsid"))
+            set_global_config(GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"))
             try:
                 direct = ldscore_calculator.run_ldscore(
                     output_dir=str(tmpdir / "direct"),

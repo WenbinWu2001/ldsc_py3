@@ -184,8 +184,10 @@ A1_1, A2_1, A1_2, A2_2
 These columns are required in allele-aware modes and ignored for identity in
 base modes.
 
-Reference-panel metadata sidecars write `A1/A2` whenever available. They are
-required in allele-aware modes.
+Reference-panel metadata sidecars write current identity provenance plus
+`A1/A2` whenever available. Alleles are required in allele-aware modes, and old
+package-written metadata sidecars without current provenance must be
+regenerated.
 
 Reference-panel dropped-SNP sidecars remain always written per processed
 chromosome:

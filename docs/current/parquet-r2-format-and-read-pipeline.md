@@ -203,14 +203,19 @@ in multiple consecutive rows — one per right-side neighbor within the LD windo
 ### 2.7 SNP Metadata Sidecar
 
 The R² parquet stores **only pairwise data** (`CHR`, `POS_1`, `POS_2`,
-`SNP_1`, `SNP_2`, `R2`). Per-SNP metadata — chromosome, base position, rsID, genetic
-distance, and minor allele frequency — is kept in a separate **metadata sidecar**
-file. The sidecar is optional, but strongly recommended for production use.
+`SNP_1`, `SNP_2`, endpoint alleles in allele-aware package artifacts, and
+`R2`). Per-SNP metadata — chromosome, base position, rsID, genetic distance,
+minor allele frequency, and alleles when available — is kept in a separate
+**metadata sidecar** file. Current package-written sidecars begin with
+`# ldsc:*` identity-provenance comments (`schema_version`, `artifact_type`,
+`snp_identifier`, `genome_build`) before the TSV header.
 
 Treat the parquet R² file and the metadata sidecar as a paired artifact when
 possible. Together they define one logical reference panel: the parquet provides
 pairwise LD entries, while the sidecar provides the complete per-SNP metadata
-needed for MAF filtering, common counts, and cM windows.
+needed for identity validation, MAF filtering, common counts, and cM windows.
+When the paired R² parquet is package-written, sidecars without current identity
+provenance are rejected and must be regenerated.
 
 #### Fallback when the sidecar is absent
 

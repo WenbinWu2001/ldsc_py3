@@ -52,7 +52,7 @@ from ._kernel.identifiers import (
     normalize_snp_identifier_mode,
     validate_unique_snp_ids,
 )
-from ._kernel.snp_identity import identity_mode_family
+from ._kernel.snp_identity import identity_base_mode, identity_mode_family, is_allele_aware_mode
 from ._row_alignment import assert_same_snp_rows
 from .chromosome_inference import normalize_chromosome
 from .column_inference import (
@@ -134,9 +134,9 @@ class AnnotationBundle:
         ----------
         snp_identifier : str, optional
             Canonical identifier mode used for uniqueness checks. Default is
-            ``"chr_pos"``.
+            ``"chr_pos_allele_aware"``.
         """
-        snp_identifier = normalize_snp_identifier_mode(snp_identifier)
+        snp_identifier = self._annotation_identity_mode(snp_identifier)
         if len(self.metadata) != len(self.baseline_annotations):
             raise ValueError("metadata and baseline_annotations must have the same number of rows.")
         if len(self.metadata) != len(self.query_annotations):
@@ -156,7 +156,7 @@ class AnnotationBundle:
             Canonical identifier mode used to build the SNP universe. Default is
             ``"chr_pos_allele_aware"``.
         """
-        mode = normalize_snp_identifier_mode(snp_identifier)
+        mode = self._annotation_identity_mode(snp_identifier)
         if identity_mode_family(mode) == "rsid":
             return set(build_snp_id_series(self.metadata, mode))
         keyed, _report = build_chr_pos_key_frame(
@@ -166,6 +166,13 @@ class AnnotationBundle:
             logger=LOGGER,
         )
         return set(keyed[CHR_POS_KEY_COLUMN].astype(str))
+
+    def _annotation_identity_mode(self, snp_identifier: str) -> str:
+        """Return the effective annotation identity mode for this metadata."""
+        mode = normalize_snp_identifier_mode(snp_identifier)
+        if is_allele_aware_mode(mode) and not {"A1", "A2"}.issubset(self.metadata.columns):
+            return identity_base_mode(mode)
+        return mode
 
     def has_full_baseline_cover(self) -> bool:
         """Return ``True`` when baseline annotations cover every metadata row."""

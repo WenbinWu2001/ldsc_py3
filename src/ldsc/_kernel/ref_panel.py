@@ -891,8 +891,8 @@ def _read_metadata_table(path: str | Path, chrom: str | None, global_config: Glo
     try:
         snp_col = resolve_required_column(df.columns, REFERENCE_METADATA_SPEC_MAP["SNP"], context=context)
     except ValueError:
-        # Metadata may be chr_pos-only; mode-specific validation below decides
-        # whether the missing SNP column is an error.
+        # Metadata may be coordinate-only; mode-specific validation below
+        # decides whether the missing SNP column is an error.
         pass
 
     family = identity_mode_family(snp_identifier)

@@ -237,8 +237,8 @@ that could drift.
 A merge-cache design that hoisted `pd.merge(trait_i, ldscore_frame)` out
 of the per-pair loop and stored it per trait was considered. Estimated
 benefit at N<10 with one baseline LD column: ~10% wall-time reduction
-(~1–2 minutes off a ~15-minute run for N=9 in chr_pos mode; less in rsid
-mode). Estimated cost: ~0.8–1.2 GB of cached state plus ~3.5× the
+(~1-2 minutes off a ~15-minute run for N=9 in coordinate-family mode; less in
+rsID-family mode). Estimated cost: ~0.8-1.2 GB of cached state plus ~3.5x the
 implementation surface (~230 vs ~85 LOC) and a permanent byte-identity
 test against `build_rg_dataset`. The savings sit below the
 user-noticeable wall-clock threshold at this scale and the maintenance

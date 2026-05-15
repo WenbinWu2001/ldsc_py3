@@ -91,7 +91,7 @@ _MAX_PACKED_POS = (1 << 32) - 1
 
 
 def build_chr_pos_snp_id(chrom: object, pos: object, *, context: str | None = None) -> str:
-    """Build the canonical ``CHR:POS`` identifier used in ``chr_pos`` mode."""
+    """Build the canonical ``CHR:POS`` base key used by coordinate-family modes."""
     context = "CHR/POS identifier" if context is None else context
     chrom_norm = normalize_chromosome(chrom, context=context)
     pos_int = int(positive_int_position_series(pd.Series([pos]), context=context).iloc[0])
@@ -180,7 +180,7 @@ def validate_unique_snp_ids(df: pd.DataFrame, mode: str, context: str = "table")
         if mode == "chr_pos":
             message += (
                 ". Base chr_pos mode requires one variant per chromosome/position; "
-                "use base rsid mode or prune duplicate-coordinate variants before building or running the reference panel."
+                "use base rsID mode or prune duplicate-coordinate variants before building or running the reference panel."
             )
         raise ValueError(message)
 

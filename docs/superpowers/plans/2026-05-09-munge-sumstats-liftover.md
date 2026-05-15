@@ -5,10 +5,10 @@
 
 ## Goal
 
-Add opt-in genome-build liftover to `ldsc munge-sumstats` for
-`snp_identifier = chr_pos` workflows. Liftover updates `CHR/POS`, preserves
-`SNP` exactly as a label, writes auditable metadata, and keeps downstream
-compatibility on the existing `GlobalConfig` build snapshot.
+Add opt-in genome-build liftover to `ldsc munge-sumstats` for coordinate-family
+workflows (`chr_pos` and `chr_pos_allele_aware`). Liftover updates `CHR/POS`,
+preserves `SNP` exactly as a label, writes auditable metadata, and records
+minimal identity provenance for downstream compatibility.
 
 Also audit package-wide `chr_pos` identity behavior so matching uses `CHR/POS`
 everywhere identity is intended. Assume `SNP` contains rsIDs even when it does
@@ -16,8 +16,8 @@ not.
 
 ## Locked Decisions
 
-- Liftover is only valid for `snp_identifier = chr_pos`.
-- Any liftover request in `rsid` mode errors before input IO.
+- Liftover is only valid for `chr_pos`-family modes.
+- Any liftover request in rsID-family modes errors before input IO.
 - `SNP` is always treated as a label/rsID field, even if it contains
   coordinate-looking strings.
 - In `chr_pos` mode, identity and matching are always based on `CHR` and `POS`,
@@ -50,8 +50,8 @@ not.
 - If liftover drops all rows, error instead of writing an empty artifact.
 - Log count summaries at normal verbosity. Example rows, if emitted, appear
   only at `DEBUG`.
-- Sidecar metadata stays thin: schema marker, trait label, and full
-  `config_snapshot` only.
+- Sidecar metadata stays thin: `schema_version`, `artifact_type`,
+  `snp_identifier`, `genome_build`, and optional `trait_name` only.
 - Coordinate provenance, liftover reports, HM3 provenance, row counts, and output
   bookkeeping are written to the log instead of the sidecar.
 - Metadata method for HM3 quick is `hm3_curated`; CLI flag remains
@@ -59,13 +59,13 @@ not.
 - Reference-panel PLINK builds keep the current source-build plus optional
   opposite-build emission contract. Do not add public target/method config
   fields for that workflow.
-- Reference-panel matching chain liftover is invalid in `rsid` mode.
+- Reference-panel matching chain liftover is invalid in rsID-family modes.
 - Reference-panel `duplicate_position_policy` / `--duplicate-position-policy`
   was removed by the 2026-05-10 harmonization. `drop-all` is the only
   coordinate duplicate behavior.
-- Reference-panel coordinate duplicate handling applies only in `chr_pos` mode.
-  Source-only `rsid` builds log once that duplicate-position policy is not
-  applicable.
+- Reference-panel coordinate duplicate handling applies only in `chr_pos`-family
+  modes. Source-only rsID-family builds log once that coordinate duplicate
+  filtering is not applicable.
 - Reference-panel dropped-SNP sidecars remain under `dropped_snps/`, are
   always written for processed chromosomes, and contain the four
   ref-panel-applicable liftover-stage reasons. Runtime metadata TSV/parquet
@@ -84,10 +84,11 @@ detection, and readable examples. Workflow contracts stay separate:
   optional matching chain to emit the opposite build.
 - HM3 quick liftover remains sumstats-only.
 - Provenance details live in workflow `.log` files. Sumstats metadata sidecars
-  are compatibility-only (`format`, `trait_name`, `config_snapshot`), and
-  existing metadata sidecars that lack `config_snapshot` are invalid rather
-  than migrated. Row-level liftover drops are audited in the always-written
-  `dropped_snps/dropped.tsv.gz` sidecar.
+  contain only the current identity artifact fields (`schema_version`,
+  `artifact_type`, `snp_identifier`, `genome_build`) plus optional
+  `trait_name`; old package-written sidecars without current identity
+  provenance are invalid rather than migrated. Row-level liftover drops are
+  audited in the always-written `dropped_snps/dropped.tsv.gz` sidecar.
 
 ## Pre-Flight
 
@@ -199,11 +200,10 @@ pytest -q
 **Files:** `src/ldsc/sumstats_munger.py`,
 `tests/test_sumstats_munger_liftover.py`
 
-- [ ] Write only thin sidecar fields: `format`, `trait_name`, and
-  `config_snapshot`.
-- [ ] Keep `config_snapshot` as the downstream compatibility block with
-  `snp_identifier`, `genome_build`, `log_level`, and
-  `fail_on_missing_metadata`.
+- [ ] Write only thin sidecar fields: `schema_version`, `artifact_type`,
+  `snp_identifier`, `genome_build`, and optional `trait_name`.
+- [ ] Reconstruct the in-process `GlobalConfig` snapshot from the minimal
+  identity sidecar fields when loading current artifacts.
 - [ ] Log coordinate provenance, including coordinate source columns, output
   coordinate build, inference status, coordinate basis, missing-coordinate
   counts, and optional build-inference details.

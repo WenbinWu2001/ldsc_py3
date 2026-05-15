@@ -17,27 +17,29 @@ the user-visible workflow and log messages close to the existing behavior.
 2. The kernel reads the raw sumstats header, applies user column hints, and maps
    raw columns to canonical LDSC columns such as `SNP`, `CHR`, `POS`, `P`,
    allele columns, and sample-size columns.
-3. For `snp_identifier=chr_pos`, `genome_build=auto` is resolved before chunk
-   parsing. The munger reads only lightweight raw `CHR` and `POS` evidence,
-   calls the shared genome-build inference code, and records the inferred source
-   build and coordinate basis.
+3. For `chr_pos`-family modes with `genome_build=auto`, the source build is
+   resolved before chunk parsing. The munger reads only lightweight raw `CHR`
+   and `POS` evidence, calls the shared genome-build inference code, and records
+   the inferred source build and coordinate basis.
 4. If HM3 filtering or `--sumstats-snps-file` is active, the keep-list is loaded
-   once before chunk parsing. In `rsid` mode the munger keeps canonical SNP
-   labels. In `chr_pos` mode the munger uses the resolved source build to choose
-   the relevant position column and stores compact coordinate keys.
+   once before chunk parsing. Base `rsid` mode keeps canonical SNP labels. Base
+   `chr_pos` mode uses the resolved source build to choose the relevant position
+   column and stores compact coordinate keys. Allele-aware modes use the shared
+   restriction identity reader; allele-free restrictions match by base key and
+   allele-bearing restrictions match by effective key.
 5. The raw sumstats file is streamed in chunks.
 6. For each chunk, the munger drops rows with missing required non-coordinate
    fields, coerces configured INFO-list columns, renames columns to their
    canonical names, and applies the existing INFO, frequency, p-value, and
    allele filters.
-7. For `snp_identifier=chr_pos`, each chunk also normalizes valid `CHR` and
-   `POS` values and drops rows whose coordinates are missing or invalid. These
+7. For `chr_pos`-family modes, each chunk also normalizes valid `CHR` and `POS`
+   values and drops rows whose coordinates are missing or invalid. These
    coordinate drops are logged separately from the standard missing-value and QC
    counters.
 8. If a keep-list is active, the chunk is restricted before it is appended to
    the retained chunk list. Non-kept rows do not survive to the full concat.
 9. Only retained chunk rows are concatenated. Post-concat work remains limited
-   to steps that need the retained table: duplicate-rsID removal, sample-size
+   to steps that need the retained table: shared identity cleanup, sample-size
    filtering, p-value to Z conversion, signed-statistic direction, optional
    source-build liftover, metadata, and output writing.
 
@@ -45,12 +47,16 @@ the user-visible workflow and log messages close to the existing behavior.
 
 `rsid` mode treats `SNP` labels as row identity. Keep-list filtering happens in
 chunk order, so retained rows preserve the input order rather than the keep-list
-order. Duplicate rsIDs are removed after chunk filtering.
+order. Duplicate effective-key clusters are dropped by the shared identity
+cleanup after chunk filtering.
 
 `chr_pos` mode treats normalized source-build `CHR` and `POS` as row identity.
-The munger filters on compact packed coordinate keys rather than materializing
-`CHR:POS` strings. If the keep-list contains build-specific position columns
-such as `hg19_POS` and `hg38_POS`, the resolved source build selects the column.
+The base-mode munger path filters on compact packed coordinate keys rather than
+materializing `CHR:POS` strings. If the keep-list contains build-specific
+position columns such as `hg19_POS` and `hg38_POS`, the resolved source build
+selects the column. Allele-aware modes require usable `A1/A2` in the raw
+sumstats artifact path and use effective identity keys when allele-bearing
+restriction files are supplied.
 
 ## Genome Build and Liftover
 

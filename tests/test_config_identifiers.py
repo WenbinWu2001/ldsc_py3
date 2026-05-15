@@ -154,10 +154,10 @@ class TestGlobalConfigValidation(unittest.TestCase):
         assert_same_snp_rows(left, right_chr_pos, context="test", snp_identifier="chr_pos")
 
         left_alleles = pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs1"], "A1": ["A"], "A2": ["C"]})
-        right_chr_pos_alleles = pd.DataFrame({"CHR": ["1"], "POS": [10], "A1": ["A"], "A2": ["C"]})
+        right_chr_pos_with_alleles = pd.DataFrame({"CHR": ["1"], "POS": [10], "A1": ["A"], "A2": ["C"]})
         assert_same_snp_rows(
             left_alleles,
-            right_chr_pos_alleles,
+            right_chr_pos_with_alleles,
             context="test",
             snp_identifier="chr_pos_allele_aware",
         )

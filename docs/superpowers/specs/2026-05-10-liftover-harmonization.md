@@ -148,10 +148,10 @@ the liftover stage of either workflow:
 | Reason | Sumstats | Reference-panel |
 | --- | --- | --- |
 | `missing_coordinate` | yes | **never** — PLINK `.bim` `BP` is structurally non-null; malformed values raise during parsing before sidecar logic runs |
-| `source_duplicate` | yes | yes (chr_pos mode only) |
+| `source_duplicate` | yes | yes (chr_pos-family modes only) |
 | `unmapped_liftover` | yes (when liftover requested) | yes (when matching chain provided) |
 | `cross_chromosome_liftover` | yes (chain method only) | yes (chain method only) |
-| `target_collision` | yes (when liftover requested) | yes (chr_pos mode only) |
+| `target_collision` | yes (when liftover requested) | yes (chr_pos-family modes only) |
 
 The vocabulary is shared so consumers can write one downstream parser; not
 every reason fires in every workflow.
@@ -395,8 +395,10 @@ liftover validation rule already locked in
 
 **Unchanged:**
 
-- Sumstats metadata sidecar shape (`format`, `trait_name`,
-  `config_snapshot`).
+- Sumstats metadata sidecar remains thin, but current artifacts use minimal
+  identity provenance (`schema_version`, `artifact_type`, `snp_identifier`,
+  `genome_build`, optional `trait_name`) rather than the older
+  `config_snapshot` payload.
 - Ref-panel runtime metadata TSV/parquet schemas.
 - All locked liftover validation rules.
 - `validate_config_compatibility` and downstream regression behavior.

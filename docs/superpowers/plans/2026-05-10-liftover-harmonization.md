@@ -641,8 +641,8 @@ provided.
         (`tests/test_ref_panel_builder.py:1239`); replace with
         `test_rsid_source_only_build_logs_duplicate_handling_skipped_once`
         that asserts the existing log message
-        ("duplicate_position_policy applies only when
-        snp_identifier='chr_pos'") is updated to a new wording (Step 4)
+        ("coordinate duplicate filtering applies only for chr_pos-family
+        snp_identifier modes") is emitted exactly once
         and emitted exactly once.
 
 - [ ] **Step 2: Verify they fail.**
@@ -676,8 +676,8 @@ pytest tests/test_ref_panel_builder.py -v
         (`src/ldsc/ref_panel_builder.py:246-249`) to reflect the new
         contract, e.g.:
         ```
-        Coordinate duplicate filtering applies only when
-        snp_identifier='chr_pos'; keeping duplicate CHR/POS rows in rsid
+        Coordinate duplicate filtering applies only for chr_pos-family
+        snp_identifier modes; keeping duplicate CHR/POS rows in rsID-family
         source-only reference-panel builds.
         ```
         and align the test assertion in Step 1.

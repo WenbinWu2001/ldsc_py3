@@ -9,15 +9,17 @@ panel construction and already rejects incompatible concrete genome builds at
 regression time via `GlobalConfig` snapshots. The missing package-level feature
 is coordinate liftover inside `munge-sumstats`.
 
-This design adds opt-in liftover for `snp_identifier = chr_pos` only. In
-`chr_pos` mode, SNP identity is always `CHR` and `POS` jointly. The `SNP` column
-is treated as a label, usually an rsID, even when its values look like
-coordinates. Liftover updates `CHR` and `POS`; it never rewrites `SNP`.
+This design adds opt-in liftover for coordinate-family identity modes:
+`chr_pos` and `chr_pos_allele_aware`. In those modes, the base coordinate
+identity is always `CHR` and `POS` jointly. The `SNP` column is treated as a
+label, usually an rsID, even when its values look like coordinates. Liftover
+updates `CHR` and `POS`; it never rewrites `SNP`.
 
 ## Core Decisions
 
-- Liftover is valid only when `snp_identifier = chr_pos`.
-- Any liftover request in `rsid` mode errors before input IO.
+- Liftover is valid only for the `chr_pos` family: `chr_pos` and
+  `chr_pos_allele_aware`.
+- Any liftover request in an rsID-family mode errors before input IO.
 - `SNP` is never the identity key in `chr_pos` mode and must not be rewritten by
   liftover.
 - All `chr_pos` matching in the package uses `CHR/POS` keys, not `SNP`.
@@ -25,15 +27,17 @@ coordinates. Liftover updates `CHR` and `POS`; it never rewrites `SNP`.
   `MungeConfig.genome_build`.
 - `--sumstats-snps-file` is interpreted in the source build because SNP
   filtering runs before liftover.
-- Newly written sidecars stay thin: only schema, trait label, and
-  `config_snapshot` are stored. Liftover and coordinate provenance are logged.
+- Newly written sidecars stay thin: `schema_version`, `artifact_type`,
+  `snp_identifier`, `genome_build`, and optional `trait_name` are stored.
+  Liftover and coordinate provenance are logged.
 - Shared liftover mechanics live in an internal helper module, not a public API.
   Sumstats and reference-panel workflows share chain mapping, drop reports,
   duplicate-coordinate detection, and example formatting while retaining
   separate workflow contracts.
 - Reference-panel PLINK builds keep the source-build plus optional opposite-build
-  UX. Matching chain-file liftover is rejected in `rsid` mode; duplicate
-  coordinate policy applies only in `chr_pos` mode and defaults to `drop-all`.
+  UX. Matching chain-file liftover is rejected in rsID-family modes; duplicate
+  coordinate policy applies only in coordinate-family modes and defaults to
+  `drop-all`.
 
 ## CLI And Config
 
@@ -63,12 +67,13 @@ Validation rules:
 - If source build is `auto` and cannot be inferred, liftover errors and asks the
   user to pass `--genome-build hg19` or `--genome-build hg38`.
 
-Recommended rsID-mode error:
+Recommended rsID-family error:
 
 ```text
-munge-sumstats liftover requires snp_identifier='chr_pos'. In rsid mode,
-regression merges by SNP ID and genome build is not a compatibility key.
-Remove the liftover flags or run with --snp-identifier chr_pos.
+munge-sumstats liftover requires a chr_pos-family snp_identifier mode. In
+rsID-family modes, regression merges by SNP ID and genome build is not a
+compatibility key. Remove the liftover flags or run with --snp-identifier
+chr_pos or chr_pos_allele_aware.
 ```
 
 ## Pipeline
@@ -78,7 +83,7 @@ The munger stage order is:
 ```text
 1. Existing parsing, QC, allele handling, and coordinate finalization
 2. --sumstats-snps-file filtering in source-build coordinates
-3. Optional liftover in chr_pos mode
+3. Optional liftover in chr_pos-family mode
 4. Output writing in target-build coordinates
 ```
 
@@ -96,7 +101,8 @@ After successful liftover:
 - `CHR` and `POS` are target-build coordinates.
 - `SNP` is unchanged.
 - logged coordinate provenance records the target build.
-- `config_snapshot.genome_build` is the target build.
+- `sumstats.metadata.json` records the target build in its top-level
+  `genome_build` identity provenance field.
 - logged coordinate provenance keeps coordinate basis as `"1-based"`.
 
 ## Liftover Methods
@@ -166,7 +172,8 @@ If source or target duplicate removal leaves no rows, liftover errors instead
 of writing an empty artifact.
 
 For reference-panel PLINK builds, the same duplicate-coordinate mechanics apply
-only when the active `GlobalConfig.snp_identifier` is `chr_pos`. There is no
+only when the active `GlobalConfig.snp_identifier` is in the `chr_pos` family.
+There is no
 public duplicate-position policy knob: source duplicate groups are dropped
 before chain mapping and target duplicate groups after mapping with `drop-all`.
 Per-chromosome `dropped_snps/chr{chrom}_dropped.tsv.gz` sidecars are always
@@ -180,35 +187,28 @@ applicable.
 ## Metadata And Logging
 
 The sidecar is intentionally thin. It stores only fields needed for downstream
-workflow behavior: the sidecar marker, optional trait label, and the full
-`GlobalConfig` snapshot used for compatibility checks and reloads.
+workflow behavior: `schema_version`, artifact type, SNP identifier mode, genome
+build, and optional trait label.
 
 ```jsonc
 {
-  "format": "ldsc.sumstats.v1",
-  "trait_name": "Trait label",
-  "config_snapshot": {
-    "snp_identifier": "chr_pos",
-    "genome_build": "hg38",
-    "log_level": "INFO",
-    "fail_on_missing_metadata": false
-  }
+  "schema_version": 1,
+  "artifact_type": "sumstats",
+  "snp_identifier": "chr_pos_allele_aware",
+  "genome_build": "hg38",
+  "trait_name": "Trait label"
 }
 ```
 
 Top-level entries:
 
-- `format`: sidecar schema identifier.
+- `schema_version`: current identity artifact schema version.
+- `artifact_type`: `sumstats`.
+- `snp_identifier`: one of `rsid`, `rsid_allele_aware`, `chr_pos`, or
+  `chr_pos_allele_aware`.
+- `genome_build`: concrete build for coordinate-family modes, `null` for
+  rsID-family modes.
 - `trait_name`: optional trait label used by downstream summaries.
-
-`config_snapshot` is the compatibility block used by downstream modules:
-
-- `snp_identifier`: `rsid` or `chr_pos`; controls identity-key semantics.
-- `genome_build`: concrete build for `chr_pos`, `null` for `rsid`; used by
-  `validate_config_compatibility()`.
-- `log_level`: log-level setting captured from the run.
-- `fail_on_missing_metadata`: missing-metadata compatibility policy captured
-  from the run.
 
 The log file records detailed provenance that does not belong in the sidecar:
 
@@ -237,7 +237,7 @@ This feature depends on a package-wide invariant:
 
 - In `rsid` mode, identity and merges use `SNP`.
 - In `chr_pos` mode, identity and merges use normalized `CHR/POS`.
-- In `chr_pos` mode, rows missing `CHR` or `POS` are dropped and logged at
+- In coordinate-family modes, rows missing `CHR` or `POS` are dropped and logged at
   merge, match, map, and restriction boundaries. They may still be preserved by
   non-matching stages such as basic sumstats QC and artifact writing.
 - Invalid non-missing coordinates, such as non-numeric POS, zero/negative POS,
@@ -248,13 +248,13 @@ This feature depends on a package-wide invariant:
 Implementation must audit identity-sensitive operations and make them
 mode-aware. Required changes include:
 
-- `SumstatsTable.snp_identifiers()` uses `CHR/POS` in `chr_pos` mode.
-- `SumstatsTable.subset_to()` uses `CHR/POS` in `chr_pos` mode.
-- `SumstatsTable.align_to_metadata()` aligns by `CHR/POS` in `chr_pos` mode.
+- `SumstatsTable.snp_identifiers()` uses `CHR/POS` in coordinate-family modes.
+- `SumstatsTable.subset_to()` uses `CHR/POS` in coordinate-family modes.
+- `SumstatsTable.align_to_metadata()` aligns by `CHR/POS` in coordinate-family modes.
 - `_row_alignment.assert_same_snp_rows()` accepts identifier mode; in `chr_pos`
   mode it compares `CHR/POS` and ignores `SNP` label mismatches.
-- Regression `h2` and `rg` already use private `CHR/POS` keys in `chr_pos`
-  mode; tests must lock this in.
+- Regression `h2` and `rg` use private `CHR/POS` base keys for coordinate-family
+  modes, with allele-aware modes adding normalized allele-set identity.
 - Annotation, reference-panel, LD-score, and regression merge/filter sites must
   be audited for unconditional `SNP` identity use and replaced with mode-aware
   keys where applicable.

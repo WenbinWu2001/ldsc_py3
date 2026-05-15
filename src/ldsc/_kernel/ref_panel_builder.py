@@ -177,7 +177,7 @@ def interpolate_genetic_map_cm(
 
 
 def detect_restriction_identifier_mode(path: str | PathLike[str]) -> str:
-    """Infer whether a SNP restriction file is keyed by `rsid` or `chr_pos`."""
+    """Infer whether a SNP restriction file is keyed by rsID or coordinates."""
 
     lines = _read_non_comment_lines(path, limit=2)
     if not lines:

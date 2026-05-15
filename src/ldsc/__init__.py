@@ -23,8 +23,8 @@ Design Notes
 Example
 -------
 >>> from ldsc import GlobalConfig, ReferencePanelBuilder
->>> GlobalConfig(snp_identifier="rsid").snp_identifier
-'rsid'
+>>> GlobalConfig().snp_identifier
+'chr_pos_allele_aware'
 >>> isinstance(ReferencePanelBuilder(), ReferencePanelBuilder)
 True
 """

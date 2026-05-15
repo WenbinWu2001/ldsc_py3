@@ -976,7 +976,7 @@ def validate_retained_identifier_uniqueness(metadata: pd.DataFrame, identifier_m
     if duplicated.any():
         raise ValueError(
             f"Chromosome {chrom} has duplicate retained SNP IDs. "
-            "This is ambiguous in base rsid mode."
+            "This is ambiguous in base rsID mode."
         )
 
 

@@ -79,9 +79,9 @@ Worktree:
    **Compute strategy rationale.** A merge-cache design that hoisted the
    trait + LD-score merge out of the per-pair loop and stored it per
    trait was considered. Estimated savings for N<10 traits with one
-   baseline LD column: ~10% wall-time reduction (~1–2 min on a ~15-min
-   run for N=9 in chr_pos mode; less in rsid mode), at a cost of ~0.8–1.2
-   GB additional cached state and ~3.5× the implementation surface
+   baseline LD column: ~10% wall-time reduction (~1-2 min on a ~15-min
+   run for N=9 in coordinate-family mode; less in rsID-family mode), at a cost
+   of ~0.8-1.2 GB additional cached state and ~3.5x the implementation surface
    (~230 vs ~85 LOC plus a permanent byte-identity test against
    `build_rg_dataset`). The savings are below the user-noticeable
    threshold at this scale; the maintenance liability is permanent.

@@ -190,6 +190,8 @@ import pandas as pd
 
 from .._coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame
 from ..column_inference import (
+    A1_COLUMN_SPEC,
+    A2_COLUMN_SPEC,
     ANNOTATION_METADATA_SPEC_MAP,
     CHR_COLUMN_ALIASES,
     CHR_COLUMN_SPEC,
@@ -230,7 +232,7 @@ from ..path_resolution import (
 from .._row_alignment import assert_same_snp_rows
 from . import formats as legacy_parse
 from .identifiers import build_snp_id_series, read_snp_restriction_keys
-from .snp_identity import RestrictionIdentityKeys, identity_mode_family, is_allele_aware_mode, restriction_membership_mask
+from .snp_identity import RestrictionIdentityKeys, identity_base_mode, identity_mode_family, is_allele_aware_mode, restriction_membership_mask
 
 try:  # pragma: no cover - optional dependency
     import bitarray as ba
@@ -1096,35 +1098,36 @@ def parse_frequency_metadata(path: str, chrom: str | None, identifier_mode: str)
     snp_col = resolve_optional_column(df.columns, REFERENCE_METADATA_SPEC_MAP["SNP"], context=context)
     cm_col = resolve_optional_column(df.columns, REFERENCE_METADATA_SPEC_MAP["CM"], context=context)
     maf_col = resolve_optional_column(df.columns, REFERENCE_METADATA_SPEC_MAP["MAF"], context=context)
+    a1_col = resolve_optional_column(df.columns, A1_COLUMN_SPEC, context=context)
+    a2_col = resolve_optional_column(df.columns, A2_COLUMN_SPEC, context=context)
+    if (a1_col is None) != (a2_col is None):
+        raise ValueError(f"{path} has only one allele column; provide both A1 and A2 or neither.")
 
     if chrom is not None and chr_col is not None and identity_mode_family(identifier_mode) == "rsid":
         keep = df[chr_col].map(lambda value: normalize_chromosome(value, context=path)) == normalize_chromosome(chrom, context=path)
         df = df.loc[keep].reset_index(drop=True)
 
     if len(df) == 0:
-        return pd.DataFrame(columns=["_key", "CM", "MAF"])
+        return pd.DataFrame(columns=["_key", "_key_mode", "CM", "MAF"])
 
     out = pd.DataFrame(index=df.index)
+    key_frame = pd.DataFrame(index=df.index)
     if identity_mode_family(identifier_mode) == "rsid":
         if snp_col is None:
             raise ValueError(f"{path} must contain a SNP column in rsid mode.")
-        out["_key"] = df[snp_col].astype(str)
+        key_frame["SNP"] = df[snp_col].astype(str)
     else:
         if chr_col is None or pos_col is None:
             raise ValueError(f"{path} must contain CHR and POS columns in chr_pos mode.")
-        coord_frame = df.copy()
-        coord_frame["CHR"] = df[chr_col]
-        coord_frame["POS"] = df[pos_col]
-        keyed, _report = build_chr_pos_key_frame(
-            coord_frame,
-            context=f"frequency metadata matching for {path}",
-            drop_missing=True,
-            logger=LOGGER,
-        )
-        if chrom is not None:
-            keyed = keyed.loc[keyed["CHR"] == normalize_chromosome(chrom, context=path)]
-        out = pd.DataFrame(index=keyed.index)
-        out["_key"] = keyed[CHR_POS_KEY_COLUMN].astype(str)
+        key_frame["CHR"] = df[chr_col]
+        key_frame["POS"] = df[pos_col]
+    has_alleles = a1_col is not None and a2_col is not None
+    if has_alleles:
+        key_frame["A1"] = df[a1_col].astype(str)
+        key_frame["A2"] = df[a2_col].astype(str)
+    key_mode = identifier_mode if is_allele_aware_mode(identifier_mode) and has_alleles else identity_base_mode(identifier_mode)
+    out["_key"] = build_snp_id_series(key_frame, key_mode)
+    out["_key_mode"] = key_mode
 
     if cm_col is not None:
         out["CM"] = pd.to_numeric(df[cm_col], errors="coerce")
@@ -1132,7 +1135,11 @@ def parse_frequency_metadata(path: str, chrom: str | None, identifier_mode: str)
         maf = pd.to_numeric(df[maf_col], errors="coerce").astype(float)
         out["MAF"] = np.minimum(maf, 1.0 - maf)
 
-    return out
+    out = out.loc[out["_key"].notna()].copy()
+    if chrom is not None and chr_col is not None:
+        keep_chrom = df.loc[out.index, chr_col].map(lambda value: normalize_chromosome(value, context=path)) == normalize_chromosome(chrom, context=path)
+        out = out.loc[keep_chrom.to_numpy()].copy()
+    return out.reset_index(drop=True)
 
 
 def merge_frequency_metadata(
@@ -1154,24 +1161,25 @@ def merge_frequency_metadata(
         return metadata
 
     frames = [parse_frequency_metadata(path, chrom=chrom, identifier_mode=identifier_mode) for path in files]
-    freq_df = pd.concat(frames, axis=0, ignore_index=True) if frames else pd.DataFrame(columns=["_key", "CM", "MAF"])
-    if freq_df["_key"].duplicated().any():
+    freq_df = pd.concat(frames, axis=0, ignore_index=True) if frames else pd.DataFrame(columns=["_key", "_key_mode", "CM", "MAF"])
+    if freq_df[["_key_mode", "_key"]].duplicated().any():
         raise ValueError(f"Duplicate SNP metadata keys detected in frequency metadata for chromosome {chrom}.")
 
     merged = metadata.copy()
-    merged["_key"] = identifier_keys(merged, identifier_mode)
-    freq_df = freq_df.set_index("_key")
-    if "CM" in freq_df.columns:
-        if "CM" not in merged.columns:
-            merged["CM"] = np.nan
-        missing_cm = merged["CM"].isna() & merged["_key"].isin(freq_df.index)
-        merged.loc[missing_cm, "CM"] = freq_df.loc[merged.loc[missing_cm, "_key"], "CM"].to_numpy()
-    if "MAF" in freq_df.columns:
-        if "MAF" not in merged.columns:
-            merged["MAF"] = np.nan
-        missing_maf = merged["MAF"].isna() & merged["_key"].isin(freq_df.index)
-        merged.loc[missing_maf, "MAF"] = freq_df.loc[merged.loc[missing_maf, "_key"], "MAF"].to_numpy()
-    return merged.drop(columns="_key")
+    for key_mode, freq_part in freq_df.groupby("_key_mode", sort=False):
+        merged_keys = build_snp_id_series(merged, str(key_mode))
+        freq_part = freq_part.set_index("_key")
+        if "CM" in freq_part.columns:
+            if "CM" not in merged.columns:
+                merged["CM"] = np.nan
+            missing_cm = merged["CM"].isna() & merged_keys.isin(freq_part.index)
+            merged.loc[missing_cm, "CM"] = freq_part.loc[merged_keys.loc[missing_cm], "CM"].to_numpy()
+        if "MAF" in freq_part.columns:
+            if "MAF" not in merged.columns:
+                merged["MAF"] = np.nan
+            missing_maf = merged["MAF"].isna() & merged_keys.isin(freq_part.index)
+            merged.loc[missing_maf, "MAF"] = freq_part.loc[merged_keys.loc[missing_maf], "MAF"].to_numpy()
+    return merged
 
 
 def apply_maf_filter(

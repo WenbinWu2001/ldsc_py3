@@ -330,6 +330,16 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
             "Munged sumstats artifact is malformed: duplicate or invalid SNP identity rows were found "
             f"({reasons}). Regenerate it with the current LDSC package."
         )
+    effective_keys = effective_merge_key_series(
+        cleanup.cleaned,
+        mode,
+        context="loaded munged sumstats artifact",
+    )
+    if bool(effective_keys.isna().any()):
+        raise ValueError(
+            "Munged sumstats artifact is malformed: missing or invalid SNP identity rows were found. "
+            "Regenerate it with the current LDSC package."
+        )
     table = SumstatsTable(
         data=df.reset_index(drop=True),
         has_alleles={"A1", "A2"}.issubset(df.columns),
@@ -506,7 +516,7 @@ class SumstatsMunger:
             )
             table = SumstatsTable(
                 data=data.reset_index(drop=True),
-                has_alleles=(not munge_config.no_alleles),
+                has_alleles={"A1", "A2"}.issubset(data.columns),
                 source_path=source_path,
                 trait_name=raw_sumstats_config.trait_name,
                 provenance={

@@ -722,6 +722,26 @@ class SumstatsMungerTest(unittest.TestCase):
             ):
                 ldsc.load_sumstats(sumstats_file)
 
+    def test_load_sumstats_rejects_chr_pos_artifact_with_missing_base_identity(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            sumstats_file = tmpdir / "trait.sumstats.gz"
+            with gzip.open(sumstats_file, "wt", encoding="utf-8") as handle:
+                handle.write(
+                    "SNP\tCHR\tPOS\tZ\tN\n"
+                    "rs_missing_chr\tNA\t100\t1.0\t100.0\n"
+                    "rs_missing_pos\t1\tNA\t1.0\t100.0\n"
+                )
+            self._write_sumstats_sidecar(
+                tmpdir / "trait.metadata.json",
+                snp_identifier="chr_pos",
+                genome_build="hg38",
+                trait_name="trait",
+            )
+
+            with self.assertRaisesRegex(ValueError, "Munged sumstats artifact is malformed.*SNP identity"):
+                ldsc.load_sumstats(sumstats_file)
+
     def test_load_sumstats_rejects_unknown_suffix(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "trait.csv"
@@ -770,6 +790,30 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertNotIn("sumstats_gz", summary.output_paths)
             self.assertNotIn("log", summary.output_paths)
             self.assertIn("metadata_json", summary.output_paths)
+
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for default parquet output")
+    def test_run_base_rsid_without_allele_columns_defaults_to_allele_free_table(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "SNP P BETA N\n"
+                "rs1 0.05 0.1 1000\n",
+                encoding="utf-8",
+            )
+            output_dir = tmpdir / "munged"
+
+            table = SumstatsMunger().run(
+                MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
+                MungeConfig(output_dir=output_dir),
+                GlobalConfig(snp_identifier="rsid"),
+            )
+
+            self.assertFalse(table.has_alleles)
+            self.assertEqual(table.data["SNP"].tolist(), ["rs1"])
+            self.assertNotIn("A1", table.data.columns)
+            output = pd.read_parquet(output_dir / "sumstats.parquet")
+            self.assertEqual(output["SNP"].tolist(), ["rs1"])
 
     def test_run_writes_tsv_gz_when_requested(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1617,6 +1661,54 @@ class SumstatsMungerTest(unittest.TestCase):
                 dropped["stage"].tolist(),
                 ["post_liftover_identity_cleanup", "post_liftover_identity_cleanup"],
             )
+
+    def test_rsid_allele_aware_sumstats_snps_file_filters_bad_raw_alleles_outside_keep_list(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "SNP A1 A2 P BETA N\n"
+                "rs_keep A C 0.05 0.1 1000\n"
+                "rs_bad_out AT C 0.05 0.1 1000\n",
+                encoding="utf-8",
+            )
+            keep_path = tmpdir / "keep.tsv"
+            keep_path.write_text("SNP\tA1\tA2\nrs_keep\tA\tC\n", encoding="utf-8")
+            output_dir = tmpdir / "munged"
+
+            table = SumstatsMunger().run(
+                MungeConfig(raw_sumstats_file=raw_path),
+                MungeConfig(output_dir=output_dir, sumstats_snps_file=keep_path),
+                GlobalConfig(snp_identifier="rsid_allele_aware"),
+            )
+
+            self.assertEqual(table.data["SNP"].tolist(), ["rs_keep"])
+            dropped = self._read_dropped_snps_sidecar(output_dir / "dropped_snps" / "dropped.tsv.gz")
+            self.assertNotIn("rs_bad_out", dropped["SNP"].tolist())
+
+    def test_chr_pos_allele_aware_sumstats_snps_file_filters_bad_raw_alleles_outside_keep_list(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "CHR POS SNP A1 A2 P BETA N\n"
+                "1 100 rs_keep A C 0.05 0.1 1000\n"
+                "1 200 rs_bad_out AT C 0.05 0.1 1000\n",
+                encoding="utf-8",
+            )
+            keep_path = tmpdir / "keep.tsv"
+            keep_path.write_text("CHR\tPOS\tA1\tA2\n1\t100\tA\tC\n", encoding="utf-8")
+            output_dir = tmpdir / "munged"
+
+            table = SumstatsMunger().run(
+                MungeConfig(raw_sumstats_file=raw_path),
+                MungeConfig(output_dir=output_dir, sumstats_snps_file=keep_path),
+                GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
+            )
+
+            self.assertEqual(table.data["SNP"].tolist(), ["rs_keep"])
+            dropped = self._read_dropped_snps_sidecar(output_dir / "dropped_snps" / "dropped.tsv.gz")
+            self.assertNotIn("rs_bad_out", dropped["SNP"].tolist())
 
     def test_allele_aware_missing_raw_alleles_are_reported_in_identity_sidecar(self):
         with tempfile.TemporaryDirectory() as tmpdir:

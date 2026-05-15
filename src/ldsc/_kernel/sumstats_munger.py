@@ -60,6 +60,7 @@ from .liftover import SumstatsLiftoverRequest, apply_sumstats_liftover
 from .snp_identity import (
     RestrictionIdentityKeys,
     allele_set_series,
+    base_key_series,
     clean_identity_artifact_table,
     identity_base_mode,
     identity_mode_family,
@@ -514,7 +515,14 @@ def _filter_allele_aware_chunk_to_identity_restriction(dat, restriction, args):
         kept = 0
         matchable_original_rows = set()
 
-    unmatchable = work.loc[~work[original_row_column].isin(matchable_original_rows)].copy()
+    unmatchable_mask = ~work[original_row_column].isin(matchable_original_rows)
+    base_keys = base_key_series(
+        work,
+        restriction.mode,
+        context=f"--sumstats-snps-file filtering for {getattr(args, 'sumstats', 'sumstats')}",
+    )
+    unmatchable_base_universe = _restriction_base_key_universe(restriction.identity_keys)
+    unmatchable = work.loc[unmatchable_mask & base_keys.isin(unmatchable_base_universe)].copy()
     retained = pd.concat([kept_matchable, unmatchable], axis=0, ignore_index=True)
     retained = retained.drop(columns=[original_row_column], errors='ignore')
 
@@ -522,6 +530,13 @@ def _filter_allele_aware_chunk_to_identity_restriction(dat, restriction, args):
     restriction.n_usable_row_identifiers += len(matchable)
     restriction.n_rows_kept += kept
     return retained.reset_index(drop=True)
+
+
+def _restriction_base_key_universe(identity_keys: RestrictionIdentityKeys) -> set[str]:
+    """Return allele-blind keep-list keys from prepared restriction identity keys."""
+    if identity_keys.match_kind == "base":
+        return {str(key) for key in identity_keys.keys}
+    return {str(key).rsplit(":", 2)[0] for key in identity_keys.keys}
 
 
 def _log_sumstats_restriction_summary(restriction):

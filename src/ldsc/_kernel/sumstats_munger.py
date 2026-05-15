@@ -57,7 +57,14 @@ from .identifiers import (
     restriction_file_has_allele_columns,
 )
 from .liftover import SumstatsLiftoverRequest, apply_sumstats_liftover
-from .snp_identity import RestrictionIdentityKeys, identity_mode_family, restriction_membership_mask
+from .snp_identity import (
+    RestrictionIdentityKeys,
+    clean_identity_artifact_table,
+    identity_base_mode,
+    identity_mode_family,
+    is_allele_aware_mode,
+    restriction_membership_mask,
+)
 np.seterr(invalid='ignore')
 
 LOGGER = logging.getLogger("LDSC.sumstats_munger.kernel")
@@ -300,9 +307,10 @@ def parse_dat(dat_gen, convert_colname, args, restriction=None):
     for block_num, dat in enumerate(dat_gen):
         tot_snps += len(dat)
         old = len(dat)
+        passive_allele_targets = {'A1', 'A2'} if not is_allele_aware_mode(mode) else set()
         required_raw_cols = [
             raw_col for raw_col in dat.columns
-            if convert_colname[raw_col] not in {'INFO', 'CHR', 'POS'}
+            if convert_colname[raw_col] not in {'INFO', 'CHR', 'POS', *passive_allele_targets}
         ]
         dat = dat.dropna(axis=0, how="any", subset=required_raw_cols).reset_index(drop=True)
         drops['NA'] += old - len(dat)
@@ -347,13 +355,9 @@ def parse_dat(dat_gen, convert_colname, args, restriction=None):
         new = ii.sum()
         drops['P'] += old - new
         old = new
-        if not args.no_alleles:
+        if is_allele_aware_mode(mode):
             dat.A1 = dat.A1.str.upper()
             dat.A2 = dat.A2.str.upper()
-            ii &= filter_alleles(dat.A1 + dat.A2)
-            new = ii.sum()
-            drops['A'] += old - new
-            old = new
 
         if ii.sum() == 0:
             continue
@@ -1185,10 +1189,18 @@ def munge_sumstats(args, p=True):
             x for x in cname_translation if cname_translation[x] == 'NSTUDY']
         for x in nstudy:
             del cname_translation[x]
-    if not args.no_alleles and not all(x in cname_translation.values() for x in ['A1', 'A2']):
+    mode = normalize_snp_identifier_mode(getattr(args, 'snp_identifier', 'chr_pos_allele_aware'))
+    requires_alleles = is_allele_aware_mode(mode)
+    if args.no_alleles and requires_alleles:
         raise ValueError(
-            'Could not find A1/A2 columns. Provide allele columns with --a1 and --a2, '
-            'or pass --no-alleles for h2/partitioned-h2 workflows that do not require allele matching.'
+            f"--no-alleles cannot be used with snp_identifier={mode!r}. "
+            f"Rerun with --snp-identifier {identity_base_mode(mode)}."
+        )
+    if requires_alleles and not all(x in cname_translation.values() for x in ['A1', 'A2']):
+        raise ValueError(
+            f"This run is using snp_identifier={mode!r}, which requires A1/A2 allele columns. "
+            "No usable allele columns were found. "
+            f"To run without allele-aware SNP identity, rerun with --snp-identifier {identity_base_mode(mode)}."
             f"{_suggest_allele_fix(file_cnames)}"
         )
 
@@ -1220,15 +1232,7 @@ def munge_sumstats(args, p=True):
     if len(dat) == 0:
         raise ValueError('After applying filters, no SNPs remain.')
 
-    if identity_mode_family(getattr(args, 'snp_identifier', 'chr_pos_allele_aware')) == 'rsid':
-        old = len(dat)
-        dat = dat.drop_duplicates(subset='SNP').reset_index(drop=True)
-        new = len(dat)
-        LOGGER.info('Removed {M} SNPs with duplicated rs numbers ({N} SNPs remain).'.format(
-            M=old - new, N=new))
-    else:
-        dat = dat.reset_index(drop=True)
-        LOGGER.info('Retained duplicated SNP labels because snp_identifier=chr_pos uses CHR/POS as row identity.')
+    dat = dat.reset_index(drop=True)
     median_msg = None
     if not args.a1_inc:
         median_msg = check_median(dat.SIGNED_SUMSTAT, signed_sumstat_null, 0.1, sign_cname)
@@ -1280,16 +1284,27 @@ def _apply_liftover_if_requested(dat, args):
     """Apply optional summary-statistics liftover after source-build filters."""
     coordinate_metadata = dict(getattr(args, '_coordinate_metadata', {}))
     request = getattr(args, '_liftover_request', None) or SumstatsLiftoverRequest()
+    mode = normalize_snp_identifier_mode(
+        coordinate_metadata.get('snp_identifier', getattr(args, 'snp_identifier', 'chr_pos_allele_aware'))
+    )
     dat, liftover_report, liftover_drop_frame = apply_sumstats_liftover(
         dat,
         request,
         source_build=coordinate_metadata.get('genome_build', getattr(args, 'genome_build', None)),
-        snp_identifier=coordinate_metadata.get('snp_identifier', getattr(args, 'snp_identifier', 'chr_pos_allele_aware')),
+        snp_identifier=mode,
+        logger=LOGGER,
+    )
+    cleanup = clean_identity_artifact_table(
+        dat,
+        mode,
+        context="munged sumstats",
+        stage="post_liftover_identity_cleanup",
         logger=LOGGER,
     )
     coordinate_metadata['liftover'] = liftover_report
     coordinate_metadata['liftover_drop_frame'] = liftover_drop_frame
+    args._identity_drop_frame = cleanup.dropped
     if liftover_report.get('applied'):
         coordinate_metadata['genome_build'] = liftover_report['target_build']
     args._coordinate_metadata = coordinate_metadata
-    return dat
+    return cleanup.cleaned

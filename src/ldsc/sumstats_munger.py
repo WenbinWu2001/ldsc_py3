@@ -34,8 +34,6 @@ import pandas as pd
 
 from .chromosome_inference import chrom_sort_key, normalize_chromosome_series
 from ._coordinates import (
-    CHR_POS_KEY_COLUMN,
-    build_chr_pos_key_frame,
     coordinate_missing_mask,
     positive_int_position_series,
 )
@@ -56,15 +54,18 @@ from .path_resolution import (
     resolve_scalar_path,
 )
 from ._logging import log_inputs, log_outputs, workflow_logging
-from ._kernel.identifiers import build_snp_id_series
 from ._kernel.snp_identity import (
+    IDENTITY_DROP_COLUMNS,
     REGENERATE_ARTIFACT_MESSAGE,
+    clean_identity_artifact_table,
+    coerce_identity_drop_frame,
+    effective_merge_key_series,
     identity_artifact_metadata,
     identity_mode_family,
     is_allele_aware_mode,
     validate_identity_artifact_metadata,
 )
-from ._kernel.liftover import LIFTOVER_DROP_COLUMNS, SumstatsLiftoverRequest, default_liftover_metadata
+from ._kernel.liftover import SumstatsLiftoverRequest, default_liftover_metadata
 from ._kernel import sumstats_munger as kernel_munge
 
 
@@ -165,10 +166,9 @@ class SumstatsTable:
     def snp_identifiers(self) -> pd.Series:
         """Return the active SNP identifiers for this table."""
         mode = _sumstats_table_identifier_mode(self.config_snapshot)
-        if identity_mode_family(mode) == "rsid":
-            return build_snp_id_series(self.data, mode).astype(str)
-        return _chr_pos_keys_for_matching(
+        return effective_merge_key_series(
             self.data,
+            mode,
             context=f"sumstats identifiers for {self.source_path or self.trait_name or 'sumstats'}",
         ).astype("string")
 
@@ -187,26 +187,25 @@ class SumstatsTable:
     def align_to_metadata(self, metadata: pd.DataFrame) -> "SumstatsTable":
         """Inner-join the table to ``metadata`` using the active identifier mode."""
         mode = _sumstats_table_identifier_mode(self.config_snapshot)
-        if identity_mode_family(mode) == "rsid":
-            merged = pd.merge(metadata.loc[:, ["SNP"]], self.data, how="inner", on="SNP", sort=False)
-        else:
-            left = pd.DataFrame(
-                {
-                    "_ldsc_sumstats_key": _chr_pos_keys_for_matching(
-                        metadata,
-                        context="sumstats metadata alignment left table",
-                    )
-                }
-            ).dropna(subset=["_ldsc_sumstats_key"])
-            right = self.data.copy()
-            right["_ldsc_sumstats_key"] = _chr_pos_keys_for_matching(
-                right,
-                context=f"sumstats metadata alignment for {self.source_path or self.trait_name or 'sumstats'}",
-            )
-            right = right.dropna(subset=["_ldsc_sumstats_key"])
-            merged = pd.merge(left, right, how="inner", on="_ldsc_sumstats_key", sort=False).drop(
-                columns=["_ldsc_sumstats_key"]
-            )
+        left = pd.DataFrame(
+            {
+                "_ldsc_sumstats_key": effective_merge_key_series(
+                    metadata,
+                    mode,
+                    context="sumstats metadata alignment left table",
+                )
+            }
+        ).dropna(subset=["_ldsc_sumstats_key"])
+        right = self.data.copy()
+        right["_ldsc_sumstats_key"] = effective_merge_key_series(
+            right,
+            mode,
+            context=f"sumstats metadata alignment for {self.source_path or self.trait_name or 'sumstats'}",
+        )
+        right = right.dropna(subset=["_ldsc_sumstats_key"])
+        merged = pd.merge(left, right, how="inner", on="_ldsc_sumstats_key", sort=False).drop(
+            columns=["_ldsc_sumstats_key"]
+        )
         return SumstatsTable(
             data=merged.reset_index(drop=True),
             has_alleles=self.has_alleles,
@@ -247,19 +246,6 @@ def _sumstats_table_identifier_mode(config_snapshot: GlobalConfig | None) -> str
     if config_snapshot is None:
         return "chr_pos"
     return normalize_snp_identifier_mode(config_snapshot.snp_identifier)
-
-
-def _chr_pos_keys_for_matching(data: pd.DataFrame, *, context: str) -> pd.Series:
-    """Return CHR/POS keys for matching, dropping missing-coordinate rows as NA keys."""
-    keyed, _report = build_chr_pos_key_frame(
-        data,
-        context=context,
-        drop_missing=True,
-        logger=LOGGER,
-    )
-    keys = pd.Series(pd.NA, index=data.index, dtype="object")
-    keys.loc[keyed.index] = keyed[CHR_POS_KEY_COLUMN].astype(str)
-    return keys
 
 
 def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> SumstatsTable:
@@ -327,6 +313,22 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
         raise ValueError(
             f"Munged sumstats artifact is malformed: snp_identifier='{mode}' requires A1/A2 columns. "
             "Regenerate it with the current LDSC package."
+        )
+    cleanup = clean_identity_artifact_table(
+        df,
+        mode,
+        context="loaded munged sumstats artifact",
+        stage="load_sumstats_validation",
+        logger=None,
+    )
+    if not cleanup.dropped.empty:
+        reasons = ", ".join(
+            f"{reason}={int(count)}"
+            for reason, count in cleanup.dropped["reason"].value_counts(sort=False).items()
+        )
+        raise ValueError(
+            "Munged sumstats artifact is malformed: duplicate or invalid SNP identity rows were found "
+            f"({reasons}). Regenerate it with the current LDSC package."
         )
     table = SumstatsTable(
         data=df.reset_index(drop=True),
@@ -472,6 +474,14 @@ class SumstatsMunger:
             coordinate_metadata = dict(getattr(args, "_coordinate_metadata", {}))
             drop_frame = _coerce_sumstats_dropped_snps_frame(
                 coordinate_metadata.pop("liftover_drop_frame", None)
+            )
+            identity_drop_frame = _coerce_sumstats_dropped_snps_frame(
+                getattr(args, "_identity_drop_frame", None),
+                default_stage=None,
+            )
+            drop_frame = _coerce_sumstats_dropped_snps_frame(
+                pd.concat([drop_frame, identity_drop_frame], ignore_index=True),
+                default_stage=None,
             )
             table_config_snapshot = _effective_sumstats_config(config_snapshot, coordinate_metadata)
             _log_sumstats_provenance(
@@ -1311,25 +1321,35 @@ def _empty_sumstats_dropped_snps_frame() -> pd.DataFrame:
             "source_pos": pd.Series(dtype="Int64"),
             "target_pos": pd.Series(dtype="Int64"),
             "reason": pd.Series(dtype="string"),
+            "base_key": pd.Series(dtype="string"),
+            "identity_key": pd.Series(dtype="string"),
+            "allele_set": pd.Series(dtype="string"),
+            "stage": pd.Series(dtype="string"),
         },
-        columns=LIFTOVER_DROP_COLUMNS,
+        columns=IDENTITY_DROP_COLUMNS,
     )
 
 
-def _coerce_sumstats_dropped_snps_frame(frame: pd.DataFrame | None) -> pd.DataFrame:
+def _coerce_sumstats_dropped_snps_frame(
+    frame: pd.DataFrame | None,
+    *,
+    default_stage: str | None = "liftover",
+) -> pd.DataFrame:
     """Return dropped-SNP rows with the unified nullable sidecar schema."""
-    if frame is None:
+    if frame is None or frame.empty:
         return _empty_sumstats_dropped_snps_frame()
-    output = frame.copy()
-    for column in LIFTOVER_DROP_COLUMNS:
-        if column not in output.columns:
-            output[column] = pd.NA
-    output = output.loc[:, LIFTOVER_DROP_COLUMNS]
+    output = coerce_identity_drop_frame(frame)
+    if default_stage is not None:
+        output["stage"] = output["stage"].fillna(default_stage)
     output["CHR"] = output["CHR"].astype("string")
     output["SNP"] = output["SNP"].astype("string")
     output["source_pos"] = pd.to_numeric(output["source_pos"], errors="coerce").astype("Int64")
     output["target_pos"] = pd.to_numeric(output["target_pos"], errors="coerce").astype("Int64")
     output["reason"] = output["reason"].astype("string")
+    output["base_key"] = output["base_key"].astype("string")
+    output["identity_key"] = output["identity_key"].astype("string")
+    output["allele_set"] = output["allele_set"].astype("string")
+    output["stage"] = output["stage"].astype("string")
     return output.reset_index(drop=True)
 
 
@@ -1342,12 +1362,12 @@ def _write_sumstats_dropped_snps_sidecar(drop_frame: pd.DataFrame, path: Path) -
 def _log_sumstats_dropped_snps_summary(drop_frame: pd.DataFrame, path: Path) -> None:
     """Log a count-only summary of the sumstats dropped-SNP sidecar."""
     if drop_frame.empty:
-        LOGGER.info(f"No SNPs dropped during liftover stage; audit sidecar at '{path}'.")
+        LOGGER.info(f"No SNPs dropped during liftover or identity cleanup stages; audit sidecar at '{path}'.")
         return
     counts = drop_frame["reason"].value_counts(sort=False)
     count_text = ", ".join(f"{reason}={int(count)}" for reason, count in counts.items())
     LOGGER.info(
-        f"Summary-statistics liftover-stage drops: {len(drop_frame)} SNPs "
+        f"Summary-statistics liftover/identity cleanup drops: {len(drop_frame)} SNPs "
         f"({count_text}); audit sidecar at '{path}'."
     )
 

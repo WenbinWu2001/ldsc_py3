@@ -27,11 +27,13 @@ try:
     import ldsc
     from ldsc import sumstats_munger as sumstats_workflow
     from ldsc._kernel import sumstats_munger as kernel_munge
+    from ldsc._kernel.snp_identity import IDENTITY_DROP_COLUMNS
     from ldsc.sumstats_munger import SumstatsMunger
 except ImportError:
     ldsc = None
     kernel_munge = None
     sumstats_workflow = None
+    IDENTITY_DROP_COLUMNS = None
     SumstatsMunger = None
 
 
@@ -49,6 +51,10 @@ class SumstatsMungerTest(unittest.TestCase):
         "source_pos": "Int64",
         "target_pos": "Int64",
         "reason": "string",
+        "base_key": "string",
+        "identity_key": "string",
+        "allele_set": "string",
+        "stage": "string",
     }
 
     def _read_dropped_snps_sidecar(self, path: Path) -> pd.DataFrame:
@@ -1013,7 +1019,7 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertTrue(sidecar.exists())
             dropped = self._read_dropped_snps_sidecar(sidecar)
             self.assertEqual(len(dropped), 0)
-            self.assertEqual(dropped.columns.tolist(), ["CHR", "SNP", "source_pos", "target_pos", "reason"])
+            self.assertEqual(dropped.columns.tolist(), IDENTITY_DROP_COLUMNS)
             self.assertEqual({column: str(dtype) for column, dtype in dropped.dtypes.items()}, self.DROPPED_SNP_DTYPES)
 
     def test_run_summary_includes_dropped_snps_sidecar_unconditionally(self):
@@ -1072,7 +1078,7 @@ class SumstatsMungerTest(unittest.TestCase):
             dropped = self._read_dropped_snps_sidecar(sidecar)
             self.assertEqual(len(dropped), 0)
             with gzip.open(sidecar, "rt", encoding="utf-8") as handle:
-                self.assertEqual(handle.readline().strip(), "CHR\tSNP\tsource_pos\ttarget_pos\treason")
+                self.assertEqual(handle.readline().strip(), "\t".join(IDENTITY_DROP_COLUMNS))
 
     def test_sumstats_log_points_to_dropped_snps_sidecar_at_info(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1102,6 +1108,9 @@ class SumstatsMungerTest(unittest.TestCase):
 
             sidecar = tmpdir / "munged" / "dropped_snps" / "dropped.tsv.gz"
             log_text = (tmpdir / "munged" / "sumstats.log").read_text(encoding="utf-8")
+            dropped = self._read_dropped_snps_sidecar(sidecar)
+            self.assertEqual(dropped.columns.tolist(), IDENTITY_DROP_COLUMNS)
+            self.assertEqual(dropped["stage"].tolist(), ["liftover"])
             self.assertIn(str(sidecar), log_text)
             self.assertIn("unmapped_liftover=1", log_text)
             self.assertNotIn("rs_drop", log_text)
@@ -1367,14 +1376,34 @@ class SumstatsMungerTest(unittest.TestCase):
 
             self.assertEqual(stdout.getvalue(), "")
 
-    def test_kernel_missing_allele_error_names_no_alleles_fix(self):
+    def test_default_allele_aware_mode_rejects_missing_alleles_and_suggests_base_mode(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             raw_path = tmpdir / "raw.tsv"
-            raw_path.write_text("SNP P OR N\nrs1 0.05 1.1 1000\n", encoding="utf-8")
+            raw_path.write_text("CHR POS SNP P BETA N\n1 100 rs1 0.05 0.1 1000\n", encoding="utf-8")
             args = kernel_munge.parser.parse_args(["--sumstats", str(raw_path), "--out", str(tmpdir / "sumstats")])
 
-            with self.assertRaisesRegex(ValueError, "--a1.*--a2.*--no-alleles"):
+            with self.assertRaisesRegex(ValueError, "snp_identifier='chr_pos_allele_aware'.*--snp-identifier chr_pos"):
+                kernel_munge.munge_sumstats(args, p=True)
+
+    def test_allele_aware_mode_rejects_no_alleles_flag_with_base_mode_hint(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text("CHR POS SNP A1 A2 P BETA N\n1 100 rs1 A C 0.05 0.1 1000\n", encoding="utf-8")
+            args = kernel_munge.parser.parse_args(
+                [
+                    "--sumstats",
+                    str(raw_path),
+                    "--out",
+                    str(tmpdir / "sumstats"),
+                    "--no-alleles",
+                    "--snp-identifier",
+                    "chr_pos_allele_aware",
+                ]
+            )
+
+            with self.assertRaisesRegex(ValueError, "--no-alleles.*snp_identifier='chr_pos_allele_aware'.*--snp-identifier chr_pos"):
                 kernel_munge.munge_sumstats(args, p=True)
 
     def test_kernel_missing_allele_error_suggests_ref_alt_columns(self):
@@ -1382,10 +1411,139 @@ class SumstatsMungerTest(unittest.TestCase):
             tmpdir = Path(tmpdir)
             raw_path = tmpdir / "raw.tsv"
             raw_path.write_text("SNP REF ALT P OR N\nrs1 A G 0.05 1.1 1000\n", encoding="utf-8")
-            args = kernel_munge.parser.parse_args(["--sumstats", str(raw_path), "--out", str(tmpdir / "sumstats")])
+            args = kernel_munge.parser.parse_args(
+                [
+                    "--sumstats",
+                    str(raw_path),
+                    "--out",
+                    str(tmpdir / "sumstats"),
+                    "--snp-identifier",
+                    "rsid_allele_aware",
+                ]
+            )
 
             with self.assertRaisesRegex(ValueError, "--a1 REF --a2 ALT"):
                 kernel_munge.munge_sumstats(args, p=True)
+
+    def test_rsid_allele_aware_requires_alleles(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text("SNP P BETA N\nrs1 0.05 0.1 1000\n", encoding="utf-8")
+            args = kernel_munge.parser.parse_args(
+                [
+                    "--sumstats",
+                    str(raw_path),
+                    "--out",
+                    str(tmpdir / "sumstats"),
+                    "--snp-identifier",
+                    "rsid_allele_aware",
+                ]
+            )
+
+            with self.assertRaisesRegex(ValueError, "snp_identifier='rsid_allele_aware'.*--snp-identifier rsid"):
+                kernel_munge.munge_sumstats(args, p=True)
+
+    def test_base_modes_run_without_alleles_when_no_alleles_is_passed(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            rsid_raw = tmpdir / "rsid.tsv"
+            rsid_raw.write_text("SNP P BETA N\nrs1 0.05 0.1 1000\n", encoding="utf-8")
+            chr_pos_raw = tmpdir / "chr_pos.tsv"
+            chr_pos_raw.write_text("CHR POS SNP P BETA N\n1 100 rs1 0.05 0.1 1000\n", encoding="utf-8")
+
+            rsid_args = kernel_munge.parser.parse_args(
+                [
+                    "--sumstats",
+                    str(rsid_raw),
+                    "--out",
+                    str(tmpdir / "rsid_out"),
+                    "--snp-identifier",
+                    "rsid",
+                    "--no-alleles",
+                ]
+            )
+            chr_pos_args = kernel_munge.parser.parse_args(
+                [
+                    "--sumstats",
+                    str(chr_pos_raw),
+                    "--out",
+                    str(tmpdir / "chr_pos_out"),
+                    "--snp-identifier",
+                    "chr_pos",
+                    "--genome-build",
+                    "hg38",
+                    "--no-alleles",
+                ]
+            )
+
+            self.assertEqual(kernel_munge.munge_sumstats(rsid_args, p=False)["SNP"].tolist(), ["rs1"])
+            self.assertEqual(kernel_munge.munge_sumstats(chr_pos_args, p=False)["SNP"].tolist(), ["rs1"])
+
+    def test_base_modes_keep_singletons_with_bad_allele_columns(self):
+        rows = (
+            "CHR POS SNP A1 A2 P BETA N\n"
+            "1 100 missing . C 0.05 0.1 1000\n"
+            "1 200 ambiguous A T 0.05 0.1 1000\n"
+            "1 300 multibase AT C 0.05 0.1 1000\n"
+            "1 400 identical G G 0.05 0.1 1000\n"
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            for mode in ("rsid", "chr_pos"):
+                raw_path = tmpdir / f"{mode}.tsv"
+                raw_path.write_text(rows, encoding="utf-8")
+                args = kernel_munge.parser.parse_args(
+                    [
+                        "--sumstats",
+                        str(raw_path),
+                        "--out",
+                        str(tmpdir / f"{mode}_out"),
+                        "--snp-identifier",
+                        mode,
+                        "--genome-build",
+                        "hg38",
+                    ]
+                )
+
+                munged = kernel_munge.munge_sumstats(args, p=False)
+
+                self.assertEqual(munged["SNP"].tolist(), ["missing", "ambiguous", "multibase", "identical"])
+
+    def test_base_mode_duplicate_drops_use_duplicate_identity(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "SNP A1 A2 P BETA N\n"
+                "rs1 A C 0.05 0.1 1000\n"
+                "rs1 A G 0.05 0.1 1000\n"
+                "rs2 A T 0.05 0.1 1000\n",
+                encoding="utf-8",
+            )
+            output_dir = tmpdir / "munged"
+
+            table = SumstatsMunger().run(
+                MungeConfig(raw_sumstats_file=raw_path),
+                MungeConfig(output_dir=output_dir),
+                GlobalConfig(snp_identifier="rsid"),
+            )
+
+            self.assertEqual(table.data["SNP"].tolist(), ["rs2"])
+            dropped = self._read_dropped_snps_sidecar(output_dir / "dropped_snps" / "dropped.tsv.gz")
+            self.assertEqual(dropped["reason"].tolist(), ["duplicate_identity", "duplicate_identity"])
+            self.assertEqual(dropped["stage"].tolist(), ["post_liftover_identity_cleanup", "post_liftover_identity_cleanup"])
+
+    def test_load_sumstats_rejects_duplicate_effective_keys(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            sumstats_file = tmpdir / "trait.sumstats.gz"
+            with gzip.open(sumstats_file, "wt", encoding="utf-8") as handle:
+                handle.write("SNP\tZ\tN\nrs1\t1.0\t100.0\nrs1\t2.0\t100.0\n")
+            self._write_sumstats_sidecar(tmpdir / "trait.metadata.json", snp_identifier="rsid", trait_name="trait")
+
+            with self.assertRaisesRegex(ValueError, "Munged sumstats artifact is malformed.*duplicate_identity"):
+                ldsc.load_sumstats(sumstats_file)
 
     def test_kernel_missing_sample_size_error_explains_neff_is_not_n(self):
         with tempfile.TemporaryDirectory() as tmpdir:

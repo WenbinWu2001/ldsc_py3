@@ -241,6 +241,43 @@ class SumstatsLiftoverTest(unittest.TestCase):
         self.assertEqual(report["n_lifted"], 1)
         self.assertEqual(drop_frame["reason"].tolist(), ["target_collision", "target_collision"])
 
+    def test_liftover_duplicate_coordinate_detection_is_allele_blind(self):
+        frame = pd.DataFrame(
+            {
+                "CHR": ["1", "1", "1", "1", "1"],
+                "POS": [100, 100, 200, 300, 400],
+                "SNP": ["source_a", "source_b", "target_a", "target_b", "kept"],
+                "A1": ["A", "A", "A", "A", "A"],
+                "A2": ["C", "G", "C", "G", "C"],
+                "Z": [1.0, 2.0, 3.0, 4.0, 5.0],
+                "N": [100.0, 100.0, 100.0, 100.0, 100.0],
+            }
+        )
+        request = SumstatsLiftoverRequest(target_build="hg38", liftover_chain_file="chain.over")
+        fake_translator = mock.Mock()
+        fake_translator.map_positions.return_value = LiftOverMappingResult(
+            translated_positions=np.asarray([900, 900, 1200], dtype=np.int64),
+            keep_mask=np.asarray([True, True, True], dtype=bool),
+            unmapped_count=0,
+            cross_chrom_count=0,
+        )
+
+        with mock.patch("ldsc._kernel.liftover.LiftOverTranslator", return_value=fake_translator):
+            lifted, report, drop_frame = apply_sumstats_liftover(
+                frame,
+                request,
+                source_build="hg19",
+                snp_identifier="chr_pos_allele_aware",
+            )
+
+        self.assertEqual(lifted["SNP"].tolist(), ["kept"])
+        self.assertEqual(report["n_duplicate_source_dropped"], 2)
+        self.assertEqual(report["n_duplicate_target_dropped"], 2)
+        self.assertEqual(
+            drop_frame["reason"].tolist(),
+            ["source_duplicate", "source_duplicate", "target_collision", "target_collision"],
+        )
+
     def test_missing_coordinates_are_dropped_before_hm3_liftover(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = self.write_hm3_map(

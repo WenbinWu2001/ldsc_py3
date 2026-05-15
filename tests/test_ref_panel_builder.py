@@ -866,7 +866,7 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
                 ]
             )
 
-    def test_config_from_args_uses_registered_identifier_for_restriction_file(self):
+    def test_config_from_args_uses_parser_default_identifier_for_restriction_file(self):
         parser = ref_panel_builder.build_parser()
         args = parser.parse_args(
             [
@@ -891,7 +891,7 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
 
         self.assertEqual(build_config.ref_panel_snps_file, "hm3.tsv")
         self.assertIsNone(build_config.source_genome_build)
-        self.assertEqual(global_config.snp_identifier, "chr_pos")
+        self.assertEqual(global_config.snp_identifier, "chr_pos_allele_aware")
         self.assertEqual(global_config.genome_build, "auto")
 
     def test_config_from_args_uses_explicit_snp_identifier_for_restriction_file(self):
@@ -948,7 +948,7 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
         self.assertEqual(global_config.snp_identifier, "chr_pos")
         self.assertEqual(global_config.genome_build, "auto")
 
-    def test_run_build_ref_panel_uses_registered_identifier_for_restriction_file(self):
+    def test_run_build_ref_panel_uses_parser_default_identifier_for_restriction_file(self):
         captured = {}
 
         def fake_run(self, config):
@@ -971,7 +971,7 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
             reset_global_config()
 
         self.assertEqual(captured["config"].ref_panel_snps_file, "hm3.tsv")
-        self.assertEqual(captured["global_config"].snp_identifier, "chr_pos")
+        self.assertEqual(captured["global_config"].snp_identifier, "chr_pos_allele_aware")
         self.assertEqual(captured["global_config"].genome_build, "auto")
 
     def test_run_build_ref_panel_uses_snp_batch_size_keyword(self):
@@ -1478,7 +1478,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             self.assertEqual(len(self._read_dropped_sidecar(tmpdir / "out" / "dropped_snps" / "chr1_dropped.tsv.gz")), 0)
             self.assertEqual(mock_bed.call_args.kwargs["keep_snps"], [0, 1, 2])
             messages = "\n".join(log_ctx.output)
-            self.assertEqual(messages.count("Coordinate duplicate filtering applies only when snp_identifier='chr_pos'"), 1)
+            self.assertEqual(messages.count("Coordinate duplicate filtering applies only for chr_pos-family snp_identifier modes"), 1)
 
     def test_builder_run_rejects_matching_chain_in_rsid_mode(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1500,7 +1500,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 "_build_chromosome",
                 side_effect=AssertionError("chromosome build should not run"),
             ):
-                with self.assertRaisesRegex(ValueError, "chain liftover.*snp_identifier='chr_pos'"):
+                with self.assertRaisesRegex(ValueError, "chain liftover.*chr_pos-family"):
                     builder.run(config)
 
     def test_all_dropped_chromosome_is_skipped_without_poisoning_other_chromosomes(self):

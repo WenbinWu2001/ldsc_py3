@@ -165,7 +165,7 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertIsNone(result.config_snapshot)
         self.assertTrue(any("GlobalConfig provenance is missing" in str(item.message) for item in caught))
 
-    def test_load_ldscore_from_dir_defaults_missing_snp_identifier_to_chr_pos(self):
+    def test_load_ldscore_from_dir_defaults_missing_snp_identifier_to_chr_pos_allele_aware(self):
         from ldsc import load_ldscore_from_dir
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -179,8 +179,8 @@ class RegressionWorkflowTest(unittest.TestCase):
 
             result = load_ldscore_from_dir(str(tmpdir))
 
-        self.assertEqual(result.ld_regression_snps, frozenset({"1:10"}))
-        self.assertEqual(result.config_snapshot, GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
+        self.assertEqual(result.ld_regression_snps, frozenset({"1:10:A:C"}))
+        self.assertEqual(result.config_snapshot, GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"))
 
     def test_load_ldscore_from_dir_warns_when_config_snapshot_is_invalid(self):
         from ldsc import load_ldscore_from_dir
@@ -331,6 +331,8 @@ class RegressionWorkflowTest(unittest.TestCase):
                 "CHR": ["1"],
                 "SNP": ["rs1"],
                 "POS": [10],
+                "A1": ["A"],
+                "A2": ["C"],
                 "regression_ld_scores": [2.0],
                 "base": [1.0],
             }
@@ -351,6 +353,8 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "CHR": ["1"],
                     "SNP": ["rs1"],
                     "POS": [10],
+                    "A1": ["A"],
+                    "A2": ["C"],
                     "query": [2.0],
                 }
             ).to_parquet(root / "query.parquet", index=False)

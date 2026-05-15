@@ -2012,6 +2012,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
         def _compute_side_effect(chrom, bundle, args, regression_snps):
             self.assertEqual(chrom, "1")
             self.assertEqual(bundle.metadata["SNP"].tolist(), ["rs1", "rs3"])
+            self.assertEqual(bundle.metadata["A1"].tolist(), ["A", "A"])
+            self.assertEqual(bundle.metadata["A2"].tolist(), ["C", "G"])
             return ldscore_workflow._LegacyChromResult(
                 chrom="1",
                 metadata=pd.DataFrame(
@@ -2072,6 +2074,42 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
         self.assertEqual(bundle.metadata["A1"].tolist(), ["A", "A"])
         self.assertEqual(bundle.metadata["A2"].tolist(), ["C", "G"])
+
+    @unittest.skipUnless(_HAS_BITARRAY, "bitarray is not installed")
+    def test_plink_compute_chromosome_enriches_allele_free_annotations_in_default_mode(self):
+        prefix = Path(__file__).resolve().parent / "fixtures" / "minimal_external_resources" / "plink" / "hm3_chr22_subset"
+        bim = pd.read_csv(
+            prefix.with_suffix(".bim"),
+            sep=r"\s+",
+            header=None,
+            names=["CHR", "SNP", "CM", "POS", "A1", "A2"],
+        )
+        metadata = bim.loc[:, ["CHR", "SNP", "CM", "POS"]].copy()
+        metadata["CHR"] = metadata["CHR"].astype(str)
+        baseline = pd.DataFrame({"base": np.ones(len(metadata), dtype=np.float32)})
+        bundle = AnnotationBundle(
+            metadata=metadata,
+            baseline_annotations=baseline,
+            query_annotations=pd.DataFrame(index=metadata.index),
+            baseline_columns=["base"],
+            query_columns=[],
+            chromosomes=["22"],
+            source_summary={},
+            config_snapshot=None,
+        )
+        common = GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38")
+        panel = PlinkRefPanel(common, RefPanelConfig(backend="plink", plink_prefix=str(prefix)))
+
+        result = ldscore_workflow.LDScoreCalculator().compute_chromosome(
+            chrom="22",
+            annotation_bundle=bundle,
+            ref_panel=panel,
+            ldscore_config=LDScoreConfig(ld_wind_snps=10, whole_chromosome_ok=True),
+            global_config=common,
+        )
+
+        self.assertGreater(len(result.baseline_table), 0)
+        self.assertTrue(all(key.startswith("22:") for key in result.ld_regression_snps))
 
     @unittest.skipUnless(_HAS_BITARRAY, "bitarray is not installed")
     def test_ldscore_calculator_run_applies_keep_filter_by_fam_iid(self):

@@ -1283,16 +1283,26 @@ def _align_annotation_bundle_to_ref_panel(annotation_bundle, ref_panel, chrom: s
     """
     reference_metadata = ref_panel.load_metadata(chrom)
     match_mode = _annotation_reference_match_mode(annotation_bundle.metadata, global_config.snp_identifier)
-    reference_ids = set(build_snp_id_series(reference_metadata, match_mode))
-    keep = build_snp_id_series(annotation_bundle.metadata, match_mode).isin(reference_ids)
+    reference_keys = build_snp_id_series(reference_metadata, match_mode)
+    annotation_keys = build_snp_id_series(annotation_bundle.metadata, match_mode)
+    reference_ids = set(reference_keys)
+    keep = annotation_keys.isin(reference_ids)
     if not bool(keep.any()):
         backend = getattr(getattr(ref_panel, "spec", None), "backend", None)
         intersection = "parquet" if backend == "parquet_r2" else "PLINK"
         raise ValueError(f"No retained annotation SNPs remain on chromosome {chrom} after {intersection} intersection.")
-    if bool(keep.all()):
+    metadata = annotation_bundle.metadata.loc[keep].reset_index(drop=True)
+    metadata = _annotation_metadata_with_reference_alleles(
+        annotation_metadata=metadata,
+        annotation_keys=annotation_keys.loc[keep].reset_index(drop=True),
+        reference_metadata=reference_metadata,
+        reference_keys=reference_keys,
+        snp_identifier=global_config.snp_identifier,
+    )
+    if bool(keep.all()) and metadata.equals(annotation_bundle.metadata.reset_index(drop=True)):
         return annotation_bundle
     return type(annotation_bundle)(
-        metadata=annotation_bundle.metadata.loc[keep].reset_index(drop=True),
+        metadata=metadata,
         baseline_annotations=annotation_bundle.baseline_annotations.loc[keep].reset_index(drop=True),
         query_annotations=annotation_bundle.query_annotations.loc[keep].reset_index(drop=True),
         baseline_columns=list(annotation_bundle.baseline_columns),
@@ -1312,6 +1322,43 @@ def _annotation_reference_match_mode(
     if is_allele_aware_mode(mode) and not {"A1", "A2"}.issubset(annotation_metadata.columns):
         return identity_base_mode(mode)
     return mode
+
+
+def _annotation_metadata_with_reference_alleles(
+    *,
+    annotation_metadata: pd.DataFrame,
+    annotation_keys: pd.Series,
+    reference_metadata: pd.DataFrame,
+    reference_keys: pd.Series,
+    snp_identifier: str,
+) -> pd.DataFrame:
+    """Fill missing annotation alleles from unambiguous retained reference metadata."""
+    mode = normalize_snp_identifier_mode(snp_identifier)
+    if not is_allele_aware_mode(mode) or {"A1", "A2"}.issubset(annotation_metadata.columns):
+        return annotation_metadata
+    if not {"A1", "A2"}.issubset(reference_metadata.columns):
+        return annotation_metadata
+
+    reference_lookup = reference_metadata.loc[:, ["A1", "A2"]].copy()
+    reference_lookup["_match_key"] = reference_keys.to_numpy()
+    reference_lookup = reference_lookup.loc[reference_lookup["_match_key"].notna()].copy()
+    duplicate_mask = reference_lookup["_match_key"].duplicated(keep=False)
+    if bool(duplicate_mask.any()):
+        duplicate_key = str(reference_lookup.loc[duplicate_mask, "_match_key"].iloc[0])
+        raise ValueError(
+            "Cannot infer annotation alleles from reference metadata because "
+            f"base identity {duplicate_key!r} is not unique under {mode}."
+        )
+    reference_lookup = reference_lookup.set_index("_match_key")
+    missing = ~annotation_keys.isin(reference_lookup.index)
+    if bool(missing.any()):
+        missing_key = str(annotation_keys.loc[missing].iloc[0])
+        raise ValueError(f"Reference metadata is missing alleles for retained annotation SNP {missing_key!r}.")
+
+    enriched = annotation_metadata.copy()
+    enriched["A1"] = annotation_keys.map(reference_lookup["A1"]).astype(str)
+    enriched["A2"] = annotation_keys.map(reference_lookup["A2"]).astype(str)
+    return enriched
 
 
 def _warn_and_skip_empty_intersection(error: ValueError, chrom: str) -> bool:

@@ -4,7 +4,7 @@ This module is the single source of truth for:
 
 - column-header normalization
 - column-alias families scoped by input context
-- SNP identifier mode aliases
+- SNP identifier modes
 - genome build aliases
 
 Callers should infer columns here and then rename to canonical field names
@@ -18,6 +18,8 @@ from dataclasses import dataclass
 import logging
 import re
 from typing import Iterable, Sequence
+
+from ._kernel.snp_identity import SNP_IDENTIFIER_MODES, normalize_snp_identifier_mode
 
 LOGGER = logging.getLogger("LDSC.columns")
 _LOGGED_INFERENCES: set[tuple[str, str, str]] = set()
@@ -33,21 +35,9 @@ def normalize_column_token(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", str(value).lower())
 
 
-_RSID_IDENTIFIER_ALIASES = ("rsid", "rs_id", "rs", "snp", "snpid", "snp_id")
-_CHR_POS_IDENTIFIER_ALIASES = ("chr_pos", "chrpos", "chrom_pos", "chromosome_position", "position")
 _HG19_BUILD_ALIASES = ("hg19", "hg37", "grch37")
 _HG38_BUILD_ALIASES = ("hg38", "grch38")
 _AUTO_BUILD_ALIASES = ("auto",)
-
-
-def normalize_snp_identifier_mode(value: str) -> str:
-    """Normalize a flexible SNP identifier-mode label to ``rsid`` or ``chr_pos``."""
-    normalized = normalize_column_token(value)
-    if normalized in {normalize_column_token(alias) for alias in _RSID_IDENTIFIER_ALIASES}:
-        return "rsid"
-    if normalized in {normalize_column_token(alias) for alias in _CHR_POS_IDENTIFIER_ALIASES}:
-        return "chr_pos"
-    raise ValueError(f"Unsupported snp_identifier mode: {value!r}")
 
 
 def normalize_genome_build(genome_build: str | None) -> str | None:

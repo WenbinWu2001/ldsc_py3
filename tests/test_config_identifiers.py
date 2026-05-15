@@ -509,10 +509,11 @@ class IdentifierHelpersTest(unittest.TestCase):
         self.assertEqual(clean_header("foo-bar.foo_BaR"), "FOO_BAR_FOO_BAR")
 
     def test_normalize_snp_identifier_mode(self):
-        for value in ["rsid", "rsID", "SNPID", "snp_id", "snp"]:
-            self.assertEqual(normalize_snp_identifier_mode(value), "rsid")
-        for value in ["chr_pos", "ChrPos", "chrom_pos"]:
-            self.assertEqual(normalize_snp_identifier_mode(value), "chr_pos")
+        for value in ["rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"]:
+            self.assertEqual(normalize_snp_identifier_mode(value), value)
+        for value in ["rsID", "SNPID", "snp_id", "snp", "ChrPos", "chrom_pos"]:
+            with self.assertRaises(ValueError):
+                normalize_snp_identifier_mode(value)
 
     def test_infer_snp_column_aliases(self):
         for header in [["rsid"], ["rsID"], ["SNPID"], ["snp_id"], ["SNP"], ["id"]]:
@@ -588,7 +589,7 @@ class RestrictionReadersTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "restrict.tsv"
             path.write_text("id\tother\nrs1\ta\nrs2\tb\n", encoding="utf-8")
-            self.assertEqual(read_global_snp_restriction(path, "rsID"), {"rs1", "rs2"})
+            self.assertEqual(read_global_snp_restriction(path, "rsid"), {"rs1", "rs2"})
 
     def test_read_global_snp_restriction_chr_pos_table(self):
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -32,10 +32,15 @@ class ColumnInferenceTest(unittest.TestCase):
         self.assertEqual(ci.clean_header("foo-bar.foo_BaR\n"), "FOO_BAR_FOO_BAR")
 
         self.assertIsNotNone(getattr(ci, "normalize_snp_identifier_mode", None))
-        for value in ["rsid", "rsID", "SNPID", "snp_id", "snp"]:
-            self.assertEqual(ci.normalize_snp_identifier_mode(value), "rsid")
-        for value in ["chr_pos", "ChrPos", "chrom_pos"]:
-            self.assertEqual(ci.normalize_snp_identifier_mode(value), "chr_pos")
+        self.assertEqual(
+            tuple(ci.SNP_IDENTIFIER_MODES),
+            ("rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"),
+        )
+        for value in ci.SNP_IDENTIFIER_MODES:
+            self.assertEqual(ci.normalize_snp_identifier_mode(value), value)
+        for value in ["rsID", "SNPID", "snp_id", "snp", "ChrPos", "chrom_pos"]:
+            with self.assertRaises(ValueError):
+                ci.normalize_snp_identifier_mode(value)
 
         self.assertIsNotNone(getattr(ci, "normalize_genome_build", None))
         self.assertEqual(ci.normalize_genome_build("hg37"), "hg19")

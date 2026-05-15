@@ -64,6 +64,7 @@ from ..column_inference import (
     resolve_restriction_chr_pos_columns,
     resolve_restriction_rsid_column,
 )
+from .snp_identity import effective_merge_key_series, is_allele_aware_mode
 
 LOGGER = logging.getLogger("LDSC.identifiers")
 _CHROMOSOME_PACK_CODES = {
@@ -103,6 +104,12 @@ def build_snp_id_series(df: pd.DataFrame, mode: str) -> pd.Series:
         One identifier per input row, aligned to ``df.index``.
     """
     mode = normalize_snp_identifier_mode(mode)
+    try:
+        return effective_merge_key_series(df, mode, context="metadata")
+    except ValueError:
+        if is_allele_aware_mode(mode):
+            raise
+
     if mode == "rsid":
         snp_col = infer_snp_column(df.columns)
         return df[snp_col].astype(str)

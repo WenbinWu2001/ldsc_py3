@@ -438,7 +438,8 @@ class ReferencePanelBuildConfig:
         Chain files used to populate the opposite-build coordinates. If the
         chain matching the resolved ``source_genome_build`` is omitted, the
         builder emits a source-build-only panel. Matching chain files are valid
-        only when the active ``GlobalConfig.snp_identifier`` is ``"chr_pos"``.
+        only when the active ``GlobalConfig.snp_identifier`` is in the
+        ``chr_pos`` family.
     ld_wind_snps, ld_wind_kb, ld_wind_cm : int, float, float, or None, optional
         LD window specification. Exactly one must be supplied.
     maf_min : float or None, optional
@@ -456,8 +457,9 @@ class ReferencePanelBuildConfig:
     use_hm3_quick_liftover : bool, optional
         If ``True``, emit the opposite-build reference-panel artifacts for the
         HM3-restricted coordinate universe using the packaged curated HM3 map.
-        Requires ``use_hm3_snps``, is valid only in ``chr_pos`` mode, and is
-        mutually exclusive with chain-file liftover. Default is ``False``.
+        Requires ``use_hm3_snps``, is valid only in ``chr_pos``-family modes,
+        and is mutually exclusive with chain-file liftover. Default is
+        ``False``.
     keep_indivs_file : str or os.PathLike[str] or None, optional
         Optional individual keep-file applied before R2 calculation. Default is
         ``None``.

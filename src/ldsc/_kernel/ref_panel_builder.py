@@ -41,6 +41,10 @@ _STANDARD_R2_COLUMNS = [
     "POS_2",
     "SNP_1",
     "SNP_2",
+    "A1_1",
+    "A2_1",
+    "A1_2",
+    "A2_2",
     "R2",
 ]
 
@@ -54,6 +58,10 @@ def _empty_standard_r2_table() -> pd.DataFrame:
             "POS_2": pd.Series(dtype=np.int64),
             "SNP_1": pd.Series(dtype="string"),
             "SNP_2": pd.Series(dtype="string"),
+            "A1_1": pd.Series(dtype="string"),
+            "A2_1": pd.Series(dtype="string"),
+            "A1_2": pd.Series(dtype="string"),
+            "A2_2": pd.Series(dtype="string"),
             "R2": pd.Series(dtype=np.float32),
         },
         columns=_STANDARD_R2_COLUMNS,
@@ -452,16 +460,16 @@ def iter_pairwise_r2_rows(
     )
 
 
-def _build_unique_ids(chromosomes: pd.Series, positions: np.ndarray, ref: pd.Series, alt: pd.Series) -> pd.Series:
-    """Build ``CHR:POS:REF:ALT`` identifiers for one allele-orientation table."""
+def _build_unique_ids(chromosomes: pd.Series, positions: np.ndarray, a1: pd.Series, a2: pd.Series) -> pd.Series:
+    """Build ``CHR:POS:A1:A2`` identifiers for one allele-orientation table."""
     return (
         chromosomes.astype(str)
         + ":"
         + pd.Series(np.asarray(positions, dtype=np.int64), index=chromosomes.index).astype(str)
         + ":"
-        + ref.astype(str)
+        + a1.astype(str)
         + ":"
-        + alt.astype(str)
+        + a2.astype(str)
     )
 
 
@@ -475,13 +483,13 @@ def _optional_position_series(positions: np.ndarray | None, index: pd.Index) -> 
 def _optional_unique_ids(
     chromosomes: pd.Series,
     positions: np.ndarray | None,
-    ref: pd.Series,
-    alt: pd.Series,
+    a1: pd.Series,
+    a2: pd.Series,
 ) -> pd.Series:
     """Build unique IDs when positions exist, otherwise return missing strings."""
     if positions is None:
         return pd.Series(pd.array([pd.NA] * len(chromosomes), dtype="string"), index=chromosomes.index)
-    return _build_unique_ids(chromosomes, positions, ref, alt)
+    return _build_unique_ids(chromosomes, positions, a1, a2)
 
 
 def build_reference_snp_table(
@@ -498,19 +506,19 @@ def build_reference_snp_table(
     """
 
     chromosomes = metadata["CHR"].map(_normalize_map_chromosome)
-    ref = metadata["A1"].astype(str)
-    alt = metadata["A2"].astype(str)
+    a1 = metadata["A1"].astype(str)
+    a2 = metadata["A2"].astype(str)
     table = pd.DataFrame(
         {
             "chr": chromosomes.astype(str),
             "hg19_pos": _optional_position_series(hg19_positions, chromosomes.index),
             "hg38_pos": _optional_position_series(hg38_positions, chromosomes.index),
-            "hg19_Uniq_ID": _optional_unique_ids(chromosomes, hg19_positions, ref, alt),
-            "hg38_Uniq_ID": _optional_unique_ids(chromosomes, hg38_positions, ref, alt),
+            "hg19_Uniq_ID": _optional_unique_ids(chromosomes, hg19_positions, a1, a2),
+            "hg38_Uniq_ID": _optional_unique_ids(chromosomes, hg38_positions, a1, a2),
             "rsID": metadata["SNP"].astype(str),
             "MAF": pd.to_numeric(metadata["MAF"], errors="coerce").astype(float),
-            "REF": ref,
-            "ALT": alt,
+            "A1": a1,
+            "A2": a2,
         }
     )
     return table.reset_index(drop=True)
@@ -523,12 +531,13 @@ def build_standard_r2_table(
     genome_build: str,
 ) -> pd.DataFrame:
     """
-    Build one canonical six-column R2 table batch for a chromosome.
+    Build one canonical R2 table batch for a chromosome.
 
     The returned frame always uses the package-written parquet schema:
-    string-valued ``CHR``/``SNP_1``/``SNP_2``, ``int64`` positions, and
-    ``float32`` R2 values. Empty batches keep the same dtypes so chromosomes with
-    no emitted pairs still serialize as canonical R2 parquet files.
+    string-valued ``CHR``/``SNP_1``/``SNP_2``/endpoint allele columns,
+    ``int64`` positions, and ``float32`` R2 values. Empty batches keep the same
+    dtypes so chromosomes with no emitted pairs still serialize as canonical R2
+    parquet files.
     """
 
     if not pair_rows:
@@ -548,6 +557,10 @@ def build_standard_r2_table(
             "POS_2": right[pos_col].to_numpy(dtype=np.int64),
             "SNP_1": left["rsID"].astype(str),
             "SNP_2": right["rsID"].astype(str),
+            "A1_1": left["A1"].astype(str),
+            "A2_1": left["A2"].astype(str),
+            "A1_2": right["A1"].astype(str),
+            "A2_2": right["A2"].astype(str),
             "R2": r2,
         },
         columns=_STANDARD_R2_COLUMNS,
@@ -576,16 +589,11 @@ def build_runtime_metadata_table(
         "CHR": metadata["CHR"].map(_normalize_map_chromosome).astype(str),
         "POS": np.asarray(positions, dtype=np.int64),
         "SNP": metadata["SNP"].astype(str),
+        "A1": metadata["A1"].astype(str),
+        "A2": metadata["A2"].astype(str),
         "CM": cm_column,
         "MAF": pd.to_numeric(metadata["MAF"], errors="coerce").astype(float),
     }
-    has_a1 = "A1" in metadata.columns
-    has_a2 = "A2" in metadata.columns
-    if has_a1 != has_a2:
-        raise ValueError("Runtime metadata requires both A1 and A2 allele columns when either is present.")
-    if has_a1 and has_a2:
-        values["A1"] = metadata["A1"].astype(str)
-        values["A2"] = metadata["A2"].astype(str)
     return pd.DataFrame(values).reset_index(drop=True)
 
 
@@ -627,7 +635,7 @@ def write_r2_parquet(
 
     The writer requires ``pyarrow`` because the canonical format depends on
     Arrow schema metadata and explicit row-group sizing. It writes exactly the
-    six canonical R2 columns and records ``ldsc:sorted_by_build``,
+    canonical R2 columns and records ``ldsc:sorted_by_build``,
     ``ldsc:row_group_size``, ``ldsc:n_samples``, and ``ldsc:r2_bias`` in the
     Arrow schema. Current package-built panels always store unbiased R2 values,
     so ``ldsc:r2_bias`` is written as ``"unbiased"`` and ``n_samples`` captures

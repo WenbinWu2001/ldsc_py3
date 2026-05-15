@@ -49,8 +49,12 @@ from .column_inference import (
     resolve_required_column,
 )
 from ._kernel.snp_identity import (
+    IDENTITY_DROP_COLUMNS,
     RestrictionIdentityKeys,
+    clean_identity_artifact_table,
     collapse_restriction_identity_keys,
+    coerce_identity_drop_frame,
+    empty_identity_drop_frame,
     identity_mode_family,
     is_allele_aware_mode,
 )
@@ -72,7 +76,6 @@ from ._kernel import ldscore as kernel_ldscore
 from ._kernel import ref_panel_builder as kernel_builder
 from ._kernel.liftover import (
     Hm3DualBuildLifter,
-    LIFTOVER_DROP_COLUMNS,
     duplicate_coordinate_drop_result,
     liftover_drop_report,
     log_liftover_drop_report,
@@ -179,16 +182,7 @@ def _expected_ref_panel_output_paths(config: ReferencePanelBuildConfig, chromoso
 
 def _empty_unified_drop_frame() -> pd.DataFrame:
     """Return the canonical empty dropped-SNP sidecar frame."""
-    return pd.DataFrame(
-        {
-            "CHR": pd.Series(dtype="string"),
-            "SNP": pd.Series(dtype="string"),
-            "source_pos": pd.Series(dtype="Int64"),
-            "target_pos": pd.Series(dtype="Int64"),
-            "reason": pd.Series(dtype="string"),
-        },
-        columns=LIFTOVER_DROP_COLUMNS,
-    )
+    return _coerce_unified_drop_frame(empty_identity_drop_frame())
 
 
 def _coerce_unified_drop_frame(frame: pd.DataFrame | None) -> pd.DataFrame:
@@ -196,15 +190,17 @@ def _coerce_unified_drop_frame(frame: pd.DataFrame | None) -> pd.DataFrame:
     if frame is None:
         return _empty_unified_drop_frame()
     output = frame.copy()
-    for column in LIFTOVER_DROP_COLUMNS:
+    if "stage" not in output.columns and not output.empty:
+        output["stage"] = "ref_panel_liftover"
+    output = coerce_identity_drop_frame(output)
+    for column in IDENTITY_DROP_COLUMNS:
         if column not in output.columns:
             output[column] = pd.NA
-    output = output.loc[:, LIFTOVER_DROP_COLUMNS]
-    output["CHR"] = output["CHR"].astype("string")
-    output["SNP"] = output["SNP"].astype("string")
+    output = output.loc[:, IDENTITY_DROP_COLUMNS]
+    for column in ("CHR", "SNP", "reason", "base_key", "identity_key", "allele_set", "stage"):
+        output[column] = output[column].astype("string")
     output["source_pos"] = pd.to_numeric(output["source_pos"], errors="coerce").astype("Int64")
     output["target_pos"] = pd.to_numeric(output["target_pos"], errors="coerce").astype("Int64")
-    output["reason"] = output["reason"].astype("string")
     return output.reset_index(drop=True)
 
 
@@ -439,6 +435,24 @@ class ReferencePanelBuilder:
         source_build = config.source_genome_build
         if source_build not in {"hg19", "hg38"}:
             raise ValueError("source_genome_build must be resolved before loading build-ref-panel shared state.")
+        target_build = "hg38" if source_build == "hg19" else "hg19"
+        matching_chain = (
+            config.liftover_chain_hg19_to_hg38_file
+            if source_build == "hg19"
+            else config.liftover_chain_hg38_to_hg19_file
+        )
+        nonmatching_chain = (
+            config.liftover_chain_hg38_to_hg19_file
+            if source_build == "hg19"
+            else config.liftover_chain_hg19_to_hg38_file
+        )
+        if config.use_hm3_quick_liftover and identity_mode_family(self.global_config.snp_identifier) == "rsid":
+            raise ValueError("Reference-panel HM3 quick liftover is only valid for chr_pos-family modes.")
+        if matching_chain is not None and identity_mode_family(self.global_config.snp_identifier) == "rsid":
+            raise ValueError(
+                "Reference-panel chain liftover is only valid for chr_pos-family modes; "
+                "omit the matching liftover chain in rsID-family modes."
+            )
         restriction_mode = None
         restriction_values = None
         restriction_keys = None
@@ -468,24 +482,6 @@ class ReferencePanelBuilder:
                 f"{' via use_hm3_snps' if config.use_hm3_snps else ''}."
             )
             LOGGER.info(message)
-        target_build = "hg38" if source_build == "hg19" else "hg19"
-        matching_chain = (
-            config.liftover_chain_hg19_to_hg38_file
-            if source_build == "hg19"
-            else config.liftover_chain_hg38_to_hg19_file
-        )
-        nonmatching_chain = (
-            config.liftover_chain_hg38_to_hg19_file
-            if source_build == "hg19"
-            else config.liftover_chain_hg19_to_hg38_file
-        )
-        if config.use_hm3_quick_liftover and identity_mode_family(self.global_config.snp_identifier) == "rsid":
-            raise ValueError("Reference-panel HM3 quick liftover is only valid for chr_pos-family snp_identifier modes.")
-        if matching_chain is not None and identity_mode_family(self.global_config.snp_identifier) == "rsid":
-            raise ValueError(
-                "Reference-panel chain liftover is only valid for chr_pos-family snp_identifier modes. "
-                "In rsid mode, omit the matching liftover chain and build source-genome coordinates only."
-            )
         if config.use_hm3_quick_liftover:
             LOGGER.info(
                 f"Using packaged curated HM3 map for reference-panel quick liftover "
@@ -544,7 +540,12 @@ class ReferencePanelBuilder:
 
     def _discover_prefix_chromosomes(self, prefix: str) -> list[str]:
         """List the normalized chromosomes present in one PLINK prefix."""
-        bim = legacy_parse.PlinkBIMFile(prefix + ".bim")
+        try:
+            bim = legacy_parse.PlinkBIMFile(prefix + ".bim")
+        except ValueError as exc:
+            if "Usecols do not match columns" in str(exc):
+                raise ValueError("Reference-panel PLINK .bim files must include A1 and A2 allele columns.") from exc
+            raise
         normalized, _report = normalize_chr_pos_frame(
             bim.df,
             context=f"{prefix}.bim",
@@ -569,13 +570,18 @@ class ReferencePanelBuilder:
         """Build all parquet and metadata artifacts for one chromosome.
 
         The per-chromosome dropped-SNP sidecar is always written for any
-        chromosome this method is invoked on. Reason rows cover liftover-stage
-        drops only; restriction-file and PLINK filtering drops are outside that
-        audit vocabulary.
+        chromosome this method is invoked on. Reason rows cover source identity
+        cleanup and liftover-stage drops; restriction-file and PLINK filtering
+        drops are outside that audit vocabulary.
         """
         LOGGER.info(f"Building reference-panel artifacts for chromosome {chrom} from '{prefix}'.")
         sidecar_path = Path(config.output_dir) / "dropped_snps" / f"chr{chrom}_dropped.tsv.gz"
-        bim = legacy_parse.PlinkBIMFile(prefix + ".bim")
+        try:
+            bim = legacy_parse.PlinkBIMFile(prefix + ".bim")
+        except ValueError as exc:
+            if "Usecols do not match columns" in str(exc):
+                raise ValueError("Reference-panel PLINK .bim files must include A1 and A2 allele columns.") from exc
+            raise
         fam = legacy_parse.PlinkFAMFile(prefix + ".fam")
         panel_df, _report = normalize_chr_pos_frame(
             bim.df,
@@ -589,9 +595,10 @@ class ReferencePanelBuilder:
         if len(chrom_df) == 0:
             raise ValueError(f"No SNPs found for chromosome {chrom} in {prefix}.")
 
-        metadata_columns = ["CHR", "SNP", "BP", *[column for column in ("A1", "A2") if column in chrom_df.columns]]
+        metadata_columns = ["CHR", "SNP", "BP", "A1", "A2"]
         chrom_metadata = chrom_df.loc[:, metadata_columns].copy().rename(columns={"BP": "POS"})
         chrom_metadata["POS"] = chrom_metadata["POS"].astype(int)
+        chrom_metadata["_plink_row_index"] = chrom_metadata.index.astype(int)
         keep_snps = chrom_df.index.to_numpy(dtype=int)
         if (
             build_state.restriction_values is not None
@@ -610,23 +617,29 @@ class ReferencePanelBuilder:
                 return None
 
         dropped_frames: list[pd.DataFrame] = []
-        duplicate_policy_applies = identity_mode_family(self.global_config.snp_identifier) == "chr_pos"
-        if duplicate_policy_applies:
-            keep_snps, source_duplicate_df = _resolve_unique_snp_set(
-                chrom=chrom,
-                chrom_df=chrom_df,
-                keep_snps=keep_snps,
-                hg19_lookup={},
-                hg38_lookup={},
-                sidecar_path=sidecar_path,
+        identity_input = chrom_metadata.loc[keep_snps].copy()
+        identity_result = clean_identity_artifact_table(
+            identity_input,
+            self.global_config.snp_identifier,
+            context=f"reference panel chromosome {chrom}",
+            stage="ref_panel_source_identity_cleanup",
+            logger=LOGGER,
+        )
+        if not identity_result.dropped.empty:
+            dropped_frames.append(identity_result.dropped)
+            LOGGER.debug(
+                "Reference-panel identity cleanup drops on chromosome %s: %s",
+                chrom,
+                identity_result.dropped.loc[:, ["SNP", "reason", "base_key", "identity_key", "allele_set"]]
+                .head(10)
+                .to_dict(orient="records"),
             )
-            if not source_duplicate_df.empty:
-                dropped_frames.append(source_duplicate_df)
-            if len(keep_snps) == 0:
-                dropped_df = _concat_drop_frames(dropped_frames)
-                _write_dropped_sidecar(dropped_df, sidecar_path, chrom)
-                LOGGER.info(f"Skipping chromosome {chrom}: no SNPs remain after duplicate-position filtering.")
-                return None
+        keep_snps = identity_result.cleaned["_plink_row_index"].to_numpy(dtype=int)
+        if len(keep_snps) == 0:
+            dropped_df = _concat_drop_frames(dropped_frames)
+            _write_dropped_sidecar(dropped_df, sidecar_path, chrom)
+            LOGGER.info(f"Skipping chromosome {chrom}: no SNPs remain after identity cleanup.")
+            return None
 
         keep_snps, hg19_lookup, hg38_lookup, liftover_drop_frame = self._resolve_mappable_snp_positions(
             build_state=build_state,
@@ -638,8 +651,9 @@ class ReferencePanelBuilder:
         )
         if not liftover_drop_frame.empty:
             dropped_frames.append(liftover_drop_frame)
-        if duplicate_policy_applies:
-            keep_snps, target_duplicate_df = _resolve_unique_snp_set(
+        if identity_mode_family(self.global_config.snp_identifier) == "chr_pos":
+            before_liftover_collision_count = len(keep_snps)
+            keep_snps, liftover_collision_df = _resolve_unique_snp_set(
                 chrom=chrom,
                 chrom_df=chrom_df,
                 keep_snps=keep_snps,
@@ -647,11 +661,16 @@ class ReferencePanelBuilder:
                 hg38_lookup=hg38_lookup,
                 sidecar_path=sidecar_path,
             )
-            if not target_duplicate_df.empty:
-                dropped_frames.append(target_duplicate_df)
-            dropped_df = _concat_drop_frames(dropped_frames)
-        else:
-            dropped_df = _concat_drop_frames(dropped_frames)
+            if not liftover_collision_df.empty:
+                dropped_frames.append(liftover_collision_df)
+            synchronized_drop_count = before_liftover_collision_count - len(keep_snps)
+            if synchronized_drop_count:
+                LOGGER.info(
+                    "Reference-panel liftover synchronized cross-build drops: dropped %d SNPs from all emitted builds "
+                    "because they collided in at least one emitted build.",
+                    synchronized_drop_count,
+                )
+        dropped_df = _concat_drop_frames(dropped_frames)
         _write_dropped_sidecar(dropped_df, sidecar_path, chrom)
         if len(keep_snps) == 0:
             LOGGER.info(f"Skipping chromosome {chrom}: no SNPs remain after duplicate-position filtering.")
@@ -1385,10 +1404,10 @@ def _resolve_unique_snp_set(
     cleaned = np.asarray([idx for idx in keep_snps if idx not in drop_set], dtype=keep_snps.dtype)
     columns = ["CHR", "SNP", "source_pos", "target_pos", "reason"]
     if prov_rows:
-        dropped_df = pd.DataFrame(prov_rows, columns=columns)
+        dropped_df = _coerce_unified_drop_frame(pd.DataFrame(prov_rows, columns=columns))
         dropped_df["target_pos"] = dropped_df["target_pos"].astype("Int64")
     else:
-        dropped_df = pd.DataFrame(columns=columns)
+        dropped_df = _empty_unified_drop_frame()
     return cleaned, dropped_df
 
 
@@ -1404,7 +1423,7 @@ def _write_dropped_sidecar(dropped_df: pd.DataFrame, path: Path, chrom: str) -> 
     counts = dropped_df["reason"].value_counts(sort=False)
     count_text = ", ".join(f"{reason}={int(count)}" for reason, count in counts.items())
     LOGGER.info(
-        f"Reference-panel liftover-stage drops: {n_dropped} SNPs on chromosome {chrom} "
+        f"Reference-panel dropped SNPs: {n_dropped} SNPs on chromosome {chrom} "
         f"({count_text}); audit sidecar at '{path}'."
     )
 
@@ -1438,7 +1457,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Optional chain file for hg19->hg38 liftover. Enables hg38 outputs "
-            "for hg19 source builds in chr_pos mode; invalid in rsid mode."
+            "for hg19 source builds in chr_pos-family modes; invalid in rsID-family modes."
         ),
     )
     parser.add_argument(
@@ -1446,7 +1465,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Optional chain file for hg38->hg19 liftover. Enables hg19 outputs "
-            "for hg38 source builds in chr_pos mode; invalid in rsid mode."
+            "for hg38 source builds in chr_pos-family modes; invalid in rsID-family modes."
         ),
     )
     parser.add_argument("--output-dir", required=True, help="Output root directory for emitted parquet artifacts.")

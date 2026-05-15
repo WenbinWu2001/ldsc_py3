@@ -17,7 +17,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from ldsc._kernel import ref_panel_builder as kernel_builder
-from ldsc._kernel.snp_identity import RestrictionIdentityKeys, empty_identity_drop_frame
+from ldsc._kernel.snp_identity import IDENTITY_DROP_COLUMNS, RestrictionIdentityKeys, empty_identity_drop_frame
 from ldsc.config import GlobalConfig, ReferencePanelBuildConfig
 from ldsc import ldscore_calculator, ref_panel_builder, reset_global_config, set_global_config
 
@@ -366,7 +366,7 @@ class StandardTableFormattingTest(unittest.TestCase):
 
         self.assertEqual(
             table.columns.tolist(),
-            ["chr", "hg19_pos", "hg38_pos", "hg19_Uniq_ID", "hg38_Uniq_ID", "rsID", "MAF", "REF", "ALT"],
+            ["chr", "hg19_pos", "hg38_pos", "hg19_Uniq_ID", "hg38_Uniq_ID", "rsID", "MAF", "A1", "A2"],
         )
         self.assertEqual(table["hg19_Uniq_ID"].tolist(), ["1:100:A:G", "X:150:C:T"])
         self.assertEqual(table["hg38_Uniq_ID"].tolist(), ["1:110:A:G", "X:250:C:T"])
@@ -392,7 +392,7 @@ class StandardTableFormattingTest(unittest.TestCase):
 
         self.assertEqual(
             table.columns.tolist(),
-            ["chr", "hg19_pos", "hg38_pos", "hg19_Uniq_ID", "hg38_Uniq_ID", "rsID", "MAF", "REF", "ALT"],
+            ["chr", "hg19_pos", "hg38_pos", "hg19_Uniq_ID", "hg38_Uniq_ID", "rsID", "MAF", "A1", "A2"],
         )
         self.assertEqual(table.loc[0, "hg19_pos"], 100)
         self.assertEqual(table.loc[0, "hg19_Uniq_ID"], "1:100:A:G")
@@ -409,8 +409,8 @@ class StandardTableFormattingTest(unittest.TestCase):
                 "hg38_Uniq_ID": ["1:110:A:G", "1:130:C:T"],
                 "rsID": ["rs1", "rs2"],
                 "MAF": [0.2, 0.3],
-                "REF": ["A", "C"],
-                "ALT": ["G", "T"],
+                "A1": ["A", "C"],
+                "A2": ["G", "T"],
             }
         )
         pair_rows = [{"i": 0, "j": 1, "R2": 0.75, "sign": "-"}]
@@ -423,7 +423,7 @@ class StandardTableFormattingTest(unittest.TestCase):
 
         self.assertEqual(
             table.columns.tolist(),
-            ["CHR", "POS_1", "POS_2", "SNP_1", "SNP_2", "R2"],
+            ["CHR", "POS_1", "POS_2", "SNP_1", "SNP_2", "A1_1", "A2_1", "A1_2", "A2_2", "R2"],
         )
         self.assertEqual(table.loc[0, "CHR"], "1")
         self.assertEqual(table.loc[0, "POS_1"], 100)
@@ -431,6 +431,10 @@ class StandardTableFormattingTest(unittest.TestCase):
         self.assertAlmostEqual(table.loc[0, "R2"], 0.75, places=4)
         self.assertEqual(table.loc[0, "SNP_1"], "rs1")
         self.assertEqual(table.loc[0, "SNP_2"], "rs2")
+        self.assertEqual(table.loc[0, "A1_1"], "A")
+        self.assertEqual(table.loc[0, "A2_1"], "G")
+        self.assertEqual(table.loc[0, "A1_2"], "C")
+        self.assertEqual(table.loc[0, "A2_2"], "T")
         self.assertEqual(table["POS_1"].dtype, np.dtype("int64"))
         self.assertEqual(table["POS_2"].dtype, np.dtype("int64"))
         self.assertEqual(table["R2"].dtype, np.dtype("float32"))
@@ -448,8 +452,8 @@ class StandardTableFormattingTest(unittest.TestCase):
                 "hg38_Uniq_ID": ["1:110:A:G"],
                 "rsID": ["rs1"],
                 "MAF": [0.2],
-                "REF": ["A"],
-                "ALT": ["G"],
+                "A1": ["A"],
+                "A2": ["G"],
             }
         )
 
@@ -461,7 +465,7 @@ class StandardTableFormattingTest(unittest.TestCase):
 
         self.assertEqual(
             table.columns.tolist(),
-            ["CHR", "POS_1", "POS_2", "SNP_1", "SNP_2", "R2"],
+            ["CHR", "POS_1", "POS_2", "SNP_1", "SNP_2", "A1_1", "A2_1", "A1_2", "A2_2", "R2"],
         )
         self.assertEqual(table["POS_1"].dtype, np.dtype("int64"))
         self.assertEqual(table["POS_2"].dtype, np.dtype("int64"))
@@ -481,8 +485,8 @@ class StandardTableFormattingTest(unittest.TestCase):
                 "hg38_Uniq_ID": ["1:110:A:G", "1:130:C:T"],
                 "rsID": ["rs1", "rs2"],
                 "MAF": [0.2, 0.3],
-                "REF": ["A", "C"],
-                "ALT": ["G", "T"],
+                "A1": ["A", "C"],
+                "A2": ["G", "T"],
             }
         )
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -510,8 +514,8 @@ class StandardTableFormattingTest(unittest.TestCase):
                 "hg38_Uniq_ID": ["1:110:A:G", "1:90:C:T", "1:130:G:A"],
                 "rsID": ["rs1", "rs2", "rs3"],
                 "MAF": [0.2, 0.3, 0.1],
-                "REF": ["A", "C", "G"],
-                "ALT": ["G", "T", "A"],
+                "A1": ["A", "C", "G"],
+                "A2": ["G", "T", "A"],
             }
         )
         pair_rows = [
@@ -545,8 +549,8 @@ class StandardTableFormattingTest(unittest.TestCase):
                 "hg38_Uniq_ID": ["1:110:A:G", "1:130:C:T"],
                 "rsID": ["rs1", "rs2"],
                 "MAF": [0.2, 0.3],
-                "REF": ["A", "C"],
-                "ALT": ["G", "T"],
+                "A1": ["A", "C"],
+                "A2": ["G", "T"],
             }
         )
         pair_rows = [{"i": 0, "j": 1, "R2": 0.75, "sign": "+"}]
@@ -610,6 +614,8 @@ class StandardTableFormattingTest(unittest.TestCase):
             {
                 "CHR": ["1"],
                 "SNP": ["rs1"],
+                "A1": ["A"],
+                "A2": ["C"],
                 "MAF": [0.2],
             }
         )
@@ -620,7 +626,7 @@ class StandardTableFormattingTest(unittest.TestCase):
             cm_values=np.array([0.5], dtype=float),
         )
 
-        self.assertEqual(table.columns.tolist(), ["CHR", "POS", "SNP", "CM", "MAF"])
+        self.assertEqual(table.columns.tolist(), ["CHR", "POS", "SNP", "A1", "A2", "CM", "MAF"])
         self.assertEqual(table.loc[0, "POS"], 120)
         self.assertEqual(table.loc[0, "CM"], 0.5)
 
@@ -641,7 +647,7 @@ class StandardTableFormattingTest(unittest.TestCase):
             cm_values=np.array([0.5], dtype=float),
         )
 
-        self.assertEqual(table.columns.tolist(), ["CHR", "POS", "SNP", "CM", "MAF", "A1", "A2"])
+        self.assertEqual(table.columns.tolist(), ["CHR", "POS", "SNP", "A1", "A2", "CM", "MAF"])
         self.assertEqual(table.loc[0, "A1"], "A")
         self.assertEqual(table.loc[0, "A2"], "C")
 
@@ -650,6 +656,8 @@ class StandardTableFormattingTest(unittest.TestCase):
             {
                 "CHR": ["1"],
                 "SNP": ["rs1"],
+                "A1": ["A"],
+                "A2": ["C"],
                 "MAF": [0.2],
             }
         )
@@ -660,7 +668,7 @@ class StandardTableFormattingTest(unittest.TestCase):
             cm_values=None,
         )
 
-        self.assertEqual(table.columns.tolist(), ["CHR", "POS", "SNP", "CM", "MAF"])
+        self.assertEqual(table.columns.tolist(), ["CHR", "POS", "SNP", "A1", "A2", "CM", "MAF"])
         self.assertEqual(table.loc[0, "POS"], 120)
         self.assertTrue(pd.isna(table.loc[0, "CM"]))
 
@@ -1166,9 +1174,9 @@ class DuplicatePositionDropAllTest(unittest.TestCase):
 
         _, dropped = ref_panel_builder._resolve_unique_snp_set("1", chrom_df, keep, {0: 100, 1: 100, 2: 300}, {})
 
-        self.assertListEqual(list(dropped.columns), ["CHR", "SNP", "source_pos", "target_pos", "reason"])
+        self.assertListEqual(list(dropped.columns), IDENTITY_DROP_COLUMNS)
         self.assertEqual(dropped["CHR"].iloc[0], "1")
-        self.assertEqual(dropped["source_pos"].dtype, int)
+        self.assertEqual(dropped["source_pos"].dtype.name, "Int64")
         self.assertEqual(dropped["target_pos"].dtype.name, "Int64")
 
 
@@ -1179,6 +1187,10 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
         "source_pos": "Int64",
         "target_pos": "Int64",
         "reason": "string",
+        "base_key": "string",
+        "identity_key": "string",
+        "allele_set": "string",
+        "stage": "string",
     }
 
     def _read_dropped_sidecar(self, path: Path) -> pd.DataFrame:
@@ -1194,14 +1206,16 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
         )
         return prefix
 
-    def _write_plink_prefix_rows(self, root: Path, stem: str, rows: list[tuple[str, str, int]]):
+    def _write_plink_prefix_rows(self, root: Path, stem: str, rows: list[tuple]):
         prefix = root / stem
         Path(str(prefix) + ".bed").write_bytes(b"")
         Path(str(prefix) + ".fam").write_text("fam iid 0 0 0 -9\n", encoding="utf-8")
-        Path(str(prefix) + ".bim").write_text(
-            "".join(f"{chrom} {snp} 0.0 {pos} A G\n" for chrom, snp, pos in rows),
-            encoding="utf-8",
-        )
+        lines = []
+        for row in rows:
+            chrom, snp, pos, *alleles = row
+            a1, a2 = alleles if alleles else ("A", "G")
+            lines.append(f"{chrom} {snp} 0.0 {pos} {a1} {a2}\n")
+        Path(str(prefix) + ".bim").write_text("".join(lines), encoding="utf-8")
         return prefix
 
     def _build_config(self, tmpdir: Path) -> ReferencePanelBuildConfig:
@@ -1271,7 +1285,8 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             with gzip.open(sidecar, "rt") as fh:
                 dropped_df = pd.read_csv(fh, sep="\t")
             self.assertEqual(len(dropped_df), 2)
-            self.assertTrue((dropped_df["reason"] == "source_duplicate").all())
+            self.assertTrue((dropped_df["reason"] == "duplicate_identity").all())
+            self.assertTrue((dropped_df["stage"] == "ref_panel_source_identity_cleanup").all())
             self.assertTrue(any("chr1_dropped.tsv.gz" in line for line in log_ctx.output))
 
     def test_drop_all_policy_logs_examples_only_at_debug(self):
@@ -1331,9 +1346,9 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             debug_text = "\n".join(
                 record.getMessage() for record in log_ctx.records if record.levelno == logging.DEBUG
             )
-            self.assertIn("source_duplicate", info_text)
+            self.assertIn("duplicate_identity", info_text)
             self.assertNotIn("rs1", info_text)
-            self.assertIn("source_duplicate", debug_text)
+            self.assertIn("duplicate_identity", debug_text)
             self.assertIn("rs1", debug_text)
 
     def test_resolve_mappable_snp_positions_returns_unmapped_and_cross_chromosome_drop_frame(self):
@@ -1397,7 +1412,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             self.assertTrue(sidecar.exists())
             dropped = self._read_dropped_sidecar(sidecar)
             self.assertEqual(len(dropped), 0)
-            self.assertEqual(dropped.columns.tolist(), ["CHR", "SNP", "source_pos", "target_pos", "reason"])
+            self.assertEqual(dropped.columns.tolist(), IDENTITY_DROP_COLUMNS)
             self.assertEqual({column: str(dtype) for column, dtype in dropped.dtypes.items()}, self.DROPPED_SNP_DTYPES)
 
     def test_dropped_snps_sidecar_overwritten_in_place_on_rerun(self):
@@ -1532,6 +1547,159 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             ):
                 with self.assertRaisesRegex(ValueError, "chain liftover.*chr_pos-family"):
                     builder.run(config)
+
+    def test_builder_run_rejects_matching_chain_in_rsid_allele_aware_mode(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
+            config = ReferencePanelBuildConfig(
+                plink_prefix=tmpdir / "panel.@",
+                source_genome_build="hg19",
+                liftover_chain_hg19_to_hg38_file=tmpdir / "hg19ToHg38.over.chain",
+                output_dir=tmpdir / "out",
+                ld_wind_kb=1.0,
+            )
+            builder = ref_panel_builder.ReferencePanelBuilder(
+                global_config=GlobalConfig(snp_identifier="rsid_allele_aware")
+            )
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "Reference-panel chain liftover is only valid for chr_pos-family modes; "
+                "omit the matching liftover chain in rsID-family modes.",
+            ):
+                builder.run(config)
+
+    def test_prepare_build_state_rejects_hm3_quick_liftover_in_rsid_family_modes(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            config = ReferencePanelBuildConfig(
+                plink_prefix=tmpdir / "panel.@",
+                source_genome_build="hg19",
+                output_dir=tmpdir / "out",
+                ld_wind_kb=1.0,
+                use_hm3_snps=True,
+                use_hm3_quick_liftover=True,
+            )
+            for mode in ("rsid", "rsid_allele_aware"):
+                builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier=mode))
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "Reference-panel HM3 quick liftover is only valid for chr_pos-family modes.",
+                ):
+                    builder._prepare_build_state(config)
+
+    def test_allele_aware_mode_requires_bim_allele_columns(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            prefix = tmpdir / "panel.1"
+            Path(str(prefix) + ".bed").write_bytes(b"")
+            Path(str(prefix) + ".fam").write_text("fam iid 0 0 0 -9\n", encoding="utf-8")
+            Path(str(prefix) + ".bim").write_text("1 rs1 0.0 100\n", encoding="utf-8")
+            config = ReferencePanelBuildConfig(
+                plink_prefix=tmpdir / "panel.@",
+                source_genome_build="hg19",
+                output_dir=tmpdir / "out",
+                ld_wind_kb=1.0,
+            )
+            builder = ref_panel_builder.ReferencePanelBuilder(
+                global_config=GlobalConfig(snp_identifier="chr_pos_allele_aware")
+            )
+
+            with self.assertRaisesRegex(ValueError, "A1.*A2|columns do not match"):
+                builder.run(config)
+
+    def test_chr_pos_allele_aware_drops_invalid_allele_rows_before_genotype_loading(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            prefix = self._write_plink_prefix_rows(
+                tmpdir,
+                "panel.1",
+                [
+                    ("1", "rs1", 100, "A", "C"),
+                    ("1", "rs_bad", 200, "A", "N"),
+                    ("1", "rs2", 300, "A", "G"),
+                ],
+            )
+            config = ReferencePanelBuildConfig(
+                plink_prefix=tmpdir / "panel.@",
+                source_genome_build="hg19",
+                output_dir=tmpdir / "out",
+                ld_wind_kb=1.0,
+            )
+            build_state = ref_panel_builder._BuildState(genetic_map_hg19=None, genetic_map_hg38=None)
+            builder = ref_panel_builder.ReferencePanelBuilder(
+                global_config=GlobalConfig(snp_identifier="chr_pos_allele_aware")
+            )
+            captured = {}
+
+            def stop_after_identity_cleanup(*, keep_snps, **_kwargs):
+                captured["keep_snps"] = list(map(int, keep_snps))
+                raise RuntimeError("stop after identity cleanup")
+
+            with mock.patch.object(builder, "_resolve_mappable_snp_positions", side_effect=stop_after_identity_cleanup):
+                with self.assertRaisesRegex(RuntimeError, "stop after identity cleanup"):
+                    builder._build_chromosome(str(prefix), "1", config, build_state)
+
+            self.assertEqual(captured["keep_snps"], [0, 2])
+
+    def test_allele_aware_modes_drop_multiallelic_base_key_clusters(self):
+        cases = [
+            ("chr_pos_allele_aware", [("1", "rs1", 100, "A", "C"), ("1", "rs2", 100, "A", "G"), ("1", "rs3", 300, "A", "C")]),
+            ("rsid_allele_aware", [("1", "rs1", 100, "A", "C"), ("1", "rs1", 200, "A", "G"), ("1", "rs3", 300, "A", "C")]),
+        ]
+        for mode, rows in cases:
+            with self.subTest(mode=mode):
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    tmpdir = Path(tmpdir)
+                    prefix = self._write_plink_prefix_rows(tmpdir, "panel.1", rows)
+                    config = ReferencePanelBuildConfig(
+                        plink_prefix=tmpdir / "panel.@",
+                        source_genome_build="hg19",
+                        output_dir=tmpdir / "out",
+                        ld_wind_kb=1.0,
+                    )
+                    build_state = ref_panel_builder._BuildState(genetic_map_hg19=None, genetic_map_hg38=None)
+                    builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier=mode))
+                    captured = {}
+
+                    def stop_after_identity_cleanup(*, keep_snps, **_kwargs):
+                        captured["keep_snps"] = list(map(int, keep_snps))
+                        raise RuntimeError("stop after identity cleanup")
+
+                    with mock.patch.object(builder, "_resolve_mappable_snp_positions", side_effect=stop_after_identity_cleanup):
+                        with self.assertRaisesRegex(RuntimeError, "stop after identity cleanup"):
+                            builder._build_chromosome(str(prefix), "1", config, build_state)
+
+                    self.assertEqual(captured["keep_snps"], [2])
+
+    def test_rsid_base_mode_drops_duplicate_effective_keys_with_identity_reason(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            prefix = self._write_plink_prefix_rows(
+                tmpdir,
+                "panel.1",
+                [("1", "rs1", 100, "A", "C"), ("1", "rs1", 200, "N", "N"), ("1", "rs2", 300, "A", "C")],
+            )
+            config = ReferencePanelBuildConfig(
+                plink_prefix=tmpdir / "panel.@",
+                source_genome_build="hg19",
+                output_dir=tmpdir / "out",
+                ld_wind_kb=1.0,
+            )
+            build_state = ref_panel_builder._BuildState(genetic_map_hg19=None, genetic_map_hg38=None)
+            builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="rsid"))
+            captured = {}
+
+            def stop_after_identity_cleanup(*, keep_snps, **_kwargs):
+                captured["keep_snps"] = list(map(int, keep_snps))
+                raise RuntimeError("stop after identity cleanup")
+
+            with mock.patch.object(builder, "_resolve_mappable_snp_positions", side_effect=stop_after_identity_cleanup):
+                with self.assertRaisesRegex(RuntimeError, "stop after identity cleanup"):
+                    builder._build_chromosome(str(prefix), "1", config, build_state)
+
+            self.assertEqual(captured["keep_snps"], [2])
 
     def test_all_dropped_chromosome_is_skipped_without_poisoning_other_chromosomes(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1916,6 +2084,60 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             snp_identifier="rsid",
         )
 
+    def test_liftover_target_collision_removes_variant_from_all_emitted_builds(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            prefix = self._write_plink_prefix_rows(
+                tmpdir,
+                "panel.1",
+                [("1", "rs1", 100), ("1", "rs2", 200), ("1", "rs3", 300)],
+            )
+            config = ReferencePanelBuildConfig(
+                plink_prefix=tmpdir / "panel.@",
+                source_genome_build="hg19",
+                liftover_chain_hg19_to_hg38_file=tmpdir / "hg19ToHg38.over.chain",
+                output_dir=tmpdir / "out",
+                ld_wind_kb=1.0,
+            )
+            build_state = ref_panel_builder._BuildState(
+                genetic_map_hg19=None,
+                genetic_map_hg38=None,
+                liftover_chain_paths={("hg19", "hg38"): str(tmpdir / "hg19ToHg38.over.chain")},
+            )
+            builder = ref_panel_builder.ReferencePanelBuilder(
+                global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg19")
+            )
+
+            def fake_mappable(*, keep_snps, **_kwargs):
+                keep = np.asarray(keep_snps, dtype=int)
+                return keep, {0: 100, 1: 200, 2: 300}, {0: 1000, 1: 1000, 2: 3000}, empty_identity_drop_frame()
+
+            bed_instances = []
+            for _ in range(2):
+                bed = mock.Mock()
+                bed.kept_snps = [2]
+                bed.maf = np.array([0.3])
+                bed.m = 1
+                bed.n = 1
+                bed.nextSNPs = lambda _width: np.zeros((1, 1))
+                bed_instances.append(bed)
+
+            with mock.patch.object(builder, "_resolve_mappable_snp_positions", side_effect=fake_mappable), mock.patch(
+                "ldsc.ref_panel_builder.kernel_builder.write_r2_parquet"
+            ), mock.patch(
+                "ldsc.ref_panel_builder.kernel_builder.write_runtime_metadata_sidecar"
+            ), mock.patch(
+                "ldsc.ref_panel_builder.kernel_ldscore.PlinkBEDFile",
+                side_effect=bed_instances,
+            ) as mock_bed:
+                with self.assertLogs("LDSC.ref_panel_builder", level="INFO") as logs:
+                    builder._build_chromosome(str(prefix), "1", config, build_state)
+
+            self.assertEqual([call.kwargs["keep_snps"] for call in mock_bed.call_args_list], [[2], [2]])
+            dropped = self._read_dropped_sidecar(tmpdir / "out" / "dropped_snps" / "chr1_dropped.tsv.gz")
+            self.assertEqual(dropped["reason"].tolist(), ["target_collision", "target_collision"])
+            self.assertTrue(any("synchronized cross-build drops" in message for message in logs.output))
+
     def test_builder_run_infers_source_genome_build_before_build_state_preparation(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -2047,7 +2269,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
 
         self.assertEqual(captured["keep_snps"], [1])
 
-    def test_source_duplicates_are_dropped_before_liftover_mapping(self):
+    def test_source_duplicates_are_dropped_by_identity_cleanup_before_liftover_mapping(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             prefix = self._write_plink_prefix_rows(

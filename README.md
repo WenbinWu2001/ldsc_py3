@@ -111,15 +111,17 @@ artifact(s) so later regression commands can recover `snp_identifier`,
 `genome_build`, and optional `--trait-name` provenance; detailed coordinate and
 liftover bookkeeping is written to `sumstats.log`. Use `--sumstats-snps-file`
 when the munged artifact should be restricted to a headered SNP keep-list, or
-`--use-hm3-snps` to use the packaged curated HM3 map. These filters keep matching
+`--use-hm3-snps` to use the packaged curated HM3 map. These filters are loaded
+once before raw chunk parsing and applied while chunks are still streaming, after
+canonical columns and coordinate normalization are available. They keep matching
 rows only and do not allele-match or reorder the output. In `chr_pos` mode,
-`SNP` is a label; matching uses source-build `CHR` and `POS`. Rows missing either
-coordinate are dropped and counted at `chr_pos` match/map stages, while malformed
-non-missing coordinates remain errors. To convert coordinates after QC and after
-SNP restriction, pass `--target-genome-build` with `--liftover-chain-file`, or
-pair `--target-genome-build --use-hm3-snps --use-hm3-quick-liftover` for the HM3
-coordinate shortcut. Liftover is invalid in `rsid` mode because positions are
-not the row identity there.
+`SNP` is a label; matching uses source-build `CHR` and `POS`, represented
+internally as compact packed coordinate keys. Rows with missing or invalid
+coordinates are dropped and counted at `chr_pos` match/map stages. To convert
+coordinates after QC and after SNP restriction, pass `--target-genome-build`
+with `--liftover-chain-file`, or pair `--target-genome-build --use-hm3-snps
+--use-hm3-quick-liftover` for the HM3 coordinate shortcut. Liftover is invalid
+in `rsid` mode because positions are not the row identity there.
 
 `ldsc build-ref-panel` keeps a separate source-build contract for PLINK input:
 provide or infer `--source-genome-build`, and a matching chain file emits the

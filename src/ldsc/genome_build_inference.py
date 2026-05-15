@@ -20,14 +20,14 @@ Design Notes
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from importlib import resources
 from typing import Iterable
 
 import pandas as pd
 
-from .chromosome_inference import normalize_chromosome
+from ._coordinates import CoordinateDropReport, CoordinatePolicy, normalize_chr_pos_frame
 from .column_inference import normalize_genome_build, normalize_snp_identifier_mode
 
 
@@ -72,6 +72,10 @@ class ChrPosBuildInference:
         ``inspected_snp_count``.
     summary_message : str
         Human-readable message suitable for workflow logs.
+    coordinate_report : CoordinateDropReport or None, optional
+        Rows dropped by :func:`resolve_chr_pos_table` before inference because
+        ``CHR`` or ``POS`` was invalid or missing. ``None`` when this object is
+        produced by :func:`infer_chr_pos_build` directly.
     """
 
     genome_build: str
@@ -80,6 +84,7 @@ class ChrPosBuildInference:
     match_counts: dict[str, int]
     match_fractions: dict[str, float]
     summary_message: str
+    coordinate_report: CoordinateDropReport | None = None
 
 
 def is_auto_genome_build(genome_build: str | None) -> bool:
@@ -242,6 +247,7 @@ def resolve_chr_pos_table(
     context: str,
     reference_table: pd.DataFrame | None = None,
     logger=None,
+    coordinate_policy: CoordinatePolicy | str = "drop",
 ) -> tuple[pd.DataFrame, ChrPosBuildInference]:
     """
     Infer and normalize the genome build for a ``CHR``/``POS`` table.
@@ -264,6 +270,10 @@ def resolve_chr_pos_table(
     logger : logging.Logger-like, optional
         Logger receiving the inference summary. A warning is emitted when
         0-based coordinates are converted; otherwise an info message is emitted.
+    coordinate_policy : {"drop", "raise"}, optional
+        Policy for invalid or missing coordinate rows. The package-wide default
+        drops those rows with a warning report. Use ``"raise"`` where a strict
+        file contract requires complete, valid coordinates.
 
     Returns
     -------
@@ -289,15 +299,20 @@ def resolve_chr_pos_table(
         raise ValueError(f"{context} must contain CHR and POS columns for auto genome-build inference.")
 
     reference = load_packaged_reference_table() if reference_table is None else reference_table.copy()
-    normalized = df.copy()
-    normalized["CHR"] = normalized["CHR"].map(lambda value: normalize_chromosome(value, context=context))
-    normalized["POS"] = pd.to_numeric(normalized["POS"], errors="raise").astype("int64")
+    normalized, coordinate_report = normalize_chr_pos_frame(
+        df,
+        context=context,
+        coordinate_policy=coordinate_policy,
+        logger=logger,
+        min_position=0,
+    )
 
     inference = infer_chr_pos_build(
         normalized.loc[:, ["CHR", "POS"]],
         context=context,
         reference_table=reference,
     )
+    inference = replace(inference, coordinate_report=coordinate_report)
     if inference.coordinate_basis == "0-based":
         normalized["POS"] = normalized["POS"] + 1
     if logger is not None and inference.coordinate_basis == "0-based":

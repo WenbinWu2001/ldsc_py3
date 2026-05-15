@@ -368,10 +368,12 @@ class SumstatsMunger:
             existing owned ``sumstats.*`` artifact is refused before the kernel
             runs unless ``munge_config.overwrite`` is true; successful
             overwrites remove stale sibling formats that the current run did
-            not produce. If
-            ``munge_config.sumstats_snps_file`` is supplied, it is treated as a
-            headered keep-list and applied after munging QC and coordinate
-            normalization without allele matching or output reordering.
+            not produce. If ``munge_config.sumstats_snps_file`` is supplied, it
+            is treated as a headered keep-list, loaded once before raw chunk
+            parsing, and applied to each parsed chunk after munging QC and
+            coordinate normalization. The keep-list does not allele-match or
+            reorder output rows. In ``chr_pos`` mode, keep-list filtering uses
+            source-build coordinates before any optional output liftover.
             ``sumstats_format="auto"`` is the default; use
             ``sumstats_format="plain"``, ``"daner-old"``, ``"daner-new"``, or
             ``"pgc-vcf"`` only when overriding auto-detection.

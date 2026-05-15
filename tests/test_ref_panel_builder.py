@@ -1940,7 +1940,13 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             restriction = tmpdir / "restrict.tsv"
-            restriction.write_text("CHR\tPOS\n1\t100\n", encoding="utf-8")
+            restriction.write_text(
+                "CHR\tPOS\tSNP\n"
+                "1\t100\trs1\n"
+                "chrUn\t200\tbad_chr\n"
+                "1\tbad\tbad_pos\n",
+                encoding="utf-8",
+            )
             config = ReferencePanelBuildConfig(
                 plink_prefix=tmpdir / "panel.@",
                 source_genome_build="hg19",
@@ -1953,11 +1959,13 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             )
 
             with mock.patch.object(ref_panel_builder, "resolve_genome_build", return_value="hg19") as patched_resolve:
-                build_state = builder._prepare_build_state(config)
+                with self.assertLogs("LDSC.ref_panel_builder", level="WARNING") as logs:
+                    build_state = builder._prepare_build_state(config)
 
         self.assertEqual(build_state.restriction_values, {"1:100"})
         self.assertEqual(patched_resolve.call_args.args[0], "auto")
         self.assertEqual(patched_resolve.call_args.args[2]["POS"].tolist(), [100])
+        self.assertTrue(any("Dropped 2 SNPs with invalid or missing CHR/POS" in message for message in logs.output))
 
     def test_prepare_build_state_rejects_generic_restriction_pos_build_mismatch(self):
         with tempfile.TemporaryDirectory() as tmpdir:

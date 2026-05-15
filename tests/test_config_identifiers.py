@@ -655,14 +655,22 @@ class RestrictionReadersTest(unittest.TestCase):
                 values = read_global_snp_restriction(path, "chr_pos", genome_build="hg19")
 
             self.assertEqual(values, {"1:10"})
-            self.assertIn("Dropped 2 SNPs with missing CHR/POS", "\n".join(caught.output))
+            log_text = "\n".join(caught.output)
+            self.assertIn("Dropped 2 SNPs with invalid or missing CHR/POS", log_text)
+            self.assertIn("missing CHR=1", log_text)
+            self.assertIn("missing POS=1", log_text)
 
-    def test_read_global_snp_restriction_chr_pos_errors_on_invalid_non_missing_pos(self):
+    def test_read_global_snp_restriction_chr_pos_drops_invalid_non_missing_pos(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "restrict.tsv"
             path.write_text("CHR\tPOS\n1\tabc\n", encoding="utf-8")
-            with self.assertRaisesRegex(ValueError, "POS values.*must be numeric"):
-                read_global_snp_restriction(path, "chr_pos", genome_build="hg19")
+            with self.assertLogs("LDSC.identifiers", level="WARNING") as caught:
+                values = read_global_snp_restriction(path, "chr_pos", genome_build="hg19")
+
+            self.assertEqual(values, set())
+            log_text = "\n".join(caught.output)
+            self.assertIn("Dropped 1 SNPs with invalid or missing CHR/POS", log_text)
+            self.assertIn("invalid POS=1", log_text)
 
     def test_read_global_snp_restriction_chr_pos_requires_header(self):
         with tempfile.TemporaryDirectory() as tmpdir:

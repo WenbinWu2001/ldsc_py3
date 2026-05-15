@@ -19,7 +19,11 @@ The physical raw-input reader accepts plain, gzip-compressed, or bzip2-compresse
 whitespace-delimited text. DANER inputs are distinguished by schema flags rather
 than file suffix: ``--daner-old`` reads case/control counts from
 ``FRQ_A_<Ncas>`` and ``FRQ_U_<Ncon>`` headers, while ``--daner-new`` reads
-per-SNP case/control counts from exact ``Nca`` and ``Nco`` columns.
+per-SNP case/control counts from exact ``Nca`` and ``Nco`` columns. Optional
+HM3 or ``--sumstats-snps-file`` restrictions are prepared once before chunk
+parsing and applied inside ``parse_dat`` after canonical columns, coordinate
+normalization, and chunk-local QC are complete, so rows outside the keep-list
+are not retained for the full-table concatenation step.
 """
 import pandas as pd
 import numpy as np
@@ -28,11 +32,11 @@ import gzip
 import bz2
 import argparse
 import logging
+from dataclasses import dataclass
 from scipy.stats import chi2
 from .._coordinates import (
-    CHR_POS_KEY_COLUMN,
-    build_chr_pos_key_frame,
     coordinate_missing_mask,
+    normalize_chr_pos_frame,
     positive_int_position_series,
 )
 from ..column_inference import (
@@ -43,7 +47,6 @@ from ..column_inference import (
     normalize_genome_build,
     normalize_snp_identifier_mode,
 )
-from ..chromosome_inference import normalize_chromosome, normalize_chromosome_series
 from ..genome_build_inference import resolve_chr_pos_table
 from . import regression as sumstats
 from .identifiers import build_packed_chr_pos_series, read_global_chr_pos_restriction_key_set, read_global_snp_restriction
@@ -51,6 +54,23 @@ from .liftover import SumstatsLiftoverRequest, apply_sumstats_liftover
 np.seterr(invalid='ignore')
 
 LOGGER = logging.getLogger("LDSC.sumstats_munger.kernel")
+
+
+@dataclass
+class _SumstatsRestriction:
+    """Prepared keep-list and whole-run counters for chunk-stage filtering."""
+
+    path: str
+    mode: str
+    genome_build: str | None
+    identifiers: set
+    n_rows_before_filter: int = 0
+    n_usable_row_identifiers: int = 0
+    n_rows_kept: int = 0
+
+    @property
+    def n_rows_removed(self):
+        return self.n_rows_before_filter - self.n_rows_kept
 
 try:
     x = pd.DataFrame({'A': [1, 2, 3]})
@@ -257,7 +277,7 @@ def _coerce_info_list_columns(dat, convert_colname, args):
     return dat
 
 
-def parse_dat(dat_gen, convert_colname, args):
+def parse_dat(dat_gen, convert_colname, args, restriction=None):
     '''Parse and filter a sumstats file chunk-wise'''
     tot_snps = 0
     dat_list = []
@@ -265,6 +285,10 @@ def parse_dat(dat_gen, convert_colname, args):
     LOGGER.info(msg.format(F=args.sumstats, N=int(args.chunksize)))
     drops = {'NA': 0, 'P': 0, 'INFO': 0,
              'FRQ': 0, 'A': 0, 'SNP': 0}
+    mode = normalize_snp_identifier_mode(getattr(args, 'snp_identifier', 'chr_pos'))
+    if mode == 'chr_pos':
+        args._coordinates_finalized_chunkwise = True
+        args._coordinate_drop_counts = _empty_coordinate_drop_counts()
     for block_num, dat in enumerate(dat_gen):
         tot_snps += len(dat)
         old = len(dat)
@@ -277,9 +301,17 @@ def parse_dat(dat_gen, convert_colname, args):
         dat = _coerce_info_list_columns(dat, convert_colname, args)
         dat.columns = map(lambda x: convert_colname[x], dat.columns)
 
-        wrong_types = [c for c in dat.columns if c in numeric_cols and not np.issubdtype(dat[c].dtype, np.number)]
+        wrong_types = [
+            c for c in dat.columns
+            if c in numeric_cols and c != 'POS' and not np.issubdtype(dat[c].dtype, np.number)
+        ]
         if len(wrong_types) > 0:
             raise ValueError('Columns {} are expected to be numeric'.format(wrong_types))
+
+        if mode == 'chr_pos':
+            dat = _normalize_chr_pos_chunk(dat, args)
+            if len(dat) == 0:
+                continue
 
         ii = np.array([True for i in range(len(dat))])
         if 'INFO' in dat.columns:
@@ -318,9 +350,14 @@ def parse_dat(dat_gen, convert_colname, args):
         if ii.sum() == 0:
             continue
 
-        dat_list.append(dat[ii].reset_index(drop=True))
+        retained = dat[ii].reset_index(drop=True)
+        retained = _filter_sumstats_chunk_to_restriction(retained, restriction, args)
+        if len(retained) == 0:
+            continue
 
-    dat = pd.concat(dat_list, axis=0).reset_index(drop=True)
+        dat_list.append(retained.reset_index(drop=True))
+
+    dat = pd.concat(dat_list, axis=0).reset_index(drop=True) if dat_list else pd.DataFrame()
     msg = 'Read {N} SNPs from --sumstats file.\n'.format(N=tot_snps)
     msg += 'Removed {N} SNPs with missing values.\n'.format(N=drops['NA'])
     msg += 'Removed {N} SNPs with INFO <= {I}.\n'.format(
@@ -333,109 +370,181 @@ def parse_dat(dat_gen, convert_colname, args):
         N=drops['A'])
     msg += '{N} SNPs remain.'.format(N=len(dat))
     LOGGER.info(msg)
+    _log_coordinate_drop_summary(args)
+    if restriction is not None:
+        _log_sumstats_restriction_summary(restriction)
+        if restriction.n_rows_before_filter > 0 and restriction.n_rows_kept == 0:
+            _raise_sumstats_restriction_empty(restriction)
     return dat
 
 
-def _sumstats_snp_keys(dat, mode, *, context='sumstats keep-list filtering', logger=None):
-    """Return canonical SNP keys for rows with usable identifiers."""
-    mode = normalize_snp_identifier_mode(mode)
-    if mode == 'rsid':
-        return pd.Series(dat['SNP'].astype(str), index=dat.index)
+def _prepare_sumstats_restriction(args):
+    """
+    Load the active summary-statistics keep-list before raw chunk parsing.
 
-    keys = pd.Series(pd.NA, index=dat.index, dtype='object')
-    keyed, _report = build_chr_pos_key_frame(
-        dat,
-        context=context,
-        drop_missing=True,
-        logger=logger,
-        example_columns=('SNP', 'CHR', 'POS'),
-    )
-    if len(keyed):
-        keys.loc[keyed.index] = keyed[CHR_POS_KEY_COLUMN].astype(str)
-    return keys
-
-
-def filter_sumstats_snps(dat, args):
-    """Restrict munged summary statistics to ``args.sumstats_snps`` when set."""
+    The returned object stores either rsID strings or packed uint64 CHR/POS
+    keys, depending on ``args.snp_identifier``. Empty files with no usable
+    identifiers fail here, before the raw sumstats iterator is consumed.
+    """
     snps_path = getattr(args, 'sumstats_snps', None)
     if not snps_path:
-        return dat
+        return None
 
     mode = normalize_snp_identifier_mode(getattr(args, 'snp_identifier', 'chr_pos'))
     coordinate_metadata = getattr(args, '_coordinate_metadata', {})
     genome_build = coordinate_metadata.get('genome_build', getattr(args, 'genome_build', None))
     if mode == 'chr_pos':
-        restriction = read_global_chr_pos_restriction_key_set(
+        identifiers = read_global_chr_pos_restriction_key_set(
             snps_path,
             genome_build=genome_build,
             logger=LOGGER,
         )
-        keys, usable_mask = _sumstats_chr_pos_packed_keys(
-            dat,
-            context=f"--sumstats-snps-file filtering for {getattr(args, 'sumstats', 'sumstats')}",
-        )
     else:
-        restriction = read_global_snp_restriction(
+        identifiers = read_global_snp_restriction(
             snps_path,
             mode,
             genome_build=None,
             logger=LOGGER,
         )
-        keys = _sumstats_snp_keys(
-            dat,
-            mode,
-            context=f"--sumstats-snps-file filtering for {getattr(args, 'sumstats', 'sumstats')}",
-            logger=LOGGER,
-        )
-        usable_mask = keys.notna()
+
+    restriction = _SumstatsRestriction(
+        path=str(snps_path),
+        mode=mode,
+        genome_build=genome_build if mode == 'chr_pos' else None,
+        identifiers=identifiers,
+    )
+    if len(restriction.identifiers) == 0:
+        _raise_sumstats_restriction_empty(restriction, input_rows='not inspected', usable_rows=0)
+    return restriction
+
+
+def _filter_sumstats_chunk_to_restriction(dat, restriction, args):
+    """
+    Apply a prepared keep-list to one canonical, already-QCed chunk.
+
+    ``rsid`` mode matches the canonical ``SNP`` column. ``chr_pos`` mode packs
+    normalized ``CHR`` and ``POS`` values into uint64 keys for membership tests,
+    avoiding per-row ``"CHR:POS"`` strings in the munger hot path.
+    """
+    if restriction is None or len(dat) == 0:
+        return dat
+
     old = len(dat)
-    usable = int(usable_mask.sum())
-    build_label = genome_build if mode == 'chr_pos' else 'not used'
-    LOGGER.info(
-        f"Applying --sumstats-snps-file keep-list from {snps_path} "
-        f"using snp_identifier={mode}, genome_build={build_label}; "
-        f"read {len(restriction)} keep-list identifiers and found {usable}/{old} usable row identifiers."
-    )
-    keep = keys.isin(restriction) & usable_mask
-    out = dat.loc[keep].reset_index(drop=True)
-    removed = old - len(out)
-    LOGGER.info(
-        f"Removed {removed} SNPs not in --sumstats-snps-file "
-        f"({len(out)} SNPs remain; source={snps_path})."
-    )
-    if len(out) == 0:
-        raise ValueError(
-            "After applying --sumstats-snps-file, no SNPs remain. "
-            f"Keep-list file: {snps_path}. "
-            f"snp_identifier={mode}; genome_build={build_label}; "
-            f"input rows before filtering={old}; usable row identifiers={usable}; "
-            f"keep-list identifiers={len(restriction)}. "
-            "Check that the keep-list uses the same identifier mode and genome build as the munged sumstats."
+    if restriction.mode == 'rsid':
+        keys = dat['SNP'].astype(str)
+        usable_mask = keys.notna()
+    else:
+        keys = build_packed_chr_pos_series(
+            dat['CHR'].reset_index(drop=True),
+            dat['POS'].reset_index(drop=True),
+            context=f"--sumstats-snps-file filtering for {getattr(args, 'sumstats', 'sumstats')}",
         )
-    return out
+        keys.index = dat.index
+        usable_mask = pd.Series(True, index=dat.index)
+
+    keep = keys.isin(restriction.identifiers) & usable_mask
+    kept = int(keep.sum())
+    restriction.n_rows_before_filter += old
+    restriction.n_usable_row_identifiers += int(usable_mask.sum())
+    restriction.n_rows_kept += kept
+    return dat.loc[keep].reset_index(drop=True)
 
 
-def _sumstats_chr_pos_packed_keys(dat, *, context):
-    """Return compact CHR/POS keys and a usable-coordinate mask for sumstats rows."""
-    usable = ~(coordinate_missing_mask(dat['CHR']) | coordinate_missing_mask(dat['POS']))
-    missing_count = int((~usable).sum())
-    if missing_count:
-        LOGGER.info(
-            f"Dropped {missing_count} SNPs with missing CHR/POS in {context}; "
-            f"{int(usable.sum())} rows remain."
+def _log_sumstats_restriction_summary(restriction):
+    build_label = restriction.genome_build if restriction.mode == 'chr_pos' else 'not used'
+    LOGGER.info(
+        f"Applying --sumstats-snps-file keep-list from {restriction.path} "
+        f"using snp_identifier={restriction.mode}, genome_build={build_label}; "
+        f"read {len(restriction.identifiers)} keep-list identifiers and found "
+        f"{restriction.n_usable_row_identifiers}/{restriction.n_rows_before_filter} usable row identifiers."
+    )
+    LOGGER.info(
+        f"Removed {restriction.n_rows_removed} SNPs not in --sumstats-snps-file "
+        f"({restriction.n_rows_kept} SNPs remain; source={restriction.path})."
+    )
+
+
+def _raise_sumstats_restriction_empty(restriction, *, input_rows=None, usable_rows=None):
+    build_label = restriction.genome_build if restriction.mode == 'chr_pos' else 'not used'
+    input_rows = restriction.n_rows_before_filter if input_rows is None else input_rows
+    usable_rows = restriction.n_usable_row_identifiers if usable_rows is None else usable_rows
+    raise ValueError(
+        "After applying --sumstats-snps-file, no SNPs remain. "
+        f"Keep-list file: {restriction.path}. "
+        f"snp_identifier={restriction.mode}; genome_build={build_label}; "
+        f"input rows before filtering={input_rows}; usable row identifiers={usable_rows}; "
+        f"keep-list identifiers={len(restriction.identifiers)}. "
+        "Check that the keep-list uses the same identifier mode and genome build as the munged sumstats."
+    )
+
+
+def _empty_coordinate_drop_counts():
+    return {
+        'n_input': 0,
+        'n_retained': 0,
+        'n_dropped': 0,
+        'n_missing_chr': 0,
+        'n_missing_pos': 0,
+        'n_invalid_chr': 0,
+        'n_invalid_pos': 0,
+        'examples': [],
+    }
+
+
+def _normalize_chr_pos_chunk(dat, args):
+    if 'CHR' not in dat.columns:
+        dat['CHR'] = pd.NA
+    if 'POS' not in dat.columns:
+        dat['POS'] = pd.NA
+
+    coordinate_basis = getattr(args, '_coordinate_basis', None)
+    min_position = 0 if coordinate_basis == '0-based' else 1
+    normalized, report = normalize_chr_pos_frame(
+        dat,
+        context=getattr(args, 'sumstats', 'sumstats'),
+        coordinate_policy='drop',
+        logger=None,
+        example_columns=('SNP', 'CHR', 'POS'),
+        min_position=min_position,
+    )
+    _accumulate_coordinate_drop_counts(args, report)
+    if coordinate_basis == '0-based' and len(normalized) > 0:
+        normalized['POS'] = normalized['POS'].astype('int64') + 1
+    return normalized.reset_index(drop=True)
+
+
+def _accumulate_coordinate_drop_counts(args, report):
+    counts = getattr(args, '_coordinate_drop_counts', None)
+    if counts is None:
+        counts = _empty_coordinate_drop_counts()
+        args._coordinate_drop_counts = counts
+    counts['n_input'] += int(report.n_input)
+    counts['n_retained'] += int(report.n_retained)
+    counts['n_dropped'] += int(report.n_dropped)
+    counts['n_missing_chr'] += int(report.n_missing_chr)
+    counts['n_missing_pos'] += int(report.n_missing_pos)
+    counts['n_invalid_chr'] += int(report.n_invalid_chr)
+    counts['n_invalid_pos'] += int(report.n_invalid_pos)
+    if report.examples and len(counts['examples']) < 5:
+        remaining = 5 - len(counts['examples'])
+        counts['examples'].extend(report.examples[:remaining])
+
+
+def _log_coordinate_drop_summary(args):
+    counts = getattr(args, '_coordinate_drop_counts', None)
+    if not counts or counts.get('n_dropped', 0) == 0:
+        return
+    LOGGER.warning(
+        f"Dropped {counts['n_dropped']} SNPs with invalid or missing CHR/POS in "
+        f"{getattr(args, 'sumstats', 'sumstats')}; {counts['n_retained']} rows remain "
+        f"(missing CHR={counts['n_missing_chr']}, missing POS={counts['n_missing_pos']}, "
+        f"invalid CHR={counts['n_invalid_chr']}, invalid POS={counts['n_invalid_pos']})."
+    )
+    if counts['examples']:
+        LOGGER.warning(
+            f"Example rows dropped for invalid or missing CHR/POS in "
+            f"{getattr(args, 'sumstats', 'sumstats')}: {counts['examples']}"
         )
-        example_columns = [column for column in ('SNP', 'CHR', 'POS') if column in dat.columns]
-        if example_columns:
-            examples = dat.loc[~usable, example_columns].head(5).to_dict(orient='records')
-            LOGGER.info(f"Example rows dropped for missing CHR/POS in {context}: {examples}")
-    keys = pd.Series(np.uint64(0), index=dat.index, dtype='uint64')
-    if bool(usable.any()):
-        keys.loc[usable] = build_packed_chr_pos_series(
-            dat.loc[usable, 'CHR'].reset_index(drop=True),
-            dat.loc[usable, 'POS'].reset_index(drop=True),
-            context=context,
-        ).to_numpy(dtype=np.uint64)
-    return keys, usable
 
 
 def process_n(dat, args):
@@ -566,6 +675,85 @@ def _suggest_n_fix(file_cnames):
     return ""
 
 
+def _resolve_auto_genome_build_before_chunks(args, cname_translation, compression, metadata_skiprows):
+    """
+    Resolve ``genome_build=auto`` for chr_pos sumstats before chunk parsing.
+
+    The prepass reads only the raw coordinate columns selected by column
+    inference, then delegates the build and coordinate-basis decision to the
+    shared genome-build inference module used by ref-panel-builder.
+    """
+    mode = normalize_snp_identifier_mode(getattr(args, 'snp_identifier', 'chr_pos'))
+    genome_build = normalize_genome_build(getattr(args, 'genome_build', 'hg38'))
+    if mode != 'chr_pos' or genome_build != 'auto':
+        if mode == 'chr_pos':
+            args._coordinate_basis = '1-based'
+        return
+
+    coordinate_frame = _read_raw_sumstats_coordinate_frame(
+        args,
+        cname_translation,
+        compression=compression,
+        metadata_skiprows=metadata_skiprows,
+    )
+    try:
+        _normalized, inference = resolve_chr_pos_table(
+            coordinate_frame,
+            context=getattr(args, 'sumstats', 'sumstats'),
+            logger=None,
+        )
+    except ValueError as exc:
+        raise ValueError(
+            "Unable to infer genome_build from raw sumstats CHR/POS coordinates. "
+            f"{exc} Pass --genome-build hg19 or --genome-build hg38 explicitly."
+        ) from exc
+
+    args.genome_build = inference.genome_build
+    args._coordinate_basis = inference.coordinate_basis
+    args._coordinate_metadata = {
+        'format': 'ldsc.sumstats.v1',
+        'snp_identifier': 'chr_pos',
+        'genome_build': inference.genome_build,
+        'genome_build_inferred': True,
+        'coordinate_basis': inference.coordinate_basis,
+        'build_inference': {
+            'inspected_snp_count': int(inference.inspected_snp_count),
+            'match_counts': dict(inference.match_counts),
+            'match_fractions': dict(inference.match_fractions),
+            'summary_message': inference.summary_message,
+        },
+    }
+    if inference.coordinate_basis == '0-based':
+        LOGGER.warning(inference.summary_message)
+    else:
+        LOGGER.info(inference.summary_message)
+    LOGGER.info(
+        f"Resolved genome_build='{inference.genome_build}' before chunk parsing for chr_pos summary statistics."
+    )
+
+
+def _read_raw_sumstats_coordinate_frame(args, cname_translation, *, compression, metadata_skiprows):
+    """Read only raw CHR/POS evidence needed for early genome-build inference."""
+    raw_chr = [raw for raw, target in cname_translation.items() if target == 'CHR']
+    raw_pos = [raw for raw, target in cname_translation.items() if target == 'POS']
+    if not raw_chr or not raw_pos:
+        raise ValueError(
+            "genome_build='auto' requires CHR and POS columns in --sumstats input. "
+            "Pass --chr/--pos column hints, or pass --genome-build hg19 or --genome-build hg38 explicitly."
+        )
+    raw_columns = [raw_chr[0], raw_pos[0]]
+    frame = pd.read_csv(
+        args.sumstats,
+        sep=r'\s+',
+        header=0,
+        compression=compression,
+        usecols=raw_columns,
+        na_values=['.', 'NA'],
+        skiprows=metadata_skiprows,
+    )
+    return frame.rename(columns={raw_chr[0]: 'CHR', raw_pos[0]: 'POS'})
+
+
 def _finalize_coordinate_columns(dat, args):
     """Ensure canonical CHR/POS columns exist and normalize them when requested."""
     if 'CHR' not in dat.columns:
@@ -575,40 +763,121 @@ def _finalize_coordinate_columns(dat, args):
 
     mode = normalize_snp_identifier_mode(getattr(args, 'snp_identifier', 'chr_pos'))
     genome_build = normalize_genome_build(getattr(args, 'genome_build', 'hg38'))
+    existing_metadata = dict(getattr(args, '_coordinate_metadata', {}) or {})
+    pre_inferred_basis = existing_metadata.get('coordinate_basis')
     source_columns = getattr(args, '_coordinate_source_columns', {})
-
-    chr_missing = coordinate_missing_mask(dat['CHR'])
-    pos_missing = coordinate_missing_mask(dat['POS'])
-    complete = ~(chr_missing | pos_missing)
     metadata = {
         'format': 'ldsc.sumstats.v1',
         'snp_identifier': mode,
         'genome_build': genome_build,
-        'genome_build_inferred': False,
-        'coordinate_basis': '1-based' if complete.any() and genome_build not in {None, 'auto'} else None,
+        'genome_build_inferred': bool(existing_metadata.get('genome_build_inferred', False)),
+        'coordinate_basis': pre_inferred_basis if pre_inferred_basis in {'0-based', '1-based'} else None,
         'coordinate_columns': {
             'CHR': source_columns.get('CHR'),
             'POS': source_columns.get('POS'),
         },
         'n_rows': int(len(dat)),
-        'n_missing_chr_pos': int((~complete).sum()),
+        'n_retained_after_chr_pos_policy': int(len(dat)),
+        'n_missing_chr_pos': 0,
+        'n_invalid_chr_pos': 0,
+        'n_dropped_invalid_chr_pos': 0,
     }
+    if 'build_inference' in existing_metadata:
+        metadata['build_inference'] = existing_metadata['build_inference']
 
-    if complete.any():
-        positive_int_position_series(
-            dat.loc[complete, 'POS'],
+    if mode == 'chr_pos':
+        if getattr(args, '_coordinates_finalized_chunkwise', False):
+            counts = getattr(args, '_coordinate_drop_counts', _empty_coordinate_drop_counts())
+            metadata.update(
+                {
+                    'n_rows': int(counts['n_input']),
+                    'n_retained_after_chr_pos_policy': int(counts['n_retained']),
+                    'n_missing_chr_pos': int(counts['n_missing_chr'] + counts['n_missing_pos']),
+                    'n_invalid_chr_pos': int(counts['n_invalid_chr'] + counts['n_invalid_pos']),
+                    'n_dropped_invalid_chr_pos': int(counts['n_dropped']),
+                    'coordinate_drop_report': {
+                        'n_input': int(counts['n_input']),
+                        'n_retained': int(counts['n_retained']),
+                        'n_dropped': int(counts['n_dropped']),
+                        'n_missing_chr': int(counts['n_missing_chr']),
+                        'n_missing_pos': int(counts['n_missing_pos']),
+                        'n_invalid_chr': int(counts['n_invalid_chr']),
+                        'n_invalid_pos': int(counts['n_invalid_pos']),
+                        'examples': list(counts['examples']),
+                    },
+                }
+            )
+            if genome_build == 'auto' and len(dat) > 0:
+                normalized, inference = resolve_chr_pos_table(
+                    dat,
+                    context=getattr(args, 'sumstats', 'sumstats'),
+                    logger=LOGGER,
+                )
+                dat = normalized
+                metadata.update(
+                    {
+                        'genome_build': inference.genome_build,
+                        'genome_build_inferred': True,
+                        'coordinate_basis': inference.coordinate_basis,
+                        'build_inference': {
+                            'inspected_snp_count': int(inference.inspected_snp_count),
+                            'match_counts': dict(inference.match_counts),
+                            'match_fractions': dict(inference.match_fractions),
+                            'summary_message': inference.summary_message,
+                        },
+                    }
+                )
+            elif genome_build == 'auto':
+                metadata['genome_build'] = None
+                LOGGER.warning('WARNING: Cannot infer genome build because no rows have valid CHR/POS coordinates.')
+            elif len(dat) > 0 and genome_build is not None and metadata['coordinate_basis'] is None:
+                metadata['coordinate_basis'] = '1-based'
+            args._coordinate_metadata = metadata
+            return dat
+        min_position = 0 if genome_build == 'auto' or pre_inferred_basis == '0-based' else 1
+        dat, coordinate_report = normalize_chr_pos_frame(
+            dat,
             context=getattr(args, 'sumstats', 'sumstats'),
-            label='POS',
+            coordinate_policy='drop',
+            logger=LOGGER,
+            example_columns=('SNP', 'CHR', 'POS'),
+            min_position=min_position,
         )
-
-    if mode == 'chr_pos' and complete.any():
-        coordinate_rows = dat.loc[complete, ['CHR', 'POS']].copy()
-        if genome_build == 'auto':
+        metadata.update(
+            {
+                'n_retained_after_chr_pos_policy': int(len(dat)),
+                'n_missing_chr_pos': int(
+                    coordinate_report.n_missing_chr + coordinate_report.n_missing_pos
+                ),
+                'n_invalid_chr_pos': int(
+                    coordinate_report.n_invalid_chr + coordinate_report.n_invalid_pos
+                ),
+                'n_dropped_invalid_chr_pos': int(coordinate_report.n_dropped),
+                'coordinate_drop_report': {
+                    'n_input': int(coordinate_report.n_input),
+                    'n_retained': int(coordinate_report.n_retained),
+                    'n_dropped': int(coordinate_report.n_dropped),
+                    'n_missing_chr': int(coordinate_report.n_missing_chr),
+                    'n_missing_pos': int(coordinate_report.n_missing_pos),
+                    'n_invalid_chr': int(coordinate_report.n_invalid_chr),
+                    'n_invalid_pos': int(coordinate_report.n_invalid_pos),
+                    'examples': coordinate_report.examples,
+                },
+            }
+        )
+        if (
+            pre_inferred_basis == '0-based'
+            and len(dat) > 0
+            and _should_shift_pre_inferred_zero_based(dat, existing_metadata)
+        ):
+            dat['POS'] = dat['POS'].astype('int64') + 1
+        if genome_build == 'auto' and len(dat) > 0:
             normalized, inference = resolve_chr_pos_table(
-                coordinate_rows,
+                dat,
                 context=getattr(args, 'sumstats', 'sumstats'),
                 logger=LOGGER,
             )
+            dat = normalized
             metadata.update(
                 {
                     'genome_build': inference.genome_build,
@@ -622,22 +891,35 @@ def _finalize_coordinate_columns(dat, args):
                     },
                 }
             )
-        else:
-            normalized = coordinate_rows.copy()
-            normalized['CHR'] = normalize_chromosome_series(
-                normalized['CHR'],
+        elif genome_build == 'auto':
+            metadata['genome_build'] = None
+            LOGGER.warning('WARNING: Cannot infer genome build because no rows have valid CHR/POS coordinates.')
+        elif len(dat) > 0 and genome_build is not None and metadata['coordinate_basis'] is None:
+            metadata['coordinate_basis'] = '1-based'
+    else:
+        complete = ~(coordinate_missing_mask(dat['CHR']) | coordinate_missing_mask(dat['POS']))
+        if complete.any():
+            positive_int_position_series(
+                dat.loc[complete, 'POS'],
                 context=getattr(args, 'sumstats', 'sumstats'),
+                label='POS',
             )
-            normalized['POS'] = pd.to_numeric(normalized['POS'], errors='raise').astype('int64')
-        dat['CHR'] = dat['CHR'].astype(object)
-        dat.loc[complete, 'CHR'] = normalized['CHR'].astype(object)
-        dat.loc[complete, 'POS'] = normalized['POS'].astype('int64')
-    elif mode == 'chr_pos' and genome_build == 'auto':
-        metadata['genome_build'] = None
-        LOGGER.warning('WARNING: Cannot infer genome build because no rows have complete CHR/POS coordinates.')
 
     args._coordinate_metadata = metadata
     return dat
+
+
+def _should_shift_pre_inferred_zero_based(dat, existing_metadata):
+    """Return whether parsed rows still appear to be in raw 0-based coordinates."""
+    raw_examples = existing_metadata.get('_raw_pos_examples')
+    if not raw_examples:
+        return True
+    n = min(len(raw_examples), len(dat))
+    if n == 0:
+        return False
+    parsed = pd.to_numeric(dat['POS'].head(n), errors='coerce').tolist()
+    raw = pd.to_numeric(pd.Series(raw_examples[:n]), errors='coerce').tolist()
+    return parsed == raw
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--sumstats', default=None, type=str,
@@ -876,6 +1158,16 @@ def munge_sumstats(args, p=True):
 
     (openfunc, compression) = get_compression(args.sumstats)
     metadata_skiprows = count_leading_sumstats_comment_lines(args.sumstats)
+    _resolve_auto_genome_build_before_chunks(
+        args,
+        cname_translation,
+        compression,
+        metadata_skiprows,
+    )
+    restriction = _prepare_sumstats_restriction(args)
+    args._prepared_sumstats_restriction = restriction
+    if normalize_snp_identifier_mode(getattr(args, 'snp_identifier', 'chr_pos')) == 'chr_pos':
+        args._coordinates_finalized_chunkwise = True
 
     # figure out which columns are going to involve sign information, so we can ensure
     # they're read as floats
@@ -886,7 +1178,7 @@ def munge_sumstats(args, p=True):
             skiprows=metadata_skiprows,
             dtype={c:np.float64 for c in signed_sumstat_cols})
 
-    dat = parse_dat(dat_gen, cname_translation, args)
+    dat = parse_dat(dat_gen, cname_translation, args, restriction=restriction)
     if len(dat) == 0:
         raise ValueError('After applying filters, no SNPs remain.')
 
@@ -899,17 +1191,18 @@ def munge_sumstats(args, p=True):
     else:
         dat = dat.reset_index(drop=True)
         LOGGER.info('Retained duplicated SNP labels because snp_identifier=chr_pos uses CHR/POS as row identity.')
+    median_msg = None
+    if not args.a1_inc:
+        median_msg = check_median(dat.SIGNED_SUMSTAT, signed_sumstat_null, 0.1, sign_cname)
+    dat = _finalize_coordinate_columns(dat, args)
     # filtering on N cannot be done chunkwise
     dat = process_n(dat, args)
     dat.P = p_to_z(dat.P, dat.N)
     dat.rename(columns={'P': 'Z'}, inplace=True)
     if not args.a1_inc:
-        LOGGER.info(
-            check_median(dat.SIGNED_SUMSTAT, signed_sumstat_null, 0.1, sign_cname))
+        LOGGER.info(median_msg)
         dat.Z *= (-1) ** (dat.SIGNED_SUMSTAT < signed_sumstat_null)
         dat.drop('SIGNED_SUMSTAT', inplace=True, axis=1)
-    dat = _finalize_coordinate_columns(dat, args)
-    dat = filter_sumstats_snps(dat, args)
     dat = _apply_liftover_if_requested(dat, args)
 
     out_fname = args.out + '.sumstats'

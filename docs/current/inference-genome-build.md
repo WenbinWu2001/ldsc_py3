@@ -78,13 +78,12 @@ needs.
 
 ## Raw Sumstats
 
-Raw sumstats can be large, compressed, and sequential-access. `ldsc
-munge-sumstats` keeps `--genome-build auto` unresolved until the munging kernel
-has parsed the raw table, applied standard QC, and translated coordinate aliases
-into canonical `CHR` and `POS` columns. The kernel then calls
-`resolve_chr_pos_table()` so build inference and coordinate-basis normalization
-operate on the same coordinate table that will be written to the curated
-artifact.
+Raw sumstats can be large, compressed, and sequential-access. In
+`snp_identifier=chr_pos` mode, `ldsc munge-sumstats` resolves
+`--genome-build auto` before chunk parsing. After the raw header has been mapped
+to canonical columns, the kernel reads a lightweight `CHR`/`POS` view of the raw
+input and calls `resolve_chr_pos_table()`. The resolved source build and
+coordinate basis are then reused while each chunk is parsed.
 
 The build resolver uses `GenomeBuildEvidenceAccumulator` from
 `genome_build_inference.py`:
@@ -100,10 +99,12 @@ require:
 
 If those thresholds are not met, inference raises an actionable error that asks
 the user to pass `--genome-build hg19` or `--genome-build hg38` explicitly. The
-same normalized coordinate metadata is also used by munge-time SNP filtering in
+same resolved source-build metadata is used by munge-time SNP filtering in
 `chr_pos` mode. A keep-list, including the packaged map selected by
 `--use-hm3-snps`, with both `hg19_POS` and `hg38_POS` selects the position
-column matching the effective raw sumstats build.
+column matching the effective raw sumstats build. Filtering happens inside each
+chunk after canonical coordinate normalization and before the retained chunks are
+concatenated.
 
 Optional munger liftover runs after this source-build resolution and after
 SNP filtering. It is valid only in `chr_pos` mode because `rsid` mode does not

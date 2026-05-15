@@ -21,13 +21,17 @@ build_snp_id_series :
     Construct the canonical SNP identifier series for a metadata table.
 read_global_snp_restriction :
     Read a restriction list using the active identifier mode.
+read_global_chr_pos_restriction_key_set :
+    Stream a coordinate restriction file into packed uint64 CHR/POS keys for
+    memory-sensitive chunk filtering.
 
 Design Notes
 ------------
 - Header inference is intentionally permissive to preserve legacy behavior for
   user-provided files with inconsistent capitalization or separators.
-- ``chr_pos`` mode always uses normalized chromosome labels and 1-based
-  position coordinates encoded as ``CHR:POS`` strings.
+- Public and metadata-facing ``chr_pos`` identifiers remain normalized
+  ``CHR:POS`` strings. Memory-sensitive kernels can instead use packed uint64
+  CHR/POS keys that carry the same normalized coordinate identity.
 """
 
 from __future__ import annotations
@@ -46,6 +50,7 @@ from .._coordinates import (
     CHR_POS_KEY_COLUMN,
     build_chr_pos_key_frame,
     coordinate_missing_mask,
+    normalize_chr_pos_frame,
     positive_int_position_series,
 )
 from ..chromosome_inference import normalize_chromosome, normalize_chromosome_series
@@ -115,7 +120,14 @@ def build_packed_chr_pos_series(
     *,
     context: str,
 ) -> pd.Series:
-    """Return compact uint64 CHR/POS keys for memory-sensitive matching."""
+    """
+    Return compact uint64 CHR/POS keys for memory-sensitive matching.
+
+    Chromosomes are normalized to small integer codes and positions occupy the
+    low 32 bits. The output is aligned to the input series index and is intended
+    for internal set membership tests where constructing ``CHR:POS`` strings
+    would add avoidable memory pressure.
+    """
     normalized_chrom = normalize_chromosome_series(chrom, context=context)
     chrom_codes = normalized_chrom.map(_CHROMOSOME_PACK_CODES)
     if bool(chrom_codes.isna().any()):
@@ -198,7 +210,14 @@ def read_global_chr_pos_restriction_key_set(
     genome_build: str | None = None,
     logger=None,
 ) -> set[int]:
-    """Read a CHR/POS restriction file as compact packed coordinate keys."""
+    """
+    Stream a CHR/POS restriction file as compact packed coordinate keys.
+
+    The reader resolves build-specific position columns in the same way as
+    ``read_global_snp_restriction`` but emits uint64 keys instead of public
+    ``CHR:POS`` strings. Missing or invalid coordinate rows are dropped with the
+    shared coordinate-policy warning and are not included in the returned set.
+    """
     genome_build = normalize_genome_build(genome_build)
     assert genome_build in {"hg19", "hg38", None}, (
         f"genome_build reached kernel as {genome_build!r}; "
@@ -319,7 +338,7 @@ def _finalize_chr_pos_restriction_frame(
     path: Path,
     logger,
 ) -> set[str]:
-    """Normalize one restriction frame, dropping rows missing CHR or POS."""
+    """Normalize one restriction frame, dropping rows with missing or invalid CHR/POS."""
     frame = frame.loc[:, ["CHR", "POS"]].copy()
     keyed, _report = build_chr_pos_key_frame(
         frame,
@@ -359,6 +378,7 @@ def _read_packed_chr_pos_restriction_rows(
     logger,
     chunk_size: int = 100_000,
 ) -> set[int]:
+    """Read restriction rows in bounded chunks and pack retained CHR/POS pairs."""
     values: set[int] = set()
     chrom_chunk: list[object] = []
     pos_chunk: list[object] = []
@@ -369,18 +389,23 @@ def _read_packed_chr_pos_restriction_rows(
         nonlocal chrom_chunk, pos_chunk, missing_dropped, retained
         if not chrom_chunk:
             return
-        chrom = pd.Series(chrom_chunk)
-        pos = pd.Series(pos_chunk)
-        missing = coordinate_missing_mask(chrom) | coordinate_missing_mask(pos)
-        missing_dropped += int(missing.sum())
-        retained += int((~missing).sum())
-        if not bool((~missing).any()):
+        frame = pd.DataFrame({"CHR": chrom_chunk, "POS": pos_chunk})
+        normalized, report = normalize_chr_pos_frame(
+            frame,
+            context=f"restriction file '{path}'",
+            coordinate_policy="drop",
+            logger=logger,
+            log_level=logging.WARNING,
+        )
+        missing_dropped += int(report.n_dropped)
+        retained += int(report.n_retained)
+        if normalized.empty:
             chrom_chunk = []
             pos_chunk = []
             return
         keys = build_packed_chr_pos_series(
-            chrom.loc[~missing].reset_index(drop=True),
-            pos.loc[~missing].reset_index(drop=True),
+            normalized["CHR"].reset_index(drop=True),
+            normalized["POS"].reset_index(drop=True),
             context=f"restriction file '{path}'",
         )
         values.update(int(value) for value in keys.to_numpy(dtype=np.uint64))
@@ -397,9 +422,4 @@ def _read_packed_chr_pos_restriction_rows(
         if len(chrom_chunk) >= chunk_size:
             flush()
     flush()
-    if missing_dropped and logger is not None:
-        logger.warning(
-            f"Dropped {missing_dropped} SNPs with missing CHR/POS in restriction file '{path}'; "
-            f"{retained} rows remain."
-        )
     return values

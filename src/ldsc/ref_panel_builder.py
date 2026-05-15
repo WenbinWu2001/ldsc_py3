@@ -49,6 +49,7 @@ from .column_inference import (
     resolve_required_column,
 )
 from .config import GlobalConfig, ReferencePanelBuildConfig, get_global_config, print_global_config_banner
+from ._coordinates import normalize_chr_pos_frame
 from .genome_build_inference import resolve_genome_build
 from .hm3 import packaged_hm3_curated_map_path
 from .path_resolution import (
@@ -534,8 +535,16 @@ class ReferencePanelBuilder:
     def _discover_prefix_chromosomes(self, prefix: str) -> list[str]:
         """List the normalized chromosomes present in one PLINK prefix."""
         bim = legacy_parse.PlinkBIMFile(prefix + ".bim")
+        normalized, _report = normalize_chr_pos_frame(
+            bim.df,
+            context=f"{prefix}.bim",
+            chr_col="CHR",
+            pos_col="BP",
+            coordinate_policy="drop",
+            logger=LOGGER,
+        )
         chromosomes = sorted(
-            {kernel_builder._normalize_map_chromosome(chrom) for chrom in bim.df["CHR"]},
+            set(normalized["CHR"]),
             key=kernel_ldscore.chrom_sort_key,
         )
         return chromosomes
@@ -558,8 +567,14 @@ class ReferencePanelBuilder:
         sidecar_path = Path(config.output_dir) / "dropped_snps" / f"chr{chrom}_dropped.tsv.gz"
         bim = legacy_parse.PlinkBIMFile(prefix + ".bim")
         fam = legacy_parse.PlinkFAMFile(prefix + ".fam")
-        panel_df = bim.df.copy()
-        panel_df["CHR"] = panel_df["CHR"].map(kernel_builder._normalize_map_chromosome)
+        panel_df, _report = normalize_chr_pos_frame(
+            bim.df,
+            context=f"{prefix}.bim",
+            chr_col="CHR",
+            pos_col="BP",
+            coordinate_policy="drop",
+            logger=LOGGER,
+        )
         chrom_df = panel_df.loc[panel_df["CHR"] == chrom].copy()
         if len(chrom_df) == 0:
             raise ValueError(f"No SNPs found for chromosome {chrom} in {prefix}.")
@@ -981,7 +996,14 @@ def _plink_bim_chr_pos_frame(resolved_prefixes: Sequence[str]) -> pd.DataFrame:
             names=["CHR", "POS"],
         )
         if not frame.empty:
-            frames.append(frame)
+            normalized, _report = normalize_chr_pos_frame(
+                frame,
+                context=f"{prefix}.bim",
+                coordinate_policy="drop",
+                logger=LOGGER,
+                min_position=0,
+            )
+            frames.append(normalized)
     if not frames:
         return pd.DataFrame(columns=["CHR", "POS"])
     return pd.concat(frames, ignore_index=True)
@@ -1054,8 +1076,12 @@ def _restriction_frame_from_columns(
 
 def _infer_generic_restriction_build(frame: pd.DataFrame, path: Path) -> str:
     """Infer the genome build represented by a generic restriction POS column."""
-    inference_frame = frame.loc[:, ["CHR", "POS"]].copy()
-    inference_frame["POS"] = pd.to_numeric(inference_frame["POS"], errors="raise").astype(int)
+    inference_frame, _report = normalize_chr_pos_frame(
+        frame.loc[:, ["CHR", "POS"]].copy(),
+        context=f"reference-panel SNP restriction '{path}'",
+        coordinate_policy="drop",
+        logger=None,
+    )
     try:
         inferred_build = resolve_genome_build(
             "auto",

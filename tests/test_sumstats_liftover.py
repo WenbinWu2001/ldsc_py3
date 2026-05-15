@@ -274,8 +274,11 @@ class SumstatsLiftoverTest(unittest.TestCase):
             self.assertEqual(report["n_missing_chr_pos_dropped"], 2)
             self.assertEqual(report["n_unmapped"], 1)
             self.assertEqual(report["n_dropped"], 3)
-            self.assertIn("Dropped 2 SNPs with missing CHR/POS", "\n".join(caught.output))
-            self.assertNotIn("missing_pos", "\n".join(caught.output))
+            log_text = "\n".join(caught.output)
+            self.assertIn("Dropped 2 SNPs with invalid or missing CHR/POS", log_text)
+            self.assertIn("missing CHR=1", log_text)
+            self.assertIn("missing POS=1", log_text)
+            self.assertNotIn("missing_pos", log_text)
             self.assertEqual(
                 drop_frame["reason"].tolist(),
                 ["missing_coordinate", "missing_coordinate", "unmapped_liftover"],

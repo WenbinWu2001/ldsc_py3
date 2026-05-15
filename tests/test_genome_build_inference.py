@@ -33,18 +33,43 @@ class GenomeBuildInferenceTest(unittest.TestCase):
     def test_resolve_chr_pos_table_infers_hg19_one_based(self):
         module = _load_module(self)
         reference = _build_reference_table()
-        raw = pd.DataFrame({"CHR": ["1"] * len(reference), "POS": reference["hg19_POS"]})
-
-        normalized, result = module.resolve_chr_pos_table(
-            raw,
-            context="unit-hg19-1based",
-            reference_table=reference,
+        raw = pd.DataFrame(
+            {
+                "CHR": ["1"] * len(reference) + ["chrUn", "1"],
+                "POS": reference["hg19_POS"].tolist() + [12345, "bad"],
+                "SNP": [f"rs{i}" for i in range(len(reference))] + ["bad_chr", "bad_pos"],
+            }
         )
+        logger = logging.getLogger("LDSC.test.genome_build_inference.drop")
+
+        with self.assertLogs(logger, level="WARNING") as caught:
+            normalized, result = module.resolve_chr_pos_table(
+                raw,
+                context="unit-hg19-1based",
+                reference_table=reference,
+                logger=logger,
+            )
 
         self.assertEqual(result.genome_build, "hg19")
         self.assertEqual(result.coordinate_basis, "1-based")
         self.assertEqual(result.inspected_snp_count, len(reference))
         self.assertEqual(normalized["POS"].tolist()[:3], [1000, 1010, 1020])
+        self.assertEqual(result.coordinate_report.n_dropped, 2)
+        self.assertEqual(normalized["SNP"].tolist()[-1], f"rs{len(reference) - 1}")
+        self.assertIn("Dropped 2 SNPs with invalid or missing CHR/POS", "\n".join(caught.output))
+
+    def test_resolve_chr_pos_table_strict_policy_rejects_invalid_coordinates(self):
+        module = _load_module(self)
+        reference = _build_reference_table()
+        raw = pd.DataFrame({"CHR": ["1", "chrUn"], "POS": [1000, 1010]})
+
+        with self.assertRaisesRegex(ValueError, "Unsupported chromosome label"):
+            module.resolve_chr_pos_table(
+                raw,
+                context="unit-strict",
+                reference_table=reference,
+                coordinate_policy="raise",
+            )
 
     def test_resolve_chr_pos_table_infers_hg38_zero_based_and_shifts_positions(self):
         module = _load_module(self)

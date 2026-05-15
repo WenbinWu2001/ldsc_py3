@@ -1425,10 +1425,7 @@ class SortedR2BlockReader:
                         first[self._canonical_columns["CHR"]].to_pylist(),
                         dtype="object",
                     ),
-                    "POS": pd.to_numeric(
-                        pd.Series(first[self._canonical_columns["POS_1"]].to_pylist()),
-                        errors="raise",
-                    ).astype(np.int64),
+                    "POS": pd.Series(first[self._canonical_columns["POS_1"]].to_pylist()),
                 }
             )
             _, inference = resolve_chr_pos_table(

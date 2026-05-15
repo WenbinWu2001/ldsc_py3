@@ -35,7 +35,6 @@ import hashlib
 import json
 import logging
 import math
-import warnings
 from dataclasses import dataclass, replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -64,7 +63,7 @@ from .path_resolution import (
 from ._logging import log_inputs, log_outputs, workflow_logging
 from ._kernel import regression as reg
 from ._kernel.identifiers import build_snp_id_series
-from ._kernel.snp_identity import identity_mode_family
+from ._kernel.snp_identity import REGENERATE_ARTIFACT_MESSAGE, identity_mode_family, validate_identity_artifact_metadata
 from ._row_alignment import assert_same_snp_rows
 from .column_inference import infer_chr_pos_columns, normalize_snp_identifier_mode
 from .ldscore_calculator import LDScoreResult
@@ -1662,15 +1661,13 @@ def load_ldscore_from_dir(
         LD-score writer.
     snp_identifier : {"rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"} or None, optional
         Identifier mode used to reconstruct the public regression SNP set from
-        the baseline table. When omitted, the manifest value is used, falling
-        back to the package default ``"chr_pos_allele_aware"`` for legacy directories.
+        the baseline table. When omitted, the manifest value is used.
 
     Returns
     -------
     LDScoreResult
-        Disk-loaded LD-score result. Missing or invalid manifest
-        ``config_snapshot`` provenance emits a warning and returns
-        ``config_snapshot=None`` so legacy directories can still be used.
+        Disk-loaded LD-score result with config provenance reconstructed from
+        the manifest's minimal identity metadata.
 
     Raises
     ------
@@ -1731,35 +1728,14 @@ def load_ldscore_from_dir(
 
 def _global_config_from_manifest(manifest: dict[str, Any]) -> GlobalConfig | None:
     """Recreate a GlobalConfig snapshot when the manifest contains one."""
-    snapshot = manifest.get("config_snapshot")
-    if not isinstance(snapshot, dict):
-        warnings.warn(
-            "LD-score manifest GlobalConfig provenance is missing; treating config compatibility as unknown.",
-            UserWarning,
-            stacklevel=3,
-        )
-        return None
-    try:
-        _recovered_snp = snapshot.get("snp_identifier") or manifest.get("snp_identifier") or "chr_pos_allele_aware"
-        return GlobalConfig(
-            snp_identifier=_recovered_snp,
-            genome_build=(
-                snapshot.get("genome_build")
-                or manifest.get("genome_build")
-                or ("auto" if identity_mode_family(_recovered_snp) == "chr_pos" else None)
-            ),
-            log_level=snapshot.get("log_level", "INFO"),
-            fail_on_missing_metadata=bool(snapshot.get("fail_on_missing_metadata", False)),
-        )
-    except Exception as exc:
-        LOGGER.debug(f"Invalid LD-score manifest GlobalConfig provenance: {exc}", exc_info=True)
-        warnings.warn(
-            f"LD-score manifest GlobalConfig provenance is invalid ({exc}); "
-            "treating config compatibility as unknown.",
-            UserWarning,
-            stacklevel=3,
-        )
-        return None
+    if "schema_version" not in manifest and "artifact_type" not in manifest:
+        raise ValueError(REGENERATE_ARTIFACT_MESSAGE)
+    mode = validate_identity_artifact_metadata(manifest, expected_artifact_type="ldscore")
+    return GlobalConfig(
+        snp_identifier=mode,
+        genome_build=manifest.get("genome_build"),
+        log_level="INFO",
+    )
 
 
 def _maybe_write_dataframe(

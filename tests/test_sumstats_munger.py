@@ -36,6 +36,12 @@ except ImportError:
 
 @unittest.skipIf(SumstatsMunger is None, "sumstats_munger module is not available")
 class SumstatsMungerTest(unittest.TestCase):
+    REGENERATE_MESSAGE = (
+        "This artifact was not written with the current LDSC schema/provenance contract. "
+        "Regenerate it with the current LDSC package."
+    )
+    SUMSTATS_METADATA_KEYS = {"schema_version", "artifact_type", "snp_identifier", "genome_build", "trait_name"}
+
     DROPPED_SNP_DTYPES = {
         "CHR": "string",
         "SNP": "string",
@@ -57,6 +63,27 @@ class SumstatsMungerTest(unittest.TestCase):
 
     def _fake_munged_frame(self) -> pd.DataFrame:
         return pd.DataFrame({"SNP": ["rs1"], "A1": ["A"], "A2": ["G"], "Z": [1.0], "N": [1000.0]})
+
+    def _write_sumstats_sidecar(
+        self,
+        path: Path,
+        *,
+        snp_identifier: str = "rsid",
+        genome_build: str | None = None,
+        trait_name: str | None = "trait",
+    ) -> None:
+        path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "artifact_type": "sumstats",
+                    "snp_identifier": snp_identifier,
+                    "genome_build": genome_build,
+                    "trait_name": trait_name,
+                }
+            ),
+            encoding="utf-8",
+        )
 
     def test_build_parser_defaults_chunksize_to_one_million_rows(self):
         parser = sumstats_workflow.build_parser()
@@ -456,6 +483,7 @@ class SumstatsMungerTest(unittest.TestCase):
             sumstats_file = tmpdir / "trait.v1.sumstats.gz"
             with gzip.open(sumstats_file, "wt", encoding="utf-8") as handle:
                 handle.write("SNP\tZ\tN\tA1\tA2\tFRQ\nrs1\t1.5\t1000\tA\tG\t0.2\n")
+            self._write_sumstats_sidecar(tmpdir / "trait.v1.metadata.json", trait_name="trait")
 
             self.assertTrue(hasattr(ldsc, "load_sumstats"))
             with warnings.catch_warnings(record=True) as caught:
@@ -467,14 +495,15 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertTrue(table.has_alleles)
             self.assertEqual(table.data.columns.tolist(), ["SNP", "N", "Z", "A1", "A2", "FRQ"])
             self.assertEqual(table.data.loc[0, "SNP"], "rs1")
-            self.assertIsNone(table.config_snapshot)
-            self.assertTrue(any("cannot recover the GlobalConfig" in str(item.message) for item in caught))
+            self.assertEqual(table.config_snapshot, GlobalConfig(snp_identifier="rsid"))
+            self.assertFalse(any("cannot recover the GlobalConfig" in str(item.message) for item in caught))
 
     def test_load_sumstats_reads_uncompressed_curated_sumstats(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             sumstats_file = tmpdir / "trait.sumstats"
             sumstats_file.write_text("SNP\tZ\tN\nrs1\t1.5\t1000\n", encoding="utf-8")
+            self._write_sumstats_sidecar(tmpdir / "trait.metadata.json", trait_name="trait")
 
             with warnings.catch_warnings(record=True):
                 table = ldsc.load_sumstats(sumstats_file, trait_name="trait")
@@ -488,16 +517,7 @@ class SumstatsMungerTest(unittest.TestCase):
             sumstats_file = tmpdir / "trait.sumstats.gz"
             with gzip.open(sumstats_file, "wt", encoding="utf-8") as handle:
                 handle.write("SNP\tZ\tN\nrs1\t1.5\t1000\n")
-            (tmpdir / "trait.metadata.json").write_text(
-                json.dumps(
-                    {
-                        "format": "ldsc.sumstats.v1",
-                        "trait_name": "MDD",
-                        "config_snapshot": {"snp_identifier": "rsid", "genome_build": None},
-                    }
-                ),
-                encoding="utf-8",
-            )
+            self._write_sumstats_sidecar(tmpdir / "trait.metadata.json", trait_name="MDD")
 
             table = ldsc.load_sumstats(sumstats_file)
 
@@ -509,16 +529,7 @@ class SumstatsMungerTest(unittest.TestCase):
             sumstats_file = tmpdir / "trait.sumstats.gz"
             with gzip.open(sumstats_file, "wt", encoding="utf-8") as handle:
                 handle.write("SNP\tZ\tN\nrs1\t1.5\t1000\n")
-            (tmpdir / "trait.metadata.json").write_text(
-                json.dumps(
-                    {
-                        "format": "ldsc.sumstats.v1",
-                        "trait_name": "MDD",
-                        "config_snapshot": {"snp_identifier": "rsid", "genome_build": None},
-                    }
-                ),
-                encoding="utf-8",
-            )
+            self._write_sumstats_sidecar(tmpdir / "trait.metadata.json", trait_name="MDD")
 
             table = ldsc.load_sumstats(sumstats_file, trait_name=" SCZ ")
 
@@ -530,16 +541,7 @@ class SumstatsMungerTest(unittest.TestCase):
             sumstats_file = tmpdir / "trait.sumstats.gz"
             with gzip.open(sumstats_file, "wt", encoding="utf-8") as handle:
                 handle.write("SNP\tZ\tN\nrs1\t1.5\t1000\n")
-            (tmpdir / "trait.metadata.json").write_text(
-                json.dumps(
-                    {
-                        "format": "ldsc.sumstats.v1",
-                        "trait_name": " ",
-                        "config_snapshot": {"snp_identifier": "rsid", "genome_build": None},
-                    }
-                ),
-                encoding="utf-8",
-            )
+            self._write_sumstats_sidecar(tmpdir / "trait.metadata.json", trait_name=" ")
 
             with self.assertRaisesRegex(ValueError, "trait_name"):
                 ldsc.load_sumstats(sumstats_file)
@@ -553,14 +555,11 @@ class SumstatsMungerTest(unittest.TestCase):
                 sumstats_file,
                 index=False,
             )
-            (tmpdir / "trait.metadata.json").write_text(
-                json.dumps(
-                    {
-                        "format": "ldsc.sumstats.v1",
-                        "config_snapshot": {"snp_identifier": "chr_pos", "genome_build": "hg38"},
-                    }
-                ),
-                encoding="utf-8",
+            self._write_sumstats_sidecar(
+                tmpdir / "trait.metadata.json",
+                snp_identifier="chr_pos",
+                genome_build="hg38",
+                trait_name=None,
             )
 
             with warnings.catch_warnings(record=True) as caught:
@@ -572,7 +571,7 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(table.config_snapshot, GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
             self.assertFalse(any("cannot recover the GlobalConfig" in str(item.message) for item in caught))
 
-    def test_load_sumstats_rejects_sidecar_without_config_snapshot(self):
+    def test_load_sumstats_rejects_sidecar_without_schema_version(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             sumstats_file = tmpdir / "trait.sumstats.gz"
@@ -588,7 +587,35 @@ class SumstatsMungerTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with self.assertRaisesRegex(ValueError, "config_snapshot"):
+            with self.assertRaisesRegex(ValueError, self.REGENERATE_MESSAGE):
+                ldsc.load_sumstats(sumstats_file)
+
+    def test_load_sumstats_rejects_missing_metadata_sidecar(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            sumstats_file = tmpdir / "trait.sumstats.gz"
+            with gzip.open(sumstats_file, "wt", encoding="utf-8") as handle:
+                handle.write("SNP\tCHR\tPOS\tZ\tN\nrs1\t1\t100\t1.0\t100.0\n")
+
+            with self.assertRaisesRegex(ValueError, self.REGENERATE_MESSAGE):
+                ldsc.load_sumstats(sumstats_file)
+
+    def test_load_sumstats_rejects_allele_aware_artifact_without_alleles(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            sumstats_file = tmpdir / "trait.sumstats.gz"
+            with gzip.open(sumstats_file, "wt", encoding="utf-8") as handle:
+                handle.write("SNP\tZ\tN\nrs1\t1.0\t100.0\n")
+            self._write_sumstats_sidecar(
+                tmpdir / "trait.metadata.json",
+                snp_identifier="rsid_allele_aware",
+                trait_name="trait",
+            )
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "Munged sumstats artifact is malformed: snp_identifier='rsid_allele_aware' requires A1/A2 columns",
+            ):
                 ldsc.load_sumstats(sumstats_file)
 
     def test_load_sumstats_rejects_unknown_suffix(self):
@@ -625,9 +652,13 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertTrue((tmpdir / "munged" / "sumstats.metadata.json").exists())
             metadata = json.loads((tmpdir / "munged" / "sumstats.metadata.json").read_text(encoding="utf-8"))
             self.assertEqual(metadata["trait_name"], "trait")
+            self.assertEqual(metadata["schema_version"], 1)
+            self.assertEqual(metadata["artifact_type"], "sumstats")
+            self.assertEqual(metadata["snp_identifier"], "rsid")
+            self.assertIsNone(metadata["genome_build"])
             self.assertEqual(
                 set(metadata),
-                {"format", "trait_name", "config_snapshot"},
+                self.SUMSTATS_METADATA_KEYS,
             )
             summary = munger.build_run_summary(table)
             self.assertEqual(summary.n_retained_rows, 2)
@@ -660,7 +691,7 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(output.columns.tolist(), ["SNP", "CHR", "POS", "A1", "A2", "Z", "N"])
             metadata = json.loads((tmpdir / "munged" / "sumstats.metadata.json").read_text(encoding="utf-8"))
             self.assertEqual(metadata["trait_name"], "trait")
-            self.assertEqual(set(metadata), {"format", "trait_name", "config_snapshot"})
+            self.assertEqual(set(metadata), self.SUMSTATS_METADATA_KEYS)
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
     def test_run_writes_both_formats_and_lists_outputs_in_metadata(self):
@@ -682,7 +713,7 @@ class SumstatsMungerTest(unittest.TestCase):
             metadata = json.loads((tmpdir / "munged" / "sumstats.metadata.json").read_text(encoding="utf-8"))
             self.assertTrue((tmpdir / "munged" / "sumstats.parquet").exists())
             self.assertTrue((tmpdir / "munged" / "sumstats.sumstats.gz").exists())
-            self.assertEqual(set(metadata), {"format", "trait_name", "config_snapshot"})
+            self.assertEqual(set(metadata), self.SUMSTATS_METADATA_KEYS)
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
     def test_run_overwrite_removes_unselected_sumstats_sibling(self):
@@ -708,7 +739,7 @@ class SumstatsMungerTest(unittest.TestCase):
             metadata = json.loads((output_dir / "sumstats.metadata.json").read_text(encoding="utf-8"))
             self.assertTrue((output_dir / "sumstats.parquet").exists())
             self.assertFalse((output_dir / "sumstats.sumstats.gz").exists())
-            self.assertEqual(set(metadata), {"format", "trait_name", "config_snapshot"})
+            self.assertEqual(set(metadata), self.SUMSTATS_METADATA_KEYS)
 
     def test_run_refuses_unselected_owned_sumstats_sibling_without_overwrite(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -827,7 +858,7 @@ class SumstatsMungerTest(unittest.TestCase):
             parquet_file = pq.ParquetFile(parquet_path)
             self.assertEqual(parquet_file.num_row_groups, 3)
             metadata = json.loads((tmpdir / "munged" / "sumstats.metadata.json").read_text(encoding="utf-8"))
-            self.assertEqual(set(metadata), {"format", "trait_name", "config_snapshot"})
+            self.assertEqual(set(metadata), self.SUMSTATS_METADATA_KEYS)
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for default parquet output")
     def test_run_writes_thin_sidecar_and_logs_coordinate_liftover_provenance(self):
@@ -859,14 +890,11 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(
                 metadata,
                 {
-                    "format": "ldsc.sumstats.v1",
+                    "schema_version": 1,
+                    "artifact_type": "sumstats",
+                    "snp_identifier": "chr_pos",
+                    "genome_build": "hg38",
                     "trait_name": "trait",
-                    "config_snapshot": {
-                        "snp_identifier": "chr_pos",
-                        "genome_build": "hg38",
-                        "log_level": "INFO",
-                        "fail_on_missing_metadata": False,
-                    },
                 },
             )
             log_text = (tmpdir / "munged" / "sumstats.log").read_text(encoding="utf-8")
@@ -876,7 +904,7 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertNotIn('"coordinate_basis"', log_text)
             self.assertEqual(
                 set(metadata),
-                {"format", "trait_name", "config_snapshot"},
+                self.SUMSTATS_METADATA_KEYS,
             )
 
     def test_run_rejects_liftover_request_in_rsid_mode_before_kernel_call(self):
@@ -1915,7 +1943,7 @@ class SumstatsMungerTest(unittest.TestCase):
                     GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
                 )
 
-    def test_load_sumstats_reads_metadata_sidecar_config_snapshot(self):
+    def test_load_sumstats_reads_minimal_identity_metadata_sidecar(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             raw_path = tmpdir / "raw.tsv"
@@ -1933,11 +1961,11 @@ class SumstatsMungerTest(unittest.TestCase):
             )
 
             metadata = json.loads((output_dir / "sumstats.metadata.json").read_text(encoding="utf-8"))
-            self.assertEqual(metadata["format"], "ldsc.sumstats.v1")
-            self.assertNotIn("snp_identifier", metadata)
-            self.assertNotIn("genome_build", metadata)
-            self.assertEqual(metadata["config_snapshot"]["snp_identifier"], "chr_pos")
-            self.assertEqual(metadata["config_snapshot"]["genome_build"], "hg38")
+            self.assertEqual(metadata["schema_version"], 1)
+            self.assertEqual(metadata["artifact_type"], "sumstats")
+            self.assertEqual(metadata["snp_identifier"], "chr_pos")
+            self.assertEqual(metadata["genome_build"], "hg38")
+            self.assertEqual(set(metadata), self.SUMSTATS_METADATA_KEYS)
             with warnings.catch_warnings(record=True) as caught:
                 warnings.simplefilter("always")
                 table = ldsc.load_sumstats(output_dir / "sumstats.parquet", trait_name="trait")

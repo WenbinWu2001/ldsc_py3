@@ -17,6 +17,11 @@ CHR_POS_FAMILY_MODES = ("chr_pos", "chr_pos_allele_aware")
 ALLELE_AWARE_MODES = ("rsid_allele_aware", "chr_pos_allele_aware")
 BASE_MODES = ("rsid", "chr_pos")
 SCHEMA_VERSION = 1
+ARTIFACT_TYPES = frozenset({"sumstats", "ref_panel_r2", "ref_panel_metadata", "ldscore"})
+REGENERATE_ARTIFACT_MESSAGE = (
+    "This artifact was not written with the current LDSC schema/provenance contract. "
+    "Regenerate it with the current LDSC package."
+)
 
 IDENTITY_DROP_COLUMNS = [
     "CHR",
@@ -66,6 +71,30 @@ def normalize_snp_identifier_mode(value: str) -> str:
         return value
     allowed = ", ".join(repr(mode) for mode in SNP_IDENTIFIER_MODES)
     raise ValueError(f"Unsupported snp_identifier mode: {value!r}. Expected one of {allowed}.")
+
+
+def identity_artifact_metadata(
+    *,
+    artifact_type: str,
+    snp_identifier: str,
+    genome_build: str | None,
+) -> dict[str, object]:
+    """Return the minimal identity metadata persisted with reloadable artifacts."""
+    if artifact_type not in ARTIFACT_TYPES:
+        raise ValueError(f"Unknown LDSC artifact_type {artifact_type!r}.")
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "artifact_type": artifact_type,
+        "snp_identifier": normalize_snp_identifier_mode(snp_identifier),
+        "genome_build": genome_build,
+    }
+
+
+def validate_identity_artifact_metadata(metadata: dict[str, object], *, expected_artifact_type: str) -> str:
+    """Validate minimal identity metadata and return the normalized SNP identifier mode."""
+    if metadata.get("schema_version") != SCHEMA_VERSION or metadata.get("artifact_type") != expected_artifact_type:
+        raise ValueError(REGENERATE_ARTIFACT_MESSAGE)
+    return normalize_snp_identifier_mode(str(metadata.get("snp_identifier")))
 
 
 def identity_mode_family(mode: str) -> Literal["rsid", "chr_pos"]:

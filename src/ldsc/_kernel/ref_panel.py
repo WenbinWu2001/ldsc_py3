@@ -34,7 +34,7 @@ from .identifiers import (
     read_global_snp_restriction,
     validate_unique_snp_ids,
 )
-from .snp_identity import identity_mode_family
+from .snp_identity import REGENERATE_ARTIFACT_MESSAGE, identity_mode_family, validate_identity_artifact_metadata
 
 LOGGER = logging.getLogger("LDSC.ref_panel")
 _REF_PANEL_R2_RE = re.compile(r"^chr(?P<chrom>.+)_r2\.parquet$", flags=re.IGNORECASE)
@@ -89,6 +89,50 @@ def _read_r2_schema_meta(path: str) -> _R2SchemaMeta:
         r2_bias = "raw"
 
     return _R2SchemaMeta(n_samples=n_samples, r2_bias=r2_bias)
+
+
+def _read_identity_schema_meta(path: str, *, expected_artifact_type: str) -> dict[str, object]:
+    """Read and validate LDSC identity metadata from package-written parquet schema metadata."""
+    try:
+        import pyarrow.parquet as pq
+    except ImportError as exc:
+        raise ImportError("Reading LDSC R2 identity schema metadata requires pyarrow.") from exc
+
+    raw = pq.read_schema(path).metadata or {}
+    required_keys = {
+        b"ldsc:schema_version",
+        b"ldsc:artifact_type",
+        b"ldsc:snp_identifier",
+        b"ldsc:genome_build",
+    }
+    if not required_keys.issubset(raw):
+        raise ValueError(REGENERATE_ARTIFACT_MESSAGE)
+    metadata = {
+        "schema_version": int(raw[b"ldsc:schema_version"].decode("utf-8")),
+        "artifact_type": raw[b"ldsc:artifact_type"].decode("utf-8"),
+        "snp_identifier": raw[b"ldsc:snp_identifier"].decode("utf-8"),
+        "genome_build": raw[b"ldsc:genome_build"].decode("utf-8"),
+    }
+    validate_identity_artifact_metadata(metadata, expected_artifact_type=expected_artifact_type)
+    return metadata
+
+
+def _r2_path_has_ldsc_package_schema(path: str) -> bool:
+    """Return whether parquet schema metadata marks a package-written canonical R2 artifact."""
+    try:
+        import pyarrow.parquet as pq
+    except ImportError:
+        return False
+    raw = pq.read_schema(path).metadata or {}
+    package_keys = {
+        b"ldsc:sorted_by_build",
+        b"ldsc:row_group_size",
+        b"ldsc:n_samples",
+        b"ldsc:r2_bias",
+        b"ldsc:schema_version",
+        b"ldsc:artifact_type",
+    }
+    return any(key in raw for key in package_keys)
 
 
 def _resolve_r2_bias_from_meta(
@@ -441,6 +485,8 @@ class ParquetR2RefPanel(RefPanel):
         effective_n = r2_sample_size if r2_sample_size is not None else self.spec.sample_size
 
         if paths:
+            if _r2_path_has_ldsc_package_schema(paths[0]):
+                _read_identity_schema_meta(paths[0], expected_artifact_type="ref_panel_r2")
             stored = _read_r2_schema_meta(paths[0])
             effective_bias, effective_n = _resolve_r2_bias_from_meta(
                 effective_bias,

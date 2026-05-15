@@ -38,6 +38,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from ._row_alignment import assert_same_snp_rows
+from ._kernel.snp_identity import identity_artifact_metadata
 from .config import _normalize_required_path
 from .path_resolution import (
     ensure_output_directory,
@@ -261,18 +262,21 @@ class LDScoreDirectoryWriter:
         baseline_table = getattr(result, "baseline_table")
         query_table = getattr(result, "query_table", None)
         config_snapshot = getattr(result, "config_snapshot", None)
+        identity_metadata = identity_artifact_metadata(
+            artifact_type="ldscore",
+            snp_identifier=getattr(config_snapshot, "snp_identifier", "chr_pos_allele_aware"),
+            genome_build=getattr(config_snapshot, "genome_build", None),
+        )
         chromosomes = baseline_table["CHR"].astype(str).drop_duplicates().tolist()
         return {
             "format": LDSCORE_RESULT_FORMAT,
+            **identity_metadata,
             "files": dict(files),
-            "snp_identifier": getattr(config_snapshot, "snp_identifier", None),
-            "genome_build": getattr(config_snapshot, "genome_build", None),
             "chromosomes": chromosomes,
             "baseline_columns": list(getattr(result, "baseline_columns", [])),
             "query_columns": list(getattr(result, "query_columns", [])),
             "counts": list(getattr(result, "count_records", [])),
             "count_config": dict(getattr(result, "count_config", None) or DEFAULT_COUNT_CONFIG),
-            "config_snapshot": config_snapshot,
             "n_baseline_rows": int(len(baseline_table)),
             "n_query_rows": 0 if query_table is None else int(len(query_table)),
             "row_group_layout": "one_per_chromosome",

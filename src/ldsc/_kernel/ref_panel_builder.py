@@ -25,7 +25,7 @@ from ..column_inference import (
 )
 from ..errors import LDSCDependencyError
 from .liftover import LiftOverMappingResult, LiftOverTranslator
-from .snp_identity import identity_mode_family
+from .snp_identity import identity_artifact_metadata, identity_mode_family
 
 LOGGER = logging.getLogger("LDSC.ref_panel_builder.kernel")
 
@@ -612,6 +612,7 @@ def write_r2_parquet(
     path: str | PathLike[str],
     genome_build: str,
     n_samples: int,
+    snp_identifier: str = "chr_pos",
     batch_size: int = 100_000,
     row_group_size: int = 50_000,
 ) -> str:
@@ -643,6 +644,14 @@ def write_r2_parquet(
         ) from exc
 
     pa_meta = {
+        **{
+            f"ldsc:{key}".encode("utf-8"): str(value).encode("utf-8")
+            for key, value in identity_artifact_metadata(
+                artifact_type="ref_panel_r2",
+                snp_identifier=snp_identifier,
+                genome_build=genome_build,
+            ).items()
+        },
         b"ldsc:sorted_by_build": genome_build.encode("utf-8"),
         b"ldsc:row_group_size": str(row_group_size).encode("utf-8"),
         b"ldsc:n_samples": str(n_samples).encode("utf-8"),

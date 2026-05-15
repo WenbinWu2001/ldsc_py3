@@ -29,7 +29,6 @@ import logging
 from os import PathLike
 from pathlib import Path
 from typing import Any
-import warnings
 
 import pandas as pd
 
@@ -58,7 +57,13 @@ from .path_resolution import (
 )
 from ._logging import log_inputs, log_outputs, workflow_logging
 from ._kernel.identifiers import build_snp_id_series
-from ._kernel.snp_identity import identity_mode_family
+from ._kernel.snp_identity import (
+    REGENERATE_ARTIFACT_MESSAGE,
+    identity_artifact_metadata,
+    identity_mode_family,
+    is_allele_aware_mode,
+    validate_identity_artifact_metadata,
+)
 from ._kernel.liftover import LIFTOVER_DROP_COLUMNS, SumstatsLiftoverRequest, default_liftover_metadata
 from ._kernel import sumstats_munger as kernel_munge
 
@@ -301,11 +306,10 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
     ``trait.parquet``, ``trait.sumstats.gz``, and ``trait.sumstats`` all look
     for ``trait.metadata.json``.
 
-    This loader emits a warning before returning an unknown-provenance table
-    only when the metadata sidecar is absent. Regression compatibility
-    validation is skipped for that sumstats side unless the caller supplies a
-    table produced in-process by :meth:`SumstatsMunger.run` or a disk artifact
-    with a valid sidecar.
+    Current package-written artifacts must have a neighboring metadata sidecar
+    with the minimal identity provenance contract. Missing or old sidecars are
+    rejected so callers regenerate artifacts instead of loading unknown
+    identity semantics.
     """
     resolved = resolve_scalar_path(path, label="munged sumstats")
     df = _read_curated_sumstats_artifact(resolved)
@@ -315,14 +319,14 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
     )
     metadata_path = _sumstats_metadata_path(resolved)
     metadata = _read_sumstats_metadata(metadata_path)
-    config_snapshot = _global_config_from_sumstats_metadata(metadata) if metadata is not None else None
     if metadata is None:
-        warnings.warn(
-            "load_sumstats() cannot recover the GlobalConfig that was active when this "
-            "file was originally munged. Treating config provenance as unknown. "
-            "Validate manually if genome_build or snp_identifier matters here.",
-            UserWarning,
-            stacklevel=2,
+        raise ValueError(REGENERATE_ARTIFACT_MESSAGE)
+    config_snapshot = _global_config_from_sumstats_metadata(metadata)
+    mode = normalize_snp_identifier_mode(config_snapshot.snp_identifier)
+    if is_allele_aware_mode(mode) and not {"A1", "A2"}.issubset(df.columns):
+        raise ValueError(
+            f"Munged sumstats artifact is malformed: snp_identifier='{mode}' requires A1/A2 columns. "
+            "Regenerate it with the current LDSC package."
         )
     table = SumstatsTable(
         data=df.reset_index(drop=True),
@@ -1415,18 +1419,17 @@ def _global_config_from_sumstats_metadata(metadata: dict[str, Any] | None) -> Gl
     """Recreate a GlobalConfig snapshot from a sumstats sidecar."""
     if not isinstance(metadata, dict):
         return None
-    snapshot = metadata.get("config_snapshot")
-    if not isinstance(snapshot, dict):
-        raise ValueError("Sumstats metadata sidecar is missing config_snapshot.")
     try:
+        mode = validate_identity_artifact_metadata(metadata, expected_artifact_type="sumstats")
         return GlobalConfig(
-            snp_identifier=normalize_snp_identifier_mode(snapshot.get("snp_identifier", "chr_pos_allele_aware")),
-            genome_build=normalize_genome_build(snapshot.get("genome_build")),
-            log_level=snapshot.get("log_level", "INFO"),
-            fail_on_missing_metadata=bool(snapshot.get("fail_on_missing_metadata", False)),
+            snp_identifier=mode,
+            genome_build=metadata.get("genome_build"),
+            log_level="INFO",
         )
     except Exception as exc:
-        raise ValueError("Sumstats metadata sidecar has invalid GlobalConfig provenance.") from exc
+        if isinstance(exc, ValueError) and str(exc) == REGENERATE_ARTIFACT_MESSAGE:
+            raise
+        raise ValueError("Sumstats metadata sidecar has invalid identity provenance.") from exc
 
 
 def _effective_sumstats_config(config: GlobalConfig, coordinate_metadata: dict[str, Any]) -> GlobalConfig:
@@ -1448,14 +1451,12 @@ def _write_sumstats_metadata(
 ) -> None:
     """Write the thin metadata sidecar used for downstream compatibility."""
     payload = {
-        "format": "ldsc.sumstats.v1",
+        **identity_artifact_metadata(
+            artifact_type="sumstats",
+            snp_identifier=config_snapshot.snp_identifier,
+            genome_build=config_snapshot.genome_build,
+        ),
         "trait_name": trait_name,
-        "config_snapshot": {
-            "snp_identifier": config_snapshot.snp_identifier,
-            "genome_build": config_snapshot.genome_build,
-            "log_level": config_snapshot.log_level,
-            "fail_on_missing_metadata": config_snapshot.fail_on_missing_metadata,
-        },
     }
     Path(path).write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 

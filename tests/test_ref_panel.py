@@ -36,7 +36,7 @@ def _has_module(name: str) -> bool:
         return False
 
 
-def _write_canonical_r2_parquet(path: Path, chrom: str = "1") -> None:
+def _write_canonical_r2_parquet(path: Path, chrom: str = "1", *, identity_metadata: bool = True) -> None:
     import pyarrow as pa
     import pyarrow.parquet as pq
 
@@ -52,7 +52,17 @@ def _write_canonical_r2_parquet(path: Path, chrom: str = "1") -> None:
         }
     )
     table = pa.Table.from_pandas(frame, preserve_index=False)
-    table = table.replace_schema_metadata({b"ldsc:sorted_by_build": b"hg38"})
+    metadata = {b"ldsc:sorted_by_build": b"hg38"}
+    if identity_metadata:
+        metadata.update(
+            {
+                b"ldsc:schema_version": b"1",
+                b"ldsc:artifact_type": b"ref_panel_r2",
+                b"ldsc:snp_identifier": b"chr_pos",
+                b"ldsc:genome_build": b"hg38",
+            }
+        )
+    table = table.replace_schema_metadata(metadata)
     pq.write_table(table, path)
 
 
@@ -244,6 +254,24 @@ class ParquetRefPanelTest(unittest.TestCase):
             metadata = panel.load_metadata("1")
             self.assertEqual(metadata["SNP"].tolist(), ["rs1", "rs2"])
             self.assertEqual(metadata["CM"].round(3).tolist(), [0.1, 0.2])
+
+    @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
+    def test_package_canonical_r2_rejects_missing_identity_schema_metadata(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            build_dir = Path(tmpdir) / "panel" / "hg38"
+            _write_canonical_r2_parquet(build_dir / "chr1_r2.parquet", identity_metadata=False)
+            _write_meta_sidecar(build_dir / "chr1_meta.tsv.gz", "CHR\tPOS\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n")
+
+            panel = ParquetR2RefPanel(
+                GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
+            )
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "This artifact was not written with the current LDSC schema/provenance contract",
+            ):
+                panel.build_reader("1")
 
     @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
     def test_r2_dir_falls_back_to_r2_endpoints_without_sidecar(self):

@@ -29,6 +29,7 @@ from os import PathLike
 from typing import Literal
 import warnings
 
+from ._kernel.snp_identity import identity_mode_family, normalize_snp_identifier_mode
 from .column_inference import normalize_genome_build
 from .errors import LDSCConfigError
 from .path_resolution import normalize_optional_path_token, normalize_path_token, normalize_path_tokens
@@ -37,7 +38,7 @@ LOGGER = logging.getLogger("LDSC.config")
 _GENOME_BUILD_UNSET = object()
 
 
-SNPIdentifierMode = Literal["rsid", "chr_pos"]
+SNPIdentifierMode = Literal["rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"]
 GenomeBuild = Literal["hg19", "hg38", "auto"]
 GenomeBuildInput = Literal["auto", "hg19", "hg37", "hg38", "GRCh37", "GRCh38"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
@@ -97,10 +98,10 @@ class GlobalConfig:
 
     Parameters
     ----------
-    snp_identifier : {"rsid", "chr_pos"}, optional
-        Global SNP identifier mode. Default is ``"chr_pos"``. ``"rsid"``
-        expects an explicit SNP column, while ``"chr_pos"`` builds identifiers
-        from chromosome and base-pair position.
+    snp_identifier : {"rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"}, optional
+        Global SNP identifier mode. Default is ``"chr_pos_allele_aware"``.
+        ``"rsid"`` modes expect an explicit SNP column, while ``"chr_pos"``
+        modes build identifiers from chromosome and base-pair position.
     genome_build : {"auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"} or None, optional
         Genome-build context for ``chr_pos`` workflows that require
         coordinate-build interpretation. Default is ``"auto"``. Ignored for
@@ -117,21 +118,22 @@ class GlobalConfig:
     Per-run SNP-universe controls such as ``ref_panel_snps_file`` and
     ``regression_snps_file`` now live on workflow-specific configs.
     """
-    snp_identifier: SNPIdentifierMode = "chr_pos"
+    snp_identifier: SNPIdentifierMode = "chr_pos_allele_aware"
     genome_build: GenomeBuildInput | None = "auto"
     log_level: LogLevel = "INFO"
     fail_on_missing_metadata: bool = False
 
     def __init__(
         self,
-        snp_identifier: SNPIdentifierMode = "chr_pos",
+        snp_identifier: SNPIdentifierMode = "chr_pos_allele_aware",
         genome_build: GenomeBuildInput | None | object = _GENOME_BUILD_UNSET,
         log_level: LogLevel = "INFO",
         fail_on_missing_metadata: bool = False,
     ) -> None:
         """Initialize global workflow assumptions with mode-aware defaults."""
+        snp_identifier = normalize_snp_identifier_mode(snp_identifier)  # type: ignore[assignment]
         if genome_build is _GENOME_BUILD_UNSET:
-            genome_build = None if snp_identifier == "rsid" else "auto"
+            genome_build = None if identity_mode_family(snp_identifier) == "rsid" else "auto"
         object.__setattr__(self, "snp_identifier", snp_identifier)
         object.__setattr__(self, "genome_build", genome_build)
         object.__setattr__(self, "log_level", log_level)
@@ -140,20 +142,21 @@ class GlobalConfig:
 
     def __post_init__(self) -> None:
         """Normalize shared path-like fields and validate common enum values."""
-        if self.snp_identifier not in {"rsid", "chr_pos"}:
-            raise ValueError("snp_identifier must be 'rsid' or 'chr_pos'.")
+        mode = normalize_snp_identifier_mode(self.snp_identifier)
+        family = identity_mode_family(mode)
+        object.__setattr__(self, "snp_identifier", mode)
         object.__setattr__(self, "genome_build", normalize_genome_build(self.genome_build))
         object.__setattr__(self, "log_level", _normalize_log_level(self.log_level))
-        if self.snp_identifier == "chr_pos" and self.genome_build is None:
+        if family == "chr_pos" and self.genome_build is None:
             raise ValueError(
-                "genome_build is required when snp_identifier='chr_pos'. "
+                "genome_build is required when snp_identifier is in the chr_pos family. "
                 "Pass genome_build='auto' to infer from data, or 'hg19'/'hg38' explicitly."
             )
-        if self.snp_identifier == "rsid" and self.genome_build == "auto":
-            raise ValueError("genome_build='auto' is not valid for snp_identifier='rsid'.")
-        if self.snp_identifier == "rsid" and self.genome_build is not None:
+        if family == "rsid" and self.genome_build == "auto":
+            raise ValueError("genome_build='auto' is not valid for rsid-family snp_identifier modes.")
+        if family == "rsid" and self.genome_build is not None:
             warnings.warn(
-                "genome_build is set but will be ignored in rsid mode.",
+                "genome_build is set but will be ignored in rsid-family mode.",
                 UserWarning,
                 stacklevel=3,
             )
@@ -715,6 +718,9 @@ class RegressionConfig:
         ``None``.
     samp_prev, pop_prev : float, list of float, or None, optional
         Liability-scale prevalence inputs. Defaults are ``None``.
+    allow_identity_downgrade : bool, optional
+        If True, same-family allele-aware/base regression inputs may run under the
+        base identity mode. Cross-family mixes remain rejected. Default is False.
     """
     n_blocks: int = 200
     use_common_counts: bool = True
@@ -725,6 +731,7 @@ class RegressionConfig:
     chisq_max: float | None = None
     samp_prev: float | list[float] | None = None
     pop_prev: float | list[float] | None = None
+    allow_identity_downgrade: bool = False
 
     def __post_init__(self) -> None:
         """Validate regression hyperparameters after dataclass construction."""

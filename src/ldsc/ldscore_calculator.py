@@ -33,6 +33,7 @@ import numpy as np
 import pandas as pd
 
 from ._chr_sampler import sample_frame_from_chr_pattern
+from ._kernel.snp_identity import identity_mode_family
 from .column_inference import normalize_genome_build, normalize_snp_identifier_mode
 from .config import (
     ConfigMismatchError,
@@ -143,7 +144,7 @@ class ChromLDScoreResult:
                 self.baseline_table,
                 self.query_table,
                 context="query rows must match baseline rows on CHR/SNP/POS",
-                snp_identifier=getattr(self.config_snapshot, "snp_identifier", "chr_pos"),
+                snp_identifier=getattr(self.config_snapshot, "snp_identifier", "chr_pos_allele_aware"),
             )
 
     def summary(self) -> dict[str, Any]:
@@ -217,7 +218,7 @@ class LDScoreResult:
                     self.baseline_table,
                     self.query_table,
                     context="query rows must match baseline rows on CHR/SNP/POS",
-                    snp_identifier=getattr(self.config_snapshot, "snp_identifier", "chr_pos"),
+                    snp_identifier=getattr(self.config_snapshot, "snp_identifier", "chr_pos_allele_aware"),
                 )
 
     def summary(self) -> dict[str, Any]:
@@ -533,7 +534,7 @@ def _split_ldscore_table(
     *,
     baseline_columns: list[str],
     query_columns: list[str],
-    snp_identifier: str = "chr_pos",
+    snp_identifier: str = "chr_pos_allele_aware",
 ) -> tuple[pd.DataFrame, pd.DataFrame | None]:
     """Split a merged LD-score table into baseline and optional query tables."""
     metadata_columns = ["CHR", "SNP", "POS"]
@@ -563,7 +564,7 @@ def _join_split_tables(
     query_table: pd.DataFrame | None,
     query_columns: Sequence[str],
     *,
-    snp_identifier: str = "chr_pos",
+    snp_identifier: str = "chr_pos_allele_aware",
 ) -> pd.DataFrame:
     """Join split LD-score tables for sorting or regression assembly."""
     if query_table is None:
@@ -651,15 +652,20 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Build-specific R2 directory containing chr*_r2.parquet and optional chr*_meta.tsv.gz sidecars.",
     )
-    parser.add_argument("--snp-identifier", default="chr_pos", help="Identifier mode used to match annotations to the reference panel.")
+    parser.add_argument(
+        "--snp-identifier",
+        default="chr_pos_allele_aware",
+        choices=("rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"),
+        help="Identifier mode used to match annotations to the reference panel.",
+    )
     parser.add_argument(
         "--genome-build",
         choices=("auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"),
         default=None,
         help=(
-            "Genome build for chr_pos inputs. Required when --snp-identifier chr_pos "
-            "(the default). Use 'auto' to infer hg19/hg38 and 0-based/1-based coordinates "
-            "from data. Not used when --snp-identifier rsid."
+            "Genome build for chr_pos-family inputs. Required when --snp-identifier is "
+            "chr_pos or chr_pos_allele_aware. Use 'auto' to infer hg19/hg38 and "
+            "0-based/1-based coordinates from data. Not used for rsid-family modes."
         ),
     )
     parser.add_argument("--r2-bias-mode", choices=("raw", "unbiased"), default="unbiased", help="Whether parquet R2 values are raw or already unbiased.")
@@ -798,8 +804,8 @@ def _validate_run_args(args: argparse.Namespace) -> None:
             args.r2_bias_mode = "unbiased"
         if args.r2_bias_mode == "raw" and args.r2_sample_size is None:
             raise ValueError("--r2-sample-size is required when --r2-bias-mode raw.")
-        if args.snp_identifier == "chr_pos" and args.genome_build is None:
-            raise ValueError("--genome-build is required in parquet mode when --snp-identifier chr_pos.")
+        if identity_mode_family(args.snp_identifier) == "chr_pos" and args.genome_build is None:
+            raise ValueError("--genome-build is required in parquet mode for chr_pos-family snp_identifier modes.")
     if args.ld_wind_cm is not None and args.ld_wind_cm <= 0:
         raise ValueError("--ld-wind-cm must be positive.")
     if args.ld_wind_kb is not None and args.ld_wind_kb <= 0:
@@ -1002,7 +1008,7 @@ def _normalize_run_args(args: argparse.Namespace) -> tuple[argparse.Namespace, G
     normalized_args.r2_table = None
     normalized_args.frqfile = None
     normalized_args.keep = normalized_args.keep_indivs_file
-    if normalized_mode == "rsid":
+    if identity_mode_family(normalized_mode) == "rsid":
         global_config = GlobalConfig(
             snp_identifier=normalized_mode,
             genome_build=normalize_genome_build(getattr(args, "genome_build", None)),
@@ -1027,7 +1033,7 @@ def _resolve_ldscore_chr_pos_genome_build(args: argparse.Namespace, genome_build
     normalized = normalize_genome_build(genome_build)
     if normalized is None:
         raise ValueError(
-            "genome_build is required when snp_identifier='chr_pos'. "
+            "genome_build is required for chr_pos-family snp_identifier modes. "
             "Pass --genome-build auto, --genome-build hg19, or --genome-build hg38."
         )
     if normalized != "auto":

@@ -58,6 +58,7 @@ from .path_resolution import (
 )
 from ._logging import log_inputs, log_outputs, workflow_logging
 from ._kernel.identifiers import build_snp_id_series
+from ._kernel.snp_identity import identity_mode_family
 from ._kernel.liftover import LIFTOVER_DROP_COLUMNS, SumstatsLiftoverRequest, default_liftover_metadata
 from ._kernel import sumstats_munger as kernel_munge
 
@@ -159,7 +160,7 @@ class SumstatsTable:
     def snp_identifiers(self) -> pd.Series:
         """Return the active SNP identifiers for this table."""
         mode = _sumstats_table_identifier_mode(self.config_snapshot)
-        if mode == "rsid":
+        if identity_mode_family(mode) == "rsid":
             return build_snp_id_series(self.data, mode).astype(str)
         return _chr_pos_keys_for_matching(
             self.data,
@@ -181,7 +182,7 @@ class SumstatsTable:
     def align_to_metadata(self, metadata: pd.DataFrame) -> "SumstatsTable":
         """Inner-join the table to ``metadata`` using the active identifier mode."""
         mode = _sumstats_table_identifier_mode(self.config_snapshot)
-        if mode == "rsid":
+        if identity_mode_family(mode) == "rsid":
             merged = pd.merge(metadata.loc[:, ["SNP"]], self.data, how="inner", on="SNP", sort=False)
         else:
             left = pd.DataFrame(
@@ -693,10 +694,10 @@ def main(argv: list[str] | None = None) -> SumstatsTable | RawSumstatsInference:
 
 
 def _resolve_main_global_config(args: argparse.Namespace) -> GlobalConfig:
-    mode = normalize_snp_identifier_mode(getattr(args, "snp_identifier", "chr_pos"))
-    if mode == "rsid":
+    mode = normalize_snp_identifier_mode(getattr(args, "snp_identifier", "chr_pos_allele_aware"))
+    if identity_mode_family(mode) == "rsid":
         config = GlobalConfig(
-            snp_identifier="rsid",
+            snp_identifier=mode,
             genome_build=normalize_genome_build(getattr(args, "genome_build", None)),
             log_level=getattr(args, "log_level", "INFO"),
         )
@@ -705,11 +706,11 @@ def _resolve_main_global_config(args: argparse.Namespace) -> GlobalConfig:
     genome_build = normalize_genome_build(getattr(args, "genome_build", None))
     if genome_build is None:
         raise ValueError(
-            "genome_build is required when snp_identifier='chr_pos'. "
+            "genome_build is required for chr_pos-family snp_identifier modes. "
             "Pass --genome-build auto, --genome-build hg19, or --genome-build hg38."
         )
     args.genome_build = genome_build
-    return GlobalConfig(snp_identifier="chr_pos", genome_build=genome_build, log_level=getattr(args, "log_level", "INFO"))
+    return GlobalConfig(snp_identifier=mode, genome_build=genome_build, log_level=getattr(args, "log_level", "INFO"))
 
 
 def _sumstats_snps_file_from_config(config: MungeConfig) -> str | None:
@@ -741,8 +742,8 @@ def _liftover_request_from_config(config: MungeConfig) -> SumstatsLiftoverReques
 
 def _validate_liftover_request_before_io(config: GlobalConfig, request: SumstatsLiftoverRequest) -> None:
     """Reject liftover requests that can be proven invalid before input IO."""
-    if request.requested and config.snp_identifier != "chr_pos":
-        raise ValueError("Summary-statistics liftover is only valid when snp_identifier='chr_pos'.")
+    if request.requested and identity_mode_family(config.snp_identifier) != "chr_pos":
+        raise ValueError("Summary-statistics liftover is only valid for chr_pos-family snp_identifier modes.")
     source_build = normalize_genome_build(config.genome_build)
     if source_build not in {"hg19", "hg38"} or request.target_build is None:
         return
@@ -1419,7 +1420,7 @@ def _global_config_from_sumstats_metadata(metadata: dict[str, Any] | None) -> Gl
         raise ValueError("Sumstats metadata sidecar is missing config_snapshot.")
     try:
         return GlobalConfig(
-            snp_identifier=normalize_snp_identifier_mode(snapshot.get("snp_identifier", "chr_pos")),
+            snp_identifier=normalize_snp_identifier_mode(snapshot.get("snp_identifier", "chr_pos_allele_aware")),
             genome_build=normalize_genome_build(snapshot.get("genome_build")),
             log_level=snapshot.get("log_level", "INFO"),
             fail_on_missing_metadata=bool(snapshot.get("fail_on_missing_metadata", False)),
@@ -1473,7 +1474,7 @@ def _log_sumstats_provenance(
         "liftover",
         default_liftover_metadata(
             source_build=coordinate_provenance.get("genome_build"),
-            snp_identifier=coordinate_provenance.get("snp_identifier", "chr_pos"),
+            snp_identifier=coordinate_provenance.get("snp_identifier", "chr_pos_allele_aware"),
         ),
     )
     LOGGER.info(

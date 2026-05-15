@@ -48,6 +48,7 @@ from .column_inference import (
     normalize_snp_identifier_mode,
     resolve_required_column,
 )
+from ._kernel.snp_identity import identity_mode_family
 from .config import GlobalConfig, ReferencePanelBuildConfig, get_global_config, print_global_config_banner
 from ._coordinates import normalize_chr_pos_frame
 from .genome_build_inference import resolve_genome_build
@@ -337,9 +338,9 @@ class ReferencePanelBuilder:
                 output_dir=str(output_dir),
                 source_genome_build=config.source_genome_build,
             )
-            if snp_identifier_mode == "rsid" and len(_emitted_genome_builds(config)) == 1:
+            if identity_mode_family(snp_identifier_mode) == "rsid" and len(_emitted_genome_builds(config)) == 1:
                 LOGGER.info(
-                    "Coordinate duplicate filtering applies only when snp_identifier='chr_pos'; "
+                    "Coordinate duplicate filtering applies only for chr_pos-family snp_identifier modes; "
                     "keeping duplicate CHR/POS rows in rsid source-only reference-panel builds."
                 )
             chrom_records: list[tuple[str, dict[str, str]]] = []
@@ -442,7 +443,7 @@ class ReferencePanelBuilder:
                 label="packaged HM3 SNP map" if config.use_hm3_snps else "reference-panel SNP restriction",
             )
             restriction_mode = normalize_snp_identifier_mode(self.global_config.snp_identifier)
-            if restriction_mode == "chr_pos":
+            if identity_mode_family(restriction_mode) == "chr_pos":
                 LOGGER.info(
                     f"Interpreting reference-panel SNP restriction '{restriction_path}' "
                     f"against source_genome_build='{source_build}' PLINK coordinates. "
@@ -470,11 +471,11 @@ class ReferencePanelBuilder:
             if source_build == "hg19"
             else config.liftover_chain_hg19_to_hg38_file
         )
-        if config.use_hm3_quick_liftover and normalize_snp_identifier_mode(self.global_config.snp_identifier) == "rsid":
-            raise ValueError("Reference-panel HM3 quick liftover is only valid when snp_identifier='chr_pos'.")
-        if matching_chain is not None and normalize_snp_identifier_mode(self.global_config.snp_identifier) == "rsid":
+        if config.use_hm3_quick_liftover and identity_mode_family(self.global_config.snp_identifier) == "rsid":
+            raise ValueError("Reference-panel HM3 quick liftover is only valid for chr_pos-family snp_identifier modes.")
+        if matching_chain is not None and identity_mode_family(self.global_config.snp_identifier) == "rsid":
             raise ValueError(
-                "Reference-panel chain liftover is only valid when snp_identifier='chr_pos'. "
+                "Reference-panel chain liftover is only valid for chr_pos-family snp_identifier modes. "
                 "In rsid mode, omit the matching liftover chain and build source-genome coordinates only."
             )
         if config.use_hm3_quick_liftover:
@@ -598,7 +599,7 @@ class ReferencePanelBuilder:
                 return None
 
         dropped_frames: list[pd.DataFrame] = []
-        duplicate_policy_applies = normalize_snp_identifier_mode(self.global_config.snp_identifier) == "chr_pos"
+        duplicate_policy_applies = identity_mode_family(self.global_config.snp_identifier) == "chr_pos"
         if duplicate_policy_applies:
             keep_snps, source_duplicate_df = _resolve_unique_snp_set(
                 chrom=chrom,
@@ -1016,8 +1017,8 @@ def _read_ref_panel_snp_restriction(
     source_genome_build: str,
 ) -> set[str]:
     """Read a builder SNP restriction file in the source PLINK build."""
-    if restriction_mode == "rsid":
-        return kernel_identifiers.read_global_snp_restriction(path, "rsid")
+    if identity_mode_family(restriction_mode) == "rsid":
+        return kernel_identifiers.read_global_snp_restriction(path, restriction_mode)
     if source_genome_build not in {"hg19", "hg38"}:
         raise ValueError("source_genome_build must be resolved before CHR/POS SNP restriction loading.")
     return _read_source_build_chr_pos_restriction(Path(path), source_genome_build)
@@ -1184,7 +1185,7 @@ def _validate_emitted_build_chr_pos_uniqueness(
     snp_identifier: str,
 ) -> None:
     """Reject emitted-build coordinate collisions when building for chr_pos matching."""
-    if normalize_snp_identifier_mode(snp_identifier) != "chr_pos":
+    if identity_mode_family(snp_identifier) != "chr_pos":
         return
     build_metadata = _metadata_with_build_positions(metadata, positions)
     kernel_identifiers.validate_unique_snp_ids(
@@ -1408,7 +1409,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=False,
         help="Use the packaged curated HM3 map for HM3-only coordinate liftover; requires --use-hm3-snps.",
     )
-    parser.add_argument("--snp-identifier", default=None, choices=("rsid", "chr_pos"), help="SNP identifier mode for --ref-panel-snps-file.")
+    parser.add_argument(
+        "--snp-identifier",
+        default="chr_pos_allele_aware",
+        choices=("rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"),
+        help="SNP identifier mode for --ref-panel-snps-file.",
+    )
     parser.add_argument("--keep-indivs-file", default=None, help="Optional individual-keep file.")
     parser.add_argument(
         "--snp-batch-size",
@@ -1430,8 +1436,9 @@ def build_parser() -> argparse.ArgumentParser:
 def config_from_args(args: argparse.Namespace) -> tuple[ReferencePanelBuildConfig, GlobalConfig]:
     """Normalize CLI args into public config objects.
 
-    ``--ref-panel-snps-file`` uses the explicit ``--snp-identifier`` when
-    provided, otherwise the registered :class:`GlobalConfig` identifier mode.
+    ``--ref-panel-snps-file`` uses the parsed ``--snp-identifier`` value,
+    falling back to the registered :class:`GlobalConfig` identifier mode only
+    for programmatic namespaces that omit the attribute.
     The PLINK source build remains local to this workflow and is inferred from
     ``.bim`` coordinates during :meth:`ReferencePanelBuilder.run` when omitted.
     ``GlobalConfig.genome_build`` is ignored by ``build-ref-panel``.
@@ -1469,7 +1476,7 @@ def config_from_args(args: argparse.Namespace) -> tuple[ReferencePanelBuildConfi
     )
     global_config = GlobalConfig(
         snp_identifier=snp_identifier,
-        genome_build="auto" if snp_identifier == "chr_pos" else None,
+        genome_build="auto" if identity_mode_family(snp_identifier) == "chr_pos" else None,
         log_level=args.log_level,
     )
     return build_config, global_config

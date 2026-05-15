@@ -39,7 +39,7 @@ from ldsc._kernel.identifiers import (
 class GlobalConfigTest(unittest.TestCase):
     def test_defaults(self):
         config = GlobalConfig()
-        self.assertEqual(config.snp_identifier, "chr_pos")
+        self.assertEqual(config.snp_identifier, "chr_pos_allele_aware")
         self.assertEqual(config.genome_build, "auto")
         self.assertEqual(config.log_level, "INFO")
         self.assertFalse(config.fail_on_missing_metadata)
@@ -85,12 +85,16 @@ class GlobalConfigTest(unittest.TestCase):
 
 class TestGlobalConfigValidation(unittest.TestCase):
     def test_chr_pos_omitted_genome_build_defaults_to_auto(self):
-        cfg = GlobalConfig(snp_identifier="chr_pos")
-        self.assertEqual(cfg.genome_build, "auto")
+        for mode in ("chr_pos", "chr_pos_allele_aware"):
+            with self.subTest(mode=mode):
+                cfg = GlobalConfig(snp_identifier=mode)
+                self.assertEqual(cfg.genome_build, "auto")
 
     def test_chr_pos_explicit_none_raises(self):
-        with self.assertRaisesRegex(ValueError, "Pass genome_build='auto'"):
-            GlobalConfig(snp_identifier="chr_pos", genome_build=None)
+        for mode in ("chr_pos", "chr_pos_allele_aware"):
+            with self.subTest(mode=mode):
+                with self.assertRaisesRegex(ValueError, "Pass genome_build='auto'"):
+                    GlobalConfig(snp_identifier=mode, genome_build=None)
 
     def test_chr_pos_hg38_ok(self):
         cfg = GlobalConfig(snp_identifier="chr_pos", genome_build="hg38")
@@ -101,29 +105,35 @@ class TestGlobalConfigValidation(unittest.TestCase):
         self.assertEqual(cfg.genome_build, "auto")
 
     def test_rsid_auto_raises(self):
-        with self.assertRaises(ValueError):
-            GlobalConfig(snp_identifier="rsid", genome_build="auto")
+        for mode in ("rsid", "rsid_allele_aware"):
+            with self.subTest(mode=mode):
+                with self.assertRaises(ValueError):
+                    GlobalConfig(snp_identifier=mode, genome_build="auto")
 
     def test_rsid_no_genome_build_ok(self):
-        cfg = GlobalConfig(snp_identifier="rsid")
-        self.assertIsNone(cfg.genome_build)
+        for mode in ("rsid", "rsid_allele_aware"):
+            with self.subTest(mode=mode):
+                cfg = GlobalConfig(snp_identifier=mode)
+                self.assertIsNone(cfg.genome_build)
 
     def test_rsid_with_concrete_build_warns_and_nulls(self):
-        with self.assertWarns(UserWarning) as ctx:
-            cfg = GlobalConfig(snp_identifier="rsid", genome_build="hg38")
-        self.assertIn("ignored", str(ctx.warning))
-        self.assertIsNone(cfg.genome_build)
+        for mode in ("rsid", "rsid_allele_aware"):
+            with self.subTest(mode=mode):
+                with self.assertWarns(UserWarning) as ctx:
+                    cfg = GlobalConfig(snp_identifier=mode, genome_build="hg38")
+                self.assertIn("ignored", str(ctx.warning))
+                self.assertIsNone(cfg.genome_build)
 
-    def test_singleton_is_chr_pos_auto(self):
+    def test_singleton_is_chr_pos_allele_aware_auto(self):
         from ldsc.config import get_global_config
         cfg = get_global_config()
-        self.assertEqual(cfg.snp_identifier, "chr_pos")
+        self.assertEqual(cfg.snp_identifier, "chr_pos_allele_aware")
         self.assertEqual(cfg.genome_build, "auto")
 
-    def test_reset_returns_chr_pos_auto(self):
+    def test_reset_returns_chr_pos_allele_aware_auto(self):
         from ldsc.config import reset_global_config
         cfg = reset_global_config()
-        self.assertEqual(cfg.snp_identifier, "chr_pos")
+        self.assertEqual(cfg.snp_identifier, "chr_pos_allele_aware")
         self.assertEqual(cfg.genome_build, "auto")
 
 
@@ -508,10 +518,10 @@ class IdentifierHelpersTest(unittest.TestCase):
     def test_clean_header(self):
         self.assertEqual(clean_header("foo-bar.foo_BaR"), "FOO_BAR_FOO_BAR")
 
-    def test_normalize_snp_identifier_mode(self):
-        for value in ["rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"]:
+    def test_normalize_snp_identifier_mode_accepts_only_public_modes(self):
+        for value in ("rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"):
             self.assertEqual(normalize_snp_identifier_mode(value), value)
-        for value in ["rsID", "SNPID", "snp_id", "snp", "ChrPos", "chrom_pos"]:
+        for value in ("rsID", "SNPID", "snp_id", "snp", "chrpos", "rsid_alleles", "chr_pos_alleles"):
             with self.assertRaises(ValueError):
                 normalize_snp_identifier_mode(value)
 

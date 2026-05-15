@@ -52,6 +52,7 @@ from ._kernel.identifiers import (
     normalize_snp_identifier_mode,
     validate_unique_snp_ids,
 )
+from ._kernel.snp_identity import identity_mode_family
 from ._row_alignment import assert_same_snp_rows
 from .chromosome_inference import normalize_chromosome
 from .column_inference import (
@@ -126,7 +127,7 @@ class AnnotationBundle:
     source_summary: dict[str, object]
     config_snapshot: GlobalConfig | None = None
 
-    def validate(self, snp_identifier: str = "chr_pos") -> None:
+    def validate(self, snp_identifier: str = "chr_pos_allele_aware") -> None:
         """Validate row alignment and uniqueness assumptions for the bundle.
 
         Parameters
@@ -146,17 +147,17 @@ class AnnotationBundle:
             raise ValueError("query_annotations columns do not match query_columns.")
         validate_unique_snp_ids(self.metadata, snp_identifier, context="AnnotationBundle.metadata")
 
-    def reference_snps(self, snp_identifier: str = "chr_pos") -> set[str]:
+    def reference_snps(self, snp_identifier: str = "chr_pos_allele_aware") -> set[str]:
         """Return the retained reference SNP universe for this bundle.
 
         Parameters
         ----------
         snp_identifier : str, optional
             Canonical identifier mode used to build the SNP universe. Default is
-            ``"chr_pos"``.
+            ``"chr_pos_allele_aware"``.
         """
         mode = normalize_snp_identifier_mode(snp_identifier)
-        if mode == "rsid":
+        if identity_mode_family(mode) == "rsid":
             return set(build_snp_id_series(self.metadata, mode))
         keyed, _report = build_chr_pos_key_frame(
             self.metadata,
@@ -722,15 +723,20 @@ def add_annotate_arguments(parser: argparse.ArgumentParser) -> None:
         default=False,
         help="Replace annotation output artifacts and remove stale owned query shards.",
     )
-    parser.add_argument("--snp-identifier", default="chr_pos", help="Identifier mode used for bundle validation.")
+    parser.add_argument(
+        "--snp-identifier",
+        default="chr_pos_allele_aware",
+        choices=("rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"),
+        help="Identifier mode used for bundle validation.",
+    )
     parser.add_argument(
         "--genome-build",
         default=None,
         choices=("auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"),
         help=(
-            "Genome build for chr_pos inputs. Required when --snp-identifier chr_pos "
-            "(the default). Use 'auto' to infer hg19/hg38 and 0-based/1-based coordinates "
-            "from data. Not used when --snp-identifier rsid."
+            "Genome build for chr_pos-family inputs. Required when --snp-identifier is "
+            "chr_pos or chr_pos_allele_aware. Use 'auto' to infer hg19/hg38 and "
+            "0-based/1-based coordinates from data. Not used for rsid-family modes."
         ),
     )
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"), help="Logging verbosity.")
@@ -822,12 +828,12 @@ def main(argv: Sequence[str] | None = None) -> AnnotationBundle:
 
 def _resolve_annotation_cli_genome_build(args: argparse.Namespace, snp_identifier: str) -> str | None:
     """Resolve the effective genome build for annotation CLI inputs."""
-    if snp_identifier == "rsid":
+    if identity_mode_family(snp_identifier) == "rsid":
         return normalize_genome_build(args.genome_build)
     genome_build = normalize_genome_build(args.genome_build)
     if genome_build is None:
         raise ValueError(
-            "genome_build is required when snp_identifier='chr_pos'. "
+            "genome_build is required for chr_pos-family snp_identifier modes. "
             "Pass --genome-build auto, --genome-build hg19, or --genome-build hg38."
         )
     if genome_build == "auto":

@@ -51,6 +51,7 @@ from ..genome_build_inference import resolve_chr_pos_table
 from . import regression as sumstats
 from .identifiers import build_packed_chr_pos_series, read_global_chr_pos_restriction_key_set, read_global_snp_restriction
 from .liftover import SumstatsLiftoverRequest, apply_sumstats_liftover
+from .snp_identity import identity_mode_family
 np.seterr(invalid='ignore')
 
 LOGGER = logging.getLogger("LDSC.sumstats_munger.kernel")
@@ -285,8 +286,8 @@ def parse_dat(dat_gen, convert_colname, args, restriction=None):
     LOGGER.info(msg.format(F=args.sumstats, N=int(args.chunksize)))
     drops = {'NA': 0, 'P': 0, 'INFO': 0,
              'FRQ': 0, 'A': 0, 'SNP': 0}
-    mode = normalize_snp_identifier_mode(getattr(args, 'snp_identifier', 'chr_pos'))
-    if mode == 'chr_pos':
+    mode = normalize_snp_identifier_mode(getattr(args, 'snp_identifier', 'chr_pos_allele_aware'))
+    if identity_mode_family(mode) == 'chr_pos':
         args._coordinates_finalized_chunkwise = True
         args._coordinate_drop_counts = _empty_coordinate_drop_counts()
     for block_num, dat in enumerate(dat_gen):
@@ -308,7 +309,7 @@ def parse_dat(dat_gen, convert_colname, args, restriction=None):
         if len(wrong_types) > 0:
             raise ValueError('Columns {} are expected to be numeric'.format(wrong_types))
 
-        if mode == 'chr_pos':
+        if identity_mode_family(mode) == 'chr_pos':
             dat = _normalize_chr_pos_chunk(dat, args)
             if len(dat) == 0:
                 continue
@@ -390,10 +391,10 @@ def _prepare_sumstats_restriction(args):
     if not snps_path:
         return None
 
-    mode = normalize_snp_identifier_mode(getattr(args, 'snp_identifier', 'chr_pos'))
+    mode = normalize_snp_identifier_mode(getattr(args, 'snp_identifier', 'chr_pos_allele_aware'))
     coordinate_metadata = getattr(args, '_coordinate_metadata', {})
     genome_build = coordinate_metadata.get('genome_build', getattr(args, 'genome_build', None))
-    if mode == 'chr_pos':
+    if identity_mode_family(mode) == 'chr_pos':
         identifiers = read_global_chr_pos_restriction_key_set(
             snps_path,
             genome_build=genome_build,
@@ -410,7 +411,7 @@ def _prepare_sumstats_restriction(args):
     restriction = _SumstatsRestriction(
         path=str(snps_path),
         mode=mode,
-        genome_build=genome_build if mode == 'chr_pos' else None,
+        genome_build=genome_build if identity_mode_family(mode) == 'chr_pos' else None,
         identifiers=identifiers,
     )
     if len(restriction.identifiers) == 0:
@@ -430,7 +431,7 @@ def _filter_sumstats_chunk_to_restriction(dat, restriction, args):
         return dat
 
     old = len(dat)
-    if restriction.mode == 'rsid':
+    if identity_mode_family(restriction.mode) == 'rsid':
         keys = dat['SNP'].astype(str)
         usable_mask = keys.notna()
     else:
@@ -451,7 +452,7 @@ def _filter_sumstats_chunk_to_restriction(dat, restriction, args):
 
 
 def _log_sumstats_restriction_summary(restriction):
-    build_label = restriction.genome_build if restriction.mode == 'chr_pos' else 'not used'
+    build_label = restriction.genome_build if identity_mode_family(restriction.mode) == 'chr_pos' else 'not used'
     LOGGER.info(
         f"Applying --sumstats-snps-file keep-list from {restriction.path} "
         f"using snp_identifier={restriction.mode}, genome_build={build_label}; "
@@ -465,7 +466,7 @@ def _log_sumstats_restriction_summary(restriction):
 
 
 def _raise_sumstats_restriction_empty(restriction, *, input_rows=None, usable_rows=None):
-    build_label = restriction.genome_build if restriction.mode == 'chr_pos' else 'not used'
+    build_label = restriction.genome_build if identity_mode_family(restriction.mode) == 'chr_pos' else 'not used'
     input_rows = restriction.n_rows_before_filter if input_rows is None else input_rows
     usable_rows = restriction.n_usable_row_identifiers if usable_rows is None else usable_rows
     raise ValueError(
@@ -683,10 +684,10 @@ def _resolve_auto_genome_build_before_chunks(args, cname_translation, compressio
     inference, then delegates the build and coordinate-basis decision to the
     shared genome-build inference module used by ref-panel-builder.
     """
-    mode = normalize_snp_identifier_mode(getattr(args, 'snp_identifier', 'chr_pos'))
+    mode = normalize_snp_identifier_mode(getattr(args, 'snp_identifier', 'chr_pos_allele_aware'))
     genome_build = normalize_genome_build(getattr(args, 'genome_build', 'hg38'))
-    if mode != 'chr_pos' or genome_build != 'auto':
-        if mode == 'chr_pos':
+    if identity_mode_family(mode) != 'chr_pos' or genome_build != 'auto':
+        if identity_mode_family(mode) == 'chr_pos':
             args._coordinate_basis = '1-based'
         return
 
@@ -712,7 +713,7 @@ def _resolve_auto_genome_build_before_chunks(args, cname_translation, compressio
     args._coordinate_basis = inference.coordinate_basis
     args._coordinate_metadata = {
         'format': 'ldsc.sumstats.v1',
-        'snp_identifier': 'chr_pos',
+        'snp_identifier': mode,
         'genome_build': inference.genome_build,
         'genome_build_inferred': True,
         'coordinate_basis': inference.coordinate_basis,
@@ -761,7 +762,7 @@ def _finalize_coordinate_columns(dat, args):
     if 'POS' not in dat.columns:
         dat['POS'] = pd.NA
 
-    mode = normalize_snp_identifier_mode(getattr(args, 'snp_identifier', 'chr_pos'))
+    mode = normalize_snp_identifier_mode(getattr(args, 'snp_identifier', 'chr_pos_allele_aware'))
     genome_build = normalize_genome_build(getattr(args, 'genome_build', 'hg38'))
     existing_metadata = dict(getattr(args, '_coordinate_metadata', {}) or {})
     pre_inferred_basis = existing_metadata.get('coordinate_basis')
@@ -785,7 +786,7 @@ def _finalize_coordinate_columns(dat, args):
     if 'build_inference' in existing_metadata:
         metadata['build_inference'] = existing_metadata['build_inference']
 
-    if mode == 'chr_pos':
+    if identity_mode_family(mode) == 'chr_pos':
         if getattr(args, '_coordinates_finalized_chunkwise', False):
             counts = getattr(args, '_coordinate_drop_counts', _empty_coordinate_drop_counts())
             metadata.update(
@@ -994,7 +995,7 @@ parser.add_argument('--a1-inc', default=False, action='store_true',
                     help='A1 is the increasing allele.')
 parser.add_argument('--keep-maf', default=False, action='store_true',
                     help='Keep the MAF column (if one exists).')
-parser.add_argument('--snp-identifier', default='chr_pos', choices=('rsid', 'chr_pos'),
+parser.add_argument('--snp-identifier', default='chr_pos_allele_aware', choices=('rsid', 'rsid_allele_aware', 'chr_pos', 'chr_pos_allele_aware'),
                     help="SNP identifier mode recorded in munged metadata.")
 parser.add_argument('--genome-build', default='hg38', choices=('auto', 'hg19', 'hg37', 'GRCh37', 'hg38', 'GRCh38'),
                     help="Genome build for CHR/POS coordinates, or 'auto' to infer when possible.")
@@ -1021,7 +1022,7 @@ def munge_sumstats(args, p=True):
         raise ValueError('The --out flag is required.')
     args._coordinate_metadata = {
         'format': 'ldsc.sumstats.v1',
-        'snp_identifier': normalize_snp_identifier_mode(getattr(args, 'snp_identifier', 'chr_pos')),
+        'snp_identifier': normalize_snp_identifier_mode(getattr(args, 'snp_identifier', 'chr_pos_allele_aware')),
         'genome_build': normalize_genome_build(getattr(args, 'genome_build', 'hg38')),
         'genome_build_inferred': False,
     }
@@ -1180,7 +1181,7 @@ def munge_sumstats(args, p=True):
     if len(dat) == 0:
         raise ValueError('After applying filters, no SNPs remain.')
 
-    if normalize_snp_identifier_mode(getattr(args, 'snp_identifier', 'chr_pos')) == 'rsid':
+    if identity_mode_family(getattr(args, 'snp_identifier', 'chr_pos_allele_aware')) == 'rsid':
         old = len(dat)
         dat = dat.drop_duplicates(subset='SNP').reset_index(drop=True)
         new = len(dat)
@@ -1244,7 +1245,7 @@ def _apply_liftover_if_requested(dat, args):
         dat,
         request,
         source_build=coordinate_metadata.get('genome_build', getattr(args, 'genome_build', None)),
-        snp_identifier=coordinate_metadata.get('snp_identifier', getattr(args, 'snp_identifier', 'chr_pos')),
+        snp_identifier=coordinate_metadata.get('snp_identifier', getattr(args, 'snp_identifier', 'chr_pos_allele_aware')),
         logger=LOGGER,
     )
     coordinate_metadata['liftover'] = liftover_report

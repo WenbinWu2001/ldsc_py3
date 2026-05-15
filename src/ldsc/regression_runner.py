@@ -64,6 +64,7 @@ from .path_resolution import (
 from ._logging import log_inputs, log_outputs, workflow_logging
 from ._kernel import regression as reg
 from ._kernel.identifiers import build_snp_id_series
+from ._kernel.snp_identity import identity_mode_family
 from ._row_alignment import assert_same_snp_rows
 from .column_inference import infer_chr_pos_columns, normalize_snp_identifier_mode
 from .ldscore_calculator import LDScoreResult
@@ -245,7 +246,7 @@ class RegressionRunner:
         ref_ld_columns = list(ldscore_result.baseline_columns) + selected_query_columns
         ldscore_frame = _assemble_regression_ldscore_table(ldscore_result, selected_query_columns)
         identifier_mode = _effective_snp_identifier_mode(sumstats_table, ldscore_result, self.global_config)
-        if identifier_mode == "rsid":
+        if identity_mode_family(identifier_mode) == "rsid":
             merged = pd.merge(
                 sumstats_table.data,
                 ldscore_frame.loc[:, ["SNP", *ref_ld_columns, weight_column]].reset_index(drop=True),
@@ -338,7 +339,7 @@ class RegressionRunner:
         left = sumstats_table_1.data.rename(columns={"N": "N1", "Z": "Z1"})
         right = sumstats_table_2.data.rename(columns={"A1": "A1x", "A2": "A2x", "N": "N2", "Z": "Z2"})
         right_payload = [column for column in ["A1x", "A2x", "N2", "Z2"] if column in right.columns]
-        if identifier_mode == "rsid":
+        if identity_mode_family(identifier_mode) == "rsid":
             left_with_ld = pd.merge(
                 left,
                 ldscore_frame.loc[:, ["SNP", *ref_ld_columns, weight_column]].reset_index(drop=True),
@@ -724,7 +725,7 @@ def _effective_snp_identifier_mode(
         value = getattr(snapshot, "snp_identifier", None)
         if value is not None:
             return normalize_snp_identifier_mode(value)
-    return "chr_pos"
+    return "chr_pos_allele_aware"
 
 
 def _with_chr_pos_key(frame: pd.DataFrame, *, context: str) -> pd.DataFrame:
@@ -780,7 +781,7 @@ def _assemble_regression_ldscore_table(ldscore_result: LDScoreResult, query_colu
         baseline_table,
         query_table,
         context="query rows must match baseline rows on CHR/SNP/POS",
-        snp_identifier=getattr(ldscore_result.config_snapshot, "snp_identifier", "chr_pos"),
+        snp_identifier=getattr(ldscore_result.config_snapshot, "snp_identifier", "chr_pos_allele_aware"),
     )
     return pd.concat([baseline_table, query_table.loc[:, list(query_columns)]], axis=1)
 
@@ -1491,6 +1492,16 @@ def _add_common_regression_arguments(parser, include_h2_intercept: bool) -> None
     parser.add_argument("--overwrite", action="store_true", default=False, help="Replace existing workflow output artifacts.")
     parser.add_argument("--n-blocks", type=int, default=200)
     parser.add_argument("--no-intercept", action="store_true", default=False, help="Fix the intercept to the LDSC default.")
+    parser.add_argument(
+        "--allow-identity-downgrade",
+        action="store_true",
+        default=False,
+        help=(
+            "Allow same-family allele-aware/base identity mixes in regression by "
+            "running with the base identity mode. rsID-family and chr_pos-family "
+            "inputs still cannot be mixed."
+        ),
+    )
     if include_h2_intercept:
         parser.add_argument("--intercept-h2", type=float, default=None, help="Fixed h2 intercept for single-trait runs.")
     parser.add_argument("--two-step-cutoff", type=float, default=None)
@@ -1626,6 +1637,7 @@ def _runner_from_args(args) -> tuple[RegressionRunner, RegressionConfig]:
         intercept_gencov=getattr(args, "intercept_gencov", None),
         two_step_cutoff=args.two_step_cutoff,
         chisq_max=args.chisq_max,
+        allow_identity_downgrade=getattr(args, "allow_identity_downgrade", False),
     )
     runner = RegressionRunner(get_global_config(), config)
     return runner, config
@@ -1648,10 +1660,10 @@ def load_ldscore_from_dir(
         Directory containing ``manifest.json``, ``ldscore.baseline.parquet``,
         and optional ``ldscore.query.parquet`` files written by the public
         LD-score writer.
-    snp_identifier : {"rsid", "chr_pos"} or None, optional
+    snp_identifier : {"rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"} or None, optional
         Identifier mode used to reconstruct the public regression SNP set from
         the baseline table. When omitted, the manifest value is used, falling
-        back to the package default ``"chr_pos"`` for legacy directories.
+        back to the package default ``"chr_pos_allele_aware"`` for legacy directories.
 
     Returns
     -------
@@ -1689,7 +1701,7 @@ def load_ldscore_from_dir(
     baseline_columns = [str(column) for column in manifest.get("baseline_columns", [])]
     query_columns = [str(column) for column in manifest.get("query_columns", [])]
     count_records = [dict(record) for record in manifest.get("counts", [])]
-    effective_identifier = snp_identifier or manifest.get("snp_identifier") or "chr_pos"
+    effective_identifier = snp_identifier or manifest.get("snp_identifier") or "chr_pos_allele_aware"
     config_snapshot = _global_config_from_manifest(manifest)
     result = LDScoreResult(
         baseline_table=baseline_table,
@@ -1728,13 +1740,13 @@ def _global_config_from_manifest(manifest: dict[str, Any]) -> GlobalConfig | Non
         )
         return None
     try:
-        _recovered_snp = snapshot.get("snp_identifier") or manifest.get("snp_identifier") or "chr_pos"
+        _recovered_snp = snapshot.get("snp_identifier") or manifest.get("snp_identifier") or "chr_pos_allele_aware"
         return GlobalConfig(
             snp_identifier=_recovered_snp,
             genome_build=(
                 snapshot.get("genome_build")
                 or manifest.get("genome_build")
-                or ("auto" if _recovered_snp == "chr_pos" else None)
+                or ("auto" if identity_mode_family(_recovered_snp) == "chr_pos" else None)
             ),
             log_level=snapshot.get("log_level", "INFO"),
             fail_on_missing_metadata=bool(snapshot.get("fail_on_missing_metadata", False)),

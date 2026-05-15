@@ -230,6 +230,7 @@ from ..path_resolution import (
 from .._row_alignment import assert_same_snp_rows
 from . import formats as legacy_parse
 from .identifiers import build_snp_id_series, read_global_snp_restriction
+from .snp_identity import identity_mode_family
 
 try:  # pragma: no cover - optional dependency
     import bitarray as ba
@@ -617,7 +618,7 @@ else:
 def identifier_keys(df: pd.DataFrame, mode: str) -> pd.Series:
     """Build the canonical SNP identifier series used for matching within the kernel."""
     mode = normalize_snp_identifier_mode(mode)
-    if mode == "rsid":
+    if identity_mode_family(mode) == "rsid":
         return build_snp_id_series(df, mode)
     keyed, _report = build_chr_pos_key_frame(
         df,
@@ -909,7 +910,7 @@ def convert_r2_table_to_sorted_parquet(source_path: str, genome_build: str, outp
 
 def validate_retained_identifier_uniqueness(metadata: pd.DataFrame, identifier_mode: str, chrom: str) -> None:
     """Reject ambiguous retained SNP identifiers before parquet matching begins."""
-    if identifier_mode == "chr_pos":
+    if identity_mode_family(identifier_mode) == "chr_pos":
         duplicated = metadata.duplicated(subset=["CHR", "POS"], keep=False)
         if duplicated.any():
             raise ValueError(
@@ -1096,7 +1097,7 @@ def parse_frequency_metadata(path: str, chrom: str | None, identifier_mode: str)
     cm_col = resolve_optional_column(df.columns, REFERENCE_METADATA_SPEC_MAP["CM"], context=context)
     maf_col = resolve_optional_column(df.columns, REFERENCE_METADATA_SPEC_MAP["MAF"], context=context)
 
-    if chrom is not None and chr_col is not None and identifier_mode == "rsid":
+    if chrom is not None and chr_col is not None and identity_mode_family(identifier_mode) == "rsid":
         keep = df[chr_col].map(lambda value: normalize_chromosome(value, context=path)) == normalize_chromosome(chrom, context=path)
         df = df.loc[keep].reset_index(drop=True)
 
@@ -1104,7 +1105,7 @@ def parse_frequency_metadata(path: str, chrom: str | None, identifier_mode: str)
         return pd.DataFrame(columns=["_key", "CM", "MAF"])
 
     out = pd.DataFrame(index=df.index)
-    if identifier_mode == "rsid":
+    if identity_mode_family(identifier_mode) == "rsid":
         if snp_col is None:
             raise ValueError(f"{path} must contain a SNP column in rsid mode.")
         out["_key"] = df[snp_col].astype(str)
@@ -1335,7 +1336,7 @@ class SortedR2BlockReader:
         validate_retained_identifier_uniqueness(metadata, self.identifier_mode, chrom)
         self.pos = metadata["POS"].to_numpy(dtype=np.int64)
         self.m = len(metadata)
-        if self.identifier_mode == "rsid":
+        if identity_mode_family(self.identifier_mode) == "rsid":
             self.index_map = {str(snp): idx for idx, snp in enumerate(metadata["SNP"].astype(str))}
         else:
             self.index_map = {int(pos): idx for idx, pos in enumerate(metadata["POS"].astype(np.int64))}
@@ -1607,7 +1608,7 @@ class SortedR2BlockReader:
             raise ValueError("Canonical parquet reader is not initialized.")
 
         read_cols = [self._canonical_columns["R2"]]
-        if self.identifier_mode == "rsid":
+        if identity_mode_family(self.identifier_mode) == "rsid":
             read_cols.extend([self._canonical_columns["SNP_1"], self._canonical_columns["SNP_2"]])
         else:
             read_cols.extend([self._canonical_columns["POS_1"], self._canonical_columns["POS_2"]])
@@ -1616,7 +1617,7 @@ class SortedR2BlockReader:
         r2_raw = _arrow_column_to_numpy(table.column(self._canonical_columns["R2"])).astype(np.float32, copy=False)
         r2 = self._transform_r2(r2_raw)
 
-        if self.identifier_mode == "rsid":
+        if identity_mode_family(self.identifier_mode) == "rsid":
             left_ids = _arrow_column_to_numpy(table.column(self._canonical_columns["SNP_1"])).astype(str)
             right_ids = _arrow_column_to_numpy(table.column(self._canonical_columns["SNP_2"])).astype(str)
             i_raw = np.fromiter((self.index_map.get(value, -1) for value in left_ids), dtype=np.int64, count=len(left_ids))
@@ -1726,7 +1727,7 @@ class SortedR2BlockReader:
         if len(rows) > 0:
             rows = canonicalize_r2_pairs(rows, self.genome_build)
         rows["R2"] = self._transform_r2(pd.to_numeric(rows["R2"], errors="raise").to_numpy(dtype=np.float32))
-        if self.identifier_mode == "rsid":
+        if identity_mode_family(self.identifier_mode) == "rsid":
             rows["i"] = rows["rsID_1"].astype(str).map(self.index_map)
             rows["j"] = rows["rsID_2"].astype(str).map(self.index_map)
         else:
@@ -2269,8 +2270,8 @@ def validate_args(args: argparse.Namespace) -> None:
             args.r2_bias_mode = "unbiased"
         if args.r2_bias_mode == "raw" and args.r2_sample_size is None:
             raise ValueError("--r2-sample-size is required when --r2-bias-mode raw.")
-        if args.snp_identifier == "chr_pos" and args.genome_build is None:
-            raise ValueError("--genome-build is required in parquet mode when --snp-identifier chr_pos.")
+        if identity_mode_family(args.snp_identifier) == "chr_pos" and args.genome_build is None:
+            raise ValueError("--genome-build is required in parquet mode for chr_pos-family snp_identifier modes.")
     if args.ld_wind_cm is not None and args.ld_wind_cm <= 0:
         raise ValueError("--ld-wind-cm must be positive.")
     if args.ld_wind_kb is not None and args.ld_wind_kb <= 0:
@@ -2296,12 +2297,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--baseline-annot", default=None, help="Comma-separated SNP-level baseline annotation inputs. Each token may be an exact path, glob, or explicit @ chromosome-suite token.")
     parser.add_argument("--bfile", default=None, help="PLINK reference-panel prefix or explicit @ chromosome-suite token.")
     parser.add_argument("--r2-table", default=None, help="Comma-separated sorted parquet R2 inputs. Each token may be an exact path, glob, or explicit @ chromosome-suite token.")
-    parser.add_argument("--snp-identifier", default="chr_pos", help="Identifier mode used to match annotations to the reference panel.")
+    parser.add_argument(
+        "--snp-identifier",
+        default="chr_pos_allele_aware",
+        choices=("rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"),
+        help="Identifier mode used to match annotations to the reference panel.",
+    )
     parser.add_argument(
         "--genome-build",
         default=None,
         choices=("auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"),
-        help="Genome build assumed for the sorted parquet R2 file and chr_pos matching. Use 'auto' to infer hg19/hg38 and 0-based/1-based coordinates.",
+        help="Genome build assumed for the sorted parquet R2 file and chr_pos-family matching. Use 'auto' to infer hg19/hg38 and 0-based/1-based coordinates.",
     )
     parser.add_argument("--r2-bias-mode", choices=("raw", "unbiased"), default="unbiased", help="Whether sorted parquet R2 values are raw sample r^2 or already unbiased.")
     parser.add_argument("--r2-sample-size", default=None, type=float, help="LD reference sample size used to correct raw parquet R2 values.")
@@ -2383,7 +2389,7 @@ def run_ldscore(
     baseline_annot: str | None = None,
     bfile: str | None = None,
     r2_table: str | None = None,
-    snp_identifier: str = "chr_pos",
+    snp_identifier: str = "chr_pos_allele_aware",
     genome_build: str | None = None,
     r2_bias_mode: str | None = None,
     r2_sample_size: float | None = None,

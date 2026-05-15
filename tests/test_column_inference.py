@@ -36,9 +36,9 @@ class ColumnInferenceTest(unittest.TestCase):
             tuple(ci.SNP_IDENTIFIER_MODES),
             ("rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"),
         )
-        for value in ci.SNP_IDENTIFIER_MODES:
+        for value in ("rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"):
             self.assertEqual(ci.normalize_snp_identifier_mode(value), value)
-        for value in ["rsID", "SNPID", "snp_id", "snp", "ChrPos", "chrom_pos"]:
+        for value in ("rsID", "SNPID", "snp_id", "snp", "chrpos", "rsid_alleles", "chr_pos_alleles"):
             with self.assertRaises(ValueError):
                 ci.normalize_snp_identifier_mode(value)
 

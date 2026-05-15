@@ -1596,6 +1596,59 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(dropped["reason"].tolist(), ["missing_allele"])
             self.assertEqual(dropped["stage"].tolist(), ["post_liftover_identity_cleanup"])
 
+    def test_allele_aware_all_missing_raw_allele_chunk_reaches_identity_sidecar(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "SNP A1 A2 P BETA N\n"
+                "rs_missing_1 . . 0.05 0.1 1000\n"
+                "rs_missing_2 . . 0.05 0.1 1000\n",
+                encoding="utf-8",
+            )
+            output_dir = tmpdir / "munged"
+
+            table = SumstatsMunger().run(
+                MungeConfig(raw_sumstats_file=raw_path),
+                MungeConfig(output_dir=output_dir),
+                GlobalConfig(snp_identifier="rsid_allele_aware"),
+            )
+
+            self.assertEqual(table.data["SNP"].tolist(), [])
+            dropped = self._read_dropped_snps_sidecar(output_dir / "dropped_snps" / "dropped.tsv.gz")
+            self.assertEqual(dropped["SNP"].tolist(), ["rs_missing_1", "rs_missing_2"])
+            self.assertEqual(dropped["reason"].tolist(), ["missing_allele", "missing_allele"])
+
+    def test_allele_aware_sumstats_snps_file_all_bad_raw_alleles_reaches_identity_sidecar(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "SNP A1 A2 P BETA N\n"
+                "rs_bad AT C 0.05 0.1 1000\n"
+                "rs_ambiguous A T 0.05 0.1 1000\n",
+                encoding="utf-8",
+            )
+            keep_path = tmpdir / "keep.tsv"
+            keep_path.write_text(
+                "SNP\tA1\tA2\n"
+                "rs_bad\tA\tC\n"
+                "rs_ambiguous\tA\tC\n",
+                encoding="utf-8",
+            )
+            output_dir = tmpdir / "munged"
+
+            table = SumstatsMunger().run(
+                MungeConfig(raw_sumstats_file=raw_path),
+                MungeConfig(output_dir=output_dir, sumstats_snps_file=keep_path),
+                GlobalConfig(snp_identifier="rsid_allele_aware"),
+            )
+
+            self.assertEqual(table.data["SNP"].tolist(), [])
+            dropped = self._read_dropped_snps_sidecar(output_dir / "dropped_snps" / "dropped.tsv.gz")
+            self.assertEqual(dropped["SNP"].tolist(), ["rs_bad", "rs_ambiguous"])
+            self.assertEqual(dropped["reason"].tolist(), ["invalid_allele", "strand_ambiguous_allele"])
+
     def test_load_sumstats_rejects_duplicate_effective_keys(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)

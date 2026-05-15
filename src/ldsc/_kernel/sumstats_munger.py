@@ -356,8 +356,8 @@ def parse_dat(dat_gen, convert_colname, args, restriction=None):
         drops['P'] += old - new
         old = new
         if is_allele_aware_mode(mode):
-            dat.A1 = dat.A1.str.upper()
-            dat.A2 = dat.A2.str.upper()
+            dat.A1 = dat.A1.astype("string").str.upper()
+            dat.A2 = dat.A2.astype("string").str.upper()
 
         if ii.sum() == 0:
             continue
@@ -385,7 +385,7 @@ def parse_dat(dat_gen, convert_colname, args, restriction=None):
     _log_coordinate_drop_summary(args)
     if restriction is not None:
         _log_sumstats_restriction_summary(restriction)
-        if restriction.n_rows_before_filter > 0 and restriction.n_rows_kept == 0:
+        if len(dat) == 0 and restriction.n_rows_before_filter > 0 and restriction.n_rows_kept == 0:
             _raise_sumstats_restriction_empty(restriction)
     return dat
 

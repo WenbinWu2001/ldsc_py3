@@ -33,7 +33,7 @@ import numpy as np
 import pandas as pd
 
 from ._chr_sampler import sample_frame_from_chr_pattern
-from ._kernel.snp_identity import identity_mode_family
+from ._kernel.snp_identity import identity_base_mode, identity_mode_family, is_allele_aware_mode
 from .column_inference import normalize_genome_build, normalize_snp_identifier_mode
 from .config import (
     ConfigMismatchError,
@@ -887,7 +887,8 @@ def _pseudo_base_annotation_bundle_from_ref_panel(ref_panel, global_config: Glob
             continue
         if "POS" not in metadata.columns and "BP" in metadata.columns:
             metadata = metadata.rename(columns={"BP": "POS"})
-        metadata_frames.append(metadata.loc[:, ["CHR", "SNP", "CM", "POS"]].reset_index(drop=True))
+        metadata_columns = ["CHR", "SNP", "CM", "POS", *[column for column in ("A1", "A2") if column in metadata.columns]]
+        metadata_frames.append(metadata.loc[:, metadata_columns].reset_index(drop=True))
     if not metadata_frames:
         raise ValueError("No reference-panel SNP metadata rows are available for pseudo `base` annotation.")
     metadata = pd.concat(metadata_frames, axis=0, ignore_index=True)
@@ -1281,8 +1282,9 @@ def _align_annotation_bundle_to_ref_panel(annotation_bundle, ref_panel, chrom: s
     the kernel.
     """
     reference_metadata = ref_panel.load_metadata(chrom)
-    reference_ids = set(build_snp_id_series(reference_metadata, global_config.snp_identifier))
-    keep = build_snp_id_series(annotation_bundle.metadata, global_config.snp_identifier).isin(reference_ids)
+    match_mode = _annotation_reference_match_mode(annotation_bundle.metadata, global_config.snp_identifier)
+    reference_ids = set(build_snp_id_series(reference_metadata, match_mode))
+    keep = build_snp_id_series(annotation_bundle.metadata, match_mode).isin(reference_ids)
     if not bool(keep.any()):
         backend = getattr(getattr(ref_panel, "spec", None), "backend", None)
         intersection = "parquet" if backend == "parquet_r2" else "PLINK"
@@ -1299,6 +1301,17 @@ def _align_annotation_bundle_to_ref_panel(annotation_bundle, ref_panel, chrom: s
         source_summary=dict(getattr(annotation_bundle, "source_summary", {})),
         config_snapshot=getattr(annotation_bundle, "config_snapshot", None),
     )
+
+
+def _annotation_reference_match_mode(
+    annotation_metadata: pd.DataFrame,
+    snp_identifier: str,
+) -> str:
+    """Return the identity mode usable by both annotation and reference metadata."""
+    mode = normalize_snp_identifier_mode(snp_identifier)
+    if is_allele_aware_mode(mode) and not {"A1", "A2"}.issubset(annotation_metadata.columns):
+        return identity_base_mode(mode)
+    return mode
 
 
 def _warn_and_skip_empty_intersection(error: ValueError, chrom: str) -> bool:

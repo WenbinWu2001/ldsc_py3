@@ -161,7 +161,10 @@ output, and metadata contracts.
 ## Current Maintenance Checklist
 
 When touching liftover code, preserve these contracts unless a new design
-explicitly changes them: liftover is `chr_pos`-only, `SNP` is a label in
-`chr_pos`, sumstats liftover updates only `CHR/POS`, reference-panel liftover is
-rejected in `rsid`, HM3 quick liftover requires HM3 SNP restriction, dropped-SNP
-sidecars stay schema-stable, and detailed provenance belongs in workflow logs.
+explicitly changes them: liftover is `chr_pos`-family behavior, `SNP` is a label
+in `chr_pos`-family modes, sumstats liftover updates only `CHR/POS` while allele
+sets stay unchanged, reference-panel liftover is rejected in `rsid`-family modes,
+HM3 quick liftover requires HM3 SNP restriction, dropped-SNP sidecars keep the
+current audit schema (`CHR`, `SNP`, `source_pos`, `target_pos`, `reason`,
+`base_key`, `identity_key`, `allele_set`, `stage`), and detailed provenance
+belongs in workflow logs.

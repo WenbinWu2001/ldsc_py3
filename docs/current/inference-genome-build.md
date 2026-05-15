@@ -1,8 +1,8 @@
 # Genome-Build and Coordinate-Basis Inference
 
-Automatic genome-build inference is used for `chr_pos` workflows when the user
-passes `--genome-build auto`, and by `build-ref-panel` when
-`--source-genome-build` is omitted. It is not used in `rsid` mode.
+Automatic genome-build inference is used for coordinate-family workflows when
+the user passes `--genome-build auto`, and by `build-ref-panel` when
+`--source-genome-build` is omitted. It is not used in `rsid`-family modes.
 
 The package infers the build by comparing a subset of input (CHR, POS) pairs against the packaged HapMap3 coordinate map, then selecting the hypothesis that best explains those positions:
 
@@ -101,7 +101,7 @@ require:
 If those thresholds are not met, inference raises an actionable error that asks
 the user to pass `--genome-build hg19` or `--genome-build hg38` explicitly. The
 same resolved source-build metadata is used by munge-time SNP filtering in
-`chr_pos` mode. A keep-list, including the packaged map selected by
+`chr_pos`-family modes. A keep-list, including the packaged map selected by
 `--use-hm3-snps`, with both `hg19_POS` and `hg38_POS` selects the position
 column matching the effective raw sumstats build. Filtering happens inside each
 chunk after canonical coordinate normalization and before the retained chunks are
@@ -130,8 +130,8 @@ build explicitly.
 
 ## LD-Score Runtime Auto Build
 
-The `ldsc ldscore` CLI requires `--genome-build` in `chr_pos` mode. Passing
-`--genome-build auto` defers the choice until runtime, where the workflow
+The `ldsc ldscore` CLI requires `--genome-build` in coordinate-family modes.
+Passing `--genome-build auto` defers the choice until runtime, where the workflow
 collects build evidence from the supplied LD-score inputs and requires all
 available evidence to agree.
 

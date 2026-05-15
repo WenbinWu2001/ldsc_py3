@@ -156,7 +156,7 @@ ldsc munge-sumstats \
 # Add explicit repair flags only when --infer-only reports that they are needed,
 # for example --N-col NEFF if that is appropriate for the analysis.
 
-# Optional chr_pos-only liftover when the resolved source build differs:
+# Optional chr_pos-family liftover when the resolved source build differs:
 #   --target-genome-build hg38 \
 #   --use-hm3-snps \
 #   --use-hm3-quick-liftover

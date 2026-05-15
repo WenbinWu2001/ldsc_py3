@@ -120,14 +120,16 @@ base key. Allele-bearing restrictions in allele-aware modes match by the
 effective allele-aware key. These filters are loaded once before raw chunk
 parsing and applied while chunks are still streaming, after canonical columns and
 coordinate normalization are available. They keep matching rows only and do not
-reorder the output. In `chr_pos` mode,
-`SNP` is a label; matching uses source-build `CHR` and `POS`, represented
-internally as compact packed coordinate keys. Rows with missing or invalid
-coordinates are dropped and counted at `chr_pos` match/map stages. To convert
-coordinates after QC and after SNP restriction, pass `--target-genome-build`
-with `--liftover-chain-file`, or pair `--target-genome-build --use-hm3-snps
---use-hm3-quick-liftover` for the HM3 coordinate shortcut. Liftover is invalid
-in `rsid` mode because positions are not the row identity there.
+reorder the output. In `chr_pos`-family modes, `SNP` is a label; matching uses
+source-build `CHR` and `POS`, plus the allele set in
+`chr_pos_allele_aware`, represented internally as effective coordinate-family
+keys. Rows with missing or invalid coordinates are dropped and counted at
+coordinate match/map stages. The base `chr_pos` mode uses coordinate identity
+without allele-aware matching. To convert coordinates after QC and after SNP
+restriction, pass `--target-genome-build` with `--liftover-chain-file`, or pair
+`--target-genome-build --use-hm3-snps --use-hm3-quick-liftover` for the HM3
+coordinate shortcut. Liftover is invalid in `rsid`-family modes because
+positions are not the row identity there.
 
 `ldsc build-ref-panel` keeps a separate source-build contract for PLINK input:
 provide or infer `--source-genome-build`, and a matching chain file emits the

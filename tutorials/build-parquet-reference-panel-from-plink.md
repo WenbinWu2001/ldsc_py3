@@ -142,7 +142,7 @@ The bundled Alkes-group maps in `resources/genetic_maps/genetic_map_alkesgroup/`
 
 - `--liftover-chain-hg19-to-hg38-file` or `--liftover-chain-hg38-to-hg19-file`
   Plain-English meaning: explicit chain file used to translate positions into the other genome build.
-  Recommended usage: pass the chain that matches `--source-genome-build` when you need both hg19 and hg38 outputs in `chr_pos` mode. If you omit it, the build completes with source-build-only outputs and logs an informational message. Do not pass a matching chain in `rsid` mode.
+  Recommended usage: pass the chain that matches `--source-genome-build` when you need both hg19 and hg38 outputs in `chr_pos`-family modes. If you omit it, the build completes with source-build-only outputs and logs an informational message. Do not pass a matching chain in `rsid`-family modes.
 
 - `--output-dir`
   Plain-English meaning: output root directory.
@@ -238,11 +238,11 @@ Exactly one of the following must be set:
   Optional: yes; default is `128`.
   Recommended usage: keep the default unless you are tuning memory and throughput on a large machine. Larger values may improve throughput but use more memory.
 
-Coordinate duplicate handling has no public flag. In `chr_pos` mode, source and
-target coordinate collision groups are always handled with `drop-all`, and the
-dropped rows are recorded under `dropped_snps/`. In source-only `rsid` builds,
-coordinate duplicate filtering is not applicable because SNP labels define row
-identity.
+Coordinate duplicate handling has no public flag. In `chr_pos`-family modes,
+source and target coordinate collision groups are always handled with `drop-all`,
+and the dropped rows are recorded under `dropped_snps/`. In source-only
+`rsid`-family builds, coordinate duplicate filtering is not applicable because
+SNP labels define row identity.
 
 - `--log-level`
   Plain-English meaning: how much progress logging to print.
@@ -534,10 +534,15 @@ Use `--use-hm3-snps` when you want the packaged HapMap3 universe. Use
 
 Accepted forms include:
 
-- tables with an `SNP`/`rsID`-style column in `rsid` mode
-- tables with `CHR` and `POS` columns in `chr_pos` mode
+- tables with an `SNP`/`rsID`-style column in `rsid`-family modes
+- tables with `CHR` and `POS` columns in `chr_pos`-family modes
 - tables with build-specific columns such as `hg19_POS` and `hg38_POS`; in
-  `chr_pos` mode, the builder reads the column matching the source PLINK build
+  `chr_pos`-family modes, the builder reads the column matching the source PLINK
+  build
+
+Allele-free restrictions match by base key, including in allele-aware modes.
+Allele-bearing restrictions in allele-aware modes match by the effective
+allele-aware key after restriction cleanup.
 
 Example:
 

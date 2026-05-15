@@ -170,11 +170,13 @@ Munged sumstats written by this workflow include canonical `CHR` and `POS`
 columns. The raw munger accepts common coordinate headers such as `#CHROM`,
 `CHROM`, `CHR`, `POS`, and `BP`, or explicit `--chr`/`--pos` flags. Leading
 raw `##` metadata lines are skipped before the real header is parsed. In
-`chr_pos` mode, downstream regression merges by normalized `CHR:POS` rather
-than by the literal rsID in `SNP`; `SNP` is treated as a label. Optional munger
-liftover is also `chr_pos`-only, runs after the source-build keep-list filter,
-changes `CHR`/`POS` without rewriting `SNP`, drops duplicate source/target
-coordinate groups, and requires `--target-genome-build` plus one method flag.
+`chr_pos`-family modes, downstream regression merges by the active effective
+coordinate key (`CHR:POS` or `CHR:POS:<allele_set>`) rather than by the literal
+rsID in `SNP`; `SNP` is treated as a label. Optional munger liftover is also
+`chr_pos`-family behavior, runs after the source-build keep-list filter, changes
+`CHR`/`POS` without rewriting `SNP` or allele sets, drops duplicate
+source/target coordinate groups, and requires `--target-genome-build` plus one
+method flag.
 Drop counts are written to `sumstats.log`, examples appear only at `DEBUG`, and
 row-level drops are audited in `dropped_snps/dropped.tsv.gz`; the metadata
 sidecar is only the compatibility snapshot.

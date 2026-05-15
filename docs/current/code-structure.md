@@ -53,7 +53,7 @@ ldsc_py3_Jerry/
 | `ldsc.ref_panel_builder` | parquet reference-panel build workflow |
 | `ldsc.ldscore_calculator` | LD-score orchestration, optional synthetic `base` annotation construction, aggregation, and output routing |
 | `ldsc.sumstats_munger` | raw-sumstats CLI/API orchestration, `--format auto` / `--infer-only` header inference, Parquet/TSV curated output writing, fixed `sumstats.log`, metadata sidecar handling, dropped-SNP audit sidecar handling, canonical `CHR`/`POS` sumstats output, and curated sumstats loader |
-| `ldsc.regression_runner` | file-driven regression dataset assembly, `SNP` or `CHR:POS` merging, h2/partitioned-h2/rg estimator dispatch, and rg result-family writing |
+| `ldsc.regression_runner` | file-driven regression dataset assembly, active effective identity-key merging (`SNP`, `SNP:<allele_set>`, `CHR:POS`, or `CHR:POS:<allele_set>`), h2/partitioned-h2/rg estimator dispatch, and rg result-family writing |
 | `ldsc.outputs` | artifact naming, LD-score parquet layout, partitioned-h2 per-query layout, rg result-family layout, manifest metadata, and serialization |
 | `ldsc._kernel.annotation` | low-level annotation table reading and BED intersection helpers |
 | `ldsc._kernel.ref_panel_builder` | optional genetic-map parsing, optional liftover, parquet schemas, pairwise LD emission |

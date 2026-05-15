@@ -15,6 +15,11 @@ weight, count, and annotation-manifest files.
 Regression chooses either the manifest ``common_reference_snp_counts`` vector or
 ``all_reference_snp_counts`` through ``--count-kind common|all``. The default
 ``common`` mode falls back to all-SNP counts when common counts are unavailable.
+Regression merges by the effective key for the resolved SNP identifier mode.
+Base modes are allele-blind; allele-aware/base mixes can run under the base mode
+only when ``--allow-identity-downgrade`` or
+``RegressionConfig.allow_identity_downgrade`` is set, and only within the same
+rsID or coordinate family.
 Partitioned-h2 requires non-empty query LD-score columns and fits one
 baseline-plus-query model per query annotation. It can optionally retain and
 write the full category table for each fitted model through the output-layer
@@ -239,9 +244,12 @@ class RegressionRunner:
         If both inputs carry known ``GlobalConfig`` snapshots, their critical
         settings are checked before merging. Unknown-provenance inputs, such as
         disk-loaded sumstats, are allowed through this compatibility boundary.
-        In ``rsid`` mode the merge uses the literal ``SNP`` column. In
-        ``chr_pos`` mode it uses normalized private ``CHR:POS`` keys and keeps
-        the original sumstats ``SNP`` value as metadata.
+        The merge uses the effective key for the resolved mode: ``SNP`` in
+        ``rsid``, ``SNP:<allele_set>`` in ``rsid_allele_aware``, ``CHR:POS`` in
+        ``chr_pos``, and ``CHR:POS:<allele_set>`` in
+        ``chr_pos_allele_aware``. Base modes never inspect alleles for
+        identity. ``RegressionConfig.allow_identity_downgrade`` permits
+        same-family allele-aware/base mixes to run under the base mode.
 
         Zero-variance LD-score columns are dropped here so the estimator kernel
         receives only informative regressors. The selected count vector is

@@ -10,7 +10,7 @@ This document summarizes the public package surface. For workflow-level file str
 | Build parquet reference panels | `ldsc build-ref-panel` | `ReferencePanelBuilder`, `run_build_ref_panel()` | PLINK prefix, optional source build inferred from `.bim`, optional liftover chains or HM3 quick liftover in `chr_pos` mode, conditional genetic maps, optional keep/restrict files or `--use-hm3-snps`; restriction identifier read from `GlobalConfig` and coordinates interpreted in the source build; duplicate coordinate groups drop-all in `chr_pos` mode | per-build `chr*_r2.parquet` and `chr*_meta.tsv.gz` artifacts; always-written `dropped_snps/chr*_dropped.tsv.gz` audit files for processed chromosomes; workflow wrappers also write `build-ref-panel.log` |
 | Compute LD scores | `ldsc ldscore` | `LDScoreCalculator`, `run_ldscore()` | optional baseline annotation shards, optional query annotations only when baseline is explicit, PLINK or parquet reference panel, optional frequency metadata | `manifest.json`, `ldscore.baseline.parquet`, optional `ldscore.query.parquet` under `output_dir`; parquet row groups are chromosome-aligned; no-annotation runs write synthetic `base`; workflow wrappers also write `ldscore.log` |
 | Infer `chr_pos` genome build | workflow flags only: `--genome-build auto`; no standalone CLI command | `infer_chr_pos_build()`, `resolve_genome_build()`, `resolve_chr_pos_table()` | pandas table with `CHR` and `POS`; optional reference table | `ChrPosBuildInference`, resolved `GlobalConfig`, and optionally a normalized 1-based table |
-| Munge GWAS summary statistics | `ldsc munge-sumstats` | `SumstatsMunger`, `infer_raw_sumstats()`, `load_sumstats()` | raw sumstats via `--raw-sumstats-file` or `MungeConfig.raw_sumstats_file`, optional `--trait-name`, default `--format auto`, optional `--infer-only`, column hints only when inference cannot decide safely, QC thresholds, optional `--chr`/`--pos`, `--genome-build auto`, optional explicit DANER/PGC format profile, optional `--sumstats-snps-file` keep-list or `--use-hm3-snps`, optional `chr_pos` liftover via `--target-genome-build` plus `--liftover-chain-file` or `--use-hm3-snps --use-hm3-quick-liftover`, optional `--output-format parquet\|tsv.gz\|both` | `sumstats.parquet` by default, optional `sumstats.sumstats.gz`, `sumstats.log`, `sumstats.metadata.json`, always-written `dropped_snps/dropped.tsv.gz`; `--infer-only` writes nothing |
+| Munge GWAS summary statistics | `ldsc munge-sumstats` | `SumstatsMunger`, `infer_raw_sumstats()`, `load_sumstats()` | raw sumstats via `--raw-sumstats-file` or `MungeConfig.raw_sumstats_file`, optional `--trait-name`, default `--format auto`, optional `--infer-only`, column hints only when inference cannot decide safely, QC thresholds, optional `--chr`/`--pos`, `--genome-build auto`, optional explicit DANER/PGC format profile, optional `--sumstats-snps-file` keep-list or `--use-hm3-snps`, optional `chr_pos`-family liftover via `--target-genome-build` plus `--liftover-chain-file` or `--use-hm3-snps --use-hm3-quick-liftover`, optional `--output-format parquet\|tsv.gz\|both` | `sumstats.parquet` by default, optional `sumstats.sumstats.gz`, `sumstats.log`, `sumstats.metadata.json`, always-written `dropped_snps/dropped.tsv.gz`; `--infer-only` writes nothing |
 | Estimate heritability | `ldsc h2` | `RegressionRunner.estimate_h2()` | munged `sumstats.parquet` or `.sumstats.gz` plus sidecar when available, LD-score directory | `h2.tsv`; `h2.log` when `output_dir` is supplied |
 | Estimate partitioned heritability | `ldsc partitioned-h2` | `RegressionRunner.estimate_partitioned_h2()`, `RegressionRunner.estimate_partitioned_h2_batch()`, `PartitionedH2DirectoryWriter` | munged `sumstats.parquet` or `.sumstats.gz` plus sidecar when available, LD-score directory with non-empty query LD scores | compact `partitioned_h2.tsv`; optional `query_annotations/manifest.tsv`, per-query `partitioned_h2.tsv`, `partitioned_h2_full.tsv`, and `metadata.json` with `--write-per-query-results`; `partitioned-h2.log` when `output_dir` is supplied |
 | Estimate genetic correlation | `ldsc rg` | `RegressionRunner.estimate_rg()`, `RegressionRunner.estimate_rg_pairs()`, `RgDirectoryWriter` | two or more munged `sumstats.parquet` or `.sumstats.gz` files plus sidecars when available, optional `--anchor-trait`, LD-score directory | concise `rg.tsv`; full `rg_full.tsv`; `h2_per_trait.tsv`; optional `pairs/` detail tree; `rg.log` when `output_dir` is supplied |
@@ -84,7 +84,7 @@ For log filenames and API boundary details, see
 | --- | --- |
 | `get_global_config()` | return the package-global Python workflow configuration |
 | `set_global_config()` | replace the package-global Python workflow configuration |
-| `reset_global_config()` | restore the default package-global configuration: `GlobalConfig(snp_identifier="chr_pos", genome_build="auto")` |
+| `reset_global_config()` | restore the default package-global configuration: `GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="auto")` |
 | `validate_config_compatibility()` | compare two `GlobalConfig` snapshots and raise or warn on mismatch |
 
 ## Public Path And Header Contracts
@@ -116,9 +116,30 @@ For log filenames and API boundary details, see
 - Raw user-authored inputs use permissive alias resolution through `column_inference.py`.
 - Raw sumstats may begin with `##` metadata/comment lines; these are skipped before header inference, so `#CHROM` remains available as the chromosome header.
 - `chr_pos` workflows that interpret external coordinates require an explicit genome build or `--genome-build auto`; workflows such as `build-ref-panel` may ignore `GlobalConfig.genome_build` when they own a separate source-build contract. `rsid` workflows do not use genome-build metadata.
+- Public SNP identifier modes are exactly `rsid`, `rsid_allele_aware`,
+  `chr_pos`, and `chr_pos_allele_aware`; the default is
+  `chr_pos_allele_aware`. Mode names are exact. Column aliases apply to input
+  headers only.
+- Base modes are allele-blind: `rsid` uses only `SNP`, and `chr_pos` uses only
+  `CHR:POS`. Allele columns may be preserved as passive data but never affect
+  base-mode identity, duplicate filtering, retention, or drop reasons.
+- Allele-aware modes require usable `A1/A2` on sumstats, reference-panel
+  artifacts, R2 parquet endpoints, and LD-score artifacts. They drop missing,
+  invalid/non-SNP, identical, strand-ambiguous allele pairs, multi-allelic
+  base-key clusters, and duplicate effective-key clusters.
+- Restriction files may omit alleles and then match by base key. Annotation
+  files may omit alleles in allele-aware modes because annotations describe
+  genomic membership; if annotations include alleles, they participate in
+  allele-aware matching.
+- External raw R2 parquet inputs are supported only in `rsid` and `chr_pos`.
+  Allele-aware modes require package-built canonical R2 parquet with endpoint
+  allele columns `A1_1/A2_1/A1_2/A2_2`.
+- `--allow-identity-downgrade` is regression-only. It allows same-family
+  allele-aware/base mixes to run under the base mode; rsID-family and
+  coordinate-family modes never mix.
 - Package-written sumstats artifacts include canonical `CHR` and `POS` columns. They are populated from inferred or explicitly flagged raw columns and filled as missing when the raw file lacks coordinates.
-- In `chr_pos` mode, `SNP` is a label and row identity is `CHR/POS`; munger liftover updates only `CHR/POS` and is rejected in `rsid` mode.
-- `build-ref-panel` chain liftover is also coordinate behavior: matching chains are rejected in `rsid` mode, and source-only rsID builds skip coordinate duplicate filtering.
+- In `chr_pos`-family modes, `SNP` is a label and row identity is based on `CHR/POS`; munger liftover updates only `CHR/POS` and is rejected in `rsid`-family modes.
+- `build-ref-panel` chain liftover is also coordinate behavior: matching chains are rejected in `rsid`-family modes, and source-only rsID-family builds skip coordinate duplicate filtering.
 - Package-written artifacts use stricter internal headers so downstream workflows reload them deterministically.
 
 ## Public Import Boundary

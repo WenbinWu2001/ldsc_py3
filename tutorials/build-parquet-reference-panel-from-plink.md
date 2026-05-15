@@ -21,9 +21,12 @@ The `build-ref-panel` workflow converts PLINK genotypes into build-specific R2 r
 The R2 output is a long pairwise table, not a dense square matrix on disk. That is usually the practical format for large reference panels.
 
 Each package-built R2 parquet records the LD reference sample size and R2 bias
-state in Arrow schema metadata. Downstream `ldsc ldscore` runs can therefore
-read `ldsc:n_samples` and `ldsc:r2_bias` directly and do not need
+state plus minimal identity provenance in Arrow schema metadata. Downstream
+`ldsc ldscore` runs can therefore read `ldsc:n_samples`, `ldsc:r2_bias`,
+`ldsc:snp_identifier`, and `ldsc:genome_build` directly and do not need
 `--r2-bias-mode` or `--r2-sample-size` for panels built by this workflow.
+Allele-aware modes require package-built canonical R2 parquet with endpoint
+allele columns `A1_1/A2_1/A1_2/A2_2`.
 
 By default, the builder keeps all SNPs in the PLINK panel after:
 
@@ -195,8 +198,9 @@ Exactly one of the following must be set:
   a curated common-SNP list, or another pre-defined reference universe.
 
   When this path is supplied, the restriction key comes from the invocation
-  `GlobalConfig.snp_identifier`. In `chr_pos` mode, the restriction file must
-  be aligned to the PLINK source build. Target-build restriction files are not
+  `GlobalConfig.snp_identifier`. Restriction files may omit alleles and then
+  match by base key. In `chr_pos`-family modes, the restriction file must be
+  aligned to the PLINK source build. Target-build restriction files are not
   lifted over by the builder.
 
 - `--use-hm3-snps`
@@ -293,7 +297,7 @@ or the CLI when you want the workflow log as well:
 ```python
 from ldsc import GlobalConfig, ReferencePanelBuildConfig, ReferencePanelBuilder, set_global_config
 
-GLOBAL_CONFIG = GlobalConfig(snp_identifier="chr_pos", log_level="INFO")
+GLOBAL_CONFIG = GlobalConfig(snp_identifier="chr_pos_allele_aware", log_level="INFO")
 set_global_config(GLOBAL_CONFIG)
 
 config = ReferencePanelBuildConfig(
@@ -318,12 +322,13 @@ When you use the lower-level `ReferencePanelBuilder` API with
 `ReferencePanelBuildConfig(ref_panel_snps_file=...)`, put the restriction-file
 identifier mode on the injected `GlobalConfig`. For the packaged HapMap3 map,
 use `ReferencePanelBuildConfig(use_hm3_snps=True)` instead of a custom file
-path. In `chr_pos` mode, `GlobalConfig.genome_build` is ignored by this builder;
-the restriction file must be in the same build as `source_genome_build`:
+path. In `chr_pos`-family modes, `GlobalConfig.genome_build` is ignored by this
+builder; the restriction file must be in the same build as
+`source_genome_build`:
 
 ```python
 GLOBAL_CONFIG = GlobalConfig(
-    snp_identifier="chr_pos",
+    snp_identifier="chr_pos_allele_aware",
     log_level="INFO",
 )
 ```
@@ -597,16 +602,17 @@ result = run_build_ref_panel(
 ```
 
 If you add `ref_panel_snps_file=...` or `use_hm3_snps=True` to this wrapper
-call, set `snp_identifier="rsid"` or `snp_identifier="chr_pos"` on the
-registered `GlobalConfig`. In `chr_pos` mode, explicit restriction files must be
-in the source PLINK build; `GlobalConfig.genome_build` is ignored by
+call, set one of the exact public modes (`rsid`, `rsid_allele_aware`,
+`chr_pos`, or `chr_pos_allele_aware`) on the registered `GlobalConfig`. In
+`chr_pos`-family modes, explicit restriction files must be in the source PLINK
+build; `GlobalConfig.genome_build` is ignored by
 `build-ref-panel`.
 
 ### A note on coordinate systems
 
 The builder keeps an in-memory reference SNP table while constructing the R2
 rows, but it does not persist an annotation parquet. When a matching liftover
-chain is provided in `chr_pos` mode, it emits one R2 parquet and one metadata sidecar per build;
+chain is provided in a `chr_pos`-family mode, it emits one R2 parquet and one metadata sidecar per build;
 otherwise it emits only the source build. Each R2 parquet stores positions from
 its own build in `POS_1`/`POS_2`, with that build recorded in
 `ldsc:sorted_by_build`. That makes the panel easier to reuse across projects,

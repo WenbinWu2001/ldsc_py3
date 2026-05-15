@@ -74,9 +74,13 @@ decimal digits printed, not numpy dtype.
 | Pairwise R² parquet | `R2` | `CHR` (str), `POS_1`, `POS_2` (int64), `SNP_1`, `SNP_2` (str) |
 
 Pairwise R² parquet schema metadata also stores `ldsc:sorted_by_build`,
-`ldsc:row_group_size`, `ldsc:n_samples`, and `ldsc:r2_bias`. The last two keys
-let downstream readers distinguish package-built unbiased R2 from raw sample R2
-without requiring users to repeat sample-size arguments.
+`ldsc:row_group_size`, `ldsc:n_samples`, `ldsc:r2_bias`, and the minimal
+identity provenance keys `ldsc:schema_version`, `ldsc:artifact_type`,
+`ldsc:snp_identifier`, and `ldsc:genome_build`. The R2 bias keys let downstream
+readers distinguish package-built unbiased R2 from raw sample R2 without
+requiring users to repeat sample-size arguments. Old package-written artifacts
+without current identity provenance must be regenerated with the current
+package.
 
 `N`, `N_CAS`, `N_CON`, and `NSTUDY` remain `float64` in memory and are **not**
 subject to float32 narrowing. Curated `sumstats.parquet` keeps `N` as numeric
@@ -125,6 +129,32 @@ sense only. They do not claim that `A1` is the genome reference allele. Genome
 `REF`/`ALT` columns are therefore not global aliases; they are applied only by
 format-aware inference when the workflow can make the semantics explicit.
 
+### SNP identity modes
+
+The public SNP identifier modes are exactly `rsid`, `rsid_allele_aware`,
+`chr_pos`, and `chr_pos_allele_aware`. The default is
+`chr_pos_allele_aware`. These mode names are exact; aliases such as `RSID`,
+`BP`, or `POSITION` are input-column aliases only.
+
+Base modes are fully allele-blind. `rsid` uses only `SNP`; `chr_pos` uses only
+`CHR:POS`. If `A1/A2` columns are present in base modes, they may be preserved
+for output or signed-statistic orientation, but they do not affect identity,
+duplicate filtering, retention, or drop reasons.
+
+Allele-aware modes use `A1/A2` only to build safer merge keys. The unordered,
+strand-aware allele set participates in `SNP:<allele_set>` or
+`CHR:POS:<allele_set>` identity. Allele-aware artifact cleanup drops rows with
+missing alleles, invalid or non-SNP alleles, identical pairs, strand-ambiguous
+pairs, package-wide multi-allelic base-key clusters, and duplicate effective
+merge-key clusters. The duplicate policy is drop-all after computing the
+effective merge key for the active mode.
+
+Restriction files may omit alleles. Allele-free restrictions match by base key
+and can keep multiple candidate rows until later artifact cleanup. Annotation
+files may omit alleles even in allele-aware modes because they describe genomic
+membership; if annotation files include alleles, those alleles participate in
+allele-aware matching.
+
 ### `CHR` format
 `normalize_chromosome` (in `chromosome_inference.py`) strips the `chr` prefix on
 read. All Python-written artifacts store bare labels: `"1"`, `"22"`, `"X"`,
@@ -142,11 +172,11 @@ adding coordinates. Pairwise R2 uses the documented pairwise coordinate
 variant. Public LD-score result tables currently use **(CHR, SNP, POS, ...)** to
 match `LDScoreResult` and regression-loader validation.
 
-Column order does not define row identity. In `rsid` mode, `SNP` is the
-identifier. In `chr_pos` mode, `SNP` is only a label and matching uses `CHR` and
-`POS`; munger liftover updates those coordinate columns without rewriting
-`SNP`. Liftover-specific duplicate coordinate handling is therefore based on
-`CHR/POS` groups, not rsID labels.
+Column order does not define row identity. In `rsid`-family modes, `SNP`
+supplies the base identifier. In `chr_pos`-family modes, `SNP` is only a label
+and matching uses `CHR` and `POS`; munger liftover updates those coordinate
+columns without rewriting `SNP`. Liftover-specific duplicate coordinate
+handling is therefore based on `CHR/POS` groups, not rsID labels.
 
 This applies to artifacts **written by this package**. External input files
 (user-supplied annotation files, the hm3 curated map, PLINK BIM files, etc.) are
@@ -165,16 +195,19 @@ CM`) follow the annotation rule unconditionally. The annotation-specific columns
 | LD-score output (`ldscore.baseline.parquet`) | `CHR, SNP, POS, regression_ld_scores` | baseline LD-score columns |
 | LD-score output (`ldscore.query.parquet`) | `CHR, SNP, POS` | query LD-score columns |
 | Munged sumstats (`sumstats.parquet` or `.sumstats.gz`) | `SNP, CHR, POS, A1, A2` | `Z, N, FRQ` |
-| Canonical pairwise R² parquet | `CHR, POS_1, POS_2, SNP_1, SNP_2, R2` | |
-| Dropped-SNP audit sidecar (`dropped_snps/*.tsv.gz`) | `CHR, SNP, source_pos, target_pos, reason` | |
+| Canonical pairwise R² parquet | `CHR, POS_1, POS_2, SNP_1, SNP_2, A1_1, A2_1, A1_2, A2_2, R2` when endpoint alleles are available | endpoint allele columns are required in allele-aware modes and ignored for identity in base modes |
+| Dropped-SNP audit sidecar (`dropped_snps/*.tsv.gz`) | `CHR, SNP, source_pos, target_pos, reason, base_key, identity_key, allele_set, stage` | |
 
 Dropped-SNP audit sidecars are always written by liftover-aware public
 workflows, including header-only files for clean processed outputs. They use
 nullable read dtypes: `CHR`, `SNP`, and `reason` as strings, and `source_pos`
-and `target_pos` as nullable integer positions. Sumstats sidecars may include
-`missing_coordinate`, `source_duplicate`, `unmapped_liftover`,
-`cross_chromosome_liftover`, and `target_collision`; reference-panel sidecars
-use the same schema but do not emit `missing_coordinate`.
+and `target_pos` as nullable integer positions. Identity fields are nullable
+when a drop reason has no effective identity key. Sumstats and reference-panel
+sidecars may include identity reasons (`missing_allele`, `invalid_allele`,
+`strand_ambiguous_allele`, `multi_allelic_base_key`, `duplicate_identity`) and
+liftover reasons (`missing_coordinate`, `source_duplicate`,
+`unmapped_liftover`, `cross_chromosome_liftover`, and `target_collision`);
+reference-panel sidecars do not emit `missing_coordinate`.
 
 ---
 

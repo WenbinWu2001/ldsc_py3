@@ -79,11 +79,12 @@ needs.
 ## Raw Sumstats
 
 Raw sumstats can be large, compressed, and sequential-access. In
-`snp_identifier=chr_pos` mode, `ldsc munge-sumstats` resolves
-`--genome-build auto` before chunk parsing. After the raw header has been mapped
-to canonical columns, the kernel reads a lightweight `CHR`/`POS` view of the raw
-input and calls `resolve_chr_pos_table()`. The resolved source build and
-coordinate basis are then reused while each chunk is parsed.
+`chr_pos`-family modes (`chr_pos` and `chr_pos_allele_aware`),
+`ldsc munge-sumstats` resolves `--genome-build auto` before chunk parsing. After
+the raw header has been mapped to canonical columns, the kernel reads a
+lightweight `CHR`/`POS` view of the raw input and calls
+`resolve_chr_pos_table()`. The resolved source build and coordinate basis are
+then reused while each chunk is parsed.
 
 The build resolver uses `GenomeBuildEvidenceAccumulator` from
 `genome_build_inference.py`:

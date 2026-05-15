@@ -141,6 +141,10 @@ Legacy raw R2 parquet files also accept build-specific pair columns such as
 variants, numbered unique-ID columns, `Dprime` / `D_PRIME`, and
 `+/-corr` / `CORR` / `SIGNCORR` / `SIGN_CORR`.
 
+External raw R2 parquet inputs are supported only in base modes (`rsid` and
+`chr_pos`). Allele-aware modes require package-built canonical R2 parquet with
+endpoint allele columns `A1_1/A2_1/A1_2/A2_2`.
+
 ### Internal artifacts
 
 Package-written artifacts are intentionally strict. Curated `.sumstats`,
@@ -152,13 +156,16 @@ applicable). This catches schema drift in files produced by the package.
 
 The same registry also normalizes these user-facing tokens:
 
-| Setting | Accepted aliases |
+| Setting | Accepted values |
 |---|---|
-| `snp_identifier=rsid` | `rsid`, `rs_id`, `rs`, `snp`, `snpid`, `snp_id` |
-| `snp_identifier=chr_pos` | `chr_pos`, `chrpos`, `chrom_pos`, `chromosome_position`, `position` |
+| `snp_identifier` | exactly `rsid`, `rsid_allele_aware`, `chr_pos`, or `chr_pos_allele_aware`; default is `chr_pos_allele_aware` |
 | `genome_build=hg19` | `hg19`, `hg37`, `grch37` |
 | `genome_build=hg38` | `hg38`, `grch38` |
 | `genome_build=auto` | `auto` |
+
+Mode names are exact. Strings such as `RSID`, `SNPID`, `chrpos`,
+`rsid_alleles`, and `chr_pos_alleles` are not accepted as `snp_identifier`
+values. Column aliases remain input-header aliases only.
 
 ---
 

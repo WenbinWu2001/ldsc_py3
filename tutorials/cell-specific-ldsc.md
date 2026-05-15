@@ -48,7 +48,7 @@ from ldsc import (
 )
 
 GLOBAL_CONFIG = GlobalConfig(
-    snp_identifier="chr_pos",
+    snp_identifier="chr_pos_allele_aware",
     genome_build="hg19",
 )
 set_global_config(GLOBAL_CONFIG)
@@ -108,9 +108,12 @@ print(cell_specific)
 The LD-score result and annotation bundle retain known `GlobalConfig`
 snapshots. Current disk-loaded sumstats recover the same provenance from
 `sumstats.metadata.json`. If an older sumstats artifact lacks that sidecar,
-regression treats the sumstats provenance as unknown. With `snp_identifier="chr_pos"`,
-the merge uses normalized `CHR:POS` coordinates rather than rsIDs, and the
-`SNP` column remains a label. If raw sumstats coordinates need a build
+regression treats the sumstats provenance as unknown. With
+`snp_identifier="chr_pos_allele_aware"`, the merge uses normalized
+`CHR:POS:<allele_set>` identity rather than rsIDs, and the `SNP` column remains
+a label. To run coordinate identity without allele-aware matching, set
+`snp_identifier="chr_pos"` or pass `--snp-identifier chr_pos`. If raw sumstats
+coordinates need a build
 conversion before this regression step, run `munge-sumstats` with
 `--target-genome-build` plus either `--liftover-chain-file` or
 `--use-hm3-snps --use-hm3-quick-liftover`. Liftover drops duplicate source/target coordinate
@@ -133,7 +136,7 @@ ldsc ldscore \
   --r2-dir "r2_ref_panel_1kg30x_1cM_hm3/hg19" \
   --use-hm3-ref-panel-snps \
   --use-hm3-regression-snps \
-  --snp-identifier chr_pos \
+  --snp-identifier chr_pos_allele_aware \
   --genome-build hg19 \
   --common-maf-min 0.05 \
   --ld-wind-cm 1.0

@@ -1,4 +1,18 @@
-"""Shared SNP identity policy for artifact and restriction matching."""
+"""Shared SNP identity policy for artifact and restriction matching.
+
+This module is the package-wide authority for SNP identity semantics. Public
+mode values are exactly ``rsid``, ``rsid_allele_aware``, ``chr_pos``, and
+``chr_pos_allele_aware``; the default is supplied by ``GlobalConfig`` as
+``chr_pos_allele_aware``. Header aliases are resolved before data reach this
+module and are not aliases for mode values.
+
+Base modes are allele-blind: ``rsid`` uses only ``SNP`` and ``chr_pos`` uses
+only ``CHR:POS``. Allele-aware modes add an unordered, strand-aware ``A1/A2``
+allele set to the base key, drop unusable allele pairs, drop multi-allelic
+base-key clusters, and drop all rows in duplicate effective-key clusters.
+Restriction files are set-like and may omit alleles; package-written artifacts
+use drop-all duplicate cleanup.
+"""
 
 from __future__ import annotations
 
@@ -124,7 +138,12 @@ def resolve_regression_identity_mode(
     *,
     allow_identity_downgrade: bool,
 ) -> IdentityCompatibility:
-    """Resolve two regression inputs to one effective SNP identity mode."""
+    """Resolve two regression inputs to one effective SNP identity mode.
+
+    Downgrade is regression-only. When enabled, same-family allele-aware/base
+    mixes run under the allele-blind base mode. rsID-family and
+    coordinate-family modes are never compatible.
+    """
     left = normalize_snp_identifier_mode(left_mode)
     right = normalize_snp_identifier_mode(right_mode)
     if left == right:

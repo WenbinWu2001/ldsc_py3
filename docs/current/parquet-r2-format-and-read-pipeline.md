@@ -34,9 +34,11 @@ still accepted but trigger a startup warning (see §3.2).
 
 ### 2.1 Column Schema
 
-Package-written canonical parquet files have these six columns. The reader
-requires these logical fields, with aliases accepted at load time; unrelated
-extra columns are ignored.
+Package-written canonical parquet files have six base columns plus endpoint
+allele columns when the builder has allele metadata. The reader requires the
+six base logical fields in every mode, and requires endpoint alleles in
+allele-aware modes. Aliases are accepted at load time for external base-mode
+inputs; unrelated extra columns are ignored.
 
 | Column | Type | Description |
 |---|---|---|
@@ -46,6 +48,8 @@ extra columns are ignored.
 | `R2` | `float32` | Squared Pearson correlation between allele dosages |
 | `SNP_1` | `string` | dbSNP rsID of the left SNP |
 | `SNP_2` | `string` | dbSNP rsID of the right SNP |
+| `A1_1`, `A2_1` | `string` | left endpoint alleles in reference-panel orientation |
+| `A1_2`, `A2_2` | `string` | right endpoint alleles in reference-panel orientation |
 
 **Dropped from the legacy schema:** `hg19_pos_1`, `hg38_pos_1`, `hg19_pos_2`,
 `hg38_pos_2`, `hg19_Uniq_ID_1/2`, `hg38_Uniq_ID_1/2`, `Dprime`, `+/-corr`.
@@ -109,9 +113,25 @@ Tradeoff guide for non-default reference panels:
 Recommended range: **25 000 – 200 000** rows per group. Choose closer to the
 expected pairs-per-window for the target reference panel density.
 
-### 2.4 Parquet Schema Metadata
+### 2.4 SNP Identity Modes And External R2 Limits
 
-Four key-value entries are written into the parquet `schema.metadata` at file creation:
+The public SNP identifier modes are exactly `rsid`, `rsid_allele_aware`,
+`chr_pos`, and `chr_pos_allele_aware`; the package default is
+`chr_pos_allele_aware`. Base modes are fully allele-blind: `rsid` uses only
+`SNP_1/SNP_2`, and `chr_pos` uses only `CHR/POS_1/POS_2`. Endpoint allele
+columns may be present in base modes, but they do not affect identity,
+duplicate filtering, retention, or drop reasons.
+
+Allele-aware modes require package-built canonical R2 parquet with endpoint
+allele columns `A1_1/A2_1/A1_2/A2_2`. These modes use the unordered,
+strand-aware endpoint allele sets only to make merge keys safer. External raw
+R2 parquet inputs are supported only in `rsid` and `chr_pos`; run
+`ldsc build-ref-panel` with the current package to produce allele-aware R2
+artifacts.
+
+### 2.5 Parquet Schema Metadata
+
+Package-written parquet files include these technical metadata entries:
 
 | Key | Type | Description |
 |---|---|---|
@@ -119,6 +139,16 @@ Four key-value entries are written into the parquet `schema.metadata` at file cr
 | `ldsc:row_group_size` | string (int) | Intended row group size used when writing. Informational; reader uses actual footer stats. |
 | `ldsc:n_samples` | string (int) | Number of reference-panel individuals used when computing the stored R2 values. Package-built panels write `geno.n`. |
 | `ldsc:r2_bias` | string | Bias state of stored R2 values. Package-built panels currently write `"unbiased"`; `"raw"` is reserved for raw sample R2 values that need downstream correction. |
+
+They also include the minimal identity provenance required by current
+reloaders:
+
+| Key | Type | Description |
+|---|---|---|
+| `ldsc:schema_version` | string (int) | Current identity schema version, `1`. |
+| `ldsc:artifact_type` | string | `ref_panel_r2`. |
+| `ldsc:snp_identifier` | string | Exact mode used to build the artifact. |
+| `ldsc:genome_build` | string | Genome build of the endpoint coordinates. |
 
 These are accessed via `pq.ParquetFile(path).schema_arrow.metadata` and are stored
 as UTF-8 byte strings by PyArrow.
@@ -129,9 +159,10 @@ package-built panels, users do not need to pass `--r2-bias-mode` or
 future raw-R2 panel with `ldsc:r2_bias="raw"` would auto-fill its correction
 sample size from `ldsc:n_samples`. Legacy parquet files without these keys keep
 the historical default of treating omitted bias mode as `"unbiased"`; users can
-still pass `--r2-bias-mode raw --r2-sample-size N` for external raw R2 files.
+still pass `--r2-bias-mode raw --r2-sample-size N` for external raw R2 files
+when running in `rsid` or `chr_pos` mode.
 
-### 2.5 Canonical Example
+### 2.6 Canonical Example
 
 **Schema metadata:**
 
@@ -140,6 +171,10 @@ ldsc:sorted_by_build = "hg19"
 ldsc:row_group_size  = "50000"
 ldsc:n_samples       = "3202"
 ldsc:r2_bias         = "unbiased"
+ldsc:schema_version  = "1"
+ldsc:artifact_type   = "ref_panel_r2"
+ldsc:snp_identifier  = "chr_pos_allele_aware"
+ldsc:genome_build    = "hg19"
 ```
 
 **Row group footer statistics (first three groups of a chr1 file):**
@@ -151,27 +186,20 @@ ldsc:r2_bias         = "unbiased"
 | 2 | 50 000 | 2 910 885 | 4 011 203 |
 | … | … | … | … |
 
-**Data rows (first 10 rows of the file):**
+**Data rows (first rows of the file):**
 
-| CHR | POS_1 | POS_2 | SNP_1 | SNP_2 | R2 |
-|---|---|---|---|---|---|
-| 1 | 752 566 | 776 546 | rs3094315 | rs2905036 | 0.8214 |
-| 1 | 752 566 | 800 007 | rs3094315 | rs11240777 | 0.1342 |
-| 1 | 752 566 | 817 186 | rs3094315 | rs4040617 | 0.0891 |
-| 1 | 752 566 | 823 656 | rs3094315 | rs2980319 | 0.3124 |
-| 1 | 776 546 | 800 007 | rs2905036 | rs11240777 | 0.4451 |
-| 1 | 776 546 | 817 186 | rs2905036 | rs4040617 | 0.0674 |
-| 1 | 776 546 | 823 656 | rs2905036 | rs2980319 | 0.1982 |
-| 1 | 800 007 | 817 186 | rs11240777 | rs4040617 | 0.7231 |
-| 1 | 800 007 | 823 656 | rs11240777 | rs2980319 | 0.1562 |
-| 1 | 817 186 | 823 656 | rs4040617 | rs2980319 | 0.8913 |
+| CHR | POS_1 | POS_2 | SNP_1 | SNP_2 | A1_1 | A2_1 | A1_2 | A2_2 | R2 |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | 752 566 | 776 546 | rs3094315 | rs2905036 | A | C | A | G | 0.8214 |
+| 1 | 752 566 | 800 007 | rs3094315 | rs11240777 | A | C | C | T | 0.1342 |
+| 1 | 752 566 | 817 186 | rs3094315 | rs4040617 | A | C | A | G | 0.0891 |
 
 Note: rows are sorted by non-decreasing `POS_1`. The left SNP (`POS_1 = 752 566`) appears
 in multiple consecutive rows — one per right-side neighbor within the LD window.
 
 ---
 
-### 2.6 SNP Metadata Sidecar
+### 2.7 SNP Metadata Sidecar
 
 The R² parquet stores **only pairwise data** (`CHR`, `POS_1`, `POS_2`,
 `SNP_1`, `SNP_2`, `R2`). Per-SNP metadata — chromosome, base position, rsID, genetic
@@ -214,10 +242,13 @@ Column names are resolved flexibly via `REFERENCE_METADATA_SPEC_MAP` (defined in
 | `SNP` | `rsID`, `rs`, `snpid` | `rsid` identifier mode | dbSNP rsID |
 | `CM` | `cM`, `genetic_map_cm` | Never | Genetic map position (cM); filled with `NA` if absent |
 | `MAF` | `maf`, `freq`, `AF`, `alt_freqs` | When `fail_on_missing_metadata=True` | Minor allele frequency; folded to [0, 0.5] on load |
+| `A1`, `A2` | standard allele aliases | Allele-aware modes | Reference-panel orientation alleles |
 
-In `rsid` mode the `SNP` column is mandatory. In `chr_pos` mode `CHR` and `POS` are
-mandatory. A file providing all five columns works in either mode and is recommended
-for production use.
+In `rsid`-family modes the `SNP` column is mandatory. In `chr_pos`-family modes
+`CHR` and `POS` are mandatory. A file providing all identity columns works in
+any mode and is recommended for production use. In base modes, `A1/A2` are
+passive for identity; in allele-aware modes, missing or unusable `A1/A2` makes
+the sidecar malformed.
 
 #### Role in the downstream workflow
 

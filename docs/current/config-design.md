@@ -25,11 +25,14 @@ Two implementation details are important to know:
 
 ## The Problem This Design Solves
 
-Genome build (`hg19`/`hg38`) and SNP identifier mode (`rsid`/`chr_pos`) are global
-analysis assumptions that every step of the pipeline depends on. If these settings
-differ between the annotation, reference-panel, and regression steps — even
-temporarily, because of a notebook cell re-run — the mismatch will silently corrupt
-results rather than raise an error.
+Genome build (`hg19`/`hg38`) and SNP identifier mode are global analysis
+assumptions that every step of the pipeline depends on. LDSC supports exactly
+four SNP identifier modes: `rsid`, `rsid_allele_aware`, `chr_pos`, and
+`chr_pos_allele_aware`; the default is `chr_pos_allele_aware`. Mode names are
+exact. Column aliases apply to input headers only. If these settings differ
+between the annotation, reference-panel, and regression steps — even
+temporarily, because of a notebook cell re-run — the mismatch will silently
+corrupt results rather than raise an error.
 
 The original design allowed mutating the process-wide default via `set_global_config()`
 at any time. Any result computed before or after a call to `set_global_config()` would
@@ -45,9 +48,9 @@ be indistinguishable to downstream steps. This is the core danger.
 new object; nothing that already holds a reference to the old config is affected.
 
 ```python
-cfg = GlobalConfig(genome_build="hg38", snp_identifier="chr_pos")
+cfg = GlobalConfig(genome_build="hg38", snp_identifier="chr_pos_allele_aware")
 # cfg.genome_build = "hg19"  → raises FrozenInstanceError immediately
-cfg2 = GlobalConfig(genome_build="hg19", snp_identifier="chr_pos")  # correct way
+cfg2 = GlobalConfig(genome_build="hg19", snp_identifier="chr_pos_allele_aware")  # correct way
 ```
 
 ### 2. Computed result objects carry a config snapshot
@@ -102,10 +105,15 @@ assumptions and cannot be safely merged.
 For regression merges, the active SNP identifier mode is resolved in this order:
 `LDScoreResult.config_snapshot.snp_identifier`, then
 `SumstatsTable.config_snapshot.snp_identifier`, then the runner's active
-`GlobalConfig.snp_identifier`, then the package default `chr_pos`. Disk-loaded
-LD-score artifacts therefore use their manifest provenance when present; if old
-manifests omit SNP-identifier provenance entirely, regression defaults to
-coordinate identity rather than `SNP` labels.
+`GlobalConfig.snp_identifier`, then the package default
+`chr_pos_allele_aware`. Disk-loaded LD-score artifacts therefore use their
+manifest provenance when present; old package-written artifacts without the
+current schema/provenance contract must be regenerated.
+
+`--allow-identity-downgrade` is regression-only. It allows same-family
+allele-aware/base mixes to run under the base mode and logs the original modes
+plus dropped duplicate effective-key rows. rsID-family modes and
+coordinate-family modes never mix.
 
 ### 4. The global registry is a convenience default only
 
@@ -143,7 +151,7 @@ than by `GlobalConfig`.
 
 ```python
 import ldsc
-ldsc.set_global_config(ldsc.GlobalConfig(genome_build="hg38", snp_identifier="chr_pos"))
+ldsc.set_global_config(ldsc.GlobalConfig(genome_build="hg38", snp_identifier="chr_pos_allele_aware"))
 
 annot = ldsc.AnnotationBuilder(...).run(source_spec)
 ldscore = ldsc.LDScoreCalculator().run(annot, ref_panel, ldscore_cfg)
@@ -158,7 +166,7 @@ raise `ConfigMismatchError` at merge time.
 ### Explicit passing (safest for library code)
 
 ```python
-cfg = ldsc.GlobalConfig(genome_build="hg38", snp_identifier="chr_pos")
+cfg = ldsc.GlobalConfig(genome_build="hg38", snp_identifier="chr_pos_allele_aware")
 annot = ldsc.AnnotationBuilder(global_config=cfg).run(source_spec)
 ldscore = ldsc.LDScoreCalculator().run(annot, ref_panel, ldscore_cfg, global_config=cfg)
 ```
@@ -234,7 +242,7 @@ When `None`, the normalized/public row table uses all of `ld_reference_snps`.
 ### Typical configuration
 
 ```python
-cfg = ldsc.GlobalConfig(genome_build="hg38", snp_identifier="chr_pos")
+cfg = ldsc.GlobalConfig(genome_build="hg38", snp_identifier="chr_pos_allele_aware")
 ldsc.set_global_config(cfg)
 
 ref_panel = ldsc.RefPanelLoader(cfg).load(

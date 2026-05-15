@@ -13,7 +13,10 @@ Package-built R2 parquet files also store `ldsc:r2_bias` and `ldsc:n_samples`
 in Arrow schema metadata, so the examples omit R2 bias and sample-size
 arguments. Pass `r2_bias_mode` / `--r2-bias-mode` and
 `r2_sample_size` / `--r2-sample-size` manually only for legacy or external raw
-R2 parquet files that lack LDSC schema metadata.
+R2 parquet files that lack LDSC schema metadata. External raw R2 parquet inputs
+are supported only in `rsid` and `chr_pos`; allele-aware modes require
+package-built canonical R2 parquet with endpoint allele columns
+`A1_1/A2_1/A1_2/A2_2`.
 
 Input-token rules used below:
 
@@ -34,10 +37,17 @@ Resolution behavior:
 Genome-build behavior for `chr_pos` inputs:
 
 - Python callers can import `infer_chr_pos_build()` and `resolve_chr_pos_table()` from `ldsc`
-- workflow calls can set `GlobalConfig(snp_identifier="chr_pos", genome_build="auto")`
-- CLI calls can pass `--snp-identifier chr_pos --genome-build auto`
+- workflow calls can set `GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="auto")`
+- CLI calls can pass `--snp-identifier chr_pos_allele_aware --genome-build auto`
 - auto mode infers hg19 or hg38 and converts 0-based `POS` values to canonical 1-based coordinates when enough reference SNPs are present
 - the CLI has no standalone build-inference command; inference is part of existing workflows
+
+Public SNP identifier modes are exactly `rsid`, `rsid_allele_aware`,
+`chr_pos`, and `chr_pos_allele_aware`; the default is
+`chr_pos_allele_aware`. Mode names are exact. Column aliases apply only to
+input headers. Annotation files may omit alleles in allele-aware modes because
+they describe genomic membership, but if annotation alleles are present they
+participate in allele-aware matching.
 
 Important output behavior:
 
@@ -78,7 +88,7 @@ from ldsc import GlobalConfig, run_ldscore, set_global_config
 
 set_global_config(
     GlobalConfig(
-        snp_identifier="rsid",
+        snp_identifier="chr_pos_allele_aware",
         genome_build="hg38",
     )
 )
@@ -105,7 +115,8 @@ ldsc ldscore \
   --r2-dir "r2_ref_panel_1kg30x_1cM_hm3/hg38" \
   --use-hm3-ref-panel-snps \
   --use-hm3-regression-snps \
-  --snp-identifier rsid \
+  --snp-identifier chr_pos_allele_aware \
+  --genome-build hg38 \
   --common-maf-min 0.05 \
   --ld-wind-cm 1.0
 # Add --snp-batch-size 128 only when intentionally tuning the sliding batch size.
@@ -120,7 +131,7 @@ from ldsc import GlobalConfig, run_ldscore, set_global_config
 
 set_global_config(
     GlobalConfig(
-        snp_identifier="rsid",
+        snp_identifier="chr_pos_allele_aware",
         genome_build="hg38",
     )
 )
@@ -152,7 +163,8 @@ ldsc ldscore \
   --r2-dir "r2_ref_panel_1kg30x_1cM_hm3/hg38" \
   --use-hm3-ref-panel-snps \
   --use-hm3-regression-snps \
-  --snp-identifier rsid \
+  --snp-identifier chr_pos_allele_aware \
+  --genome-build hg38 \
   --common-maf-min 0.05 \
   --ld-wind-cm 1.0
 # Add --overwrite only when intentionally replacing the LD-score artifact family.
@@ -169,7 +181,7 @@ from ldsc import GlobalConfig, run_ldscore, set_global_config
 
 set_global_config(
     GlobalConfig(
-        snp_identifier="rsid",
+        snp_identifier="chr_pos_allele_aware",
         genome_build="hg38",
     )
 )
@@ -199,7 +211,8 @@ ldsc ldscore \
   --r2-dir "r2_ref_panel_1kg30x_1cM_hm3/hg38" \
   --use-hm3-ref-panel-snps \
   --use-hm3-regression-snps \
-  --snp-identifier rsid \
+  --snp-identifier chr_pos_allele_aware \
+  --genome-build hg38 \
   --common-maf-min 0.05 \
   --ld-wind-cm 1.0
 ```
@@ -247,7 +260,7 @@ If you want reusable query `.annot.gz` shards on disk, call `run_bed_to_annot(..
 ```python
 from ldsc import GlobalConfig, run_bed_to_annot, set_global_config
 
-set_global_config(GlobalConfig(snp_identifier="rsid", genome_build="hg38"))
+set_global_config(GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"))
 
 bundle = run_bed_to_annot(
     query_annot_bed_sources="beds/*.bed",
@@ -319,7 +332,7 @@ ldsc ldscore \
   --output-dir tutorial_outputs/auto_build_ldscores \
   --baseline-annot-sources "annotations/baseline.@.annot.gz" \
   --r2-dir "r2_ref_panel_1kg30x_1cM_hm3/hg38" \
-  --snp-identifier chr_pos \
+  --snp-identifier chr_pos_allele_aware \
   --genome-build auto \
   --common-maf-min 0.05 \
   --ld-wind-cm 1.0

@@ -109,7 +109,10 @@ metadata/comment lines are skipped before the real header is parsed. Each
 munged run also writes a thin `sumstats.metadata.json` beside the selected
 artifact(s) so later regression commands can recover `snp_identifier`,
 `genome_build`, and optional `--trait-name` provenance; detailed coordinate and
-liftover bookkeeping is written to `sumstats.log`. Use `--sumstats-snps-file`
+liftover bookkeeping is written to `sumstats.log`. The default
+`snp_identifier` is `chr_pos_allele_aware`, which requires usable `A1/A2`; rerun
+with `--snp-identifier chr_pos` to use coordinate identity without
+allele-aware matching. Use `--sumstats-snps-file`
 when the munged artifact should be restricted to a headered SNP keep-list, or
 `--use-hm3-snps` to use the packaged curated HM3 map. These filters are loaded
 once before raw chunk parsing and applied while chunks are still streaming, after
@@ -129,7 +132,8 @@ opposite build. `--use-hm3-snps` restricts the emitted SNP universe to the
 packaged curated HM3 map, and `--use-hm3-quick-liftover` can emit the opposite
 build for that HM3-restricted coordinate universe without a chain file.
 Chain-file and HM3 quick liftover are invalid when the active `snp_identifier`
-is `rsid`; omit liftover for source-build-only rsID panels. In `chr_pos` mode,
+is in the `rsid` family; omit liftover for source-build-only rsID panels. In
+`chr_pos`-family modes,
 duplicate source or target coordinate groups are dropped by default
 (`--duplicate-position-policy drop-all`), with details in `build-ref-panel.log`
 and duplicate-only sidecars under `dropped_snps/`.

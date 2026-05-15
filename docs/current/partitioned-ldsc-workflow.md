@@ -60,10 +60,13 @@ original PLINK `.bim` `SNP` field through the `chr*_meta.tsv.gz` sidecar. Thus a
 panel built from `.bim` IDs such as `22:10684250:C:G` will show those strings in
 synthetic unpartitioned LD-score rows. When explicit baseline annotations are
 supplied, the LD-score workflow keeps the annotation file's `SNP` labels and
-uses the reference panel only to filter/align rows. `snp_identifier="rsid"`
-therefore means "match on the literal `SNP` strings"; `snp_identifier="chr_pos"`
-uses private `CHR:POS` keys for matching and does not rewrite the visible `SNP`
-column.
+uses the reference panel only to filter/align rows. Public SNP identifier modes
+are exactly `rsid`, `rsid_allele_aware`, `chr_pos`, and
+`chr_pos_allele_aware`; the default is `chr_pos_allele_aware`. Mode names are
+exact. `snp_identifier="rsid"` means "match on the literal `SNP` strings";
+`snp_identifier="chr_pos"` uses private `CHR:POS` keys for matching and does
+not rewrite the visible `SNP` column. The allele-aware variants add the
+unordered `A1/A2` allele set to those base keys.
 
 ## 3. Inputs
 
@@ -110,6 +113,9 @@ In `--r2-dir` mode, matching `chr*_meta.tsv.gz` sidecars are discovered
 automatically when present. Sidecars are optional but strongly recommended:
 without them, the loader can only synthesize SNP presence from parquet endpoint
 columns and cannot recover MAF or complete cM metadata.
+External raw R2 parquet inputs are supported only in `rsid` and `chr_pos`.
+Allele-aware modes require package-built canonical R2 parquet with endpoint
+allele columns `A1_1/A2_1/A1_2/A2_2`.
 
 ### Summary Statistics
 
@@ -126,6 +132,9 @@ beside `SNP`, `Z`, and `N`, write `sumstats.parquet` by default, write
 sidecar stores the thin compatibility payload: schema marker, optional trait
 label, and effective `config_snapshot`. Legacy `.sumstats.gz` files without the
 sidecar still load, but their config provenance is treated as unknown.
+In allele-aware modes, current sumstats artifacts require usable `A1/A2`. To
+run without allele-aware SNP identity, set `--snp-identifier chr_pos` or
+`--snp-identifier rsid` intentionally.
 
 ## 4. SNP Universes
 
@@ -177,9 +186,14 @@ unavailable. Regression falls back to `all_reference_snp_count` in that case.
 They also use the embedded `regression_ld_scores` column from
 `ldscore.baseline.parquet`; this is the historical `w_ld` LD score over the
 regression SNP universe, not the final model-dependent regression weight.
-When the effective identifier mode is `rsid`, regression merges on `SNP`. When
-it is `chr_pos`, regression builds a normalized private `CHR:POS` key from both
-the sumstats and LD-score tables and merges on that coordinate key.
+Regression merges on the effective key for the resolved mode: `SNP` in `rsid`,
+`SNP:<allele_set>` in `rsid_allele_aware`, `CHR:POS` in `chr_pos`, and
+`CHR:POS:<allele_set>` in `chr_pos_allele_aware`. Base modes are fully
+allele-blind; allele columns may be preserved for orientation, but they never
+affect base-mode identity, duplicate filtering, retention, or drop reasons.
+`--allow-identity-downgrade` is regression-only and permits same-family
+allele-aware/base mixes to run under the base mode. rsID-family and
+coordinate-family modes never mix.
 
 `partitioned-h2` requires `ldscore.query.parquet` and a non-empty `query_columns` list in
 the LD-score manifest. Baseline-only LD-score directories are valid inputs for

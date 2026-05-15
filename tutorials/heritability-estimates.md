@@ -46,7 +46,7 @@ from ldsc import (
 )
 
 GLOBAL_CONFIG = GlobalConfig(
-    snp_identifier="chr_pos",
+    snp_identifier="chr_pos_allele_aware",
     genome_build="auto",
 )
 set_global_config(GLOBAL_CONFIG)
@@ -106,9 +106,12 @@ output directory. The log is an audit file; `MungeRunSummary.output_paths` lists
 curated sumstats artifacts and the dropped-SNP audit sidecar, not
 `sumstats.log`.
 
-In `chr_pos` mode, regression merges sumstats and LD scores by normalized `CHR:POS`
-coordinates. The `SNP` column is a label and may contain rsIDs even when
-coordinate mode is active. The raw munger accepts common coordinate headers
+In the default `chr_pos_allele_aware` mode, regression merges sumstats and LD
+scores by normalized `CHR:POS:<allele_set>` identity. `A1/A2` are required and
+are used only to make the merge key safer; the `SNP` column is a label and may
+contain rsIDs even when coordinate mode is active. To run coordinate identity
+without allele-aware matching, set `snp_identifier="chr_pos"` or pass
+`--snp-identifier chr_pos`. The raw munger accepts common coordinate headers
 such as `#CHROM`, `CHROM`, `CHR`, `POS`, and `BP`; use `--chr` and `--pos` or
 `column_hints` when the header is ambiguous. Leading raw `##` metadata lines are
 skipped before the real header is parsed. `--format auto` is the default and

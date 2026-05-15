@@ -59,6 +59,30 @@ flowchart LR
   W5 --> O3
 ```
 
+## Shared SNP Identity Contract
+
+All workflows share one SNP identity contract. Public `snp_identifier` values
+are exactly `rsid`, `rsid_allele_aware`, `chr_pos`, and
+`chr_pos_allele_aware`; the default is `chr_pos_allele_aware`. Mode names are
+exact. Column aliases apply only to input headers, not to mode values.
+
+Base modes are allele-blind. `rsid` uses only `SNP`, and `chr_pos` uses only
+`CHR:POS`; any allele columns present in base-mode inputs are passive data and
+do not affect identity, duplicate filtering, retention, or drop reasons.
+Allele-aware modes use unordered, strand-aware `A1/A2` allele sets only to make
+merge keys safer. They require usable alleles on sumstats, reference-panel
+artifacts, R2 parquet endpoints, and LD-score artifacts, and they drop missing,
+invalid/non-SNP, identical, strand-ambiguous, multi-allelic base-key, and
+duplicate effective-key clusters. Artifact duplicate filtering always computes
+the effective key for the active mode, then drops all rows in duplicate-key
+clusters.
+
+Restriction files may omit alleles. Allele-free restrictions match by base key
+and can retain multiple candidate rows before later artifact cleanup.
+Annotation files may also omit alleles in allele-aware modes because they
+describe genomic membership; when annotation alleles are present, they
+participate in allele-aware matching.
+
 ## 1. `annotate`: BED Projection To SNP-Level `.annot.gz`
 
 Output directories are created when missing and reused when present. Existing
@@ -134,10 +158,11 @@ chromosome siblings from earlier configurations; use a fresh output directory
 when changing emitted builds, liftover/coordinate configuration, or chromosome
 scope.
 Reference-panel liftover is coordinate behavior: chain-file liftover and HM3
-quick liftover are valid only when the active SNP identifier mode is `chr_pos`.
+quick liftover are valid only when the active SNP identifier mode is in the
+`chr_pos` family.
 HM3 quick liftover requires the packaged HM3 SNP restriction flag and emits the
 opposite build only for the retained HM3 coordinate universe. Duplicate-position
-filtering also applies only in `chr_pos` mode and always drops all colliding
+filtering also applies only in `chr_pos`-family modes and always drops all colliding
 source or target coordinate groups. The sidecar also records unmapped and
 cross-chromosome liftover drops; clean processed chromosomes get a header-only
 sidecar.
@@ -151,7 +176,7 @@ sidecar.
 | `.fam` row | `fam1 iid1 0 0 0 -9` | sample metadata |
 | genetic map, conditional | `chr position Genetic_Map(cM)`<br/>`22 16050000 0.42` | required for every emitted build when cM windows are used; optional for SNP/kb windows |
 | liftover method, optional | `hg38ToHg19.over.chain.gz` or `--use-hm3-snps --use-hm3-quick-liftover` | matching source-to-target chain enables cross-build R2 and metadata in `chr_pos` mode; HM3 quick liftover uses the packaged map and requires HM3 restriction; omitted liftover produces source-build-only output; liftover is rejected in `rsid` mode |
-| keep or restrict file, optional | one IID per row, a headered SNP table, or `--use-hm3-snps` | filters individuals or variants; SNP restriction matching uses `GlobalConfig.snp_identifier`; `chr_pos` restrictions must match the source PLINK build |
+| keep or restrict file, optional | one IID per row, a headered SNP table, or `--use-hm3-snps` | filters individuals or variants; SNP restriction matching uses `GlobalConfig.snp_identifier`; `chr_pos`-family restrictions must match the source PLINK build; allele-free restrictions match by base key |
 
 ### Flow
 
@@ -189,9 +214,9 @@ flowchart LR
 
 | File | Example | Notes |
 | --- | --- | --- |
-| build-specific R2 parquet | `hg38/chr22_r2.parquet` with columns `CHR`, `POS_1`, `POS_2`, `SNP_1`, `SNP_2`, `R2` | one row per unordered SNP pair inside the LD window; row groups are sorted by that build's `POS_1`; schema metadata records `ldsc:n_samples` and `ldsc:r2_bias` for downstream auto-load |
-| build-specific runtime metadata sidecar | `hg38/chr22_meta.tsv.gz` with `CHR POS SNP CM MAF` | authoritative SNP universe for the matching R2 parquet when present |
-| dropped-SNP audit sidecar | `dropped_snps/chr22_dropped.tsv.gz` with `CHR SNP source_pos target_pos reason` | always written for each processed chromosome; header-only when no liftover-stage rows were dropped; reasons are `source_duplicate`, `unmapped_liftover`, `cross_chromosome_liftover`, and `target_collision` |
+| build-specific R2 parquet | `hg38/chr22_r2.parquet` with columns `CHR`, `POS_1`, `POS_2`, `SNP_1`, `SNP_2`, `R2`, plus endpoint `A1_1/A2_1/A1_2/A2_2` when available | one row per unordered SNP pair inside the LD window; endpoint allele columns are required in allele-aware modes; row groups are sorted by that build's `POS_1`; schema metadata records minimal identity provenance plus `ldsc:n_samples` and `ldsc:r2_bias` |
+| build-specific runtime metadata sidecar | `hg38/chr22_meta.tsv.gz` with `CHR POS SNP CM MAF A1 A2` when alleles are available | authoritative SNP universe for the matching R2 parquet when present; `A1/A2` are required in allele-aware modes |
+| dropped-SNP audit sidecar | `dropped_snps/chr22_dropped.tsv.gz` with `CHR SNP source_pos target_pos reason base_key identity_key allele_set stage` | always written for each processed chromosome; header-only when no rows were dropped; identity reasons include `missing_allele`, `invalid_allele`, `strand_ambiguous_allele`, `multi_allelic_base_key`, and `duplicate_identity`; liftover reasons include `source_duplicate`, `unmapped_liftover`, `cross_chromosome_liftover`, and `target_collision` |
 | workflow log | plain-text lifecycle and package records | `build-ref-panel.log` under `output_dir`; not included in `ReferencePanelBuildResult.output_paths` |
 
 ### Modules used
@@ -227,8 +252,8 @@ baseline annotations.
 | baseline annotation shard, optional | `CHR POS SNP CM base`<br/>`1 10583 rs58108140 0.0 1` | optional for unpartitioned runs; required when query annotations are supplied |
 | query annotation shard, optional | `CHR POS SNP CM enhancer_A`<br/>`1 10583 rs58108140 0.0 1` | optional extra annotation columns; valid only with explicit baseline annotations |
 | PLINK prefix or parquet R2 panel | `panel_chr@` or build directory `ref_panel/hg38` | choose one backend |
-| frequency / metadata sidecar, optional | `CHR POS SNP CM MAF` | used for MAF and runtime metadata |
-| regression SNP list, optional | `rs123` | restricts the weight-table SNP set |
+| frequency / metadata sidecar, optional | `CHR POS SNP CM MAF A1 A2` | used for MAF and runtime metadata; `A1/A2` are required for allele-aware modes |
+| regression SNP list, optional | `rs123` or `CHR POS` table | restricts the weight-table SNP set; allele columns may be omitted and then match by base key |
 
 ### Flow
 
@@ -294,7 +319,7 @@ without requiring `--output-dir` and prints missing fields plus exact repair
 suggestions. Default output is `sumstats.parquet`; `--output-format tsv.gz` or `both`
 also supports the legacy `sumstats.sumstats.gz` artifact. With overwrite
 enabled, stale sibling formats not produced by the current run are removed
-after successful writes. Optional sumstats liftover is a `chr_pos`-only step:
+after successful writes. Optional sumstats liftover is a `chr_pos`-family step:
 the source build comes from `GlobalConfig.genome_build` or munger build
 inference, SNP restrictions are interpreted in that source build before
 liftover, and `--target-genome-build` must be paired with exactly one method
@@ -313,8 +338,8 @@ in `sumstats.log`; row-level drops are written to
 | --- | --- | --- |
 | raw sumstats | `#CHROM POS ID EA NEA PVAL BETA NEFF`<br/>`1 754182 rs3131969 A G 0.46 0.004 829249.58` | leading `##` metadata lines are skipped; header aliases are normalized in the workflow layer; `NEFF` is not inferred as `N` unless the user explicitly passes `--N-col NEFF` |
 | DANER or PGC VCF-style raw sumstats, optional schema mode | old DANER: `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` headers<br/>new DANER: exact `Nca` and `Nco` columns<br/>PGC VCF-style: leading `##` metadata and `#CHROM` header | `--format auto` detects these profiles; explicit `--format daner-old`, `--format daner-new`, or `--format pgc-vcf` overrides auto-detection; legacy `--daner-old`/`--daner-new` remain supported |
-| sumstats SNP keep-list, optional | headered `SNP` or `CHR`/`POS` restriction file, or `--use-hm3-snps` | optional row filter loaded once before parsing and applied inside each retained chunk; does not allele-match or reorder rows |
-| sumstats liftover method, optional | `--target-genome-build hg38 --liftover-chain-file hg19ToHg38.over.chain` or `--target-genome-build hg38 --use-hm3-snps --use-hm3-quick-liftover` | valid only when `snp_identifier=chr_pos`; updates `CHR`/`POS` after SNP restriction and preserves `SNP` labels |
+| sumstats SNP keep-list, optional | headered `SNP` or `CHR`/`POS` restriction file, or `--use-hm3-snps` | optional row filter loaded once before parsing and applied inside each retained chunk; allele columns may be omitted and then match by base key before later identity cleanup |
+| sumstats liftover method, optional | `--target-genome-build hg38 --liftover-chain-file hg19ToHg38.over.chain` or `--target-genome-build hg38 --use-hm3-snps --use-hm3-quick-liftover` | valid only in `chr_pos`-family modes; updates `CHR`/`POS` after SNP restriction and preserves `SNP` labels |
 | column hints, optional | `--snp ID --chr '#CHROM' --pos POS --a1 EA --a2 NEA` | useful when headers are ambiguous; common aliases infer automatically, and `--infer-only` reports the hints it would apply |
 | INFO lists, optional | `IMPINFO=0.852,0.113,0.842,0.88,NA` | numeric/NA comma-separated per-study values are filtered on their mean; mixed nonnumeric lists such as `0.95,LOW,0.88` are rejected with `--ignore` / `--info-list` suggestions |
 
@@ -353,7 +378,7 @@ flowchart LR
 | curated sumstats | `SNP CHR POS A1 A2 Z N`<br/>`rs3131969 1 754182 A G 0.74 829249.58` | written as `sumstats.parquet` by default under `output_dir`; `--output-format tsv.gz` writes legacy `sumstats.sumstats.gz`, and `both` writes both; `CHR`/`POS` are present and may be missing when absent from raw input; optional `FRQ` may also be present |
 | log file | plain-text lifecycle, QC log, coordinate provenance, readable liftover reports, HM3 provenance, output bookkeeping, and count-level drop summaries | workflow-owned `sumstats.log` under `output_dir`, populated from package logger messages emitted during workflow orchestration and kernel QC; excluded from `MungeRunSummary.output_paths` |
 | metadata sidecar | thin JSON with schema marker, optional `trait_name`, and `config_snapshot` | written as `sumstats.metadata.json` under `output_dir`; used by `load_sumstats()` to recover config provenance and trait labels |
-| dropped-SNP audit sidecar | `CHR SNP source_pos target_pos reason` | always written as `dropped_snps/dropped.tsv.gz`; header-only when no rows were dropped; reasons may include `missing_coordinate`, `source_duplicate`, `unmapped_liftover`, `cross_chromosome_liftover`, and `target_collision` |
+| dropped-SNP audit sidecar | `CHR SNP source_pos target_pos reason base_key identity_key allele_set stage` | always written as `dropped_snps/dropped.tsv.gz`; header-only when no rows were dropped; reasons may include identity drops (`missing_allele`, `invalid_allele`, `strand_ambiguous_allele`, `multi_allelic_base_key`, `duplicate_identity`) and liftover drops (`missing_coordinate`, `source_duplicate`, `unmapped_liftover`, `cross_chromosome_liftover`, `target_collision`) |
 
 ### Modules used
 
@@ -392,6 +417,13 @@ produce all unordered pairs unless `--anchor-trait` selects one trait label or
 source path for anchor-vs-rest estimation. `--write-per-pair-detail` adds the
 optional `pairs/` detail tree when an `output_dir` is supplied.
 
+Regression merges on the effective key for the resolved mode: `SNP` in `rsid`,
+`SNP:<allele_set>` in `rsid_allele_aware`, `CHR:POS` in `chr_pos`, and
+`CHR:POS:<allele_set>` in `chr_pos_allele_aware`. `--allow-identity-downgrade`
+is regression-only; it allows same-family allele-aware/base mixes to run under
+the base mode and logs the original modes plus duplicate-key rows dropped before
+merge. rsID-family and coordinate-family modes never mix.
+
 ### Required inputs
 
 | File | Example | Notes |
@@ -413,7 +445,7 @@ flowchart LR
 
   subgraph W5[Workflow (public)<br/>ldsc.regression_runner]
     E3[Rebuild LDScoreResult]
-    E4[Merge on SNP or CHR:POS]
+    E4[Merge on effective SNP identity key]
     E5[Drop zero-variance columns]
   end
 

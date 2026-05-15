@@ -17,6 +17,28 @@ Regression workflows consume this directory with `--ldscore-dir`; fragmented
 inputs such as LD-score files, count vectors, regression-weight files, and
 annotation manifests are no longer public inputs.
 
+## Shared SNP Identity Contract
+
+Public `--snp-identifier` values are exactly `rsid`, `rsid_allele_aware`,
+`chr_pos`, and `chr_pos_allele_aware`; the default is
+`chr_pos_allele_aware`. Mode names are exact. Column aliases apply only to
+input headers.
+
+Base modes are allele-blind: `rsid` uses only `SNP`, and `chr_pos` uses only
+`CHR:POS`. Allele columns may be preserved as passive data, but they do not
+affect identity, duplicate filtering, retention, or drop reasons. Allele-aware
+modes require usable `A1/A2` for sumstats, reference-panel artifacts, R2 parquet
+endpoints, and LD-score artifacts. Artifact duplicate filtering always computes
+the effective merge key for the active mode, then drops all rows in duplicate
+clusters.
+
+Restriction files may omit alleles and then match by base key. Annotation files
+may omit alleles in allele-aware modes because they describe genomic membership;
+if annotation alleles are present, they participate in allele-aware matching.
+External raw R2 parquet inputs are supported only in `rsid` and `chr_pos`;
+allele-aware modes require package-built canonical R2 parquet with
+`A1_1/A2_1/A1_2/A2_2`.
+
 ## Format Policy
 
 The package separates machine-consumed internal artifacts from
@@ -104,7 +126,7 @@ successful run. Unrelated files in `output_dir` are preserved.
 | `--output-dir` | output | yes | generated query annotation directory | Writes combined `query.<chrom>.annot.gz` files, with all BED inputs represented as query columns, plus `annotate.log`. |
 | `--overwrite` | output mode | no | collision policy | Controls whether generated annotation files and `annotate.log` may be replaced; defaults to `False`, so any existing root-level `query.*.annot.gz` shard is refused. With overwrite, stale query shards outside the current chromosome set are removed after a successful run. |
 | `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger records in console and `annotate.log`; lifecycle audit lines always appear in the file. |
-| `--snp-identifier`, `--genome-build` | config | no | coordinate interpretation | Define how SNP coordinates are interpreted; `--snp-identifier` defaults to `chr_pos`, and `--genome-build` defaults to omitted/`None`, which is invalid for `chr_pos` inputs. |
+| `--snp-identifier`, `--genome-build` | config | no | coordinate interpretation | Define how SNP coordinates are interpreted; `--snp-identifier` defaults to `chr_pos_allele_aware`, and `--genome-build` defaults to omitted/`None`, which is invalid for coordinate-family inputs unless the workflow can infer it. |
 
 Removed flags: `--bed-files`, `--baseline-annot`.
 
@@ -119,7 +141,7 @@ Removed flags: `--bed-files`, `--baseline-annot`.
 | `--query-annot-sources` | input | no | prebuilt query annotation files | Supplies prebuilt query annotation files; defaults to omitted/`None`, so no prebuilt query annotations are used. Mutually exclusive with `--query-annot-bed-sources` and requires `--baseline-annot-sources`. |
 | `--query-annot-bed-sources` | input | no | query BED interval files | Supplies BED intervals to project as query annotations; defaults to omitted/`None`, so no BED query annotations are projected. Requires `--baseline-annot-sources`. |
 | `--plink-prefix` | input | conditional | PLINK reference panel prefix | Selects PLINK reference-panel input; defaults to omitted/`None` and is required when `--r2-dir` is omitted. Supports exact prefix, PLINK-prefix glob, or `@` suite. |
-| `--r2-dir` | input | conditional | package-built parquet R2 directory | Selects parquet reference-panel input; defaults to omitted/`None` and is required when `--plink-prefix` is omitted. Use a build-specific directory such as `ref_panel/hg38`. |
+| `--r2-dir` | input | conditional | package-built parquet R2 directory | Selects parquet reference-panel input; defaults to omitted/`None` and is required when `--plink-prefix` is omitted. Use a build-specific directory such as `ref_panel/hg38`. Allele-aware modes require package-built canonical R2 parquet with endpoint allele columns. |
 | `--r2-bias-mode` | input metadata | optional | parquet R2 bias declaration | Declares whether parquet R2 values are raw or unbiased. Package-built panels auto-load this from `ldsc:r2_bias`; legacy files without metadata still default to `unbiased`. Choose `raw` only for external raw sample R2 values. |
 | `--r2-sample-size` | input metadata | conditional | parquet R2 sample size | Provides the sample size for correcting raw R2. Package-built raw panels can auto-load this from `ldsc:n_samples`; legacy raw files still require an explicit value with `--r2-bias-mode raw`. |
 | `--ref-panel-snps-file` | input | no | reference-panel SNP universe restriction | Restricts the retained reference-panel SNP universe; defaults to omitted/`None`, so no additional restriction is applied. |
@@ -160,7 +182,7 @@ LD-score output schema:
 | `--liftover-chain-hg38-to-hg19-file` | input | no | liftover chain file | Enables hg19 outputs for hg38 source builds; defaults to omitted/`None`, so those target-build outputs are not emitted. |
 | `--ref-panel-snps-file` | input | no | retained SNP universe restriction | Restricts the emitted reference-panel SNP universe; defaults to omitted/`None`, so no retained SNP restriction is applied. |
 | `--use-hm3-snps` | input mode | no | packaged HM3 SNP restriction | Restricts the emitted reference-panel SNP universe to the packaged curated HM3 map. Mutually exclusive with `--ref-panel-snps-file`. |
-| `--use-hm3-quick-liftover` | input mode | no | packaged HM3 coordinate map | Emits source and opposite-build R2/metadata for the HM3-restricted coordinate universe. Requires `--use-hm3-snps`, is valid only in `chr_pos` mode, and is mutually exclusive with chain-file liftover. |
+| `--use-hm3-quick-liftover` | input mode | no | packaged HM3 coordinate map | Emits source and opposite-build R2/metadata for the HM3-restricted coordinate universe. Requires `--use-hm3-snps`, is valid only in `chr_pos`-family modes, and is mutually exclusive with chain-file liftover. |
 | `--snp-identifier` | input metadata | conditional | global SNP identifier mode | Overrides the registered SNP identifier mode for this invocation; defaults to omitted/`None`, so `GlobalConfig.snp_identifier` is used. |
 | `--keep-indivs-file` | input | no | PLINK individual keep file | Restricts PLINK individuals during panel building; defaults to omitted/`None`, so no individual keep filter is applied. |
 | `--maf-min` | input metadata | no | retained SNP MAF filter | Filters retained SNPs by MAF during PLINK loading; defaults to omitted/`None`, so no retained-SNP MAF filter is applied. |
@@ -197,7 +219,7 @@ is provided, it emits both source and target build R2/metadata trees. HM3 quick
 liftover emits the same source and target tree shapes for the HM3-restricted
 coordinate universe, backed by the packaged map rather than a chain file.
 Reference-panel liftover is rejected when the active SNP identifier mode is
-`rsid`; use `chr_pos` mode for cross-build coordinate emission or omit liftover
+`rsid`-family modes; use a `chr_pos`-family mode for cross-build coordinate emission or omit liftover
 for source-build-only rsID panels.
 
 When SNP- or kb-window builds omit a genetic map for an emitted build, that
@@ -221,11 +243,11 @@ liftover/coordinate configuration, or chromosome scope.
 | `--output-dir` | output | yes, except `--infer-only` | munged output directory | The workflow writes fixed `sumstats.*` artifacts under this directory and passes `<output_dir>/sumstats` as the kernel output stem. |
 | `--output-format` | output mode | no | curated sumstats format | One of `parquet`, `tsv.gz`, or `both`; defaults to `parquet`. |
 | `--chr`, `--pos` | input metadata | no | raw column hints | Identify raw chromosome and position columns; default to omitted/`None`, so common aliases such as `#CHROM`, `CHROM`, `CHR`, `POS`, and `BP` are inferred. |
-| `--target-genome-build` | input metadata | no | optional liftover target build | Enables source-to-target coordinate liftover when paired with exactly one liftover method; valid only in `chr_pos` mode and never rewrites `SNP`. |
+| `--target-genome-build` | input metadata | no | optional liftover target build | Enables source-to-target coordinate liftover when paired with exactly one liftover method; valid only in `chr_pos`-family modes and never rewrites `SNP`. |
 | `--liftover-chain-file` | input | no | optional munger liftover chain | Uses a source-to-target chain file for coordinate-only sumstats liftover. Mutually exclusive with `--use-hm3-quick-liftover`. |
 | `--use-hm3-quick-liftover` | input mode | no | packaged HM3 coordinate map | Uses the curated dual-build HM3 map for HM3-only quick liftover. Requires `--use-hm3-snps` and is mutually exclusive with `--liftover-chain-file`. |
 | `--daner-old`, `--daner-new` | input metadata | no | DANER schema interpretation | `--daner-old` parses case/control N from `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` headers; `--daner-new` parses exact `Nca` and `Nco` columns. |
-| `--snp-identifier`, `--genome-build` | config | no | provenance | `--snp-identifier` defaults to `chr_pos`; `--genome-build` defaults to `hg38`; `--genome-build auto` can infer hg19/hg38 for complete `CHR`/`POS` rows. |
+| `--snp-identifier`, `--genome-build` | config | no | provenance | `--snp-identifier` defaults to `chr_pos_allele_aware`; `--genome-build` defaults to `hg38`; `--genome-build auto` can infer hg19/hg38 for complete `CHR`/`POS` rows. Allele-aware modes require usable `A1/A2`; rerun with `--snp-identifier chr_pos` to disable allele-aware identity for coordinate workflows. |
 | `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger records in console and `sumstats.log`; lifecycle audit lines always appear in the file. |
 | `--overwrite` | output mode | no | collision policy | Controls whether fixed sumstats outputs may be replaced; defaults to `False`, so any owned `sumstats.*` artifact is refused. With overwrite, stale sibling formats not produced by the current `--output-format` are removed after a successful run. |
 
@@ -392,7 +414,7 @@ Removed Python names: `plink_path`, `bfile`, `out`, `panel_label`,
 | `MungeConfig` | `daner_old`, `daner_new` | input metadata | optional DANER schema interpretation switches |
 | `MungeConfig` | `sumstats_snps_file` | input | summary-statistics SNP keep-list |
 | `MungeConfig` | `use_hm3_snps` | input mode | packaged HM3 summary-statistics SNP restriction |
-| `MungeConfig` | `target_genome_build` | input metadata | optional target build for `chr_pos` output coordinates |
+| `MungeConfig` | `target_genome_build` | input metadata | optional target build for `chr_pos`-family output coordinates |
 | `MungeConfig` | `liftover_chain_file` | input | optional source-to-target chain file for munger liftover |
 | `MungeConfig` | `use_hm3_quick_liftover` | input mode | use packaged curated HM3 dual-build map for coordinate-only liftover |
 | `MungeConfig` | `output_dir` | output | munged output directory; `SumstatsMunger.run()` writes `sumstats.log` |
@@ -432,8 +454,8 @@ labels as explicit override, then sidecar `trait_name`, then filename fallback.
 Liftover reports, coordinate provenance, selected curated output files, and
 Parquet row groups are log provenance, not metadata sidecar payload.
 Regression therefore merges on literal `SNP` in `rsid` mode and on normalized
-`CHR:POS` coordinates in `chr_pos` mode. Munger liftover is valid only in
-`chr_pos` mode; it changes `CHR`/`POS`, never `SNP`, and runs after
+`CHR:POS` coordinates in `chr_pos`-family modes. Munger liftover is valid only in
+`chr_pos`-family modes; it changes `CHR`/`POS`, never `SNP`, and runs after
 `sumstats_snps_file` filtering. Liftover drop counts are written as readable log
 records, examples appear only at `DEBUG`, and row-level dropped-SNP details are
 written to `dropped_snps/dropped.tsv.gz`. The metadata sidecar remains

@@ -42,7 +42,7 @@ from ldsc import (
 )
 
 GLOBAL_CONFIG = GlobalConfig(
-    snp_identifier="rsid",
+    snp_identifier="chr_pos_allele_aware",
     genome_build="hg38",
 )
 set_global_config(GLOBAL_CONFIG)
@@ -109,9 +109,11 @@ their known `GlobalConfig` snapshots are checked against the LD-score snapshot
 before regression. Current disk artifacts recover that snapshot from
 `sumstats.metadata.json`; older `.sumstats.gz` files without the sidecar have
 unknown provenance and skip sumstats-side compatibility validation rather than
-fabricating a snapshot. In `chr_pos` mode, both trait tables and the LD-score
-table merge by normalized `CHR:POS` coordinates, and `SNP` is treated as a
-label. The munger defaults to `--format auto`, and `--infer-only` can report
+fabricating a snapshot. In `chr_pos_allele_aware` mode, both trait tables and
+the LD-score table merge by normalized `CHR:POS:<allele_set>` identity, and
+`SNP` is treated as a label. To run coordinate identity without allele-aware
+matching, set `snp_identifier="chr_pos"` or pass `--snp-identifier chr_pos`.
+The munger defaults to `--format auto`, and `--infer-only` can report
 missing fields or exact repair flags without writing outputs. `A1` is the
 allele that the signed statistic is relative to; `A2` is its counterpart.
 `NEFF` is not inferred as total `N` automatically. Optional munger liftover is valid only in `chr_pos` mode; use

@@ -2,21 +2,22 @@
 identifiers.py
 
 Core functionality:
-    Normalize SNP identifier conventions and load user-supplied restriction
-    lists in either ``rsid`` or ``chr_pos`` mode.
+    Parse user-supplied SNP restriction lists and delegate active identity
+    semantics to ``snp_identity``.
 
 Overview
 --------
-This module keeps all identifier-mode normalization in one place so the
-annotation, LD-score, and regression layers can share the same SNP matching
-rules. It is intentionally small and stateless: callers pass tables or file
-paths in, and receive normalized identifier series or restriction sets back.
+This module owns low-level restriction-file parsing, delimiter handling, and
+header resolution. Exact SNP identity policy lives in
+``ldsc._kernel.snp_identity``: four public modes, base/effective keys,
+allele-aware cleanup, and restriction key collapse semantics. Callers pass
+tables or file paths in, and receive normalized identifier series or
+restriction sets back.
 
 Key Functions
 -------------
 normalize_snp_identifier_mode :
-    Collapse flexible user input such as ``rsid`` or ``snp_id`` into one
-    internal identifier mode.
+    Validate one exact public SNP identifier mode.
 build_snp_id_series :
     Construct the canonical SNP identifier series for a metadata table.
 read_global_snp_restriction :
@@ -29,6 +30,8 @@ Design Notes
 ------------
 - Header inference is intentionally permissive to preserve legacy behavior for
   user-provided files with inconsistent capitalization or separators.
+- Public ``snp_identifier`` mode values are exact; header aliases do not create
+  mode aliases.
 - Public and metadata-facing ``chr_pos`` identifiers remain normalized
   ``CHR:POS`` strings. Memory-sensitive kernels can instead use packed uint64
   CHR/POS keys that carry the same normalized coordinate identity.
@@ -104,9 +107,10 @@ def build_snp_id_series(df: pd.DataFrame, mode: str) -> pd.Series:
     df : pandas.DataFrame
         Table containing either an inferred SNP column or inferred chromosome
         and base-pair columns.
-    mode : str
-        SNP identifier mode. Flexible user spellings are accepted and
-        normalized internally.
+    mode : {"rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"}
+        Exact SNP identifier mode. Base modes use only the base key; allele-aware
+        modes require usable ``A1/A2`` and build effective keys with the
+        normalized allele set.
 
     Returns
     -------

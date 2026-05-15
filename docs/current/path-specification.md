@@ -300,8 +300,9 @@ Accepted path forms:
 - `plink_prefix`: exact PLINK prefix, exact-one PLINK glob, or explicit `@` PLINK suite token
 - map and chain inputs, when provided: exact path or exact-one glob
 - `ref_panel_snps_file`, when provided: scalar file-like token interpreted
-  using `GlobalConfig.snp_identifier`; `chr_pos` coordinates must be aligned to
-  the PLINK source build
+  using `GlobalConfig.snp_identifier`; restriction files may omit alleles and
+  then match by base key; `chr_pos`-family coordinates must be aligned to the
+  PLINK source build
 - `use_hm3_snps`, when set: uses the packaged curated HM3 map instead of an
   explicit `ref_panel_snps_file`
 
@@ -310,17 +311,17 @@ How they are handled:
 - `plink_prefix` is resolved at the PLINK prefix level, not at the individual `.bed/.bim/.fam` file level
 - a chromosome suite such as `panel_chr@` is expanded one chromosome at a time
 - liftover chains are optional; the matching source-to-target chain enables
-  cross-build R2 and metadata outputs in `chr_pos` mode, while no matching
+  cross-build R2 and metadata outputs in `chr_pos`-family modes, while no matching
   chain produces source-build-only outputs; `use_hm3_quick_liftover` also emits
   the opposite build for the HM3-restricted coordinate universe and requires
-  `use_hm3_snps`; all reference-panel liftover is rejected in `rsid` mode
+  `use_hm3_snps`; all reference-panel liftover is rejected in `rsid`-family modes
 - genetic maps are required for every emitted build when `--ld-wind-cm` is set;
   SNP- and kb-window builds may omit maps and write emitted metadata `CM` as
   `NA`
 - `snp_identifier` for SNP restrictions comes from `GlobalConfig`; the CLI flag
   constructs a one-invocation identifier config, and the Python wrapper reads
   the registered config
-- `build-ref-panel` ignores `GlobalConfig.genome_build`; in `chr_pos` mode, the
+- `build-ref-panel` ignores `GlobalConfig.genome_build`; in `chr_pos`-family modes, the
   restriction file must provide source-build coordinates, either through a
   source-specific column such as `hg19_POS` or through generic `POS` that
   infers to the source PLINK build

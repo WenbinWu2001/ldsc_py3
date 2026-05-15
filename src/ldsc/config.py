@@ -100,8 +100,10 @@ class GlobalConfig:
     ----------
     snp_identifier : {"rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"}, optional
         Global SNP identifier mode. Default is ``"chr_pos_allele_aware"``.
-        ``"rsid"`` modes expect an explicit SNP column, while ``"chr_pos"``
-        modes build identifiers from chromosome and base-pair position.
+        Mode names are exact. ``"rsid"`` and ``"chr_pos"`` are allele-blind
+        base modes; allele columns are passive for identity. The allele-aware
+        variants require usable ``A1/A2`` on package-written identity artifacts
+        and add a normalized allele set to the merge key.
     genome_build : {"auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"} or None, optional
         Genome-build context for ``chr_pos`` workflows that require
         coordinate-build interpretation. Default is ``"auto"``. Ignored for
@@ -447,7 +449,8 @@ class ReferencePanelBuildConfig:
     ref_panel_snps_file : str or os.PathLike[str] or None, optional
         Optional SNP list restricting the emitted reference-panel universe.
         Default is ``None``. The identifier mode comes from
-        ``GlobalConfig.snp_identifier``. In ``chr_pos`` mode, the restriction
+        ``GlobalConfig.snp_identifier``. Restriction files may omit alleles and
+        then match by base key. In ``chr_pos``-family modes, the restriction
         file must be aligned to the resolved source reference-panel build; the
         builder never uses ``GlobalConfig.genome_build``.
     use_hm3_snps : bool, optional
@@ -582,11 +585,12 @@ class MungeConfig:
     sumstats_snps_file : str or os.PathLike[str] or None, optional
         Optional headered summary-statistics SNP keep-list path. In ``rsid``
         mode, central ``SNP`` aliases identify the keep-list column. In
-        ``chr_pos`` mode, central ``CHR``/``POS`` aliases, including
+        ``chr_pos``-family modes, central ``CHR``/``POS`` aliases, including
         build-specific position aliases such as ``hg19_POS`` and ``hg38_POS``,
-        define retained coordinates. This option restricts rows only; it does
-        not allele-match, rewrite alleles, or reorder output. Default is
-        ``None``.
+        define retained coordinates. Restriction files may omit alleles even in
+        allele-aware modes; allele-free restrictions match by base key before
+        later artifact cleanup. This option restricts rows only; it does not
+        rewrite alleles or reorder output. Default is ``None``.
     use_hm3_snps : bool, optional
         If ``True``, restrict summary-statistics rows to the packaged curated
         HM3 SNP map. Mutually exclusive with ``sumstats_snps_file``. Default is
@@ -721,8 +725,10 @@ class RegressionConfig:
     samp_prev, pop_prev : float, list of float, or None, optional
         Liability-scale prevalence inputs. Defaults are ``None``.
     allow_identity_downgrade : bool, optional
-        If True, same-family allele-aware/base regression inputs may run under the
-        base identity mode. Cross-family mixes remain rejected. Default is False.
+        If ``True``, same-family allele-aware/base regression inputs may run
+        under the base identity mode. Cross-family mixes remain rejected.
+        Original modes and dropped duplicate counts are logged by regression
+        workflows, not persisted in detail metadata. Default is ``False``.
     """
     n_blocks: int = 200
     use_common_counts: bool = True

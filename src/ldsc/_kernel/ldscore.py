@@ -968,7 +968,7 @@ def validate_retained_identifier_uniqueness(metadata: pd.DataFrame, identifier_m
         if duplicated.any():
             raise ValueError(
                 f"Chromosome {chrom} has duplicate retained SNP positions. "
-                "This is ambiguous in chr_pos mode."
+                "This is ambiguous in base chr_pos mode."
             )
         return
 
@@ -976,7 +976,7 @@ def validate_retained_identifier_uniqueness(metadata: pd.DataFrame, identifier_m
     if duplicated.any():
         raise ValueError(
             f"Chromosome {chrom} has duplicate retained SNP IDs. "
-            "This is ambiguous in rsid mode."
+            "This is ambiguous in base rsid mode."
         )
 
 
@@ -1195,11 +1195,11 @@ def parse_frequency_metadata(path: str, chrom: str | None, identifier_mode: str)
     key_frame = pd.DataFrame(index=df.index)
     if identity_mode_family(identifier_mode) == "rsid":
         if snp_col is None:
-            raise ValueError(f"{path} must contain a SNP column in rsid mode.")
+            raise ValueError(f"{path} must contain a SNP column in rsID-family modes.")
         key_frame["SNP"] = df[snp_col].astype(str)
     else:
         if chr_col is None or pos_col is None:
-            raise ValueError(f"{path} must contain CHR and POS columns in chr_pos mode.")
+            raise ValueError(f"{path} must contain CHR and POS columns in chr_pos-family modes.")
         key_frame["CHR"] = df[chr_col]
         key_frame["POS"] = df[pos_col]
     has_alleles = a1_col is not None and a2_col is not None

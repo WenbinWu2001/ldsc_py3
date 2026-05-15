@@ -179,8 +179,8 @@ def validate_unique_snp_ids(df: pd.DataFrame, mode: str, context: str = "table")
             message += f". Colliding rows: {details}"
         if mode == "chr_pos":
             message += (
-                ". chr_pos mode requires one variant per chromosome/position; "
-                "use rsid mode or prune duplicate-coordinate variants before building or running the reference panel."
+                ". Base chr_pos mode requires one variant per chromosome/position; "
+                "use base rsid mode or prune duplicate-coordinate variants before building or running the reference panel."
             )
         raise ValueError(message)
 

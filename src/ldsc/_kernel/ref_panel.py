@@ -49,7 +49,7 @@ _REF_PANEL_R2_RE = re.compile(r"^chr(?P<chrom>.+)_r2\.parquet$", flags=re.IGNORE
 
 
 def _snp_id_series_for_matching(metadata: pd.DataFrame, snp_identifier: str, *, context: str) -> pd.Series:
-    """Build SNP IDs for a match boundary, dropping missing CHR/POS in chr_pos mode."""
+    """Build SNP IDs for a match boundary, dropping missing CHR/POS in base coordinate mode."""
     mode = normalize_snp_identifier_mode(snp_identifier)
     if identity_mode_family(mode) == "rsid" or is_allele_aware_mode(mode):
         return build_snp_id_series(metadata, mode)
@@ -897,9 +897,9 @@ def _read_metadata_table(path: str | Path, chrom: str | None, global_config: Glo
 
     family = identity_mode_family(snp_identifier)
     if family == "rsid" and snp_col is None:
-        raise ValueError(f"{path} must contain a SNP column in rsid mode.")
+        raise ValueError(f"{path} must contain a SNP column in rsID-family modes.")
     if family == "chr_pos" and (chr_col is None or pos_col is None):
-        raise ValueError(f"{path} must contain CHR and POS columns in chr_pos mode.")
+        raise ValueError(f"{path} must contain CHR and POS columns in chr_pos-family modes.")
 
     out = pd.DataFrame(index=df.index)
     if chr_col is not None:

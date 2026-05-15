@@ -741,13 +741,13 @@ class RegressionWorkflowTest(unittest.TestCase):
         sumstats = self.make_sumstats_table_from_frame(
             pd.DataFrame(
                 {
-                    "CHR": ["1", "1", "1"],
-                    "SNP": ["rs1", "rs2", "rs3"],
-                    "POS": [10, 20, 30],
-                    "A1": ["A", "C", "A"],
-                    "A2": ["C", "A", "C"],
-                    "Z": [2.0, 3.0, 4.0],
-                    "N": [1000.0, 1000.0, 1000.0],
+                    "CHR": ["1", "1", "1", "1"],
+                    "SNP": ["rs1", "rs2", "rs3", "rs4"],
+                    "POS": [10, 20, 30, 40],
+                    "A1": ["A", "C", "A", "C"],
+                    "A2": ["C", "A", "C", "A"],
+                    "Z": [2.0, 3.0, 4.0, 5.0],
+                    "N": [1000.0, 1000.0, 1000.0, 1000.0],
                 }
             ),
             snp_identifier="rsid_allele_aware",
@@ -755,23 +755,40 @@ class RegressionWorkflowTest(unittest.TestCase):
         ldscore_result = self.make_ldscore_result_from_frame(
             pd.DataFrame(
                 {
-                    "CHR": ["1", "1", "1"],
-                    "SNP": ["rs1", "rs2", "rs3"],
-                    "POS": [10, 20, 30],
-                    "A1": ["A", "A", "T"],
-                    "A2": ["C", "C", "G"],
-                    "regression_ld_scores": [2.0, 2.0, 2.0],
-                    "base": [1.0, 2.0, 3.0],
+                    "CHR": ["1", "1", "1", "1"],
+                    "SNP": ["rs1", "rs2", "rs3", "rs4"],
+                    "POS": [10, 20, 30, 40],
+                    "A1": ["A", "A", "T", "T"],
+                    "A2": ["C", "C", "G", "G"],
+                    "regression_ld_scores": [2.0, 2.0, 2.0, 2.0],
+                    "base": [1.0, 2.0, 3.0, 4.0],
                 }
             ),
             snp_identifier="rsid_allele_aware",
         )
 
-        with self.assertLogs("LDSC.regression_runner", level="WARNING") as caught:
-            dataset = runner.build_dataset(sumstats, ldscore_result)
+        dataset = runner.build_dataset(sumstats, ldscore_result)
 
-        self.assertEqual(dataset.merged["SNP"].tolist(), ["rs1", "rs2"])
-        np.testing.assert_allclose(dataset.merged["Z"], [2.0, -3.0])
+        self.assertEqual(dataset.merged["SNP"].tolist(), ["rs1", "rs2", "rs3", "rs4"])
+        np.testing.assert_allclose(dataset.merged["Z"], [2.0, -3.0, 4.0, -5.0])
+
+    def test_h2_allele_orientation_drops_only_truly_incompatible_pairs(self):
+        merged = pd.DataFrame(
+            {
+                "SNP": ["same", "complement_same", "literal_reversed", "complement_reversed", "bad"],
+                "A1": ["A", "A", "C", "C", "A"],
+                "A2": ["C", "C", "A", "A", "C"],
+                "A1_ld": ["A", "T", "A", "T", "A"],
+                "A2_ld": ["C", "G", "C", "G", "G"],
+                "Z": [1.0, 2.0, 3.0, 4.0, 5.0],
+            }
+        )
+
+        with self.assertLogs("LDSC.regression_runner", level="WARNING") as caught:
+            oriented = regression_runner._orient_sumstats_z_to_reference_alleles(merged)
+
+        self.assertEqual(oriented["SNP"].tolist(), ["same", "complement_same", "literal_reversed", "complement_reversed"])
+        np.testing.assert_allclose(oriented["Z"], [1.0, 2.0, -3.0, -4.0])
         self.assertIn("Dropping 1 SNPs with incompatible sumstats and LD-score allele order", "\n".join(caught.output))
 
     def test_build_dataset_empty_merge_error_includes_active_config(self):

@@ -972,16 +972,16 @@ def _orient_sumstats_z_to_reference_alleles(merged: pd.DataFrame) -> pd.DataFram
     sumstats_a2 = merged["A2"].astype("string").str.upper()
     ld_a1 = merged["A1_ld"].astype("string").str.upper()
     ld_a2 = merged["A2_ld"].astype("string").str.upper()
-    same = (sumstats_a1 == ld_a1) & (sumstats_a2 == ld_a2)
-    flipped = (sumstats_a1 == ld_a2) & (sumstats_a2 == ld_a1)
-    incompatible = ~(same | flipped)
+    allele_pairs = sumstats_a1 + sumstats_a2 + ld_a1 + ld_a2
+    compatible = allele_pairs.isin(reg.MATCH_ALLELES)
+    incompatible = ~compatible
     if bool(incompatible.any()):
         LOGGER.warning(
             "Dropping %d SNPs with incompatible sumstats and LD-score allele order.",
             int(incompatible.sum()),
         )
     oriented = merged.loc[~incompatible].copy()
-    flip_index = flipped.loc[~incompatible]
+    flip_index = allele_pairs.loc[~incompatible].map(reg.FLIP_ALLELES).astype(bool)
     oriented.loc[flip_index.index[flip_index], "Z"] *= -1
     return oriented.reset_index(drop=True)
 

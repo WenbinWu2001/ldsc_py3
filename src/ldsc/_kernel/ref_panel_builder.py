@@ -25,7 +25,14 @@ from ..column_inference import (
 )
 from ..errors import LDSCDependencyError
 from .liftover import LiftOverMappingResult, LiftOverTranslator
-from .snp_identity import RestrictionIdentityKeys, identity_artifact_metadata, identity_mode_family, restriction_membership_mask
+from .snp_identity import (
+    RestrictionIdentityKeys,
+    allele_set_series,
+    base_key_series,
+    identity_artifact_metadata,
+    identity_mode_family,
+    restriction_membership_mask,
+)
 
 LOGGER = logging.getLogger("LDSC.ref_panel_builder.kernel")
 
@@ -736,6 +743,13 @@ def build_restriction_mask(
     """Build the retained-SNP boolean mask for one restriction universe."""
 
     if isinstance(restriction_values, RestrictionIdentityKeys):
+        if restriction_values.match_kind == "identity":
+            return _build_allele_aware_restriction_mask(
+                metadata,
+                restriction_values,
+                mode,
+                context="reference-panel SNP restriction matching",
+            ).to_numpy(dtype=bool)
         return restriction_membership_mask(
             metadata,
             restriction_values,
@@ -754,3 +768,36 @@ def build_restriction_mask(
     keep = pd.Series(False, index=metadata.index)
     keep.loc[keyed.index] = keyed[CHR_POS_KEY_COLUMN].isin(restriction_values).to_numpy(dtype=bool)
     return keep.to_numpy(dtype=bool)
+
+
+def _build_allele_aware_restriction_mask(
+    metadata: pd.DataFrame,
+    restriction: RestrictionIdentityKeys,
+    mode: str,
+    *,
+    context: str,
+) -> pd.Series:
+    """Match allele-aware restrictions without validating unrelated alleles."""
+    base = base_key_series(metadata, mode, context=context)
+    restricted_bases = _restriction_base_keys(restriction.keys)
+    base_match = base.isin(restricted_bases)
+    keep = pd.Series(False, index=metadata.index, dtype=bool)
+    if not bool(base_match.any()):
+        return keep
+
+    allele_set, reasons = allele_set_series(metadata.loc[base_match], context=context)
+    candidate_keys = pd.Series(pd.NA, index=allele_set.index, dtype=object)
+    valid = base.loc[base_match].notna() & allele_set.notna()
+    candidate_keys.loc[valid] = base.loc[base_match].loc[valid].astype(str) + ":" + allele_set.loc[valid].astype(str)
+    keep.loc[base_match] = (candidate_keys.isin(restriction.keys) | reasons.notna()).to_numpy(dtype=bool)
+    return keep
+
+
+def _restriction_base_keys(keys: set[str]) -> set[str]:
+    """Extract allele-blind base keys from allele-aware identity keys."""
+    base_keys: set[str] = set()
+    for key in keys:
+        parts = str(key).rsplit(":", 2)
+        if len(parts) == 3:
+            base_keys.add(parts[0])
+    return base_keys

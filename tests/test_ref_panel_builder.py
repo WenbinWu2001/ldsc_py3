@@ -2355,6 +2355,124 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
 
         self.assertEqual(mask.tolist(), [True, False, True])
 
+    def test_allele_aware_restriction_filters_unrelated_invalid_panel_alleles_before_cleanup(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            prefix = self._write_plink_prefix_rows(
+                tmpdir,
+                "panel.1",
+                [
+                    ("1", "rs_valid", 100, "A", "C"),
+                    ("1", "rs_invalid_unrelated", 200, "A", "N"),
+                ],
+            )
+            restriction = RestrictionIdentityKeys(
+                keys={"1:100:A:C"},
+                match_kind="identity",
+                dropped=empty_identity_drop_frame(),
+                n_input_rows=1,
+                n_retained_keys=1,
+            )
+            config = ReferencePanelBuildConfig(
+                plink_prefix=tmpdir / "panel.@",
+                source_genome_build="hg19",
+                output_dir=tmpdir / "out",
+                ld_wind_kb=1.0,
+            )
+            build_state = ref_panel_builder._BuildState(
+                genetic_map_hg19=None,
+                genetic_map_hg38=None,
+                liftover_chain_paths={},
+                restriction_mode="chr_pos_allele_aware",
+                restriction_values=restriction.keys,
+                restriction_keys=restriction,
+            )
+            builder = ref_panel_builder.ReferencePanelBuilder(
+                global_config=GlobalConfig(snp_identifier="chr_pos_allele_aware")
+            )
+            captured = {}
+
+            def stop_after_cleanup(*, keep_snps, **_kwargs):
+                captured["keep_snps"] = list(map(int, keep_snps))
+                raise RuntimeError("stop after cleanup")
+
+            with mock.patch.object(builder, "_resolve_mappable_snp_positions", side_effect=stop_after_cleanup):
+                with self.assertRaisesRegex(RuntimeError, "stop after cleanup"):
+                    builder._build_chromosome(str(prefix), "1", config, build_state)
+
+        self.assertEqual(captured["keep_snps"], [0])
+
+    def test_allele_aware_restriction_selected_invalid_panel_allele_reaches_cleanup_sidecar(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            prefix = self._write_plink_prefix_rows(
+                tmpdir,
+                "panel.1",
+                [
+                    ("1", "rs_valid", 100, "A", "C"),
+                    ("1", "rs_bad", 200, "A", "N"),
+                ],
+            )
+            restriction = RestrictionIdentityKeys(
+                keys={"1:100:A:C", "1:200:A:C"},
+                match_kind="identity",
+                dropped=empty_identity_drop_frame(),
+                n_input_rows=2,
+                n_retained_keys=2,
+            )
+            config = ReferencePanelBuildConfig(
+                plink_prefix=tmpdir / "panel.@",
+                source_genome_build="hg19",
+                output_dir=tmpdir / "out",
+                ld_wind_kb=1.0,
+            )
+            build_state = ref_panel_builder._BuildState(
+                genetic_map_hg19=None,
+                genetic_map_hg38=None,
+                liftover_chain_paths={},
+                restriction_mode="chr_pos_allele_aware",
+                restriction_values=restriction.keys,
+                restriction_keys=restriction,
+            )
+            builder = ref_panel_builder.ReferencePanelBuilder(
+                global_config=GlobalConfig(snp_identifier="chr_pos_allele_aware")
+            )
+
+            def fake_resolve(*, chrom_df, keep_snps, **_kwargs):
+                keep = np.asarray(keep_snps, dtype=int)
+                return (
+                    keep,
+                    {int(idx): int(chrom_df.loc[idx, "BP"]) for idx in keep},
+                    {},
+                    ref_panel_builder._empty_unified_drop_frame(),
+                )
+
+            with mock.patch.object(
+                builder,
+                "_resolve_mappable_snp_positions",
+                side_effect=fake_resolve,
+            ), mock.patch(
+                "ldsc.ref_panel_builder.kernel_builder.write_r2_parquet"
+            ), mock.patch(
+                "ldsc.ref_panel_builder.kernel_builder.write_runtime_metadata_sidecar"
+            ), mock.patch(
+                "ldsc.ref_panel_builder.kernel_ldscore.PlinkBEDFile"
+            ) as mock_bed:
+                mock_bed.return_value.kept_snps = [0]
+                mock_bed.return_value.maf = np.array([0.3])
+                mock_bed.return_value.m = 1
+                mock_bed.return_value.n = 1
+                mock_bed.return_value.nextSNPs = lambda: iter([np.zeros((1, 1))])
+
+                result = builder._build_chromosome(str(prefix), "1", config, build_state)
+
+            dropped = self._read_dropped_sidecar(tmpdir / "out" / "dropped_snps" / "chr1_dropped.tsv.gz")
+            self.assertIsNotNone(result)
+            self.assertEqual(dropped["SNP"].tolist(), ["rs_bad"])
+            self.assertEqual(dropped["reason"].tolist(), ["invalid_allele"])
+            self.assertEqual(dropped["stage"].tolist(), ["ref_panel_source_identity_cleanup"])
+            self.assertEqual(mock_bed.call_args.kwargs["keep_snps"], [0])
+
     def test_base_chr_pos_restriction_ignores_single_allele_like_column(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "restrict.tsv"

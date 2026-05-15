@@ -39,6 +39,7 @@ from .identifiers import (
 )
 from .snp_identity import (
     REGENERATE_ARTIFACT_MESSAGE,
+    clean_identity_artifact_table,
     identity_mode_family,
     is_allele_aware_mode,
     restriction_membership_mask,
@@ -463,8 +464,10 @@ class ParquetR2RefPanel(RefPanel):
 
         r2_paths = self.resolve_r2_paths(chrom)
         metadata_paths = self.resolve_metadata_paths(chrom)
+        metadata_is_external = False
         if metadata_paths:
             require_identity_metadata = any(_r2_path_has_ldsc_package_schema(path) for path in r2_paths)
+            metadata_is_external = not all(_read_metadata_sidecar_identity(path) is not None for path in metadata_paths)
             frames = [
                 _read_metadata_table(
                     path,
@@ -496,6 +499,17 @@ class ParquetR2RefPanel(RefPanel):
                 raise ValueError(f"No parquet R2 endpoint metadata rows found for chromosome {chrom}.")
         metadata = self._apply_snp_restriction(metadata)
         metadata = self._apply_maf_filter(metadata, chrom)
+        if metadata_is_external:
+            cleanup = clean_identity_artifact_table(
+                metadata,
+                self.global_config.snp_identifier,
+                context=f"external parquet reference-panel metadata chromosome {chrom}",
+                stage="parquet_metadata_identity_cleanup",
+                logger=LOGGER,
+            )
+            metadata = cleanup.cleaned
+            if len(metadata) == 0:
+                raise ValueError(f"No parquet metadata rows remain after SNP identity cleanup on chromosome {chrom}.")
         metadata = self._validate_metadata(metadata, chrom)
         self._metadata_cache[chrom] = metadata.copy()
         return metadata

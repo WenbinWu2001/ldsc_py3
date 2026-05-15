@@ -79,6 +79,22 @@ def _write_minimal_r2_parquet(path: Path, extra_meta: dict[bytes, bytes] | None 
     pq.write_table(table, str(path))
 
 
+def _write_legacy_r2_parquet(path: Path) -> None:
+    """Write a zero-row parquet table without LDSC schema metadata."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    table = pa.table(
+        {
+            "POS_1": pa.array([], type=pa.int64()),
+            "POS_2": pa.array([], type=pa.int64()),
+            "R2": pa.array([], type=pa.float32()),
+        }
+    )
+    pq.write_table(table, str(path))
+
+
 class R2SchemaMetaReaderTest(unittest.TestCase):
     """Tests for R2 parquet schema metadata reader and resolver helpers."""
 
@@ -281,6 +297,86 @@ class R2AutoLoadCLITest(unittest.TestCase):
 
         self.assertEqual(reader.r2_bias_mode, "raw")
         self.assertAlmostEqual(reader.r2_sample_size, 200.0)
+
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet schema coverage")
+    def test_external_parquet_metadata_drops_duplicate_identity_clusters(self):
+        from ldsc._kernel.ref_panel import ParquetR2RefPanel
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            _write_legacy_r2_parquet(root / "chr1_r2.parquet")
+            with gzip.open(root / "chr1_meta.tsv.gz", "wt", encoding="utf-8") as handle:
+                handle.write(
+                    "CHR\tPOS\tSNP\tCM\tMAF\n"
+                    "1\t10\trs1\t0.1\t0.2\n"
+                    "1\t10\trs2\t0.2\t0.3\n"
+                    "1\t20\trs3\t0.3\t0.4\n"
+                )
+            panel = ParquetR2RefPanel(
+                GlobalConfig(snp_identifier="chr_pos", genome_build="hg19"),
+                RefPanelConfig(backend="parquet_r2", r2_dir=str(root)),
+            )
+
+            with self.assertLogs("LDSC.ref_panel", level="WARNING"):
+                metadata = panel.load_metadata("1")
+
+        self.assertEqual(metadata["SNP"].tolist(), ["rs3"])
+        self.assertEqual(metadata["POS"].tolist(), [20])
+
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet schema coverage")
+    def test_external_parquet_metadata_raises_when_identity_cleanup_drops_all_rows(self):
+        from ldsc._kernel.ref_panel import ParquetR2RefPanel
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            _write_legacy_r2_parquet(root / "chr1_r2.parquet")
+            with gzip.open(root / "chr1_meta.tsv.gz", "wt", encoding="utf-8") as handle:
+                handle.write(
+                    "CHR\tPOS\tSNP\tCM\tMAF\n"
+                    "1\t10\trs1\t0.1\t0.2\n"
+                    "1\t10\trs2\t0.2\t0.3\n"
+                )
+            panel = ParquetR2RefPanel(
+                GlobalConfig(snp_identifier="chr_pos", genome_build="hg19"),
+                RefPanelConfig(backend="parquet_r2", r2_dir=str(root)),
+            )
+
+            with self.assertRaisesRegex(ValueError, "No parquet metadata rows remain after SNP identity cleanup"):
+                panel.load_metadata("1")
+
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet schema coverage")
+    def test_package_parquet_metadata_duplicates_remain_invariant_failures(self):
+        from ldsc._kernel.ref_panel import ParquetR2RefPanel
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            _write_minimal_r2_parquet(
+                root / "chr1_r2.parquet",
+                {
+                    b"ldsc:schema_version": b"1",
+                    b"ldsc:artifact_type": b"ref_panel_r2",
+                    b"ldsc:snp_identifier": b"chr_pos",
+                    b"ldsc:genome_build": b"hg19",
+                },
+            )
+            with gzip.open(root / "chr1_meta.tsv.gz", "wt", encoding="utf-8") as handle:
+                handle.write(
+                    "# ldsc:schema_version=1\n"
+                    "# ldsc:artifact_type=ref_panel_metadata\n"
+                    "# ldsc:snp_identifier=chr_pos\n"
+                    "# ldsc:genome_build=hg19\n"
+                    "CHR\tPOS\tSNP\tCM\tMAF\n"
+                    "1\t10\trs1\t0.1\t0.2\n"
+                    "1\t10\trs2\t0.2\t0.3\n"
+                    "1\t20\trs3\t0.3\t0.4\n"
+                )
+            panel = ParquetR2RefPanel(
+                GlobalConfig(snp_identifier="chr_pos", genome_build="hg19"),
+                RefPanelConfig(backend="parquet_r2", r2_dir=str(root)),
+            )
+
+            with self.assertRaisesRegex(ValueError, "non-unique SNP identifiers"):
+                panel.load_metadata("1")
 
 
 @unittest.skipIf(ldscore_workflow is None, "ldscore_workflow module is not available")

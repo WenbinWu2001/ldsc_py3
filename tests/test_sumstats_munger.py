@@ -792,6 +792,7 @@ class SumstatsMungerTest(unittest.TestCase):
                 has_alleles=False,
                 source_path="source.tsv",
                 trait_name="trait",
+                config_snapshot=GlobalConfig(snp_identifier="rsid"),
             )
 
             with self.assertRaisesRegex(FileExistsError, "overwrite"):

@@ -22,7 +22,7 @@ from ..column_inference import (
     resolve_optional_column,
     resolve_required_column,
 )
-from ..config import GlobalConfig, RefPanelConfig
+from ..config import GlobalConfig, RefPanelConfig, validate_config_compatibility
 from ..genome_build_inference import resolve_genome_build, validate_auto_genome_build_mode
 from ..hm3 import packaged_hm3_curated_map_path
 from ..path_resolution import resolve_plink_prefix, resolve_plink_prefix_group
@@ -127,12 +127,23 @@ def _r2_path_has_ldsc_package_schema(path: str) -> bool:
     package_keys = {
         b"ldsc:sorted_by_build",
         b"ldsc:row_group_size",
-        b"ldsc:n_samples",
-        b"ldsc:r2_bias",
         b"ldsc:schema_version",
         b"ldsc:artifact_type",
     }
     return any(key in raw for key in package_keys)
+
+
+def _validate_r2_identity_matches_config(metadata: dict[str, object], global_config: GlobalConfig) -> None:
+    """Reject package R2 artifacts built under different identity assumptions."""
+    artifact_config = GlobalConfig(
+        snp_identifier=str(metadata["snp_identifier"]),
+        genome_build=metadata.get("genome_build"),
+    )
+    validate_config_compatibility(
+        global_config,
+        artifact_config,
+        context="runtime config and parquet R2 artifact",
+    )
 
 
 def _resolve_r2_bias_from_meta(
@@ -486,7 +497,8 @@ class ParquetR2RefPanel(RefPanel):
 
         if paths:
             if _r2_path_has_ldsc_package_schema(paths[0]):
-                _read_identity_schema_meta(paths[0], expected_artifact_type="ref_panel_r2")
+                identity_metadata = _read_identity_schema_meta(paths[0], expected_artifact_type="ref_panel_r2")
+                _validate_r2_identity_matches_config(identity_metadata, self.global_config)
             stored = _read_r2_schema_meta(paths[0])
             effective_bias, effective_n = _resolve_r2_bias_from_meta(
                 effective_bias,

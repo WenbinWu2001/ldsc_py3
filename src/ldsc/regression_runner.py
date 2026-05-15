@@ -46,6 +46,7 @@ from scipy import stats
 
 from ._coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame
 from .config import (
+    ConfigMismatchError,
     GlobalConfig,
     RegressionConfig,
     get_global_config,
@@ -76,6 +77,7 @@ from .outputs import (
     RG_FULL_COLUMNS,
     RgDirectoryWriter,
     RgOutputConfig,
+    _validate_ldscore_allele_columns,
 )
 from .sumstats_munger import SumstatsTable, load_sumstats
 
@@ -1698,8 +1700,30 @@ def load_ldscore_from_dir(
     baseline_columns = [str(column) for column in manifest.get("baseline_columns", [])]
     query_columns = [str(column) for column in manifest.get("query_columns", [])]
     count_records = [dict(record) for record in manifest.get("counts", [])]
-    effective_identifier = snp_identifier or manifest.get("snp_identifier") or "chr_pos_allele_aware"
     config_snapshot = _global_config_from_manifest(manifest)
+    manifest_identifier = config_snapshot.snp_identifier if config_snapshot is not None else manifest.get("snp_identifier")
+    if snp_identifier is not None:
+        requested_identifier = normalize_snp_identifier_mode(snp_identifier)
+        if manifest_identifier is not None and requested_identifier != manifest_identifier:
+            raise ConfigMismatchError(
+                "snp_identifier mismatch when loading LD-score directory: "
+                f"override {requested_identifier!r} vs manifest {manifest_identifier!r}. "
+                "Use an LD-score artifact written for the requested SNP-identifier mode."
+            )
+        effective_identifier = requested_identifier
+    else:
+        effective_identifier = manifest_identifier or "chr_pos_allele_aware"
+    _validate_ldscore_allele_columns(
+        baseline_table,
+        table_name="baseline_table",
+        snp_identifier=effective_identifier,
+    )
+    if query_table is not None:
+        _validate_ldscore_allele_columns(
+            query_table,
+            table_name="query_table",
+            snp_identifier=effective_identifier,
+        )
     result = LDScoreResult(
         baseline_table=baseline_table,
         query_table=query_table,

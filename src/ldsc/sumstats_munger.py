@@ -572,18 +572,19 @@ class SumstatsMunger:
         Notes
         -----
         This helper follows the public workflow naming policy but does not
-        create ``sumstats.log`` because no raw munging kernel is run. When the
-        table has a config snapshot, a neighboring ``sumstats.metadata.json``
-        sidecar is written for downstream provenance recovery.
+        create ``sumstats.log`` because no raw munging kernel is run. A config
+        snapshot is required so the neighboring ``sumstats.metadata.json``
+        sidecar can be written for downstream provenance recovery.
         """
+        if sumstats.config_snapshot is None:
+            raise ValueError("SumstatsTable.config_snapshot is required to write current sumstats artifacts.")
         output_format = _normalize_output_format(output_format)
         output_root = ensure_output_directory(output_dir, label="output directory")
         fixed_output_stem = str(output_root / "sumstats")
         metadata_path = fixed_output_stem + ".metadata.json"
         output_files = _sumstats_output_files(fixed_output_stem, output_format)
         produced_paths = list(output_files.values())
-        if sumstats.config_snapshot is not None:
-            produced_paths.append(metadata_path)
+        produced_paths.append(metadata_path)
         stale_paths = preflight_output_artifact_family(
             produced_paths,
             [*_sumstats_output_files(fixed_output_stem, "both").values(), metadata_path],
@@ -595,12 +596,11 @@ class SumstatsMunger:
             output_files=output_files,
             output_format=output_format,
         )
-        if sumstats.config_snapshot is not None:
-            _write_sumstats_metadata(
-                metadata_path,
-                config_snapshot=sumstats.config_snapshot,
-                trait_name=sumstats.trait_name,
-            )
+        _write_sumstats_metadata(
+            metadata_path,
+            config_snapshot=sumstats.config_snapshot,
+            trait_name=sumstats.trait_name,
+        )
         remove_output_artifacts(stale_paths)
         return primary_sumstats_file
 

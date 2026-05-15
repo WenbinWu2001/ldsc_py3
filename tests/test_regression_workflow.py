@@ -215,6 +215,52 @@ class RegressionWorkflowTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Unsupported snp_identifier mode"):
                 load_ldscore_from_dir(str(tmpdir))
 
+    def test_load_ldscore_from_dir_rejects_allele_aware_baseline_without_alleles(self):
+        from ldsc import load_ldscore_from_dir
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            self.write_ldscore_dir(tmpdir, include_query=True)
+            pd.read_parquet(tmpdir / "baseline.parquet").drop(columns=["A1", "A2"]).to_parquet(
+                tmpdir / "baseline.parquet",
+                index=False,
+            )
+            manifest_path = tmpdir / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["snp_identifier"] = "rsid_allele_aware"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "baseline_table.*A1/A2"):
+                load_ldscore_from_dir(str(tmpdir))
+
+    def test_load_ldscore_from_dir_rejects_allele_aware_query_without_alleles(self):
+        from ldsc import load_ldscore_from_dir
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            self.write_ldscore_dir(tmpdir, include_query=True)
+            pd.read_parquet(tmpdir / "query.parquet").drop(columns=["A1", "A2"]).to_parquet(
+                tmpdir / "query.parquet",
+                index=False,
+            )
+            manifest_path = tmpdir / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["snp_identifier"] = "rsid_allele_aware"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "query_table.*A1/A2"):
+                load_ldscore_from_dir(str(tmpdir))
+
+    def test_load_ldscore_from_dir_rejects_snp_identifier_override_mismatch(self):
+        from ldsc import load_ldscore_from_dir
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            self.write_ldscore_dir(tmpdir, include_query=False)
+
+            with self.assertRaisesRegex(ConfigMismatchError, "snp_identifier mismatch"):
+                load_ldscore_from_dir(str(tmpdir), snp_identifier="chr_pos")
+
     def make_ldscore_result(self):
         baseline_table = pd.DataFrame(
             {

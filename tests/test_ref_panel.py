@@ -36,7 +36,14 @@ def _has_module(name: str) -> bool:
         return False
 
 
-def _write_canonical_r2_parquet(path: Path, chrom: str = "1", *, identity_metadata: bool = True) -> None:
+def _write_canonical_r2_parquet(
+    path: Path,
+    chrom: str = "1",
+    *,
+    identity_metadata: bool = True,
+    snp_identifier: str = "chr_pos",
+    genome_build: str = "hg38",
+) -> None:
     import pyarrow as pa
     import pyarrow.parquet as pq
 
@@ -52,17 +59,49 @@ def _write_canonical_r2_parquet(path: Path, chrom: str = "1", *, identity_metada
         }
     )
     table = pa.Table.from_pandas(frame, preserve_index=False)
-    metadata = {b"ldsc:sorted_by_build": b"hg38"}
+    metadata = {b"ldsc:sorted_by_build": genome_build.encode("utf-8")}
     if identity_metadata:
         metadata.update(
             {
                 b"ldsc:schema_version": b"1",
                 b"ldsc:artifact_type": b"ref_panel_r2",
-                b"ldsc:snp_identifier": b"chr_pos",
-                b"ldsc:genome_build": b"hg38",
+                b"ldsc:snp_identifier": snp_identifier.encode("utf-8"),
+                b"ldsc:genome_build": genome_build.encode("utf-8"),
             }
         )
     table = table.replace_schema_metadata(metadata)
+    pq.write_table(table, path)
+
+
+def _write_raw_r2_parquet_with_technical_metadata(path: Path, chrom: str = "1") -> None:
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    frame = pd.DataFrame(
+        {
+            "chr": [chrom],
+            "rsID_1": ["rs1"],
+            "rsID_2": ["rs2"],
+            "hg38_pos_1": [10],
+            "hg38_pos_2": [20],
+            "hg19_pos_1": [9],
+            "hg19_pos_2": [19],
+            "hg38_Uniq_ID_1": ["1:10"],
+            "hg38_Uniq_ID_2": ["1:20"],
+            "hg19_Uniq_ID_1": ["1:9"],
+            "hg19_Uniq_ID_2": ["1:19"],
+            "R2": [0.4],
+            "Dprime": [0.7],
+            "+/-corr": [1],
+        }
+    )
+    table = pa.Table.from_pandas(frame, preserve_index=False).replace_schema_metadata(
+        {
+            b"ldsc:n_samples": b"100",
+            b"ldsc:r2_bias": b"raw",
+        }
+    )
     pq.write_table(table, path)
 
 
@@ -271,6 +310,52 @@ class ParquetRefPanelTest(unittest.TestCase):
                 ValueError,
                 "This artifact was not written with the current LDSC schema/provenance contract",
             ):
+                panel.build_reader("1")
+
+    @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
+    def test_external_raw_r2_with_only_technical_metadata_bypasses_package_identity_validation(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            build_dir = Path(tmpdir) / "panel" / "hg38"
+            _write_raw_r2_parquet_with_technical_metadata(build_dir / "chr1_r2.parquet")
+            _write_meta_sidecar(build_dir / "chr1_meta.tsv.gz", "CHR\tPOS\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n1\t20\trs2\t0.2\t0.3\n")
+
+            panel = ParquetR2RefPanel(
+                GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
+            )
+
+            reader = panel.build_reader("1")
+
+            self.assertIsNotNone(reader)
+
+    @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
+    def test_package_canonical_r2_rejects_snp_identifier_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            build_dir = Path(tmpdir) / "panel" / "hg38"
+            _write_canonical_r2_parquet(build_dir / "chr1_r2.parquet", snp_identifier="chr_pos")
+            _write_meta_sidecar(build_dir / "chr1_meta.tsv.gz", "CHR\tPOS\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n")
+
+            panel = ParquetR2RefPanel(
+                GlobalConfig(snp_identifier="rsid"),
+                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
+            )
+
+            with self.assertRaisesRegex(ValueError, "snp_identifier mismatch"):
+                panel.build_reader("1")
+
+    @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
+    def test_package_canonical_r2_rejects_genome_build_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            build_dir = Path(tmpdir) / "panel" / "hg38"
+            _write_canonical_r2_parquet(build_dir / "chr1_r2.parquet", genome_build="hg38")
+            _write_meta_sidecar(build_dir / "chr1_meta.tsv.gz", "CHR\tPOS\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n")
+
+            panel = ParquetR2RefPanel(
+                GlobalConfig(snp_identifier="chr_pos", genome_build="hg19"),
+                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
+            )
+
+            with self.assertRaisesRegex(ValueError, "genome_build mismatch"):
                 panel.build_reader("1")
 
     @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")

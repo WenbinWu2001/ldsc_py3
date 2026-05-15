@@ -80,6 +80,18 @@ def make_split_ldscore_result(query: bool = True) -> LDScoreResult:
     )
 
 
+def make_allele_aware_ldscore_result(query: bool = True) -> LDScoreResult:
+    result = make_split_ldscore_result(query=query)
+    baseline = result.baseline_table.assign(A1=["A", "A"], A2=["C", "G"])
+    query_table = None if result.query_table is None else result.query_table.assign(A1=["A", "A"], A2=["C", "G"])
+    return dataclass_replace(
+        result,
+        baseline_table=baseline,
+        query_table=query_table,
+        config_snapshot=GlobalConfig(snp_identifier="rsid_allele_aware"),
+    )
+
+
 def make_multi_chrom_result(chromosomes: list[str] | None = None) -> LDScoreResult:
     """Three-chromosome result for row-group layout tests."""
     if chromosomes is None:
@@ -171,6 +183,40 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
             query = pd.read_parquet(output_dir / "ldscore.query.parquet")
             self.assertEqual(baseline.columns.tolist(), ["CHR", "SNP", "POS", "regression_ld_scores", "base"])
             self.assertEqual(query.columns.tolist(), ["CHR", "SNP", "POS", "query"])
+
+    def test_ldscore_writer_requires_config_snapshot(self):
+        result = dataclass_replace(make_split_ldscore_result(query=False), config_snapshot=None)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with self.assertRaisesRegex(ValueError, "config_snapshot"):
+                LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=tmpdir))
+
+    def test_ldscore_writer_rejects_allele_aware_without_baseline_alleles(self):
+        result = dataclass_replace(
+            make_split_ldscore_result(query=False),
+            config_snapshot=GlobalConfig(snp_identifier="rsid_allele_aware"),
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with self.assertRaisesRegex(ValueError, "baseline_table.*A1/A2"):
+                LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=tmpdir))
+
+    def test_ldscore_writer_rejects_allele_aware_without_query_alleles(self):
+        result = make_allele_aware_ldscore_result(query=True)
+        query = result.query_table.drop(columns=["A1", "A2"])
+        result = dataclass_replace(result, query_table=query)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with self.assertRaisesRegex(ValueError, "query_table.*A1/A2"):
+                LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=tmpdir))
+
+    def test_ldscore_writer_round_trips_through_public_loader(self):
+        result = make_allele_aware_ldscore_result(query=True)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "ldscores"
+            LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=output_dir))
+
+            loaded = load_ldscore_from_dir(str(output_dir))
+
+        self.assertEqual(loaded.config_snapshot, GlobalConfig(snp_identifier="rsid_allele_aware"))
+        self.assertEqual(loaded.ld_regression_snps, frozenset({"rs1:A:C", "rs2:A:G"}))
 
     def test_one_row_group_per_chromosome(self):
         import pyarrow.parquet as pq
@@ -735,6 +781,7 @@ class FixedOutputDirectoryTest(unittest.TestCase):
                 has_alleles=False,
                 source_path="source.sumstats.gz",
                 trait_name="trait",
+                config_snapshot=GlobalConfig(snp_identifier="rsid"),
             )
 
             with warnings.catch_warnings(record=True) as caught:
@@ -747,6 +794,38 @@ class FixedOutputDirectoryTest(unittest.TestCase):
             self.assertIn("created", str(caught[0].message).lower())
             self.assertTrue(Path(written).exists())
 
+    def test_munge_write_output_round_trips_through_public_loader(self):
+        module = __import__("ldsc.sumstats_munger", fromlist=["SumstatsMunger", "SumstatsTable", "load_sumstats"])
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir)
+            munger = module.SumstatsMunger()
+            table = module.SumstatsTable(
+                data=pd.DataFrame({"SNP": ["rs1"], "N": [1000.0], "Z": [1.5]}),
+                has_alleles=False,
+                source_path="source.sumstats.gz",
+                trait_name="trait",
+                config_snapshot=GlobalConfig(snp_identifier="rsid"),
+            )
+
+            written = munger.write_output(table, output_dir)
+            loaded = module.load_sumstats(written)
+
+            self.assertEqual(loaded.config_snapshot, GlobalConfig(snp_identifier="rsid"))
+            self.assertEqual(loaded.data["SNP"].tolist(), ["rs1"])
+
+    def test_munge_write_output_requires_config_snapshot(self):
+        module = __import__("ldsc.sumstats_munger", fromlist=["SumstatsMunger", "SumstatsTable"])
+        with tempfile.TemporaryDirectory() as tmpdir:
+            table = module.SumstatsTable(
+                data=pd.DataFrame({"SNP": ["rs1"], "N": [1000.0], "Z": [1.5]}),
+                has_alleles=False,
+                source_path="source.sumstats.gz",
+                trait_name="trait",
+            )
+
+            with self.assertRaisesRegex(ValueError, "config_snapshot"):
+                module.SumstatsMunger().write_output(table, tmpdir)
+
     def test_munge_write_output_refuses_existing_file_by_default(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir)
@@ -758,6 +837,7 @@ class FixedOutputDirectoryTest(unittest.TestCase):
                 has_alleles=False,
                 source_path="source.sumstats.gz",
                 trait_name="trait",
+                config_snapshot=GlobalConfig(snp_identifier="rsid"),
             )
 
             with self.assertRaisesRegex(FileExistsError, "overwrite"):
@@ -776,6 +856,7 @@ class FixedOutputDirectoryTest(unittest.TestCase):
                 has_alleles=False,
                 source_path="source.sumstats.gz",
                 trait_name="trait",
+                config_snapshot=GlobalConfig(snp_identifier="rsid"),
             )
 
             written = munger.write_output(table, output_dir, overwrite=True)

@@ -38,7 +38,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from ._row_alignment import assert_same_snp_rows
-from ._kernel.snp_identity import identity_artifact_metadata
+from ._kernel.snp_identity import effective_merge_key_series, identity_artifact_metadata, is_allele_aware_mode
 from .config import _normalize_required_path
 from .path_resolution import (
     ensure_output_directory,
@@ -262,9 +262,11 @@ class LDScoreDirectoryWriter:
         baseline_table = getattr(result, "baseline_table")
         query_table = getattr(result, "query_table", None)
         config_snapshot = getattr(result, "config_snapshot", None)
+        if config_snapshot is None:
+            raise ValueError("LDScoreResult.config_snapshot is required to write current LD-score artifacts.")
         identity_metadata = identity_artifact_metadata(
             artifact_type="ldscore",
-            snp_identifier=getattr(config_snapshot, "snp_identifier", "chr_pos_allele_aware"),
+            snp_identifier=config_snapshot.snp_identifier,
             genome_build=getattr(config_snapshot, "genome_build", None),
         )
         chromosomes = baseline_table["CHR"].astype(str).drop_duplicates().tolist()
@@ -290,10 +292,15 @@ class LDScoreDirectoryWriter:
         query_table = getattr(result, "query_table", None)
         baseline_columns = list(getattr(result, "baseline_columns", []))
         query_columns = list(getattr(result, "query_columns", []))
+        config_snapshot = getattr(result, "config_snapshot", None)
+        if config_snapshot is None:
+            raise ValueError("LDScoreResult.config_snapshot is required to write current LD-score artifacts.")
+        snp_identifier = config_snapshot.snp_identifier
         required_baseline = ["CHR", "POS", "SNP", REGRESSION_LD_SCORE_COLUMN, *baseline_columns]
         missing = [column for column in required_baseline if column not in baseline_table.columns]
         if missing:
             raise ValueError(f"baseline_table is missing required columns: {missing}")
+        _validate_ldscore_allele_columns(baseline_table, table_name="baseline_table", snp_identifier=snp_identifier)
         if query_columns and query_table is None:
             raise ValueError("query_table is required when query_columns are present.")
         if not query_columns and query_table is not None:
@@ -304,12 +311,31 @@ class LDScoreDirectoryWriter:
         missing = [column for column in required_query if column not in query_table.columns]
         if missing:
             raise ValueError(f"query_table is missing required columns: {missing}")
+        _validate_ldscore_allele_columns(query_table, table_name="query_table", snp_identifier=snp_identifier)
         assert_same_snp_rows(
             baseline_table,
             query_table,
             context="query rows must match baseline rows on CHR/SNP/POS",
-            snp_identifier=getattr(getattr(result, "config_snapshot", None), "snp_identifier", "chr_pos"),
+            snp_identifier=snp_identifier,
         )
+
+
+def _validate_ldscore_allele_columns(table: pd.DataFrame, *, table_name: str, snp_identifier: str) -> None:
+    """Reject allele-aware LD-score artifacts without usable allele identity."""
+    if not is_allele_aware_mode(snp_identifier):
+        return
+    missing = [column for column in ("A1", "A2") if column not in table.columns]
+    if missing:
+        raise ValueError(
+            f"{table_name} is malformed for snp_identifier='{snp_identifier}': allele-aware LD-score artifacts "
+            "require A1/A2 columns. Regenerate it with the current LDSC package."
+        )
+    try:
+        effective_merge_key_series(table, snp_identifier, context=table_name)
+    except ValueError as exc:
+        raise ValueError(
+            f"{table_name} has unusable A1/A2 columns for snp_identifier='{snp_identifier}': {exc}"
+        ) from exc
 
 
 @dataclass(frozen=True)

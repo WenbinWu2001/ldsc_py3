@@ -1438,7 +1438,7 @@ def _resolve_sumstats_trait_name(
 def _global_config_from_sumstats_metadata(metadata: dict[str, Any] | None) -> GlobalConfig | None:
     """Recreate a GlobalConfig snapshot from a sumstats sidecar."""
     if not isinstance(metadata, dict):
-        return None
+        raise ValueError(REGENERATE_ARTIFACT_MESSAGE)
     try:
         mode = validate_identity_artifact_metadata(metadata, expected_artifact_type="sumstats")
         return GlobalConfig(

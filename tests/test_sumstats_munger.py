@@ -648,6 +648,20 @@ class SumstatsMungerTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, self.REGENERATE_MESSAGE):
                 ldsc.load_sumstats(sumstats_file)
 
+    def test_load_sumstats_rejects_non_dict_metadata_sidecar(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            sumstats_file = tmpdir / "trait.sumstats.gz"
+            with gzip.open(sumstats_file, "wt", encoding="utf-8") as handle:
+                handle.write("SNP\tCHR\tPOS\tZ\tN\nrs1\t1\t100\t1.0\t100.0\n")
+            (tmpdir / "trait.metadata.json").write_text(
+                json.dumps(["schema_version", "artifact_type"]),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, self.REGENERATE_MESSAGE):
+                ldsc.load_sumstats(sumstats_file)
+
     def test_load_sumstats_rejects_missing_metadata_sidecar(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)

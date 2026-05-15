@@ -648,6 +648,38 @@ class SumstatsMungerTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, self.REGENERATE_MESSAGE):
                 ldsc.load_sumstats(sumstats_file)
 
+    def test_load_sumstats_rejects_sidecar_without_genome_build_key(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            sumstats_file = tmpdir / "trait.sumstats.gz"
+            with gzip.open(sumstats_file, "wt", encoding="utf-8") as handle:
+                handle.write("SNP\tCHR\tPOS\tZ\tN\nrs1\t1\t100\t1.0\t100.0\n")
+            (tmpdir / "trait.metadata.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "artifact_type": "sumstats",
+                        "snp_identifier": "rsid",
+                        "trait_name": "trait",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, self.REGENERATE_MESSAGE):
+                ldsc.load_sumstats(sumstats_file)
+
+    def test_load_sumstats_rejects_malformed_json_metadata_sidecar(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            sumstats_file = tmpdir / "trait.sumstats.gz"
+            with gzip.open(sumstats_file, "wt", encoding="utf-8") as handle:
+                handle.write("SNP\tCHR\tPOS\tZ\tN\nrs1\t1\t100\t1.0\t100.0\n")
+            (tmpdir / "trait.metadata.json").write_text("{not-json", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, self.REGENERATE_MESSAGE):
+                ldsc.load_sumstats(sumstats_file)
+
     def test_load_sumstats_rejects_non_dict_metadata_sidecar(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)

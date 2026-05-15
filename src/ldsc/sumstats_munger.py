@@ -1416,7 +1416,10 @@ def _read_sumstats_metadata(path: Path) -> dict[str, Any] | None:
     """Read a sumstats sidecar metadata file when it exists."""
     if not path.exists():
         return None
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(REGENERATE_ARTIFACT_MESSAGE) from exc
 
 
 def _resolve_sumstats_trait_name(
@@ -1438,6 +1441,8 @@ def _resolve_sumstats_trait_name(
 def _global_config_from_sumstats_metadata(metadata: dict[str, Any] | None) -> GlobalConfig | None:
     """Recreate a GlobalConfig snapshot from a sumstats sidecar."""
     if not isinstance(metadata, dict):
+        raise ValueError(REGENERATE_ARTIFACT_MESSAGE)
+    if "genome_build" not in metadata:
         raise ValueError(REGENERATE_ARTIFACT_MESSAGE)
     try:
         mode = validate_identity_artifact_metadata(metadata, expected_artifact_type="sumstats")

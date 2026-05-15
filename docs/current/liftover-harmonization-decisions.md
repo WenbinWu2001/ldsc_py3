@@ -37,8 +37,8 @@ output, and metadata contracts.
 
 ## Summary-Statistics Munger Contract
 
-- Liftover is meaningful only in `chr_pos` mode.
-- `SNP` is always a label field in `chr_pos` mode. Sumstats liftover updates
+- Liftover is meaningful only in chr_pos-family modes.
+- `SNP` is always a label field in chr_pos-family modes. Sumstats liftover updates
   only `CHR` and `POS`; it never rewrites `SNP`.
 - Sumstats liftover requires explicit source/target/method validation:
   `--target-genome-build` plus exactly one of `--liftover-chain-file` or

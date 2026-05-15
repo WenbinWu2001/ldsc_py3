@@ -33,7 +33,7 @@ By default, the builder keeps all SNPs in the PLINK panel after:
 - optional user-requested filters
 - automatic liftover sanity filtering, when a usable source-to-target chain is provided
 
-When a matching chain is provided in `chr_pos` mode, SNPs are dropped if they fail hg19/hg38 liftover or liftover onto a different chromosome in the target build, then both build-specific R2 and metadata outputs are written. Matching chain liftover is invalid in `rsid` mode because row identity is the SNP label there. When no usable matching chain is provided, the builder logs that it is skipping liftover and writes source-build-only outputs.
+When a matching chain is provided in a chr_pos-family mode, SNPs are dropped if they fail hg19/hg38 liftover or liftover onto a different chromosome in the target build, then both build-specific R2 and metadata outputs are written. Matching chain liftover is not used in rsID-family modes because row identity is the SNP label there. When no usable matching chain is provided, the builder logs that it is skipping liftover and writes source-build-only outputs.
 
 ## Input Files
 

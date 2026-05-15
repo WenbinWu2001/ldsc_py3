@@ -116,7 +116,7 @@ matching, set `snp_identifier="chr_pos"` or pass `--snp-identifier chr_pos`.
 The munger defaults to `--format auto`, and `--infer-only` can report
 missing fields or exact repair flags without writing outputs. `A1` is the
 allele that the signed statistic is relative to; `A2` is its counterpart.
-`NEFF` is not inferred as total `N` automatically. Optional munger liftover is valid only in `chr_pos` mode; use
+`NEFF` is not inferred as total `N` automatically. Optional munger liftover is valid for chr_pos-family modes; use
 `target_genome_build` with either a chain file or `use_hm3_snps=True` plus HM3 quick liftover when both
 traits need to be converted to the LD-score build. Liftover drops duplicate
 source/target coordinate groups, writes count summaries to `sumstats.log`, and

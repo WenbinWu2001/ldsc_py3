@@ -108,8 +108,8 @@ chunk after canonical coordinate normalization and before the retained chunks ar
 concatenated.
 
 Optional munger liftover runs after this source-build resolution and after
-SNP filtering. It is valid only in `chr_pos` mode because `rsid` mode does not
-use positions for row identity. Chain-file liftover and HM3 quick liftover both
+SNP filtering. It is valid for chr_pos-family modes because rsID-family modes
+do not use positions for row identity. Chain-file liftover and HM3 quick liftover both
 update `CHR`/`POS` only; `SNP` remains a label. HM3 quick liftover requires
 `--use-hm3-snps`, so HM3 filtering and HM3 coordinate conversion are explicit
 separate steps. The

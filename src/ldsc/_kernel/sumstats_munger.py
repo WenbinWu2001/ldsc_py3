@@ -1043,8 +1043,8 @@ parser.add_argument('--daner-new', default=False, action='store_true',
                     help="Parse new DANER format with per-SNP case/control sample sizes in exact "
                     "Nca and Nco columns.")
 parser.add_argument('--no-alleles', default=False, action="store_true",
-                    help="Don't require alleles. Useful if only unsigned summary statistics are available "
-                    "and the goal is h2 / partitioned h2 estimation rather than rg estimation.")
+                    help="Disable raw allele requirements only for base SNP identifier modes. "
+                    "Allele-aware modes, including the default chr_pos_allele_aware, still require usable A1/A2.")
 parser.add_argument('--n-min', default=None, type=float,
                     help='Minimum N (sample size). Default is (90th percentile N) / 2.')
 parser.add_argument('--chunksize', default=1_000_000, type=int,

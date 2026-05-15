@@ -480,11 +480,11 @@ in the current CLI; regenerate canonical files with `ldsc build-ref-panel`.
 
 | Module | Change |
 |---|---|
-| `_kernel/ref_panel_builder.py` | `write_r2_parquet`: require PyArrow; assert sort invariant on each incoming pair; write new 6-column schema; preserve canonical dtypes for empty outputs; write `ldsc:sorted_by_build` and `ldsc:row_group_size` metadata; default `row_group_size=50_000` |
+| `_kernel/ref_panel_builder.py` | `write_r2_parquet`: require PyArrow; assert sort invariant on each incoming pair; write canonical pair columns plus endpoint allele columns in allele-aware modes; preserve canonical dtypes for empty outputs; write identity, `ldsc:sorted_by_build`, and `ldsc:row_group_size` metadata; default `row_group_size=50_000` |
 | `_kernel/ldscore.py` — `SortedR2BlockReader.__init__` | Detect schema (canonical vs legacy raw); canonical path: open as `pq.ParquetFile`, build `_rg_bounds` index from footer, validate build (3-tier), warn if coarse row groups; legacy path: open as `pyarrow.Dataset`, emit deprecation warning, proceed with full-scan fallback |
 | `_kernel/ldscore.py` — `SortedR2BlockReader` decoded cache | Canonical path: auto-size a chromosome-local LRU cache from `block_left` and `snp_batch_size`; cache decoded row groups as numeric `i`, `j`, `r2` arrays; log DEBUG-only cache diagnostics |
 | `_kernel/ldscore.py` — `SortedR2BlockReader._query_union_rows` | Canonical path: row-group index lookup + decoded cache lookup or `read_row_group` miss + numeric endpoint filtering; legacy path: existing `dataset.to_table(filter=...)` behaviour unchanged |
 | `_kernel/ldscore.py` — `read_sorted_r2_presence` | Remove standalone function; the parquet backend no longer performs a runtime SNP-presence scan |
 | `_kernel/ldscore.py` — `compute_chrom_from_parquet` | Use the sidecar-defined `A'` directly when forming `ld_reference_snps`; no parquet presence scan is performed |
-| Tests — canonical schema | Add fixtures writing new 6-column sorted parquets; assert row-group index is built; assert window queries return correct pairs |
+| Tests — canonical schema | Add fixtures writing sorted package-style parquets with endpoint alleles where required; assert row-group index is built; assert window queries return correct pairs |
 | Tests — legacy schema | Retain existing raw-schema fixtures; assert deprecation warning is emitted; assert numerical output is unchanged |

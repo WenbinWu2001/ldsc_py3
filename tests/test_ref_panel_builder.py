@@ -17,6 +17,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from ldsc._kernel import ref_panel_builder as kernel_builder
+from ldsc._kernel.snp_identity import RestrictionIdentityKeys, empty_identity_drop_frame
 from ldsc.config import GlobalConfig, ReferencePanelBuildConfig
 from ldsc import ldscore_calculator, ref_panel_builder, reset_global_config, set_global_config
 
@@ -2088,6 +2089,28 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                     builder._build_chromosome(str(prefix), "1", config, build_state)
 
         self.assertEqual(captured["keep_snps"], [1])
+
+    def test_build_restriction_mask_uses_identity_keys_when_restriction_is_allele_aware(self):
+        metadata = pd.DataFrame(
+            {
+                "CHR": ["1", "1", "1"],
+                "POS": [100, 100, 200],
+                "SNP": ["rs1", "rs1", "rs2"],
+                "A1": ["A", "A", "A"],
+                "A2": ["C", "G", "C"],
+            }
+        )
+        restriction = RestrictionIdentityKeys(
+            keys={"rs1:A:C", "rs2:A:C"},
+            match_kind="identity",
+            dropped=empty_identity_drop_frame(),
+            n_input_rows=2,
+            n_retained_keys=2,
+        )
+
+        mask = kernel_builder.build_restriction_mask(metadata, restriction, "rsid_allele_aware")
+
+        self.assertEqual(mask.tolist(), [True, False, True])
 
     def test_builder_run_rejects_duplicate_chromosome_across_inputs(self):
         with tempfile.TemporaryDirectory() as tmpdir:

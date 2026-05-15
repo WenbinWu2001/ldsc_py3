@@ -223,6 +223,21 @@ def effective_merge_key_series(frame: pd.DataFrame, mode: str, *, context: str =
     return keys.rename("snp_id")
 
 
+def restriction_membership_mask(
+    frame: pd.DataFrame,
+    restriction: RestrictionIdentityKeys,
+    mode: str,
+    *,
+    context: str,
+) -> pd.Series:
+    """Return rows whose active SNP identity is present in ``restriction``."""
+    if restriction.match_kind == "base":
+        keys = base_key_series(frame, mode, context=context)
+    else:
+        keys = effective_merge_key_series(frame, mode, context=context)
+    return keys.isin(restriction.keys)
+
+
 def empty_identity_drop_frame() -> pd.DataFrame:
     """Return an empty identity drop-report frame with the public schema."""
     return pd.DataFrame(columns=IDENTITY_DROP_COLUMNS)

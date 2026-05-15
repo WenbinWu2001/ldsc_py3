@@ -229,8 +229,8 @@ from ..path_resolution import (
 )
 from .._row_alignment import assert_same_snp_rows
 from . import formats as legacy_parse
-from .identifiers import build_snp_id_series, read_global_snp_restriction
-from .snp_identity import identity_mode_family
+from .identifiers import build_snp_id_series, read_snp_restriction_keys
+from .snp_identity import RestrictionIdentityKeys, identity_mode_family, restriction_membership_mask
 
 try:  # pragma: no cover - optional dependency
     import bitarray as ba
@@ -1074,12 +1074,12 @@ def combine_annotation_groups(
     )
 
 
-def read_identifier_list(path: str, mode: str) -> set[str]:
+def read_identifier_list(path: str, mode: str) -> RestrictionIdentityKeys:
     """Read a SNP list file into the canonical identifier set for ``mode``."""
-    return read_global_snp_restriction(path, normalize_snp_identifier_mode(mode))
+    return read_snp_restriction_keys(path, normalize_snp_identifier_mode(mode))
 
 
-def load_regression_keys(args: argparse.Namespace) -> set[str] | None:
+def load_regression_keys(args: argparse.Namespace) -> RestrictionIdentityKeys | None:
     """Load the optional regression SNP universe from CLI arguments."""
     if not getattr(args, "regression_snps_file", None):
         return None
@@ -1927,10 +1927,21 @@ def compute_counts(
     return M, M_5_50
 
 
-def regression_mask_from_keys(metadata: pd.DataFrame, regression_keys: set[str] | None, identifier_mode: str) -> np.ndarray:
+def regression_mask_from_keys(
+    metadata: pd.DataFrame,
+    regression_keys: set[str] | RestrictionIdentityKeys | None,
+    identifier_mode: str,
+) -> np.ndarray:
     """Build the binary mask column used to compute regression-weight LD scores."""
     if regression_keys is None:
         return np.ones(len(metadata), dtype=np.float32)
+    if isinstance(regression_keys, RestrictionIdentityKeys):
+        return restriction_membership_mask(
+            metadata,
+            regression_keys,
+            identifier_mode,
+            context="LD-score regression SNP restriction matching",
+        ).to_numpy(dtype=np.float32)
     keys = identifier_keys(metadata, identifier_mode)
     return keys.isin(regression_keys).to_numpy(dtype=np.float32)
 

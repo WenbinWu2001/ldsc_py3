@@ -55,16 +55,26 @@ from .._coordinates import (
 )
 from ..chromosome_inference import normalize_chromosome, normalize_chromosome_series
 from ..column_inference import (
+    A1_COLUMN_SPEC,
+    A2_COLUMN_SPEC,
     clean_header,
     infer_chr_bp_columns,
     infer_chr_pos_columns,
     infer_snp_column,
     normalize_genome_build,
     normalize_snp_identifier_mode,
+    resolve_optional_column,
     resolve_restriction_chr_pos_columns,
     resolve_restriction_rsid_column,
 )
-from .snp_identity import effective_merge_key_series, identity_mode_family, is_allele_aware_mode
+from .snp_identity import (
+    RestrictionIdentityKeys,
+    collapse_restriction_identity_keys,
+    effective_merge_key_series,
+    empty_identity_drop_frame,
+    identity_mode_family,
+    is_allele_aware_mode,
+)
 
 LOGGER = logging.getLogger("LDSC.identifiers")
 _CHROMOSOME_PACK_CODES = {
@@ -211,6 +221,44 @@ def read_global_snp_restriction(
     return _read_chr_pos_restriction(path, genome_build=genome_build, logger=LOGGER if logger is None else logger)
 
 
+def read_snp_restriction_keys(
+    path: str | Path,
+    snp_identifier: str,
+    genome_build: str | None = None,
+    logger=None,
+) -> RestrictionIdentityKeys:
+    """Read a restriction file into base or allele-aware identity keys."""
+    mode = normalize_snp_identifier_mode(snp_identifier)
+    genome_build = normalize_genome_build(genome_build)
+    assert genome_build in {"hg19", "hg38", None}, (
+        f"genome_build reached kernel as {genome_build!r}; "
+        "should have been resolved at workflow entry."
+    )
+    path = Path(path)
+    raw_frame = _read_snp_restriction_table(path)
+    if len(raw_frame.columns) == 0:
+        return RestrictionIdentityKeys(
+            keys=set(),
+            match_kind="base",
+            dropped=empty_identity_drop_frame(),
+            n_input_rows=0,
+            n_retained_keys=0,
+        )
+    canonical_frame, has_allele_columns = _canonicalize_snp_restriction_table(
+        raw_frame,
+        snp_identifier=mode,
+        genome_build=genome_build,
+        context=str(path),
+    )
+    return collapse_restriction_identity_keys(
+        canonical_frame,
+        mode,
+        context=f"SNP restriction file {path}",
+        has_allele_columns=has_allele_columns,
+        logger=LOGGER if logger is None else logger,
+    )
+
+
 def read_global_chr_pos_restriction_key_set(
     path: str | Path,
     *,
@@ -319,6 +367,57 @@ def _parse_restriction_rows(path: Path) -> tuple[list[str], list[list[str]], str
     reader = csv.reader(lines, delimiter=delimiter)
     parsed = list(reader)
     return parsed[0], parsed[1:], delimiter
+
+
+def _read_snp_restriction_table(path: Path) -> pd.DataFrame:
+    """Read one restriction file into a raw string table."""
+    header, rows, _delimiter = _parse_restriction_rows(path)
+    if not header:
+        return pd.DataFrame()
+    return pd.DataFrame(rows, columns=header, dtype=object)
+
+
+def _resolve_restriction_allele_columns(columns: Iterable[str], *, context: str | None = None) -> tuple[str | None, str | None, bool]:
+    """Resolve optional restriction allele columns, requiring all-or-none."""
+    columns = list(columns)
+    a1_col = resolve_optional_column(columns, A1_COLUMN_SPEC, context=context)
+    a2_col = resolve_optional_column(columns, A2_COLUMN_SPEC, context=context)
+    if (a1_col is None) != (a2_col is None):
+        present = "A1" if a1_col is not None else "A2"
+        missing = "A2" if a1_col is not None else "A1"
+        raise ValueError(
+            f"Restriction file {context or ''} provides only one allele column ({present}); "
+            f"both A1 and A2 allele columns are required for allele-aware restriction matching. "
+            f"Missing {missing}."
+        )
+    return a1_col, a2_col, a1_col is not None and a2_col is not None
+
+
+def _canonicalize_snp_restriction_table(
+    raw_frame: pd.DataFrame,
+    *,
+    snp_identifier: str,
+    genome_build: str | None = None,
+    context: str | None = None,
+) -> tuple[pd.DataFrame, bool]:
+    """Canonicalize a raw restriction table to SNP or CHR/POS plus optional A1/A2."""
+    mode = normalize_snp_identifier_mode(snp_identifier)
+    columns = list(raw_frame.columns)
+    data: dict[str, pd.Series] = {}
+    if identity_mode_family(mode) == "rsid":
+        snp_col = resolve_restriction_rsid_column(columns, context=context)
+        data["SNP"] = raw_frame[snp_col]
+    else:
+        chr_col, pos_col = resolve_restriction_chr_pos_columns(columns, genome_build=genome_build, context=context)
+        data["CHR"] = raw_frame[chr_col]
+        data["POS"] = raw_frame[pos_col]
+
+    a1_col, a2_col, has_allele_columns = _resolve_restriction_allele_columns(columns, context=context)
+    if has_allele_columns:
+        assert a1_col is not None and a2_col is not None
+        data["A1"] = raw_frame[a1_col]
+        data["A2"] = raw_frame[a2_col]
+    return pd.DataFrame(data), has_allele_columns
 
 
 def _read_rsid_restriction(path: Path) -> set[str]:

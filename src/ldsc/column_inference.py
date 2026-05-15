@@ -111,6 +111,17 @@ POS_COLUMN_SPEC = ColumnSpec("POS", POS_COLUMN_ALIASES, "position")
 SNP_COLUMN_SPEC = ColumnSpec("SNP", SNP_COLUMN_ALIASES, "SNP identifier")
 CM_COLUMN_SPEC = ColumnSpec("CM", CM_COLUMN_ALIASES, "centiMorgan")
 MAF_COLUMN_SPEC = ColumnSpec("MAF", MAF_COLUMN_ALIASES, "minor-allele frequency")
+A1_COLUMN_SPEC = ColumnSpec(
+    "A1",
+    ("A1", "ALLELE1", "ALLELE_1", "EFFECT_ALLELE", "REFERENCE_ALLELE", "REF", "EA"),
+    "allele 1",
+)
+A2_COLUMN_SPEC = ColumnSpec(
+    "A2",
+    ("A2", "ALLELE2", "ALLELE_2", "OTHER_ALLELE", "NON_EFFECT_ALLELE", "ALT", "NEA"),
+    "allele 2",
+)
+RESTRICTION_ALLELE_SPECS = (A1_COLUMN_SPEC, A2_COLUMN_SPEC)
 
 
 # Raw summary-stat alias families preserve legacy behavior and add current

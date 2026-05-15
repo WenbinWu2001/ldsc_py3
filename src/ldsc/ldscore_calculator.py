@@ -64,7 +64,8 @@ from .path_resolution import (
 )
 from ._logging import log_inputs, log_outputs, workflow_logging
 from ._kernel import ldscore as kernel_ldscore
-from ._kernel.identifiers import build_snp_id_series, read_global_snp_restriction
+from ._kernel.identifiers import build_snp_id_series, read_snp_restriction_keys
+from ._kernel.snp_identity import RestrictionIdentityKeys, restriction_membership_mask
 from ._row_alignment import assert_same_snp_rows
 
 
@@ -255,7 +256,7 @@ class LDScoreCalculator:
         ldscore_config: LDScoreConfig,
         global_config: GlobalConfig,
         output_config: LDScoreOutputConfig | None = None,
-        regression_snps: set[str] | None = None,
+        regression_snps: set[str] | RestrictionIdentityKeys | None = None,
         config_snapshot: dict[str, Any] | None = None,
     ) -> LDScoreResult:
         """Compute and aggregate LD scores across all chromosomes.
@@ -279,7 +280,7 @@ class LDScoreCalculator:
             the aggregate result is built. Existing canonical files are refused
             unless ``output_config.overwrite`` is true.
             Default is ``None``, which keeps the result in memory only.
-        regression_snps : set of str or None, optional
+        regression_snps : set of str, RestrictionIdentityKeys, or None, optional
             Optional regression SNP universe used to define the weight table.
             Default is ``None``, which uses the retained reference SNP universe.
         config_snapshot : dict or None, optional
@@ -342,7 +343,7 @@ class LDScoreCalculator:
         ref_panel,
         ldscore_config: LDScoreConfig,
         global_config: GlobalConfig,
-        regression_snps: set[str] | None = None,
+        regression_snps: set[str] | RestrictionIdentityKeys | None = None,
     ) -> ChromLDScoreResult:
         """Compute normalized LD-score outputs for one chromosome.
 
@@ -388,16 +389,24 @@ class LDScoreCalculator:
         self,
         legacy_result: _LegacyChromResult | Any,
         global_config: GlobalConfig,
-        regression_snps: set[str] | None = None,
+        regression_snps: set[str] | RestrictionIdentityKeys | None = None,
     ) -> ChromLDScoreResult:
         """Convert one kernel chromosome result into the typed public result."""
         reference_metadata = legacy_result.metadata.reset_index(drop=True).copy()
         ld_scores = pd.DataFrame(legacy_result.ld_scores, columns=list(legacy_result.ldscore_columns))
         reference_ids = frozenset(build_snp_id_series(reference_metadata, global_config.snp_identifier))
-        retained_regression_snps = (
-            reference_ids if regression_snps is None else frozenset(reference_ids.intersection(regression_snps))
-        )
-        regression_keep = build_snp_id_series(reference_metadata, global_config.snp_identifier).isin(retained_regression_snps)
+        if regression_snps is None:
+            regression_keep = pd.Series(True, index=reference_metadata.index)
+        elif isinstance(regression_snps, RestrictionIdentityKeys):
+            regression_keep = restriction_membership_mask(
+                reference_metadata,
+                regression_snps,
+                global_config.snp_identifier,
+                context="LD-score regression SNP restriction matching",
+            )
+        else:
+            retained_regression_snps = frozenset(reference_ids.intersection(regression_snps))
+            regression_keep = build_snp_id_series(reference_metadata, global_config.snp_identifier).isin(retained_regression_snps)
         pos_column = "POS" if "POS" in reference_metadata.columns else "BP"
         regression_weights = np.asarray(legacy_result.w_ld, dtype=np.float32).reshape(-1)
         ldscore_table = pd.concat(
@@ -1077,11 +1086,16 @@ def _resolve_ldscore_chr_pos_genome_build(args: argparse.Namespace, genome_build
     return resolved[0][1]
 
 
-def _load_regression_snps(path: str | None, global_config: GlobalConfig, *, label: str = "regression SNP list") -> set[str] | None:
+def _load_regression_snps(
+    path: str | None,
+    global_config: GlobalConfig,
+    *,
+    label: str = "regression SNP list",
+) -> RestrictionIdentityKeys | None:
     """Load ``LDScoreConfig.regression_snps_file`` using the active identifier mode."""
     if not path:
         return None
-    return read_global_snp_restriction(
+    return read_snp_restriction_keys(
         resolve_scalar_path(path, label=label),
         global_config.snp_identifier,
         genome_build=global_config.genome_build,

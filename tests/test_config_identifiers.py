@@ -33,8 +33,10 @@ from ldsc._kernel.identifiers import (
     normalize_chromosome,
     normalize_snp_identifier_mode,
     read_global_snp_restriction,
+    read_snp_restriction_keys,
     validate_unique_snp_ids,
 )
+from ldsc.column_inference import A1_COLUMN_SPEC, A2_COLUMN_SPEC, RESTRICTION_ALLELE_SPECS
 from ldsc._row_alignment import assert_same_snp_rows
 
 
@@ -607,6 +609,13 @@ class IdentifierHelpersTest(unittest.TestCase):
 
 
 class RestrictionReadersTest(unittest.TestCase):
+    def test_restriction_allele_specs_treat_ref_alt_as_external_aliases(self):
+        self.assertEqual(A1_COLUMN_SPEC.canonical, "A1")
+        self.assertEqual(A2_COLUMN_SPEC.canonical, "A2")
+        self.assertEqual(RESTRICTION_ALLELE_SPECS, (A1_COLUMN_SPEC, A2_COLUMN_SPEC))
+        self.assertIn("REF", A1_COLUMN_SPEC.aliases)
+        self.assertIn("ALT", A2_COLUMN_SPEC.aliases)
+
     def test_read_global_snp_restriction_rsid_requires_header(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "restrict.txt"
@@ -728,3 +737,87 @@ class RestrictionReadersTest(unittest.TestCase):
             path.write_text("variant\tother\nrs1\ta\n", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "CHR, POS|POS, CHR"):
                 read_global_snp_restriction(path, "chr_pos")
+
+    def test_read_snp_restriction_keys_without_alleles_uses_base_match_in_allele_aware_mode(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "restrict.tsv"
+            path.write_text("SNP\nrs1\nrs2\nrs1\n", encoding="utf-8")
+
+            restriction = read_snp_restriction_keys(path, "rsid_allele_aware")
+
+            self.assertEqual(restriction.match_kind, "base")
+            self.assertEqual(restriction.keys, {"rs1", "rs2"})
+            self.assertEqual(restriction.n_input_rows, 3)
+            self.assertEqual(restriction.n_retained_keys, 2)
+            self.assertTrue(restriction.dropped.empty)
+
+    def test_read_snp_restriction_keys_with_alleles_uses_identity_match_in_allele_aware_mode(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "restrict.tsv"
+            path.write_text("SNP\tREF\tALT\nrs1\tA\tC\nrs2\tT\tG\n", encoding="utf-8")
+
+            restriction = read_snp_restriction_keys(path, "rsid_allele_aware")
+
+            self.assertEqual(restriction.match_kind, "identity")
+            self.assertEqual(restriction.keys, {"rs1:A:C", "rs2:A:C"})
+
+    def test_read_snp_restriction_keys_requires_both_allele_columns_when_one_resolves(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "restrict.tsv"
+            path.write_text("SNP\tREF\nrs1\tA\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "both A1 and A2"):
+                read_snp_restriction_keys(path, "rsid_allele_aware")
+
+    def test_read_snp_restriction_keys_drops_invalid_allele_rows_with_warning(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "restrict.tsv"
+            path.write_text("SNP\tA1\tA2\nrs1\tA\tC\nrs_bad\t\tG\n", encoding="utf-8")
+
+            with self.assertLogs("LDSC.identifiers", level="WARNING") as caught:
+                restriction = read_snp_restriction_keys(path, "rsid_allele_aware")
+
+            self.assertEqual(restriction.match_kind, "identity")
+            self.assertEqual(restriction.keys, {"rs1:A:C"})
+            self.assertEqual(restriction.dropped["reason"].tolist(), ["missing_allele"])
+            self.assertIn("Dropped 1 SNP identity rows", "\n".join(caught.output))
+
+    def test_read_snp_restriction_keys_collapses_duplicate_identity_keys(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "restrict.tsv"
+            path.write_text("SNP\tA1\tA2\nrs1\tA\tC\nrs1\tC\tA\n", encoding="utf-8")
+
+            restriction = read_snp_restriction_keys(path, "rsid_allele_aware")
+
+            self.assertEqual(restriction.match_kind, "identity")
+            self.assertEqual(restriction.keys, {"rs1:A:C"})
+            self.assertEqual(restriction.n_retained_keys, 1)
+
+    def test_read_snp_restriction_keys_drops_multiallelic_restriction_clusters(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "restrict.tsv"
+            path.write_text("CHR\tPOS\tA1\tA2\n1\t10\tA\tC\n1\t10\tA\tG\n2\t20\tA\tC\n", encoding="utf-8")
+
+            with self.assertLogs("LDSC.identifiers", level="WARNING"):
+                restriction = read_snp_restriction_keys(path, "chr_pos_allele_aware")
+
+            self.assertEqual(restriction.match_kind, "identity")
+            self.assertEqual(restriction.keys, {"2:20:A:C"})
+            self.assertEqual(restriction.dropped["reason"].tolist(), ["multi_allelic_base_key", "multi_allelic_base_key"])
+
+    def test_read_snp_restriction_keys_base_modes_ignore_bad_allele_columns(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "restrict.tsv"
+            path.write_text(
+                "CHR\tPOS\tA1\tA2\n"
+                "1\t10\tA\tT\n"
+                "1\t10\tC\tG\n"
+                "2\t20\t\tAT\n",
+                encoding="utf-8",
+            )
+
+            restriction = read_snp_restriction_keys(path, "chr_pos")
+
+            self.assertEqual(restriction.match_kind, "base")
+            self.assertEqual(restriction.keys, {"1:10", "2:20"})
+            self.assertTrue(restriction.dropped.empty)

@@ -49,9 +49,14 @@ from ..column_inference import (
 )
 from ..genome_build_inference import resolve_chr_pos_table
 from . import regression as sumstats
-from .identifiers import build_packed_chr_pos_series, read_global_chr_pos_restriction_key_set, read_global_snp_restriction
+from .identifiers import (
+    build_packed_chr_pos_series,
+    read_global_chr_pos_restriction_key_set,
+    read_global_snp_restriction,
+    read_snp_restriction_keys,
+)
 from .liftover import SumstatsLiftoverRequest, apply_sumstats_liftover
-from .snp_identity import identity_mode_family
+from .snp_identity import RestrictionIdentityKeys, identity_mode_family, restriction_membership_mask
 np.seterr(invalid='ignore')
 
 LOGGER = logging.getLogger("LDSC.sumstats_munger.kernel")
@@ -65,6 +70,7 @@ class _SumstatsRestriction:
     mode: str
     genome_build: str | None
     identifiers: set
+    identity_keys: RestrictionIdentityKeys | None = None
     n_rows_before_filter: int = 0
     n_usable_row_identifiers: int = 0
     n_rows_kept: int = 0
@@ -394,12 +400,21 @@ def _prepare_sumstats_restriction(args):
     mode = normalize_snp_identifier_mode(getattr(args, 'snp_identifier', 'chr_pos_allele_aware'))
     coordinate_metadata = getattr(args, '_coordinate_metadata', {})
     genome_build = coordinate_metadata.get('genome_build', getattr(args, 'genome_build', None))
-    if identity_mode_family(mode) == 'chr_pos':
+    if mode == 'chr_pos':
         identifiers = read_global_chr_pos_restriction_key_set(
             snps_path,
             genome_build=genome_build,
             logger=LOGGER,
         )
+        identity_keys = None
+    elif mode in {'rsid_allele_aware', 'chr_pos_allele_aware'}:
+        identity_keys = read_snp_restriction_keys(
+            snps_path,
+            mode,
+            genome_build=genome_build if identity_mode_family(mode) == 'chr_pos' else None,
+            logger=LOGGER,
+        )
+        identifiers = identity_keys.keys
     else:
         identifiers = read_global_snp_restriction(
             snps_path,
@@ -407,12 +422,14 @@ def _prepare_sumstats_restriction(args):
             genome_build=None,
             logger=LOGGER,
         )
+        identity_keys = None
 
     restriction = _SumstatsRestriction(
         path=str(snps_path),
         mode=mode,
         genome_build=genome_build if identity_mode_family(mode) == 'chr_pos' else None,
         identifiers=identifiers,
+        identity_keys=identity_keys,
     )
     if len(restriction.identifiers) == 0:
         _raise_sumstats_restriction_empty(restriction, input_rows='not inspected', usable_rows=0)
@@ -431,9 +448,18 @@ def _filter_sumstats_chunk_to_restriction(dat, restriction, args):
         return dat
 
     old = len(dat)
-    if identity_mode_family(restriction.mode) == 'rsid':
+    if restriction.identity_keys is not None:
+        keep = restriction_membership_mask(
+            dat,
+            restriction.identity_keys,
+            restriction.mode,
+            context=f"--sumstats-snps-file filtering for {getattr(args, 'sumstats', 'sumstats')}",
+        )
+        usable_mask = pd.Series(True, index=dat.index)
+    elif identity_mode_family(restriction.mode) == 'rsid':
         keys = dat['SNP'].astype(str)
         usable_mask = keys.notna()
+        keep = keys.isin(restriction.identifiers) & usable_mask
     else:
         keys = build_packed_chr_pos_series(
             dat['CHR'].reset_index(drop=True),
@@ -442,8 +468,7 @@ def _filter_sumstats_chunk_to_restriction(dat, restriction, args):
         )
         keys.index = dat.index
         usable_mask = pd.Series(True, index=dat.index)
-
-    keep = keys.isin(restriction.identifiers) & usable_mask
+        keep = keys.isin(restriction.identifiers) & usable_mask
     kept = int(keep.sum())
     restriction.n_rows_before_filter += old
     restriction.n_usable_row_identifiers += int(usable_mask.sum())

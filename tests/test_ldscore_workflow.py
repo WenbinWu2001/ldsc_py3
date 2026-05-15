@@ -25,6 +25,7 @@ try:
     from ldsc import ldscore_calculator as ldscore_workflow
     from ldsc._kernel import formats as kernel_formats
     from ldsc._kernel import ldscore as kernel_ldscore
+    from ldsc._kernel.snp_identity import RestrictionIdentityKeys, empty_identity_drop_frame
 except ImportError:
     AnnotationBundle = None
     LDScoreConfig = None
@@ -33,6 +34,8 @@ except ImportError:
     kernel_formats = None
     ldscore_workflow = None
     kernel_ldscore = None
+    RestrictionIdentityKeys = None
+    empty_identity_drop_frame = None
 
 
 PLINK_FIXTURES = Path(__file__).resolve().parent / "fixtures" / "plink"
@@ -236,7 +239,14 @@ class R2AutoLoadCLITest(unittest.TestCase):
             path = Path(tmpdir) / "hg19" / "chr1_r2.parquet"
             _write_minimal_r2_parquet(
                 path,
-                {b"ldsc:n_samples": b"200", b"ldsc:r2_bias": b"raw"},
+                {
+                    b"ldsc:n_samples": b"200",
+                    b"ldsc:r2_bias": b"raw",
+                    b"ldsc:schema_version": b"1",
+                    b"ldsc:artifact_type": b"ref_panel_r2",
+                    b"ldsc:snp_identifier": b"rsid",
+                    b"ldsc:genome_build": b"hg19",
+                },
             )
             spec = RefPanelConfig(
                 backend="parquet_r2",
@@ -1006,6 +1016,28 @@ class LDScoreWorkflowTest(unittest.TestCase):
         np.testing.assert_allclose(all_counts, [6.0, 9.0])
         np.testing.assert_allclose(common_counts, [5.0, 9.0])
 
+    def test_regression_mask_from_keys_uses_identity_restriction_match_kind(self):
+        metadata = pd.DataFrame(
+            {
+                "CHR": ["1", "1", "1"],
+                "POS": [100, 100, 200],
+                "SNP": ["rs1", "rs1", "rs2"],
+                "A1": ["A", "A", "A"],
+                "A2": ["C", "G", "C"],
+            }
+        )
+        restriction = RestrictionIdentityKeys(
+            keys={"rs1:A:C", "rs2:A:C"},
+            match_kind="identity",
+            dropped=empty_identity_drop_frame(),
+            n_input_rows=2,
+            n_retained_keys=2,
+        )
+
+        mask = kernel_ldscore.regression_mask_from_keys(metadata, restriction, "rsid_allele_aware")
+
+        np.testing.assert_array_equal(mask, np.array([1.0, 0.0, 1.0], dtype=np.float32))
+
     def test_run_rejects_annotation_bundle_snapshot_mismatch(self):
         calc = ldscore_workflow.LDScoreCalculator()
         annotation_bundle = AnnotationBundle(
@@ -1385,7 +1417,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
             def _compute(_self, chrom, annotation_bundle, ref_panel, ldscore_config, global_config, regression_snps=None):
                 self.assertEqual(chrom, "1")
-                self.assertEqual(regression_snps, {"rs2"})
+                self.assertEqual(regression_snps.keys, {"rs2"})
+                self.assertEqual(regression_snps.match_kind, "base")
                 return ldscore_workflow.ChromLDScoreResult(
                     chrom="1",
                     baseline_table=pd.DataFrame(

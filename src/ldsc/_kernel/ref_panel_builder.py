@@ -25,7 +25,7 @@ from ..column_inference import (
 )
 from ..errors import LDSCDependencyError
 from .liftover import LiftOverMappingResult, LiftOverTranslator
-from .snp_identity import identity_artifact_metadata, identity_mode_family
+from .snp_identity import RestrictionIdentityKeys, identity_artifact_metadata, identity_mode_family, restriction_membership_mask
 
 LOGGER = logging.getLogger("LDSC.ref_panel_builder.kernel")
 
@@ -714,8 +714,20 @@ def write_runtime_metadata_sidecar(df: pd.DataFrame, path: str | PathLike[str]) 
         df.to_csv(handle, sep="\t", index=False, na_rep="NA", float_format="%.6g")
     return str(path)
 
-def build_restriction_mask(metadata: pd.DataFrame, restriction_values: set[str], mode: str) -> np.ndarray:
+def build_restriction_mask(
+    metadata: pd.DataFrame,
+    restriction_values: set[str] | RestrictionIdentityKeys,
+    mode: str,
+) -> np.ndarray:
     """Build the retained-SNP boolean mask for one restriction universe."""
+
+    if isinstance(restriction_values, RestrictionIdentityKeys):
+        return restriction_membership_mask(
+            metadata,
+            restriction_values,
+            mode,
+            context="reference-panel SNP restriction matching",
+        ).to_numpy(dtype=bool)
 
     if identity_mode_family(mode) == "rsid":
         return metadata["SNP"].astype(str).isin(restriction_values).to_numpy(dtype=bool)

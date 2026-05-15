@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 import warnings
+from argparse import Namespace
 from unittest import mock
 
 import numpy as np
@@ -419,6 +420,54 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(table.data["SNP"].tolist(), ["label_a", "label_c"])
             self.assertEqual(table.data["POS"].tolist(), [10, 20])
             self.assertTrue(packed_key_calls)
+
+    def test_prepare_sumstats_restriction_uses_rich_reader_for_allele_aware_modes(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            keep_path = tmpdir / "keep.tsv"
+            keep_path.write_text("SNP\tA1\tA2\nrs1\tA\tC\n", encoding="utf-8")
+            args = Namespace(
+                sumstats_snps=str(keep_path),
+                snp_identifier="rsid_allele_aware",
+                genome_build=None,
+                _coordinate_metadata={},
+            )
+
+            restriction = kernel_munge._prepare_sumstats_restriction(args)
+
+            self.assertEqual(restriction.identity_keys.match_kind, "identity")
+            self.assertEqual(restriction.identity_keys.keys, {"rs1:A:C"})
+
+    def test_run_filters_sumstats_snps_file_by_identity_in_allele_aware_mode_before_process_n(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "SNP A1 A2 P BETA N\n"
+                "rs1 A C 0.05 0.1 1000\n"
+                "rs1 A G 0.10 -0.1 1000\n",
+                encoding="utf-8",
+            )
+            keep_path = tmpdir / "keep.tsv"
+            keep_path.write_text("SNP\tA1\tA2\nrs1\tA\tC\n", encoding="utf-8")
+            original_process_n = kernel_munge.process_n
+
+            def assert_restricted_before_process_n(dat, args):
+                self.assertEqual(dat["SNP"].tolist(), ["rs1"])
+                self.assertEqual(dat["A1"].tolist(), ["A"])
+                self.assertEqual(dat["A2"].tolist(), ["C"])
+                return original_process_n(dat, args)
+
+            with mock.patch.object(kernel_munge, "process_n", side_effect=assert_restricted_before_process_n):
+                table = SumstatsMunger().run(
+                    MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
+                    MungeConfig(output_dir=tmpdir / "munged", sumstats_snps_file=keep_path),
+                    GlobalConfig(snp_identifier="rsid_allele_aware"),
+                )
+
+            self.assertEqual(table.data["SNP"].tolist(), ["rs1"])
+            self.assertEqual(table.data["A1"].tolist(), ["A"])
+            self.assertEqual(table.data["A2"].tolist(), ["C"])
 
     def test_run_resolves_chr_pos_auto_before_chunk_parsing(self):
         with tempfile.TemporaryDirectory() as tmpdir:

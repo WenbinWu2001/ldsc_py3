@@ -48,7 +48,7 @@ from .column_inference import (
     normalize_snp_identifier_mode,
     resolve_required_column,
 )
-from ._kernel.snp_identity import identity_mode_family
+from ._kernel.snp_identity import RestrictionIdentityKeys, collapse_restriction_identity_keys, identity_mode_family
 from .config import GlobalConfig, ReferencePanelBuildConfig, get_global_config, print_global_config_banner
 from ._coordinates import normalize_chr_pos_frame
 from .genome_build_inference import resolve_genome_build
@@ -114,6 +114,7 @@ class _BuildState:
     hm3_map_file: str | None = None
     restriction_mode: str | None = None
     restriction_values: set[str] | None = None
+    restriction_keys: RestrictionIdentityKeys | None = None
     translator_cache: dict[tuple[str, str], kernel_builder.LiftOverTranslator] = field(default_factory=dict)
 
 
@@ -435,6 +436,7 @@ class ReferencePanelBuilder:
             raise ValueError("source_genome_build must be resolved before loading build-ref-panel shared state.")
         restriction_mode = None
         restriction_values = None
+        restriction_keys = None
         restriction_source = packaged_hm3_curated_map_path() if config.use_hm3_snps else config.ref_panel_snps_file
         if restriction_source:
             restriction_path = resolve_scalar_path(
@@ -449,11 +451,12 @@ class ReferencePanelBuilder:
                     f"against source_genome_build='{source_build}' PLINK coordinates. "
                     "GlobalConfig.genome_build is ignored by build-ref-panel."
                 )
-            restriction_values = _read_ref_panel_snp_restriction(
+            restriction_keys = _read_ref_panel_snp_restriction(
                 restriction_path,
                 restriction_mode,
                 source_genome_build=source_build,
             )
+            restriction_values = restriction_keys.keys
             message = (
                 f"Loaded {len(restriction_values)} SNP restriction identifiers "
                 f"in {restriction_mode} mode from '{restriction_path}'"
@@ -531,6 +534,7 @@ class ReferencePanelBuilder:
             hm3_map_file=packaged_hm3_curated_map_path() if config.use_hm3_quick_liftover else None,
             restriction_mode=restriction_mode,
             restriction_values=restriction_values,
+            restriction_keys=restriction_keys,
         )
 
     def _discover_prefix_chromosomes(self, prefix: str) -> list[str]:
@@ -580,16 +584,18 @@ class ReferencePanelBuilder:
         if len(chrom_df) == 0:
             raise ValueError(f"No SNPs found for chromosome {chrom} in {prefix}.")
 
-        chrom_metadata = chrom_df.loc[:, ["CHR", "SNP", "BP"]].copy().rename(columns={"BP": "POS"})
+        metadata_columns = ["CHR", "SNP", "BP", *[column for column in ("A1", "A2") if column in chrom_df.columns]]
+        chrom_metadata = chrom_df.loc[:, metadata_columns].copy().rename(columns={"BP": "POS"})
         chrom_metadata["POS"] = chrom_metadata["POS"].astype(int)
         keep_snps = chrom_df.index.to_numpy(dtype=int)
         if (
             build_state.restriction_values is not None
             and build_state.restriction_mode is not None
         ):
+            active_restriction = build_state.restriction_keys or build_state.restriction_values
             keep_mask = kernel_builder.build_restriction_mask(
                 chrom_metadata.reset_index(drop=True),
-                build_state.restriction_values,
+                active_restriction,
                 build_state.restriction_mode,
             )
             keep_snps = chrom_df.index[keep_mask].to_numpy(dtype=int)
@@ -1016,13 +1022,26 @@ def _read_ref_panel_snp_restriction(
     restriction_mode: str,
     *,
     source_genome_build: str,
-) -> set[str]:
+) -> RestrictionIdentityKeys:
     """Read a builder SNP restriction file in the source PLINK build."""
     if identity_mode_family(restriction_mode) == "rsid":
-        return kernel_identifiers.read_global_snp_restriction(path, restriction_mode)
+        return kernel_identifiers.read_snp_restriction_keys(path, restriction_mode, logger=LOGGER)
     if source_genome_build not in {"hg19", "hg38"}:
         raise ValueError("source_genome_build must be resolved before CHR/POS SNP restriction loading.")
-    return _read_source_build_chr_pos_restriction(Path(path), source_genome_build)
+    frame, has_allele_columns = _read_source_build_chr_pos_restriction_frame(Path(path), source_genome_build)
+    frame, _report = normalize_chr_pos_frame(
+        frame,
+        context=f"reference-panel SNP restriction '{path}'",
+        coordinate_policy="drop",
+        logger=LOGGER,
+    )
+    return collapse_restriction_identity_keys(
+        frame,
+        restriction_mode,
+        context=f"reference-panel SNP restriction '{path}'",
+        has_allele_columns=has_allele_columns,
+        logger=LOGGER,
+    )
 
 
 def _source_position_spec(source_genome_build: str):
@@ -1064,16 +1083,29 @@ def _restriction_frame_from_columns(
     pos_col: str,
 ) -> pd.DataFrame:
     """Materialize CHR/POS restriction rows from selected source columns."""
-    chr_idx = list(header).index(chr_col)
-    pos_idx = list(header).index(pos_col)
-    values: list[tuple[object, object]] = []
+    header = list(header)
+    chr_idx = header.index(chr_col)
+    pos_idx = header.index(pos_col)
+    a1_col, a2_col, has_allele_columns = kernel_identifiers._resolve_restriction_allele_columns(
+        header,
+        context=str(path),
+    )
+    allele_indices = (header.index(a1_col), header.index(a2_col)) if has_allele_columns else None
+    values: list[dict[str, object]] = []
     for row in rows:
         if not row:
             continue
         if len(row) <= max(chr_idx, pos_idx):
             raise ValueError(f"Restriction row in {path} is missing the CHR or POS column.")
-        values.append((row[chr_idx], row[pos_idx]))
-    return pd.DataFrame(values, columns=["CHR", "POS"])
+        record = {"CHR": row[chr_idx], "POS": row[pos_idx]}
+        if allele_indices is not None:
+            if len(row) <= max(allele_indices):
+                raise ValueError(f"Restriction row in {path} is missing the A1 or A2 column.")
+            record["A1"] = row[allele_indices[0]]
+            record["A2"] = row[allele_indices[1]]
+        values.append(record)
+    columns = ["CHR", "POS", *(["A1", "A2"] if has_allele_columns else [])]
+    return pd.DataFrame(values, columns=columns)
 
 
 def _infer_generic_restriction_build(frame: pd.DataFrame, path: Path) -> str:
@@ -1103,14 +1135,18 @@ def _infer_generic_restriction_build(frame: pd.DataFrame, path: Path) -> str:
     return inferred_build
 
 
-def _read_source_build_chr_pos_restriction(path: Path, source_genome_build: str) -> set[str]:
-    """Read a CHR/POS restriction file that must align to the source build."""
+def _read_source_build_chr_pos_restriction_frame(path: Path, source_genome_build: str) -> tuple[pd.DataFrame, bool]:
+    """Read CHR/POS restriction rows that must align to the source build."""
     header, rows, _delimiter = kernel_identifiers._parse_restriction_rows(path)
     if not header:
-        return set()
+        return pd.DataFrame(columns=["CHR", "POS"]), False
     chr_col = resolve_required_column(
         header,
         RESTRICTION_CHRPOS_SPEC_MAP["CHR"],
+        context=str(path),
+    )
+    _a1_col, _a2_col, has_allele_columns = kernel_identifiers._resolve_restriction_allele_columns(
+        header,
         context=str(path),
     )
     source_pos_col = _resolve_build_specific_position_column(
@@ -1130,7 +1166,7 @@ def _read_source_build_chr_pos_restriction(path: Path, source_genome_build: str)
             chr_col=chr_col,
             pos_col=source_pos_col,
         )
-        return kernel_identifiers._finalize_chr_pos_restriction_frame(frame, path=path, logger=LOGGER)
+        return frame, has_allele_columns
 
     generic_pos_col = resolve_required_column(
         header,
@@ -1157,6 +1193,12 @@ def _read_source_build_chr_pos_restriction(path: Path, source_genome_build: str)
         f"Generic POS column in reference-panel SNP restriction '{path}' "
         f"was inferred as source_genome_build='{source_genome_build}'."
     )
+    return frame, has_allele_columns
+
+
+def _read_source_build_chr_pos_restriction(path: Path, source_genome_build: str) -> set[str]:
+    """Read a CHR/POS restriction file that must align to the source build."""
+    frame, _has_allele_columns = _read_source_build_chr_pos_restriction_frame(path, source_genome_build)
     return kernel_identifiers._finalize_chr_pos_restriction_frame(frame, path=path, logger=LOGGER)
 
 

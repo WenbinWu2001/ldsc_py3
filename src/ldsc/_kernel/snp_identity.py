@@ -115,12 +115,14 @@ def normalize_allele_set(a1: object, a2: object) -> object:
     """
     Normalize an unordered, strand-aware allele pair.
 
-    Invalid, missing, identical, or strand-ambiguous pairs return ``pd.NA``.
+    Invalid, missing, identical, or strand-ambiguous pairs raise ``ValueError``
+    with the public drop reason as the message.
     Valid pairs return the lexicographically smallest token among the observed
     unordered pair and its unordered complement pair.
     """
-    if _allele_failure_reason(a1, a2) is not None:
-        return pd.NA
+    reason = _allele_failure_reason(a1, a2)
+    if reason is not None:
+        raise ValueError(reason)
     left = _clean_allele(a1)
     right = _clean_allele(a2)
     assert left is not None and right is not None
@@ -181,7 +183,11 @@ def effective_merge_key_series(frame: pd.DataFrame, mode: str, *, context: str =
     if not is_allele_aware_mode(mode):
         return base.rename("snp_id")
 
-    allele_set, _reasons = allele_set_series(frame, context=context)
+    allele_set, reasons = allele_set_series(frame, context=context)
+    invalid = reasons.notna()
+    if bool(invalid.any()):
+        reason = str(reasons.loc[invalid].iloc[0])
+        raise ValueError(f"{context} contains invalid allele identity rows: {reason}.")
     keys = pd.Series(pd.NA, index=frame.index, dtype=object)
     valid = base.notna() & allele_set.notna()
     keys.loc[valid] = base.loc[valid].astype(str) + ":" + allele_set.loc[valid].astype(str)
@@ -201,7 +207,13 @@ def coerce_identity_drop_frame(frame: pd.DataFrame) -> pd.DataFrame:
     for column in IDENTITY_DROP_COLUMNS:
         if column not in coerced.columns:
             coerced[column] = pd.NA
-    return coerced.loc[:, IDENTITY_DROP_COLUMNS].reset_index(drop=True)
+    coerced = coerced.loc[:, IDENTITY_DROP_COLUMNS].reset_index(drop=True)
+    for column in ("source_pos", "target_pos"):
+        original = coerced[column]
+        numeric = pd.to_numeric(original, errors="coerce")
+        if bool(original.isna().equals(numeric.isna())):
+            coerced[column] = numeric.astype("Int64")
+    return coerced
 
 
 def _identity_drop_rows(frame: pd.DataFrame, *, reason: str, stage: str) -> pd.DataFrame:
@@ -220,7 +232,7 @@ def _identity_drop_rows(frame: pd.DataFrame, *, reason: str, stage: str) -> pd.D
         {
             "CHR": column_or_na("CHR"),
             "SNP": column_or_na("SNP"),
-            "source_pos": pd.Series(frame.index.to_list(), dtype=object),
+            "source_pos": column_or_na("POS") if "POS" in frame.columns else pd.Series(frame.index.to_list(), dtype=object),
             "target_pos": column_or_na("target_pos"),
             "reason": reason,
             "base_key": column_or_na("_ldsc_base_key"),

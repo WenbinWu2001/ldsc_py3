@@ -591,6 +591,12 @@ class RestrictionReadersTest(unittest.TestCase):
             path.write_text("id\tother\nrs1\ta\nrs2\tb\n", encoding="utf-8")
             self.assertEqual(read_global_snp_restriction(path, "rsid"), {"rs1", "rs2"})
 
+    def test_read_global_snp_restriction_rsid_family_table(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "restrict.tsv"
+            path.write_text("id\tA1\tA2\nrs1\tA\tC\nrs2\tG\tT\n", encoding="utf-8")
+            self.assertEqual(read_global_snp_restriction(path, "rsid_allele_aware"), {"rs1", "rs2"})
+
     def test_read_global_snp_restriction_chr_pos_table(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "restrict.tsv"

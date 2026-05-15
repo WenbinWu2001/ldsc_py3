@@ -64,7 +64,7 @@ from ..column_inference import (
     resolve_restriction_chr_pos_columns,
     resolve_restriction_rsid_column,
 )
-from .snp_identity import effective_merge_key_series, is_allele_aware_mode
+from .snp_identity import effective_merge_key_series, identity_mode_family, is_allele_aware_mode
 
 LOGGER = logging.getLogger("LDSC.identifiers")
 _CHROMOSOME_PACK_CODES = {
@@ -206,7 +206,7 @@ def read_global_snp_restriction(
         "should have been resolved at workflow entry."
     )
     path = Path(path)
-    if mode == "rsid":
+    if identity_mode_family(mode) == "rsid":
         return _read_rsid_restriction(path)
     return _read_chr_pos_restriction(path, genome_build=genome_build, logger=LOGGER if logger is None else logger)
 

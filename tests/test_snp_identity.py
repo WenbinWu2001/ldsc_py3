@@ -56,7 +56,8 @@ class AlleleNormalizationTest(unittest.TestCase):
         ]
         for a1, a2, reason in examples:
             with self.subTest(pair=(a1, a2)):
-                self.assertTrue(pd.isna(si.normalize_allele_set(a1, a2)))
+                with self.assertRaisesRegex(ValueError, reason):
+                    si.normalize_allele_set(a1, a2)
                 values, reasons = si.allele_set_series(pd.DataFrame({"A1": [a1], "A2": [a2]}), context="test")
                 self.assertTrue(pd.isna(values.iloc[0]))
                 self.assertEqual(reasons.iloc[0], reason)
@@ -79,6 +80,12 @@ class EffectiveKeyTest(unittest.TestCase):
         self.assertEqual(si.effective_merge_key_series(frame, "chr_pos").tolist(), ["1:101"])
         self.assertEqual(si.effective_merge_key_series(frame, "chr_pos_allele_aware").tolist(), ["1:101:A:C"])
 
+    def test_effective_key_raises_for_invalid_alleles_in_allele_aware_modes(self):
+        frame = pd.DataFrame({"CHR": [1], "POS": [101], "SNP": ["rs1"], "A1": ["A"], "A2": ["T"]})
+
+        with self.assertRaisesRegex(ValueError, "strand_ambiguous_allele"):
+            si.effective_merge_key_series(frame, "rsid_allele_aware")
+
 
 class IdentityArtifactCleanupTest(unittest.TestCase):
     def test_base_modes_drop_duplicate_clusters_without_inspecting_alleles(self):
@@ -97,6 +104,7 @@ class IdentityArtifactCleanupTest(unittest.TestCase):
         self.assertEqual(result.cleaned["SNP"].tolist(), ["rs2"])
         self.assertEqual(result.dropped["reason"].tolist(), ["duplicate_identity", "duplicate_identity"])
         self.assertEqual(set(result.dropped["SNP"]), {"rs1"})
+        self.assertEqual(result.dropped["source_pos"].tolist(), [10, 10])
 
     def test_base_modes_keep_singletons_with_invalid_missing_or_ambiguous_alleles(self):
         frame = pd.DataFrame(

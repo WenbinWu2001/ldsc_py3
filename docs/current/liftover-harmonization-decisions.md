@@ -64,9 +64,9 @@ output, and metadata contracts.
 - Detailed coordinate provenance, liftover counts, HM3 map provenance, output
   paths, and row-group details are readable `sumstats.log` entries rather than
   sidecar payloads.
-- Old pre-`config_snapshot` sidecars are not supported. Completely missing
-  sidecars remain legacy unknown-provenance inputs for existing loader
-  compatibility.
+- Old pre-`config_snapshot` sidecars are not supported, and package-written
+  sumstats artifacts with missing sidecars must be regenerated with the current
+  LDSC package.
 - HM3 quick liftover is a packaged-map coordinate shortcut, not a general
   chain-liftover replacement.
 

@@ -126,8 +126,8 @@ groups, changes only `CHR`/`POS`, and requires
 `--target-genome-build` plus either `--liftover-chain-file` or
 `--use-hm3-snps --use-hm3-quick-liftover`. Drop counts are written to `sumstats.log`,
 examples appear only at `DEBUG`, and row-level drops are audited in
-`dropped_snps/dropped.tsv.gz`; the metadata sidecar remains
-compatibility-only.
+`dropped_snps/dropped.tsv.gz`; the metadata sidecar stays limited to current
+artifact provenance.
 
 When you set `regression_snps_file` or `use_hm3_regression_snps` during LD-score calculation, the same regression SNP subset defines the rows of the normalized `baseline_table`. Regression uses the embedded `regression_ld_scores` column as the historical `w_ld` component; final model-dependent weights are computed later in the regression kernel.
 

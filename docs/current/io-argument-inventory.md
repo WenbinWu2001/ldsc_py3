@@ -461,8 +461,8 @@ Regression therefore merges on the effective identity key: literal `SNP` in
 `chr_pos`-family modes; it changes `CHR`/`POS`, never `SNP`, and runs after
 `sumstats_snps_file` filtering. Liftover drop counts are written as readable log
 records, examples appear only at `DEBUG`, and row-level dropped-SNP details are
-written to `dropped_snps/dropped.tsv.gz`. The metadata sidecar remains
-compatibility-only and current metadata sidecars must include `config_snapshot`.
+written to `dropped_snps/dropped.tsv.gz`. The metadata sidecar stays limited
+to current artifact provenance and must include `config_snapshot`.
 
 ## Remaining Implementation Checklist
 

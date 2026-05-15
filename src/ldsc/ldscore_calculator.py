@@ -414,10 +414,11 @@ class LDScoreCalculator:
             )
         )
         pos_column = "POS" if "POS" in reference_metadata.columns else "BP"
+        metadata_columns = ["CHR", "SNP", pos_column, *[column for column in ("A1", "A2") if column in reference_metadata.columns]]
         regression_weights = np.asarray(legacy_result.w_ld, dtype=np.float32).reshape(-1)
         ldscore_table = pd.concat(
             [
-                reference_metadata.loc[regression_keep, ["CHR", "SNP", pos_column]].rename(columns={pos_column: "POS"}).reset_index(drop=True),
+                reference_metadata.loc[regression_keep, metadata_columns].rename(columns={pos_column: "POS"}).reset_index(drop=True),
                 ld_scores.loc[regression_keep].reset_index(drop=True),
                 pd.DataFrame({REGRESSION_LD_SCORE_COLUMN: regression_weights[regression_keep.to_numpy()]}).reset_index(drop=True),
             ],
@@ -552,7 +553,7 @@ def _split_ldscore_table(
     snp_identifier: str = "chr_pos_allele_aware",
 ) -> tuple[pd.DataFrame, pd.DataFrame | None]:
     """Split a merged LD-score table into baseline and optional query tables."""
-    metadata_columns = ["CHR", "SNP", "POS"]
+    metadata_columns = ["CHR", "SNP", "POS", *[column for column in ("A1", "A2") if column in ldscore_table.columns]]
     baseline_order = [*metadata_columns, REGRESSION_LD_SCORE_COLUMN, *baseline_columns]
     query_order = [*metadata_columns, *query_columns]
     missing_baseline = [column for column in baseline_order if column not in ldscore_table.columns]

@@ -869,8 +869,16 @@ class LDScoreWorkflowTest(unittest.TestCase):
             global_config=GlobalConfig(snp_identifier="chr_pos_allele_aware"),
         )
 
-        self.assertEqual(result.baseline_table.columns.tolist(), ["CHR", "SNP", "POS", "regression_ld_scores", "base"])
+        self.assertEqual(result.baseline_table.columns.tolist(), ["CHR", "SNP", "POS", "A1", "A2", "regression_ld_scores", "base"])
         self.assertEqual(result.ld_regression_snps, frozenset({"1:10:A:C", "1:20:A:G"}))
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_paths = ldscore_workflow.LDScoreDirectoryWriter().write(
+                result,
+                ldscore_workflow.LDScoreOutputConfig(output_dir=tmpdir),
+            )
+            baseline = pd.read_parquet(output_paths["baseline"])
+        self.assertEqual(baseline["A1"].tolist(), ["A", "A"])
+        self.assertEqual(baseline["A2"].tolist(), ["C", "G"])
 
     def _build_annotation_bundle(self, prefix: Path) -> AnnotationBundle:
         bim = pd.read_csv(

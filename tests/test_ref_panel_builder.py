@@ -493,6 +493,7 @@ class StandardTableFormattingTest(unittest.TestCase):
                     path=path,
                     genome_build="hg19",
                     n_samples=10,
+                    snp_identifier="chr_pos",
                 )
             self.assertIn("requires pyarrow", str(ctx.exception))
             self.assertNotIn("fastparquet", str(ctx.exception))
@@ -525,6 +526,7 @@ class StandardTableFormattingTest(unittest.TestCase):
                     path=path,
                     genome_build="hg19",
                     n_samples=10,
+                    snp_identifier="chr_pos",
                 )
             self.assertIn("POS_1=80", str(ctx.exception))
             self.assertIn("POS_1=100", str(ctx.exception))
@@ -555,6 +557,7 @@ class StandardTableFormattingTest(unittest.TestCase):
                 path=path,
                 genome_build="hg19",
                 n_samples=10,
+                snp_identifier="rsid_allele_aware",
                 row_group_size=50_000,
             )
             pf = pq.ParquetFile(str(path))
@@ -564,6 +567,10 @@ class StandardTableFormattingTest(unittest.TestCase):
             self.assertEqual(meta[b"ldsc:sorted_by_build"].decode("utf-8"), "hg19")
             self.assertIn(b"ldsc:row_group_size", meta)
             self.assertEqual(meta[b"ldsc:row_group_size"].decode("utf-8"), "50000")
+            self.assertEqual(meta[b"ldsc:schema_version"].decode("utf-8"), "1")
+            self.assertEqual(meta[b"ldsc:artifact_type"].decode("utf-8"), "ref_panel_r2")
+            self.assertEqual(meta[b"ldsc:snp_identifier"].decode("utf-8"), "rsid_allele_aware")
+            self.assertEqual(meta[b"ldsc:genome_build"].decode("utf-8"), "hg19")
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow dependency is not installed")
     def test_write_r2_parquet_stores_n_samples_and_r2_bias(self):
@@ -590,6 +597,7 @@ class StandardTableFormattingTest(unittest.TestCase):
                 path=path,
                 genome_build="hg19",
                 n_samples=42,
+                snp_identifier="chr_pos",
             )
             meta = pq.read_schema(str(path)).metadata
 

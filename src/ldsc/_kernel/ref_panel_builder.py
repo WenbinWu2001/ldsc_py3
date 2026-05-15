@@ -612,7 +612,7 @@ def write_r2_parquet(
     path: str | PathLike[str],
     genome_build: str,
     n_samples: int,
-    snp_identifier: str = "chr_pos",
+    snp_identifier: str,
     batch_size: int = 100_000,
     row_group_size: int = 50_000,
 ) -> str:

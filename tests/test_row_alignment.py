@@ -21,10 +21,15 @@ class RowAlignmentTest(unittest.TestCase):
                 "CHR": ["1", "1"],
                 "SNP": ["rs1", "rs2"],
                 "POS": [10, 20],
+                "A1": ["A", "C"],
+                "A2": ["C", "T"],
                 "CM": [0.1, np.nan],
                 "MAF": [0.2, np.nan],
             }
         )
+
+    def make_rows_without_alleles(self) -> pd.DataFrame:
+        return self.make_rows().drop(columns=["A1", "A2"])
 
     def test_exact_match_passes(self):
         assert_same_snp_rows(self.make_rows(), self.make_rows().copy(), context="test rows")
@@ -40,7 +45,7 @@ class RowAlignmentTest(unittest.TestCase):
             right = self.make_rows()
             right.loc[0, column] = value
             with self.subTest(column=column):
-                with self.assertRaisesRegex(ValueError, f"test rows.*{column}"):
+                with self.assertRaisesRegex(ValueError, "test rows.*identity_key"):
                     assert_same_snp_rows(self.make_rows(), right, context="test rows")
 
     def test_default_chr_pos_identity_ignores_snp_label_mismatch(self):
@@ -62,13 +67,32 @@ class RowAlignmentTest(unittest.TestCase):
 
         assert_same_snp_rows(self.make_rows(), right, context="test rows", snp_identifier="chr_pos")
 
+    def test_chr_pos_mode_ignores_allele_mismatch(self):
+        right = self.make_rows()
+        right.loc[0, "A1"] = "A"
+        right.loc[0, "A2"] = "G"
+
+        assert_same_snp_rows(self.make_rows(), right, context="test rows", snp_identifier="chr_pos")
+
     def test_chr_pos_mode_still_rejects_coordinate_mismatch(self):
         right = self.make_rows()
         right["SNP"] = ["ld_rs1", "ld_rs2"]
         right.loc[0, "POS"] = 99
 
-        with self.assertRaisesRegex(ValueError, "test rows.*POS"):
+        with self.assertRaisesRegex(ValueError, "test rows.*identity_key.*1:10.*1:99"):
             assert_same_snp_rows(self.make_rows(), right, context="test rows", snp_identifier="chr_pos")
+
+    def test_default_allele_aware_mode_rejects_missing_allele_columns(self):
+        with self.assertRaisesRegex(ValueError, "test rows.*missing required.*A1.*A2"):
+            assert_same_snp_rows(self.make_rows_without_alleles(), self.make_rows(), context="test rows")
+
+    def test_default_allele_aware_mode_rejects_allele_mismatch(self):
+        right = self.make_rows()
+        right.loc[0, "A1"] = "A"
+        right.loc[0, "A2"] = "G"
+
+        with self.assertRaisesRegex(ValueError, "test rows.*identity_key.*1:10:A:C.*1:10:A:G"):
+            assert_same_snp_rows(self.make_rows(), right, context="test rows")
 
     def test_float_metadata_within_float16_epsilon_passes(self):
         right = self.make_rows()

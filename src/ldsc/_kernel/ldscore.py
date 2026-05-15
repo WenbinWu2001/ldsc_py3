@@ -1243,8 +1243,14 @@ def merge_frequency_metadata(
 
     frames = [parse_frequency_metadata(path, chrom=chrom, identifier_mode=identifier_mode) for path in files]
     freq_df = pd.concat(frames, axis=0, ignore_index=True) if frames else pd.DataFrame(columns=["_key", "_key_mode", "CM", "MAF"])
-    if freq_df[["_key_mode", "_key"]].duplicated().any():
-        raise ValueError(f"Duplicate SNP metadata keys detected in frequency metadata for chromosome {chrom}.")
+    duplicate_mask = freq_df[["_key_mode", "_key"]].duplicated(keep="first")
+    if bool(duplicate_mask.any()):
+        LOGGER.warning(
+            "Dropping %d duplicate frequency metadata rows for chromosome %s using first-seen SNP identity keys.",
+            int(duplicate_mask.sum()),
+            chrom,
+        )
+        freq_df = freq_df.loc[~duplicate_mask].reset_index(drop=True)
 
     merged = metadata.copy()
     for key_mode, freq_part in freq_df.groupby("_key_mode", sort=False):

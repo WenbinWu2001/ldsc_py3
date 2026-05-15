@@ -374,10 +374,11 @@ capacity = min(max_adjacent_union + 1, num_row_groups)
 
 The cache unit is one decoded parquet row group. The cached payload is numeric
 arrays only: endpoint matrix indices `i:int32`, `j:int32`, and `r2:float32`.
-In `rsid` mode, `SNP_1`/`SNP_2` strings are converted to retained-SNP matrix
-indices during row-group decode. In `chr_pos` mode, `POS_1`/`POS_2` are mapped
-to retained-SNP matrix indices during decode. Unmapped endpoints are dropped at
-decode time.
+In base `rsid` mode, `SNP_1`/`SNP_2` strings are converted to retained-SNP
+matrix indices during row-group decode. In base `chr_pos` mode, `POS_1`/`POS_2`
+are mapped to retained-SNP matrix indices during decode. In allele-aware modes,
+endpoint alleles are included in the effective key. Unmapped endpoints are
+dropped at decode time.
 
 The cache is per chromosome and is discarded when the next chromosome reader is
 created. There is no public row-group cache-size option. Cache diagnostics
@@ -454,9 +455,10 @@ enforced at write time by the sort assertion described in §2.2. Pairs where
 index lookups if present.
 
 **Identifier mode.** `SNP_1`/`SNP_2` are always written. `identifier_mode` is a
-runtime parameter; the reader selects which columns to use for index mapping
-(`POS_1`/`POS_2` for `chr_pos` mode, `SNP_1`/`SNP_2` for `rsid` mode) without
-requiring different parquet files.
+runtime parameter; the reader selects which columns to use for index mapping:
+`SNP_1`/`SNP_2` for base `rsid`, `POS_1`/`POS_2` for base `chr_pos`, and the
+corresponding endpoint allele-aware effective key for allele-aware modes,
+without requiring different package-built parquet files.
 
 **Legacy raw-schema parquets.** Parquets in the old schema (containing
 `hg19_pos_1`, `hg38_pos_1`, etc. but no canonical `POS_1`/`POS_2` columns) are

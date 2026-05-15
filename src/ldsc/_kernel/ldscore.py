@@ -45,9 +45,11 @@ Canonical Parquet `R2` Format
 - Legacy raw-schema parquet files with `hg19_pos_1`, `hg38_pos_1`, `rsID_1`,
   `rsID_2`, `Dprime`, or `+/-corr` are still accepted through the slower
   `pyarrow.Dataset` fallback, but row-group pruning is disabled.
-- In `chr_pos` mode, retained reference SNP rows must have unique chromosome
-  positions. If two retained SNPs share the same `CHR` and `POS`, matching to
-  the `R2` table is ambiguous and the code fails fast.
+- In `chr_pos`-family modes, retained reference SNP rows must have unique
+  chromosome positions after active identity cleanup. If two retained SNPs
+  share the same `CHR` and `POS` in base `chr_pos`, matching to the `R2` table
+  is ambiguous and the code fails fast; allele-aware multi-allelic base-key
+  clusters are removed before matching.
 
 Identifier and Genome-Build Rules
 ---------------------------------

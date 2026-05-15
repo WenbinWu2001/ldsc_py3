@@ -388,10 +388,11 @@ class SumstatsMunger:
             not produce. If ``munge_config.sumstats_snps_file`` is supplied, it
             is treated as a headered keep-list, loaded once before raw chunk
             parsing, and applied to each parsed chunk after munging QC and
-            coordinate normalization. The keep-list does not allele-match or
-            reorder output rows. In coordinate-family modes, keep-list
-            filtering uses source-build coordinates before any optional output
-            liftover.
+            coordinate normalization. Allele-free keep-lists match by base key,
+            and allele-bearing keep-lists in allele-aware modes match by the
+            effective allele-aware key; keep-lists do not reorder output rows.
+            In coordinate-family modes, keep-list filtering uses source-build
+            coordinates before any optional output liftover.
             ``sumstats_format="auto"`` is the default; use
             ``sumstats_format="plain"``, ``"daner-old"``, ``"daner-new"``, or
             ``"pgc-vcf"`` only when overriding auto-detection.

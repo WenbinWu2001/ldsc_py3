@@ -83,10 +83,12 @@ allele-skip flag.
 Restriction files may omit alleles. Allele-free restrictions match by base key
 and can retain multiple candidate rows before later artifact cleanup. Packaged
 HM3 restrictions are allele-free base-key filters. Allele-bearing restrictions
-in allele-aware modes match by the effective allele-aware key. Annotation files
-may also omit alleles in allele-aware modes because they describe genomic
-membership; when annotation alleles are present, they participate in
-allele-aware matching.
+in allele-aware modes match by the effective allele-aware key. Restriction
+files are identity-only filters: duplicate restriction keys collapse to one
+retained key, and non-identity columns such as `CM`, `MAF`, or other metadata
+are ignored. Annotation files may also omit alleles in allele-aware modes
+because they describe genomic membership; when annotation alleles are present,
+they participate in allele-aware matching.
 
 ## 1. `annotate`: BED Projection To SNP-Level `.annot.gz`
 
@@ -264,7 +266,7 @@ baseline annotations.
 | query annotation shard, optional | `CHR POS SNP CM enhancer_A`<br/>`1 10583 rs58108140 0.0 1` | optional extra annotation columns; valid only with explicit baseline annotations |
 | PLINK prefix or parquet R2 panel | `panel_chr@` or build directory `ref_panel/hg38` | choose one backend |
 | frequency / metadata sidecar, optional | `CHR POS SNP CM MAF A1 A2` | used for MAF and runtime metadata; `A1/A2` are required for allele-aware modes |
-| regression SNP list, optional | `rs123` or `CHR POS` table | restricts the weight-table SNP set; allele columns may be omitted and then match by base key; allele-bearing restrictions in allele-aware modes match by effective allele-aware key |
+| regression SNP list, optional | `rs123` or `CHR POS` table | restricts the weight-table SNP set using identity keys only; allele columns may be omitted and then match by base key; allele-bearing restrictions in allele-aware modes match by effective allele-aware key; duplicate restriction keys collapse to one retained key and non-identity columns such as `CM` or `MAF` are ignored |
 
 ### Flow
 

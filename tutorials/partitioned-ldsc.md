@@ -189,6 +189,7 @@ Within this design:
 - `ref_panel_snps_file` or `use_hm3_ref_panel_snps` belongs to `RefPanelConfig` and restricts the retained reference-panel rows
 - `LDScoreCalculator.compute_chromosome()` intersects each chromosome-local annotation bundle with `ref_panel.load_metadata(chrom)`, so the LD-score compute universe is `B ∩ A'`; parquet pair rows are not scanned to define SNP presence
 - `regression_snps_file` or `use_hm3_regression_snps` belongs to `LDScoreConfig` and further restricts the normalized `baseline_table` rows to `B ∩ A' ∩ C`
+- explicit reference-panel and regression SNP restriction files are identity-only filters: duplicate restriction keys collapse to one retained key, and non-identity columns such as `CM` or `MAF` are ignored
 - regression-universe LD scores are embedded as `regression_ld_scores`; there is no separate `.w.l2.ldscore.gz` artifact in the new default format
 - query `.annot` and BED inputs are accepted only when baseline annotations are supplied explicitly
 

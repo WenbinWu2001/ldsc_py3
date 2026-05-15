@@ -389,7 +389,15 @@ def collapse_restriction_identity_keys(
     has_allele_columns: bool | None = None,
     logger: logging.Logger | None = None,
 ) -> RestrictionIdentityKeys:
-    """Build set-like restriction keys under the active identity mode."""
+    """
+    Build set-like restriction keys under the active identity mode.
+
+    Restriction tables are filters, not metadata sources. The active base or
+    allele-aware key is computed, repeated keys collapse to one retained key,
+    and non-identity columns are ignored. Allele-aware restrictions still drop
+    invalid allele rows and multi-allelic base-key clusters before collapsing
+    duplicate effective keys.
+    """
     mode = normalize_snp_identifier_mode(mode)
     n_input = int(len(frame))
     has_alleles = ("A1" in frame.columns and "A2" in frame.columns) if has_allele_columns is None else has_allele_columns

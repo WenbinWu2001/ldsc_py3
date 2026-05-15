@@ -28,6 +28,14 @@ Input-token rules used below:
 
 Output directories stay literal; only input fields are expanded.
 
+SNP restriction files used for the reference-panel or regression universes are
+identity-only filters. Duplicate restriction keys collapse to one retained key,
+and non-identity columns such as `CM` or `MAF` are ignored rather than carried
+into LD-score metadata. Optional frequency metadata inputs fill missing
+`CM`/`MAF`; when a frequency file has duplicate effective SNP identity keys, the
+whole duplicate cluster is dropped with a warning, leaving those metadata values
+missing unless annotation metadata already supplied them.
+
 Resolution behavior:
 
 - there is no separate `*_chr` argument anymore; the same public argument now accepts exact paths, globs, or explicit `@` suite tokens
@@ -353,6 +361,10 @@ Per-run SNP-universe controls are owned by the workflow-specific configs instead
 - `ref_panel_snps_file` or `use_hm3_ref_panel_snps` belongs to the LD-score reference-panel input and is passed through `run_ldscore(...)` into `RefPanelConfig`
 - the LD-score workflow intersects each chromosome bundle with `ref_panel.load_metadata(chrom)`, so reference-panel SNP restriction shrinks the sidecar-defined compute-time universe from `B` to `B ∩ A'`; in the no-annotation unpartitioned case, synthetic `B` is the retained reference-panel metadata itself
 - `regression_snps_file` or `use_hm3_regression_snps` belongs to the LD-score calculation config and further restricts the normalized `baseline_table` rows from `B ∩ A'` to `B ∩ A' ∩ C`
+
+Both explicit restriction files are interpreted only through their active SNP
+identity keys. Repeated keys collapse to one retained key, while metadata-like
+columns in the restriction table are ignored.
 
 `run_bed_to_annot()` no longer applies a reference-panel SNP restriction. It projects BED intervals onto the baseline annotation rows and returns an `AnnotationBundle`; any reference-panel restriction is applied later, during LD-score calculation, when the workflow aligns each chromosome bundle to the prepared reference-panel metadata.
 

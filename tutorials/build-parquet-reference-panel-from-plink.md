@@ -201,9 +201,11 @@ Exactly one of the following must be set:
   `GlobalConfig.snp_identifier`. Restriction files may omit alleles and then
   match by base key. Allele-bearing restrictions in allele-aware modes match by
   the effective allele-aware key. The packaged HM3 restriction is allele-free and
-  matches by base key. In `chr_pos`-family modes, the restriction file must be
-  aligned to the PLINK source build. Target-build restriction files are not
-  lifted over by the builder.
+  matches by base key. Restriction files are identity-only filters: duplicate
+  restriction keys collapse to one retained key, and non-identity columns such
+  as `CM` or `MAF` are ignored. In `chr_pos`-family modes, the restriction file
+  must be aligned to the PLINK source build. Target-build restriction files are
+  not lifted over by the builder.
 
 - `--use-hm3-snps`
   Plain-English meaning: restrict the retained reference-panel SNP rows to the
@@ -542,7 +544,9 @@ Accepted forms include:
 
 Allele-free restrictions match by base key, including in allele-aware modes.
 Allele-bearing restrictions in allele-aware modes match by the effective
-allele-aware key after restriction cleanup.
+allele-aware key after restriction cleanup. Duplicate restriction keys collapse
+to one retained key, and non-identity columns such as `CM` or `MAF` are ignored
+instead of being carried into emitted metadata.
 
 Example:
 

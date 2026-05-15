@@ -1052,7 +1052,13 @@ def _read_ref_panel_snp_restriction(
     *,
     source_genome_build: str,
 ) -> RestrictionIdentityKeys:
-    """Read a builder SNP restriction file in the source PLINK build."""
+    """
+    Read a builder SNP restriction file in the source PLINK build.
+
+    Restriction files contribute only identity keys for filtering retained
+    reference-panel rows. Duplicate keys collapse to one retained key, and
+    non-identity columns such as ``CM`` or ``MAF`` are ignored.
+    """
     if identity_mode_family(restriction_mode) == "rsid":
         return kernel_identifiers.read_snp_restriction_keys(path, restriction_mode, logger=LOGGER)
     if source_genome_build not in {"hg19", "hg38"}:

@@ -159,10 +159,12 @@ or `chr_pos` SNP identifier mode; there is no separate allele-skip flag.
 Restriction files may omit alleles. Allele-free restrictions match by base key
 and can keep multiple candidate rows until later artifact cleanup. Packaged HM3
 restrictions are allele-free base-key filters. Allele-bearing restrictions in
-allele-aware modes match by the effective allele-aware key. Annotation files may
-omit alleles even in allele-aware modes because they describe genomic
-membership; if annotation files include alleles, those alleles participate in
-allele-aware matching.
+allele-aware modes match by the effective allele-aware key. Restriction files
+are identity-only filters: duplicate restriction keys collapse to one retained
+key, and non-identity columns such as `CM`, `MAF`, or other metadata are
+ignored. Annotation files may omit alleles even in allele-aware modes because
+they describe genomic membership; if annotation files include alleles, those
+alleles participate in allele-aware matching.
 
 ### `CHR` format
 `normalize_chromosome` (in `chromosome_inference.py`) strips the `chr` prefix on

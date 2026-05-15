@@ -390,7 +390,9 @@ class SumstatsMunger:
             parsing, and applied to each parsed chunk after munging QC and
             coordinate normalization. Allele-free keep-lists match by base key,
             and allele-bearing keep-lists in allele-aware modes match by the
-            effective allele-aware key; keep-lists do not reorder output rows.
+            effective allele-aware key. Duplicate keep-list keys collapse to one
+            retained key, and non-identity columns such as ``CM`` or ``MAF`` are
+            ignored; keep-lists do not reorder output rows.
             In coordinate-family modes, keep-list filtering uses source-build
             coordinates before any optional output liftover.
             ``sumstats_format="auto"`` is the default; use

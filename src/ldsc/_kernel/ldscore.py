@@ -20,7 +20,8 @@ Supported Inputs
 - Optional frequency metadata may be provided to populate `MAF` in outputs and
   to enable common-count generation when parquet input is used. For LD-score
   calculation, the annotation file's `CM` is the first source. The sidecar
-  metadata only fills missing `CM` values.
+  metadata only fills missing `CM` values; duplicate sidecar identity clusters
+  are dropped entirely before filling.
 - Optional regression SNP lists may be provided to define the SNP set used for
   `w_ld`. If omitted, the retained reference SNP set is used.
 
@@ -1235,7 +1236,10 @@ def merge_frequency_metadata(
     For LD-score calculation, the annotation file's ``CM`` is the first source.
     The sidecar metadata only fills missing ``CM`` values. ``MAF`` is filled by
     the same missing-value rule so annotation-provided metadata remains
-    authoritative when present.
+    authoritative when present. Frequency sidecars are metadata providers, not
+    SNP filters: when multiple sidecar rows share the active effective identity
+    key, the whole duplicate-key cluster is ignored and a warning is logged, so
+    ``CM``/``MAF`` stay missing unless already supplied by annotation metadata.
     """
     files = resolve_frequency_files(args, chrom=chrom)
     if not files:
@@ -2482,7 +2486,14 @@ def build_parser() -> argparse.ArgumentParser:
             "Duplicate restriction keys collapse to one retained key; non-identity columns such as CM or MAF are ignored."
         ),
     )
-    parser.add_argument("--frqfile", default=None, help="Optional frequency/metadata inputs for MAF and CM. Each token may be an exact path, glob, or explicit @ chromosome-suite token.")
+    parser.add_argument(
+        "--frqfile",
+        default=None,
+        help=(
+            "Optional frequency/metadata inputs for MAF and CM. Each token may be an exact path, glob, or explicit @ "
+            "chromosome-suite token. Duplicate effective SNP identity clusters are dropped entirely before metadata fill."
+        ),
+    )
     parser.add_argument("--keep", default=None, help="File with individuals to include in LD Score estimation. The file should contain one IID per row.")
     parser.add_argument("--ld-wind-snps", default=None, type=int, help="LD window size in SNPs.")
     parser.add_argument("--ld-wind-kb", default=None, type=float, help="LD window size in kilobases.")

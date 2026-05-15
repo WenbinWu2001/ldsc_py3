@@ -147,11 +147,17 @@ The LD-score phase tracks these SNP sets:
 | A | Raw reference panel SNPs | Rows in PLINK `.bim` or parquet metadata sidecar |
 | A' | Prepared reference panel | `A` after optional explicit or HM3 reference-panel SNP restriction, retained-panel `maf_min`, and PLINK `keep_indivs_file`; equals A when absent |
 | `ld_reference_snps` | LD computation universe | `B ∩ A'` |
-| C | Regression SNP mask | Optional mask from explicit `regression_snps_file` or packaged HM3 regression SNP restriction |
+| C | Regression SNP mask | Optional identity-only mask from explicit `regression_snps_file` or packaged HM3 regression SNP restriction |
 | `ld_regression_snps` | Persisted row set | `B ∩ A' ∩ C`; equals `ld_reference_snps` when C is absent |
 
 LD-score column counts in the manifest are computed over `ld_reference_snps`.
 Persisted parquet rows are `ld_regression_snps`.
+Explicit reference-panel and regression SNP restriction files are filters only:
+duplicate restriction keys collapse to one retained key, and non-identity
+columns such as `CM` or `MAF` are ignored. Optional frequency metadata fills
+missing `CM`/`MAF`; duplicate frequency metadata identity clusters are dropped
+entirely before fill, leaving those values missing unless annotation metadata
+already supplied them.
 
 ## 5. Count Records
 

@@ -118,10 +118,12 @@ when the munged artifact should be restricted to a headered SNP keep-list, or
 `--use-hm3-snps` to use the packaged curated HM3 map. Restriction files may omit
 alleles; allele-free restrictions, including packaged HM3 restrictions, match by
 base key. Allele-bearing restrictions in allele-aware modes match by the
-effective allele-aware key. These filters are loaded once before raw chunk
-parsing and applied while chunks are still streaming, after canonical columns and
-coordinate normalization are available. They keep matching rows only and do not
-reorder the output. In `chr_pos`-family modes, `SNP` is a label; matching uses
+effective allele-aware key. Restriction files are identity-only filters:
+duplicate restriction keys collapse to one retained key, and non-identity
+columns such as `CM` or `MAF` are ignored. These filters are loaded once before
+raw chunk parsing and applied while chunks are still streaming, after canonical
+columns and coordinate normalization are available. They keep matching rows only
+and do not reorder the output. In `chr_pos`-family modes, `SNP` is a label; matching uses
 source-build `CHR` and `POS`, plus the allele set in
 `chr_pos_allele_aware`, represented internally as effective coordinate-family
 keys. Rows with missing or invalid coordinates are dropped and counted at

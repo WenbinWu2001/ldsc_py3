@@ -211,7 +211,9 @@ def read_global_snp_restriction(
 
     The returned values are ready for direct set intersection with annotation,
     reference-panel, or regression SNP universes, depending on which config
-    field supplied the path.
+    field supplied the path. Restriction files are identity-only inputs:
+    repeated identifiers collapse to one key, and non-identity columns are not
+    carried into downstream metadata.
     """
     mode = normalize_snp_identifier_mode(snp_identifier)
     genome_build = normalize_genome_build(genome_build)
@@ -231,7 +233,13 @@ def read_snp_restriction_keys(
     genome_build: str | None = None,
     logger=None,
 ) -> RestrictionIdentityKeys:
-    """Read a restriction file into base or allele-aware identity keys."""
+    """
+    Read a restriction file into base or allele-aware identity keys.
+
+    The result is a set-like filter for SNP matching only. Duplicate restriction
+    keys collapse to one retained key, and columns outside the active identity
+    schema, such as ``CM`` or ``MAF``, are ignored rather than propagated.
+    """
     mode = normalize_snp_identifier_mode(snp_identifier)
     genome_build = normalize_genome_build(genome_build)
     assert genome_build in {"hg19", "hg38", None}, (

@@ -5,10 +5,6 @@ Branch: `restructure`
 
 ## General Policies
 
-Drop-duplication policy always applies on the effective merge key. For any
-artifact-like table, compute the merge key for the active SNP identifier mode and
-drop all rows in duplicate-key clusters.
-
 The package supports exactly four public SNP identifier modes, with no mode
 aliases:
 
@@ -29,6 +25,8 @@ Effective merge keys are:
 | `rsid_allele_aware` | `rsID:<allele_set>` |
 | `chr_pos` | `CHR:POS` |
 | `chr_pos_allele_aware` | `CHR:POS:<allele_set>` |
+
+Duplicate policy: compute the effective merge key for the active mode, then drop all rows in duplicate-key clusters. For any artifact-like table, compute the merge key for the active SNP identifier mode and drop all rows in duplicate-key clusters.
 
 `<allele_set>` is an unordered, strand-aware biallelic SNP allele token. For
 identity, `A:C`, `C:A`, `T:G`, and `G:T` normalize to the same allele set.

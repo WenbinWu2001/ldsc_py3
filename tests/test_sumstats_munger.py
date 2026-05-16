@@ -2499,6 +2499,10 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(result.source_genome_build, "hg19")
             self.assertEqual(result.output_genome_build, "hg38")
             self.assertTrue(result.liftover_required)
+            self.assertIn(
+                "Liftover required: yes (method: missing; suggested: hm3 quick)",
+                output,
+            )
             self.assertIn("Next step:\n  Runnable: no\n  Missing fields: liftover_method", output)
             self.assertIn("HM3 quick command: add --use-hm3-snps --use-hm3-quick-liftover", output)
             self.assertIn("Chain file command: add --liftover-chain-file <hg19ToHg38.over.chain>", output)
@@ -2576,7 +2580,37 @@ class SumstatsMungerTest(unittest.TestCase):
 
             output = stdout.getvalue()
             self.assertTrue(result.runnable)
+            self.assertIn("Liftover required: yes (method: chain file)", output)
             self.assertIn("Expected chain direction: hg19 -> hg38", output)
+
+    def test_infer_only_reports_hm3_quick_liftover_method(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "CHR POS SNP A1 A2 P BETA N\n"
+                "1 100 rs1 A G 0.05 0.1 1000\n",
+                encoding="utf-8",
+            )
+            stdout = io.StringIO()
+
+            with mock.patch("ldsc.sumstats_munger.resolve_genome_build", return_value="hg19"):
+                with contextlib.redirect_stdout(stdout):
+                    result = sumstats_workflow.main(
+                        [
+                            "--raw-sumstats-file",
+                            str(raw_path),
+                            "--infer-only",
+                            "--output-genome-build",
+                            "hg38",
+                            "--use-hm3-snps",
+                            "--use-hm3-quick-liftover",
+                        ]
+                    )
+
+            output = stdout.getvalue()
+            self.assertTrue(result.runnable)
+            self.assertIn("Liftover required: yes (method: hm3 quick)", output)
 
     def test_infer_only_ignores_liftover_method_when_source_matches_output(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2607,6 +2641,7 @@ class SumstatsMungerTest(unittest.TestCase):
             output = stdout.getvalue()
             self.assertTrue(result.runnable)
             self.assertFalse(result.liftover_required)
+            self.assertIn("Liftover required: no (method: none)", output)
             self.assertIn("supplied liftover method will be ignored", output)
             self.assertNotIn("liftover_chain_file", result.missing_fields)
 

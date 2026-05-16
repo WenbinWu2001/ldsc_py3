@@ -127,6 +127,7 @@ class RawSumstatsInference:
     source_genome_build: str | None = None
     output_genome_build: str | None = None
     liftover_required: bool | None = None
+    liftover_method: str | None = None
 
     @property
     def runnable(self) -> bool:
@@ -1278,6 +1279,7 @@ def _apply_build_inference_report(
         and output_build in {"hg19", "hg38"}
         and resolved_source != output_build
     )
+    liftover_method = "none" if liftover_required is not None else None
     liftover_method_supplied = munge_config.liftover_chain_file is not None or munge_config.use_hm3_quick_liftover
     if (
         resolved_source in {"hg19", "hg38"}
@@ -1288,6 +1290,7 @@ def _apply_build_inference_report(
         notes.append("Source and output genome builds match; the supplied liftover method will be ignored.")
     if liftover_required and munge_config.liftover_chain_file is None and not munge_config.use_hm3_quick_liftover:
         missing.append("liftover_method")
+        liftover_method = "missing; suggested: hm3 quick"
         _append_suggested_flag(suggested, "--use-hm3-snps")
         _append_suggested_flag(suggested, "--use-hm3-quick-liftover")
         notes.append(
@@ -1296,9 +1299,11 @@ def _apply_build_inference_report(
         notes.append("HM3 quick command: add --use-hm3-snps --use-hm3-quick-liftover.")
         notes.append(f"Chain file command: add --liftover-chain-file <{_expected_chain_label(resolved_source, output_build)}>.")
     elif liftover_required and munge_config.use_hm3_quick_liftover:
+        liftover_method = "hm3 quick"
         _append_suggested_flag(suggested, "--use-hm3-snps")
         _append_suggested_flag(suggested, "--use-hm3-quick-liftover")
     if liftover_required and munge_config.liftover_chain_file is not None:
+        liftover_method = "chain file"
         _append_suggested_option(suggested, "--liftover-chain-file", munge_config.liftover_chain_file)
         try:
             resolve_scalar_path(munge_config.liftover_chain_file, label="liftover chain file")
@@ -1316,6 +1321,7 @@ def _apply_build_inference_report(
         source_genome_build=resolved_source,
         output_genome_build=output_build,
         liftover_required=liftover_required,
+        liftover_method=liftover_method,
     )
 
 
@@ -1390,7 +1396,8 @@ def _render_inference_report(inference: RawSumstatsInference, raw_sumstats_file:
     if inference.output_genome_build is not None:
         lines.append(f"Output genome build: {inference.output_genome_build}")
     if inference.liftover_required is not None:
-        lines.append(f"Liftover required: {'yes' if inference.liftover_required else 'no'}")
+        method = inference.liftover_method or "unknown"
+        lines.append(f"Liftover required: {'yes' if inference.liftover_required else 'no'} (method: {method})")
     if inference.notes:
         lines.extend(f"Note: {note}" for note in inference.notes)
     command = ["ldsc", "munge-sumstats", "--raw-sumstats-file", raw_sumstats_file, "--output-dir", "./munged_sumstats"]

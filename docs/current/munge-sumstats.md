@@ -149,7 +149,8 @@ The report includes:
 - missing required fields
 - resolved source genome build, if inference succeeds
 - requested output genome build
-- whether liftover is required
+- whether liftover is required, with the selected or suggested method in
+  parentheses
 - a `Next step` block that groups runnable status, missing fields, and a
   copy-pasteable suggested command
 
@@ -167,7 +168,7 @@ Raw sumstats file: data/trait.tsv.gz
 Detected format: plain
 Source genome build: hg19
 Output genome build: hg38
-Liftover required: yes
+Liftover required: yes (method: missing; suggested: hm3 quick)
 Note: Source and output genome builds differ; choose exactly one liftover method before running.
 Note: HM3 quick command: add --use-hm3-snps --use-hm3-quick-liftover.
 Note: Chain file command: add --liftover-chain-file <hg19ToHg38.over.chain>.

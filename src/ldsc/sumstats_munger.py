@@ -1378,8 +1378,6 @@ def _render_inference_report(inference: RawSumstatsInference, raw_sumstats_file:
     lines = [
         f"Raw sumstats file: {raw_sumstats_file}",
         f"Detected format: {inference.detected_format}",
-        f"Runnable: {'yes' if inference.runnable else 'no'}",
-        "Missing fields: " + (", ".join(inference.missing_fields) if inference.missing_fields else "none"),
     ]
     if inference.column_hints:
         lines.append("Column hints: " + ", ".join(f"{key}={value}" for key, value in sorted(inference.column_hints.items())))
@@ -1397,16 +1395,19 @@ def _render_inference_report(inference: RawSumstatsInference, raw_sumstats_file:
         lines.extend(f"Note: {note}" for note in inference.notes)
     command = ["ldsc", "munge-sumstats", "--raw-sumstats-file", raw_sumstats_file, "--output-dir", "./munged_sumstats"]
     command.extend(inference.suggested_args)
-    lines.append("Suggested command:")
-    lines.append(_format_shell_command(command))
+    lines.append("Next step:")
+    lines.append(f"  Runnable: {'yes' if inference.runnable else 'no'}")
+    lines.append("  Missing fields: " + (", ".join(inference.missing_fields) if inference.missing_fields else "none"))
+    lines.append("  Suggested command:")
+    lines.append(_format_shell_command(command, base_indent="    ", option_indent="      "))
     return "\n".join(lines)
 
 
-def _format_shell_command(command: list[str]) -> str:
+def _format_shell_command(command: list[str], *, base_indent: str = "  ", option_indent: str = "    ") -> str:
     """Return a copy-pasteable multi-line shell command."""
     if len(command) <= 2:
-        return "  " + " ".join(shlex.quote(part) for part in command)
-    lines = [f"  {shlex.quote(command[0])} {shlex.quote(command[1])} \\"]
+        return base_indent + " ".join(shlex.quote(part) for part in command)
+    lines = [f"{base_indent}{shlex.quote(command[0])} {shlex.quote(command[1])} \\"]
     idx = 2
     while idx < len(command):
         token = command[idx]
@@ -1417,7 +1418,7 @@ def _format_shell_command(command: list[str]) -> str:
             rendered = shlex.quote(token)
             idx += 1
         suffix = " \\" if idx < len(command) else ""
-        lines.append(f"    {rendered}{suffix}")
+        lines.append(f"{option_indent}{rendered}{suffix}")
     return "\n".join(lines)
 
 

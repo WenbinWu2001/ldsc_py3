@@ -34,6 +34,19 @@ The default identity mode is `chr_pos_allele_aware`, so `A1/A2` are required by
 default. Use `--snp-identifier chr_pos` for coordinate identity without
 allele-aware matching, or `--snp-identifier rsid` for rsID-only identity.
 
+## Raw Format Profiles
+
+`--format` controls only raw-input schema inference before the shared munging
+kernel runs. It does not change the curated output schema. Supported values are
+`auto`, `plain`, `daner-old`, and `daner-new`.
+
+| `--format` value | Use when | `auto` inference criterion | Special handling |
+| --- | --- | --- | --- |
+| `auto` | Let the workflow inspect the header and choose a profile. | Not applicable; this is the default dispatcher. | Checks old DANER first, then new DANER, then falls back to `plain`. |
+| `plain` | The file is an ordinary whitespace-delimited summary-statistics table. This includes VCF-style summary-statistics tables with leading `##` metadata and a `#CHROM` header. | Fallback when DANER-specific case/control headers are not detected. | Leading `##` metadata lines are skipped before reading the header. Common aliases such as `#CHROM`, `CHROM`, `CHR`, `POS`, `BP`, `ID`, and `PVAL` are accepted. If `REF` and `ALT` are present and no clearer `A1/A2` or `EA/NEA` columns exist, inference sets `a1=REF` and `a2=ALT`. |
+| `daner-old` | The file uses old DANER case/control counts encoded in frequency headers. | Header contains at least one `FRQ_A_*` column and at least one `FRQ_U_*` column. | Reads case/control sample sizes from the `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` header names. Conflicts with `--daner-new`. |
+| `daner-new` | The file carries per-SNP case/control count columns. | Header contains `Nca`/`Nco` aliases after header normalization: either `NCA` and `NCO`, or `NCAS` and `NCON`. | Computes per-row sample size from case/control counts. If an old-style `FRQ_U_*` column is also present, inference can use it as the frequency column. Conflicts with `--daner-old`. |
+
 ## Genome-Build Contract
 
 Coordinate-family modes separate the raw input build from the final output
@@ -137,14 +150,48 @@ The report includes:
 - resolved source genome build, if inference succeeds
 - requested output genome build
 - whether liftover is required
-- whether the command is runnable
-- suggested command fragments for repair
+- a `Next step` block that groups runnable status, missing fields, and a
+  copy-pasteable suggested command
+
+The suggested command is printed even when the report is runnable. In that case,
+it is the resolved command to run next: `auto` inputs are replaced by explicit
+values such as `--format plain` and `--source-genome-build hg19`, and the output
+directory defaults to the shell-safe placeholder `./munged_sumstats`. This keeps
+`auto` as the user-friendly input default while making diagnostic output
+explicit and reproducible.
+
+Example report shape:
+
+```text
+Raw sumstats file: data/trait.tsv.gz
+Detected format: plain
+Source genome build: hg19
+Output genome build: hg38
+Liftover required: yes
+Note: Source and output genome builds differ; choose exactly one liftover method before running.
+Note: HM3 quick command: add --use-hm3-snps --use-hm3-quick-liftover.
+Note: Chain file command: add --liftover-chain-file <hg19ToHg38.over.chain>.
+Next step:
+  Runnable: no
+  Missing fields: liftover_method
+  Suggested command:
+    ldsc munge-sumstats \
+      --raw-sumstats-file data/trait.tsv.gz \
+      --output-dir ./munged_sumstats \
+      --format plain \
+      --snp-identifier chr_pos_allele_aware \
+      --output-genome-build hg38 \
+      --source-genome-build hg19 \
+      --use-hm3-snps \
+      --use-hm3-quick-liftover
+```
 
 If source-build inference fails, the report is non-runnable and suggests
 rerunning with `--source-genome-build hg19` or `--source-genome-build hg38`.
 
 If liftover is required but no method is supplied, the report suggests both
-valid options:
+valid options in notes and makes the HM3 quick path the default copy-pasteable
+suggested command:
 
 ```bash
 --use-hm3-snps --use-hm3-quick-liftover

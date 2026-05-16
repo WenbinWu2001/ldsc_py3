@@ -2499,20 +2499,20 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(result.source_genome_build, "hg19")
             self.assertEqual(result.output_genome_build, "hg38")
             self.assertTrue(result.liftover_required)
-            self.assertIn("Missing fields: liftover_method", output)
+            self.assertIn("Next step:\n  Runnable: no\n  Missing fields: liftover_method", output)
             self.assertIn("HM3 quick command: add --use-hm3-snps --use-hm3-quick-liftover", output)
             self.assertIn("Chain file command: add --liftover-chain-file <hg19ToHg38.over.chain>", output)
             self.assertIn(
-                "Suggested command:\n"
-                "  ldsc munge-sumstats \\\n"
-                f"    --raw-sumstats-file {raw_path} \\\n"
-                "    --output-dir ./munged_sumstats \\\n"
-                "    --format plain \\\n"
-                "    --snp-identifier chr_pos_allele_aware \\\n"
-                "    --output-genome-build hg38 \\\n"
-                "    --source-genome-build hg19 \\\n"
-                "    --use-hm3-snps \\\n"
-                "    --use-hm3-quick-liftover",
+                "  Suggested command:\n"
+                "    ldsc munge-sumstats \\\n"
+                f"      --raw-sumstats-file {raw_path} \\\n"
+                "      --output-dir ./munged_sumstats \\\n"
+                "      --format plain \\\n"
+                "      --snp-identifier chr_pos_allele_aware \\\n"
+                "      --output-genome-build hg38 \\\n"
+                "      --source-genome-build hg19 \\\n"
+                "      --use-hm3-snps \\\n"
+                "      --use-hm3-quick-liftover",
                 output,
             )
             self.assertNotIn("--source-genome-build auto", output)

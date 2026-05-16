@@ -2502,13 +2502,20 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertIn("Missing fields: liftover_method", output)
             self.assertIn("HM3 quick command: add --use-hm3-snps --use-hm3-quick-liftover", output)
             self.assertIn("Chain file command: add --liftover-chain-file <hg19ToHg38.over.chain>", output)
-            self.assertRegex(
+            self.assertIn(
+                "Suggested command:\n"
+                "  ldsc munge-sumstats \\\n"
+                f"    --raw-sumstats-file {raw_path} \\\n"
+                "    --output-dir ./munged_sumstats \\\n"
+                "    --format plain \\\n"
+                "    --snp-identifier chr_pos_allele_aware \\\n"
+                "    --output-genome-build hg38 \\\n"
+                "    --source-genome-build hg19 \\\n"
+                "    --use-hm3-snps \\\n"
+                "    --use-hm3-quick-liftover",
                 output,
-                r"Suggested command: .*--output-genome-build hg38 .*--use-hm3-snps --use-hm3-quick-liftover",
             )
-            self.assertRegex(output, r"Suggested command: .*--format plain")
-            self.assertRegex(output, r"Suggested command: .*--source-genome-build hg19")
-            self.assertNotRegex(output, r"Suggested command: .*--source-genome-build auto")
+            self.assertNotIn("--source-genome-build auto", output)
 
     def test_infer_only_reports_source_build_inference_failure_as_non_runnable(self):
         with tempfile.TemporaryDirectory() as tmpdir:

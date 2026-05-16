@@ -33,6 +33,7 @@ import json
 import logging
 from os import PathLike
 from pathlib import Path
+import shlex
 from typing import Any
 import warnings
 
@@ -1395,9 +1396,29 @@ def _render_inference_report(inference: RawSumstatsInference, raw_sumstats_file:
         lines.append(f"Liftover required: {'yes' if inference.liftover_required else 'no'}")
     if inference.notes:
         lines.extend(f"Note: {note}" for note in inference.notes)
-    command = ["ldsc", "munge-sumstats", "--raw-sumstats-file", raw_sumstats_file, "--output-dir", "<out>"]
+    command = ["ldsc", "munge-sumstats", "--raw-sumstats-file", raw_sumstats_file, "--output-dir", "./munged_sumstats"]
     command.extend(inference.suggested_args)
-    lines.append("Suggested command: " + " ".join(command))
+    lines.append("Suggested command:")
+    lines.append(_format_shell_command(command))
+    return "\n".join(lines)
+
+
+def _format_shell_command(command: list[str]) -> str:
+    """Return a copy-pasteable multi-line shell command."""
+    if len(command) <= 2:
+        return "  " + " ".join(shlex.quote(part) for part in command)
+    lines = [f"  {shlex.quote(command[0])} {shlex.quote(command[1])} \\"]
+    idx = 2
+    while idx < len(command):
+        token = command[idx]
+        if token.startswith("--") and idx + 1 < len(command) and not command[idx + 1].startswith("--"):
+            rendered = f"{shlex.quote(token)} {shlex.quote(command[idx + 1])}"
+            idx += 2
+        else:
+            rendered = shlex.quote(token)
+            idx += 1
+        suffix = " \\" if idx < len(command) else ""
+        lines.append(f"    {rendered}{suffix}")
     return "\n".join(lines)
 
 

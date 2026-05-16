@@ -581,8 +581,8 @@ def preflight_output_artifact_family(
     :func:`remove_output_artifacts`.
 
     For always-written audit sidecars such as the current
-    ``dropped_snps/dropped.tsv.gz`` sumstats liftover sidecar, include the path
-    in both ``owned_paths`` and ``produced_paths`` unconditionally. A clean run
+    ``diagnostics/dropped_snps/dropped.tsv.gz`` sumstats liftover sidecar,
+    include the path in both ``owned_paths`` and ``produced_paths`` unconditionally. A clean run
     still produces a header-only file, so the prior sidecar is replaced in
     place rather than treated as a stale conditional artifact.
     """

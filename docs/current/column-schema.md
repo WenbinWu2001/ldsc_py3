@@ -95,9 +95,9 @@ configured float format.
 The casting is applied by a narrow helper (`_cast_parquet_floats`) called at the
 write site in `outputs.py`. It selects all `float64` columns and recasts them;
 no column names need to be listed explicitly. LD-score output parquet files are
-written with one row group per chromosome and record that layout in
-`manifest.json`; sumstats Parquet is sorted by `CHR`, `POS`, and original row
-order, and records its row groups in `sumstats.log`.
+written with one row group per chromosome and record that layout in root
+`metadata.json`; sumstats Parquet is sorted by `CHR`, `POS`, and original row
+order, and records its row groups in `diagnostics/sumstats.log`.
 
 ### Why `object` dtype for strings?
 pandas has no native string dtype in the numpy layer. `str` columns are stored as
@@ -207,7 +207,7 @@ CM`) follow the annotation rule unconditionally. The annotation-specific columns
 | LD-score output (`ldscore.query.parquet`) | `CHR, SNP, POS` | query LD-score columns |
 | Munged sumstats (`sumstats.parquet` or `.sumstats.gz`) | `SNP, CHR, POS, A1, A2` | `Z, N, FRQ` |
 | Canonical pairwise R² parquet | `CHR, POS_1, POS_2, SNP_1, SNP_2, A1_1, A2_1, A1_2, A2_2, R2` when endpoint alleles are available | endpoint allele columns are required in allele-aware modes and ignored for identity in base modes |
-| Dropped-SNP audit sidecar (`dropped_snps/*.tsv.gz`) | `CHR, SNP, source_pos, target_pos, reason, base_key, identity_key, allele_set, stage` | |
+| Dropped-SNP audit sidecar (`diagnostics/dropped_snps/*.tsv.gz`) | `CHR, SNP, source_pos, target_pos, reason, base_key, identity_key, allele_set, stage` | |
 
 Dropped-SNP audit sidecars are always written by liftover-aware public
 workflows, including header-only files for clean processed outputs. They use

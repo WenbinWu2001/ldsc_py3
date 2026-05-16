@@ -135,7 +135,7 @@ example R2 sorted build, row-group metadata, R2 bias/sample-size metadata, count
 records, and LD-score output layout metadata.
 
 Runtime events that are not stable artifact identity belong in logs, not in the
-minimal manifest. Examples include identity downgrade, original input modes in a
+minimal metadata. Examples include identity downgrade, original input modes in a
 downgraded regression run, effective regression mode, duplicate rows dropped
 during downgrade filtering, and identity cleanup counts.
 

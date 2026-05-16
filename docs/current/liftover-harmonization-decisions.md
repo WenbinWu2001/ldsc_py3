@@ -55,7 +55,7 @@ output, and metadata contracts.
 - If identity cleanup or missing-coordinate, unmapped, cross-chromosome,
   source-duplicate, or target-duplicate filtering removes every row, sumstats
   munging raises a hard error.
-- `dropped_snps/dropped.tsv.gz` is always written under the sumstats output
+- `diagnostics/dropped_snps/dropped.tsv.gz` is always written under the sumstats output
   directory. Clean runs produce a header-only gzip TSV. It uses the shared
   columns `CHR`, `SNP`, `source_pos`, `target_pos`, `reason`, `base_key`,
   `identity_key`, `allele_set`, and `stage` with nullable dtypes. Reasons may
@@ -63,11 +63,11 @@ output, and metadata contracts.
   `invalid_allele`, `strand_ambiguous_allele`, `multi_allelic_base_key`) and
   liftover drops (`missing_coordinate`, `source_duplicate`,
   `unmapped_liftover`, `cross_chromosome_liftover`, `target_collision`).
-- Newly written `sumstats.metadata.json` sidecars are intentionally thin:
+- Newly written sumstats root `metadata.json` sidecars are intentionally thin:
   `schema_version`, `artifact_type`, `snp_identifier`, `genome_build`, and
   optional `trait_name`.
 - Detailed coordinate provenance, liftover counts, HM3 map provenance, output
-  paths, and row-group details are readable `sumstats.log` entries rather than
+  paths, and row-group details are readable `diagnostics/sumstats.log` entries rather than
   sidecar payloads.
 - Old sidecars without the current identity provenance are not supported, and
   package-written sumstats artifacts with missing sidecars must be regenerated
@@ -100,7 +100,7 @@ output, and metadata contracts.
   The run fails only if no chromosome emits artifacts.
 - Existing runtime metadata TSV and parquet schemas remain stable.
 - Liftover/drop provenance goes to workflow logs and
-  `dropped_snps/chr*_dropped.tsv.gz` sidecars.
+  `diagnostics/dropped_snps/chr*_dropped.tsv.gz` sidecars.
 - Per-chromosome `dropped_snps` sidecars are always written for every
   chromosome processed by the run. Clean chromosomes produce header-only gzip
   TSVs. Ref-panel sidecars use the shared columns `CHR`, `SNP`, `source_pos`,

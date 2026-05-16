@@ -113,7 +113,10 @@ def main(argv: Sequence[str] | None = None):
             regression_runner = _load_regression_runner()
             parser = _NoAbbrevArgumentParser(prog="ldsc h2", description="Estimate heritability from munged sumstats and LD scores.")
             regression_runner.add_h2_arguments(parser)
-            return regression_runner.run_h2_from_args(parser.parse_args(subargv))
+            parsed = parser.parse_args(subargv)
+            result = regression_runner.run_h2_from_args(parsed)
+            _print_table_stdout_if_needed(parsed, result)
+            return result
         if command == "partitioned-h2":
             regression_runner = _load_regression_runner()
             parser = _NoAbbrevArgumentParser(
@@ -121,7 +124,10 @@ def main(argv: Sequence[str] | None = None):
                 description="Estimate partitioned heritability by looping over query annotations.",
             )
             regression_runner.add_partitioned_h2_arguments(parser)
-            return regression_runner.run_partitioned_h2_from_args(parser.parse_args(subargv))
+            parsed = parser.parse_args(subargv)
+            result = regression_runner.run_partitioned_h2_from_args(parsed)
+            _print_table_stdout_if_needed(parsed, result)
+            return result
         if command == "rg":
             regression_runner = _load_regression_runner()
             parser = _NoAbbrevArgumentParser(prog="ldsc rg", description="Estimate genetic correlation.")
@@ -141,9 +147,13 @@ def main(argv: Sequence[str] | None = None):
     if args.command == "munge-sumstats":
         return _load_sumstats_munger().run_munge_sumstats_from_args(args)
     if args.command == "h2":
-        return _load_regression_runner().run_h2_from_args(args)
+        result = _load_regression_runner().run_h2_from_args(args)
+        _print_table_stdout_if_needed(args, result)
+        return result
     if args.command == "partitioned-h2":
-        return _load_regression_runner().run_partitioned_h2_from_args(args)
+        result = _load_regression_runner().run_partitioned_h2_from_args(args)
+        _print_table_stdout_if_needed(args, result)
+        return result
     if args.command == "rg":
         result = _load_regression_runner().run_rg_from_args(args)
         _print_rg_stdout_if_needed(args, result)
@@ -187,7 +197,15 @@ def _print_rg_stdout_if_needed(args: argparse.Namespace, result) -> None:
         return
     rg = getattr(result, "rg", None)
     if rg is not None:
-        rg.to_csv(sys.stdout, sep="\t", index=False, na_rep="NaN")
+        _print_table_stdout_if_needed(args, rg)
+
+
+def _print_table_stdout_if_needed(args: argparse.Namespace, table) -> None:
+    """Print a compact TSV table for no-output-dir regression CLI runs."""
+    if getattr(args, "output_dir", None):
+        return
+    if hasattr(table, "to_csv"):
+        table.to_csv(sys.stdout, sep="\t", index=False, na_rep="NaN")
 
 
 def _copy_actions(target: argparse.ArgumentParser, source: argparse.ArgumentParser) -> None:

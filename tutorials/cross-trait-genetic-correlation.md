@@ -8,19 +8,19 @@ The regression step expects:
   compatibility files, with at least `SNP`, `Z`, and `N`; current
   package-written artifacts also include `CHR` and `POS`, and `A1`/`A2` are
   recommended so each tested pair can be allele-aligned
-- one canonical LD-score result directory containing `manifest.json` and `ldscore.baseline.parquet`
+- one canonical LD-score result directory containing `metadata.json` and `ldscore.baseline.parquet`
 
 Use the same `GlobalConfig` assumptions for both traits and the LD-score reference. For cross-trait rg, the LD scores should usually be the baseline, non-cell-specific LD scores used for single-trait h2.
 Current LD-score directories keep `ldscore.baseline.parquet` as one flat file
-with chromosome-aligned row groups listed in `manifest.json`; regression reads
+with chromosome-aligned row groups listed in root `metadata.json`; regression reads
 the full table, while inspection code can use the row-group metadata.
 
 Output directories are literal destinations. Missing directories are created,
 existing directories are reused, and existing owned workflow artifacts are
 refused before writing unless you pass `--overwrite` or `overwrite=True`.
 For each trait's sumstats directory, that family includes `sumstats.parquet`,
-`sumstats.sumstats.gz`, `sumstats.log`, `sumstats.metadata.json`, and
-`dropped_snps/dropped.tsv.gz`, even when the current run would not write every
+`sumstats.sumstats.gz`, root `metadata.json`, `diagnostics/sumstats.log`, and
+`diagnostics/dropped_snps/dropped.tsv.gz`, even when the current run would not write every
 format. Successful overwrites remove
 stale owned siblings not produced by the current configuration and preserve
 unrelated files.
@@ -79,7 +79,7 @@ trait_2 = SumstatsMunger().run(
 )
 
 # Option B: load existing curated artifacts instead. Current artifacts recover
-# config_snapshot from sumstats.metadata.json. Old package-written artifacts
+# config_snapshot from root metadata.json. Old package-written artifacts
 # without current provenance must be regenerated with the current LDSC package.
 # trait_1 = load_sumstats("tutorial_outputs/trait_1/sumstats.parquet", trait_name="trait_1")
 # trait_2 = load_sumstats("tutorial_outputs/trait_2/sumstats.parquet", trait_name="trait_2")
@@ -107,7 +107,7 @@ that needs the raw kernel object. For user-facing analyses, prefer
 When both traits are produced by `SumstatsMunger.run()` in the same workflow,
 their known `GlobalConfig` snapshots are checked against the LD-score snapshot
 before regression. Current disk artifacts recover that snapshot from
-`sumstats.metadata.json`; old package-written `.sumstats.gz` files without
+root `metadata.json`; old package-written `.sumstats.gz` files without
 current provenance must be regenerated rather than loaded with inferred
 provenance. In `chr_pos_allele_aware` mode, both trait tables and the
 LD-score table merge by normalized `CHR:POS:<allele_set>` identity, and
@@ -121,8 +121,8 @@ allele that the signed statistic is relative to; `A2` is its counterpart.
 `NEFF` is not inferred as total `N` automatically. Optional munger liftover is valid for chr_pos-family modes; use
 `target_genome_build` with either a chain file or `use_hm3_snps=True` plus HM3 quick liftover when both
 traits need to be converted to the LD-score build. Liftover drops duplicate
-source/target coordinate groups, writes count summaries to `sumstats.log`, and
-audits row-level drops in `dropped_snps/dropped.tsv.gz`; examples appear only at
+source/target coordinate groups, writes count summaries to `diagnostics/sumstats.log`, and
+audits row-level drops in `diagnostics/dropped_snps/dropped.tsv.gz`; examples appear only at
 `DEBUG`, not in the compatibility sidecar.
 
 ## CLI
@@ -148,7 +148,7 @@ ldsc rg \
 ```
 
 The command writes `tutorial_outputs/trait_1_trait_2/rg.tsv`,
-`rg_full.tsv`, `h2_per_trait.tsv`, and `rg.log`.
+`rg_full.tsv`, `h2_per_trait.tsv`, and `diagnostics/rg.log`.
 If either fixed output already exists, the command fails before writing; add
 `--overwrite` only when replacing the previous summary is intentional.
 

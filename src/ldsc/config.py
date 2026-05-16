@@ -560,8 +560,8 @@ class MungeConfig:
     ----------
     output_dir : str or os.PathLike[str]
         Directory that receives workflow-owned ``sumstats.parquet`` and/or
-        ``sumstats.sumstats.gz``, ``sumstats.log``, and
-        root ``metadata.json`` artifacts.
+        ``sumstats.sumstats.gz``, root ``metadata.json``, and
+        ``diagnostics/sumstats.log`` artifacts.
     raw_sumstats_file : str or os.PathLike[str] or None, optional
         Raw summary-statistics file to munge. Exact-one glob patterns are
         resolved by the workflow before entering the legacy kernel. Default is
@@ -704,7 +704,7 @@ class RegressionConfig:
     n_blocks : int, optional
         Requested number of block-jackknife partitions. Default is ``200``.
     use_common_counts : bool, optional
-        If ``True``, prefer the manifest ``common_reference_snp_counts`` vector
+        If ``True``, prefer the LD-score metadata ``common_reference_snp_counts`` vector
         when it is available; otherwise use ``all_reference_snp_counts``.
         Default is ``True``.
     use_intercept : bool, optional

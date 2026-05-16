@@ -14,8 +14,8 @@ continues through the same calculator and output writer used by partitioned
 runs. Query annotations remain partitioned-LDSC inputs: they are accepted only
 when explicit baseline annotations are supplied.
 
-Parsed workflow entry points write ``ldscore.log`` under ``output_dir`` after
-preflighting the complete LD-score artifact family. Direct
+Parsed workflow entry points write ``diagnostics/ldscore.log`` under
+``output_dir`` after preflighting the complete LD-score artifact family. Direct
 ``LDScoreCalculator.run(...)`` calls remain data-oriented and do not create log
 files.
 """
@@ -741,7 +741,8 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
     query annotations are supplied, it synthesizes an all-ones ``base``
     annotation over the retained reference-panel metadata. Before calculation
     it preflights ``metadata.json``, ``ldscore.baseline.parquet``, optional
-    ``ldscore.query.parquet``, and ``ldscore.log`` under ``output_dir``. With
+    ``ldscore.query.parquet``, and ``diagnostics/ldscore.log`` under
+    ``output_dir``. With
     overwrite enabled, successful baseline-only runs remove stale query parquet
     siblings. For each chromosome it intersects annotation rows with
     ``ref_panel.load_metadata(chrom)`` before calling the kernel, then returns
@@ -779,14 +780,17 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
         annotation_bundle = _pseudo_base_annotation_bundle_from_ref_panel(ref_panel, global_config)
     output_config = _output_config_from_args(normalized_args)
     output_dir = ensure_output_directory(output_config.output_dir, label="LD-score output directory")
-    log_path = output_dir / "ldscore.log"
+    diagnostics_dir = output_dir / "diagnostics"
+    log_path = diagnostics_dir / "ldscore.log"
+    legacy_log_path = output_dir / "ldscore.log"
     stale_paths = preflight_output_artifact_family(
         [*_expected_ldscore_output_paths(output_dir, bool(annotation_bundle.query_columns)), log_path],
-        [*_ldscore_output_family(output_dir), log_path],
+        [*_ldscore_output_family(output_dir), log_path, legacy_log_path],
         overwrite=output_config.overwrite,
         label="LD-score output artifact",
     )
     calculator = LDScoreCalculator()
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
     with workflow_logging("ldscore", log_path, log_level=global_config.log_level):
         log_inputs(
             output_dir=str(output_dir),

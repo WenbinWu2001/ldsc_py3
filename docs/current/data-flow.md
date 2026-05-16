@@ -93,14 +93,16 @@ participate in allele-aware matching.
 ## 1. `annotate`: BED Projection To SNP-Level `.annot.gz`
 
 Output directories are created when missing and reused when present. Existing
-root-level `query.*.annot.gz` files and the workflow `annotate.log` are refused
-before any query shard is written unless the caller passes `--overwrite` or
-`overwrite=True`. With overwrite enabled, stale query shards outside the
-current chromosome set are removed after the current shards are written.
+root-level `query.*.annot.gz` files and owned diagnostics under `diagnostics/`
+are refused before any query shard is written unless the caller passes
+`--overwrite` or `overwrite=True`. With overwrite enabled, stale query shards
+outside the current chromosome set are removed after the current shards are
+written.
 Annotation rows are cleaned before BED projection by computing the effective
 SNP identity key for the active mode and dropping all rows in duplicate-key
 clusters. Runs with an output directory also write
-`dropped_snps/dropped.tsv.gz`, header-only when no rows are dropped.
+`diagnostics/dropped_snps/dropped.tsv.gz`, header-only when no rows are
+dropped.
 
 `ldsc.annotation_builder` owns both command entry paths: `main(argv)` parses
 standalone annotation arguments, and `run_annotate_from_args(args)` consumes
@@ -129,7 +131,7 @@ flowchart LR
     A3[Load baseline rows]
     A8[Drop duplicate identity clusters]
     A4[Project BEDs to SNP columns]
-    A7[Preflight query shards + dropped sidecar + annotate.log<br/>Write outputs]
+    A7[Preflight query shards + diagnostics<br/>Write outputs]
   end
 
   subgraph K1[Kernel (private)<br/>ldsc._kernel.annotation]
@@ -140,7 +142,7 @@ flowchart LR
   I1 --> A1 --> A3 --> A8 --> A4 --> A5 --> A6 --> A7
   I2 --> A1
   A2 --> A4
-  A7 --> O1[query.<chrom>.annot.gz + dropped_snps/dropped.tsv.gz + annotate.log]
+  A7 --> O1[query.<chrom>.annot.gz + diagnostics/]
 ```
 
 ### Outputs
@@ -148,8 +150,9 @@ flowchart LR
 | File | Example | Notes |
 | --- | --- | --- |
 | projected query annotation shard | `CHR POS SNP CM enhancer_A`<br/>`1 10583 rs58108140 0.0 1` | output name is `query.<chrom>.annot.gz` |
-| dropped-SNP audit sidecar | `CHR SNP source_pos target_pos reason base_key identity_key allele_set stage` | always written as `dropped_snps/dropped.tsv.gz`; records annotation identity cleanup rows |
-| workflow log | plain-text lifecycle and package records | `annotate.log` under `output_dir`; not included in returned data paths |
+| dropped-SNP audit sidecar | `CHR SNP source_pos target_pos reason base_key identity_key allele_set stage` | always written as `diagnostics/dropped_snps/dropped.tsv.gz`; records annotation identity cleanup rows |
+| diagnostic metadata | JSON provenance | `diagnostics/metadata.json`; not consumed downstream |
+| workflow log | plain-text lifecycle and package records | `diagnostics/annotate.log` under `output_dir`; not included in returned data paths |
 
 ### Modules used
 
@@ -160,16 +163,15 @@ flowchart LR
 
 ## 2. `build-ref-panel`: PLINK To Standard Parquet R2 Reference
 
-Before chromosome processing starts, the builder precomputes flat candidate
+Before chromosome processing starts, the builder precomputes flat current-run
 paths under each emitted `{build}` directory, always-written per-chromosome
-dropped-SNP audit files under `dropped_snps/`, plus `build-ref-panel.log`.
-Existing candidates are refused unless `--overwrite` or
+dropped-SNP audit files under `diagnostics/dropped_snps/`, plus the selected
+`build-ref-panel` log path. It also claims existing workflow-owned siblings
+under `hg19/`, `hg38/`, and `diagnostics/`. Existing
+owned artifacts are refused unless `--overwrite` or
 `ReferencePanelBuildConfig(overwrite=True)` is supplied; unrelated files in the
-output directory are left untouched. Unlike the result-directory workflows,
-`build-ref-panel` does not clean stale optional target-build or out-of-scope
-chromosome siblings from earlier configurations; use a fresh output directory
-when changing emitted builds, liftover/coordinate configuration, or chromosome
-scope.
+output directory are left untouched. With overwrite enabled, stale owned
+artifacts not produced by the successful run are removed.
 Reference-panel liftover is coordinate behavior: chain-file liftover and HM3
 quick liftover are valid only when the active SNP identifier mode is in the
 `chr_pos` family.
@@ -220,7 +222,7 @@ flowchart LR
   I1 --> B1 --> B0 --> B3 --> B4 --> B5 --> B6 --> B7
   I2 --> B2 --> B4
   I3 --> B2 --> B8 --> B4
-  B7 --> O2[{build}/chr*_r2.parquet + {build}/chr*_meta.tsv.gz + dropped_snps/ + build-ref-panel.log]
+  B7 --> O2[{build}/chr*_r2.parquet + {build}/chr*_meta.tsv.gz + diagnostics/]
 ```
 
 ### Outputs
@@ -229,8 +231,9 @@ flowchart LR
 | --- | --- | --- |
 | build-specific R2 parquet | `hg38/chr22_r2.parquet` with columns `CHR`, `POS_1`, `POS_2`, `SNP_1`, `SNP_2`, `R2`, plus endpoint `A1_1/A2_1/A1_2/A2_2` when available | one row per unordered SNP pair inside the LD window; endpoint allele columns are required in allele-aware modes; row groups are sorted by that build's `POS_1`; schema metadata records minimal identity provenance plus `ldsc:n_samples` and `ldsc:r2_bias` |
 | build-specific runtime metadata sidecar | `hg38/chr22_meta.tsv.gz` with leading `# ldsc:*` identity-provenance comments and `CHR POS SNP CM MAF A1 A2` when alleles are available | authoritative SNP universe for the matching R2 parquet when present; current package-written sidecars carry `schema_version`, `artifact_type`, `snp_identifier`, and `genome_build`; `A1/A2` are required in allele-aware modes |
-| dropped-SNP audit sidecar | `dropped_snps/chr22_dropped.tsv.gz` with `CHR SNP source_pos target_pos reason base_key identity_key allele_set stage` | always written for each processed chromosome; header-only when no rows were dropped; identity reasons include `missing_allele`, `invalid_allele`, `strand_ambiguous_allele`, `multi_allelic_base_key`, and `duplicate_identity`; liftover reasons include `source_duplicate`, `unmapped_liftover`, `cross_chromosome_liftover`, and `target_collision` |
-| workflow log | plain-text lifecycle and package records | `build-ref-panel.log` under `output_dir`; not included in `ReferencePanelBuildResult.output_paths` |
+| dropped-SNP audit sidecar | `diagnostics/dropped_snps/chr22_dropped.tsv.gz` with `CHR SNP source_pos target_pos reason base_key identity_key allele_set stage` | always written for each processed chromosome; header-only when no rows were dropped; identity reasons include `missing_allele`, `invalid_allele`, `strand_ambiguous_allele`, `multi_allelic_base_key`, and `duplicate_identity`; liftover reasons include `source_duplicate`, `unmapped_liftover`, `cross_chromosome_liftover`, and `target_collision` |
+| diagnostic metadata | JSON provenance | `diagnostics/metadata.json`; not consumed downstream |
+| workflow log | plain-text lifecycle and package records | `diagnostics/build-ref-panel.log` under `output_dir`; not included in `ReferencePanelBuildResult.output_paths` |
 
 ### Modules used
 
@@ -241,14 +244,14 @@ flowchart LR
 
 ## 3. `ldscore`: Reference Panel And Optional Annotations To LDSC Artifacts
 
-The canonical LD-score workflow preflights `manifest.json`,
-`ldscore.baseline.parquet`, `ldscore.query.parquet`, and `ldscore.log` as one
+The canonical LD-score workflow preflights root `metadata.json`,
+`ldscore.baseline.parquet`, `ldscore.query.parquet`, and `diagnostics/ldscore.log` as one
 owned family before writing any of them. Use `--overwrite` or
 `LDScoreOutputConfig(overwrite=True)` only for intentional reruns. With
 overwrite enabled, a successful baseline-only run removes stale
 `ldscore.query.parquet`.
 The parquet payloads remain single flat files, but each row group contains rows
-from exactly one chromosome. The manifest records the row-group layout and
+from exactly one chromosome. Root `metadata.json` records the row-group layout and
 per-chromosome offsets so readers can load one chromosome without scanning the
 whole table.
 
@@ -307,8 +310,8 @@ flowchart LR
 | --- | --- | --- |
 | baseline LD-score table | `CHR POS SNP regression_ld_scores base`<br/>`1 10 rs1 1.7 1.2` | `ldscore.baseline.parquet` inside `output_dir`; `regression_ld_scores` is historical `w_ld`, not the final h2/rg regression weight; one row group per chromosome |
 | query LD-score table | `CHR POS SNP enhancer_A`<br/>`1 10 rs1 0.4` | `ldscore.query.parquet` inside `output_dir`; one row group per chromosome; omitted when no query annotations exist |
-| manifest | JSON metadata with files, columns, counts, chromosomes, config, row counts, and row-group metadata | `manifest.json` inside `output_dir` |
-| workflow log | plain-text lifecycle and package records | `ldscore.log` inside `output_dir`; not included in `LDScoreResult.output_paths` |
+| metadata | JSON metadata with files, columns, counts, chromosomes, config, row counts, and row-group metadata | `metadata.json` inside `output_dir`; consumed by downstream regression |
+| workflow log | plain-text lifecycle and package records | `diagnostics/ldscore.log` inside `output_dir`; not included in `LDScoreResult.output_paths` |
 
 ### Modules used
 
@@ -319,9 +322,9 @@ flowchart LR
 
 ## 4. `munge-sumstats`: Raw GWAS Table To Curated Sumstats
 
-The munging workflow preflights `sumstats.parquet`,
-`sumstats.sumstats.gz`, `sumstats.log`, `sumstats.metadata.json`, and
-`dropped_snps/dropped.tsv.gz` as one owned family before delegating to
+The munging workflow preflights root `metadata.json`, `sumstats.parquet`,
+`sumstats.sumstats.gz`, `diagnostics/sumstats.log`, and
+`diagnostics/dropped_snps/dropped.tsv.gz` as one owned family before delegating to
 `SumstatsMunger.run()` and then the
 legacy-compatible munging kernel. The workflow owns the log file, metadata
 sidecar, and curated output writing; the kernel keeps the low-level parsing and
@@ -342,8 +345,8 @@ packaged curated `hm3_curated_map.tsv.gz`, and is coordinate-only, so it never
 rewrites `SNP`.
 Missing coordinates, unmapped hits, cross-chromosome hits, and duplicate
 source/target coordinate groups are dropped. Counts are readable audit records
-in `sumstats.log`; row-level drops are written to
-`dropped_snps/dropped.tsv.gz`; examples appear only at `DEBUG`.
+in `diagnostics/sumstats.log`; row-level drops are written to
+`diagnostics/dropped_snps/dropped.tsv.gz`; examples appear only at `DEBUG`.
 
 ### Required inputs
 
@@ -370,7 +373,7 @@ flowchart LR
 
   subgraph W4[Workflow (public)<br/>ldsc.sumstats_munger]
     D3[Normalize CLI/API config<br/>Build typed munging args]
-    D4[Own log + metadata + dropped_snps<br/>Capture run summary]
+    D4[Own root metadata + diagnostics<br/>Capture run summary]
   end
 
   subgraph K4[Kernel (private)<br/>ldsc._kernel.sumstats_munger]
@@ -381,7 +384,7 @@ flowchart LR
 
   I1 --> D1 --> D2 --> D3 --> D5 --> D6 --> D7 --> D4
   I2 --> D2
-  D4 --> O4[sumstats.parquet by default<br/>optional sumstats.sumstats.gz + log + metadata JSON + dropped_snps]
+  D4 --> O4[metadata.json + sumstats.parquet by default<br/>optional sumstats.sumstats.gz + diagnostics/]
 ```
 
 ### Outputs
@@ -389,9 +392,9 @@ flowchart LR
 | File | Example | Notes |
 | --- | --- | --- |
 | curated sumstats | `SNP CHR POS A1 A2 Z N`<br/>`rs3131969 1 754182 A G 0.74 829249.58` | written as `sumstats.parquet` by default under `output_dir`; `--output-format tsv.gz` writes legacy `sumstats.sumstats.gz`, and `both` writes both; `CHR`/`POS` are present and may be missing when absent from raw input; optional `FRQ` may also be present |
-| log file | plain-text lifecycle, QC log, coordinate provenance, readable liftover reports, HM3 provenance, output bookkeeping, and count-level drop summaries | workflow-owned `sumstats.log` under `output_dir`, populated from package logger messages emitted during workflow orchestration and kernel QC; excluded from `MungeRunSummary.output_paths` |
-| metadata sidecar | thin JSON with `schema_version`, `artifact_type`, `snp_identifier`, `genome_build`, and optional `trait_name` | written as `sumstats.metadata.json` under `output_dir`; used by `load_sumstats()` to reconstruct config provenance and trait labels |
-| dropped-SNP audit sidecar | `CHR SNP source_pos target_pos reason base_key identity_key allele_set stage` | always written as `dropped_snps/dropped.tsv.gz`; header-only when no rows were dropped; reasons may include identity drops (`missing_allele`, `invalid_allele`, `strand_ambiguous_allele`, `multi_allelic_base_key`, `duplicate_identity`) and liftover drops (`missing_coordinate`, `source_duplicate`, `unmapped_liftover`, `cross_chromosome_liftover`, `target_collision`) |
+| log file | plain-text lifecycle, QC log, coordinate provenance, readable liftover reports, HM3 provenance, output bookkeeping, and count-level drop summaries | workflow-owned `diagnostics/sumstats.log` under `output_dir`, populated from package logger messages emitted during workflow orchestration and kernel QC; excluded from `MungeRunSummary.output_paths` |
+| metadata sidecar | thin JSON with `schema_version`, `artifact_type`, `snp_identifier`, `genome_build`, and optional `trait_name` | written as root `metadata.json` under `output_dir`; used by `load_sumstats()` to reconstruct config provenance and trait labels |
+| dropped-SNP audit sidecar | `CHR SNP source_pos target_pos reason base_key identity_key allele_set stage` | always written as `diagnostics/dropped_snps/dropped.tsv.gz`; header-only when no rows were dropped; reasons may include identity drops (`missing_allele`, `invalid_allele`, `strand_ambiguous_allele`, `multi_allelic_base_key`, `duplicate_identity`) and liftover drops (`missing_coordinate`, `source_duplicate`, `unmapped_liftover`, `cross_chromosome_liftover`, `target_collision`) |
 
 ### Modules used
 
@@ -409,17 +412,16 @@ interpreted relative to `A1`.
 ## 5. `h2`, `partitioned-h2`, and `rg`: Curated Artifacts To Regression Summaries
 
 Regression summary commands write fixed result artifacts when `output_dir` is
-supplied. `h2` writes `h2.tsv` plus `h2.log`; `partitioned-h2` writes
-`partitioned_h2.tsv` plus `partitioned-h2.log`; `rg` writes `rg.tsv`,
-`rg_full.tsv`, `h2_per_trait.tsv`, optional `pairs/`, plus workflow-owned
-`rg.log`. Existing owned TSVs, optional trees, or logs raise before the new
-table is written unless the command includes `--overwrite`. For
-`partitioned-h2`, `partitioned_h2.tsv`, `query_annotations/`, and
-`partitioned-h2.log` are treated as one owned family; aggregate-only overwrites
-remove stale `query_annotations/` after the new summary is written. Without
-`output_dir`, regression commands return in-memory results and do not create
-log files; the rg CLI additionally prints the concise `rg.tsv` schema to
-stdout for quick runs.
+supplied. `h2` writes root `h2.tsv` plus diagnostics; `partitioned-h2` writes
+root `partitioned_h2.tsv` plus diagnostics; `rg` writes root `rg.tsv`,
+`rg_full.tsv`, `h2_per_trait.tsv`, and optional diagnostics under
+`diagnostics/pairs/`. Existing owned TSVs, optional trees, or logs raise before
+the new table is written unless the command includes `--overwrite`. For
+`partitioned-h2`, `partitioned_h2.tsv`, `diagnostics/query_annotations/`, and
+`diagnostics/partitioned-h2.log` are treated as one owned family;
+aggregate-only overwrites remove stale `diagnostics/query_annotations/` after
+the new summary is written. Without `output_dir`, regression commands print the
+compact public TSV table to stdout and write no diagnostics.
 `partitioned-h2` can also write an opt-in per-query tree with
 `--write-per-query-results`; the aggregate `partitioned_h2.tsv` remains the
 stable summary entry point. It requires query LD scores in the LD-score
@@ -428,7 +430,7 @@ rejected by `partitioned-h2`.
 For rg, `--sumstats-sources` accepts two or more files; three or more files
 produce all unordered pairs unless `--anchor-trait` selects one trait label or
 source path for anchor-vs-rest estimation. `--write-per-pair-detail` adds the
-optional `pairs/` detail tree when an `output_dir` is supplied.
+optional `diagnostics/pairs/` detail tree when an `output_dir` is supplied.
 
 Regression merges on the effective key for the resolved mode: `SNP` in `rsid`,
 `SNP:<allele_set>` in `rsid_allele_aware`, `CHR:POS` in `chr_pos`, and
@@ -441,8 +443,8 @@ merge. rsID-family and coordinate-family modes never mix.
 
 | File | Example | Notes |
 | --- | --- | --- |
-| munged sumstats | `SNP CHR POS A1 A2 Z N`<br/>`rs1 1 754182 A G 1.96 1000` | one file for `h2` and `partitioned-h2`, two or more files for `rg`; a neighboring `sumstats.metadata.json` recovers config provenance and `trait_name` when present |
-| LD-score directory | `manifest.json`, `ldscore.baseline.parquet`, optional `ldscore.query.parquet` | produced by the LD-score workflow and supplied as `ldscore_dir`; `partitioned-h2` requires `ldscore.query.parquet` and non-empty `query_columns`; current parquet files have chromosome-aligned row groups; package-written directories without current manifest identity provenance are rejected and must be regenerated |
+| munged sumstats | `SNP CHR POS A1 A2 Z N`<br/>`rs1 1 754182 A G 1.96 1000` | one file for `h2` and `partitioned-h2`, two or more files for `rg`; root `metadata.json` recovers config provenance and `trait_name` when present |
+| LD-score directory | `metadata.json`, `ldscore.baseline.parquet`, optional `ldscore.query.parquet` | produced by the LD-score workflow and supplied as `ldscore_dir`; `partitioned-h2` requires `ldscore.query.parquet` and non-empty `query_columns`; current parquet files have chromosome-aligned row groups; package-written directories without current metadata identity provenance are rejected and must be regenerated |
 
 ### Flow
 
@@ -470,10 +472,10 @@ flowchart LR
 
   I1 --> E1 --> E4 --> E5
   I2 --> E1 --> E2 --> E3 --> E4
-  E5 --> E6 --> O5a[h2.tsv + h2.log]
-  E5 --> E7 --> O5b[partitioned_h2.tsv + partitioned-h2.log]
-  E7 --> O5d[query_annotations/]
-  E5 --> E8 --> O5c[rg.tsv + rg_full.tsv + h2_per_trait.tsv + optional pairs/ + rg.log]
+  E5 --> E6 --> O5a[h2.tsv + diagnostics/]
+  E5 --> E7 --> O5b[partitioned_h2.tsv + diagnostics/]
+  E7 --> O5d[diagnostics/query_annotations/]
+  E5 --> E8 --> O5c[rg.tsv + rg_full.tsv + h2_per_trait.tsv + diagnostics/]
 ```
 
 ### Outputs
@@ -488,9 +490,9 @@ When `output_dir` is supplied, the same directory also receives the matching
 workflow log. The log is not part of any returned result `output_paths` mapping.
 
 When `partitioned-h2 --write-per-query-results` is supplied, the command also
-writes `query_annotations/manifest.tsv` plus one ordinal-prefixed sanitized
-folder per query annotation. Each query folder contains `partitioned_h2.tsv`,
-`partitioned_h2_full.tsv`, and `metadata.json`.
+writes `diagnostics/query_annotations/manifest.tsv` plus one ordinal-prefixed
+sanitized folder per query annotation. Each query folder contains
+`partitioned_h2.tsv`, `partitioned_h2_full.tsv`, and `metadata.json`.
 For column definitions and interpretation, see
 [partitioned-h2-results.md](partitioned-h2-results.md).
 

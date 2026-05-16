@@ -1,82 +1,67 @@
 # Canonical Artifact metadata.json Scheme
 
 **Date:** 2026-05-16
-**Scope:** Public LDSC workflow output directories and their JSON metadata entry
-points.
+**Scope:** Public LDSC workflow outputs and their JSON metadata files.
 
 ---
 
 ## Problem
 
-Current public outputs use several naming and schema conventions for the same
-concept:
-
-- LD-score directories use `manifest.json`.
-- Munged sumstats use `sumstats.metadata.json`.
-- Unpartitioned h2 uses `h2.metadata.json`.
-- Partitioned h2 and rg detail outputs use nested `metadata.json`.
-- Some JSON payloads still write a legacy `format` field such as
-  `ldsc.ldscore_result.v1`.
-
-This makes output contracts harder to remember and pushes version/type
-information into two competing mechanisms: `format` and
-`schema_version`/`artifact_type`.
+Current and recent outputs mixed `manifest.json`, `sumstats.metadata.json`,
+`h2.metadata.json`, root diagnostic `metadata.json`, nested diagnostic
+`metadata.json`, and old `format` fields. That made it hard for users to know
+which files are required for downstream analysis and which files are diagnostic
+provenance.
 
 ## Decision
 
-Every public LDSC workflow output directory uses a root `metadata.json` file.
-The root metadata file is the only JSON entry point for that output directory.
+Only `sumstats/metadata.json` and `ldscore/metadata.json` are downstream
+contracts. Downstream LDSC workflows validate and consume those files.
 
-The legacy `format` field is removed from all JSON metadata. Artifact identity
-is represented by:
+All other metadata is diagnostic provenance only. Diagnostic metadata is written
+under `diagnostics/metadata.json` or below a diagnostics detail tree. It must
+not be required to run downstream analysis, and downstream workflows must not
+change behavior when it is present.
 
-- `schema_version`
-- `artifact_type`
+The legacy top-level `format` field is removed from all JSON metadata.
+`schema_version` plus `artifact_type` is the discriminator.
 
-There is no backward compatibility for old metadata names or old `format`
-payloads. Package-written artifacts must be regenerated under the current
-scheme.
+There is no backward compatibility for old metadata names or old root
+diagnostic metadata paths. Package-written artifacts must be regenerated under
+the current scheme.
 
-All root metadata files include:
+## Boundary Rule
 
-- `schema_version`
-- `artifact_type`
-- `files`
+There is no "optional but used if present" metadata.
 
-Identity-bearing input artifacts also include:
+- Required metadata is loaded and validated by downstream code.
+- Diagnostic metadata is for debugging, audit, and external tooling only.
 
-- `snp_identifier`
-- `genome_build`
-
-Result metadata records provenance only: source paths, trait names, effective
-SNP identifier, count key, retained/dropped LD-score columns, row counts, and
-SNP counts as applicable.
+If a future workflow needs metadata to run, that metadata must be promoted to a
+documented required contract rather than opportunistically consumed.
 
 ## Required For Downstream
 
-Only two metadata files are required for downstream analysis:
+Only these metadata files are required for downstream LDSC analysis:
 
 - `sumstats/metadata.json`
 - `ldscore/metadata.json`
 
-Regression workflows require these metadata files to recover the SNP identity
-mode, genome-build assumptions, trait labels, LD-score parquet paths, LD-score
-columns, and annotation count records needed to assemble regression datasets.
+Regression workflows use them to recover SNP identity mode, genome-build
+assumptions, trait labels, LD-score parquet paths, LD-score columns, and
+annotation count records.
 
 ## Provenance Only
 
-The following metadata files are not required for downstream workflow execution:
+These metadata files are diagnostic only:
 
-- `annotate/metadata.json`
-- `ref-panel/metadata.json`
-- `h2/metadata.json`
-- `partitioned-h2/metadata.json`
-- `partitioned-h2/query_annotations/*/metadata.json`
-- `rg/metadata.json`
-- `rg/pairs/*/metadata.json`
-
-These files are written for auditability, navigation, and reproducibility. They
-must not become hidden prerequisites for downstream LDSC commands.
+- `annotate/diagnostics/metadata.json`
+- `ref-panel/diagnostics/metadata.json`
+- `h2/diagnostics/metadata.json`
+- `partitioned-h2/diagnostics/metadata.json`
+- `partitioned-h2/diagnostics/query_annotations/*/metadata.json`
+- `rg/diagnostics/metadata.json`
+- `rg/diagnostics/pairs/*/metadata.json`
 
 ## Public Layouts
 
@@ -84,13 +69,14 @@ must not become hidden prerequisites for downstream LDSC commands.
 
 ```text
 annotate/
-  metadata.json
   query.<chrom>.annot.gz
-  dropped_snps/dropped.tsv.gz
-  annotate.log
+  diagnostics/
+    metadata.json
+    annotate.log
+    dropped_snps/dropped.tsv.gz
 ```
 
-Required root metadata fields:
+Diagnostic metadata fields:
 
 - `schema_version`
 - `artifact_type: "annotation_projection"`
@@ -109,14 +95,16 @@ sumstats/
   metadata.json
   sumstats.parquet
   sumstats.sumstats.gz
-  sumstats.log
-  dropped_snps/dropped.tsv.gz
+  diagnostics/
+    sumstats.log
+    dropped_snps/dropped.tsv.gz
 ```
 
 `sumstats.sumstats.gz` is present only when the selected output format writes
-the legacy TSV artifact.
+the legacy TSV artifact. `metadata.json` and `sumstats.parquet` are
+downstream-required for parquet output.
 
-Required root metadata fields:
+Required metadata fields:
 
 - `schema_version`
 - `artifact_type: "sumstats"`
@@ -125,23 +113,23 @@ Required root metadata fields:
 - `genome_build`
 - `trait_name`
 
-This metadata file is required for downstream regression.
-
 ### `build-ref-panel`
 
 ```text
 ref-panel/
-  metadata.json
   <build>/chr<chrom>_r2.parquet
   <build>/chr<chrom>_meta.tsv.gz
-  dropped_snps/chr<chrom>_dropped.tsv.gz
-  build-ref-panel.log
+  diagnostics/
+    metadata.json
+    build-ref-panel.log
+    build-ref-panel.chr<chrom>.log
+    dropped_snps/chr<chrom>_dropped.tsv.gz
 ```
 
 The concrete log file may be `build-ref-panel.log` or
 `build-ref-panel.chr<chrom>.log`, depending on the builder entry point.
 
-Required root metadata fields:
+Diagnostic metadata fields:
 
 - `schema_version`
 - `artifact_type: "ref_panel"`
@@ -151,9 +139,9 @@ Required root metadata fields:
 - `emitted_genome_builds`
 - `chromosomes`
 
-Per-file validation metadata remains in the parquet Arrow schema and the
-`chr<chrom>_meta.tsv.gz` `# ldsc:*` header comments. The root metadata file is
-an index and provenance record, not a runtime prerequisite.
+Per-file validation metadata remains in parquet Arrow schema metadata and
+`chr<chrom>_meta.tsv.gz` `# ldsc:*` header comments. The diagnostics root
+metadata is not a runtime prerequisite.
 
 ### `ldscore`
 
@@ -162,12 +150,13 @@ ldscore/
   metadata.json
   ldscore.baseline.parquet
   ldscore.query.parquet
-  ldscore.log
+  diagnostics/
+    ldscore.log
 ```
 
 `ldscore.query.parquet` is present only when query LD scores are written.
 
-Required root metadata fields:
+Required metadata fields:
 
 - `schema_version`
 - `artifact_type: "ldscore"`
@@ -185,18 +174,17 @@ Required root metadata fields:
 - `baseline_row_groups`
 - `query_row_groups`
 
-This metadata file is required for downstream regression.
-
 ### `h2`
 
 ```text
 h2/
-  metadata.json
   h2.tsv
-  h2.log
+  diagnostics/
+    metadata.json
+    h2.log
 ```
 
-Required root metadata fields:
+Diagnostic metadata fields:
 
 - `schema_version`
 - `artifact_type: "h2_result"`
@@ -216,19 +204,20 @@ Required root metadata fields:
 
 ```text
 partitioned-h2/
-  metadata.json
   partitioned_h2.tsv
-  partitioned-h2.log
-  query_annotations/manifest.tsv
-  query_annotations/<query>/metadata.json
-  query_annotations/<query>/partitioned_h2.tsv
-  query_annotations/<query>/partitioned_h2_full.tsv
+  diagnostics/
+    metadata.json
+    partitioned-h2.log
+    query_annotations/manifest.tsv
+    query_annotations/<query>/metadata.json
+    query_annotations/<query>/partitioned_h2.tsv
+    query_annotations/<query>/partitioned_h2_full.tsv
 ```
 
-The `query_annotations/` tree is present only when per-query detail output is
-requested.
+The `diagnostics/query_annotations/` tree is present only when per-query detail
+output is requested.
 
-Required root metadata fields:
+Root diagnostic metadata fields:
 
 - `schema_version`
 - `artifact_type: "partitioned_h2_result"`
@@ -239,7 +228,7 @@ Required root metadata fields:
 - `count_kind`
 - `query_annotations`
 
-Required per-query metadata fields:
+Per-query diagnostic metadata fields:
 
 - `schema_version`
 - `artifact_type: "partitioned_h2_query_result"`
@@ -248,27 +237,30 @@ Required per-query metadata fields:
 - `query_annotation`
 - `slug`
 - `folder`
-- result provenance copied from the fitted per-query model, such as retained and
-  dropped LD-score columns, effective SNP identifier, identity downgrade status,
-  and SNP count.
+- retained and dropped LD-score columns
+- effective SNP identifier
+- identity downgrade status
+- SNP count
 
 ### `rg`
 
 ```text
 rg/
-  metadata.json
   rg.tsv
   rg_full.tsv
   h2_per_trait.tsv
-  rg.log
-  pairs/manifest.tsv
-  pairs/<pair>/metadata.json
-  pairs/<pair>/rg_full.tsv
+  diagnostics/
+    metadata.json
+    rg.log
+    pairs/manifest.tsv
+    pairs/<pair>/metadata.json
+    pairs/<pair>/rg_full.tsv
 ```
 
-The `pairs/` tree is present only when per-pair detail output is requested.
+The `diagnostics/pairs/` tree is present only when per-pair detail output is
+requested.
 
-Required root metadata fields:
+Root diagnostic metadata fields:
 
 - `schema_version`
 - `artifact_type: "rg_result"`
@@ -278,7 +270,7 @@ Required root metadata fields:
 - `trait_names`
 - `pair_kind`
 
-Required per-pair metadata fields:
+Per-pair diagnostic metadata fields:
 
 - `schema_version`
 - `artifact_type: "rg_pair_result"`
@@ -288,9 +280,23 @@ Required per-pair metadata fields:
 - `trait_2`
 - `slug`
 - `folder`
-- pair provenance copied from the fitted pair, such as status, error, retained
-  and dropped LD-score columns, effective SNP identifier, identity downgrade
-  status, intercept policies, block count, and SNP count.
+- status and error
+- retained and dropped LD-score columns
+- effective SNP identifier
+- identity downgrade status
+- intercept policies
+- block count
+- SNP count
+
+## Regression No-Output Rule
+
+Regression commands behave consistently:
+
+- With `--output-dir`, write public result files plus `diagnostics/`.
+- Without `--output-dir`, print the compact public TSV table to stdout and
+  write no output files or diagnostics.
+
+This applies to `h2`, `partitioned-h2`, and `rg`.
 
 ## Validation Rules
 
@@ -305,22 +311,23 @@ version and `artifact_type` must match the expected artifact type. If validation
 fails, callers should report that the artifact must be regenerated with the
 current LDSC package.
 
-Metadata for result directories and annotation/ref-panel directory summaries is
-not validated by downstream workflows. Those files are still schema-versioned so
-humans and external tools can interpret them safely.
+Diagnostic metadata for result directories, annotation outputs, and ref-panel
+directory summaries is not validated by downstream workflows.
 
 No JSON metadata file writes or reads a top-level `format` field.
 
 ## Implementation Notes
 
-The migration is a direct rename with no compatibility fallback:
+The migration is direct and intentionally has no fallback:
 
-- `manifest.json` becomes `metadata.json`.
-- `sumstats.metadata.json` becomes `metadata.json`.
-- `h2.metadata.json` becomes `metadata.json`.
-- Existing nested `metadata.json` files keep their name and gain
-  `schema_version` plus `artifact_type` where missing.
-- Loader tests must construct only canonical `metadata.json` files.
-- Output tests must assert that old root metadata names are not written.
+- `manifest.json` remains removed; LD-score uses `metadata.json`.
+- `sumstats.metadata.json` remains removed; sumstats uses `metadata.json`.
+- `h2.metadata.json` remains removed; h2 diagnostic metadata uses
+  `diagnostics/metadata.json`.
+- Diagnostic metadata for annotate, ref-panel, h2, partitioned-h2, and rg moves
+  under `diagnostics/`.
+- Per-query and per-pair detail trees move under `diagnostics/`.
+- Loader tests must construct only canonical `sumstats/metadata.json` and
+  `ldscore/metadata.json` contracts.
+- Output tests must assert old root metadata names are not written.
 - JSON metadata tests must assert that no top-level `format` field is present.
-

@@ -13,15 +13,16 @@ Three implementation details are important to know:
   package-written artifacts. Old package-written sumstats and LD-score artifacts
   without the current schema/provenance contract are rejected and must be
   regenerated with the current LDSC package.
-- Current `ldsc munge-sumstats` writes `sumstats.metadata.json` beside
+- Current `ldsc munge-sumstats` writes root `metadata.json` beside
   `sumstats.parquet` by default, or beside legacy `sumstats.sumstats.gz` when
   `--output-format tsv.gz` is selected; `load_sumstats()` recovers the original
   munge-time `GlobalConfig` from that thin sidecar. Row-level liftover drops are
-  audited separately in the always-written `dropped_snps/dropped.tsv.gz` file.
+  audited separately in the always-written
+  `diagnostics/dropped_snps/dropped.tsv.gz` file.
   Package-written sumstats artifacts without current identity provenance are not
   migrated.
-- `load_ldscore_from_dir()` keeps strict format checks and rejects missing or
-  invalid package-written manifest identity provenance with a regeneration
+- `load_ldscore_from_dir()` keeps strict metadata checks and rejects missing or
+  invalid package-written root metadata identity provenance with a regeneration
   message.
 
 ## The Problem This Design Solves
@@ -64,7 +65,7 @@ were active when that object was produced.
 
 File-reloaded package-written artifacts must prove their original settings with
 current identity provenance. For example, `load_sumstats()` recovers provenance
-from `sumstats.metadata.json` written by the current munger, while older
+from root `metadata.json` written by the current munger, while older
 package-written `.sumstats.gz` files without the current sidecar are rejected
 and must be regenerated.
 
@@ -107,7 +108,7 @@ For regression merges, the active SNP identifier mode is resolved in this order:
 `SumstatsTable.config_snapshot.snp_identifier`, then the runner's active
 `GlobalConfig.snp_identifier`, then the package default
 `chr_pos_allele_aware`. Disk-loaded LD-score artifacts therefore use their
-manifest provenance when present; old package-written artifacts without the
+metadata provenance when present; old package-written artifacts without the
 current schema/provenance contract must be regenerated.
 
 `--allow-identity-downgrade` is regression-only. It allows same-family
@@ -279,7 +280,7 @@ metadata.
 - Ordinary unpartitioned `run_ldscore()` calls may omit baseline/query annotation inputs; the workflow creates a synthetic all-ones `base` annotation after the reference panel has applied any explicit or HM3 reference-panel restriction.
 - Query annotations are valid only with explicit baseline annotations, so the synthetic `base` path is not used for partitioned/query LDSC.
 - Reference-panel SNP restrictions become visible only during LD-score calculation, when the workflow aligns `B_chrom` to `ref_panel.load_metadata(chrom)`.
-- Count records are accumulated over `ld_reference_snps = B ∩ A'` and stored in `manifest.json`.
+- Count records are accumulated over `ld_reference_snps = B ∩ A'` and stored in LD-score root `metadata.json`.
 - Public `ldscore.baseline.parquet` and optional `ldscore.query.parquet` rows are `ld_regression_snps = B ∩ A' ∩ C`.
 
 ### Migration Notes
@@ -302,12 +303,10 @@ successful run removes stale owned siblings that the current run did not
 produce, such as `ldscore.query.parquet` after switching from query LD scores
 to baseline-only LD scores.
 
-The same coherent-family rule applies to `munge-sumstats`, `partitioned-h2`,
-and `annotate`: no-overwrite mode rejects any owned sibling, while successful
-overwrites delete stale owned siblings and preserve unrelated files. The
-`build-ref-panel` workflow is the documented expert exception; its overwrite
-mode replaces current candidate panel artifacts but does not clean stale
-optional target-build, out-of-scope chromosome, or dropped-SNP siblings.
+The same coherent-family rule applies to `munge-sumstats`, `build-ref-panel`,
+`partitioned-h2`, `rg`, and `annotate`: no-overwrite mode rejects any owned
+sibling, while successful overwrites delete stale owned siblings and preserve
+unrelated files.
 
 ---
 
@@ -335,21 +334,21 @@ callers who need to preserve that provenance should persist the
 
 **`load_sumstats()` recovers provenance for current disk artifacts.**
 Curated `sumstats.parquet` and `.sumstats(.gz)` artifacts written by the current
-munger have a neighboring `sumstats.metadata.json` sidecar that records a thin
+munger have a neighboring root `metadata.json` sidecar that records a thin
 metadata payload: `schema_version`, `artifact_type`, `snp_identifier`,
 `genome_build`, and optional `trait_name`. Detailed coordinate provenance, liftover
 reports, HM3 provenance, output bookkeeping, and row counts are written to
-`sumstats.log`; row-level liftover drops are written to
-`dropped_snps/dropped.tsv.gz`. Neither belongs in the metadata sidecar. The
+`diagnostics/sumstats.log`; row-level liftover drops are written to
+`diagnostics/dropped_snps/dropped.tsv.gz`. Neither belongs in the metadata sidecar. The
 loader reconstructs `config_snapshot` from the sidecar identity fields.
 Older package-written artifacts without the current sidecar are rejected with a
 regeneration message; sidecars missing the current identity provenance are
 treated as invalid metadata rather than a migrated older format.
 
 **LD-score directories must carry current identity provenance.**
-Canonical LD-score directories written by the current workflow include a manifest
-config snapshot and minimal identity provenance. Older or malformed
-package-written manifests are rejected with a regeneration message instead of
+Canonical LD-score directories written by the current workflow include root
+metadata with a config snapshot and minimal identity provenance. Older or
+malformed package-written metadata is rejected with a regeneration message instead of
 loading with inferred provenance.
 
 **Package-written artifacts do not use missing snapshots as a compatibility

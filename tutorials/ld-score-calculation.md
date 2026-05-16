@@ -62,12 +62,12 @@ participate in allele-aware matching.
 Important output behavior:
 
 - the in-memory result is one merged `LDScoreResult` with split `baseline_table` and optional `query_table`
-- `--output-dir` writes a canonical LD-score result directory containing `manifest.json`, `ldscore.baseline.parquet`, optional `ldscore.query.parquet`, and `ldscore.log`
+- `--output-dir` writes a canonical LD-score result directory containing root `metadata.json`, `ldscore.baseline.parquet`, optional `ldscore.query.parquet`, and `diagnostics/ldscore.log`
 - `ldscore.baseline.parquet` and `ldscore.query.parquet` are still single flat files, but each parquet row group contains exactly one chromosome
-- `manifest.json` records `row_group_layout`, `baseline_row_groups`, and `query_row_groups` for readers that want to load one chromosome by row-group index
-- `LDScoreResult.output_paths` lists scientific data artifacts only; it does not include `ldscore.log`
+- root `metadata.json` records `row_group_layout`, `baseline_row_groups`, and `query_row_groups` for readers that want to load one chromosome by row-group index
+- `LDScoreResult.output_paths` lists scientific data artifacts only; it does not include `diagnostics/ldscore.log`
 - regression-universe LD scores live in the `regression_ld_scores` column of `ldscore.baseline.parquet`; there is no separate `.w.l2.ldscore.gz` output
-- annotation counts are stored as manifest records, not as separate `.M` files
+- annotation counts are stored as metadata records, not as separate `.M` files
 - if both baseline and query inputs are omitted, the workflow synthesizes an all-ones baseline column named exactly `base` over retained reference-panel metadata
 - query `.annot` and BED inputs require explicit baseline annotations; create an explicit all-ones `base` baseline annotation yourself if you intentionally want query annotations tested against that universe
 - missing output directories are created and existing directories are reused
@@ -76,7 +76,7 @@ Important output behavior:
   replace them must pass `--overwrite` or `overwrite=True`
 - with overwrite enabled, successful baseline-only runs remove stale
   `ldscore.query.parquet` so the result directory reflects the current
-  manifest
+  metadata
 
 Performance behavior for canonical parquet R2 input:
 
@@ -89,7 +89,7 @@ Performance behavior for canonical parquet R2 input:
 
 For unpartitioned heritability, no baseline annotation input is needed. The
 result directory still has the normal `ldscore.baseline.parquet` and manifest
-layout, with `baseline_columns == ["base"]`.
+metadata layout, with `baseline_columns == ["base"]`.
 
 ### Python API
 
@@ -160,7 +160,7 @@ result = run_ldscore(
 print(result.baseline_table.columns.tolist())
 print(result.baseline_table.head())
 print(result.output_paths["baseline"])
-print(result.output_paths["manifest"])
+print(result.output_paths["metadata"])
 print(result.config_snapshot)
 ```
 
@@ -230,7 +230,7 @@ ldsc ldscore \
 ## Optional: Read One Chromosome From A Result Directory
 
 Full-file readers such as `pd.read_parquet("ldscore.baseline.parquet")` still work.
-For large outputs, use the manifest row-group metadata to read exactly one
+For large outputs, use the root metadata row-group records to read exactly one
 chromosome from `ldscore.baseline.parquet` or `ldscore.query.parquet`.
 
 ```python
@@ -240,14 +240,14 @@ from pathlib import Path
 import pyarrow.parquet as pq
 
 ldscore_dir = Path("tutorial_outputs/r2_ldscores")
-manifest = json.loads((ldscore_dir / "manifest.json").read_text())
+metadata = json.loads((ldscore_dir / "metadata.json").read_text())
 
-if manifest["row_group_layout"] != "one_per_chromosome":
-    raise ValueError(f"Unsupported row-group layout: {manifest['row_group_layout']!r}")
+if metadata["row_group_layout"] != "one_per_chromosome":
+    raise ValueError(f"Unsupported row-group layout: {metadata['row_group_layout']!r}")
 
 baseline_rg_by_chrom = {
     entry["chrom"]: entry["row_group_index"]
-    for entry in manifest["baseline_row_groups"]
+    for entry in metadata["baseline_row_groups"]
 }
 
 pf = pq.ParquetFile(ldscore_dir / "ldscore.baseline.parquet")
@@ -257,7 +257,7 @@ print(baseline_chr22["CHR"].unique())
 print(baseline_chr22.head())
 ```
 
-If query annotations were supplied, `manifest["query_row_groups"]` has the same
+If query annotations were supplied, `metadata["query_row_groups"]` has the same
 shape for `ldscore.query.parquet`. It is `None` for baseline-only LD-score
 results.
 
@@ -368,4 +368,4 @@ columns in the restriction table are ignored.
 
 `run_bed_to_annot()` no longer applies a reference-panel SNP restriction. It projects BED intervals onto the baseline annotation rows and returns an `AnnotationBundle`; any reference-panel restriction is applied later, during LD-score calculation, when the workflow aligns each chromosome bundle to the prepared reference-panel metadata.
 
-In-process LD-score results carry a frozen `config_snapshot`. If you later change the registered `GlobalConfig`, existing results keep their original snapshot, and downstream merge points raise `ConfigMismatchError` if you try to combine artifacts produced under incompatible identifier or genome-build assumptions. Package-written LD-score directories whose manifest is missing current identity provenance are rejected and must be regenerated with the current LDSC package.
+In-process LD-score results carry a frozen `config_snapshot`. If you later change the registered `GlobalConfig`, existing results keep their original snapshot, and downstream merge points raise `ConfigMismatchError` if you try to combine artifacts produced under incompatible identifier or genome-build assumptions. Package-written LD-score directories whose root metadata is missing current identity provenance are rejected and must be regenerated with the current LDSC package.

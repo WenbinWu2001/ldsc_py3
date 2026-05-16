@@ -50,7 +50,7 @@ Only the workflow and output layers grow.
 | Compute strategy | Pure pairwise loop. `estimate_rg_pairs` builds one `RGRegressionDataset` per pair, then fits it through the same private helper used by public `estimate_rg`. No factor-out of `build_rg_dataset`, no merge caching layer. The 3.5× implementation surface and ~1 GB extra cache memory of a merge-cache design were not justified by the ~10% wall-time savings at N<10. Rejected pending real-workload profiling at N≥20. |
 | Intercept controls | `--intercept-h2 <FLOAT>` is a single scalar broadcast across all traits; `--intercept-gencov <FLOAT>` is a single scalar broadcast across all pairs. `--no-intercept` constrains h2 to 1 and gencov to 0, and is rejected if combined with either fixed-intercept flag. The pre-refactor `nargs=2` form is removed; the `RegressionConfig.intercept_h2` field becomes `float | None` (the `list[float]` branch is dropped). |
 | Output dual-table | `rg.tsv` is the concise, publication-ready 8-column table; `rg_full.tsv` is the 32-column diagnostic. Mirrors `partitioned_h2.tsv` / `partitioned_h2_full.tsv`. |
-| Per-pair detail | Opt-in `--write-per-pair-detail`. Requires `--output-dir`; reject otherwise because the flag explicitly requests filesystem artifacts. Writes optional diagnostic directories at `pairs/{idx:04d}_{safe_trait_a}_vs_{safe_trait_b}/{rg_full.tsv, metadata.json}`. The root tables are complete without this tree. |
+| Per-pair detail | Opt-in `--write-per-pair-detail`. Requires `--output-dir`; reject otherwise because the flag explicitly requests filesystem artifacts. Writes optional diagnostic directories at `diagnostics/pairs/{idx:04d}_{safe_trait_a}_vs_{safe_trait_b}/{rg_full.tsv, metadata.json}`. The root tables are complete without this tree. |
 | Per-trait h2 | Always emit `h2_per_trait.tsv` from `summarize_total_h2`. Fit on each trait's full LD-ref intersection (matches `ldsc h2`); independent of the per-pair Hsq inside `RG`. |
 | Self-pairs | Skipped. |
 | Trait-name collision policy | If two resolved sources share `Path(path).name`, append `@<parent_dir>`; if collision persists, append `@<sha1[:8] of full path>`. INFO-log each disambiguation. |
@@ -108,7 +108,7 @@ prints only the concise `rg.tsv`-schema table to stdout so quick runs remain
 pipeable.
 
 `--write-per-pair-detail` is valid only with `--output-dir`. Without an
-output directory there is nowhere to place the requested `pairs/` diagnostic
+output directory there is nowhere to place the requested `diagnostics/pairs/` diagnostic
 tree, so the workflow rejects that argument combination before loading inputs.
 
 ---
@@ -144,16 +144,16 @@ tree, so the workflow rejects that argument combination before loading inputs.
   `--anchor-trait-file` to a list index, and calls `estimate_rg_pairs`.
   The return value is always the full `RgResultFamily`. When `--output-dir`
   is supplied, it preflights `rg.tsv`, `rg_full.tsv`, `h2_per_trait.tsv`,
-  optional `pairs/`, and `rg.log` before opening `workflow_logging`, then
+  optional `diagnostics/pairs/`, and `diagnostics/rg.log` before opening `workflow_logging`, then
   passes the result to `RgDirectoryWriter`. When `--output-dir` is omitted,
   it writes no files and creates no log. It never prints directly; CLI stdout
-  is handled by `src/ldsc/cli.py`. `rg.log` remains owned by the workflow
+  is handled by `src/ldsc/cli.py`. `diagnostics/rg.log` remains owned by the workflow
   logging context rather than the writer.
 - **`RgResultFamily`** (new dataclass; mirrors `PartitionedH2BatchResult` at
   `regression_runner.py:145-157`). Fields: `rg` (the concise 8-column
   table), `rg_full` (the full diagnostic table), `h2_per_trait` (one row per
   input trait), and `per_pair_metadata` (ordered records for the optional
-  `pairs/` tree).
+  `diagnostics/pairs/` tree).
 - **Small private helpers**: `_validate_rg_inputs(traits,
   ldscore_result)` (the up-front config-compat loop, mirroring
   `build_rg_dataset:282-288`); `_iter_rg_pairs(n, anchor_index)` (yields
@@ -199,12 +199,12 @@ than aliased:
 - **`RgOutputConfig`** and **`RgDirectoryWriter`** (new). Modeled on
   `PartitionedH2OutputConfig` / `PartitionedH2DirectoryWriter`
   (`outputs.py:265-410`). The writer owns only scientific data artifacts:
-  `[rg.tsv, rg_full.tsv, h2_per_trait.tsv, pairs/]`. `rg.log` remains owned
+  `[rg.tsv, rg_full.tsv, h2_per_trait.tsv, diagnostics/pairs/]`. `diagnostics/rg.log` remains owned
   by `run_rg_from_args()` and `workflow_logging()`. Per-pair
   subtree uses the same staged-then-`os.replace` pattern as
   `PartitionedH2DirectoryWriter:373-405`.
 - **`RG_RESULT_FORMAT = "ldsc.rg_result_family.v1"`** — recorded in each
-  `pairs/<idx>_<safe_a>_vs_<safe_b>/metadata.json`.
+  `diagnostics/pairs/<idx>_<safe_a>_vs_<safe_b>/metadata.json`.
 
 ---
 
@@ -258,15 +258,17 @@ When `--output-dir` is supplied:
   rg.tsv             # concise, publication-ready (8 cols)
   rg_full.tsv        # comprehensive diagnostic (32 cols)
   h2_per_trait.tsv   # one row per input trait
-  rg.log             # from workflow_logging
-  pairs/             # only when --write-per-pair-detail
+  diagnostics/
+    metadata.json    # provenance only
+    rg.log           # from workflow_logging
+    pairs/           # only when --write-per-pair-detail
     0001_<safe_trait_a>_vs_<safe_trait_b>/
       rg_full.tsv    # one-row, comprehensive view
       metadata.json
     0002_...
 ```
 
-`pairs/` index ordering follows the result row order: input-order all-pairs
+`diagnostics/pairs/` index ordering follows the result row order: input-order all-pairs
 (`A-B`, `A-C`, `B-C`) or `(anchor, other)` in input order for anchor mode.
 Folder names use a filesystem-safe slug derived from the resolved trait name;
 the numeric prefix is the stable identity for ordering and collision
@@ -300,7 +302,7 @@ All table writes, including stdout, render missing values with literal `NaN`
 | `rg_se` | Block-jackknife SE of `rg`. |
 | `p` | Two-sided normal p-value from `rg / rg_se`. |
 | `p_fdr_bh` | Benjamini–Hochberg adjusted p-value over the rows of this file. |
-| `note` | Empty for successful pairs; for failed pairs, a short pointer such as `Failed; see rg_full.tsv error column; use --output-dir for rg.log`. |
+| `note` | Empty for successful pairs; for failed pairs, a short pointer such as `Failed; see rg_full.tsv error column; use --output-dir for diagnostics/rg.log`. |
 
 This file is what users will paste into manuscripts. It mirrors what most
 genetic-correlation papers report verbatim (e.g. "rg = 0.68, SE = 0.04,
@@ -378,7 +380,7 @@ loop and keeps the output directory self-contained.
 
 ## Per-Pair Detail Tree
 
-`pairs/` is an optional per-pair diagnostic tree. It is not needed for the
+`diagnostics/pairs/` is an optional per-pair diagnostic tree. It is not needed for the
 main scientific result because the root `rg.tsv` and `rg_full.tsv` already
 contain every pair. It is created only when `--write-per-pair-detail` is set,
 for users who want one small directory per pair with a one-row full diagnostic
@@ -387,16 +389,17 @@ table and reproducibility metadata.
 When `--write-per-pair-detail` is set:
 
 ```
-pairs/<idx:04d>_<safe_trait_a>_vs_<safe_trait_b>/
+diagnostics/pairs/<idx:04d>_<safe_trait_a>_vs_<safe_trait_b>/
     rg_full.tsv       # exactly one row (the same one as in the root rg_full.tsv)
     metadata.json     # reproducibility record
 ```
 
-`metadata.json` schema (`format = "ldsc.rg_result_family.v1"`):
+Per-pair `metadata.json` schema:
 
 | Field | Meaning |
 |---|---|
-| `format` | `"ldsc.rg_result_family.v1"` |
+| `schema_version` | Current metadata schema version. |
+| `artifact_type` | `rg_pair_result`. |
 | `trait_1`, `trait_2` | Resolved trait names. |
 | `source_1`, `source_2` | Absolute paths of the input sumstats files. |
 | `n_snps_used` | After all merges and filters. |
@@ -415,7 +418,7 @@ non `[a-z0-9._-]` characters with `_`, trim leading/trailing punctuation, and
 fall back to `trait` if the slug would be empty. The numeric prefix preserves
 the authoritative pair order.
 
-The concise `rg.tsv` is **not** duplicated inside `pairs/<...>/` — users
+The concise `rg.tsv` is **not** duplicated inside `diagnostics/pairs/<...>/` — users
 who open the per-pair directory are already in diagnostic mode.
 
 ---
@@ -441,7 +444,7 @@ who open the per-pair directory are already in diagnostic mode.
   build+fit+summary phase → caught in `estimate_rg_pairs`; emit a row with
   `n_snps_used=0`, NaN-filled stats, `status="failed"`, an `error` message
   in `rg_full.tsv`, a concise `note` in `rg.tsv`, log WARNING with traceback
-  when `rg.log` exists, and continue. Do not catch `BaseException`
+  when `diagnostics/rg.log` exists, and continue. Do not catch `BaseException`
   subclasses such as `KeyboardInterrupt` and `SystemExit`.
 - **Kernel `NA` values** → if `reg.RG` returns non-numeric `NA` for rg, rg SE,
   z, or p (for example h2 out of bounds), treat the pair as failed and emit a
@@ -491,8 +494,8 @@ who open the per-pair directory are already in diagnostic mode.
 12b. `--write-per-pair-detail` without `--output-dir` rejects before loading
      inputs.
 13. Preflight + overwrite covering the full
-    workflow-owned family: `rg.log` plus data-owned
-    `[rg.tsv, rg_full.tsv, h2_per_trait.tsv, pairs/]`.
+    workflow-owned family: `diagnostics/rg.log` plus data-owned
+    `[rg.tsv, rg_full.tsv, h2_per_trait.tsv, diagnostics/pairs/]`.
 14. No-output-dir mode still returns the full `RgResultFamily` to Python
     callers, `run_rg_from_args` does not print, CLI invocations print only the
     concise table, and no files or log are created.

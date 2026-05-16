@@ -44,22 +44,35 @@ Several workflows write a fixed family of files that share one run identity
 through `output_dir`. These families are treated as one coherent set, not as
 independent optional files:
 
-- `munge-sumstats`: `sumstats.parquet`, `sumstats.sumstats.gz`,
-  `sumstats.metadata.json`, `dropped_snps/dropped.tsv.gz`, and `sumstats.log`
+- `munge-sumstats`: `metadata.json`, `sumstats.parquet`,
+  `sumstats.sumstats.gz`, `diagnostics/dropped_snps/dropped.tsv.gz`, and
+  `diagnostics/sumstats.log`
   for CLI/workflow runs
-- `ldscore`: `manifest.json`, `ldscore.baseline.parquet`,
-  `ldscore.query.parquet`, and `ldscore.log` for CLI/workflow runs
-- `partitioned-h2`: `partitioned_h2.tsv`, optional `query_annotations/`, and
-  `partitioned-h2.log` for CLI/workflow runs
-- `h2`: `h2.tsv`, `h2.metadata.json`, and `h2.log` for CLI/workflow runs
-- `annotate`: root-level `query.<chrom>.annot.gz` shards, plus `annotate.log`
-  for CLI/workflow runs
+- `ldscore`: `metadata.json`, `ldscore.baseline.parquet`,
+  `ldscore.query.parquet`, and `diagnostics/ldscore.log` for CLI/workflow runs
+- `build-ref-panel`: `{hg19,hg38}/chr*_r2.parquet`,
+  `{hg19,hg38}/chr*_meta.tsv.gz`,
+  `diagnostics/metadata.json`, `diagnostics/dropped_snps/chr*_dropped.tsv.gz`,
+  and `diagnostics/build-ref-panel*.log` for CLI/workflow runs
+- `partitioned-h2`: `partitioned_h2.tsv`,
+  `diagnostics/metadata.json`, optional `diagnostics/query_annotations/`, and
+  `diagnostics/partitioned-h2.log` for CLI/workflow runs
+- `h2`: `h2.tsv`, `diagnostics/metadata.json`, and
+  `diagnostics/h2.log` for CLI/workflow runs
+- `annotate`: root-level `query.<chrom>.annot.gz` shards, plus diagnostic
+  metadata, dropped-SNP audit, and `annotate.log` under `diagnostics/`
+- `rg`: `rg.tsv`, `rg_full.tsv`, `h2_per_trait.tsv`,
+  `diagnostics/metadata.json`, optional `diagnostics/pairs/`, and
+  `diagnostics/rg.log` for CLI/workflow runs
 
 Without overwrite, any existing owned sibling in the family rejects the run,
 even if that sibling is not selected by the current output mode. With overwrite
 enabled, the workflow writes the requested current outputs and then removes
 stale owned siblings not produced by the successful run. Unrelated files in the
-directory are preserved.
+directory are preserved. Directory artifacts such as
+`diagnostics/query_annotations/` and `diagnostics/pairs/` are owned as whole
+trees: no-overwrite blocks if the root exists, and overwrite swaps or removes
+the complete tree after the current run succeeds.
 
 Direct Python data writers enforce the data artifact family they own. Workflow
 wrappers add their workflow log to the preflight family.
@@ -194,8 +207,8 @@ Output:
 
 - `output_dir` is created when missing and reused when present.
 - Projection writes `query.<chrom>.annot.gz` for every chromosome in the
-  resulting bundle, plus `annotate.log`.
-- Existing root-level `query.*.annot.gz` files or `annotate.log` are refused
+  resulting bundle, plus diagnostics under `diagnostics/`.
+- Existing root-level `query.*.annot.gz` files or owned diagnostics are refused
   before any annotation shard is written unless `overwrite=True` or CLI
   `--overwrite` is supplied. With overwrite enabled, stale query shards outside
   the current chromosome set are removed after the current shards are written.
@@ -269,12 +282,13 @@ ldsc ldscore \
 Output:
 
 - `--output-dir` is a literal directory destination.
-- LD-score calculation writes `manifest.json`, `ldscore.baseline.parquet`,
-  optional `ldscore.query.parquet`, and `ldscore.log` inside that directory.
+- LD-score calculation writes `metadata.json`, `ldscore.baseline.parquet`,
+  optional `ldscore.query.parquet`, and `diagnostics/ldscore.log` inside that
+  directory.
 - `ldscore.baseline.parquet` and `ldscore.query.parquet` remain flat parquet files, but each
-  row group contains exactly one chromosome. The manifest records
+  row group contains exactly one chromosome. Root `metadata.json` records
   `row_group_layout`, `baseline_row_groups`, and `query_row_groups`.
-- Existing canonical LD-score files or `ldscore.log` are refused before any of
+- Existing canonical LD-score files or `diagnostics/ldscore.log` are refused before any of
   them are written unless `--overwrite` or
   `LDScoreOutputConfig(overwrite=True)` is supplied. With overwrite enabled, a
   successful baseline-only run removes any stale `ldscore.query.parquet` sibling.
@@ -346,24 +360,21 @@ ldsc build-ref-panel \
 Output:
 
 - `--output-dir` is created when missing and reused when present.
-- Before chromosome processing starts, the builder checks the deterministic
-  candidate paths under each emitted `{build}` directory, candidate
-  `dropped_snps/chr{chrom}_dropped.tsv.gz` audit paths, plus
-  `build-ref-panel.log`.
-- Existing candidate parquet, metadata, or dropped-SNP audit files are refused unless
-  `--overwrite` or `ReferencePanelBuildConfig(overwrite=True)` is supplied.
-- The check covers source-build artifacts and covers target-build artifacts
-  only when a matching liftover chain or HM3 quick liftover is configured.
+- Before chromosome processing starts, the builder checks both current-run
+  deterministic paths and existing workflow-owned siblings under `hg19/`,
+  `hg38/`, plus owned diagnostics under `diagnostics/`.
+- Existing parquet, metadata, dropped-SNP audit, or workflow-log files are
+  refused unless `--overwrite` or `ReferencePanelBuildConfig(overwrite=True)`
+  is supplied.
+- With overwrite enabled, a successful run removes stale owned source-build,
+  target-build, out-of-scope chromosome, dropped-SNP, or log siblings that the
+  current run did not produce.
 - Dropped-SNP audit sidecars are always written for processed chromosomes
   (header-only when clean) and contain liftover-stage rows with reasons
   `source_duplicate`, `unmapped_liftover`, `cross_chromosome_liftover`, and
   `target_collision`.
-- `build-ref-panel` keeps this expert-oriented overwrite behavior as an
-  exception to the coherent result-directory cleanup policy. `--overwrite`
-  permits replacing current candidate artifacts, but it does not remove stale
-  optional target-build or out-of-scope chromosome siblings from earlier
-  configurations. Use a fresh output directory when changing emitted builds,
-  liftover/coordinate configuration, or chromosome scope.
+- The ref-panel directory may contain many chromosome/build artifacts, but the
+  workflow still treats them as one owned family for stale-output protection.
 
 ### Sumstats munging and regression
 
@@ -390,7 +401,7 @@ How they are handled:
 - rg `--sumstats-sources` is a group-style input; all resolved files are
   deduplicated in first-seen order and then used for pair selection
 - `ldscore_dir` is not glob-resolved; it is opened as a directory containing
-  `manifest.json` plus parquet payload files
+  `metadata.json` plus parquet payload files
 - `ldsc munge-sumstats` uses `--format auto` by default after the raw path is
   resolved. The inference layer can detect plain text, old DANER, new DANER,
   and PGC VCF-style headers before applying the usual column aliases and
@@ -398,38 +409,41 @@ How they are handled:
 
 Output:
 
-- `ldsc munge-sumstats` writes `sumstats.parquet` by default, plus
-  `sumstats.log`, `sumstats.metadata.json`, and
-  `dropped_snps/dropped.tsv.gz` under `output_dir`;
+- `ldsc munge-sumstats` writes `sumstats.parquet` by default, plus root
+  `metadata.json`, `diagnostics/sumstats.log`, and
+  `diagnostics/dropped_snps/dropped.tsv.gz` under `output_dir`;
   `--output-format tsv.gz` writes legacy `sumstats.sumstats.gz`, and
   `--output-format both` writes both curated artifacts. Existing owned
   `sumstats.*` artifacts are refused unless `--overwrite` or
   `MungeConfig(overwrite=True)` is supplied. With overwrite enabled, a
   successful run removes stale sibling formats not produced by the current
   `--output-format`.
-  `sumstats.log` is not recorded in `MungeRunSummary.output_paths`; detailed
-  provenance and output bookkeeping are written to the log, row-level liftover
-  drops are written to `dropped_snps/dropped.tsv.gz`, and the metadata sidecar
-  stays thin.
+  `diagnostics/sumstats.log` is not recorded in
+  `MungeRunSummary.output_paths`; detailed provenance and output bookkeeping
+  are written to the log, row-level liftover drops are written to
+  `diagnostics/dropped_snps/dropped.tsv.gz`, and root `metadata.json` stays
+  thin.
 - `--use-hm3-snps` uses the packaged curated HM3 map as the sumstats SNP
   restriction and conflicts with `--sumstats-snps-file`. HM3 quick liftover
   requires `--use-hm3-snps`.
 - `ldsc h2`, `ldsc partitioned-h2`, and `ldsc rg` write fixed result families
-  when `output_dir` is provided. For h2, that family is `h2.tsv`,
-  `h2.metadata.json`, and workflow-owned `h2.log`. For rg, that family is
-  `rg.tsv`, `rg_full.tsv`, `h2_per_trait.tsv`, optional `pairs/`, and
-  workflow-owned `rg.log`; existing owned artifacts are refused unless
+  when `output_dir` is provided. Without `output_dir`, each command prints its
+  compact TSV table to stdout and writes no diagnostics. For h2, the written
+  family is `h2.tsv`, `diagnostics/metadata.json`, and workflow-owned
+  `diagnostics/h2.log`. For rg, that family is `rg.tsv`, `rg_full.tsv`,
+  `h2_per_trait.tsv`, optional `diagnostics/pairs/`, and workflow-owned
+  `diagnostics/rg.log`; existing owned artifacts are refused unless
   `--overwrite` is supplied.
 - `ldsc partitioned-h2` requires the LD-score directory to include
   `ldscore.query.parquet` and non-empty `query_columns`; baseline-only LD-score
   directories are valid for `h2` and `rg`.
 - `ldsc partitioned-h2 --write-per-query-results` also writes a staged
-  `query_annotations/` tree under `output_dir`. The tree contains
+  `diagnostics/query_annotations/` tree under `output_dir`. The tree contains
   `manifest.tsv` and one folder per query annotation, with per-query
   `partitioned_h2.tsv`, `partitioned_h2_full.tsv`, and `metadata.json`.
   Existing final per-query output is refused unless `--overwrite` is supplied;
   with overwrite enabled, an aggregate-only run removes a stale
-  `query_annotations/` tree.
+  `diagnostics/query_annotations/` tree.
 - Existing output directories are valid in every case. Only known files for the
   workflow-owned artifact family are checked; unrelated files are preserved.
 

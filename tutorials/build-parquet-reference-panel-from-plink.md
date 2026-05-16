@@ -12,10 +12,10 @@ The `build-ref-panel` workflow converts PLINK genotypes into build-specific R2 r
 
 - one R2 parquet per emitted build (`hg19/chr*_r2.parquet` and/or `hg38/chr*_r2.parquet`): one row per unordered SNP pair within the chosen LD window
 - one runtime metadata sidecar per emitted build (`hg19/chr*_meta.tsv.gz` and/or `hg38/chr*_meta.tsv.gz`): one row per retained SNP, used by LDSC-style downstream tools
-- one dropped-SNP audit file under `dropped_snps/` for each processed chromosome, header-only when no liftover-stage rows are dropped
-- `build-ref-panel.log` when run through the CLI or convenience wrapper; a
+- one dropped-SNP audit file under `diagnostics/dropped_snps/` for each processed chromosome, header-only when no liftover-stage rows are dropped
+- `diagnostics/build-ref-panel.log` when run through the CLI or convenience wrapper; a
   concrete single-chromosome PLINK prefix writes
-  `build-ref-panel.chr<chrom>.log` so parallel per-chromosome jobs do not
+  `diagnostics/build-ref-panel.chr<chrom>.log` so parallel per-chromosome jobs do not
   share one log file
 
 The R2 output is a long pairwise table, not a dense square matrix on disk. That is usually the practical format for large reference panels.
@@ -242,7 +242,7 @@ Exactly one of the following must be set:
 
 Coordinate duplicate handling has no public flag. In `chr_pos`-family modes,
 source and target coordinate collision groups are always handled with `drop-all`,
-and the dropped rows are recorded under `dropped_snps/`. In source-only
+and the dropped rows are recorded under `diagnostics/dropped_snps/`. In source-only
 `rsid`-family builds, coordinate duplicate filtering is not applicable because
 SNP labels define row identity.
 
@@ -348,9 +348,11 @@ For the chr22 example above, the output tree looks like:
 
 ```text
 tutorial_outputs/ref_panel_chr22/
-├── build-ref-panel.chr22.log  # concrete single-chromosome CLI/convenience-wrapper runs
-├── dropped_snps/              # audit files, header-only when no SNPs dropped
-│   └── chr22_dropped.tsv.gz
+├── diagnostics/
+│   ├── metadata.json          # diagnostic provenance only
+│   ├── build-ref-panel.chr22.log
+│   └── dropped_snps/          # audit files, header-only when no SNPs dropped
+│       └── chr22_dropped.tsv.gz
 ├── hg19/
 │   ├── chr22_r2.parquet
 │   └── chr22_meta.tsv.gz

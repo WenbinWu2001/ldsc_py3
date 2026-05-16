@@ -449,12 +449,13 @@ class H2DirectoryWriterTest(unittest.TestCase):
                 paths,
                 {
                     "summary": str(output_dir / "h2.tsv"),
-                    "metadata": str(output_dir / "metadata.json"),
+                    "metadata": str(output_dir / "diagnostics" / "metadata.json"),
                 },
             )
             summary = pd.read_csv(output_dir / "h2.tsv", sep="\t")
             self.assertEqual(summary.columns.tolist(), self.make_summary().columns.tolist())
-            metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
+            self.assertFalse((output_dir / "metadata.json").exists())
+            metadata = json.loads((output_dir / "diagnostics" / "metadata.json").read_text(encoding="utf-8"))
             self.assertEqual(metadata["artifact_type"], "h2_result")
             self.assertEqual(metadata["files"], {"summary": "h2.tsv"})
             self.assertNotIn("format", metadata)
@@ -463,8 +464,9 @@ class H2DirectoryWriterTest(unittest.TestCase):
     def test_refuses_existing_metadata_without_overwrite(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "h2"
-            output_dir.mkdir()
-            existing = output_dir / "metadata.json"
+            diagnostics_dir = output_dir / "diagnostics"
+            diagnostics_dir.mkdir(parents=True)
+            existing = diagnostics_dir / "metadata.json"
             existing.write_text('{"old": true}\n', encoding="utf-8")
 
             with self.assertRaisesRegex(FileExistsError, "overwrite"):
@@ -480,9 +482,9 @@ class H2DirectoryWriterTest(unittest.TestCase):
     def test_overwrite_replaces_existing_metadata(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "h2"
-            output_dir.mkdir()
+            (output_dir / "diagnostics").mkdir(parents=True)
             (output_dir / "h2.tsv").write_text("old\n", encoding="utf-8")
-            (output_dir / "metadata.json").write_text('{"old": true}\n', encoding="utf-8")
+            (output_dir / "diagnostics" / "metadata.json").write_text('{"old": true}\n', encoding="utf-8")
 
             H2DirectoryWriter().write(
                 self.make_summary(),
@@ -491,7 +493,8 @@ class H2DirectoryWriterTest(unittest.TestCase):
             )
 
             self.assertIn("total_h2", (output_dir / "h2.tsv").read_text(encoding="utf-8"))
-            metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
+            self.assertFalse((output_dir / "metadata.json").exists())
+            metadata = json.loads((output_dir / "diagnostics" / "metadata.json").read_text(encoding="utf-8"))
             self.assertNotIn("old", metadata)
             self.assertEqual(metadata["schema_version"], 1)
 
@@ -573,10 +576,11 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
                 paths,
                 {
                     "summary": str(output_dir / "partitioned_h2.tsv"),
-                    "metadata": str(output_dir / "metadata.json"),
+                    "metadata": str(output_dir / "diagnostics" / "metadata.json"),
                 },
             )
-            metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
+            self.assertFalse((output_dir / "metadata.json").exists())
+            metadata = json.loads((output_dir / "diagnostics" / "metadata.json").read_text(encoding="utf-8"))
             self.assertEqual(metadata["artifact_type"], "partitioned_h2_result")
             self.assertEqual(metadata["files"], {"summary": "partitioned_h2.tsv"})
             self.assertNotIn("format", metadata)
@@ -591,7 +595,7 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
                 metadata={"trait_name": "trait", "count_kind": "common", "ldscore_dir": "ldscores"},
             )
 
-            query_root = output_dir / "query_annotations"
+            query_root = output_dir / "diagnostics" / "query_annotations"
             manifest = pd.read_csv(query_root / "manifest.tsv", sep="\t")
             self.assertEqual(manifest["ordinal"].tolist(), [1, 2])
             self.assertEqual(
@@ -604,11 +608,13 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
             )
             self.assertIn("partitioned_h2_full_path", manifest.columns)
             self.assertNotIn("model_categories_path", manifest.columns)
-            root_metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
+            self.assertFalse((output_dir / "metadata.json").exists())
+            self.assertFalse((output_dir / "query_annotations").exists())
+            root_metadata = json.loads((output_dir / "diagnostics" / "metadata.json").read_text(encoding="utf-8"))
             self.assertEqual(root_metadata["artifact_type"], "partitioned_h2_result")
             self.assertEqual(root_metadata["trait_name"], "trait")
             self.assertEqual(root_metadata["files"]["summary"], "partitioned_h2.tsv")
-            self.assertEqual(root_metadata["files"]["query_annotations"], "query_annotations")
+            self.assertEqual(root_metadata["files"]["query_annotations"], "diagnostics/query_annotations")
             self.assertNotIn("format", root_metadata)
             self.assertTrue((query_root / "0001_il-6_jak_stat_hallmark" / "partitioned_h2.tsv").exists())
             self.assertTrue((query_root / "0001_il-6_jak_stat_hallmark" / "partitioned_h2_full.tsv").exists())
@@ -624,8 +630,8 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
             self.assertEqual(
                 metadata["files"],
                 {
-                    "summary": "query_annotations/0001_il-6_jak_stat_hallmark/partitioned_h2.tsv",
-                    "full": "query_annotations/0001_il-6_jak_stat_hallmark/partitioned_h2_full.tsv",
+                    "summary": "diagnostics/query_annotations/0001_il-6_jak_stat_hallmark/partitioned_h2.tsv",
+                    "full": "diagnostics/query_annotations/0001_il-6_jak_stat_hallmark/partitioned_h2_full.tsv",
                 },
             )
             self.assertNotIn("format", metadata)
@@ -681,7 +687,7 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
     def test_overwrite_replaces_existing_per_query_tree(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "partitioned"
-            stale = output_dir / "query_annotations" / "stale"
+            stale = output_dir / "diagnostics" / "query_annotations" / "stale"
             stale.mkdir(parents=True)
             (stale / "old.txt").write_text("old\n", encoding="utf-8")
             (output_dir / "partitioned_h2.tsv").write_text("old\n", encoding="utf-8")
@@ -697,14 +703,15 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
             )
 
             self.assertFalse(stale.exists())
-            self.assertTrue((output_dir / "query_annotations" / "manifest.tsv").exists())
-            self.assertTrue((output_dir / "metadata.json").exists())
+            self.assertTrue((output_dir / "diagnostics" / "query_annotations" / "manifest.tsv").exists())
+            self.assertTrue((output_dir / "diagnostics" / "metadata.json").exists())
+            self.assertFalse((output_dir / "metadata.json").exists())
             self.assertIn("Coefficient", (output_dir / "partitioned_h2.tsv").read_text(encoding="utf-8"))
 
     def test_aggregate_only_refuses_stale_per_query_tree_without_overwrite(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "partitioned"
-            stale = output_dir / "query_annotations" / "stale"
+            stale = output_dir / "diagnostics" / "query_annotations" / "stale"
             stale.mkdir(parents=True)
             (stale / "old.txt").write_text("old\n", encoding="utf-8")
 
@@ -725,7 +732,7 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
                 PartitionedH2OutputConfig(output_dir=output_dir, write_per_query_results=True),
                 per_query_category_tables=self.make_category_tables(),
             )
-            self.assertTrue((output_dir / "query_annotations" / "manifest.tsv").exists())
+            self.assertTrue((output_dir / "diagnostics" / "query_annotations" / "manifest.tsv").exists())
 
             PartitionedH2DirectoryWriter().write(
                 self.make_summary(),
@@ -733,8 +740,10 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
             )
 
             self.assertTrue((output_dir / "partitioned_h2.tsv").exists())
-            self.assertTrue((output_dir / "metadata.json").exists())
+            self.assertTrue((output_dir / "diagnostics" / "metadata.json").exists())
+            self.assertFalse((output_dir / "metadata.json").exists())
             self.assertFalse((output_dir / "query_annotations").exists())
+            self.assertFalse((output_dir / "diagnostics" / "query_annotations").exists())
 
 
 class RgDirectoryWriterTest(unittest.TestCase):
@@ -877,24 +886,26 @@ class RgDirectoryWriterTest(unittest.TestCase):
             self.assertIn("NaN", rg_text)
             self.assertTrue((output_dir / "rg_full.tsv").exists())
             self.assertTrue((output_dir / "h2_per_trait.tsv").exists())
-            root_metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
+            self.assertFalse((output_dir / "metadata.json").exists())
+            self.assertFalse((output_dir / "pairs").exists())
+            root_metadata = json.loads((output_dir / "diagnostics" / "metadata.json").read_text(encoding="utf-8"))
             self.assertEqual(root_metadata["artifact_type"], "rg_result")
             self.assertEqual(root_metadata["files"]["rg"], "rg.tsv")
-            self.assertEqual(root_metadata["files"]["pairs"], "pairs")
+            self.assertEqual(root_metadata["files"]["pairs"], "diagnostics/pairs")
             self.assertNotIn("format", root_metadata)
-            manifest = pd.read_csv(output_dir / "pairs" / "manifest.tsv", sep="\t")
+            manifest = pd.read_csv(output_dir / "diagnostics" / "pairs" / "manifest.tsv", sep="\t")
             self.assertEqual(
                 manifest["folder"].tolist(),
                 ["0001_trait_a_vs_trait_b", "0002_trait_a_vs_trait_c"],
             )
             metadata = json.loads(
-                (output_dir / "pairs" / "0001_trait_a_vs_trait_b" / "metadata.json").read_text(encoding="utf-8")
+                (output_dir / "diagnostics" / "pairs" / "0001_trait_a_vs_trait_b" / "metadata.json").read_text(encoding="utf-8")
             )
             self.assertEqual(metadata["artifact_type"], "rg_pair_result")
-            self.assertEqual(metadata["files"], {"rg_full": "pairs/0001_trait_a_vs_trait_b/rg_full.tsv"})
+            self.assertEqual(metadata["files"], {"rg_full": "diagnostics/pairs/0001_trait_a_vs_trait_b/rg_full.tsv"})
             self.assertNotIn("format", metadata)
             self.assertEqual(metadata["status"], "ok")
-            self.assertTrue((output_dir / "pairs" / "0001_trait_a_vs_trait_b" / "rg_full.tsv").exists())
+            self.assertTrue((output_dir / "diagnostics" / "pairs" / "0001_trait_a_vs_trait_b" / "rg_full.tsv").exists())
 
     def test_aggregate_only_overwrite_removes_stale_pair_tree(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -903,7 +914,7 @@ class RgDirectoryWriterTest(unittest.TestCase):
                 self.make_result(),
                 RgOutputConfig(output_dir=output_dir, write_per_pair_detail=True),
             )
-            self.assertTrue((output_dir / "pairs" / "manifest.tsv").exists())
+            self.assertTrue((output_dir / "diagnostics" / "pairs" / "manifest.tsv").exists())
 
             RgDirectoryWriter().write(
                 self.make_result(),
@@ -911,8 +922,10 @@ class RgDirectoryWriterTest(unittest.TestCase):
             )
 
             self.assertTrue((output_dir / "rg.tsv").exists())
-            self.assertTrue((output_dir / "metadata.json").exists())
+            self.assertTrue((output_dir / "diagnostics" / "metadata.json").exists())
+            self.assertFalse((output_dir / "metadata.json").exists())
             self.assertFalse((output_dir / "pairs").exists())
+            self.assertFalse((output_dir / "diagnostics" / "pairs").exists())
 
 
 class FixedOutputDirectoryTest(unittest.TestCase):

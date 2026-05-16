@@ -224,9 +224,10 @@ responsibility.
 Two distinct artifact classes exist in both workflows:
 
 - **Class 1 — always-produced.** Workflow always writes this file regardless
-  of run configuration. Examples: `sumstats.metadata.json`, `sumstats.log`,
-  the new `dropped_snps/dropped.tsv.gz`, and the new ref-panel
-  `dropped_snps/chr{chrom}_dropped.tsv.gz` (per R2, always written for every
+  of run configuration. Examples: root `metadata.json`,
+  `diagnostics/sumstats.log`, the new
+  `diagnostics/dropped_snps/dropped.tsv.gz`, and the new ref-panel
+  `diagnostics/dropped_snps/chr{chrom}_dropped.tsv.gz` (per R2, always written for every
   chromosome processed by the current run; empty header-only TSV when no
   liftover-stage drops occurred).
 - **Class 2 — conditionally-produced.** The set of files written depends on
@@ -237,8 +238,8 @@ Two distinct artifact classes exist in both workflows:
   `hg38/` only when a matching liftover chain is supplied.
 
 **Workflow-log asymmetry.** Both workflows produce a `.log` file under their
-parsed-CLI entry points (`sumstats.log` from `SumstatsMunger.run`;
-`build-ref-panel.log` from `run_build_ref_panel_from_args`). Direct
+parsed-CLI entry points (`diagnostics/sumstats.log` from `SumstatsMunger.run`;
+`diagnostics/build-ref-panel.log` from `run_build_ref_panel_from_args`). Direct
 programmatic invocation of `ReferencePanelBuilder.run()` leaves
 `self._workflow_log_path = None` (`ref_panel_builder.py:170`), and the
 `workflow_logging` context at `ref_panel_builder.py:239` therefore writes
@@ -338,9 +339,9 @@ liftover validation rule already locked in
 ```
 {output_dir}/sumstats.parquet           # class 2 — produced if output_format ∈ {parquet, both}
 {output_dir}/sumstats.sumstats.gz       # class 2 — produced if output_format ∈ {tsv.gz, both}
-{output_dir}/sumstats.metadata.json     # class 1 — always produced
-{output_dir}/sumstats.log               # class 1 (CLI/parsed entry) — always produced via SumstatsMunger.run
-{output_dir}/dropped_snps/dropped.tsv.gz   # NEW class 1 — always produced (header-only when no drops)
+{output_dir}/metadata.json              # class 1 — always produced
+{output_dir}/diagnostics/sumstats.log   # class 1 (CLI/parsed entry) — always produced via SumstatsMunger.run
+{output_dir}/diagnostics/dropped_snps/dropped.tsv.gz   # NEW class 1 — always produced (header-only when no drops)
 ```
 
 ### Reference-panel (`build-ref-panel`)

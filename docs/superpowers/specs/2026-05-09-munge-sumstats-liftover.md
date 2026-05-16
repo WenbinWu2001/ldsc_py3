@@ -101,7 +101,7 @@ After successful liftover:
 - `CHR` and `POS` are target-build coordinates.
 - `SNP` is unchanged.
 - logged coordinate provenance records the target build.
-- `sumstats.metadata.json` records the target build in its top-level
+- Root `metadata.json` records the target build in its top-level
   `genome_build` identity provenance field.
 - logged coordinate provenance keeps coordinate basis as `"1-based"`.
 

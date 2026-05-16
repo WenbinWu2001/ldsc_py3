@@ -42,7 +42,7 @@ decorating direct class APIs.
 | CLI boundary | `cli.run_cli()` remains the user-facing exception boundary. Workflows should not log an error and then re-raise only to duplicate CLI errors. |
 | Python convenience wrappers | Wrappers that delegate through `run_*_from_args(...)` may create logs because they use the same workflow boundary. |
 | Direct class APIs | Direct class methods such as `LDScoreCalculator.run(...)` and `ReferencePanelBuilder.run(...)` do not gain new per-run log file behavior. |
-| Munge compatibility | `munge-sumstats` keeps `<output_dir>/sumstats.log`. |
+| Munge compatibility | `munge-sumstats` keeps `<output_dir>/diagnostics/sumstats.log`. |
 | Output contracts | No workflow result `output_paths` mapping includes log files. `MungeRunSummary.output_paths` no longer has a `"log"` key. |
 | Scientific formatting | Scientific output formatting is out of scope. `format_float(...)` is for log text only. |
 
@@ -52,13 +52,13 @@ decorating direct class APIs.
 
 | Workflow | Log path |
 |---|---|
-| `munge-sumstats` | `<output_dir>/sumstats.log` |
-| `annotate` | `<output_dir>/annotate.log` |
-| `ldscore` | `<output_dir>/ldscore.log` |
-| `build-ref-panel` | `<output_dir>/build-ref-panel.log` |
-| `h2` | `<output_dir>/h2.log` |
-| `partitioned-h2` | `<output_dir>/partitioned-h2.log` |
-| `rg` | `<output_dir>/rg.log` |
+| `munge-sumstats` | `<output_dir>/diagnostics/sumstats.log` |
+| `annotate` | `<output_dir>/diagnostics/annotate.log` |
+| `ldscore` | `<output_dir>/diagnostics/ldscore.log` |
+| `build-ref-panel` | `<output_dir>/diagnostics/build-ref-panel.log` |
+| `h2` | `<output_dir>/diagnostics/h2.log` |
+| `partitioned-h2` | `<output_dir>/diagnostics/partitioned-h2.log` |
+| `rg` | `<output_dir>/diagnostics/rg.log` |
 
 Regression workflows without `--output-dir` remain console-only and do not
 create a log file.
@@ -126,11 +126,11 @@ For `munge-sumstats`, `MungeRunSummary.output_paths` may contain:
 
 It must not contain `log`.
 
-`sumstats.metadata.json["output_files"]` remains limited to curated sumstats
-data artifacts. It does not record `sumstats.log`.
+Root `metadata.json["output_files"]` remains limited to curated sumstats
+data artifacts. It does not record `diagnostics/sumstats.log`.
 
 The same rule applies outside munge: `LDScoreResult.output_paths` records
-`manifest`, `baseline`, and optional `query`; `ReferencePanelBuildResult`
+`metadata`, `baseline`, and optional `query`; `ReferencePanelBuildResult`
 records emitted parquet and metadata artifacts; regression return values do not
 gain log-path fields.
 
@@ -139,7 +139,7 @@ gain log-path fields.
 ## Annotation Inclusion
 
 `annotation_builder.py` is now a public workflow layer, so annotation is included
-in harmonization. Its workflow writes `annotate.log` when `output_dir` is
+in harmonization. Its workflow writes `diagnostics/annotate.log` when `output_dir` is
 present and uses the shared LDSC logging helper instead of a local
 `basicConfig(...)` setup.
 

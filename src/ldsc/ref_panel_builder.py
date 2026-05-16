@@ -165,7 +165,7 @@ def _expected_ref_panel_output_paths(config: ReferencePanelBuildConfig, chromoso
     metadata sidecars for every emitted chromosome/build pair.
     """
     out_root = Path(config.output_dir)
-    paths: list[Path] = [out_root / "metadata.json"]
+    paths: list[Path] = [out_root / "diagnostics" / "metadata.json"]
     for chrom in chromosomes:
         for build in _emitted_genome_builds(config):
             paths.extend(
@@ -176,7 +176,7 @@ def _expected_ref_panel_output_paths(config: ReferencePanelBuildConfig, chromoso
             )
         # The per-chromosome dropped-SNP sidecar is class-1: always written
         # for every chromosome this invocation processes, even when header-only.
-        paths.append(out_root / "dropped_snps" / f"chr{chrom}_dropped.tsv.gz")
+        paths.append(out_root / "diagnostics" / "dropped_snps" / f"chr{chrom}_dropped.tsv.gz")
     return paths
 
 
@@ -214,16 +214,23 @@ def _concat_drop_frames(frames: Sequence[pd.DataFrame]) -> pd.DataFrame:
 
 def _ref_panel_output_family(output_dir: Path, produced_paths: Sequence[Path] = ()) -> list[Path]:
     """Return existing and current-run artifacts owned by build-ref-panel."""
-    paths: list[Path] = [output_dir / "metadata.json"]
+    paths: list[Path] = [
+        output_dir / "diagnostics" / "metadata.json",
+        output_dir / "metadata.json",
+    ]
     for build_subdir_name in ("hg19", "hg38"):
         build_subdir = output_dir / build_subdir_name
         if not build_subdir.is_dir():
             continue
         for pattern in ("chr*_r2.parquet", "chr*_meta.tsv.gz"):
             paths.extend(sorted(build_subdir.glob(pattern)))
-    dropped_dir = output_dir / "dropped_snps"
+    dropped_dir = output_dir / "diagnostics" / "dropped_snps"
     if dropped_dir.is_dir():
         paths.extend(sorted(dropped_dir.glob("chr*_dropped.tsv.gz")))
+    legacy_dropped_dir = output_dir / "dropped_snps"
+    if legacy_dropped_dir.is_dir():
+        paths.append(legacy_dropped_dir)
+    paths.extend(sorted((output_dir / "diagnostics").glob("build-ref-panel*.log")))
     paths.extend(sorted(output_dir.glob("build-ref-panel*.log")))
     paths.extend(Path(path) for path in produced_paths)
     return paths
@@ -238,7 +245,7 @@ def _write_ref_panel_metadata(
     output_paths: dict[str, list[str]],
     resolved_plink_prefixes: Sequence[str],
 ) -> None:
-    """Write root metadata for a reference-panel output directory."""
+    """Write diagnostic metadata for a reference-panel output directory."""
     output_dir = Path(config.output_dir)
     files = {
         key: [_relative_to_output_dir(item, output_dir) for item in values]
@@ -362,6 +369,7 @@ class ReferencePanelBuilder:
             overwrite=config.overwrite,
             label="reference-panel output artifact",
         )
+        (output_dir / "diagnostics").mkdir(parents=True, exist_ok=True)
 
         with workflow_logging("build-ref-panel", workflow_log_path, log_level=self.global_config.log_level):
             log_inputs(
@@ -387,7 +395,7 @@ class ReferencePanelBuilder:
             chrom_records.sort(key=lambda item: kernel_ldscore.chrom_sort_key(item[0]))
             output_keys = sorted({key for _, paths in chrom_records for key in paths})
             output_paths = {key: [paths[key] for _, paths in chrom_records] for key in output_keys}
-            metadata_path = output_dir / "metadata.json"
+            metadata_path = output_dir / "diagnostics" / "metadata.json"
             output_paths["metadata"] = [str(metadata_path)]
             _write_ref_panel_metadata(
                 metadata_path,
@@ -615,7 +623,7 @@ class ReferencePanelBuilder:
         drops are outside that audit vocabulary.
         """
         LOGGER.info(f"Building reference-panel artifacts for chromosome {chrom} from '{prefix}'.")
-        sidecar_path = Path(config.output_dir) / "dropped_snps" / f"chr{chrom}_dropped.tsv.gz"
+        sidecar_path = Path(config.output_dir) / "diagnostics" / "dropped_snps" / f"chr{chrom}_dropped.tsv.gz"
         try:
             bim = legacy_parse.PlinkBIMFile(prefix + ".bim")
         except ValueError as exc:
@@ -815,6 +823,7 @@ class ReferencePanelBuilder:
             output_paths[f"r2_{build}"] = str(r2_path)
             output_paths[f"meta_{build}"] = str(meta_path)
             retained_count = len(metadata)
+        output_paths["dropped_snps"] = str(sidecar_path)
         LOGGER.info(f"Finished chromosome {chrom} with {retained_count} retained SNPs.")
         return output_paths
 
@@ -1638,7 +1647,7 @@ def run_build_ref_panel_from_args(args: argparse.Namespace) -> ReferencePanelBui
 
     build_config, global_config = config_from_args(args)
     builder = ReferencePanelBuilder(global_config=global_config)
-    builder._workflow_log_path = Path(build_config.output_dir) / "build-ref-panel.log"
+    builder._workflow_log_path = Path(build_config.output_dir) / "diagnostics" / "build-ref-panel.log"
     return builder.run(build_config)
 
 

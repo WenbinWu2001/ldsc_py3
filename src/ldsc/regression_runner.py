@@ -28,9 +28,9 @@ more munged summary-statistic sources and returns the full rg output family:
 the concise headline table, a diagnostic full table, per-trait h2 summaries,
 and optional per-pair metadata for filesystem detail outputs.
 
-Regression commands create per-run logs only when an ``output_dir`` is supplied:
-``h2.log``, ``partitioned-h2.log``, or ``rg.log``. In-memory regression calls
-and CLI invocations without an output directory remain console-only.
+Regression commands create per-run logs only when an ``output_dir`` is supplied,
+under ``diagnostics/``. In-memory regression calls and CLI invocations without
+an output directory remain console-only.
 """
 
 from __future__ import annotations
@@ -126,7 +126,7 @@ PARTITIONED_H2_REQUIRES_QUERY_ANNOTATIONS_MESSAGE = (
     "partitioned-h2 requires query annotations in --ldscore-dir. "
     "Rerun `ldsc ldscore` with --query-annot-sources or --query-annot-bed-sources plus explicit baseline annotations."
 )
-FAILED_RG_NOTE = "Failed; see rg_full.tsv error column; use --output-dir for rg.log."
+FAILED_RG_NOTE = "Failed; see rg_full.tsv error column; use --output-dir for diagnostics/rg.log."
 REGRESSION_IDENTITY_KEY_COLUMN = "_ldsc_regression_identity_key"
 
 
@@ -212,7 +212,7 @@ class RgResultFamily:
         on the trait's single-trait LDSC regression dataset.
     per_pair_metadata : list of dict
         Ordered metadata records aligned to ``rg_full`` rows. Writers use these
-        records for optional ``pairs/`` detail output.
+        records for optional ``diagnostics/pairs/`` detail output.
     """
 
     rg: pd.DataFrame
@@ -1551,7 +1551,7 @@ def add_partitioned_h2_arguments(parser) -> None:
         "--write-per-query-results",
         action="store_true",
         default=False,
-        help="Also write one sanitized result folder per query annotation under output_dir/query_annotations.",
+        help="Also write one sanitized result folder per query annotation under output_dir/diagnostics/query_annotations.",
     )
 
 
@@ -1576,7 +1576,7 @@ def add_rg_arguments(parser) -> None:
         "--write-per-pair-detail",
         action="store_true",
         default=False,
-        help="Also write one sanitized result folder per tested trait pair under output_dir/pairs.",
+        help="Also write one sanitized result folder per tested trait pair under output_dir/diagnostics/pairs.",
     )
     parser.add_argument("--intercept-h2", type=float, default=None, help="Fixed h2 intercept broadcast to every rg pair.")
     parser.add_argument("--intercept-gencov", type=float, default=None, help="Fixed genetic-covariance intercept for every rg pair.")
@@ -1586,15 +1586,15 @@ def run_h2_from_args(args):
     """Run single-trait heritability estimation from parsed CLI arguments.
 
     When ``args.output_dir`` is provided, the workflow preflights ``h2.tsv``,
-    ``metadata.json``, and ``h2.log`` before loading inputs. Without an
+    ``diagnostics/metadata.json``, and ``diagnostics/h2.log`` before loading inputs. Without an
     output directory, it returns the summary table without creating output
     artifacts.
     """
     output_dir, log_path = _preflight_regression_outputs(
         args,
         "h2",
-        ["h2.tsv", "metadata.json"],
-        owned_output_names=["h2.tsv", "metadata.json"],
+        ["h2.tsv", "diagnostics/metadata.json"],
+        owned_output_names=["h2.tsv", "diagnostics/metadata.json", "metadata.json"],
     )
     with workflow_logging("h2", log_path, log_level=getattr(args, "log_level", "INFO")):
         runner, config = _runner_from_args(args)
@@ -1626,20 +1626,26 @@ def run_partitioned_h2_from_args(args):
     """Run batch partitioned heritability from parsed CLI arguments.
 
     When ``args.output_dir`` is provided, the workflow preflights
-    ``partitioned_h2.tsv``, optional ``query_annotations/``, and
-    ``partitioned-h2.log`` before loading inputs. With overwrite enabled,
-    successful aggregate-only runs remove stale ``query_annotations/`` trees.
+    ``partitioned_h2.tsv``, optional ``diagnostics/query_annotations/``, and
+    ``diagnostics/partitioned-h2.log`` before loading inputs. With overwrite enabled,
+    successful aggregate-only runs remove stale ``diagnostics/query_annotations/`` trees.
     Without an output directory, it returns the summary table without creating
     a log file.
     """
-    preflight_names = ["partitioned_h2.tsv"]
+    preflight_names = ["partitioned_h2.tsv", "diagnostics/metadata.json"]
     if getattr(args, "write_per_query_results", False):
-        preflight_names.append("query_annotations")
+        preflight_names.append("diagnostics/query_annotations")
     output_dir, log_path = _preflight_regression_outputs(
         args,
         "partitioned-h2",
         preflight_names,
-        owned_output_names=["partitioned_h2.tsv", "query_annotations"],
+        owned_output_names=[
+            "partitioned_h2.tsv",
+            "diagnostics/metadata.json",
+            "diagnostics/query_annotations",
+            "metadata.json",
+            "query_annotations",
+        ],
     )
     with workflow_logging("partitioned-h2", log_path, log_level=getattr(args, "log_level", "INFO")):
         runner, config = _runner_from_args(args)
@@ -1698,8 +1704,9 @@ def run_rg_from_args(args):
     """Run multi-trait genetic-correlation estimation from parsed CLI args.
 
     With ``--output-dir``, the workflow writes the rg result family:
-    ``rg.tsv``, ``rg_full.tsv``, ``h2_per_trait.tsv``, optional ``pairs/``,
-    and workflow-owned ``rg.log``. Without ``--output-dir``, it returns the same
+    ``rg.tsv``, ``rg_full.tsv``, ``h2_per_trait.tsv``, optional
+    ``diagnostics/pairs/``, and workflow-owned ``diagnostics/rg.log``.
+    Without ``--output-dir``, it returns the same
     in-memory result family and the CLI prints only ``rg.tsv`` to stdout.
 
     Parameters
@@ -1726,14 +1733,22 @@ def run_rg_from_args(args):
     _validate_intercept_conflicts(args)
     if getattr(args, "write_per_pair_detail", False) and not getattr(args, "output_dir", None):
         raise ValueError("--write-per-pair-detail requires --output-dir.")
-    output_names = ["rg.tsv", "rg_full.tsv", "h2_per_trait.tsv"]
+    output_names = ["rg.tsv", "rg_full.tsv", "h2_per_trait.tsv", "diagnostics/metadata.json"]
     if getattr(args, "write_per_pair_detail", False):
-        output_names.append("pairs")
+        output_names.append("diagnostics/pairs")
     output_dir, log_path = _preflight_regression_outputs(
         args,
         "rg",
         output_names,
-        owned_output_names=["rg.tsv", "rg_full.tsv", "h2_per_trait.tsv", "pairs"],
+        owned_output_names=[
+            "rg.tsv",
+            "rg_full.tsv",
+            "h2_per_trait.tsv",
+            "diagnostics/metadata.json",
+            "diagnostics/pairs",
+            "metadata.json",
+            "pairs",
+        ],
     )
     sumstats_paths = resolve_file_group(getattr(args, "sumstats_sources", ()), label="sumstats sources")
     if len(sumstats_paths) < 2:
@@ -1823,7 +1838,8 @@ def _preflight_regression_outputs(
         return None, None
     output_dir = ensure_output_directory(output_dir_arg, label="output directory")
     paths = [output_dir / name for name in output_names]
-    log_path = output_dir / f"{workflow_name}.log"
+    log_path = output_dir / "diagnostics" / f"{workflow_name}.log"
+    legacy_log_path = output_dir / f"{workflow_name}.log"
     if owned_output_names is None:
         ensure_output_paths_available(
             [*paths, log_path],
@@ -1833,10 +1849,11 @@ def _preflight_regression_outputs(
     else:
         preflight_output_artifact_family(
             [*paths, log_path],
-            [*(output_dir / name for name in owned_output_names), log_path],
+            [*(output_dir / name for name in owned_output_names), log_path, legacy_log_path],
             overwrite=getattr(args, "overwrite", False),
             label="regression output artifact",
         )
+    log_path.parent.mkdir(parents=True, exist_ok=True)
     return str(output_dir), log_path
 
 

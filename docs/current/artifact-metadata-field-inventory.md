@@ -1,374 +1,264 @@
 # Artifact Metadata Field Inventory
 
-This document inventories metadata, manifest, schema-metadata, and audit-sidecar fields written by the current LDSC workflows for:
+metadata.json is a downstream contract only for sumstats and ldscore. Downstream workflows validate and consume sumstats/metadata.json and ldscore/metadata.json. Any metadata emitted by annotate, ref-panel, h2, partitioned-h2, rg, query-level, or pair-level outputs is diagnostic provenance only and must not be required to run downstream analysis.
 
-- `munge-sumstats`
-- `build-ref-panel`
-- `annotation-builder`
-- `ldscore`
-- regression modules
+This document inventories metadata, schema metadata, and audit sidecars written
+by the current LDSC workflows. The goal is to keep downstream contracts obvious:
+only input artifacts required by another LDSC command have required root
+`metadata.json` files. Diagnostic metadata lives under `diagnostics/`.
 
-The goal is to distinguish fields that define a downstream compatibility contract from fields that are only provenance, audit, navigation, or reporting metadata.
+## Boundary Rule
 
-## Compatibility Legend
+`metadata.json` has exactly two roles:
 
-| Value | Meaning |
-| --- | --- |
-| Yes | Downstream code reads this field and may reject the artifact, choose a merge mode, choose a runtime behavior, or require the field to proceed. |
-| Structural | The field is required to locate or assemble files/tables, but it is not provenance compatibility. |
-| Indirect | The field itself is not validated for value compatibility, but its presence helps identify a package-written artifact or a supported format. |
-| No | The field is recorded for audit, reporting, navigation, or user labeling only. |
+- **Required contract:** downstream LDSC code validates and consumes it. This
+  role is limited to `sumstats/metadata.json` and `ldscore/metadata.json`.
+- **Diagnostic provenance:** humans and external tools may inspect it for
+  reproducibility/debugging. LDSC downstream workflows must not load it, require
+  it, or change behavior when it is present.
 
-## Shared Identity Metadata
+There is no "optional but used if present" metadata. No JSON metadata file
+contains a top-level `format`; `schema_version` plus `artifact_type` is the
+schema discriminator.
 
-Several artifacts repeat the same minimal identity metadata contract produced by `identity_artifact_metadata()`:
+## Public Output Layouts
 
-| Field | Explanation | Usage |
+### `munge-sumstats`
+
+```text
+sumstats/
+  metadata.json
+  sumstats.parquet
+  sumstats.sumstats.gz
+  diagnostics/
+    sumstats.log
+    dropped_snps/dropped.tsv.gz
+```
+
+`sumstats.sumstats.gz` is present only when the selected output format writes
+the legacy TSV artifact.
+
+`metadata.json` is downstream-required.
+
+| Field | Explanation | Downstream usage |
 | --- | --- | --- |
-| `schema_version` | Current LDSC artifact identity schema version. | Compatibility: validates that an artifact was written under the current identity contract. |
-| `artifact_type` | Artifact family marker such as `sumstats`, `ref_panel_r2`, `ref_panel_metadata`, or `ldscore`. | Compatibility: validates that the metadata belongs to the expected artifact type. |
-| `snp_identifier` | Public SNP identity mode: `rsid`, `rsid_allele_aware`, `chr_pos`, or `chr_pos_allele_aware`. | Compatibility: reconstructs artifact identity mode and rejects incompatible combinations. |
-| `genome_build` | Genome-build assumption associated with coordinate-family identity modes. May be `null` for rsID-family workflows. | Compatibility: reconstructs config provenance and rejects incompatible coordinate-build combinations when both sides are known. |
-
-This quartet is repeated, but most downstream compatibility checks depend on it.
-
-## `munge-sumstats`
-
-### `sumstats.metadata.json`
-
-Written beside curated sumstats artifacts such as `sumstats.parquet` and/or `sumstats.sumstats.gz`.
-
-| Field | Explanation | Provenance field? | Downstream compatibility usage |
-| --- | --- | --- | --- |
-| `schema_version` | Identity metadata schema version. | Yes | Yes. `load_sumstats()` requires this through identity metadata validation. |
-| `artifact_type` | Must be `sumstats`. | Yes | Yes. `load_sumstats()` rejects artifacts whose type is not `sumstats`. |
-| `snp_identifier` | SNP identity mode used when the munged artifact was written. | Yes | Yes. Reconstructs a `GlobalConfig` snapshot for sumstats identity and later regression compatibility. |
-| `genome_build` | Genome build implied by the effective munging coordinate provenance. | Yes | Yes. Required in the sidecar and compared with LD-score provenance when both are known. |
-| `trait_name` | Optional trait label from the raw sumstats config. | Yes | No. Used for labels and regression output naming, not compatibility. |
-
-### `dropped_snps/dropped.tsv.gz`
-
-Always-owned audit sidecar for liftover and identity-cleanup drops. This sidecar is written even for clean runs so users can distinguish "no drops" from "missing sidecar".
-
-| Field | Explanation | Provenance field? | Downstream compatibility usage |
-| --- | --- | --- | --- |
-| `CHR` | Chromosome for the dropped row when available. | Yes | No. Audit/debugging only. |
-| `SNP` | SNP label for the dropped row when available. | Yes | No. Audit/debugging only. |
-| `source_pos` | Source coordinate before liftover or cleanup. | Yes | No. Audit/debugging only. |
-| `target_pos` | Target coordinate after liftover when available. | Yes | No. Audit/debugging only. |
-| `reason` | Drop reason, for example invalid identity, duplicate identity, unmapped liftover, or duplicate target coordinate. | Yes | No. Audit/debugging only. |
-| `base_key` | Allele-blind identity key involved in cleanup. | Yes | No. Audit/debugging only. |
-| `identity_key` | Effective allele-aware identity key when applicable. | Yes | No. Audit/debugging only. |
-| `allele_set` | Normalized allele set used by allele-aware identity cleanup. | Yes | No. Audit/debugging only. |
-| `stage` | Workflow stage that produced the drop, such as liftover or identity cleanup. | Yes | No. Audit/debugging only. |
-
-## `build-ref-panel`
-
-### `chr{chrom}_r2.parquet` Arrow schema metadata
-
-Written into package-built canonical R2 parquet files.
-
-| Field | Explanation | Provenance field? | Downstream compatibility usage |
-| --- | --- | --- | --- |
-| `ldsc:schema_version` | Identity metadata schema version. | Yes | Yes. If package schema is detected, the reader validates this through identity metadata validation. |
-| `ldsc:artifact_type` | Must be `ref_panel_r2`. | Yes | Yes. Validated before using package-written R2 identity metadata. |
-| `ldsc:snp_identifier` | SNP identity mode used when the R2 artifact was built. | Yes | Yes. Compared with runtime `GlobalConfig.snp_identifier`. |
-| `ldsc:genome_build` | Build associated with the R2 artifact identity metadata. | Yes | Yes. Compared with runtime `GlobalConfig.genome_build`. |
-| `ldsc:sorted_by_build` | Build whose positions are used by `POS_1` and `POS_2`. | Yes | Yes. Used to infer or validate parquet R2 genome build. Conflicts raise. |
-| `ldsc:row_group_size` | Requested parquet row-group size used during R2 writing. | Yes, technical | Indirect. Presence helps identify package-written schema, but the value is not used for compatibility. |
-| `ldsc:n_samples` | LD-reference sample size from the PLINK genotype reader. | Yes | No compatibility check. Used to auto-fill sample size when R2 values are treated as raw. |
-| `ldsc:r2_bias` | Whether R2 values are `raw` or already `unbiased`. Package-built panels write `unbiased`. | Yes | Runtime behavior, not compatibility. Used to resolve R2 bias correction mode. |
-
-### `chr{chrom}_r2.parquet` table columns
-
-These are data columns rather than sidecar fields, but several behave like format-contract fields for downstream readers.
-
-| Field | Explanation | Provenance field? | Downstream compatibility usage |
-| --- | --- | --- | --- |
-| `CHR` | Chromosome for pairwise R2 row. | No | Structural. Required by canonical R2 reader. |
-| `POS_1` | Position of first endpoint in `ldsc:sorted_by_build`. | No | Structural. Required for row-group pruning and R2 lookup. |
-| `POS_2` | Position of second endpoint in `ldsc:sorted_by_build`. | No | Structural. Required for R2 lookup. |
-| `SNP_1` | SNP label for first endpoint. | No | Structural. Used in rsID-family matching. |
-| `SNP_2` | SNP label for second endpoint. | No | Structural. Used in rsID-family matching. |
-| `A1_1` | Allele 1 for first endpoint. | No | Structural in allele-aware modes. |
-| `A2_1` | Allele 2 for first endpoint. | No | Structural in allele-aware modes. |
-| `A1_2` | Allele 1 for second endpoint. | No | Structural in allele-aware modes. |
-| `A2_2` | Allele 2 for second endpoint. | No | Structural in allele-aware modes. |
-| `R2` | Pairwise LD value. | No | Structural. Core runtime data. |
-
-### `chr{chrom}_meta.tsv.gz` header metadata
-
-Written as `# ldsc:<key>=<value>` comments before the runtime metadata table.
-
-| Field | Explanation | Provenance field? | Downstream compatibility usage |
-| --- | --- | --- | --- |
-| `ldsc:schema_version` | Identity metadata schema version. | Yes | Yes when sidecar identity metadata is present or required. |
-| `ldsc:artifact_type` | Must be `ref_panel_metadata`. | Yes | Yes. Validated before using metadata identity fields. |
-| `ldsc:snp_identifier` | SNP identity mode used when metadata was written. | Yes | Yes. Compared with runtime `GlobalConfig.snp_identifier`. |
-| `ldsc:genome_build` | Build for the metadata coordinates. | Yes | Yes. Compared with runtime `GlobalConfig.genome_build`. |
-
-### `chr{chrom}_meta.tsv.gz` table columns
-
-| Field | Explanation | Provenance field? | Downstream compatibility usage |
-| --- | --- | --- | --- |
-| `CHR` | Chromosome for retained SNP row. | No | Structural. Used for matching, filtering, and coordinate identity. |
-| `POS` | Position in the emitted build. | No | Structural. Used for chr-pos matching and window construction. |
-| `SNP` | SNP label. | No | Structural. Used for rsID matching. |
-| `A1` | First allele. | No | Structural in allele-aware modes. |
-| `A2` | Second allele. | No | Structural in allele-aware modes. |
-| `CM` | Genetic-map coordinate, nullable when no map was provided. | No | Runtime data. Used for cM windows when requested. |
-| `MAF` | Minor allele frequency from the reference panel. | No | Runtime data. Used for MAF filters and common-SNP count logic. |
-
-### `dropped_snps/chr{chrom}_dropped.tsv.gz`
-
-Always-owned per-chromosome audit sidecar for source identity cleanup and liftover-related drops.
-
-| Field | Explanation | Provenance field? | Downstream compatibility usage |
-| --- | --- | --- | --- |
-| `CHR` | Chromosome for the dropped SNP. | Yes | No. Audit/debugging only. |
-| `SNP` | SNP label for the dropped row. | Yes | No. Audit/debugging only. |
-| `source_pos` | Position before liftover or collision handling. | Yes | No. Audit/debugging only. |
-| `target_pos` | Position after liftover when available. | Yes | No. Audit/debugging only. |
-| `reason` | Drop reason. | Yes | No. Audit/debugging only. |
-| `base_key` | Allele-blind identity key involved in cleanup. | Yes | No. Audit/debugging only. |
-| `identity_key` | Effective identity key when applicable. | Yes | No. Audit/debugging only. |
-| `allele_set` | Normalized allele set used by allele-aware cleanup. | Yes | No. Audit/debugging only. |
-| `stage` | Stage that produced the drop. | Yes | No. Audit/debugging only. |
-
-## `annotation-builder`
-
-### `query.<chrom>.annot.gz`
-
-The annotation writer materializes projected BED query annotations as ordinary LDSC annotation shards. It does not write a manifest or identity metadata sidecar for these query shards.
-
-| Field | Explanation | Provenance field? | Downstream compatibility usage |
-| --- | --- | --- | --- |
-| `CHR` | Chromosome. | No | Structural. Parsed as annotation row metadata. |
-| `POS` | Base-pair position. | No | Structural. Used for chr-pos identity and row alignment. |
-| `SNP` | SNP label. | No | Structural. Used for rsID identity and row alignment. |
-| `CM` | Genetic-map coordinate. | No | Runtime data for cM windows if used downstream. |
-| `A1` | Optional allele 1. | No | Structural in allele-aware modes when present. |
-| `A2` | Optional allele 2. | No | Structural in allele-aware modes when present. |
-| `MAF` | Optional allele frequency metadata if present in source annotation. | No | Runtime data. May support MAF filtering/counts in LD-score workflows. |
-| Query annotation columns | One column per projected BED query annotation. | No | Structural/runtime data. Consumed as annotation matrix columns. |
-
-### In-memory `AnnotationBundle` provenance
-
-`AnnotationBundle` is not a file manifest, but it is the metadata object shared with LD-score and partitioned-regression workflows.
-
-| Field | Explanation | Provenance field? | Downstream compatibility usage |
-| --- | --- | --- | --- |
-| `metadata` | Row metadata table with `CHR`, `POS`, `SNP`, `CM`, and optional `A1`, `A2`, `MAF`. | No | Structural. Used for reference SNP universe and row alignment. |
-| `baseline_annotations` | Baseline annotation matrix aligned to `metadata`. | No | Structural/runtime data. Used in LD-score calculation. |
-| `query_annotations` | Query annotation matrix aligned to `metadata`. | No | Structural/runtime data. Used in LD-score calculation and partitioned h2. |
-| `baseline_columns` | Ordered names of baseline annotation columns. | No | Structural. Used to label LD-score columns and counts. |
-| `query_columns` | Ordered names of query annotation columns. | No | Structural. Used to label query LD-score columns and partitioned h2 output. |
-| `chromosomes` | Chromosomes represented in the bundle. | Light provenance | Structural for sharded output and chromosome iteration. |
-| `source_summary` | Input source paths/tokens used to construct the bundle. | Yes | No. Logging/reporting only. |
-| `config_snapshot` | `GlobalConfig` active when the bundle was built. | Yes | Yes indirectly. Used by LD-score/regression workflows to preserve identity and genome-build assumptions. |
-
-### `dropped_snps/dropped.tsv.gz`
-
-Aggregate annotation identity-cleanup audit sidecar written by the BED-to-annotation output workflow.
-
-| Field | Explanation | Provenance field? | Downstream compatibility usage |
-| --- | --- | --- | --- |
-| `CHR` | Chromosome for the dropped row. | Yes | No. Audit/debugging only. |
-| `SNP` | SNP label for the dropped row. | Yes | No. Audit/debugging only. |
-| `source_pos` | Source position when available. | Yes | No. Audit/debugging only. |
-| `target_pos` | Target position when available. | Yes | No. Audit/debugging only. |
-| `reason` | Identity cleanup drop reason. | Yes | No. Audit/debugging only. |
-| `base_key` | Allele-blind identity key. | Yes | No. Audit/debugging only. |
-| `identity_key` | Effective identity key. | Yes | No. Audit/debugging only. |
-| `allele_set` | Normalized allele set. | Yes | No. Audit/debugging only. |
-| `stage` | Cleanup stage, typically annotation identity cleanup. | Yes | No. Audit/debugging only. |
-
-## `ldscore`
-
-### `manifest.json`
-
-Written with `ldscore.baseline.parquet` and optional `ldscore.query.parquet`.
-
-| Field | Explanation | Provenance field? | Downstream compatibility usage |
-| --- | --- | --- | --- |
-| `format` | Directory-format marker, currently `ldsc.ldscore_result.v1`. | Yes, schema provenance | Yes. `load_ldscore_from_dir()` rejects unsupported formats. |
-| `schema_version` | Identity metadata schema version. | Yes | Yes. Validated when reconstructing `GlobalConfig` from the manifest. |
-| `artifact_type` | Must be `ldscore`. | Yes | Yes. Validated when reconstructing `GlobalConfig`. |
-| `snp_identifier` | SNP identity mode used for LD-score rows. | Yes | Yes. Used to reconstruct config; explicit loader overrides must match. |
-| `genome_build` | Genome build associated with LD-score identity metadata. | Yes | Yes. Compared with sumstats provenance during regression when both sides are known. |
-| `files` | Relative data-file map, with required `baseline` and optional `query`. | No | Structural. Loader requires `files.baseline` and reads `files.query` if present. |
-| `chromosomes` | Chromosome labels represented in the output. | Light provenance | No current compatibility check. |
-| `baseline_columns` | Ordered baseline annotation LD-score columns. | No | Structural. Used to assemble regression LD-score table and count vectors. |
-| `query_columns` | Ordered query annotation LD-score columns. | No | Structural. Used for partitioned h2 query selection and count vectors. |
-| `counts` | List of per-annotation count records. | Yes, analysis provenance | Yes structurally. Regression requires records for retained LD-score columns. |
-| `count_config` | Settings used to define common-SNP counts, such as MAF threshold and operator. | Yes | No hard compatibility check. Used for reporting/context. |
-| `n_baseline_rows` | Number of rows in the baseline parquet table. | Yes, summary provenance | No. |
-| `n_query_rows` | Number of rows in the query parquet table, or zero. | Yes, summary provenance | No. |
-| `row_group_layout` | Row-group strategy, currently one row group per chromosome. | Yes, technical | No current compatibility check. |
-| `baseline_row_groups` | Row-group metadata for `ldscore.baseline.parquet`. | Yes, technical | No current compatibility check. |
-| `query_row_groups` | Row-group metadata for `ldscore.query.parquet`, or `null` when absent. | Yes, technical | No current compatibility check. |
-
-### `counts[]` records in `manifest.json`
-
-| Field | Explanation | Provenance field? | Downstream compatibility usage |
-| --- | --- | --- | --- |
-| `group` | Whether the annotation column belongs to `baseline` or `query`. | Yes | No hard compatibility check. Helps explain count record origin. |
-| `column` | Annotation column name that the count applies to. | No | Yes structurally. Regression aligns count records to retained LD-score columns by this field. |
-| `all_reference_snp_count` | Number of reference SNPs in the annotation. | Yes, analysis provenance | Yes. Required for count vectors. |
-| `common_reference_snp_count` | Optional number of common reference SNPs in the annotation. | Yes, analysis provenance | Yes when present for all retained columns. Regression prefers common counts for `count_kind=common`. |
-
-### `baseline_row_groups[]` and `query_row_groups[]` records
-
-| Field | Explanation | Provenance field? | Downstream compatibility usage |
-| --- | --- | --- | --- |
-| `chrom` | Chromosome represented by the row group. | Yes, technical | No current compatibility check. |
-| `row_group_index` | Row-group index in the parquet file. | Yes, technical | No current compatibility check. |
-| `row_offset` | Starting row offset in the logical table. | Yes, technical | No current compatibility check. |
-| `n_rows` | Number of rows in the row group. | Yes, technical | No current compatibility check. |
-
-### `ldscore.baseline.parquet` and `ldscore.query.parquet`
-
-These are primary data tables. Their columns are not sidecar fields, but they enforce part of the output contract.
-
-| Field | Explanation | Provenance field? | Downstream compatibility usage |
-| --- | --- | --- | --- |
-| `CHR` | Chromosome. | No | Structural. Used in row alignment and SNP identity. |
-| `POS` | Position. | No | Structural. Used in row alignment and chr-pos identity. |
-| `SNP` | SNP label. | No | Structural. Used in row alignment and rsID identity. |
-| `A1` | Optional allele 1, required for allele-aware LD-score artifacts. | No | Structural. Loader rejects allele-aware artifacts missing usable alleles. |
-| `A2` | Optional allele 2, required for allele-aware LD-score artifacts. | No | Structural. Loader rejects allele-aware artifacts missing usable alleles. |
-| `regression_ld_scores` | Weight LD-score column used for regression weights. | No | Runtime data. Required for regression dataset construction. |
-| Baseline LD-score columns | One column per baseline annotation. | No | Runtime data. Used as regression covariates. |
-| Query LD-score columns | One column per query annotation in `ldscore.query.parquet`. | No | Runtime data. Used for partitioned h2 query analyses. |
-
-## Regression Modules
-
-Regression output metadata is mostly result provenance and navigation. Compatibility checks happen before writing outputs, while building regression datasets from loaded sumstats and LD-score artifacts.
-
-### Unpartitioned h2 `h2.tsv`
-
-The unpartitioned h2 workflow writes a compact summary table, `h2.tsv`, and a
-provenance sidecar, `h2.metadata.json`, when `output_dir` is supplied. Input
-compatibility is enforced before writing, while loading and merging
-`sumstats.metadata.json` and LD-score `manifest.json` provenance.
-
-| Field | Explanation | Provenance field? | Downstream compatibility usage |
-| --- | --- | --- | --- |
-| `trait_name` | Trait label resolved from CLI input or the sumstats metadata sidecar. | Yes | No. Reporting/display only. |
-| `n_snps` | Number of SNPs in the final regression dataset after sumstats, LD scores, filters, and identity matching. | Yes | No. Reporting only. |
-| `total_h2` | Estimated total SNP heritability from the fitted LDSC h2 model. | No | Result value, not compatibility metadata. |
-| `total_h2_se` | Standard error for `total_h2`. | No | Result value, not compatibility metadata. |
-| `intercept` | Estimated or fixed LDSC intercept used in the h2 model. | Yes, model provenance | No. Reporting/model interpretation only. |
-| `intercept_se` | Standard error for the intercept when estimated; may be unavailable for fixed intercepts. | Yes, model provenance | No. Reporting/model interpretation only. |
-| `mean_chisq` | Mean chi-square statistic among regression SNPs. | Yes, model summary provenance | No. Reporting/model interpretation only. |
-| `lambda_gc` | Genomic-control lambda computed from regression SNP chi-square statistics. | Yes, model summary provenance | No. Reporting/model interpretation only. |
-| `ratio` | LDSC ratio statistic derived from intercept and mean chi-square when defined. | Yes, model summary provenance | No. Reporting/model interpretation only. |
-| `ratio_se` | Standard error for `ratio` when defined. | Yes, model summary provenance | No. Reporting/model interpretation only. |
-
-### Unpartitioned h2 `h2.metadata.json`
-
-Written beside `h2.tsv` only when the h2 workflow owns an output directory.
-
-| Field | Explanation | Provenance field? | Downstream compatibility usage |
-| --- | --- | --- | --- |
-| `schema_version` | h2 metadata schema version. | Yes | No current reader compatibility check found. |
-| `artifact_type` | Result marker, currently `h2_result`. | Yes, schema provenance | No current reader compatibility check found. |
-| `trait_name` | Trait label resolved from CLI input or the sumstats metadata sidecar. | Yes | No. Reporting/display only. |
-| `sumstats_file` | Source sumstats file path from CLI args. | Yes | No. Audit only. |
-| `ldscore_dir` | Source LD-score directory path from CLI args. | Yes | No. Audit only. |
-| `effective_snp_identifier` | SNP identity mode actually used after any allowed identity downgrade. | Yes | No current downstream check. Useful provenance. |
-| `genome_build` | Genome build from the regression dataset provenance when available. | Yes | No current downstream check. |
-| `identity_downgrade_applied` | Whether same-family allele-aware/base identity downgrade was used. | Yes | No current downstream check. Useful provenance. |
-| `count_key_used_for_regression` | Count vector used for regression, for example common or all reference SNP counts. | Yes | No current downstream check. Important run provenance. |
-| `retained_ld_columns` | LD-score columns retained in the fitted h2 model. | Yes | No. Audit/reporting only. |
-| `dropped_zero_variance_ld_columns` | LD-score columns removed before fitting because they had zero variance. | Yes | No. Audit/reporting only. |
-| `n_snps` | Number of SNPs in the fitted regression dataset. | Yes | No. Reporting only. |
-
-### Partitioned h2 `query_annotations/manifest.tsv`
-
-Written only when per-query result output is enabled.
-
-| Field | Explanation | Provenance field? | Downstream compatibility usage |
-| --- | --- | --- | --- |
-| `ordinal` | Stable 1-based query order. | No | Structural/navigation only. |
-| `query_annotation` | Original query annotation name. | Yes | No. Used for navigation and display. |
-| `slug` | Filesystem-safe slug derived from `query_annotation`. | No | Structural/navigation only. |
-| `folder` | Per-query result folder name. | No | Structural/navigation only. |
-| `summary_path` | Relative path to per-query compact summary. | No | Structural/navigation only. |
-| `partitioned_h2_full_path` | Relative path to per-query full summary. | No | Structural/navigation only. |
-| `metadata_path` | Relative path to per-query metadata JSON. | No | Structural/navigation only. |
-
-### Partitioned h2 `query_annotations/*/metadata.json`
-
-| Field | Explanation | Provenance field? | Downstream compatibility usage |
-| --- | --- | --- | --- |
-| `format` | Result-family marker, currently `ldsc.partitioned_h2_result.v1`. | Yes, schema provenance | No current reader compatibility check found. |
-| `trait_name` | Trait label for the partitioned h2 run. | Yes | No. Reporting only. |
-| `count_kind` | Requested count kind, for example `common`. | Yes | No. Reporting only. |
-| `ldscore_dir` | Source LD-score directory path from CLI args. | Yes | No. Reporting/audit only. |
-| `dropped_zero_variance_ld_columns` | LD-score columns removed before fitting because they had zero variance. | Yes | No. Audit/reporting only. |
-| `retained_ld_columns` | LD-score columns retained in the fitted model. | Yes | No. Audit/reporting only. |
-| `n_snps` | Number of SNPs in the fitted regression dataset. | Yes | No. Reporting only. |
-| `effective_snp_identifier` | SNP identity mode actually used after any allowed identity downgrade. | Yes | No current downstream check. Useful provenance. |
-| `identity_downgrade_applied` | Whether same-family allele-aware/base identity downgrade was used. | Yes | No current downstream check. Useful provenance. |
-| `ordinal` | Stable 1-based query order. | No | Navigation only. |
-| `query_annotation` | Original query annotation name. | Yes | Navigation/display only. |
-| `slug` | Filesystem-safe slug. | No | Navigation only. |
-| `folder` | Per-query folder name. | No | Navigation only. |
-
-### Genetic correlation `pairs/manifest.tsv`
-
-Written only when per-pair detail output is enabled.
-
-| Field | Explanation | Provenance field? | Downstream compatibility usage |
-| --- | --- | --- | --- |
-| `ordinal` | Stable 1-based pair order. | No | Structural/navigation only. |
-| `trait_1` | First trait label. | Yes | No. Display/navigation only. |
-| `trait_2` | Second trait label. | Yes | No. Display/navigation only. |
-| `slug` | Filesystem-safe slug for the pair. | No | Structural/navigation only. |
-| `folder` | Per-pair folder name. | No | Structural/navigation only. |
-| `rg_full_path` | Relative path to per-pair full rg row. | No | Structural/navigation only. |
-| `metadata_path` | Relative path to per-pair metadata JSON. | No | Structural/navigation only. |
-
-### Genetic correlation `pairs/*/metadata.json`
-
-| Field | Explanation | Provenance field? | Downstream compatibility usage |
-| --- | --- | --- | --- |
-| `format` | Result-family marker, currently `ldsc.rg_result_family.v1`. | Yes, schema provenance | No current reader compatibility check found. |
-| `trait_1` | First trait label. | Yes | No. Reporting/display only. |
-| `trait_2` | Second trait label. | Yes | No. Reporting/display only. |
-| `source_1` | Source path for first sumstats table. | Yes | No. Audit only. |
-| `source_2` | Source path for second sumstats table. | Yes | No. Audit only. |
-| `pair_kind` | Whether this pair came from all-pairs or anchor mode. | Yes | No. Reporting only. |
-| `status` | Pair status, such as `ok` or `failed`. | Yes | No compatibility check. Used to describe result state. |
-| `error` | Error text when pair fitting failed. | Yes | No. Audit/debugging only. |
-| `n_snps_used` | Number of SNPs used by the fitted pair. | Yes | No. Reporting only. |
-| `n_blocks_used` | Number of jackknife blocks used. | Yes | No. Reporting only. |
-| `count_key_used_for_regression` | Count vector used for regression, for example common or all reference SNP counts. | Yes | No current downstream check. Important run provenance. |
-| `retained_ld_columns` | LD-score columns retained in the fitted pair. | Yes | No. Audit/reporting only. |
-| `dropped_zero_variance_ld_columns` | LD-score columns removed before fitting. | Yes | No. Audit/reporting only. |
-| `effective_snp_identifier` | SNP identity mode used after any allowed identity downgrade. | Yes | No current downstream check. Important run provenance. |
-| `identity_downgrade_applied` | Whether identity downgrade was applied. | Yes | No current downstream check. Important run provenance. |
-| `intercept_h2_policy` | Effective h2 intercept policy. | Yes | No. Reporting/audit only. |
-| `intercept_gencov_policy` | Effective genetic-covariance intercept policy. | Yes | No. Reporting/audit only. |
-| `ordinal` | Stable 1-based pair order. | No | Navigation only. |
-| `slug` | Filesystem-safe pair slug. | No | Navigation only. |
-| `folder` | Per-pair folder name. | No | Navigation only. |
-
-Failed rg pairs omit fields that are only available after a regression dataset is built, such as retained LD columns and effective SNP identifier.
-
-## Remarks
-
-The identity quartet is repeated across reloadable artifacts, but it is the core compatibility contract.
-
-Fields that should be treated as compatibility-critical:
-
-- `schema_version`
-- `artifact_type`
-- `snp_identifier`
-- `genome_build`
-- LD-score `format`
-- LD-score `files`
-- LD-score `baseline_columns`, `query_columns`, and `counts[].column`
-- Ref-panel R2 `ldsc:sorted_by_build`
-- Ref-panel metadata/R2 identity metadata when present
+| `schema_version` | Current LDSC artifact identity schema version. | Required and validated. |
+| `artifact_type` | Must be `sumstats`. | Required and validated. |
+| `files` | Relative data-file map for `sumstats.parquet` and/or `sumstats.sumstats.gz`. | Required to locate the data artifact. |
+| `snp_identifier` | SNP identity mode used when the munged artifact was written. | Required for regression compatibility checks. |
+| `genome_build` | Genome build associated with coordinate-family identity modes. | Required for regression compatibility checks when known. |
+| `trait_name` | Trait label from the raw sumstats config, when supplied. | Used for output labels, not compatibility. |
+
+### Sumstats `diagnostics/dropped_snps/dropped.tsv.gz`
+
+Always-owned audit sidecar for liftover and identity-cleanup drops. This file is
+written even for clean runs so users can distinguish "no drops" from "missing
+sidecar".
+
+| Field | Explanation | Downstream usage |
+| --- | --- | --- |
+| `CHR` | Chromosome for the dropped row when available. | None. |
+| `SNP` | SNP label for the dropped row when available. | None. |
+| `source_pos` | Source coordinate before liftover or cleanup. | None. |
+| `target_pos` | Target coordinate after liftover when available. | None. |
+| `reason` | Drop reason. | None. |
+| `base_key` | Allele-blind identity key involved in cleanup. | None. |
+| `identity_key` | Effective allele-aware identity key when applicable. | None. |
+| `allele_set` | Normalized allele set used by allele-aware cleanup. | None. |
+| `stage` | Workflow stage that produced the drop. | None. |
+
+### `build-ref-panel`
+
+```text
+ref-panel/
+  <build>/chr<chrom>_r2.parquet
+  <build>/chr<chrom>_meta.tsv.gz
+  diagnostics/
+    metadata.json
+    build-ref-panel.log
+    build-ref-panel.chr<chrom>.log
+    dropped_snps/chr<chrom>_dropped.tsv.gz
+```
+
+The concrete log file is `build-ref-panel.log` for multi-chromosome runs or
+`build-ref-panel.chr<chrom>.log` for chromosome-scoped runs.
+
+`diagnostics/metadata.json` is provenance only.
+
+| Field | Explanation | Downstream usage |
+| --- | --- | --- |
+| `schema_version` | Diagnostic metadata schema version. | None. |
+| `artifact_type` | Must be `ref_panel`. | None. |
+| `files` | Relative map of emitted R2, metadata, and diagnostic sidecars. | None. |
+| `snp_identifier` | SNP identity mode used for emitted panel artifacts. | None for root metadata. Per-file schema/header metadata carries runtime validation. |
+| `source_genome_build` | Build of source PLINK coordinates. | None for root metadata. |
+| `emitted_genome_builds` | Builds emitted by the builder. | None. |
+| `chromosomes` | Chromosomes emitted by the run. | None. |
+
+### Ref-panel parquet and sidecar metadata
+
+Ref-panel runtime compatibility is carried by per-file metadata, not the root
+diagnostic JSON.
+
+| Field | Location | Downstream usage |
+| --- | --- | --- |
+| `ldsc:schema_version` | `chr<chrom>_r2.parquet` Arrow schema and `chr<chrom>_meta.tsv.gz` header. | Validated when package metadata is present. |
+| `ldsc:artifact_type` | Same. Must be `ref_panel_r2` or `ref_panel_metadata`. | Validated when package metadata is present. |
+| `ldsc:snp_identifier` | Same. | Compared with runtime identity mode. |
+| `ldsc:genome_build` | Same. | Compared with runtime genome build when known. |
+| `ldsc:sorted_by_build` | R2 parquet schema metadata. | Used to infer/validate R2 coordinate build. |
+| `ldsc:n_samples` | R2 parquet schema metadata. | Used to auto-fill sample size for raw R2 values. |
+| `ldsc:r2_bias` | R2 parquet schema metadata. | Used to resolve R2 bias-correction behavior. |
+
+### `annotate`
+
+```text
+annotate/
+  query.<chrom>.annot.gz
+  diagnostics/
+    metadata.json
+    annotate.log
+    dropped_snps/dropped.tsv.gz
+```
+
+`diagnostics/metadata.json` is provenance only.
+
+| Field | Explanation | Downstream usage |
+| --- | --- | --- |
+| `schema_version` | Diagnostic metadata schema version. | None. |
+| `artifact_type` | Must be `annotation_projection`. | None. |
+| `files` | Relative map of query annotation shards and diagnostics. | None. |
+| `snp_identifier` | SNP identity mode used when writing projected annotations. | None for diagnostic JSON. Query shard columns are runtime data. |
+| `genome_build` | Genome-build assumption for projected annotations. | None for diagnostic JSON. |
+| `baseline_annot_sources` | Source annotation paths/tokens. | None. |
+| `query_annot_bed_sources` | Source BED paths/tokens. | None. |
+| `chromosomes` | Chromosomes written. | None. |
+| `query_columns` | Projected query annotation columns. | None. |
+
+### `ldscore`
+
+```text
+ldscore/
+  metadata.json
+  ldscore.baseline.parquet
+  ldscore.query.parquet
+  diagnostics/
+    ldscore.log
+```
+
+`ldscore.query.parquet` is present only when query LD scores are written.
+
+`metadata.json` is downstream-required.
+
+| Field | Explanation | Downstream usage |
+| --- | --- | --- |
+| `schema_version` | Current LDSC artifact identity schema version. | Required and validated. |
+| `artifact_type` | Must be `ldscore`. | Required and validated. |
+| `files` | Relative data-file map with required `baseline` and optional `query`. | Required to locate parquet data. |
+| `snp_identifier` | SNP identity mode used for LD-score rows. | Required for regression compatibility checks. |
+| `genome_build` | Genome build associated with LD-score identity metadata. | Required for regression compatibility checks when known. |
+| `chromosomes` | Chromosome labels represented in the output. | Reporting/navigation. |
+| `baseline_columns` | Ordered baseline annotation LD-score columns. | Required to assemble regression covariates. |
+| `query_columns` | Ordered query annotation LD-score columns. | Required for partitioned h2 query selection. |
+| `counts` | Per-annotation count records. | Required for regression count vectors. |
+| `count_config` | Common-SNP count settings. | Reporting/context. |
+| `n_baseline_rows` | Number of rows in the baseline parquet table. | Reporting. |
+| `n_query_rows` | Number of rows in the query parquet table, or zero. | Reporting. |
+| `row_group_layout` | Row-group strategy. | Reporting/technical provenance. |
+| `baseline_row_groups` | Row-group metadata for `ldscore.baseline.parquet`. | Reporting/technical provenance. |
+| `query_row_groups` | Row-group metadata for `ldscore.query.parquet`, or `null`. | Reporting/technical provenance. |
+
+### `h2`
+
+```text
+h2/
+  h2.tsv
+  diagnostics/
+    metadata.json
+    h2.log
+```
+
+`diagnostics/metadata.json` is provenance only. If `--output-dir` is omitted,
+the CLI prints compact TSV output to stdout and writes no diagnostics.
+
+| Field | Explanation | Downstream usage |
+| --- | --- | --- |
+| `schema_version` | Diagnostic metadata schema version. | None. |
+| `artifact_type` | Must be `h2_result`. | None. |
+| `files` | Relative map with `summary: "h2.tsv"`. | None. |
+| `trait_name` | Trait label resolved from CLI input or sumstats metadata. | None. |
+| `sumstats_file` | Source sumstats path. | None. |
+| `ldscore_dir` | Source LD-score directory. | None. |
+| `effective_snp_identifier` | SNP identity mode actually used after any allowed identity downgrade. | None. |
+| `genome_build` | Regression dataset genome build when available. | None. |
+| `identity_downgrade_applied` | Whether same-family identity downgrade was used. | None. |
+| `count_key_used_for_regression` | Count vector used for regression. | None. |
+| `retained_ld_columns` | LD-score columns retained in the fitted h2 model. | None. |
+| `dropped_zero_variance_ld_columns` | LD-score columns removed before fitting. | None. |
+| `n_snps` | Number of SNPs in the fitted regression dataset. | None. |
+
+### `partitioned-h2`
+
+```text
+partitioned-h2/
+  partitioned_h2.tsv
+  diagnostics/
+    metadata.json
+    partitioned-h2.log
+    query_annotations/manifest.tsv
+    query_annotations/<query>/metadata.json
+    query_annotations/<query>/partitioned_h2.tsv
+    query_annotations/<query>/partitioned_h2_full.tsv
+```
+
+The `diagnostics/query_annotations/` tree is present only when per-query detail
+output is requested. If `--output-dir` is omitted, the CLI prints compact TSV
+output to stdout and writes no diagnostics.
+
+Root and per-query `diagnostics/metadata.json` files are provenance only.
+
+### `rg`
+
+```text
+rg/
+  rg.tsv
+  rg_full.tsv
+  h2_per_trait.tsv
+  diagnostics/
+    metadata.json
+    rg.log
+    pairs/manifest.tsv
+    pairs/<pair>/metadata.json
+    pairs/<pair>/rg_full.tsv
+```
+
+The `diagnostics/pairs/` tree is present only when per-pair detail output is
+requested. If `--output-dir` is omitted, the CLI prints compact `rg.tsv` output
+to stdout and writes no diagnostics.
+
+Root and per-pair `diagnostics/metadata.json` files are provenance only.
+
+## Regression No-Output Rule
+
+Regression commands share one user-facing rule:
+
+- With `--output-dir`, write the public result files plus diagnostics.
+- Without `--output-dir`, print the compact public TSV table to stdout and
+  write no files or diagnostics.
+
+This applies to `h2`, `partitioned-h2`, and `rg`.
+
+## Compatibility-Critical Fields
+
+Fields that LDSC downstream workflows treat as runtime compatibility-critical:
+
+- Sumstats `metadata.json`: `schema_version`, `artifact_type`,
+  `snp_identifier`, `genome_build`, and `files`.
+- LD-score `metadata.json`: `schema_version`, `artifact_type`,
+  `snp_identifier`, `genome_build`, `files`, `baseline_columns`,
+  `query_columns`, and `counts[].column`.
+- Ref-panel per-file schema/header metadata when present:
+  `ldsc:schema_version`, `ldsc:artifact_type`, `ldsc:snp_identifier`,
+  `ldsc:genome_build`, and `ldsc:sorted_by_build`.
+
+Everything else in JSON metadata is provenance, navigation, or reporting data.

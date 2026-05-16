@@ -1695,7 +1695,8 @@ class RegressionWorkflowTest(unittest.TestCase):
             self.assertEqual(patched.call_args.args[0].retained_ld_columns, ["base"])
             self.assertEqual(summary.loc[0, "trait_name"], "trait")
             self.assertTrue((tmpdir / "h2_out" / "h2.tsv").exists())
-            metadata = json.loads((tmpdir / "h2_out" / "metadata.json").read_text(encoding="utf-8"))
+            self.assertFalse((tmpdir / "h2_out" / "metadata.json").exists())
+            metadata = json.loads((tmpdir / "h2_out" / "diagnostics" / "metadata.json").read_text(encoding="utf-8"))
             self.assertEqual(
                 metadata,
                 {
@@ -1714,7 +1715,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "n_snps": 1,
                 },
             )
-            self.assertTrue((tmpdir / "h2_out" / "h2.log").exists())
+            self.assertTrue((tmpdir / "h2_out" / "diagnostics" / "h2.log").exists())
 
     def test_run_h2_from_args_without_output_dir_creates_no_log_file(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1761,6 +1762,7 @@ class RegressionWorkflowTest(unittest.TestCase):
 
             self.assertFalse(list(tmpdir.glob("*.log")))
             self.assertFalse((tmpdir / "h2_out" / "metadata.json").exists())
+            self.assertFalse((tmpdir / "h2_out" / "diagnostics").exists())
 
     def test_run_h2_from_args_uses_metadata_trait_name_when_cli_label_is_omitted(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2169,6 +2171,50 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertIs(result, expected)
         self.assertEqual(stdout.getvalue(), "")
 
+    def test_cli_prints_concise_h2_table_only_without_output_dir(self):
+        expected = pd.DataFrame([{"trait_name": "trait", "total_h2": 0.1, "total_h2_se": np.nan}])
+
+        stdout = io.StringIO()
+        with mock.patch.object(regression_runner, "run_h2_from_args", return_value=expected), contextlib.redirect_stdout(stdout):
+            result = cli.main(
+                [
+                    "h2",
+                    "--ldscore-dir",
+                    "ldscores",
+                    "--sumstats-file",
+                    "trait.sumstats.gz",
+                ]
+            )
+
+        self.assertIs(result, expected)
+        text = stdout.getvalue()
+        self.assertIn("trait_name\ttotal_h2\ttotal_h2_se", text)
+        self.assertIn("NaN", text)
+
+    def test_cli_prints_concise_partitioned_h2_table_only_without_output_dir(self):
+        expected = pd.DataFrame([{"Category": "query", "Prop._SNPs": 1.0, "Coefficient": np.nan}])
+
+        stdout = io.StringIO()
+        with mock.patch.object(
+            regression_runner,
+            "run_partitioned_h2_from_args",
+            return_value=expected,
+        ), contextlib.redirect_stdout(stdout):
+            result = cli.main(
+                [
+                    "partitioned-h2",
+                    "--ldscore-dir",
+                    "ldscores",
+                    "--sumstats-file",
+                    "trait.sumstats.gz",
+                ]
+            )
+
+        self.assertIs(result, expected)
+        text = stdout.getvalue()
+        self.assertIn("Category\tProp._SNPs\tCoefficient", text)
+        self.assertIn("NaN", text)
+
     def test_run_partitioned_h2_from_args_uses_query_columns_from_ldscore_dir(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -2308,7 +2354,7 @@ class RegressionWorkflowTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             output_dir = tmpdir / "out"
-            stale = output_dir / "query_annotations" / "old"
+            stale = output_dir / "diagnostics" / "query_annotations" / "old"
             stale.mkdir(parents=True)
             (stale / "metadata.json").write_text("{}\n", encoding="utf-8")
             args = type(
@@ -2341,6 +2387,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             self.assertTrue(stale.exists())
             self.assertFalse((output_dir / "partitioned_h2.tsv").exists())
             self.assertFalse((output_dir / "partitioned-h2.log").exists())
+            self.assertFalse((output_dir / "diagnostics" / "partitioned-h2.log").exists())
 
     def test_run_partitioned_h2_from_args_overwrite_removes_stale_per_query_tree(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2351,7 +2398,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             self.write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="trait")
             ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
             output_dir = tmpdir / "out"
-            stale = output_dir / "query_annotations" / "old"
+            stale = output_dir / "diagnostics" / "query_annotations" / "old"
             stale.mkdir(parents=True)
             (stale / "metadata.json").write_text("{}\n", encoding="utf-8")
             args = type(
@@ -2395,8 +2442,11 @@ class RegressionWorkflowTest(unittest.TestCase):
 
             self.assertEqual(summary.loc[0, "Category"], "query")
             self.assertTrue((output_dir / "partitioned_h2.tsv").exists())
-            self.assertTrue((output_dir / "partitioned-h2.log").exists())
+            self.assertTrue((output_dir / "diagnostics" / "partitioned-h2.log").exists())
+            self.assertTrue((output_dir / "diagnostics" / "metadata.json").exists())
+            self.assertFalse((output_dir / "metadata.json").exists())
             self.assertFalse((output_dir / "query_annotations").exists())
+            self.assertFalse((output_dir / "diagnostics" / "query_annotations").exists())
 
     def test_regression_cli_writes_fixed_result_filename_under_output_dir(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2491,6 +2541,7 @@ class RegressionWorkflowTest(unittest.TestCase):
 
             self.assertEqual(existing.read_text(encoding="utf-8"), "existing\n")
             self.assertFalse((output_dir / "h2.log").exists())
+            self.assertFalse((output_dir / "diagnostics" / "h2.log").exists())
 
     def test_regression_cli_refuses_existing_h2_metadata_by_default_before_estimation(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2528,6 +2579,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             self.assertEqual(existing.read_text(encoding="utf-8"), "{}\n")
             self.assertFalse((output_dir / "h2.tsv").exists())
             self.assertFalse((output_dir / "h2.log").exists())
+            self.assertFalse((output_dir / "diagnostics" / "h2.log").exists())
 
     def test_regression_cli_allows_existing_result_file_with_overwrite(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2541,7 +2593,8 @@ class RegressionWorkflowTest(unittest.TestCase):
             output_dir.mkdir()
             existing = output_dir / "h2.tsv"
             existing.write_text("existing\n", encoding="utf-8")
-            existing_metadata = output_dir / "metadata.json"
+            existing_metadata = output_dir / "diagnostics" / "metadata.json"
+            existing_metadata.parent.mkdir()
             existing_metadata.write_text('{"old": true}\n', encoding="utf-8")
             args = type(
                 "Args",
@@ -2578,6 +2631,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                 regression_runner.run_h2_from_args(args)
 
             self.assertIn("total_h2", existing.read_text(encoding="utf-8"))
+            self.assertFalse((output_dir / "metadata.json").exists())
             metadata = json.loads(existing_metadata.read_text(encoding="utf-8"))
             self.assertNotIn("old", metadata)
             self.assertEqual(metadata["artifact_type"], "h2_result")

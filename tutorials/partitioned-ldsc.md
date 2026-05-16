@@ -115,7 +115,7 @@ sumstats = SumstatsMunger().run(
 
 # If you already have a curated sumstats artifact on disk, load it directly.
 # Current parquet and .sumstats.gz artifacts recover config_snapshot from
-# sumstats.metadata.json. Old package-written files without current provenance
+# root metadata.json. Old package-written files without current provenance
 # must be regenerated with the current LDSC package.
 # sumstats = load_sumstats("tutorial_outputs/trait/sumstats.parquet", trait_name="trait")
 
@@ -167,7 +167,7 @@ print(ldscore_result.baseline_table.head())
 print(partitioned)
 ```
 
-The Python workflow registers `GlobalConfig` once, then reuses it across the compatible helper functions and workflow classes. In-process results such as `AnnotationBundle`, `SumstatsTable` from `SumstatsMunger.run()`, and `LDScoreResult` carry frozen `config_snapshot` values, and the regression step raises `ConfigMismatchError` if you accidentally mix artifacts produced under incompatible `snp_identifier` or `genome_build` assumptions. A `SumstatsTable` loaded from a current disk artifact recovers this provenance from `sumstats.metadata.json`; old package-written sumstats without current provenance must be regenerated with the current LDSC package. `SumstatsMunger.run()` is also the implementation path behind `ldsc munge-sumstats` after CLI parsing, and it owns fixed `sumstats.parquet` output by default, optional `sumstats.sumstats.gz` compatibility output, `sumstats.log`, `sumstats.metadata.json`, and `dropped_snps/dropped.tsv.gz`. Workflow logs are preflighted audit files; returned `output_paths` mappings include data artifacts and the dropped-SNP audit sidecar, but not logs. For `munge-sumstats`, `ldscore`, `partitioned-h2`, and `annotate`, output directories represent coherent artifact families: no-overwrite runs reject any owned sibling, and successful overwrites delete stale owned siblings not produced by the current configuration.
+The Python workflow registers `GlobalConfig` once, then reuses it across the compatible helper functions and workflow classes. In-process results such as `AnnotationBundle`, `SumstatsTable` from `SumstatsMunger.run()`, and `LDScoreResult` carry frozen `config_snapshot` values, and the regression step raises `ConfigMismatchError` if you accidentally mix artifacts produced under incompatible `snp_identifier` or `genome_build` assumptions. A `SumstatsTable` loaded from a current disk artifact recovers this provenance from root `metadata.json`; old package-written sumstats without current provenance must be regenerated with the current LDSC package. `SumstatsMunger.run()` is also the implementation path behind `ldsc munge-sumstats` after CLI parsing, and it owns root `metadata.json`, fixed `sumstats.parquet` output by default, optional `sumstats.sumstats.gz` compatibility output, and diagnostics under `diagnostics/`. Workflow logs are preflighted audit files; returned `output_paths` mappings include data artifacts and the dropped-SNP audit sidecar, but not logs. For `munge-sumstats`, `ldscore`, `partitioned-h2`, and `annotate`, output directories represent coherent artifact families: no-overwrite runs reject any owned sibling, and successful overwrites delete stale owned siblings not produced by the current configuration.
 
 Munged sumstats written by this workflow include canonical `CHR` and `POS`
 columns. The raw munger accepts common coordinate headers such as `#CHROM`,
@@ -180,8 +180,8 @@ rsID in `SNP`; `SNP` is treated as a label. Optional munger liftover is also
 `CHR`/`POS` without rewriting `SNP` or allele sets, drops duplicate
 source/target coordinate groups, and requires `--target-genome-build` plus one
 method flag.
-Drop counts are written to `sumstats.log`, examples appear only at `DEBUG`, and
-row-level drops are audited in `dropped_snps/dropped.tsv.gz`; the metadata
+Drop counts are written to `diagnostics/sumstats.log`, examples appear only at `DEBUG`, and
+row-level drops are audited in `diagnostics/dropped_snps/dropped.tsv.gz`; the metadata
 sidecar is only the compatibility snapshot.
 
 Within this design:
@@ -221,21 +221,21 @@ ldsc annotate \
 ```
 
 Both CLI paths preflight their workflow logs with the scientific outputs:
-`ldscore.log` under `tutorial_outputs/partitioned_ldscores` and `annotate.log`
-under `annotations/query_from_beds`.
+`diagnostics/ldscore.log` under `tutorial_outputs/partitioned_ldscores` and
+`diagnostics/annotate.log` under `annotations/query_from_beds`.
 
 The annotate command is implemented in the public `ldsc.annotation_builder`
 workflow module. Python code that wants the same parser behavior can call
 `ldsc.annotation_builder.main(argv)`, while code that already has parsed
 top-level CLI arguments can call `run_annotate_from_args(args)` directly. When
-the workflow writes query shards, it also writes `annotate.log` under the output
-directory.
+the workflow writes query shards, it also writes `diagnostics/annotate.log`
+under the output directory.
 
 The regression CLI consumes the LD-score result directory directly. It reads
 baseline columns from `ldscore.baseline.parquet`, query columns from `ldscore.query.parquet`,
-and counts from `manifest.json`. Both parquet files stay flat, but their row
-groups are chromosome-aligned and listed in the manifest for targeted reads.
-If the manifest has an empty `query_columns` list, use `ldsc h2`/`ldsc rg`
+and counts from root `metadata.json`. Both parquet files stay flat, but their row
+groups are chromosome-aligned and listed in the metadata for targeted reads.
+If root `metadata.json` has an empty `query_columns` list, use `ldsc h2`/`ldsc rg`
 instead of `ldsc partitioned-h2`.
 
 ```bash
@@ -262,11 +262,11 @@ ldsc partitioned-h2 \
 ```
 
 The command writes `tutorial_outputs/partitioned_h2/partitioned_h2.tsv` and
-`tutorial_outputs/partitioned_h2/partitioned-h2.log`.
+`tutorial_outputs/partitioned_h2/diagnostics/partitioned-h2.log`.
 The summary columns are documented in
 [partitioned-h2-results.md](../docs/current/partitioned-h2-results.md).
 If any partitioned-h2 owned output already exists, including a stale
-`query_annotations/` tree from an earlier per-query run, the command fails
+`diagnostics/query_annotations/` tree from an earlier per-query run, the command fails
 before writing; add `--overwrite` only when replacing the previous summary is
 intentional.
 
@@ -283,10 +283,10 @@ ldsc partitioned-h2 \
 ```
 
 This keeps the aggregate `partitioned_h2.tsv` and adds
-`query_annotations/manifest.tsv` plus sanitized query folders such as
-`query_annotations/0001_enhancer_a/`. Each query folder contains its one-row
+`diagnostics/query_annotations/manifest.tsv` plus sanitized query folders such as
+`diagnostics/query_annotations/0001_enhancer_a/`. Each query folder contains its one-row
 `partitioned_h2.tsv`, the fitted baseline-plus-query `partitioned_h2_full.tsv`,
 and `metadata.json` with the original query annotation name.
 If you later rerun the same output directory without `--write-per-query-results`
-and pass `--overwrite`, the old `query_annotations/` tree is removed after the
+and pass `--overwrite`, the old `diagnostics/query_annotations/` tree is removed after the
 new aggregate summary is written.

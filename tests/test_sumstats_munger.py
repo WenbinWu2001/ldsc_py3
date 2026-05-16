@@ -918,7 +918,7 @@ class SumstatsMungerTest(unittest.TestCase):
                     )
 
             self.assertEqual(stale.read_text(encoding="utf-8"), "stale\n")
-            self.assertFalse((output_dir / "sumstats.log").exists())
+            self.assertFalse((output_dir / "diagnostics" / "sumstats.log").exists())
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
     def test_write_output_accepts_output_format(self):
@@ -1059,7 +1059,7 @@ class SumstatsMungerTest(unittest.TestCase):
                     "trait_name": "trait",
                 },
             )
-            log_text = (tmpdir / "munged" / "sumstats.log").read_text(encoding="utf-8")
+            log_text = (tmpdir / "munged" / "diagnostics" / "sumstats.log").read_text(encoding="utf-8")
             self.assertIn("Summary-statistics coordinate provenance", log_text)
             self.assertIn("coordinate_basis=1-based", log_text)
             self.assertIn("Summary-statistics liftover report", log_text)
@@ -1118,7 +1118,7 @@ class SumstatsMungerTest(unittest.TestCase):
                     GlobalConfig(snp_identifier="rsid"),
                 )
 
-            sidecar = tmpdir / "munged" / "dropped_snps" / "dropped.tsv.gz"
+            sidecar = tmpdir / "munged" / "diagnostics" / "dropped_snps" / "dropped.tsv.gz"
             self.assertTrue(sidecar.exists())
             dropped = self._read_dropped_snps_sidecar(sidecar)
             self.assertEqual(len(dropped), 0)
@@ -1142,7 +1142,7 @@ class SumstatsMungerTest(unittest.TestCase):
             summary = munger.build_run_summary(table)
             self.assertEqual(
                 summary.output_paths["dropped_snps_tsv_gz"],
-                str(tmpdir / "munged" / "dropped_snps" / "dropped.tsv.gz"),
+                str(tmpdir / "munged" / "diagnostics" / "dropped_snps" / "dropped.tsv.gz"),
             )
 
     def test_dropped_snps_sidecar_preflight_blocks_existing_file(self):
@@ -1150,7 +1150,7 @@ class SumstatsMungerTest(unittest.TestCase):
             tmpdir = Path(tmpdir)
             raw_path = tmpdir / "raw.tsv"
             self._write_raw_sumstats(raw_path)
-            sidecar = tmpdir / "munged" / "dropped_snps" / "dropped.tsv.gz"
+            sidecar = tmpdir / "munged" / "diagnostics" / "dropped_snps" / "dropped.tsv.gz"
             sidecar.parent.mkdir(parents=True)
             sidecar.write_text("stale\n", encoding="utf-8")
 
@@ -1167,7 +1167,7 @@ class SumstatsMungerTest(unittest.TestCase):
             tmpdir = Path(tmpdir)
             raw_path = tmpdir / "raw.tsv"
             self._write_raw_sumstats(raw_path)
-            sidecar = tmpdir / "munged" / "dropped_snps" / "dropped.tsv.gz"
+            sidecar = tmpdir / "munged" / "diagnostics" / "dropped_snps" / "dropped.tsv.gz"
             sidecar.parent.mkdir(parents=True)
             sidecar.write_text("stale\n", encoding="utf-8")
 
@@ -1209,8 +1209,8 @@ class SumstatsMungerTest(unittest.TestCase):
                     GlobalConfig(snp_identifier="rsid"),
                 )
 
-            sidecar = tmpdir / "munged" / "dropped_snps" / "dropped.tsv.gz"
-            log_text = (tmpdir / "munged" / "sumstats.log").read_text(encoding="utf-8")
+            sidecar = tmpdir / "munged" / "diagnostics" / "dropped_snps" / "dropped.tsv.gz"
+            log_text = (tmpdir / "munged" / "diagnostics" / "sumstats.log").read_text(encoding="utf-8")
             dropped = self._read_dropped_snps_sidecar(sidecar)
             self.assertEqual(dropped.columns.tolist(), IDENTITY_DROP_COLUMNS)
             self.assertEqual(dropped["stage"].tolist(), ["liftover"])
@@ -1373,8 +1373,8 @@ class SumstatsMungerTest(unittest.TestCase):
 
             self.assertEqual(len(table.data), 1)
             self.assertTrue((output_dir / "sumstats.parquet").exists())
-            self.assertTrue((output_dir / "sumstats.log").exists())
-            log_text = (output_dir / "sumstats.log").read_text(encoding="utf-8")
+            self.assertTrue((output_dir / "diagnostics" / "sumstats.log").exists())
+            log_text = (output_dir / "diagnostics" / "sumstats.log").read_text(encoding="utf-8")
             self.assertIn("LDSC munge-sumstats Started", log_text)
             self.assertIn("Munging summary statistics", log_text)
 
@@ -1397,7 +1397,7 @@ class SumstatsMungerTest(unittest.TestCase):
                     )
 
             self.assertEqual(existing.read_text(encoding="utf-8"), "existing\n")
-            self.assertFalse((output_dir / "sumstats.log").exists())
+            self.assertFalse((output_dir / "diagnostics" / "sumstats.log").exists())
 
     def test_run_allows_existing_fixed_outputs_with_overwrite(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1436,7 +1436,7 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(len(table.data), 1)
             self.assertEqual(table.source_path, str(raw_path))
             self.assertTrue((output_dir / "sumstats.parquet").exists())
-            self.assertTrue((output_dir / "sumstats.log").exists())
+            self.assertTrue((output_dir / "diagnostics" / "sumstats.log").exists())
 
     def test_run_resolves_glob_pattern_for_single_sumstats_input(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1623,7 +1623,7 @@ class SumstatsMungerTest(unittest.TestCase):
             )
 
             self.assertEqual(table.data["SNP"].tolist(), ["rs2"])
-            dropped = self._read_dropped_snps_sidecar(output_dir / "dropped_snps" / "dropped.tsv.gz")
+            dropped = self._read_dropped_snps_sidecar(output_dir / "diagnostics" / "dropped_snps" / "dropped.tsv.gz")
             self.assertEqual(dropped["reason"].tolist(), ["duplicate_identity", "duplicate_identity"])
             self.assertEqual(dropped["stage"].tolist(), ["post_liftover_identity_cleanup", "post_liftover_identity_cleanup"])
 
@@ -1655,7 +1655,7 @@ class SumstatsMungerTest(unittest.TestCase):
             )
 
             self.assertEqual(table.data["SNP"].tolist(), ["rs1"])
-            dropped = self._read_dropped_snps_sidecar(output_dir / "dropped_snps" / "dropped.tsv.gz")
+            dropped = self._read_dropped_snps_sidecar(output_dir / "diagnostics" / "dropped_snps" / "dropped.tsv.gz")
             self.assertEqual(
                 dropped["reason"].tolist(),
                 ["invalid_allele", "strand_ambiguous_allele"],
@@ -1686,7 +1686,7 @@ class SumstatsMungerTest(unittest.TestCase):
             )
 
             self.assertEqual(table.data["SNP"].tolist(), ["rs_keep"])
-            dropped = self._read_dropped_snps_sidecar(output_dir / "dropped_snps" / "dropped.tsv.gz")
+            dropped = self._read_dropped_snps_sidecar(output_dir / "diagnostics" / "dropped_snps" / "dropped.tsv.gz")
             self.assertNotIn("rs_bad_out", dropped["SNP"].tolist())
 
     def test_chr_pos_allele_aware_sumstats_snps_file_filters_bad_raw_alleles_outside_keep_list(self):
@@ -1710,7 +1710,7 @@ class SumstatsMungerTest(unittest.TestCase):
             )
 
             self.assertEqual(table.data["SNP"].tolist(), ["rs_keep"])
-            dropped = self._read_dropped_snps_sidecar(output_dir / "dropped_snps" / "dropped.tsv.gz")
+            dropped = self._read_dropped_snps_sidecar(output_dir / "diagnostics" / "dropped_snps" / "dropped.tsv.gz")
             self.assertNotIn("rs_bad_out", dropped["SNP"].tolist())
 
     def test_allele_aware_missing_raw_alleles_are_reported_in_identity_sidecar(self):
@@ -1732,7 +1732,7 @@ class SumstatsMungerTest(unittest.TestCase):
             )
 
             self.assertEqual(table.data["SNP"].tolist(), ["rs1"])
-            dropped = self._read_dropped_snps_sidecar(output_dir / "dropped_snps" / "dropped.tsv.gz")
+            dropped = self._read_dropped_snps_sidecar(output_dir / "diagnostics" / "dropped_snps" / "dropped.tsv.gz")
             self.assertEqual(dropped["SNP"].tolist(), ["rs_missing"])
             self.assertEqual(dropped["reason"].tolist(), ["missing_allele"])
             self.assertEqual(dropped["stage"].tolist(), ["post_liftover_identity_cleanup"])
@@ -1756,7 +1756,7 @@ class SumstatsMungerTest(unittest.TestCase):
             )
 
             self.assertEqual(table.data["SNP"].tolist(), [])
-            dropped = self._read_dropped_snps_sidecar(output_dir / "dropped_snps" / "dropped.tsv.gz")
+            dropped = self._read_dropped_snps_sidecar(output_dir / "diagnostics" / "dropped_snps" / "dropped.tsv.gz")
             self.assertEqual(dropped["SNP"].tolist(), ["rs_missing_1", "rs_missing_2"])
             self.assertEqual(dropped["reason"].tolist(), ["missing_allele", "missing_allele"])
 
@@ -1786,7 +1786,7 @@ class SumstatsMungerTest(unittest.TestCase):
             )
 
             self.assertEqual(table.data["SNP"].tolist(), [])
-            dropped = self._read_dropped_snps_sidecar(output_dir / "dropped_snps" / "dropped.tsv.gz")
+            dropped = self._read_dropped_snps_sidecar(output_dir / "diagnostics" / "dropped_snps" / "dropped.tsv.gz")
             self.assertEqual(dropped["SNP"].tolist(), ["rs_bad", "rs_ambiguous"])
             self.assertEqual(dropped["reason"].tolist(), ["invalid_allele", "strand_ambiguous_allele"])
 
@@ -1846,7 +1846,7 @@ class SumstatsMungerTest(unittest.TestCase):
             )
 
             self.assertEqual(table.data["SNP"].tolist(), ["rs1", "rs3"])
-            log_text = (tmpdir / "munged" / "sumstats.log").read_text(encoding="utf-8")
+            log_text = (tmpdir / "munged" / "diagnostics" / "sumstats.log").read_text(encoding="utf-8")
             self.assertIn("Applying --sumstats-snps-file keep-list", log_text)
             self.assertIn("snp_identifier=rsid", log_text)
             self.assertIn("read 2 keep-list identifiers", log_text)
@@ -1988,7 +1988,7 @@ class SumstatsMungerTest(unittest.TestCase):
             )
 
             self.assertEqual(table.data["SNP"].tolist(), ["rs1"])
-            log_text = (tmpdir / "munged" / "sumstats.log").read_text(encoding="utf-8")
+            log_text = (tmpdir / "munged" / "diagnostics" / "sumstats.log").read_text(encoding="utf-8")
             self.assertIn("Dropped 2 SNPs with invalid or missing CHR/POS", log_text)
             self.assertIn("Removed 0 SNPs with missing values.", log_text)
             self.assertIn("Removed 0 SNPs with out-of-bounds p-values.", log_text)
@@ -2015,7 +2015,7 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(table.data["SNP"].tolist(), ["rs1"])
             self.assertEqual(table.data["POS"].tolist(), [100])
             self.assertEqual(table.provenance["coordinate_provenance"]["n_dropped_invalid_chr_pos"], 2)
-            log_text = (tmpdir / "munged" / "sumstats.log").read_text(encoding="utf-8")
+            log_text = (tmpdir / "munged" / "diagnostics" / "sumstats.log").read_text(encoding="utf-8")
             self.assertIn("Dropped 2 SNPs with invalid or missing CHR/POS", log_text)
             self.assertIn("Removed 0 SNPs with missing values.", log_text)
             self.assertIn("Removed 0 SNPs with out-of-bounds p-values.", log_text)

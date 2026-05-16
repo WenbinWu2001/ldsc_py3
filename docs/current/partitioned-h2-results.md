@@ -22,14 +22,16 @@ with `ldsc h2` or `ldsc rg`, not `ldsc partitioned-h2`.
 | `Coefficient_p` | Two-sided p-value testing whether the coefficient differs from zero. |
 
 The same seven-column schema is used for each one-row
-`query_annotations/<folder>/partitioned_h2.tsv` file.
+`diagnostics/query_annotations/<folder>/partitioned_h2.tsv` file.
 
 Output directories follow the coherent artifact-family policy. The root
-`partitioned_h2.tsv`, optional `query_annotations/` tree, and
-`partitioned-h2.log` are checked together by workflow entry points. Without
-overwrite, any existing owned sibling rejects the run. With overwrite, a
-successful aggregate-only run removes a stale `query_annotations/` tree from an
-earlier per-query run.
+`partitioned_h2.tsv`, diagnostic metadata, optional
+`diagnostics/query_annotations/` tree, and `diagnostics/partitioned-h2.log` are
+checked together by workflow entry points. Without overwrite, any existing
+owned sibling rejects the run. With overwrite, a successful aggregate-only run
+removes a stale `diagnostics/query_annotations/` tree from an earlier per-query
+run. If `--output-dir` is omitted, the CLI prints the compact table to stdout
+and writes no diagnostics.
 
 ## `partitioned_h2_full.tsv`
 
@@ -61,7 +63,8 @@ annotations are correlated. P-values and standard errors may be missing when a
 valid comparison cannot be formed, for example when there is no non-category
 complement.
 
-The `query_annotations/manifest.tsv` file is an index for the per-query result
-tree. It records each original query annotation name, the sanitized folder name,
-and the relative path columns `summary_path`, `partitioned_h2_full_path`, and
-`metadata_path`. It is not a scientific result table.
+The `diagnostics/query_annotations/manifest.tsv` file is an index for the
+per-query result tree. It records each original query annotation name, the
+sanitized folder name, and the relative path columns `summary_path`,
+`partitioned_h2_full_path`, and `metadata_path`. It is not a scientific result
+table.

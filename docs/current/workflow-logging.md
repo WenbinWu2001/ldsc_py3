@@ -61,13 +61,13 @@ Elapsed time: 2.0min:12s
 
 | Workflow | Log path |
 | --- | --- |
-| `munge-sumstats` | `<output_dir>/sumstats.log` |
-| `annotate` | `<output_dir>/annotate.log` |
-| `ldscore` | `<output_dir>/ldscore.log` |
-| `build-ref-panel` | `<output_dir>/build-ref-panel.log`, or `<output_dir>/build-ref-panel.chr<chrom>.log` for concrete single-chromosome PLINK-prefix runs |
-| `h2` | `<output_dir>/h2.log` |
-| `partitioned-h2` | `<output_dir>/partitioned-h2.log` |
-| `rg` | `<output_dir>/rg.log` |
+| `munge-sumstats` | `<output_dir>/diagnostics/sumstats.log` |
+| `annotate` | `<output_dir>/diagnostics/annotate.log` |
+| `ldscore` | `<output_dir>/diagnostics/ldscore.log` |
+| `build-ref-panel` | `<output_dir>/diagnostics/build-ref-panel.log`, or `<output_dir>/diagnostics/build-ref-panel.chr<chrom>.log` for concrete single-chromosome PLINK-prefix runs |
+| `h2` | `<output_dir>/diagnostics/h2.log` |
+| `partitioned-h2` | `<output_dir>/diagnostics/partitioned-h2.log` |
+| `rg` | `<output_dir>/diagnostics/rg.log` |
 
 Regression commands without `--output-dir` stay console-only and do not create
 log files.
@@ -79,14 +79,14 @@ create logs because they use the same output-directory contract as the CLI.
 Direct computational class APIs remain data-oriented:
 
 - `AnnotationBuilder.project_bed_annotations(...)` does not create
-  `annotate.log` when called directly.
-- `LDScoreCalculator.run(...)` does not create `ldscore.log`.
+  `diagnostics/annotate.log` when called directly.
+- `LDScoreCalculator.run(...)` does not create `diagnostics/ldscore.log`.
 - `ReferencePanelBuilder.run(...)` does not create a build-ref-panel workflow log.
 - `RegressionRunner.estimate_*` methods do not create regression logs.
 
 `SumstatsMunger.run(...)` remains a workflow-level API and keeps writing
-`sumstats.log` for compatibility. `MungeRunSummary.output_paths` excludes the
-log path but includes data artifacts such as the dropped-SNP audit sidecar.
+`diagnostics/sumstats.log`. `MungeRunSummary.output_paths` excludes the log
+path but includes data artifacts such as the dropped-SNP audit sidecar.
 
 For the implementation rationale, see
 `docs/superpowers/specs/2026-05-02-logging-harmonization-design.md`.

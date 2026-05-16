@@ -1281,7 +1281,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 with self.assertLogs("LDSC.ref_panel_builder", level="INFO") as log_ctx:
                     builder.run(config)
 
-            sidecar = tmpdir / "out" / "dropped_snps" / "chr1_dropped.tsv.gz"
+            sidecar = tmpdir / "out" / "diagnostics" / "dropped_snps" / "chr1_dropped.tsv.gz"
             self.assertTrue(sidecar.exists(), "sidecar must be written under dropped_snps")
             with gzip.open(sidecar, "rt") as fh:
                 dropped_df = pd.read_csv(fh, sep="\t")
@@ -1409,7 +1409,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
 
                 builder.run(config)
 
-            sidecar = tmpdir / "out" / "dropped_snps" / "chr1_dropped.tsv.gz"
+            sidecar = tmpdir / "out" / "diagnostics" / "dropped_snps" / "chr1_dropped.tsv.gz"
             self.assertTrue(sidecar.exists())
             dropped = self._read_dropped_sidecar(sidecar)
             self.assertEqual(len(dropped), 0)
@@ -1420,7 +1420,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             self._write_plink_prefix_rows(tmpdir, "panel.1", [("1", "rs1", 100)])
-            sidecar = tmpdir / "out" / "dropped_snps" / "chr1_dropped.tsv.gz"
+            sidecar = tmpdir / "out" / "diagnostics" / "dropped_snps" / "chr1_dropped.tsv.gz"
             sidecar.parent.mkdir(parents=True)
             sidecar.write_text("stale\n", encoding="utf-8")
             config = ReferencePanelBuildConfig(
@@ -1468,7 +1468,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "No chromosome artifacts"):
                 builder.run(config)
 
-            sidecar = tmpdir / "out" / "dropped_snps" / "chr1_dropped.tsv.gz"
+            sidecar = tmpdir / "out" / "diagnostics" / "dropped_snps" / "chr1_dropped.tsv.gz"
             self.assertTrue(sidecar.exists())
             self.assertEqual(len(self._read_dropped_sidecar(sidecar)), 0)
 
@@ -1520,8 +1520,8 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                     result = builder.run(config)
 
             self.assertEqual(result.chromosomes, ["1"])
-            self.assertTrue((tmpdir / "out" / "dropped_snps" / "chr1_dropped.tsv.gz").exists())
-            self.assertEqual(len(self._read_dropped_sidecar(tmpdir / "out" / "dropped_snps" / "chr1_dropped.tsv.gz")), 0)
+            self.assertTrue((tmpdir / "out" / "diagnostics" / "dropped_snps" / "chr1_dropped.tsv.gz").exists())
+            self.assertEqual(len(self._read_dropped_sidecar(tmpdir / "out" / "diagnostics" / "dropped_snps" / "chr1_dropped.tsv.gz")), 0)
             self.assertEqual(mock_bed.call_args.kwargs["keep_snps"], [0, 1, 2])
             messages = "\n".join(log_ctx.output)
             self.assertEqual(messages.count("Coordinate duplicate filtering applies only for chr_pos-family snp_identifier modes"), 1)
@@ -1742,9 +1742,9 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 result = builder.run(config)
 
             self.assertEqual(result.chromosomes, ["2"])
-            self.assertTrue((tmpdir / "out" / "dropped_snps" / "chr1_dropped.tsv.gz").exists())
-            self.assertTrue((tmpdir / "out" / "dropped_snps" / "chr2_dropped.tsv.gz").exists())
-            self.assertEqual(len(self._read_dropped_sidecar(tmpdir / "out" / "dropped_snps" / "chr2_dropped.tsv.gz")), 0)
+            self.assertTrue((tmpdir / "out" / "diagnostics" / "dropped_snps" / "chr1_dropped.tsv.gz").exists())
+            self.assertTrue((tmpdir / "out" / "diagnostics" / "dropped_snps" / "chr2_dropped.tsv.gz").exists())
+            self.assertEqual(len(self._read_dropped_sidecar(tmpdir / "out" / "diagnostics" / "dropped_snps" / "chr2_dropped.tsv.gz")), 0)
 
     def test_builder_run_collects_artifact_paths_from_resolved_suite(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1775,8 +1775,9 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             self.assertEqual(patched.call_count, 2)
             self.assertNotIn("ann", result.output_paths)
             self.assertNotIn("ld", result.output_paths)
-            self.assertEqual(result.output_paths["metadata"], [str(tmpdir / "out" / "metadata.json")])
-            metadata = json.loads((tmpdir / "out" / "metadata.json").read_text(encoding="utf-8"))
+            self.assertEqual(result.output_paths["metadata"], [str(tmpdir / "out" / "diagnostics" / "metadata.json")])
+            self.assertFalse((tmpdir / "out" / "metadata.json").exists())
+            metadata = json.loads((tmpdir / "out" / "diagnostics" / "metadata.json").read_text(encoding="utf-8"))
             self.assertEqual(metadata["artifact_type"], "ref_panel")
             self.assertEqual(metadata["snp_identifier"], "chr_pos")
             self.assertEqual(metadata["genome_build"], "hg38")
@@ -1831,7 +1832,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             ):
                 result = ref_panel_builder.run_build_ref_panel_from_args(args)
 
-            self.assertTrue((tmpdir / "out" / "build-ref-panel.log").exists())
+            self.assertTrue((tmpdir / "out" / "diagnostics" / "build-ref-panel.log").exists())
             self.assertNotIn("log", result.output_paths)
 
     def test_run_build_ref_panel_from_args_single_concrete_prefix_writes_chromosome_scoped_log(self):
@@ -1866,8 +1867,8 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             ):
                 result = ref_panel_builder.run_build_ref_panel_from_args(args)
 
-            self.assertTrue((tmpdir / "out" / "build-ref-panel.chr1.log").exists())
-            self.assertFalse((tmpdir / "out" / "build-ref-panel.log").exists())
+            self.assertTrue((tmpdir / "out" / "diagnostics" / "build-ref-panel.chr1.log").exists())
+            self.assertFalse((tmpdir / "out" / "diagnostics" / "build-ref-panel.log").exists())
             self.assertNotIn("log", result.output_paths)
 
     def test_builder_run_allows_source_only_output_paths_when_no_chain_is_available(self):
@@ -1975,7 +1976,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
             config = dataclass_replace(self._build_config(tmpdir), overwrite=True)
             stale_r2 = tmpdir / "out" / "hg38" / "chr2_r2.parquet"
-            stale_drop = tmpdir / "out" / "dropped_snps" / "chr2_dropped.tsv.gz"
+            stale_drop = tmpdir / "out" / "diagnostics" / "dropped_snps" / "chr2_dropped.tsv.gz"
             stale_r2.parent.mkdir(parents=True)
             stale_drop.parent.mkdir(parents=True)
             stale_r2.write_text("stale\n", encoding="utf-8")
@@ -2193,7 +2194,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                     builder._build_chromosome(str(prefix), "1", config, build_state)
 
             self.assertEqual([call.kwargs["keep_snps"] for call in mock_bed.call_args_list], [[2], [2]])
-            dropped = self._read_dropped_sidecar(tmpdir / "out" / "dropped_snps" / "chr1_dropped.tsv.gz")
+            dropped = self._read_dropped_sidecar(tmpdir / "out" / "diagnostics" / "dropped_snps" / "chr1_dropped.tsv.gz")
             self.assertEqual(dropped["reason"].tolist(), ["target_collision", "target_collision"])
             self.assertTrue(any("synchronized cross-build drops" in message for message in logs.output))
 
@@ -2525,7 +2526,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
 
                 result = builder._build_chromosome(str(prefix), "1", config, build_state)
 
-            dropped = self._read_dropped_sidecar(tmpdir / "out" / "dropped_snps" / "chr1_dropped.tsv.gz")
+            dropped = self._read_dropped_sidecar(tmpdir / "out" / "diagnostics" / "dropped_snps" / "chr1_dropped.tsv.gz")
             self.assertIsNotNone(result)
             self.assertEqual(dropped["SNP"].tolist(), ["rs_bad"])
             self.assertEqual(dropped["reason"].tolist(), ["invalid_allele"])
@@ -2614,8 +2615,8 @@ class RefPanelOutputFamilyTest(unittest.TestCase):
             out = Path(tmpdir) / "out"
             existing_r2 = out / "hg19" / "chr1_r2.parquet"
             existing_meta = out / "hg38" / "chr2_meta.tsv.gz"
-            existing_drop = out / "dropped_snps" / "chr2_dropped.tsv.gz"
-            existing_log = out / "build-ref-panel.chr2.log"
+            existing_drop = out / "diagnostics" / "dropped_snps" / "chr2_dropped.tsv.gz"
+            existing_log = out / "diagnostics" / "build-ref-panel.chr2.log"
             produced = out / "hg19" / "chr6_r2.parquet"
             existing_r2.parent.mkdir(parents=True)
             existing_meta.parent.mkdir(parents=True)

@@ -395,7 +395,7 @@ class AnnotationBuilderTest(unittest.TestCase):
                 config_snapshot=GlobalConfig(snp_identifier="rsid"),
             )
             builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
-            builder._workflow_log_path = output_dir / "annotate.log"
+            builder._workflow_log_path = output_dir / "diagnostics" / "annotate.log"
 
             with mock.patch.object(builder, "run", return_value=bundle):
                 with self.assertRaisesRegex(FileExistsError, "overwrite"):
@@ -406,7 +406,7 @@ class AnnotationBuilderTest(unittest.TestCase):
                     )
 
             self.assertEqual(existing.read_text(encoding="utf-8"), "existing\n")
-            self.assertFalse((output_dir / "annotate.log").exists())
+            self.assertFalse((output_dir / "diagnostics" / "annotate.log").exists())
 
     def test_project_bed_annotations_refuses_stale_query_shard_without_overwrite(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -466,7 +466,8 @@ class AnnotationBuilderTest(unittest.TestCase):
                 )
 
             self.assertTrue((output_dir / "query.1.annot.gz").exists())
-            self.assertTrue((output_dir / "metadata.json").exists())
+            self.assertTrue((output_dir / "diagnostics" / "metadata.json").exists())
+            self.assertFalse((output_dir / "metadata.json").exists())
             self.assertFalse(stale.exists())
 
     def test_identity_cleanup_sidecar_is_written_for_annotate_outputs(self):
@@ -489,15 +490,16 @@ class AnnotationBuilderTest(unittest.TestCase):
                 output_dir=output_dir,
             )
 
-            sidecar = output_dir / "dropped_snps" / "dropped.tsv.gz"
+            sidecar = output_dir / "diagnostics" / "dropped_snps" / "dropped.tsv.gz"
             self.assertTrue(sidecar.exists())
-            metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
+            self.assertFalse((output_dir / "metadata.json").exists())
+            metadata = json.loads((output_dir / "diagnostics" / "metadata.json").read_text(encoding="utf-8"))
             self.assertEqual(metadata["artifact_type"], "annotation_projection")
             self.assertEqual(metadata["snp_identifier"], "chr_pos")
             self.assertEqual(metadata["genome_build"], "hg38")
             self.assertEqual(
                 metadata["files"],
-                {"query_annotations": ["query.1.annot.gz"], "dropped_snps": "dropped_snps/dropped.tsv.gz"},
+                {"query_annotations": ["query.1.annot.gz"], "dropped_snps": "diagnostics/dropped_snps/dropped.tsv.gz"},
             )
             self.assertNotIn("format", metadata)
             dropped = pd.read_csv(sidecar, sep="\t", compression="gzip")
@@ -521,9 +523,10 @@ class AnnotationBuilderTest(unittest.TestCase):
                 output_dir=output_dir,
             )
 
-            sidecar = output_dir / "dropped_snps" / "dropped.tsv.gz"
+            sidecar = output_dir / "diagnostics" / "dropped_snps" / "dropped.tsv.gz"
             self.assertTrue(sidecar.exists())
-            self.assertTrue((output_dir / "metadata.json").exists())
+            self.assertTrue((output_dir / "diagnostics" / "metadata.json").exists())
+            self.assertFalse((output_dir / "metadata.json").exists())
             dropped = pd.read_csv(sidecar, sep="\t", compression="gzip")
             self.assertEqual(
                 list(dropped.columns),
@@ -579,8 +582,9 @@ class AnnotationBuilderTest(unittest.TestCase):
 
             self.assertEqual(bundle.query_columns, ["query"])
             self.assertTrue((output_dir / "query.1.annot.gz").exists())
-            self.assertTrue((output_dir / "metadata.json").exists())
-            self.assertTrue((output_dir / "annotate.log").exists())
+            self.assertTrue((output_dir / "diagnostics" / "metadata.json").exists())
+            self.assertFalse((output_dir / "metadata.json").exists())
+            self.assertTrue((output_dir / "diagnostics" / "annotate.log").exists())
 
     def test_parse_fixture_annotation(self):
         builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())

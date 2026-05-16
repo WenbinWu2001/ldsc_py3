@@ -12,10 +12,11 @@ Python dataclasses and a small service object. The public workflow boundary
 accepts path-like inputs, normalizes them once, and then passes primitive
 values into the internal kernel so numerical behavior stays aligned with
 established LDSC outputs. The workflow layer owns CLI orchestration, output
-preflight, the fixed ``sumstats.log`` file, metadata sidecars, and result
+preflight, root ``metadata.json``, diagnostics, and result
 objects; the kernel keeps the legacy-compatible parsing and filtering
 primitives. Run summaries and metadata expose curated data artifacts only;
-the log is an audit file and is not included in ``output_paths``.
+``diagnostics/sumstats.log`` is an audit file and is not included in
+``output_paths``.
 Summary-statistics metadata sidecars stay thin for downstream compatibility;
 coordinate and liftover provenance is written as readable workflow-log text.
 """
@@ -228,7 +229,7 @@ class MungeRunSummary:
     """Compact summary of one munging run.
 
     ``output_paths`` records curated sumstats data artifacts and the metadata
-    sidecar. It intentionally excludes ``sumstats.log`` so Python result
+    sidecar. It intentionally excludes ``diagnostics/sumstats.log`` so Python result
     contracts stay aligned with other workflow modules.
     """
     n_input_rows: int
@@ -376,9 +377,9 @@ class SumstatsMunger:
             explicit column hints still take priority.
         munge_config : MungeConfig
             Munging thresholds, output directory, and curated output format. The
-            workflow writes fixed files named ``sumstats.parquet`` and/or
-            ``sumstats.sumstats.gz`` plus ``sumstats.log`` and
-            ``metadata.json`` inside ``munge_config.output_dir``. Any
+            workflow writes fixed root data files named ``sumstats.parquet``
+            and/or ``sumstats.sumstats.gz``, root ``metadata.json``, and
+            diagnostics under ``diagnostics/``. Any
             existing owned ``sumstats.*`` artifact is refused before the kernel
             runs unless ``munge_config.overwrite`` is true; successful
             overwrites remove stale sibling formats that the current run did
@@ -412,7 +413,8 @@ class SumstatsMunger:
             returned table and the written curated artifact(s).
             Output paths for the corresponding disk artifacts are available
             through :meth:`build_run_summary`; the workflow log is written to
-            ``sumstats.log`` but is not included in that result mapping.
+            ``diagnostics/sumstats.log`` but is not included in that result
+            mapping.
         """
         if munge_config is None:
             munge_config = raw_sumstats_config
@@ -432,19 +434,24 @@ class SumstatsMunger:
             source_path, raw_sumstats_config, munge_config
         )
         output_dir = ensure_output_directory(munge_config.output_dir, label="output directory")
+        diagnostics_dir = output_dir / "diagnostics"
         fixed_output_stem = str(output_dir / "sumstats")
         metadata_path = output_dir / "metadata.json"
         output_files = _sumstats_output_files(fixed_output_stem, munge_config.output_format)
-        log_path = fixed_output_stem + ".log"
-        dropped_snps_path = output_dir / "dropped_snps" / "dropped.tsv.gz"
+        log_path = str(diagnostics_dir / "sumstats.log")
+        dropped_snps_path = diagnostics_dir / "dropped_snps" / "dropped.tsv.gz"
         sumstats_snps_path = _sumstats_snps_file_from_config(munge_config)
         sumstats_snps_label = "none" if sumstats_snps_path is None else str(sumstats_snps_path)
         produced_paths = [*output_files.values(), metadata_path, log_path, dropped_snps_path]
+        legacy_log_path = fixed_output_stem + ".log"
+        legacy_dropped_snps_path = output_dir / "dropped_snps" / "dropped.tsv.gz"
         owned_paths = [
             *_sumstats_output_files(fixed_output_stem, "both").values(),
             metadata_path,
             log_path,
             dropped_snps_path,
+            legacy_log_path,
+            legacy_dropped_snps_path,
         ]
         # See path_resolution.preflight_output_artifact_family for the
         # owned_paths/produced_paths split. The dropped-SNP sidecar is in both
@@ -456,6 +463,7 @@ class SumstatsMunger:
             label="munged output artifact",
         )
         args = self._build_args(raw_sumstats_config, munge_config, config_snapshot, liftover_request)
+        diagnostics_dir.mkdir(parents=True, exist_ok=True)
         with workflow_logging("munge-sumstats", log_path, log_level=config_snapshot.log_level):
             log_inputs(
                 raw_sumstats_file=source_path,
@@ -594,7 +602,7 @@ class SumstatsMunger:
         Notes
         -----
         This helper follows the public workflow naming policy but does not
-        create ``sumstats.log`` because no raw munging kernel is run. A config
+        create ``diagnostics/sumstats.log`` because no raw munging kernel is run. A config
         snapshot is required so the root ``metadata.json``
         sidecar can be written for downstream provenance recovery.
         """

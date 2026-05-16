@@ -83,8 +83,8 @@ ldscore_result = LDScoreCalculator().run(
     ),
 )
 
-# Current disk-loaded sumstats recover config_snapshot from
-# sumstats.metadata.json. Old package-written artifacts without current
+# Current disk-loaded sumstats recover config_snapshot from root
+# metadata.json. Old package-written artifacts without current
 # provenance must be regenerated with the current LDSC package.
 sumstats = load_sumstats("tutorial_outputs/trait/sumstats.parquet", trait_name="trait")
 
@@ -107,7 +107,7 @@ print(cell_specific)
 
 The LD-score result and annotation bundle retain known `GlobalConfig`
 snapshots. Current disk-loaded sumstats recover the same provenance from
-`sumstats.metadata.json`. Old package-written sumstats artifacts without current
+root `metadata.json`. Old package-written sumstats artifacts without current
 provenance must be regenerated with the current LDSC package. With
 `snp_identifier="chr_pos_allele_aware"`, the merge uses normalized
 `CHR:POS:<allele_set>` identity rather than rsIDs, and the `SNP` column remains
@@ -118,8 +118,8 @@ accepted. If raw sumstats coordinates need a build
 conversion before this regression step, run `munge-sumstats` with
 `--target-genome-build` plus either `--liftover-chain-file` or
 `--use-hm3-snps --use-hm3-quick-liftover`. Liftover drops duplicate source/target coordinate
-groups, writes count summaries to `sumstats.log`, and audits row-level drops in
-`dropped_snps/dropped.tsv.gz`; examples appear only at `DEBUG`. The metadata
+groups, writes count summaries to `diagnostics/sumstats.log`, and audits row-level drops in
+`diagnostics/dropped_snps/dropped.tsv.gz`; examples appear only at `DEBUG`. The metadata
 sidecar remains a thin compatibility artifact. `munge-sumstats` defaults to
 `--format auto`; run it with `--infer-only` to inspect the detected raw format,
 inferred columns, INFO-list handling, and missing fields before writing
@@ -160,23 +160,23 @@ ldsc partitioned-h2 \
 ```
 
 The regression reads query annotation columns from
-`tutorial_outputs/cell_specific_ldscores/manifest.json` and
+`tutorial_outputs/cell_specific_ldscores/metadata.json` and
 `ldscore.query.parquet`. The LD-score parquet files are flat files with
-chromosome-aligned row groups, and the manifest lists those row groups for
+chromosome-aligned row groups, and the metadata lists those row groups for
 targeted chromosome reads. The output file is
 `tutorial_outputs/cell_specific_ldsc/partitioned_h2.tsv`, with
-`partitioned-h2.log` in the same directory. Its key columns are
+`diagnostics/partitioned-h2.log` under the same directory. Its key columns are
 `Category`, `Prop._SNPs`, `Prop._h2`, `Enrichment`, `Enrichment_p`,
 `Coefficient`, and `Coefficient_p`.
 For full column definitions, see
 [partitioned-h2-results.md](../docs/current/partitioned-h2-results.md).
 With `--write-per-query-results`, the command also writes
-`tutorial_outputs/cell_specific_ldsc/query_annotations/manifest.tsv` and one
+`tutorial_outputs/cell_specific_ldsc/diagnostics/query_annotations/manifest.tsv` and one
 sanitized folder per cell-type query annotation. Each folder contains the
 one-row query summary, the baseline-plus-query `partitioned_h2_full.tsv`, and
 `metadata.json` with the original annotation name.
 If the partitioned summary already exists, `ldsc partitioned-h2` fails before
-writing; the same is true for `partitioned-h2.log` and any stale
-`query_annotations/` tree. Add `--overwrite` only when replacing it is
+writing; the same is true for `diagnostics/partitioned-h2.log` and any stale
+`diagnostics/query_annotations/` tree. Add `--overwrite` only when replacing it is
 intentional. If an overwrite rerun omits `--write-per-query-results`, the old
 per-query tree is removed after the new aggregate summary is written.

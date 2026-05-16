@@ -5,8 +5,8 @@ Overview
 This module owns the supported annotation workflow: path-token resolution,
 annotation bundle loading, BED-to-SNP projection, CLI argument parsing, genome
 build resolution, output preflight, and fixed ``query.<chrom>.annot.gz``
-writing. Parsed workflow entry points also write ``annotate.log`` beside the
-query shards; direct in-memory calls stay log-file free. Use this module for
+writing. Parsed workflow entry points also write ``diagnostics/annotate.log``;
+direct in-memory calls stay log-file free. Use this module for
 public annotation API calls; use
 ``ldsc._kernel.annotation`` only for low-level table and BED primitives.
 
@@ -602,7 +602,8 @@ class AnnotationBuilder:
         unless overwrite is true; successful overwrites remove stale query
         shards outside the current chromosome set. Public workflow wrappers may
         attach a private log path so the same preflight also protects
-        ``annotate.log``; ordinary direct calls do not create a log file.
+        ``diagnostics/annotate.log``; ordinary direct calls do not create a
+        log file.
 
         Parameters
         ----------
@@ -618,7 +619,7 @@ class AnnotationBuilder:
         log_level : str, optional
             Logging threshold for standalone projection calls. When the method
             is reached from the parsed workflow wrapper, the same threshold
-            controls records written to ``annotate.log``.
+            controls records written to ``diagnostics/annotate.log``.
         overwrite : bool, optional
             Whether fixed output files may be replaced and stale owned siblings
             removed. Defaults to the builder configuration when omitted.
@@ -638,12 +639,20 @@ class AnnotationBuilder:
         bundle = self.run(source_spec)
         if output_dir is not None:
             output_path = ensure_output_directory(output_dir, label="output directory")
-            metadata_path = output_path / "metadata.json"
+            diagnostics_dir = output_path / "diagnostics"
+            metadata_path = diagnostics_dir / "metadata.json"
             drop_sidecar_path = _annotation_dropped_snps_path(output_path)
             output_paths = _bundle_query_annot_output_paths(bundle, output_path)
             produced_paths: list[Path] = [metadata_path, *output_paths, drop_sidecar_path]
             owned_paths = sorted(output_path.glob("query.*.annot.gz"))
             owned_paths.extend(produced_paths)
+            owned_paths.extend(
+                [
+                    output_path / "metadata.json",
+                    output_path / "dropped_snps",
+                    output_path / "annotate.log",
+                ]
+            )
             if self._workflow_log_path is not None:
                 produced_paths.append(self._workflow_log_path)
                 owned_paths.append(self._workflow_log_path)
@@ -653,6 +662,7 @@ class AnnotationBuilder:
                 overwrite=overwrite,
                 label="annotation output artifact",
             )
+            diagnostics_dir.mkdir(parents=True, exist_ok=True)
             with workflow_logging("annotate", self._workflow_log_path, log_level=log_level or self.global_config.log_level):
                 log_inputs(
                     query_annot_bed_sources=query_annot_bed_sources,
@@ -728,8 +738,8 @@ def run_bed_to_annot(
     fixed ``query.<chrom>.annot.gz`` outputs are refused before writing unless
     ``overwrite=True``. With overwrite enabled, stale query shards from earlier
     chromosome sets are removed after successful writes. The wrapper also
-    writes ``annotate.log`` in the same directory; the returned bundle remains
-    an in-memory data object and does not expose the log path.
+    writes ``diagnostics/annotate.log``; the returned bundle remains an
+    in-memory data object and does not expose the log path.
 
     Parameters
     ----------
@@ -774,7 +784,7 @@ def _run_bed_to_annot_with_global_config(
     build_config = AnnotationBuildConfig(query_annot_bed_sources=query_annot_bed_sources)
     builder = AnnotationBuilder(global_config, build_config)
     if output_dir is not None:
-        builder._workflow_log_path = Path(output_dir) / "annotate.log"
+        builder._workflow_log_path = Path(output_dir) / "diagnostics" / "annotate.log"
     return builder.project_bed_annotations(
         query_annot_bed_sources=query_annot_bed_sources,
         baseline_annot_sources=baseline_annot_sources,
@@ -963,7 +973,7 @@ def _write_bundle_query_as_annot_files(bundle: AnnotationBundle, output_dir: Pat
 
 def _annotation_dropped_snps_path(output_dir: Path) -> Path:
     """Return the aggregate annotation identity-cleanup audit sidecar path."""
-    return output_dir / "dropped_snps" / "dropped.tsv.gz"
+    return output_dir / "diagnostics" / "dropped_snps" / "dropped.tsv.gz"
 
 
 def _write_annotation_metadata(
@@ -975,11 +985,12 @@ def _write_annotation_metadata(
     dropped_snps_path: Path,
     written_query_paths: Sequence[Path],
 ) -> None:
-    """Write root metadata for an annotation projection output directory."""
+    """Write diagnostic metadata for an annotation projection output directory."""
     config = bundle.config_snapshot
+    output_dir = path.parent.parent
     files = {
-        "query_annotations": [path.name for path in written_query_paths],
-        "dropped_snps": str(dropped_snps_path.relative_to(path.parent)),
+        "query_annotations": [str(query_path.relative_to(output_dir)) for query_path in written_query_paths],
+        "dropped_snps": str(dropped_snps_path.relative_to(output_dir)),
     }
     payload = {
         "schema_version": 1,

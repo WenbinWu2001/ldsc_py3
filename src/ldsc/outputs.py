@@ -14,7 +14,7 @@ current result did not produce.
 Partitioned-h2 regression summaries use the same directory-oriented output
 policy. ``PartitionedH2DirectoryWriter`` always writes the compact aggregate
 ``partitioned_h2.tsv`` and can optionally stage a per-query
-``query_annotations`` tree with ``manifest.tsv``, one-row
+``diagnostics/query_annotations`` tree with ``manifest.tsv``, one-row
 ``partitioned_h2.tsv`` summaries, full ``partitioned_h2_full.tsv`` category
 tables, and ``metadata.json`` files before moving it into place.
 """
@@ -56,7 +56,7 @@ def _cast_parquet_floats(df: pd.DataFrame) -> pd.DataFrame:
 def _write_chromosome_aligned_parquet(
     df: pd.DataFrame, path: Path, compression: str | None
 ) -> list[dict]:
-    """Write one parquet row group per chromosome and return manifest metadata.
+    """Write one parquet row group per chromosome and return row-group metadata.
 
     The input frame must contain a ``CHR`` column and is assumed to already be
     sorted by genomic position. ``groupby(sort=False)`` preserves that order,
@@ -164,7 +164,7 @@ class H2OutputConfig:
     Parameters
     ----------
     output_dir : str or os.PathLike[str]
-        Directory that receives ``h2.tsv`` and ``metadata.json``.
+        Directory that receives ``h2.tsv`` and diagnostic metadata.
     overwrite : bool, optional
         If ``True``, replace existing fixed h2 outputs. Default is ``False``.
     """
@@ -178,7 +178,7 @@ class H2OutputConfig:
 
 
 class H2DirectoryWriter:
-    """Write the unpartitioned h2 summary and metadata sidecar."""
+    """Write the unpartitioned h2 summary and diagnostic metadata sidecar."""
 
     def write(
         self,
@@ -187,20 +187,23 @@ class H2DirectoryWriter:
         *,
         metadata: dict[str, object],
     ) -> dict[str, str]:
-        """Write ``h2.tsv`` and ``metadata.json`` to a result directory.
+        """Write ``h2.tsv`` and ``diagnostics/metadata.json`` to a result directory.
 
         Existing fixed h2 artifacts are checked before any output file is
         written. Replacement requires ``output_config.overwrite=True``.
         """
         output_dir = ensure_output_directory(output_config.output_dir, label="output directory")
         summary_path = output_dir / "h2.tsv"
-        metadata_path = output_dir / "metadata.json"
+        diagnostics_dir = output_dir / "diagnostics"
+        metadata_path = diagnostics_dir / "metadata.json"
+        legacy_metadata_path = output_dir / "metadata.json"
         preflight_output_artifact_family(
             [summary_path, metadata_path],
-            [summary_path, metadata_path],
+            [summary_path, metadata_path, legacy_metadata_path],
             overwrite=output_config.overwrite,
             label="h2 output artifact",
         )
+        diagnostics_dir.mkdir(parents=True, exist_ok=True)
         _atomic_write_dataframe(summary, summary_path)
         _atomic_write_json(
             _result_metadata(metadata, artifact_type="h2_result", files={"summary": "h2.tsv"}),
@@ -413,13 +416,13 @@ class PartitionedH2OutputConfig:
     ----------
     output_dir : str or os.PathLike[str]
         Directory that receives ``partitioned_h2.tsv`` and, when requested,
-        the optional ``query_annotations`` per-query result tree.
+        the optional ``diagnostics/query_annotations`` per-query result tree.
     overwrite : bool, optional
         If ``True``, replace existing fixed partitioned-h2 outputs and remove
         stale owned siblings after a successful write. Default is ``False``.
     write_per_query_results : bool, optional
         If ``True``, also write one subdirectory per query annotation under
-        ``query_annotations``. Default is ``False``.
+        ``diagnostics/query_annotations``. Default is ``False``.
     """
 
     output_dir: str | PathLike[str]
@@ -436,8 +439,9 @@ class PartitionedH2DirectoryWriter:
 
     The writer owns the fixed regression summary layout:
     ``partitioned_h2.tsv`` at the output root uses the compact public schema,
-    while optional query folders contain the same one-row summary plus a full
-    baseline-plus-query ``partitioned_h2_full.tsv`` table. The per-query tree
+    while optional diagnostic query folders contain the same one-row summary
+    plus a full baseline-plus-query ``partitioned_h2_full.tsv`` table. The
+    per-query tree
     is written to a temporary sibling directory before it is moved into the
     final location, so ordinary validation and I/O failures do not expose a
     partially populated final tree.
@@ -488,22 +492,26 @@ class PartitionedH2DirectoryWriter:
         self._validate_summary(summary)
         output_dir = ensure_output_directory(output_config.output_dir, label="output directory")
         summary_path = output_dir / "partitioned_h2.tsv"
-        metadata_path = output_dir / "metadata.json"
-        query_root = output_dir / "query_annotations"
+        diagnostics_dir = output_dir / "diagnostics"
+        metadata_path = diagnostics_dir / "metadata.json"
+        query_root = diagnostics_dir / "query_annotations"
+        legacy_metadata_path = output_dir / "metadata.json"
+        legacy_query_root = output_dir / "query_annotations"
         produced_paths = [summary_path, metadata_path]
         if output_config.write_per_query_results:
             produced_paths.append(query_root)
         stale_paths = preflight_output_artifact_family(
             produced_paths,
-            [summary_path, metadata_path, query_root],
+            [summary_path, metadata_path, query_root, legacy_metadata_path, legacy_query_root],
             overwrite=output_config.overwrite,
             label="partitioned-h2 output artifact",
         )
 
         root_files = {"summary": "partitioned_h2.tsv"}
         if output_config.write_per_query_results:
-            root_files["query_annotations"] = "query_annotations"
+            root_files["query_annotations"] = "diagnostics/query_annotations"
         paths = {"summary": str(summary_path), "metadata": str(metadata_path)}
+        diagnostics_dir.mkdir(parents=True, exist_ok=True)
         if not output_config.write_per_query_results:
             _atomic_write_dataframe(
                 _select_columns(summary, PARTITIONED_H2_AGGREGATE_COLUMNS, label="partitioned-h2 summary"),
@@ -517,9 +525,7 @@ class PartitionedH2DirectoryWriter:
             return paths
 
         query_records = self._query_records(summary)
-        staging_dir = Path(
-            tempfile.mkdtemp(prefix=".query_annotations.tmp.", dir=str(output_dir))
-        )
+        staging_dir = Path(tempfile.mkdtemp(prefix=".query_annotations.tmp.", dir=str(diagnostics_dir)))
         backup_dir: Path | None = None
         try:
             manifest_rows = self._write_staged_query_tree(
@@ -540,7 +546,7 @@ class PartitionedH2DirectoryWriter:
                 metadata_path,
             )
             if output_config.overwrite and query_root.exists():
-                backup_dir = Path(tempfile.mkdtemp(prefix=".query_annotations.backup.", dir=str(output_dir)))
+                backup_dir = Path(tempfile.mkdtemp(prefix=".query_annotations.backup.", dir=str(diagnostics_dir)))
                 backup_dir.rmdir()
                 os.replace(query_root, backup_dir)
             os.replace(staging_dir, query_root)
@@ -598,9 +604,9 @@ class PartitionedH2DirectoryWriter:
             query_dir = staging_dir / folder
             query_dir.mkdir(parents=True, exist_ok=False)
             query_summary = summary.loc[summary["Category"].astype(str) == query_name].reset_index(drop=True)
-            summary_rel = f"query_annotations/{folder}/partitioned_h2.tsv"
-            full_rel = f"query_annotations/{folder}/partitioned_h2_full.tsv"
-            metadata_rel = f"query_annotations/{folder}/metadata.json"
+            summary_rel = f"diagnostics/query_annotations/{folder}/partitioned_h2.tsv"
+            full_rel = f"diagnostics/query_annotations/{folder}/partitioned_h2_full.tsv"
+            metadata_rel = f"diagnostics/query_annotations/{folder}/metadata.json"
             _atomic_write_dataframe(
                 _select_columns(query_summary, PARTITIONED_H2_AGGREGATE_COLUMNS, label="query summary"),
                 query_dir / "partitioned_h2.tsv",
@@ -652,7 +658,7 @@ class RgOutputConfig:
         siblings after a successful write. Default is ``False``.
     write_per_pair_detail : bool, optional
         If ``True``, also write one subdirectory per tested pair under
-        ``pairs/``. Default is ``False``.
+        ``diagnostics/pairs/``. Default is ``False``.
     """
 
     output_dir: str | PathLike[str]
@@ -667,9 +673,10 @@ class RgOutputConfig:
 class RgDirectoryWriter:
     """Write concise, full, per-trait, and optional per-pair rg outputs.
 
-    The workflow-level logger owns ``rg.log``. This writer owns only the data
-    artifacts in the rg output family:
-    ``rg.tsv``, ``rg_full.tsv``, ``h2_per_trait.tsv``, and optional ``pairs/``.
+    The workflow-level logger owns ``diagnostics/rg.log``. This writer owns the public data
+    artifacts plus diagnostic metadata in the rg output family:
+    ``rg.tsv``, ``rg_full.tsv``, ``h2_per_trait.tsv``, and optional
+    ``diagnostics/pairs/``.
     The optional pair tree is staged before replacement so a failed write does
     not expose a partially populated final tree.
     """
@@ -710,17 +717,20 @@ class RgDirectoryWriter:
             raise ValueError("per_pair_metadata must contain one record per rg_full row when pair detail is enabled.")
 
         output_dir = ensure_output_directory(output_config.output_dir, label="output directory")
-        metadata_path = output_dir / "metadata.json"
+        diagnostics_dir = output_dir / "diagnostics"
+        metadata_path = diagnostics_dir / "metadata.json"
         rg_path = output_dir / "rg.tsv"
         full_path = output_dir / "rg_full.tsv"
         h2_path = output_dir / "h2_per_trait.tsv"
-        pairs_root = output_dir / "pairs"
+        pairs_root = diagnostics_dir / "pairs"
+        legacy_metadata_path = output_dir / "metadata.json"
+        legacy_pairs_root = output_dir / "pairs"
         produced_paths = [metadata_path, rg_path, full_path, h2_path]
         if output_config.write_per_pair_detail:
             produced_paths.append(pairs_root)
         stale_paths = preflight_output_artifact_family(
             produced_paths,
-            [metadata_path, rg_path, full_path, h2_path, pairs_root],
+            [metadata_path, rg_path, full_path, h2_path, pairs_root, legacy_metadata_path, legacy_pairs_root],
             overwrite=output_config.overwrite,
             label="rg output artifact",
         )
@@ -731,6 +741,7 @@ class RgDirectoryWriter:
             "rg_full": str(full_path),
             "h2_per_trait": str(h2_path),
         }
+        diagnostics_dir.mkdir(parents=True, exist_ok=True)
         if not output_config.write_per_pair_detail:
             _atomic_write_dataframe(rg, rg_path, na_rep="NaN")
             _atomic_write_dataframe(rg_full, full_path, na_rep="NaN")
@@ -740,7 +751,7 @@ class RgDirectoryWriter:
             return paths
 
         pair_records = self._pair_records(rg_full, per_pair_metadata)
-        staging_dir = Path(tempfile.mkdtemp(prefix=".pairs.tmp.", dir=str(output_dir)))
+        staging_dir = Path(tempfile.mkdtemp(prefix=".pairs.tmp.", dir=str(diagnostics_dir)))
         backup_dir: Path | None = None
         try:
             manifest_rows = self._write_staged_pair_tree(staging_dir, pair_records, rg_full)
@@ -750,7 +761,7 @@ class RgDirectoryWriter:
             _atomic_write_dataframe(h2_per_trait, h2_path, na_rep="NaN")
             _atomic_write_json(_rg_root_metadata(result, include_pairs=True), metadata_path)
             if output_config.overwrite and pairs_root.exists():
-                backup_dir = Path(tempfile.mkdtemp(prefix=".pairs.backup.", dir=str(output_dir)))
+                backup_dir = Path(tempfile.mkdtemp(prefix=".pairs.backup.", dir=str(diagnostics_dir)))
                 backup_dir.rmdir()
                 os.replace(pairs_root, backup_dir)
             os.replace(staging_dir, pairs_root)
@@ -804,8 +815,8 @@ class RgDirectoryWriter:
             pair_dir = staging_dir / folder
             pair_dir.mkdir(parents=True, exist_ok=False)
             row = rg_full.iloc[[int(record["ordinal"]) - 1]].reset_index(drop=True)
-            detail_rel = f"pairs/{folder}/rg_full.tsv"
-            metadata_rel = f"pairs/{folder}/metadata.json"
+            detail_rel = f"diagnostics/pairs/{folder}/rg_full.tsv"
+            metadata_rel = f"diagnostics/pairs/{folder}/metadata.json"
             _atomic_write_dataframe(row, pair_dir / "rg_full.tsv", na_rep="NaN")
             payload = {
                 **dict(record["metadata"]),
@@ -858,7 +869,7 @@ def _result_metadata(
 
 
 def _rg_root_metadata(result: Any, *, include_pairs: bool) -> dict[str, object]:
-    """Build root metadata for an rg result directory from available result tables."""
+    """Build diagnostic metadata for an rg result directory from result tables."""
     rg_full = getattr(result, "rg_full", pd.DataFrame())
     h2_per_trait = getattr(result, "h2_per_trait", pd.DataFrame())
     files = {
@@ -867,7 +878,7 @@ def _rg_root_metadata(result: Any, *, include_pairs: bool) -> dict[str, object]:
         "h2_per_trait": "h2_per_trait.tsv",
     }
     if include_pairs:
-        files["pairs"] = "pairs"
+        files["pairs"] = "diagnostics/pairs"
     trait_names: list[str] = []
     if "trait_name" in h2_per_trait.columns:
         trait_names = [str(value) for value in h2_per_trait["trait_name"].dropna().tolist()]

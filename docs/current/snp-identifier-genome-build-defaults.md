@@ -103,7 +103,7 @@ because they serve different user models.
 | `munge-sumstats` | `chr_pos_allele_aware` | workflow default/inference | Requires usable `A1/A2`; rerun with `--snp-identifier chr_pos` or `--snp-identifier rsid` to run without allele-aware identity. The removed `--no-alleles` flag is not accepted. |
 | `ldscore` | `chr_pos_allele_aware` | `None` (CLI requires explicit for coordinate-family modes) | Allele-aware parquet mode requires package-built canonical R2 endpoint alleles. |
 | `build-ref-panel` | registry or `--snp-identifier` | **ignored** | Uses `--source-genome-build` (separate field); `GlobalConfig.genome_build` is never consulted. |
-| `h2`, `partitioned-h2`, `rg` | registry at construction | registry at construction | On-disk provenance from LD-score manifests and sumstats sidecars takes precedence over the runner's live config. |
+| `h2`, `partitioned-h2`, `rg` | registry at construction | registry at construction | On-disk provenance from LD-score and sumstats root `metadata.json` contracts takes precedence over the runner's live config. |
 | Python `run_ldscore()` wrapper | registry | registry (`"auto"`) | Inherits `chr_pos_allele_aware + auto` from the registry; `auto` is resolved to `hg19`/`hg38` during inference. |
 
 ### `build-ref-panel` isolation
@@ -123,7 +123,7 @@ never consumed by the workflow.
 Regression workflows (`h2`, `partitioned-h2`, `rg`) can see three independent
 `GlobalConfig` sources for any given run:
 
-1. The LD-score manifest snapshot — `LDScoreResult.config_snapshot`
+1. The LD-score root metadata snapshot — `LDScoreResult.config_snapshot`
 2. The reconstructed sumstats artifact snapshot — `SumstatsTable.config_snapshot`
 3. The runner's live `self.global_config` — from the process registry at construction time
 
@@ -150,7 +150,7 @@ are logged, not persisted in detail metadata.
 
 ### Failure modes by provenance state
 
-| LD manifest | Sumstats snapshot | Outcome |
+| LD metadata | Sumstats snapshot | Outcome |
 |---|---|---|
 | `rsid` | `rsid` | Pair check passes; merge uses `SNP` column. Runner's `chr_pos_allele_aware+auto` default is ignored. |
 | `rsid_allele_aware` | `rsid` | Raises unless `--allow-identity-downgrade`; with downgrade, merge uses `SNP` and base-mode duplicate cleanup. |
@@ -190,7 +190,7 @@ must supply `genome_build="auto"` or a concrete build.
 | `config.py` | `_GLOBAL_CONFIG` and `reset_global_config()` | `GlobalConfig()` — no explicit args needed |
 | `ref_panel_builder.py` | `config_from_args` | Add `genome_build="auto"` (satisfies invariant; value is ignored by the workflow) |
 | `sumstats_munger.py` | `_effective_sumstats_config` | Guard: `genome_build = coordinate_metadata.get("genome_build") or config.genome_build` so the effective in-memory snapshot uses inferred or lifted coordinates when available; new sidecars serialize only minimal identity provenance used to reconstruct that snapshot on reload |
-| `regression_runner.py` | manifest loading | Current manifests must carry minimal identity provenance; old package-written artifacts should be regenerated |
+| `regression_runner.py` | LD-score metadata loading | Current root metadata must carry minimal identity provenance; old package-written artifacts should be regenerated |
 | `regression_runner.py` | `build_dataset` empty-merge error | Append `f"Active config: {self.global_config!r}."` |
 
 Call sites in `ldscore_calculator.py` already resolve `genome_build` to a

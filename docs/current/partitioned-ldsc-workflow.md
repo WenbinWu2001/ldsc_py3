@@ -22,14 +22,16 @@ An LD-score run writes:
 
 ```text
 <ldscore_dir>/
-  manifest.json
+  metadata.json
   ldscore.baseline.parquet
   ldscore.query.parquet        # omitted when no query annotations were supplied
+  diagnostics/
+    ldscore.log
 ```
 
-`manifest.json` is the only metadata entry point. It contains:
+`metadata.json` is the downstream metadata contract. It contains:
 
-- `format: "ldsc.ldscore_result.v1"`
+- `schema_version` and `artifact_type: "ldscore"`
 - relative file paths for `baseline` and optional `query`
 - `snp_identifier`, `genome_build`, and processed `chromosomes`
 - ordered `baseline_columns` and `query_columns`
@@ -37,7 +39,7 @@ An LD-score run writes:
 - `config_snapshot`
 - basic row counts
 
-All paths inside the manifest are relative to `ldscore_dir`.
+All paths inside the metadata are relative to `ldscore_dir`.
 
 `ldscore.baseline.parquet` columns:
 
@@ -127,8 +129,8 @@ Regression commands still read munged summary statistics:
 
 Current `ldsc munge-sumstats` outputs include canonical `CHR` and `POS` columns
 beside `SNP`, `Z`, and `N`, write `sumstats.parquet` by default, write
-`sumstats.metadata.json` beside the table, and write
-`dropped_snps/dropped.tsv.gz` for row-level liftover-drop auditing. The metadata
+root `metadata.json` beside the table, and write
+`diagnostics/dropped_snps/dropped.tsv.gz` for row-level liftover-drop auditing. The metadata
 sidecar stores the thin compatibility payload: `schema_version`,
 `artifact_type`, `snp_identifier`, `genome_build`, and optional `trait_name`.
 Legacy package-written `.sumstats.gz`
@@ -150,7 +152,7 @@ The LD-score phase tracks these SNP sets:
 | C | Regression SNP mask | Optional identity-only mask from explicit `regression_snps_file` or packaged HM3 regression SNP restriction |
 | `ld_regression_snps` | Persisted row set | `B ∩ A' ∩ C`; equals `ld_reference_snps` when C is absent |
 
-LD-score column counts in the manifest are computed over `ld_reference_snps`.
+LD-score column counts in root metadata are computed over `ld_reference_snps`.
 Persisted parquet rows are `ld_regression_snps`.
 Explicit reference-panel and regression SNP restriction files are filters only:
 duplicate restriction keys collapse to one retained key, and non-identity
@@ -161,7 +163,7 @@ already supplied them.
 
 ## 5. Count Records
 
-The manifest stores counts as records keyed by column name, not by array
+Root metadata stores counts as records keyed by column name, not by array
 position:
 
 ```json
@@ -173,7 +175,7 @@ position:
 }
 ```
 
-The top-level manifest also records the threshold used to compute common counts:
+Root `metadata.json` also records the threshold used to compute common counts:
 
 ```json
 {
@@ -203,7 +205,7 @@ allele-aware/base mixes to run under the base mode. rsID-family and
 coordinate-family modes never mix.
 
 `partitioned-h2` requires `ldscore.query.parquet` and a non-empty `query_columns` list in
-the LD-score manifest. Baseline-only LD-score directories are valid inputs for
+the LD-score root metadata. Baseline-only LD-score directories are valid inputs for
 `h2` and `rg`, but `partitioned-h2` rejects them instead of treating the
 baseline as a query annotation. For each query column, it builds a regression
 dataset with:
@@ -214,18 +216,20 @@ baseline LD-score columns + one query LD-score column
 
 This keeps baseline annotations fixed while estimating one query annotation at a
 time. By default the CLI writes the compact aggregate `partitioned_h2.tsv` table
-plus `partitioned-h2.log`. With `--write-per-query-results`, it also writes a
-staged `query_annotations/` tree containing `manifest.tsv` and one sanitized
-folder per query annotation. Each query folder contains a one-row
+plus diagnostic files under `diagnostics/`. With `--write-per-query-results`,
+it also writes a staged `diagnostics/query_annotations/` tree containing
+`manifest.tsv` and one sanitized folder per query annotation. Each query folder contains a one-row
 `partitioned_h2.tsv`, the full fitted-model `partitioned_h2_full.tsv`, and
 `metadata.json`. The log is preflighted with the table outputs, but it is not
 part of returned `output_paths`.
 
-`partitioned-h2` treats `partitioned_h2.tsv`, `query_annotations/`, and
-`partitioned-h2.log` as one owned output family. Without `--overwrite`, any
+`partitioned-h2` treats `partitioned_h2.tsv`, `diagnostics/metadata.json`,
+`diagnostics/query_annotations/`, and `diagnostics/partitioned-h2.log` as one
+owned output family. Without `--overwrite`, any
 existing owned sibling rejects the run. With `--overwrite`, a successful
-aggregate-only run removes a stale `query_annotations/` tree from a previous
-per-query configuration.
+aggregate-only run removes a stale `diagnostics/query_annotations/` tree from a
+previous per-query configuration. If `--output-dir` is omitted, the CLI prints
+the compact `partitioned_h2.tsv` schema to stdout and writes no diagnostics.
 
 ## 7. CLI Examples
 
@@ -361,8 +365,8 @@ The public `LDScoreResult` shape is split:
 - `config_snapshot`
 - `output_paths`
 
-`output_paths` records scientific artifacts such as `manifest.json`,
+`output_paths` records scientific artifacts such as `metadata.json`,
 `ldscore.baseline.parquet`, and optional `ldscore.query.parquet`; workflow logs such as
-`ldscore.log` are audit files and are not included.
+`diagnostics/ldscore.log` are audit files and are not included.
 `RgOutputConfig(write_per_pair_detail=True)` controls the optional per-pair
 detail tree when writing `RgResultFamily` through `RgDirectoryWriter`.

@@ -852,7 +852,11 @@ def kernel_parser():
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Build the public summary-statistics munging parser."""
+    """Build the public summary-statistics munging parser.
+
+    The CLI leaves ``--genome-build`` unset by default so coordinate-family
+    runs must choose ``auto`` or an explicit build in the command line.
+    """
     public = argparse.ArgumentParser(description=getattr(parser, "description", None), allow_abbrev=False)
     public.add_argument("--raw-sumstats-file", required=True, help="Raw summary-statistics file path.")
     public.add_argument("--output-dir", default=None, help="Output directory for munged sumstats and logs.")

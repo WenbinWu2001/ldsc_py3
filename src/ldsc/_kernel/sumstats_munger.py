@@ -778,7 +778,7 @@ def _resolve_auto_genome_build_before_chunks(args, cname_translation, compressio
     shared genome-build inference module used by ref-panel-builder.
     """
     mode = normalize_snp_identifier_mode(getattr(args, 'snp_identifier', 'chr_pos_allele_aware'))
-    genome_build = normalize_genome_build(getattr(args, 'genome_build', 'hg38'))
+    genome_build = normalize_genome_build(getattr(args, 'genome_build', None))
     if identity_mode_family(mode) != 'chr_pos' or genome_build != 'auto':
         if identity_mode_family(mode) == 'chr_pos':
             args._coordinate_basis = '1-based'
@@ -855,7 +855,7 @@ def _finalize_coordinate_columns(dat, args):
         dat['POS'] = pd.NA
 
     mode = normalize_snp_identifier_mode(getattr(args, 'snp_identifier', 'chr_pos_allele_aware'))
-    genome_build = normalize_genome_build(getattr(args, 'genome_build', 'hg38'))
+    genome_build = normalize_genome_build(getattr(args, 'genome_build', None))
     existing_metadata = dict(getattr(args, '_coordinate_metadata', {}) or {})
     pre_inferred_basis = existing_metadata.get('coordinate_basis')
     source_columns = getattr(args, '_coordinate_source_columns', {})
@@ -1085,8 +1085,8 @@ parser.add_argument('--keep-maf', default=False, action='store_true',
                     help='Keep the MAF column (if one exists).')
 parser.add_argument('--snp-identifier', default='chr_pos_allele_aware', choices=('rsid', 'rsid_allele_aware', 'chr_pos', 'chr_pos_allele_aware'),
                     help="SNP identity mode for filtering, duplicate policy, and emitted artifact provenance. Allele-aware modes require usable A1/A2; base modes are allele-blind.")
-parser.add_argument('--genome-build', default='hg38', choices=('auto', 'hg19', 'hg37', 'GRCh37', 'hg38', 'GRCh38'),
-                    help="Genome build for CHR/POS coordinates, or 'auto' to infer when possible.")
+parser.add_argument('--genome-build', default=None, choices=('auto', 'hg19', 'hg37', 'GRCh37', 'hg38', 'GRCh38'),
+                    help="Genome build for CHR/POS coordinates. Required for chr_pos-family modes; use 'auto' to infer when possible.")
 
 
 # set p = False for testing in order to prevent printing
@@ -1110,7 +1110,7 @@ def munge_sumstats(args, p=True):
         raise ValueError('The --out flag is required.')
     args._coordinate_metadata = {
         'snp_identifier': normalize_snp_identifier_mode(getattr(args, 'snp_identifier', 'chr_pos_allele_aware')),
-        'genome_build': normalize_genome_build(getattr(args, 'genome_build', 'hg38')),
+        'genome_build': normalize_genome_build(getattr(args, 'genome_build', None)),
         'genome_build_inferred': False,
     }
 

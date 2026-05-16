@@ -46,7 +46,7 @@ DANER, and PGC VCF-style headers. Users can inspect the decision without
 writing outputs:
 
 ```bash
-ldsc munge-sumstats --raw-sumstats-file raw.txt --infer-only
+ldsc munge-sumstats --raw-sumstats-file raw.txt --infer-only --genome-build auto
 ```
 
 `--infer-only` reports the detected format, safe column hints, missing required
@@ -54,7 +54,7 @@ fields, INFO-list columns, notes, and a suggested minimal command. Normal runs
 still use the same minimal form when headers are inferable:
 
 ```bash
-ldsc munge-sumstats --raw-sumstats-file raw.txt --output-dir out
+ldsc munge-sumstats --raw-sumstats-file raw.txt --output-dir out --genome-build auto
 ```
 
 | Canonical field | Accepted aliases |

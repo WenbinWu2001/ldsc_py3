@@ -83,9 +83,11 @@ needs.
 
 Raw sumstats can be large, compressed, and sequential-access. In
 `chr_pos`-family modes (`chr_pos` and `chr_pos_allele_aware`),
-`ldsc munge-sumstats` resolves `--genome-build auto` before chunk parsing. After
-the raw header has been mapped to canonical columns, the kernel reads a
-lightweight `CHR`/`POS` view of the raw input and calls
+`ldsc munge-sumstats` leaves `--genome-build` unset by default and requires the
+CLI user to pass `--genome-build auto` or a concrete build. When `auto` is
+requested, the workflow resolves it before chunk parsing. After the raw header
+has been mapped to canonical columns, the kernel reads a lightweight `CHR`/`POS`
+view of the raw input and calls
 `resolve_chr_pos_table()`. The resolved source build and coordinate basis are
 then reused while each chunk is parsed.
 

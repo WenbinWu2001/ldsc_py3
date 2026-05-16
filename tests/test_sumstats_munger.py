@@ -103,6 +103,14 @@ class SumstatsMungerTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--output-format", "csv"])
 
+    def test_build_parser_defaults_genome_build_to_none(self):
+        parser = sumstats_workflow.build_parser()
+        self.assertIsNone(parser.get_default("genome_build"))
+
+        args = parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out"])
+
+        self.assertIsNone(args.genome_build)
+
     def test_build_parser_defaults_log_level_to_info(self):
         parser = sumstats_workflow.build_parser()
         self.assertEqual(parser.get_default("log_level"), "INFO")
@@ -1373,10 +1381,28 @@ class SumstatsMungerTest(unittest.TestCase):
                         str(tmpdir / "out"),
                         "--sumstats-snps-file",
                         str(keep_path),
+                        "--genome-build",
+                        "auto",
                     ]
                 )
 
             self.assertEqual(patched_munge.call_args.args[0].sumstats_snps, str(keep_path))
+
+    def test_main_requires_genome_build_for_default_coordinate_mode(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text("CHR POS SNP A1 A2 P N\n1 100 rs1 A G 0.05 1000\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "Pass --genome-build auto"):
+                sumstats_workflow.main(
+                    [
+                        "--raw-sumstats-file",
+                        str(raw_path),
+                        "--output-dir",
+                        str(tmpdir / "out"),
+                    ]
+                )
 
     def test_run_creates_output_dir(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2361,7 +2387,9 @@ class SumstatsMungerTest(unittest.TestCase):
             stdout = io.StringIO()
 
             with contextlib.redirect_stdout(stdout):
-                result = sumstats_workflow.main(["--raw-sumstats-file", str(raw_path), "--infer-only"])
+                result = sumstats_workflow.main(
+                    ["--raw-sumstats-file", str(raw_path), "--infer-only", "--genome-build", "auto"]
+                )
 
             output = stdout.getvalue()
             self.assertEqual(result.detected_format, "daner-old")
@@ -2414,7 +2442,9 @@ class SumstatsMungerTest(unittest.TestCase):
             stdout = io.StringIO()
 
             with contextlib.redirect_stdout(stdout):
-                result = sumstats_workflow.main(["--raw-sumstats-file", str(raw_path), "--infer-only"])
+                result = sumstats_workflow.main(
+                    ["--raw-sumstats-file", str(raw_path), "--infer-only", "--genome-build", "auto"]
+                )
 
             output = stdout.getvalue()
             self.assertEqual(result.signed_sumstats_spec, "EFFECT_SIZE,0")
@@ -2433,7 +2463,9 @@ class SumstatsMungerTest(unittest.TestCase):
             stdout = io.StringIO()
 
             with contextlib.redirect_stdout(stdout):
-                result = sumstats_workflow.main(["--raw-sumstats-file", str(raw_path), "--infer-only"])
+                result = sumstats_workflow.main(
+                    ["--raw-sumstats-file", str(raw_path), "--infer-only", "--genome-build", "auto"]
+                )
 
             output = stdout.getvalue()
             self.assertFalse(result.runnable)

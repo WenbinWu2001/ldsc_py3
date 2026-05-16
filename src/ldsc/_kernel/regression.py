@@ -38,6 +38,14 @@ FLIP_ALLELES = {''.join(x):
 s = lambda x: remove_brackets(str(np.asarray(x)))
 
 
+def _scalar_float(x):
+    """Return a Python float from a scalar or one-element array-like value."""
+    values = np.ravel(x)
+    if values.size != 1:
+        raise TypeError(f"expected exactly one numeric value, got shape {np.shape(x)}")
+    return float(values[0])
+
+
 def update_separators(s, ii):
     '''s are separators with ii masked. Returns unmasked separators.'''
     maplist = np.arange(len(ii))[np.squeeze(ii)]
@@ -739,9 +747,9 @@ class RG(object):
                 np.multiply(hsq1.tot_delete_values, hsq2.tot_delete_values))
             rg = jk.RatioJackknife(
                 rg_ratio, gencov.tot_delete_values, denom_delete_values)
-            self.rg_jknife = float(rg.jknife_est)
-            self.rg_se = float(rg.jknife_se)
-            self.rg_ratio = float(rg_ratio)
+            self.rg_jknife = _scalar_float(rg.jknife_est)
+            self.rg_se = _scalar_float(rg.jknife_se)
+            self.rg_ratio = _scalar_float(rg_ratio)
             self.p, self.z = p_z_norm(self.rg_ratio, self.rg_se)
 
     def summary(self, silly=False):

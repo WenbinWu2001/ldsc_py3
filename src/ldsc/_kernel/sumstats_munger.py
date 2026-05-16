@@ -47,7 +47,7 @@ from ..column_inference import (
     normalize_genome_build,
     normalize_snp_identifier_mode,
 )
-from ..genome_build_inference import resolve_chr_pos_table
+from ..genome_build_inference import collect_chr_pos_build_evidence_frame, resolve_chr_pos_table
 from . import regression as sumstats
 from .identifiers import (
     build_packed_chr_pos_series,
@@ -68,6 +68,8 @@ from .snp_identity import (
     restriction_membership_mask,
 )
 np.seterr(invalid='ignore')
+
+_BUILD_INFERENCE_CHUNKSIZE = 5_000
 
 LOGGER = logging.getLogger("LDSC.sumstats_munger.kernel")
 
@@ -835,7 +837,7 @@ def _read_raw_sumstats_coordinate_frame(args, cname_translation, *, compression,
             "Pass --chr/--pos column hints, or pass --genome-build hg19 or --genome-build hg38 explicitly."
         )
     raw_columns = [raw_chr[0], raw_pos[0]]
-    frame = pd.read_csv(
+    reader = pd.read_csv(
         args.sumstats,
         sep=r'\s+',
         header=0,
@@ -843,8 +845,10 @@ def _read_raw_sumstats_coordinate_frame(args, cname_translation, *, compression,
         usecols=raw_columns,
         na_values=['.', 'NA'],
         skiprows=metadata_skiprows,
+        chunksize=_BUILD_INFERENCE_CHUNKSIZE,
     )
-    return frame.rename(columns={raw_chr[0]: 'CHR', raw_pos[0]: 'POS'})
+    frames = (chunk.rename(columns={raw_chr[0]: 'CHR', raw_pos[0]: 'POS'}) for chunk in reader)
+    return collect_chr_pos_build_evidence_frame(frames, context=getattr(args, 'sumstats', 'sumstats'))
 
 
 def _finalize_coordinate_columns(dat, args):

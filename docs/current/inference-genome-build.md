@@ -73,12 +73,17 @@ needs.
 | Input type | Strategy |
 |---|---|
 | Packaged inference reference | Load the compact 11,000-SNP HM3 coordinate reference once, then reuse from cache |
-| Raw sumstats text / `.gz` | Kernel-side normalization of munged `CHR` + `POS`, with build inference when requested |
+| Raw sumstats text / `.gz` | Stream lightweight `CHR`/`POS` chunks into the HM3 evidence accumulator and stop once evidence is sufficient |
 | Annotation chromosome-suite inputs | Read a small head sample from the first resolvable `@` chromosome file |
 | `ldscore --r2-dir` directory | Locate candidate R2 parquet files, then infer from `ldsc:sorted_by_build` schema metadata |
-| PLINK `.bim` source panel | `build-ref-panel` reads `.bim` `CHR/BP` rows before SNP restriction when `source_genome_build` is `auto` |
+| PLINK `.bim` source panel | Stream `.bim` `CHR/BP` chunks into the HM3 evidence accumulator before SNP restriction when `source_genome_build` is `auto` |
 | build-ref-panel SNP restriction generic `POS` | Infer the restriction file's local build and require it to match the source PLINK build |
 | Canonical parquet R2 reference panel | Prefer schema metadata; otherwise inspect the first row group |
+
+Adaptive evidence collection is intentionally limited to large sequential
+inputs: raw summary statistics and PLINK `.bim` source panels. Small
+chromosome-suite artifacts keep their fixed head-sample behavior, and
+metadata-backed parquet artifacts remain metadata-first.
 
 ## Raw Sumstats
 
@@ -87,11 +92,10 @@ Raw sumstats can be large, compressed, and sequential-access. In
 `ldsc munge-sumstats` defaults `--source-genome-build` to `auto` and requires
 `--output-genome-build hg19` or `--output-genome-build hg38` in `chr_pos`-family
 modes. When source `auto` is requested, the workflow resolves it before chunk parsing.
-After the raw header
-has been mapped to canonical columns, the kernel reads a lightweight `CHR`/`POS`
-view of the raw input and calls
-`resolve_chr_pos_table()`. The resolved source build and coordinate basis are
-then reused while each chunk is parsed.
+After the raw header has been mapped to canonical columns, the workflow streams
+lightweight `CHR`/`POS` chunks into the shared build-evidence accumulator and
+stops once the inference thresholds are met. The resolved source build and
+coordinate basis are then reused while each chunk is parsed.
 
 The build resolver uses `GenomeBuildEvidenceAccumulator` from
 `genome_build_inference.py`:
@@ -123,6 +127,20 @@ separate steps. The metadata sidecar records the final output build in its
 `genome_build` identity field; the source/target/method/drop counts,
 duplicate-coordinate drops, and coordinate inference details are written to the
 run log.
+
+## Build-Ref-Panel Source Inputs
+
+PLINK `.bim` files can also be large across chromosome suites. When
+`build-ref-panel --source-genome-build auto` is used, the workflow reads only
+the `.bim` chromosome and base-pair columns in chunks, feeds them to the shared
+HM3 evidence accumulator, and stops once the same inference thresholds are met.
+The final build decision still goes through `resolve_genome_build()`, so
+confidence thresholds and error messages stay aligned with other workflows.
+
+SNP restriction files are not converted to adaptive streaming. They are small
+control artifacts in typical use and are read for filtering after source-build
+resolution, so their generic `POS` build check continues to use the materialized
+restriction frame.
 
 ## Annotation Inputs
 

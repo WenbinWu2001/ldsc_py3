@@ -40,6 +40,7 @@ REFERENCE_RESOURCE_PATH = "data/hm3_chr_pos_reference.tsv.gz"
 __all__ = [
     "ChrPosBuildInference",
     "GenomeBuildEvidenceAccumulator",
+    "collect_chr_pos_build_evidence_frame",
     "infer_chr_pos_build",
     "resolve_genome_build",
     "resolve_chr_pos_table",
@@ -108,6 +109,7 @@ def resolve_genome_build(
     *,
     context: str,
     logger=None,
+    reference_table: pd.DataFrame | None = None,
 ) -> str | None:
     """
     Resolve a genome-build hint to a concrete build or ``None``.
@@ -133,6 +135,9 @@ def resolve_genome_build(
         Human-readable data-source label used in log and error messages.
     logger : logging.Logger-like, optional
         Receives inference summary at INFO or WARNING level.
+    reference_table : pandas.DataFrame, optional
+        Optional reference table with ``CHR``, ``hg19_POS``, and ``hg38_POS``.
+        If omitted, the packaged HapMap3 reference subset is used.
 
     Returns
     -------
@@ -163,6 +168,7 @@ def resolve_genome_build(
         inference = infer_chr_pos_build(
             sample_frame.loc[:, ["CHR", "POS"]],
             context=context,
+            reference_table=reference_table,
         )
     except ValueError as exc:
         message = str(exc)
@@ -242,6 +248,60 @@ class GenomeBuildEvidenceAccumulator:
         return pd.DataFrame({"CHR": list(chroms), "POS": list(positions)})
 
 
+def collect_chr_pos_build_evidence_frame(
+    frames: Iterable[pd.DataFrame],
+    *,
+    context: str,
+    reference_table: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """Collect the smallest available CHR/POS sample with enough build evidence."""
+    evidence = GenomeBuildEvidenceAccumulator(reference_table)
+    for frame in frames:
+        if frame.empty:
+            continue
+        normalized, _report = normalize_chr_pos_frame(
+            frame.loc[:, ["CHR", "POS"]],
+            context=context,
+            coordinate_policy="drop",
+            logger=None,
+            min_position=0,
+        )
+        evidence.update(_input_keys(normalized))
+        if evidence.is_sufficient():
+            break
+    return evidence.to_frame()
+
+
+def resolve_genome_build_from_chr_pos_frames(
+    hint: str | None,
+    snp_identifier: str,
+    frames: Iterable[pd.DataFrame],
+    *,
+    context: str,
+    logger=None,
+    reference_table: pd.DataFrame | None = None,
+) -> str | None:
+    """Resolve a build hint from an adaptive stream of CHR/POS evidence frames."""
+    snp_identifier = normalize_snp_identifier_mode(snp_identifier)
+    hint = normalize_genome_build(hint)
+    if identity_mode_family(snp_identifier) == "rsid" or hint != AUTO_GENOME_BUILD:
+        return resolve_genome_build(hint, snp_identifier, None, context=context, logger=logger)
+
+    sample_frame = collect_chr_pos_build_evidence_frame(
+        frames,
+        context=context,
+        reference_table=reference_table,
+    )
+    return resolve_genome_build(
+        AUTO_GENOME_BUILD,
+        snp_identifier,
+        sample_frame,
+        context=context,
+        logger=logger,
+        reference_table=reference_table,
+    )
+
+
 def resolve_chr_pos_table(
     df: pd.DataFrame,
     *,
@@ -299,7 +359,7 @@ def resolve_chr_pos_table(
     if not {"CHR", "POS"}.issubset(df.columns):
         raise ValueError(f"{context} must contain CHR and POS columns for auto genome-build inference.")
 
-    reference = load_packaged_reference_table() if reference_table is None else reference_table.copy()
+    reference = None if reference_table is None else reference_table.copy()
     normalized, coordinate_report = normalize_chr_pos_frame(
         df,
         context=context,

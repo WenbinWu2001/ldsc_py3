@@ -2551,6 +2551,30 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertIn("--source-genome-build hg19", output)
             self.assertIn("--source-genome-build hg38", output)
 
+    def test_infer_only_coordinate_read_stops_after_sufficient_build_evidence(self):
+        from ldsc.genome_build_inference import load_packaged_reference_table
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            reference = load_packaged_reference_table().head(300)
+            with raw_path.open("w", encoding="utf-8") as handle:
+                handle.write("CHR POS SNP A1 A2 P BETA N\n")
+                for idx, row in enumerate(reference.itertuples(index=False)):
+                    handle.write(f"{row.CHR} {int(row.hg19_POS)} rs{idx} A G 0.05 0.1 1000\n")
+                for idx in range(60_000):
+                    handle.write(f"1 {900_000_000 + idx} tail{idx} A G 0.05 0.1 1000\n")
+
+            sample = sumstats_workflow._read_infer_only_coordinate_frame(
+                str(raw_path),
+                MungeConfig(raw_sumstats_file=raw_path),
+                MungeConfig(),
+                sumstats_workflow.RawSumstatsInference(detected_format="plain"),
+            )
+
+            self.assertLess(len(sample), 10_000)
+            self.assertGreaterEqual(len(sample), 300)
+
     def test_infer_only_checks_liftover_chain_path_and_reports_direction(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)

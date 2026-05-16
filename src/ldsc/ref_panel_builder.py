@@ -60,7 +60,7 @@ from ._kernel.snp_identity import (
 )
 from .config import GlobalConfig, ReferencePanelBuildConfig, get_global_config, print_global_config_banner
 from ._coordinates import normalize_chr_pos_frame
-from .genome_build_inference import resolve_genome_build
+from .genome_build_inference import resolve_genome_build, resolve_genome_build_from_chr_pos_frames
 from .hm3 import packaged_hm3_curated_map_path
 from .path_resolution import (
     ensure_output_directory,
@@ -87,6 +87,7 @@ from ._kernel.liftover import (
 LOGGER = logging.getLogger("LDSC.ref_panel_builder")
 _GENETIC_MAP_SUFFIXES = ("", ".txt", ".txt.gz", ".tsv", ".tsv.gz", ".csv", ".csv.gz")
 _TABLE_SUFFIXES = ("", ".txt", ".txt.gz", ".tsv", ".tsv.gz", ".csv", ".csv.gz")
+_BIM_BUILD_INFERENCE_CHUNKSIZE = 5_000
 
 
 @dataclass(frozen=True)
@@ -429,12 +430,11 @@ class ReferencePanelBuilder:
             return config
         if config.source_genome_build != "auto":
             raise ValueError(f"Unsupported source_genome_build: {config.source_genome_build!r}.")
-        sample_frame = _plink_bim_chr_pos_frame(resolved_prefixes)
         try:
-            source_build = resolve_genome_build(
+            source_build = resolve_genome_build_from_chr_pos_frames(
                 "auto",
                 "chr_pos",
-                sample_frame,
+                _iter_plink_bim_chr_pos_frames(resolved_prefixes),
                 context="build-ref-panel PLINK .bim",
                 logger=LOGGER,
             )
@@ -1066,29 +1066,20 @@ def _chain_flag_hint(source_build: str, target_build: str) -> str:
     return f"--liftover-chain-{source_build}-to-{target_build}-file"
 
 
-def _plink_bim_chr_pos_frame(resolved_prefixes: Sequence[str]) -> pd.DataFrame:
-    """Read CHR/BP coordinates from resolved PLINK ``.bim`` files."""
-    frames: list[pd.DataFrame] = []
+def _iter_plink_bim_chr_pos_frames(resolved_prefixes: Sequence[str]):
+    """Yield CHR/BP coordinate chunks from resolved PLINK ``.bim`` files."""
     for prefix in resolved_prefixes:
-        frame = pd.read_csv(
+        reader = pd.read_csv(
             prefix + ".bim",
             sep=r"\s+",
             header=None,
             usecols=[0, 3],
             names=["CHR", "POS"],
+            chunksize=_BIM_BUILD_INFERENCE_CHUNKSIZE,
         )
-        if not frame.empty:
-            normalized, _report = normalize_chr_pos_frame(
-                frame,
-                context=f"{prefix}.bim",
-                coordinate_policy="drop",
-                logger=LOGGER,
-                min_position=0,
-            )
-            frames.append(normalized)
-    if not frames:
-        return pd.DataFrame(columns=["CHR", "POS"])
-    return pd.concat(frames, ignore_index=True)
+        for frame in reader:
+            if not frame.empty:
+                yield frame
 
 
 def _read_ref_panel_snp_restriction(

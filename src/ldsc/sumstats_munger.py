@@ -53,7 +53,7 @@ from .column_inference import (
 )
 from .config import GlobalConfig, MungeConfig, _normalize_trait_name, get_global_config
 from .errors import LDSCDependencyError
-from .genome_build_inference import resolve_genome_build
+from .genome_build_inference import collect_chr_pos_build_evidence_frame, resolve_genome_build
 from .hm3 import packaged_hm3_curated_map_path
 from .path_resolution import (
     ensure_output_directory,
@@ -101,6 +101,7 @@ munge_sumstats = kernel_munge.munge_sumstats
 _SUMSTATS_OUTPUT_FORMATS = {"parquet", "tsv.gz", "both"}
 _RAW_SUMSTATS_FORMATS = {"auto", "plain", "daner-old", "daner-new"}
 _SUMSTATS_PARQUET_COMPRESSION = "snappy"
+_INFER_ONLY_COORDINATE_CHUNKSIZE = 5_000
 
 
 @dataclass(frozen=True)
@@ -1331,7 +1332,7 @@ def _read_infer_only_coordinate_frame(
     munge_config: MungeConfig,
     inference: RawSumstatsInference,
 ) -> pd.DataFrame:
-    """Read raw CHR/POS columns for ``--infer-only`` source-build inference."""
+    """Read enough raw CHR/POS evidence for ``--infer-only`` source-build inference."""
     file_cnames = read_header(source_path)
     hints = {**inference.column_hints, **raw_config.column_hints}
     flag = {clean_header(value): target.upper() for target, value in hints.items() if target in {"chr", "pos"}}
@@ -1342,7 +1343,7 @@ def _read_infer_only_coordinate_frame(
     if not raw_chr or not raw_pos:
         raise ValueError("raw input must contain inferable CHR and POS columns.")
     _openfunc, compression = get_compression(source_path)
-    return pd.read_csv(
+    reader = pd.read_csv(
         source_path,
         sep=r"\s+",
         header=0,
@@ -1350,7 +1351,10 @@ def _read_infer_only_coordinate_frame(
         usecols=[raw_chr[0], raw_pos[0]],
         na_values=[".", "NA"],
         skiprows=kernel_munge.count_leading_sumstats_comment_lines(source_path),
-    ).rename(columns={raw_chr[0]: "CHR", raw_pos[0]: "POS"})
+        chunksize=_INFER_ONLY_COORDINATE_CHUNKSIZE,
+    )
+    frames = (chunk.rename(columns={raw_chr[0]: "CHR", raw_pos[0]: "POS"}) for chunk in reader)
+    return collect_chr_pos_build_evidence_frame(frames, context=source_path)
 
 
 def _expected_chain_label(source_build: str, output_build: str) -> str:

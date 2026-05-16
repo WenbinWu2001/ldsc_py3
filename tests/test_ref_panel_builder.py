@@ -2272,14 +2272,30 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                     "meta_hg19": str(Path(config.output_dir) / "hg19" / f"chr{chrom}_meta.tsv.gz"),
                 }
 
-            with mock.patch.object(ref_panel_builder, "resolve_genome_build", return_value="hg19") as patched_resolve:
+            def fake_resolve_from_frames(hint, snp_identifier, frames, *, context, logger=None):
+                captured["resolve_args"] = (hint, snp_identifier, context, logger)
+                captured["evidence_frames"] = list(frames)
+                return "hg19"
+
+            with mock.patch.object(
+                ref_panel_builder,
+                "resolve_genome_build",
+                side_effect=AssertionError("build-ref-panel should use chunked CHR/POS evidence"),
+            ), mock.patch.object(
+                ref_panel_builder,
+                "resolve_genome_build_from_chr_pos_frames",
+                side_effect=fake_resolve_from_frames,
+                create=True,
+            ) as patched_resolve:
                 with mock.patch.object(ref_panel_builder.ReferencePanelBuilder, "_build_chromosome", side_effect=fake_build):
                     builder.run(config)
 
         self.assertEqual(captured["source_genome_build"], "hg19")
-        self.assertEqual(patched_resolve.call_args.args[0], "auto")
-        self.assertEqual(patched_resolve.call_args.args[1], "chr_pos")
-        self.assertEqual(patched_resolve.call_args.args[2]["POS"].tolist(), [100, 200])
+        self.assertEqual(captured["resolve_args"][:3], ("auto", "chr_pos", "build-ref-panel PLINK .bim"))
+        self.assertIs(captured["resolve_args"][3], ref_panel_builder.LOGGER)
+        self.assertEqual(len(captured["evidence_frames"]), 1)
+        self.assertEqual(captured["evidence_frames"][0]["POS"].tolist(), [100, 200])
+        self.assertEqual(patched_resolve.call_count, 1)
 
     def test_prepare_build_state_reads_source_build_specific_restriction_column(self):
         with tempfile.TemporaryDirectory() as tmpdir:

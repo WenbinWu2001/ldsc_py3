@@ -34,7 +34,9 @@ from __future__ import annotations
 
 import argparse
 import gzip
+import json
 import logging
+import os
 import tempfile
 from dataclasses import dataclass
 from os import PathLike
@@ -636,9 +638,10 @@ class AnnotationBuilder:
         bundle = self.run(source_spec)
         if output_dir is not None:
             output_path = ensure_output_directory(output_dir, label="output directory")
+            metadata_path = output_path / "metadata.json"
             drop_sidecar_path = _annotation_dropped_snps_path(output_path)
             output_paths = _bundle_query_annot_output_paths(bundle, output_path)
-            produced_paths: list[Path] = [*output_paths, drop_sidecar_path]
+            produced_paths: list[Path] = [metadata_path, *output_paths, drop_sidecar_path]
             owned_paths = sorted(output_path.glob("query.*.annot.gz"))
             owned_paths.extend(produced_paths)
             if self._workflow_log_path is not None:
@@ -659,8 +662,17 @@ class AnnotationBuilder:
                 written = _write_bundle_query_as_annot_files(bundle, output_path)
                 drop_frame = _coerce_annotation_dropped_snps_frame(self._identity_drop_frame)
                 _write_annotation_dropped_snps_sidecar(drop_frame, drop_sidecar_path)
+                _write_annotation_metadata(
+                    metadata_path,
+                    bundle=bundle,
+                    query_annot_bed_sources=query_annot_bed_sources,
+                    baseline_annot_sources=baseline_annot_sources,
+                    dropped_snps_path=drop_sidecar_path,
+                    written_query_paths=written,
+                )
                 _log_annotation_dropped_snps_summary(drop_frame, drop_sidecar_path)
                 log_outputs(
+                    metadata=str(metadata_path),
                     **{f"query_{chrom}": str(path) for chrom, path in zip(bundle.chromosomes, written)},
                     dropped_snps=str(drop_sidecar_path),
                 )
@@ -952,6 +964,59 @@ def _write_bundle_query_as_annot_files(bundle: AnnotationBundle, output_dir: Pat
 def _annotation_dropped_snps_path(output_dir: Path) -> Path:
     """Return the aggregate annotation identity-cleanup audit sidecar path."""
     return output_dir / "dropped_snps" / "dropped.tsv.gz"
+
+
+def _write_annotation_metadata(
+    path: Path,
+    *,
+    bundle: AnnotationBundle,
+    query_annot_bed_sources: str | PathLike[str] | Sequence[str | PathLike[str]] | None,
+    baseline_annot_sources: str | PathLike[str] | Sequence[str | PathLike[str]] | None,
+    dropped_snps_path: Path,
+    written_query_paths: Sequence[Path],
+) -> None:
+    """Write root metadata for an annotation projection output directory."""
+    config = bundle.config_snapshot
+    files = {
+        "query_annotations": [path.name for path in written_query_paths],
+        "dropped_snps": str(dropped_snps_path.relative_to(path.parent)),
+    }
+    payload = {
+        "schema_version": 1,
+        "artifact_type": "annotation_projection",
+        "files": files,
+        "snp_identifier": None if config is None else config.snp_identifier,
+        "genome_build": None if config is None else config.genome_build,
+        "chromosomes": [str(chrom) for chrom in bundle.chromosomes],
+        "query_columns": list(bundle.query_columns),
+        "baseline_columns": list(bundle.baseline_columns),
+        "n_snps": int(len(bundle.metadata)),
+        "query_annot_bed_sources": _metadata_path_tokens(query_annot_bed_sources),
+        "baseline_annot_sources": _metadata_path_tokens(baseline_annot_sources),
+    }
+    _atomic_write_json(payload, path)
+
+
+def _metadata_path_tokens(value: str | PathLike[str] | Sequence[str | PathLike[str]] | None) -> list[str]:
+    """Return path-like metadata fields as a stable list of strings."""
+    if value is None:
+        return []
+    if isinstance(value, (str, PathLike)):
+        return [str(value)]
+    return [str(item) for item in value]
+
+
+def _atomic_write_json(payload: dict[str, object], path: Path) -> None:
+    """Write JSON through a temporary sibling file, then replace."""
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
+    os.close(fd)
+    tmp_path = Path(tmp_name)
+    try:
+        tmp_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+        os.replace(tmp_path, path)
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
 
 
 def _annotation_identity_mode_for_metadata(metadata: pd.DataFrame, snp_identifier: str) -> str:

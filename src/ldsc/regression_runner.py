@@ -8,11 +8,11 @@ Overview
 --------
 This module is the workflow-layer boundary for the LDSC regression commands.
 It consumes the canonical LD-score result directory introduced by the IO
-refactor: ``manifest.json`` plus split baseline/query parquet tables. Public
+refactor: ``metadata.json`` plus split baseline/query parquet tables. Public
 callers pass one ``--ldscore-dir`` input instead of individual LD-score,
 weight, count, and annotation-manifest files.
 
-Regression chooses either the manifest ``common_reference_snp_counts`` vector or
+Regression chooses either the metadata ``common_reference_snp_counts`` vector or
 ``all_reference_snp_counts`` through ``--count-kind common|all``. The default
 ``common`` mode falls back to all-SNP counts when common counts are unavailable.
 Regression merges by the effective key for the resolved SNP identifier mode.
@@ -84,7 +84,6 @@ from .ldscore_calculator import LDScoreResult
 from .outputs import (
     H2DirectoryWriter,
     H2OutputConfig,
-    LDSCORE_RESULT_FORMAT,
     PartitionedH2DirectoryWriter,
     PartitionedH2OutputConfig,
     REGRESSION_LD_SCORE_COLUMN,
@@ -662,7 +661,7 @@ class RegressionRunner:
             Canonical LD-score result containing baseline and query columns.
         annotation_bundle : object
             Object exposing ordered ``query_columns``. Disk-loaded CLI runs use
-            a lightweight namespace derived from the LD-score manifest.
+            a lightweight namespace derived from the LD-score metadata.
         config : RegressionConfig, optional
             Regression settings. Defaults to the runner's config.
         include_full_partitioned_h2 : bool, optional
@@ -1060,11 +1059,11 @@ def _assemble_regression_ldscore_table(
 
 
 def _count_totals_for_columns(count_records: Sequence[dict[str, Any]], columns: Sequence[str]) -> dict[str, np.ndarray]:
-    """Return LDSC count vectors aligned to ``columns`` using manifest records."""
+    """Return LDSC count vectors aligned to ``columns`` using metadata records."""
     records_by_column = {str(record["column"]): record for record in count_records}
     missing = [column for column in columns if column not in records_by_column]
     if missing:
-        raise ValueError(f"LD-score manifest is missing count records for columns: {missing}")
+        raise ValueError(f"LD-score metadata is missing count records for columns: {missing}")
     all_counts = [float(records_by_column[column]["all_reference_snp_count"]) for column in columns]
     count_totals = {ALL_COUNT_KEY: np.asarray(all_counts, dtype=np.float64)}
     if all("common_reference_snp_count" in records_by_column[column] for column in columns):
@@ -1587,15 +1586,15 @@ def run_h2_from_args(args):
     """Run single-trait heritability estimation from parsed CLI arguments.
 
     When ``args.output_dir`` is provided, the workflow preflights ``h2.tsv``,
-    ``h2.metadata.json``, and ``h2.log`` before loading inputs. Without an
+    ``metadata.json``, and ``h2.log`` before loading inputs. Without an
     output directory, it returns the summary table without creating output
     artifacts.
     """
     output_dir, log_path = _preflight_regression_outputs(
         args,
         "h2",
-        ["h2.tsv", "h2.metadata.json"],
-        owned_output_names=["h2.tsv", "h2.metadata.json"],
+        ["h2.tsv", "metadata.json"],
+        owned_output_names=["h2.tsv", "metadata.json"],
     )
     with workflow_logging("h2", log_path, log_level=getattr(args, "log_level", "INFO")):
         runner, config = _runner_from_args(args)
@@ -1960,61 +1959,59 @@ def load_ldscore_from_dir(
     Parameters
     ----------
     ldscore_dir : str
-        Directory containing ``manifest.json``, ``ldscore.baseline.parquet``,
+        Directory containing ``metadata.json``, ``ldscore.baseline.parquet``,
         and optional ``ldscore.query.parquet`` files written by the public
         LD-score writer.
     snp_identifier : {"rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"} or None, optional
         Identifier mode used to reconstruct the public regression SNP set from
-        the baseline table. When omitted, the manifest value is used.
+        the baseline table. When omitted, the metadata value is used.
 
     Returns
     -------
     LDScoreResult
         Disk-loaded LD-score result with config provenance reconstructed from
-        the manifest's minimal identity metadata.
+        the metadata's minimal identity metadata.
 
     Raises
     ------
     FileNotFoundError
-        If ``manifest.json`` is absent.
+        If ``metadata.json`` is absent.
     NotADirectoryError
         If ``ldscore_dir`` is not an existing directory.
     ValueError
-        If the manifest format or required file records are unsupported.
+        If required metadata file records are unsupported.
     """
     root = Path(normalize_path_token(ldscore_dir))
     if not root.is_dir():
         raise NotADirectoryError(f"LD-score directory does not exist or is not a directory: {root}")
-    manifest_path = root / "manifest.json"
-    if not manifest_path.exists():
-        raise FileNotFoundError(f"LD-score directory is missing manifest.json: {root}")
+    metadata_path = root / "metadata.json"
+    if not metadata_path.exists():
+        raise FileNotFoundError(f"LD-score directory is missing metadata.json: {root}")
     LOGGER.info(f"Loading LD-score result directory from '{root}'.")
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if manifest.get("format") != LDSCORE_RESULT_FORMAT:
-        raise ValueError(f"Unsupported LD-score directory format: {manifest.get('format')!r}")
-    files = manifest.get("files", {})
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    config_snapshot = _global_config_from_metadata(metadata)
+    files = metadata.get("files", {})
     baseline_rel = files.get("baseline")
     if not baseline_rel:
-        raise ValueError("LD-score manifest is missing files.baseline.")
+        raise ValueError("LD-score metadata is missing files.baseline.")
     baseline_table = pd.read_parquet(root / baseline_rel)
     query_rel = files.get("query")
     query_table = pd.read_parquet(root / query_rel) if query_rel else None
-    baseline_columns = [str(column) for column in manifest.get("baseline_columns", [])]
-    query_columns = [str(column) for column in manifest.get("query_columns", [])]
-    count_records = [dict(record) for record in manifest.get("counts", [])]
-    config_snapshot = _global_config_from_manifest(manifest)
-    manifest_identifier = config_snapshot.snp_identifier if config_snapshot is not None else manifest.get("snp_identifier")
+    baseline_columns = [str(column) for column in metadata.get("baseline_columns", [])]
+    query_columns = [str(column) for column in metadata.get("query_columns", [])]
+    count_records = [dict(record) for record in metadata.get("counts", [])]
+    metadata_identifier = config_snapshot.snp_identifier if config_snapshot is not None else metadata.get("snp_identifier")
     if snp_identifier is not None:
         requested_identifier = normalize_snp_identifier_mode(snp_identifier)
-        if manifest_identifier is not None and requested_identifier != manifest_identifier:
+        if metadata_identifier is not None and requested_identifier != metadata_identifier:
             raise ConfigMismatchError(
                 "snp_identifier mismatch when loading LD-score directory: "
-                f"override {requested_identifier!r} vs manifest {manifest_identifier!r}. "
+                f"override {requested_identifier!r} vs metadata {metadata_identifier!r}. "
                 "Use an LD-score artifact written for the requested SNP-identifier mode."
             )
         effective_identifier = requested_identifier
     else:
-        effective_identifier = manifest_identifier or "chr_pos_allele_aware"
+        effective_identifier = metadata_identifier or "chr_pos_allele_aware"
     _validate_ldscore_allele_columns(
         baseline_table,
         table_name="baseline_table",
@@ -2036,11 +2033,11 @@ def load_ldscore_from_dir(
         ld_regression_snps=frozenset(build_snp_id_series(baseline_table, effective_identifier)),
         chromosome_results=[],
         output_paths={
-            "manifest": str(manifest_path),
+            "metadata": str(metadata_path),
             "baseline": str(root / baseline_rel),
             **({"query": str(root / query_rel)} if query_rel else {}),
         },
-        count_config=dict(manifest.get("count_config", {})),
+        count_config=dict(metadata.get("count_config", {})),
         config_snapshot=config_snapshot,
     )
     result.validate(require_query_alignment=False)
@@ -2052,14 +2049,14 @@ def load_ldscore_from_dir(
     return result
 
 
-def _global_config_from_manifest(manifest: dict[str, Any]) -> GlobalConfig | None:
-    """Recreate a GlobalConfig snapshot when the manifest contains one."""
-    if "schema_version" not in manifest and "artifact_type" not in manifest:
+def _global_config_from_metadata(metadata: dict[str, Any]) -> GlobalConfig | None:
+    """Recreate a GlobalConfig snapshot when LD-score metadata contains one."""
+    if "schema_version" not in metadata and "artifact_type" not in metadata:
         raise ValueError(REGENERATE_ARTIFACT_MESSAGE)
-    mode = validate_identity_artifact_metadata(manifest, expected_artifact_type="ldscore")
+    mode = validate_identity_artifact_metadata(metadata, expected_artifact_type="ldscore")
     return GlobalConfig(
         snp_identifier=mode,
-        genome_build=manifest.get("genome_build"),
+        genome_build=metadata.get("genome_build"),
         log_level="INFO",
     )
 

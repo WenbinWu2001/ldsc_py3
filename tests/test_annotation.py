@@ -1,6 +1,7 @@
 from pathlib import Path
 import contextlib
 import io
+import json
 import sys
 import tempfile
 import unittest
@@ -465,6 +466,7 @@ class AnnotationBuilderTest(unittest.TestCase):
                 )
 
             self.assertTrue((output_dir / "query.1.annot.gz").exists())
+            self.assertTrue((output_dir / "metadata.json").exists())
             self.assertFalse(stale.exists())
 
     def test_identity_cleanup_sidecar_is_written_for_annotate_outputs(self):
@@ -489,6 +491,15 @@ class AnnotationBuilderTest(unittest.TestCase):
 
             sidecar = output_dir / "dropped_snps" / "dropped.tsv.gz"
             self.assertTrue(sidecar.exists())
+            metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
+            self.assertEqual(metadata["artifact_type"], "annotation_projection")
+            self.assertEqual(metadata["snp_identifier"], "chr_pos")
+            self.assertEqual(metadata["genome_build"], "hg38")
+            self.assertEqual(
+                metadata["files"],
+                {"query_annotations": ["query.1.annot.gz"], "dropped_snps": "dropped_snps/dropped.tsv.gz"},
+            )
+            self.assertNotIn("format", metadata)
             dropped = pd.read_csv(sidecar, sep="\t", compression="gzip")
             self.assertEqual(dropped["reason"].tolist(), ["duplicate_identity", "duplicate_identity"])
             self.assertEqual(set(dropped["SNP"]), {"rs1", "rs2"})
@@ -512,6 +523,7 @@ class AnnotationBuilderTest(unittest.TestCase):
 
             sidecar = output_dir / "dropped_snps" / "dropped.tsv.gz"
             self.assertTrue(sidecar.exists())
+            self.assertTrue((output_dir / "metadata.json").exists())
             dropped = pd.read_csv(sidecar, sep="\t", compression="gzip")
             self.assertEqual(
                 list(dropped.columns),
@@ -567,6 +579,7 @@ class AnnotationBuilderTest(unittest.TestCase):
 
             self.assertEqual(bundle.query_columns, ["query"])
             self.assertTrue((output_dir / "query.1.annot.gz").exists())
+            self.assertTrue((output_dir / "metadata.json").exists())
             self.assertTrue((output_dir / "annotate.log").exists())
 
     def test_parse_fixture_annotation(self):

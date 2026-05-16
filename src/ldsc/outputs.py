@@ -1,10 +1,10 @@
 """Output writers for the refactored LDSC workflows.
 
 The public LD-score workflow writes one canonical result directory containing
-``manifest.json``, ``ldscore.baseline.parquet``, and optional
+``metadata.json``, ``ldscore.baseline.parquet``, and optional
 ``ldscore.query.parquet``. Run identity comes from the chosen directory name;
 output filenames inside that directory are fixed. The parquet payloads are
-written with one row group per chromosome and matching manifest metadata so
+written with one row group per chromosome and matching metadata so
 downstream readers can load a single chromosome without scanning the whole
 table. The writer creates missing directories, reuses existing directories, and
 refuses existing canonical family files unless the caller explicitly sets
@@ -83,13 +83,11 @@ def _write_chromosome_aligned_parquet(
     return row_group_meta
 
 
-LDSCORE_RESULT_FORMAT = "ldsc.ldscore_result.v1"
 REGRESSION_LD_SCORE_COLUMN = "regression_ld_scores"
 DEFAULT_COUNT_CONFIG = {
     "common_reference_snp_maf_min": 0.05,
     "common_reference_snp_maf_operator": ">=",
 }
-PARTITIONED_H2_RESULT_FORMAT = "ldsc.partitioned_h2_result.v1"
 PARTITIONED_H2_AGGREGATE_COLUMNS = [
     "Category",
     "Prop._SNPs",
@@ -113,7 +111,6 @@ PARTITIONED_H2_FULL_COLUMNS = [
     "Coefficient_std_error",
     "Coefficient_p",
 ]
-RG_RESULT_FORMAT = "ldsc.rg_result_family.v1"
 RG_CONCISE_COLUMNS = [
     "trait_1",
     "trait_2",
@@ -167,7 +164,7 @@ class H2OutputConfig:
     Parameters
     ----------
     output_dir : str or os.PathLike[str]
-        Directory that receives ``h2.tsv`` and ``h2.metadata.json``.
+        Directory that receives ``h2.tsv`` and ``metadata.json``.
     overwrite : bool, optional
         If ``True``, replace existing fixed h2 outputs. Default is ``False``.
     """
@@ -190,14 +187,14 @@ class H2DirectoryWriter:
         *,
         metadata: dict[str, object],
     ) -> dict[str, str]:
-        """Write ``h2.tsv`` and ``h2.metadata.json`` to a result directory.
+        """Write ``h2.tsv`` and ``metadata.json`` to a result directory.
 
         Existing fixed h2 artifacts are checked before any output file is
         written. Replacement requires ``output_config.overwrite=True``.
         """
         output_dir = ensure_output_directory(output_config.output_dir, label="output directory")
         summary_path = output_dir / "h2.tsv"
-        metadata_path = output_dir / "h2.metadata.json"
+        metadata_path = output_dir / "metadata.json"
         preflight_output_artifact_family(
             [summary_path, metadata_path],
             [summary_path, metadata_path],
@@ -205,7 +202,10 @@ class H2DirectoryWriter:
             label="h2 output artifact",
         )
         _atomic_write_dataframe(summary, summary_path)
-        _atomic_write_json(metadata, metadata_path)
+        _atomic_write_json(
+            _result_metadata(metadata, artifact_type="h2_result", files={"summary": "h2.tsv"}),
+            metadata_path,
+        )
         return {
             "summary": str(summary_path),
             "metadata": str(metadata_path),
@@ -219,13 +219,13 @@ class LDScoreOutputConfig:
     Parameters
     ----------
     output_dir : str or os.PathLike[str]
-        Directory that receives ``manifest.json``,
+        Directory that receives ``metadata.json``,
         ``ldscore.baseline.parquet``, and optional ``ldscore.query.parquet``.
     overwrite : bool, optional
         If ``True``, replace existing canonical LD-score files in
         ``output_dir`` and remove stale owned siblings after a successful
         write. If ``False``, any existing canonical family file raises
-        ``FileExistsError`` before any parquet or manifest file is written.
+        ``FileExistsError`` before any parquet or metadata file is written.
         Default is ``False``.
     parquet_compression : {"snappy", "gzip", "brotli", "zstd", "none", None}, optional
         Compression codec used for parquet tables. Default is ``"snappy"``.
@@ -246,19 +246,19 @@ class LDScoreOutputConfig:
 class LDScoreDirectoryWriter:
     """Write canonical LD-score result directories.
 
-    The writer owns the fixed files ``manifest.json``,
+    The writer owns the fixed files ``metadata.json``,
     ``ldscore.baseline.parquet``, and optional ``ldscore.query.parquet``.
     Parquet files are flat files for backward compatibility, but their internal
-    row groups are chromosome-aligned and described in the manifest.
+    row groups are chromosome-aligned and described in root metadata.
     """
 
     def write(self, result: Any, output_config: LDScoreOutputConfig) -> dict[str, str]:
-        """Write ``manifest.json`` and canonical LD-score parquet files.
+        """Write ``metadata.json`` and canonical LD-score parquet files.
 
         Existing canonical family files are checked before any output file is
         written. Replacement requires ``output_config.overwrite=True``;
         unrelated files in the directory are ignored. The returned paths map
-        includes ``"baseline"``, ``"manifest"``, and ``"query"`` when query
+        includes ``"baseline"``, ``"metadata"``, and ``"query"`` when query
         annotations were supplied.
         """
         output_dir = ensure_output_directory(output_config.output_dir, label="LD-score output directory")
@@ -269,7 +269,7 @@ class LDScoreDirectoryWriter:
         self._validate_tables(result)
 
         paths = {
-            "manifest": output_dir / "manifest.json",
+            "metadata": output_dir / "metadata.json",
             "baseline": output_dir / "ldscore.baseline.parquet",
         }
         if query_table is not None:
@@ -286,26 +286,26 @@ class LDScoreDirectoryWriter:
         query_rg = None
         if query_table is not None:
             query_rg = _write_chromosome_aligned_parquet(query_table, paths["query"], compression)
-        manifest = self.build_manifest(
+        metadata = self.build_metadata(
             result,
-            files={name: path.name for name, path in paths.items() if name != "manifest"},
+            files={name: path.name for name, path in paths.items() if name != "metadata"},
             baseline_rg=baseline_rg,
             query_rg=query_rg,
         )
-        paths["manifest"].write_text(json.dumps(_to_serializable(manifest), indent=2, sort_keys=True), encoding="utf-8")
+        paths["metadata"].write_text(json.dumps(_to_serializable(metadata), indent=2, sort_keys=True), encoding="utf-8")
         remove_output_artifacts(stale_paths)
         return {name: str(path) for name, path in paths.items()}
 
-    def build_manifest(
+    def build_metadata(
         self,
         result: Any,
         files: dict[str, str],
         baseline_rg: list[dict] | None = None,
         query_rg: list[dict] | None = None,
     ) -> dict[str, Any]:
-        """Build the JSON manifest payload for one LD-score result.
+        """Build the JSON metadata payload for one LD-score result.
 
-        The manifest always includes ``count_config`` so downstream regression
+        The metadata always includes ``count_config`` so downstream regression
         code can report the common-SNP count threshold even when MAF metadata is
         unavailable and per-column common counts are omitted. Row-group metadata
         records the chromosome, row-group index, row offset, and row count for
@@ -323,7 +323,6 @@ class LDScoreDirectoryWriter:
         )
         chromosomes = baseline_table["CHR"].astype(str).drop_duplicates().tolist()
         return {
-            "format": LDSCORE_RESULT_FORMAT,
             **identity_metadata,
             "files": dict(files),
             "chromosomes": chromosomes,
@@ -489,22 +488,30 @@ class PartitionedH2DirectoryWriter:
         self._validate_summary(summary)
         output_dir = ensure_output_directory(output_config.output_dir, label="output directory")
         summary_path = output_dir / "partitioned_h2.tsv"
+        metadata_path = output_dir / "metadata.json"
         query_root = output_dir / "query_annotations"
-        produced_paths = [summary_path]
+        produced_paths = [summary_path, metadata_path]
         if output_config.write_per_query_results:
             produced_paths.append(query_root)
         stale_paths = preflight_output_artifact_family(
             produced_paths,
-            [summary_path, query_root],
+            [summary_path, metadata_path, query_root],
             overwrite=output_config.overwrite,
             label="partitioned-h2 output artifact",
         )
 
-        paths = {"summary": str(summary_path)}
+        root_files = {"summary": "partitioned_h2.tsv"}
+        if output_config.write_per_query_results:
+            root_files["query_annotations"] = "query_annotations"
+        paths = {"summary": str(summary_path), "metadata": str(metadata_path)}
         if not output_config.write_per_query_results:
             _atomic_write_dataframe(
                 _select_columns(summary, PARTITIONED_H2_AGGREGATE_COLUMNS, label="partitioned-h2 summary"),
                 summary_path,
+            )
+            _atomic_write_json(
+                _result_metadata(metadata, artifact_type="partitioned_h2_result", files=root_files),
+                metadata_path,
             )
             remove_output_artifacts(stale_paths)
             return paths
@@ -527,6 +534,10 @@ class PartitionedH2DirectoryWriter:
             _atomic_write_dataframe(
                 _select_columns(summary, PARTITIONED_H2_AGGREGATE_COLUMNS, label="partitioned-h2 summary"),
                 summary_path,
+            )
+            _atomic_write_json(
+                _result_metadata(metadata, artifact_type="partitioned_h2_result", files=root_files),
+                metadata_path,
             )
             if output_config.overwrite and query_root.exists():
                 backup_dir = Path(tempfile.mkdtemp(prefix=".query_annotations.backup.", dir=str(output_dir)))
@@ -602,9 +613,11 @@ class PartitionedH2DirectoryWriter:
                 query_dir / "partitioned_h2_full.tsv",
             )
             payload = {
-                "format": PARTITIONED_H2_RESULT_FORMAT,
                 **metadata,
                 **per_query_metadata.get(query_name, {}),
+                "schema_version": 1,
+                "artifact_type": "partitioned_h2_query_result",
+                "files": {"summary": summary_rel, "full": full_rel},
                 "ordinal": record["ordinal"],
                 "query_annotation": query_name,
                 "slug": record["slug"],
@@ -697,21 +710,23 @@ class RgDirectoryWriter:
             raise ValueError("per_pair_metadata must contain one record per rg_full row when pair detail is enabled.")
 
         output_dir = ensure_output_directory(output_config.output_dir, label="output directory")
+        metadata_path = output_dir / "metadata.json"
         rg_path = output_dir / "rg.tsv"
         full_path = output_dir / "rg_full.tsv"
         h2_path = output_dir / "h2_per_trait.tsv"
         pairs_root = output_dir / "pairs"
-        produced_paths = [rg_path, full_path, h2_path]
+        produced_paths = [metadata_path, rg_path, full_path, h2_path]
         if output_config.write_per_pair_detail:
             produced_paths.append(pairs_root)
         stale_paths = preflight_output_artifact_family(
             produced_paths,
-            [rg_path, full_path, h2_path, pairs_root],
+            [metadata_path, rg_path, full_path, h2_path, pairs_root],
             overwrite=output_config.overwrite,
             label="rg output artifact",
         )
 
         paths = {
+            "metadata": str(metadata_path),
             "rg": str(rg_path),
             "rg_full": str(full_path),
             "h2_per_trait": str(h2_path),
@@ -720,6 +735,7 @@ class RgDirectoryWriter:
             _atomic_write_dataframe(rg, rg_path, na_rep="NaN")
             _atomic_write_dataframe(rg_full, full_path, na_rep="NaN")
             _atomic_write_dataframe(h2_per_trait, h2_path, na_rep="NaN")
+            _atomic_write_json(_rg_root_metadata(result, include_pairs=False), metadata_path)
             remove_output_artifacts(stale_paths)
             return paths
 
@@ -732,6 +748,7 @@ class RgDirectoryWriter:
             _atomic_write_dataframe(rg, rg_path, na_rep="NaN")
             _atomic_write_dataframe(rg_full, full_path, na_rep="NaN")
             _atomic_write_dataframe(h2_per_trait, h2_path, na_rep="NaN")
+            _atomic_write_json(_rg_root_metadata(result, include_pairs=True), metadata_path)
             if output_config.overwrite and pairs_root.exists():
                 backup_dir = Path(tempfile.mkdtemp(prefix=".pairs.backup.", dir=str(output_dir)))
                 backup_dir.rmdir()
@@ -791,8 +808,10 @@ class RgDirectoryWriter:
             metadata_rel = f"pairs/{folder}/metadata.json"
             _atomic_write_dataframe(row, pair_dir / "rg_full.tsv", na_rep="NaN")
             payload = {
-                "format": RG_RESULT_FORMAT,
                 **dict(record["metadata"]),
+                "schema_version": 1,
+                "artifact_type": "rg_pair_result",
+                "files": {"rg_full": detail_rel},
                 "ordinal": record["ordinal"],
                 "trait_1": record["trait_1"],
                 "trait_2": record["trait_2"],
@@ -817,10 +836,62 @@ class RgDirectoryWriter:
 def _ldscore_output_family(output_dir: Path) -> list[Path]:
     """Return all fixed data artifacts owned by one LD-score result directory."""
     return [
-        output_dir / "manifest.json",
+        output_dir / "metadata.json",
         output_dir / "ldscore.baseline.parquet",
         output_dir / "ldscore.query.parquet",
     ]
+
+
+def _result_metadata(
+    metadata: dict[str, object] | None,
+    *,
+    artifact_type: str,
+    files: dict[str, str],
+) -> dict[str, object]:
+    """Return root result metadata with the canonical discriminator fields."""
+    payload = dict(metadata or {})
+    payload["schema_version"] = 1
+    payload["artifact_type"] = artifact_type
+    payload["files"] = dict(files)
+    payload.pop("format", None)
+    return payload
+
+
+def _rg_root_metadata(result: Any, *, include_pairs: bool) -> dict[str, object]:
+    """Build root metadata for an rg result directory from available result tables."""
+    rg_full = getattr(result, "rg_full", pd.DataFrame())
+    h2_per_trait = getattr(result, "h2_per_trait", pd.DataFrame())
+    files = {
+        "rg": "rg.tsv",
+        "rg_full": "rg_full.tsv",
+        "h2_per_trait": "h2_per_trait.tsv",
+    }
+    if include_pairs:
+        files["pairs"] = "pairs"
+    trait_names: list[str] = []
+    if "trait_name" in h2_per_trait.columns:
+        trait_names = [str(value) for value in h2_per_trait["trait_name"].dropna().tolist()]
+    pair_kind = None
+    if "pair_kind" in rg_full.columns:
+        values = [str(value) for value in rg_full["pair_kind"].dropna().unique().tolist()]
+        pair_kind = values[0] if len(values) == 1 else ("mixed" if values else None)
+    payload = _result_metadata(
+        {
+            "trait_names": trait_names,
+            "pair_kind": pair_kind,
+            "n_pairs": int(len(rg_full)),
+            "n_traits": int(len(trait_names)),
+        },
+        artifact_type="rg_result",
+        files=files,
+    )
+    ldscore_dir = getattr(result, "ldscore_dir", None)
+    if ldscore_dir is not None:
+        payload["ldscore_dir"] = ldscore_dir
+    sumstats_files = getattr(result, "sumstats_files", None)
+    if sumstats_files is not None:
+        payload["sumstats_files"] = list(sumstats_files)
+    return payload
 
 
 def _slugify_query_name(value: str) -> str:

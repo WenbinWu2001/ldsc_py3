@@ -603,7 +603,7 @@ def _count_records_from_totals(
     query_columns: list[str],
     count_totals: dict[str, np.ndarray],
 ) -> list[dict[str, Any]]:
-    """Convert positional count vectors into manifest-friendly column records."""
+    """Convert positional count vectors into metadata-friendly column records."""
     columns = [*baseline_columns, *query_columns]
     groups = ["baseline"] * len(baseline_columns) + ["query"] * len(query_columns)
     all_counts = np.asarray(count_totals.get("all_reference_snp_counts"), dtype=np.float64)
@@ -627,7 +627,7 @@ def _count_records_from_totals(
 
 
 def _count_config_from_ldscore_config(ldscore_config: LDScoreConfig) -> dict[str, Any]:
-    """Return manifest count metadata for common-SNP count vectors."""
+    """Return count metadata for common-SNP count vectors."""
     return {
         "common_reference_snp_maf_min": float(ldscore_config.common_maf_min),
         "common_reference_snp_maf_operator": ">=",
@@ -740,7 +740,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
     query annotations or BED files, and the reference panel. If no baseline or
     query annotations are supplied, it synthesizes an all-ones ``base``
     annotation over the retained reference-panel metadata. Before calculation
-    it preflights ``manifest.json``, ``ldscore.baseline.parquet``, optional
+    it preflights ``metadata.json``, ``ldscore.baseline.parquet``, optional
     ``ldscore.query.parquet``, and ``ldscore.log`` under ``output_dir``. With
     overwrite enabled, successful baseline-only runs remove stale query parquet
     siblings. For each chromosome it intersects annotation rows with
@@ -944,7 +944,7 @@ def run_ldscore(**kwargs) -> LDScoreResult:
     -------
     LDScoreResult
         Aggregated result with ``baseline_table``, optional ``query_table``,
-        manifest count records, and canonical output paths.
+        count records, and canonical output paths.
     """
     forbidden = sorted({"snp_identifier", "genome_build", "log_level"} & set(kwargs))
     if forbidden:
@@ -1228,7 +1228,7 @@ def _output_config_from_args(args: argparse.Namespace) -> LDScoreOutputConfig:
 
 def _expected_ldscore_output_paths(output_dir: Path, has_query: bool) -> list[Path]:
     """Return canonical LD-score output paths written by the directory writer."""
-    paths = [output_dir / "manifest.json", output_dir / "ldscore.baseline.parquet"]
+    paths = [output_dir / "metadata.json", output_dir / "ldscore.baseline.parquet"]
     if has_query:
         paths.append(output_dir / "ldscore.query.parquet")
     return paths
@@ -1237,7 +1237,7 @@ def _expected_ldscore_output_paths(output_dir: Path, has_query: bool) -> list[Pa
 def _ldscore_output_family(output_dir: Path) -> list[Path]:
     """Return all fixed artifacts owned by the LD-score workflow."""
     return [
-        output_dir / "manifest.json",
+        output_dir / "metadata.json",
         output_dir / "ldscore.baseline.parquet",
         output_dir / "ldscore.query.parquet",
     ]

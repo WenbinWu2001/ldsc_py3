@@ -71,13 +71,13 @@ materialize legacy prefix-based files for compatibility tests, but the public
 ``ldsc ldscore`` workflow wraps kernel results in ``LDScoreResult`` and writes a
 canonical directory:
 
-- ``manifest.json``
+- ``metadata.json``
 - ``ldscore.baseline.parquet``, containing ``CHR``, ``POS``, ``SNP``, ``regression_ld_scores``,
   and baseline LD-score columns
 - optional ``ldscore.query.parquet``, containing ``CHR``, ``POS``, ``SNP``, and query
   LD-score columns
 
-Count records are stored in the manifest rather than as public ``.M`` sidecar
+Count records are stored in root metadata rather than as public ``.M`` sidecar
 files. Outputs retain ``CM`` and ``MAF`` internally when available, with missing
 values represented as ``NA`` by the legacy serializers.
 

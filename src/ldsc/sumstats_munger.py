@@ -143,9 +143,7 @@ class SumstatsTable:
         Default is an empty dict.
     config_snapshot : GlobalConfig or None, optional
         Shared configuration captured when the table was produced in-process or
-        recovered from a neighboring ``sumstats.metadata.json`` sidecar. Legacy
-        disk artifacts without that sidecar use ``None`` because their original
-        munge-time configuration is not recoverable from the table alone.
+        recovered from root ``metadata.json``.
     """
     data: pd.DataFrame
     has_alleles: bool
@@ -262,8 +260,8 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
         clear ``ValueError``.
     trait_name : str or None, optional
         Optional trait label propagated into downstream regression summaries.
-        When supplied, this value overrides any metadata sidecar label. When
-        omitted, the loader uses ``sumstats.metadata.json`` ``trait_name`` when
+        When supplied, this value overrides any metadata label. When
+        omitted, the loader uses root ``metadata.json`` ``trait_name`` when
         present, then falls back to the resolved filename. Default is ``None``.
 
     Returns
@@ -271,7 +269,7 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
     SumstatsTable
         Validated in-memory table with canonical LDSC columns such as ``SNP``,
         ``CHR``, ``POS``, ``N``, and ``Z`` when present in the artifact. When a
-        ``*.metadata.json`` sidecar is present next to the artifact, the
+        root ``metadata.json`` is present next to the artifact, the
         returned table also recovers its munge-time ``GlobalConfig`` snapshot.
 
     Raises
@@ -288,11 +286,10 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
     whitespace reader. Other suffixes are refused so callers do not
     accidentally parse CSV or raw GWAS input as curated sumstats.
 
-    Sidecar lookup strips one recognized artifact suffix, so
-    ``trait.parquet``, ``trait.sumstats.gz``, and ``trait.sumstats`` all look
-    for ``trait.metadata.json``.
+    Metadata lookup reads ``metadata.json`` from the artifact's parent
+    directory.
 
-    Current package-written artifacts must have a neighboring metadata sidecar
+    Current package-written artifacts must have root metadata
     with the minimal identity provenance contract. Missing or old sidecars are
     rejected so callers regenerate artifacts instead of loading unknown
     identity semantics.
@@ -381,7 +378,7 @@ class SumstatsMunger:
             Munging thresholds, output directory, and curated output format. The
             workflow writes fixed files named ``sumstats.parquet`` and/or
             ``sumstats.sumstats.gz`` plus ``sumstats.log`` and
-            ``sumstats.metadata.json`` inside ``munge_config.output_dir``. Any
+            ``metadata.json`` inside ``munge_config.output_dir``. Any
             existing owned ``sumstats.*`` artifact is refused before the kernel
             runs unless ``munge_config.overwrite`` is true; successful
             overwrites remove stale sibling formats that the current run did
@@ -409,7 +406,7 @@ class SumstatsMunger:
             Validated, in-memory table suitable for the regression workflow.
             The table includes canonical ``CHR`` and ``POS`` columns, preserves
             the active or inferred ``GlobalConfig`` snapshot, and writes the
-            same provenance into ``sumstats.metadata.json`` so downstream
+            same provenance into ``metadata.json`` so downstream
             regression can detect incompatible LD-score results after reload.
             Optional ``sumstats_snps_file`` filtering is reflected in both the
             returned table and the written curated artifact(s).
@@ -436,7 +433,7 @@ class SumstatsMunger:
         )
         output_dir = ensure_output_directory(munge_config.output_dir, label="output directory")
         fixed_output_stem = str(output_dir / "sumstats")
-        metadata_path = fixed_output_stem + ".metadata.json"
+        metadata_path = output_dir / "metadata.json"
         output_files = _sumstats_output_files(fixed_output_stem, munge_config.output_format)
         log_path = fixed_output_stem + ".log"
         dropped_snps_path = output_dir / "dropped_snps" / "dropped.tsv.gz"
@@ -517,6 +514,7 @@ class SumstatsMunger:
                 metadata_path,
                 config_snapshot=table_config_snapshot,
                 trait_name=raw_sumstats_config.trait_name,
+                files={name: Path(path).name for name, path in output_files.items()},
             )
             table = SumstatsTable(
                 data=data.reset_index(drop=True),
@@ -529,7 +527,7 @@ class SumstatsMunger:
                     "output_format": munge_config.output_format,
                     "output_files": dict(output_files),
                     "column_hints": dict(raw_sumstats_config.column_hints),
-                    "metadata_path": metadata_path,
+                    "metadata_path": str(metadata_path),
                     "coordinate_provenance": coordinate_metadata,
                     "metadata": coordinate_metadata,
                 },
@@ -539,7 +537,7 @@ class SumstatsMunger:
             run_output_paths = {
                 **({"sumstats_parquet": output_files["parquet"]} if "parquet" in output_files else {}),
                 **({"sumstats_gz": output_files["tsv.gz"]} if "tsv.gz" in output_files else {}),
-                "metadata_json": metadata_path,
+                "metadata_json": str(metadata_path),
                 "dropped_snps_tsv_gz": str(dropped_snps_path),
             }
             self._last_summary = MungeRunSummary(
@@ -597,7 +595,7 @@ class SumstatsMunger:
         -----
         This helper follows the public workflow naming policy but does not
         create ``sumstats.log`` because no raw munging kernel is run. A config
-        snapshot is required so the neighboring ``sumstats.metadata.json``
+        snapshot is required so the root ``metadata.json``
         sidecar can be written for downstream provenance recovery.
         """
         if sumstats.config_snapshot is None:
@@ -605,7 +603,7 @@ class SumstatsMunger:
         output_format = _normalize_output_format(output_format)
         output_root = ensure_output_directory(output_dir, label="output directory")
         fixed_output_stem = str(output_root / "sumstats")
-        metadata_path = fixed_output_stem + ".metadata.json"
+        metadata_path = output_root / "metadata.json"
         output_files = _sumstats_output_files(fixed_output_stem, output_format)
         produced_paths = list(output_files.values())
         produced_paths.append(metadata_path)
@@ -624,6 +622,7 @@ class SumstatsMunger:
             metadata_path,
             config_snapshot=sumstats.config_snapshot,
             trait_name=sumstats.trait_name,
+            files={name: Path(path).name for name, path in output_files.items()},
         )
         remove_output_artifacts(stale_paths)
         return primary_sumstats_file
@@ -1427,15 +1426,8 @@ def _resolve_curated_sumstats_columns(columns: list[str], *, context: str) -> di
 
 
 def _sumstats_metadata_path(path: str | PathLike[str]) -> Path:
-    """Return ``<stem>.metadata.json`` for a recognized sumstats artifact suffix."""
-    token = str(path)
-    if token.endswith(".parquet"):
-        return Path(token[: -len(".parquet")] + ".metadata.json")
-    if token.endswith(".sumstats.gz"):
-        return Path(token[: -len(".sumstats.gz")] + ".metadata.json")
-    if token.endswith(".sumstats"):
-        return Path(token[: -len(".sumstats")] + ".metadata.json")
-    return Path(token).with_suffix(Path(token).suffix + ".metadata.json")
+    """Return the root ``metadata.json`` next to a curated sumstats artifact."""
+    return Path(path).parent / "metadata.json"
 
 
 def _read_sumstats_metadata(path: Path) -> dict[str, Any] | None:
@@ -1499,6 +1491,7 @@ def _write_sumstats_metadata(
     *,
     config_snapshot: GlobalConfig,
     trait_name: str | None,
+    files: dict[str, str],
 ) -> None:
     """Write the thin metadata sidecar used for downstream compatibility."""
     payload = {
@@ -1507,6 +1500,7 @@ def _write_sumstats_metadata(
             snp_identifier=config_snapshot.snp_identifier,
             genome_build=config_snapshot.genome_build,
         ),
+        "files": dict(files),
         "trait_name": trait_name,
     }
     Path(path).write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")

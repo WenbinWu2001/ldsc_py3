@@ -1,5 +1,6 @@
 import gzip
 import importlib.util
+import json
 import logging
 from dataclasses import replace as dataclass_replace
 from pathlib import Path
@@ -1774,6 +1775,15 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             self.assertEqual(patched.call_count, 2)
             self.assertNotIn("ann", result.output_paths)
             self.assertNotIn("ld", result.output_paths)
+            self.assertEqual(result.output_paths["metadata"], [str(tmpdir / "out" / "metadata.json")])
+            metadata = json.loads((tmpdir / "out" / "metadata.json").read_text(encoding="utf-8"))
+            self.assertEqual(metadata["artifact_type"], "ref_panel")
+            self.assertEqual(metadata["snp_identifier"], "chr_pos")
+            self.assertEqual(metadata["genome_build"], "hg38")
+            self.assertEqual(metadata["chromosomes"], ["1", "2"])
+            self.assertEqual(metadata["files"]["r2_hg19"], ["hg19/chr1_r2.parquet", "hg19/chr2_r2.parquet"])
+            self.assertEqual(metadata["files"]["meta_hg38"], ["hg38/chr1_meta.tsv.gz", "hg38/chr2_meta.tsv.gz"])
+            self.assertNotIn("format", metadata)
             self.assertEqual(
                 result.output_paths["r2_hg19"],
                 [
@@ -1938,6 +1948,55 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
 
             patched.assert_called_once()
             self.assertEqual(result.chromosomes, ["1"])
+
+    def test_builder_run_refuses_stale_owned_artifact_before_chromosome_build(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
+            config = self._build_config(tmpdir)
+            stale = tmpdir / "out" / "hg38" / "chr2_r2.parquet"
+            stale.parent.mkdir(parents=True)
+            stale.write_text("stale\n", encoding="utf-8")
+            builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
+
+            with mock.patch.object(
+                ref_panel_builder.ReferencePanelBuilder,
+                "_build_chromosome",
+                side_effect=AssertionError("chromosome build should not run"),
+            ):
+                with self.assertRaisesRegex(FileExistsError, "overwrite"):
+                    builder.run(config)
+
+            self.assertEqual(stale.read_text(encoding="utf-8"), "stale\n")
+
+    def test_builder_run_overwrite_removes_stale_owned_artifact_after_success(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
+            config = dataclass_replace(self._build_config(tmpdir), overwrite=True)
+            stale_r2 = tmpdir / "out" / "hg38" / "chr2_r2.parquet"
+            stale_drop = tmpdir / "out" / "dropped_snps" / "chr2_dropped.tsv.gz"
+            stale_r2.parent.mkdir(parents=True)
+            stale_drop.parent.mkdir(parents=True)
+            stale_r2.write_text("stale\n", encoding="utf-8")
+            stale_drop.write_text("stale\n", encoding="utf-8")
+            builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
+
+            with mock.patch.object(
+                ref_panel_builder.ReferencePanelBuilder,
+                "_build_chromosome",
+                return_value={
+                    "r2_hg19": str(tmpdir / "out" / "hg19" / "chr1_r2.parquet"),
+                    "r2_hg38": str(tmpdir / "out" / "hg38" / "chr1_r2.parquet"),
+                    "meta_hg19": str(tmpdir / "out" / "hg19" / "chr1_meta.tsv.gz"),
+                    "meta_hg38": str(tmpdir / "out" / "hg38" / "chr1_meta.tsv.gz"),
+                },
+            ):
+                result = builder.run(config)
+
+            self.assertEqual(result.chromosomes, ["1"])
+            self.assertFalse(stale_r2.exists())
+            self.assertFalse(stale_drop.exists())
 
     def test_builder_run_allows_hg38_source_only_output_paths(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2549,72 +2608,41 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
         )
 
 
-@unittest.skipUnless(
-    _HAS_BITARRAY and _HAS_PYARROW,
-    "bitarray and pyarrow are required for the source-only builder smoke test",
-)
-class RefPanelStaleClass2WarningTest(unittest.TestCase):
-    def test_warn_on_stale_class2_artifacts_logs_warning(self):
+class RefPanelOutputFamilyTest(unittest.TestCase):
+    def test_output_family_includes_existing_owned_artifacts_and_current_run_paths(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             out = Path(tmpdir) / "out"
-            stale_r2 = out / "hg19" / "chr1_r2.parquet"
-            stale_meta = out / "hg19" / "chr1_meta.tsv.gz"
-            stale_r2.parent.mkdir(parents=True)
-            stale_r2.write_text("stale\n", encoding="utf-8")
-            stale_meta.write_text("stale\n", encoding="utf-8")
-            expected = [out / "hg19" / "chr6_r2.parquet", out / "hg19" / "chr6_meta.tsv.gz"]
+            existing_r2 = out / "hg19" / "chr1_r2.parquet"
+            existing_meta = out / "hg38" / "chr2_meta.tsv.gz"
+            existing_drop = out / "dropped_snps" / "chr2_dropped.tsv.gz"
+            existing_log = out / "build-ref-panel.chr2.log"
+            produced = out / "hg19" / "chr6_r2.parquet"
+            existing_r2.parent.mkdir(parents=True)
+            existing_meta.parent.mkdir(parents=True)
+            existing_drop.parent.mkdir(parents=True)
+            existing_r2.write_text("r2\n", encoding="utf-8")
+            existing_meta.write_text("meta\n", encoding="utf-8")
+            existing_drop.write_text("drop\n", encoding="utf-8")
+            existing_log.write_text("log\n", encoding="utf-8")
 
-            with self.assertLogs("LDSC.ref_panel_builder", level="WARNING") as logs:
-                ref_panel_builder._warn_stale_class2_artifacts(out, expected)
+            family = ref_panel_builder._ref_panel_output_family(out, [produced])
 
-            self.assertEqual(len(logs.records), 1)
-            message = logs.records[0].getMessage()
-            self.assertIn(str(stale_r2), message)
-            self.assertIn(str(stale_meta), message)
-            self.assertIn("new --output-dir", message)
-            self.assertIn("delete the listed files", message)
+            self.assertIn(existing_r2, family)
+            self.assertIn(existing_meta, family)
+            self.assertIn(existing_drop, family)
+            self.assertIn(existing_log, family)
+            self.assertIn(produced, family)
 
-    def test_no_warn_when_run_paths_match_existing(self):
+    def test_output_family_ignores_unknown_subdirectories(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             out = Path(tmpdir) / "out"
-            existing = out / "hg19" / "chr6_r2.parquet"
-            existing.parent.mkdir(parents=True)
-            existing.write_text("current\n", encoding="utf-8")
-
-            with mock.patch.object(ref_panel_builder.LOGGER, "warning") as warning:
-                ref_panel_builder._warn_stale_class2_artifacts(out, [existing])
-
-            warning.assert_not_called()
-
-    def test_warn_truncates_stale_list_at_ten_paths(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            out = Path(tmpdir) / "out"
-            stale_dir = out / "hg19"
-            stale_dir.mkdir(parents=True)
-            for chrom in range(1, 16):
-                (stale_dir / f"chr{chrom}_r2.parquet").write_text("stale\n", encoding="utf-8")
-
-            with self.assertLogs("LDSC.ref_panel_builder", level="WARNING") as logs:
-                ref_panel_builder._warn_stale_class2_artifacts(out, [out / "hg19" / "chr16_r2.parquet"])
-
-            message = logs.records[0].getMessage()
-            self.assertEqual(message.count("_r2.parquet"), 10)
-            self.assertIn("... and 5 more", message)
-
-    def test_warn_ignores_class1_and_unknown_subdirectories(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            out = Path(tmpdir) / "out"
-            dropped = out / "dropped_snps" / "chr1_dropped.tsv.gz"
             scratch = out / "scratch" / "chr1_r2.parquet"
-            dropped.parent.mkdir(parents=True)
             scratch.parent.mkdir(parents=True)
-            dropped.write_text("class1\n", encoding="utf-8")
             scratch.write_text("unknown\n", encoding="utf-8")
 
-            with mock.patch.object(ref_panel_builder.LOGGER, "warning") as warning:
-                ref_panel_builder._warn_stale_class2_artifacts(out, [])
+            family = ref_panel_builder._ref_panel_output_family(out, [])
 
-            warning.assert_not_called()
+            self.assertNotIn(scratch, family)
 
 
 class ReferencePanelBuilderSourceOnlySmokeTest(unittest.TestCase):

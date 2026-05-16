@@ -11,18 +11,14 @@ This module is the public entry point for the `build-ref-panel` workflow. It
 keeps path resolution, logging configuration, and cross-file validation in the
 workflow layer, then delegates pairwise-R2 generation and parquet serialization to
 ``ldsc._kernel.ref_panel_builder``. Before chromosome processing begins, the
-workflow precomputes deterministic parquet and metadata sidecar destinations
-and refuses existing files unless ``overwrite=True`` was configured. Parsed
-workflow wrappers write ``build-ref-panel.log`` for multi-chromosome runs and
-chromosome-scoped logs for concrete single-chromosome runs; direct builder
-calls return data artifact paths only and do not create a log file by default.
-
-Unlike the user-facing result-directory writers, ``build-ref-panel`` keeps an
-expert-oriented overwrite contract: ``overwrite=True`` permits replacing
-candidate artifacts for the current chromosome/build set but does not remove
-stale optional target-build or ``dropped_snps`` siblings from earlier
-configurations. Use a fresh output directory when changing emitted builds,
-liftover/coordinate configuration, or chromosome scope.
+workflow precomputes deterministic parquet, metadata sidecar, and dropped-SNP
+audit destinations and refuses any existing workflow-owned artifact unless
+``overwrite=True`` was configured. Parsed workflow wrappers write
+``build-ref-panel.log`` for multi-chromosome runs and chromosome-scoped logs
+for concrete single-chromosome runs; direct builder calls return data artifact
+paths only and do not create a log file by default. With overwrite enabled,
+successful runs replace current-run artifacts and remove stale owned parquet,
+metadata, audit, or log siblings from previous incompatible configurations.
 Reference-panel liftover keeps the historical source-build plus optional
 opposite-build UX, but matching chain files are valid only in ``chr_pos``-family
 modes and are rejected in rsID-family modes. Duplicate-position handling is
@@ -32,7 +28,10 @@ likewise coordinate-family behavior and uses drop-all for coordinate collisions.
 from __future__ import annotations
 
 import argparse
+import json
 import logging
+import os
+import tempfile
 from dataclasses import asdict, dataclass, field, replace as dataclass_replace
 from pathlib import Path
 from typing import Any, Sequence
@@ -64,7 +63,8 @@ from .genome_build_inference import resolve_genome_build
 from .hm3 import packaged_hm3_curated_map_path
 from .path_resolution import (
     ensure_output_directory,
-    ensure_output_paths_available,
+    preflight_output_artifact_family,
+    remove_output_artifacts,
     resolve_file_group,
     resolve_plink_prefix_group,
     resolve_scalar_path,
@@ -165,7 +165,7 @@ def _expected_ref_panel_output_paths(config: ReferencePanelBuildConfig, chromoso
     metadata sidecars for every emitted chromosome/build pair.
     """
     out_root = Path(config.output_dir)
-    paths: list[Path] = []
+    paths: list[Path] = [out_root / "metadata.json"]
     for chrom in chromosomes:
         for build in _emitted_genome_builds(config):
             paths.extend(
@@ -212,46 +212,76 @@ def _concat_drop_frames(frames: Sequence[pd.DataFrame]) -> pd.DataFrame:
     return _coerce_unified_drop_frame(pd.concat(non_empty, ignore_index=True))
 
 
-def _warn_stale_class2_artifacts(output_dir: Path, expected_paths: Sequence[Path]) -> None:
-    """Warn when prior ref-panel parquet/meta artifacts are outside this run.
-
-    The helper only inspects workflow-owned class-2 territory under ``hg19/``
-    and ``hg38/``. It never deletes files; it emits one warning so users can
-    detect accidental mixed-output directories before chromosome processing.
-    """
-    expected = {str(Path(path)) for path in expected_paths}
-    stale: list[Path] = []
+def _ref_panel_output_family(output_dir: Path, produced_paths: Sequence[Path] = ()) -> list[Path]:
+    """Return existing and current-run artifacts owned by build-ref-panel."""
+    paths: list[Path] = [output_dir / "metadata.json"]
     for build_subdir_name in ("hg19", "hg38"):
         build_subdir = output_dir / build_subdir_name
         if not build_subdir.is_dir():
             continue
         for pattern in ("chr*_r2.parquet", "chr*_meta.tsv.gz"):
-            for path in build_subdir.glob(pattern):
-                if str(path) not in expected:
-                    stale.append(path)
-    if not stale:
-        return
-    stale_sorted = sorted(stale, key=lambda path: str(path))
-    shown = stale_sorted[:10]
-    path_lines = "\n".join(f"  {path}" for path in shown)
-    if len(stale_sorted) > 10:
-        path_lines = f"{path_lines}\n  ... and {len(stale_sorted) - 10} more"
-    LOGGER.warning(
-        "Found %d pre-existing reference-panel artifacts in '%s' that this run "
-        "will NOT touch. If those came from a previous run with different "
-        "configuration (different chromosome scope, source build, liftover "
-        "settings, MAF filter, etc.), downstream tools that load this directory "
-        "as a complete reference panel will silently see a mix of two different "
-        "builds. If this is an intentional chromosome-by-chromosome batch with "
-        "consistent configuration, no action is needed.\n\n"
-        "To remove the silent-mix risk, either:\n"
-        "  (a) start fresh with a new --output-dir, or\n"
-        "  (b) delete the listed files before re-running.\n\n"
-        "Pre-existing artifacts not produced by this run:\n%s",
-        len(stale_sorted),
-        output_dir,
-        path_lines,
-    )
+            paths.extend(sorted(build_subdir.glob(pattern)))
+    dropped_dir = output_dir / "dropped_snps"
+    if dropped_dir.is_dir():
+        paths.extend(sorted(dropped_dir.glob("chr*_dropped.tsv.gz")))
+    paths.extend(sorted(output_dir.glob("build-ref-panel*.log")))
+    paths.extend(Path(path) for path in produced_paths)
+    return paths
+
+
+def _write_ref_panel_metadata(
+    path: Path,
+    *,
+    config: ReferencePanelBuildConfig,
+    global_config: GlobalConfig,
+    chromosomes: Sequence[str],
+    output_paths: dict[str, list[str]],
+    resolved_plink_prefixes: Sequence[str],
+) -> None:
+    """Write root metadata for a reference-panel output directory."""
+    output_dir = Path(config.output_dir)
+    files = {
+        key: [_relative_to_output_dir(item, output_dir) for item in values]
+        for key, values in output_paths.items()
+        if key != "metadata"
+    }
+    payload = {
+        "schema_version": 1,
+        "artifact_type": "ref_panel",
+        "files": files,
+        "snp_identifier": global_config.snp_identifier,
+        "genome_build": global_config.genome_build,
+        "source_genome_build": config.source_genome_build,
+        "emitted_genome_builds": _emitted_genome_builds(config),
+        "chromosomes": [str(chrom) for chrom in chromosomes],
+        "plink_prefix": config.plink_prefix,
+        "resolved_plink_prefixes": [str(prefix) for prefix in resolved_plink_prefixes],
+        "ref_panel_snps_file": None if config.ref_panel_snps_file is None else str(config.ref_panel_snps_file),
+        "use_hm3_snps": bool(config.use_hm3_snps),
+    }
+    _atomic_write_json(payload, path)
+
+
+def _relative_to_output_dir(path: str, output_dir: Path) -> str:
+    """Return output-relative path strings when possible."""
+    candidate = Path(path)
+    try:
+        return str(candidate.relative_to(output_dir))
+    except ValueError:
+        return str(candidate)
+
+
+def _atomic_write_json(payload: dict[str, object], path: Path) -> None:
+    """Write JSON through a temporary sibling file, then replace."""
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
+    os.close(fd)
+    tmp_path = Path(tmp_name)
+    try:
+        tmp_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+        os.replace(tmp_path, path)
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
 
 
 class ReferencePanelBuilder:
@@ -275,11 +305,13 @@ class ReferencePanelBuilder:
             this builder interprets the restriction using
             ``self.global_config.snp_identifier`` against the resolved source
             PLINK build. ``GlobalConfig.genome_build`` is not consulted by this
-            workflow. Existing deterministic output
-            paths are refused before chromosome processing unless
-            ``config.overwrite`` is true. Direct calls through this method do
-            not create a workflow log; parsed wrappers add a build-ref-panel
-            workflow log through the shared logging context.
+            workflow. Existing workflow-owned parquet, metadata, dropped-SNP,
+            or log artifacts are refused before chromosome processing unless
+            ``config.overwrite`` is true; successful overwrites remove stale
+            owned siblings not produced by the current run. Direct calls
+            through this method do not create a workflow log; parsed wrappers
+            add a build-ref-panel workflow log through the shared logging
+            context.
 
         Returns
         -------
@@ -321,18 +353,15 @@ class ReferencePanelBuilder:
                 chrom_sources.append((prefix, chrom))
 
         workflow_log_path = _resolve_build_ref_panel_log_path(workflow_log_path, config, chrom_sources)
-        preflight_paths = _expected_ref_panel_output_paths(config, [chrom for _, chrom in chrom_sources])
+        produced_paths = _expected_ref_panel_output_paths(config, [chrom for _, chrom in chrom_sources])
         if workflow_log_path is not None:
-            preflight_paths.append(workflow_log_path)
-        ensure_output_paths_available(
-            preflight_paths,
+            produced_paths.append(workflow_log_path)
+        stale_paths = preflight_output_artifact_family(
+            produced_paths,
+            _ref_panel_output_family(output_dir, produced_paths),
             overwrite=config.overwrite,
             label="reference-panel output artifact",
         )
-        # Class-1 sidecars are always written by this run. Class-2 r2/meta
-        # siblings from other chromosome/build scopes are not removed here;
-        # warn early so users can choose fresh output dirs or manual cleanup.
-        _warn_stale_class2_artifacts(Path(config.output_dir), preflight_paths)
 
         with workflow_logging("build-ref-panel", workflow_log_path, log_level=self.global_config.log_level):
             log_inputs(
@@ -358,6 +387,16 @@ class ReferencePanelBuilder:
             chrom_records.sort(key=lambda item: kernel_ldscore.chrom_sort_key(item[0]))
             output_keys = sorted({key for _, paths in chrom_records for key in paths})
             output_paths = {key: [paths[key] for _, paths in chrom_records] for key in output_keys}
+            metadata_path = output_dir / "metadata.json"
+            output_paths["metadata"] = [str(metadata_path)]
+            _write_ref_panel_metadata(
+                metadata_path,
+                config=config,
+                global_config=self.global_config,
+                chromosomes=[chrom for chrom, _ in chrom_records],
+                output_paths=output_paths,
+                resolved_plink_prefixes=resolved_prefixes,
+            )
             result = ReferencePanelBuildResult(
                 panel_name=Path(config.output_dir).name,
                 chromosomes=[chrom for chrom, _ in chrom_records],
@@ -369,6 +408,7 @@ class ReferencePanelBuilder:
                 },
             )
             log_outputs(**{key: ", ".join(paths) for key, paths in output_paths.items()})
+            remove_output_artifacts(stale_paths)
             return result
 
     def _configure_logging(self) -> None:
@@ -1480,7 +1520,12 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("--output-dir", required=True, help="Output root directory for emitted parquet artifacts.")
-    parser.add_argument("--overwrite", action="store_true", default=False, help="Replace existing candidate panel output files.")
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        default=False,
+        help="Replace current panel output files and remove stale workflow-owned siblings after success.",
+    )
     parser.add_argument("--ld-wind-snps", default=None, type=int, help="LD window size in SNPs.")
     parser.add_argument("--ld-wind-kb", default=None, type=float, help="LD window size in kilobases.")
     parser.add_argument("--ld-wind-cm", default=None, type=float, help="LD window size in centiMorgans.")

@@ -470,11 +470,10 @@ class ReferencePanelBuildConfig:
         Number of SNPs loaded per pairwise-R2 computation batch. Larger values
         may improve throughput but use more memory. Default is ``128``.
     overwrite : bool, optional
-        If ``True``, replace current candidate panel artifacts. This expert
-        workflow does not clean stale optional target-build, out-of-scope
-        chromosome, or ``dropped_snps`` siblings from earlier configurations.
-        If ``False``, output collisions raise before chromosome processing
-        starts. Default is ``False``.
+        If ``True``, replace current panel artifacts and remove stale
+        workflow-owned parquet, metadata, dropped-SNP, or log siblings after a
+        successful run. If ``False``, output collisions raise before
+        chromosome processing starts. Default is ``False``.
     """
 
     plink_prefix: str | PathLike[str]
@@ -562,7 +561,7 @@ class MungeConfig:
     output_dir : str or os.PathLike[str]
         Directory that receives workflow-owned ``sumstats.parquet`` and/or
         ``sumstats.sumstats.gz``, ``sumstats.log``, and
-        ``sumstats.metadata.json`` artifacts.
+        root ``metadata.json`` artifacts.
     raw_sumstats_file : str or os.PathLike[str] or None, optional
         Raw summary-statistics file to munge. Exact-one glob patterns are
         resolved by the workflow before entering the legacy kernel. Default is

@@ -1514,11 +1514,11 @@ class LDScoreWorkflowTest(unittest.TestCase):
             ):
                 result = ldscore_workflow.run_ldscore_from_args(args)
             self.assertEqual(result.baseline_table["SNP"].tolist(), ["rs1"])
-            self.assertIn("manifest", result.output_paths)
+            self.assertIn("metadata", result.output_paths)
             self.assertIn("baseline", result.output_paths)
             self.assertIn("query", result.output_paths)
             self.assertNotIn("log", result.output_paths)
-            self.assertTrue(Path(result.output_paths["manifest"]).exists())
+            self.assertTrue(Path(result.output_paths["metadata"]).exists())
             self.assertTrue((tmpdir / "ldscore_result" / "ldscore.log").exists())
             self.assertFalse(list((tmpdir / "ldscore_result").glob("*.l2.ldscore.gz")))
             self.assertFalse(list((tmpdir / "ldscore_result").glob("*.M*")))
@@ -1669,7 +1669,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                     ldscore_workflow.run_ldscore_from_args(args)
 
             self.assertEqual(stale.read_text(encoding="utf-8"), "stale\n")
-            self.assertFalse((output_dir / "manifest.json").exists())
+            self.assertFalse((output_dir / "metadata.json").exists())
             self.assertFalse((output_dir / "ldscore.log").exists())
 
     def test_run_ldscore_from_args_overwrite_removes_stale_query_parquet(self):
@@ -1718,7 +1718,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             ):
                 result = ldscore_workflow.run_ldscore_from_args(args)
 
-            self.assertTrue((output_dir / "manifest.json").exists())
+            self.assertTrue((output_dir / "metadata.json").exists())
             self.assertTrue((output_dir / "ldscore.log").exists())
             self.assertFalse(stale.exists())
             self.assertNotIn("query", result.output_paths)

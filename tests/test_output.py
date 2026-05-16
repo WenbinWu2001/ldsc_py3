@@ -154,27 +154,27 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
         for name in removed_names:
             self.assertFalse(hasattr(outputs, name), f"{name} should not be exposed by ldsc.outputs")
 
-    def test_writes_manifest_baseline_and_query_parquet(self):
+    def test_writes_metadata_baseline_and_query_parquet(self):
         result = make_split_ldscore_result(query=True)
         writer = LDScoreDirectoryWriter()
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "ldscores"
             output_paths = writer.write(result, LDScoreOutputConfig(output_dir=output_dir))
 
-            self.assertEqual(set(output_paths), {"manifest", "baseline", "query"})
-            manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
-            self.assertEqual(manifest["format"], "ldsc.ldscore_result.v1")
-            self.assertEqual(manifest["schema_version"], 1)
-            self.assertEqual(manifest["artifact_type"], "ldscore")
-            self.assertEqual(manifest["snp_identifier"], "rsid")
-            self.assertIsNone(manifest["genome_build"])
-            self.assertNotIn("config_snapshot", manifest)
-            self.assertEqual(manifest["files"], {"baseline": "ldscore.baseline.parquet", "query": "ldscore.query.parquet"})
-            self.assertEqual(manifest["baseline_columns"], ["base"])
-            self.assertEqual(manifest["query_columns"], ["query"])
-            self.assertEqual(manifest["counts"][1]["column"], "query")
+            self.assertEqual(set(output_paths), {"metadata", "baseline", "query"})
+            metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
+            self.assertNotIn("format", metadata)
+            self.assertEqual(metadata["schema_version"], 1)
+            self.assertEqual(metadata["artifact_type"], "ldscore")
+            self.assertEqual(metadata["snp_identifier"], "rsid")
+            self.assertIsNone(metadata["genome_build"])
+            self.assertNotIn("config_snapshot", metadata)
+            self.assertEqual(metadata["files"], {"baseline": "ldscore.baseline.parquet", "query": "ldscore.query.parquet"})
+            self.assertEqual(metadata["baseline_columns"], ["base"])
+            self.assertEqual(metadata["query_columns"], ["query"])
+            self.assertEqual(metadata["counts"][1]["column"], "query")
             self.assertEqual(
-                manifest["count_config"],
+                metadata["count_config"],
                 {
                     "common_reference_snp_maf_min": 0.05,
                     "common_reference_snp_maf_operator": ">=",
@@ -253,8 +253,8 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
             output_dir = Path(tmpdir) / "out"
             LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=output_dir))
 
-            manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
-            rg_by_chrom = {e["chrom"]: e["row_group_index"] for e in manifest["baseline_row_groups"]}
+            metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
+            rg_by_chrom = {e["chrom"]: e["row_group_index"] for e in metadata["baseline_row_groups"]}
 
             pf = pq.ParquetFile(output_dir / "ldscore.baseline.parquet")
             df = pf.read_row_group(rg_by_chrom["1"]).to_pandas()
@@ -262,26 +262,26 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
             self.assertNotIn("2", df["CHR"].values)
             self.assertNotIn("22", df["CHR"].values)
 
-    def test_manifest_row_group_metadata_is_consistent(self):
+    def test_ldscore_row_group_metadata_is_consistent(self):
         result = make_multi_chrom_result()
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "out"
             LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=output_dir))
 
-            manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
-            self.assertEqual(manifest["row_group_layout"], "one_per_chromosome")
+            metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
+            self.assertEqual(metadata["row_group_layout"], "one_per_chromosome")
 
             for field_name, total_field in [
                 ("baseline_row_groups", "n_baseline_rows"),
                 ("query_row_groups", "n_query_rows"),
             ]:
-                entries = manifest[field_name]
+                entries = metadata[field_name]
                 self.assertIsNotNone(entries)
                 expected_offset = 0
                 for e in entries:
                     self.assertEqual(e["row_offset"], expected_offset)
                     expected_offset += e["n_rows"]
-                self.assertEqual(expected_offset, manifest[total_field])
+                self.assertEqual(expected_offset, metadata[total_field])
 
     def test_query_row_groups_null_when_no_query_table(self):
         result = make_split_ldscore_result(query=False)
@@ -289,10 +289,10 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
             output_dir = Path(tmpdir) / "out"
             LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=output_dir))
 
-            manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
-            self.assertIsNone(manifest["query_row_groups"])
-            self.assertIsNotNone(manifest["baseline_row_groups"])
-            self.assertEqual(len(manifest["baseline_row_groups"]), 1)
+            metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
+            self.assertIsNone(metadata["query_row_groups"])
+            self.assertIsNotNone(metadata["baseline_row_groups"])
+            self.assertEqual(len(metadata["baseline_row_groups"]), 1)
 
     def test_omits_query_parquet_for_baseline_only_result(self):
         result = make_split_ldscore_result(query=False)
@@ -301,11 +301,11 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
             output_dir = Path(tmpdir) / "ldscores"
             output_paths = writer.write(result, LDScoreOutputConfig(output_dir=output_dir))
 
-            self.assertEqual(set(output_paths), {"manifest", "baseline"})
+            self.assertEqual(set(output_paths), {"metadata", "baseline"})
             self.assertFalse((output_dir / "ldscore.query.parquet").exists())
-            manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
-            self.assertEqual(manifest["files"], {"baseline": "ldscore.baseline.parquet"})
-            self.assertEqual(manifest["query_columns"], [])
+            metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
+            self.assertEqual(metadata["files"], {"baseline": "ldscore.baseline.parquet"})
+            self.assertEqual(metadata["query_columns"], [])
 
     def test_baseline_only_write_refuses_stale_query_parquet_without_overwrite(self):
         result = make_split_ldscore_result(query=False)
@@ -319,7 +319,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
                 LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=output_dir))
 
             self.assertEqual(stale.read_text(encoding="utf-8"), "stale\n")
-            self.assertFalse((output_dir / "manifest.json").exists())
+            self.assertFalse((output_dir / "metadata.json").exists())
             self.assertFalse((output_dir / "ldscore.baseline.parquet").exists())
 
     def test_baseline_only_overwrite_removes_stale_query_parquet(self):
@@ -333,9 +333,9 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
                 LDScoreOutputConfig(output_dir=output_dir, overwrite=True),
             )
 
-            manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+            metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
             loaded = load_ldscore_from_dir(str(output_dir))
-            self.assertEqual(manifest["files"], {"baseline": "ldscore.baseline.parquet"})
+            self.assertEqual(metadata["files"], {"baseline": "ldscore.baseline.parquet"})
             self.assertFalse((output_dir / "ldscore.query.parquet").exists())
             self.assertIsNone(loaded.query_table)
             self.assertNotIn("query", loaded.output_paths)
@@ -359,24 +359,25 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
             with self.assertRaisesRegex(FileExistsError, "overwrite=True"):
                 LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=output_dir))
 
-            self.assertFalse((output_dir / "manifest.json").exists())
+            self.assertFalse((output_dir / "metadata.json").exists())
             self.assertEqual((output_dir / "ldscore.baseline.parquet").read_text(encoding="utf-8"), "existing")
 
     def test_overwrite_true_replaces_existing_canonical_files(self):
         result = make_split_ldscore_result(query=True)
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir)
-            (output_dir / "manifest.json").write_text("existing", encoding="utf-8")
+            (output_dir / "metadata.json").write_text("existing", encoding="utf-8")
             (output_dir / "ldscore.baseline.parquet").write_text("existing", encoding="utf-8")
 
             LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=output_dir, overwrite=True))
 
-            manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+            metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
             baseline = pd.read_parquet(output_dir / "ldscore.baseline.parquet")
-            self.assertEqual(manifest["format"], "ldsc.ldscore_result.v1")
+            self.assertEqual(metadata["artifact_type"], "ldscore")
+            self.assertNotIn("format", metadata)
             self.assertEqual(baseline["SNP"].tolist(), ["rs1", "rs2"])
 
-    def test_omits_missing_common_count_values_from_manifest_records(self):
+    def test_omits_missing_common_count_values_from_metadata_records(self):
         result = make_split_ldscore_result(query=False)
         result = dataclass_replace(
             result,
@@ -392,11 +393,11 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
             output_dir = Path(tmpdir) / "ldscores"
             LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=output_dir))
 
-            manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+            metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
 
-        self.assertEqual(manifest["counts"][0]["all_reference_snp_count"], 10.0)
-        self.assertNotIn("common_reference_snp_count", manifest["counts"][0])
-        self.assertEqual(manifest["count_config"]["common_reference_snp_maf_operator"], ">=")
+        self.assertEqual(metadata["counts"][0]["all_reference_snp_count"], 10.0)
+        self.assertNotIn("common_reference_snp_count", metadata["counts"][0])
+        self.assertEqual(metadata["count_config"]["common_reference_snp_maf_operator"], ">=")
 
 
 class H2DirectoryWriterTest(unittest.TestCase):
@@ -448,20 +449,22 @@ class H2DirectoryWriterTest(unittest.TestCase):
                 paths,
                 {
                     "summary": str(output_dir / "h2.tsv"),
-                    "metadata": str(output_dir / "h2.metadata.json"),
+                    "metadata": str(output_dir / "metadata.json"),
                 },
             )
             summary = pd.read_csv(output_dir / "h2.tsv", sep="\t")
             self.assertEqual(summary.columns.tolist(), self.make_summary().columns.tolist())
-            metadata = json.loads((output_dir / "h2.metadata.json").read_text(encoding="utf-8"))
+            metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
             self.assertEqual(metadata["artifact_type"], "h2_result")
+            self.assertEqual(metadata["files"], {"summary": "h2.tsv"})
+            self.assertNotIn("format", metadata)
             self.assertEqual(metadata["retained_ld_columns"], ["base"])
 
     def test_refuses_existing_metadata_without_overwrite(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "h2"
             output_dir.mkdir()
-            existing = output_dir / "h2.metadata.json"
+            existing = output_dir / "metadata.json"
             existing.write_text('{"old": true}\n', encoding="utf-8")
 
             with self.assertRaisesRegex(FileExistsError, "overwrite"):
@@ -479,7 +482,7 @@ class H2DirectoryWriterTest(unittest.TestCase):
             output_dir = Path(tmpdir) / "h2"
             output_dir.mkdir()
             (output_dir / "h2.tsv").write_text("old\n", encoding="utf-8")
-            (output_dir / "h2.metadata.json").write_text('{"old": true}\n', encoding="utf-8")
+            (output_dir / "metadata.json").write_text('{"old": true}\n', encoding="utf-8")
 
             H2DirectoryWriter().write(
                 self.make_summary(),
@@ -488,7 +491,7 @@ class H2DirectoryWriterTest(unittest.TestCase):
             )
 
             self.assertIn("total_h2", (output_dir / "h2.tsv").read_text(encoding="utf-8"))
-            metadata = json.loads((output_dir / "h2.metadata.json").read_text(encoding="utf-8"))
+            metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
             self.assertNotIn("old", metadata)
             self.assertEqual(metadata["schema_version"], 1)
 
@@ -566,7 +569,17 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
                 ],
             )
             self.assertFalse((output_dir / "query_annotations").exists())
-            self.assertEqual(paths, {"summary": str(output_dir / "partitioned_h2.tsv")})
+            self.assertEqual(
+                paths,
+                {
+                    "summary": str(output_dir / "partitioned_h2.tsv"),
+                    "metadata": str(output_dir / "metadata.json"),
+                },
+            )
+            metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
+            self.assertEqual(metadata["artifact_type"], "partitioned_h2_result")
+            self.assertEqual(metadata["files"], {"summary": "partitioned_h2.tsv"})
+            self.assertNotIn("format", metadata)
 
     def test_writes_per_query_tree_with_sanitized_manifest(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -591,6 +604,12 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
             )
             self.assertIn("partitioned_h2_full_path", manifest.columns)
             self.assertNotIn("model_categories_path", manifest.columns)
+            root_metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
+            self.assertEqual(root_metadata["artifact_type"], "partitioned_h2_result")
+            self.assertEqual(root_metadata["trait_name"], "trait")
+            self.assertEqual(root_metadata["files"]["summary"], "partitioned_h2.tsv")
+            self.assertEqual(root_metadata["files"]["query_annotations"], "query_annotations")
+            self.assertNotIn("format", root_metadata)
             self.assertTrue((query_root / "0001_il-6_jak_stat_hallmark" / "partitioned_h2.tsv").exists())
             self.assertTrue((query_root / "0001_il-6_jak_stat_hallmark" / "partitioned_h2_full.tsv").exists())
             self.assertFalse((query_root / "0001_il-6_jak_stat_hallmark" / "model_categories.tsv").exists())
@@ -601,6 +620,15 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
             categories = pd.read_csv(query_root / "0001_il-6_jak_stat_hallmark" / "partitioned_h2_full.tsv", sep="\t")
             self.assertEqual(metadata["query_annotation"], "IL-6/JAK STAT (Hallmark)")
             self.assertEqual(metadata["trait_name"], "trait")
+            self.assertEqual(metadata["artifact_type"], "partitioned_h2_query_result")
+            self.assertEqual(
+                metadata["files"],
+                {
+                    "summary": "query_annotations/0001_il-6_jak_stat_hallmark/partitioned_h2.tsv",
+                    "full": "query_annotations/0001_il-6_jak_stat_hallmark/partitioned_h2_full.tsv",
+                },
+            )
+            self.assertNotIn("format", metadata)
             self.assertEqual(
                 query_summary.columns.tolist(),
                 [
@@ -670,6 +698,7 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
 
             self.assertFalse(stale.exists())
             self.assertTrue((output_dir / "query_annotations" / "manifest.tsv").exists())
+            self.assertTrue((output_dir / "metadata.json").exists())
             self.assertIn("Coefficient", (output_dir / "partitioned_h2.tsv").read_text(encoding="utf-8"))
 
     def test_aggregate_only_refuses_stale_per_query_tree_without_overwrite(self):
@@ -704,6 +733,7 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
             )
 
             self.assertTrue((output_dir / "partitioned_h2.tsv").exists())
+            self.assertTrue((output_dir / "metadata.json").exists())
             self.assertFalse((output_dir / "query_annotations").exists())
 
 
@@ -841,12 +871,17 @@ class RgDirectoryWriterTest(unittest.TestCase):
 
             self.assertEqual(
                 set(paths),
-                {"rg", "rg_full", "h2_per_trait", "pairs_root", "pairs_manifest"},
+                {"metadata", "rg", "rg_full", "h2_per_trait", "pairs_root", "pairs_manifest"},
             )
             rg_text = (output_dir / "rg.tsv").read_text(encoding="utf-8")
             self.assertIn("NaN", rg_text)
             self.assertTrue((output_dir / "rg_full.tsv").exists())
             self.assertTrue((output_dir / "h2_per_trait.tsv").exists())
+            root_metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
+            self.assertEqual(root_metadata["artifact_type"], "rg_result")
+            self.assertEqual(root_metadata["files"]["rg"], "rg.tsv")
+            self.assertEqual(root_metadata["files"]["pairs"], "pairs")
+            self.assertNotIn("format", root_metadata)
             manifest = pd.read_csv(output_dir / "pairs" / "manifest.tsv", sep="\t")
             self.assertEqual(
                 manifest["folder"].tolist(),
@@ -855,7 +890,9 @@ class RgDirectoryWriterTest(unittest.TestCase):
             metadata = json.loads(
                 (output_dir / "pairs" / "0001_trait_a_vs_trait_b" / "metadata.json").read_text(encoding="utf-8")
             )
-            self.assertEqual(metadata["format"], "ldsc.rg_result_family.v1")
+            self.assertEqual(metadata["artifact_type"], "rg_pair_result")
+            self.assertEqual(metadata["files"], {"rg_full": "pairs/0001_trait_a_vs_trait_b/rg_full.tsv"})
+            self.assertNotIn("format", metadata)
             self.assertEqual(metadata["status"], "ok")
             self.assertTrue((output_dir / "pairs" / "0001_trait_a_vs_trait_b" / "rg_full.tsv").exists())
 
@@ -874,6 +911,7 @@ class RgDirectoryWriterTest(unittest.TestCase):
             )
 
             self.assertTrue((output_dir / "rg.tsv").exists())
+            self.assertTrue((output_dir / "metadata.json").exists())
             self.assertFalse((output_dir / "pairs").exists())
 
 

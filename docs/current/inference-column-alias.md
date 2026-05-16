@@ -42,7 +42,7 @@ Used by `src/ldsc/_kernel/sumstats_munger.py` through the same central
 registry. The public `ldsc.sumstats_munger` workflow now runs a lightweight
 header inference pass before delegating to the kernel. The default raw format
 profile is `--format auto`, which detects plain whitespace text, old DANER, new
-DANER, and PGC VCF-style headers. Users can inspect the decision without
+DANER, and VCF-style headers. Users can inspect the decision without
 writing outputs:
 
 ```bash
@@ -86,7 +86,7 @@ written schema for compatibility. Their semantics are:
 
 Do not add genome-oriented allele aliases to the global A1/A2 registry unless
 their signed-statistic semantics are known. `REF`/`ALT` are handled only through
-format-aware inference, currently for PGC VCF-style inputs. `ALT_ALLELE` is not
+format-aware inference, currently for VCF-style inputs. `ALT_ALLELE` is not
 an accepted alias. `BEAA` is not an accepted alias because it is a privacy-masked
 form of `BETA`, not a public header convention.
 

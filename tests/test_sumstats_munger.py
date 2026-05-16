@@ -177,6 +177,15 @@ class SumstatsMungerTest(unittest.TestCase):
 
         self.assertEqual(args.sumstats_format, "auto")
 
+    def test_build_parser_accepts_vcf_not_removed_vcf_format_name(self):
+        parser = sumstats_workflow.build_parser()
+
+        args = parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--format", "vcf"])
+
+        self.assertEqual(args.sumstats_format, "vcf")
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--format", "pgc" + "-vcf"])
+
     def test_build_parser_accepts_infer_only_without_output_dir(self):
         parser = sumstats_workflow.build_parser()
 
@@ -2607,10 +2616,10 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertFalse(result.column_hints)
             self.assertTrue(result.runnable)
 
-    def test_infer_auto_detects_pgc_vcf_style_header_and_ref_alt_hints(self):
+    def test_infer_auto_detects_vcf_style_header_and_ref_alt_hints(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
-            raw_path = tmpdir / "pgc_vcf.tsv"
+            raw_path = tmpdir / "vcf.tsv"
             raw_path.write_text(
                 "##fileformat=VCFv4.2\n"
                 "#CHROM POS ID REF ALT BETA PVAL N\n"
@@ -2620,7 +2629,9 @@ class SumstatsMungerTest(unittest.TestCase):
 
             result = sumstats_workflow.infer_raw_sumstats(raw_path)
 
-            self.assertEqual(result.detected_format, "pgc-vcf")
+            self.assertEqual(result.detected_format, "vcf")
+            self.assertIn("--format", result.suggested_args)
+            self.assertIn("vcf", result.suggested_args)
             self.assertEqual(result.column_hints, {"a1": "REF", "a2": "ALT"})
             self.assertTrue(result.runnable)
 

@@ -621,7 +621,7 @@ class MungeConfig:
         Default is ``None``.
     ignore_columns : tuple of str, optional
         Source columns ignored during auto-detection. Default is ``()``.
-    sumstats_format : {"auto", "plain", "daner-old", "daner-new", "pgc-vcf"}, optional
+    sumstats_format : {"auto", "plain", "daner-old", "daner-new", "vcf"}, optional
         Raw summary-statistics format profile. ``"auto"`` detects common
         formats from headers and leading metadata. Default is ``"auto"``.
     info_list_columns : tuple of str, optional
@@ -679,8 +679,8 @@ class MungeConfig:
             raise ValueError("chunk_size must be positive.")
         if self.output_format not in {"parquet", "tsv.gz", "both"}:
             raise ValueError("output_format must be one of 'parquet', 'tsv.gz', or 'both'.")
-        if self.sumstats_format not in {"auto", "plain", "daner-old", "daner-new", "pgc-vcf"}:
-            raise ValueError("sumstats_format must be one of 'auto', 'plain', 'daner-old', 'daner-new', or 'pgc-vcf'.")
+        if self.sumstats_format not in {"auto", "plain", "daner-old", "daner-new", "vcf"}:
+            raise ValueError("sumstats_format must be one of 'auto', 'plain', 'daner-old', 'daner-new', or 'vcf'.")
         source_genome_build = normalize_genome_build(self.source_genome_build)
         if source_genome_build is None:
             raise ValueError("source_genome_build must be 'auto', 'hg19', or 'hg38'.")

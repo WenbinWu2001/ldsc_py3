@@ -333,7 +333,7 @@ legacy-compatible munging kernel. The workflow owns the log file, metadata
 sidecar, and curated output writing; the kernel keeps the low-level parsing and
 QC. Before calling the kernel, the workflow runs format and column inference:
 `--format auto` is the default and detects plain whitespace text, old DANER,
-new DANER, and PGC VCF-style headers. `--infer-only` runs that inference pass
+new DANER, and VCF-style headers. `--infer-only` runs that inference pass
 without requiring `--output-dir` and prints missing fields plus exact repair
 suggestions. Default output is `sumstats.parquet`; `--output-format tsv.gz` or `both`
 also supports the legacy `sumstats.sumstats.gz` artifact. With overwrite
@@ -357,7 +357,7 @@ in `diagnostics/sumstats.log`; row-level drops are written to
 | File | Example | Notes |
 | --- | --- | --- |
 | raw sumstats | `#CHROM POS ID EA NEA PVAL BETA NEFF`<br/>`1 754182 rs3131969 A G 0.46 0.004 829249.58` | leading `##` metadata lines are skipped; header aliases are normalized in the workflow layer; `NEFF` is not inferred as `N` unless the user explicitly passes `--N-col NEFF` |
-| DANER or PGC VCF-style raw sumstats, optional schema mode | old DANER: `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` headers<br/>new DANER: exact `Nca` and `Nco` columns<br/>PGC VCF-style: leading `##` metadata and `#CHROM` header | `--format auto` detects these profiles; explicit `--format daner-old`, `--format daner-new`, or `--format pgc-vcf` overrides auto-detection; legacy `--daner-old`/`--daner-new` remain supported |
+| DANER or VCF-style raw sumstats, optional schema mode | old DANER: `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` headers<br/>new DANER: exact `Nca` and `Nco` columns<br/>VCF-style: leading `##` metadata and `#CHROM` header | `--format auto` detects these profiles; explicit `--format daner-old`, `--format daner-new`, or `--format vcf` overrides auto-detection; legacy `--daner-old`/`--daner-new` remain supported |
 | sumstats SNP keep-list, optional | headered `SNP` or `CHR`/`POS` restriction file, or `--use-hm3-snps` | optional row filter loaded once before parsing and applied inside each retained chunk; allele-free restrictions match by base key before later identity cleanup; allele-bearing restrictions, including packaged HM3, match by effective allele-aware key in allele-aware modes; duplicate restriction keys collapse to one retained key and non-identity columns such as `CM` or `MAF` are ignored |
 | sumstats liftover method, optional | `--output-genome-build hg38 --liftover-chain-file hg19ToHg38.over.chain` or `--output-genome-build hg38 --use-hm3-snps --use-hm3-quick-liftover` | valid only in `chr_pos`-family modes; required when source and output builds differ; updates `CHR`/`POS` after SNP restriction and preserves `SNP` labels |
 | column hints, optional | `--snp ID --chr '#CHROM' --pos POS --a1 EA --a2 NEA` | useful when headers are ambiguous; common aliases infer automatically, and `--infer-only` reports the hints it would apply |

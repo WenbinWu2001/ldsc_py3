@@ -405,7 +405,7 @@ How they are handled:
   `metadata.json` plus parquet payload files
 - `ldsc munge-sumstats` uses `--format auto` by default after the raw path is
   resolved. The inference layer can detect plain text, old DANER, new DANER,
-  and PGC VCF-style headers before applying the usual column aliases and
+  and VCF-style headers before applying the usual column aliases and
   repair suggestions.
 
 Output:

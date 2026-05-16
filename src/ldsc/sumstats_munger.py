@@ -98,7 +98,7 @@ parse_flag_cnames = kernel_munge.parse_flag_cnames
 munge_sumstats = kernel_munge.munge_sumstats
 
 _SUMSTATS_OUTPUT_FORMATS = {"parquet", "tsv.gz", "both"}
-_RAW_SUMSTATS_FORMATS = {"auto", "plain", "daner-old", "daner-new", "pgc-vcf"}
+_RAW_SUMSTATS_FORMATS = {"auto", "plain", "daner-old", "daner-new", "vcf"}
 _SUMSTATS_PARQUET_COMPRESSION = "snappy"
 
 
@@ -407,7 +407,7 @@ class SumstatsMunger:
             coordinates before any optional output liftover.
             ``sumstats_format="auto"`` is the default; use
             ``sumstats_format="plain"``, ``"daner-old"``, ``"daner-new"``, or
-            ``"pgc-vcf"`` only when overriding auto-detection.
+            ``"vcf"`` only when overriding auto-detection.
         global_config : GlobalConfig or None, optional
             Shared configuration snapshot to attach to the returned
             ``SumstatsTable``. When omitted, the current package-global
@@ -1041,7 +1041,7 @@ def infer_raw_sumstats(
     """Infer raw summary-statistics format and minimal parser hints.
 
     The inference pass reads the header and first data row only. It detects
-    plain text, old DANER, new DANER, and PGC VCF-style inputs; reports missing
+    plain text, old DANER, new DANER, and VCF-style inputs; reports missing
     required fields; identifies numeric/NA comma-separated INFO lists; and
     returns exact CLI hints for cases that still need user confirmation. It
     intentionally does not treat ``NEFF`` as total sample size ``N``. Missing
@@ -1072,8 +1072,8 @@ def infer_raw_sumstats(
         frq_u_column = _first_column_with_clean_prefix(file_cnames, "FRQ_U_")
         if frq_u_column is not None:
             column_hints.setdefault("frq", frq_u_column)
-    elif detected_format == "pgc-vcf":
-        suggested_args.extend(["--format", "pgc-vcf"])
+    elif detected_format == "vcf":
+        suggested_args.extend(["--format", "vcf"])
         if "REF" in clean_set and "ALT" in clean_set and not {"A1", "A2", "EA", "NEA"} & clean_set:
             column_hints.setdefault("a1", _original_column(file_cnames, "REF"))
             column_hints.setdefault("a2", _original_column(file_cnames, "ALT"))
@@ -1153,7 +1153,7 @@ def _detect_sumstats_format(path: str, clean_headers: set[str], requested_format
     if has_old_daner_n:
         return "daner-old"
     if kernel_munge.count_leading_sumstats_comment_lines(path) > 0 and "#CHROM" in clean_headers:
-        return "pgc-vcf"
+        return "vcf"
     if {"NCA", "NCO"}.issubset(clean_headers) or {"NCAS", "NCON"}.issubset(clean_headers):
         return "daner-new"
     return "plain"
@@ -1371,7 +1371,7 @@ def _validate_sumstats_format_flags(munge_config: MungeConfig) -> None:
         raise ValueError("--format daner-old conflicts with --daner-new.")
     if fmt == "daner-new" and munge_config.daner_old:
         raise ValueError("--format daner-new conflicts with --daner-old.")
-    if fmt in {"plain", "pgc-vcf"} and (munge_config.daner_old or munge_config.daner_new):
+    if fmt in {"plain", "vcf"} and (munge_config.daner_old or munge_config.daner_new):
         raise ValueError(f"--format {fmt} conflicts with DANER-specific flags.")
 
 

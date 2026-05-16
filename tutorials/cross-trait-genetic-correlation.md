@@ -57,8 +57,9 @@ trait_1 = SumstatsMunger().run(
         # Common SNP, allele, p-value, N, and signed-statistic headers are
         # inferred automatically. Use column_hints only for ambiguous files.
         # use_hm3_snps=True,  # packaged HM3 row restriction
-        # target_genome_build="hg38",
-        # use_hm3_quick_liftover=True,  # requires use_hm3_snps=True
+        source_genome_build="auto",
+        output_genome_build="hg38",
+        # use_hm3_quick_liftover=True,  # requires use_hm3_snps=True and source != output
         output_dir="tutorial_outputs/trait_1",
         # overwrite=True,  # also removes stale unselected sumstats sibling formats
     ),
@@ -72,8 +73,9 @@ trait_2 = SumstatsMunger().run(
         # Common SNP, allele, p-value, N, and signed-statistic headers are
         # inferred automatically. Use column_hints only for ambiguous files.
         # use_hm3_snps=True,  # packaged HM3 row restriction
-        # target_genome_build="hg38",
-        # use_hm3_quick_liftover=True,  # requires use_hm3_snps=True
+        source_genome_build="auto",
+        output_genome_build="hg38",
+        # use_hm3_quick_liftover=True,  # requires use_hm3_snps=True and source != output
         output_dir="tutorial_outputs/trait_2",
         # overwrite=True,  # also removes stale unselected sumstats sibling formats
     ),
@@ -121,8 +123,8 @@ The munger defaults to `--format auto`, and `--infer-only` can report
 missing fields or exact repair flags without writing outputs. `A1` is the
 allele that the signed statistic is relative to; `A2` is its counterpart.
 `NEFF` is not inferred as total `N` automatically. Optional munger liftover is valid for chr_pos-family modes; use
-`target_genome_build` with either a chain file or `use_hm3_snps=True` plus HM3 quick liftover when both
-traits need to be converted to the LD-score build. Liftover drops duplicate
+`output_genome_build` with either a chain file or `use_hm3_snps=True` plus HM3 quick liftover when a
+trait's inferred source build differs from the LD-score build. Liftover drops duplicate
 source/target coordinate groups, writes count summaries to `diagnostics/sumstats.log`, and
 audits row-level drops in `diagnostics/dropped_snps/dropped.tsv.gz`; examples appear only at
 `DEBUG`, not in the compatibility sidecar.
@@ -134,12 +136,14 @@ ldsc munge-sumstats \
   --raw-sumstats-file data/trait_1.tsv.gz \
   --trait-name trait_1 \
   --use-hm3-snps \
+  --output-genome-build hg38 \
   --output-dir tutorial_outputs/trait_1
 
 ldsc munge-sumstats \
   --raw-sumstats-file data/trait_2.tsv.gz \
   --trait-name trait_2 \
   --use-hm3-snps \
+  --output-genome-build hg38 \
   --output-dir tutorial_outputs/trait_2
 
 ldsc rg \

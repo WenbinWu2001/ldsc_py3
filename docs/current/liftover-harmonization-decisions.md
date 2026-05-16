@@ -40,9 +40,9 @@ output, and metadata contracts.
 - Liftover is meaningful only in chr_pos-family modes.
 - `SNP` is always a label field in chr_pos-family modes. Sumstats liftover updates
   only `CHR` and `POS`; it never rewrites `SNP`.
-- Sumstats liftover requires explicit source/target/method validation:
-  `--target-genome-build` plus exactly one of `--liftover-chain-file` or
-  `--use-hm3-quick-liftover` when source and target differ. HM3 quick liftover
+- Sumstats liftover requires explicit source/output/method validation:
+  `--output-genome-build` plus exactly one of `--liftover-chain-file` or
+  `--use-hm3-quick-liftover` when source and output differ. HM3 quick liftover
   additionally requires `--use-hm3-snps`, so HM3 filtering is explicit.
 - Missing `CHR`/`POS` rows are dropped before mapping and logged.
 - Source duplicate `CHR/POS` groups are dropped before liftover mapping.
@@ -82,8 +82,9 @@ output, and metadata contracts.
 - `--use-hm3-snps` restricts the retained reference-panel universe to the
   packaged curated HM3 map. `--use-hm3-quick-liftover` requires that restriction
   and emits the opposite build using the packaged map.
-- No new public `target_genome_build` field was added for reference-panel
-  building.
+- No public reference-panel output-build field exists; reference-panel building
+  emits the source build plus the opposite build when a matching liftover method
+  is available.
 - Matching chain-file liftover and HM3 quick liftover are coordinate-family
   behavior, valid when the active `GlobalConfig.snp_identifier` is `chr_pos` or
   `chr_pos_allele_aware`. They are invalid in rsID-family modes (`rsid` and

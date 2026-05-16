@@ -118,13 +118,13 @@ a label. To run coordinate identity without allele-aware matching, set
 `rsid` mode for rsID-only identity. The removed `--no-alleles` flag is not
 accepted. If raw sumstats coordinates need a build
 conversion before this regression step, run `munge-sumstats` with
-`--target-genome-build` plus either `--liftover-chain-file` or
-`--use-hm3-snps --use-hm3-quick-liftover`. Liftover drops duplicate source/target coordinate
+`--output-genome-build` plus either `--liftover-chain-file` or
+`--use-hm3-snps --use-hm3-quick-liftover` when the inferred source build differs from the output build. Liftover drops duplicate source/target coordinate
 groups, writes count summaries to `diagnostics/sumstats.log`, and audits row-level drops in
 `diagnostics/dropped_snps/dropped.tsv.gz`; examples appear only at `DEBUG`. The metadata
 sidecar remains a thin compatibility artifact. `munge-sumstats` defaults to
-`--format auto`; run it with `--infer-only` to inspect the detected raw format,
-inferred columns, INFO-list handling, and missing fields before writing
+`--format auto` and `--source-genome-build auto`; run it with `--infer-only --output-genome-build <hg19|hg38>` to inspect the detected raw format,
+inferred columns, INFO-list handling, source/output build, liftover status, and missing fields before writing
 outputs.
 
 ## CLI

@@ -188,7 +188,7 @@ LD-score output schema:
 | Flag | Direction | Required | Object | Notes |
 |---|---:|---:|---|---|
 | `--plink-prefix` | input | yes | PLINK reference panel prefix | Supports exact prefix, PLINK-prefix glob, or `@` suite. |
-| `--source-genome-build` | input metadata | no | source PLINK coordinate build | Declares the PLINK coordinate build; defaults to omitted/`None`, so the build is inferred from `.bim` before SNP restriction. |
+| `--source-genome-build` | input metadata | no | source PLINK coordinate build | Declares the PLINK coordinate build; defaults to `auto`, so the build is inferred from `.bim` before SNP restriction. |
 | `--genetic-map-hg19-sources` | input | conditional | hg19 genetic map file or suite | Supplies hg19 genetic-map CM values; defaults to omitted/`None` and is required when `--ld-wind-cm` is used and hg19 output is emitted. |
 | `--genetic-map-hg38-sources` | input | conditional | hg38 genetic map file or suite | Supplies hg38 genetic-map CM values; defaults to omitted/`None` and is required when `--ld-wind-cm` is used and hg38 output is emitted. |
 | `--liftover-chain-hg19-to-hg38-file` | input | no | liftover chain file | Enables hg38 outputs for hg19 source builds; defaults to omitted/`None`, so those target-build outputs are not emitted. |
@@ -252,18 +252,19 @@ chromosome scope are removed after the successful write.
 |---|---:|---:|---|---|
 | `--raw-sumstats-file` | input | yes | raw summary-statistics file | Exact path or exact-one glob. |
 | `--format` | input metadata | no | raw summary-statistics format profile | One of `auto`, `plain`, `daner-old`, `daner-new`, or `pgc-vcf`; defaults to `auto`, which detects common plain text, old DANER, new DANER, and PGC VCF-style headers. Conflicts with incompatible legacy DANER flags are rejected. |
-| `--infer-only` | diagnostic | no | raw summary-statistics inference report | Reads the raw header and first data row, prints detected format, inferred hints, missing fields, notes, and a suggested minimal command. Missing `A1/A2` is reported only in allele-aware modes. Does not require `--output-dir` and writes no artifacts. |
+| `--infer-only` | diagnostic | no | raw summary-statistics inference report | Reads the raw header and first data row, prints detected format, inferred hints, missing fields, source/output genome-build status, liftover status, notes, and suggested commands. Missing `A1/A2` is reported only in allele-aware modes. Does not require `--output-dir` and writes no artifacts. |
 | `--sumstats-snps-file` | input | no | summary-statistics SNP keep-list | Restricts munged summary-statistics rows using identity keys only; duplicate restriction keys collapse to one retained key, and non-identity columns such as `CM` or `MAF` are ignored. The keep-list is loaded before parsing and applied while chunks are streaming; defaults to omitted/`None`, so no keep-list restriction is applied. |
 | `--use-hm3-snps` | input mode | no | packaged HM3 SNP restriction | Restricts munged summary-statistics rows to the packaged curated HM3 map while chunks are streaming. Mutually exclusive with `--sumstats-snps-file`. |
 | `--trait-name` | input metadata | no | biological trait label | Optional label stored in root `metadata.json`; downstream regression uses it unless a regression CLI `--trait-name` override is supplied. |
 | `--output-dir` | output | yes, except `--infer-only` | munged output directory | The workflow writes fixed `sumstats.*` artifacts under this directory and passes `<output_dir>/sumstats` as the kernel output stem. |
 | `--output-format` | output mode | no | curated sumstats format | One of `parquet`, `tsv.gz`, or `both`; defaults to `parquet`. |
 | `--chr`, `--pos` | input metadata | no | raw column hints | Identify raw chromosome and position columns; default to omitted/`None`, so common aliases such as `#CHROM`, `CHROM`, `CHR`, `POS`, and `BP` are inferred. |
-| `--target-genome-build` | input metadata | no | optional liftover target build | Enables source-to-target coordinate liftover when paired with exactly one liftover method; valid only in `chr_pos`-family modes and never rewrites `SNP`. |
+| `--source-genome-build` | input metadata | no | raw coordinate source build | Defaults to `auto`, which infers hg19/hg38 from raw `CHR`/`POS` data in coordinate-family modes. May be set explicitly to `hg19` or `hg38`; rejected in rsid-family modes. |
+| `--output-genome-build` | output metadata | yes in coordinate-family modes | final munged coordinate build | Required for `chr_pos`-family normal runs and `--infer-only`; rejected in rsid-family modes. If it differs from the resolved source build, exactly one liftover method is required. |
 | `--liftover-chain-file` | input | no | optional munger liftover chain | Uses a source-to-target chain file for coordinate-only sumstats liftover. Mutually exclusive with `--use-hm3-quick-liftover`. |
 | `--use-hm3-quick-liftover` | input mode | no | packaged HM3 coordinate map | Uses the curated dual-build HM3 map for HM3-only quick liftover. Requires `--use-hm3-snps` and is mutually exclusive with `--liftover-chain-file`. |
 | `--daner-old`, `--daner-new` | input metadata | no | DANER schema interpretation | `--daner-old` parses case/control N from `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` headers; `--daner-new` parses exact `Nca` and `Nco` columns. |
-| `--snp-identifier`, `--genome-build` | config | no | provenance | `--snp-identifier` defaults to `chr_pos_allele_aware`; `--genome-build` defaults to omitted/`None`, so coordinate-family runs must pass `--genome-build auto` or a concrete build. `--genome-build auto` can infer hg19/hg38 for complete `CHR`/`POS` rows. Allele-aware modes require usable `A1/A2`; rerun with `--snp-identifier chr_pos` or `--snp-identifier rsid` to run without allele-aware identity. |
+| `--snp-identifier` | config | no | provenance | Defaults to `chr_pos_allele_aware`. Coordinate-family munger runs use `--source-genome-build` and `--output-genome-build`; rsid-family munger runs reject genome-build and liftover build flags and store `genome_build=None`. Allele-aware modes require usable `A1/A2`; rerun with `--snp-identifier chr_pos` or `--snp-identifier rsid` to run without allele-aware identity. |
 | `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger records in console and `diagnostics/sumstats.log`; lifecycle audit lines always appear in the file. |
 | `--overwrite` | output mode | no | collision policy | Controls whether fixed sumstats outputs may be replaced; defaults to `False`, so any owned `sumstats.*` artifact is refused. With overwrite, stale sibling formats not produced by the current `--output-format` are removed after a successful run. |
 
@@ -402,7 +403,7 @@ LD-score `chunk_size`.
 | Object/function | Argument | Direction | Object |
 |---|---:|---:|---|
 | `ReferencePanelBuildConfig` | `plink_prefix` | input | PLINK reference-panel prefix token |
-| `ReferencePanelBuildConfig` | `source_genome_build` | input metadata | optional PLINK source build; inferred from `.bim` when omitted |
+| `ReferencePanelBuildConfig` | `source_genome_build` | input metadata | PLINK source build; defaults to `"auto"` and is inferred from `.bim` before SNP restriction |
 | `ReferencePanelBuildConfig` | `genetic_map_hg19_sources` | input | conditional hg19 genetic map |
 | `ReferencePanelBuildConfig` | `genetic_map_hg38_sources` | input | conditional hg38 genetic map |
 | `ReferencePanelBuildConfig` | `liftover_chain_hg19_to_hg38_file` | input | optional liftover chain |
@@ -430,7 +431,8 @@ Removed Python names: `plink_path`, `bfile`, `out`, `panel_label`,
 | `MungeConfig` | `daner_old`, `daner_new` | input metadata | optional DANER schema interpretation switches |
 | `MungeConfig` | `sumstats_snps_file` | input | summary-statistics SNP keep-list |
 | `MungeConfig` | `use_hm3_snps` | input mode | packaged HM3 summary-statistics SNP restriction |
-| `MungeConfig` | `target_genome_build` | input metadata | optional target build for `chr_pos`-family output coordinates |
+| `MungeConfig` | `source_genome_build` | input metadata | raw source build for `chr_pos`-family coordinates; defaults to `"auto"` |
+| `MungeConfig` | `output_genome_build` | output metadata | required final build for `chr_pos`-family output coordinates |
 | `MungeConfig` | `liftover_chain_file` | input | optional source-to-target chain file for munger liftover |
 | `MungeConfig` | `use_hm3_quick_liftover` | input mode | use packaged curated HM3 dual-build map for coordinate-only liftover |
 | `MungeConfig` | `output_dir` | output | munged output directory; `SumstatsMunger.run()` writes `diagnostics/sumstats.log` |

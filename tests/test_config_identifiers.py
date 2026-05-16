@@ -272,6 +272,22 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertEqual(config.keep_indivs_file, "filters/samples.keep")
 
     def test_ref_panel_build_config_validates_required_fields(self):
+        default_source = ReferencePanelBuildConfig(
+            plink_prefix="plink/panel.@",
+            genetic_map_hg19_sources="maps/hg19.txt",
+            genetic_map_hg38_sources="maps/hg38.txt",
+            output_dir="out",
+            ld_wind_kb=100.0,
+        )
+        self.assertEqual(default_source.source_genome_build, "auto")
+        with self.assertRaisesRegex(ValueError, "source_genome_build"):
+            ReferencePanelBuildConfig(
+                plink_prefix="plink/panel.@",
+                source_genome_build=None,
+                output_dir="out",
+                ld_wind_kb=100.0,
+            )
+
         config = ReferencePanelBuildConfig(
             plink_prefix="plink/panel.@",
             source_genome_build="GRCh38",
@@ -391,6 +407,7 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertEqual(config.maf_min, 0.01)
         self.assertEqual(config.chunk_size, 1_000_000)
         self.assertEqual(config.output_format, "parquet")
+        self.assertEqual(config.source_genome_build, "auto")
         self.assertFalse(config.overwrite)
 
     def test_munge_config_rejects_unknown_output_format(self):
@@ -414,7 +431,7 @@ class WorkflowConfigTest(unittest.TestCase):
     def test_munge_config_accepts_hm3_flags_and_rejects_conflicts(self):
         config = MungeConfig(
             output_dir="out",
-            target_genome_build="hg38",
+            output_genome_build="hg38",
             use_hm3_snps=True,
             use_hm3_quick_liftover=True,
         )
@@ -424,7 +441,7 @@ class WorkflowConfigTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "sumstats_snps_file.*use_hm3_snps"):
             MungeConfig(output_dir="out", sumstats_snps_file="custom.tsv", use_hm3_snps=True)
         with self.assertRaisesRegex(ValueError, "use_hm3_snps"):
-            MungeConfig(output_dir="out", target_genome_build="hg38", use_hm3_quick_liftover=True)
+            MungeConfig(output_dir="out", output_genome_build="hg38", use_hm3_quick_liftover=True)
 
     def test_munge_config_normalizes_trait_name(self):
         config = MungeConfig(raw_sumstats_file="sumstats/trait.tsv.gz", trait_name=" MDD ")

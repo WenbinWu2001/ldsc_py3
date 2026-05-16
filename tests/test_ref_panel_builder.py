@@ -929,9 +929,30 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
             reset_global_config()
 
         self.assertEqual(build_config.ref_panel_snps_file, "hm3.tsv")
-        self.assertIsNone(build_config.source_genome_build)
+        self.assertEqual(build_config.source_genome_build, "auto")
         self.assertEqual(global_config.snp_identifier, "chr_pos_allele_aware")
         self.assertEqual(global_config.genome_build, "auto")
+
+    def test_config_from_args_accepts_explicit_auto_source_genome_build(self):
+        parser = ref_panel_builder.build_parser()
+        args = parser.parse_args(
+            [
+                "--plink-prefix",
+                "plink/panel.@",
+                "--source-genome-build",
+                "auto",
+                "--genetic-map-hg19-sources",
+                "maps/hg19.map",
+                "--output-dir",
+                "out",
+                "--ld-wind-kb",
+                "1",
+            ]
+        )
+
+        build_config, _global_config = ref_panel_builder.config_from_args(args)
+
+        self.assertEqual(build_config.source_genome_build, "auto")
 
     def test_config_from_args_uses_explicit_snp_identifier_for_restriction_file(self):
         parser = ref_panel_builder.build_parser()

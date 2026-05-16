@@ -92,7 +92,9 @@ needs an override.
 CLI `--genome-build` defaults to `None` in most workflow parsers. A CLI user in
 a coordinate-family mode must type `--genome-build auto` (or a concrete build)
 explicitly unless that workflow can infer the build from another current
-artifact.
+artifact. `munge-sumstats` is the exception: its raw source build defaults to
+`--source-genome-build auto`, and coordinate-family runs require the user to
+choose the final build with `--output-genome-build`.
 This is intentional: CLI users benefit from the choice being visible in their
 shell history and scripts. The API and CLI have different ergonomic defaults
 because they serve different user models.
@@ -100,7 +102,7 @@ because they serve different user models.
 | Workflow | Identifier default | Genome-build default | Notes |
 |---|---|---|---|
 | `annotate` | `chr_pos_allele_aware` | `None` (CLI requires explicit for coordinate-family modes) | Raises unless `--genome-build` is supplied or inferable by that workflow. |
-| `munge-sumstats` | `chr_pos_allele_aware` | `None` (CLI requires explicit for coordinate-family modes) | Pass `--genome-build auto` to infer hg19/hg38, or pass a concrete build. Requires usable `A1/A2`; rerun with `--snp-identifier chr_pos` or `--snp-identifier rsid` to run without allele-aware identity. The removed `--no-alleles` flag is not accepted. |
+| `munge-sumstats` | `chr_pos_allele_aware` | source: `auto`; output: required for coordinate-family modes | Pass `--output-genome-build hg19` or `--output-genome-build hg38`; the raw source build is inferred unless `--source-genome-build hg19/hg38` is supplied. rsid-family modes reject source/output/liftover build flags and store `genome_build=None`. Requires usable `A1/A2`; rerun with `--snp-identifier chr_pos` or `--snp-identifier rsid` to run without allele-aware identity. The removed `--no-alleles` flag is not accepted. |
 | `ldscore` | `chr_pos_allele_aware` | `None` (CLI requires explicit for coordinate-family modes) | Allele-aware parquet mode requires package-built canonical R2 endpoint alleles. |
 | `build-ref-panel` | registry or `--snp-identifier` | **ignored** | Uses `--source-genome-build` (separate field); `GlobalConfig.genome_build` is never consulted. |
 | `h2`, `partitioned-h2`, `rg` | registry at construction | registry at construction | On-disk provenance from LD-score and sumstats root `metadata.json` contracts takes precedence over the runner's live config. |
@@ -110,7 +112,7 @@ because they serve different user models.
 
 `build-ref-panel` is intentionally isolated from `GlobalConfig.genome_build`.
 The PLINK source build is owned by `ReferencePanelBuildConfig.source_genome_build`
-and is inferred from `.bim` coordinates when omitted. This keeps the panel-building
+and defaults to `"auto"`, which infers from `.bim` coordinates. This keeps the panel-building
 workflow self-contained: it neither reads nor writes the global genome-build
 assumption. The `GlobalConfig` that `build-ref-panel` constructs internally holds
 `genome_build="auto"` only to satisfy the construction invariant; that value is

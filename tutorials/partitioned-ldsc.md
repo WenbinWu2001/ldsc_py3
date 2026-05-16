@@ -105,7 +105,8 @@ sumstats = SumstatsMunger().run(
         # NEFF and you want to use it as the munger's N, pass this explicitly:
         # column_hints={"N_col": "NEFF"},
         # use_hm3_snps=True,  # packaged HM3 row restriction
-        # target_genome_build="hg38",
+        source_genome_build="hg19",
+        output_genome_build="hg19",
         # liftover_chain_file="resources/liftover/hg19ToHg38.over.chain",
         output_dir="tutorial_outputs/trait",
         # overwrite=True,  # also removes stale unselected sumstats sibling formats
@@ -178,8 +179,8 @@ coordinate key (`CHR:POS` or `CHR:POS:<allele_set>`) rather than by the literal
 rsID in `SNP`; `SNP` is treated as a label. Optional munger liftover is also
 `chr_pos`-family behavior, runs after the source-build keep-list filter, changes
 `CHR`/`POS` without rewriting `SNP` or allele sets, drops duplicate
-source/target coordinate groups, and requires `--target-genome-build` plus one
-method flag.
+source/target coordinate groups, and requires `--output-genome-build` plus one
+method flag when the resolved source build differs from the output build.
 Drop counts are written to `diagnostics/sumstats.log`, examples appear only at `DEBUG`, and
 row-level drops are audited in `diagnostics/dropped_snps/dropped.tsv.gz`; the metadata
 sidecar is only the compatibility snapshot.
@@ -244,14 +245,15 @@ ldsc munge-sumstats \
   --trait-name trait \
   --use-hm3-snps \
   --snp-identifier chr_pos \
-  --genome-build hg19 \
+  --source-genome-build hg19 \
+  --output-genome-build hg19 \
   --output-dir tutorial_outputs/trait
 
 # Add explicit repair flags only when --infer-only reports that they are needed,
 # for example --N-col NEFF if that is appropriate for the analysis.
 
 # Optional if downstream LD scores/reference panels are hg38:
-#   --target-genome-build hg38 \
+#   --output-genome-build hg38 \
 #   --liftover-chain-file resources/liftover/hg19ToHg38.over.chain
 
 ldsc partitioned-h2 \

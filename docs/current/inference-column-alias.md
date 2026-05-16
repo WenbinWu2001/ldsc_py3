@@ -46,15 +46,16 @@ DANER, and PGC VCF-style headers. Users can inspect the decision without
 writing outputs:
 
 ```bash
-ldsc munge-sumstats --raw-sumstats-file raw.txt --infer-only --genome-build auto
+ldsc munge-sumstats --raw-sumstats-file raw.txt --infer-only --output-genome-build hg38
 ```
 
 `--infer-only` reports the detected format, safe column hints, missing required
-fields, INFO-list columns, notes, and a suggested minimal command. Normal runs
-still use the same minimal form when headers are inferable:
+fields, INFO-list columns, source/output genome-build status, liftover status,
+notes, and suggested commands. Normal runs still use the same minimal form when
+headers and source build are inferable:
 
 ```bash
-ldsc munge-sumstats --raw-sumstats-file raw.txt --output-dir out --genome-build auto
+ldsc munge-sumstats --raw-sumstats-file raw.txt --output-dir out --output-genome-build hg38
 ```
 
 | Canonical field | Accepted aliases |

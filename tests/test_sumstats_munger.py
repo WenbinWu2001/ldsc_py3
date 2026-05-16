@@ -103,13 +103,17 @@ class SumstatsMungerTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--output-format", "csv"])
 
-    def test_build_parser_defaults_genome_build_to_none(self):
+    def test_build_parser_defaults_source_genome_build_to_auto_and_rejects_old_build_flags(self):
         parser = sumstats_workflow.build_parser()
-        self.assertIsNone(parser.get_default("genome_build"))
+        self.assertEqual(parser.get_default("source_genome_build"), "auto")
 
         args = parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out"])
 
-        self.assertIsNone(args.genome_build)
+        self.assertEqual(args.source_genome_build, "auto")
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--genome-build", "auto"])
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--target-genome-build", "hg38"])
 
     def test_build_parser_defaults_log_level_to_info(self):
         parser = sumstats_workflow.build_parser()
@@ -133,14 +137,14 @@ class SumstatsMungerTest(unittest.TestCase):
                 "raw.tsv",
                 "--output-dir",
                 "out",
-                "--target-genome-build",
+                "--output-genome-build",
                 "hg38",
                 "--liftover-chain-file",
                 "hg19ToHg38.over.chain",
             ]
         )
 
-        self.assertEqual(args.target_genome_build, "hg38")
+        self.assertEqual(args.output_genome_build, "hg38")
         self.assertEqual(args.liftover_chain_file, "hg19ToHg38.over.chain")
         self.assertFalse(args.use_hm3_quick_liftover)
 
@@ -150,7 +154,7 @@ class SumstatsMungerTest(unittest.TestCase):
                 "raw.tsv",
                 "--output-dir",
                 "out",
-                "--target-genome-build",
+                "--output-genome-build",
                 "hg38",
                 "--use-hm3-snps",
                 "--use-hm3-quick-liftover",
@@ -292,9 +296,9 @@ class SumstatsMungerTest(unittest.TestCase):
                 "out",
                 "--snp-identifier",
                 "chr_pos",
-                "--genome-build",
+                "--source-genome-build",
                 "hg19",
-                "--target-genome-build",
+                "--output-genome-build",
                 "hg38",
                 "--use-hm3-snps",
                 "--use-hm3-quick-liftover",
@@ -307,7 +311,8 @@ class SumstatsMungerTest(unittest.TestCase):
         self.assertIs(result, mock.sentinel.table)
         raw_config, run_config, global_config = patched.call_args.args
         self.assertEqual(raw_config.raw_sumstats_file, "raw.tsv")
-        self.assertEqual(run_config.target_genome_build, "hg38")
+        self.assertEqual(run_config.source_genome_build, "hg19")
+        self.assertEqual(run_config.output_genome_build, "hg38")
         self.assertTrue(run_config.use_hm3_snps)
         self.assertTrue(run_config.use_hm3_quick_liftover)
         self.assertIsNone(run_config.liftover_chain_file)
@@ -316,20 +321,24 @@ class SumstatsMungerTest(unittest.TestCase):
     def test_munge_config_validates_liftover_flags(self):
         config = MungeConfig(
             output_dir="out",
-            target_genome_build="GRCh38",
+            source_genome_build="GRCh37",
+            output_genome_build="GRCh38",
             liftover_chain_file=Path("liftover") / "hg19ToHg38.over.chain",
         )
-        self.assertEqual(config.target_genome_build, "hg38")
+        self.assertEqual(config.source_genome_build, "hg19")
+        self.assertEqual(config.output_genome_build, "hg38")
         self.assertEqual(config.liftover_chain_file, "liftover/hg19ToHg38.over.chain")
+        self.assertEqual(MungeConfig(output_dir="out").source_genome_build, "auto")
 
         with self.assertRaisesRegex(ValueError, "use_hm3_snps"):
-            MungeConfig(output_dir="out", target_genome_build="hg38", use_hm3_quick_liftover=True)
-        with self.assertRaisesRegex(ValueError, "target_genome_build"):
-            MungeConfig(output_dir="out", use_hm3_snps=True, use_hm3_quick_liftover=True)
+            MungeConfig(output_dir="out", output_genome_build="hg38", use_hm3_quick_liftover=True)
+        with self.assertRaisesRegex(ValueError, "source_genome_build"):
+            MungeConfig(output_dir="out", source_genome_build=None, output_genome_build="hg38")
+        self.assertTrue(MungeConfig(output_dir="out", use_hm3_snps=True, use_hm3_quick_liftover=True).use_hm3_quick_liftover)
         with self.assertRaisesRegex(ValueError, "mutually exclusive"):
             MungeConfig(
                 output_dir="out",
-                target_genome_build="hg38",
+                output_genome_build="hg38",
                 use_hm3_snps=True,
                 liftover_chain_file="chain.over",
                 use_hm3_quick_liftover=True,
@@ -431,7 +440,12 @@ class SumstatsMungerTest(unittest.TestCase):
                          mock.patch.object(kernel_munge, "process_n", side_effect=assert_restricted_before_process_n):
                         table = SumstatsMunger().run(
                             MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
-                            MungeConfig(output_dir=tmpdir / f"munged_{mode}", sumstats_snps_file=restrict_path),
+                            MungeConfig(
+                                output_dir=tmpdir / f"munged_{mode}",
+                                sumstats_snps_file=restrict_path,
+                                source_genome_build="hg19",
+                                output_genome_build="hg19",
+                            ),
                             GlobalConfig(snp_identifier=mode, genome_build="hg19"),
                         )
 
@@ -537,7 +551,7 @@ class SumstatsMungerTest(unittest.TestCase):
                  mock.patch.object(kernel_munge, "parse_dat", side_effect=assert_auto_resolved_before_parse):
                 table = SumstatsMunger().run(
                     MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
-                    MungeConfig(output_dir=tmpdir / "munged"),
+                    MungeConfig(output_dir=tmpdir / "munged", source_genome_build="auto", output_genome_build="hg19"),
                     GlobalConfig(snp_identifier="chr_pos", genome_build="auto"),
                 )
 
@@ -1035,7 +1049,11 @@ class SumstatsMungerTest(unittest.TestCase):
             with mock.patch.object(kernel_munge, "munge_sumstats", return_value=returned):
                 SumstatsMunger().run(
                     MungeConfig(raw_sumstats_file=str(raw_path), trait_name="trait"),
-                    MungeConfig(output_dir=str(tmpdir / "munged")),
+                    MungeConfig(
+                        output_dir=str(tmpdir / "munged"),
+                        source_genome_build="hg38",
+                        output_genome_build="hg38",
+                    ),
                     GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
                 )
 
@@ -1073,7 +1091,7 @@ class SumstatsMungerTest(unittest.TestCase):
             with mock.patch.object(kernel_munge, "munge_sumstats", side_effect=fake_munge):
                 SumstatsMunger().run(
                     MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
-                    MungeConfig(output_dir=tmpdir / "munged"),
+                    MungeConfig(output_dir=tmpdir / "munged", source_genome_build="hg38", output_genome_build="hg38"),
                     GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
                 )
 
@@ -1111,7 +1129,6 @@ class SumstatsMungerTest(unittest.TestCase):
                         MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
                         MungeConfig(
                             output_dir=tmpdir / "munged",
-                            target_genome_build="hg38",
                             use_hm3_snps=True,
                             use_hm3_quick_liftover=True,
                         ),
@@ -1127,7 +1144,7 @@ class SumstatsMungerTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "liftover method"):
                 SumstatsMunger().run(
                     MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
-                    MungeConfig(output_dir=tmpdir / "munged", target_genome_build="hg38"),
+                    MungeConfig(output_dir=tmpdir / "munged", source_genome_build="hg19", output_genome_build="hg38"),
                     GlobalConfig(snp_identifier="chr_pos", genome_build="hg19"),
                 )
 
@@ -1347,8 +1364,10 @@ class SumstatsMungerTest(unittest.TestCase):
                         str(tmpdir / "out"),
                         "--snp-identifier",
                         "chr_pos",
-                        "--genome-build",
+                        "--source-genome-build",
                         "auto",
+                        "--output-genome-build",
+                        "hg38",
                     ]
                 )
 
@@ -1381,20 +1400,22 @@ class SumstatsMungerTest(unittest.TestCase):
                         str(tmpdir / "out"),
                         "--sumstats-snps-file",
                         str(keep_path),
-                        "--genome-build",
+                        "--source-genome-build",
                         "auto",
+                        "--output-genome-build",
+                        "hg38",
                     ]
                 )
 
             self.assertEqual(patched_munge.call_args.args[0].sumstats_snps, str(keep_path))
 
-    def test_main_requires_genome_build_for_default_coordinate_mode(self):
+    def test_main_requires_output_genome_build_for_default_coordinate_mode(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             raw_path = tmpdir / "raw.tsv"
             raw_path.write_text("CHR POS SNP A1 A2 P N\n1 100 rs1 A G 0.05 1000\n", encoding="utf-8")
 
-            with self.assertRaisesRegex(ValueError, "Pass --genome-build auto"):
+            with self.assertRaisesRegex(ValueError, "Pass --output-genome-build"):
                 sumstats_workflow.main(
                     [
                         "--raw-sumstats-file",
@@ -1753,7 +1774,12 @@ class SumstatsMungerTest(unittest.TestCase):
 
             table = SumstatsMunger().run(
                 MungeConfig(raw_sumstats_file=raw_path),
-                MungeConfig(output_dir=output_dir, sumstats_snps_file=keep_path),
+                MungeConfig(
+                    output_dir=output_dir,
+                    sumstats_snps_file=keep_path,
+                    source_genome_build="hg38",
+                    output_genome_build="hg38",
+                ),
                 GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
             )
 
@@ -1936,7 +1962,12 @@ class SumstatsMungerTest(unittest.TestCase):
 
             table = SumstatsMunger().run(
                 MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
-                MungeConfig(output_dir=tmpdir / "munged", sumstats_snps_file=keep_path),
+                MungeConfig(
+                    output_dir=tmpdir / "munged",
+                    sumstats_snps_file=keep_path,
+                    source_genome_build="hg38",
+                    output_genome_build="hg38",
+                ),
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
             )
 
@@ -1959,7 +1990,12 @@ class SumstatsMungerTest(unittest.TestCase):
             with mock.patch("ldsc.sumstats_munger.packaged_hm3_curated_map_path", return_value=str(hm3_path)):
                 table = SumstatsMunger().run(
                     MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
-                    MungeConfig(output_dir=tmpdir / "munged", use_hm3_snps=True),
+                    MungeConfig(
+                        output_dir=tmpdir / "munged",
+                        use_hm3_snps=True,
+                        source_genome_build="hg19",
+                        output_genome_build="hg19",
+                    ),
                     GlobalConfig(snp_identifier="chr_pos", genome_build="hg19"),
                 )
 
@@ -2006,7 +2042,12 @@ class SumstatsMungerTest(unittest.TestCase):
             with mock.patch("ldsc.sumstats_munger.packaged_hm3_curated_map_path", return_value=str(hm3_path)):
                 table = SumstatsMunger().run(
                     MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
-                    MungeConfig(output_dir=tmpdir / "munged", use_hm3_snps=True),
+                    MungeConfig(
+                        output_dir=tmpdir / "munged",
+                        use_hm3_snps=True,
+                        source_genome_build="hg19",
+                        output_genome_build="hg19",
+                    ),
                     GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg19"),
                 )
 
@@ -2031,7 +2072,12 @@ class SumstatsMungerTest(unittest.TestCase):
 
             table = SumstatsMunger().run(
                 MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
-                MungeConfig(output_dir=tmpdir / "munged", sumstats_snps_file=keep_path),
+                MungeConfig(
+                    output_dir=tmpdir / "munged",
+                    sumstats_snps_file=keep_path,
+                    source_genome_build="hg38",
+                    output_genome_build="hg38",
+                ),
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
             )
 
@@ -2056,7 +2102,7 @@ class SumstatsMungerTest(unittest.TestCase):
 
             table = SumstatsMunger().run(
                 MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
-                MungeConfig(output_dir=tmpdir / "munged"),
+                MungeConfig(output_dir=tmpdir / "munged", source_genome_build="hg38", output_genome_build="hg38"),
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
             )
 
@@ -2122,7 +2168,12 @@ class SumstatsMungerTest(unittest.TestCase):
 
             table = SumstatsMunger().run(
                 MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
-                MungeConfig(output_dir=tmpdir / "munged", sumstats_snps_file=keep_path),
+                MungeConfig(
+                    output_dir=tmpdir / "munged",
+                    sumstats_snps_file=keep_path,
+                    source_genome_build="hg19",
+                    output_genome_build="hg19",
+                ),
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg19"),
             )
 
@@ -2159,7 +2210,12 @@ class SumstatsMungerTest(unittest.TestCase):
             with mock.patch.object(kernel_munge, "resolve_chr_pos_table", side_effect=fake_resolve_chr_pos_table):
                 table = SumstatsMunger().run(
                     MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
-                    MungeConfig(output_dir=tmpdir / "munged", sumstats_snps_file=keep_path),
+                    MungeConfig(
+                        output_dir=tmpdir / "munged",
+                        sumstats_snps_file=keep_path,
+                        source_genome_build="auto",
+                        output_genome_build="hg19",
+                    ),
                     GlobalConfig(snp_identifier="chr_pos", genome_build="auto"),
                 )
 
@@ -2223,7 +2279,7 @@ class SumstatsMungerTest(unittest.TestCase):
 
             table = SumstatsMunger().run(
                 MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
-                MungeConfig(output_dir=tmpdir / "munged"),
+                MungeConfig(output_dir=tmpdir / "munged", source_genome_build="hg38", output_genome_build="hg38"),
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
             )
 
@@ -2242,7 +2298,7 @@ class SumstatsMungerTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "NEFF is not treated as N"):
                 SumstatsMunger().run(
                     MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
-                    MungeConfig(output_dir=tmpdir / "munged"),
+                    MungeConfig(output_dir=tmpdir / "munged", source_genome_build="hg38", output_genome_build="hg38"),
                     GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
                 )
 
@@ -2277,7 +2333,7 @@ class SumstatsMungerTest(unittest.TestCase):
 
             table = SumstatsMunger().run(
                 MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
-                MungeConfig(output_dir=tmpdir / "munged"),
+                MungeConfig(output_dir=tmpdir / "munged", source_genome_build="hg38", output_genome_build="hg38"),
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
             )
 
@@ -2296,7 +2352,7 @@ class SumstatsMungerTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "--ignore IMPINFO.*--info-list IMPINFO"):
                 SumstatsMunger().run(
                     MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
-                    MungeConfig(output_dir=tmpdir / "munged"),
+                    MungeConfig(output_dir=tmpdir / "munged", source_genome_build="hg38", output_genome_build="hg38"),
                     GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
                 )
 
@@ -2318,7 +2374,7 @@ class SumstatsMungerTest(unittest.TestCase):
             munger = SumstatsMunger()
             table = munger.run(
                 MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
-                MungeConfig(output_dir=tmpdir / "munged"),
+                MungeConfig(output_dir=tmpdir / "munged", source_genome_build="hg38", output_genome_build="hg38"),
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
             )
 
@@ -2339,7 +2395,7 @@ class SumstatsMungerTest(unittest.TestCase):
 
             table = SumstatsMunger().run(
                 MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
-                MungeConfig(output_dir=tmpdir / "munged"),
+                MungeConfig(output_dir=tmpdir / "munged", source_genome_build="hg38", output_genome_build="hg38"),
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
             )
 
@@ -2388,7 +2444,15 @@ class SumstatsMungerTest(unittest.TestCase):
 
             with contextlib.redirect_stdout(stdout):
                 result = sumstats_workflow.main(
-                    ["--raw-sumstats-file", str(raw_path), "--infer-only", "--genome-build", "auto"]
+                    [
+                        "--raw-sumstats-file",
+                        str(raw_path),
+                        "--infer-only",
+                        "--source-genome-build",
+                        "hg38",
+                        "--output-genome-build",
+                        "hg38",
+                    ]
                 )
 
             output = stdout.getvalue()
@@ -2396,6 +2460,132 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertIn("Detected format: daner-old", output)
             self.assertIn("Runnable: yes", output)
             self.assertIn("--format daner-old", output)
+            self.assertIn("--output-genome-build hg38", output)
+
+    def test_infer_only_reports_missing_liftover_method_with_alternatives(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "CHR POS SNP A1 A2 P BETA N\n"
+                "1 100 rs1 A G 0.05 0.1 1000\n",
+                encoding="utf-8",
+            )
+            stdout = io.StringIO()
+
+            with mock.patch("ldsc.sumstats_munger.resolve_genome_build", return_value="hg19"):
+                with contextlib.redirect_stdout(stdout):
+                    result = sumstats_workflow.main(
+                        [
+                            "--raw-sumstats-file",
+                            str(raw_path),
+                            "--infer-only",
+                            "--output-genome-build",
+                            "hg38",
+                        ]
+                    )
+
+            output = stdout.getvalue()
+            self.assertFalse(result.runnable)
+            self.assertEqual(result.source_genome_build, "hg19")
+            self.assertEqual(result.output_genome_build, "hg38")
+            self.assertTrue(result.liftover_required)
+            self.assertIn("Missing fields: liftover_method", output)
+            self.assertIn("HM3 quick command: add --use-hm3-snps --use-hm3-quick-liftover", output)
+            self.assertIn("Chain file command: add --liftover-chain-file <hg19ToHg38.over.chain>", output)
+
+    def test_infer_only_reports_source_build_inference_failure_as_non_runnable(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "CHR POS SNP A1 A2 P BETA N\n"
+                "1 100 rs1 A G 0.05 0.1 1000\n",
+                encoding="utf-8",
+            )
+            stdout = io.StringIO()
+
+            with mock.patch("ldsc.sumstats_munger.resolve_genome_build", side_effect=ValueError("insufficient evidence")):
+                with contextlib.redirect_stdout(stdout):
+                    result = sumstats_workflow.main(
+                        [
+                            "--raw-sumstats-file",
+                            str(raw_path),
+                            "--infer-only",
+                            "--output-genome-build",
+                            "hg38",
+                        ]
+                    )
+
+            output = stdout.getvalue()
+            self.assertFalse(result.runnable)
+            self.assertIn("source_genome_build", result.missing_fields)
+            self.assertIn("Unable to infer source genome build", output)
+            self.assertIn("--source-genome-build hg19", output)
+            self.assertIn("--source-genome-build hg38", output)
+
+    def test_infer_only_checks_liftover_chain_path_and_reports_direction(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "CHR POS SNP A1 A2 P BETA N\n"
+                "1 100 rs1 A G 0.05 0.1 1000\n",
+                encoding="utf-8",
+            )
+            chain_path = tmpdir / "custom.over.chain"
+            chain_path.write_text("", encoding="utf-8")
+            stdout = io.StringIO()
+
+            with mock.patch("ldsc.sumstats_munger.resolve_genome_build", return_value="hg19"):
+                with contextlib.redirect_stdout(stdout):
+                    result = sumstats_workflow.main(
+                        [
+                            "--raw-sumstats-file",
+                            str(raw_path),
+                            "--infer-only",
+                            "--output-genome-build",
+                            "hg38",
+                            "--liftover-chain-file",
+                            str(chain_path),
+                        ]
+                    )
+
+            output = stdout.getvalue()
+            self.assertTrue(result.runnable)
+            self.assertIn("Expected chain direction: hg19 -> hg38", output)
+
+    def test_infer_only_ignores_liftover_method_when_source_matches_output(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "CHR POS SNP A1 A2 P BETA N\n"
+                "1 100 rs1 A G 0.05 0.1 1000\n",
+                encoding="utf-8",
+            )
+            stdout = io.StringIO()
+
+            with contextlib.redirect_stdout(stdout):
+                result = sumstats_workflow.main(
+                    [
+                        "--raw-sumstats-file",
+                        str(raw_path),
+                        "--infer-only",
+                        "--source-genome-build",
+                        "hg38",
+                        "--output-genome-build",
+                        "hg38",
+                        "--liftover-chain-file",
+                        str(tmpdir / "missing.over.chain"),
+                    ]
+                )
+
+            output = stdout.getvalue()
+            self.assertTrue(result.runnable)
+            self.assertFalse(result.liftover_required)
+            self.assertIn("supplied liftover method will be ignored", output)
+            self.assertNotIn("liftover_chain_file", result.missing_fields)
 
     def test_infer_auto_detects_new_daner_case_control_columns(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2443,7 +2633,15 @@ class SumstatsMungerTest(unittest.TestCase):
 
             with contextlib.redirect_stdout(stdout):
                 result = sumstats_workflow.main(
-                    ["--raw-sumstats-file", str(raw_path), "--infer-only", "--genome-build", "auto"]
+                    [
+                        "--raw-sumstats-file",
+                        str(raw_path),
+                        "--infer-only",
+                        "--source-genome-build",
+                        "auto",
+                        "--output-genome-build",
+                        "hg38",
+                    ]
                 )
 
             output = stdout.getvalue()
@@ -2464,7 +2662,15 @@ class SumstatsMungerTest(unittest.TestCase):
 
             with contextlib.redirect_stdout(stdout):
                 result = sumstats_workflow.main(
-                    ["--raw-sumstats-file", str(raw_path), "--infer-only", "--genome-build", "auto"]
+                    [
+                        "--raw-sumstats-file",
+                        str(raw_path),
+                        "--infer-only",
+                        "--source-genome-build",
+                        "auto",
+                        "--output-genome-build",
+                        "hg38",
+                    ]
                 )
 
             output = stdout.getvalue()
@@ -2487,7 +2693,9 @@ class SumstatsMungerTest(unittest.TestCase):
                         "--infer-only",
                         "--snp-identifier",
                         "chr_pos",
-                        "--genome-build",
+                        "--source-genome-build",
+                        "hg38",
+                        "--output-genome-build",
                         "hg38",
                     ]
                 )
@@ -2512,7 +2720,7 @@ class SumstatsMungerTest(unittest.TestCase):
                     trait_name="trait",
                     column_hints={"chr": "chromosome_name", "pos": "base_pair", "snp": "variant"},
                 ),
-                MungeConfig(output_dir=tmpdir / "munged"),
+                MungeConfig(output_dir=tmpdir / "munged", source_genome_build="hg38", output_genome_build="hg38"),
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
             )
 
@@ -2533,7 +2741,7 @@ class SumstatsMungerTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "CHR"):
                 SumstatsMunger().run(
                     MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
-                    MungeConfig(output_dir=tmpdir / "munged"),
+                    MungeConfig(output_dir=tmpdir / "munged", source_genome_build="hg38", output_genome_build="hg38"),
                     GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
                 )
 
@@ -2550,7 +2758,7 @@ class SumstatsMungerTest(unittest.TestCase):
 
             SumstatsMunger().run(
                 MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
-                MungeConfig(output_dir=output_dir),
+                MungeConfig(output_dir=output_dir, source_genome_build="hg38", output_genome_build="hg38"),
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
             )
 

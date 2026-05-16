@@ -44,6 +44,7 @@ from .column_inference import (
     RESTRICTION_HG19_POS_SPEC,
     RESTRICTION_HG38_POS_SPEC,
     normalize_column_token,
+    normalize_genome_build,
     normalize_snp_identifier_mode,
     resolve_required_column,
 )
@@ -426,7 +427,7 @@ class ReferencePanelBuilder:
         """Return a config whose PLINK source genome build is concrete."""
         if config.source_genome_build in {"hg19", "hg38"}:
             return config
-        if config.source_genome_build is not None:
+        if config.source_genome_build != "auto":
             raise ValueError(f"Unsupported source_genome_build: {config.source_genome_build!r}.")
         sample_frame = _plink_bim_chr_pos_frame(resolved_prefixes)
         try:
@@ -1493,9 +1494,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--plink-prefix", required=True, help="PLINK prefix token for the reference panel.")
     parser.add_argument(
         "--source-genome-build",
-        default=None,
-        choices=("hg19", "hg37", "GRCh37", "hg38", "GRCh38"),
-        help="Genome build of the PLINK coordinates. If omitted, infer it from .bim CHR/BP rows before SNP restriction.",
+        default="auto",
+        choices=("auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"),
+        help="Genome build of the PLINK coordinates. Default is auto, inferred from .bim CHR/BP rows before SNP restriction.",
     )
     parser.add_argument(
         "--genetic-map-hg19-sources",
@@ -1590,20 +1591,15 @@ def config_from_args(args: argparse.Namespace) -> tuple[ReferencePanelBuildConfi
     falling back to the registered :class:`GlobalConfig` identifier mode only
     for programmatic namespaces that omit the attribute.
     The PLINK source build remains local to this workflow and is inferred from
-    ``.bim`` coordinates during :meth:`ReferencePanelBuilder.run` when omitted.
+    ``.bim`` coordinates during :meth:`ReferencePanelBuilder.run` when set to
+    ``"auto"``.
     ``GlobalConfig.genome_build`` is ignored by ``build-ref-panel``.
     """
     registered_config = get_global_config()
     snp_identifier = normalize_snp_identifier_mode(args.snp_identifier or registered_config.snp_identifier)
-    source_genome_build = None
-    if args.source_genome_build is not None:
-        source_genome_build = resolve_genome_build(
-            args.source_genome_build,
-            "chr_pos",
-            None,
-            context="build-ref-panel source",
-            logger=LOGGER,
-        )
+    source_genome_build = normalize_genome_build(args.source_genome_build)
+    if source_genome_build not in {"auto", "hg19", "hg38"}:
+        raise ValueError("--source-genome-build must be auto, hg19, or hg38.")
 
     build_config = ReferencePanelBuildConfig(
         plink_prefix=args.plink_prefix,

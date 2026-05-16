@@ -1,8 +1,9 @@
 # Genome-Build and Coordinate-Basis Inference
 
 Automatic genome-build inference is used for coordinate-family workflows when
-the user passes `--genome-build auto`, and by `build-ref-panel` when
-`--source-genome-build` is omitted. It is not used in `rsid`-family modes.
+the user passes `--genome-build auto` or workflow-specific source build
+`auto`, including `munge-sumstats --source-genome-build auto` and
+`build-ref-panel --source-genome-build auto`. It is not used in `rsid`-family modes.
 
 The package infers the build by comparing a subset of input (CHR, POS) pairs against the packaged HapMap3 coordinate map, then selecting the hypothesis that best explains those positions:
 
@@ -75,7 +76,7 @@ needs.
 | Raw sumstats text / `.gz` | Kernel-side normalization of munged `CHR` + `POS`, with build inference when requested |
 | Annotation chromosome-suite inputs | Read a small head sample from the first resolvable `@` chromosome file |
 | `ldscore --r2-dir` directory | Locate candidate R2 parquet files, then infer from `ldsc:sorted_by_build` schema metadata |
-| PLINK `.bim` source panel | `build-ref-panel` reads `.bim` `CHR/BP` rows before SNP restriction when `source_genome_build` is omitted |
+| PLINK `.bim` source panel | `build-ref-panel` reads `.bim` `CHR/BP` rows before SNP restriction when `source_genome_build` is `auto` |
 | build-ref-panel SNP restriction generic `POS` | Infer the restriction file's local build and require it to match the source PLINK build |
 | Canonical parquet R2 reference panel | Prefer schema metadata; otherwise inspect the first row group |
 
@@ -83,9 +84,10 @@ needs.
 
 Raw sumstats can be large, compressed, and sequential-access. In
 `chr_pos`-family modes (`chr_pos` and `chr_pos_allele_aware`),
-`ldsc munge-sumstats` leaves `--genome-build` unset by default and requires the
-CLI user to pass `--genome-build auto` or a concrete build. When `auto` is
-requested, the workflow resolves it before chunk parsing. After the raw header
+`ldsc munge-sumstats` defaults `--source-genome-build` to `auto` and requires
+`--output-genome-build hg19` or `--output-genome-build hg38` in `chr_pos`-family
+modes. When source `auto` is requested, the workflow resolves it before chunk parsing.
+After the raw header
 has been mapped to canonical columns, the kernel reads a lightweight `CHR`/`POS`
 view of the raw input and calls
 `resolve_chr_pos_table()`. The resolved source build and coordinate basis are
@@ -104,7 +106,7 @@ require:
 ```
 
 If those thresholds are not met, inference raises an actionable error that asks
-the user to pass `--genome-build hg19` or `--genome-build hg38` explicitly. The
+the user to pass `--source-genome-build hg19` or `--source-genome-build hg38` explicitly. The
 same resolved source-build metadata is used by munge-time SNP filtering in
 `chr_pos`-family modes. A keep-list, including the packaged map selected by
 `--use-hm3-snps`, with both `hg19_POS` and `hg38_POS` selects the position

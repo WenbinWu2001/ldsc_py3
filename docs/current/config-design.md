@@ -16,7 +16,9 @@ Three implementation details are important to know:
 - Current `ldsc munge-sumstats` writes root `metadata.json` beside
   `sumstats.parquet` by default, or beside legacy `sumstats.sumstats.gz` when
   `--output-format tsv.gz` is selected; `load_sumstats()` recovers the original
-  munge-time `GlobalConfig` from that thin sidecar. Row-level liftover drops are
+  downstream compatibility `GlobalConfig` from that thin sidecar. In
+  coordinate-family modes, that snapshot stores the final output genome build;
+  in rsid-family modes, it stores `genome_build=None`. Row-level liftover drops are
   audited separately in the always-written
   `diagnostics/dropped_snps/dropped.tsv.gz` file.
   Package-written sumstats artifacts without current identity provenance are not

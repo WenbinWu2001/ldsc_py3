@@ -422,8 +422,8 @@ class ReferencePanelBuildConfig:
     plink_prefix : str or os.PathLike[str]
         PLINK ``.bed/.bim/.fam`` prefix token. This may be a single prefix or an
         explicit ``@`` chromosome-suite token.
-    source_genome_build : {"hg19", "hg37", "GRCh37", "hg38", "GRCh38"} or None, optional
-        Genome build of the input PLINK coordinates. If ``None``, the
+    source_genome_build : {"auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"}, optional
+        Genome build of the input PLINK coordinates. If ``"auto"``, the
         build-ref-panel workflow infers the build from PLINK ``.bim`` rows
         before applying SNP restrictions.
     genetic_map_hg19_sources, genetic_map_hg38_sources : str or os.PathLike[str] or None, optional
@@ -477,7 +477,7 @@ class ReferencePanelBuildConfig:
     """
 
     plink_prefix: str | PathLike[str]
-    source_genome_build: GenomeBuildInput | None = None
+    source_genome_build: GenomeBuildInput = "auto"
     genetic_map_hg19_sources: str | PathLike[str] | None = None
     genetic_map_hg38_sources: str | PathLike[str] | None = None
     output_dir: str | PathLike[str] | None = None
@@ -498,8 +498,8 @@ class ReferencePanelBuildConfig:
         """Normalize build paths and validate liftover and LD-window settings."""
         object.__setattr__(self, "plink_prefix", _normalize_required_path(self.plink_prefix))
         object.__setattr__(self, "source_genome_build", normalize_genome_build(self.source_genome_build))
-        if self.source_genome_build == "auto":
-            raise ValueError("source_genome_build must be hg19/hg38 or omitted for inference.")
+        if self.source_genome_build is None:
+            raise ValueError("source_genome_build must be 'auto', 'hg19', or 'hg38'.")
         object.__setattr__(self, "genetic_map_hg19_sources", _normalize_optional_path(self.genetic_map_hg19_sources))
         object.__setattr__(self, "genetic_map_hg38_sources", _normalize_optional_path(self.genetic_map_hg38_sources))
         object.__setattr__(
@@ -594,13 +594,18 @@ class MungeConfig:
         If ``True``, restrict summary-statistics rows to the packaged curated
         HM3 SNP map. Mutually exclusive with ``sumstats_snps_file``. Default is
         ``False``.
-    target_genome_build : {"hg19", "hg37", "GRCh37", "hg38", "GRCh38"} or None, optional
+    source_genome_build : {"auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"}, optional
+        Genome build of raw ``CHR``/``POS`` coordinates. ``"auto"`` asks the
+        munger to infer the source build from the raw file. Default is
+        ``"auto"``.
+    output_genome_build : {"hg19", "hg37", "GRCh37", "hg38", "GRCh38"} or None, optional
         Desired output coordinate build for ``chr_pos``-family munging. When
         it differs from the resolved source build, exactly one liftover method
-        is required. Default is ``None``.
+        is required. The workflow requires this field in coordinate-family
+        modes and rejects it in rsID-family modes. Default is ``None``.
     liftover_chain_file : str or os.PathLike[str] or None, optional
         Chain file used to convert ``CHR``/``POS`` from the resolved source
-        build to ``target_genome_build``. Mutually exclusive with
+        build to ``output_genome_build``. Mutually exclusive with
         ``use_hm3_quick_liftover``. Sumstats liftover is valid only in
         ``chr_pos``-family modes; it updates coordinates and does not rewrite
         ``SNP``. Default is ``None``.
@@ -608,6 +613,8 @@ class MungeConfig:
         If ``True``, use the packaged curated dual-build HM3 map for a
         coordinate-only quick liftover after HM3 SNP restriction. Requires
         ``use_hm3_snps`` and is mutually exclusive with ``liftover_chain_file``.
+        If the resolved source build already equals ``output_genome_build``,
+        the workflow warns and ignores this flag.
         Default is ``False``.
     signed_sumstats_spec : str or None, optional
         Signed statistic specification passed through to the legacy kernel.
@@ -648,7 +655,8 @@ class MungeConfig:
     chunk_size: int = 1_000_000
     sumstats_snps_file: str | PathLike[str] | None = None
     use_hm3_snps: bool = False
-    target_genome_build: GenomeBuildInput | None = None
+    source_genome_build: GenomeBuildInput = "auto"
+    output_genome_build: GenomeBuildInput | None = None
     liftover_chain_file: str | PathLike[str] | None = None
     use_hm3_quick_liftover: bool = False
     signed_sumstats_spec: str | None = None
@@ -673,13 +681,17 @@ class MungeConfig:
             raise ValueError("output_format must be one of 'parquet', 'tsv.gz', or 'both'.")
         if self.sumstats_format not in {"auto", "plain", "daner-old", "daner-new", "pgc-vcf"}:
             raise ValueError("sumstats_format must be one of 'auto', 'plain', 'daner-old', 'daner-new', or 'pgc-vcf'.")
-        target_genome_build = normalize_genome_build(self.target_genome_build)
-        if target_genome_build == "auto":
-            raise ValueError("target_genome_build must be hg19 or hg38; 'auto' is not a valid liftover target.")
+        source_genome_build = normalize_genome_build(self.source_genome_build)
+        if source_genome_build is None:
+            raise ValueError("source_genome_build must be 'auto', 'hg19', or 'hg38'.")
+        output_genome_build = normalize_genome_build(self.output_genome_build)
+        if output_genome_build == "auto":
+            raise ValueError("output_genome_build must be hg19 or hg38; 'auto' is not a valid output build.")
         object.__setattr__(self, "output_dir", _normalize_optional_path(self.output_dir))
         object.__setattr__(self, "raw_sumstats_file", _normalize_optional_path(self.raw_sumstats_file))
         object.__setattr__(self, "sumstats_snps_file", _normalize_optional_path(self.sumstats_snps_file))
-        object.__setattr__(self, "target_genome_build", target_genome_build)
+        object.__setattr__(self, "source_genome_build", source_genome_build)
+        object.__setattr__(self, "output_genome_build", output_genome_build)
         object.__setattr__(self, "liftover_chain_file", _normalize_optional_path(self.liftover_chain_file))
         object.__setattr__(self, "trait_name", _normalize_trait_name(self.trait_name))
         object.__setattr__(self, "ignore_columns", tuple(self.ignore_columns))
@@ -691,8 +703,6 @@ class MungeConfig:
             raise ValueError("use_hm3_quick_liftover requires use_hm3_snps.")
         if self.liftover_chain_file is not None and self.use_hm3_quick_liftover:
             raise ValueError("liftover_chain_file and use_hm3_quick_liftover are mutually exclusive.")
-        if (self.liftover_chain_file is not None or self.use_hm3_quick_liftover) and self.target_genome_build is None:
-            raise ValueError("target_genome_build is required when a liftover method is specified.")
 
 
 @dataclass(frozen=True)

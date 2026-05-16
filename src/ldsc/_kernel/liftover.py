@@ -15,6 +15,7 @@ import logging
 from os import PathLike
 from pathlib import Path
 from typing import Any, Sequence
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -174,9 +175,9 @@ class SumstatsLiftoverRequest:
         """Normalize build and path fields, then validate method-level shape."""
         target_build = normalize_genome_build(self.target_build)
         if target_build == "auto":
-            raise ValueError("target_genome_build must be hg19 or hg38; 'auto' is not a valid liftover target.")
+            raise ValueError("output_genome_build must be hg19 or hg38; 'auto' is not a valid liftover target.")
         if target_build is not None and target_build not in SUPPORTED_LIFTOVER_BUILDS:
-            raise ValueError("target_genome_build must be hg19 or hg38.")
+            raise ValueError("output_genome_build must be hg19 or hg38.")
         chain_file = None if self.liftover_chain_file is None else str(self.liftover_chain_file)
         hm3_map_file = None if self.hm3_map_file is None else str(self.hm3_map_file)
         object.__setattr__(self, "target_build", target_build)
@@ -185,7 +186,7 @@ class SumstatsLiftoverRequest:
         if chain_file is not None and self.use_hm3_quick_liftover:
             raise ValueError("liftover_chain_file and use_hm3_quick_liftover are mutually exclusive.")
         if self.method is not None and target_build is None:
-            raise ValueError("target_genome_build is required when a liftover method is specified.")
+            raise ValueError("output_genome_build is required when a liftover method is specified.")
 
     @property
     def method(self) -> str | None:
@@ -464,14 +465,19 @@ def apply_sumstats_liftover(
     if source not in SUPPORTED_LIFTOVER_BUILDS:
         raise ValueError(
             "Cannot apply summary-statistics liftover because the source genome build is unresolved. "
-            "Use --genome-build hg19/hg38 or --genome-build auto with inferable coordinates."
+            "Use --source-genome-build hg19/hg38 or --source-genome-build auto with inferable coordinates."
         )
     if request.target_build == source:
         if request.method is not None:
-            raise ValueError("A liftover method was specified, but target_genome_build equals the source genome build.")
+            message = (
+                "A summary-statistics liftover method was specified, but output_genome_build "
+                "equals the resolved source genome build; the liftover method will be ignored."
+            )
+            warnings.warn(message, UserWarning, stacklevel=2)
+            logger.warning(message)
         return frame, default_liftover_metadata(source_build=source, snp_identifier=mode), _empty_liftover_drop_frame()
     if request.method is None:
-        raise ValueError("target_genome_build differs from the source genome build, but no liftover method was specified.")
+        raise ValueError("output_genome_build differs from the source genome build, but no liftover method was specified.")
 
     _require_supported_pair(source, request.target_build)
     missing_mask = ~complete_coordinate_mask(frame)

@@ -41,7 +41,8 @@ Call:
 ldsc munge-sumstats \
   --raw-sumstats-file /path/raw.tsv \
   --output-dir /path/sumstats \
-  --genome-build auto
+  --source-genome-build auto \
+  --output-genome-build hg38
 ```
 
 `Inputs:` and `Outputs:` are audit sections, not machine-readable manifests.

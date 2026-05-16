@@ -65,7 +65,7 @@ the legacy TSV artifact.
 | `artifact_type` | Must be `sumstats`. | Required and validated. |
 | `files` | Relative data-file map for `sumstats.parquet` and/or `sumstats.sumstats.gz`. | Required to locate the data artifact. |
 | `snp_identifier` | SNP identity mode used when the munged artifact was written. | Required for regression compatibility checks. |
-| `genome_build` | Genome build associated with coordinate-family identity modes. | Required for regression compatibility checks when known. |
+| `genome_build` | Final output genome build for coordinate-family identity modes; `null` for rsID-family modes because rsID identity is build-independent. | Required for regression compatibility checks when known. |
 | `trait_name` | Trait label from the raw sumstats config, when supplied. | Used for output labels, not compatibility. |
 
 ### Sumstats `diagnostics/dropped_snps/dropped.tsv.gz`
@@ -73,6 +73,11 @@ the legacy TSV artifact.
 Always-owned audit sidecar for liftover and identity-cleanup drops. This file is
 written even for clean runs so users can distinguish "no drops" from "missing
 sidecar".
+
+Detailed source-build inference, requested output build, and liftover method
+provenance live in `diagnostics/sumstats.log`, not root `metadata.json`. The
+root sumstats metadata and `SumstatsTable.config_snapshot` intentionally expose
+only the final downstream compatibility build.
 
 | Field | Explanation | Downstream usage |
 | --- | --- | --- |

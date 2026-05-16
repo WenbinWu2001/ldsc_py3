@@ -203,7 +203,7 @@ flowchart LR
 
   subgraph P2[Preprocessing (public)<br/>config + path_resolution]
     B1[Resolve PLINK prefixes]
-    B0[Infer source build from .bim when omitted]
+    B0[Infer source build from .bim when source is auto]
     B2[Resolve map and filter files]
     B8[Interpret SNP restrictions in source build]
   end
@@ -322,6 +322,9 @@ flowchart LR
 
 ## 4. `munge-sumstats`: Raw GWAS Table To Curated Sumstats
 
+For the user-facing contract, command patterns, and output schema, see
+[munge-sumstats.md](munge-sumstats.md).
+
 The munging workflow preflights root `metadata.json`, `sumstats.parquet`,
 `sumstats.sumstats.gz`, `diagnostics/sumstats.log`, and
 `diagnostics/dropped_snps/dropped.tsv.gz` as one owned family before delegating to
@@ -336,10 +339,11 @@ suggestions. Default output is `sumstats.parquet`; `--output-format tsv.gz` or `
 also supports the legacy `sumstats.sumstats.gz` artifact. With overwrite
 enabled, stale sibling formats not produced by the current run are removed
 after successful writes. Optional sumstats liftover is a `chr_pos`-family step:
-the source build comes from `GlobalConfig.genome_build` or munger build
-inference, SNP restrictions are interpreted in that source build before
-liftover, and `--target-genome-build` must be paired with exactly one method
-when the target differs from the source. Chain-file liftover uses
+the source build comes from `--source-genome-build` (`auto` by default) or
+munger build inference, SNP restrictions are interpreted in that source build
+before liftover, and `--output-genome-build` is required for coordinate-family
+outputs. When output differs from the resolved source build, exactly one
+liftover method is required. Chain-file liftover uses
 `--liftover-chain-file`; HM3 quick liftover requires `--use-hm3-snps`, uses the
 packaged curated `hm3_curated_map.tsv.gz`, and is coordinate-only, so it never
 rewrites `SNP`.
@@ -355,7 +359,7 @@ in `diagnostics/sumstats.log`; row-level drops are written to
 | raw sumstats | `#CHROM POS ID EA NEA PVAL BETA NEFF`<br/>`1 754182 rs3131969 A G 0.46 0.004 829249.58` | leading `##` metadata lines are skipped; header aliases are normalized in the workflow layer; `NEFF` is not inferred as `N` unless the user explicitly passes `--N-col NEFF` |
 | DANER or PGC VCF-style raw sumstats, optional schema mode | old DANER: `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` headers<br/>new DANER: exact `Nca` and `Nco` columns<br/>PGC VCF-style: leading `##` metadata and `#CHROM` header | `--format auto` detects these profiles; explicit `--format daner-old`, `--format daner-new`, or `--format pgc-vcf` overrides auto-detection; legacy `--daner-old`/`--daner-new` remain supported |
 | sumstats SNP keep-list, optional | headered `SNP` or `CHR`/`POS` restriction file, or `--use-hm3-snps` | optional row filter loaded once before parsing and applied inside each retained chunk; allele-free restrictions match by base key before later identity cleanup; allele-bearing restrictions, including packaged HM3, match by effective allele-aware key in allele-aware modes; duplicate restriction keys collapse to one retained key and non-identity columns such as `CM` or `MAF` are ignored |
-| sumstats liftover method, optional | `--target-genome-build hg38 --liftover-chain-file hg19ToHg38.over.chain` or `--target-genome-build hg38 --use-hm3-snps --use-hm3-quick-liftover` | valid only in `chr_pos`-family modes; updates `CHR`/`POS` after SNP restriction and preserves `SNP` labels |
+| sumstats liftover method, optional | `--output-genome-build hg38 --liftover-chain-file hg19ToHg38.over.chain` or `--output-genome-build hg38 --use-hm3-snps --use-hm3-quick-liftover` | valid only in `chr_pos`-family modes; required when source and output builds differ; updates `CHR`/`POS` after SNP restriction and preserves `SNP` labels |
 | column hints, optional | `--snp ID --chr '#CHROM' --pos POS --a1 EA --a2 NEA` | useful when headers are ambiguous; common aliases infer automatically, and `--infer-only` reports the hints it would apply |
 | INFO lists, optional | `IMPINFO=0.852,0.113,0.842,0.88,NA` | numeric/NA comma-separated per-study values are filtered on their mean; mixed nonnumeric lists such as `0.95,LOW,0.88` are rejected with `--ignore` / `--info-list` suggestions |
 

@@ -1248,10 +1248,13 @@ def _apply_build_inference_report(
     suggested = list(inference.suggested_args)
     notes = list(inference.notes)
     resolved_source = source_hint
+    _append_suggested_option(suggested, "--snp-identifier", global_config.snp_identifier)
+    if source_hint is not None:
+        _append_suggested_option(suggested, "--source-genome-build", source_hint)
     if output_build in {"hg19", "hg38"}:
-        suggested.extend(["--output-genome-build", output_build])
-    if source_hint in {"hg19", "hg38"}:
-        suggested.extend(["--source-genome-build", source_hint])
+        _append_suggested_option(suggested, "--output-genome-build", output_build)
+    if munge_config.use_hm3_snps:
+        _append_suggested_flag(suggested, "--use-hm3-snps")
     if source_hint == "auto":
         try:
             sample = _read_infer_only_coordinate_frame(source_path, raw_config, munge_config, inference)
@@ -1286,12 +1289,18 @@ def _apply_build_inference_report(
         notes.append("Source and output genome builds match; the supplied liftover method will be ignored.")
     if liftover_required and munge_config.liftover_chain_file is None and not munge_config.use_hm3_quick_liftover:
         missing.append("liftover_method")
+        _append_suggested_flag(suggested, "--use-hm3-snps")
+        _append_suggested_flag(suggested, "--use-hm3-quick-liftover")
         notes.append(
             "Source and output genome builds differ; choose exactly one liftover method before running."
         )
         notes.append("HM3 quick command: add --use-hm3-snps --use-hm3-quick-liftover.")
         notes.append(f"Chain file command: add --liftover-chain-file <{_expected_chain_label(resolved_source, output_build)}>.")
+    elif liftover_required and munge_config.use_hm3_quick_liftover:
+        _append_suggested_flag(suggested, "--use-hm3-snps")
+        _append_suggested_flag(suggested, "--use-hm3-quick-liftover")
     if liftover_required and munge_config.liftover_chain_file is not None:
+        _append_suggested_option(suggested, "--liftover-chain-file", munge_config.liftover_chain_file)
         try:
             resolve_scalar_path(munge_config.liftover_chain_file, label="liftover chain file")
         except FileNotFoundError as exc:
@@ -1342,6 +1351,18 @@ def _read_infer_only_coordinate_frame(
 def _expected_chain_label(source_build: str, output_build: str) -> str:
     """Return a readable source-to-output chain label for infer-only guidance."""
     return f"{source_build}To{output_build[0].upper()}{output_build[1:]}.over.chain"
+
+
+def _append_suggested_option(args: list[str], flag: str, value: object) -> None:
+    """Append a CLI option/value pair to inference suggestions once."""
+    if flag not in args:
+        args.extend([flag, str(value)])
+
+
+def _append_suggested_flag(args: list[str], flag: str) -> None:
+    """Append a boolean CLI flag to inference suggestions once."""
+    if flag not in args:
+        args.append(flag)
 
 
 def _validate_sumstats_format_flags(munge_config: MungeConfig) -> None:

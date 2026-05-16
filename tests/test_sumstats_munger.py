@@ -2493,6 +2493,10 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertIn("Missing fields: liftover_method", output)
             self.assertIn("HM3 quick command: add --use-hm3-snps --use-hm3-quick-liftover", output)
             self.assertIn("Chain file command: add --liftover-chain-file <hg19ToHg38.over.chain>", output)
+            self.assertRegex(
+                output,
+                r"Suggested command: .*--output-genome-build hg38 .*--use-hm3-snps --use-hm3-quick-liftover",
+            )
 
     def test_infer_only_reports_source_build_inference_failure_as_non_runnable(self):
         with tempfile.TemporaryDirectory() as tmpdir:

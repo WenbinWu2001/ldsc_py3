@@ -118,7 +118,7 @@ The raw munger accepts common coordinate headers
 such as `#CHROM`, `CHROM`, `CHR`, `POS`, and `BP`; use `--chr` and `--pos` or
 `column_hints` when the header is ambiguous. Leading raw `##` metadata lines are
 skipped before the real header is parsed. `--format auto` is the default and
-detects plain text, old DANER, new DANER, and VCF-style headers. Use
+detects plain text, including VCF-style headers, old DANER, and new DANER. Use
 `ldsc munge-sumstats --raw-sumstats-file raw.txt --infer-only --output-genome-build hg38` to inspect
 format, column, INFO-list, source/output build, liftover, and missing-field decisions without writing output.
 `A1` is the allele that the signed statistic is relative to, not necessarily

@@ -177,14 +177,14 @@ class SumstatsMungerTest(unittest.TestCase):
 
         self.assertEqual(args.sumstats_format, "auto")
 
-    def test_build_parser_accepts_vcf_not_removed_vcf_format_name(self):
+    def test_build_parser_rejects_vcf_format_name(self):
         parser = sumstats_workflow.build_parser()
 
-        args = parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--format", "vcf"])
+        args = parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--format", "plain"])
 
-        self.assertEqual(args.sumstats_format, "vcf")
+        self.assertEqual(args.sumstats_format, "plain")
         with self.assertRaises(SystemExit):
-            parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--format", "pgc" + "-vcf"])
+            parser.parse_args(["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--format", "vcf"])
 
     def test_build_parser_accepts_infer_only_without_output_dir(self):
         parser = sumstats_workflow.build_parser()
@@ -2626,10 +2626,10 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertFalse(result.column_hints)
             self.assertTrue(result.runnable)
 
-    def test_infer_auto_detects_vcf_style_header_and_ref_alt_hints(self):
+    def test_infer_auto_treats_vcf_style_header_as_plain_with_ref_alt_hints(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
-            raw_path = tmpdir / "vcf.tsv"
+            raw_path = tmpdir / "plain_vcf_style.tsv"
             raw_path.write_text(
                 "##fileformat=VCFv4.2\n"
                 "#CHROM POS ID REF ALT BETA PVAL N\n"
@@ -2639,9 +2639,9 @@ class SumstatsMungerTest(unittest.TestCase):
 
             result = sumstats_workflow.infer_raw_sumstats(raw_path)
 
-            self.assertEqual(result.detected_format, "vcf")
+            self.assertEqual(result.detected_format, "plain")
             self.assertIn("--format", result.suggested_args)
-            self.assertIn("vcf", result.suggested_args)
+            self.assertIn("plain", result.suggested_args)
             self.assertEqual(result.column_hints, {"a1": "REF", "a2": "ALT"})
             self.assertTrue(result.runnable)
 

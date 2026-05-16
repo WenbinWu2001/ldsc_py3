@@ -14,7 +14,7 @@ The normal workflow is:
 
 1. Resolve the raw input path and preflight fixed output artifacts.
 2. Infer or apply the raw format profile (`plain`, `daner-old`, `daner-new`,
-   `vcf`, or `auto`).
+   or `auto`). VCF-style headers are handled by `plain`.
 3. Infer safe column hints for SNP, chromosome, position, alleles, p-values,
    sample size, INFO, and signed statistics.
 4. In coordinate-family modes, resolve `source_genome_build`. The public

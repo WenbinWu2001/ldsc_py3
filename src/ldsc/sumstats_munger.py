@@ -99,7 +99,7 @@ parse_flag_cnames = kernel_munge.parse_flag_cnames
 munge_sumstats = kernel_munge.munge_sumstats
 
 _SUMSTATS_OUTPUT_FORMATS = {"parquet", "tsv.gz", "both"}
-_RAW_SUMSTATS_FORMATS = {"auto", "plain", "daner-old", "daner-new", "vcf"}
+_RAW_SUMSTATS_FORMATS = {"auto", "plain", "daner-old", "daner-new"}
 _SUMSTATS_PARQUET_COMPRESSION = "snappy"
 
 
@@ -387,8 +387,8 @@ class SumstatsMunger:
         raw_sumstats_config : MungeConfig
             Munging config with raw file path and optional column hints. When
             ``munge_config`` is omitted, this object also supplies output and
-            QC settings. Common plain-text, old DANER, new DANER, and PGC
-            VCF-style headers are inferred by default before the kernel runs;
+            QC settings. Common plain-text inputs, including VCF-style headers,
+            old DANER, and new DANER are handled before the kernel runs;
             explicit column hints still take priority.
         munge_config : MungeConfig
             Munging thresholds, output directory, and curated output format. The
@@ -409,8 +409,8 @@ class SumstatsMunger:
             In coordinate-family modes, keep-list filtering uses source-build
             coordinates before any optional output liftover.
             ``sumstats_format="auto"`` is the default; use
-            ``sumstats_format="plain"``, ``"daner-old"``, ``"daner-new"``, or
-            ``"vcf"`` only when overriding auto-detection.
+            ``sumstats_format="plain"``, ``"daner-old"``, or ``"daner-new"``
+            only when overriding auto-detection.
         global_config : GlobalConfig or None, optional
             Shared configuration snapshot to attach to the returned
             ``SumstatsTable``. When omitted, the current package-global
@@ -1044,10 +1044,11 @@ def infer_raw_sumstats(
     """Infer raw summary-statistics format and minimal parser hints.
 
     The inference pass reads the header and first data row only. It detects
-    plain text, old DANER, new DANER, and VCF-style inputs; reports missing
-    required fields; identifies numeric/NA comma-separated INFO lists; and
-    returns exact CLI hints for cases that still need user confirmation. It
-    intentionally does not treat ``NEFF`` as total sample size ``N``. Missing
+    plain text, old DANER, and new DANER inputs; reports missing required
+    fields; identifies numeric/NA comma-separated INFO lists; and returns exact
+    CLI hints for cases that still need user confirmation. VCF-style headers
+    with leading ``##`` metadata are treated as plain input. It intentionally
+    does not treat ``NEFF`` as total sample size ``N``. Missing
     ``A1/A2`` is reported only when the resolved ``global_config`` uses an
     allele-aware SNP identifier mode; base modes are allele-blind and can munge
     raw summary statistics without allele columns.
@@ -1069,14 +1070,14 @@ def infer_raw_sumstats(
     notes: list[str] = []
 
     _append_suggested_option(suggested_args, "--format", detected_format)
-    if detected_format == "daner-new":
-        frq_u_column = _first_column_with_clean_prefix(file_cnames, "FRQ_U_")
-        if frq_u_column is not None:
-            column_hints.setdefault("frq", frq_u_column)
-    elif detected_format == "vcf":
+    if detected_format == "plain":
         if "REF" in clean_set and "ALT" in clean_set and not {"A1", "A2", "EA", "NEA"} & clean_set:
             column_hints.setdefault("a1", _original_column(file_cnames, "REF"))
             column_hints.setdefault("a2", _original_column(file_cnames, "ALT"))
+    elif detected_format == "daner-new":
+        frq_u_column = _first_column_with_clean_prefix(file_cnames, "FRQ_U_")
+        if frq_u_column is not None:
+            column_hints.setdefault("frq", frq_u_column)
 
     for column in file_cnames:
         if default_cnames.get(clean_header(column)) == "INFO" and _sample_value_is_info_list(sample.get(column)):
@@ -1152,8 +1153,6 @@ def _detect_sumstats_format(path: str, clean_headers: set[str], requested_format
     )
     if has_old_daner_n:
         return "daner-old"
-    if kernel_munge.count_leading_sumstats_comment_lines(path) > 0 and "#CHROM" in clean_headers:
-        return "vcf"
     if {"NCA", "NCO"}.issubset(clean_headers) or {"NCAS", "NCON"}.issubset(clean_headers):
         return "daner-new"
     return "plain"
@@ -1371,7 +1370,7 @@ def _validate_sumstats_format_flags(munge_config: MungeConfig) -> None:
         raise ValueError("--format daner-old conflicts with --daner-new.")
     if fmt == "daner-new" and munge_config.daner_old:
         raise ValueError("--format daner-new conflicts with --daner-old.")
-    if fmt in {"plain", "vcf"} and (munge_config.daner_old or munge_config.daner_new):
+    if fmt == "plain" and (munge_config.daner_old or munge_config.daner_new):
         raise ValueError(f"--format {fmt} conflicts with DANER-specific flags.")
 
 

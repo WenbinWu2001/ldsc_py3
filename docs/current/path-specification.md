@@ -404,8 +404,8 @@ How they are handled:
 - `ldscore_dir` is not glob-resolved; it is opened as a directory containing
   `metadata.json` plus parquet payload files
 - `ldsc munge-sumstats` uses `--format auto` by default after the raw path is
-  resolved. The inference layer can detect plain text, old DANER, new DANER,
-  and VCF-style headers before applying the usual column aliases and
+  resolved. The inference layer can detect plain text, including VCF-style
+  headers, old DANER, and new DANER before applying the usual column aliases and
   repair suggestions.
 
 Output:

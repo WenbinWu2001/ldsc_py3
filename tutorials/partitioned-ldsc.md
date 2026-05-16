@@ -33,10 +33,10 @@ Path-token rules used in this tutorial:
 - scalar inputs still resolve to exactly one file
 - output directories remain literal destinations
 - missing output directories are created and existing directories are reused
-- existing owned workflow artifacts are refused before writing starts unless
+- existing current-contract workflow artifacts are refused before writing starts unless
   you pass `--overwrite` or `overwrite=True`; successful overwrites remove
-  stale owned siblings not produced by the current configuration and preserve
-  unrelated files
+  stale owned siblings not produced by the current configuration, preserve
+  unrelated files, and ignore removed legacy root diagnostics
 
 Resolution behavior:
 
@@ -167,7 +167,7 @@ print(ldscore_result.baseline_table.head())
 print(partitioned)
 ```
 
-The Python workflow registers `GlobalConfig` once, then reuses it across the compatible helper functions and workflow classes. In-process results such as `AnnotationBundle`, `SumstatsTable` from `SumstatsMunger.run()`, and `LDScoreResult` carry frozen `config_snapshot` values, and the regression step raises `ConfigMismatchError` if you accidentally mix artifacts produced under incompatible `snp_identifier` or `genome_build` assumptions. A `SumstatsTable` loaded from a current disk artifact recovers this provenance from root `metadata.json`; old package-written sumstats without current provenance must be regenerated with the current LDSC package. `SumstatsMunger.run()` is also the implementation path behind `ldsc munge-sumstats` after CLI parsing, and it owns root `metadata.json`, fixed `sumstats.parquet` output by default, optional `sumstats.sumstats.gz` compatibility output, and diagnostics under `diagnostics/`. Workflow logs are preflighted audit files; returned `output_paths` mappings include data artifacts and the dropped-SNP audit sidecar, but not logs. For `munge-sumstats`, `ldscore`, `partitioned-h2`, and `annotate`, output directories represent coherent artifact families: no-overwrite runs reject any owned sibling, and successful overwrites delete stale owned siblings not produced by the current configuration.
+The Python workflow registers `GlobalConfig` once, then reuses it across the compatible helper functions and workflow classes. In-process results such as `AnnotationBundle`, `SumstatsTable` from `SumstatsMunger.run()`, and `LDScoreResult` carry frozen `config_snapshot` values, and the regression step raises `ConfigMismatchError` if you accidentally mix artifacts produced under incompatible `snp_identifier` or `genome_build` assumptions. A `SumstatsTable` loaded from a current disk artifact recovers this provenance from root `metadata.json`; old package-written sumstats without current provenance must be regenerated with the current LDSC package. `SumstatsMunger.run()` is also the implementation path behind `ldsc munge-sumstats` after CLI parsing, and it owns root `metadata.json`, fixed `sumstats.parquet` output by default, optional `sumstats.sumstats.gz` compatibility output, and diagnostics under `diagnostics/`. Workflow logs are preflighted audit files; returned `output_paths` mappings include data artifacts and the dropped-SNP audit sidecar, but not logs. Output directories represent coherent current-contract artifact families: no-overwrite runs reject any owned sibling, and successful overwrites delete stale owned siblings not produced by the current configuration. Removed legacy root diagnostic names are ignored rather than blocked or cleaned.
 
 Munged sumstats written by this workflow include canonical `CHR` and `POS`
 columns. The raw munger accepts common coordinate headers such as `#CHROM`,

@@ -646,13 +646,6 @@ class AnnotationBuilder:
             produced_paths: list[Path] = [metadata_path, *output_paths, drop_sidecar_path]
             owned_paths = sorted(output_path.glob("query.*.annot.gz"))
             owned_paths.extend(produced_paths)
-            owned_paths.extend(
-                [
-                    output_path / "metadata.json",
-                    output_path / "dropped_snps",
-                    output_path / "annotate.log",
-                ]
-            )
             if self._workflow_log_path is not None:
                 produced_paths.append(self._workflow_log_path)
                 owned_paths.append(self._workflow_log_path)

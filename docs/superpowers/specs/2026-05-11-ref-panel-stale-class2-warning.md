@@ -1,12 +1,17 @@
 # Design — Ref-Panel Stale Class-2 Artifact Warning
 
-**Status.** Implemented. Spawned from spec section R7
+**Status.** Superseded by the current output-family cleanup contract. The
+historical warning-only design below is retained for context, but
+`build-ref-panel` now owns current-contract ref-panel artifacts, blocks them
+without overwrite, removes stale current-contract siblings after successful
+overwrites, and ignores removed legacy/root diagnostic names.
+
+Spawned from spec section R7
 of [`2026-05-10-liftover-harmonization.md`](./2026-05-10-liftover-harmonization.md)
 to keep the liftover-harmonization change set focused on liftover
 collision handling. The user-contract framing (R7's three governing
-principles) is locked in the parent spec; this spec describes the observable
-behavior — a `WARNING` log line — implemented in
-`src/ldsc/ref_panel_builder.py::_warn_stale_class2_artifacts`.
+principles) was locked in the parent spec; this spec described an observable
+warning-only behavior that is no longer the current implementation.
 
 ## Context
 

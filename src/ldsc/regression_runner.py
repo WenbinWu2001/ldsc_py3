@@ -1594,7 +1594,7 @@ def run_h2_from_args(args):
         args,
         "h2",
         ["h2.tsv", "diagnostics/metadata.json"],
-        owned_output_names=["h2.tsv", "diagnostics/metadata.json", "metadata.json"],
+        owned_output_names=["h2.tsv", "diagnostics/metadata.json"],
     )
     with workflow_logging("h2", log_path, log_level=getattr(args, "log_level", "INFO")):
         runner, config = _runner_from_args(args)
@@ -1643,8 +1643,6 @@ def run_partitioned_h2_from_args(args):
             "partitioned_h2.tsv",
             "diagnostics/metadata.json",
             "diagnostics/query_annotations",
-            "metadata.json",
-            "query_annotations",
         ],
     )
     with workflow_logging("partitioned-h2", log_path, log_level=getattr(args, "log_level", "INFO")):
@@ -1746,8 +1744,6 @@ def run_rg_from_args(args):
             "h2_per_trait.tsv",
             "diagnostics/metadata.json",
             "diagnostics/pairs",
-            "metadata.json",
-            "pairs",
         ],
     )
     sumstats_paths = resolve_file_group(getattr(args, "sumstats_sources", ()), label="sumstats sources")
@@ -1839,7 +1835,6 @@ def _preflight_regression_outputs(
     output_dir = ensure_output_directory(output_dir_arg, label="output directory")
     paths = [output_dir / name for name in output_names]
     log_path = output_dir / "diagnostics" / f"{workflow_name}.log"
-    legacy_log_path = output_dir / f"{workflow_name}.log"
     if owned_output_names is None:
         ensure_output_paths_available(
             [*paths, log_path],
@@ -1849,7 +1844,7 @@ def _preflight_regression_outputs(
     else:
         preflight_output_artifact_family(
             [*paths, log_path],
-            [*(output_dir / name for name in owned_output_names), log_path, legacy_log_path],
+            [*(output_dir / name for name in owned_output_names), log_path],
             overwrite=getattr(args, "overwrite", False),
             label="regression output artifact",
         )

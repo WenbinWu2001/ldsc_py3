@@ -782,10 +782,9 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
     output_dir = ensure_output_directory(output_config.output_dir, label="LD-score output directory")
     diagnostics_dir = output_dir / "diagnostics"
     log_path = diagnostics_dir / "ldscore.log"
-    legacy_log_path = output_dir / "ldscore.log"
     stale_paths = preflight_output_artifact_family(
         [*_expected_ldscore_output_paths(output_dir, bool(annotation_bundle.query_columns)), log_path],
-        [*_ldscore_output_family(output_dir), log_path, legacy_log_path],
+        [*_ldscore_output_family(output_dir), log_path],
         overwrite=output_config.overwrite,
         label="LD-score output artifact",
     )

@@ -251,65 +251,35 @@ unchanged by liftover harmonization; the `dropped_snps/` sidecar work does
 not introduce any new logging path.
 
 R2 unifies the new sidecar across both workflows by making it class-1 plus
-the always-written-empty pattern. **Class-2 artifacts retain their existing
-per-workflow contracts**:
+the always-written-empty pattern. This spec originally preserved a ref-panel
+"fresh directory" cleanup asymmetry; that has since been superseded by the
+current artifact-family contract documented in
+`docs/current/artifact-metadata-field-inventory.md`.
 
 | Workflow | Helper used | Stale-sibling behavior under `--overwrite` |
 | --- | --- | --- |
 | `munge-sumstats` | `preflight_output_artifact_family` + `remove_output_artifacts` | Auto-removed after successful write. Example: switching `--output-format` from `both` to `parquet` removes the prior `sumstats.sumstats.gz`. |
-| `build-ref-panel` | `ensure_output_paths_available` only | **Not** removed. Stale per-chromosome or per-build siblings from prior runs persist on disk. Documented contract (post-harmonization wording): *"Use a fresh output directory when changing emitted builds, liftover/coordinate configuration, or chromosome scope"* (`ref_panel_builder.py:21-26`). The pre-harmonization wording quoted "duplicate-position policy" as one of the trigger conditions, but that public knob is removed by this work; the module docstring update is part of the implementation (Task 5). |
+| `build-ref-panel` | `preflight_output_artifact_family` + `remove_output_artifacts` | Current-contract stale per-chromosome, per-build, dropped-SNP, metadata, and log siblings are auto-removed after successful overwrite. Removed legacy root diagnostic names are ignored. |
 
-**Why the asymmetry is preserved.** The two contracts emerged from a real
-cost asymmetry between the workflows. Sumstats produces small artifacts
-quickly, so auto-cleanup of `output_format` siblings is convenient and
-the cost of an accidental deletion is small. Ref-panel artifacts can take
-hours of CPU and reach hundreds of MB per chromosome; auto-deleting "stale"
-siblings under `--overwrite` would risk destroying expensive compute on a
-mistyped invocation. The defensive answer was "don't touch what we don't
-recognize, document the limitation, and let the user manage directory
-hygiene." Both choices are defensible. Changing either one means
-re-litigating that cost tradeoff and is out of scope for liftover
-harmonization.
+**Historical note.** The earlier asymmetry emerged from a real cost asymmetry
+between the workflows. Sumstats produces small artifacts quickly, while
+ref-panel artifacts can take hours of CPU and reach hundreds of MB per
+chromosome. The current contract resolves this by limiting cleanup to
+current-contract workflow-owned artifacts and ignoring removed legacy/root
+diagnostic names; unrelated files remain untouched.
 
-**Concrete example of the ref-panel "fresh dir" contract.** Run 1 builds
-chr1-22 into `out/`. Run 2 reuses `out/` with `--plink-prefix only_chr6_7.@
---overwrite`. The Run-2 preflight list is constructed by
-`_expected_ref_panel_output_paths` and contains only chr6/chr7 paths
-(loop at `ref_panel_builder.py:152` iterates over the chromosomes resolved
-from the current PLINK input, not all 22). The collision check passes for
-those two; chr1-5 and chr8-22 files from Run 1 are never inspected. Result:
-`out/hg19/` ends up holding chr6/chr7 from Run 2 and chr1-5,8-22 from Run 1
-side-by-side, silently mixing two different builds. Downstream tools that
-load the directory as a "complete reference panel" see 22 chromosomes
-without any indication that they came from different inputs. The runtime
-metadata sidecars (`chr*_meta.tsv.gz`) record the per-chromosome provenance,
-but most consumers do not cross-check.
+**Current ref-panel overwrite example.** Run 1 builds chr1-22 into `out/`. Run 2
+reuses `out/` with `--plink-prefix only_chr6_7.@ --overwrite`. Current preflight
+claims existing workflow-owned artifacts under `hg19/`, `hg38/`, and
+`diagnostics/`; after Run 2 succeeds, stale chr1-5 and chr8-22 current-contract
+siblings from Run 1 are removed. Legacy root diagnostics such as
+`out/build-ref-panel.log` or `out/dropped_snps/` are ignored because they are not
+owned by the current contract.
 
-This is the silent-mix failure mode the existing module docstring and warning
-message describe. Liftover harmonization does **not** clean it automatically.
-Users running
-`build-ref-panel` against the same directory more than once must continue
-to either:
-
-1. start from a fresh `--output-dir`, or
-2. manually clean `out/{build}/chr*_r2.parquet`,
-   `out/{build}/chr*_meta.tsv.gz`, and `out/dropped_snps/chr*_dropped.tsv.gz`
-   for chromosomes outside the current run's scope.
-
-A future spec may revisit this contract, but it is independent of the
-liftover work.
-
-**Stale class-2 sibling warning — implemented in follow-up.** To make
-the user contract observable rather than implicit, ref-panel emits a single
-`WARNING` log line per run when pre-existing class-2 artifacts in `output_dir`
-are not in the current run's expected set. That behavior is implemented
-separately in
+**Stale class-2 sibling warning — historical.** The follow-up warning spec at
 [`docs/superpowers/specs/2026-05-11-ref-panel-stale-class2-warning.md`](./2026-05-11-ref-panel-stale-class2-warning.md)
-with its own plan at
-[`docs/superpowers/plans/2026-05-11-ref-panel-stale-class2-warning.md`](../plans/2026-05-11-ref-panel-stale-class2-warning.md).
-The principles in this section (R7's three governing rules) are the
-contract that warning enforces; the split kept the liftover change set focused
-on liftover while still making the class-2 hygiene contract observable.
+documented the older fresh-directory contract. The current contract supersedes
+that behavior by using owned-family preflight and post-success stale cleanup.
 
 ---
 

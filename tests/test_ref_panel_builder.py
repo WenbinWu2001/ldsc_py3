@@ -1784,7 +1784,6 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             self.assertEqual(metadata["chromosomes"], ["1", "2"])
             self.assertEqual(metadata["files"]["r2_hg19"], ["hg19/chr1_r2.parquet", "hg19/chr2_r2.parquet"])
             self.assertEqual(metadata["files"]["meta_hg38"], ["hg38/chr1_meta.tsv.gz", "hg38/chr2_meta.tsv.gz"])
-            self.assertNotIn("format", metadata)
             self.assertEqual(
                 result.output_paths["r2_hg19"],
                 [
@@ -1949,6 +1948,41 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
 
             patched.assert_called_once()
             self.assertEqual(result.chromosomes, ["1"])
+
+    def test_builder_run_ignores_legacy_root_diagnostics_without_overwrite(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
+            config = self._build_config(tmpdir)
+            output_dir = tmpdir / "out"
+            root_drop_dir = output_dir / "dropped_snps"
+            root_drop_dir.mkdir(parents=True)
+            (output_dir / "metadata.json").write_text('{"legacy": true}\n', encoding="utf-8")
+            (output_dir / "build-ref-panel.log").write_text("legacy log\n", encoding="utf-8")
+            (root_drop_dir / "chr1_dropped.tsv.gz").write_text("legacy drops\n", encoding="utf-8")
+            builder = ref_panel_builder.ReferencePanelBuilder(
+                global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38")
+            )
+            builder._workflow_log_path = output_dir / "diagnostics" / "build-ref-panel.log"
+
+            with mock.patch.object(
+                ref_panel_builder.ReferencePanelBuilder,
+                "_build_chromosome",
+                return_value={
+                    "r2_hg19": str(output_dir / "hg19" / "chr1_r2.parquet"),
+                    "r2_hg38": str(output_dir / "hg38" / "chr1_r2.parquet"),
+                    "meta_hg19": str(output_dir / "hg19" / "chr1_meta.tsv.gz"),
+                    "meta_hg38": str(output_dir / "hg38" / "chr1_meta.tsv.gz"),
+                },
+            ):
+                result = builder.run(config)
+
+            self.assertEqual((output_dir / "metadata.json").read_text(encoding="utf-8"), '{"legacy": true}\n')
+            self.assertEqual((output_dir / "build-ref-panel.log").read_text(encoding="utf-8"), "legacy log\n")
+            self.assertEqual((root_drop_dir / "chr1_dropped.tsv.gz").read_text(encoding="utf-8"), "legacy drops\n")
+            self.assertEqual(result.chromosomes, ["1"])
+            self.assertTrue((output_dir / "diagnostics" / "metadata.json").exists())
+            self.assertTrue((output_dir / "diagnostics" / "build-ref-panel.log").exists())
 
     def test_builder_run_refuses_stale_owned_artifact_before_chromosome_build(self):
         with tempfile.TemporaryDirectory() as tmpdir:

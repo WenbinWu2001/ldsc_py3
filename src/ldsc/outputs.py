@@ -9,14 +9,19 @@ downstream readers can load a single chromosome without scanning the whole
 table. The writer creates missing directories, reuses existing directories, and
 refuses existing canonical family files unless the caller explicitly sets
 ``overwrite=True``; successful overwrites remove stale owned siblings that the
-current result did not produce.
+current result did not produce. Root ``metadata.json`` is part of the
+downstream contract only for sumstats and LD-score directories. Regression
+metadata emitted by this module is diagnostic provenance and is written below
+``diagnostics/`` without legacy top-level ``format`` discriminators.
 
 Partitioned-h2 regression summaries use the same directory-oriented output
 policy. ``PartitionedH2DirectoryWriter`` always writes the compact aggregate
 ``partitioned_h2.tsv`` and can optionally stage a per-query
 ``diagnostics/query_annotations`` tree with ``manifest.tsv``, one-row
 ``partitioned_h2.tsv`` summaries, full ``partitioned_h2_full.tsv`` category
-tables, and ``metadata.json`` files before moving it into place.
+tables, and ``metadata.json`` files before moving it into place. ``RgDirectoryWriter``
+uses the same whole-tree staging and replacement policy for optional
+``diagnostics/pairs`` details.
 """
 
 from __future__ import annotations
@@ -196,10 +201,9 @@ class H2DirectoryWriter:
         summary_path = output_dir / "h2.tsv"
         diagnostics_dir = output_dir / "diagnostics"
         metadata_path = diagnostics_dir / "metadata.json"
-        legacy_metadata_path = output_dir / "metadata.json"
         preflight_output_artifact_family(
             [summary_path, metadata_path],
-            [summary_path, metadata_path, legacy_metadata_path],
+            [summary_path, metadata_path],
             overwrite=output_config.overwrite,
             label="h2 output artifact",
         )
@@ -495,14 +499,12 @@ class PartitionedH2DirectoryWriter:
         diagnostics_dir = output_dir / "diagnostics"
         metadata_path = diagnostics_dir / "metadata.json"
         query_root = diagnostics_dir / "query_annotations"
-        legacy_metadata_path = output_dir / "metadata.json"
-        legacy_query_root = output_dir / "query_annotations"
         produced_paths = [summary_path, metadata_path]
         if output_config.write_per_query_results:
             produced_paths.append(query_root)
         stale_paths = preflight_output_artifact_family(
             produced_paths,
-            [summary_path, metadata_path, query_root, legacy_metadata_path, legacy_query_root],
+            [summary_path, metadata_path, query_root],
             overwrite=output_config.overwrite,
             label="partitioned-h2 output artifact",
         )
@@ -723,14 +725,12 @@ class RgDirectoryWriter:
         full_path = output_dir / "rg_full.tsv"
         h2_path = output_dir / "h2_per_trait.tsv"
         pairs_root = diagnostics_dir / "pairs"
-        legacy_metadata_path = output_dir / "metadata.json"
-        legacy_pairs_root = output_dir / "pairs"
         produced_paths = [metadata_path, rg_path, full_path, h2_path]
         if output_config.write_per_pair_detail:
             produced_paths.append(pairs_root)
         stale_paths = preflight_output_artifact_family(
             produced_paths,
-            [metadata_path, rg_path, full_path, h2_path, pairs_root, legacy_metadata_path, legacy_pairs_root],
+            [metadata_path, rg_path, full_path, h2_path, pairs_root],
             overwrite=output_config.overwrite,
             label="rg output artifact",
         )
@@ -864,7 +864,6 @@ def _result_metadata(
     payload["schema_version"] = 1
     payload["artifact_type"] = artifact_type
     payload["files"] = dict(files)
-    payload.pop("format", None)
     return payload
 
 

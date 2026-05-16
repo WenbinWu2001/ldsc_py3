@@ -17,10 +17,10 @@ Path-token rules:
 - group inputs may use globs or chromosome-suite tokens such as `baseline.@.annot.gz`
 - output directories are literal destinations
 - missing output directories are created and existing directories are reused
-- existing owned workflow artifacts are refused before writing starts unless
+- existing current-contract workflow artifacts are refused before writing starts unless
   you pass `--overwrite` or `overwrite=True`; successful overwrites remove
-  stale owned siblings that the current run did not produce and preserve
-  unrelated files
+  stale owned siblings that the current run did not produce, preserve
+  unrelated files, and ignore removed legacy root diagnostics
 
 Resolution behavior:
 
@@ -180,6 +180,7 @@ ldsc h2 \
 ```
 
 The command writes `tutorial_outputs/trait_h2/h2.tsv` and
+`tutorial_outputs/trait_h2/diagnostics/metadata.json` plus
 `tutorial_outputs/trait_h2/diagnostics/h2.log`.
 If any owned output-family file already exists from a previous run, the
 relevant command fails before writing. For `munge-sumstats`, that family is
@@ -187,3 +188,5 @@ relevant command fails before writing. For `munge-sumstats`, that family is
 `diagnostics/dropped_snps/dropped.tsv.gz`, and `diagnostics/sumstats.log`, even if the current
 `--output-format` would write only one data format. Add `--overwrite` only for an intentional rerun; when used, stale
 sumstats sibling formats not produced by the successful run are removed.
+Removed legacy root diagnostic names are ignored by current preflight and
+cleanup.

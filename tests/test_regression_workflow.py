@@ -2547,8 +2547,8 @@ class RegressionWorkflowTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             output_dir = tmpdir / "out"
-            output_dir.mkdir()
-            existing = output_dir / "metadata.json"
+            existing = output_dir / "diagnostics" / "metadata.json"
+            existing.parent.mkdir(parents=True)
             existing.write_text("{}\n", encoding="utf-8")
             args = type(
                 "Args",
@@ -2580,6 +2580,33 @@ class RegressionWorkflowTest(unittest.TestCase):
             self.assertFalse((output_dir / "h2.tsv").exists())
             self.assertFalse((output_dir / "h2.log").exists())
             self.assertFalse((output_dir / "diagnostics" / "h2.log").exists())
+
+    def test_regression_preflight_ignores_legacy_root_log(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "out"
+            output_dir.mkdir()
+            legacy_log = output_dir / "h2.log"
+            legacy_log.write_text("legacy\n", encoding="utf-8")
+            args = type(
+                "Args",
+                (),
+                {
+                    "output_dir": str(output_dir),
+                    "overwrite": False,
+                },
+            )()
+
+            normalized_output_dir, log_path = regression_runner._preflight_regression_outputs(
+                args,
+                "h2",
+                ["h2.tsv", "diagnostics/metadata.json"],
+                owned_output_names=["h2.tsv", "diagnostics/metadata.json"],
+            )
+
+            self.assertEqual(normalized_output_dir, str(output_dir))
+            self.assertEqual(log_path, output_dir / "diagnostics" / "h2.log")
+            self.assertEqual(legacy_log.read_text(encoding="utf-8"), "legacy\n")
+            self.assertFalse(log_path.exists())
 
     def test_regression_cli_allows_existing_result_file_with_overwrite(self):
         with tempfile.TemporaryDirectory() as tmpdir:

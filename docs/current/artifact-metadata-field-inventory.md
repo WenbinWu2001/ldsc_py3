@@ -21,6 +21,25 @@ There is no "optional but used if present" metadata. No JSON metadata file
 contains a top-level `format`; `schema_version` plus `artifact_type` is the
 schema discriminator.
 
+## Output Ownership Rule
+
+Workflow-owned artifacts are the files and directories in the current public
+layout for that workflow. Without `--overwrite`, any existing owned artifact
+blocks the run before outputs are opened. With `--overwrite`, artifacts written
+by the current run are replaced, and stale owned siblings left by incompatible
+flag combinations are removed after the current write succeeds.
+
+Legacy/root diagnostic names that are no longer in the public layout are not
+owned by current workflows. They are ignored by preflight and cleanup rather
+than blocked or deleted.
+
+Directory artifacts are owned as whole trees. Optional
+`diagnostics/query_annotations/` and `diagnostics/pairs/` directories are staged
+under `diagnostics/` and then moved into final position as a unit; reruns that
+omit those optional details remove the old tree after a successful overwrite.
+Always-written audit sidecars such as workflow logs and dropped-SNP tables are
+included in the owned family.
+
 ## Public Output Layouts
 
 ### `munge-sumstats`

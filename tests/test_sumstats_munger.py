@@ -639,7 +639,6 @@ class SumstatsMungerTest(unittest.TestCase):
             (tmpdir / "metadata.json").write_text(
                 json.dumps(
                     {
-                        "format": "ldsc.sumstats.v1",
                         "trait_name": "trait",
                     }
                 ),
@@ -783,7 +782,6 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(metadata["snp_identifier"], "rsid")
             self.assertIsNone(metadata["genome_build"])
             self.assertEqual(metadata["files"], {"parquet": "sumstats.parquet"})
-            self.assertNotIn("format", metadata)
             self.assertEqual(
                 set(metadata),
                 self.SUMSTATS_METADATA_KEYS,
@@ -794,6 +792,7 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertNotIn("sumstats_gz", summary.output_paths)
             self.assertNotIn("log", summary.output_paths)
             self.assertIn("metadata_json", summary.output_paths)
+            self.assertEqual(summary.inferred_columns["detected_format"], "plain")
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for default parquet output")
     def test_run_base_rsid_without_allele_columns_defaults_to_allele_free_table(self):
@@ -920,6 +919,30 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(stale.read_text(encoding="utf-8"), "stale\n")
             self.assertFalse((output_dir / "diagnostics" / "sumstats.log").exists())
 
+    def test_run_ignores_legacy_root_diagnostics_without_overwrite(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            self._write_raw_sumstats(raw_path)
+            output_dir = tmpdir / "munged"
+            root_drop_dir = output_dir / "dropped_snps"
+            root_drop_dir.mkdir(parents=True)
+            (output_dir / "sumstats.log").write_text("legacy log\n", encoding="utf-8")
+            (root_drop_dir / "dropped.tsv.gz").write_text("legacy drops\n", encoding="utf-8")
+
+            with mock.patch.object(kernel_munge, "munge_sumstats", return_value=self._fake_munged_frame()):
+                SumstatsMunger().run(
+                    MungeConfig(raw_sumstats_file=raw_path),
+                    MungeConfig(output_dir=output_dir, output_format="tsv.gz"),
+                    GlobalConfig(snp_identifier="rsid"),
+                )
+
+            self.assertEqual((output_dir / "sumstats.log").read_text(encoding="utf-8"), "legacy log\n")
+            self.assertEqual((root_drop_dir / "dropped.tsv.gz").read_text(encoding="utf-8"), "legacy drops\n")
+            self.assertTrue((output_dir / "metadata.json").exists())
+            self.assertTrue((output_dir / "diagnostics" / "sumstats.log").exists())
+            self.assertTrue((output_dir / "diagnostics" / "dropped_snps" / "dropped.tsv.gz").exists())
+
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
     def test_write_output_accepts_output_format(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1030,7 +1053,6 @@ class SumstatsMungerTest(unittest.TestCase):
 
             def fake_munge(args, p=False):
                 args._coordinate_metadata = {
-                    "format": "ldsc.sumstats.v1",
                     "snp_identifier": "chr_pos",
                     "genome_build": "hg38",
                     "genome_build_inferred": False,
@@ -1108,7 +1130,7 @@ class SumstatsMungerTest(unittest.TestCase):
             self._write_raw_sumstats(raw_path)
 
             def fake_munge(args, p=False):
-                args._coordinate_metadata = {"format": "ldsc.sumstats.v1"}
+                args._coordinate_metadata = {}
                 return self._fake_munged_frame()
 
             with mock.patch.object(kernel_munge, "munge_sumstats", side_effect=fake_munge):
@@ -2506,7 +2528,6 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(metadata["snp_identifier"], "chr_pos")
             self.assertEqual(metadata["genome_build"], "hg38")
             self.assertEqual(metadata["files"], {"parquet": "sumstats.parquet"})
-            self.assertNotIn("format", metadata)
             self.assertEqual(set(metadata), self.SUMSTATS_METADATA_KEYS)
             with warnings.catch_warnings(record=True) as caught:
                 warnings.simplefilter("always")

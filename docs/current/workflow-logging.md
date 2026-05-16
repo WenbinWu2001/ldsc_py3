@@ -17,11 +17,13 @@ Public workflow entry points share one logging policy:
 
 ## Output-Family Preflight
 
-`munge-sumstats`, `ldscore`, `partitioned-h2`, and `annotate` treat their fixed
-outputs plus workflow log as one owned family at the CLI/workflow layer.
-Without `--overwrite`, any existing owned artifact rejects the run before the
-log is opened. With `--overwrite`, stale owned siblings that the successful run
-did not produce are removed after the current outputs are written.
+Public workflow layers treat their fixed current-contract outputs plus workflow
+log as one owned family. Without `--overwrite`, any existing owned artifact
+rejects the run before the log is opened. With `--overwrite`, stale owned
+siblings that the successful run did not produce are removed after the current
+outputs are written. Legacy root log names such as `sumstats.log`,
+`annotate.log`, `ldscore.log`, `build-ref-panel*.log`, or regression logs at the
+output root are not part of the current owned family.
 
 This keeps an output directory from mixing artifacts from different
 configurations, while preserving unrelated user files. Direct Python writer

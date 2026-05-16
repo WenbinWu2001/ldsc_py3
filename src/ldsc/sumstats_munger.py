@@ -443,15 +443,11 @@ class SumstatsMunger:
         sumstats_snps_path = _sumstats_snps_file_from_config(munge_config)
         sumstats_snps_label = "none" if sumstats_snps_path is None else str(sumstats_snps_path)
         produced_paths = [*output_files.values(), metadata_path, log_path, dropped_snps_path]
-        legacy_log_path = fixed_output_stem + ".log"
-        legacy_dropped_snps_path = output_dir / "dropped_snps" / "dropped.tsv.gz"
         owned_paths = [
             *_sumstats_output_files(fixed_output_stem, "both").values(),
             metadata_path,
             log_path,
             dropped_snps_path,
-            legacy_log_path,
-            legacy_dropped_snps_path,
         ]
         # See path_resolution.preflight_output_artifact_family for the
         # owned_paths/produced_paths split. The dropped-SNP sidecar is in both
@@ -552,7 +548,7 @@ class SumstatsMunger:
                 n_input_rows=_count_data_rows(source_path),
                 n_retained_rows=len(table.data),
                 drop_counts={},
-                inferred_columns={**dict(raw_sumstats_config.column_hints), "format": inference.detected_format},
+                inferred_columns={**dict(raw_sumstats_config.column_hints), "detected_format": inference.detected_format},
                 used_n_rule=_infer_used_n_rule(args),
                 output_paths=run_output_paths,
             )

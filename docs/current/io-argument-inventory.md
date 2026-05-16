@@ -55,7 +55,8 @@ non-consumed workflow metadata belongs under `diagnostics/`.
 Science-facing result tables should use TSV. The public regression results are
 `h2.tsv`, `partitioned_h2.tsv`, optional diagnostic per-query
 `partitioned_h2.tsv` / `partitioned_h2_full.tsv`, and the rg family
-(`rg.tsv`, `rg_full.tsv`, `h2_per_trait.tsv`, optional diagnostic `pairs/`).
+(`rg.tsv`, `rg_full.tsv`, `h2_per_trait.tsv`, optional diagnostic
+`diagnostics/pairs/`).
 Logs are audit files and should not be treated as output results.
 
 
@@ -78,7 +79,7 @@ Not fully adapted or retained for compatibility:
   than science-facing result tables.
 - `ldsc build-ref-panel` still writes runtime metadata sidecars as
   `chr{chrom}_meta.tsv.gz` and liftover-stage drop audit files as
-  `dropped_snps/chr{chrom}_dropped.tsv.gz`.
+  `diagnostics/dropped_snps/chr{chrom}_dropped.tsv.gz`.
 - `ldsc munge-sumstats` keeps `--output-format tsv.gz` and `both`, which write
   `sumstats.sumstats.gz` compatibility artifacts even though parquet is the
   default.
@@ -112,12 +113,19 @@ scientific outputs before they are opened. They are not included in workflow
 `output_paths` mappings or thin metadata sidecars that downstream code
 interprets as data artifacts.
 
-For `munge-sumstats`, `ldscore`, `partitioned-h2`, and `annotate`, the fixed
-outputs are coherent artifact families. Without overwrite, any existing owned
-artifact in the family rejects the run, even when that artifact would not be
-written by the current configuration. With overwrite, the workflow writes the
-requested outputs and removes stale owned siblings not produced by the
-successful run. Unrelated files in `output_dir` are preserved.
+Fixed workflow outputs are coherent artifact families. Without overwrite, any
+existing current-contract owned artifact rejects the run, even when that
+artifact would not be written by the current configuration. With overwrite, the
+workflow writes the requested outputs and removes stale current-contract owned
+siblings not produced by the successful run. Legacy/root diagnostic names that
+are no longer in the public layout are not blocked or cleaned as owned outputs.
+Unrelated files in `output_dir` are preserved.
+
+Directory artifacts such as `diagnostics/query_annotations/` and
+`diagnostics/pairs/` are owned as whole trees. They are staged under
+`diagnostics/` and moved into final position as a unit when requested; if a
+later overwrite run omits them, the stale tree is removed after the new outputs
+are written.
 
 ## CLI Inventory
 
@@ -233,8 +241,10 @@ metadata sidecar is still written with `CM=NA`. cM-window builds require the
 genetic map for every emitted build because each build's map defines that
 build's LD window.
 
-Use a fresh `build-ref-panel` output directory when changing emitted builds,
-liftover/coordinate configuration, or chromosome scope.
+`build-ref-panel` owns only current-contract artifacts. Existing target-build,
+chromosome, dropped-SNP, metadata, and log siblings block without `--overwrite`;
+with `--overwrite`, stale current-contract siblings outside the current build or
+chromosome scope are removed after the successful write.
 
 ### `ldsc munge-sumstats`
 

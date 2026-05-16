@@ -17,11 +17,13 @@ build-specific R2 directory. Package-built R2 parquet files store
 R2 bias and sample-size arguments.
 
 Output directories are literal destinations. Missing directories are created,
-existing directories are reused, and existing owned workflow artifacts are
-refused before writing unless you pass `--overwrite` or `overwrite=True`.
-Successful overwrites remove stale owned siblings not produced by the current
-configuration and preserve unrelated files. CLI workflow logs are part of that
-preflight policy, but they are audit files rather than returned data artifacts.
+existing directories are reused, and existing current-contract workflow
+artifacts are refused before writing unless you pass `--overwrite` or
+`overwrite=True`. Successful overwrites remove stale owned siblings not
+produced by the current configuration and preserve unrelated files. CLI workflow
+logs are part of that preflight policy, but they are audit files rather than
+returned data artifacts. Removed legacy root diagnostic names are ignored by
+current preflight and cleanup.
 
 For `chr_pos` workflows, `genome_build="auto"` can infer hg19/hg38 and
 0-based/1-based coordinates during annotation or LD-score loading. The same

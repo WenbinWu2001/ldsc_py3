@@ -681,19 +681,12 @@ pytest tests/test_ref_panel_builder.py -v
         source-only reference-panel builds.
         ```
         and align the test assertion in Step 1.
-      - Update the **module docstring** at
-        `src/ldsc/ref_panel_builder.py:21-26` to drop the
-        `duplicate-position policy` mention from the "use a fresh
-        output directory" trigger list. New wording:
-        > `build-ref-panel` keeps an expert-oriented overwrite
-        > contract: `overwrite=True` permits replacing candidate
-        > artifacts for the current chromosome/build set but does
-        > not remove stale optional target-build or `dropped_snps`
-        > siblings from earlier configurations. Use a fresh output
-        > directory when changing emitted builds, liftover/coordinate
-        > configuration, or chromosome scope.
-
-        This is the wording the spec quotes; keep them in sync.
+      - Historical note: this plan originally asked the module docstring to
+        preserve a "fresh output directory" ref-panel overwrite contract. That
+        has been superseded by the current output-family contract: current
+        build-ref-panel artifacts are owned, block without overwrite, and stale
+        current-contract siblings are removed after successful overwrites;
+        removed legacy root diagnostics are ignored.
 
 - [ ] **Step 5: Verify ref-panel tests pass.**
 

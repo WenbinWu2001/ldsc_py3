@@ -30,6 +30,15 @@ There is no backward compatibility for old metadata names or old root
 diagnostic metadata paths. Package-written artifacts must be regenerated under
 the current scheme.
 
+Current workflow-owned paths are limited to the public layout in this document.
+Removed legacy/root diagnostic names are ignored by preflight and stale cleanup.
+Without overwrite, existing current-contract owned artifacts block the run. With
+overwrite, artifacts produced by the current run are replaced and stale
+current-contract siblings from incompatible flag combinations are removed after
+the successful write. Optional detail directories such as
+`diagnostics/query_annotations/` and `diagnostics/pairs/` are owned as whole
+trees and are staged before replacement.
+
 ## Boundary Rule
 
 There is no "optional but used if present" metadata.
@@ -329,5 +338,8 @@ The migration is direct and intentionally has no fallback:
 - Per-query and per-pair detail trees move under `diagnostics/`.
 - Loader tests must construct only canonical `sumstats/metadata.json` and
   `ldscore/metadata.json` contracts.
-- Output tests must assert old root metadata names are not written.
-- JSON metadata tests must assert that no top-level `format` field is present.
+- Output tests must assert old root metadata names are not written or owned.
+- JSON metadata tests should exercise `schema_version` and `artifact_type` as
+  the discriminators. Tests that only assert absence of a legacy top-level
+  `format` field are unnecessary because no current code path creates or
+  normalizes that key.

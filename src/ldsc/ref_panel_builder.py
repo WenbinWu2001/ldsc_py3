@@ -216,7 +216,6 @@ def _ref_panel_output_family(output_dir: Path, produced_paths: Sequence[Path] = 
     """Return existing and current-run artifacts owned by build-ref-panel."""
     paths: list[Path] = [
         output_dir / "diagnostics" / "metadata.json",
-        output_dir / "metadata.json",
     ]
     for build_subdir_name in ("hg19", "hg38"):
         build_subdir = output_dir / build_subdir_name
@@ -227,11 +226,7 @@ def _ref_panel_output_family(output_dir: Path, produced_paths: Sequence[Path] = 
     dropped_dir = output_dir / "diagnostics" / "dropped_snps"
     if dropped_dir.is_dir():
         paths.extend(sorted(dropped_dir.glob("chr*_dropped.tsv.gz")))
-    legacy_dropped_dir = output_dir / "dropped_snps"
-    if legacy_dropped_dir.is_dir():
-        paths.append(legacy_dropped_dir)
     paths.extend(sorted((output_dir / "diagnostics").glob("build-ref-panel*.log")))
-    paths.extend(sorted(output_dir.glob("build-ref-panel*.log")))
     paths.extend(Path(path) for path in produced_paths)
     return paths
 

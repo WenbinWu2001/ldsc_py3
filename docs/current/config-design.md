@@ -305,8 +305,9 @@ to baseline-only LD scores.
 
 The same coherent-family rule applies to `munge-sumstats`, `build-ref-panel`,
 `partitioned-h2`, `rg`, and `annotate`: no-overwrite mode rejects any owned
-sibling, while successful overwrites delete stale owned siblings and preserve
-unrelated files.
+sibling in the current public layout, while successful overwrites delete stale
+current-contract owned siblings and preserve unrelated files. Removed legacy
+root diagnostic names are ignored by preflight and cleanup.
 
 ---
 

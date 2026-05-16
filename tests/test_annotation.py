@@ -438,6 +438,43 @@ class AnnotationBuilderTest(unittest.TestCase):
             self.assertEqual(stale.read_text(encoding="utf-8"), "stale\n")
             self.assertFalse((output_dir / "query.1.annot.gz").exists())
 
+    def test_project_bed_annotations_ignores_legacy_root_diagnostics_without_overwrite(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            output_dir = tmpdir / "out"
+            root_drop_dir = output_dir / "dropped_snps"
+            root_drop_dir.mkdir(parents=True)
+            (output_dir / "metadata.json").write_text('{"legacy": true}\n', encoding="utf-8")
+            (output_dir / "annotate.log").write_text("legacy log\n", encoding="utf-8")
+            (root_drop_dir / "dropped.tsv.gz").write_text("legacy drops\n", encoding="utf-8")
+            bundle = AnnotationBundle(
+                metadata=pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs1"], "CM": [0.1]}),
+                baseline_annotations=pd.DataFrame({"base": [1.0]}),
+                query_annotations=pd.DataFrame({"query": [1.0]}),
+                baseline_columns=["base"],
+                query_columns=["query"],
+                chromosomes=["1"],
+                source_summary={},
+                config_snapshot=GlobalConfig(snp_identifier="rsid"),
+            )
+            builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
+            builder._workflow_log_path = output_dir / "diagnostics" / "annotate.log"
+
+            with mock.patch.object(builder, "run", return_value=bundle):
+                builder.project_bed_annotations(
+                    query_annot_bed_sources=("query.bed",),
+                    baseline_annot_sources=("baseline.1.annot.gz",),
+                    output_dir=output_dir,
+                )
+
+            self.assertEqual((output_dir / "metadata.json").read_text(encoding="utf-8"), '{"legacy": true}\n')
+            self.assertEqual((output_dir / "annotate.log").read_text(encoding="utf-8"), "legacy log\n")
+            self.assertEqual((root_drop_dir / "dropped.tsv.gz").read_text(encoding="utf-8"), "legacy drops\n")
+            self.assertTrue((output_dir / "query.1.annot.gz").exists())
+            self.assertTrue((output_dir / "diagnostics" / "metadata.json").exists())
+            self.assertTrue((output_dir / "diagnostics" / "annotate.log").exists())
+            self.assertTrue((output_dir / "diagnostics" / "dropped_snps" / "dropped.tsv.gz").exists())
+
     def test_project_bed_annotations_overwrite_removes_stale_query_shard(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -501,7 +538,6 @@ class AnnotationBuilderTest(unittest.TestCase):
                 metadata["files"],
                 {"query_annotations": ["query.1.annot.gz"], "dropped_snps": "diagnostics/dropped_snps/dropped.tsv.gz"},
             )
-            self.assertNotIn("format", metadata)
             dropped = pd.read_csv(sidecar, sep="\t", compression="gzip")
             self.assertEqual(dropped["reason"].tolist(), ["duplicate_identity", "duplicate_identity"])
             self.assertEqual(set(dropped["SNP"]), {"rs1", "rs2"})

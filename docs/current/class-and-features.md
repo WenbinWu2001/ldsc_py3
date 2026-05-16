@@ -105,12 +105,13 @@ For log filenames and API boundary details, see
   `row_group_layout`, `baseline_row_groups`, and `query_row_groups`.
 - Missing output directories are created and existing directories are reused.
   For `munge-sumstats`, `build-ref-panel`, `ldscore`, `partitioned-h2`, `rg`,
-  and `annotate`, existing owned siblings from the workflow artifact family
-  fail before writing starts unless the caller passes `--overwrite` or
+  and `annotate`, existing current-contract owned siblings from the workflow
+  artifact family fail before writing starts unless the caller passes `--overwrite` or
   `overwrite=True`.
-- With overwrite enabled, successful runs remove stale owned siblings that the
-  current configuration did not produce. Unrelated files in the output
-  directory are preserved.
+- With overwrite enabled, successful runs remove stale current-contract owned
+  siblings that the current configuration did not produce. Removed legacy root
+  diagnostic names are ignored, and unrelated files in the output directory are
+  preserved.
 - Raw user-authored inputs use permissive alias resolution through `column_inference.py`.
 - Raw sumstats may begin with `##` metadata/comment lines; these are skipped before header inference, so `#CHROM` remains available as the chromosome header.
 - `chr_pos` workflows that interpret external coordinates require an explicit genome build or `--genome-build auto`; workflows such as `build-ref-panel` may ignore `GlobalConfig.genome_build` when they own a separate source-build contract. `rsid` workflows do not use genome-build metadata.

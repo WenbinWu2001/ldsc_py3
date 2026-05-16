@@ -1672,6 +1672,56 @@ class LDScoreWorkflowTest(unittest.TestCase):
             self.assertFalse((output_dir / "metadata.json").exists())
             self.assertFalse((output_dir / "diagnostics" / "ldscore.log").exists())
 
+    def test_run_ldscore_from_args_ignores_legacy_root_log_without_overwrite(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            output_dir = tmpdir / "ldscore_result"
+            output_dir.mkdir()
+            legacy_log = output_dir / "ldscore.log"
+            legacy_log.write_text("legacy log\n", encoding="utf-8")
+            args = Namespace(
+                output_dir=str(output_dir),
+                query_annot_sources=None,
+                query_annot_bed_sources=None,
+                baseline_annot_sources=None,
+                plink_prefix="panel",
+                snp_identifier="rsid",
+                genome_build="hg38",
+                ref_panel_snps_file=None,
+                regression_snps_file=None,
+                r2_bias_mode=None,
+                r2_sample_size=None,
+                ld_wind_snps=10,
+                ld_wind_kb=None,
+                ld_wind_cm=None,
+                maf_min=None,
+                common_maf_min=0.05,
+                snp_batch_size=50,
+                yes_really=False,
+                overwrite=False,
+                log_level="INFO",
+            )
+            ref_panel = self.make_ref_panel_stub(
+                backend="plink",
+                metadata=pd.DataFrame({"CHR": ["1"], "SNP": ["rs1"], "CM": [0.1], "POS": [10]}),
+            )
+
+            with mock.patch(
+                "ldsc._kernel.ref_panel.RefPanelLoader.load",
+                autospec=True,
+                return_value=ref_panel,
+            ), mock.patch.object(
+                ldscore_workflow.LDScoreCalculator,
+                "compute_chromosome",
+                autospec=True,
+                return_value=self.make_baseline_only_chrom_result("1", 10, 1.0, 5.0),
+            ):
+                ldscore_workflow.run_ldscore_from_args(args)
+
+            self.assertEqual(legacy_log.read_text(encoding="utf-8"), "legacy log\n")
+            self.assertTrue((output_dir / "metadata.json").exists())
+            self.assertTrue((output_dir / "diagnostics" / "ldscore.log").exists())
+
     def test_run_ldscore_from_args_overwrite_removes_stale_query_parquet(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)

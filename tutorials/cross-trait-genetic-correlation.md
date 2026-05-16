@@ -16,14 +16,16 @@ with chromosome-aligned row groups listed in root `metadata.json`; regression re
 the full table, while inspection code can use the row-group metadata.
 
 Output directories are literal destinations. Missing directories are created,
-existing directories are reused, and existing owned workflow artifacts are
-refused before writing unless you pass `--overwrite` or `overwrite=True`.
+existing directories are reused, and existing current-contract workflow
+artifacts are refused before writing unless you pass `--overwrite` or
+`overwrite=True`.
 For each trait's sumstats directory, that family includes `sumstats.parquet`,
 `sumstats.sumstats.gz`, root `metadata.json`, `diagnostics/sumstats.log`, and
 `diagnostics/dropped_snps/dropped.tsv.gz`, even when the current run would not write every
 format. Successful overwrites remove
 stale owned siblings not produced by the current configuration and preserve
-unrelated files.
+unrelated files. Removed legacy root diagnostic names are not treated as owned
+stale outputs.
 
 ## Python API
 
@@ -148,7 +150,8 @@ ldsc rg \
 ```
 
 The command writes `tutorial_outputs/trait_1_trait_2/rg.tsv`,
-`rg_full.tsv`, `h2_per_trait.tsv`, and `diagnostics/rg.log`.
+`rg_full.tsv`, `h2_per_trait.tsv`, `diagnostics/metadata.json`, and
+`diagnostics/rg.log`.
 If either fixed output already exists, the command fails before writing; add
 `--overwrite` only when replacing the previous summary is intentional.
 
@@ -173,3 +176,8 @@ ldsc rg \
   --ldscore-dir tutorial_outputs/baseline_ldscores \
   --output-dir tutorial_outputs/trait_1_anchor_rg
 ```
+
+When `--write-per-pair-detail` is enabled, pair diagnostics are written under
+`diagnostics/pairs/` as a whole staged tree. A later overwrite run that omits
+per-pair detail removes the stale tree after the new aggregate rg files are
+written.

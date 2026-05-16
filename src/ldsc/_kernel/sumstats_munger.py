@@ -805,7 +805,6 @@ def _resolve_auto_genome_build_before_chunks(args, cname_translation, compressio
     args.genome_build = inference.genome_build
     args._coordinate_basis = inference.coordinate_basis
     args._coordinate_metadata = {
-        'format': 'ldsc.sumstats.v1',
         'snp_identifier': mode,
         'genome_build': inference.genome_build,
         'genome_build_inferred': True,
@@ -861,7 +860,6 @@ def _finalize_coordinate_columns(dat, args):
     pre_inferred_basis = existing_metadata.get('coordinate_basis')
     source_columns = getattr(args, '_coordinate_source_columns', {})
     metadata = {
-        'format': 'ldsc.sumstats.v1',
         'snp_identifier': mode,
         'genome_build': genome_build,
         'genome_build_inferred': bool(existing_metadata.get('genome_build_inferred', False)),
@@ -1111,7 +1109,6 @@ def munge_sumstats(args, p=True):
     if args.out is None:
         raise ValueError('The --out flag is required.')
     args._coordinate_metadata = {
-        'format': 'ldsc.sumstats.v1',
         'snp_identifier': normalize_snp_identifier_mode(getattr(args, 'snp_identifier', 'chr_pos_allele_aware')),
         'genome_build': normalize_genome_build(getattr(args, 'genome_build', 'hg38')),
         'genome_build_inferred': False,

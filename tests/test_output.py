@@ -163,7 +163,6 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
 
             self.assertEqual(set(output_paths), {"metadata", "baseline", "query"})
             metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
-            self.assertNotIn("format", metadata)
             self.assertEqual(metadata["schema_version"], 1)
             self.assertEqual(metadata["artifact_type"], "ldscore")
             self.assertEqual(metadata["snp_identifier"], "rsid")
@@ -374,7 +373,6 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
             metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
             baseline = pd.read_parquet(output_dir / "ldscore.baseline.parquet")
             self.assertEqual(metadata["artifact_type"], "ldscore")
-            self.assertNotIn("format", metadata)
             self.assertEqual(baseline["SNP"].tolist(), ["rs1", "rs2"])
 
     def test_omits_missing_common_count_values_from_metadata_records(self):
@@ -458,7 +456,6 @@ class H2DirectoryWriterTest(unittest.TestCase):
             metadata = json.loads((output_dir / "diagnostics" / "metadata.json").read_text(encoding="utf-8"))
             self.assertEqual(metadata["artifact_type"], "h2_result")
             self.assertEqual(metadata["files"], {"summary": "h2.tsv"})
-            self.assertNotIn("format", metadata)
             self.assertEqual(metadata["retained_ld_columns"], ["base"])
 
     def test_refuses_existing_metadata_without_overwrite(self):
@@ -497,6 +494,22 @@ class H2DirectoryWriterTest(unittest.TestCase):
             metadata = json.loads((output_dir / "diagnostics" / "metadata.json").read_text(encoding="utf-8"))
             self.assertNotIn("old", metadata)
             self.assertEqual(metadata["schema_version"], 1)
+
+    def test_ignores_legacy_root_metadata(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "h2"
+            output_dir.mkdir()
+            legacy_metadata = output_dir / "metadata.json"
+            legacy_metadata.write_text('{"legacy": true}\n', encoding="utf-8")
+
+            H2DirectoryWriter().write(
+                self.make_summary(),
+                H2OutputConfig(output_dir=output_dir),
+                metadata=self.make_metadata(),
+            )
+
+            self.assertEqual(legacy_metadata.read_text(encoding="utf-8"), '{"legacy": true}\n')
+            self.assertTrue((output_dir / "diagnostics" / "metadata.json").exists())
 
 
 class PartitionedH2DirectoryWriterTest(unittest.TestCase):
@@ -583,7 +596,6 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
             metadata = json.loads((output_dir / "diagnostics" / "metadata.json").read_text(encoding="utf-8"))
             self.assertEqual(metadata["artifact_type"], "partitioned_h2_result")
             self.assertEqual(metadata["files"], {"summary": "partitioned_h2.tsv"})
-            self.assertNotIn("format", metadata)
 
     def test_writes_per_query_tree_with_sanitized_manifest(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -615,7 +627,6 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
             self.assertEqual(root_metadata["trait_name"], "trait")
             self.assertEqual(root_metadata["files"]["summary"], "partitioned_h2.tsv")
             self.assertEqual(root_metadata["files"]["query_annotations"], "diagnostics/query_annotations")
-            self.assertNotIn("format", root_metadata)
             self.assertTrue((query_root / "0001_il-6_jak_stat_hallmark" / "partitioned_h2.tsv").exists())
             self.assertTrue((query_root / "0001_il-6_jak_stat_hallmark" / "partitioned_h2_full.tsv").exists())
             self.assertFalse((query_root / "0001_il-6_jak_stat_hallmark" / "model_categories.tsv").exists())
@@ -634,7 +645,6 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
                     "full": "diagnostics/query_annotations/0001_il-6_jak_stat_hallmark/partitioned_h2_full.tsv",
                 },
             )
-            self.assertNotIn("format", metadata)
             self.assertEqual(
                 query_summary.columns.tolist(),
                 [
@@ -892,7 +902,6 @@ class RgDirectoryWriterTest(unittest.TestCase):
             self.assertEqual(root_metadata["artifact_type"], "rg_result")
             self.assertEqual(root_metadata["files"]["rg"], "rg.tsv")
             self.assertEqual(root_metadata["files"]["pairs"], "diagnostics/pairs")
-            self.assertNotIn("format", root_metadata)
             manifest = pd.read_csv(output_dir / "diagnostics" / "pairs" / "manifest.tsv", sep="\t")
             self.assertEqual(
                 manifest["folder"].tolist(),
@@ -903,7 +912,6 @@ class RgDirectoryWriterTest(unittest.TestCase):
             )
             self.assertEqual(metadata["artifact_type"], "rg_pair_result")
             self.assertEqual(metadata["files"], {"rg_full": "diagnostics/pairs/0001_trait_a_vs_trait_b/rg_full.tsv"})
-            self.assertNotIn("format", metadata)
             self.assertEqual(metadata["status"], "ok")
             self.assertTrue((output_dir / "diagnostics" / "pairs" / "0001_trait_a_vs_trait_b" / "rg_full.tsv").exists())
 

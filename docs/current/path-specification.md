@@ -65,11 +65,12 @@ independent optional files:
   `diagnostics/metadata.json`, optional `diagnostics/pairs/`, and
   `diagnostics/rg.log` for CLI/workflow runs
 
-Without overwrite, any existing owned sibling in the family rejects the run,
-even if that sibling is not selected by the current output mode. With overwrite
-enabled, the workflow writes the requested current outputs and then removes
-stale owned siblings not produced by the successful run. Unrelated files in the
-directory are preserved. Directory artifacts such as
+Without overwrite, any existing current-contract owned sibling in the family
+rejects the run, even if that sibling is not selected by the current output
+mode. With overwrite enabled, the workflow writes the requested current outputs
+and then removes stale current-contract owned siblings not produced by the
+successful run. Removed legacy root diagnostic names are ignored by preflight
+and cleanup, and unrelated files in the directory are preserved. Directory artifacts such as
 `diagnostics/query_annotations/` and `diagnostics/pairs/` are owned as whole
 trees: no-overwrite blocks if the root exists, and overwrite swaps or removes
 the complete tree after the current run succeeds.

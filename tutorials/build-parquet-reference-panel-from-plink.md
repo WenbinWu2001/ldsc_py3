@@ -158,14 +158,13 @@ The bundled Alkes-group maps in `resources/genetic_maps/genetic_map_alkesgroup/`
   files that this build may write.
   Recommended usage: omit it for reproducible first runs. Add it only when you
   intentionally want to replace an existing panel build. `build-ref-panel`
-  keeps an expert-oriented overwrite contract: it does not delete unrelated
-  files, clean the output directory, or remove stale optional target-build or
-  `dropped_snps` siblings from earlier configurations.
-
-Use a fresh output directory when changing emitted builds, liftover/coordinate
-configuration, or chromosome scope. That keeps panel
-artifact directories easier to inspect and avoids mixing optional outputs from
-different expert configurations.
+  does not delete unrelated files or clean the output directory. It owns only
+  current-contract artifacts: emitted `{build}/chr*` files, diagnostic
+  metadata, build-ref-panel logs under `diagnostics/`, and
+  `diagnostics/dropped_snps/` audit files. With overwrite enabled, stale owned
+  siblings from earlier target-build, coordinate, or chromosome configurations
+  are removed after the successful write. Removed legacy root diagnostic names
+  are ignored.
 
 ### Choose exactly one LD-window option
 

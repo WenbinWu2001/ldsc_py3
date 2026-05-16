@@ -101,9 +101,10 @@ ldsc_py3_Jerry/
   default, and require `--overwrite` or `overwrite=True` for replacement.
 - Keep coherent output families consistent. For `munge-sumstats`,
   `build-ref-panel`, `ldscore`, `partitioned-h2`, `rg`, and `annotate`,
-  no-overwrite mode rejects any owned sibling from the workflow family.
+  no-overwrite mode rejects any current-contract owned sibling from the workflow family.
   Overwrite mode writes the requested current outputs and then removes stale
-  owned siblings that were not produced by the successful run. Unrelated files
+  current-contract owned siblings that were not produced by the successful run.
+  Removed legacy root diagnostic names are not workflow-owned. Unrelated files
   in the output directory must be preserved.
 - Preflight deterministic output paths before expensive or multi-file writes.
   This is especially important for `build-ref-panel`, `munge-sumstats`,

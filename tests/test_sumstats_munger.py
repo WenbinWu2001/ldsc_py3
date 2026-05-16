@@ -2506,6 +2506,9 @@ class SumstatsMungerTest(unittest.TestCase):
                 output,
                 r"Suggested command: .*--output-genome-build hg38 .*--use-hm3-snps --use-hm3-quick-liftover",
             )
+            self.assertRegex(output, r"Suggested command: .*--format plain")
+            self.assertRegex(output, r"Suggested command: .*--source-genome-build hg19")
+            self.assertNotRegex(output, r"Suggested command: .*--source-genome-build auto")
 
     def test_infer_only_reports_source_build_inference_failure_as_non_runnable(self):
         with tempfile.TemporaryDirectory() as tmpdir:

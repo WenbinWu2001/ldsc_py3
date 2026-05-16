@@ -110,7 +110,9 @@ class RawSumstatsInference:
     workflow before the kernel is called. It records only safe, format-aware
     decisions: detected raw format, column hints that can be applied without
     changing statistical meaning, INFO-list handling, missing required fields,
-    and command-line repair suggestions.
+    and command-line repair suggestions. Suggested commands should prefer
+    explicit, resolved, reproducible values. ``auto`` should remain the
+    user-friendly input default, not the diagnostic output.
     """
 
     detected_format: str
@@ -1065,15 +1067,12 @@ def infer_raw_sumstats(
     suggested_args: list[str] = []
     notes: list[str] = []
 
-    if detected_format == "daner-old":
-        suggested_args.extend(["--format", "daner-old"])
-    elif detected_format == "daner-new":
-        suggested_args.extend(["--format", "daner-new"])
+    _append_suggested_option(suggested_args, "--format", detected_format)
+    if detected_format == "daner-new":
         frq_u_column = _first_column_with_clean_prefix(file_cnames, "FRQ_U_")
         if frq_u_column is not None:
             column_hints.setdefault("frq", frq_u_column)
     elif detected_format == "vcf":
-        suggested_args.extend(["--format", "vcf"])
         if "REF" in clean_set and "ALT" in clean_set and not {"A1", "A2", "EA", "NEA"} & clean_set:
             column_hints.setdefault("a1", _original_column(file_cnames, "REF"))
             column_hints.setdefault("a2", _original_column(file_cnames, "ALT"))
@@ -1249,8 +1248,6 @@ def _apply_build_inference_report(
     notes = list(inference.notes)
     resolved_source = source_hint
     _append_suggested_option(suggested, "--snp-identifier", global_config.snp_identifier)
-    if source_hint is not None:
-        _append_suggested_option(suggested, "--source-genome-build", source_hint)
     if output_build in {"hg19", "hg38"}:
         _append_suggested_option(suggested, "--output-genome-build", output_build)
     if munge_config.use_hm3_snps:
@@ -1274,6 +1271,8 @@ def _apply_build_inference_report(
             )
             notes.append("Source hg19 command: add --source-genome-build hg19.")
             notes.append("Source hg38 command: add --source-genome-build hg38.")
+    if resolved_source in {"hg19", "hg38"}:
+        _append_suggested_option(suggested, "--source-genome-build", resolved_source)
     liftover_required = (
         resolved_source in {"hg19", "hg38"}
         and output_build in {"hg19", "hg38"}

@@ -1905,6 +1905,55 @@ class SumstatsMungerTest(unittest.TestCase):
         self.assertEqual(table.data["SNP"].tolist(), ["rs2"])
         self.assertEqual(table.data["POS"].tolist(), [200])
 
+    def test_run_restricts_use_hm3_snps_by_rsid_alleles(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "SNP A1 A2 P BETA N\n"
+                "rs1 A G 0.05 0.1 1000\n"
+                "rs1 A C 0.10 -0.1 1000\n",
+                encoding="utf-8",
+            )
+            hm3_path = tmpdir / "hm3.tsv"
+            hm3_path.write_text("CHR\thg19_POS\thg38_POS\tSNP\tA1\tA2\n1\t100\t200\trs1\tA\tC\n", encoding="utf-8")
+
+            with mock.patch("ldsc.sumstats_munger.packaged_hm3_curated_map_path", return_value=str(hm3_path)):
+                table = SumstatsMunger().run(
+                    MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
+                    MungeConfig(output_dir=tmpdir / "munged", use_hm3_snps=True),
+                    GlobalConfig(snp_identifier="rsid_allele_aware"),
+                )
+
+        self.assertEqual(table.data["SNP"].tolist(), ["rs1"])
+        self.assertEqual(table.data["A1"].tolist(), ["A"])
+        self.assertEqual(table.data["A2"].tolist(), ["C"])
+
+    def test_run_restricts_use_hm3_snps_by_source_build_chr_pos_alleles(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "CHR POS SNP A1 A2 P BETA N\n"
+                "1 100 rs1 A G 0.05 0.1 1000\n"
+                "1 100 rs2 A C 0.10 -0.1 1000\n",
+                encoding="utf-8",
+            )
+            hm3_path = tmpdir / "hm3.tsv"
+            hm3_path.write_text("CHR\thg19_POS\thg38_POS\tSNP\tA1\tA2\n1\t100\t200\trs2\tA\tC\n", encoding="utf-8")
+
+            with mock.patch("ldsc.sumstats_munger.packaged_hm3_curated_map_path", return_value=str(hm3_path)):
+                table = SumstatsMunger().run(
+                    MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
+                    MungeConfig(output_dir=tmpdir / "munged", use_hm3_snps=True),
+                    GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg19"),
+                )
+
+        self.assertEqual(table.data["SNP"].tolist(), ["rs2"])
+        self.assertEqual(table.data["POS"].tolist(), [100])
+        self.assertEqual(table.data["A1"].tolist(), ["A"])
+        self.assertEqual(table.data["A2"].tolist(), ["C"])
+
     def test_run_restricts_sumstats_snps_file_by_chr_pos_logs_missing_coordinate_drops(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)

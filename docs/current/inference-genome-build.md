@@ -29,9 +29,10 @@ Genome-build inference uses the compact packaged reference
 | `hg38_POS` | 1-based hg38 position |
 
 The reference has 500 SNPs per autosome. SNPs were selected after filtering to
-common, non-strand-ambiguous, conflict-free sites that are unique in both
-`(CHR, hg19_POS)` and `(CHR, hg38_POS)`, have different hg19 and hg38
-positions, and are evenly spaced by position after filtering.
+common, non-strand-ambiguous `A1/A2` sites that are unique in both `(CHR,
+hg19_POS)` and `(CHR, hg38_POS)`, have different hg19 and hg38 positions, and
+are evenly spaced by position after filtering. Rebuild it from the curated map
+with `python -m ldsc.hm3_reference --curated-map src/ldsc/data/hm3_curated_map.tsv.gz --output src/ldsc/data/hm3_chr_pos_reference.tsv.gz`.
 
 The reference is loaded by `load_packaged_reference_table()` and cached once
 per Python process with `lru_cache`.
@@ -40,7 +41,9 @@ The separate full curated map
 `src/ldsc/data/hm3_curated_map.tsv.gz` is the package-backed HM3 restriction and
 quick-liftover map. Public code loads it through `ldsc.load_hm3_curated_map()`,
 which preserves packaged columns while normalizing `CHR`, `hg19_POS`,
-`hg38_POS`, and `SNP`.
+`hg38_POS`, `SNP`, `A1`, and `A2`. The same file is parsed by SNP-restriction
+readers, so allele-aware modes use the packaged `A1/A2` values for HM3
+keep-list identity matching.
 
 ---
 

@@ -127,11 +127,11 @@ For log filenames and API boundary details, see
   artifacts, R2 parquet endpoints, and LD-score artifacts. They drop missing,
   invalid/non-SNP, identical, strand-ambiguous allele pairs, multi-allelic
   base-key clusters, and duplicate effective-key clusters.
-- Restriction files may omit alleles and then match by base key. Packaged HM3
-  restrictions are allele-free base-key filters. Allele-bearing restrictions in
-  allele-aware modes match by the effective allele-aware key. Annotation files
-  may omit alleles in allele-aware modes because annotations describe genomic
-  membership; if annotations include alleles, they participate in allele-aware
+- Restriction files may omit alleles and then match by base key. Allele-bearing
+  restrictions, including packaged HM3 restrictions, match by the effective
+  allele-aware key in allele-aware modes. Annotation files may omit alleles in
+  allele-aware modes because annotations describe genomic membership; if
+  annotations include alleles, they participate in allele-aware
   matching.
 - External raw R2 parquet inputs are supported only in `rsid` and `chr_pos`.
   Allele-aware modes require package-built canonical R2 parquet with endpoint

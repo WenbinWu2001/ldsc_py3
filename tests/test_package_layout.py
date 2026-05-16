@@ -88,11 +88,16 @@ class PackageLayoutTest(unittest.TestCase):
         self.assertIn("hg38_POS", frame.columns)
         self.assertIn("SNP", frame.columns)
         self.assertIn("A1", frame.columns)
+        self.assertIn("A2", frame.columns)
         self.assertGreater(len(frame), 1_000_000)
         self.assertEqual(str(frame["CHR"].dtype), "string")
         self.assertTrue(pd.api.types.is_integer_dtype(frame["hg19_POS"]))
         self.assertTrue(pd.api.types.is_integer_dtype(frame["hg38_POS"]))
         self.assertEqual(str(frame["SNP"].dtype), "string")
+        self.assertEqual(str(frame["A1"].dtype), "string")
+        self.assertEqual(str(frame["A2"].dtype), "string")
+        observed_alleles = set(frame["A1"].dropna().unique()) | set(frame["A2"].dropna().unique())
+        self.assertLessEqual(observed_alleles, {"A", "C", "G", "T"})
 
     def test_cli_exposes_expected_subcommands(self):
         from ldsc import cli

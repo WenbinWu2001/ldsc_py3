@@ -9,7 +9,7 @@ from os import PathLike
 import pandas as pd
 
 from .chromosome_inference import normalize_chromosome
-from .column_inference import CHR_COLUMN_SPEC, SNP_COLUMN_SPEC, ColumnSpec, resolve_required_column
+from .column_inference import A1_COLUMN_SPEC, A2_COLUMN_SPEC, CHR_COLUMN_SPEC, SNP_COLUMN_SPEC, ColumnSpec, resolve_required_column
 from ._coordinates import positive_int_position_series
 
 
@@ -52,7 +52,8 @@ def load_hm3_curated_map() -> pd.DataFrame:
     """Load the packaged curated dual-build HM3 map.
 
     Returns all packaged columns while canonicalizing ``CHR``, ``hg19_POS``,
-    ``hg38_POS``, and ``SNP`` for reliable filtering and coordinate lookup.
+    ``hg38_POS``, ``SNP``, ``A1``, and ``A2`` for reliable filtering,
+    coordinate lookup, and allele-aware SNP identity modes.
     """
     return _load_hm3_curated_map_from_path(packaged_hm3_curated_map_path(), preserve_extra_columns=True)
 
@@ -76,30 +77,46 @@ def _load_hm3_curated_map_cached(path: str, preserve_extra_columns: bool) -> pd.
     hg19_col = resolve_required_column(raw.columns, HM3_HG19_POS_SPEC, context=context)
     hg38_col = resolve_required_column(raw.columns, HM3_HG38_POS_SPEC, context=context)
     snp_col = resolve_required_column(raw.columns, SNP_COLUMN_SPEC, context=context)
-    core = pd.DataFrame(
-        {
-            "CHR": pd.Series(
-                [normalize_chromosome(value, context=context) for value in raw[chr_col]],
-                dtype="string",
-            ),
-            "hg19_POS": _positive_int_position(raw[hg19_col], label="hg19_POS", context=context),
-            "hg38_POS": _positive_int_position(raw[hg38_col], label="hg38_POS", context=context),
-            "SNP": raw[snp_col].astype("string"),
-        }
-    )
+    core_values = {
+        "CHR": pd.Series(
+            [normalize_chromosome(value, context=context) for value in raw[chr_col]],
+            dtype="string",
+        ),
+        "hg19_POS": _positive_int_position(raw[hg19_col], label="hg19_POS", context=context),
+        "hg38_POS": _positive_int_position(raw[hg38_col], label="hg38_POS", context=context),
+        "SNP": raw[snp_col].astype("string"),
+    }
+    allele_columns: tuple[str, str] = ()
+    if preserve_extra_columns:
+        a1_col = resolve_required_column(raw.columns, A1_COLUMN_SPEC, context=context)
+        a2_col = resolve_required_column(raw.columns, A2_COLUMN_SPEC, context=context)
+        core_values["A1"] = _canonical_hm3_allele(raw[a1_col], label="A1", context=context)
+        core_values["A2"] = _canonical_hm3_allele(raw[a2_col], label="A2", context=context)
+        allele_columns = (a1_col, a2_col)
+    core = pd.DataFrame(core_values)
     _reject_duplicate_hm3_coordinates(core, build="hg19")
     _reject_duplicate_hm3_coordinates(core, build="hg38")
     if not preserve_extra_columns:
         return core
 
     out = raw.copy()
-    out = out.drop(columns=[col for col in (chr_col, hg19_col, hg38_col, snp_col) if col in out.columns])
+    out = out.drop(columns=[col for col in (chr_col, hg19_col, hg38_col, snp_col, *allele_columns) if col in out.columns])
     return pd.concat([core, out.reset_index(drop=True)], axis=1)
 
 
 def _positive_int_position(values, *, label: str, context: str) -> pd.Series:
     """Return positive integer positions with a clear HM3-specific label."""
     return positive_int_position_series(pd.Series(values), context=f"{context} {label}").astype("int64")
+
+
+def _canonical_hm3_allele(values, *, label: str, context: str) -> pd.Series:
+    """Return uppercase single-base HM3 alleles, rejecting missing or invalid values."""
+    series = pd.Series(values).astype("string").str.strip().str.upper()
+    invalid = series.isna() | ~series.isin(["A", "C", "G", "T"])
+    if bool(invalid.any()):
+        examples = series.loc[invalid].head(5).astype(object).where(series.loc[invalid].notna(), "NA").tolist()
+        raise ValueError(f"HM3 curated map contains invalid {label} alleles in {context}: {examples}")
+    return series.astype("string")
 
 
 def _reject_duplicate_hm3_coordinates(frame: pd.DataFrame, *, build: str) -> None:

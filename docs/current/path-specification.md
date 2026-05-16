@@ -302,9 +302,9 @@ Accepted path forms:
 - `ref_panel_snps_file`, when provided: scalar file-like token interpreted
   using `GlobalConfig.snp_identifier`; restriction files may omit alleles and
   then match by base key, while allele-bearing restrictions in allele-aware
-  modes match by the effective allele-aware key; packaged HM3 restrictions are
-  allele-free base-key filters; duplicate restriction keys collapse to one
-  retained key and non-identity columns such as `CM` or `MAF` are ignored;
+  modes match by the effective allele-aware key; packaged HM3 is allele-bearing
+  and participates in allele-aware matching; duplicate restriction keys collapse
+  to one retained key and non-identity columns such as `CM` or `MAF` are ignored;
   `chr_pos`-family coordinates must be aligned to the PLINK source build
 - `use_hm3_snps`, when set: uses the packaged curated HM3 map instead of an
   explicit `ref_panel_snps_file`

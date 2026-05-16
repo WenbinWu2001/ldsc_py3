@@ -32,10 +32,10 @@ endpoints, and LD-score artifacts. Artifact duplicate filtering always computes
 the effective merge key for the active mode, then drops all rows in duplicate
 clusters.
 
-Restriction files may omit alleles and then match by base key; packaged HM3
-restrictions are allele-free base-key filters. Allele-bearing restrictions in
-allele-aware modes match by the effective allele-aware key. Annotation files may
-omit alleles in allele-aware modes because they describe genomic membership; if
+Restriction files may omit alleles and then match by base key. Allele-bearing
+restrictions, including the packaged HM3 map, match by the effective
+allele-aware key in allele-aware modes. Annotation files may omit alleles in
+allele-aware modes because they describe genomic membership; if
 annotation alleles are present, they participate in allele-aware matching.
 External raw R2 parquet inputs are supported only in `rsid` and `chr_pos`;
 allele-aware modes require package-built canonical R2 parquet with

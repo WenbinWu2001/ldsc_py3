@@ -18,6 +18,8 @@ if str(SRC) not in sys.path:
 from ldsc.config import GlobalConfig
 from ldsc.ldscore_calculator import LDScoreResult
 from ldsc.outputs import (
+    H2DirectoryWriter,
+    H2OutputConfig,
     LDScoreDirectoryWriter,
     LDScoreOutputConfig,
     PartitionedH2DirectoryWriter,
@@ -395,6 +397,100 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
         self.assertEqual(manifest["counts"][0]["all_reference_snp_count"], 10.0)
         self.assertNotIn("common_reference_snp_count", manifest["counts"][0])
         self.assertEqual(manifest["count_config"]["common_reference_snp_maf_operator"], ">=")
+
+
+class H2DirectoryWriterTest(unittest.TestCase):
+    def make_summary(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            [
+                {
+                    "trait_name": "trait",
+                    "n_snps": 100,
+                    "total_h2": 0.2,
+                    "total_h2_se": 0.03,
+                    "intercept": 1.01,
+                    "intercept_se": 0.02,
+                    "mean_chisq": 1.2,
+                    "lambda_gc": 1.1,
+                    "ratio": 0.05,
+                    "ratio_se": 0.01,
+                }
+            ]
+        )
+
+    def make_metadata(self) -> dict[str, object]:
+        return {
+            "schema_version": 1,
+            "artifact_type": "h2_result",
+            "trait_name": "trait",
+            "sumstats_file": "trait.sumstats.gz",
+            "ldscore_dir": "ldscores",
+            "effective_snp_identifier": "rsid",
+            "genome_build": "hg38",
+            "identity_downgrade_applied": False,
+            "count_key_used_for_regression": "common_reference_snp_counts",
+            "retained_ld_columns": ["base"],
+            "dropped_zero_variance_ld_columns": [],
+            "n_snps": 100,
+        }
+
+    def test_writes_summary_and_metadata(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "h2"
+
+            paths = H2DirectoryWriter().write(
+                self.make_summary(),
+                H2OutputConfig(output_dir=output_dir),
+                metadata=self.make_metadata(),
+            )
+
+            self.assertEqual(
+                paths,
+                {
+                    "summary": str(output_dir / "h2.tsv"),
+                    "metadata": str(output_dir / "h2.metadata.json"),
+                },
+            )
+            summary = pd.read_csv(output_dir / "h2.tsv", sep="\t")
+            self.assertEqual(summary.columns.tolist(), self.make_summary().columns.tolist())
+            metadata = json.loads((output_dir / "h2.metadata.json").read_text(encoding="utf-8"))
+            self.assertEqual(metadata["artifact_type"], "h2_result")
+            self.assertEqual(metadata["retained_ld_columns"], ["base"])
+
+    def test_refuses_existing_metadata_without_overwrite(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "h2"
+            output_dir.mkdir()
+            existing = output_dir / "h2.metadata.json"
+            existing.write_text('{"old": true}\n', encoding="utf-8")
+
+            with self.assertRaisesRegex(FileExistsError, "overwrite"):
+                H2DirectoryWriter().write(
+                    self.make_summary(),
+                    H2OutputConfig(output_dir=output_dir),
+                    metadata=self.make_metadata(),
+                )
+
+            self.assertEqual(existing.read_text(encoding="utf-8"), '{"old": true}\n')
+            self.assertFalse((output_dir / "h2.tsv").exists())
+
+    def test_overwrite_replaces_existing_metadata(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "h2"
+            output_dir.mkdir()
+            (output_dir / "h2.tsv").write_text("old\n", encoding="utf-8")
+            (output_dir / "h2.metadata.json").write_text('{"old": true}\n', encoding="utf-8")
+
+            H2DirectoryWriter().write(
+                self.make_summary(),
+                H2OutputConfig(output_dir=output_dir, overwrite=True),
+                metadata=self.make_metadata(),
+            )
+
+            self.assertIn("total_h2", (output_dir / "h2.tsv").read_text(encoding="utf-8"))
+            metadata = json.loads((output_dir / "h2.metadata.json").read_text(encoding="utf-8"))
+            self.assertNotIn("old", metadata)
+            self.assertEqual(metadata["schema_version"], 1)
 
 
 class PartitionedH2DirectoryWriterTest(unittest.TestCase):

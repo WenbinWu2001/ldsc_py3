@@ -1697,6 +1697,24 @@ class RegressionWorkflowTest(unittest.TestCase):
             self.assertEqual(patched.call_args.args[0].retained_ld_columns, ["base"])
             self.assertEqual(summary.loc[0, "trait_name"], "trait")
             self.assertTrue((tmpdir / "h2_out" / "h2.tsv").exists())
+            metadata = json.loads((tmpdir / "h2_out" / "h2.metadata.json").read_text(encoding="utf-8"))
+            self.assertEqual(
+                metadata,
+                {
+                    "schema_version": 1,
+                    "artifact_type": "h2_result",
+                    "trait_name": "trait",
+                    "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
+                    "ldscore_dir": str(ldscore_dir),
+                    "effective_snp_identifier": "rsid",
+                    "genome_build": None,
+                    "identity_downgrade_applied": False,
+                    "count_key_used_for_regression": "common_reference_snp_counts",
+                    "retained_ld_columns": ["base"],
+                    "dropped_zero_variance_ld_columns": [],
+                    "n_snps": 1,
+                },
+            )
             self.assertTrue((tmpdir / "h2_out" / "h2.log").exists())
 
     def test_run_h2_from_args_without_output_dir_creates_no_log_file(self):
@@ -1743,6 +1761,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                 regression_runner.run_h2_from_args(args)
 
             self.assertFalse(list(tmpdir.glob("*.log")))
+            self.assertFalse((tmpdir / "h2.metadata.json").exists())
 
     def test_run_h2_from_args_uses_metadata_trait_name_when_cli_label_is_omitted(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2456,6 +2475,43 @@ class RegressionWorkflowTest(unittest.TestCase):
             self.assertEqual(existing.read_text(encoding="utf-8"), "existing\n")
             self.assertFalse((output_dir / "h2.log").exists())
 
+    def test_regression_cli_refuses_existing_h2_metadata_by_default_before_estimation(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            output_dir = tmpdir / "out"
+            output_dir.mkdir()
+            existing = output_dir / "h2.metadata.json"
+            existing.write_text("{}\n", encoding="utf-8")
+            args = type(
+                "Args",
+                (),
+                {
+                    "sumstats_file": str(tmpdir / "missing.sumstats.gz"),
+                    "trait_name": "trait",
+                    "ldscore_dir": str(tmpdir / "missing_ldscores"),
+                    "count_kind": "common",
+                    "output_dir": str(output_dir),
+                    "overwrite": False,
+                    "n_blocks": 200,
+                    "no_intercept": False,
+                    "intercept_h2": None,
+                    "two_step_cutoff": None,
+                    "chisq_max": None,
+                },
+            )()
+
+            with mock.patch.object(
+                regression_runner.RegressionRunner,
+                "estimate_h2",
+                side_effect=AssertionError("estimation should not run after preflight failure"),
+            ):
+                with self.assertRaisesRegex(FileExistsError, "overwrite"):
+                    regression_runner.run_h2_from_args(args)
+
+            self.assertEqual(existing.read_text(encoding="utf-8"), "{}\n")
+            self.assertFalse((output_dir / "h2.tsv").exists())
+            self.assertFalse((output_dir / "h2.log").exists())
+
     def test_regression_cli_allows_existing_result_file_with_overwrite(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -2468,6 +2524,8 @@ class RegressionWorkflowTest(unittest.TestCase):
             output_dir.mkdir()
             existing = output_dir / "h2.tsv"
             existing.write_text("existing\n", encoding="utf-8")
+            existing_metadata = output_dir / "h2.metadata.json"
+            existing_metadata.write_text('{"old": true}\n', encoding="utf-8")
             args = type(
                 "Args",
                 (),
@@ -2503,6 +2561,9 @@ class RegressionWorkflowTest(unittest.TestCase):
                 regression_runner.run_h2_from_args(args)
 
             self.assertIn("total_h2", existing.read_text(encoding="utf-8"))
+            metadata = json.loads(existing_metadata.read_text(encoding="utf-8"))
+            self.assertNotIn("old", metadata)
+            self.assertEqual(metadata["artifact_type"], "h2_result")
 
     def test_regression_writer_refuses_each_fixed_summary_filename(self):
         with tempfile.TemporaryDirectory() as tmpdir:

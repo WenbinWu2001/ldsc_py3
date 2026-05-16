@@ -161,6 +161,58 @@ RG_FULL_COLUMNS = [
 
 
 @dataclass(frozen=True)
+class H2OutputConfig:
+    """Directory-oriented output config for unpartitioned h2 summaries.
+
+    Parameters
+    ----------
+    output_dir : str or os.PathLike[str]
+        Directory that receives ``h2.tsv`` and ``h2.metadata.json``.
+    overwrite : bool, optional
+        If ``True``, replace existing fixed h2 outputs. Default is ``False``.
+    """
+
+    output_dir: str | PathLike[str]
+    overwrite: bool = False
+
+    def __post_init__(self) -> None:
+        """Normalize the output directory."""
+        object.__setattr__(self, "output_dir", _normalize_required_path(self.output_dir))
+
+
+class H2DirectoryWriter:
+    """Write the unpartitioned h2 summary and metadata sidecar."""
+
+    def write(
+        self,
+        summary: pd.DataFrame,
+        output_config: H2OutputConfig,
+        *,
+        metadata: dict[str, object],
+    ) -> dict[str, str]:
+        """Write ``h2.tsv`` and ``h2.metadata.json`` to a result directory.
+
+        Existing fixed h2 artifacts are checked before any output file is
+        written. Replacement requires ``output_config.overwrite=True``.
+        """
+        output_dir = ensure_output_directory(output_config.output_dir, label="output directory")
+        summary_path = output_dir / "h2.tsv"
+        metadata_path = output_dir / "h2.metadata.json"
+        preflight_output_artifact_family(
+            [summary_path, metadata_path],
+            [summary_path, metadata_path],
+            overwrite=output_config.overwrite,
+            label="h2 output artifact",
+        )
+        _atomic_write_dataframe(summary, summary_path)
+        _atomic_write_json(metadata, metadata_path)
+        return {
+            "summary": str(summary_path),
+            "metadata": str(metadata_path),
+        }
+
+
+@dataclass(frozen=True)
 class LDScoreOutputConfig:
     """Directory-oriented output config for canonical LD-score results.
 

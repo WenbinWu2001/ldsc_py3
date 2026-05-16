@@ -68,6 +68,8 @@ from .genome_build_inference import (
 from .hm3 import load_hm3_curated_map
 from .ldscore_calculator import ChromLDScoreResult, LDScoreCalculator, LDScoreResult, run_ldscore
 from .outputs import (
+    H2DirectoryWriter,
+    H2OutputConfig,
     LDScoreDirectoryWriter,
     LDScoreOutputConfig,
     PartitionedH2DirectoryWriter,
@@ -112,6 +114,8 @@ __all__ = [
     "GlobalConfig",
     "get_global_config",
     "infer_chr_pos_build",
+    "H2DirectoryWriter",
+    "H2OutputConfig",
     "LDScoreCalculator",
     "LDScoreConfig",
     "LDScoreDirectoryWriter",

@@ -22,6 +22,8 @@ class PackageLayoutTest(unittest.TestCase):
         self.assertTrue(hasattr(ldsc, "SumstatsMunger"))
         self.assertTrue(hasattr(ldsc, "AnnotationBuilder"))
         self.assertTrue(hasattr(ldsc, "ReferencePanelBuilder"))
+        self.assertTrue(hasattr(ldsc, "H2OutputConfig"))
+        self.assertTrue(hasattr(ldsc, "H2DirectoryWriter"))
         self.assertTrue(hasattr(ldsc, "LDScoreOutputConfig"))
         self.assertTrue(hasattr(ldsc, "LDScoreDirectoryWriter"))
         self.assertTrue(hasattr(ldsc, "PartitionedH2OutputConfig"))

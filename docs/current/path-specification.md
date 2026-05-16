@@ -51,6 +51,7 @@ independent optional files:
   `ldscore.query.parquet`, and `ldscore.log` for CLI/workflow runs
 - `partitioned-h2`: `partitioned_h2.tsv`, optional `query_annotations/`, and
   `partitioned-h2.log` for CLI/workflow runs
+- `h2`: `h2.tsv`, `h2.metadata.json`, and `h2.log` for CLI/workflow runs
 - `annotate`: root-level `query.<chrom>.annot.gz` shards, plus `annotate.log`
   for CLI/workflow runs
 
@@ -414,10 +415,11 @@ Output:
   restriction and conflicts with `--sumstats-snps-file`. HM3 quick liftover
   requires `--use-hm3-snps`.
 - `ldsc h2`, `ldsc partitioned-h2`, and `ldsc rg` write fixed result families
-  when `output_dir` is provided. For rg, that family is `rg.tsv`,
-  `rg_full.tsv`, `h2_per_trait.tsv`, optional `pairs/`, and workflow-owned
-  `rg.log`; existing owned artifacts are refused unless `--overwrite` is
-  supplied.
+  when `output_dir` is provided. For h2, that family is `h2.tsv`,
+  `h2.metadata.json`, and workflow-owned `h2.log`. For rg, that family is
+  `rg.tsv`, `rg_full.tsv`, `h2_per_trait.tsv`, optional `pairs/`, and
+  workflow-owned `rg.log`; existing owned artifacts are refused unless
+  `--overwrite` is supplied.
 - `ldsc partitioned-h2` requires the LD-score directory to include
   `ldscore.query.parquet` and non-empty `query_columns`; baseline-only LD-score
   directories are valid for `h2` and `rg`.

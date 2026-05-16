@@ -82,6 +82,8 @@ from ._row_alignment import assert_same_snp_rows
 from .column_inference import infer_chr_pos_columns, normalize_snp_identifier_mode
 from .ldscore_calculator import LDScoreResult
 from .outputs import (
+    H2DirectoryWriter,
+    H2OutputConfig,
     LDSCORE_RESULT_FORMAT,
     PartitionedH2DirectoryWriter,
     PartitionedH2OutputConfig,
@@ -1279,6 +1281,25 @@ def _bonferroni(p_values: np.ndarray) -> np.ndarray:
     return adjusted
 
 
+def _h2_metadata(args, sumstats_table: SumstatsTable, dataset: RegressionDataset) -> dict[str, object]:
+    """Build the metadata sidecar for one unpartitioned h2 output."""
+    config_snapshot = dataset.config_snapshot
+    return {
+        "schema_version": 1,
+        "artifact_type": "h2_result",
+        "trait_name": sumstats_table.trait_name,
+        "sumstats_file": getattr(args, "sumstats_file", None),
+        "ldscore_dir": getattr(args, "ldscore_dir", None),
+        "effective_snp_identifier": dataset.effective_snp_identifier,
+        "genome_build": None if config_snapshot is None else getattr(config_snapshot, "genome_build", None),
+        "identity_downgrade_applied": dataset.identity_downgrade_applied,
+        "count_key_used_for_regression": dataset.count_key_used_for_regression,
+        "retained_ld_columns": list(dataset.retained_ld_columns),
+        "dropped_zero_variance_ld_columns": list(dataset.dropped_zero_variance_ld_columns),
+        "n_snps": int(len(dataset.merged)),
+    }
+
+
 def _rg_pair_metadata(
     table_1: SumstatsTable,
     table_2: SumstatsTable,
@@ -1565,11 +1586,17 @@ def add_rg_arguments(parser) -> None:
 def run_h2_from_args(args):
     """Run single-trait heritability estimation from parsed CLI arguments.
 
-    When ``args.output_dir`` is provided, the workflow preflights ``h2.tsv`` and
-    ``h2.log`` before loading inputs. Without an output directory, it returns
-    the summary table without creating a log file.
+    When ``args.output_dir`` is provided, the workflow preflights ``h2.tsv``,
+    ``h2.metadata.json``, and ``h2.log`` before loading inputs. Without an
+    output directory, it returns the summary table without creating output
+    artifacts.
     """
-    output_dir, log_path = _preflight_regression_outputs(args, "h2", ["h2.tsv"])
+    output_dir, log_path = _preflight_regression_outputs(
+        args,
+        "h2",
+        ["h2.tsv", "h2.metadata.json"],
+        owned_output_names=["h2.tsv", "h2.metadata.json"],
+    )
     with workflow_logging("h2", log_path, log_level=getattr(args, "log_level", "INFO")):
         runner, config = _runner_from_args(args)
         print_global_config_banner("run_h2_from_args", runner.global_config)
@@ -1581,14 +1608,17 @@ def run_h2_from_args(args):
             dataset = runner.build_dataset(sumstats_table, ldscore_result, config=config)
         hsq = runner.estimate_h2(dataset, config=config)
         summary = summarize_total_h2(hsq, dataset, trait_name=sumstats_table.trait_name)
-        _maybe_write_dataframe(
-            summary,
-            getattr(args, "output_dir", None),
-            "h2.tsv",
-            overwrite=getattr(args, "overwrite", False),
-        )
-        if output_dir is not None:
-            log_outputs(summary=str(Path(output_dir) / "h2.tsv"))
+        output_dir_arg = getattr(args, "output_dir", None)
+        if output_dir_arg:
+            written = H2DirectoryWriter().write(
+                summary,
+                H2OutputConfig(
+                    output_dir=output_dir_arg,
+                    overwrite=getattr(args, "overwrite", False),
+                ),
+                metadata=_h2_metadata(args, sumstats_table, dataset),
+            )
+            log_outputs(**written)
         LOGGER.info(f"Finished h2 regression with {len(dataset.merged)} regression SNPs.")
     return summary
 

@@ -154,7 +154,9 @@ The kernel layer contains the actual numerical methods and low-level readers. It
   output files, including workflow logs, are checked before writing. By
   default an existing artifact raises `FileExistsError`; `--overwrite` or
   `overwrite=True` makes replacement explicit without deleting unrelated files
-  or cleaning the directory.
+  or cleaning the directory. Sharded workflows may narrow ownership to the
+  current shard; `build-ref-panel` concrete chromosome runs own only their
+  chromosome package, while `@` suite runs own the full panel package.
 - **Workflow logging**: `ldsc._logging.workflow_logging()` attaches file
   handlers to the `LDSC` logger so workflow and kernel records are captured
   together. Logs are audit files, not scientific outputs, so result

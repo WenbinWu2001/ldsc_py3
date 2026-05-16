@@ -13,12 +13,15 @@ workflow layer, then delegates pairwise-R2 generation and parquet serialization 
 ``ldsc._kernel.ref_panel_builder``. Before chromosome processing begins, the
 workflow precomputes deterministic parquet, metadata sidecar, and dropped-SNP
 audit destinations and refuses any existing workflow-owned artifact unless
-``overwrite=True`` was configured. Parsed workflow wrappers write
-``build-ref-panel.log`` for multi-chromosome runs and chromosome-scoped logs
-for concrete single-chromosome runs; direct builder calls return data artifact
-paths only and do not create a log file by default. With overwrite enabled,
-successful runs replace current-run artifacts and remove stale owned parquet,
-metadata, audit, or log siblings from previous incompatible configurations.
+``overwrite=True`` was configured. Concrete single-chromosome invocations own
+only their chromosome's output artifacts so parallel array jobs can share an
+output directory without deleting sibling chromosome outputs. Parsed workflow
+wrappers write ``build-ref-panel.log`` for multi-chromosome runs and
+chromosome-scoped logs for concrete single-chromosome runs; direct builder calls
+return data artifact paths only and do not create a log file by default. With
+overwrite enabled, successful runs replace current-run artifacts and remove
+stale owned parquet, metadata, audit, or log siblings from previous
+incompatible configurations.
 Reference-panel liftover keeps the historical source-build plus optional
 opposite-build UX, but matching chain files are valid only in ``chr_pos``-family
 modes and are rejected in rsID-family modes. Duplicate-position handling is
@@ -160,14 +163,39 @@ def _resolve_build_ref_panel_log_path(
     return workflow_log_path.with_name(f"{workflow_log_path.stem}.chr{chrom}{workflow_log_path.suffix}")
 
 
-def _expected_ref_panel_output_paths(config: ReferencePanelBuildConfig, chromosomes: Sequence[str]) -> list[Path]:
+def _is_chromosome_scoped_invocation(
+    config: ReferencePanelBuildConfig,
+    chrom_sources: Sequence[tuple[str, str]],
+) -> bool:
+    """Return whether this run is scoped to one concrete chromosome input."""
+    return len(chrom_sources) == 1 and "@" not in str(config.plink_prefix)
+
+
+def _resolve_build_ref_panel_metadata_path(
+    output_dir: Path,
+    config: ReferencePanelBuildConfig,
+    chrom_sources: Sequence[tuple[str, str]],
+) -> Path:
+    """Return a metadata path that does not collide across parallel chromosome runs."""
+    if _is_chromosome_scoped_invocation(config, chrom_sources):
+        chrom = chrom_sources[0][1]
+        return output_dir / "diagnostics" / f"metadata.chr{chrom}.json"
+    return output_dir / "diagnostics" / "metadata.json"
+
+
+def _expected_ref_panel_output_paths(
+    config: ReferencePanelBuildConfig,
+    chromosomes: Sequence[str],
+    *,
+    metadata_path: Path,
+) -> list[Path]:
     """Return deterministic reference-panel artifact paths that may be written.
 
     The conservative preflight list includes build-specific R2 parquet and
     metadata sidecars for every emitted chromosome/build pair.
     """
     out_root = Path(config.output_dir)
-    paths: list[Path] = [out_root / "diagnostics" / "metadata.json"]
+    paths: list[Path] = [metadata_path]
     for chrom in chromosomes:
         for build in _emitted_genome_builds(config):
             paths.extend(
@@ -214,21 +242,53 @@ def _concat_drop_frames(frames: Sequence[pd.DataFrame]) -> pd.DataFrame:
     return _coerce_unified_drop_frame(pd.concat(non_empty, ignore_index=True))
 
 
-def _ref_panel_output_family(output_dir: Path, produced_paths: Sequence[Path] = ()) -> list[Path]:
-    """Return existing and current-run artifacts owned by build-ref-panel."""
-    paths: list[Path] = [
-        output_dir / "diagnostics" / "metadata.json",
-    ]
+def _ref_panel_output_family(
+    output_dir: Path,
+    produced_paths: Sequence[Path] = (),
+    *,
+    chromosomes: Sequence[str] | None = None,
+) -> list[Path]:
+    """Return the build-ref-panel artifact package owned by this invocation.
+
+    When ``chromosomes`` is ``None``, the package spans the full output
+    directory contract and is appropriate for a full ``@`` chromosome-suite
+    build. When a concrete chromosome list is supplied, only those chromosomes'
+    R2, metadata, dropped-SNP, and chromosome-scoped diagnostic paths are owned
+    so concurrent per-chromosome runs do not treat sibling chromosome outputs as
+    stale.
+    """
+    scoped_chromosomes = None if chromosomes is None else [str(chrom) for chrom in chromosomes]
+    diagnostics_dir = output_dir / "diagnostics"
+    if scoped_chromosomes is None:
+        paths: list[Path] = [diagnostics_dir / "metadata.json"]
+        paths.extend(sorted(diagnostics_dir.glob("metadata.chr*.json")))
+    else:
+        paths = [diagnostics_dir / f"metadata.chr{chrom}.json" for chrom in scoped_chromosomes]
     for build_subdir_name in ("hg19", "hg38"):
         build_subdir = output_dir / build_subdir_name
         if not build_subdir.is_dir():
             continue
-        for pattern in ("chr*_r2.parquet", "chr*_meta.tsv.gz"):
-            paths.extend(sorted(build_subdir.glob(pattern)))
+        if scoped_chromosomes is None:
+            for pattern in ("chr*_r2.parquet", "chr*_meta.tsv.gz"):
+                paths.extend(sorted(build_subdir.glob(pattern)))
+        else:
+            for chrom in scoped_chromosomes:
+                paths.extend(
+                    [
+                        build_subdir / f"chr{chrom}_r2.parquet",
+                        build_subdir / f"chr{chrom}_meta.tsv.gz",
+                    ]
+                )
     dropped_dir = output_dir / "diagnostics" / "dropped_snps"
     if dropped_dir.is_dir():
-        paths.extend(sorted(dropped_dir.glob("chr*_dropped.tsv.gz")))
-    paths.extend(sorted((output_dir / "diagnostics").glob("build-ref-panel*.log")))
+        if scoped_chromosomes is None:
+            paths.extend(sorted(dropped_dir.glob("chr*_dropped.tsv.gz")))
+        else:
+            paths.extend(dropped_dir / f"chr{chrom}_dropped.tsv.gz" for chrom in scoped_chromosomes)
+    if scoped_chromosomes is None:
+        paths.extend(sorted(diagnostics_dir.glob("build-ref-panel*.log")))
+    else:
+        paths.extend(diagnostics_dir / f"build-ref-panel.chr{chrom}.log" for chrom in scoped_chromosomes)
     paths.extend(Path(path) for path in produced_paths)
     return paths
 
@@ -311,11 +371,13 @@ class ReferencePanelBuilder:
             PLINK build. ``GlobalConfig.genome_build`` is not consulted by this
             workflow. Existing workflow-owned parquet, metadata, dropped-SNP,
             or log artifacts are refused before chromosome processing unless
-            ``config.overwrite`` is true; successful overwrites remove stale
-            owned siblings not produced by the current run. Direct calls
-            through this method do not create a workflow log; parsed wrappers
-            add a build-ref-panel workflow log through the shared logging
-            context.
+            ``config.overwrite`` is true. Successful overwrites remove stale
+            owned siblings not produced by the current run. Concrete
+            single-chromosome invocations own only that chromosome's package;
+            full ``@`` chromosome-suite invocations own the all-chromosome
+            output package. Direct calls through this method do not create a
+            workflow log; parsed wrappers add a build-ref-panel workflow log
+            through the shared logging context.
 
         Returns
         -------
@@ -356,13 +418,16 @@ class ReferencePanelBuilder:
                 seen_chromosomes.add(chrom)
                 chrom_sources.append((prefix, chrom))
 
+        chromosomes = [chrom for _, chrom in chrom_sources]
         workflow_log_path = _resolve_build_ref_panel_log_path(workflow_log_path, config, chrom_sources)
-        produced_paths = _expected_ref_panel_output_paths(config, [chrom for _, chrom in chrom_sources])
+        metadata_path = _resolve_build_ref_panel_metadata_path(output_dir, config, chrom_sources)
+        produced_paths = _expected_ref_panel_output_paths(config, chromosomes, metadata_path=metadata_path)
         if workflow_log_path is not None:
             produced_paths.append(workflow_log_path)
+        owned_chromosomes = chromosomes if _is_chromosome_scoped_invocation(config, chrom_sources) else None
         stale_paths = preflight_output_artifact_family(
             produced_paths,
-            _ref_panel_output_family(output_dir, produced_paths),
+            _ref_panel_output_family(output_dir, produced_paths, chromosomes=owned_chromosomes),
             overwrite=config.overwrite,
             label="reference-panel output artifact",
         )
@@ -392,7 +457,6 @@ class ReferencePanelBuilder:
             chrom_records.sort(key=lambda item: kernel_ldscore.chrom_sort_key(item[0]))
             output_keys = sorted({key for _, paths in chrom_records for key in paths})
             output_paths = {key: [paths[key] for _, paths in chrom_records] for key in output_keys}
-            metadata_path = output_dir / "diagnostics" / "metadata.json"
             output_paths["metadata"] = [str(metadata_path)]
             _write_ref_panel_metadata(
                 metadata_path,
@@ -1520,7 +1584,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--overwrite",
         action="store_true",
         default=False,
-        help="Replace current panel output files and remove stale workflow-owned siblings after success.",
+        help=(
+            "Replace current panel output files and remove stale workflow-owned siblings after success. "
+            "Concrete chromosome prefixes clean only that chromosome's package; @ suites clean the full panel package."
+        ),
     )
     parser.add_argument("--ld-wind-snps", default=None, type=int, help="LD window size in SNPs.")
     parser.add_argument("--ld-wind-kb", default=None, type=float, help="LD window size in kilobases.")

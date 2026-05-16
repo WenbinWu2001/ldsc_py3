@@ -309,7 +309,10 @@ The same coherent-family rule applies to `munge-sumstats`, `build-ref-panel`,
 `partitioned-h2`, `rg`, and `annotate`: no-overwrite mode rejects any owned
 sibling in the current public layout, while successful overwrites delete stale
 current-contract owned siblings and preserve unrelated files. Removed legacy
-root diagnostic names are ignored by preflight and cleanup.
+root diagnostic names are ignored by preflight and cleanup. Sharded workflows
+may narrow the owned package to the current shard; for `build-ref-panel`,
+concrete chromosome PLINK prefixes own only that chromosome's package, while
+`@` chromosome-suite prefixes own the full all-chromosome panel package.
 
 ---
 

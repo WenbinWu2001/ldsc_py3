@@ -119,7 +119,11 @@ artifact would not be written by the current configuration. With overwrite, the
 workflow writes the requested outputs and removes stale current-contract owned
 siblings not produced by the successful run. Legacy/root diagnostic names that
 are no longer in the public layout are not blocked or cleaned as owned outputs.
-Unrelated files in `output_dir` are preserved.
+Unrelated files in `output_dir` are preserved. Sharded workflows may narrow the
+owned family to the shard selected by the current invocation. For
+`build-ref-panel`, a concrete chromosome prefix owns only that chromosome's
+artifact package, while a `@` chromosome-suite invocation owns the full panel
+package.
 
 Directory artifacts such as `diagnostics/query_annotations/` and
 `diagnostics/pairs/` are owned as whole trees. They are staged under
@@ -200,7 +204,7 @@ LD-score output schema:
 | `--keep-indivs-file` | input | no | PLINK individual keep file | Restricts PLINK individuals during panel building; defaults to omitted/`None`, so no individual keep filter is applied. |
 | `--maf-min` | input metadata | no | retained SNP MAF filter | Filters retained SNPs by MAF during PLINK loading; defaults to omitted/`None`, so no retained-SNP MAF filter is applied. |
 | `--output-dir` | output | yes | reference-panel artifact directory | Run identity is `Path(output_dir).name`; no separate label is accepted. |
-| `--overwrite` | output mode | no | collision policy | Controls whether reference-panel artifacts, diagnostic metadata, always-written `diagnostics/dropped_snps/chr{chrom}_dropped.tsv.gz` audit files, and build-ref-panel workflow logs may be replaced; defaults to `False`, so existing owned outputs are refused. With overwrite enabled, stale owned target-build, out-of-scope chromosome, dropped-SNP, or log siblings are removed after a successful run. |
+| `--overwrite` | output mode | no | collision policy | Controls whether reference-panel artifacts, diagnostic metadata, always-written `diagnostics/dropped_snps/chr{chrom}_dropped.tsv.gz` audit files, and build-ref-panel workflow logs may be replaced; defaults to `False`, so existing owned outputs are refused. Concrete chromosome prefixes own and clean only that chromosome's package. `@` chromosome-suite runs own the full panel package and can remove stale target-build, out-of-scope chromosome, dropped-SNP, metadata, or log siblings after success. |
 | `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger records in console and the build-ref-panel workflow log; lifecycle audit lines always appear in the file. |
 | `--snp-batch-size` | performance | no | SNP computation batch size | Number of SNPs loaded per pairwise-R2 computation batch; larger values may improve throughput but use more memory. Defaults to `128`. |
 
@@ -216,6 +220,7 @@ Fixed output names:
 <output_dir>/hg38/chr{chrom}_r2.parquet
 <output_dir>/hg38/chr{chrom}_meta.tsv.gz
 <output_dir>/diagnostics/metadata.json
+<output_dir>/diagnostics/metadata.chr<chrom>.json  # concrete single-chromosome PLINK prefix
 <output_dir>/diagnostics/dropped_snps/chr{chrom}_dropped.tsv.gz
 <output_dir>/diagnostics/build-ref-panel.log
 <output_dir>/diagnostics/build-ref-panel.chr<chrom>.log  # concrete single-chromosome PLINK prefix
@@ -241,10 +246,13 @@ metadata sidecar is still written with `CM=NA`. cM-window builds require the
 genetic map for every emitted build because each build's map defines that
 build's LD window.
 
-`build-ref-panel` owns only current-contract artifacts. Existing target-build,
-chromosome, dropped-SNP, metadata, and log siblings block without `--overwrite`;
-with `--overwrite`, stale current-contract siblings outside the current build or
-chromosome scope are removed after the successful write.
+`build-ref-panel` owns only current-contract artifacts. The owned package depends
+on the PLINK prefix scope: a concrete single-chromosome prefix owns only that
+chromosome's R2, metadata sidecar, dropped-SNP audit, chromosome-scoped
+diagnostic metadata, and chromosome-scoped log; a `@` chromosome-suite prefix
+owns the full all-chromosome panel package. Existing owned artifacts block
+without `--overwrite`; with `--overwrite`, stale current-contract siblings
+inside the owned package are removed after the successful write.
 
 ### `ldsc munge-sumstats`
 

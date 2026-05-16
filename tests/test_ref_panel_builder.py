@@ -1891,6 +1891,44 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             self.assertFalse((tmpdir / "out" / "diagnostics" / "build-ref-panel.log").exists())
             self.assertNotIn("log", result.output_paths)
 
+    def test_run_build_ref_panel_from_args_single_concrete_prefix_writes_chromosome_scoped_metadata(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
+            parser = ref_panel_builder.build_parser()
+            args = parser.parse_args(
+                [
+                    "--plink-prefix",
+                    str(tmpdir / "panel.1"),
+                    "--source-genome-build",
+                    "hg19",
+                    "--output-dir",
+                    str(tmpdir / "out"),
+                    "--ld-wind-kb",
+                    "1",
+                    "--overwrite",
+                ]
+            )
+
+            def fake_build(prefix, chrom, config, build_state):
+                out_root = Path(config.output_dir)
+                return {
+                    "r2_hg19": str(out_root / "hg19" / f"chr{chrom}_r2.parquet"),
+                    "meta_hg19": str(out_root / "hg19" / f"chr{chrom}_meta.tsv.gz"),
+                }
+
+            with mock.patch.object(
+                ref_panel_builder.ReferencePanelBuilder,
+                "_build_chromosome",
+                side_effect=fake_build,
+            ):
+                result = ref_panel_builder.run_build_ref_panel_from_args(args)
+
+            metadata_path = tmpdir / "out" / "diagnostics" / "metadata.chr1.json"
+            self.assertEqual(result.output_paths["metadata"], [str(metadata_path)])
+            self.assertTrue(metadata_path.exists())
+            self.assertFalse((tmpdir / "out" / "diagnostics" / "metadata.json").exists())
+
     def test_builder_run_allows_source_only_output_paths_when_no_chain_is_available(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -2053,6 +2091,41 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             self.assertEqual(result.chromosomes, ["1"])
             self.assertFalse(stale_r2.exists())
             self.assertFalse(stale_drop.exists())
+
+    def test_builder_run_concrete_chromosome_overwrite_preserves_sibling_artifacts(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            self._write_dummy_plink_prefix(tmpdir, "panel.1", "1")
+            config = dataclass_replace(
+                self._build_config(tmpdir),
+                plink_prefix=tmpdir / "panel.1",
+                overwrite=True,
+            )
+            sibling_r2 = tmpdir / "out" / "hg38" / "chr2_r2.parquet"
+            sibling_drop = tmpdir / "out" / "diagnostics" / "dropped_snps" / "chr2_dropped.tsv.gz"
+            sibling_r2.parent.mkdir(parents=True)
+            sibling_drop.parent.mkdir(parents=True)
+            sibling_r2.write_text("sibling\n", encoding="utf-8")
+            sibling_drop.write_text("sibling\n", encoding="utf-8")
+            builder = ref_panel_builder.ReferencePanelBuilder(
+                global_config=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38")
+            )
+
+            with mock.patch.object(
+                ref_panel_builder.ReferencePanelBuilder,
+                "_build_chromosome",
+                return_value={
+                    "r2_hg19": str(tmpdir / "out" / "hg19" / "chr1_r2.parquet"),
+                    "r2_hg38": str(tmpdir / "out" / "hg38" / "chr1_r2.parquet"),
+                    "meta_hg19": str(tmpdir / "out" / "hg19" / "chr1_meta.tsv.gz"),
+                    "meta_hg38": str(tmpdir / "out" / "hg38" / "chr1_meta.tsv.gz"),
+                },
+            ):
+                result = builder.run(config)
+
+            self.assertEqual(result.chromosomes, ["1"])
+            self.assertEqual(sibling_r2.read_text(encoding="utf-8"), "sibling\n")
+            self.assertEqual(sibling_drop.read_text(encoding="utf-8"), "sibling\n")
 
     def test_builder_run_allows_hg38_source_only_output_paths(self):
         with tempfile.TemporaryDirectory() as tmpdir:

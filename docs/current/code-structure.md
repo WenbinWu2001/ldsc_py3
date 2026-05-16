@@ -105,7 +105,10 @@ ldsc_py3_Jerry/
   Overwrite mode writes the requested current outputs and then removes stale
   current-contract owned siblings that were not produced by the successful run.
   Removed legacy root diagnostic names are not workflow-owned. Unrelated files
-  in the output directory must be preserved.
+  in the output directory must be preserved. Sharded workflows may pass a
+  narrowed owned family when shards share an output directory; `build-ref-panel`
+  concrete chromosome prefixes own only that chromosome's package, while `@`
+  chromosome-suite prefixes own the full panel package.
 - Preflight deterministic output paths before expensive or multi-file writes.
   This is especially important for `build-ref-panel`, `munge-sumstats`,
   `annotate`, and summary-table regression commands.

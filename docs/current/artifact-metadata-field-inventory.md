@@ -27,7 +27,10 @@ Workflow-owned artifacts are the files and directories in the current public
 layout for that workflow. Without `--overwrite`, any existing owned artifact
 blocks the run before outputs are opened. With `--overwrite`, artifacts written
 by the current run are replaced, and stale owned siblings left by incompatible
-flag combinations are removed after the current write succeeds.
+flag combinations are removed after the current write succeeds. Sharded
+workflows may scope this owned package to the shard selected by the current
+invocation; for `build-ref-panel`, concrete chromosome runs own only that
+chromosome's files, while full `@` suite runs own the all-chromosome package.
 
 Legacy/root diagnostic names that are no longer in the public layout are not
 owned by current workflows. They are ignored by preflight and cleanup rather
@@ -99,15 +102,19 @@ ref-panel/
   <build>/chr<chrom>_meta.tsv.gz
   diagnostics/
     metadata.json
+    metadata.chr<chrom>.json
     build-ref-panel.log
     build-ref-panel.chr<chrom>.log
     dropped_snps/chr<chrom>_dropped.tsv.gz
 ```
 
-The concrete log file is `build-ref-panel.log` for multi-chromosome runs or
-`build-ref-panel.chr<chrom>.log` for chromosome-scoped runs.
+The concrete diagnostics files are `metadata.json` and `build-ref-panel.log`
+for multi-chromosome runs. Concrete single-chromosome runs write
+`metadata.chr<chrom>.json` and `build-ref-panel.chr<chrom>.log` so parallel
+per-chromosome invocations can share an output directory without racing on
+shared diagnostics.
 
-`diagnostics/metadata.json` is provenance only.
+`diagnostics/metadata*.json` is provenance only.
 
 | Field | Explanation | Downstream usage |
 | --- | --- | --- |

@@ -52,7 +52,8 @@ independent optional files:
   `ldscore.query.parquet`, and `diagnostics/ldscore.log` for CLI/workflow runs
 - `build-ref-panel`: `{hg19,hg38}/chr*_r2.parquet`,
   `{hg19,hg38}/chr*_meta.tsv.gz`,
-  `diagnostics/metadata.json`, `diagnostics/dropped_snps/chr*_dropped.tsv.gz`,
+  `diagnostics/metadata.json`, `diagnostics/metadata.chr*.json`,
+  `diagnostics/dropped_snps/chr*_dropped.tsv.gz`,
   and `diagnostics/build-ref-panel*.log` for CLI/workflow runs
 - `partitioned-h2`: `partitioned_h2.tsv`,
   `diagnostics/metadata.json`, optional `diagnostics/query_annotations/`, and
@@ -70,7 +71,11 @@ rejects the run, even if that sibling is not selected by the current output
 mode. With overwrite enabled, the workflow writes the requested current outputs
 and then removes stale current-contract owned siblings not produced by the
 successful run. Removed legacy root diagnostic names are ignored by preflight
-and cleanup, and unrelated files in the directory are preserved. Directory artifacts such as
+and cleanup, and unrelated files in the directory are preserved. Workflows that
+can run independent shards into one directory may narrow the owned family to the
+current shard. For `build-ref-panel`, a concrete chromosome prefix owns only
+that chromosome's package, while an `@` chromosome-suite invocation owns the
+full all-chromosome package. Directory artifacts such as
 `diagnostics/query_annotations/` and `diagnostics/pairs/` are owned as whole
 trees: no-overwrite blocks if the root exists, and overwrite swaps or removes
 the complete tree after the current run succeeds.
@@ -364,18 +369,28 @@ Output:
 - Before chromosome processing starts, the builder checks both current-run
   deterministic paths and existing workflow-owned siblings under `hg19/`,
   `hg38/`, plus owned diagnostics under `diagnostics/`.
+- For a concrete single-chromosome PLINK prefix such as `panel.1`, the owned
+  package is restricted to chromosome 1: `chr1` R2 parquet, `chr1` metadata
+  sidecars, `diagnostics/dropped_snps/chr1_dropped.tsv.gz`,
+  `diagnostics/metadata.chr1.json`, and `diagnostics/build-ref-panel.chr1.log`.
+  Sibling chromosomes are not collisions and are not stale cleanup targets.
+- For a `@` chromosome-suite prefix such as `panel.@`, the owned package spans
+  every discovered chromosome in the output directory, so full-panel overwrites
+  can clean stale target-build, chromosome, dropped-SNP, metadata, and log
+  siblings.
 - Existing parquet, metadata, dropped-SNP audit, or workflow-log files are
   refused unless `--overwrite` or `ReferencePanelBuildConfig(overwrite=True)`
   is supplied.
-- With overwrite enabled, a successful run removes stale owned source-build,
-  target-build, out-of-scope chromosome, dropped-SNP, or log siblings that the
-  current run did not produce.
+- With overwrite enabled, a successful run removes stale owned artifacts inside
+  the current package that the run did not produce.
 - Dropped-SNP audit sidecars are always written for processed chromosomes
   (header-only when clean) and contain liftover-stage rows with reasons
   `source_duplicate`, `unmapped_liftover`, `cross_chromosome_liftover`, and
   `target_collision`.
-- The ref-panel directory may contain many chromosome/build artifacts, but the
-  workflow still treats them as one owned family for stale-output protection.
+- The ref-panel directory may contain many chromosome/build artifacts. Treat it
+  as one owned family only for full `@` suite invocations; concrete
+  per-chromosome invocations use chromosome-specific ownership so parallel
+  array jobs can safely share the directory.
 
 ### Sumstats munging and regression
 

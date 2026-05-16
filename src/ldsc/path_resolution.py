@@ -17,8 +17,9 @@ resolution: output directories are literal destinations, missing directories
 are created, existing directories are reused, and fixed output files are
 preflighted before workflow code writes. Existing files raise by default unless
 the caller passes an explicit overwrite flag. Workflows with fixed artifact
-families can also preflight the complete owned family and remove stale siblings
-after a successful overwrite.
+families can also preflight the owned family, optionally narrowed to the shard
+owned by the current invocation, and remove stale siblings after a successful
+overwrite.
 """
 
 from __future__ import annotations
@@ -519,11 +520,14 @@ def preflight_output_artifact_family(
         Paths here are exempt from the overwrite-protection check because they
         are about to be replaced by the current run.
     owned_paths : iterable of str or os.PathLike
-        Every path the workflow could write under any configuration — its
-        stable "territory" inside the output directory. This is the union
-        across every supported flag combination, including conditional
-        sidecars that fire only on some runs. ``produced_paths`` is always a
-        subset of ``owned_paths``.
+        Every path this invocation is allowed to protect and clean inside the
+        workflow output directory. For ordinary single-process workflows this
+        is usually the full stable "territory" the workflow could write across
+        supported flag combinations, including conditional sidecars that fire
+        only on some runs. For sharded workflows, callers may pass a narrowed
+        family, such as the chromosome-specific package for a concrete
+        reference-panel build. ``produced_paths`` is always a subset of
+        ``owned_paths``.
     overwrite : bool, optional
         If ``False``, refuse to start the run when any owned path already
         exists on disk. If ``True``, allow the run to overwrite produced paths
@@ -550,8 +554,8 @@ def preflight_output_artifact_family(
     -----
     Why two lists instead of one — the ``owned_paths`` / ``produced_paths``
     split is the core mechanism for safe stale cleanup across runs with
-    different flag combinations. A single list cannot express both "the
-    workflow controls this path" and "the current run will write this path,"
+    different flag combinations or shard scopes. A single list cannot express
+    both "this invocation controls this path" and "the current run will write this path,"
     and conflating them produces silent bugs:
 
     - Listing only what the run *produces* loses stale-cleanup ability: a
@@ -582,9 +586,18 @@ def preflight_output_artifact_family(
 
     For always-written audit sidecars such as the current
     ``diagnostics/dropped_snps/dropped.tsv.gz`` sumstats liftover sidecar,
-    include the path in both ``owned_paths`` and ``produced_paths`` unconditionally. A clean run
-    still produces a header-only file, so the prior sidecar is replaced in
-    place rather than treated as a stale conditional artifact.
+    include the path in both ``owned_paths`` and ``produced_paths``
+    unconditionally. A clean run still produces a header-only file, so the
+    prior sidecar is replaced in place rather than treated as a stale
+    conditional artifact.
+
+    Sharded workflows must pass only the package owned by the current shard
+    when shards can run concurrently in the same directory. For example, a
+    concrete ``build-ref-panel`` chromosome-1 invocation owns ``chr1`` R2,
+    metadata, dropped-SNP, and chromosome-scoped diagnostic paths only; it must
+    not report ``chr2`` outputs as stale. A full ``@`` chromosome-suite
+    invocation can pass the all-chromosome package and clean stale siblings
+    across the full panel after success.
     """
     produced = _dedupe_paths(Path(normalize_path_token(path)) for path in produced_paths)
     owned = _dedupe_paths(Path(normalize_path_token(path)) for path in owned_paths)

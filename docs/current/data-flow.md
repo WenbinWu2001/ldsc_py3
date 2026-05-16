@@ -166,12 +166,15 @@ flowchart LR
 Before chromosome processing starts, the builder precomputes flat current-run
 paths under each emitted `{build}` directory, always-written per-chromosome
 dropped-SNP audit files under `diagnostics/dropped_snps/`, plus the selected
-`build-ref-panel` log path. It also claims existing workflow-owned siblings
-under `hg19/`, `hg38/`, and `diagnostics/`. Existing
-owned artifacts are refused unless `--overwrite` or
-`ReferencePanelBuildConfig(overwrite=True)` is supplied; unrelated files in the
-output directory are left untouched. With overwrite enabled, stale owned
-artifacts not produced by the successful run are removed.
+diagnostic metadata and `build-ref-panel` log paths. It also claims existing
+workflow-owned siblings under `hg19/`, `hg38/`, and `diagnostics/`. The claimed
+package follows the PLINK prefix scope: a concrete single-chromosome prefix
+claims only that chromosome's package, while a `@` chromosome-suite prefix
+claims the full all-chromosome panel package. Existing owned artifacts are
+refused unless `--overwrite` or `ReferencePanelBuildConfig(overwrite=True)` is
+supplied; unrelated files in the output directory are left untouched. With
+overwrite enabled, stale owned artifacts inside the current package that were
+not produced by the successful run are removed.
 Reference-panel liftover is coordinate behavior: chain-file liftover and HM3
 quick liftover are valid only when the active SNP identifier mode is in the
 `chr_pos` family.
@@ -232,8 +235,8 @@ flowchart LR
 | build-specific R2 parquet | `hg38/chr22_r2.parquet` with columns `CHR`, `POS_1`, `POS_2`, `SNP_1`, `SNP_2`, `R2`, plus endpoint `A1_1/A2_1/A1_2/A2_2` when available | one row per unordered SNP pair inside the LD window; endpoint allele columns are required in allele-aware modes; row groups are sorted by that build's `POS_1`; schema metadata records minimal identity provenance plus `ldsc:n_samples` and `ldsc:r2_bias` |
 | build-specific runtime metadata sidecar | `hg38/chr22_meta.tsv.gz` with leading `# ldsc:*` identity-provenance comments and `CHR POS SNP CM MAF A1 A2` when alleles are available | authoritative SNP universe for the matching R2 parquet when present; current package-written sidecars carry `schema_version`, `artifact_type`, `snp_identifier`, and `genome_build`; `A1/A2` are required in allele-aware modes |
 | dropped-SNP audit sidecar | `diagnostics/dropped_snps/chr22_dropped.tsv.gz` with `CHR SNP source_pos target_pos reason base_key identity_key allele_set stage` | always written for each processed chromosome; header-only when no rows were dropped; identity reasons include `missing_allele`, `invalid_allele`, `strand_ambiguous_allele`, `multi_allelic_base_key`, and `duplicate_identity`; liftover reasons include `source_duplicate`, `unmapped_liftover`, `cross_chromosome_liftover`, and `target_collision` |
-| diagnostic metadata | JSON provenance | `diagnostics/metadata.json`; not consumed downstream |
-| workflow log | plain-text lifecycle and package records | `diagnostics/build-ref-panel.log` under `output_dir`; not included in `ReferencePanelBuildResult.output_paths` |
+| diagnostic metadata | JSON provenance | `diagnostics/metadata.json` for full-suite runs or `diagnostics/metadata.chr<chrom>.json` for concrete single-chromosome runs; not consumed downstream |
+| workflow log | plain-text lifecycle and package records | `diagnostics/build-ref-panel.log` for full-suite runs or `diagnostics/build-ref-panel.chr<chrom>.log` for concrete single-chromosome runs; not included in `ReferencePanelBuildResult.output_paths` |
 
 ### Modules used
 

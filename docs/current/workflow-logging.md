@@ -23,7 +23,9 @@ rejects the run before the log is opened. With `--overwrite`, stale owned
 siblings that the successful run did not produce are removed after the current
 outputs are written. Legacy root log names such as `sumstats.log`,
 `annotate.log`, `ldscore.log`, `build-ref-panel*.log`, or regression logs at the
-output root are not part of the current owned family.
+output root are not part of the current owned family. For `build-ref-panel`,
+concrete chromosome PLINK prefixes own only the matching chromosome-scoped log,
+while `@` chromosome-suite prefixes own the full build-ref-panel log family.
 
 This keeps an output directory from mixing artifacts from different
 configurations, while preserving unrelated user files. Direct Python writer

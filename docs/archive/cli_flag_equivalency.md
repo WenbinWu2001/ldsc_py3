@@ -22,8 +22,8 @@ Refactor status: planned as `ldsc munge-sumstats ...`, but no refactored CLI fla
 | `--out` | `Not yet implemented` | Output prefix for munged `.sumstats.gz` and logs. |
 | `--info-min` | `Not yet implemented` | Minimum INFO threshold used for QC filtering. |
 | `--maf-min` | `Not yet implemented` | Minimum MAF threshold used for QC filtering. |
-| `--daner` | `Not yet implemented` | Parse older `daner*` summary-statistics format. |
-| `--daner-n` | `Not yet implemented` | Parse newer `daner*` format with `Nca` and `Nco` columns. |
+| `--daner-old` | `Not yet implemented` | Parse older `daner*` summary-statistics format with case/control N encoded in `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` headers. |
+| `--daner-new` | `Not yet implemented` | Parse newer `daner*` format with `Nca` and `Nco` columns. |
 | `--no-alleles` | `Not yet implemented` | Allow munging without allele columns; mainly useful for `h2` / partitioned `h2`, not `rg`. |
 | `--merge-alleles` | `Not yet implemented` | Harmonize alleles to a reference `SNP A1 A2` file and drop mismatches. |
 | `--n-min` | `Not yet implemented` | Minimum per-variant sample size threshold. |

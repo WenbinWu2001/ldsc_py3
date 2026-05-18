@@ -4,7 +4,7 @@ This module is the single source of truth for:
 
 - column-header normalization
 - column-alias families scoped by input context
-- SNP identifier mode aliases
+- SNP identifier modes
 - genome build aliases
 
 Callers should infer columns here and then rename to canonical field names
@@ -18,6 +18,8 @@ from dataclasses import dataclass
 import logging
 import re
 from typing import Iterable, Sequence
+
+from ._kernel.snp_identity import SNP_IDENTIFIER_MODES, normalize_snp_identifier_mode
 
 LOGGER = logging.getLogger("LDSC.columns")
 _LOGGED_INFERENCES: set[tuple[str, str, str]] = set()
@@ -33,21 +35,9 @@ def normalize_column_token(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", str(value).lower())
 
 
-_RSID_IDENTIFIER_ALIASES = ("rsid", "rs_id", "rs", "snp", "snpid", "snp_id")
-_CHR_POS_IDENTIFIER_ALIASES = ("chr_pos", "chrpos", "chrom_pos", "chromosome_position", "position")
 _HG19_BUILD_ALIASES = ("hg19", "hg37", "grch37")
 _HG38_BUILD_ALIASES = ("hg38", "grch38")
 _AUTO_BUILD_ALIASES = ("auto",)
-
-
-def normalize_snp_identifier_mode(value: str) -> str:
-    """Normalize a flexible SNP identifier-mode label to ``rsid`` or ``chr_pos``."""
-    normalized = normalize_column_token(value)
-    if normalized in {normalize_column_token(alias) for alias in _RSID_IDENTIFIER_ALIASES}:
-        return "rsid"
-    if normalized in {normalize_column_token(alias) for alias in _CHR_POS_IDENTIFIER_ALIASES}:
-        return "chr_pos"
-    raise ValueError(f"Unsupported snp_identifier mode: {value!r}")
 
 
 def normalize_genome_build(genome_build: str | None) -> str | None:
@@ -121,6 +111,17 @@ POS_COLUMN_SPEC = ColumnSpec("POS", POS_COLUMN_ALIASES, "position")
 SNP_COLUMN_SPEC = ColumnSpec("SNP", SNP_COLUMN_ALIASES, "SNP identifier")
 CM_COLUMN_SPEC = ColumnSpec("CM", CM_COLUMN_ALIASES, "centiMorgan")
 MAF_COLUMN_SPEC = ColumnSpec("MAF", MAF_COLUMN_ALIASES, "minor-allele frequency")
+A1_COLUMN_SPEC = ColumnSpec(
+    "A1",
+    ("A1", "ALLELE1", "ALLELE_1", "EFFECT_ALLELE", "REFERENCE_ALLELE", "REF", "EA"),
+    "allele 1",
+)
+A2_COLUMN_SPEC = ColumnSpec(
+    "A2",
+    ("A2", "ALLELE2", "ALLELE_2", "OTHER_ALLELE", "NON_EFFECT_ALLELE", "ALT", "NEA"),
+    "allele 2",
+)
+RESTRICTION_ALLELE_SPECS = (A1_COLUMN_SPEC, A2_COLUMN_SPEC)
 
 
 # Raw summary-stat alias families preserve legacy behavior and add current
@@ -135,8 +136,16 @@ RAW_SUMSTATS_REQUIRED_OR_OPTIONAL_SPECS = (
     POS_COLUMN_SPEC,
     ColumnSpec("NSTUDY", ("NSTUDY", "N_STUDY", "NSTUDIES", "N_STUDIES"), "summary-stat number of studies"),
     ColumnSpec("P", ("P", "PVALUE", "P_VALUE", "PVAL", "P_VAL", "GC_PVALUE"), "summary-stat p-value"),
-    ColumnSpec("A1", ("A1", "ALLELE1", "ALLELE_1", "EFFECT_ALLELE", "REFERENCE_ALLELE", "INC_ALLELE", "EA"), "effect allele"),
-    ColumnSpec("A2", ("A2", "ALLELE2", "ALLELE_2", "OTHER_ALLELE", "NON_EFFECT_ALLELE", "DEC_ALLELE", "NEA"), "non-effect allele"),
+    ColumnSpec(
+        "A1",
+        ("A1", "ALLELE1", "ALLELE_1", "EFFECT_ALLELE", "REFERENCE_ALLELE", "INC_ALLELE", "EA"),
+        "signed-statistic allele",
+    ),
+    ColumnSpec(
+        "A2",
+        ("A2", "ALLELE2", "ALLELE_2", "OTHER_ALLELE", "NON_EFFECT_ALLELE", "DEC_ALLELE", "NEA"),
+        "counterpart allele",
+    ),
     ColumnSpec("N", ("N", "WEIGHT"), "summary-stat sample size"),
     ColumnSpec("N_CAS", ("NCASE", "CASES_N", "N_CASE", "N_CASES", "N_CAS", "NCAS", "Nca"), "summary-stat case count"),
     ColumnSpec("N_CON", ("N_CONTROLS", "N_CON", "NCONTROL", "CONTROLS_N", "N_CONTROL", "NCON", "Nco"), "summary-stat control count"),
@@ -230,6 +239,30 @@ PARQUET_R2_CANONICAL_SPECS = (
     ),
     _index_spec(SNP_COLUMN_ALIASES, 1, "SNP_1", "canonical parquet R2 left SNP"),
     _index_spec(SNP_COLUMN_ALIASES, 2, "SNP_2", "canonical parquet R2 right SNP"),
+    ColumnSpec(
+        "A1_1",
+        ("A1_1", "A11", "ALLELE1_1", "ALLELE_1_1"),
+        "canonical parquet R2 left A1",
+        allow_suffix_match=False,
+    ),
+    ColumnSpec(
+        "A2_1",
+        ("A2_1", "A21", "ALLELE2_1", "ALLELE_2_1"),
+        "canonical parquet R2 left A2",
+        allow_suffix_match=False,
+    ),
+    ColumnSpec(
+        "A1_2",
+        ("A1_2", "A12", "ALLELE1_2", "ALLELE_1_2"),
+        "canonical parquet R2 right A1",
+        allow_suffix_match=False,
+    ),
+    ColumnSpec(
+        "A2_2",
+        ("A2_2", "A22", "ALLELE2_2", "ALLELE_2_2"),
+        "canonical parquet R2 right A2",
+        allow_suffix_match=False,
+    ),
     ColumnSpec("R2", ("R2",), "canonical parquet R2 value", allow_suffix_match=False),
 )
 PARQUET_R2_CANONICAL_SPEC_MAP = {spec.canonical: spec for spec in PARQUET_R2_CANONICAL_SPECS}

@@ -6,7 +6,9 @@ In this package, cell-specific LDSC is the `partitioned-h2` workflow applied to 
 
 Cell-type query annotations require explicit baseline annotations. The
 synthetic all-ones `base` annotation is reserved for ordinary unpartitioned
-LD-score generation when no query inputs are present.
+LD-score generation when no query inputs are present. `partitioned-h2` rejects
+baseline-only LD-score directories rather than treating `base` as a cell-type
+query.
 
 The examples below assume chromosome-pattern inputs such as
 `baseline.@.annot.gz`, `cell_type_beds/*.bed`, and a package-built
@@ -15,8 +17,13 @@ build-specific R2 directory. Package-built R2 parquet files store
 R2 bias and sample-size arguments.
 
 Output directories are literal destinations. Missing directories are created,
-existing directories are reused, and existing fixed files are refused before
-writing unless you pass `--overwrite` or `overwrite=True`.
+existing directories are reused, and existing current-contract workflow
+artifacts are refused before writing unless you pass `--overwrite` or
+`overwrite=True`. Successful overwrites remove stale owned siblings not
+produced by the current configuration and preserve unrelated files. CLI workflow
+logs are part of that preflight policy, but they are audit files rather than
+returned data artifacts. Removed legacy root diagnostic names are ignored by
+current preflight and cleanup.
 
 For `chr_pos` workflows, `genome_build="auto"` can infer hg19/hg38 and
 0-based/1-based coordinates during annotation or LD-score loading. The same
@@ -43,7 +50,7 @@ from ldsc import (
 )
 
 GLOBAL_CONFIG = GlobalConfig(
-    snp_identifier="chr_pos",
+    snp_identifier="chr_pos_allele_aware",
     genome_build="hg19",
 )
 set_global_config(GLOBAL_CONFIG)
@@ -60,7 +67,7 @@ ref_panel = RefPanelLoader(GLOBAL_CONFIG).load(
         backend="parquet_r2",
         r2_dir="r2_ref_panel_1kg30x_1cM_hm3/hg19",
         chromosomes=tuple(annotation_bundle.chromosomes),
-        ref_panel_snps_file="filters/reference_universe.tsv.gz",
+        use_hm3_ref_panel_snps=True,
     )
 )
 
@@ -69,19 +76,19 @@ ldscore_result = LDScoreCalculator().run(
     ref_panel=ref_panel,
     ldscore_config=LDScoreConfig(
         ld_wind_cm=1.0,
-        regression_snps_file="filters/hapmap3.tsv.gz",
+        use_hm3_regression_snps=True,
     ),
     global_config=GLOBAL_CONFIG,
     output_config=LDScoreOutputConfig(
         output_dir="tutorial_outputs/cell_specific_ldscores",
-        # overwrite=True,  # enable only when intentionally replacing LD-score outputs
+        # overwrite=True,  # also removes stale LD-score siblings not produced by this run
     ),
 )
 
-# Current disk-loaded sumstats recover config_snapshot from
-# sumstats.metadata.json. Older artifacts without that sidecar warn and use
-# config_snapshot=None.
-sumstats = load_sumstats("tutorial_outputs/trait/sumstats.sumstats.gz", trait_name="trait")
+# Current disk-loaded sumstats recover config_snapshot from root
+# metadata.json. Old package-written artifacts without current
+# provenance must be regenerated with the current LDSC package.
+sumstats = load_sumstats("tutorial_outputs/trait/sumstats.parquet", trait_name="trait")
 
 runner = RegressionRunner(
     global_config=GLOBAL_CONFIG,
@@ -102,9 +109,23 @@ print(cell_specific)
 
 The LD-score result and annotation bundle retain known `GlobalConfig`
 snapshots. Current disk-loaded sumstats recover the same provenance from
-`sumstats.metadata.json`. If an older sumstats artifact lacks that sidecar,
-regression treats the sumstats provenance as unknown. With `snp_identifier="chr_pos"`,
-the merge uses normalized `CHR:POS` coordinates rather than rsIDs.
+root `metadata.json`. Old package-written sumstats artifacts without current
+provenance must be regenerated with the current LDSC package. With
+`snp_identifier="chr_pos_allele_aware"`, the merge uses normalized
+`CHR:POS:<allele_set>` identity rather than rsIDs, and the `SNP` column remains
+a label. To run coordinate identity without allele-aware matching, set
+`snp_identifier="chr_pos"` or pass `--snp-identifier chr_pos`; use the base
+`rsid` mode for rsID-only identity. The removed `--no-alleles` flag is not
+accepted. If raw sumstats coordinates need a build
+conversion before this regression step, run `munge-sumstats` with
+`--output-genome-build` plus either `--liftover-chain-file` or
+`--use-hm3-snps --use-hm3-quick-liftover` when the inferred source build differs from the output build. Liftover drops duplicate source/target coordinate
+groups, writes count summaries to `diagnostics/sumstats.log`, and audits row-level drops in
+`diagnostics/dropped_snps/dropped.tsv.gz`; examples appear only at `DEBUG`. The metadata
+sidecar remains a thin compatibility artifact. `munge-sumstats` defaults to
+`--format auto` and `--source-genome-build auto`; run it with `--infer-only --output-genome-build <hg19|hg38>` to inspect the detected raw format,
+inferred columns, INFO-list handling, source/output build, liftover status, and missing fields before writing
+outputs.
 
 ## CLI
 
@@ -116,19 +137,23 @@ ldsc ldscore \
   --baseline-annot-sources "annotations/baseline_chr/baseline.@.annot.gz" \
   --query-annot-bed-sources "annotations/cell_type_beds/*.bed" \
   --r2-dir "r2_ref_panel_1kg30x_1cM_hm3/hg19" \
-  --ref-panel-snps-file filters/reference_universe.tsv.gz \
-  --regression-snps-file filters/hapmap3.tsv.gz \
-  --snp-identifier chr_pos \
+  --use-hm3-ref-panel-snps \
+  --use-hm3-regression-snps \
+  --snp-identifier chr_pos_allele_aware \
   --genome-build hg19 \
   --common-maf-min 0.05 \
   --ld-wind-cm 1.0
 ```
 
+When reusable query `.annot.gz` shards are useful, use `ldsc annotate` or
+`run_bed_to_annot(...)`; both are public `ldsc.annotation_builder` workflow
+entry points and return the same `AnnotationBundle` shape used above.
+
 Then run partitioned h2 over the cell-type query columns:
 
 ```bash
 ldsc partitioned-h2 \
-  --sumstats-file tutorial_outputs/trait/sumstats.sumstats.gz \
+  --sumstats-file tutorial_outputs/trait/sumstats.parquet \
   --trait-name trait \
   --ldscore-dir tutorial_outputs/cell_specific_ldscores \
   --count-kind common \
@@ -137,17 +162,23 @@ ldsc partitioned-h2 \
 ```
 
 The regression reads query annotation columns from
-`tutorial_outputs/cell_specific_ldscores/manifest.json` and
-`query.parquet`. The LD-score parquet files are flat files with
-chromosome-aligned row groups, and the manifest lists those row groups for
+`tutorial_outputs/cell_specific_ldscores/metadata.json` and
+`ldscore.query.parquet`. The LD-score parquet files are flat files with
+chromosome-aligned row groups, and the metadata lists those row groups for
 targeted chromosome reads. The output file is
-`tutorial_outputs/cell_specific_ldsc/partitioned_h2.tsv`. Its key columns are
-`query_annotation`, `coefficient`, `coefficient_p`, `category_h2`,
-`proportion_h2`, and `enrichment`.
+`tutorial_outputs/cell_specific_ldsc/partitioned_h2.tsv`, with
+`diagnostics/partitioned-h2.log` under the same directory. Its key columns are
+`Category`, `Prop._SNPs`, `Prop._h2`, `Enrichment`, `Enrichment_p`,
+`Coefficient`, and `Coefficient_p`.
+For full column definitions, see
+[partitioned-h2-results.md](../docs/current/partitioned-h2-results.md).
 With `--write-per-query-results`, the command also writes
-`tutorial_outputs/cell_specific_ldsc/query_annotations/manifest.tsv` and one
+`tutorial_outputs/cell_specific_ldsc/diagnostics/query_annotations/manifest.tsv` and one
 sanitized folder per cell-type query annotation. Each folder contains the
-one-row query summary, the baseline-plus-query `model_categories.tsv`, and
+one-row query summary, the baseline-plus-query `partitioned_h2_full.tsv`, and
 `metadata.json` with the original annotation name.
 If the partitioned summary already exists, `ldsc partitioned-h2` fails before
-writing; add `--overwrite` only when replacing it is intentional.
+writing; the same is true for `diagnostics/partitioned-h2.log` and any stale
+`diagnostics/query_annotations/` tree. Add `--overwrite` only when replacing it is
+intentional. If an overwrite rerun omits `--write-per-query-results`, the old
+per-query tree is removed after the new aggregate summary is written.

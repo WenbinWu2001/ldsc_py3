@@ -20,14 +20,17 @@ Supported Inputs
 - Optional frequency metadata may be provided to populate `MAF` in outputs and
   to enable common-count generation when parquet input is used. For LD-score
   calculation, the annotation file's `CM` is the first source. The sidecar
-  metadata only fills missing `CM` values.
+  metadata only fills missing `CM` values; duplicate sidecar identity clusters
+  are dropped entirely before filling.
 - Optional regression SNP lists may be provided to define the SNP set used for
   `w_ld`. If omitted, the retained reference SNP set is used.
 
 Canonical Parquet `R2` Format
 -----------------------------
-- Package-written parquet R2 files contain exactly six logical columns:
-  `CHR`, `POS_1`, `POS_2`, `R2`, `SNP_1`, and `SNP_2`.
+- Package-written parquet R2 files contain canonical endpoint identity columns:
+  `CHR`, `POS_1`, `POS_2`, `SNP_1`, `SNP_2`, optional endpoint `A1/A2`
+  allele columns, and `R2`. Endpoint alleles are required in allele-aware
+  modes.
 - `POS_1` and `POS_2` are positions in one sorted genome build. The build is
   recorded in schema metadata under `ldsc:sorted_by_build`; the runtime query
   build must match it.
@@ -35,22 +38,27 @@ Canonical Parquet `R2` Format
   `POS_1` is not required.
 - Canonical files are opened with `pyarrow.parquet.ParquetFile`; footer
   statistics for `POS_1` form a row-group index so each genomic window reads
-  only overlapping row groups.
+  only overlapping row groups. Decoded canonical row groups are cached as
+  numeric endpoint arrays across overlapping sliding-window queries.
 - The loader resolves accepted aliases such as `chr`, `bp_1`, `bp_2`,
-  `rsid_1`, and `rsid_2` to the six logical fields above.
+  `rsid_1`, `rsid_2`, and endpoint allele aliases to the canonical fields
+  above.
 - Legacy raw-schema parquet files with `hg19_pos_1`, `hg38_pos_1`, `rsID_1`,
   `rsID_2`, `Dprime`, or `+/-corr` are still accepted through the slower
   `pyarrow.Dataset` fallback, but row-group pruning is disabled.
-- In `chr_pos` mode, retained reference SNP rows must have unique chromosome
-  positions. If two retained SNPs share the same `CHR` and `POS`, matching to
-  the `R2` table is ambiguous and the code fails fast.
+- In `chr_pos`-family modes, retained reference SNP rows must have unique
+  chromosome positions after active identity cleanup. If two retained SNPs
+  share the same `CHR` and `POS` in base `chr_pos`, matching to the `R2` table
+  is ambiguous and the code fails fast; allele-aware multi-allelic base-key
+  clusters are removed before matching.
 
 Identifier and Genome-Build Rules
 ---------------------------------
-- Supported SNP identifier modes in v1 are `chr_pos` and `rsid`.
-- No allele matching is attempted in v1.
-- In `chr_pos` mode, retained reference SNP rows are matched by chromosome and
-  position and must be unique within each chromosome.
+- Supported SNP identifier modes are `rsid`, `rsid_allele_aware`, `chr_pos`,
+  and `chr_pos_allele_aware`.
+- In chr-pos-family modes, retained reference SNP rows are matched by
+  chromosome and position, plus A1/A2 identity when the active mode and input
+  schema require it.
 - Canonical parquet files are build-specific. If `ldsc:sorted_by_build`
   conflicts with the selected `genome_build`, reader initialization raises a
   `ValueError`. If the metadata key is absent, the reader infers the build from
@@ -63,13 +71,13 @@ materialize legacy prefix-based files for compatibility tests, but the public
 ``ldsc ldscore`` workflow wraps kernel results in ``LDScoreResult`` and writes a
 canonical directory:
 
-- ``manifest.json``
-- ``baseline.parquet``, containing ``CHR``, ``POS``, ``SNP``, ``regr_weight``,
+- ``metadata.json``
+- ``ldscore.baseline.parquet``, containing ``CHR``, ``POS``, ``SNP``, ``regression_ld_scores``,
   and baseline LD-score columns
-- optional ``query.parquet``, containing ``CHR``, ``POS``, ``SNP``, and query
+- optional ``ldscore.query.parquet``, containing ``CHR``, ``POS``, ``SNP``, and query
   LD-score columns
 
-Count records are stored in the manifest rather than as public ``.M`` sidecar
+Count records are stored in root metadata rather than as public ``.M`` sidecar
 files. Outputs retain ``CM`` and ``MAF`` internally when available, with missing
 values represented as ``NA`` by the legacy serializers.
 
@@ -154,13 +162,9 @@ MAF and Common-Count Rules
 - If MAF is unavailable, `MAF` is written as `NA` in LD-score outputs and
   common counts are not emitted.
 
-Current Limitations
--------------------
-- v1 supports only `chr_pos` and `rsid` matching.
-- v1 does not attempt allele-aware reconciliation between annotations and
-  parquet pairs.
 - Runtime parquet input may be either normalized sorted parquet or raw parquet
-  with the legacy pairwise schema.
+  with the legacy pairwise schema in base modes. Allele-aware modes require
+  package-written canonical parquet with endpoint allele columns.
 - parquet input requires `pyarrow` at runtime.
 - Per-query partitioned LDSC wrappers are intentionally out of scope for this
   module; this module computes LD scores only.
@@ -175,6 +179,7 @@ Dependencies
 from __future__ import annotations
 
 import argparse
+from collections import OrderedDict
 import gzip
 import logging
 import os
@@ -186,12 +191,16 @@ from typing import Iterable, Sequence
 import numpy as np
 import pandas as pd
 
+from .._coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame
 from ..column_inference import (
+    A1_COLUMN_SPEC,
+    A2_COLUMN_SPEC,
     ANNOTATION_METADATA_SPEC_MAP,
     CHR_COLUMN_ALIASES,
     CHR_COLUMN_SPEC,
     CM_COLUMN_ALIASES,
     CM_COLUMN_SPEC,
+    ColumnSpec,
     MAF_COLUMN_ALIASES,
     MAF_COLUMN_SPEC,
     PARQUET_R2_CANONICAL_SPECS,
@@ -209,7 +218,7 @@ from ..column_inference import (
     resolve_required_column,
     resolve_required_columns,
 )
-from ..chromosome_inference import chrom_sort_key, normalize_chromosome
+from ..chromosome_inference import chrom_sort_key, normalize_chromosome, normalize_chromosome_series
 from ..errors import LDSCDependencyError
 from ..genome_build_inference import (
     load_packaged_reference_table,
@@ -226,7 +235,15 @@ from ..path_resolution import (
 )
 from .._row_alignment import assert_same_snp_rows
 from . import formats as legacy_parse
-from .identifiers import build_snp_id_series, read_global_snp_restriction
+from .identifiers import build_snp_id_series, read_snp_restriction_keys
+from .snp_identity import (
+    RestrictionIdentityKeys,
+    effective_merge_key_series,
+    identity_base_mode,
+    identity_mode_family,
+    is_allele_aware_mode,
+    restriction_membership_mask,
+)
 
 try:  # pragma: no cover - optional dependency
     import bitarray as ba
@@ -236,7 +253,19 @@ except ImportError:  # pragma: no cover - optional dependency
 
 LOGGER = logging.getLogger("LDSC.ldscore")
 REQUIRED_ANNOT_COLUMNS = ("CHR", "POS", "SNP", "CM")
-ANNOT_META_COLUMNS = ("CHR", "POS", "SNP", "CM", "MAF")
+ANNOT_META_COLUMNS = ("CHR", "POS", "SNP", "A1", "A2", "CM", "MAF")
+ANNOTATION_A1_COLUMN_SPEC = ColumnSpec(
+    A1_COLUMN_SPEC.canonical,
+    A1_COLUMN_SPEC.aliases,
+    A1_COLUMN_SPEC.label,
+    allow_suffix_match=False,
+)
+ANNOTATION_A2_COLUMN_SPEC = ColumnSpec(
+    A2_COLUMN_SPEC.canonical,
+    A2_COLUMN_SPEC.aliases,
+    A2_COLUMN_SPEC.label,
+    allow_suffix_match=False,
+)
 CHROM_ALIASES = CHR_COLUMN_ALIASES
 POS_ALIASES = POS_COLUMN_ALIASES
 SNP_ALIASES = SNP_COLUMN_ALIASES
@@ -244,6 +273,12 @@ CM_ALIASES = CM_COLUMN_ALIASES
 MAF_ALIASES = MAF_COLUMN_ALIASES
 R2_CANONICAL_SOURCE_COLUMNS = tuple(spec.canonical for spec in R2_SOURCE_COLUMN_SPECS)
 PARQUET_R2_CANONICAL_COLUMNS = tuple(spec.canonical for spec in PARQUET_R2_CANONICAL_SPECS)
+PARQUET_R2_CANONICAL_BASE_COLUMNS = ("CHR", "POS_1", "POS_2", "SNP_1", "SNP_2", "R2")
+PARQUET_R2_ENDPOINT_ALLELE_COLUMNS = ("A1_1", "A2_1", "A1_2", "A2_2")
+ALLELE_AWARE_R2_ENDPOINT_ERROR = (
+    "allele-aware SNP identity requires package-built canonical R2 parquet with "
+    "A1_1/A2_1/A1_2/A2_2 endpoint allele columns; external raw R2 parquet is supported only for rsid and chr_pos."
+)
 
 
 @dataclass
@@ -613,7 +648,18 @@ else:
 
 def identifier_keys(df: pd.DataFrame, mode: str) -> pd.Series:
     """Build the canonical SNP identifier series used for matching within the kernel."""
-    return build_snp_id_series(df, normalize_snp_identifier_mode(mode))
+    mode = normalize_snp_identifier_mode(mode)
+    if identity_mode_family(mode) == "rsid" or is_allele_aware_mode(mode):
+        return build_snp_id_series(df, mode)
+    keyed, _report = build_chr_pos_key_frame(
+        df,
+        context="LD-score SNP matching",
+        drop_missing=True,
+        logger=LOGGER,
+    )
+    keys = pd.Series(pd.NA, index=df.index, dtype="object")
+    keys.loc[keyed.index] = keyed[CHR_POS_KEY_COLUMN].astype(str)
+    return keys
 
 
 def sort_frame_by_genomic_position(df: pd.DataFrame) -> pd.DataFrame:
@@ -688,7 +734,7 @@ def resolve_frequency_files(args: argparse.Namespace, chrom: str | None = None) 
 def read_text_table(path: str) -> pd.DataFrame:
     """Read a whitespace-delimited kernel input table with optional gzip compression."""
     compression = "gzip" if path.endswith(".gz") else None
-    return pd.read_csv(path, sep=r"\s+", compression=compression)
+    return pd.read_csv(path, sep=r"\s+", compression=compression, comment="#")
 
 
 def _resolve_r2_source_columns(schema_names: Iterable[str], context: str | None = None) -> dict[str, str]:
@@ -699,9 +745,18 @@ def _resolve_r2_source_columns(schema_names: Iterable[str], context: str | None 
 def _resolve_canonical_parquet_columns(
     schema_names: Iterable[str],
     context: str | None = None,
+    *,
+    require_endpoint_alleles: bool = False,
 ) -> dict[str, str]:
     """Resolve canonical parquet logical fields from an on-disk schema."""
-    return resolve_required_columns(schema_names, PARQUET_R2_CANONICAL_SPECS, context=context)
+    required = list(PARQUET_R2_CANONICAL_BASE_COLUMNS)
+    if require_endpoint_alleles:
+        required.extend(PARQUET_R2_ENDPOINT_ALLELE_COLUMNS)
+    spec_map = {spec.canonical: spec for spec in PARQUET_R2_CANONICAL_SPECS}
+    return {
+        canonical: resolve_required_column(schema_names, spec_map[canonical], context=context)
+        for canonical in required
+    }
 
 
 def _resolve_r2_source_subset(
@@ -754,7 +809,7 @@ def get_pyarrow_modules():
 def _parquet_schema_layout(schema_names: Sequence[str]) -> str:
     """Classify a runtime parquet schema as canonical, raw, or unsupported."""
     try:
-        _resolve_canonical_parquet_columns(schema_names)
+        _resolve_canonical_parquet_columns(schema_names, require_endpoint_alleles=False)
     except ValueError:
         # Canonical schema did not match; try the legacy raw schema before
         # classifying the file as unsupported.
@@ -812,10 +867,15 @@ def validate_r2_source_columns(df: pd.DataFrame, path: str) -> None:
 
 
 def canonicalize_r2_pairs(df: pd.DataFrame, genome_build: str) -> pd.DataFrame:
-    """Orient pairwise-R2 rows so the selected build always satisfies ``pos_1 <= pos_2``."""
+    """Orient pairwise-R2 rows so the selected build satisfies ``pos_1 <= pos_2``.
+
+    Chromosome labels are normalized through the shared unique-token series
+    helper. That preserves scalar validation/logging semantics while avoiding a
+    row-wise normalization call on large R2 pair tables.
+    """
     df = normalize_r2_source_columns(df.copy())
     left_pos_col, right_pos_col = get_r2_build_columns(genome_build, df.columns)
-    df["chr"] = df["chr"].map(lambda value: normalize_chromosome(value, context="R2 chromosome column"))
+    df["chr"] = normalize_chromosome_series(df["chr"], context="R2 chromosome column")
 
     paired_columns = (
         ("rsID_1", "rsID_2"),
@@ -890,12 +950,26 @@ def convert_r2_table_to_sorted_parquet(source_path: str, genome_build: str, outp
 
 def validate_retained_identifier_uniqueness(metadata: pd.DataFrame, identifier_mode: str, chrom: str) -> None:
     """Reject ambiguous retained SNP identifiers before parquet matching begins."""
-    if identifier_mode == "chr_pos":
+    if is_allele_aware_mode(identifier_mode):
+        keys = effective_merge_key_series(
+            metadata,
+            identifier_mode,
+            context=f"retained SNP metadata for chromosome {chrom}",
+        )
+        duplicated = keys.duplicated(keep=False)
+        if duplicated.any():
+            raise ValueError(
+                f"Chromosome {chrom} has duplicate retained SNP identities. "
+                f"This is ambiguous in {identifier_mode} mode."
+            )
+        return
+
+    if identity_mode_family(identifier_mode) == "chr_pos":
         duplicated = metadata.duplicated(subset=["CHR", "POS"], keep=False)
         if duplicated.any():
             raise ValueError(
                 f"Chromosome {chrom} has duplicate retained SNP positions. "
-                "This is ambiguous in chr_pos mode."
+                "This is ambiguous in base chr_pos mode."
             )
         return
 
@@ -903,7 +977,7 @@ def validate_retained_identifier_uniqueness(metadata: pd.DataFrame, identifier_m
     if duplicated.any():
         raise ValueError(
             f"Chromosome {chrom} has duplicate retained SNP IDs. "
-            "This is ambiguous in rsid mode."
+            "This is ambiguous in base rsID mode."
         )
 
 
@@ -926,6 +1000,10 @@ def parse_annotation_file(path: str, chrom: str | None = None) -> tuple[pd.DataF
     snp_col = resolve_required_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["SNP"], context=context)
     cm_col = resolve_required_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["CM"], context=context)
     maf_col = resolve_optional_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["MAF"], context=context)
+    a1_col = resolve_optional_column(df.columns, ANNOTATION_A1_COLUMN_SPEC, context=context)
+    a2_col = resolve_optional_column(df.columns, ANNOTATION_A2_COLUMN_SPEC, context=context)
+    if (a1_col is None) ^ (a2_col is None):
+        raise ValueError("Annotation file has only one allele column; provide both A1 and A2 or neither.")
 
     meta = pd.DataFrame(
         {
@@ -939,6 +1017,9 @@ def parse_annotation_file(path: str, chrom: str | None = None) -> tuple[pd.DataF
     meta["POS"] = pd.to_numeric(meta["POS"], errors="raise").astype(np.int64)
     meta["SNP"] = meta["SNP"].astype(str)
     meta["CM"] = pd.to_numeric(meta["CM"], errors="coerce")
+    if a1_col is not None and a2_col is not None:
+        meta["A1"] = df[a1_col]
+        meta["A2"] = df[a2_col]
     if maf_col is not None:
         meta["MAF"] = pd.to_numeric(df[maf_col], errors="coerce")
 
@@ -953,7 +1034,8 @@ def parse_annotation_file(path: str, chrom: str | None = None) -> tuple[pd.DataF
         return meta, pd.DataFrame(index=meta.index)
 
     meta = sort_frame_by_genomic_position(meta)
-    annotation_columns = [col for col in df.columns if col not in {chr_col, pos_col, snp_col, cm_col, maf_col}]
+    metadata_source_columns = {chr_col, pos_col, snp_col, cm_col, maf_col, a1_col, a2_col}
+    annotation_columns = [col for col in df.columns if col not in metadata_source_columns]
     if not annotation_columns:
         raise ValueError(f"{path} does not contain any annotation columns.")
 
@@ -1007,16 +1089,21 @@ def combine_annotation_groups(
             if len(meta) == 0:
                 continue
             meta = meta.copy()
-            meta["_key"] = identifier_keys(meta, identifier_mode)
+            meta["_key"] = identifier_keys(meta, _annotation_available_precision_mode(meta, identifier_mode))
             if not frames:
                 frames.append(meta)
             else:
                 reference = frames[0]
+                alignment_mode = _annotation_pair_alignment_mode(reference, meta, identifier_mode)
                 assert_same_snp_rows(
                     reference,
                     meta,
                     context=f"Annotation SNP rows do not match across files for chromosome {chrom}: {path}",
+                    snp_identifier=alignment_mode,
                 )
+                if {"A1", "A2"}.issubset(meta.columns) and not {"A1", "A2"}.issubset(frames[0].columns):
+                    frames[0]["A1"] = meta["A1"].to_numpy()
+                    frames[0]["A2"] = meta["A2"].to_numpy()
                 missing_cm = reference["CM"].isna() & meta["CM"].notna()
                 if missing_cm.any():
                     frames[0].loc[missing_cm, "CM"] = meta.loc[missing_cm, "CM"].to_numpy()
@@ -1053,12 +1140,30 @@ def combine_annotation_groups(
     )
 
 
-def read_identifier_list(path: str, mode: str) -> set[str]:
-    """Read a SNP list file into the canonical identifier set for ``mode``."""
-    return read_global_snp_restriction(path, normalize_snp_identifier_mode(mode))
+def _annotation_available_precision_mode(metadata: pd.DataFrame, identifier_mode: str) -> str:
+    """Return allele-aware annotation identity only when metadata has A1/A2."""
+    mode = normalize_snp_identifier_mode(identifier_mode)
+    if is_allele_aware_mode(mode) and not {"A1", "A2"}.issubset(metadata.columns):
+        return identity_base_mode(mode)
+    return mode
 
 
-def load_regression_keys(args: argparse.Namespace) -> set[str] | None:
+def _annotation_pair_alignment_mode(left: pd.DataFrame, right: pd.DataFrame, identifier_mode: str) -> str:
+    """Return the row-alignment mode supported by both annotation tables."""
+    mode = normalize_snp_identifier_mode(identifier_mode)
+    if is_allele_aware_mode(mode) and not (
+        {"A1", "A2"}.issubset(left.columns) and {"A1", "A2"}.issubset(right.columns)
+    ):
+        return identity_base_mode(mode)
+    return mode
+
+
+def read_identifier_list(path: str, mode: str) -> RestrictionIdentityKeys:
+    """Read a SNP list file into base or allele-aware restriction keys for ``mode``."""
+    return read_snp_restriction_keys(path, normalize_snp_identifier_mode(mode))
+
+
+def load_regression_keys(args: argparse.Namespace) -> RestrictionIdentityKeys | None:
     """Load the optional regression SNP universe from CLI arguments."""
     if not getattr(args, "regression_snps_file", None):
         return None
@@ -1075,25 +1180,36 @@ def parse_frequency_metadata(path: str, chrom: str | None, identifier_mode: str)
     snp_col = resolve_optional_column(df.columns, REFERENCE_METADATA_SPEC_MAP["SNP"], context=context)
     cm_col = resolve_optional_column(df.columns, REFERENCE_METADATA_SPEC_MAP["CM"], context=context)
     maf_col = resolve_optional_column(df.columns, REFERENCE_METADATA_SPEC_MAP["MAF"], context=context)
+    a1_col = resolve_optional_column(df.columns, A1_COLUMN_SPEC, context=context)
+    a2_col = resolve_optional_column(df.columns, A2_COLUMN_SPEC, context=context)
+    if (a1_col is None) != (a2_col is None):
+        raise ValueError(f"{path} has only one allele column; provide both A1 and A2 or neither.")
 
-    if chrom is not None and chr_col is not None:
+    if chrom is not None and chr_col is not None and identity_mode_family(identifier_mode) == "rsid":
         keep = df[chr_col].map(lambda value: normalize_chromosome(value, context=path)) == normalize_chromosome(chrom, context=path)
         df = df.loc[keep].reset_index(drop=True)
 
     if len(df) == 0:
-        return pd.DataFrame(columns=["_key", "CM", "MAF"])
+        return pd.DataFrame(columns=["_key", "_key_mode", "CM", "MAF"])
 
     out = pd.DataFrame(index=df.index)
-    if identifier_mode == "rsid":
+    key_frame = pd.DataFrame(index=df.index)
+    if identity_mode_family(identifier_mode) == "rsid":
         if snp_col is None:
-            raise ValueError(f"{path} must contain a SNP column in rsid mode.")
-        out["_key"] = df[snp_col].astype(str)
+            raise ValueError(f"{path} must contain a SNP column in rsID-family modes.")
+        key_frame["SNP"] = df[snp_col].astype(str)
     else:
         if chr_col is None or pos_col is None:
-            raise ValueError(f"{path} must contain CHR and POS columns in chr_pos mode.")
-        chrom_norm = df[chr_col].map(lambda value: normalize_chromosome(value, context=path))
-        pos = pd.to_numeric(df[pos_col], errors="raise").astype(np.int64).astype(str)
-        out["_key"] = chrom_norm + ":" + pos
+            raise ValueError(f"{path} must contain CHR and POS columns in chr_pos-family modes.")
+        key_frame["CHR"] = df[chr_col]
+        key_frame["POS"] = df[pos_col]
+    has_alleles = a1_col is not None and a2_col is not None
+    if has_alleles:
+        key_frame["A1"] = df[a1_col].astype(str)
+        key_frame["A2"] = df[a2_col].astype(str)
+    key_mode = identifier_mode if is_allele_aware_mode(identifier_mode) and has_alleles else identity_base_mode(identifier_mode)
+    out["_key"] = build_snp_id_series(key_frame, key_mode)
+    out["_key_mode"] = key_mode
 
     if cm_col is not None:
         out["CM"] = pd.to_numeric(df[cm_col], errors="coerce")
@@ -1101,7 +1217,11 @@ def parse_frequency_metadata(path: str, chrom: str | None, identifier_mode: str)
         maf = pd.to_numeric(df[maf_col], errors="coerce").astype(float)
         out["MAF"] = np.minimum(maf, 1.0 - maf)
 
-    return out
+    out = out.loc[out["_key"].notna()].copy()
+    if chrom is not None and chr_col is not None:
+        keep_chrom = df.loc[out.index, chr_col].map(lambda value: normalize_chromosome(value, context=path)) == normalize_chromosome(chrom, context=path)
+        out = out.loc[keep_chrom.to_numpy()].copy()
+    return out.reset_index(drop=True)
 
 
 def merge_frequency_metadata(
@@ -1116,31 +1236,42 @@ def merge_frequency_metadata(
     For LD-score calculation, the annotation file's ``CM`` is the first source.
     The sidecar metadata only fills missing ``CM`` values. ``MAF`` is filled by
     the same missing-value rule so annotation-provided metadata remains
-    authoritative when present.
+    authoritative when present. Frequency sidecars are metadata providers, not
+    SNP filters: when multiple sidecar rows share the active effective identity
+    key, the whole duplicate-key cluster is ignored and a warning is logged, so
+    ``CM``/``MAF`` stay missing unless already supplied by annotation metadata.
     """
     files = resolve_frequency_files(args, chrom=chrom)
     if not files:
         return metadata
 
     frames = [parse_frequency_metadata(path, chrom=chrom, identifier_mode=identifier_mode) for path in files]
-    freq_df = pd.concat(frames, axis=0, ignore_index=True) if frames else pd.DataFrame(columns=["_key", "CM", "MAF"])
-    if freq_df["_key"].duplicated().any():
-        raise ValueError(f"Duplicate SNP metadata keys detected in frequency metadata for chromosome {chrom}.")
+    freq_df = pd.concat(frames, axis=0, ignore_index=True) if frames else pd.DataFrame(columns=["_key", "_key_mode", "CM", "MAF"])
+    duplicate_mask = freq_df[["_key_mode", "_key"]].duplicated(keep=False)
+    if bool(duplicate_mask.any()):
+        LOGGER.warning(
+            "Dropping %d frequency metadata rows in duplicate SNP identity clusters for chromosome %s; "
+            "CM/MAF will remain missing for those keys unless already present in annotation metadata.",
+            int(duplicate_mask.sum()),
+            chrom,
+        )
+        freq_df = freq_df.loc[~duplicate_mask].reset_index(drop=True)
 
     merged = metadata.copy()
-    merged["_key"] = identifier_keys(merged, identifier_mode)
-    freq_df = freq_df.set_index("_key")
-    if "CM" in freq_df.columns:
-        if "CM" not in merged.columns:
-            merged["CM"] = np.nan
-        missing_cm = merged["CM"].isna() & merged["_key"].isin(freq_df.index)
-        merged.loc[missing_cm, "CM"] = freq_df.loc[merged.loc[missing_cm, "_key"], "CM"].to_numpy()
-    if "MAF" in freq_df.columns:
-        if "MAF" not in merged.columns:
-            merged["MAF"] = np.nan
-        missing_maf = merged["MAF"].isna() & merged["_key"].isin(freq_df.index)
-        merged.loc[missing_maf, "MAF"] = freq_df.loc[merged.loc[missing_maf, "_key"], "MAF"].to_numpy()
-    return merged.drop(columns="_key")
+    for key_mode, freq_part in freq_df.groupby("_key_mode", sort=False):
+        merged_keys = build_snp_id_series(merged, str(key_mode))
+        freq_part = freq_part.set_index("_key")
+        if "CM" in freq_part.columns:
+            if "CM" not in merged.columns:
+                merged["CM"] = np.nan
+            missing_cm = merged["CM"].isna() & merged_keys.isin(freq_part.index)
+            merged.loc[missing_cm, "CM"] = freq_part.loc[merged_keys.loc[missing_cm], "CM"].to_numpy()
+        if "MAF" in freq_part.columns:
+            if "MAF" not in merged.columns:
+                merged["MAF"] = np.nan
+            missing_maf = merged["MAF"].isna() & merged_keys.isin(freq_part.index)
+            merged.loc[missing_maf, "MAF"] = freq_part.loc[merged_keys.loc[missing_maf], "MAF"].to_numpy()
+    return merged
 
 
 def apply_maf_filter(
@@ -1205,6 +1336,62 @@ def check_whole_chromosome_window(block_left: np.ndarray, args: argparse.Namespa
 
 
 # Parquet R2 adapter.
+@dataclass(frozen=True)
+class _DecodedR2RowGroup:
+    """Decoded canonical parquet row group stored as numeric endpoint arrays."""
+
+    row_group_index: int
+    i: np.ndarray
+    j: np.ndarray
+    r2: np.ndarray
+
+
+class _RowGroupLRUCache:
+    """Small LRU cache for decoded canonical parquet R2 row groups."""
+
+    def __init__(self, capacity: int) -> None:
+        if capacity <= 0:
+            raise ValueError("row-group cache capacity must be positive.")
+        self.capacity = int(capacity)
+        self._entries: OrderedDict[int, _DecodedR2RowGroup] = OrderedDict()
+        self.hits = 0
+        self.misses = 0
+        self.evictions = 0
+        self.row_group_reads = 0
+
+    def get(self, row_group_index: int) -> _DecodedR2RowGroup | None:
+        """Return a cached decoded row group, updating LRU counters."""
+        key = int(row_group_index)
+        entry = self._entries.get(key)
+        if entry is None:
+            self.misses += 1
+            return None
+        self.hits += 1
+        self._entries.move_to_end(key)
+        return entry
+
+    def put(self, entry: _DecodedR2RowGroup) -> None:
+        """Insert ``entry`` and evict the least recently used group if needed."""
+        key = int(entry.row_group_index)
+        if key in self._entries:
+            self._entries[key] = entry
+            self._entries.move_to_end(key)
+            return
+        self._entries[key] = entry
+        while len(self._entries) > self.capacity:
+            self._entries.popitem(last=False)
+            self.evictions += 1
+
+
+def _endpoint_identity_keys(table: pd.DataFrame, *, side: int, mode: str) -> pd.Series:
+    """Build allele-aware identity keys for one canonical R2 endpoint side."""
+    if side == 1:
+        frame = table.rename(columns={"SNP_1": "SNP", "POS_1": "POS", "A1_1": "A1", "A2_1": "A2"})
+    else:
+        frame = table.rename(columns={"SNP_2": "SNP", "POS_2": "POS", "A1_2": "A1", "A2_2": "A2"})
+    return effective_merge_key_series(frame, mode, context=f"R2 endpoint {side}")
+
+
 class SortedR2BlockReader:
     """
     Query block-local dense R2 matrices from a per-chromosome parquet table.
@@ -1229,7 +1416,7 @@ class SortedR2BlockReader:
         if not paths:
             raise FileNotFoundError(f"No sorted parquet R2 files resolved for chromosome {chrom}.")
         self.chrom = normalize_chromosome(chrom)
-        self.identifier_mode = identifier_mode
+        self.identifier_mode = normalize_snp_identifier_mode(identifier_mode)
         self.r2_bias_mode = r2_bias_mode
         self.r2_sample_size = r2_sample_size
         self.genome_build = genome_build
@@ -1243,6 +1430,7 @@ class SortedR2BlockReader:
         self._rg_bounds: list[tuple[int, int, int]] = []
         self._raw_pos_columns: tuple[str, str] | None = None
         self._raw_query_columns: list[str] | None = None
+        self._row_group_cache: _RowGroupLRUCache | None = None
         metadata = metadata.copy()
         metadata_context = f"SortedR2BlockReader[{self.chrom}] metadata"
         renamed = {
@@ -1254,16 +1442,6 @@ class SortedR2BlockReader:
         if optional_cm is not None:
             renamed[optional_cm] = "CM"
         metadata = metadata.rename(columns=renamed)
-        validate_retained_identifier_uniqueness(metadata, identifier_mode, chrom)
-        self.pos = metadata["POS"].to_numpy(dtype=np.int64)
-        self.m = len(metadata)
-        if self.identifier_mode == "rsid":
-            self.index_map = {str(snp): idx for idx, snp in enumerate(metadata["SNP"].astype(str))}
-        else:
-            self.index_map = {int(pos): idx for idx, pos in enumerate(metadata["POS"].astype(np.int64))}
-
-        self._last_query_key: tuple[int, int] | None = None
-        self._last_query_rows: pd.DataFrame | None = None
 
         try:
             import pyarrow.parquet as pq
@@ -1278,6 +1456,27 @@ class SortedR2BlockReader:
             probe_schema_names = list(ds.dataset(list(paths), format="parquet").schema.names)
 
         layout = _parquet_schema_layout(probe_schema_names)
+        if layout == "raw" and is_allele_aware_mode(self.identifier_mode):
+            raise ValueError(ALLELE_AWARE_R2_ENDPOINT_ERROR)
+
+        if is_allele_aware_mode(self.identifier_mode):
+            a1_col = resolve_required_column(metadata.columns, A1_COLUMN_SPEC, context=metadata_context)
+            a2_col = resolve_required_column(metadata.columns, A2_COLUMN_SPEC, context=metadata_context)
+            metadata = metadata.rename(columns={a1_col: "A1", a2_col: "A2"})
+        validate_retained_identifier_uniqueness(metadata, self.identifier_mode, chrom)
+        self.pos = metadata["POS"].to_numpy(dtype=np.int64)
+        self.m = len(metadata)
+        if is_allele_aware_mode(self.identifier_mode):
+            keys = effective_merge_key_series(metadata, self.identifier_mode, context=metadata_context)
+            self.index_map = {str(key): idx for idx, key in enumerate(keys) if pd.notna(key)}
+        elif identity_mode_family(self.identifier_mode) == "rsid":
+            self.index_map = {str(snp): idx for idx, snp in enumerate(metadata["SNP"].astype(str))}
+        else:
+            self.index_map = {int(pos): idx for idx, pos in enumerate(metadata["POS"].astype(np.int64))}
+
+        self._last_query_key: tuple[int, int] | None = None
+        self._last_query_rows: pd.DataFrame | None = None
+
         if layout == "canonical":
             if len(paths) != 1:
                 raise ValueError(
@@ -1318,10 +1517,16 @@ class SortedR2BlockReader:
             raise ValueError("Canonical parquet reader is not initialized.")
 
         schema_names = self._pf.schema_arrow.names
-        self._canonical_columns = _resolve_canonical_parquet_columns(
-            schema_names,
-            context="canonical parquet R2 schema",
-        )
+        try:
+            self._canonical_columns = _resolve_canonical_parquet_columns(
+                schema_names,
+                context="canonical parquet R2 schema",
+                require_endpoint_alleles=is_allele_aware_mode(self.identifier_mode),
+            )
+        except ValueError as exc:
+            if is_allele_aware_mode(self.identifier_mode):
+                raise ValueError(ALLELE_AWARE_R2_ENDPOINT_ERROR) from exc
+            raise
 
         schema_meta = self._pf.schema_arrow.metadata or {}
         parquet_build_raw = schema_meta.get(b"ldsc:sorted_by_build")
@@ -1347,10 +1552,7 @@ class SortedR2BlockReader:
                         first[self._canonical_columns["CHR"]].to_pylist(),
                         dtype="object",
                     ),
-                    "POS": pd.to_numeric(
-                        pd.Series(first[self._canonical_columns["POS_1"]].to_pylist()),
-                        errors="raise",
-                    ).astype(np.int64),
+                    "POS": pd.Series(first[self._canonical_columns["POS_1"]].to_pylist()),
                 }
             )
             _, inference = resolve_chr_pos_table(
@@ -1401,79 +1603,245 @@ class SortedR2BlockReader:
             values = values - (1.0 - values) / denom
         return values
 
+    @staticmethod
+    def _empty_pair_rows() -> pd.DataFrame:
+        """Return an empty numeric pair-row table."""
+        return pd.DataFrame(
+            {
+                "i": pd.Series([], dtype=np.int64),
+                "j": pd.Series([], dtype=np.int64),
+                "R2": pd.Series([], dtype=np.float32),
+            }
+        )
+
+    def _row_group_indices_for_pos_window(self, pos_min: int, pos_max: int) -> list[int]:
+        """Return canonical row groups whose footer bounds overlap a POS window."""
+        if not self._rg_bounds:
+            return []
+        pos_min = int(pos_min)
+        pos_max = int(pos_max)
+        return [index for mn, mx, index in self._rg_bounds if mn <= pos_max and mx >= pos_min]
+
+    def _row_group_indices_for_index_window(self, start: int, stop: int) -> list[int]:
+        """Return canonical row groups needed for a retained-SNP index window."""
+        start = max(0, int(start))
+        stop = min(int(stop), int(getattr(self, "m", len(self.pos))))
+        if stop <= start:
+            return []
+        return self._row_group_indices_for_pos_window(int(self.pos[start]), int(self.pos[stop - 1]))
+
+    @staticmethod
+    def _sliding_query_index_windows(block_left: np.ndarray, snp_batch_size: int, m: int) -> list[tuple[int, int]]:
+        """Mirror parquet LD-score matrix query windows for cache sizing."""
+        if m <= 0:
+            return []
+        snp_batch_size = int(snp_batch_size)
+        if snp_batch_size <= 0:
+            raise ValueError("snp_batch_size must be positive.")
+
+        block_sizes = np.array(np.arange(m) - block_left)
+        block_sizes = np.ceil(block_sizes / snp_batch_size) * snp_batch_size
+        windows: list[tuple[int, int]] = []
+
+        positive = np.nonzero(block_left > 0)
+        if np.any(positive):
+            block_width = int(positive[0][0])
+        else:
+            block_width = m
+        block_width = int(np.ceil(block_width / snp_batch_size) * snp_batch_size)
+        if block_width > m:
+            snp_batch_size = 1
+            block_width = m
+
+        l_A = 0
+        for l_B in range(0, block_width, snp_batch_size):
+            chunk_width = min(snp_batch_size, m - l_B)
+            if chunk_width <= 0:
+                continue
+            windows.append((min(l_A, l_B), max(l_A + block_width, l_B + chunk_width)))
+
+        b0 = block_width
+        md = int(snp_batch_size * np.floor(m / snp_batch_size))
+        end = md + 1 if md != m else md
+        for l_B in range(b0, end, snp_batch_size):
+            old_block_width = block_width
+            block_width = int(block_sizes[l_B])
+            if l_B > b0 and block_width > 0:
+                l_A += old_block_width - block_width + snp_batch_size
+            elif l_B == b0 and block_width > 0:
+                l_A = b0 - block_width
+            elif block_width == 0:
+                l_A = l_B
+
+            chunk_width = snp_batch_size
+            if l_B == md:
+                chunk_width = m - md
+            if chunk_width <= 0:
+                continue
+            if block_width > 0:
+                windows.append((min(l_A, l_B), max(l_A + block_width, l_B + chunk_width)))
+            windows.append((l_B, l_B + chunk_width))
+
+        return windows
+
+    def configure_auto_row_group_cache(self, block_left: np.ndarray, snp_batch_size: int) -> None:
+        """Size the decoded row-group cache from this chromosome's sliding windows."""
+        if getattr(self, "_runtime_layout", None) != "canonical":
+            self._row_group_cache = None
+            return
+        num_row_groups = len(self._rg_bounds)
+        if num_row_groups == 0:
+            self._row_group_cache = None
+            LOGGER.debug(f"Chromosome {self.chrom} row-group cache disabled: no footer bounds available.")
+            return
+
+        m = int(getattr(self, "m", len(self.pos)))
+        query_sets = [
+            set(self._row_group_indices_for_index_window(start, stop))
+            for start, stop in self._sliding_query_index_windows(block_left, snp_batch_size, m)
+        ]
+        query_sets = [rg_set for rg_set in query_sets if rg_set]
+        if not query_sets:
+            self._row_group_cache = None
+            LOGGER.debug(f"Chromosome {self.chrom} row-group cache disabled: no row groups overlap LD windows.")
+            return
+
+        if len(query_sets) == 1:
+            max_adjacent_union = len(query_sets[0])
+        else:
+            max_adjacent_union = max(len(left | right) for left, right in zip(query_sets, query_sets[1:]))
+        capacity = min(max_adjacent_union + 1, num_row_groups)
+        self._row_group_cache = _RowGroupLRUCache(capacity)
+        LOGGER.debug(
+            f"Chromosome {self.chrom} row-group cache capacity={capacity}, "
+            f"row_groups={num_row_groups}, query_windows={len(query_sets)}."
+        )
+
+    def log_row_group_cache_summary(self) -> None:
+        """Log DEBUG-only cache diagnostics after a chromosome finishes."""
+        cache = self._row_group_cache
+        if cache is None:
+            return
+        LOGGER.debug(
+            f"Chromosome {self.chrom} row-group cache summary: capacity={cache.capacity}, "
+            f"hits={cache.hits}, misses={cache.misses}, evictions={cache.evictions}, "
+            f"row_group_reads={cache.row_group_reads}."
+        )
+
+    def _decode_canonical_row_group(self, row_group_index: int) -> _DecodedR2RowGroup:
+        """Read and decode one canonical parquet row group into numeric arrays."""
+        if self._pf is None or self._canonical_columns is None:
+            raise ValueError("Canonical parquet reader is not initialized.")
+
+        read_cols = [self._canonical_columns["R2"]]
+        if is_allele_aware_mode(self.identifier_mode):
+            read_cols.extend(
+                [
+                    self._canonical_columns["CHR"],
+                    self._canonical_columns["POS_1"],
+                    self._canonical_columns["POS_2"],
+                    self._canonical_columns["SNP_1"],
+                    self._canonical_columns["SNP_2"],
+                    self._canonical_columns["A1_1"],
+                    self._canonical_columns["A2_1"],
+                    self._canonical_columns["A1_2"],
+                    self._canonical_columns["A2_2"],
+                ]
+            )
+        elif identity_mode_family(self.identifier_mode) == "rsid":
+            read_cols.extend([self._canonical_columns["SNP_1"], self._canonical_columns["SNP_2"]])
+        else:
+            read_cols.extend([self._canonical_columns["POS_1"], self._canonical_columns["POS_2"]])
+
+        table = self._pf.read_row_group(int(row_group_index), columns=read_cols)
+        r2_raw = _arrow_column_to_numpy(table.column(self._canonical_columns["R2"])).astype(np.float32, copy=False)
+        r2 = self._transform_r2(r2_raw)
+
+        if is_allele_aware_mode(self.identifier_mode):
+            rows = table.to_pandas().rename(
+                columns={actual: canonical for canonical, actual in self._canonical_columns.items()}
+            )
+            left_keys = _endpoint_identity_keys(rows, side=1, mode=self.identifier_mode)
+            right_keys = _endpoint_identity_keys(rows, side=2, mode=self.identifier_mode)
+            i_raw = np.fromiter((self.index_map.get(str(value), -1) for value in left_keys), dtype=np.int64, count=len(left_keys))
+            j_raw = np.fromiter((self.index_map.get(str(value), -1) for value in right_keys), dtype=np.int64, count=len(right_keys))
+        elif identity_mode_family(self.identifier_mode) == "rsid":
+            left_ids = _arrow_column_to_numpy(table.column(self._canonical_columns["SNP_1"])).astype(str)
+            right_ids = _arrow_column_to_numpy(table.column(self._canonical_columns["SNP_2"])).astype(str)
+            i_raw = np.fromiter((self.index_map.get(value, -1) for value in left_ids), dtype=np.int64, count=len(left_ids))
+            j_raw = np.fromiter((self.index_map.get(value, -1) for value in right_ids), dtype=np.int64, count=len(right_ids))
+        else:
+            pos_1 = _arrow_column_to_numpy(table.column(self._canonical_columns["POS_1"])).astype(np.int64, copy=False)
+            pos_2 = _arrow_column_to_numpy(table.column(self._canonical_columns["POS_2"])).astype(np.int64, copy=False)
+            i_raw = np.fromiter((self.index_map.get(int(value), -1) for value in pos_1), dtype=np.int64, count=len(pos_1))
+            j_raw = np.fromiter((self.index_map.get(int(value), -1) for value in pos_2), dtype=np.int64, count=len(pos_2))
+
+        keep = (i_raw >= 0) & (j_raw >= 0)
+        return _DecodedR2RowGroup(
+            row_group_index=int(row_group_index),
+            i=i_raw[keep].astype(np.int32, copy=False),
+            j=j_raw[keep].astype(np.int32, copy=False),
+            r2=r2[keep].astype(np.float32, copy=False),
+        )
+
+    def _get_decoded_canonical_row_group(self, row_group_index: int) -> _DecodedR2RowGroup:
+        """Return a decoded row group from cache or parquet."""
+        cache = self._row_group_cache
+        if cache is not None:
+            cached = cache.get(row_group_index)
+            if cached is not None:
+                return cached
+
+        decoded = self._decode_canonical_row_group(row_group_index)
+        if cache is not None:
+            cache.row_group_reads += 1
+            cache.put(decoded)
+        return decoded
+
+    def _query_union_rows_canonical_by_index(self, start: int, stop: int) -> pd.DataFrame:
+        """Query numeric pair rows spanning a retained-SNP index window."""
+        start = max(0, int(start))
+        stop = min(int(stop), self.m)
+        if stop <= start:
+            return self._empty_pair_rows()
+
+        rg_idxs = self._row_group_indices_for_index_window(start, stop)
+        if not rg_idxs:
+            return self._empty_pair_rows()
+
+        decoded = [self._get_decoded_canonical_row_group(index) for index in rg_idxs]
+        nonempty = [entry for entry in decoded if len(entry.i) > 0]
+        if not nonempty:
+            return self._empty_pair_rows()
+
+        i = np.concatenate([entry.i for entry in nonempty]).astype(np.int64, copy=False)
+        j = np.concatenate([entry.j for entry in nonempty]).astype(np.int64, copy=False)
+        r2 = np.concatenate([entry.r2 for entry in nonempty]).astype(np.float32, copy=False)
+        keep = (start <= i) & (i < stop) & (start <= j) & (j < stop)
+        if not keep.any():
+            return self._empty_pair_rows()
+        return pd.DataFrame({"i": i[keep], "j": j[keep], "R2": r2[keep]})
+
     def _query_union_rows(self, pos_min: int, pos_max: int) -> pd.DataFrame:
         """Query cached or on-disk pair rows spanning a union genomic window."""
+        if self._runtime_layout == "canonical":
+            return self._query_union_rows_canonical(pos_min, pos_max)
+
         key = (int(pos_min), int(pos_max))
         if self._last_query_key == key and self._last_query_rows is not None:
             return self._last_query_rows.copy()
 
-        if self._runtime_layout == "canonical":
-            rows = self._query_union_rows_canonical(pos_min, pos_max)
-        else:
-            rows = self._query_union_rows_raw(pos_min, pos_max)
+        rows = self._query_union_rows_raw(pos_min, pos_max)
 
         self._last_query_key = key
         self._last_query_rows = rows.copy()
         return rows
 
     def _query_union_rows_canonical(self, pos_min: int, pos_max: int) -> pd.DataFrame:
-        """Fast path using Parquet row-group footer statistics for pruning."""
-        if self._pf is None or self._canonical_columns is None:
-            raise ValueError("Canonical parquet reader is not initialized.")
-
-        rg_idxs = [index for mn, mx, index in self._rg_bounds if mn <= int(pos_max) and mx >= int(pos_min)]
-        if not rg_idxs:
-            return pd.DataFrame(
-                {
-                    "i": pd.Series([], dtype=np.int64),
-                    "j": pd.Series([], dtype=np.int64),
-                    "R2": pd.Series([], dtype=np.float32),
-                }
-            )
-
-        read_cols = [
-            self._canonical_columns["POS_1"],
-            self._canonical_columns["POS_2"],
-            self._canonical_columns["R2"],
-        ]
-        if self.identifier_mode == "rsid":
-            read_cols.extend([self._canonical_columns["SNP_1"], self._canonical_columns["SNP_2"]])
-
-        table = self._pf.read_row_groups(rg_idxs, columns=read_cols)
-        pos_1 = _arrow_column_to_numpy(table.column(self._canonical_columns["POS_1"])).astype(np.int64, copy=False)
-        pos_2 = _arrow_column_to_numpy(table.column(self._canonical_columns["POS_2"])).astype(np.int64, copy=False)
-        mask = (pos_1 >= int(pos_min)) & (pos_2 <= int(pos_max))
-        if not mask.any():
-            return pd.DataFrame(
-                {
-                    "i": pd.Series([], dtype=np.int64),
-                    "j": pd.Series([], dtype=np.int64),
-                    "R2": pd.Series([], dtype=np.float32),
-                }
-            )
-
-        r2_raw = _arrow_column_to_numpy(table.column(self._canonical_columns["R2"])).astype(np.float32, copy=False)
-        r2 = self._transform_r2(r2_raw[mask])
-        if self.identifier_mode == "rsid":
-            left_ids = _arrow_column_to_numpy(table.column(self._canonical_columns["SNP_1"])).astype(str)[mask]
-            right_ids = _arrow_column_to_numpy(table.column(self._canonical_columns["SNP_2"])).astype(str)[mask]
-            i_raw = [self.index_map.get(value) for value in left_ids]
-            j_raw = [self.index_map.get(value) for value in right_ids]
-        else:
-            i_raw = [self.index_map.get(int(value)) for value in pos_1[mask]]
-            j_raw = [self.index_map.get(int(value)) for value in pos_2[mask]]
-
-        rows = pd.DataFrame(
-            {
-                "i": pd.array(i_raw, dtype=pd.Int64Dtype()),
-                "j": pd.array(j_raw, dtype=pd.Int64Dtype()),
-                "R2": r2,
-            }
-        )
-        rows = rows.dropna(subset=["i", "j"]).copy()
-        rows["i"] = rows["i"].astype(np.int64)
-        rows["j"] = rows["j"].astype(np.int64)
-        return rows
+        """Fast path using decoded row-group cache and numeric endpoint filters."""
+        start = int(np.searchsorted(self.pos, int(pos_min), side="left"))
+        stop = int(np.searchsorted(self.pos, int(pos_max), side="right"))
+        return self._query_union_rows_canonical_by_index(start, stop)
 
     def _query_union_rows_raw(self, pos_min: int, pos_max: int) -> pd.DataFrame:
         """Legacy raw-schema path using Dataset filtering and runtime canonicalization."""
@@ -1507,7 +1875,7 @@ class SortedR2BlockReader:
         if len(rows) > 0:
             rows = canonicalize_r2_pairs(rows, self.genome_build)
         rows["R2"] = self._transform_r2(pd.to_numeric(rows["R2"], errors="raise").to_numpy(dtype=np.float32))
-        if self.identifier_mode == "rsid":
+        if identity_mode_family(self.identifier_mode) == "rsid":
             rows["i"] = rows["rsID_1"].astype(str).map(self.index_map)
             rows["j"] = rows["rsID_2"].astype(str).map(self.index_map)
         else:
@@ -1542,10 +1910,16 @@ class SortedR2BlockReader:
 
         a_start, a_stop = l_A, l_A + b
         b_start, b_stop = l_B, l_B + c
-        union_min = int(self.pos[min(a_start, b_start)])
-        union_max = int(self.pos[max(a_stop - 1, b_stop - 1)])
+        union_start = min(a_start, b_start)
+        union_stop = max(a_stop, b_stop)
+        if self._runtime_layout == "canonical":
+            query_rows = self._query_union_rows_canonical_by_index(union_start, union_stop)
+        else:
+            union_min = int(self.pos[union_start])
+            union_max = int(self.pos[union_stop - 1])
+            query_rows = self._query_union_rows(union_min, union_max)
         rows = self._deduplicate_pairs(
-            self._query_union_rows(union_min, union_max),
+            query_rows,
             context=f"cross-block query {self.chrom}:{l_A}:{b}:{l_B}:{c}",
         )
 
@@ -1576,10 +1950,14 @@ class SortedR2BlockReader:
             return np.zeros((0, 0), dtype=np.float32)
 
         b_start, b_stop = l_B, l_B + c
-        pos_min = int(self.pos[b_start])
-        pos_max = int(self.pos[b_stop - 1])
+        if self._runtime_layout == "canonical":
+            query_rows = self._query_union_rows_canonical_by_index(b_start, b_stop)
+        else:
+            pos_min = int(self.pos[b_start])
+            pos_max = int(self.pos[b_stop - 1])
+            query_rows = self._query_union_rows(pos_min, pos_max)
         rows = self._deduplicate_pairs(
-            self._query_union_rows(pos_min, pos_max),
+            query_rows,
             context=f"within-block query {self.chrom}:{l_B}:{c}",
         )
 
@@ -1602,63 +1980,76 @@ class SortedR2BlockReader:
 
 def ld_score_var_blocks_from_r2_reader(
     block_left: np.ndarray,
-    c: int,
+    snp_batch_size: int,
     annot: np.ndarray,
     block_reader: SortedR2BlockReader,
 ) -> np.ndarray:
     """
     Mirror the old LDSC sliding-block accumulation while sourcing block-local
     dense R2 matrices from a sorted parquet reader instead of genotype blocks.
+    The canonical parquet reader configures a chromosome-local decoded
+    row-group cache from ``block_left`` and ``snp_batch_size`` before traversal.
     """
     m = annot.shape[0]
     n_a = annot.shape[1]
+    if snp_batch_size <= 0:
+        raise ValueError("snp_batch_size must be positive.")
     block_sizes = np.array(np.arange(m) - block_left)
-    block_sizes = np.ceil(block_sizes / c) * c
+    block_sizes = np.ceil(block_sizes / snp_batch_size) * snp_batch_size
     cor_sum = np.zeros((m, n_a), dtype=np.float64)
+    block_reader.configure_auto_row_group_cache(block_left, snp_batch_size)
 
-    b = np.nonzero(block_left > 0)
-    if np.any(b):
-        b = b[0][0]
-    else:
-        b = m
-    b = int(np.ceil(b / c) * c)
-    if b > m:
-        c = 1
-        b = m
+    try:
+        b = np.nonzero(block_left > 0)
+        if np.any(b):
+            b = b[0][0]
+        else:
+            b = m
+        b = int(np.ceil(b / snp_batch_size) * snp_batch_size)
+        if b > m:
+            snp_batch_size = 1
+            b = m
 
-    l_A = 0
-    for l_B in range(0, b, c):
-        rfuncAB = block_reader.cross_block_matrix(l_A, b, l_B, c)
-        cor_sum[l_A:l_A + b, :] += np.dot(rfuncAB, annot[l_B:l_B + c, :])
+        l_A = 0
+        for l_B in range(0, b, snp_batch_size):
+            chunk_width = min(snp_batch_size, m - l_B)
+            if chunk_width <= 0:
+                continue
+            rfuncAB = block_reader.cross_block_matrix(l_A, b, l_B, chunk_width)
+            cor_sum[l_A:l_A + b, :] += np.dot(rfuncAB, annot[l_B:l_B + chunk_width, :])
 
-    b0 = b
-    md = int(c * np.floor(m / c))
-    end = md + 1 if md != m else md
-    for l_B in range(b0, end, c):
-        old_b = b
-        b = int(block_sizes[l_B])
-        if l_B > b0 and b > 0:
-            l_A += old_b - b + c
-        elif l_B == b0 and b > 0:
-            l_A = b0 - b
-        elif b == 0:
-            l_A = l_B
+        b0 = b
+        md = int(snp_batch_size * np.floor(m / snp_batch_size))
+        end = md + 1 if md != m else md
+        for l_B in range(b0, end, snp_batch_size):
+            old_b = b
+            b = int(block_sizes[l_B])
+            if l_B > b0 and b > 0:
+                l_A += old_b - b + snp_batch_size
+            elif l_B == b0 and b > 0:
+                l_A = b0 - b
+            elif b == 0:
+                l_A = l_B
 
-        chunk_width = c
-        if l_B == md:
-            chunk_width = m - md
+            chunk_width = snp_batch_size
+            if l_B == md:
+                chunk_width = m - md
+            if chunk_width <= 0:
+                continue
 
-        p1 = np.all(annot[l_A:l_A + b, :] == 0)
-        p2 = np.all(annot[l_B:l_B + chunk_width, :] == 0)
-        if p1 and p2:
-            continue
+            p1 = np.all(annot[l_A:l_A + b, :] == 0)
+            p2 = np.all(annot[l_B:l_B + chunk_width, :] == 0)
+            if p1 and p2:
+                continue
 
-        rfuncAB = block_reader.cross_block_matrix(l_A, b, l_B, chunk_width)
-        cor_sum[l_A:l_A + b, :] += np.dot(rfuncAB, annot[l_B:l_B + chunk_width, :])
-        cor_sum[l_B:l_B + chunk_width, :] += np.dot(annot[l_A:l_A + b, :].T, rfuncAB).T
+            rfuncAB = block_reader.cross_block_matrix(l_A, b, l_B, chunk_width)
+            cor_sum[l_A:l_A + b, :] += np.dot(rfuncAB, annot[l_B:l_B + chunk_width, :])
+            cor_sum[l_B:l_B + chunk_width, :] += np.dot(annot[l_A:l_A + b, :].T, rfuncAB).T
 
-        rfuncBB = block_reader.within_block_matrix(l_B, chunk_width)
-        cor_sum[l_B:l_B + chunk_width, :] += np.dot(rfuncBB, annot[l_B:l_B + chunk_width, :])
+            rfuncBB = block_reader.within_block_matrix(l_B, chunk_width)
+            cor_sum[l_B:l_B + chunk_width, :] += np.dot(rfuncBB, annot[l_B:l_B + chunk_width, :])
+    finally:
+        block_reader.log_row_group_cache_summary()
 
     return np.asarray(cor_sum, dtype=np.float32)
 
@@ -1684,10 +2075,21 @@ def compute_counts(
     return M, M_5_50
 
 
-def regression_mask_from_keys(metadata: pd.DataFrame, regression_keys: set[str] | None, identifier_mode: str) -> np.ndarray:
+def regression_mask_from_keys(
+    metadata: pd.DataFrame,
+    regression_keys: set[str] | RestrictionIdentityKeys | None,
+    identifier_mode: str,
+) -> np.ndarray:
     """Build the binary mask column used to compute regression-weight LD scores."""
     if regression_keys is None:
         return np.ones(len(metadata), dtype=np.float32)
+    if isinstance(regression_keys, RestrictionIdentityKeys):
+        return restriction_membership_mask(
+            metadata,
+            regression_keys,
+            identifier_mode,
+            context="LD-score regression SNP restriction matching",
+        ).to_numpy(dtype=np.float32)
     keys = identifier_keys(metadata, identifier_mode)
     return keys.isin(regression_keys).to_numpy(dtype=np.float32)
 
@@ -1697,7 +2099,7 @@ def compute_chrom_from_parquet(
     chrom: str,
     bundle: AnnotationBundle,
     args: argparse.Namespace,
-    regression_keys: set[str] | None,
+    regression_keys: set[str] | RestrictionIdentityKeys | None,
 ) -> ChromComputationResult:
     """
     Compute all LD-score outputs for one chromosome from sorted parquet R2 input.
@@ -1743,7 +2145,7 @@ def compute_chrom_from_parquet(
     )
     combined_scores = ld_score_var_blocks_from_r2_reader(
         block_left=block_left,
-        c=args.chunk_size,
+        snp_batch_size=args.snp_batch_size,
         annot=combined_annot,
         block_reader=block_reader,
     )
@@ -1774,7 +2176,7 @@ def compute_chrom_from_plink(
     chrom: str,
     bundle: AnnotationBundle,
     args: argparse.Namespace,
-    regression_keys: set[str] | None,
+    regression_keys: set[str] | RestrictionIdentityKeys | None,
 ) -> ChromComputationResult:
     """
     Compute all LD-score outputs for one chromosome from a PLINK reference panel.
@@ -1782,7 +2184,7 @@ def compute_chrom_from_plink(
     Main steps:
     1. Align annotation SNPs to the PLINK BIM table.
     2. Reuse the legacy PLINK genotype reader and LD-score kernel.
-    3. Compute partitioned reference LD scores and one-column regression weights.
+    3. Compute partitioned reference LD scores and one-column regression-universe LD scores.
     4. Return chromosome-level LD scores plus all-SNP and common-SNP counts.
     """
     legacy_ld = get_legacy_ld_module()
@@ -1792,11 +2194,13 @@ def compute_chrom_from_plink(
 
     bim = legacy_parse.PlinkBIMFile(prefix + ".bim")
     fam = legacy_parse.PlinkFAMFile(prefix + ".fam")
-    panel_df = bim.df.loc[:, ["CHR", "SNP", "CM", "BP"]].copy().rename(columns={"BP": "POS"})
+    panel_df = bim.df.loc[:, ["CHR", "SNP", "CM", "BP", "A1", "A2"]].copy().rename(columns={"BP": "POS"})
     panel_df["CHR"] = panel_df["CHR"].map(lambda value: normalize_chromosome(value, context=prefix + ".bim"))
     panel_df["SNP"] = panel_df["SNP"].astype(str)
     panel_df["POS"] = pd.to_numeric(panel_df["POS"], errors="raise").astype(np.int64)
     panel_df["CM"] = pd.to_numeric(panel_df["CM"], errors="coerce")
+    panel_df["A1"] = panel_df["A1"].astype(str)
+    panel_df["A2"] = panel_df["A2"].astype(str)
     panel_df = panel_df.loc[panel_df["CHR"] == normalize_chromosome(chrom, context=prefix + ".bim")].copy()
     if len(panel_df) == 0:
         raise ValueError(f"No PLINK SNPs found for chromosome {chrom} in {prefix}.")
@@ -1816,7 +2220,7 @@ def compute_chrom_from_plink(
         )
     metadata = metadata.loc[keep].reset_index(drop=True)
     annotations = annotations.loc[keep].reset_index(drop=True)
-    if regression_keys is not None:
+    if regression_keys is not None and not isinstance(regression_keys, RestrictionIdentityKeys):
         regression_keys = regression_keys.intersection(set(metadata["_key"]))
     if len(metadata) == 0:
         raise ValueError(f"No retained annotation SNPs remain on chromosome {chrom} after PLINK intersection.")
@@ -1840,6 +2244,12 @@ def compute_chrom_from_plink(
     geno_meta["POS"] = pd.to_numeric(geno_meta["POS"], errors="raise").astype(np.int64)
     geno_meta["CM"] = pd.to_numeric(geno_meta["CM"], errors="coerce")
     geno_meta["MAF"] = pd.to_numeric(geno_meta["MAF"], errors="coerce")
+    geno_meta = geno_meta.merge(
+        panel_df.loc[:, ["CHR", "SNP", "POS", "A1", "A2"]],
+        how="left",
+        on=["CHR", "SNP", "POS"],
+        sort=False,
+    )
     geno_meta["_key"] = identifier_keys(geno_meta, args.snp_identifier)
 
     annotation_matrix = annotations.set_index(metadata["_key"]).loc[geno_meta["_key"]]
@@ -1848,10 +2258,10 @@ def compute_chrom_from_plink(
     block_left = legacy_ld.getBlockLefts(coords, max_dist)
     check_whole_chromosome_window(block_left, args, chrom)
 
-    ld_scores = geno.ldScoreVarBlocks(block_left, args.chunk_size, annot=annotation_matrix.to_numpy(dtype=np.float32))
+    ld_scores = geno.ldScoreVarBlocks(block_left, args.snp_batch_size, annot=annotation_matrix.to_numpy(dtype=np.float32))
     regression_mask = regression_mask_from_keys(geno_meta.drop(columns="_key"), regression_keys, args.snp_identifier)
     geno._currentSNP = 0
-    w_ld = geno.ldScoreVarBlocks(block_left, args.chunk_size, annot=regression_mask.reshape(-1, 1))
+    w_ld = geno.ldScoreVarBlocks(block_left, args.snp_batch_size, annot=regression_mask.reshape(-1, 1))
     out_metadata = geno_meta.drop(columns="_key").reset_index(drop=True)
     M, M_5_50 = compute_counts(
         out_metadata,
@@ -1900,7 +2310,7 @@ def weight_result_to_dataframe(result: ChromComputationResult) -> pd.DataFrame:
 def write_ldscore_file(df: pd.DataFrame, path: str) -> None:
     """Write one LDSC-compatible LD-score table, preserving metadata columns first."""
     out = df.copy()
-    out = out.loc[:, [col for col in ["CHR", "POS", "SNP", "CM", "MAF"] if col in out.columns] + [col for col in out.columns if col not in ANNOT_META_COLUMNS]]
+    out = out.loc[:, [col for col in ANNOT_META_COLUMNS if col in out.columns] + [col for col in out.columns if col not in ANNOT_META_COLUMNS]]
     with gzip.open(path, "wt") as handle:
         out.to_csv(handle, sep="\t", index=False, na_rep="NA", float_format="%.6g")
 
@@ -2027,8 +2437,8 @@ def validate_args(args: argparse.Namespace) -> None:
             args.r2_bias_mode = "unbiased"
         if args.r2_bias_mode == "raw" and args.r2_sample_size is None:
             raise ValueError("--r2-sample-size is required when --r2-bias-mode raw.")
-        if args.snp_identifier == "chr_pos" and args.genome_build is None:
-            raise ValueError("--genome-build is required in parquet mode when --snp-identifier chr_pos.")
+        if identity_mode_family(args.snp_identifier) == "chr_pos" and args.genome_build is None:
+            raise ValueError("--genome-build is required in parquet mode for chr_pos-family snp_identifier modes.")
     if args.ld_wind_cm is not None and args.ld_wind_cm <= 0:
         raise ValueError("--ld-wind-cm must be positive.")
     if args.ld_wind_kb is not None and args.ld_wind_kb <= 0:
@@ -2039,8 +2449,8 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--maf-min must lie in [0, 0.5].")
     if not 0 <= getattr(args, "common_maf_min", 0.05) <= 0.5:
         raise ValueError("--common-maf-min must lie in [0, 0.5].")
-    if args.chunk_size <= 0:
-        raise ValueError("--chunk-size must be positive.")
+    if args.snp_batch_size <= 0:
+        raise ValueError("--snp-batch-size must be positive.")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -2054,24 +2464,43 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--baseline-annot", default=None, help="Comma-separated SNP-level baseline annotation inputs. Each token may be an exact path, glob, or explicit @ chromosome-suite token.")
     parser.add_argument("--bfile", default=None, help="PLINK reference-panel prefix or explicit @ chromosome-suite token.")
     parser.add_argument("--r2-table", default=None, help="Comma-separated sorted parquet R2 inputs. Each token may be an exact path, glob, or explicit @ chromosome-suite token.")
-    parser.add_argument("--snp-identifier", default="chr_pos", help="Identifier mode used to match annotations to the reference panel.")
+    parser.add_argument(
+        "--snp-identifier",
+        default="chr_pos_allele_aware",
+        choices=("rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"),
+        help="Identifier mode used to match annotations to the reference panel.",
+    )
     parser.add_argument(
         "--genome-build",
         default=None,
         choices=("auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"),
-        help="Genome build assumed for the sorted parquet R2 file and chr_pos matching. Use 'auto' to infer hg19/hg38 and 0-based/1-based coordinates.",
+        help="Genome build assumed for the sorted parquet R2 file and chr_pos-family matching. Use 'auto' to infer hg19/hg38 and 0-based/1-based coordinates.",
     )
     parser.add_argument("--r2-bias-mode", choices=("raw", "unbiased"), default="unbiased", help="Whether sorted parquet R2 values are raw sample r^2 or already unbiased.")
     parser.add_argument("--r2-sample-size", default=None, type=float, help="LD reference sample size used to correct raw parquet R2 values.")
-    parser.add_argument("--regression-snps-file", default=None, help="Optional SNP list defining the regression SNP set for weight LD computation and written LD-score rows.")
-    parser.add_argument("--frqfile", default=None, help="Optional frequency/metadata inputs for MAF and CM. Each token may be an exact path, glob, or explicit @ chromosome-suite token.")
+    parser.add_argument(
+        "--regression-snps-file",
+        default=None,
+        help=(
+            "Optional identity-only SNP list defining the regression SNP set for weight LD computation and written LD-score rows. "
+            "Duplicate restriction keys collapse to one retained key; non-identity columns such as CM or MAF are ignored."
+        ),
+    )
+    parser.add_argument(
+        "--frqfile",
+        default=None,
+        help=(
+            "Optional frequency/metadata inputs for MAF and CM. Each token may be an exact path, glob, or explicit @ "
+            "chromosome-suite token. Duplicate effective SNP identity clusters are dropped entirely before metadata fill."
+        ),
+    )
     parser.add_argument("--keep", default=None, help="File with individuals to include in LD Score estimation. The file should contain one IID per row.")
     parser.add_argument("--ld-wind-snps", default=None, type=int, help="LD window size in SNPs.")
     parser.add_argument("--ld-wind-kb", default=None, type=float, help="LD window size in kilobases.")
     parser.add_argument("--ld-wind-cm", default=None, type=float, help="LD window size in centiMorgans.")
     parser.add_argument("--maf-min", default=None, type=float, help="Optional MAF filter for retained SNPs when MAF is available.")
     parser.add_argument("--common-maf-min", default=0.05, type=float, help="MAF threshold used only for common-SNP annotation count vectors.")
-    parser.add_argument("--chunk-size", default=128, type=int, help="Chunk size for legacy PLINK block computations.")
+    parser.add_argument("--snp-batch-size", default=128, type=int, help="Number of SNPs processed per LD-score sliding batch.")
     parser.add_argument("--per-chr-output", default=False, action="store_true", help="Emit per-chromosome outputs instead of an aggregated output.")
     parser.add_argument("--yes-really", default=False, action="store_true", help="Allow whole-chromosome LD windows.")
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"), help="Logging verbosity.")
@@ -2141,7 +2570,7 @@ def run_ldscore(
     baseline_annot: str | None = None,
     bfile: str | None = None,
     r2_table: str | None = None,
-    snp_identifier: str = "chr_pos",
+    snp_identifier: str = "chr_pos_allele_aware",
     genome_build: str | None = None,
     r2_bias_mode: str | None = None,
     r2_sample_size: float | None = None,
@@ -2153,7 +2582,7 @@ def run_ldscore(
     ld_wind_cm: float | None = None,
     maf_min: float | None = None,
     common_maf_min: float = 0.05,
-    chunk_size: int = 128,
+    snp_batch_size: int = 128,
     per_chr_output: bool = False,
     yes_really: bool = False,
     log_level: str = "INFO",
@@ -2187,7 +2616,7 @@ def run_ldscore(
         ld_wind_cm=ld_wind_cm,
         maf_min=maf_min,
         common_maf_min=common_maf_min,
-        chunk_size=chunk_size,
+        snp_batch_size=snp_batch_size,
         per_chr_output=per_chr_output,
         yes_really=yes_really,
         log_level=log_level,

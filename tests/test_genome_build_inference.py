@@ -33,18 +33,43 @@ class GenomeBuildInferenceTest(unittest.TestCase):
     def test_resolve_chr_pos_table_infers_hg19_one_based(self):
         module = _load_module(self)
         reference = _build_reference_table()
-        raw = pd.DataFrame({"CHR": ["1"] * len(reference), "POS": reference["hg19_POS"]})
-
-        normalized, result = module.resolve_chr_pos_table(
-            raw,
-            context="unit-hg19-1based",
-            reference_table=reference,
+        raw = pd.DataFrame(
+            {
+                "CHR": ["1"] * len(reference) + ["chrUn", "1"],
+                "POS": reference["hg19_POS"].tolist() + [12345, "bad"],
+                "SNP": [f"rs{i}" for i in range(len(reference))] + ["bad_chr", "bad_pos"],
+            }
         )
+        logger = logging.getLogger("LDSC.test.genome_build_inference.drop")
+
+        with self.assertLogs(logger, level="WARNING") as caught:
+            normalized, result = module.resolve_chr_pos_table(
+                raw,
+                context="unit-hg19-1based",
+                reference_table=reference,
+                logger=logger,
+            )
 
         self.assertEqual(result.genome_build, "hg19")
         self.assertEqual(result.coordinate_basis, "1-based")
         self.assertEqual(result.inspected_snp_count, len(reference))
         self.assertEqual(normalized["POS"].tolist()[:3], [1000, 1010, 1020])
+        self.assertEqual(result.coordinate_report.n_dropped, 2)
+        self.assertEqual(normalized["SNP"].tolist()[-1], f"rs{len(reference) - 1}")
+        self.assertIn("Dropped 2 SNPs with invalid or missing CHR/POS", "\n".join(caught.output))
+
+    def test_resolve_chr_pos_table_strict_policy_rejects_invalid_coordinates(self):
+        module = _load_module(self)
+        reference = _build_reference_table()
+        raw = pd.DataFrame({"CHR": ["1", "chrUn"], "POS": [1000, 1010]})
+
+        with self.assertRaisesRegex(ValueError, "Unsupported chromosome label"):
+            module.resolve_chr_pos_table(
+                raw,
+                context="unit-strict",
+                reference_table=reference,
+                coordinate_policy="raise",
+            )
 
     def test_resolve_chr_pos_table_infers_hg38_zero_based_and_shifts_positions(self):
         module = _load_module(self)
@@ -177,3 +202,76 @@ class TestResolveGenomeBuild(unittest.TestCase):
                 logger=logging.getLogger("test"),
             )
         self.assertTrue(any("Inferred genome build" in m for m in log.output))
+
+
+class TestResolveGenomeBuildFromChrPosFrames(unittest.TestCase):
+    def test_explicit_build_returns_without_consuming_frames(self):
+        module = _load_module(self)
+
+        def frames():
+            raise AssertionError("explicit genome-build hints must not consume frame iterators")
+            yield pd.DataFrame({"CHR": ["1"], "POS": [1000]})
+
+        result = module.resolve_genome_build_from_chr_pos_frames(
+            "hg38",
+            "chr_pos",
+            frames(),
+            context="explicit",
+        )
+
+        self.assertEqual(result, "hg38")
+
+    def test_rsid_family_returns_none_without_consuming_frames(self):
+        module = _load_module(self)
+
+        def frames():
+            raise AssertionError("rsID-family identifiers must not consume frame iterators")
+            yield pd.DataFrame({"CHR": ["1"], "POS": [1000]})
+
+        result = module.resolve_genome_build_from_chr_pos_frames(
+            "auto",
+            "rsid",
+            frames(),
+            context="rsid",
+        )
+
+        self.assertIsNone(result)
+
+    def test_auto_consumes_only_until_evidence_is_sufficient(self):
+        module = _load_module(self)
+        reference = _build_reference_table(n_rows=250)
+        yielded = []
+
+        def frames():
+            yielded.append("first")
+            yield pd.DataFrame({"CHR": ["1"] * 210, "POS": reference["hg19_POS"].iloc[:210].tolist()})
+            yielded.append("second")
+            yield pd.DataFrame({"CHR": ["1"] * 40, "POS": reference["hg19_POS"].iloc[210:].tolist()})
+
+        result = module.resolve_genome_build_from_chr_pos_frames(
+            "auto",
+            "chr_pos",
+            frames(),
+            context="streaming",
+            reference_table=reference,
+        )
+
+        self.assertEqual(result, "hg19")
+        self.assertEqual(yielded, ["first"])
+
+    def test_auto_insufficient_evidence_has_actionable_error(self):
+        module = _load_module(self)
+        reference = _build_reference_table(n_rows=250)
+        frames = [pd.DataFrame({"CHR": ["1"] * 5, "POS": reference["hg19_POS"].iloc[:5].tolist()})]
+
+        with self.assertRaises(ValueError) as ctx:
+            module.resolve_genome_build_from_chr_pos_frames(
+                "auto",
+                "chr_pos",
+                frames,
+                context="too-small",
+                reference_table=reference,
+            )
+
+        self.assertIn("Insufficient overlap with HM3 reference", str(ctx.exception))
+        self.assertIn("--genome-build hg19", str(ctx.exception))

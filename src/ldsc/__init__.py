@@ -23,8 +23,8 @@ Design Notes
 Example
 -------
 >>> from ldsc import GlobalConfig, ReferencePanelBuilder
->>> GlobalConfig(snp_identifier="rsid").snp_identifier
-'rsid'
+>>> GlobalConfig().snp_identifier
+'chr_pos_allele_aware'
 >>> isinstance(ReferencePanelBuilder(), ReferencePanelBuilder)
 True
 """
@@ -65,24 +65,32 @@ from .genome_build_inference import (
     resolve_genome_build,
     resolve_chr_pos_table,
 )
+from .hm3 import load_hm3_curated_map
 from .ldscore_calculator import ChromLDScoreResult, LDScoreCalculator, LDScoreResult, run_ldscore
 from .outputs import (
+    H2DirectoryWriter,
+    H2OutputConfig,
     LDScoreDirectoryWriter,
     LDScoreOutputConfig,
     PartitionedH2DirectoryWriter,
     PartitionedH2OutputConfig,
+    RgDirectoryWriter,
+    RgOutputConfig,
 )
 from .ref_panel_builder import ReferencePanelBuildResult, ReferencePanelBuilder, run_build_ref_panel
 from ._kernel.ref_panel import ParquetR2RefPanel, PlinkRefPanel, RefPanel, RefPanelLoader
 
 _LAZY_EXPORTS = {
     "MungeRunSummary": (".sumstats_munger", "MungeRunSummary"),
+    "RawSumstatsInference": (".sumstats_munger", "RawSumstatsInference"),
     "SumstatsMunger": (".sumstats_munger", "SumstatsMunger"),
     "SumstatsTable": (".sumstats_munger", "SumstatsTable"),
+    "infer_raw_sumstats": (".sumstats_munger", "infer_raw_sumstats"),
     "load_sumstats": (".sumstats_munger", "load_sumstats"),
     "load_ldscore_from_dir": (".regression_runner", "load_ldscore_from_dir"),
     "RegressionDataset": (".regression_runner", "RegressionDataset"),
     "RegressionRunner": (".regression_runner", "RegressionRunner"),
+    "RgResultFamily": (".regression_runner", "RgResultFamily"),
 }
 
 
@@ -106,6 +114,8 @@ __all__ = [
     "GlobalConfig",
     "get_global_config",
     "infer_chr_pos_build",
+    "H2DirectoryWriter",
+    "H2OutputConfig",
     "LDScoreCalculator",
     "LDScoreConfig",
     "LDScoreDirectoryWriter",
@@ -119,8 +129,10 @@ __all__ = [
     "LDSCUsageError",
     "LDSCUserError",
     "load_ldscore_from_dir",
+    "load_hm3_curated_map",
     "MungeConfig",
     "MungeRunSummary",
+    "RawSumstatsInference",
     "ParquetR2RefPanel",
     "PartitionedH2DirectoryWriter",
     "PartitionedH2OutputConfig",
@@ -134,9 +146,13 @@ __all__ = [
     "RegressionConfig",
     "RegressionDataset",
     "RegressionRunner",
+    "RgDirectoryWriter",
+    "RgOutputConfig",
+    "RgResultFamily",
     "SumstatsMunger",
     "SumstatsTable",
     "load_sumstats",
+    "infer_raw_sumstats",
     "run_build_ref_panel",
     "run_bed_to_annot",
     "run_ldscore",

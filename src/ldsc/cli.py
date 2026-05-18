@@ -55,7 +55,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True, parser_class=_NoAbbrevArgumentParser)
 
     annotate_parser = subparsers.add_parser("annotate", help="Project BED files to SNP-level query annotations.")
-    _add_annotate_arguments(annotate_parser)
+    annotation_builder.add_annotate_arguments(annotate_parser)
 
     ldscore_parser = subparsers.add_parser("ldscore", help="Compute LD scores.")
     _copy_actions(ldscore_parser, ldscore_calculator.build_parser())
@@ -73,7 +73,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     partitioned_parser = subparsers.add_parser(
         "partitioned-h2",
-        help="Estimate partitioned heritability, optionally looping over query annotations.",
+        help="Estimate partitioned heritability by looping over query annotations.",
     )
     regression_runner.add_partitioned_h2_arguments(partitioned_parser)
 
@@ -101,9 +101,7 @@ def main(argv: Sequence[str] | None = None):
         command = argv[0]
         subargv = argv[1:]
         if command == "annotate":
-            annotate_parser = _NoAbbrevArgumentParser(prog="ldsc annotate", description="Build SNP-level annotations.")
-            _add_annotate_arguments(annotate_parser)
-            return _run_annotate(annotate_parser.parse_args(subargv))
+            return annotation_builder.main(subargv)
         if command == "ldscore":
             return ldscore_calculator.main(subargv)
         if command == "build-ref-panel":
@@ -115,20 +113,29 @@ def main(argv: Sequence[str] | None = None):
             regression_runner = _load_regression_runner()
             parser = _NoAbbrevArgumentParser(prog="ldsc h2", description="Estimate heritability from munged sumstats and LD scores.")
             regression_runner.add_h2_arguments(parser)
-            return regression_runner.run_h2_from_args(parser.parse_args(subargv))
+            parsed = parser.parse_args(subargv)
+            result = regression_runner.run_h2_from_args(parsed)
+            _print_table_stdout_if_needed(parsed, result)
+            return result
         if command == "partitioned-h2":
             regression_runner = _load_regression_runner()
             parser = _NoAbbrevArgumentParser(
                 prog="ldsc partitioned-h2",
-                description="Estimate partitioned heritability, optionally looping over query annotations.",
+                description="Estimate partitioned heritability by looping over query annotations.",
             )
             regression_runner.add_partitioned_h2_arguments(parser)
-            return regression_runner.run_partitioned_h2_from_args(parser.parse_args(subargv))
+            parsed = parser.parse_args(subargv)
+            result = regression_runner.run_partitioned_h2_from_args(parsed)
+            _print_table_stdout_if_needed(parsed, result)
+            return result
         if command == "rg":
             regression_runner = _load_regression_runner()
             parser = _NoAbbrevArgumentParser(prog="ldsc rg", description="Estimate genetic correlation.")
             regression_runner.add_rg_arguments(parser)
-            return regression_runner.run_rg_from_args(parser.parse_args(subargv))
+            parsed = parser.parse_args(subargv)
+            result = regression_runner.run_rg_from_args(parsed)
+            _print_rg_stdout_if_needed(parsed, result)
+            return result
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command == "annotate":
@@ -138,13 +145,19 @@ def main(argv: Sequence[str] | None = None):
     if args.command == "build-ref-panel":
         return ref_panel_builder.run_build_ref_panel_from_args(args)
     if args.command == "munge-sumstats":
-        return _load_sumstats_munger().main(_namespace_to_argv(args, exclude={"command"}))
+        return _load_sumstats_munger().run_munge_sumstats_from_args(args)
     if args.command == "h2":
-        return _load_regression_runner().run_h2_from_args(args)
+        result = _load_regression_runner().run_h2_from_args(args)
+        _print_table_stdout_if_needed(args, result)
+        return result
     if args.command == "partitioned-h2":
-        return _load_regression_runner().run_partitioned_h2_from_args(args)
+        result = _load_regression_runner().run_partitioned_h2_from_args(args)
+        _print_table_stdout_if_needed(args, result)
+        return result
     if args.command == "rg":
-        return _load_regression_runner().run_rg_from_args(args)
+        result = _load_regression_runner().run_rg_from_args(args)
+        _print_rg_stdout_if_needed(args, result)
+        return result
     raise LDSCUsageError(f"Unsupported command: {args.command}")
 
 
@@ -175,34 +188,24 @@ def run_cli(argv: Sequence[str] | None = None) -> int:
 
 def _run_annotate(args: argparse.Namespace):
     """Dispatch the ``annotate`` subcommand."""
-    if not args.query_annot_bed_sources:
-        raise LDSCUsageError("ldsc annotate requires --query-annot-bed-sources and --baseline-annot-sources.")
-    return annotation_builder.main_bed_to_annot(_namespace_to_argv(args, exclude={"command"}))
+    return annotation_builder.run_annotate_from_args(args)
 
 
-def _add_annotate_arguments(parser: argparse.ArgumentParser) -> None:
-    """Register annotation-building arguments on a subparser."""
-    parser.add_argument("--query-annot-bed-sources", nargs="+", default=None, help="BED files, comma-separated lists, or glob patterns.")
-    parser.add_argument(
-        "--baseline-annot-sources",
-        nargs="+",
-        default=None,
-        help="Baseline annotation path tokens: exact paths, globs, or explicit @ suite tokens.",
-    )
-    parser.add_argument("--output-dir", default=None, help="Destination directory for generated .annot.gz files.")
-    parser.add_argument("--overwrite", action="store_true", default=False, help="Replace existing fixed output files.")
-    parser.add_argument("--snp-identifier", default="chr_pos", help="How to interpret restriction SNP identifiers.")
-    parser.add_argument(
-        "--genome-build",
-        default=None,
-        choices=("auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"),
-        help=(
-            "Genome build for chr_pos inputs. Required when --snp-identifier chr_pos "
-            "(the default). Use 'auto' to infer hg19/hg38 and 0-based/1-based coordinates "
-            "from data. Not used when --snp-identifier rsid."
-        ),
-    )
-    parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"))
+def _print_rg_stdout_if_needed(args: argparse.Namespace, result) -> None:
+    """Print concise rg output for no-output-dir CLI runs."""
+    if getattr(args, "output_dir", None):
+        return
+    rg = getattr(result, "rg", None)
+    if rg is not None:
+        _print_table_stdout_if_needed(args, rg)
+
+
+def _print_table_stdout_if_needed(args: argparse.Namespace, table) -> None:
+    """Print a compact TSV table for no-output-dir regression CLI runs."""
+    if getattr(args, "output_dir", None):
+        return
+    if hasattr(table, "to_csv"):
+        table.to_csv(sys.stdout, sep="\t", index=False, na_rep="NaN")
 
 
 def _copy_actions(target: argparse.ArgumentParser, source: argparse.ArgumentParser) -> None:
@@ -235,25 +238,6 @@ def _copy_actions(target: argparse.ArgumentParser, source: argparse.ArgumentPars
             target.add_argument(*option_strings, action="store_false", default=action.default, help=action.help)
         else:
             target.add_argument(*option_strings, **kwargs)
-
-
-def _namespace_to_argv(args: argparse.Namespace, exclude: set[str] | None = None) -> list[str]:
-    """Convert a parsed namespace back into a flat argument vector."""
-    exclude = exclude or set()
-    argv: list[str] = []
-    for key, value in vars(args).items():
-        if key in exclude or value is None or value is False:
-            continue
-        flag = "--" + key.replace("_", "-")
-        if value is True:
-            argv.append(flag)
-            continue
-        if isinstance(value, (list, tuple)):
-            argv.append(flag)
-            argv.extend(str(item) for item in value)
-            continue
-        argv.extend([flag, str(value)])
-    return argv
 
 
 def _load_regression_runner():

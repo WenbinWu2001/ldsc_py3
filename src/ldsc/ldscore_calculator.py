@@ -13,6 +13,11 @@ annotation named exactly ``base`` over the retained reference-panel metadata and
 continues through the same calculator and output writer used by partitioned
 runs. Query annotations remain partitioned-LDSC inputs: they are accepted only
 when explicit baseline annotations are supplied.
+
+Parsed workflow entry points write ``diagnostics/ldscore.log`` under
+``output_dir`` after preflighting the complete LD-score artifact family. Direct
+``LDScoreCalculator.run(...)`` calls remain data-oriented and do not create log
+files.
 """
 
 from __future__ import annotations
@@ -28,6 +33,7 @@ import numpy as np
 import pandas as pd
 
 from ._chr_sampler import sample_frame_from_chr_pattern
+from ._kernel.snp_identity import clean_identity_artifact_table, identity_base_mode, identity_mode_family, is_allele_aware_mode
 from .column_inference import normalize_genome_build, normalize_snp_identifier_mode
 from .config import (
     ConfigMismatchError,
@@ -39,17 +45,27 @@ from .config import (
     print_global_config_banner,
     validate_config_compatibility,
 )
+from .hm3 import packaged_hm3_curated_map_path
 from .genome_build_inference import resolve_genome_build
-from .outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
+from .outputs import (
+    LDScoreDirectoryWriter,
+    LDScoreOutputConfig,
+    REGRESSION_LD_SCORE_COLUMN,
+)
 from .path_resolution import (
+    ensure_output_directory,
+    preflight_output_artifact_family,
+    remove_output_artifacts,
     normalize_optional_path_token,
     normalize_path_token,
     resolve_plink_prefix,
     resolve_scalar_path,
     split_cli_path_tokens,
 )
+from ._logging import log_inputs, log_outputs, workflow_logging
 from ._kernel import ldscore as kernel_ldscore
-from ._kernel.identifiers import build_snp_id_series, read_global_snp_restriction
+from ._kernel.identifiers import build_snp_id_series, read_snp_restriction_keys
+from ._kernel.snp_identity import RestrictionIdentityKeys, restriction_membership_mask
 from ._row_alignment import assert_same_snp_rows
 
 
@@ -85,7 +101,7 @@ class ChromLDScoreResult:
     chrom : str
         Chromosome label.
     baseline_table : pandas.DataFrame
-        Table with ``CHR``, ``SNP``, ``POS``, ``regr_weight``, and baseline
+        Table with ``CHR``, ``SNP``, ``POS``, ``regression_ld_scores``, and baseline
         LD-score columns.
     query_table : pandas.DataFrame or None
         Optional table with ``CHR``, ``SNP``, ``POS``, and query LD-score
@@ -115,7 +131,7 @@ class ChromLDScoreResult:
 
     def validate(self) -> None:
         """Check the normalized public contract for chromosome-level results."""
-        required = {"CHR", "SNP", "POS", "regr_weight", *self.baseline_columns}
+        required = {"CHR", "SNP", "POS", REGRESSION_LD_SCORE_COLUMN, *self.baseline_columns}
         missing = required - set(self.baseline_table.columns)
         if missing:
             raise ValueError(f"baseline_table is missing required columns: {sorted(missing)}")
@@ -129,6 +145,7 @@ class ChromLDScoreResult:
                 self.baseline_table,
                 self.query_table,
                 context="query rows must match baseline rows on CHR/SNP/POS",
+                snp_identifier=getattr(self.config_snapshot, "snp_identifier", "chr_pos_allele_aware"),
             )
 
     def summary(self) -> dict[str, Any]:
@@ -147,12 +164,12 @@ class LDScoreResult:
     Parameters
     ----------
     baseline_table : pandas.DataFrame
-        Cross-chromosome table persisted as ``baseline.parquet`` when the result
-        is written. Required columns are ``CHR``, ``SNP``, ``POS``,
-        ``regr_weight``, and every entry in ``baseline_columns``.
+        Cross-chromosome table persisted as ``ldscore.baseline.parquet`` when
+        the result is written. Required columns are ``CHR``, ``SNP``, ``POS``,
+        ``regression_ld_scores``, and every entry in ``baseline_columns``.
     query_table : pandas.DataFrame or None
-        Optional cross-chromosome table persisted as ``query.parquet``. Required
-        columns are ``CHR``, ``SNP``, ``POS``, and every entry in
+        Optional cross-chromosome table persisted as ``ldscore.query.parquet``.
+        Required columns are ``CHR``, ``SNP``, ``POS``, and every entry in
         ``query_columns``.
     count_records : list of dict
         Manifest-ready count records. Each record names an annotation column and
@@ -185,7 +202,7 @@ class LDScoreResult:
 
     def validate(self, *, require_query_alignment: bool = True) -> None:
         """Check the normalized public contract for aggregated results."""
-        required = {"CHR", "SNP", "POS", "regr_weight", *self.baseline_columns}
+        required = {"CHR", "SNP", "POS", REGRESSION_LD_SCORE_COLUMN, *self.baseline_columns}
         missing = required - set(self.baseline_table.columns)
         if missing:
             raise ValueError(f"baseline_table is missing required columns: {sorted(missing)}")
@@ -202,6 +219,7 @@ class LDScoreResult:
                     self.baseline_table,
                     self.query_table,
                     context="query rows must match baseline rows on CHR/SNP/POS",
+                    snp_identifier=getattr(self.config_snapshot, "snp_identifier", "chr_pos_allele_aware"),
                 )
 
     def summary(self) -> dict[str, Any]:
@@ -238,7 +256,7 @@ class LDScoreCalculator:
         ldscore_config: LDScoreConfig,
         global_config: GlobalConfig,
         output_config: LDScoreOutputConfig | None = None,
-        regression_snps: set[str] | None = None,
+        regression_snps: set[str] | RestrictionIdentityKeys | None = None,
         config_snapshot: dict[str, Any] | None = None,
     ) -> LDScoreResult:
         """Compute and aggregate LD scores across all chromosomes.
@@ -262,7 +280,7 @@ class LDScoreCalculator:
             the aggregate result is built. Existing canonical files are refused
             unless ``output_config.overwrite`` is true.
             Default is ``None``, which keeps the result in memory only.
-        regression_snps : set of str or None, optional
+        regression_snps : set of str, RestrictionIdentityKeys, or None, optional
             Optional regression SNP universe used to define the weight table.
             Default is ``None``, which uses the retained reference SNP universe.
         config_snapshot : dict or None, optional
@@ -283,11 +301,7 @@ class LDScoreCalculator:
                 context="AnnotationBundle and LDScoreCalculator runtime config",
             )
         chromosomes = _chromosomes_from_bundle(annotation_bundle)
-        LOGGER.info(
-            f"Computing LD scores for {len(chromosomes)} chromosomes "
-            f"with {len(annotation_bundle.baseline_columns)} baseline columns "
-            f"and {len(annotation_bundle.query_columns)} query columns."
-        )
+        LOGGER.info(_format_ldscore_start_message(annotation_bundle, len(chromosomes)))
         chromosome_results: list[ChromLDScoreResult] = []
         for chrom in chromosomes:
             chrom_bundle = _slice_annotation_bundle(annotation_bundle, chrom)
@@ -329,7 +343,7 @@ class LDScoreCalculator:
         ref_panel,
         ldscore_config: LDScoreConfig,
         global_config: GlobalConfig,
-        regression_snps: set[str] | None = None,
+        regression_snps: set[str] | RestrictionIdentityKeys | None = None,
     ) -> ChromLDScoreResult:
         """Compute normalized LD-score outputs for one chromosome.
 
@@ -375,23 +389,38 @@ class LDScoreCalculator:
         self,
         legacy_result: _LegacyChromResult | Any,
         global_config: GlobalConfig,
-        regression_snps: set[str] | None = None,
+        regression_snps: set[str] | RestrictionIdentityKeys | None = None,
     ) -> ChromLDScoreResult:
         """Convert one kernel chromosome result into the typed public result."""
         reference_metadata = legacy_result.metadata.reset_index(drop=True).copy()
         ld_scores = pd.DataFrame(legacy_result.ld_scores, columns=list(legacy_result.ldscore_columns))
         reference_ids = frozenset(build_snp_id_series(reference_metadata, global_config.snp_identifier))
-        retained_regression_snps = (
-            reference_ids if regression_snps is None else frozenset(reference_ids.intersection(regression_snps))
+        if regression_snps is None:
+            regression_keep = pd.Series(True, index=reference_metadata.index)
+        elif isinstance(regression_snps, RestrictionIdentityKeys):
+            regression_keep = restriction_membership_mask(
+                reference_metadata,
+                regression_snps,
+                global_config.snp_identifier,
+                context="LD-score regression SNP restriction matching",
+            )
+        else:
+            retained_regression_snps = frozenset(reference_ids.intersection(regression_snps))
+            regression_keep = build_snp_id_series(reference_metadata, global_config.snp_identifier).isin(retained_regression_snps)
+        ld_regression_snps = frozenset(
+            build_snp_id_series(
+                reference_metadata.loc[regression_keep],
+                global_config.snp_identifier,
+            )
         )
-        regression_keep = build_snp_id_series(reference_metadata, global_config.snp_identifier).isin(retained_regression_snps)
         pos_column = "POS" if "POS" in reference_metadata.columns else "BP"
+        metadata_columns = ["CHR", "SNP", pos_column, *[column for column in ("A1", "A2") if column in reference_metadata.columns]]
         regression_weights = np.asarray(legacy_result.w_ld, dtype=np.float32).reshape(-1)
         ldscore_table = pd.concat(
             [
-                reference_metadata.loc[regression_keep, ["CHR", "SNP", pos_column]].rename(columns={pos_column: "POS"}).reset_index(drop=True),
+                reference_metadata.loc[regression_keep, metadata_columns].rename(columns={pos_column: "POS"}).reset_index(drop=True),
                 ld_scores.loc[regression_keep].reset_index(drop=True),
-                pd.DataFrame({"regr_weight": regression_weights[regression_keep.to_numpy()]}).reset_index(drop=True),
+                pd.DataFrame({REGRESSION_LD_SCORE_COLUMN: regression_weights[regression_keep.to_numpy()]}).reset_index(drop=True),
             ],
             axis=1,
         )
@@ -403,6 +432,7 @@ class LDScoreCalculator:
             ldscore_table,
             baseline_columns=list(legacy_result.baseline_columns),
             query_columns=list(legacy_result.query_columns),
+            snp_identifier=global_config.snp_identifier,
         )
         result = ChromLDScoreResult(
             chrom=str(legacy_result.chrom),
@@ -416,7 +446,7 @@ class LDScoreCalculator:
             baseline_columns=list(legacy_result.baseline_columns),
             query_columns=list(legacy_result.query_columns),
             ld_reference_snps=frozenset(),
-            ld_regression_snps=frozenset(build_snp_id_series(baseline_table, global_config.snp_identifier)),
+            ld_regression_snps=ld_regression_snps,
             snp_count_totals=count_map,
             count_config={},
             config_snapshot=global_config,
@@ -448,7 +478,15 @@ class LDScoreCalculator:
             for key in count_keys
         }
         merged_table = pd.concat(
-            [_join_split_tables(result.baseline_table, result.query_table, result.query_columns) for result in chromosome_results],
+            [
+                _join_split_tables(
+                    result.baseline_table,
+                    result.query_table,
+                    result.query_columns,
+                    snp_identifier=getattr(result.config_snapshot, "snp_identifier", global_config.snp_identifier),
+                )
+                for result in chromosome_results
+            ],
             axis=0,
             ignore_index=True,
         )
@@ -457,6 +495,7 @@ class LDScoreCalculator:
             merged_table,
             baseline_columns=list(chromosome_results[0].baseline_columns),
             query_columns=list(chromosome_results[0].query_columns),
+            snp_identifier=global_config.snp_identifier,
         )
         result = LDScoreResult(
             baseline_table=baseline_table,
@@ -511,10 +550,13 @@ def _split_ldscore_table(
     *,
     baseline_columns: list[str],
     query_columns: list[str],
+    snp_identifier: str = "chr_pos_allele_aware",
 ) -> tuple[pd.DataFrame, pd.DataFrame | None]:
     """Split a merged LD-score table into baseline and optional query tables."""
-    metadata_columns = ["CHR", "SNP", "POS"]
-    baseline_order = [*metadata_columns, "regr_weight", *baseline_columns]
+    if is_allele_aware_mode(snp_identifier) and not {"A1", "A2"}.issubset(ldscore_table.columns):
+        raise ValueError("LD-score table is missing A1/A2 columns required by allele-aware SNP identity.")
+    metadata_columns = ["CHR", "SNP", "POS", *[column for column in ("A1", "A2") if column in ldscore_table.columns]]
+    baseline_order = [*metadata_columns, REGRESSION_LD_SCORE_COLUMN, *baseline_columns]
     query_order = [*metadata_columns, *query_columns]
     missing_baseline = [column for column in baseline_order if column not in ldscore_table.columns]
     if missing_baseline:
@@ -530,6 +572,7 @@ def _split_ldscore_table(
             baseline_table,
             query_table,
             context="query rows must match baseline rows on CHR/SNP/POS",
+            snp_identifier=snp_identifier,
         )
     return baseline_table, query_table
 
@@ -538,6 +581,8 @@ def _join_split_tables(
     baseline_table: pd.DataFrame,
     query_table: pd.DataFrame | None,
     query_columns: Sequence[str],
+    *,
+    snp_identifier: str = "chr_pos_allele_aware",
 ) -> pd.DataFrame:
     """Join split LD-score tables for sorting or regression assembly."""
     if query_table is None:
@@ -546,6 +591,7 @@ def _join_split_tables(
         baseline_table,
         query_table,
         context="query rows must match baseline rows on CHR/SNP/POS",
+        snp_identifier=snp_identifier,
     )
     query_values = query_table.loc[:, list(query_columns)].reset_index(drop=True)
     return pd.concat([baseline_table.reset_index(drop=True), query_values], axis=1)
@@ -557,7 +603,7 @@ def _count_records_from_totals(
     query_columns: list[str],
     count_totals: dict[str, np.ndarray],
 ) -> list[dict[str, Any]]:
-    """Convert positional count vectors into manifest-friendly column records."""
+    """Convert positional count vectors into metadata-friendly column records."""
     columns = [*baseline_columns, *query_columns]
     groups = ["baseline"] * len(baseline_columns) + ["query"] * len(query_columns)
     all_counts = np.asarray(count_totals.get("all_reference_snp_counts"), dtype=np.float64)
@@ -581,7 +627,7 @@ def _count_records_from_totals(
 
 
 def _count_config_from_ldscore_config(ldscore_config: LDScoreConfig) -> dict[str, Any]:
-    """Return manifest count metadata for common-SNP count vectors."""
+    """Return count metadata for common-SNP count vectors."""
     return {
         "common_reference_snp_maf_min": float(ldscore_config.common_maf_min),
         "common_reference_snp_maf_operator": ">=",
@@ -595,7 +641,12 @@ def build_parser() -> argparse.ArgumentParser:
         allow_abbrev=False,
     )
     parser.add_argument("--output-dir", required=True, help="Output directory for the canonical LD-score result.")
-    parser.add_argument("--overwrite", action="store_true", default=False, help="Replace existing fixed output files.")
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        default=False,
+        help="Replace LD-score output artifacts and remove stale owned siblings.",
+    )
     query_group = parser.add_mutually_exclusive_group()
     query_group.add_argument(
         "--query-annot-sources",
@@ -619,15 +670,20 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Build-specific R2 directory containing chr*_r2.parquet and optional chr*_meta.tsv.gz sidecars.",
     )
-    parser.add_argument("--snp-identifier", default="chr_pos", help="Identifier mode used to match annotations to the reference panel.")
+    parser.add_argument(
+        "--snp-identifier",
+        default="chr_pos_allele_aware",
+        choices=("rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"),
+        help="Identifier mode used to match annotations to the reference panel.",
+    )
     parser.add_argument(
         "--genome-build",
         choices=("auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"),
         default=None,
         help=(
-            "Genome build for chr_pos inputs. Required when --snp-identifier chr_pos "
-            "(the default). Use 'auto' to infer hg19/hg38 and 0-based/1-based coordinates "
-            "from data. Not used when --snp-identifier rsid."
+            "Genome build for chr_pos-family inputs. Required when --snp-identifier is "
+            "chr_pos or chr_pos_allele_aware. Use 'auto' to infer hg19/hg38 and "
+            "0-based/1-based coordinates from data. Not used for rsid-family modes."
         ),
     )
     parser.add_argument("--r2-bias-mode", choices=("raw", "unbiased"), default="unbiased", help="Whether parquet R2 values are raw or already unbiased.")
@@ -635,9 +691,32 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--ref-panel-snps-file",
         default=None,
-        help="Optional SNP list defining the retained reference-panel universe A'; the workflow intersects each chromosome annotation bundle with this prepared panel before LD computation.",
+        help=(
+            "Optional identity-only SNP list defining the retained reference-panel universe A'. "
+            "Duplicate restriction keys collapse to one retained key; non-identity columns such as CM or MAF are ignored. "
+            "The workflow intersects each chromosome annotation bundle with this prepared panel before LD computation."
+        ),
     )
-    parser.add_argument("--regression-snps-file", default=None, help="Optional SNP list defining the regression SNP set and the written LD-score row set.")
+    parser.add_argument(
+        "--use-hm3-ref-panel-snps",
+        action="store_true",
+        default=False,
+        help="Restrict the reference-panel universe to the packaged curated HM3 SNP map.",
+    )
+    parser.add_argument(
+        "--regression-snps-file",
+        default=None,
+        help=(
+            "Optional identity-only SNP list defining the regression SNP set and the written LD-score row set. "
+            "Duplicate restriction keys collapse to one retained key; non-identity columns such as CM or MAF are ignored."
+        ),
+    )
+    parser.add_argument(
+        "--use-hm3-regression-snps",
+        action="store_true",
+        default=False,
+        help="Use the packaged curated HM3 SNP map as the regression SNP set.",
+    )
     parser.add_argument(
         "--keep-indivs-file",
         default=None,
@@ -648,7 +727,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ld-wind-cm", default=None, type=float, help="LD window size in centiMorgans.")
     parser.add_argument("--maf-min", default=None, type=float, help="Optional MAF filter for retained reference-panel SNPs when MAF is available.")
     parser.add_argument("--common-maf-min", default=0.05, type=float, help="MAF threshold used only for common-SNP annotation count vectors.")
-    parser.add_argument("--chunk-size", default=128, type=int, help="Chunk size for legacy PLINK block computations.")
+    parser.add_argument("--snp-batch-size", default=128, type=int, help="Number of SNPs processed per LD-score sliding batch.")
     parser.add_argument("--yes-really", default=False, action="store_true", help="Allow whole-chromosome LD windows.")
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"), help="Logging verbosity.")
     return parser
@@ -660,18 +739,28 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
     The workflow resolves unified path tokens for baseline annotations, optional
     query annotations or BED files, and the reference panel. If no baseline or
     query annotations are supplied, it synthesizes an all-ones ``base``
-    annotation over the retained reference-panel metadata. For each
-    chromosome it intersects the annotation rows with
+    annotation over the retained reference-panel metadata. Before calculation
+    it preflights ``metadata.json``, ``ldscore.baseline.parquet``, optional
+    ``ldscore.query.parquet``, and ``diagnostics/ldscore.log`` under
+    ``output_dir``. With
+    overwrite enabled, successful baseline-only runs remove stale query parquet
+    siblings. For each chromosome it intersects annotation rows with
     ``ref_panel.load_metadata(chrom)`` before calling the kernel, then returns
     the normalized public ``LDScoreResult`` with split baseline/query tables.
+    The result ``output_paths`` mapping contains data artifacts only.
     """
-    from ._kernel.annotation import AnnotationBuilder
+    from .annotation_builder import AnnotationBuilder
 
     normalized_args, global_config = _normalize_run_args(args)
     print_global_config_banner("run_ldscore_from_args", global_config)
     _validate_run_args(normalized_args)
     ldscore_config = _ldscore_config_from_args(normalized_args)
-    regression_snps = _load_regression_snps(ldscore_config.regression_snps_file, global_config)
+    regression_snps_path = _regression_snps_file_from_config(ldscore_config)
+    regression_snps = _load_regression_snps(
+        regression_snps_path,
+        global_config,
+        label="packaged HM3 regression SNP map" if ldscore_config.use_hm3_regression_snps else "regression SNP list",
+    )
     ref_mode = "parquet" if _uses_parquet_reference(normalized_args) else "plink"
     LOGGER.info(
         f"Starting LD-score workflow with reference mode '{ref_mode}', "
@@ -689,15 +778,41 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
     else:
         ref_panel = _ref_panel_from_args(normalized_args, global_config)
         annotation_bundle = _pseudo_base_annotation_bundle_from_ref_panel(ref_panel, global_config)
-    calculator = LDScoreCalculator()
-    return calculator.run(
-        annotation_bundle=annotation_bundle,
-        ref_panel=ref_panel,
-        ldscore_config=ldscore_config,
-        global_config=global_config,
-        output_config=_output_config_from_args(normalized_args),
-        regression_snps=regression_snps,
+    output_config = _output_config_from_args(normalized_args)
+    output_dir = ensure_output_directory(output_config.output_dir, label="LD-score output directory")
+    diagnostics_dir = output_dir / "diagnostics"
+    log_path = diagnostics_dir / "ldscore.log"
+    stale_paths = preflight_output_artifact_family(
+        [*_expected_ldscore_output_paths(output_dir, bool(annotation_bundle.query_columns)), log_path],
+        [*_ldscore_output_family(output_dir), log_path],
+        overwrite=output_config.overwrite,
+        label="LD-score output artifact",
     )
+    calculator = LDScoreCalculator()
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    with workflow_logging("ldscore", log_path, log_level=global_config.log_level):
+        log_inputs(
+            output_dir=str(output_dir),
+            reference_mode=ref_mode,
+            snp_identifier=global_config.snp_identifier,
+            genome_build=global_config.genome_build,
+            use_hm3_ref_panel_snps=getattr(normalized_args, "use_hm3_ref_panel_snps", False),
+            use_hm3_regression_snps=ldscore_config.use_hm3_regression_snps,
+            hm3_map_file=packaged_hm3_curated_map_path()
+            if getattr(normalized_args, "use_hm3_ref_panel_snps", False) or ldscore_config.use_hm3_regression_snps
+            else "none",
+        )
+        result = calculator.run(
+            annotation_bundle=annotation_bundle,
+            ref_panel=ref_panel,
+            ldscore_config=ldscore_config,
+            global_config=global_config,
+            output_config=output_config,
+            regression_snps=regression_snps,
+        )
+        log_outputs(**result.output_paths)
+        remove_output_artifacts(stale_paths)
+    return result
 
 
 def _validate_run_args(args: argparse.Namespace) -> None:
@@ -721,8 +836,8 @@ def _validate_run_args(args: argparse.Namespace) -> None:
             args.r2_bias_mode = "unbiased"
         if args.r2_bias_mode == "raw" and args.r2_sample_size is None:
             raise ValueError("--r2-sample-size is required when --r2-bias-mode raw.")
-        if args.snp_identifier == "chr_pos" and args.genome_build is None:
-            raise ValueError("--genome-build is required in parquet mode when --snp-identifier chr_pos.")
+        if identity_mode_family(args.snp_identifier) == "chr_pos" and args.genome_build is None:
+            raise ValueError("--genome-build is required in parquet mode for chr_pos-family snp_identifier modes.")
     if args.ld_wind_cm is not None and args.ld_wind_cm <= 0:
         raise ValueError("--ld-wind-cm must be positive.")
     if args.ld_wind_kb is not None and args.ld_wind_kb <= 0:
@@ -733,13 +848,33 @@ def _validate_run_args(args: argparse.Namespace) -> None:
         raise ValueError("--maf-min must lie in [0, 0.5].")
     if not 0 <= getattr(args, "common_maf_min", 0.05) <= 0.5:
         raise ValueError("--common-maf-min must lie in [0, 0.5].")
-    if args.chunk_size <= 0:
-        raise ValueError("--chunk-size must be positive.")
+    if args.snp_batch_size <= 0:
+        raise ValueError("--snp-batch-size must be positive.")
 
 
 def _has_cli_tokens(value: str | Sequence[str] | None) -> bool:
     """Return whether a CLI path field contains at least one non-empty token."""
     return bool(split_cli_path_tokens(value))
+
+
+def _format_ldscore_start_message(annotation_bundle, n_chromosomes: int) -> str:
+    """Return the workflow-level LD-score start message for a bundle."""
+    source_summary = getattr(annotation_bundle, "source_summary", {}) or {}
+    baseline_source = str(source_summary.get("baseline", ""))
+    if (
+        list(getattr(annotation_bundle, "baseline_columns", [])) == ["base"]
+        and not list(getattr(annotation_bundle, "query_columns", []))
+        and baseline_source.startswith("synthetic all-ones base annotation")
+    ):
+        return (
+            f"Starting LD-score calculation for {n_chromosomes} chromosomes "
+            "with synthetic base annotation and no query annotations."
+        )
+    return (
+        f"Starting LD-score calculation for {n_chromosomes} chromosomes "
+        f"with {len(annotation_bundle.baseline_columns)} baseline columns "
+        f"and {len(annotation_bundle.query_columns)} query columns."
+    )
 
 
 def _uses_parquet_reference(args: argparse.Namespace) -> bool:
@@ -759,7 +894,7 @@ def _pseudo_base_annotation_bundle_from_ref_panel(ref_panel, global_config: Glob
     when ``load_metadata(chrom)`` returns. Later runtime regression-SNP
     restriction remains in the normal LD-score compute path.
     """
-    from ._kernel.annotation import AnnotationBundle
+    from .annotation_builder import AnnotationBundle
 
     metadata_frames = []
     chromosomes = [str(chrom) for chrom in ref_panel.available_chromosomes()]
@@ -769,7 +904,8 @@ def _pseudo_base_annotation_bundle_from_ref_panel(ref_panel, global_config: Glob
             continue
         if "POS" not in metadata.columns and "BP" in metadata.columns:
             metadata = metadata.rename(columns={"BP": "POS"})
-        metadata_frames.append(metadata.loc[:, ["CHR", "SNP", "CM", "POS"]].reset_index(drop=True))
+        metadata_columns = ["CHR", "SNP", "CM", "POS", *[column for column in ("A1", "A2") if column in metadata.columns]]
+        metadata_frames.append(metadata.loc[:, metadata_columns].reset_index(drop=True))
     if not metadata_frames:
         raise ValueError("No reference-panel SNP metadata rows are available for pseudo `base` annotation.")
     metadata = pd.concat(metadata_frames, axis=0, ignore_index=True)
@@ -795,7 +931,7 @@ def run_ldscore(**kwargs) -> LDScoreResult:
     Keyword arguments are interpreted as CLI-equivalent option names without
     leading ``--``; for example ``baseline_annot_sources``, ``query_annot_sources``,
     ``query_annot_bed_sources``, ``plink_prefix``, ``r2_dir``,
-    ``keep_indivs_file``, ``common_maf_min``, and
+    ``keep_indivs_file``, ``snp_batch_size``, ``common_maf_min``, and
     ``output_dir``. Shared runtime assumptions such as ``snp_identifier`` and
     ``genome_build`` must be supplied through ``set_global_config(...)`` first,
     while per-run controls such as ``ref_panel_snps_file`` and
@@ -811,7 +947,7 @@ def run_ldscore(**kwargs) -> LDScoreResult:
     -------
     LDScoreResult
         Aggregated result with ``baseline_table``, optional ``query_table``,
-        manifest count records, and canonical output paths.
+        count records, and canonical output paths.
     """
     forbidden = sorted({"snp_identifier", "genome_build", "log_level"} & set(kwargs))
     if forbidden:
@@ -840,6 +976,7 @@ def run_ldscore(**kwargs) -> LDScoreResult:
             "ref_panel_snps_path",
             "regression_snps_path",
             "keep_indivs_path",
+            "chunk_size",
             "maf",
         }
         & set(kwargs)
@@ -878,16 +1015,25 @@ def _normalize_run_args(args: argparse.Namespace) -> tuple[argparse.Namespace, G
     for attr in ("ref_panel_snps_file", "regression_snps_file"):
         if not hasattr(normalized_args, attr):
             setattr(normalized_args, attr, None)
+    for attr in ("use_hm3_ref_panel_snps", "use_hm3_regression_snps"):
+        if not hasattr(normalized_args, attr):
+            setattr(normalized_args, attr, False)
     if not hasattr(normalized_args, "maf_min"):
         normalized_args.maf_min = None
     if not hasattr(normalized_args, "common_maf_min"):
         normalized_args.common_maf_min = 0.05
+    if not hasattr(normalized_args, "snp_batch_size"):
+        normalized_args.snp_batch_size = 128
     normalized_args.snp_identifier = normalized_mode
     normalized_args.output_dir = normalize_path_token(args.output_dir)
     normalized_args.r2_dir = _r2_dir_from_args(normalized_args)
     normalized_args.keep_indivs_file = normalize_optional_path_token(getattr(args, "keep_indivs_file", None))
     normalized_args.ref_panel_snps_file = normalize_optional_path_token(getattr(args, "ref_panel_snps_file", None))
     normalized_args.regression_snps_file = normalize_optional_path_token(getattr(args, "regression_snps_file", None))
+    if normalized_args.ref_panel_snps_file is not None and normalized_args.use_hm3_ref_panel_snps:
+        raise ValueError("ref_panel_snps_file and use_hm3_ref_panel_snps are mutually exclusive.")
+    if normalized_args.regression_snps_file is not None and normalized_args.use_hm3_regression_snps:
+        raise ValueError("regression_snps_file and use_hm3_regression_snps are mutually exclusive.")
     # The numerical kernel still consumes the historical namespace shape.
     normalized_args.query_annot = normalized_args.query_annot_sources
     normalized_args.baseline_annot = normalized_args.baseline_annot_sources
@@ -895,7 +1041,7 @@ def _normalize_run_args(args: argparse.Namespace) -> tuple[argparse.Namespace, G
     normalized_args.r2_table = None
     normalized_args.frqfile = None
     normalized_args.keep = normalized_args.keep_indivs_file
-    if normalized_mode == "rsid":
+    if identity_mode_family(normalized_mode) == "rsid":
         global_config = GlobalConfig(
             snp_identifier=normalized_mode,
             genome_build=normalize_genome_build(getattr(args, "genome_build", None)),
@@ -920,7 +1066,7 @@ def _resolve_ldscore_chr_pos_genome_build(args: argparse.Namespace, genome_build
     normalized = normalize_genome_build(genome_build)
     if normalized is None:
         raise ValueError(
-            "genome_build is required when snp_identifier='chr_pos'. "
+            "genome_build is required for chr_pos-family snp_identifier modes. "
             "Pass --genome-build auto, --genome-build hg19, or --genome-build hg38."
         )
     if normalized != "auto":
@@ -951,11 +1097,11 @@ def _resolve_ldscore_chr_pos_genome_build(args: argparse.Namespace, genome_build
         ref_panel_build = _infer_r2_dir_genome_build(r2_dir)
         if ref_panel_build is not None:
             resolved.append(("reference panel", ref_panel_build))
-            LOGGER.info(f"Resolved LD-score reference-panel genome build from directory '{r2_dir}'.")
+            LOGGER.info(f"Resolved LD-score reference-panel genome build from parquet schema metadata in '{r2_dir}'.")
     if not resolved:
         raise ValueError(
             "Cannot infer --genome-build for LD-score chr_pos inputs because no chromosome-suite "
-            "annotation or --r2-dir was provided."
+            "annotation or R2 parquet build metadata was available."
         )
     builds = {build for _label, build in resolved}
     if len(builds) != 1:
@@ -964,35 +1110,72 @@ def _resolve_ldscore_chr_pos_genome_build(args: argparse.Namespace, genome_build
     return resolved[0][1]
 
 
-def _load_regression_snps(path: str | None, global_config: GlobalConfig) -> set[str] | None:
+def _load_regression_snps(
+    path: str | None,
+    global_config: GlobalConfig,
+    *,
+    label: str = "regression SNP list",
+) -> RestrictionIdentityKeys | None:
     """Load ``LDScoreConfig.regression_snps_file`` using the active identifier mode."""
     if not path:
         return None
-    return read_global_snp_restriction(
-        resolve_scalar_path(path, label="regression SNP list"),
+    return read_snp_restriction_keys(
+        resolve_scalar_path(path, label=label),
         global_config.snp_identifier,
         genome_build=global_config.genome_build,
     )
 
 
+def _regression_snps_file_from_config(config: LDScoreConfig) -> str | None:
+    """Return the explicit or packaged regression SNP restriction path."""
+    if config.use_hm3_regression_snps:
+        return packaged_hm3_curated_map_path()
+    return config.regression_snps_file
+
+
 def _infer_r2_dir_genome_build(r2_dir: str) -> str | None:
-    """Infer hg19/hg38 from an R2 directory name or child tree."""
-    path = Path(r2_dir)
-    try:
-        direct = normalize_genome_build(path.name)
-    except ValueError:
-        direct = None
-    if direct in {"hg19", "hg38"}:
+    """Infer hg19/hg38 from R2 parquet schema metadata, never path names."""
+    builds_by_path: dict[str, str] = {}
+    for path in _candidate_r2_schema_paths(r2_dir):
+        build = _read_r2_sorted_by_build(path)
+        if build is not None:
+            builds_by_path[str(path)] = build
+
+    builds = set(builds_by_path.values())
+    if len(builds) > 1:
+        details = ", ".join(f"{path}={build}" for path, build in sorted(builds_by_path.items()))
+        raise ValueError(f"Conflicting R2 parquet genome-build metadata in '{r2_dir}': {details}.")
+    return next(iter(builds), None)
+
+
+def _candidate_r2_schema_paths(r2_dir: str) -> list[Path]:
+    """Return candidate R2 parquet files whose schema metadata can identify a panel build."""
+    root = Path(r2_dir)
+    if not root.is_dir():
+        return []
+
+    direct = sorted(root.glob("chr*_r2.parquet"))
+    if direct:
         return direct
-    existing_builds = [build for build in ("hg19", "hg38") if (path / build).is_dir()]
-    if len(existing_builds) == 1:
-        return existing_builds[0]
-    if len(existing_builds) > 1:
-        raise ValueError(
-            f"Cannot infer --genome-build from ambiguous R2 directory '{r2_dir}'. "
-            "Pass a build-specific directory or specify --genome-build hg19/hg38."
-        )
-    return None
+
+    paths: list[Path] = []
+    for build in ("hg19", "hg38"):
+        child = root / build
+        if child.is_dir():
+            paths.extend(sorted(child.glob("chr*_r2.parquet")))
+    return paths
+
+
+def _read_r2_sorted_by_build(path: Path) -> str | None:
+    """Read ``ldsc:sorted_by_build`` from one R2 parquet schema."""
+    import pyarrow.parquet as pq
+
+    raw_meta = pq.read_schema(str(path)).metadata or {}
+    raw_build = raw_meta.get(b"ldsc:sorted_by_build")
+    if raw_build is None:
+        return None
+    build = normalize_genome_build(raw_build.decode("utf-8"))
+    return build if build in {"hg19", "hg38"} else None
 
 
 def _ref_panel_from_args(args: argparse.Namespace, global_config: GlobalConfig):
@@ -1008,6 +1191,7 @@ def _ref_panel_from_args(args: argparse.Namespace, global_config: GlobalConfig):
             r2_bias_mode=getattr(args, "r2_bias_mode", None),
             sample_size=getattr(args, "r2_sample_size", None),
             ref_panel_snps_file=ref_panel_snps_file,
+            use_hm3_ref_panel_snps=getattr(args, "use_hm3_ref_panel_snps", False),
             maf_min=getattr(args, "maf_min", None),
             keep_indivs_file=getattr(args, "keep_indivs_file", None),
         )
@@ -1016,6 +1200,7 @@ def _ref_panel_from_args(args: argparse.Namespace, global_config: GlobalConfig):
             backend="plink",
             plink_prefix=getattr(args, "plink_prefix", None),
             ref_panel_snps_file=ref_panel_snps_file,
+            use_hm3_ref_panel_snps=getattr(args, "use_hm3_ref_panel_snps", False),
             maf_min=getattr(args, "maf_min", None),
             keep_indivs_file=getattr(args, "keep_indivs_file", None),
         )
@@ -1029,7 +1214,8 @@ def _ldscore_config_from_args(args: argparse.Namespace) -> LDScoreConfig:
         ld_wind_kb=getattr(args, "ld_wind_kb", None),
         ld_wind_cm=getattr(args, "ld_wind_cm", None),
         regression_snps_file=getattr(args, "regression_snps_file", None),
-        chunk_size=getattr(args, "chunk_size", 50),
+        use_hm3_regression_snps=getattr(args, "use_hm3_regression_snps", False),
+        snp_batch_size=getattr(args, "snp_batch_size", 128),
         common_maf_min=getattr(args, "common_maf_min", 0.05),
         whole_chromosome_ok=getattr(args, "yes_really", False),
     )
@@ -1041,6 +1227,23 @@ def _output_config_from_args(args: argparse.Namespace) -> LDScoreOutputConfig:
         output_dir=normalize_path_token(args.output_dir),
         overwrite=getattr(args, "overwrite", False),
     )
+
+
+def _expected_ldscore_output_paths(output_dir: Path, has_query: bool) -> list[Path]:
+    """Return canonical LD-score output paths written by the directory writer."""
+    paths = [output_dir / "metadata.json", output_dir / "ldscore.baseline.parquet"]
+    if has_query:
+        paths.append(output_dir / "ldscore.query.parquet")
+    return paths
+
+
+def _ldscore_output_family(output_dir: Path) -> list[Path]:
+    """Return all fixed artifacts owned by the LD-score workflow."""
+    return [
+        output_dir / "metadata.json",
+        output_dir / "ldscore.baseline.parquet",
+        output_dir / "ldscore.query.parquet",
+    ]
 
 
 def _replace_result_output_paths(result: LDScoreResult, output_paths: dict[str, str]) -> LDScoreResult:
@@ -1096,16 +1299,35 @@ def _align_annotation_bundle_to_ref_panel(annotation_bundle, ref_panel, chrom: s
     the kernel.
     """
     reference_metadata = ref_panel.load_metadata(chrom)
-    reference_ids = set(build_snp_id_series(reference_metadata, global_config.snp_identifier))
-    keep = build_snp_id_series(annotation_bundle.metadata, global_config.snp_identifier).isin(reference_ids)
+    reference_cleanup = clean_identity_artifact_table(
+        reference_metadata,
+        global_config.snp_identifier,
+        context=f"reference panel chromosome {chrom}",
+        stage="annotation_reference_identity_cleanup",
+        logger=LOGGER,
+    )
+    reference_metadata = reference_cleanup.cleaned
+    match_mode = _annotation_reference_match_mode(annotation_bundle.metadata, global_config.snp_identifier)
+    reference_keys = build_snp_id_series(reference_metadata, match_mode)
+    annotation_keys = build_snp_id_series(annotation_bundle.metadata, match_mode)
+    reference_ids = set(reference_keys)
+    keep = annotation_keys.isin(reference_ids)
     if not bool(keep.any()):
         backend = getattr(getattr(ref_panel, "spec", None), "backend", None)
         intersection = "parquet" if backend == "parquet_r2" else "PLINK"
         raise ValueError(f"No retained annotation SNPs remain on chromosome {chrom} after {intersection} intersection.")
-    if bool(keep.all()):
+    metadata = annotation_bundle.metadata.loc[keep].reset_index(drop=True)
+    metadata = _annotation_metadata_with_reference_alleles(
+        annotation_metadata=metadata,
+        annotation_keys=annotation_keys.loc[keep].reset_index(drop=True),
+        reference_metadata=reference_metadata,
+        reference_keys=reference_keys,
+        snp_identifier=global_config.snp_identifier,
+    )
+    if bool(keep.all()) and metadata.equals(annotation_bundle.metadata.reset_index(drop=True)):
         return annotation_bundle
     return type(annotation_bundle)(
-        metadata=annotation_bundle.metadata.loc[keep].reset_index(drop=True),
+        metadata=metadata,
         baseline_annotations=annotation_bundle.baseline_annotations.loc[keep].reset_index(drop=True),
         query_annotations=annotation_bundle.query_annotations.loc[keep].reset_index(drop=True),
         baseline_columns=list(annotation_bundle.baseline_columns),
@@ -1114,6 +1336,54 @@ def _align_annotation_bundle_to_ref_panel(annotation_bundle, ref_panel, chrom: s
         source_summary=dict(getattr(annotation_bundle, "source_summary", {})),
         config_snapshot=getattr(annotation_bundle, "config_snapshot", None),
     )
+
+
+def _annotation_reference_match_mode(
+    annotation_metadata: pd.DataFrame,
+    snp_identifier: str,
+) -> str:
+    """Return the identity mode usable by both annotation and reference metadata."""
+    mode = normalize_snp_identifier_mode(snp_identifier)
+    if is_allele_aware_mode(mode) and not {"A1", "A2"}.issubset(annotation_metadata.columns):
+        return identity_base_mode(mode)
+    return mode
+
+
+def _annotation_metadata_with_reference_alleles(
+    *,
+    annotation_metadata: pd.DataFrame,
+    annotation_keys: pd.Series,
+    reference_metadata: pd.DataFrame,
+    reference_keys: pd.Series,
+    snp_identifier: str,
+) -> pd.DataFrame:
+    """Fill missing annotation alleles from unambiguous retained reference metadata."""
+    mode = normalize_snp_identifier_mode(snp_identifier)
+    if not is_allele_aware_mode(mode) or {"A1", "A2"}.issubset(annotation_metadata.columns):
+        return annotation_metadata
+    if not {"A1", "A2"}.issubset(reference_metadata.columns):
+        return annotation_metadata
+
+    reference_lookup = reference_metadata.loc[:, ["A1", "A2"]].copy()
+    reference_lookup["_match_key"] = reference_keys.to_numpy()
+    reference_lookup = reference_lookup.loc[reference_lookup["_match_key"].notna()].copy()
+    duplicate_mask = reference_lookup["_match_key"].duplicated(keep=False)
+    if bool(duplicate_mask.any()):
+        duplicate_key = str(reference_lookup.loc[duplicate_mask, "_match_key"].iloc[0])
+        raise ValueError(
+            "Cannot infer annotation alleles from reference metadata because "
+            f"base identity {duplicate_key!r} is not unique under {mode}."
+        )
+    reference_lookup = reference_lookup.set_index("_match_key")
+    missing = ~annotation_keys.isin(reference_lookup.index)
+    if bool(missing.any()):
+        missing_key = str(annotation_keys.loc[missing].iloc[0])
+        raise ValueError(f"Reference metadata is missing alleles for retained annotation SNP {missing_key!r}.")
+
+    enriched = annotation_metadata.copy()
+    enriched["A1"] = annotation_keys.map(reference_lookup["A1"]).astype(str)
+    enriched["A2"] = annotation_keys.map(reference_lookup["A2"]).astype(str)
+    return enriched
 
 
 def _warn_and_skip_empty_intersection(error: ValueError, chrom: str) -> bool:
@@ -1164,7 +1434,7 @@ def _namespace_from_configs(chrom: str, ref_panel, ldscore_config: LDScoreConfig
         maf=None,
         maf_min=None,
         common_maf_min=ldscore_config.common_maf_min,
-        chunk_size=ldscore_config.chunk_size,
+        snp_batch_size=ldscore_config.snp_batch_size,
         per_chr_output=False,
         yes_really=ldscore_config.whole_chromosome_ok,
         log_level=global_config.log_level,

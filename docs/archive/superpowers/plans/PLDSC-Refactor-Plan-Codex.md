@@ -31,7 +31,7 @@ Implement the refactor described in the April 21 plan, with the live-code adjust
   `ldscore_table`, `snp_count_totals`, `baseline_columns`, `query_columns`, `ld_reference_snps`, `ld_regression_snps`, `output_paths`, `config_snapshot`.
 - Make `ldscore_table` the file-equivalent public table:
   rows = `ld_regression_snps`
-  columns = `[CHR, SNP, BP, <annotation LD columns>, regr_weight]`
+  columns = `[CHR, SNP, BP, <annotation LD columns>, regression_ld_scores]`
 - Set `ld_reference_snps = frozenset()` on normalized/public results because the full reference universe is not recoverable from written rows.
 - Keep `chromosome_results` as a list of per-chromosome normalized results so summaries and writers still have explicit per-chrom objects.
 - Update `outputs.py` to consume `ldscore_table` directly, emit merged `.l2.ldscore.gz`, stop writing `.w.l2.ldscore.gz`, and compute summaries from the normalized shape.
@@ -39,12 +39,12 @@ Implement the refactor described in the April 21 plan, with the live-code adjust
 ### Regression loading and consumption
 - Rename `_load_ldscore_result_from_files` to public `load_ldscore_from_files`.
 - Support both:
-  new merged format with embedded `regr_weight`
+  new merged format with embedded `regression_ld_scores`
   legacy separate weight-file format via optional `weight_path`
 - Reconstruct public results from disk as normalized results:
   `ldscore_table` from file rows, `ld_reference_snps = frozenset()`, `ld_regression_snps` from `build_snp_id_series(...)`.
 - Update `RegressionRunner` and helpers to build datasets from `ldscore_table` instead of separate reference/weight tables.
-- Make `--w-ld` optional on regression subcommands and resolve weights from embedded `regr_weight` first when present.
+- Make `--w-ld` optional on regression subcommands and resolve weights from embedded `regression_ld_scores` first when present.
 
 ## Test Plan
 - Annotation tests:
@@ -59,13 +59,13 @@ Implement the refactor described in the April 21 plan, with the live-code adjust
 - LD-score workflow tests:
   direct `AnnotationBuilder` + `LDScoreCalculator` matches `run_ldscore_from_args()`.
   parser accepts `--query-annot-bed` and rejects it with `--query-annot`.
-  outputs are per-chromosome only, include `regr_weight`, and never emit `.w.l2.ldscore.gz`.
+  outputs are per-chromosome only, include `regression_ld_scores`, and never emit `.w.l2.ldscore.gz`.
   public results expose `ldscore_table` and no longer expose split-table fields.
 - Regression tests:
   `load_ldscore_from_files` is public.
   merged-format loads work without `weight_path`.
   legacy-format loads still work with `weight_path`.
-  `partitioned-h2` works without `--w-ld` when `regr_weight` is embedded.
+  `partitioned-h2` works without `--w-ld` when `regression_ld_scores` is embedded.
   existing regression summaries still compute after the dataset build path is switched to `ldscore_table`.
 
 ## Assumptions and Defaults

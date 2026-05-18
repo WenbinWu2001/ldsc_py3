@@ -91,12 +91,12 @@ out = out.loc[:, [col for col in ["CHR", "POS", "SNP", "CM", "MAF"] if col in ou
 
 Current:
 ```
-- ``baseline.parquet``, containing ``CHR``, ``SNP``, ``POS``, ``regr_weight``, ...
+- ``baseline.parquet``, containing ``CHR``, ``SNP``, ``POS``, ``regression_ld_scores``, ...
 - optional ``query.parquet``, containing ``CHR``, ``SNP``, ``POS``, and query ...
 ```
 Target:
 ```
-- ``baseline.parquet``, containing ``CHR``, ``POS``, ``SNP``, ``regr_weight``, ...
+- ``baseline.parquet``, containing ``CHR``, ``POS``, ``SNP``, ``regression_ld_scores``, ...
 - optional ``query.parquet``, containing ``CHR``, ``POS``, ``SNP``, and query ...
 ```
 
@@ -108,11 +108,11 @@ Target:
 
 Current:
 ```python
-required_baseline = ["CHR", "SNP", "POS", "regr_weight", *baseline_columns]
+required_baseline = ["CHR", "SNP", "POS", "regression_ld_scores", *baseline_columns]
 ```
 Target:
 ```python
-required_baseline = ["CHR", "POS", "SNP", "regr_weight", *baseline_columns]
+required_baseline = ["CHR", "POS", "SNP", "regression_ld_scores", *baseline_columns]
 ```
 
 **Change 3b — `required_query` validation list (line ~143)**

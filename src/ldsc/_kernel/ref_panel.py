@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+import gzip
 import logging
 from pathlib import Path
 import re
@@ -15,26 +16,54 @@ from typing import Any
 
 import pandas as pd
 
+from .._coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame
 from ..chromosome_inference import chrom_sort_key, normalize_chromosome
 from ..column_inference import (
+    A1_COLUMN_SPEC,
+    A2_COLUMN_SPEC,
     REFERENCE_METADATA_SPEC_MAP,
     resolve_optional_column,
     resolve_required_column,
 )
-from ..config import GlobalConfig, RefPanelConfig
-from ..genome_build_inference import validate_auto_genome_build_mode
+from ..config import GlobalConfig, RefPanelConfig, validate_config_compatibility
+from ..genome_build_inference import resolve_genome_build, validate_auto_genome_build_mode
+from ..hm3 import packaged_hm3_curated_map_path
 from ..path_resolution import resolve_plink_prefix, resolve_plink_prefix_group
 from . import formats as legacy_parse
 from . import ldscore as kernel_ldscore
 from .identifiers import (
     build_snp_id_series,
     normalize_snp_identifier_mode,
-    read_global_snp_restriction,
+    read_snp_restriction_keys,
     validate_unique_snp_ids,
+)
+from .snp_identity import (
+    REGENERATE_ARTIFACT_MESSAGE,
+    clean_identity_artifact_table,
+    identity_mode_family,
+    is_allele_aware_mode,
+    restriction_membership_mask,
+    validate_identity_artifact_metadata,
 )
 
 LOGGER = logging.getLogger("LDSC.ref_panel")
 _REF_PANEL_R2_RE = re.compile(r"^chr(?P<chrom>.+)_r2\.parquet$", flags=re.IGNORECASE)
+
+
+def _snp_id_series_for_matching(metadata: pd.DataFrame, snp_identifier: str, *, context: str) -> pd.Series:
+    """Build SNP IDs for a match boundary, dropping missing CHR/POS in base coordinate mode."""
+    mode = normalize_snp_identifier_mode(snp_identifier)
+    if identity_mode_family(mode) == "rsid" or is_allele_aware_mode(mode):
+        return build_snp_id_series(metadata, mode)
+    keyed, _report = build_chr_pos_key_frame(
+        metadata,
+        context=context,
+        drop_missing=True,
+        logger=LOGGER,
+    )
+    keys = pd.Series(pd.NA, index=metadata.index, dtype="object")
+    keys.loc[keyed.index] = keyed[CHR_POS_KEY_COLUMN].astype(str)
+    return keys
 
 
 @dataclass(frozen=True)
@@ -70,6 +99,61 @@ def _read_r2_schema_meta(path: str) -> _R2SchemaMeta:
         r2_bias = "raw"
 
     return _R2SchemaMeta(n_samples=n_samples, r2_bias=r2_bias)
+
+
+def _read_identity_schema_meta(path: str, *, expected_artifact_type: str) -> dict[str, object]:
+    """Read and validate LDSC identity metadata from package-written parquet schema metadata."""
+    try:
+        import pyarrow.parquet as pq
+    except ImportError as exc:
+        raise ImportError("Reading LDSC R2 identity schema metadata requires pyarrow.") from exc
+
+    raw = pq.read_schema(path).metadata or {}
+    required_keys = {
+        b"ldsc:schema_version",
+        b"ldsc:artifact_type",
+        b"ldsc:snp_identifier",
+        b"ldsc:genome_build",
+    }
+    if not required_keys.issubset(raw):
+        raise ValueError(REGENERATE_ARTIFACT_MESSAGE)
+    metadata = {
+        "schema_version": int(raw[b"ldsc:schema_version"].decode("utf-8")),
+        "artifact_type": raw[b"ldsc:artifact_type"].decode("utf-8"),
+        "snp_identifier": raw[b"ldsc:snp_identifier"].decode("utf-8"),
+        "genome_build": raw[b"ldsc:genome_build"].decode("utf-8"),
+    }
+    validate_identity_artifact_metadata(metadata, expected_artifact_type=expected_artifact_type)
+    return metadata
+
+
+def _r2_path_has_ldsc_package_schema(path: str) -> bool:
+    """Return whether parquet schema metadata marks a package-written canonical R2 artifact."""
+    try:
+        import pyarrow.parquet as pq
+    except ImportError:
+        return False
+    raw = pq.read_schema(path).metadata or {}
+    package_keys = {
+        b"ldsc:sorted_by_build",
+        b"ldsc:row_group_size",
+        b"ldsc:schema_version",
+        b"ldsc:artifact_type",
+    }
+    return any(key in raw for key in package_keys)
+
+
+def _validate_r2_identity_matches_config(metadata: dict[str, object], global_config: GlobalConfig) -> None:
+    """Reject package R2 artifacts built under different identity assumptions."""
+    artifact_config = GlobalConfig(
+        snp_identifier=str(metadata["snp_identifier"]),
+        genome_build=metadata.get("genome_build"),
+    )
+    validate_config_compatibility(
+        global_config,
+        artifact_config,
+        context="runtime config and parquet R2 artifact",
+    )
 
 
 def _resolve_r2_bias_from_meta(
@@ -134,7 +218,12 @@ class RefPanel(ABC):
     def filter_to_snps(self, chrom: str, snps: set[str] | list[str]) -> pd.DataFrame:
         """Subset chromosome metadata to the requested SNP identifiers."""
         metadata = self.load_metadata(chrom)
-        keep = build_snp_id_series(metadata, self.global_config.snp_identifier).isin(set(snps))
+        keys = _snp_id_series_for_matching(
+            metadata,
+            self.global_config.snp_identifier,
+            context=f"reference-panel SNP filtering for chromosome {chrom}",
+        )
+        keep = keys.isin(set(snps))
         return metadata.loc[keep].reset_index(drop=True)
 
     def summary(self) -> dict[str, Any]:
@@ -164,16 +253,23 @@ class RefPanel(ABC):
 
     def _apply_snp_restriction(self, metadata: pd.DataFrame) -> pd.DataFrame:
         """Filter metadata rows to ``RefPanelConfig.ref_panel_snps_file`` when set."""
-        restrict_path = self.spec.ref_panel_snps_file
+        restrict_path = packaged_hm3_curated_map_path() if self.spec.use_hm3_ref_panel_snps else self.spec.ref_panel_snps_file
         if restrict_path is None or len(metadata) == 0:
             return metadata
-        restrict_ids = read_global_snp_restriction(
+        if self.spec.use_hm3_ref_panel_snps:
+            LOGGER.info(f"Using packaged curated HM3 map for reference-panel SNP restriction: {restrict_path}.")
+        restriction = read_snp_restriction_keys(
             restrict_path,
             self.global_config.snp_identifier,
             genome_build=self.global_config.genome_build,
             logger=LOGGER,
         )
-        keep = build_snp_id_series(metadata, self.global_config.snp_identifier).isin(restrict_ids)
+        keep = restriction_membership_mask(
+            metadata,
+            restriction,
+            self.global_config.snp_identifier,
+            context=f"reference-panel restriction matching for {restrict_path}",
+        )
         return metadata.loc[keep].reset_index(drop=True)
 
     def _validate_metadata(self, metadata: pd.DataFrame, chrom: str) -> pd.DataFrame:
@@ -202,7 +298,7 @@ class PlinkRefPanel(RefPanel):
         df["SNP"] = df["SNP"].astype(str)
         df["CM"] = pd.to_numeric(df["CM"], errors="coerce")
         df["POS"] = pd.to_numeric(df["POS"], errors="raise").astype(int)
-        metadata = df.loc[df["CHR"] == chrom, ["_raw_index", "CHR", "SNP", "CM", "POS"]].reset_index(drop=True)
+        metadata = df.loc[df["CHR"] == chrom, ["_raw_index", "CHR", "SNP", "CM", "POS", "A1", "A2"]].reset_index(drop=True)
         if len(metadata) == 0:
             raise ValueError(f"No PLINK metadata rows found for chromosome {chrom}.")
         metadata = self._apply_snp_restriction(metadata)
@@ -228,8 +324,18 @@ class PlinkRefPanel(RefPanel):
             raw_metadata["POS"] = pd.to_numeric(raw_metadata["POS"], errors="raise").astype(int)
             raw_metadata = raw_metadata.loc[raw_metadata["CHR"] == normalize_chromosome(chrom)].reset_index(drop=True)
             kept = self.filter_to_snps(chrom, set(keep_snps))
-            key_to_index = dict(zip(build_snp_id_series(raw_metadata, self.global_config.snp_identifier), raw_metadata.index))
-            keep_snp_indices = [int(key_to_index[key]) for key in build_snp_id_series(kept, self.global_config.snp_identifier)]
+            raw_keys = _snp_id_series_for_matching(
+                raw_metadata,
+                self.global_config.snp_identifier,
+                context=f"PLINK raw SNP matching for chromosome {chrom}",
+            ).dropna()
+            kept_keys = _snp_id_series_for_matching(
+                kept,
+                self.global_config.snp_identifier,
+                context=f"PLINK kept SNP matching for chromosome {chrom}",
+            ).dropna()
+            key_to_index = dict(zip(raw_keys, raw_keys.index))
+            keep_snp_indices = [int(key_to_index[key]) for key in kept_keys]
 
         return kernel_ldscore.PlinkBEDFile(
             prefix + ".bed",
@@ -264,6 +370,7 @@ class PlinkRefPanel(RefPanel):
             LOGGER.debug(f"Falling back to BIM-only PLINK metadata for chromosome {chrom}: {exc}", exc_info=True)
             return metadata.drop(columns="_raw_index", errors="ignore").reset_index(drop=True)
 
+        allele_metadata = metadata.loc[:, ["CHR", "SNP", "POS", "A1", "A2"]].copy()
         out = pd.DataFrame(bed.df, columns=bed.colnames)
         if "BP" in out.columns:
             out = out.rename(columns={"BP": "POS"})
@@ -272,7 +379,13 @@ class PlinkRefPanel(RefPanel):
         out["POS"] = pd.to_numeric(out["POS"], errors="raise").astype(int)
         out["CM"] = pd.to_numeric(out["CM"], errors="coerce")
         out["MAF"] = pd.to_numeric(out["MAF"], errors="coerce")
-        return out.loc[out["CHR"] == normalize_chromosome(chrom)].reset_index(drop=True)
+        out = out.loc[out["CHR"] == normalize_chromosome(chrom)].reset_index(drop=True)
+        allele_metadata["CHR"] = allele_metadata["CHR"].map(lambda value: normalize_chromosome(value, context=prefix + ".bim"))
+        allele_metadata["SNP"] = allele_metadata["SNP"].astype(str)
+        allele_metadata["POS"] = pd.to_numeric(allele_metadata["POS"], errors="raise").astype(int)
+        allele_metadata["A1"] = allele_metadata["A1"].astype(str)
+        allele_metadata["A2"] = allele_metadata["A2"].astype(str)
+        return out.merge(allele_metadata, how="left", on=["CHR", "SNP", "POS"], sort=False).reset_index(drop=True)
 
     def _resolve_keep_individuals(self, fam) -> list[int] | None:
         """Return FAM row indices retained by ``RefPanelConfig.keep_indivs_file``."""
@@ -302,7 +415,7 @@ class PlinkRefPanel(RefPanel):
                 sep=r"\s+",
                 header=None,
                 names=["CHR", "SNP", "CM", "POS", "A1", "A2"],
-                usecols=[0, 1, 2, 3],
+                usecols=[0, 1, 2, 3, 4, 5],
             )
             for prefix in prefixes
         ]
@@ -351,8 +464,19 @@ class ParquetR2RefPanel(RefPanel):
 
         r2_paths = self.resolve_r2_paths(chrom)
         metadata_paths = self.resolve_metadata_paths(chrom)
+        metadata_is_external = False
         if metadata_paths:
-            frames = [_read_metadata_table(path, chrom=chrom, global_config=self.global_config) for path in metadata_paths]
+            require_identity_metadata = any(_r2_path_has_ldsc_package_schema(path) for path in r2_paths)
+            metadata_is_external = not all(_read_metadata_sidecar_identity(path) is not None for path in metadata_paths)
+            frames = [
+                _read_metadata_table(
+                    path,
+                    chrom=chrom,
+                    global_config=self.global_config,
+                    require_identity_metadata=require_identity_metadata,
+                )
+                for path in metadata_paths
+            ]
             frames = [frame for frame in frames if len(frame) > 0]
             if not frames:
                 raise ValueError(f"No parquet metadata rows found for chromosome {chrom}.")
@@ -375,6 +499,17 @@ class ParquetR2RefPanel(RefPanel):
                 raise ValueError(f"No parquet R2 endpoint metadata rows found for chromosome {chrom}.")
         metadata = self._apply_snp_restriction(metadata)
         metadata = self._apply_maf_filter(metadata, chrom)
+        if metadata_is_external:
+            cleanup = clean_identity_artifact_table(
+                metadata,
+                self.global_config.snp_identifier,
+                context=f"external parquet reference-panel metadata chromosome {chrom}",
+                stage="parquet_metadata_identity_cleanup",
+                logger=LOGGER,
+            )
+            metadata = cleanup.cleaned
+            if len(metadata) == 0:
+                raise ValueError(f"No parquet metadata rows remain after SNP identity cleanup on chromosome {chrom}.")
         metadata = self._validate_metadata(metadata, chrom)
         self._metadata_cache[chrom] = metadata.copy()
         return metadata
@@ -400,6 +535,9 @@ class ParquetR2RefPanel(RefPanel):
         effective_n = r2_sample_size if r2_sample_size is not None else self.spec.sample_size
 
         if paths:
+            if _r2_path_has_ldsc_package_schema(paths[0]):
+                identity_metadata = _read_identity_schema_meta(paths[0], expected_artifact_type="ref_panel_r2")
+                _validate_r2_identity_matches_config(identity_metadata, self.global_config)
             stored = _read_r2_schema_meta(paths[0])
             effective_bias, effective_n = _resolve_r2_bias_from_meta(
                 effective_bias,
@@ -625,12 +763,128 @@ class RefPanelLoader:
 
     def load(self, ref_panel_spec: RefPanelConfig) -> RefPanel:
         """Return a concrete reference-panel adapter for ``ref_panel_spec``."""
+        global_config = self._global_config_for_spec(ref_panel_spec)
         backend = ref_panel_spec.backend
         if backend == "plink":
-            return PlinkRefPanel(self.global_config, ref_panel_spec)
+            return PlinkRefPanel(global_config, ref_panel_spec)
         if backend == "parquet_r2":
-            return ParquetR2RefPanel(self.global_config, ref_panel_spec)
+            return ParquetR2RefPanel(global_config, ref_panel_spec)
         raise ValueError(f"Unsupported reference-panel backend: {backend}")
+
+    def _global_config_for_spec(self, ref_panel_spec: RefPanelConfig) -> GlobalConfig:
+        """Resolve direct Python auto-build restrictions before backend loading."""
+        mode = normalize_snp_identifier_mode(self.global_config.snp_identifier)
+        if identity_mode_family(mode) != "chr_pos" or self.global_config.genome_build != "auto":
+            return self.global_config
+        if not (ref_panel_spec.ref_panel_snps_file or ref_panel_spec.use_hm3_ref_panel_snps):
+            return self.global_config
+        resolved_build = _infer_restricted_ref_panel_build(ref_panel_spec)
+        return GlobalConfig(
+            snp_identifier=mode,
+            genome_build=resolved_build,
+            log_level=self.global_config.log_level,
+            fail_on_missing_metadata=self.global_config.fail_on_missing_metadata,
+        )
+
+
+def _infer_restricted_ref_panel_build(ref_panel_spec: RefPanelConfig) -> str:
+    """Infer a concrete build for direct ``chr_pos`` ref-panel restrictions."""
+    if ref_panel_spec.ref_panel_snps_file:
+        header_build = _infer_restriction_header_build(Path(ref_panel_spec.ref_panel_snps_file))
+        if header_build is not None:
+            return header_build
+    try:
+        if ref_panel_spec.backend == "parquet_r2":
+            inferred = _infer_parquet_r2_build(ref_panel_spec)
+        elif ref_panel_spec.backend == "plink":
+            inferred = _infer_plink_ref_panel_build(ref_panel_spec)
+        else:
+            inferred = None
+    except Exception as exc:
+        raise ValueError(
+            "Cannot infer genome_build='auto' before applying chr_pos reference-panel SNP restrictions. "
+            "Pass GlobalConfig(genome_build='hg19') or GlobalConfig(genome_build='hg38') explicitly."
+        ) from exc
+    if inferred not in {"hg19", "hg38"}:
+        raise ValueError(
+            "Cannot infer genome_build='auto' before applying chr_pos reference-panel SNP restrictions. "
+            "Pass GlobalConfig(genome_build='hg19') or GlobalConfig(genome_build='hg38') explicitly."
+        )
+    return inferred
+
+
+def _infer_restriction_header_build(path: Path) -> str | None:
+    """Infer build from an unambiguous build-specific restriction POS header."""
+    header, _rows, _delimiter = _parse_restriction_rows(path)
+    normalized = {str(column).upper().replace("-", "_") for column in header}
+    has_hg19 = any(token in normalized for token in {"HG19_POS", "HG19_BP", "HG37_POS", "GRCH37_POS"})
+    has_hg38 = any(token in normalized for token in {"HG38_POS", "HG38_BP", "GRCH38_POS"})
+    if has_hg19 and not has_hg38:
+        return "hg19"
+    if has_hg38 and not has_hg19:
+        return "hg38"
+    return None
+
+
+def _parse_restriction_rows(path: Path):
+    """Reuse the identifier parser for header inspection."""
+    from .identifiers import _parse_restriction_rows as parse_rows
+
+    return parse_rows(path)
+
+
+def _infer_parquet_r2_build(ref_panel_spec: RefPanelConfig) -> str | None:
+    """Infer reference-panel build from parquet R2 schema metadata."""
+    if ref_panel_spec.r2_dir is None:
+        return None
+    root = Path(ref_panel_spec.r2_dir)
+    paths: list[Path] = []
+    if root.is_dir():
+        paths.extend(sorted(root.glob("chr*_r2.parquet")))
+        for build in ("hg19", "hg38"):
+            child = root / build
+            if child.is_dir():
+                paths.extend(sorted(child.glob("chr*_r2.parquet")))
+    builds = {_read_r2_sorted_by_build(path) for path in paths}
+    builds.discard(None)
+    if len(builds) == 1:
+        return next(iter(builds))
+    return None
+
+
+def _read_r2_sorted_by_build(path: Path) -> str | None:
+    """Read ``ldsc:sorted_by_build`` from a parquet R2 schema."""
+    try:
+        import pyarrow.parquet as pq
+    except ImportError:
+        return None
+    raw_meta = pq.read_schema(str(path)).metadata or {}
+    raw_build = raw_meta.get(b"ldsc:sorted_by_build")
+    if raw_build is None:
+        return None
+    build = raw_build.decode("utf-8")
+    return build if build in {"hg19", "hg38"} else None
+
+
+def _infer_plink_ref_panel_build(ref_panel_spec: RefPanelConfig) -> str | None:
+    """Infer reference-panel build from PLINK BIM coordinates."""
+    if ref_panel_spec.plink_prefix is None:
+        return None
+    prefixes = resolve_plink_prefix_group((ref_panel_spec.plink_prefix,), allow_chromosome_suite=True)
+    frames: list[pd.DataFrame] = []
+    for prefix in prefixes:
+        frame = pd.read_csv(
+            prefix + ".bim",
+            sep=r"\s+",
+            header=None,
+            usecols=[0, 3],
+            names=["CHR", "POS"],
+        )
+        frames.append(frame)
+    if not frames:
+        return None
+    sample = pd.concat(frames, ignore_index=True)
+    return resolve_genome_build("auto", "chr_pos", sample, context="reference-panel SNP restriction", logger=LOGGER)
 
 
 def _chrom_sort_key(chrom: str) -> tuple[int, str]:
@@ -638,13 +892,72 @@ def _chrom_sort_key(chrom: str) -> tuple[int, str]:
     return chrom_sort_key(chrom)
 
 
-def _read_metadata_table(path: str | Path, chrom: str | None, global_config: GlobalConfig) -> pd.DataFrame:
+def _read_metadata_sidecar_identity(path: str | Path) -> dict[str, object] | None:
+    """Read leading ``# ldsc:*`` identity metadata from a runtime sidecar."""
+    opener = gzip.open if str(path).endswith(".gz") else open
+    raw: dict[str, str] = {}
+    with opener(path, "rt", encoding="utf-8") as handle:
+        for line in handle:
+            if not line.startswith("#"):
+                break
+            marker = "# ldsc:"
+            if not line.startswith(marker):
+                continue
+            key, sep, value = line[len(marker) :].strip().partition("=")
+            if sep != "":
+                raw[key] = value
+    if not raw:
+        return None
+    required = {"schema_version", "artifact_type", "snp_identifier", "genome_build"}
+    if not required.issubset(raw):
+        raise ValueError(REGENERATE_ARTIFACT_MESSAGE)
+    return {
+        "schema_version": int(raw["schema_version"]),
+        "artifact_type": raw["artifact_type"],
+        "snp_identifier": raw["snp_identifier"],
+        "genome_build": raw["genome_build"],
+    }
+
+
+def _validate_metadata_identity_matches_config(metadata: dict[str, object], global_config: GlobalConfig) -> None:
+    """Reject package metadata sidecars built under different identity assumptions."""
+    artifact_config = GlobalConfig(
+        snp_identifier=str(metadata["snp_identifier"]),
+        genome_build=metadata.get("genome_build"),
+    )
+    validate_config_compatibility(
+        artifact_config,
+        global_config,
+        context="runtime config and reference-panel metadata artifact",
+    )
+
+
+def _read_metadata_table(
+    path: str | Path,
+    chrom: str | None,
+    global_config: GlobalConfig,
+    *,
+    require_identity_metadata: bool = False,
+) -> pd.DataFrame:
     """Read one reference-panel metadata table into the normalized column set."""
-    df = pd.read_csv(path, sep=r"\s+", compression="gzip" if str(path).endswith(".gz") else None)
     snp_identifier = normalize_snp_identifier_mode(global_config.snp_identifier)
     assert global_config.genome_build in {"hg19", "hg38", None}, (
         f"genome_build reached kernel as {global_config.genome_build!r}; "
         "should have been resolved at workflow entry."
+    )
+
+    identity_metadata = _read_metadata_sidecar_identity(path)
+    if require_identity_metadata and identity_metadata is None:
+        raise ValueError(REGENERATE_ARTIFACT_MESSAGE)
+    if identity_metadata is not None:
+        validate_identity_artifact_metadata(identity_metadata, expected_artifact_type="ref_panel_metadata")
+        _validate_metadata_identity_matches_config(identity_metadata, global_config)
+
+    df = pd.read_csv(
+        path,
+        sep=r"\s+",
+        compression="gzip" if str(path).endswith(".gz") else None,
+        comment="#",
     )
     context = str(path)
 
@@ -661,14 +974,15 @@ def _read_metadata_table(path: str | Path, chrom: str | None, global_config: Glo
     try:
         snp_col = resolve_required_column(df.columns, REFERENCE_METADATA_SPEC_MAP["SNP"], context=context)
     except ValueError:
-        # Metadata may be chr_pos-only; mode-specific validation below decides
-        # whether the missing SNP column is an error.
+        # Metadata may be coordinate-only; mode-specific validation below
+        # decides whether the missing SNP column is an error.
         pass
 
-    if snp_identifier == "rsid" and snp_col is None:
-        raise ValueError(f"{path} must contain a SNP column in rsid mode.")
-    if snp_identifier == "chr_pos" and (chr_col is None or pos_col is None):
-        raise ValueError(f"{path} must contain CHR and POS columns in chr_pos mode.")
+    family = identity_mode_family(snp_identifier)
+    if family == "rsid" and snp_col is None:
+        raise ValueError(f"{path} must contain a SNP column in rsID-family modes.")
+    if family == "chr_pos" and (chr_col is None or pos_col is None):
+        raise ValueError(f"{path} must contain CHR and POS columns in chr_pos-family modes.")
 
     out = pd.DataFrame(index=df.index)
     if chr_col is not None:
@@ -689,6 +1003,16 @@ def _read_metadata_table(path: str | Path, chrom: str | None, global_config: Glo
         out["MAF"] = pd.Series(maf).map(lambda value: value if pd.isna(value) else min(value, 1.0 - value))
     elif global_config.fail_on_missing_metadata:
         raise ValueError(f"{path} is missing MAF metadata.")
+
+    a1_col = resolve_optional_column(df.columns, A1_COLUMN_SPEC, context=context)
+    a2_col = resolve_optional_column(df.columns, A2_COLUMN_SPEC, context=context)
+    if (a1_col is None) != (a2_col is None):
+        raise ValueError(f"{path} has only one allele column; provide both A1 and A2 or neither.")
+    if is_allele_aware_mode(snp_identifier) and (a1_col is None or a2_col is None):
+        raise ValueError(f"{path} is malformed for allele-aware SNP identity: A1/A2 columns are required.")
+    if a1_col is not None and a2_col is not None:
+        out["A1"] = df[a1_col].astype(str)
+        out["A2"] = df[a2_col].astype(str)
 
     if chrom is not None and "CHR" in out.columns:
         out = out.loc[out["CHR"] == normalize_chromosome(chrom, context=context)].reset_index(drop=True)

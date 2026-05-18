@@ -6,6 +6,8 @@ import logging
 import math
 import re
 
+import pandas as pd
+
 
 LOGGER = logging.getLogger("LDSC.chromosomes")
 _LOGGED_NORMALIZATIONS: set[tuple[str, str, str, str]] = set()
@@ -98,6 +100,22 @@ def normalize_chromosome(value: object, *, context: str | None = None) -> str:
         return canonical
 
     return _normalize_numeric_chromosome(raw, stripped, context=context)
+
+
+def normalize_chromosome_series(series: pd.Series, *, context: str | None = None) -> pd.Series:
+    """Normalize a chromosome series with scalar validation applied per label.
+
+    Missing values are preserved as ``pd.NA``. Non-missing labels are reduced
+    to their unique token set, normalized through :func:`normalize_chromosome`,
+    and then mapped back to the original row shape. This keeps the same
+    validation and once-per-token logging behavior as the scalar helper while
+    avoiding row-wise Python calls for low-cardinality chromosome columns.
+    """
+    missing = series.isna()
+    unique_values = pd.unique(series.loc[~missing])
+    mapping = {value: normalize_chromosome(value, context=context) for value in unique_values}
+    normalized = series.map(mapping)
+    return normalized.where(~missing, pd.NA)
 
 
 def chrom_sort_key(chrom: object) -> tuple[int, object]:

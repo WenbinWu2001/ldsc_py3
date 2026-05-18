@@ -12,7 +12,10 @@ The parquet R² backend replaces repeated `pyarrow.Dataset.to_table(filter=...)`
 with a row-group index strategy modelled after tabix: parquet footer statistics
 (per-column min/max per row group) are read once at file open time and used to
 identify the minimal set of row groups that overlap each genomic query window.
-Only those row groups are read from disk per query.
+Canonical row groups are decoded into numeric endpoint arrays and held in a
+chromosome-local LRU cache sized automatically from the LD window and
+`snp_batch_size`, so overlapping sliding windows reuse decoded data instead of
+re-reading parquet row groups.
 
 Benchmark on a synthetic 25.6M-pair chromosome parquet:
 
@@ -31,9 +34,11 @@ still accepted but trigger a startup warning (see §3.2).
 
 ### 2.1 Column Schema
 
-Package-written canonical parquet files have these six columns. The reader
-requires these logical fields, with aliases accepted at load time; unrelated
-extra columns are ignored.
+Package-written canonical parquet files have six base columns plus endpoint
+allele columns when the builder has allele metadata. The reader requires the
+six base logical fields in every mode, and requires endpoint alleles in
+allele-aware modes. Aliases are accepted at load time for external base-mode
+inputs; unrelated extra columns are ignored.
 
 | Column | Type | Description |
 |---|---|---|
@@ -43,6 +48,8 @@ extra columns are ignored.
 | `R2` | `float32` | Squared Pearson correlation between allele dosages |
 | `SNP_1` | `string` | dbSNP rsID of the left SNP |
 | `SNP_2` | `string` | dbSNP rsID of the right SNP |
+| `A1_1`, `A2_1` | `string` | left endpoint alleles in reference-panel orientation |
+| `A1_2`, `A2_2` | `string` | right endpoint alleles in reference-panel orientation |
 
 **Dropped from the legacy schema:** `hg19_pos_1`, `hg38_pos_1`, `hg19_pos_2`,
 `hg38_pos_2`, `hg19_Uniq_ID_1/2`, `hg38_Uniq_ID_1/2`, `Dprime`, `+/-corr`.
@@ -54,7 +61,8 @@ the file metadata (see §2.4).
 #### Alias-tolerant loading
 
 The default on-disk column names are the uppercase canonical fields above:
-`CHR`, `POS_1`, `POS_2`, `SNP_1`, `SNP_2`, `R2`. At load time, the parquet reader
+`CHR`, `POS_1`, `POS_2`, `SNP_1`, `SNP_2`, `R2`, plus endpoint
+`A1_1/A2_1/A1_2/A2_2` columns in allele-aware package-built files. At load time, the parquet reader
 resolves aliases through `src/ldsc/column_inference.py` before using the file.
 For example, a file with columns `chr`, `bp_1`, `bp_2`, `rsid_1`, `rsid_2`, `R2`
 is treated as the same logical schema as `CHR`, `POS_1`, `POS_2`, `SNP_1`,
@@ -106,9 +114,25 @@ Tradeoff guide for non-default reference panels:
 Recommended range: **25 000 – 200 000** rows per group. Choose closer to the
 expected pairs-per-window for the target reference panel density.
 
-### 2.4 Parquet Schema Metadata
+### 2.4 SNP Identity Modes And External R2 Limits
 
-Four key-value entries are written into the parquet `schema.metadata` at file creation:
+The public SNP identifier modes are exactly `rsid`, `rsid_allele_aware`,
+`chr_pos`, and `chr_pos_allele_aware`; the package default is
+`chr_pos_allele_aware`. Base modes are fully allele-blind: `rsid` uses only
+`SNP_1/SNP_2`, and `chr_pos` uses only `CHR/POS_1/POS_2`. Endpoint allele
+columns may be present in base modes, but they do not affect identity,
+duplicate filtering, retention, or drop reasons.
+
+Allele-aware modes require package-built canonical R2 parquet with endpoint
+allele columns `A1_1/A2_1/A1_2/A2_2`. These modes use the unordered,
+strand-aware endpoint allele sets only to make merge keys safer. External raw
+R2 parquet inputs are supported only in `rsid` and `chr_pos`; run
+`ldsc build-ref-panel` with the current package to produce allele-aware R2
+artifacts.
+
+### 2.5 Parquet Schema Metadata
+
+Package-written parquet files include these technical metadata entries:
 
 | Key | Type | Description |
 |---|---|---|
@@ -116,6 +140,16 @@ Four key-value entries are written into the parquet `schema.metadata` at file cr
 | `ldsc:row_group_size` | string (int) | Intended row group size used when writing. Informational; reader uses actual footer stats. |
 | `ldsc:n_samples` | string (int) | Number of reference-panel individuals used when computing the stored R2 values. Package-built panels write `geno.n`. |
 | `ldsc:r2_bias` | string | Bias state of stored R2 values. Package-built panels currently write `"unbiased"`; `"raw"` is reserved for raw sample R2 values that need downstream correction. |
+
+They also include the minimal identity provenance required by current
+reloaders:
+
+| Key | Type | Description |
+|---|---|---|
+| `ldsc:schema_version` | string (int) | Current identity schema version, `1`. |
+| `ldsc:artifact_type` | string | `ref_panel_r2`. |
+| `ldsc:snp_identifier` | string | Exact mode used to build the artifact. |
+| `ldsc:genome_build` | string | Genome build of the endpoint coordinates. |
 
 These are accessed via `pq.ParquetFile(path).schema_arrow.metadata` and are stored
 as UTF-8 byte strings by PyArrow.
@@ -126,9 +160,10 @@ package-built panels, users do not need to pass `--r2-bias-mode` or
 future raw-R2 panel with `ldsc:r2_bias="raw"` would auto-fill its correction
 sample size from `ldsc:n_samples`. Legacy parquet files without these keys keep
 the historical default of treating omitted bias mode as `"unbiased"`; users can
-still pass `--r2-bias-mode raw --r2-sample-size N` for external raw R2 files.
+still pass `--r2-bias-mode raw --r2-sample-size N` for external raw R2 files
+when running in `rsid` or `chr_pos` mode.
 
-### 2.5 Canonical Example
+### 2.6 Canonical Example
 
 **Schema metadata:**
 
@@ -137,6 +172,10 @@ ldsc:sorted_by_build = "hg19"
 ldsc:row_group_size  = "50000"
 ldsc:n_samples       = "3202"
 ldsc:r2_bias         = "unbiased"
+ldsc:schema_version  = "1"
+ldsc:artifact_type   = "ref_panel_r2"
+ldsc:snp_identifier  = "chr_pos_allele_aware"
+ldsc:genome_build    = "hg19"
 ```
 
 **Row group footer statistics (first three groups of a chr1 file):**
@@ -148,37 +187,35 @@ ldsc:r2_bias         = "unbiased"
 | 2 | 50 000 | 2 910 885 | 4 011 203 |
 | … | … | … | … |
 
-**Data rows (first 10 rows of the file):**
+**Data rows (first rows of the file):**
 
-| CHR | POS_1 | POS_2 | R2 | SNP_1 | SNP_2 |
-|---|---|---|---|---|---|
-| 1 | 752 566 | 776 546 | 0.8214 | rs3094315 | rs2905036 |
-| 1 | 752 566 | 800 007 | 0.1342 | rs3094315 | rs11240777 |
-| 1 | 752 566 | 817 186 | 0.0891 | rs3094315 | rs4040617 |
-| 1 | 752 566 | 823 656 | 0.3124 | rs3094315 | rs2980319 |
-| 1 | 776 546 | 800 007 | 0.4451 | rs2905036 | rs11240777 |
-| 1 | 776 546 | 817 186 | 0.0674 | rs2905036 | rs4040617 |
-| 1 | 776 546 | 823 656 | 0.1982 | rs2905036 | rs2980319 |
-| 1 | 800 007 | 817 186 | 0.7231 | rs11240777 | rs4040617 |
-| 1 | 800 007 | 823 656 | 0.1562 | rs11240777 | rs2980319 |
-| 1 | 817 186 | 823 656 | 0.8913 | rs4040617 | rs2980319 |
+| CHR | POS_1 | POS_2 | SNP_1 | SNP_2 | A1_1 | A2_1 | A1_2 | A2_2 | R2 |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | 752 566 | 776 546 | rs3094315 | rs2905036 | A | C | A | G | 0.8214 |
+| 1 | 752 566 | 800 007 | rs3094315 | rs11240777 | A | C | C | T | 0.1342 |
+| 1 | 752 566 | 817 186 | rs3094315 | rs4040617 | A | C | A | G | 0.0891 |
 
 Note: rows are sorted by non-decreasing `POS_1`. The left SNP (`POS_1 = 752 566`) appears
 in multiple consecutive rows — one per right-side neighbor within the LD window.
 
 ---
 
-### 2.6 SNP Metadata Sidecar
+### 2.7 SNP Metadata Sidecar
 
-The R² parquet stores **only pairwise data** (`CHR`, `POS_1`, `POS_2`, `R2`,
-`SNP_1`, `SNP_2`). Per-SNP metadata — chromosome, base position, rsID, genetic
-distance, and minor allele frequency — is kept in a separate **metadata sidecar**
-file. The sidecar is optional, but strongly recommended for production use.
+The R² parquet stores **only pairwise data** (`CHR`, `POS_1`, `POS_2`,
+`SNP_1`, `SNP_2`, endpoint alleles in allele-aware package artifacts, and
+`R2`). Per-SNP metadata — chromosome, base position, rsID, genetic distance,
+minor allele frequency, and alleles when available — is kept in a separate
+**metadata sidecar** file. Current package-written sidecars begin with
+`# ldsc:*` identity-provenance comments (`schema_version`, `artifact_type`,
+`snp_identifier`, `genome_build`) before the TSV header.
 
 Treat the parquet R² file and the metadata sidecar as a paired artifact when
 possible. Together they define one logical reference panel: the parquet provides
 pairwise LD entries, while the sidecar provides the complete per-SNP metadata
-needed for MAF filtering, common counts, and cM windows.
+needed for identity validation, MAF filtering, common counts, and cM windows.
+When the paired R² parquet is package-written, sidecars without current identity
+provenance are rejected and must be regenerated.
 
 #### Fallback when the sidecar is absent
 
@@ -211,20 +248,24 @@ Column names are resolved flexibly via `REFERENCE_METADATA_SPEC_MAP` (defined in
 | `SNP` | `rsID`, `rs`, `snpid` | `rsid` identifier mode | dbSNP rsID |
 | `CM` | `cM`, `genetic_map_cm` | Never | Genetic map position (cM); filled with `NA` if absent |
 | `MAF` | `maf`, `freq`, `AF`, `alt_freqs` | When `fail_on_missing_metadata=True` | Minor allele frequency; folded to [0, 0.5] on load |
+| `A1`, `A2` | standard allele aliases | Allele-aware modes | Reference-panel orientation alleles |
 
-In `rsid` mode the `SNP` column is mandatory. In `chr_pos` mode `CHR` and `POS` are
-mandatory. A file providing all five columns works in either mode and is recommended
-for production use.
+In `rsid`-family modes the `SNP` column is mandatory. In `chr_pos`-family modes
+`CHR` and `POS` are mandatory. A file providing all identity columns works in
+any mode and is recommended for production use. In base modes, `A1/A2` are
+passive for identity; in allele-aware modes, missing or unusable `A1/A2` makes
+the sidecar malformed.
 
 #### Role in the downstream workflow
 
 When present, the metadata sidecar feeds directly into three steps of the partitioned-LDSC workflow
 (see `docs/current/partitioned-ldsc-workflow.md`, §6):
 
-1. **Reference panel universe (A').** `load_metadata()` reads the sidecar, optionally
-   applies `_apply_snp_restriction()` when `ref_panel_snps_file` is set, and returns
-   the restricted per-SNP table A'. This is what the annotation bundle is aligned
-   against (`B_chrom ∩ A'_chrom`) to materialize `ld_reference_snps`.
+1. **Reference panel universe (A').** `load_metadata()` reads the sidecar,
+   optionally applies `_apply_snp_restriction()` when `ref_panel_snps_file` or
+   `use_hm3_ref_panel_snps` is set, and returns the restricted per-SNP table A'.
+   This is what the annotation bundle is aligned against (`B_chrom ∩ A'_chrom`)
+   to materialize `ld_reference_snps`.
 
 2. **All and common count vectors.** The `MAF` column propagates through the
    metadata DataFrame and is consumed by `compute_counts()` to compute
@@ -325,31 +366,62 @@ Row groups without valid `POS_1` min/max footer statistics are excluded from
 pruned canonical query path; regenerate such files with PyArrow statistics enabled
 if those rows must be queryable.
 
-### 3.4 Window Queries (`_query_union_rows`)
+### 3.4 Auto Decoded Row-Group Cache
+
+Before the parquet sliding-block loop starts, `ld_score_var_blocks_from_r2_reader`
+calls `SortedR2BlockReader.configure_auto_row_group_cache(block_left, snp_batch_size)`.
+The reader simulates the same index-window query sequence that the LD-score
+sliding algorithm will issue for the chromosome. For every adjacent query pair it
+computes the union of required row groups from the footer bounds, then sets:
+
+```python
+capacity = min(max_adjacent_union + 1, num_row_groups)
+```
+
+The cache unit is one decoded parquet row group. The cached payload is numeric
+arrays only: endpoint matrix indices `i:int32`, `j:int32`, and `r2:float32`.
+In base `rsid` mode, `SNP_1`/`SNP_2` strings are converted to retained-SNP
+matrix indices during row-group decode. In base `chr_pos` mode, `POS_1`/`POS_2`
+are mapped to retained-SNP matrix indices during decode. In allele-aware modes,
+endpoint alleles are included in the effective key. Unmapped endpoints are
+dropped at decode time.
+
+The cache is per chromosome and is discarded when the next chromosome reader is
+created. There is no public row-group cache-size option. Cache diagnostics
+(capacity, hits, misses, evictions, and parquet row-group reads) are logged at
+`DEBUG` level only.
+
+Correctness does not depend on cache state. Every query recomputes its full
+required row-group set from footer bounds. A cache miss reads and decodes the
+row group from parquet; it never means that a pair is absent.
+
+### 3.5 Window Queries (`_query_union_rows`)
 
 For each sliding-window block, `cross_block_matrix` and `within_block_matrix` call
-`_query_union_rows(pos_min, pos_max)`, which:
+the canonical index-window query path, which:
 
 1. Identifies overlapping row groups from `_rg_bounds`:
    ```python
    rg_idxs = [i for mn, mx, i in self._rg_bounds if mn <= pos_max and mx >= pos_min]
    ```
-2. Reads only those row groups via:
+2. Retrieves each required row group from the decoded cache, or reads one row
+   group from parquet on cache miss:
    ```python
-   tbl = self._pf.read_row_groups(rg_idxs, columns=["POS_1", "POS_2", "R2"])
+   tbl = self._pf.read_row_group(rg_idx, columns=[...])
    ```
-3. Converts to numpy arrays using zero-copy `.to_numpy()` — no Python object
-   creation, no intermediate pandas DataFrame.
-4. Applies a positional mask: `(POS_1 >= pos_min) & (POS_2 <= pos_max)`.
-5. Maps `POS_1`/`POS_2` (or `SNP_1`/`SNP_2`) to matrix indices via `self.index_map`.
-6. Applies optional R² bias correction (`_transform_r2`).
-7. Returns `(i_array, j_array, r2_array)` as numpy arrays.
+3. Converts Arrow columns to numpy arrays and maps pair endpoints to retained-SNP
+   matrix indices during row-group decode.
+4. Applies optional R² bias correction (`_transform_r2`) during decode.
+5. Concatenates decoded row groups and filters numeric `i`/`j` endpoints to the
+   current union/index window.
+6. Returns numeric pair rows for the dense matrix builder. The dense matrix path
+   still filters to the block-local matrix region before assignment.
 
 **Coarse-file behaviour:** if the file has few, large row groups, step 1 may return
 all row groups for every query — performance degrades to O(N) per query but
 correctness is maintained.
 
-### 3.5 Dense Matrix Construction
+### 3.6 Dense Matrix Construction
 
 `cross_block_matrix` and `within_block_matrix` consume the output of
 `_query_union_rows` and fill a dense `float32` numpy matrix via vectorized
@@ -389,9 +461,10 @@ enforced at write time by the sort assertion described in §2.2. Pairs where
 index lookups if present.
 
 **Identifier mode.** `SNP_1`/`SNP_2` are always written. `identifier_mode` is a
-runtime parameter; the reader selects which columns to use for index mapping
-(`POS_1`/`POS_2` for `chr_pos` mode, `SNP_1`/`SNP_2` for `rsid` mode) without
-requiring different parquet files.
+runtime parameter; the reader selects which columns to use for index mapping:
+`SNP_1`/`SNP_2` for base `rsid`, `POS_1`/`POS_2` for base `chr_pos`, and the
+corresponding endpoint allele-aware effective key for allele-aware modes,
+without requiring different package-built parquet files.
 
 **Legacy raw-schema parquets.** Parquets in the old schema (containing
 `hg19_pos_1`, `hg38_pos_1`, etc. but no canonical `POS_1`/`POS_2` columns) are
@@ -412,10 +485,11 @@ in the current CLI; regenerate canonical files with `ldsc build-ref-panel`.
 
 | Module | Change |
 |---|---|
-| `_kernel/ref_panel_builder.py` | `write_r2_parquet`: require PyArrow; assert sort invariant on each incoming pair; write new 6-column schema; preserve canonical dtypes for empty outputs; write `ldsc:sorted_by_build` and `ldsc:row_group_size` metadata; default `row_group_size=50_000` |
+| `_kernel/ref_panel_builder.py` | `write_r2_parquet`: require PyArrow; assert sort invariant on each incoming pair; write canonical pair columns plus endpoint allele columns in allele-aware modes; preserve canonical dtypes for empty outputs; write identity, `ldsc:sorted_by_build`, and `ldsc:row_group_size` metadata; default `row_group_size=50_000` |
 | `_kernel/ldscore.py` — `SortedR2BlockReader.__init__` | Detect schema (canonical vs legacy raw); canonical path: open as `pq.ParquetFile`, build `_rg_bounds` index from footer, validate build (3-tier), warn if coarse row groups; legacy path: open as `pyarrow.Dataset`, emit deprecation warning, proceed with full-scan fallback |
-| `_kernel/ldscore.py` — `SortedR2BlockReader._query_union_rows` | Canonical path: row-group index lookup + `read_row_groups` + `.to_numpy()`; legacy path: existing `dataset.to_table(filter=...)` behaviour unchanged |
+| `_kernel/ldscore.py` — `SortedR2BlockReader` decoded cache | Canonical path: auto-size a chromosome-local LRU cache from `block_left` and `snp_batch_size`; cache decoded row groups as numeric `i`, `j`, `r2` arrays; log DEBUG-only cache diagnostics |
+| `_kernel/ldscore.py` — `SortedR2BlockReader._query_union_rows` | Canonical path: row-group index lookup + decoded cache lookup or `read_row_group` miss + numeric endpoint filtering; legacy path: existing `dataset.to_table(filter=...)` behaviour unchanged |
 | `_kernel/ldscore.py` — `read_sorted_r2_presence` | Remove standalone function; the parquet backend no longer performs a runtime SNP-presence scan |
 | `_kernel/ldscore.py` — `compute_chrom_from_parquet` | Use the sidecar-defined `A'` directly when forming `ld_reference_snps`; no parquet presence scan is performed |
-| Tests — canonical schema | Add fixtures writing new 6-column sorted parquets; assert row-group index is built; assert window queries return correct pairs |
+| Tests — canonical schema | Add fixtures writing sorted package-style parquets with endpoint alleles where required; assert row-group index is built; assert window queries return correct pairs |
 | Tests — legacy schema | Retain existing raw-schema fixtures; assert deprecation warning is emitted; assert numerical output is unchanged |

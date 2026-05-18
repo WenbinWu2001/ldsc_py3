@@ -7,7 +7,14 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from ldsc.chromosome_inference import STANDARD_CHROMOSOMES, chrom_sort_key, normalize_chromosome
+import pandas as pd
+
+from ldsc.chromosome_inference import (
+    STANDARD_CHROMOSOMES,
+    chrom_sort_key,
+    normalize_chromosome,
+    normalize_chromosome_series,
+)
 
 
 class ChromosomeInferenceTest(unittest.TestCase):
@@ -43,3 +50,18 @@ class ChromosomeInferenceTest(unittest.TestCase):
     def test_chrom_sort_key_uses_standard_package_order(self):
         values = ["Y", "2", "MT", "1", "M", "X"]
         self.assertEqual(sorted(values, key=chrom_sort_key), ["1", "2", "X", "Y", "MT", "M"])
+
+    def test_normalize_chromosome_series_matches_scalar_and_preserves_missing(self):
+        series = pd.Series(["chr1.0", "chr1.0", "24", pd.NA, None], dtype="object")
+
+        normalized = normalize_chromosome_series(series, context="series-context")
+
+        self.assertEqual(normalized.tolist()[:3], ["1", "1", "Y"])
+        self.assertTrue(pd.isna(normalized.iloc[3]))
+        self.assertTrue(pd.isna(normalized.iloc[4]))
+
+    def test_normalize_chromosome_series_raises_on_invalid_unique_label(self):
+        series = pd.Series(["1", "27", "27"], dtype="object")
+
+        with self.assertRaisesRegex(ValueError, "Unsupported chromosome label"):
+            normalize_chromosome_series(series, context="series-invalid")

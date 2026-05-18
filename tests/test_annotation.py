@@ -1,6 +1,7 @@
 from pathlib import Path
 import contextlib
 import io
+import json
 import sys
 import tempfile
 import unittest
@@ -14,7 +15,7 @@ if str(SRC) not in sys.path:
 
 from ldsc._kernel import annotation as kernel_annotation
 from ldsc import annotation_builder
-from ldsc.annotation_builder import AnnotationBuilder, run_bed_to_annot
+from ldsc.annotation_builder import AnnotationBuilder, AnnotationBundle, run_bed_to_annot
 from ldsc.config import AnnotationBuildConfig, GlobalConfig
 
 
@@ -34,17 +35,17 @@ class AnnotationBuilderTest(unittest.TestCase):
         stdout = io.StringIO()
         with self.assertRaises(SystemExit):
             with contextlib.redirect_stdout(stdout):
-                kernel_annotation.parse_bed_to_annot_args(["--help"])
+                annotation_builder.parse_bed_to_annot_args(["--help"])
 
         help_text = stdout.getvalue()
         self.assertIn("Required when", help_text)
-        self.assertIn("Not used when --snp-identifier rsid", help_text)
+        self.assertIn("Not used for rsid-family modes", help_text)
 
     def test_bed_to_annot_parser_rejects_removed_no_batch_flag(self):
         stderr = io.StringIO()
         with self.assertRaises(SystemExit):
             with contextlib.redirect_stderr(stderr):
-                kernel_annotation.parse_bed_to_annot_args(
+                annotation_builder.parse_bed_to_annot_args(
                     [
                         "--query-annot-bed-sources",
                         "query.bed",
@@ -65,6 +66,16 @@ class AnnotationBuilderTest(unittest.TestCase):
     def test_gene_set_functions_not_exported(self):
         for name in ("gene_set_to_bed", "make_annot_files", "main_make_annot", "parse_make_annot_args"):
             self.assertFalse(hasattr(annotation_builder, name), f"{name} should not be exported")
+
+    def test_kernel_annotation_does_not_export_workflow_api(self):
+        for name in (
+            "AnnotationBuilder",
+            "AnnotationBundle",
+            "run_bed_to_annot",
+            "parse_bed_to_annot_args",
+            "main_bed_to_annot",
+        ):
+            self.assertFalse(hasattr(kernel_annotation, name), f"{name} should live in ldsc.annotation_builder")
 
     def test_run_builds_bundle(self):
         builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
@@ -160,6 +171,179 @@ class AnnotationBuilderTest(unittest.TestCase):
             bundle = builder.run(AnnotationBuildConfig(baseline_annot_sources=(str(base),)))
             self.assertEqual(bundle.reference_snps("chr_pos"), {"1:10", "1:20", "2:30"})
 
+    def test_rsid_mode_drops_all_duplicate_identity_rows(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            base = tmpdir / "base.annot"
+            rows = [("1", 10, "rs1", 0.1), ("1", 20, "rs1", 0.2), ("1", 30, "rs2", 0.3)]
+            _write_annot(base, rows, {"base_a": [1, 0, 1]})
+
+            builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
+            bundle = builder.run(AnnotationBuildConfig(baseline_annot_sources=(str(base),)))
+
+            self.assertEqual(bundle.metadata["SNP"].tolist(), ["rs2"])
+            self.assertEqual(bundle.baseline_annotations["base_a"].tolist(), [1])
+
+    def test_chr_pos_mode_drops_all_duplicate_identity_rows(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            base = tmpdir / "base.annot"
+            rows = [("1", 10, "rs1", 0.1), ("1", 10, "rs2", 0.2), ("1", 30, "rs3", 0.3)]
+            _write_annot(base, rows, {"base_a": [1, 0, 1]})
+
+            builder = AnnotationBuilder(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"), AnnotationBuildConfig())
+            bundle = builder.run(AnnotationBuildConfig(baseline_annot_sources=(str(base),)))
+
+            self.assertEqual(bundle.metadata["SNP"].tolist(), ["rs3"])
+            self.assertEqual(bundle.reference_snps("chr_pos"), {"1:30"})
+
+    def test_run_in_allele_aware_mode_accepts_allele_free_annotations(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            base = tmpdir / "base.annot"
+            rows = [("1", 10, "rs1", 0.1), ("1", 20, "rs2", 0.2)]
+            _write_annot(base, rows, {"base_a": [1, 0]})
+
+            builder = AnnotationBuilder(
+                GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
+                AnnotationBuildConfig(),
+            )
+            bundle = builder.run(AnnotationBuildConfig(baseline_annot_sources=(str(base),)))
+
+        self.assertNotIn("A1", bundle.metadata.columns)
+        self.assertEqual(bundle.reference_snps("chr_pos_allele_aware"), {"1:10", "1:20"})
+
+    def test_run_in_allele_aware_mode_aligns_allele_free_baseline_and_query(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            base = tmpdir / "base.annot"
+            query = tmpdir / "query.annot"
+            rows = [("1", 10, "rs1", 0.1), ("1", 20, "rs2", 0.2)]
+            _write_annot(base, rows, {"base_a": [1, 0]})
+            _write_annot(query, rows, {"query_a": [0, 1]})
+
+            builder = AnnotationBuilder(
+                GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
+                AnnotationBuildConfig(),
+            )
+            bundle = builder.run(
+                AnnotationBuildConfig(
+                    baseline_annot_sources=(str(base),),
+                    query_annot_sources=(str(query),),
+                )
+            )
+
+        self.assertEqual(bundle.baseline_columns, ["base_a"])
+        self.assertEqual(bundle.query_columns, ["query_a"])
+        self.assertNotIn("A1", bundle.metadata.columns)
+
+    def test_run_in_allele_aware_mode_promotes_later_query_alleles_after_alignment(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            base = tmpdir / "base.annot"
+            query = tmpdir / "query.annot"
+            base.write_text(
+                "CHR\tBP\tSNP\tCM\tbase_a\n"
+                "1\t10\trs1\t0.1\t1\n"
+                "1\t20\trs2\t0.2\t0\n",
+                encoding="utf-8",
+            )
+            query.write_text(
+                "CHR\tBP\tSNP\tCM\tA1\tA2\tquery_a\n"
+                "1\t10\trs1\t0.1\tA\tG\t0\n"
+                "1\t20\trs2\t0.2\tC\tT\t1\n",
+                encoding="utf-8",
+            )
+
+            builder = AnnotationBuilder(
+                GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
+                AnnotationBuildConfig(),
+            )
+            bundle = builder.run(
+                AnnotationBuildConfig(
+                    baseline_annot_sources=(str(base),),
+                    query_annot_sources=(str(query),),
+                )
+            )
+
+        self.assertEqual(bundle.metadata["A1"].tolist(), ["A", "C"])
+        self.assertEqual(bundle.metadata["A2"].tolist(), ["G", "T"])
+        self.assertEqual(bundle.baseline_columns, ["base_a"])
+        self.assertEqual(bundle.query_columns, ["query_a"])
+
+    def test_rsid_allele_aware_mode_drops_multiallelic_base_key_clusters(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            base = tmpdir / "base.annot"
+            base.write_text(
+                "CHR\tBP\tSNP\tCM\tA1\tA2\tbase_a\n"
+                "1\t10\trs1\t0.1\tA\tC\t1\n"
+                "1\t20\trs1\t0.2\tA\tG\t0\n"
+                "1\t30\trs2\t0.3\tA\tC\t1\n",
+                encoding="utf-8",
+            )
+
+            builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid_allele_aware"), AnnotationBuildConfig())
+            bundle = builder.run(AnnotationBuildConfig(baseline_annot_sources=(str(base),)))
+
+            self.assertEqual(bundle.metadata["SNP"].tolist(), ["rs2"])
+            self.assertEqual(bundle.baseline_annotations["base_a"].tolist(), [1])
+
+    def test_chr_pos_allele_aware_mode_drops_duplicate_effective_keys(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            base = tmpdir / "base.annot"
+            base.write_text(
+                "CHR\tBP\tSNP\tCM\tA1\tA2\tbase_a\n"
+                "1\t10\trs1\t0.1\tA\tC\t1\n"
+                "1\t10\trs2\t0.2\tC\tA\t0\n"
+                "1\t30\trs3\t0.3\tA\tG\t1\n",
+                encoding="utf-8",
+            )
+
+            builder = AnnotationBuilder(
+                GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
+                AnnotationBuildConfig(),
+            )
+            bundle = builder.run(AnnotationBuildConfig(baseline_annot_sources=(str(base),)))
+
+            self.assertEqual(bundle.metadata["SNP"].tolist(), ["rs3"])
+            self.assertEqual(bundle.baseline_annotations["base_a"].tolist(), [1])
+
+    def test_allele_aware_mode_projects_bed_on_cleaned_grid(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            base = tmpdir / "base.annot"
+            bed = tmpdir / "query.bed"
+            rows = [("1", 10, "rs1", 0.1), ("1", 10, "rs2", 0.2), ("1", 30, "rs3", 0.3)]
+            _write_annot(base, rows, {"base_a": [1, 0, 1]})
+            bed.write_text("chr1\t29\t30\n", encoding="utf-8")
+
+            builder = AnnotationBuilder(
+                GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
+                AnnotationBuildConfig(),
+            )
+            bundle = builder.run(
+                AnnotationBuildConfig(
+                    baseline_annot_sources=(str(base),),
+                    query_annot_bed_sources=(str(bed),),
+                )
+            )
+
+            self.assertEqual(bundle.metadata["SNP"].tolist(), ["rs3"])
+            self.assertEqual(bundle.query_annotations[bed.stem].tolist(), [1.0])
+
+    def test_identity_cleanup_raises_when_all_rows_drop(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            base = tmpdir / "base.annot"
+            rows = [("1", 10, "rs1", 0.1), ("1", 10, "rs2", 0.2)]
+            _write_annot(base, rows, {"base_a": [1, 0]})
+
+            builder = AnnotationBuilder(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"), AnnotationBuildConfig())
+            with self.assertRaisesRegex(ValueError, "no annotation rows remain after SNP identity cleanup"):
+                builder.run(AnnotationBuildConfig(baseline_annot_sources=(str(base),)))
+
     def test_run_with_bed_paths_returns_bundle_with_binary_query_columns(self):
         builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -200,7 +384,38 @@ class AnnotationBuilderTest(unittest.TestCase):
             output_dir.mkdir()
             existing = output_dir / "query.1.annot.gz"
             existing.write_text("existing\n", encoding="utf-8")
-            bundle = kernel_annotation.AnnotationBundle(
+            bundle = AnnotationBundle(
+                metadata=pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs1"], "CM": [0.1]}),
+                baseline_annotations=pd.DataFrame({"base": [1.0]}),
+                query_annotations=pd.DataFrame({"query": [1.0]}),
+                baseline_columns=["base"],
+                query_columns=["query"],
+                chromosomes=["1"],
+                source_summary={},
+                config_snapshot=GlobalConfig(snp_identifier="rsid"),
+            )
+            builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
+            builder._workflow_log_path = output_dir / "diagnostics" / "annotate.log"
+
+            with mock.patch.object(builder, "run", return_value=bundle):
+                with self.assertRaisesRegex(FileExistsError, "overwrite"):
+                    builder.project_bed_annotations(
+                        query_annot_bed_sources=("query.bed",),
+                        baseline_annot_sources=("baseline.1.annot.gz",),
+                        output_dir=output_dir,
+                    )
+
+            self.assertEqual(existing.read_text(encoding="utf-8"), "existing\n")
+            self.assertFalse((output_dir / "diagnostics" / "annotate.log").exists())
+
+    def test_project_bed_annotations_refuses_stale_query_shard_without_overwrite(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            output_dir = tmpdir / "out"
+            output_dir.mkdir()
+            stale = output_dir / "query.2.annot.gz"
+            stale.write_text("stale\n", encoding="utf-8")
+            bundle = AnnotationBundle(
                 metadata=pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs1"], "CM": [0.1]}),
                 baseline_annotations=pd.DataFrame({"base": [1.0]}),
                 query_annotations=pd.DataFrame({"query": [1.0]}),
@@ -220,7 +435,192 @@ class AnnotationBuilderTest(unittest.TestCase):
                         output_dir=output_dir,
                     )
 
-            self.assertEqual(existing.read_text(encoding="utf-8"), "existing\n")
+            self.assertEqual(stale.read_text(encoding="utf-8"), "stale\n")
+            self.assertFalse((output_dir / "query.1.annot.gz").exists())
+
+    def test_project_bed_annotations_ignores_legacy_root_diagnostics_without_overwrite(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            output_dir = tmpdir / "out"
+            root_drop_dir = output_dir / "dropped_snps"
+            root_drop_dir.mkdir(parents=True)
+            (output_dir / "metadata.json").write_text('{"legacy": true}\n', encoding="utf-8")
+            (output_dir / "annotate.log").write_text("legacy log\n", encoding="utf-8")
+            (root_drop_dir / "dropped.tsv.gz").write_text("legacy drops\n", encoding="utf-8")
+            bundle = AnnotationBundle(
+                metadata=pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs1"], "CM": [0.1]}),
+                baseline_annotations=pd.DataFrame({"base": [1.0]}),
+                query_annotations=pd.DataFrame({"query": [1.0]}),
+                baseline_columns=["base"],
+                query_columns=["query"],
+                chromosomes=["1"],
+                source_summary={},
+                config_snapshot=GlobalConfig(snp_identifier="rsid"),
+            )
+            builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
+            builder._workflow_log_path = output_dir / "diagnostics" / "annotate.log"
+
+            with mock.patch.object(builder, "run", return_value=bundle):
+                builder.project_bed_annotations(
+                    query_annot_bed_sources=("query.bed",),
+                    baseline_annot_sources=("baseline.1.annot.gz",),
+                    output_dir=output_dir,
+                )
+
+            self.assertEqual((output_dir / "metadata.json").read_text(encoding="utf-8"), '{"legacy": true}\n')
+            self.assertEqual((output_dir / "annotate.log").read_text(encoding="utf-8"), "legacy log\n")
+            self.assertEqual((root_drop_dir / "dropped.tsv.gz").read_text(encoding="utf-8"), "legacy drops\n")
+            self.assertTrue((output_dir / "query.1.annot.gz").exists())
+            self.assertTrue((output_dir / "diagnostics" / "metadata.json").exists())
+            self.assertTrue((output_dir / "diagnostics" / "annotate.log").exists())
+            self.assertTrue((output_dir / "diagnostics" / "dropped_snps" / "dropped.tsv.gz").exists())
+
+    def test_project_bed_annotations_overwrite_removes_stale_query_shard(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            output_dir = tmpdir / "out"
+            output_dir.mkdir()
+            stale = output_dir / "query.2.annot.gz"
+            stale.write_text("stale\n", encoding="utf-8")
+            bundle = AnnotationBundle(
+                metadata=pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs1"], "CM": [0.1]}),
+                baseline_annotations=pd.DataFrame({"base": [1.0]}),
+                query_annotations=pd.DataFrame({"query": [1.0]}),
+                baseline_columns=["base"],
+                query_columns=["query"],
+                chromosomes=["1"],
+                source_summary={},
+                config_snapshot=GlobalConfig(snp_identifier="rsid"),
+            )
+            builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
+
+            with mock.patch.object(builder, "run", return_value=bundle):
+                builder.project_bed_annotations(
+                    query_annot_bed_sources=("query.bed",),
+                    baseline_annot_sources=("baseline.1.annot.gz",),
+                    output_dir=output_dir,
+                    overwrite=True,
+                )
+
+            self.assertTrue((output_dir / "query.1.annot.gz").exists())
+            self.assertTrue((output_dir / "diagnostics" / "metadata.json").exists())
+            self.assertFalse((output_dir / "metadata.json").exists())
+            self.assertFalse(stale.exists())
+
+    def test_identity_cleanup_sidecar_is_written_for_annotate_outputs(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            base = tmpdir / "base.annot"
+            bed = tmpdir / "query.bed"
+            output_dir = tmpdir / "out"
+            rows = [("1", 10, "rs1", 0.1), ("1", 10, "rs2", 0.2), ("1", 30, "rs3", 0.3)]
+            _write_annot(base, rows, {"base_a": [1, 0, 1]})
+            bed.write_text("chr1\t29\t30\n", encoding="utf-8")
+
+            builder = AnnotationBuilder(
+                GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+                AnnotationBuildConfig(),
+            )
+            builder.project_bed_annotations(
+                query_annot_bed_sources=(str(bed),),
+                baseline_annot_sources=(str(base),),
+                output_dir=output_dir,
+            )
+
+            sidecar = output_dir / "diagnostics" / "dropped_snps" / "dropped.tsv.gz"
+            self.assertTrue(sidecar.exists())
+            self.assertFalse((output_dir / "metadata.json").exists())
+            metadata = json.loads((output_dir / "diagnostics" / "metadata.json").read_text(encoding="utf-8"))
+            self.assertEqual(metadata["artifact_type"], "annotation_projection")
+            self.assertEqual(metadata["snp_identifier"], "chr_pos")
+            self.assertEqual(metadata["genome_build"], "hg38")
+            self.assertEqual(
+                metadata["files"],
+                {"query_annotations": ["query.1.annot.gz"], "dropped_snps": "diagnostics/dropped_snps/dropped.tsv.gz"},
+            )
+            dropped = pd.read_csv(sidecar, sep="\t", compression="gzip")
+            self.assertEqual(dropped["reason"].tolist(), ["duplicate_identity", "duplicate_identity"])
+            self.assertEqual(set(dropped["SNP"]), {"rs1", "rs2"})
+
+    def test_identity_cleanup_sidecar_is_header_only_when_no_rows_drop(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            base = tmpdir / "base.annot"
+            bed = tmpdir / "query.bed"
+            output_dir = tmpdir / "out"
+            rows = [("1", 10, "rs1", 0.1), ("1", 30, "rs2", 0.3)]
+            _write_annot(base, rows, {"base_a": [1, 0]})
+            bed.write_text("chr1\t29\t30\n", encoding="utf-8")
+
+            builder = AnnotationBuilder(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"), AnnotationBuildConfig())
+            builder.project_bed_annotations(
+                query_annot_bed_sources=(str(bed),),
+                baseline_annot_sources=(str(base),),
+                output_dir=output_dir,
+            )
+
+            sidecar = output_dir / "diagnostics" / "dropped_snps" / "dropped.tsv.gz"
+            self.assertTrue(sidecar.exists())
+            self.assertTrue((output_dir / "diagnostics" / "metadata.json").exists())
+            self.assertFalse((output_dir / "metadata.json").exists())
+            dropped = pd.read_csv(sidecar, sep="\t", compression="gzip")
+            self.assertEqual(
+                list(dropped.columns),
+                [
+                    "CHR",
+                    "SNP",
+                    "source_pos",
+                    "target_pos",
+                    "reason",
+                    "base_key",
+                    "identity_key",
+                    "allele_set",
+                    "stage",
+                ],
+            )
+            self.assertEqual(len(dropped), 0)
+
+    def test_run_annotate_from_args_writes_workflow_log(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            base = tmpdir / "base.annot"
+            bed = tmpdir / "query.bed"
+            output_dir = tmpdir / "out"
+            rows = [("1", 10, "rs1", 0.1), ("1", 20, "rs2", 0.2)]
+            _write_annot(base, rows, {"base": [1, 1]})
+            bed.write_text("chr1\t0\t100\tfeature\n", encoding="utf-8")
+            args = type(
+                "Args",
+                (),
+                {
+                    "query_annot_bed_sources": str(bed),
+                    "baseline_annot_sources": str(base),
+                    "output_dir": str(output_dir),
+                    "overwrite": False,
+                    "snp_identifier": "rsid",
+                    "genome_build": None,
+                    "log_level": "INFO",
+                },
+            )()
+
+            class _FakeBedTool:
+                def __init__(self, path: str):
+                    self.path = path
+
+            fake_pybedtools = mock.Mock()
+            fake_pybedtools.BedTool = _FakeBedTool
+            with mock.patch.object(kernel_annotation, "_get_pybedtools", return_value=fake_pybedtools), mock.patch.object(
+                kernel_annotation,
+                "_compute_bed_overlap_mask",
+                return_value=[True, False],
+            ):
+                bundle = annotation_builder.run_annotate_from_args(args)
+
+            self.assertEqual(bundle.query_columns, ["query"])
+            self.assertTrue((output_dir / "query.1.annot.gz").exists())
+            self.assertTrue((output_dir / "diagnostics" / "metadata.json").exists())
+            self.assertFalse((output_dir / "metadata.json").exists())
+            self.assertTrue((output_dir / "diagnostics" / "annotate.log").exists())
 
     def test_parse_fixture_annotation(self):
         builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), AnnotationBuildConfig())
@@ -243,6 +643,42 @@ class AnnotationBuilderTest(unittest.TestCase):
             self.assertEqual(list(metadata.columns), ["CHR", "POS", "SNP", "CM"])
             self.assertEqual(metadata["POS"].tolist(), [10])
             self.assertEqual(list(annotations.columns), ["base_a"])
+
+    def test_parse_annotation_file_preserves_optional_alleles_as_metadata(self):
+        builder = AnnotationBuilder(
+            GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
+            AnnotationBuildConfig(),
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "alleles.annot"
+            path.write_text(
+                "CHR\tBP\tSNP\tCM\tA1\tA2\tbase_a\n"
+                "1\t10\trs1\t0.1\tA\tC\t1\n",
+                encoding="utf-8",
+            )
+
+            metadata, annotations = builder.parse_annotation_file(path)
+
+        self.assertEqual(list(metadata.columns), ["CHR", "POS", "SNP", "CM", "A1", "A2"])
+        self.assertEqual(metadata["A1"].tolist(), ["A"])
+        self.assertEqual(metadata["A2"].tolist(), ["C"])
+        self.assertEqual(list(annotations.columns), ["base_a"])
+
+    def test_parse_annotation_file_rejects_single_allele_column(self):
+        builder = AnnotationBuilder(
+            GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
+            AnnotationBuildConfig(),
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "one_allele.annot"
+            path.write_text(
+                "CHR\tBP\tSNP\tCM\tA1\tbase_a\n"
+                "1\t10\trs1\t0.1\tA\t1\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "Annotation file has only one allele column"):
+                builder.parse_annotation_file(path)
 
     def test_annotation_builder_accepts_auto_genome_build(self):
         builder = AnnotationBuilder(GlobalConfig(snp_identifier="chr_pos", genome_build="auto"), AnnotationBuildConfig())
@@ -505,10 +941,10 @@ class AnnotationWrapperTest(unittest.TestCase):
                     baseline_annot_sources=[str(baseline)],
                 )
 
-            self.assertIsInstance(result, kernel_annotation.AnnotationBundle)
+            self.assertIsInstance(result, AnnotationBundle)
             self.assertEqual(result.query_columns, ["query"])
 
-    def test_main_bed_to_annot_chr_pos_auto_resolves_build_before_running(self):
+    def test_main_chr_pos_auto_resolves_build_before_running(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             baseline = tmpdir / "baseline.1.annot"
@@ -517,18 +953,19 @@ class AnnotationWrapperTest(unittest.TestCase):
             bed.write_text("chr1\t0\t100\tfeature\n", encoding="utf-8")
 
             with mock.patch.object(
-                kernel_annotation,
+                annotation_builder,
                 "sample_frame_from_chr_pattern",
                 return_value=(pd.DataFrame({"CHR": ["1"], "POS": [100]}), str(baseline)),
             ) as patched_sample, mock.patch.object(
-                kernel_annotation,
+                annotation_builder,
                 "resolve_genome_build",
                 return_value="hg19",
             ) as patched_resolve, mock.patch.object(
-                kernel_annotation,
+                annotation_builder,
                 "_run_bed_to_annot_with_global_config",
+                return_value=mock.sentinel.bundle,
             ) as patched_run:
-                rc = annotation_builder.main_bed_to_annot(
+                result = annotation_builder.main(
                     [
                         "--query-annot-bed-sources",
                         str(bed),
@@ -543,13 +980,10 @@ class AnnotationWrapperTest(unittest.TestCase):
                     ]
                 )
 
-            self.assertEqual(rc, 0)
+            self.assertIs(result, mock.sentinel.bundle)
             self.assertEqual(patched_sample.call_args.kwargs["context"], "annotation inputs")
             self.assertEqual(patched_resolve.call_args.args[0], "auto")
             self.assertEqual(patched_run.call_args.kwargs["global_config"].genome_build, "hg19")
 
-    def test_run_bed_wrapper_calls_main(self):
-        with mock.patch.object(annotation_builder, "main_bed_to_annot", return_value=5) as patched:
-            rc = annotation_builder.main_bed_to_annot(["--help"])
-        patched.assert_called_once()
-        self.assertEqual(rc, 5)
+    def test_main_bed_to_annot_public_entrypoint_is_removed(self):
+        self.assertFalse(hasattr(annotation_builder, "main_bed_to_annot"))

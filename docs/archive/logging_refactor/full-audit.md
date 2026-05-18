@@ -28,13 +28,17 @@ start/completion context for LD-score calculation, summary-statistics munging,
 regression, reference-panel building, config banners, genome-build inference,
 and LD-score directory loading.
 
-The main remaining logging debt is legacy kernel compatibility. The summary
-statistics kernel still writes its historical `.log` artifact through
-`LegacyMungeLog.write()` and intentionally preserves many legacy message strings.
-That output is no longer mirrored to stdout; it is mirrored to the package
-logger at `INFO` while still writing the `.log` file. One standalone compatibility
-entry point in `_kernel.annotation` still raises `SystemExit(main_bed_to_annot())`
-because it is a script-style boundary, not a workflow-layer API.
+The summary-statistics munger layering debt has since been reduced:
+`sumstats_munger.main()` now parses only, `run_munge_sumstats_from_args()` maps
+CLI args into `MungeConfig`, and `SumstatsMunger.run()` owns `sumstats.log`,
+metadata sidecars, path resolution, and result objects. The kernel no longer
+owns a hand-rolled log writer; it emits normal package logger records while
+retaining legacy-compatible QC and `.sumstats.gz` writing. The remaining
+logging debt is workflow-level harmonization across subcommands: common log
+file naming, headers, timing, command recording, and float formatting. One
+standalone compatibility entry point in `_kernel.annotation` still raises
+`SystemExit(main_bed_to_annot())` because it is a script-style boundary, not a
+workflow-layer API.
 
 ## 2. Completed Since Previous Audit
 
@@ -52,7 +56,7 @@ because it is a script-style boundary, not a workflow-layer API.
 | P-6 | Done | IRWLS shape failure now reports expected and observed shapes in the exception. |
 | E-9 | Done | `partitioned-h2` now tells users to rerun `ldsc ldscore` with query annotations and explicit baseline annotations. |
 | T-3 | Done | Invalid manifest config provenance is logged at `DEBUG` with `exc_info=True` and warned with the original exception value. |
-| T-4 | Done | Munger conversion failure logs include the original exception message before re-raising. |
+| T-4 | Superseded | Munger conversion failures now propagate to the CLI boundary without an extra kernel-owned error log; exception chains are preserved for callers. |
 | T-5, T-6 | Done | Intentional parquet schema probe fallbacks are narrowed/documented as schema fallback logic. |
 
 ## 3. Residual Log Message Findings
@@ -63,10 +67,9 @@ style, clarity, or maintainability.
 
 | ID | File | Current pattern | Issue | Recommendation | Severity |
 | --- | --- | --- | --- | --- | --- |
-| L-1 | `src/ldsc/_kernel/sumstats_munger.py` | Many `log.log(...format(...))` legacy messages | The legacy `.log` writer still uses historical `.format()` strings. They are not Python `logging` calls, but the style is inconsistent with the package-wide f-string standard. | Leave while preserving exact legacy logs, or convert in a dedicated compatibility-reviewed pass with snapshot tests. | Low |
-| L-2 | `src/ldsc/_kernel/sumstats_munger.py` | `print(msg, file=self.log_fh)` | This is an intentional file writer for the legacy `.log` artifact, not stdout progress. It still looks like print misuse to simple scanners. | Keep unless replacing `LegacyMungeLog` with a file-handler adapter; document as intentional. | Low |
-| L-3 | `src/ldsc/_kernel/ref_panel.py` | Broad fallback logs BIM-only metadata at `DEBUG` | The fallback is well logged with traceback, but the broad catch is still wider than the expected PLINK BED reader failures. | If the PLINK reader exposes stable exception types later, narrow this catch. | Low |
-| L-4 | `src/ldsc/regression_runner.py`, `src/ldsc/sumstats_munger.py` | Provenance warnings use `warnings.warn(...)` plus selective debug logging | These are API warnings rather than operational logs, which is appropriate for Python callers but less visible in CLI logs. | Keep for API compatibility; optionally mirror to logger at `WARNING` only at CLI boundaries. | Low |
+| L-1 | `src/ldsc/_kernel/ref_panel.py` | Broad fallback logs BIM-only metadata at `DEBUG` | The fallback is well logged with traceback, but the broad catch is still wider than the expected PLINK BED reader failures. | If the PLINK reader exposes stable exception types later, narrow this catch. | Low |
+| L-2 | `src/ldsc/regression_runner.py`, `src/ldsc/sumstats_munger.py` | Provenance warnings use `warnings.warn(...)` plus selective debug logging | These are API warnings rather than operational logs, which is appropriate for Python callers but less visible in CLI logs. | Keep for API compatibility; optionally mirror to logger at `WARNING` only at CLI boundaries. | Low |
+| L-3 | workflow modules | Per-workflow log-file setup is inconsistent | `munge-sumstats` still writes `sumstats.log` through a workflow-owned temporary handler, while other workflows do not yet share a common log-file context. | Implement the later logging harmonization pass with shared handlers, timing, command recording, and naming. | Medium |
 
 ## 4. Residual Error Message Findings
 
@@ -141,9 +144,9 @@ Do not introduce package exceptions named after Python built-ins such as
       sample-size, and allele messages.
 - [ ] Add a `label` argument to `_normalize_required_path()` so missing config
       paths can name the field.
-- [ ] Decide whether the legacy `.log` artifact must remain byte-for-byte
-      compatible before converting remaining `.format()`-style `log.log(...)`
-      messages.
+- [ ] Decide how much of the historical `sumstats.log` message text should
+      remain stable before the shared logging context changes the file name,
+      header, timing, and float formatting.
 
 ### Priority 3: Optional polish
 

@@ -13,7 +13,14 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from ldsc.config import GlobalConfig, RefPanelConfig
-from ldsc._kernel.ref_panel import ParquetR2RefPanel, PlinkRefPanel, RefPanelLoader
+from ldsc._kernel.ref_panel import (
+    ParquetR2RefPanel,
+    PlinkRefPanel,
+    RefPanelLoader,
+    _read_metadata_table,
+    _snp_id_series_for_matching,
+)
+from ldsc._kernel.ref_panel_builder import build_restriction_mask
 
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "minimal_external_resources" / "plink"
@@ -29,7 +36,14 @@ def _has_module(name: str) -> bool:
         return False
 
 
-def _write_canonical_r2_parquet(path: Path, chrom: str = "1") -> None:
+def _write_canonical_r2_parquet(
+    path: Path,
+    chrom: str = "1",
+    *,
+    identity_metadata: bool = True,
+    snp_identifier: str = "chr_pos",
+    genome_build: str = "hg38",
+) -> None:
     import pyarrow as pa
     import pyarrow.parquet as pq
 
@@ -45,13 +59,67 @@ def _write_canonical_r2_parquet(path: Path, chrom: str = "1") -> None:
         }
     )
     table = pa.Table.from_pandas(frame, preserve_index=False)
-    table = table.replace_schema_metadata({b"ldsc:sorted_by_build": b"hg38"})
+    metadata = {b"ldsc:sorted_by_build": genome_build.encode("utf-8")}
+    if identity_metadata:
+        metadata.update(
+            {
+                b"ldsc:schema_version": b"1",
+                b"ldsc:artifact_type": b"ref_panel_r2",
+                b"ldsc:snp_identifier": snp_identifier.encode("utf-8"),
+                b"ldsc:genome_build": genome_build.encode("utf-8"),
+            }
+        )
+    table = table.replace_schema_metadata(metadata)
     pq.write_table(table, path)
 
 
-def _write_meta_sidecar(path: Path, rows: str) -> None:
+def _write_raw_r2_parquet_with_technical_metadata(path: Path, chrom: str = "1") -> None:
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    frame = pd.DataFrame(
+        {
+            "chr": [chrom],
+            "rsID_1": ["rs1"],
+            "rsID_2": ["rs2"],
+            "hg38_pos_1": [10],
+            "hg38_pos_2": [20],
+            "hg19_pos_1": [9],
+            "hg19_pos_2": [19],
+            "hg38_Uniq_ID_1": ["1:10"],
+            "hg38_Uniq_ID_2": ["1:20"],
+            "hg19_Uniq_ID_1": ["1:9"],
+            "hg19_Uniq_ID_2": ["1:19"],
+            "R2": [0.4],
+            "Dprime": [0.7],
+            "+/-corr": [1],
+        }
+    )
+    table = pa.Table.from_pandas(frame, preserve_index=False).replace_schema_metadata(
+        {
+            b"ldsc:n_samples": b"100",
+            b"ldsc:r2_bias": b"raw",
+        }
+    )
+    pq.write_table(table, path)
+
+
+def _write_meta_sidecar(
+    path: Path,
+    rows: str,
+    *,
+    identity_metadata: bool = True,
+    snp_identifier: str = "chr_pos",
+    genome_build: str = "hg38",
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with gzip.open(path, "wt", encoding="utf-8") as handle:
+        if identity_metadata:
+            handle.write("# ldsc:schema_version=1\n")
+            handle.write("# ldsc:artifact_type=ref_panel_metadata\n")
+            handle.write(f"# ldsc:snp_identifier={snp_identifier}\n")
+            handle.write(f"# ldsc:genome_build={genome_build}\n")
         handle.write(rows)
 
 
@@ -86,6 +154,22 @@ class RefPanelLoaderTest(unittest.TestCase):
         panel = loader.load(spec)
         self.assertIsInstance(panel, ParquetR2RefPanel)
 
+    def test_auto_build_resolution_uses_coordinate_family(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            restriction = Path(tmpdir) / "snps.tsv"
+            restriction.write_text("CHR\tHG38_POS\n1\t10\n", encoding="utf-8")
+            loader = RefPanelLoader(
+                GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="auto"),
+                RefPanelConfig(),
+            )
+
+            resolved = loader._global_config_for_spec(
+                RefPanelConfig(backend="plink", ref_panel_snps_file=str(restriction))
+            )
+
+            self.assertEqual(resolved.snp_identifier, "chr_pos_allele_aware")
+            self.assertEqual(resolved.genome_build, "hg38")
+
 
 class PlinkRefPanelTest(unittest.TestCase):
     def test_available_chromosomes_and_metadata(self):
@@ -105,6 +189,73 @@ class PlinkRefPanelTest(unittest.TestCase):
         )
         filtered = panel.filter_to_snps("22", set(PLINK_SNPS))
         self.assertEqual(set(filtered["SNP"]), set(PLINK_SNPS))
+
+    def test_matching_ids_use_rsid_family(self):
+        metadata = pd.DataFrame({"SNP": ["rs1", "rs2"], "A1": ["A", "A"], "A2": ["C", "G"]})
+
+        ids = _snp_id_series_for_matching(metadata, "rsid_allele_aware", context="test")
+
+        self.assertEqual(ids.tolist(), ["rs1:A:C", "rs2:A:G"])
+
+    def test_build_restriction_mask_uses_rsid_family(self):
+        metadata = pd.DataFrame({"SNP": ["rs1", "rs2"]})
+
+        mask = build_restriction_mask(metadata, {"rs2"}, "rsid_allele_aware")
+
+        self.assertEqual(mask.tolist(), [False, True])
+
+    def test_ref_panel_restriction_uses_allele_aware_identity_keys(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            restrict_path = Path(tmpdir) / "restrict.tsv"
+            restrict_path.write_text("SNP\tA1\tA2\nrs1\tA\tC\n", encoding="utf-8")
+            panel = ParquetR2RefPanel(
+                GlobalConfig(snp_identifier="rsid_allele_aware"),
+                RefPanelConfig(backend="parquet_r2", r2_dir=tmpdir, ref_panel_snps_file=str(restrict_path)),
+            )
+            metadata = pd.DataFrame(
+                {
+                    "CHR": ["1", "1"],
+                    "POS": [10, 10],
+                    "SNP": ["rs1", "rs1"],
+                    "A1": ["A", "A"],
+                    "A2": ["C", "G"],
+                }
+            )
+
+            filtered = panel._apply_snp_restriction(metadata)
+
+            self.assertEqual(filtered["A2"].tolist(), ["C"])
+
+    def test_plink_ref_panel_restriction_uses_bim_alleles(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            restrict_path = Path(tmpdir) / "restrict.tsv"
+            restrict_path.write_text(f"SNP\tA1\tA2\n{PLINK_SNPS[0]}\tG\tA\n", encoding="utf-8")
+            panel = PlinkRefPanel(
+                GlobalConfig(snp_identifier="rsid_allele_aware"),
+                RefPanelConfig(
+                    backend="plink",
+                    plink_prefix=str(PLINK_PREFIX),
+                    ref_panel_snps_file=str(restrict_path),
+                ),
+            )
+
+            metadata = panel.load_metadata("22")
+
+            self.assertEqual(metadata["SNP"].tolist(), [PLINK_SNPS[0]])
+            self.assertEqual(metadata["A1"].tolist(), ["G"])
+            self.assertEqual(metadata["A2"].tolist(), ["A"])
+
+    def test_metadata_reader_requires_snp_for_rsid_family(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "meta.tsv"
+            path.write_text("CHR\tPOS\n1\t10\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "SNP column"):
+                _read_metadata_table(
+                    path,
+                    None,
+                    GlobalConfig(snp_identifier="rsid_allele_aware"),
+                )
 
     def test_duplicate_rsid_raises(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -133,6 +284,28 @@ class PlinkRefPanelTest(unittest.TestCase):
             )
             metadata = panel.load_metadata("22")
             self.assertEqual(set(metadata["SNP"]), {PLINK_SNPS[0]})
+
+    def test_chr_pos_restriction_with_auto_build_infers_before_filtering(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            restrict = Path(tmpdir) / "restrict.tsv"
+            restrict.write_text(
+                "CHR\thg38_POS\n"
+                "22\t16406147\n"
+                "22\t16805059\n",
+                encoding="utf-8",
+            )
+            panel = RefPanelLoader(GlobalConfig(snp_identifier="chr_pos")).load(
+                RefPanelConfig(
+                    backend="plink",
+                    plink_prefix=str(PLINK_PREFIX),
+                    ref_panel_snps_file=str(restrict),
+                )
+            )
+
+            metadata = panel.load_metadata("22")
+
+        self.assertEqual(set(metadata["SNP"]), set(PLINK_SNPS))
+        self.assertEqual(panel.global_config.genome_build, "hg38")
 
     @unittest.skipUnless(_has_module("bitarray"), "bitarray is not installed")
     def test_plink_metadata_includes_genotype_maf_and_applies_maf_min(self):
@@ -173,6 +346,160 @@ class ParquetRefPanelTest(unittest.TestCase):
             metadata = panel.load_metadata("1")
             self.assertEqual(metadata["SNP"].tolist(), ["rs1", "rs2"])
             self.assertEqual(metadata["CM"].round(3).tolist(), [0.1, 0.2])
+
+    @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
+    def test_r2_dir_loads_allele_metadata_sidecar_in_allele_aware_mode(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            build_dir = Path(tmpdir) / "panel" / "hg38"
+            _write_canonical_r2_parquet(
+                build_dir / "chr1_r2.parquet",
+                snp_identifier="chr_pos_allele_aware",
+            )
+            _write_meta_sidecar(
+                build_dir / "chr1_meta.tsv.gz",
+                "CHR\tPOS\tSNP\tCM\tMAF\tA1\tA2\n1\t10\trs1\t0.1\t0.2\tA\tC\n1\t20\trs2\t0.2\t0.3\tA\tG\n",
+                snp_identifier="chr_pos_allele_aware",
+            )
+            panel = ParquetR2RefPanel(
+                GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
+                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
+            )
+
+            metadata = panel.load_metadata("1")
+
+            self.assertEqual(metadata["SNP"].tolist(), ["rs1", "rs2"])
+            self.assertEqual(metadata["A1"].tolist(), ["A", "A"])
+            self.assertEqual(metadata["A2"].tolist(), ["C", "G"])
+
+    @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
+    def test_metadata_sidecar_missing_alleles_is_malformed_in_allele_aware_mode(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            build_dir = Path(tmpdir) / "panel" / "hg38"
+            _write_canonical_r2_parquet(
+                build_dir / "chr1_r2.parquet",
+                snp_identifier="chr_pos_allele_aware",
+            )
+            _write_meta_sidecar(
+                build_dir / "chr1_meta.tsv.gz",
+                "CHR\tPOS\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n",
+                snp_identifier="chr_pos_allele_aware",
+            )
+            panel = ParquetR2RefPanel(
+                GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
+                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
+            )
+
+            with self.assertRaisesRegex(ValueError, "malformed.*A1/A2"):
+                panel.load_metadata("1")
+
+    @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
+    def test_package_canonical_r2_rejects_missing_identity_schema_metadata(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            build_dir = Path(tmpdir) / "panel" / "hg38"
+            _write_canonical_r2_parquet(build_dir / "chr1_r2.parquet", identity_metadata=False)
+            _write_meta_sidecar(build_dir / "chr1_meta.tsv.gz", "CHR\tPOS\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n")
+
+            panel = ParquetR2RefPanel(
+                GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
+            )
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "This artifact was not written with the current LDSC schema/provenance contract",
+            ):
+                panel.build_reader("1")
+
+    @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
+    def test_package_metadata_sidecar_rejects_missing_identity_metadata(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            build_dir = Path(tmpdir) / "panel" / "hg38"
+            _write_canonical_r2_parquet(build_dir / "chr1_r2.parquet")
+            _write_meta_sidecar(
+                build_dir / "chr1_meta.tsv.gz",
+                "CHR\tPOS\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n",
+                identity_metadata=False,
+            )
+
+            panel = ParquetR2RefPanel(
+                GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
+            )
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "This artifact was not written with the current LDSC schema/provenance contract",
+            ):
+                panel.load_metadata("1")
+
+    @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
+    def test_package_metadata_sidecar_rejects_identity_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            build_dir = Path(tmpdir) / "panel" / "hg38"
+            _write_canonical_r2_parquet(build_dir / "chr1_r2.parquet")
+            _write_meta_sidecar(
+                build_dir / "chr1_meta.tsv.gz",
+                "CHR\tPOS\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n",
+                snp_identifier="chr_pos_allele_aware",
+            )
+
+            panel = ParquetR2RefPanel(
+                GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
+            )
+
+            with self.assertRaisesRegex(ValueError, "snp_identifier mismatch"):
+                panel.load_metadata("1")
+
+    @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
+    def test_external_raw_r2_with_only_technical_metadata_bypasses_package_identity_validation(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            build_dir = Path(tmpdir) / "panel" / "hg38"
+            _write_raw_r2_parquet_with_technical_metadata(build_dir / "chr1_r2.parquet")
+            _write_meta_sidecar(
+                build_dir / "chr1_meta.tsv.gz",
+                "CHR\tPOS\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n1\t20\trs2\t0.2\t0.3\n",
+                identity_metadata=False,
+            )
+
+            panel = ParquetR2RefPanel(
+                GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
+            )
+
+            reader = panel.build_reader("1")
+
+            self.assertIsNotNone(reader)
+
+    @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
+    def test_package_canonical_r2_rejects_snp_identifier_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            build_dir = Path(tmpdir) / "panel" / "hg38"
+            _write_canonical_r2_parquet(build_dir / "chr1_r2.parquet", snp_identifier="chr_pos")
+            _write_meta_sidecar(build_dir / "chr1_meta.tsv.gz", "CHR\tPOS\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n")
+
+            panel = ParquetR2RefPanel(
+                GlobalConfig(snp_identifier="rsid"),
+                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
+            )
+
+            with self.assertRaisesRegex(ValueError, "snp_identifier mismatch"):
+                panel.build_reader("1")
+
+    @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
+    def test_package_canonical_r2_rejects_genome_build_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            build_dir = Path(tmpdir) / "panel" / "hg38"
+            _write_canonical_r2_parquet(build_dir / "chr1_r2.parquet", genome_build="hg38")
+            _write_meta_sidecar(build_dir / "chr1_meta.tsv.gz", "CHR\tPOS\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n")
+
+            panel = ParquetR2RefPanel(
+                GlobalConfig(snp_identifier="chr_pos", genome_build="hg19"),
+                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
+            )
+
+            with self.assertRaisesRegex(ValueError, "genome_build mismatch"):
+                panel.build_reader("1")
 
     @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
     def test_r2_dir_falls_back_to_r2_endpoints_without_sidecar(self):

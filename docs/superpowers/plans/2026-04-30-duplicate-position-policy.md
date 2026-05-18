@@ -4,6 +4,16 @@
 
 **Goal:** Add `--duplicate-position-policy {error,drop-all}` to `build-ref-panel` so that SNPs sharing a `CHR:POS` key in any emitted build are either rejected loudly or dropped with a provenance sidecar.
 
+**2026-05-11 superseded:** This original implementation plan is superseded by
+[`docs/superpowers/plans/2026-05-10-liftover-harmonization.md`](2026-05-10-liftover-harmonization.md).
+The final harmonized contract removes `duplicate_position_policy` and
+`--duplicate-position-policy` entirely. Coordinate duplicate handling applies
+only in `chr_pos` mode and always uses `drop-all`; source-only `rsid` builds log
+that coordinate duplicate filtering is not applicable; matching reference-panel
+chain liftover remains rejected in `rsid` mode. The `error` policy no longer
+exists. The historical task details below are retained only as implementation
+history.
+
 **Architecture:** A new helper `_resolve_unique_snp_set()` in `ref_panel_builder.py` runs two detection passes (source-build duplicates, then target-build collisions) on the restriction-filtered SNP set and returns a cleaned `keep_snps` array plus a provenance DataFrame. `_build_chromosome()` calls this helper after liftover and before the per-build emit loop. Cross-build consistency is enforced because the same cleaned set feeds every emitted build.
 
 **Tech Stack:** Python 3.11, pandas, numpy, unittest (existing test harness)
@@ -14,7 +24,7 @@
 
 | File | Change |
 |---|---|
-| `src/ldsc/config.py` | Add `duplicate_position_policy: str = "error"` field + validation to `ReferencePanelBuildConfig` |
+| `src/ldsc/config.py` | Add `duplicate_position_policy: str = "drop-all"` field + validation to `ReferencePanelBuildConfig` |
 | `src/ldsc/ref_panel_builder.py` | Add CLI flag, extend `config_from_args()`, add `_resolve_unique_snp_set()`, add `_write_dropped_sidecar()`, wire into `_build_chromosome()` |
 | `tests/test_ref_panel_builder.py` | Add `DuplicatePositionPolicyTest` unit-test class and two integration test methods |
 
@@ -41,9 +51,9 @@ class ReferencePanelBuildConfigDuplicatePolicyTest(unittest.TestCase):
             **kwargs,
         )
 
-    def test_default_policy_is_error(self):
+    def test_default_policy_is_drop_all(self):
         config = self._base_config()
-        self.assertEqual(config.duplicate_position_policy, "error")
+        self.assertEqual(config.duplicate_position_policy, "drop-all")
 
     def test_drop_all_policy_is_accepted(self):
         config = self._base_config(duplicate_position_policy="drop-all")
@@ -67,10 +77,10 @@ Expected: `FAILED` — `ReferencePanelBuildConfig` has no `duplicate_position_po
 After `overwrite: bool = False` (currently the last field, line ~445), add:
 
 ```python
-    duplicate_position_policy: str = "error"
+    duplicate_position_policy: str = "drop-all"
 ```
 
-In `__post_init__` (after the `chunk_size` validation block), add:
+In `__post_init__` (after the `snp_batch_size` validation block), add:
 
 ```python
         if self.duplicate_position_policy not in {"error", "drop-all"}:
@@ -115,9 +125,9 @@ cd ldsc_py3_Jerry && git add src/ldsc/config.py tests/test_ref_panel_builder.py 
 Add these methods to `ReferencePanelBuildConfigFromArgsTest` in `tests/test_ref_panel_builder.py`:
 
 ```python
-    def test_build_parser_defaults_duplicate_position_policy_to_error(self):
+    def test_build_parser_defaults_duplicate_position_policy_to_drop_all(self):
         parser = ref_panel_builder.build_parser()
-        self.assertEqual(parser.get_default("duplicate_position_policy"), "error")
+        self.assertEqual(parser.get_default("duplicate_position_policy"), "drop-all")
 
     def test_build_parser_accepts_drop_all_policy(self):
         parser = ref_panel_builder.build_parser()
@@ -144,25 +154,25 @@ Add these methods to `ReferencePanelBuildConfigFromArgsTest` in `tests/test_ref_
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-cd ldsc_py3_Jerry && source /Users/wenbinwu/miniforge3/etc/profile.d/conda.sh && conda activate ldsc3 && pytest tests/test_ref_panel_builder.py::ReferencePanelBuildConfigFromArgsTest::test_build_parser_defaults_duplicate_position_policy_to_error tests/test_ref_panel_builder.py::ReferencePanelBuildConfigFromArgsTest::test_build_parser_accepts_drop_all_policy tests/test_ref_panel_builder.py::ReferencePanelBuildConfigFromArgsTest::test_config_from_args_passes_policy_to_config -v
+cd ldsc_py3_Jerry && source /Users/wenbinwu/miniforge3/etc/profile.d/conda.sh && conda activate ldsc3 && pytest tests/test_ref_panel_builder.py::ReferencePanelBuildConfigFromArgsTest::test_build_parser_defaults_duplicate_position_policy_to_drop_all tests/test_ref_panel_builder.py::ReferencePanelBuildConfigFromArgsTest::test_build_parser_accepts_drop_all_policy tests/test_ref_panel_builder.py::ReferencePanelBuildConfigFromArgsTest::test_config_from_args_passes_policy_to_config -v
 ```
 
 Expected: `FAILED` — `--duplicate-position-policy` not recognised.
 
 - [ ] **Step 3: Add the flag to `build_parser()` in `src/ldsc/ref_panel_builder.py`**
 
-After the `--chunk-size` argument (around line 859), add:
+After the `--snp-batch-size` argument, add:
 
 ```python
     parser.add_argument(
         "--duplicate-position-policy",
-        default="error",
+        default="drop-all",
         choices=("error", "drop-all"),
         help=(
             "How to handle SNPs that share a CHR:POS key in any emitted build. "
-            "'error' aborts and reports all duplicate clusters (default). "
             "'drop-all' drops every SNP in each colliding cluster and writes a "
-            "provenance sidecar to {output_dir}/chr{chrom}_dropped.tsv.gz."
+            "provenance sidecar to {output_dir}/dropped_snps/chr{chrom}_dropped.tsv.gz (default). "
+            "'error' aborts and reports all duplicate clusters."
         ),
     )
 ```
@@ -536,8 +546,8 @@ helpers so no real parquet is written.
                 with self.assertRaisesRegex(ValueError, "source-build duplicate"):
                     builder.run(config)
 
-    def test_drop_all_policy_writes_sidecar_at_panel_root(self):
-        """run() writes chr{chrom}_dropped.tsv.gz at panel root when duplicates are dropped."""
+    def test_drop_all_policy_writes_sidecar_under_dropped_snps(self):
+        """run() writes chr{chrom}_dropped.tsv.gz under dropped_snps when duplicates are dropped."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             self._write_plink_prefix_rows(tmpdir, "panel.1", [
@@ -582,8 +592,8 @@ helpers so no real parquet is written.
                 with self.assertLogs("LDSC.ref_panel_builder", level="WARNING") as log_ctx:
                     builder.run(config)
 
-            sidecar = tmpdir / "out" / "chr1_dropped.tsv.gz"
-            self.assertTrue(sidecar.exists(), "sidecar must be written at panel root, not under a build subdir")
+            sidecar = tmpdir / "out" / "dropped_snps" / "chr1_dropped.tsv.gz"
+            self.assertTrue(sidecar.exists(), "sidecar must be written under dropped_snps, not under a build subdir")
 
             import gzip
             with gzip.open(sidecar, "rt") as fh:
@@ -611,6 +621,7 @@ Add just before `build_parser()`:
 ```python
 def _write_dropped_sidecar(dropped_df: pd.DataFrame, path: Path, chrom: str) -> None:
     """Write a provenance sidecar for dropped duplicate-position SNPs."""
+    path.parent.mkdir(parents=True, exist_ok=True)
     dropped_df.to_csv(path, sep="\t", index=False, compression="gzip")
     n = len(dropped_df)
     n_source = int((dropped_df["reason"] == "source_duplicate").sum())
@@ -636,7 +647,7 @@ In `ReferencePanelBuilder._build_chromosome()`, after the call to `self._resolve
             policy=config.duplicate_position_policy,
         )
         if not dropped_df.empty:
-            sidecar_path = Path(config.output_dir) / f"chr{chrom}_dropped.tsv.gz"
+            sidecar_path = Path(config.output_dir) / "dropped_snps" / f"chr{chrom}_dropped.tsv.gz"
             _write_dropped_sidecar(dropped_df, sidecar_path, chrom)
         if len(keep_snps) == 0:
             LOGGER.info(f"Skipping chromosome {chrom}: no SNPs remain after duplicate-position filtering.")

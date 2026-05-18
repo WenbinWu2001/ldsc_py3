@@ -23,6 +23,7 @@ from ldsc.config import (
     RegressionConfig,
     normalize_genome_build,
 )
+from ldsc.genome_build_inference import resolve_genome_build, validate_auto_genome_build_mode
 from ldsc._kernel.identifiers import (
     build_chr_pos_snp_id,
     build_snp_id_series,
@@ -32,14 +33,17 @@ from ldsc._kernel.identifiers import (
     normalize_chromosome,
     normalize_snp_identifier_mode,
     read_global_snp_restriction,
+    read_snp_restriction_keys,
     validate_unique_snp_ids,
 )
+from ldsc.column_inference import A1_COLUMN_SPEC, A2_COLUMN_SPEC, RESTRICTION_ALLELE_SPECS
+from ldsc._row_alignment import assert_same_snp_rows
 
 
 class GlobalConfigTest(unittest.TestCase):
     def test_defaults(self):
         config = GlobalConfig()
-        self.assertEqual(config.snp_identifier, "chr_pos")
+        self.assertEqual(config.snp_identifier, "chr_pos_allele_aware")
         self.assertEqual(config.genome_build, "auto")
         self.assertEqual(config.log_level, "INFO")
         self.assertFalse(config.fail_on_missing_metadata)
@@ -85,12 +89,16 @@ class GlobalConfigTest(unittest.TestCase):
 
 class TestGlobalConfigValidation(unittest.TestCase):
     def test_chr_pos_omitted_genome_build_defaults_to_auto(self):
-        cfg = GlobalConfig(snp_identifier="chr_pos")
-        self.assertEqual(cfg.genome_build, "auto")
+        for mode in ("chr_pos", "chr_pos_allele_aware"):
+            with self.subTest(mode=mode):
+                cfg = GlobalConfig(snp_identifier=mode)
+                self.assertEqual(cfg.genome_build, "auto")
 
     def test_chr_pos_explicit_none_raises(self):
-        with self.assertRaisesRegex(ValueError, "Pass genome_build='auto'"):
-            GlobalConfig(snp_identifier="chr_pos", genome_build=None)
+        for mode in ("chr_pos", "chr_pos_allele_aware"):
+            with self.subTest(mode=mode):
+                with self.assertRaisesRegex(ValueError, "Pass genome_build='auto'"):
+                    GlobalConfig(snp_identifier=mode, genome_build=None)
 
     def test_chr_pos_hg38_ok(self):
         cfg = GlobalConfig(snp_identifier="chr_pos", genome_build="hg38")
@@ -101,30 +109,65 @@ class TestGlobalConfigValidation(unittest.TestCase):
         self.assertEqual(cfg.genome_build, "auto")
 
     def test_rsid_auto_raises(self):
-        with self.assertRaises(ValueError):
-            GlobalConfig(snp_identifier="rsid", genome_build="auto")
+        for mode in ("rsid", "rsid_allele_aware"):
+            with self.subTest(mode=mode):
+                with self.assertRaises(ValueError):
+                    GlobalConfig(snp_identifier=mode, genome_build="auto")
 
     def test_rsid_no_genome_build_ok(self):
-        cfg = GlobalConfig(snp_identifier="rsid")
-        self.assertIsNone(cfg.genome_build)
+        for mode in ("rsid", "rsid_allele_aware"):
+            with self.subTest(mode=mode):
+                cfg = GlobalConfig(snp_identifier=mode)
+                self.assertIsNone(cfg.genome_build)
 
     def test_rsid_with_concrete_build_warns_and_nulls(self):
-        with self.assertWarns(UserWarning) as ctx:
-            cfg = GlobalConfig(snp_identifier="rsid", genome_build="hg38")
-        self.assertIn("ignored", str(ctx.warning))
-        self.assertIsNone(cfg.genome_build)
+        for mode in ("rsid", "rsid_allele_aware"):
+            with self.subTest(mode=mode):
+                with self.assertWarns(UserWarning) as ctx:
+                    cfg = GlobalConfig(snp_identifier=mode, genome_build="hg38")
+                self.assertIn("ignored", str(ctx.warning))
+                self.assertIsNone(cfg.genome_build)
 
-    def test_singleton_is_chr_pos_auto(self):
+    def test_singleton_is_chr_pos_allele_aware_auto(self):
         from ldsc.config import get_global_config
         cfg = get_global_config()
-        self.assertEqual(cfg.snp_identifier, "chr_pos")
+        self.assertEqual(cfg.snp_identifier, "chr_pos_allele_aware")
         self.assertEqual(cfg.genome_build, "auto")
 
-    def test_reset_returns_chr_pos_auto(self):
+    def test_reset_returns_chr_pos_allele_aware_auto(self):
         from ldsc.config import reset_global_config
         cfg = reset_global_config()
-        self.assertEqual(cfg.snp_identifier, "chr_pos")
+        self.assertEqual(cfg.snp_identifier, "chr_pos_allele_aware")
         self.assertEqual(cfg.genome_build, "auto")
+
+    def test_auto_genome_build_validation_uses_identifier_family(self):
+        validate_auto_genome_build_mode("chr_pos_allele_aware", "auto")
+        with self.assertRaisesRegex(ValueError, "chr_pos"):
+            validate_auto_genome_build_mode("rsid_allele_aware", "auto")
+
+    def test_resolve_genome_build_treats_rsid_family_as_buildless(self):
+        self.assertIsNone(resolve_genome_build("hg38", "rsid_allele_aware", None, context="test"))
+
+    def test_row_alignment_uses_identifier_family(self):
+        left = pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs1"]})
+        right_chr_pos = pd.DataFrame({"CHR": ["1"], "POS": [10]})
+        assert_same_snp_rows(left, right_chr_pos, context="test", snp_identifier="chr_pos")
+
+        left_alleles = pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs1"], "A1": ["A"], "A2": ["C"]})
+        right_chr_pos_with_alleles = pd.DataFrame({"CHR": ["1"], "POS": [10], "A1": ["A"], "A2": ["C"]})
+        assert_same_snp_rows(
+            left_alleles,
+            right_chr_pos_with_alleles,
+            context="test",
+            snp_identifier="chr_pos_allele_aware",
+        )
+
+        with self.assertRaisesRegex(ValueError, "missing required.*A1.*A2"):
+            assert_same_snp_rows(left, right_chr_pos, context="test", snp_identifier="chr_pos_allele_aware")
+
+        right_rsid = pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs2"], "A1": ["A"], "A2": ["C"]})
+        with self.assertRaisesRegex(ValueError, "SNP"):
+            assert_same_snp_rows(left_alleles, right_rsid, context="test", snp_identifier="rsid_allele_aware")
 
 
 class WorkflowConfigTest(unittest.TestCase):
@@ -154,8 +197,15 @@ class WorkflowConfigTest(unittest.TestCase):
     def test_removed_compatibility_aliases_are_not_exported(self):
         removed_names_by_module = {
             "ldsc": ("AnnotationSourceSpec", "RawSumstatsSpec", "RefPanelSpec", "OutputSpec"),
-            "ldsc.annotation_builder": ("AnnotationSourceSpec",),
-            "ldsc._kernel.annotation": ("AnnotationSourceSpec",),
+            "ldsc.annotation_builder": ("AnnotationSourceSpec", "main_bed_to_annot"),
+            "ldsc._kernel.annotation": (
+                "AnnotationSourceSpec",
+                "AnnotationBuilder",
+                "AnnotationBundle",
+                "main_bed_to_annot",
+                "parse_bed_to_annot_args",
+                "run_bed_to_annot",
+            ),
             "ldsc._kernel.ref_panel": ("RefPanelSpec",),
             "ldsc.sumstats_munger": ("RawSumstatsSpec",),
             "ldsc.outputs": ("OutputSpec",),
@@ -181,12 +231,30 @@ class WorkflowConfigTest(unittest.TestCase):
     def test_ldscore_config_requires_one_window(self):
         config = LDScoreConfig(ld_wind_cm=1.0)
         self.assertEqual(config.ld_wind_cm, 1.0)
-        self.assertEqual(config.chunk_size, 128)
+        self.assertEqual(config.snp_batch_size, 128)
+        self.assertFalse(hasattr(config, "chunk_size"))
         self.assertEqual(config.common_maf_min, 0.05)
         with self.assertRaises(ValueError):
             LDScoreConfig()
         with self.assertRaises(ValueError):
             LDScoreConfig(ld_wind_cm=1.0, ld_wind_kb=100.0)
+
+    def test_ldscore_config_accepts_snp_batch_size_and_rejects_chunk_size(self):
+        config = LDScoreConfig(ld_wind_snps=10, snp_batch_size=64)
+        self.assertEqual(config.snp_batch_size, 64)
+        with self.assertRaises(TypeError):
+            LDScoreConfig(ld_wind_snps=10, chunk_size=64)
+
+    def test_ldscore_config_accepts_hm3_regression_flag_and_rejects_conflict(self):
+        config = LDScoreConfig(ld_wind_snps=10, use_hm3_regression_snps=True)
+
+        self.assertTrue(config.use_hm3_regression_snps)
+        with self.assertRaisesRegex(ValueError, "regression_snps_file.*use_hm3_regression_snps"):
+            LDScoreConfig(
+                ld_wind_snps=10,
+                regression_snps_file="custom.tsv",
+                use_hm3_regression_snps=True,
+            )
 
     def test_ldscore_config_rejects_reference_panel_filter_fields(self):
         with self.assertRaises(TypeError):
@@ -204,6 +272,22 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertEqual(config.keep_indivs_file, "filters/samples.keep")
 
     def test_ref_panel_build_config_validates_required_fields(self):
+        default_source = ReferencePanelBuildConfig(
+            plink_prefix="plink/panel.@",
+            genetic_map_hg19_sources="maps/hg19.txt",
+            genetic_map_hg38_sources="maps/hg38.txt",
+            output_dir="out",
+            ld_wind_kb=100.0,
+        )
+        self.assertEqual(default_source.source_genome_build, "auto")
+        with self.assertRaisesRegex(ValueError, "source_genome_build"):
+            ReferencePanelBuildConfig(
+                plink_prefix="plink/panel.@",
+                source_genome_build=None,
+                output_dir="out",
+                ld_wind_kb=100.0,
+            )
+
         config = ReferencePanelBuildConfig(
             plink_prefix="plink/panel.@",
             source_genome_build="GRCh38",
@@ -220,7 +304,7 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertEqual(config.genetic_map_hg38_sources, "maps/hg38.txt")
         self.assertEqual(config.liftover_chain_hg38_to_hg19_file, "liftover/hg38ToHg19.over.chain")
         self.assertEqual(config.output_dir, "out")
-        self.assertEqual(config.chunk_size, 128)
+        self.assertEqual(config.snp_batch_size, 128)
         self.assertTrue(config.overwrite)
 
         with self.assertRaisesRegex(ValueError, "ld_wind_cm"):
@@ -277,12 +361,58 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertEqual(config.ref_panel_snps_file, "restrict/snps.txt")
         self.assertEqual(config.keep_indivs_file, "samples/keep.txt")
 
+    def test_ref_panel_build_config_accepts_hm3_flags_and_rejects_conflicts(self):
+        config = ReferencePanelBuildConfig(
+            plink_prefix="plink/panel",
+            source_genome_build="hg19",
+            output_dir="out",
+            ld_wind_snps=500,
+            use_hm3_snps=True,
+            use_hm3_quick_liftover=True,
+        )
+
+        self.assertTrue(config.use_hm3_snps)
+        self.assertTrue(config.use_hm3_quick_liftover)
+        with self.assertRaisesRegex(ValueError, "ref_panel_snps_file.*use_hm3_snps"):
+            ReferencePanelBuildConfig(
+                plink_prefix="plink/panel",
+                source_genome_build="hg19",
+                output_dir="out",
+                ld_wind_snps=500,
+                ref_panel_snps_file="custom.tsv",
+                use_hm3_snps=True,
+            )
+        with self.assertRaisesRegex(ValueError, "use_hm3_snps"):
+            ReferencePanelBuildConfig(
+                plink_prefix="plink/panel",
+                source_genome_build="hg19",
+                output_dir="out",
+                ld_wind_snps=500,
+                use_hm3_quick_liftover=True,
+            )
+        with self.assertRaisesRegex(ValueError, "mutually exclusive"):
+            ReferencePanelBuildConfig(
+                plink_prefix="plink/panel",
+                source_genome_build="hg19",
+                output_dir="out",
+                ld_wind_snps=500,
+                use_hm3_snps=True,
+                use_hm3_quick_liftover=True,
+                liftover_chain_hg19_to_hg38_file="chain.over",
+            )
+
     def test_munge_config_defaults(self):
         config = MungeConfig(output_dir="out")
         self.assertEqual(config.info_min, 0.9)
         self.assertEqual(config.maf_min, 0.01)
         self.assertEqual(config.chunk_size, 1_000_000)
+        self.assertEqual(config.output_format, "parquet")
+        self.assertEqual(config.source_genome_build, "auto")
         self.assertFalse(config.overwrite)
+
+    def test_munge_config_rejects_unknown_output_format(self):
+        with self.assertRaisesRegex(ValueError, "output_format"):
+            MungeConfig(output_dir="out", output_format="csv")
 
     def test_munge_config_normalizes_pathlike_fields(self):
         config = MungeConfig(
@@ -297,6 +427,30 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertEqual(config.sumstats_snps_file, "resources/alleles.tsv")
         self.assertEqual(config.trait_name, "trait")
         self.assertTrue(config.overwrite)
+
+    def test_munge_config_accepts_hm3_flags_and_rejects_conflicts(self):
+        config = MungeConfig(
+            output_dir="out",
+            output_genome_build="hg38",
+            use_hm3_snps=True,
+            use_hm3_quick_liftover=True,
+        )
+
+        self.assertTrue(config.use_hm3_snps)
+        self.assertTrue(config.use_hm3_quick_liftover)
+        with self.assertRaisesRegex(ValueError, "sumstats_snps_file.*use_hm3_snps"):
+            MungeConfig(output_dir="out", sumstats_snps_file="custom.tsv", use_hm3_snps=True)
+        with self.assertRaisesRegex(ValueError, "use_hm3_snps"):
+            MungeConfig(output_dir="out", output_genome_build="hg38", use_hm3_quick_liftover=True)
+
+    def test_munge_config_normalizes_trait_name(self):
+        config = MungeConfig(raw_sumstats_file="sumstats/trait.tsv.gz", trait_name=" MDD ")
+
+        self.assertEqual(config.trait_name, "MDD")
+
+    def test_munge_config_rejects_blank_trait_name(self):
+        with self.assertRaisesRegex(ValueError, "trait_name"):
+            MungeConfig(raw_sumstats_file="sumstats/trait.tsv.gz", trait_name="  ")
 
     def test_munge_config_accepts_source_fields(self):
         raw = MungeConfig(raw_sumstats_file=Path("sumstats") / "trait.tsv.gz", trait_name="trait")
@@ -326,6 +480,17 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertEqual(config.ref_panel_snps_file, "filters/snps.txt")
         self.assertEqual(config.keep_indivs_file, "filters/samples.keep")
         self.assertEqual(config.maf_min, 0.02)
+
+    def test_ref_panel_config_accepts_hm3_flag_and_rejects_conflict(self):
+        config = RefPanelConfig(backend="plink", use_hm3_ref_panel_snps=True)
+
+        self.assertTrue(config.use_hm3_ref_panel_snps)
+        with self.assertRaisesRegex(ValueError, "ref_panel_snps_file.*use_hm3_ref_panel_snps"):
+            RefPanelConfig(
+                backend="plink",
+                ref_panel_snps_file="custom.tsv",
+                use_hm3_ref_panel_snps=True,
+            )
 
     def test_ref_panel_config_accepts_runtime_source_fields(self):
         config = RefPanelConfig(backend="plink", plink_prefix=Path("plink") / "panel")
@@ -403,11 +568,12 @@ class IdentifierHelpersTest(unittest.TestCase):
     def test_clean_header(self):
         self.assertEqual(clean_header("foo-bar.foo_BaR"), "FOO_BAR_FOO_BAR")
 
-    def test_normalize_snp_identifier_mode(self):
-        for value in ["rsid", "rsID", "SNPID", "snp_id", "snp"]:
-            self.assertEqual(normalize_snp_identifier_mode(value), "rsid")
-        for value in ["chr_pos", "ChrPos", "chrom_pos"]:
-            self.assertEqual(normalize_snp_identifier_mode(value), "chr_pos")
+    def test_normalize_snp_identifier_mode_accepts_only_public_modes(self):
+        for value in ("rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"):
+            self.assertEqual(normalize_snp_identifier_mode(value), value)
+        for value in ("rsID", "SNPID", "snp_id", "snp", "chrpos", "rsid_alleles", "chr_pos_alleles"):
+            with self.assertRaises(ValueError):
+                normalize_snp_identifier_mode(value)
 
     def test_infer_snp_column_aliases(self):
         for header in [["rsid"], ["rsID"], ["SNPID"], ["snp_id"], ["SNP"], ["id"]]:
@@ -472,6 +638,13 @@ class IdentifierHelpersTest(unittest.TestCase):
 
 
 class RestrictionReadersTest(unittest.TestCase):
+    def test_restriction_allele_specs_treat_ref_alt_as_external_aliases(self):
+        self.assertEqual(A1_COLUMN_SPEC.canonical, "A1")
+        self.assertEqual(A2_COLUMN_SPEC.canonical, "A2")
+        self.assertEqual(RESTRICTION_ALLELE_SPECS, (A1_COLUMN_SPEC, A2_COLUMN_SPEC))
+        self.assertIn("REF", A1_COLUMN_SPEC.aliases)
+        self.assertIn("ALT", A2_COLUMN_SPEC.aliases)
+
     def test_read_global_snp_restriction_rsid_requires_header(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "restrict.txt"
@@ -483,7 +656,13 @@ class RestrictionReadersTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "restrict.tsv"
             path.write_text("id\tother\nrs1\ta\nrs2\tb\n", encoding="utf-8")
-            self.assertEqual(read_global_snp_restriction(path, "rsID"), {"rs1", "rs2"})
+            self.assertEqual(read_global_snp_restriction(path, "rsid"), {"rs1", "rs2"})
+
+    def test_read_global_snp_restriction_rsid_family_table(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "restrict.tsv"
+            path.write_text("id\tA1\tA2\nrs1\tA\tC\nrs2\tG\tT\n", encoding="utf-8")
+            self.assertEqual(read_global_snp_restriction(path, "rsid_allele_aware"), {"rs1", "rs2"})
 
     def test_read_global_snp_restriction_chr_pos_table(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -536,6 +715,37 @@ class RestrictionReadersTest(unittest.TestCase):
                 {"1:10"},
             )
 
+    def test_read_global_snp_restriction_chr_pos_treats_dot_as_missing(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "restrict.tsv"
+            path.write_text(
+                "CHR\tPOS\n"
+                "1\t10\n"
+                ".\t20\n"
+                "2\t.\n",
+                encoding="utf-8",
+            )
+            with self.assertLogs("LDSC.identifiers", level="WARNING") as caught:
+                values = read_global_snp_restriction(path, "chr_pos", genome_build="hg19")
+
+            self.assertEqual(values, {"1:10"})
+            log_text = "\n".join(caught.output)
+            self.assertIn("Dropped 2 SNPs with invalid or missing CHR/POS", log_text)
+            self.assertIn("missing CHR=1", log_text)
+            self.assertIn("missing POS=1", log_text)
+
+    def test_read_global_snp_restriction_chr_pos_drops_invalid_non_missing_pos(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "restrict.tsv"
+            path.write_text("CHR\tPOS\n1\tabc\n", encoding="utf-8")
+            with self.assertLogs("LDSC.identifiers", level="WARNING") as caught:
+                values = read_global_snp_restriction(path, "chr_pos", genome_build="hg19")
+
+            self.assertEqual(values, set())
+            log_text = "\n".join(caught.output)
+            self.assertIn("Dropped 1 SNPs with invalid or missing CHR/POS", log_text)
+            self.assertIn("invalid POS=1", log_text)
+
     def test_read_global_snp_restriction_chr_pos_requires_header(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "restrict.tsv"
@@ -556,3 +766,98 @@ class RestrictionReadersTest(unittest.TestCase):
             path.write_text("variant\tother\nrs1\ta\n", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "CHR, POS|POS, CHR"):
                 read_global_snp_restriction(path, "chr_pos")
+
+    def test_read_snp_restriction_keys_without_alleles_uses_base_match_in_allele_aware_mode(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "restrict.tsv"
+            path.write_text("SNP\nrs1\nrs2\nrs1\n", encoding="utf-8")
+
+            restriction = read_snp_restriction_keys(path, "rsid_allele_aware")
+
+            self.assertEqual(restriction.match_kind, "base")
+            self.assertEqual(restriction.keys, {"rs1", "rs2"})
+            self.assertEqual(restriction.n_input_rows, 3)
+            self.assertEqual(restriction.n_retained_keys, 2)
+            self.assertTrue(restriction.dropped.empty)
+
+    def test_read_snp_restriction_keys_with_alleles_uses_identity_match_in_allele_aware_mode(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "restrict.tsv"
+            path.write_text("SNP\tREF\tALT\nrs1\tA\tC\nrs2\tT\tG\n", encoding="utf-8")
+
+            restriction = read_snp_restriction_keys(path, "rsid_allele_aware")
+
+            self.assertEqual(restriction.match_kind, "identity")
+            self.assertEqual(restriction.keys, {"rs1:A:C", "rs2:A:C"})
+
+    def test_read_snp_restriction_keys_requires_both_allele_columns_when_one_resolves(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "restrict.tsv"
+            path.write_text("SNP\tREF\nrs1\tA\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "both A1 and A2"):
+                read_snp_restriction_keys(path, "rsid_allele_aware")
+
+    def test_read_snp_restriction_keys_drops_invalid_allele_rows_with_warning(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "restrict.tsv"
+            path.write_text("SNP\tA1\tA2\nrs1\tA\tC\nrs_bad\t\tG\n", encoding="utf-8")
+
+            with self.assertLogs("LDSC.identifiers", level="WARNING") as caught:
+                restriction = read_snp_restriction_keys(path, "rsid_allele_aware")
+
+            self.assertEqual(restriction.match_kind, "identity")
+            self.assertEqual(restriction.keys, {"rs1:A:C"})
+            self.assertEqual(restriction.dropped["reason"].tolist(), ["missing_allele"])
+            self.assertIn("Dropped 1 SNP identity rows", "\n".join(caught.output))
+
+    def test_read_snp_restriction_keys_collapses_duplicate_identity_keys(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "restrict.tsv"
+            path.write_text("SNP\tA1\tA2\nrs1\tA\tC\nrs1\tC\tA\n", encoding="utf-8")
+
+            restriction = read_snp_restriction_keys(path, "rsid_allele_aware")
+
+            self.assertEqual(restriction.match_kind, "identity")
+            self.assertEqual(restriction.keys, {"rs1:A:C"})
+            self.assertEqual(restriction.n_retained_keys, 1)
+
+    def test_read_snp_restriction_keys_drops_multiallelic_restriction_clusters(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "restrict.tsv"
+            path.write_text("CHR\tPOS\tA1\tA2\n1\t10\tA\tC\n1\t10\tA\tG\n2\t20\tA\tC\n", encoding="utf-8")
+
+            with self.assertLogs("LDSC.identifiers", level="WARNING"):
+                restriction = read_snp_restriction_keys(path, "chr_pos_allele_aware")
+
+            self.assertEqual(restriction.match_kind, "identity")
+            self.assertEqual(restriction.keys, {"2:20:A:C"})
+            self.assertEqual(restriction.dropped["reason"].tolist(), ["multi_allelic_base_key", "multi_allelic_base_key"])
+
+    def test_read_snp_restriction_keys_base_modes_ignore_bad_allele_columns(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "restrict.tsv"
+            path.write_text(
+                "CHR\tPOS\tA1\tA2\n"
+                "1\t10\tA\tT\n"
+                "1\t10\tC\tG\n"
+                "2\t20\t\tAT\n",
+                encoding="utf-8",
+            )
+
+            restriction = read_snp_restriction_keys(path, "chr_pos")
+
+            self.assertEqual(restriction.match_kind, "base")
+            self.assertEqual(restriction.keys, {"1:10", "2:20"})
+            self.assertTrue(restriction.dropped.empty)
+
+    def test_read_snp_restriction_keys_base_modes_ignore_single_allele_like_column(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "restrict.tsv"
+            path.write_text("SNP\tREF\nrs1\tA\nrs2\tT\n", encoding="utf-8")
+
+            restriction = read_snp_restriction_keys(path, "rsid")
+
+            self.assertEqual(restriction.match_kind, "base")
+            self.assertEqual(restriction.keys, {"rs1", "rs2"})
+            self.assertTrue(restriction.dropped.empty)

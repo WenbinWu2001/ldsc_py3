@@ -12,20 +12,28 @@ The `build-ref-panel` workflow converts PLINK genotypes into build-specific R2 r
 
 - one R2 parquet per emitted build (`hg19/chr*_r2.parquet` and/or `hg38/chr*_r2.parquet`): one row per unordered SNP pair within the chosen LD window
 - one runtime metadata sidecar per emitted build (`hg19/chr*_meta.tsv.gz` and/or `hg38/chr*_meta.tsv.gz`): one row per retained SNP, used by LDSC-style downstream tools
+- one dropped-SNP audit file under `diagnostics/dropped_snps/` for each processed chromosome, header-only when no liftover-stage rows are dropped
+- `diagnostics/build-ref-panel.log` when run through the CLI or convenience wrapper; a
+  concrete single-chromosome PLINK prefix writes
+  `diagnostics/build-ref-panel.chr<chrom>.log` so parallel per-chromosome jobs do not
+  share one log file
 
 The R2 output is a long pairwise table, not a dense square matrix on disk. That is usually the practical format for large reference panels.
 
 Each package-built R2 parquet records the LD reference sample size and R2 bias
-state in Arrow schema metadata. Downstream `ldsc ldscore` runs can therefore
-read `ldsc:n_samples` and `ldsc:r2_bias` directly and do not need
+state plus minimal identity provenance in Arrow schema metadata. Downstream
+`ldsc ldscore` runs can therefore read `ldsc:n_samples`, `ldsc:r2_bias`,
+`ldsc:snp_identifier`, and `ldsc:genome_build` directly and do not need
 `--r2-bias-mode` or `--r2-sample-size` for panels built by this workflow.
+Allele-aware modes require package-built canonical R2 parquet with endpoint
+allele columns `A1_1/A2_1/A1_2/A2_2`.
 
 By default, the builder keeps all SNPs in the PLINK panel after:
 
 - optional user-requested filters
 - automatic liftover sanity filtering, when a usable source-to-target chain is provided
 
-When a matching chain is provided, SNPs are dropped if they fail hg19/hg38 liftover or liftover onto a different chromosome in the target build, then both build-specific R2 and metadata outputs are written. When no usable matching chain is provided, the builder logs that it is skipping liftover and writes source-build-only outputs.
+When a matching chain is provided in a chr_pos-family mode, SNPs are dropped if they fail hg19/hg38 liftover or liftover onto a different chromosome in the target build, then both build-specific R2 and metadata outputs are written. Matching chain liftover is not used in rsID-family modes because row identity is the SNP label there. When no usable matching chain is provided, the builder logs that it is skipping liftover and writes source-build-only outputs.
 
 ## Input Files
 
@@ -57,7 +65,13 @@ The `.bim` file is especially important here because it supplies:
 - base-pair position
 - allele labels
 
-The builder copies the PLINK `SNP` field directly into the output `rsID` column. If your BIM uses dbSNP IDs, you will see dbSNP IDs. If your BIM uses IDs like `22:10684250:C:G`, those exact strings are preserved.
+The builder copies the PLINK `.bim` `SNP` field directly into the output SNP
+labels. If the `.bim` uses dbSNP IDs, downstream metadata and R2 endpoint
+columns will show dbSNP IDs. If the `.bim` uses labels like
+`22:10684250:C:G`, those exact strings are preserved; `build-ref-panel` does
+not convert them to rsIDs. The `--snp-identifier` option only controls how a
+`--ref-panel-snps-file` restriction is interpreted (`rsid` versus `chr_pos`);
+it does not rewrite the emitted `SNP`, `SNP_1`, or `SNP_2` values.
 
 ### Chromosome selection
 
@@ -128,7 +142,7 @@ The bundled Alkes-group maps in `resources/genetic_maps/genetic_map_alkesgroup/`
 
 - `--liftover-chain-hg19-to-hg38-file` or `--liftover-chain-hg38-to-hg19-file`
   Plain-English meaning: explicit chain file used to translate positions into the other genome build.
-  Recommended usage: pass the chain that matches `--source-genome-build` when you need both hg19 and hg38 outputs. If you omit it, the build completes with source-build-only outputs and logs an informational message.
+  Recommended usage: pass the chain that matches `--source-genome-build` when you need both hg19 and hg38 outputs in `chr_pos`-family modes. If you omit it, the build completes with source-build-only outputs and logs an informational message. Do not pass a matching chain in `rsid`-family modes.
 
 - `--output-dir`
   Plain-English meaning: output root directory.
@@ -136,14 +150,21 @@ The bundled Alkes-group maps in `resources/genetic_maps/genetic_map_alkesgroup/`
   panel build. The run identity is the directory name; output filenames are
   fixed directly under each `{build}/` directory. Missing directories are created
   and existing directories are reused, but existing candidate parquet or
-  metadata files are refused before chromosome processing starts.
+  metadata files and build-ref-panel workflow logs are refused before
+  chromosome processing starts.
 
 - `--overwrite`
   Plain-English meaning: allow replacement of the fixed parquet and metadata
   files that this build may write.
   Recommended usage: omit it for reproducible first runs. Add it only when you
-  intentionally want to replace an existing panel build. It does not delete
-  unrelated files or clean the output directory.
+  intentionally want to replace an existing panel build. `build-ref-panel`
+  does not delete unrelated files or clean the output directory. It owns only
+  current-contract artifacts: emitted `{build}/chr*` files, diagnostic
+  metadata, build-ref-panel logs under `diagnostics/`, and
+  `diagnostics/dropped_snps/` audit files. With overwrite enabled, stale owned
+  siblings from earlier target-build, coordinate, or chromosome configurations
+  are removed after the successful write. Removed legacy root diagnostic names
+  are ignored.
 
 ### Choose exactly one LD-window option
 
@@ -176,9 +197,28 @@ Exactly one of the following must be set:
   a curated common-SNP list, or another pre-defined reference universe.
 
   When this path is supplied, the restriction key comes from the invocation
-  `GlobalConfig.snp_identifier`. In `chr_pos` mode, the restriction file must
-  be aligned to the PLINK source build. Target-build restriction files are not
-  lifted over by the builder.
+  `GlobalConfig.snp_identifier`. Restriction files may omit alleles and then
+  match by base key. Allele-bearing restrictions in allele-aware modes match by
+  the effective allele-aware key. The packaged HM3 restriction is allele-free and
+  matches by base key. Restriction files are identity-only filters: duplicate
+  restriction keys collapse to one retained key, and non-identity columns such
+  as `CM` or `MAF` are ignored. In `chr_pos`-family modes, the restriction file
+  must be aligned to the PLINK source build. Target-build restriction files are
+  not lifted over by the builder.
+
+- `--use-hm3-snps`
+  Plain-English meaning: restrict the retained reference-panel SNP rows to the
+  packaged curated HM3 map.
+  Optional: yes.
+  Recommended usage: prefer this over a custom HM3 file path when the desired
+  universe is HapMap3. It is mutually exclusive with `--ref-panel-snps-file`.
+
+- `--use-hm3-quick-liftover`
+  Plain-English meaning: for an HM3-restricted `chr_pos` build, emit the
+  opposite genome build using the packaged curated HM3 coordinate map.
+  Optional: yes.
+  Recommended usage: use this only with `--use-hm3-snps` when a chain-file
+  liftover is unnecessary for an HM3-only reference panel.
 
 - `--snp-identifier`
   Plain-English meaning: how to interpret the SNP restriction file supplied by
@@ -194,10 +234,16 @@ Exactly one of the following must be set:
   Optional: yes.
   Recommended usage: use a PLINK-style keep file when you want population-specific LD or want to exclude certain samples.
 
-- `--chunk-size`
-  Plain-English meaning: block size used by the sliding LD writer.
+- `--snp-batch-size`
+  Plain-English meaning: number of SNPs loaded per pairwise-R2 computation batch.
   Optional: yes; default is `128`.
-  Recommended usage: keep the default unless you are tuning memory and throughput on a large machine.
+  Recommended usage: keep the default unless you are tuning memory and throughput on a large machine. Larger values may improve throughput but use more memory.
+
+Coordinate duplicate handling has no public flag. In `chr_pos`-family modes,
+source and target coordinate collision groups are always handled with `drop-all`,
+and the dropped rows are recorded under `diagnostics/dropped_snps/`. In source-only
+`rsid`-family builds, coordinate duplicate filtering is not applicable because
+SNP labels define row identity.
 
 - `--log-level`
   Plain-English meaning: how much progress logging to print.
@@ -240,18 +286,21 @@ What this command is doing:
 - uses the explicit hg38->hg19 liftover chain to populate the hg19 coordinates
 - interpolates cM values from the provided hg19 and hg38 genetic maps
 - writes a build-separated R2 parquet panel rooted at `tutorial_outputs/ref_panel_chr22`
+- writes `tutorial_outputs/ref_panel_chr22/build-ref-panel.chr22.log`
 
 This example uses `--ld-wind-cm` and emits both hg38 and hg19 because a matching
 liftover chain is provided, so both genetic maps are required.
 
 ## Canonical Run: Python API
 
-The most explicit Python API uses the public config object and builder class:
+The most explicit Python API uses the public config object and builder class.
+This direct class API writes only data artifacts; use `run_build_ref_panel(...)`
+or the CLI when you want the workflow log as well:
 
 ```python
 from ldsc import GlobalConfig, ReferencePanelBuildConfig, ReferencePanelBuilder, set_global_config
 
-GLOBAL_CONFIG = GlobalConfig(snp_identifier="chr_pos", log_level="INFO")
+GLOBAL_CONFIG = GlobalConfig(snp_identifier="chr_pos_allele_aware", log_level="INFO")
 set_global_config(GLOBAL_CONFIG)
 
 config = ReferencePanelBuildConfig(
@@ -274,13 +323,15 @@ print(result.output_paths["meta_hg38"][0])
 
 When you use the lower-level `ReferencePanelBuilder` API with
 `ReferencePanelBuildConfig(ref_panel_snps_file=...)`, put the restriction-file
-identifier mode on the injected `GlobalConfig`. In `chr_pos` mode,
-`GlobalConfig.genome_build` is ignored by this builder; the restriction file
-must be in the same build as `source_genome_build`:
+identifier mode on the injected `GlobalConfig`. For the packaged HapMap3 map,
+use `ReferencePanelBuildConfig(use_hm3_snps=True)` instead of a custom file
+path. In `chr_pos`-family modes, `GlobalConfig.genome_build` is ignored by this
+builder; the restriction file must be in the same build as
+`source_genome_build`:
 
 ```python
 GLOBAL_CONFIG = GlobalConfig(
-    snp_identifier="chr_pos",
+    snp_identifier="chr_pos_allele_aware",
     log_level="INFO",
 )
 ```
@@ -296,6 +347,11 @@ For the chr22 example above, the output tree looks like:
 
 ```text
 tutorial_outputs/ref_panel_chr22/
+├── diagnostics/
+│   ├── metadata.json          # diagnostic provenance only
+│   ├── build-ref-panel.chr22.log
+│   └── dropped_snps/          # audit files, header-only when no SNPs dropped
+│       └── chr22_dropped.tsv.gz
 ├── hg19/
 │   ├── chr22_r2.parquet
 │   └── chr22_meta.tsv.gz
@@ -323,9 +379,9 @@ Columns:
 - `CHR`
 - `POS_1`
 - `POS_2`
-- `R2`
 - `SNP_1`
 - `SNP_2`
+- `R2`
 
 The physical schema is:
 
@@ -343,9 +399,9 @@ The parquet schema metadata includes:
 Example rows from the same chr22 build:
 
 ```text
-CHR	POS_1	POS_2	R2	SNP_1	SNP_2
-22	10684250	10684299	-0.0002415361	22:10684250:C:G	22:10684302:C:A
-22	10684250	10685981	-0.0002331376	22:10684250:C:G	22:10685981:G:A
+CHR	POS_1	POS_2	SNP_1	SNP_2	R2
+22	10684250	10684299	22:10684250:C:G	22:10684302:C:A	-0.0002415361
+22	10684250	10685981	22:10684250:C:G	22:10685981:G:A	-0.0002331376
 ```
 
 Interpretation notes:
@@ -476,15 +532,22 @@ chromosomes unless `--overwrite` is supplied.
 
 ### Restrict to a predefined SNP universe
 
-Use `--ref-panel-snps-file` when you want to keep only a specific SNP set, for
-example HapMap3 or another curated reference-panel universe.
+Use `--use-hm3-snps` when you want the packaged HapMap3 universe. Use
+`--ref-panel-snps-file` when you want to keep another specific SNP set.
 
 Accepted forms include:
 
-- tables with an `SNP`/`rsID`-style column in `rsid` mode
-- tables with `CHR` and `POS` columns in `chr_pos` mode
+- tables with an `SNP`/`rsID`-style column in `rsid`-family modes
+- tables with `CHR` and `POS` columns in `chr_pos`-family modes
 - tables with build-specific columns such as `hg19_POS` and `hg38_POS`; in
-  `chr_pos` mode, the builder reads the column matching the source PLINK build
+  `chr_pos`-family modes, the builder reads the column matching the source PLINK
+  build
+
+Allele-free restrictions match by base key, including in allele-aware modes.
+Allele-bearing restrictions in allele-aware modes match by the effective
+allele-aware key after restriction cleanup. Duplicate restriction keys collapse
+to one retained key, and non-identity columns such as `CM` or `MAF` are ignored
+instead of being carried into emitted metadata.
 
 Example:
 
@@ -492,7 +555,7 @@ Example:
 ldsc build-ref-panel \
   --plink-prefix data/reference/genomes_30x_chr@ \
   --source-genome-build hg38 \
-  --ref-panel-snps-file filters/hapmap3_rsids.txt \
+  --use-hm3-snps \
   --snp-identifier rsid \
   --ld-wind-kb 1000 \
   --output-dir tutorial_outputs/ref_panel_hm3
@@ -503,6 +566,10 @@ For `chr_pos` restriction files, provide source-build coordinates. If both
 the explicit or inferred source PLINK build. If only generic `POS` is present,
 the builder infers that restriction file's build and errors if it differs from
 the source PLINK build.
+
+If you use `--snp-identifier rsid`, omit matching liftover chains. The builder
+will emit source-build-only outputs and will not apply coordinate duplicate
+filtering because rsID labels, not coordinates, define row identity.
 
 ### Restrict the sample set
 
@@ -542,20 +609,22 @@ result = run_build_ref_panel(
     liftover_chain_hg38_to_hg19_file="resources/liftover/hg38ToHg19.over.chain",
     output_dir="tutorial_outputs/ref_panel_chr22",
     ld_wind_cm=1.0,
-    # overwrite=True,  # enable only when intentionally replacing panel files
+    # overwrite=True,  # replaces current panel candidates but does not clean stale optional siblings
 )
 ```
 
-If you add `ref_panel_snps_file=...` to this wrapper call, set
-`snp_identifier="rsid"` or `snp_identifier="chr_pos"` on the registered
-`GlobalConfig`. In `chr_pos` mode, the restriction file must be in the source
-PLINK build; `GlobalConfig.genome_build` is ignored by `build-ref-panel`.
+If you add `ref_panel_snps_file=...` or `use_hm3_snps=True` to this wrapper
+call, set one of the exact public modes (`rsid`, `rsid_allele_aware`,
+`chr_pos`, or `chr_pos_allele_aware`) on the registered `GlobalConfig`. In
+`chr_pos`-family modes, explicit restriction files must be in the source PLINK
+build; `GlobalConfig.genome_build` is ignored by
+`build-ref-panel`.
 
 ### A note on coordinate systems
 
 The builder keeps an in-memory reference SNP table while constructing the R2
 rows, but it does not persist an annotation parquet. When a matching liftover
-chain is provided, it emits one R2 parquet and one metadata sidecar per build;
+chain is provided in a `chr_pos`-family mode, it emits one R2 parquet and one metadata sidecar per build;
 otherwise it emits only the source build. Each R2 parquet stores positions from
 its own build in `POS_1`/`POS_2`, with that build recorded in
 `ldsc:sorted_by_build`. That makes the panel easier to reuse across projects,

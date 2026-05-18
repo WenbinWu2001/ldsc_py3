@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import gzip
+import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,6 +13,7 @@ from typing import Iterable, Iterator, Sequence
 import numpy as np
 import pandas as pd
 
+from .._coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame
 from ..chromosome_inference import chrom_sort_key, normalize_chromosome
 from ..column_inference import (
     CHR_COLUMN_SPEC,
@@ -22,7 +24,17 @@ from ..column_inference import (
     resolve_restriction_rsid_column,
 )
 from ..errors import LDSCDependencyError
-from .identifiers import build_snp_id_series
+from .liftover import LiftOverMappingResult, LiftOverTranslator
+from .snp_identity import (
+    RestrictionIdentityKeys,
+    allele_set_series,
+    base_key_series,
+    identity_artifact_metadata,
+    identity_mode_family,
+    restriction_membership_mask,
+)
+
+LOGGER = logging.getLogger("LDSC.ref_panel_builder.kernel")
 
 
 GENETIC_MAP_CM_SPEC = ColumnSpec(
@@ -34,9 +46,13 @@ _STANDARD_R2_COLUMNS = [
     "CHR",
     "POS_1",
     "POS_2",
-    "R2",
     "SNP_1",
     "SNP_2",
+    "A1_1",
+    "A2_1",
+    "A1_2",
+    "A2_2",
+    "R2",
 ]
 
 
@@ -47,23 +63,16 @@ def _empty_standard_r2_table() -> pd.DataFrame:
             "CHR": pd.Series(dtype="string"),
             "POS_1": pd.Series(dtype=np.int64),
             "POS_2": pd.Series(dtype=np.int64),
-            "R2": pd.Series(dtype=np.float32),
             "SNP_1": pd.Series(dtype="string"),
             "SNP_2": pd.Series(dtype="string"),
+            "A1_1": pd.Series(dtype="string"),
+            "A2_1": pd.Series(dtype="string"),
+            "A1_2": pd.Series(dtype="string"),
+            "A2_2": pd.Series(dtype="string"),
+            "R2": pd.Series(dtype=np.float32),
         },
         columns=_STANDARD_R2_COLUMNS,
     )
-
-
-@dataclass(frozen=True)
-class LiftOverMappingResult:
-    """Partial liftover result for one chromosome."""
-
-    translated_positions: np.ndarray
-    keep_mask: np.ndarray
-    unmapped_count: int
-    cross_chrom_count: int
-
 
 def _open_text(path: str | PathLike[str]):
     """Open a plain-text or gzip-compressed text file for reading."""
@@ -97,14 +106,6 @@ def _read_non_comment_lines(path: str | PathLike[str], limit: int = 5) -> list[s
 def _normalize_map_chromosome(value: object) -> str:
     """Normalize one genetic-map chromosome label to the package canon."""
     return normalize_chromosome(value)
-
-
-def _try_normalize_map_chromosome(value: object) -> str | None:
-    """Normalize a liftover hit chromosome, ignoring unsupported auxiliary contigs."""
-    try:
-        return _normalize_map_chromosome(value)
-    except ValueError:
-        return None
 
 
 def _chrom_sort_key(chrom: object) -> tuple[int, object]:
@@ -176,7 +177,7 @@ def interpolate_genetic_map_cm(
 
 
 def detect_restriction_identifier_mode(path: str | PathLike[str]) -> str:
-    """Infer whether a SNP restriction file is keyed by `rsid` or `chr_pos`."""
+    """Infer whether a SNP restriction file is keyed by rsID or coordinates."""
 
     lines = _read_non_comment_lines(path, limit=2)
     if not lines:
@@ -277,7 +278,7 @@ def _emit_cross_block_pairs(
     block_left: np.ndarray,
     n_samples: int,
 ) -> list[dict[str, float | int | str]]:
-    """Build pair rows between the carry-over block and the current chunk."""
+    """Build pair rows between the carry-over block and the current SNP batch."""
     rows: list[dict[str, float | int | str]] = []
     for local_j, global_j in enumerate(b_indices):
         valid = (a_indices >= int(block_left[global_j])) & (a_indices < global_j)
@@ -300,7 +301,7 @@ def _emit_within_block_pairs(
     block_left: np.ndarray,
     n_samples: int,
 ) -> list[dict[str, float | int | str]]:
-    """Build pair rows within the current chunk subject to ``block_left``."""
+    """Build pair rows within the current SNP batch subject to ``block_left``."""
     rows: list[dict[str, float | int | str]] = []
     for local_j, global_j in enumerate(b_indices):
         for local_i in range(local_j):
@@ -332,7 +333,7 @@ def _pop_pair_rows_before(
     pending: dict[int, list[dict[str, float | int | str]]],
     min_future_i: int,
 ) -> Iterator[dict[str, float | int | str]]:
-    """Yield pending rows whose left index cannot appear in future chunks."""
+    """Yield pending rows whose left index cannot appear in future batches."""
     flushable = sorted(i for i in pending if i < int(min_future_i))
     for i in flushable:
         rows = pending.pop(i)
@@ -343,27 +344,34 @@ def _pop_pair_rows_before(
 def yield_pairwise_r2_rows(
     *,
     block_left: np.ndarray,
-    chunk_size: int,
+    snp_batch_size: int,
     standardized_snp_getter,
     m: int,
     n: int,
 ) -> Iterator[dict[str, float | int | str]]:
-    """Yield one unordered `R2` row per retained SNP pair inside the LD window."""
+    """
+    Yield one unordered `R2` row per retained SNP pair inside the LD window.
+
+    ``snp_batch_size`` controls the number of SNP genotype columns requested
+    from ``standardized_snp_getter`` per computation batch. Window-spanning
+    carry-over columns may be retained in memory in addition to the current
+    batch.
+    """
 
     block_left = np.asarray(block_left, dtype=int)
     if len(block_left) != m:
         raise ValueError("block_left length must match the SNP count.")
-    if chunk_size <= 0:
-        raise ValueError("chunk_size must be positive.")
+    if snp_batch_size <= 0:
+        raise ValueError("snp_batch_size must be positive.")
 
     block_sizes = np.array(np.arange(m) - block_left)
-    block_sizes = np.ceil(block_sizes / chunk_size) * chunk_size
+    block_sizes = np.ceil(block_sizes / snp_batch_size) * snp_batch_size
 
     first_nonzero = np.nonzero(block_left > 0)[0]
     b = int(first_nonzero[0]) if len(first_nonzero) > 0 else m
-    b = int(np.ceil(b / chunk_size) * chunk_size)
+    b = int(np.ceil(b / snp_batch_size) * snp_batch_size)
     if b > m:
-        chunk_size = 1
+        snp_batch_size = 1
         b = m
 
     # Flush in increasing-i order; non-decreasing POS_1 holds only because
@@ -371,8 +379,8 @@ def yield_pairwise_r2_rows(
     pending_rows: dict[int, list[dict[str, float | int | str]]] = {}
     l_A = 0
     A = standardized_snp_getter(b)
-    for l_B in range(0, b, chunk_size):
-        width = min(chunk_size, b - l_B)
+    for l_B in range(0, b, snp_batch_size):
+        width = min(snp_batch_size, b - l_B)
         yield from _pop_pair_rows_before(pending_rows, int(block_left[l_B]))
         B = A[:, l_B:l_B + width]
         correlation_matrix = np.dot(A.T, B / n)
@@ -388,10 +396,10 @@ def yield_pairwise_r2_rows(
         )
 
     b0 = b
-    md = int(chunk_size * np.floor(m / chunk_size))
+    md = int(snp_batch_size * np.floor(m / snp_batch_size))
     end = md + 1 if md != m else md
-    previous_chunk_width = chunk_size
-    for l_B in range(b0, end, chunk_size):
+    previous_chunk_width = snp_batch_size
+    for l_B in range(b0, end, snp_batch_size):
         yield from _pop_pair_rows_before(pending_rows, int(block_left[l_B]))
         old_b = b
         b = int(block_sizes[l_B])
@@ -405,7 +413,7 @@ def yield_pairwise_r2_rows(
             A = np.array(()).reshape((n, 0))
             l_A = l_B
 
-        current_chunk_width = chunk_size
+        current_chunk_width = snp_batch_size
         if l_B == md:
             current_chunk_width = m - md
         B = standardized_snp_getter(current_chunk_width)
@@ -441,7 +449,7 @@ def yield_pairwise_r2_rows(
 def iter_pairwise_r2_rows(
     *,
     block_left: np.ndarray,
-    chunk_size: int,
+    snp_batch_size: int,
     standardized_snp_getter,
     m: int,
     n: int,
@@ -451,7 +459,7 @@ def iter_pairwise_r2_rows(
     return list(
         yield_pairwise_r2_rows(
             block_left=block_left,
-            chunk_size=chunk_size,
+            snp_batch_size=snp_batch_size,
             standardized_snp_getter=standardized_snp_getter,
             m=m,
             n=n,
@@ -459,16 +467,16 @@ def iter_pairwise_r2_rows(
     )
 
 
-def _build_unique_ids(chromosomes: pd.Series, positions: np.ndarray, ref: pd.Series, alt: pd.Series) -> pd.Series:
-    """Build ``CHR:POS:REF:ALT`` identifiers for one allele-orientation table."""
+def _build_unique_ids(chromosomes: pd.Series, positions: np.ndarray, a1: pd.Series, a2: pd.Series) -> pd.Series:
+    """Build ``CHR:POS:A1:A2`` identifiers for one allele-orientation table."""
     return (
         chromosomes.astype(str)
         + ":"
         + pd.Series(np.asarray(positions, dtype=np.int64), index=chromosomes.index).astype(str)
         + ":"
-        + ref.astype(str)
+        + a1.astype(str)
         + ":"
-        + alt.astype(str)
+        + a2.astype(str)
     )
 
 
@@ -482,13 +490,13 @@ def _optional_position_series(positions: np.ndarray | None, index: pd.Index) -> 
 def _optional_unique_ids(
     chromosomes: pd.Series,
     positions: np.ndarray | None,
-    ref: pd.Series,
-    alt: pd.Series,
+    a1: pd.Series,
+    a2: pd.Series,
 ) -> pd.Series:
     """Build unique IDs when positions exist, otherwise return missing strings."""
     if positions is None:
         return pd.Series(pd.array([pd.NA] * len(chromosomes), dtype="string"), index=chromosomes.index)
-    return _build_unique_ids(chromosomes, positions, ref, alt)
+    return _build_unique_ids(chromosomes, positions, a1, a2)
 
 
 def build_reference_snp_table(
@@ -505,19 +513,19 @@ def build_reference_snp_table(
     """
 
     chromosomes = metadata["CHR"].map(_normalize_map_chromosome)
-    ref = metadata["A1"].astype(str)
-    alt = metadata["A2"].astype(str)
+    a1 = metadata["A1"].astype(str)
+    a2 = metadata["A2"].astype(str)
     table = pd.DataFrame(
         {
             "chr": chromosomes.astype(str),
             "hg19_pos": _optional_position_series(hg19_positions, chromosomes.index),
             "hg38_pos": _optional_position_series(hg38_positions, chromosomes.index),
-            "hg19_Uniq_ID": _optional_unique_ids(chromosomes, hg19_positions, ref, alt),
-            "hg38_Uniq_ID": _optional_unique_ids(chromosomes, hg38_positions, ref, alt),
+            "hg19_Uniq_ID": _optional_unique_ids(chromosomes, hg19_positions, a1, a2),
+            "hg38_Uniq_ID": _optional_unique_ids(chromosomes, hg38_positions, a1, a2),
             "rsID": metadata["SNP"].astype(str),
             "MAF": pd.to_numeric(metadata["MAF"], errors="coerce").astype(float),
-            "REF": ref,
-            "ALT": alt,
+            "A1": a1,
+            "A2": a2,
         }
     )
     return table.reset_index(drop=True)
@@ -530,12 +538,13 @@ def build_standard_r2_table(
     genome_build: str,
 ) -> pd.DataFrame:
     """
-    Build one canonical six-column R2 table chunk for a chromosome.
+    Build one canonical R2 table batch for a chromosome.
 
     The returned frame always uses the package-written parquet schema:
-    string-valued ``CHR``/``SNP_1``/``SNP_2``, ``int64`` positions, and
-    ``float32`` R2 values. Empty chunks keep the same dtypes so chromosomes with
-    no emitted pairs still serialize as canonical R2 parquet files.
+    string-valued ``CHR``/``SNP_1``/``SNP_2``/endpoint allele columns,
+    ``int64`` positions, and ``float32`` R2 values. Empty batches keep the same
+    dtypes so chromosomes with no emitted pairs still serialize as canonical R2
+    parquet files.
     """
 
     if not pair_rows:
@@ -553,9 +562,13 @@ def build_standard_r2_table(
             "CHR": left[chr_col].astype(str),
             "POS_1": left[pos_col].to_numpy(dtype=np.int64),
             "POS_2": right[pos_col].to_numpy(dtype=np.int64),
-            "R2": r2,
             "SNP_1": left["rsID"].astype(str),
             "SNP_2": right["rsID"].astype(str),
+            "A1_1": left["A1"].astype(str),
+            "A2_1": left["A2"].astype(str),
+            "A1_2": right["A1"].astype(str),
+            "A2_2": right["A2"].astype(str),
+            "R2": r2,
         },
         columns=_STANDARD_R2_COLUMNS,
     )
@@ -579,15 +592,16 @@ def build_runtime_metadata_table(
         else pd.Series(np.asarray(cm_values, dtype=float))
     )
 
-    return pd.DataFrame(
-        {
-            "CHR": metadata["CHR"].map(_normalize_map_chromosome).astype(str),
-            "POS": np.asarray(positions, dtype=np.int64),
-            "SNP": metadata["SNP"].astype(str),
-            "CM": cm_column,
-            "MAF": pd.to_numeric(metadata["MAF"], errors="coerce").astype(float),
-        }
-    ).reset_index(drop=True)
+    values = {
+        "CHR": metadata["CHR"].map(_normalize_map_chromosome).astype(str),
+        "POS": np.asarray(positions, dtype=np.int64),
+        "SNP": metadata["SNP"].astype(str),
+        "A1": metadata["A1"].astype(str),
+        "A2": metadata["A2"].astype(str),
+        "CM": cm_column,
+        "MAF": pd.to_numeric(metadata["MAF"], errors="coerce").astype(float),
+    }
+    return pd.DataFrame(values).reset_index(drop=True)
 
 
 def _ensure_parent_dir(path: str | PathLike[str]) -> None:
@@ -619,6 +633,7 @@ def write_r2_parquet(
     path: str | PathLike[str],
     genome_build: str,
     n_samples: int,
+    snp_identifier: str,
     batch_size: int = 100_000,
     row_group_size: int = 50_000,
 ) -> str:
@@ -627,7 +642,7 @@ def write_r2_parquet(
 
     The writer requires ``pyarrow`` because the canonical format depends on
     Arrow schema metadata and explicit row-group sizing. It writes exactly the
-    six canonical R2 columns and records ``ldsc:sorted_by_build``,
+    canonical R2 columns and records ``ldsc:sorted_by_build``,
     ``ldsc:row_group_size``, ``ldsc:n_samples``, and ``ldsc:r2_bias`` in the
     Arrow schema. Current package-built panels always store unbiased R2 values,
     so ``ldsc:r2_bias`` is written as ``"unbiased"`` and ``n_samples`` captures
@@ -650,6 +665,14 @@ def write_r2_parquet(
         ) from exc
 
     pa_meta = {
+        **{
+            f"ldsc:{key}".encode("utf-8"): str(value).encode("utf-8")
+            for key, value in identity_artifact_metadata(
+                artifact_type="ref_panel_r2",
+                snp_identifier=snp_identifier,
+                genome_build=genome_build,
+            ).items()
+        },
         b"ldsc:sorted_by_build": genome_build.encode("utf-8"),
         b"ldsc:row_group_size": str(row_group_size).encode("utf-8"),
         b"ldsc:n_samples": str(n_samples).encode("utf-8"),
@@ -704,109 +727,90 @@ def write_r2_parquet(
     return str(path)
 
 
-def write_runtime_metadata_sidecar(df: pd.DataFrame, path: str | PathLike[str]) -> str:
+def write_runtime_metadata_sidecar(
+    df: pd.DataFrame,
+    path: str | PathLike[str],
+    *,
+    genome_build: str,
+    snp_identifier: str,
+) -> str:
     """Write one gzip-compressed LDSC runtime metadata sidecar."""
 
     _ensure_parent_dir(path)
+    identity_metadata = identity_artifact_metadata(
+        artifact_type="ref_panel_metadata",
+        snp_identifier=snp_identifier,
+        genome_build=genome_build,
+    )
     with gzip.open(path, "wt", encoding="utf-8") as handle:
+        for key, value in identity_metadata.items():
+            handle.write(f"# ldsc:{key}={value}\n")
         df.to_csv(handle, sep="\t", index=False, na_rep="NA", float_format="%.6g")
     return str(path)
 
-
-class LiftOverTranslator:
-    """Translate one chromosome's 1-based positions between explicit genome-build chain files."""
-
-    def __init__(
-        self,
-        *,
-        source_build: str,
-        target_build: str,
-        chain_path: str | PathLike[str] | None = None,
-    ) -> None:
-        """Initialize a build-to-build position translator for one run."""
-        self.source_build = source_build
-        self.target_build = target_build
-        self.chain_path = None if chain_path is None else Path(chain_path)
-        if source_build == target_build:
-            self._identity = True
-            self._liftover = None
-            return
-        self._identity = False
-        if self.chain_path is None:
-            flag = (
-                "--liftover-chain-hg19-to-hg38"
-                if (source_build, target_build) == ("hg19", "hg38")
-                else "--liftover-chain-hg38-to-hg19"
-            )
-            raise ValueError(
-                f"An explicit liftover chain path is required for {source_build} -> {target_build}. "
-                f"Provide it via {flag}."
-            )
-        try:
-            from pyliftover import LiftOver
-        except ImportError as exc:
-            raise LDSCDependencyError(
-                "Building reference panels across hg19/hg38 requires the optional dependency 'pyliftover'."
-            ) from exc
-        self.chain_path = Path(self.chain_path)
-        self._liftover = LiftOver(str(self.chain_path))
-
-    def map_positions(self, chrom: str, positions: Sequence[int] | np.ndarray) -> LiftOverMappingResult:
-        """Translate 1-based positions and retain only same-chromosome mappings."""
-
-        array = np.asarray(positions, dtype=np.int64)
-        if self._identity:
-            return LiftOverMappingResult(
-                translated_positions=array.copy(),
-                keep_mask=np.ones(len(array), dtype=bool),
-                unmapped_count=0,
-                cross_chrom_count=0,
-            )
-        chrom = _normalize_map_chromosome(chrom)
-        query_chrom = f"chr{chrom}"
-        translated = np.zeros(len(array), dtype=np.int64)
-        keep_mask = np.zeros(len(array), dtype=bool)
-        unmapped_count = 0
-        cross_chrom_count = 0
-        for idx, pos in enumerate(array):
-            hits = self._liftover.convert_coordinate(query_chrom, int(pos) - 1)
-            if not hits:
-                unmapped_count += 1
-                continue
-            hit = next(
-                (candidate for candidate in hits if _try_normalize_map_chromosome(candidate[0]) == chrom),
-                None,
-            )
-            if hit is None:
-                cross_chrom_count += 1
-                continue
-            translated[idx] = int(hit[1]) + 1
-            keep_mask[idx] = True
-        return LiftOverMappingResult(
-            translated_positions=translated[keep_mask],
-            keep_mask=keep_mask,
-            unmapped_count=unmapped_count,
-            cross_chrom_count=cross_chrom_count,
-        )
-
-    def translate_positions(self, chrom: str, positions: Sequence[int] | np.ndarray) -> np.ndarray:
-        """Translate 1-based positions and require complete same-chromosome mapping."""
-
-        result = self.map_positions(chrom, positions)
-        if not result.keep_mask.all():
-            failed = np.asarray(positions, dtype=np.int64)[~result.keep_mask]
-            preview = ", ".join(str(int(value)) for value in failed[:5])
-            raise ValueError(
-                f"Failed to liftover {len(failed)} positions on chromosome {chrom} "
-                f"from {self.source_build} to {self.target_build}: {preview}"
-            )
-        return result.translated_positions
-
-
-def build_restriction_mask(metadata: pd.DataFrame, restriction_values: set[str], mode: str) -> np.ndarray:
+def build_restriction_mask(
+    metadata: pd.DataFrame,
+    restriction_values: set[str] | RestrictionIdentityKeys,
+    mode: str,
+) -> np.ndarray:
     """Build the retained-SNP boolean mask for one restriction universe."""
 
-    if mode == "rsid":
+    if isinstance(restriction_values, RestrictionIdentityKeys):
+        if restriction_values.match_kind == "identity":
+            return _build_allele_aware_restriction_mask(
+                metadata,
+                restriction_values,
+                mode,
+                context="reference-panel SNP restriction matching",
+            ).to_numpy(dtype=bool)
+        return restriction_membership_mask(
+            metadata,
+            restriction_values,
+            mode,
+            context="reference-panel SNP restriction matching",
+        ).to_numpy(dtype=bool)
+
+    if identity_mode_family(mode) == "rsid":
         return metadata["SNP"].astype(str).isin(restriction_values).to_numpy(dtype=bool)
-    keys = build_snp_id_series(metadata.loc[:, ["CHR", "POS"]].copy(), "chr_pos")
-    return keys.isin(restriction_values).to_numpy(dtype=bool)
+    keyed, _report = build_chr_pos_key_frame(
+        metadata.loc[:, ["CHR", "POS"]].copy(),
+        context="reference-panel SNP restriction matching",
+        drop_missing=True,
+        logger=LOGGER,
+    )
+    keep = pd.Series(False, index=metadata.index)
+    keep.loc[keyed.index] = keyed[CHR_POS_KEY_COLUMN].isin(restriction_values).to_numpy(dtype=bool)
+    return keep.to_numpy(dtype=bool)
+
+
+def _build_allele_aware_restriction_mask(
+    metadata: pd.DataFrame,
+    restriction: RestrictionIdentityKeys,
+    mode: str,
+    *,
+    context: str,
+) -> pd.Series:
+    """Match allele-aware restrictions without validating unrelated alleles."""
+    base = base_key_series(metadata, mode, context=context)
+    restricted_bases = _restriction_base_keys(restriction.keys)
+    base_match = base.isin(restricted_bases)
+    keep = pd.Series(False, index=metadata.index, dtype=bool)
+    if not bool(base_match.any()):
+        return keep
+
+    allele_set, reasons = allele_set_series(metadata.loc[base_match], context=context)
+    candidate_keys = pd.Series(pd.NA, index=allele_set.index, dtype=object)
+    valid = base.loc[base_match].notna() & allele_set.notna()
+    candidate_keys.loc[valid] = base.loc[base_match].loc[valid].astype(str) + ":" + allele_set.loc[valid].astype(str)
+    keep.loc[base_match] = (candidate_keys.isin(restriction.keys) | reasons.notna()).to_numpy(dtype=bool)
+    return keep
+
+
+def _restriction_base_keys(keys: set[str]) -> set[str]:
+    """Extract allele-blind base keys from allele-aware identity keys."""
+    base_keys: set[str] = set()
+    for key in keys:
+        parts = str(key).rsplit(":", 2)
+        if len(parts) == 3:
+            base_keys.add(parts[0])
+    return base_keys

@@ -5,6 +5,8 @@ import unittest
 import warnings
 from unittest import mock
 
+import pandas as pd
+
 SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
@@ -20,6 +22,8 @@ class PackageLayoutTest(unittest.TestCase):
         self.assertTrue(hasattr(ldsc, "SumstatsMunger"))
         self.assertTrue(hasattr(ldsc, "AnnotationBuilder"))
         self.assertTrue(hasattr(ldsc, "ReferencePanelBuilder"))
+        self.assertTrue(hasattr(ldsc, "H2OutputConfig"))
+        self.assertTrue(hasattr(ldsc, "H2DirectoryWriter"))
         self.assertTrue(hasattr(ldsc, "LDScoreOutputConfig"))
         self.assertTrue(hasattr(ldsc, "LDScoreDirectoryWriter"))
         self.assertTrue(hasattr(ldsc, "PartitionedH2OutputConfig"))
@@ -54,6 +58,49 @@ class PackageLayoutTest(unittest.TestCase):
         self.assertIn("infer_chr_pos_build", ldsc.__all__)
         self.assertIn("resolve_chr_pos_table", ldsc.__all__)
 
+    def test_top_level_exports_sumstats_inference_api(self):
+        import ldsc
+        from ldsc import RawSumstatsInference, infer_raw_sumstats
+        from ldsc.sumstats_munger import (
+            RawSumstatsInference as ModuleRawSumstatsInference,
+            infer_raw_sumstats as module_infer_raw_sumstats,
+        )
+
+        self.assertIs(RawSumstatsInference, ModuleRawSumstatsInference)
+        self.assertIs(infer_raw_sumstats, module_infer_raw_sumstats)
+        self.assertIn("RawSumstatsInference", ldsc.__all__)
+        self.assertIn("infer_raw_sumstats", ldsc.__all__)
+
+    def test_top_level_exports_hm3_curated_map_loader(self):
+        import ldsc
+        from ldsc import load_hm3_curated_map
+
+        self.assertIs(load_hm3_curated_map, ldsc.load_hm3_curated_map)
+        self.assertIn("load_hm3_curated_map", ldsc.__all__)
+        with self.assertRaises(TypeError):
+            load_hm3_curated_map("custom.tsv.gz")
+
+    def test_load_hm3_curated_map_returns_canonical_full_schema(self):
+        from ldsc import load_hm3_curated_map
+
+        frame = load_hm3_curated_map()
+
+        self.assertIn("CHR", frame.columns)
+        self.assertIn("hg19_POS", frame.columns)
+        self.assertIn("hg38_POS", frame.columns)
+        self.assertIn("SNP", frame.columns)
+        self.assertIn("A1", frame.columns)
+        self.assertIn("A2", frame.columns)
+        self.assertGreater(len(frame), 1_000_000)
+        self.assertEqual(str(frame["CHR"].dtype), "string")
+        self.assertTrue(pd.api.types.is_integer_dtype(frame["hg19_POS"]))
+        self.assertTrue(pd.api.types.is_integer_dtype(frame["hg38_POS"]))
+        self.assertEqual(str(frame["SNP"].dtype), "string")
+        self.assertEqual(str(frame["A1"].dtype), "string")
+        self.assertEqual(str(frame["A2"].dtype), "string")
+        observed_alleles = set(frame["A1"].dropna().unique()) | set(frame["A2"].dropna().unique())
+        self.assertLessEqual(observed_alleles, {"A", "C", "G", "T"})
+
     def test_cli_exposes_expected_subcommands(self):
         from ldsc import cli
 
@@ -66,6 +113,65 @@ class PackageLayoutTest(unittest.TestCase):
             {"annotate", "ldscore", "build-ref-panel", "munge-sumstats", "h2", "partitioned-h2", "rg"},
         )
         self.assertNotIn("infer-build", subparsers_action.choices)
+
+    def test_annotation_builder_owns_public_workflow_entrypoints(self):
+        from ldsc import annotation_builder
+
+        for name in (
+            "AnnotationBuilder",
+            "AnnotationBundle",
+            "run_bed_to_annot",
+            "run_annotate_from_args",
+            "add_annotate_arguments",
+            "build_parser",
+            "parse_bed_to_annot_args",
+            "main",
+        ):
+            self.assertTrue(hasattr(annotation_builder, name), f"{name} should be public")
+        self.assertFalse(hasattr(annotation_builder, "main_bed_to_annot"))
+
+    def test_annotate_direct_dispatch_calls_annotation_main_without_reparse(self):
+        from ldsc import annotation_builder, cli
+
+        subargv = [
+            "--query-annot-bed-sources",
+            "beds/query.bed",
+            "--baseline-annot-sources",
+            "baseline.1.annot.gz",
+            "--output-dir",
+            "out/annot",
+        ]
+        with mock.patch.object(annotation_builder, "main", return_value=mock.sentinel.bundle) as patched:
+            result = cli.main(["annotate", *subargv])
+
+        self.assertIs(result, mock.sentinel.bundle)
+        patched.assert_called_once_with(subargv)
+
+    def test_annotate_parsed_dispatch_calls_workflow_from_args(self):
+        from ldsc import annotation_builder, cli
+
+        parser = cli.build_parser()
+        args = parser.parse_args(
+            [
+                "annotate",
+                "--query-annot-bed-sources",
+                "beds/query.bed",
+                "--baseline-annot-sources",
+                "baseline.1.annot.gz",
+                "--output-dir",
+                "out/annot",
+            ]
+        )
+
+        with mock.patch.object(
+            annotation_builder,
+            "run_annotate_from_args",
+            return_value=mock.sentinel.bundle,
+        ) as patched:
+            result = cli._run_annotate(args)
+
+        self.assertIs(result, mock.sentinel.bundle)
+        patched.assert_called_once_with(args)
 
     def test_ldscore_subcommand_accepts_unified_path_flags(self):
         from ldsc import cli
@@ -166,9 +272,8 @@ class PackageLayoutTest(unittest.TestCase):
             ],
             [
                 "rg",
-                "--sumstats-1-file",
+                "--sumstats-sources",
                 "trait1.sumstats.gz",
-                "--sumstats-2-file",
                 "trait2.sumstats.gz",
                 "--ldscore-dir",
                 "ldscores",
@@ -231,6 +336,30 @@ class PackageLayoutTest(unittest.TestCase):
         self.assertEqual(args.command, "ldscore")
         self.assertEqual(args.regression_snps_file, "filters/hm3.txt")
 
+    def test_ldscore_subcommand_accepts_explicit_hm3_flags(self):
+        from ldsc import cli
+
+        parser = cli.build_parser()
+        args = parser.parse_args(
+            [
+                "ldscore",
+                "--output-dir",
+                "out/ldscores",
+                "--baseline-annot-sources",
+                "baseline.annot.gz",
+                "--plink-prefix",
+                "panel",
+                "--ld-wind-snps",
+                "10",
+                "--use-hm3-ref-panel-snps",
+                "--use-hm3-regression-snps",
+            ]
+        )
+
+        self.assertEqual(args.command, "ldscore")
+        self.assertTrue(args.use_hm3_ref_panel_snps)
+        self.assertTrue(args.use_hm3_regression_snps)
+
     def test_munge_sumstats_subcommand_accepts_sumstats_snps_file(self):
         from ldsc import cli
 
@@ -250,6 +379,24 @@ class PackageLayoutTest(unittest.TestCase):
         self.assertEqual(args.command, "munge-sumstats")
         self.assertEqual(args.sumstats_snps_file, "filters/hm3.tsv.gz")
 
+    def test_munge_sumstats_subcommand_accepts_use_hm3_snps(self):
+        from ldsc import cli
+
+        parser = cli.build_parser()
+        args = parser.parse_args(
+            [
+                "munge-sumstats",
+                "--raw-sumstats-file",
+                "raw.tsv",
+                "--output-dir",
+                "out/trait",
+                "--use-hm3-snps",
+            ]
+        )
+
+        self.assertEqual(args.command, "munge-sumstats")
+        self.assertTrue(args.use_hm3_snps)
+
     def test_munge_sumstats_subcommand_rejects_removed_merge_alleles_file(self):
         from ldsc import cli
 
@@ -266,6 +413,46 @@ class PackageLayoutTest(unittest.TestCase):
                     "filters/hm3.tsv.gz",
                 ]
             )
+
+    def test_munge_sumstats_subcommand_rejects_removed_merge_alleles(self):
+        from ldsc import cli
+
+        parser = cli.build_parser()
+        with self.assertRaises(SystemExit):
+            parser.parse_args(
+                [
+                    "munge-sumstats",
+                    "--raw-sumstats-file",
+                    "raw.tsv",
+                    "--output-dir",
+                    "out/trait",
+                    "--merge-alleles",
+                    "filters/hm3.tsv.gz",
+                ]
+            )
+
+    def test_munge_sumstats_subcommand_rejects_removed_no_alleles(self):
+        from ldsc import cli
+
+        parser = cli.build_parser()
+        with self.assertRaises(SystemExit):
+            parser.parse_args(
+                [
+                    "munge-sumstats",
+                    "--raw-sumstats-file",
+                    "raw.tsv",
+                    "--output-dir",
+                    "out/trait",
+                    "--no-alleles",
+                ]
+            )
+
+    def test_sumstats_munger_public_api_excludes_removed_merge_alleles(self):
+        from ldsc import sumstats_munger
+
+        self.assertFalse(hasattr(sumstats_munger, "allele_merge"))
+        self.assertNotIn("--merge-alleles", sumstats_munger.parser.format_help())
+        self.assertNotIn("--no-alleles", sumstats_munger.parser.format_help())
 
     def test_ldscore_subcommand_rejects_removed_print_snps_and_regression_snps_flags(self):
         from ldsc import cli

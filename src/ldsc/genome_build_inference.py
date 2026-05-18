@@ -20,15 +20,16 @@ Design Notes
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from importlib import resources
 from typing import Iterable
 
 import pandas as pd
 
-from .chromosome_inference import normalize_chromosome
-from .column_inference import normalize_genome_build, normalize_snp_identifier_mode
+from ._coordinates import CoordinateDropReport, CoordinatePolicy, normalize_chr_pos_frame
+from ._kernel.snp_identity import identity_mode_family, normalize_snp_identifier_mode
+from .column_inference import normalize_genome_build
 
 
 AUTO_GENOME_BUILD = "auto"
@@ -39,6 +40,7 @@ REFERENCE_RESOURCE_PATH = "data/hm3_chr_pos_reference.tsv.gz"
 __all__ = [
     "ChrPosBuildInference",
     "GenomeBuildEvidenceAccumulator",
+    "collect_chr_pos_build_evidence_frame",
     "infer_chr_pos_build",
     "resolve_genome_build",
     "resolve_chr_pos_table",
@@ -72,6 +74,10 @@ class ChrPosBuildInference:
         ``inspected_snp_count``.
     summary_message : str
         Human-readable message suitable for workflow logs.
+    coordinate_report : CoordinateDropReport or None, optional
+        Rows dropped by :func:`resolve_chr_pos_table` before inference because
+        ``CHR`` or ``POS`` was invalid or missing. ``None`` when this object is
+        produced by :func:`infer_chr_pos_build` directly.
     """
 
     genome_build: str
@@ -80,6 +86,7 @@ class ChrPosBuildInference:
     match_counts: dict[str, int]
     match_fractions: dict[str, float]
     summary_message: str
+    coordinate_report: CoordinateDropReport | None = None
 
 
 def is_auto_genome_build(genome_build: str | None) -> bool:
@@ -88,11 +95,11 @@ def is_auto_genome_build(genome_build: str | None) -> bool:
 
 
 def validate_auto_genome_build_mode(snp_identifier: str, genome_build: str | None) -> None:
-    """Reject ``genome_build='auto'`` outside ``chr_pos`` mode."""
+    """Reject ``genome_build='auto'`` outside coordinate-family modes."""
     if not is_auto_genome_build(genome_build):
         return
-    if normalize_snp_identifier_mode(snp_identifier) != "chr_pos":
-        raise ValueError("genome_build='auto' is only supported when snp_identifier='chr_pos'.")
+    if identity_mode_family(snp_identifier) != "chr_pos":
+        raise ValueError("genome_build='auto' is only supported for chr_pos-family snp_identifier modes.")
 
 
 def resolve_genome_build(
@@ -102,6 +109,7 @@ def resolve_genome_build(
     *,
     context: str,
     logger=None,
+    reference_table: pd.DataFrame | None = None,
 ) -> str | None:
     """
     Resolve a genome-build hint to a concrete build or ``None``.
@@ -117,22 +125,25 @@ def resolve_genome_build(
         Raw value from CLI or config. Accepted values are ``"auto"``,
         ``"hg19"``, ``"hg38"``, aliases accepted by
         :func:`normalize_genome_build`, or ``None``.
-    snp_identifier : {"rsid", "chr_pos"}
+    snp_identifier : {"rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"}
         Already-normalized SNP identifier mode.
     sample_frame : pandas.DataFrame or None
         DataFrame with ``CHR`` and ``POS`` columns. Required when
-        ``hint="auto"`` and ``snp_identifier="chr_pos"``; pass ``None`` in all
-        other cases.
+        ``hint="auto"`` and a coordinate-family ``snp_identifier``; pass
+        ``None`` in all other cases.
     context : str
         Human-readable data-source label used in log and error messages.
     logger : logging.Logger-like, optional
         Receives inference summary at INFO or WARNING level.
+    reference_table : pandas.DataFrame, optional
+        Optional reference table with ``CHR``, ``hg19_POS``, and ``hg38_POS``.
+        If omitted, the packaged HapMap3 reference subset is used.
 
     Returns
     -------
     str or None
         ``"hg19"``, ``"hg38"``, or ``None``. Returns ``None`` when
-        ``snp_identifier="rsid"``, regardless of ``hint``.
+        an rsID-family ``snp_identifier``, regardless of ``hint``.
 
     Raises
     ------
@@ -143,7 +154,7 @@ def resolve_genome_build(
     snp_identifier = normalize_snp_identifier_mode(snp_identifier)
     hint = normalize_genome_build(hint)
 
-    if snp_identifier == "rsid":
+    if identity_mode_family(snp_identifier) == "rsid":
         return None
     if hint != AUTO_GENOME_BUILD:
         return hint
@@ -157,6 +168,7 @@ def resolve_genome_build(
         inference = infer_chr_pos_build(
             sample_frame.loc[:, ["CHR", "POS"]],
             context=context,
+            reference_table=reference_table,
         )
     except ValueError as exc:
         message = str(exc)
@@ -236,12 +248,67 @@ class GenomeBuildEvidenceAccumulator:
         return pd.DataFrame({"CHR": list(chroms), "POS": list(positions)})
 
 
+def collect_chr_pos_build_evidence_frame(
+    frames: Iterable[pd.DataFrame],
+    *,
+    context: str,
+    reference_table: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """Collect the smallest available CHR/POS sample with enough build evidence."""
+    evidence = GenomeBuildEvidenceAccumulator(reference_table)
+    for frame in frames:
+        if frame.empty:
+            continue
+        normalized, _report = normalize_chr_pos_frame(
+            frame.loc[:, ["CHR", "POS"]],
+            context=context,
+            coordinate_policy="drop",
+            logger=None,
+            min_position=0,
+        )
+        evidence.update(_input_keys(normalized))
+        if evidence.is_sufficient():
+            break
+    return evidence.to_frame()
+
+
+def resolve_genome_build_from_chr_pos_frames(
+    hint: str | None,
+    snp_identifier: str,
+    frames: Iterable[pd.DataFrame],
+    *,
+    context: str,
+    logger=None,
+    reference_table: pd.DataFrame | None = None,
+) -> str | None:
+    """Resolve a build hint from an adaptive stream of CHR/POS evidence frames."""
+    snp_identifier = normalize_snp_identifier_mode(snp_identifier)
+    hint = normalize_genome_build(hint)
+    if identity_mode_family(snp_identifier) == "rsid" or hint != AUTO_GENOME_BUILD:
+        return resolve_genome_build(hint, snp_identifier, None, context=context, logger=logger)
+
+    sample_frame = collect_chr_pos_build_evidence_frame(
+        frames,
+        context=context,
+        reference_table=reference_table,
+    )
+    return resolve_genome_build(
+        AUTO_GENOME_BUILD,
+        snp_identifier,
+        sample_frame,
+        context=context,
+        logger=logger,
+        reference_table=reference_table,
+    )
+
+
 def resolve_chr_pos_table(
     df: pd.DataFrame,
     *,
     context: str,
     reference_table: pd.DataFrame | None = None,
     logger=None,
+    coordinate_policy: CoordinatePolicy | str = "drop",
 ) -> tuple[pd.DataFrame, ChrPosBuildInference]:
     """
     Infer and normalize the genome build for a ``CHR``/``POS`` table.
@@ -264,6 +331,10 @@ def resolve_chr_pos_table(
     logger : logging.Logger-like, optional
         Logger receiving the inference summary. A warning is emitted when
         0-based coordinates are converted; otherwise an info message is emitted.
+    coordinate_policy : {"drop", "raise"}, optional
+        Policy for invalid or missing coordinate rows. The package-wide default
+        drops those rows with a warning report. Use ``"raise"`` where a strict
+        file contract requires complete, valid coordinates.
 
     Returns
     -------
@@ -288,16 +359,21 @@ def resolve_chr_pos_table(
     if not {"CHR", "POS"}.issubset(df.columns):
         raise ValueError(f"{context} must contain CHR and POS columns for auto genome-build inference.")
 
-    reference = load_packaged_reference_table() if reference_table is None else reference_table.copy()
-    normalized = df.copy()
-    normalized["CHR"] = normalized["CHR"].map(lambda value: normalize_chromosome(value, context=context))
-    normalized["POS"] = pd.to_numeric(normalized["POS"], errors="raise").astype("int64")
+    reference = None if reference_table is None else reference_table.copy()
+    normalized, coordinate_report = normalize_chr_pos_frame(
+        df,
+        context=context,
+        coordinate_policy=coordinate_policy,
+        logger=logger,
+        min_position=0,
+    )
 
     inference = infer_chr_pos_build(
         normalized.loc[:, ["CHR", "POS"]],
         context=context,
         reference_table=reference,
     )
+    inference = replace(inference, coordinate_report=coordinate_report)
     if inference.coordinate_basis == "0-based":
         normalized["POS"] = normalized["POS"] + 1
     if logger is not None and inference.coordinate_basis == "0-based":

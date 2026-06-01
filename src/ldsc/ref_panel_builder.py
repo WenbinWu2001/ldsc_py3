@@ -31,6 +31,7 @@ likewise coordinate-family behavior and uses drop-all for coordinate collisions.
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 import logging
 import os
@@ -885,6 +886,10 @@ class ReferencePanelBuilder:
             output_paths[f"r2_{build}"] = str(r2_path)
             output_paths[f"meta_{build}"] = str(meta_path)
             retained_count = len(metadata)
+            # Release the genotype bitarray before loading the next build so the
+            # two builds' decoded genotypes never coexist at peak memory.
+            del geno
+            gc.collect()
         output_paths["dropped_snps"] = str(sidecar_path)
         LOGGER.info(f"Finished chromosome {chrom} with {retained_count} retained SNPs.")
         return output_paths

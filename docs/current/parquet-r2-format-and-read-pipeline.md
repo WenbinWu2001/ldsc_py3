@@ -114,6 +114,16 @@ Tradeoff guide for non-default reference panels:
 Recommended range: **25 000 – 200 000** rows per group. Choose closer to the
 expected pairs-per-window for the target reference panel density.
 
+#### Compression
+
+Package-written parquet files are compressed with **zstd** when the codec is
+available in the local `pyarrow` build (it falls back to `snappy` otherwise).
+Compression is recorded per column-chunk in the parquet footer, so the reader
+auto-detects and decompresses it with no read-path change; the choice of codec
+is purely a storage concern and never affects the decoded values. zstd typically
+yields ~1.5–2× smaller artifacts than the previous `snappy` default with
+comparable decode speed.
+
 ### 2.4 SNP Identity Modes And External R2 Limits
 
 The public SNP identifier modes are exactly `rsid`, `rsid_allele_aware`,
@@ -140,6 +150,7 @@ Package-written parquet files include these technical metadata entries:
 | `ldsc:row_group_size` | string (int) | Intended row group size used when writing. Informational; reader uses actual footer stats. |
 | `ldsc:n_samples` | string (int) | Number of reference-panel individuals used when computing the stored R2 values. Package-built panels write `geno.n`. |
 | `ldsc:r2_bias` | string | Bias state of stored R2 values. Package-built panels currently write `"unbiased"`; `"raw"` is reserved for raw sample R2 values that need downstream correction. |
+| `ldsc:min_r2` | string (float) | Minimum unbiased-R2 threshold applied at write time. `"0.0"` (the default) means no filtering — all pairs, including negative-R2 pairs, are written and the artifact is complete. Any positive value means sub-threshold pairs were dropped, so the artifact is intentionally incomplete and downstream readers must not treat absent pairs as exactly R2=0 without accounting for the threshold. |
 
 They also include the minimal identity provenance required by current
 reloaders:
@@ -172,6 +183,7 @@ ldsc:sorted_by_build = "hg19"
 ldsc:row_group_size  = "50000"
 ldsc:n_samples       = "3202"
 ldsc:r2_bias         = "unbiased"
+ldsc:min_r2          = "0.0"
 ldsc:schema_version  = "1"
 ldsc:artifact_type   = "ref_panel_r2"
 ldsc:snp_identifier  = "chr_pos_allele_aware"

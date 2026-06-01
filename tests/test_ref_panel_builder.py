@@ -1,7 +1,9 @@
+import gc
 import gzip
 import importlib.util
 import json
 import logging
+import weakref
 from dataclasses import replace as dataclass_replace
 from pathlib import Path
 import sys
@@ -767,6 +769,43 @@ class StandardTableFormattingTest(unittest.TestCase):
             self.assertEqual(table["A1_2"], ["C"])
             self.assertEqual(table["A2_2"], ["T"])
             self.assertAlmostEqual(table["R2"][0], 0.75, places=5)
+
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow dependency is not installed")
+    def test_write_r2_parquet_uses_zstd_compression(self):
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        if not pa.Codec.is_available("zstd"):
+            self.skipTest("zstd codec is unavailable in this pyarrow build")
+
+        reference_snp_table = pd.DataFrame(
+            {
+                "CHR": ["1", "1"],
+                "hg19_pos": [100, 120],
+                "hg38_pos": [110, 130],
+                "hg19_Uniq_ID": ["1:100:A:G", "1:120:C:T"],
+                "hg38_Uniq_ID": ["1:110:A:G", "1:130:C:T"],
+                "rsID": ["rs1", "rs2"],
+                "MAF": [0.2, 0.3],
+                "A1": ["A", "C"],
+                "A2": ["G", "T"],
+            }
+        )
+        pair_rows = [{"i": 0, "j": 1, "R2": 0.75, "sign": "+"}]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "chr1.parquet"
+            kernel_builder.write_r2_parquet(
+                pair_rows=iter(pair_rows),
+                reference_snp_table=reference_snp_table,
+                path=path,
+                genome_build="hg19",
+                n_samples=10,
+                snp_identifier="chr_pos",
+            )
+            metadata = pq.ParquetFile(str(path)).metadata
+            row_group = metadata.row_group(0)
+            codecs = {row_group.column(c).compression for c in range(row_group.num_columns)}
+            self.assertEqual(codecs, {"ZSTD"})
 
     def test_build_runtime_metadata_table_is_build_specific(self):
         metadata = pd.DataFrame(
@@ -3022,6 +3061,56 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
             self.assertFalse(meta_hg38["CM"].isna().any())
             self.assertTrue(Path(build_result.output_paths["r2_hg19"][0]).exists())
             self.assertTrue(Path(build_result.output_paths["r2_hg38"][0]).exists())
+
+    def test_each_genome_build_releases_prior_bed_before_loading_next(self):
+        resources = _find_resources_root()
+        if resources is None:
+            self.skipTest("resources directory is not available from this workspace")
+
+        prefix = MINIMAL_EXTERNAL_FIXTURES / "plink" / "hm3_chr22_subset"
+        if not (Path(str(prefix) + ".bed").exists() and Path(str(prefix) + ".bim").exists() and Path(str(prefix) + ".fam").exists()):
+            self.skipTest("minimal chr22 PLINK fixture is unavailable; run tests/fixtures/generate_minimal_external_resources.py")
+
+        map_hg38 = MINIMAL_EXTERNAL_FIXTURES / "genetic_maps" / "genetic_map_hg38_chr22_subset.txt"
+        if not map_hg38.exists():
+            self.skipTest("minimal hg38 genetic-map fixture is unavailable; run tests/fixtures/generate_minimal_external_resources.py")
+
+        real_bed = ref_panel_builder.kernel_ldscore.PlinkBEDFile
+        live_refs: list[weakref.ref] = []
+        alive_at_construction: list[int] = []
+
+        def tracking_bed(*args, **kwargs):
+            gc.collect()
+            alive_at_construction.append(sum(1 for ref in live_refs if ref() is not None))
+            instance = real_bed(*args, **kwargs)
+            live_refs.append(weakref.ref(instance))
+            return instance
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with mock.patch(
+                "ldsc.ref_panel_builder.kernel_ldscore.PlinkBEDFile",
+                side_effect=tracking_bed,
+            ):
+                build_result = ref_panel_builder.run_build_ref_panel(
+                    plink_prefix=str(prefix),
+                    source_genome_build="hg38",
+                    genetic_map_hg19_sources=None,
+                    genetic_map_hg38_sources=str(map_hg38),
+                    liftover_chain_hg38_to_hg19_file=str(resources / "liftover" / "hg38ToHg19.over.chain"),
+                    output_dir=str(Path(tmpdir) / "panel"),
+                    ld_wind_snps=10,
+                    ld_wind_kb=None,
+                    snp_batch_size=64,
+                )
+
+        self.assertIn("r2_hg19", build_result.output_paths)
+        self.assertIn("r2_hg38", build_result.output_paths)
+        self.assertEqual(len(alive_at_construction), 2)
+        self.assertEqual(
+            alive_at_construction,
+            [0, 0],
+            msg="a second PlinkBEDFile was loaded before the prior build was released",
+        )
 
     def test_cm_window_requires_target_map_when_liftover_emits_target_build(self):
         resources = _find_resources_root()

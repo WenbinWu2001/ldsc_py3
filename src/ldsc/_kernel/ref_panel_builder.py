@@ -819,7 +819,8 @@ def write_r2_parquet(
                 )
             prev_pos1 = int(pos1[-1])
         if writer is None:
-            writer = pq.ParquetWriter(str(path), schema)
+            compression = "zstd" if pa.Codec.is_available("zstd") else "snappy"
+            writer = pq.ParquetWriter(str(path), schema, compression=compression)
         writer.write_table(table, row_group_size=row_group_size)
 
     try:

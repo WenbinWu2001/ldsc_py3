@@ -807,6 +807,50 @@ class StandardTableFormattingTest(unittest.TestCase):
             codecs = {row_group.column(c).compression for c in range(row_group.num_columns)}
             self.assertEqual(codecs, {"ZSTD"})
 
+    def test_write_r2_parquet_uses_zstd_level_9(self):
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        if not pa.Codec.is_available("zstd"):
+            self.skipTest("zstd codec is unavailable in this pyarrow build")
+
+        reference_snp_table = pd.DataFrame(
+            {
+                "CHR": ["1", "1"],
+                "hg19_pos": [100, 120],
+                "hg38_pos": [110, 130],
+                "hg19_Uniq_ID": ["1:100:A:G", "1:120:C:T"],
+                "hg38_Uniq_ID": ["1:110:A:G", "1:130:C:T"],
+                "rsID": ["rs1", "rs2"],
+                "MAF": [0.2, 0.3],
+                "A1": ["A", "C"],
+                "A2": ["G", "T"],
+            }
+        )
+        pair_rows = [{"i": 0, "j": 1, "R2": 0.75, "sign": "+"}]
+        captured: dict[str, object] = {}
+        real_writer = pq.ParquetWriter
+
+        def spy_writer(*args, **kwargs):
+            # The parquet footer records the codec but not its level, so the
+            # only way to verify the write-time level is to capture it here.
+            captured.update(kwargs)
+            return real_writer(*args, **kwargs)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "chr1.parquet"
+            with mock.patch.object(pq, "ParquetWriter", spy_writer):
+                kernel_builder.write_r2_parquet(
+                    pair_rows=iter(pair_rows),
+                    reference_snp_table=reference_snp_table,
+                    path=path,
+                    genome_build="hg19",
+                    n_samples=10,
+                    snp_identifier="chr_pos",
+                )
+            self.assertEqual(captured.get("compression"), "zstd")
+            self.assertEqual(captured.get("compression_level"), 9)
+
     def test_build_runtime_metadata_table_is_build_specific(self):
         metadata = pd.DataFrame(
             {

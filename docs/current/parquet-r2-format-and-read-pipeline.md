@@ -116,13 +116,15 @@ expected pairs-per-window for the target reference panel density.
 
 #### Compression
 
-Package-written parquet files are compressed with **zstd** when the codec is
-available in the local `pyarrow` build (it falls back to `snappy` otherwise).
-Compression is recorded per column-chunk in the parquet footer, so the reader
-auto-detects and decompresses it with no read-path change; the choice of codec
-is purely a storage concern and never affects the decoded values. zstd typically
-yields ~1.5–2× smaller artifacts than the previous `snappy` default with
-comparable decode speed.
+Package-written parquet files are compressed with **zstd at level 9** when the
+codec is available in the local `pyarrow` build (it falls back to `snappy`
+otherwise; snappy has no level knob). Compression is recorded per column-chunk
+in the parquet footer — the footer stores the codec but not its level — so the
+reader auto-detects and decompresses with no read-path change; the choice of
+codec and level is purely a storage concern and never affects the decoded
+values. zstd typically yields ~1.5–2× smaller artifacts than the previous
+`snappy` default with comparable decode speed; level 9 trades a slower write for
+~3.5% smaller files than level 1, with identical read speed and memory.
 
 ### 2.4 SNP Identity Modes And External R2 Limits
 

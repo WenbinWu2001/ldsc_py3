@@ -482,21 +482,11 @@ class ParquetR2RefPanel(RefPanel):
                 raise ValueError(f"No parquet metadata rows found for chromosome {chrom}.")
             metadata = pd.concat(frames, axis=0, ignore_index=True)
         else:
-            if self.global_config.fail_on_missing_metadata:
-                raise ValueError(f"Parquet reference panel metadata sidecar is missing for chromosome {chrom}.")
-            if not r2_paths:
-                raise ImportError("ParquetR2RefPanel.load_metadata requires metadata sidecar files or parquet R2 files.")
-            LOGGER.warning(
-                f"No metadata sidecar found for chromosome {chrom}; synthesizing minimal metadata from parquet R2 endpoints. "
-                "SNPs without emitted R2 pairs, CM, and MAF are unavailable in this fallback mode."
+            raise ValueError(
+                f"Reference-panel metadata sidecar is missing for chromosome {chrom}. "
+                "Index-format R2 parquets require their chrN_meta.tsv.gz sidecar: the parquet "
+                "stores only sidecar-row indices and cannot be read without it."
             )
-            metadata = _synthesize_metadata_from_r2_paths(
-                r2_paths,
-                chrom=chrom,
-                global_config=self.global_config,
-            )
-            if len(metadata) == 0:
-                raise ValueError(f"No parquet R2 endpoint metadata rows found for chromosome {chrom}.")
         metadata = self._apply_snp_restriction(metadata)
         metadata = self._apply_maf_filter(metadata, chrom)
         if metadata_is_external:
@@ -633,125 +623,6 @@ def _r2_dir_metadata_paths(r2_dir: str | Path, *, genome_build: str | None, chro
     build_dir = _resolve_r2_build_dir(r2_dir, genome_build)
     path = build_dir / f"chr{normalize_chromosome(chrom)}_meta.tsv.gz"
     return [str(path)] if path.exists() else []
-
-
-def _synthesize_metadata_from_r2_paths(
-    paths: list[str],
-    *,
-    chrom: str | None,
-    global_config: GlobalConfig,
-) -> pd.DataFrame:
-    """Build minimal SNP metadata by scanning parquet R2 endpoint columns."""
-    try:
-        import pyarrow.parquet as pq
-    except ImportError as exc:
-        raise ImportError("pyarrow is required to synthesize metadata from parquet R2 files.") from exc
-
-    frames = []
-    for path in paths:
-        pf = pq.ParquetFile(path)
-        schema_names = list(pf.schema_arrow.names)
-        layout = kernel_ldscore._parquet_schema_layout(schema_names)
-        if layout == "canonical":
-            mapping = kernel_ldscore._resolve_canonical_parquet_columns(
-                schema_names,
-                context=f"canonical parquet R2 schema in {path}",
-            )
-            table = pf.read(
-                columns=[
-                    mapping["CHR"],
-                    mapping["POS_1"],
-                    mapping["POS_2"],
-                    mapping["SNP_1"],
-                    mapping["SNP_2"],
-                ]
-            ).to_pandas()
-            frames.append(
-                _endpoint_frame(
-                    table,
-                    chr_col=mapping["CHR"],
-                    left_pos_col=mapping["POS_1"],
-                    right_pos_col=mapping["POS_2"],
-                    left_snp_col=mapping["SNP_1"],
-                    right_snp_col=mapping["SNP_2"],
-                )
-            )
-        elif layout == "raw":
-            genome_build = kernel_ldscore._require_runtime_genome_build(global_config.genome_build)
-            mapping = kernel_ldscore._resolve_r2_source_columns(schema_names, context=f"raw parquet R2 schema in {path}")
-            left_pos_col, right_pos_col = kernel_ldscore.get_r2_build_columns(genome_build, schema_names)
-            table = pf.read(
-                columns=[
-                    mapping["chr"],
-                    left_pos_col,
-                    right_pos_col,
-                    mapping["rsID_1"],
-                    mapping["rsID_2"],
-                ]
-            ).to_pandas()
-            frames.append(
-                _endpoint_frame(
-                    table,
-                    chr_col=mapping["chr"],
-                    left_pos_col=left_pos_col,
-                    right_pos_col=right_pos_col,
-                    left_snp_col=mapping["rsID_1"],
-                    right_snp_col=mapping["rsID_2"],
-                )
-            )
-        else:
-            raise ValueError(
-                "Parquet R2 metadata fallback requires canonical logical fields "
-                "or the raw legacy pairwise columns."
-            )
-    return _finalize_endpoint_metadata(frames, chrom=chrom)
-
-
-def _endpoint_frame(
-    table: pd.DataFrame,
-    *,
-    chr_col: str,
-    left_pos_col: str,
-    right_pos_col: str,
-    left_snp_col: str,
-    right_snp_col: str,
-) -> pd.DataFrame:
-    """Return one SNP row per left/right endpoint in an R2 table."""
-    left = pd.DataFrame(
-        {
-            "CHR": table[chr_col],
-            "POS": table[left_pos_col],
-            "SNP": table[left_snp_col],
-        }
-    )
-    right = pd.DataFrame(
-        {
-            "CHR": table[chr_col],
-            "POS": table[right_pos_col],
-            "SNP": table[right_snp_col],
-        }
-    )
-    return pd.concat([left, right], axis=0, ignore_index=True)
-
-
-def _finalize_endpoint_metadata(frames: list[pd.DataFrame], *, chrom: str | None) -> pd.DataFrame:
-    """Normalize, deduplicate, and sort synthesized endpoint metadata."""
-    if not frames:
-        return pd.DataFrame(columns=["CHR", "POS", "SNP", "CM"])
-    metadata = pd.concat(frames, axis=0, ignore_index=True)
-    if len(metadata) == 0:
-        metadata["CM"] = pd.Series(pd.array([], dtype="Float64"))
-        return metadata.loc[:, ["CHR", "POS", "SNP", "CM"]]
-    metadata["CHR"] = metadata["CHR"].map(lambda value: normalize_chromosome(value, context="parquet R2 endpoint metadata"))
-    metadata["POS"] = pd.to_numeric(metadata["POS"], errors="raise").astype(int)
-    metadata["SNP"] = metadata["SNP"].astype(str)
-    if chrom is not None:
-        metadata = metadata.loc[metadata["CHR"] == normalize_chromosome(chrom)].reset_index(drop=True)
-    metadata = metadata.drop_duplicates(subset=["CHR", "POS", "SNP"], keep="first").copy()
-    metadata["_chrom_sort"] = metadata["CHR"].map(_chrom_sort_key)
-    metadata = metadata.sort_values(["_chrom_sort", "POS", "SNP"], kind="mergesort").drop(columns="_chrom_sort")
-    metadata["CM"] = pd.Series(pd.array([pd.NA] * len(metadata), dtype="Float64"), index=metadata.index)
-    return metadata.loc[:, ["CHR", "POS", "SNP", "CM"]].reset_index(drop=True)
 
 
 class RefPanelLoader:

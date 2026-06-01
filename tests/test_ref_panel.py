@@ -331,6 +331,26 @@ class PlinkRefPanelTest(unittest.TestCase):
 
 class ParquetRefPanelTest(unittest.TestCase):
     @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
+    def test_missing_sidecar_is_a_hard_error(self):
+        from ldsc._kernel import ref_panel_builder as kb
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            build_dir = Path(tmpdir) / "panel" / "hg38"
+            build_dir.mkdir(parents=True)
+            # index parquet present, but no chr1_meta.tsv.gz sidecar alongside it
+            kb.write_r2_parquet(
+                pair_rows=[{"i": 0, "j": 1, "R2": 0.5, "sign": "+"}],
+                path=build_dir / "chr1_r2.parquet", genome_build="hg38", n_samples=10,
+                snp_identifier="chr_pos", n_snps=2, sidecar_identity_sha256="0" * 64,
+            )
+            panel = ParquetR2RefPanel(
+                GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
+            )
+            with self.assertRaisesRegex(ValueError, "sidecar"):
+                panel.load_metadata("1")
+
+    @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
     def test_r2_dir_loads_sidecar_metadata(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             build_dir = Path(tmpdir) / "panel" / "hg38"

@@ -31,6 +31,7 @@ likewise coordinate-family behavior and uses drop-all for coordinate collisions.
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 import logging
 import os
@@ -859,15 +860,17 @@ class ReferencePanelBuilder:
                 pair_rows=kernel_builder.yield_pairwise_r2_rows(
                     block_left=block_left,
                     snp_batch_size=config.snp_batch_size,
-                    standardized_snp_getter=geno.nextSNPs,
+                    standardized_snp_getter=lambda b: geno.nextSNPs(b, dtype=np.float32),
                     m=geno.m,
                     n=geno.n,
+                    min_r2=config.min_r2,
                 ),
                 reference_snp_table=reference_snp_table,
                 path=r2_path,
                 genome_build=build,
                 snp_identifier=self.global_config.snp_identifier,
                 n_samples=geno.n,
+                min_r2=config.min_r2,
             )
             runtime_metadata = kernel_builder.build_runtime_metadata_table(
                 metadata=metadata,
@@ -883,6 +886,10 @@ class ReferencePanelBuilder:
             output_paths[f"r2_{build}"] = str(r2_path)
             output_paths[f"meta_{build}"] = str(meta_path)
             retained_count = len(metadata)
+            # Release the genotype bitarray before loading the next build so the
+            # two builds' decoded genotypes never coexist at peak memory.
+            del geno
+            gc.collect()
         output_paths["dropped_snps"] = str(sidecar_path)
         LOGGER.info(f"Finished chromosome {chrom} with {retained_count} retained SNPs.")
         return output_paths
@@ -1638,6 +1645,19 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         help=argparse.SUPPRESS,
     )
+    parser.add_argument(
+        "--min-r2",
+        dest="min_r2",
+        default=0.0,
+        type=float,
+        help=(
+            "Opt-in unbiased-R2 floor for emitted pairs. The default 0.0 (or any "
+            "non-positive value) writes every retained pair, preserving exact "
+            "pairwise completeness. A positive value drops sub-threshold pairs to "
+            "reduce output size and memory, at the cost of completeness "
+            "(absent pairs are read as R2=0). Recorded as ldsc:min_r2 metadata."
+        ),
+    )
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"))
     return parser
 
@@ -1677,6 +1697,7 @@ def config_from_args(args: argparse.Namespace) -> tuple[ReferencePanelBuildConfi
         use_hm3_quick_liftover=getattr(args, "use_hm3_quick_liftover", False),
         keep_indivs_file=args.keep_indivs_file,
         snp_batch_size=args.snp_batch_size,
+        min_r2=getattr(args, "min_r2", 0.0),
     )
     global_config = GlobalConfig(
         snp_identifier=snp_identifier,

@@ -5,6 +5,7 @@ from __future__ import annotations
 import gzip
 import logging
 import re
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from os import PathLike
@@ -264,11 +265,25 @@ def compute_block_left(coords: np.ndarray, max_dist: float) -> np.ndarray:
     return block_left
 
 
-def _unbiased_r2_from_correlation(correlation: float, n_samples: int) -> float:
-    """Convert a correlation coefficient to the unbiased :math:`R^2` estimate."""
+def _unbiased_r2_array(correlation: np.ndarray, n_samples: int) -> np.ndarray:
+    """Convert correlation coefficients to the unbiased :math:`R^2` estimate."""
     sq = correlation * correlation
     denom = n_samples - 2 if n_samples > 2 else n_samples
     return sq - (1.0 - sq) / denom
+
+
+@dataclass
+class _PendingPairs:
+    """Per-left-index pair columns held until the left index is final."""
+
+    j: list[np.ndarray]
+    r2: list[np.ndarray]
+    sign: list[np.ndarray]
+
+
+# One emitted batch as parallel column arrays: (left index, right index,
+# unbiased R2 as float32, sign of the correlation as int8 +1/-1).
+PairColumns = tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
 
 
 def _emit_cross_block_pairs(
@@ -277,22 +292,16 @@ def _emit_cross_block_pairs(
     b_indices: np.ndarray,
     block_left: np.ndarray,
     n_samples: int,
-) -> list[dict[str, float | int | str]]:
-    """Build pair rows between the carry-over block and the current SNP batch."""
-    rows: list[dict[str, float | int | str]] = []
-    for local_j, global_j in enumerate(b_indices):
-        valid = (a_indices >= int(block_left[global_j])) & (a_indices < global_j)
-        for local_i in np.flatnonzero(valid):
-            corr = float(correlation_matrix[local_i, local_j])
-            rows.append(
-                {
-                    "i": int(a_indices[local_i]),
-                    "j": int(global_j),
-                    "R2": _unbiased_r2_from_correlation(corr, n_samples),
-                    "sign": "+" if corr >= 0 else "-",
-                }
-            )
-    return rows
+    min_r2: float = 0.0,
+) -> PairColumns:
+    """Vectorize pair extraction between the carry-over block and the batch."""
+    left = block_left[b_indices]
+    valid = (a_indices[:, None] >= left[None, :]) & (a_indices[:, None] < b_indices[None, :])
+    local_i, local_j = np.nonzero(valid)
+    corr = correlation_matrix[local_i, local_j]
+    i = a_indices[local_i].astype(np.int64)
+    j = b_indices[local_j].astype(np.int64)
+    return _finalize_pair_columns(i, j, corr, n_samples, min_r2)
 
 
 def _emit_within_block_pairs(
@@ -300,45 +309,70 @@ def _emit_within_block_pairs(
     b_indices: np.ndarray,
     block_left: np.ndarray,
     n_samples: int,
-) -> list[dict[str, float | int | str]]:
-    """Build pair rows within the current SNP batch subject to ``block_left``."""
-    rows: list[dict[str, float | int | str]] = []
-    for local_j, global_j in enumerate(b_indices):
-        for local_i in range(local_j):
-            global_i = int(b_indices[local_i])
-            if global_i < int(block_left[global_j]):
-                continue
-            corr = float(correlation_matrix[local_i, local_j])
-            rows.append(
-                {
-                    "i": global_i,
-                    "j": int(global_j),
-                    "R2": _unbiased_r2_from_correlation(corr, n_samples),
-                    "sign": "+" if corr >= 0 else "-",
-                }
-            )
-    return rows
+    min_r2: float = 0.0,
+) -> PairColumns:
+    """Vectorize pair extraction within the current SNP batch under block_left."""
+    local_i, local_j = np.triu_indices(len(b_indices), k=1)
+    global_i = b_indices[local_i]
+    global_j = b_indices[local_j]
+    valid = global_i >= block_left[global_j]
+    local_i, local_j = local_i[valid], local_j[valid]
+    corr = correlation_matrix[local_i, local_j]
+    i = global_i[valid].astype(np.int64)
+    j = global_j[valid].astype(np.int64)
+    return _finalize_pair_columns(i, j, corr, n_samples, min_r2)
 
 
-def _stash_pair_rows(
-    pending: dict[int, list[dict[str, float | int | str]]],
-    rows: Iterable[dict[str, float | int | str]],
-) -> None:
-    """Group emitted pair rows by left SNP index until that index is final."""
-    for row in rows:
-        pending.setdefault(int(row["i"]), []).append(row)
+def _finalize_pair_columns(
+    i: np.ndarray, j: np.ndarray, corr: np.ndarray, n_samples: int, min_r2: float = 0.0
+) -> PairColumns:
+    """Compute unbiased R2 (float32) and correlation sign (int8) for a batch.
+
+    When ``min_r2 > 0`` the batch is filtered to pairs whose unbiased R2 is at
+    least ``min_r2``; ``min_r2 <= 0`` disables filtering so negative unbiased R2
+    pairs are retained (exact backward-compatible completeness).
+    """
+    r2 = _unbiased_r2_array(corr, n_samples).astype(np.float32)
+    sign = np.where(corr >= 0, np.int8(1), np.int8(-1)).astype(np.int8)
+    if min_r2 > 0.0:
+        keep = r2 >= min_r2
+        i, j, r2, sign = i[keep], j[keep], r2[keep], sign[keep]
+    return i, j, r2, sign
+
+
+def _stash_pair_rows(pending: dict[int, _PendingPairs], columns: PairColumns) -> None:
+    """Group an emitted pair batch by left SNP index until that index is final."""
+    i, j, r2, sign = columns
+    if i.size == 0:
+        return
+    order = np.argsort(i, kind="stable")
+    boundaries = np.flatnonzero(np.diff(i[order])) + 1
+    for segment in np.split(order, boundaries):
+        bucket = pending.setdefault(int(i[segment[0]]), _PendingPairs([], [], []))
+        bucket.j.append(j[segment])
+        bucket.r2.append(r2[segment])
+        bucket.sign.append(sign[segment])
 
 
 def _pop_pair_rows_before(
-    pending: dict[int, list[dict[str, float | int | str]]],
+    pending: dict[int, _PendingPairs],
     min_future_i: int,
 ) -> Iterator[dict[str, float | int | str]]:
     """Yield pending rows whose left index cannot appear in future batches."""
     flushable = sorted(i for i in pending if i < int(min_future_i))
     for i in flushable:
-        rows = pending.pop(i)
-        rows.sort(key=lambda row: int(row["j"]))
-        yield from rows
+        bucket = pending.pop(i)
+        j = np.concatenate(bucket.j)
+        r2 = np.concatenate(bucket.r2)
+        sign = np.concatenate(bucket.sign)
+        order = np.argsort(j, kind="stable")
+        for k in order:
+            yield {
+                "i": i,
+                "j": int(j[k]),
+                "R2": float(r2[k]),
+                "sign": "+" if sign[k] == 1 else "-",
+            }
 
 
 def yield_pairwise_r2_rows(
@@ -348,6 +382,7 @@ def yield_pairwise_r2_rows(
     standardized_snp_getter,
     m: int,
     n: int,
+    min_r2: float = 0.0,
 ) -> Iterator[dict[str, float | int | str]]:
     """
     Yield one unordered `R2` row per retained SNP pair inside the LD window.
@@ -356,6 +391,11 @@ def yield_pairwise_r2_rows(
     from ``standardized_snp_getter`` per computation batch. Window-spanning
     carry-over columns may be retained in memory in addition to the current
     batch.
+
+    ``min_r2`` is an opt-in unbiased-R2 floor: ``min_r2 <= 0`` (the default)
+    emits every retained pair, while ``min_r2 > 0`` drops pairs whose unbiased
+    R2 is below the threshold. Filtering trades completeness for memory and
+    output size, so callers that need exact completeness must keep the default.
     """
 
     block_left = np.asarray(block_left, dtype=int)
@@ -376,7 +416,7 @@ def yield_pairwise_r2_rows(
 
     # Flush in increasing-i order; non-decreasing POS_1 holds only because
     # keep_snps was sorted by source position before reaching here.
-    pending_rows: dict[int, list[dict[str, float | int | str]]] = {}
+    pending_rows: dict[int, _PendingPairs] = {}
     l_A = 0
     A = standardized_snp_getter(b)
     for l_B in range(0, b, snp_batch_size):
@@ -392,6 +432,7 @@ def yield_pairwise_r2_rows(
                 b_indices=np.arange(l_B, l_B + width),
                 block_left=block_left,
                 n_samples=n,
+                min_r2=min_r2,
             ),
         )
 
@@ -429,6 +470,7 @@ def yield_pairwise_r2_rows(
                     b_indices=b_indices,
                     block_left=block_left,
                     n_samples=n,
+                    min_r2=min_r2,
                 ),
             )
 
@@ -440,6 +482,7 @@ def yield_pairwise_r2_rows(
                 b_indices=b_indices,
                 block_left=block_left,
                 n_samples=n,
+                min_r2=min_r2,
             ),
         )
         previous_chunk_width = current_chunk_width
@@ -453,6 +496,7 @@ def iter_pairwise_r2_rows(
     standardized_snp_getter,
     m: int,
     n: int,
+    min_r2: float = 0.0,
 ) -> list[dict[str, float | int | str]]:
     """Materialize :func:`yield_pairwise_r2_rows` as an in-memory list."""
 
@@ -463,6 +507,7 @@ def iter_pairwise_r2_rows(
             standardized_snp_getter=standardized_snp_getter,
             m=m,
             n=n,
+            min_r2=min_r2,
         )
     )
 
@@ -626,6 +671,51 @@ def write_dataframe_to_parquet(df: pd.DataFrame, path: str | PathLike[str]) -> s
     return str(path)
 
 
+def _standard_r2_arrow_table(
+    pa,
+    schema,
+    *,
+    pair_rows: list[dict[str, float | int | str]],
+    reference_snp_table: pd.DataFrame,
+    genome_build: str,
+):
+    """Build one canonical R2 ``pyarrow.Table`` batch directly from numpy.
+
+    Mirrors :func:`build_standard_r2_table` column-for-column but skips the
+    pandas intermediate, so large builder batches avoid an extra full-width
+    DataFrame copy on the way to the parquet writer. ``schema`` fixes the
+    canonical Arrow column types (string/int64/float32) and carries the
+    ``ldsc:*`` metadata.
+    """
+    if not pair_rows:
+        return schema.empty_table()
+    count = len(pair_rows)
+    i = np.fromiter((int(row["i"]) for row in pair_rows), dtype=np.int64, count=count)
+    j = np.fromiter((int(row["j"]) for row in pair_rows), dtype=np.int64, count=count)
+    r2 = np.fromiter((float(row["R2"]) for row in pair_rows), dtype=np.float32, count=count)
+    left = reference_snp_table.iloc[i]
+    right = reference_snp_table.iloc[j]
+    pos_col = f"{genome_build}_pos"
+    chr_col = resolve_required_column(left.columns, CHR_COLUMN_SPEC, context="standard R2 reference SNP table")
+
+    def _strings(series: pd.Series):
+        return pa.array(series.astype(str).to_numpy(dtype=object), type=pa.string())
+
+    columns = [
+        _strings(left[chr_col]),
+        pa.array(left[pos_col].to_numpy(dtype=np.int64), type=pa.int64()),
+        pa.array(right[pos_col].to_numpy(dtype=np.int64), type=pa.int64()),
+        _strings(left["rsID"]),
+        _strings(right["rsID"]),
+        _strings(left["A1"]),
+        _strings(left["A2"]),
+        _strings(right["A1"]),
+        _strings(right["A2"]),
+        pa.array(r2, type=pa.float32()),
+    ]
+    return pa.Table.from_arrays(columns, schema=schema)
+
+
 def write_r2_parquet(
     *,
     pair_rows: Iterable[dict[str, float | int | str]],
@@ -636,6 +726,7 @@ def write_r2_parquet(
     snp_identifier: str,
     batch_size: int = 100_000,
     row_group_size: int = 50_000,
+    min_r2: float = 0.0,
 ) -> str:
     """
     Write one canonical R2 parquet table with LDSC schema metadata.
@@ -643,19 +734,35 @@ def write_r2_parquet(
     The writer requires ``pyarrow`` because the canonical format depends on
     Arrow schema metadata and explicit row-group sizing. It writes exactly the
     canonical R2 columns and records ``ldsc:sorted_by_build``,
-    ``ldsc:row_group_size``, ``ldsc:n_samples``, and ``ldsc:r2_bias`` in the
-    Arrow schema. Current package-built panels always store unbiased R2 values,
-    so ``ldsc:r2_bias`` is written as ``"unbiased"`` and ``n_samples`` captures
-    the PLINK reader's ``geno.n`` for downstream provenance and future raw-R2
-    compatibility.
+    ``ldsc:row_group_size``, ``ldsc:n_samples``, ``ldsc:r2_bias``, and
+    ``ldsc:min_r2`` in the Arrow schema. Current package-built panels always
+    store unbiased R2 values, so ``ldsc:r2_bias`` is written as ``"unbiased"``
+    and ``n_samples`` captures the PLINK reader's ``geno.n`` for downstream
+    provenance and future raw-R2 compatibility.
+
+    ``min_r2`` records the unbiased-R2 floor applied upstream during pair
+    emission; it is provenance only and does not itself filter rows here. The
+    table is pairwise-complete only when ``ldsc:min_r2`` is ``"0.0"`` (or any
+    non-positive value), because the read path treats absent pairs as R2=0.
+
+    Each batch is assembled as a :class:`pyarrow.Table` directly from numpy
+    column arrays via :func:`_standard_r2_arrow_table`, bypassing the pandas
+    intermediate to keep peak memory low on deep panels. The on-disk schema is
+    identical to the pandas path (string/int64/float32 columns).
+
+    Column chunks are compressed with zstd level 9 when the codec is available
+    in the local ``pyarrow`` build (falling back to snappy otherwise, which has
+    no level knob). Compression is recorded per column-chunk in the parquet
+    footer and auto-detected on read, so it is purely a storage concern and
+    never affects decoded values.
 
     Incoming pair rows must already be sorted by non-decreasing ``POS_1``. The
-    writer validates that invariant while streaming batches because row-group
-    pruning depends on monotonic footer statistics.
+    writer validates that invariant per batch (vectorized over ``POS_1`` and
+    across the batch boundary) because row-group pruning depends on monotonic
+    footer statistics.
     """
 
     _ensure_parent_dir(path)
-    pos_col = f"{genome_build}_pos"
     try:
         import pyarrow as pa
         import pyarrow.parquet as pq
@@ -677,50 +784,71 @@ def write_r2_parquet(
         b"ldsc:row_group_size": str(row_group_size).encode("utf-8"),
         b"ldsc:n_samples": str(n_samples).encode("utf-8"),
         b"ldsc:r2_bias": b"unbiased",
+        b"ldsc:min_r2": str(min_r2).encode("utf-8"),
     }
+    schema = pa.schema(
+        [
+            ("CHR", pa.string()),
+            ("POS_1", pa.int64()),
+            ("POS_2", pa.int64()),
+            ("SNP_1", pa.string()),
+            ("SNP_2", pa.string()),
+            ("A1_1", pa.string()),
+            ("A2_1", pa.string()),
+            ("A1_2", pa.string()),
+            ("A2_2", pa.string()),
+            ("R2", pa.float32()),
+        ]
+    ).with_metadata(pa_meta)
     writer = None
     batch: list[dict[str, float | int | str]] = []
     prev_pos1: int | None = None
-    try:
-        for row in pair_rows:
-            current_pos1 = int(reference_snp_table.iloc[int(row["i"])][pos_col])
-            if prev_pos1 is not None and current_pos1 < prev_pos1:
+
+    def _flush(rows: list[dict[str, float | int | str]]) -> None:
+        nonlocal writer, prev_pos1
+        table = _standard_r2_arrow_table(
+            pa,
+            schema,
+            pair_rows=rows,
+            reference_snp_table=reference_snp_table,
+            genome_build=genome_build,
+        )
+        pos1 = table.column("POS_1").to_numpy()
+        if pos1.size:
+            sequence = pos1 if prev_pos1 is None else np.concatenate(([prev_pos1], pos1))
+            bad = np.flatnonzero(np.diff(sequence) < 0)
+            if bad.size:
+                k = int(bad[0])
                 raise ValueError(
                     "Pairs must arrive in non-decreasing POS_1 order. "
-                    f"Received POS_1={current_pos1} after POS_1={prev_pos1}. "
+                    f"Received POS_1={int(sequence[k + 1])} after POS_1={int(sequence[k])}. "
                     "Verify that the reference panel builder traverses SNPs in ascending positional order."
                 )
-            prev_pos1 = current_pos1
-            batch.append(row)
-            if len(batch) < batch_size:
-                continue
-            frame = build_standard_r2_table(
-                pair_rows=batch,
-                reference_snp_table=reference_snp_table,
-                genome_build=genome_build,
-            )
-            table = pa.Table.from_pandas(frame, preserve_index=False)
-            if writer is None:
-                writer = pq.ParquetWriter(
-                    str(path),
-                    table.schema.with_metadata({**(table.schema.metadata or {}), **pa_meta}),
+            prev_pos1 = int(pos1[-1])
+        if writer is None:
+            if pa.Codec.is_available("zstd"):
+                # zstd level 9: ~3.5% smaller than the default level 1 with
+                # identical read speed and memory (snappy has no level knob).
+                writer = pq.ParquetWriter(str(path), schema, compression="zstd", compression_level=9)
+            else:
+                warnings.warn(
+                    "zstd codec is not available in this pyarrow build; "
+                    "falling back to snappy compression. "
+                    "Install pyarrow from conda-forge or PyPI to enable zstd.",
+                    UserWarning,
+                    stacklevel=2,
                 )
-            writer.write_table(table, row_group_size=row_group_size)
-            batch = []
+                writer = pq.ParquetWriter(str(path), schema, compression="snappy")
+        writer.write_table(table, row_group_size=row_group_size)
 
+    try:
+        for row in pair_rows:
+            batch.append(row)
+            if len(batch) >= batch_size:
+                _flush(batch)
+                batch = []
         if batch or writer is None:
-            frame = build_standard_r2_table(
-                pair_rows=batch,
-                reference_snp_table=reference_snp_table,
-                genome_build=genome_build,
-            )
-            table = pa.Table.from_pandas(frame, preserve_index=False)
-            if writer is None:
-                writer = pq.ParquetWriter(
-                    str(path),
-                    table.schema.with_metadata({**(table.schema.metadata or {}), **pa_meta}),
-                )
-            writer.write_table(table, row_group_size=row_group_size)
+            _flush(batch)
     finally:
         if writer is not None:
             writer.close()

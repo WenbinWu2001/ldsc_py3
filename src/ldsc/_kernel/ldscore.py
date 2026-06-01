@@ -582,8 +582,16 @@ if ba is not None:
             return (z, m, n_new)
 
         def __filter_snps_maf__(self, geno, m, n, mafMin, keep_snps):
-            """Filter SNPs by explicit keep list and minor-allele frequency."""
+            """Filter SNPs by explicit keep list and minor-allele frequency.
+
+            ``self.geno`` aliases the ``geno`` argument at the sole call site, so
+            it is cleared up front to leave the local parameter as the only owner
+            of the pre-filter bitarray. Once the filtered copy ``y`` is built the
+            parameter is released, freeing the original before this method returns
+            instead of holding both copies through the caller's reassignment.
+            """
             nru = self.nru
+            self.geno = None
             m_poly = 0
             y = ba.bitarray()
             if keep_snps is None:
@@ -606,10 +614,17 @@ if ba is not None:
                     y += z
                     m_poly += 1
                     kept_snps.append(j)
+            del geno
             return (y, m_poly, n, kept_snps, freq)
 
-        def nextSNPs(self, b, minorRef=None):
-            """Return the next ``b`` standardized SNP columns from the BED stream."""
+        def nextSNPs(self, b, minorRef=None, dtype=np.float64):
+            """Return the next ``b`` standardized SNP columns from the BED stream.
+
+            ``dtype`` selects the working precision of the decoded and standardized
+            genotype matrix. It defaults to ``float64`` so the in-PLINK LD-score
+            path is bit-for-bit unchanged; the reference-panel builder passes
+            ``float32`` to halve the carry-over block's memory footprint.
+            """
             try:
                 b = int(b)
                 if b <= 0:
@@ -622,9 +637,9 @@ if ba is not None:
             n = self.n
             nru = self.nru
             slice = self.geno[2 * c * nru:2 * (c + b) * nru]
-            X = np.array(list(slice.decode(self._bedcode)), dtype="float64").reshape((b, nru)).T
+            X = np.array(list(slice.decode(self._bedcode)), dtype=dtype).reshape((b, nru)).T
             X = X[0:n, :]
-            Y = np.zeros(X.shape)
+            Y = np.zeros(X.shape, dtype=dtype)
             for j in range(0, b):
                 newsnp = X[:, j]
                 ii = newsnp != 9
@@ -1392,6 +1407,39 @@ def _endpoint_identity_keys(table: pd.DataFrame, *, side: int, mode: str) -> pd.
     return effective_merge_key_series(frame, mode, context=f"R2 endpoint {side}")
 
 
+def _vectorized_pos_lookup(sorted_pos: np.ndarray, query: np.ndarray) -> np.ndarray:
+    """Map integer positions to retained-SNP indices via binary search.
+
+    Vectorized equivalent of ``{pos: idx}.get(q, -1)`` for each ``q`` in
+    ``query`` when ``sorted_pos`` is the ascending retained-position array
+    (array index equals SNP index). Positions absent from ``sorted_pos`` map to
+    ``-1``. Relies on the same sorted-``self.pos`` invariant the row-group
+    windowing already uses (see ``np.searchsorted(self.pos, ...)`` below).
+    """
+    query = np.asarray(query, dtype=np.int64)
+    if sorted_pos.size == 0:
+        return np.full(query.shape, -1, dtype=np.int64)
+    idx = np.searchsorted(sorted_pos, query)
+    idx_clipped = np.clip(idx, 0, sorted_pos.size - 1)
+    matched = sorted_pos[idx_clipped] == query
+    return np.where(matched, idx, -1).astype(np.int64, copy=False)
+
+
+def _vectorized_key_lookup(key_index: pd.Index, key_values: np.ndarray, query) -> np.ndarray:
+    """Map identity keys to retained-SNP indices via a hashtable join.
+
+    Vectorized equivalent of ``index_map.get(q, -1)`` for each ``q`` in
+    ``query`` where ``key_index`` and ``key_values`` are the parallel keys and
+    values of ``index_map`` (so non-contiguous values from excluded NaN keys are
+    preserved). Keys absent from ``key_index`` map to ``-1``.
+    """
+    loc = key_index.get_indexer(np.asarray(query))
+    result = np.full(loc.shape, -1, dtype=np.int64)
+    found = loc >= 0
+    result[found] = key_values[loc[found]]
+    return result
+
+
 class SortedR2BlockReader:
     """
     Query block-local dense R2 matrices from a per-chromosome parquet table.
@@ -1473,6 +1521,18 @@ class SortedR2BlockReader:
             self.index_map = {str(snp): idx for idx, snp in enumerate(metadata["SNP"].astype(str))}
         else:
             self.index_map = {int(pos): idx for idx, pos in enumerate(metadata["POS"].astype(np.int64))}
+
+        # Vectorized endpoint-index lookup, built once per chromosome. chr_pos
+        # base reuses the sorted ``self.pos`` via binary search; string-keyed
+        # modes (rsID and allele-aware) use a hashtable join over index_map.
+        if is_allele_aware_mode(self.identifier_mode) or identity_mode_family(self.identifier_mode) == "rsid":
+            self._index_keys: pd.Index | None = pd.Index(list(self.index_map.keys()))
+            self._index_values: np.ndarray | None = np.fromiter(
+                self.index_map.values(), dtype=np.int64, count=len(self.index_map)
+            )
+        else:
+            self._index_keys = None
+            self._index_values = None
 
         self._last_query_key: tuple[int, int] | None = None
         self._last_query_rows: pd.DataFrame | None = None
@@ -1729,7 +1789,17 @@ class SortedR2BlockReader:
         )
 
     def _decode_canonical_row_group(self, row_group_index: int) -> _DecodedR2RowGroup:
-        """Read and decode one canonical parquet row group into numeric arrays."""
+        """Read and decode one canonical parquet row group into numeric arrays.
+
+        Endpoint identifiers are resolved to retained-SNP indices with a single
+        vectorized pass rather than a per-row ``index_map.get`` loop:
+        :func:`_vectorized_pos_lookup` (binary search over the sorted
+        ``self.pos``) for ``chr_pos`` base mode, and
+        :func:`_vectorized_key_lookup` (a hashtable join over the per-chromosome
+        ``self._index_keys``/``self._index_values``) for the string-keyed rsID
+        and allele-aware modes. Endpoints absent from the retained set map to
+        ``-1`` and are dropped.
+        """
         if self._pf is None or self._canonical_columns is None:
             raise ValueError("Canonical parquet reader is not initialized.")
 
@@ -1763,18 +1833,18 @@ class SortedR2BlockReader:
             )
             left_keys = _endpoint_identity_keys(rows, side=1, mode=self.identifier_mode)
             right_keys = _endpoint_identity_keys(rows, side=2, mode=self.identifier_mode)
-            i_raw = np.fromiter((self.index_map.get(str(value), -1) for value in left_keys), dtype=np.int64, count=len(left_keys))
-            j_raw = np.fromiter((self.index_map.get(str(value), -1) for value in right_keys), dtype=np.int64, count=len(right_keys))
+            i_raw = _vectorized_key_lookup(self._index_keys, self._index_values, left_keys.astype(str).to_numpy())
+            j_raw = _vectorized_key_lookup(self._index_keys, self._index_values, right_keys.astype(str).to_numpy())
         elif identity_mode_family(self.identifier_mode) == "rsid":
             left_ids = _arrow_column_to_numpy(table.column(self._canonical_columns["SNP_1"])).astype(str)
             right_ids = _arrow_column_to_numpy(table.column(self._canonical_columns["SNP_2"])).astype(str)
-            i_raw = np.fromiter((self.index_map.get(value, -1) for value in left_ids), dtype=np.int64, count=len(left_ids))
-            j_raw = np.fromiter((self.index_map.get(value, -1) for value in right_ids), dtype=np.int64, count=len(right_ids))
+            i_raw = _vectorized_key_lookup(self._index_keys, self._index_values, left_ids)
+            j_raw = _vectorized_key_lookup(self._index_keys, self._index_values, right_ids)
         else:
             pos_1 = _arrow_column_to_numpy(table.column(self._canonical_columns["POS_1"])).astype(np.int64, copy=False)
             pos_2 = _arrow_column_to_numpy(table.column(self._canonical_columns["POS_2"])).astype(np.int64, copy=False)
-            i_raw = np.fromiter((self.index_map.get(int(value), -1) for value in pos_1), dtype=np.int64, count=len(pos_1))
-            j_raw = np.fromiter((self.index_map.get(int(value), -1) for value in pos_2), dtype=np.int64, count=len(pos_2))
+            i_raw = _vectorized_pos_lookup(self.pos, pos_1)
+            j_raw = _vectorized_pos_lookup(self.pos, pos_2)
 
         keep = (i_raw >= 0) & (j_raw >= 0)
         return _DecodedR2RowGroup(

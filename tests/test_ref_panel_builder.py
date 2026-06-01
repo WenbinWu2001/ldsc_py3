@@ -1,7 +1,9 @@
+import gc
 import gzip
 import importlib.util
 import json
 import logging
+import weakref
 from dataclasses import replace as dataclass_replace
 from pathlib import Path
 import sys
@@ -285,6 +287,53 @@ class PairwiseEmissionTest(unittest.TestCase):
             expected_r2, expected_sign = brute_force[(row["i"], row["j"])]
             self.assertAlmostEqual(row["R2"], expected_r2)
             self.assertEqual(row["sign"], expected_sign)
+
+    def test_min_r2_default_keeps_negative_unbiased_pairs(self):
+        # col0 == col1 (corr=1 -> R2=1.0); col2 uncorrelated with both
+        # (corr=0 -> unbiased R2 = -0.5). Default min_r2 must keep the negatives.
+        standardized = np.array(
+            [
+                [-1.0, -1.0, -1.0],
+                [-1.0, -1.0, 1.0],
+                [1.0, 1.0, -1.0],
+                [1.0, 1.0, 1.0],
+            ]
+        )
+        block_left = np.array([0, 0, 0], dtype=float)
+        rows = kernel_builder.iter_pairwise_r2_rows(
+            block_left=block_left,
+            snp_batch_size=2,
+            standardized_snp_getter=_SequentialSNPGetter(standardized),
+            m=3,
+            n=4,
+        )
+        by_pair = {(r["i"], r["j"]): r["R2"] for r in rows}
+        self.assertEqual(set(by_pair), {(0, 1), (0, 2), (1, 2)})
+        self.assertAlmostEqual(by_pair[(0, 1)], 1.0, places=6)
+        self.assertAlmostEqual(by_pair[(0, 2)], -0.5, places=6)
+        self.assertAlmostEqual(by_pair[(1, 2)], -0.5, places=6)
+
+    def test_min_r2_filters_subthreshold_pairs(self):
+        standardized = np.array(
+            [
+                [-1.0, -1.0, -1.0],
+                [-1.0, -1.0, 1.0],
+                [1.0, 1.0, -1.0],
+                [1.0, 1.0, 1.0],
+            ]
+        )
+        block_left = np.array([0, 0, 0], dtype=float)
+        rows = kernel_builder.iter_pairwise_r2_rows(
+            block_left=block_left,
+            snp_batch_size=2,
+            standardized_snp_getter=_SequentialSNPGetter(standardized),
+            m=3,
+            n=4,
+            min_r2=0.5,
+        )
+        by_pair = {(r["i"], r["j"]): r["R2"] for r in rows}
+        self.assertEqual(set(by_pair), {(0, 1)})
+        self.assertAlmostEqual(by_pair[(0, 1)], 1.0, places=6)
 
     def test_yield_pairwise_r2_rows_emits_non_decreasing_left_index(self):
         standardized = np.array(
@@ -609,6 +658,239 @@ class StandardTableFormattingTest(unittest.TestCase):
 
         self.assertEqual(meta[b"ldsc:n_samples"], b"42")
         self.assertEqual(meta[b"ldsc:r2_bias"], b"unbiased")
+
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow dependency is not installed")
+    def test_write_r2_parquet_records_min_r2_metadata(self):
+        import pyarrow.parquet as pq
+
+        ref_table = kernel_builder.build_reference_snp_table(
+            metadata=pd.DataFrame(
+                {
+                    "CHR": ["1", "1"],
+                    "SNP": ["rs1", "rs2"],
+                    "A1": ["A", "T"],
+                    "A2": ["C", "G"],
+                    "MAF": [0.3, 0.4],
+                }
+            ),
+            hg19_positions=np.array([100, 200], dtype=int),
+            hg38_positions=None,
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            default_path = Path(tmpdir) / "default.parquet"
+            kernel_builder.write_r2_parquet(
+                pair_rows=iter([]),
+                reference_snp_table=ref_table,
+                path=default_path,
+                genome_build="hg19",
+                n_samples=10,
+                snp_identifier="chr_pos",
+            )
+            self.assertEqual(pq.read_schema(str(default_path)).metadata[b"ldsc:min_r2"], b"0.0")
+
+            filtered_path = Path(tmpdir) / "filtered.parquet"
+            kernel_builder.write_r2_parquet(
+                pair_rows=iter([]),
+                reference_snp_table=ref_table,
+                path=filtered_path,
+                genome_build="hg19",
+                n_samples=10,
+                snp_identifier="chr_pos",
+                min_r2=0.3,
+            )
+            self.assertEqual(pq.read_schema(str(filtered_path)).metadata[b"ldsc:min_r2"], b"0.3")
+
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow dependency is not installed")
+    def test_write_r2_parquet_uses_canonical_arrow_column_types(self):
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        reference_snp_table = pd.DataFrame(
+            {
+                "CHR": ["1", "1"],
+                "hg19_pos": [100, 120],
+                "hg38_pos": [110, 130],
+                "hg19_Uniq_ID": ["1:100:A:G", "1:120:C:T"],
+                "hg38_Uniq_ID": ["1:110:A:G", "1:130:C:T"],
+                "rsID": ["rs1", "rs2"],
+                "MAF": [0.2, 0.3],
+                "A1": ["A", "C"],
+                "A2": ["G", "T"],
+            }
+        )
+        pair_rows = [{"i": 0, "j": 1, "R2": 0.75, "sign": "+"}]
+        expected = pa.schema(
+            [
+                ("CHR", pa.string()),
+                ("POS_1", pa.int64()),
+                ("POS_2", pa.int64()),
+                ("SNP_1", pa.string()),
+                ("SNP_2", pa.string()),
+                ("A1_1", pa.string()),
+                ("A2_1", pa.string()),
+                ("A1_2", pa.string()),
+                ("A2_2", pa.string()),
+                ("R2", pa.float32()),
+            ]
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            populated = Path(tmpdir) / "populated.parquet"
+            kernel_builder.write_r2_parquet(
+                pair_rows=iter(pair_rows),
+                reference_snp_table=reference_snp_table,
+                path=populated,
+                genome_build="hg19",
+                n_samples=10,
+                snp_identifier="chr_pos",
+            )
+            empty = Path(tmpdir) / "empty.parquet"
+            kernel_builder.write_r2_parquet(
+                pair_rows=iter([]),
+                reference_snp_table=reference_snp_table,
+                path=empty,
+                genome_build="hg19",
+                n_samples=10,
+                snp_identifier="chr_pos",
+            )
+            for path in (populated, empty):
+                schema = pq.read_schema(str(path))
+                self.assertTrue(
+                    schema.equals(expected, check_metadata=False),
+                    msg=f"unexpected schema for {path.name}: {schema}",
+                )
+            table = pq.read_table(str(populated)).to_pydict()
+            self.assertEqual(table["CHR"], ["1"])
+            self.assertEqual(table["POS_1"], [100])
+            self.assertEqual(table["POS_2"], [120])
+            self.assertEqual(table["SNP_1"], ["rs1"])
+            self.assertEqual(table["SNP_2"], ["rs2"])
+            self.assertEqual(table["A1_1"], ["A"])
+            self.assertEqual(table["A2_1"], ["G"])
+            self.assertEqual(table["A1_2"], ["C"])
+            self.assertEqual(table["A2_2"], ["T"])
+            self.assertAlmostEqual(table["R2"][0], 0.75, places=5)
+
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow dependency is not installed")
+    def test_write_r2_parquet_uses_zstd_compression(self):
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        if not pa.Codec.is_available("zstd"):
+            self.skipTest("zstd codec is unavailable in this pyarrow build")
+
+        reference_snp_table = pd.DataFrame(
+            {
+                "CHR": ["1", "1"],
+                "hg19_pos": [100, 120],
+                "hg38_pos": [110, 130],
+                "hg19_Uniq_ID": ["1:100:A:G", "1:120:C:T"],
+                "hg38_Uniq_ID": ["1:110:A:G", "1:130:C:T"],
+                "rsID": ["rs1", "rs2"],
+                "MAF": [0.2, 0.3],
+                "A1": ["A", "C"],
+                "A2": ["G", "T"],
+            }
+        )
+        pair_rows = [{"i": 0, "j": 1, "R2": 0.75, "sign": "+"}]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "chr1.parquet"
+            kernel_builder.write_r2_parquet(
+                pair_rows=iter(pair_rows),
+                reference_snp_table=reference_snp_table,
+                path=path,
+                genome_build="hg19",
+                n_samples=10,
+                snp_identifier="chr_pos",
+            )
+            metadata = pq.ParquetFile(str(path)).metadata
+            row_group = metadata.row_group(0)
+            codecs = {row_group.column(c).compression for c in range(row_group.num_columns)}
+            self.assertEqual(codecs, {"ZSTD"})
+
+    def test_write_r2_parquet_uses_zstd_level_9(self):
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        if not pa.Codec.is_available("zstd"):
+            self.skipTest("zstd codec is unavailable in this pyarrow build")
+
+        reference_snp_table = pd.DataFrame(
+            {
+                "CHR": ["1", "1"],
+                "hg19_pos": [100, 120],
+                "hg38_pos": [110, 130],
+                "hg19_Uniq_ID": ["1:100:A:G", "1:120:C:T"],
+                "hg38_Uniq_ID": ["1:110:A:G", "1:130:C:T"],
+                "rsID": ["rs1", "rs2"],
+                "MAF": [0.2, 0.3],
+                "A1": ["A", "C"],
+                "A2": ["G", "T"],
+            }
+        )
+        pair_rows = [{"i": 0, "j": 1, "R2": 0.75, "sign": "+"}]
+        captured: dict[str, object] = {}
+        real_writer = pq.ParquetWriter
+
+        def spy_writer(*args, **kwargs):
+            # The parquet footer records the codec but not its level, so the
+            # only way to verify the write-time level is to capture it here.
+            captured.update(kwargs)
+            return real_writer(*args, **kwargs)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "chr1.parquet"
+            with mock.patch.object(pq, "ParquetWriter", spy_writer):
+                kernel_builder.write_r2_parquet(
+                    pair_rows=iter(pair_rows),
+                    reference_snp_table=reference_snp_table,
+                    path=path,
+                    genome_build="hg19",
+                    n_samples=10,
+                    snp_identifier="chr_pos",
+                )
+            self.assertEqual(captured.get("compression"), "zstd")
+            self.assertEqual(captured.get("compression_level"), 9)
+
+    def test_write_r2_parquet_warns_when_falling_back_to_snappy(self):
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        reference_snp_table = pd.DataFrame(
+            {
+                "CHR": ["1", "1"],
+                "hg19_pos": [100, 120],
+                "hg38_pos": [110, 130],
+                "hg19_Uniq_ID": ["1:100:A:G", "1:120:C:T"],
+                "hg38_Uniq_ID": ["1:110:A:G", "1:130:C:T"],
+                "rsID": ["rs1", "rs2"],
+                "MAF": [0.2, 0.3],
+                "A1": ["A", "C"],
+                "A2": ["G", "T"],
+            }
+        )
+        pair_rows = [{"i": 0, "j": 1, "R2": 0.75, "sign": "+"}]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "chr1.parquet"
+            # pa.Codec is a C extension whose methods cannot be patched via
+            # mock.patch.object.  Patch the whole pa.Codec name with a plain
+            # Python stand-in whose is_available always returns False so the
+            # snappy fallback path is exercised.
+            class _NoZstdCodec:
+                @staticmethod
+                def is_available(codec):
+                    return False
+
+            with mock.patch("pyarrow.Codec", _NoZstdCodec):
+                with self.assertWarns(UserWarning) as cm:
+                    kernel_builder.write_r2_parquet(
+                        pair_rows=iter(pair_rows),
+                        reference_snp_table=reference_snp_table,
+                        path=path,
+                        genome_build="hg19",
+                        n_samples=10,
+                        snp_identifier="chr_pos",
+                    )
+            self.assertIn("snappy", str(cm.warning).lower())
 
     def test_build_runtime_metadata_table_is_build_specific(self):
         metadata = pd.DataFrame(
@@ -2864,6 +3146,56 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
             self.assertFalse(meta_hg38["CM"].isna().any())
             self.assertTrue(Path(build_result.output_paths["r2_hg19"][0]).exists())
             self.assertTrue(Path(build_result.output_paths["r2_hg38"][0]).exists())
+
+    def test_each_genome_build_releases_prior_bed_before_loading_next(self):
+        resources = _find_resources_root()
+        if resources is None:
+            self.skipTest("resources directory is not available from this workspace")
+
+        prefix = MINIMAL_EXTERNAL_FIXTURES / "plink" / "hm3_chr22_subset"
+        if not (Path(str(prefix) + ".bed").exists() and Path(str(prefix) + ".bim").exists() and Path(str(prefix) + ".fam").exists()):
+            self.skipTest("minimal chr22 PLINK fixture is unavailable; run tests/fixtures/generate_minimal_external_resources.py")
+
+        map_hg38 = MINIMAL_EXTERNAL_FIXTURES / "genetic_maps" / "genetic_map_hg38_chr22_subset.txt"
+        if not map_hg38.exists():
+            self.skipTest("minimal hg38 genetic-map fixture is unavailable; run tests/fixtures/generate_minimal_external_resources.py")
+
+        real_bed = ref_panel_builder.kernel_ldscore.PlinkBEDFile
+        live_refs: list[weakref.ref] = []
+        alive_at_construction: list[int] = []
+
+        def tracking_bed(*args, **kwargs):
+            gc.collect()
+            alive_at_construction.append(sum(1 for ref in live_refs if ref() is not None))
+            instance = real_bed(*args, **kwargs)
+            live_refs.append(weakref.ref(instance))
+            return instance
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with mock.patch(
+                "ldsc.ref_panel_builder.kernel_ldscore.PlinkBEDFile",
+                side_effect=tracking_bed,
+            ):
+                build_result = ref_panel_builder.run_build_ref_panel(
+                    plink_prefix=str(prefix),
+                    source_genome_build="hg38",
+                    genetic_map_hg19_sources=None,
+                    genetic_map_hg38_sources=str(map_hg38),
+                    liftover_chain_hg38_to_hg19_file=str(resources / "liftover" / "hg38ToHg19.over.chain"),
+                    output_dir=str(Path(tmpdir) / "panel"),
+                    ld_wind_snps=10,
+                    ld_wind_kb=None,
+                    snp_batch_size=64,
+                )
+
+        self.assertIn("r2_hg19", build_result.output_paths)
+        self.assertIn("r2_hg38", build_result.output_paths)
+        self.assertEqual(len(alive_at_construction), 2)
+        self.assertEqual(
+            alive_at_construction,
+            [0, 0],
+            msg="a second PlinkBEDFile was loaded before the prior build was released",
+        )
 
     def test_cm_window_requires_target_map_when_liftover_emits_target_build(self):
         resources = _find_resources_root()

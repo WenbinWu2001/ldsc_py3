@@ -82,3 +82,10 @@ contracts move.
 | --- | --- |
 | `tutorials/cross-trait-genetic-correlation.md` | Python `estimate_rg_pairs()` flow, CLI `--sumstats-sources`, glob input, anchor mode, and rg output family |
 | `tutorials/cross-trait-genetic-correlation.ipynb` | executable toy `estimate_rg_pairs()` and `ldsc rg --sumstats-sources` smoke path |
+
+## Reference Panel (R²) Build & Read
+
+| Design document | Implementation |
+| --- | --- |
+| `docs/current/parquet-r2-format-and-read-pipeline.md` | canonical R² parquet schema/metadata (incl. `ldsc:min_r2`), zstd-L9 column-chunk compression, and `SortedR2BlockReader` decode/window read path with vectorized endpoint-index lookup in `_kernel/ldscore.py` |
+| `docs/superpowers/specs/2026-06-01-build-ref-panel-memory-optimization-design.md` | build-ref-panel memory/speed optimization: `--min-r2`, compact numpy pair buffers, vectorized pair extraction, builder-scoped float32 genotypes, direct PyArrow writes, BED bitarray releases (MAF-filter and per-build), zstd-L9, and vectorized canonical decode lookup |

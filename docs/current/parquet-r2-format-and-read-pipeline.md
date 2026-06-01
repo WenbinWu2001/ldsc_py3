@@ -114,6 +114,18 @@ Tradeoff guide for non-default reference panels:
 Recommended range: **25 000 – 200 000** rows per group. Choose closer to the
 expected pairs-per-window for the target reference panel density.
 
+#### Compression
+
+Package-written parquet files are compressed with **zstd at level 9** when the
+codec is available in the local `pyarrow` build (it falls back to `snappy`
+otherwise; snappy has no level knob). Compression is recorded per column-chunk
+in the parquet footer — the footer stores the codec but not its level — so the
+reader auto-detects and decompresses with no read-path change; the choice of
+codec and level is purely a storage concern and never affects the decoded
+values. zstd typically yields ~1.5–2× smaller artifacts than the previous
+`snappy` default with comparable decode speed; level 9 trades a slower write for
+~3.5% smaller files than level 1, with identical read speed and memory.
+
 ### 2.4 SNP Identity Modes And External R2 Limits
 
 The public SNP identifier modes are exactly `rsid`, `rsid_allele_aware`,
@@ -140,6 +152,7 @@ Package-written parquet files include these technical metadata entries:
 | `ldsc:row_group_size` | string (int) | Intended row group size used when writing. Informational; reader uses actual footer stats. |
 | `ldsc:n_samples` | string (int) | Number of reference-panel individuals used when computing the stored R2 values. Package-built panels write `geno.n`. |
 | `ldsc:r2_bias` | string | Bias state of stored R2 values. Package-built panels currently write `"unbiased"`; `"raw"` is reserved for raw sample R2 values that need downstream correction. |
+| `ldsc:min_r2` | string (float) | Minimum unbiased-R2 threshold applied at write time. `"0.0"` (the default) means no filtering — all pairs, including negative-R2 pairs, are written and the artifact is complete. Any positive value means sub-threshold pairs were dropped, so the artifact is intentionally incomplete and downstream readers must not treat absent pairs as exactly R2=0 without accounting for the threshold. |
 
 They also include the minimal identity provenance required by current
 reloaders:
@@ -172,6 +185,7 @@ ldsc:sorted_by_build = "hg19"
 ldsc:row_group_size  = "50000"
 ldsc:n_samples       = "3202"
 ldsc:r2_bias         = "unbiased"
+ldsc:min_r2          = "0.0"
 ldsc:schema_version  = "1"
 ldsc:artifact_type   = "ref_panel_r2"
 ldsc:snp_identifier  = "chr_pos_allele_aware"
@@ -288,6 +302,14 @@ argument at construction time. It uses this table to build `index_map` — the m
 from SNP identifier to matrix row/column index — before any window query is issued.
 The parquet's own identifier columns (`SNP_1`, `SNP_2`, `POS_1`, `POS_2`) serve only
 as lookup keys at query time; all per-SNP analysis metadata comes from the sidecar.
+
+When decoding a row group, each endpoint identifier is resolved to its retained-SNP
+index in a single vectorized pass rather than a per-row `index_map.get` loop:
+`chr_pos` base mode uses `np.searchsorted` over the ascending `self.pos` array plus an
+equality check (absent positions yield `-1`), while the string-keyed modes (`rsid` and
+both allele-aware modes) use a hashtable join (`pd.Index.get_indexer` over the
+`index_map` keys, with a parallel values array so excluded NaN keys stay correct). The
+string-key index is built once per chromosome and reused across all row-group decodes.
 
 This two-file design separates concerns: the parquet is a dense sorted pair table
 optimised for row-group pruning; the sidecar is a lightweight per-SNP lookup table

@@ -2854,6 +2854,70 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
 
 @unittest.skipIf(kernel_ldscore is None, "ldscore kernel is not available")
+class VectorizedIndexLookupTest(unittest.TestCase):
+    """Characterize the vectorized endpoint-index lookups against the dict loop.
+
+    The canonical decode path historically resolved each row endpoint with a
+    per-row ``index_map.get(key, -1)`` Python loop. These tests pin the
+    vectorized replacements to bit-for-bit equality with that loop across all
+    four identity modes, including not-found (-1) and NaN-key cases.
+    """
+
+    @staticmethod
+    def _dict_loop(index_map, query, cast):
+        return np.fromiter(
+            (index_map.get(cast(value), -1) for value in query),
+            dtype=np.int64,
+            count=len(query),
+        )
+
+    def test_pos_lookup_matches_dict_loop_chr_pos(self):
+        pos = np.array([10, 25, 40, 100], dtype=np.int64)  # ascending retained positions
+        index_map = {int(p): i for i, p in enumerate(pos)}
+        query = np.array([40, 10, 999, 100, 7, 25], dtype=np.int64)  # present + absent + below-min
+        expected = self._dict_loop(index_map, query, int)
+        result = kernel_ldscore._vectorized_pos_lookup(pos, query)
+        np.testing.assert_array_equal(result, expected)
+        self.assertEqual(result.dtype, np.int64)
+
+    def test_pos_lookup_empty_query_and_empty_panel(self):
+        pos = np.array([10, 25], dtype=np.int64)
+        np.testing.assert_array_equal(
+            kernel_ldscore._vectorized_pos_lookup(pos, np.array([], dtype=np.int64)),
+            np.array([], dtype=np.int64),
+        )
+        empty_pos = np.array([], dtype=np.int64)
+        np.testing.assert_array_equal(
+            kernel_ldscore._vectorized_pos_lookup(empty_pos, np.array([10, 25], dtype=np.int64)),
+            np.array([-1, -1], dtype=np.int64),
+        )
+
+    def test_key_lookup_matches_dict_loop_rsid(self):
+        keys = ["rs1", "rs2", "rs3", "rs10"]
+        index_map = {k: i for i, k in enumerate(keys)}
+        key_index = pd.Index(list(index_map.keys()))
+        key_values = np.fromiter(index_map.values(), dtype=np.int64, count=len(index_map))
+        query = np.array(["rs3", "rsX", "rs1", "rs10", "nope"], dtype=str)
+        expected = self._dict_loop(index_map, query, str)
+        result = kernel_ldscore._vectorized_key_lookup(key_index, key_values, query)
+        np.testing.assert_array_equal(result, expected)
+        self.assertEqual(result.dtype, np.int64)
+
+    def test_key_lookup_matches_dict_loop_allele_aware_with_nan_exclusion(self):
+        # Mirror the allele-aware build: NaN merge keys are excluded from the map,
+        # so retained-SNP values become non-contiguous (0, 2). A 'nan' endpoint
+        # (str() of a NaN key) must resolve to -1.
+        raw_keys = ["1:10:A:G", np.nan, "1:25:C:T"]
+        index_map = {str(k): i for i, k in enumerate(raw_keys) if pd.notna(k)}
+        key_index = pd.Index(list(index_map.keys()))
+        key_values = np.fromiter(index_map.values(), dtype=np.int64, count=len(index_map))
+        query = np.array(["1:25:C:T", "nan", "1:10:A:G", "1:99:A:G"], dtype=str)
+        expected = self._dict_loop(index_map, query, str)
+        result = kernel_ldscore._vectorized_key_lookup(key_index, key_values, query)
+        np.testing.assert_array_equal(result, expected)
+
+
+@unittest.skipIf(kernel_ldscore is None, "ldscore kernel is not available")
 class LDScoreParquetNormalizationTest(unittest.TestCase):
     def test_resolve_parquet_files_accepts_chromosome_specific_resolution(self):
         with tempfile.TemporaryDirectory() as tmpdir:

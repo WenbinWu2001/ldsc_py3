@@ -749,6 +749,12 @@ def write_r2_parquet(
     intermediate to keep peak memory low on deep panels. The on-disk schema is
     identical to the pandas path (string/int64/float32 columns).
 
+    Column chunks are compressed with zstd level 9 when the codec is available
+    in the local ``pyarrow`` build (falling back to snappy otherwise, which has
+    no level knob). Compression is recorded per column-chunk in the parquet
+    footer and auto-detected on read, so it is purely a storage concern and
+    never affects decoded values.
+
     Incoming pair rows must already be sorted by non-decreasing ``POS_1``. The
     writer validates that invariant per batch (vectorized over ``POS_1`` and
     across the batch boundary) because row-group pruning depends on monotonic

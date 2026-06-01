@@ -1,10 +1,33 @@
-# build-ref-panel Memory Optimization: Six Refactors
+# build-ref-panel Memory & Speed Optimization
 
 **Date:** 2026-06-01
-**Implementation status:** designed; not yet implemented on `restructure`.
+**Implementation status:** **implemented on `restructure`.** Six memory refactors
+(#1–#6) plus three additional optimizations (per-build BED release, zstd-L9
+compression, vectorized decode lookup). Full suite green (870 passed, 1 skipped).
 **Scope:** `src/ldsc/_kernel/ref_panel_builder.py`, `src/ldsc/ref_panel_builder.py`,
 `src/ldsc/_kernel/ldscore.py`, `docs/current/parquet-r2-format-and-read-pipeline.md`
 **Companion execution plan:** approved plan at the session plan file (six-task roadmap).
+
+---
+
+## Implementation status by refactor
+
+| # | Refactor | Commit | Status |
+|---|---|---|---|
+| 1 | `--min-r2` unbiased-R² floor (opt-in, default off) | `b80c3a8` | ✅ implemented |
+| 2 | Compact numpy pair buffers | `3a636bc` | ✅ implemented |
+| 3 | Vectorized pair extraction | `3a636bc` | ✅ implemented |
+| 4 | float32 genotypes (builder-scoped) | `338837f` | ✅ implemented |
+| 5 | Direct PyArrow record-batch writes | `d4b6194` | ✅ implemented |
+| 6 | Early pre-filter BED bitarray release (MAF filter) | `1dc9ad7` | ✅ implemented |
+| 8 | Per-build BED release across emitted genome builds | `1bf1452` | ✅ implemented |
+| 9 | zstd compression (raised to **level 9**) | `1bf1452`, `45f0ec0` | ✅ implemented |
+| 10 | Vectorized canonical decode endpoint-index lookup (read path) | `b112013` | ✅ implemented |
+| 7 | Streaming BED reads | — | ⏸ deferred |
+| — | R² quantization | — | ⏸ on hold (supplementary info pending) |
+
+Refactors #1–#6 are detailed below; the session additions #8–#10 follow in
+["Additional optimizations"](#additional-optimizations).
 
 ---
 
@@ -319,6 +342,120 @@ rebind at [ldscore.py:411](../../../src/ldsc/_kernel/ldscore.py)
 
 ---
 
+## Additional optimizations
+
+These were implemented in the same effort but sit outside the original six-task
+roadmap. #8 and #9 are build-path; #10 is a read-path companion that pays off the
+storage gains from #9 without slowing LD-score calculation.
+
+### #8 — Per-build BED release across emitted genome builds
+
+**Problem.** When a panel emits more than one genome build (e.g. source hg38 plus
+an hg38→hg19 liftover), the per-chromosome build loop in
+[`src/ldsc/ref_panel_builder.py`](../../../src/ldsc/ref_panel_builder.py)
+constructs a fresh `PlinkBEDFile` for each emitted build. Without an explicit
+release, the previous build's decoded genotype bitarray stays alive while the
+next build's bitarray is decoded, so two full bitarrays briefly coexist at peak.
+
+**Fix.** At the end of each iteration of `for build in _emitted_genome_builds(config)`,
+drop the genotype reference before the next build loads:
+
+```python
+del geno
+gc.collect()
+```
+
+This is distinct from #6: #6 frees the *pre-filter* bitarray *within* one
+`PlinkBEDFile`; #8 frees an *entire* `PlinkBEDFile` *between* builds.
+
+**Test.** `test_each_genome_build_releases_prior_bed_before_loading_next`
+([tests/test_ref_panel_builder.py](../../../tests/test_ref_panel_builder.py))
+patches `PlinkBEDFile` with a tracking wrapper that records, via `weakref` +
+`gc.collect()`, how many prior instances are still alive at each construction;
+it asserts `[0, 0]` (no prior BED alive when the next build starts).
+
+### #9 — zstd compression at level 9
+
+**Decision.** R² parquet column chunks are compressed with **zstd level 9** when
+the codec is available in the local `pyarrow` build, falling back to `snappy`
+otherwise (snappy has no level knob). No new CLI flag — this is a silent default.
+
+```python
+# write_r2_parquet, writer construction
+if pa.Codec.is_available("zstd"):
+    writer = pq.ParquetWriter(str(path), schema, compression="zstd", compression_level=9)
+else:
+    writer = pq.ParquetWriter(str(path), schema, compression="snappy")
+```
+
+**Rationale.** zstd yields ~1.5–2× smaller artifacts than the prior snappy default
+with comparable decode speed. Level 9 trades a slower write (~2.4× vs level 1) for
+~3.5% smaller files than level 1, with **identical read speed and memory** (zstd
+decode is level-independent). The parquet footer records the codec but **not** the
+level, so the reader needs no change and the level is observable only at write time.
+
+**Tests.** `test_write_r2_parquet_uses_zstd_compression` reads the footer and
+asserts every column chunk reports `ZSTD`; `test_write_r2_parquet_uses_zstd_level_9`
+spies on the `pq.ParquetWriter` constructor (the only way to observe the
+write-time level) and asserts `compression="zstd"`, `compression_level=9`.
+
+### #10 — Vectorized canonical decode endpoint-index lookup (read path)
+
+**Problem.** `SortedR2BlockReader._decode_canonical_row_group`
+([ldscore.py](../../../src/ldsc/_kernel/ldscore.py)) resolved each row endpoint to
+its retained-SNP index with a per-row `index_map.get(key, -1)` Python loop
+(`np.fromiter(...)`). This interpreted loop dominated row-group decode time — the
+codec (zstd) decompression is comparatively negligible thanks to the decoded
+row-group LRU cache — so it is the relevant lever for read speed once #9 is in.
+
+**Fix.** Two pure module-level helpers replace the loop:
+
+```python
+def _vectorized_pos_lookup(sorted_pos, query):
+    # chr_pos base mode: binary search + equality check, -1 for non-matches.
+    query = np.asarray(query, dtype=np.int64)
+    if sorted_pos.size == 0:
+        return np.full(query.shape, -1, dtype=np.int64)
+    idx = np.searchsorted(sorted_pos, query)
+    idx_clipped = np.clip(idx, 0, sorted_pos.size - 1)
+    matched = sorted_pos[idx_clipped] == query
+    return np.where(matched, idx, -1).astype(np.int64, copy=False)
+
+def _vectorized_key_lookup(key_index, key_values, query):
+    # rsID / allele-aware modes: hashtable join over the index_map keys.
+    loc = key_index.get_indexer(np.asarray(query))
+    result = np.full(loc.shape, -1, dtype=np.int64)
+    found = loc >= 0
+    result[found] = key_values[loc[found]]
+    return result
+```
+
+`chr_pos` base mode reuses the already-sorted `self.pos` (zero extra memory). The
+string-keyed modes build `self._index_keys` (a `pd.Index` over the `index_map`
+keys) and `self._index_values` (a parallel `int64` array, so values stay correct
+even when NaN keys were excluded from the map) **once per chromosome**, reused
+across every row-group decode.
+
+**Correctness rests on existing invariants.** `self.pos` is ascending and its
+array index equals the SNP index — the same assumption the row-group windowing
+already uses (`np.searchsorted(self.pos, …)`). Within a chromosome, retained
+identifiers are unique (`validate_retained_identifier_uniqueness`), so each key
+maps to exactly one SNP. Per-chromosome scoping means positions on different
+chromosomes never share a lookup structure.
+
+**Tests.** `VectorizedIndexLookupTest`
+([tests/test_ldscore_workflow.py](../../../tests/test_ldscore_workflow.py)) pins
+both helpers bit-for-bit to the dict loop across all four identity modes,
+including not-found (`-1`), empty-query/empty-panel, and excluded-NaN-key cases.
+The 100 existing workflow tests decode real parquet row groups through the new
+path and assert LD-score values against references, guarding the wiring.
+
+**Measured.** ~1.3× faster (chr_pos int keys) and ~2.2× faster (rsID string keys)
+on the lookup itself, with negligible added peak memory and no change to decoded
+values.
+
+---
+
 ## Testing Strategy
 
 ### Preserve existing pins — `tests/test_ref_panel_builder.py`
@@ -344,9 +481,17 @@ rebind at [ldscore.py:411](../../../src/ldsc/_kernel/ldscore.py)
    (same panel via the in-PLINK `cor_sum` path) within `rtol≈1e-4`.
 5. **#2 flush ordering:** assert yielded rows preserve non-decreasing `POS_1` and
    `j`-sorted order within each `i`.
+6. **#8 per-build release:** `test_each_genome_build_releases_prior_bed_before_loading_next`
+   asserts no prior `PlinkBEDFile` is alive when the next build starts (`[0, 0]`).
+7. **#9 compression:** `test_write_r2_parquet_uses_zstd_compression` (footer codec ==
+   `ZSTD`) and `test_write_r2_parquet_uses_zstd_level_9` (writer spy: level 9).
+8. **#10 decode lookup:** `VectorizedIndexLookupTest` pins the vectorized lookups
+   bit-for-bit to the dict loop across all four identity modes (incl. `-1` and
+   NaN-key cases).
 
 ### Full suite + manual
-- `pytest` green; `ldsc build-ref-panel --help` shows `--min-r2`.
+- `pytest` green — **870 passed, 1 skipped** on `restructure`; `ldsc build-ref-panel
+  --help` shows `--min-r2`.
 - Build a small panel; confirm parquet schema unchanged, row counts and `ldsc:*`
   metadata correct, and peak RSS reduced (`/usr/bin/time -l`).
 

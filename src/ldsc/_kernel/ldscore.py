@@ -1789,7 +1789,17 @@ class SortedR2BlockReader:
         )
 
     def _decode_canonical_row_group(self, row_group_index: int) -> _DecodedR2RowGroup:
-        """Read and decode one canonical parquet row group into numeric arrays."""
+        """Read and decode one canonical parquet row group into numeric arrays.
+
+        Endpoint identifiers are resolved to retained-SNP indices with a single
+        vectorized pass rather than a per-row ``index_map.get`` loop:
+        :func:`_vectorized_pos_lookup` (binary search over the sorted
+        ``self.pos``) for ``chr_pos`` base mode, and
+        :func:`_vectorized_key_lookup` (a hashtable join over the per-chromosome
+        ``self._index_keys``/``self._index_values``) for the string-keyed rsID
+        and allele-aware modes. Endpoints absent from the retained set map to
+        ``-1`` and are dropped.
+        """
         if self._pf is None or self._canonical_columns is None:
             raise ValueError("Canonical parquet reader is not initialized.")
 

@@ -134,6 +134,20 @@ class PlinkBedFileTest(unittest.TestCase):
         y = bed.nextSNPs(width, minorRef=True)
         assert_array_equal(x, -y)
 
+    def test_next_snps_dtype_default_is_float64(self):
+        bed = ld.PlinkBEDFile(str(PLINK_FIXTURES / "plink.bed"), self.sample_count, self.bim)
+        x = bed.nextSNPs(3)
+        self.assertEqual(x.dtype, np.float64)
+
+    def test_next_snps_dtype_float32_matches_float64(self):
+        width = 4
+        bed = ld.PlinkBEDFile(str(PLINK_FIXTURES / "plink.bed"), self.sample_count, self.bim)
+        x64 = bed.nextSNPs(width)
+        bed._currentSNP -= width
+        x32 = bed.nextSNPs(width, dtype=np.float32)
+        self.assertEqual(x32.dtype, np.float32)
+        np.testing.assert_allclose(x32, x64, rtol=1e-4, atol=1e-5)
+
 
 @unittest.skipIf(ld is None, "ldscore kernel is not available")
 @unittest.skipUnless(_has_module("pyarrow"), "pyarrow dependency is not installed")

@@ -859,7 +859,7 @@ class ReferencePanelBuilder:
                 pair_rows=kernel_builder.yield_pairwise_r2_rows(
                     block_left=block_left,
                     snp_batch_size=config.snp_batch_size,
-                    standardized_snp_getter=geno.nextSNPs,
+                    standardized_snp_getter=lambda b: geno.nextSNPs(b, dtype=np.float32),
                     m=geno.m,
                     n=geno.n,
                 ),

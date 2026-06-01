@@ -608,8 +608,14 @@ if ba is not None:
                     kept_snps.append(j)
             return (y, m_poly, n, kept_snps, freq)
 
-        def nextSNPs(self, b, minorRef=None):
-            """Return the next ``b`` standardized SNP columns from the BED stream."""
+        def nextSNPs(self, b, minorRef=None, dtype=np.float64):
+            """Return the next ``b`` standardized SNP columns from the BED stream.
+
+            ``dtype`` selects the working precision of the decoded and standardized
+            genotype matrix. It defaults to ``float64`` so the in-PLINK LD-score
+            path is bit-for-bit unchanged; the reference-panel builder passes
+            ``float32`` to halve the carry-over block's memory footprint.
+            """
             try:
                 b = int(b)
                 if b <= 0:
@@ -622,9 +628,9 @@ if ba is not None:
             n = self.n
             nru = self.nru
             slice = self.geno[2 * c * nru:2 * (c + b) * nru]
-            X = np.array(list(slice.decode(self._bedcode)), dtype="float64").reshape((b, nru)).T
+            X = np.array(list(slice.decode(self._bedcode)), dtype=dtype).reshape((b, nru)).T
             X = X[0:n, :]
-            Y = np.zeros(X.shape)
+            Y = np.zeros(X.shape, dtype=dtype)
             for j in range(0, b):
                 newsnp = X[:, j]
                 ii = newsnp != 9

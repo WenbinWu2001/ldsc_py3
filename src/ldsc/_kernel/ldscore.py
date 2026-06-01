@@ -1580,8 +1580,11 @@ class SortedR2BlockReader:
             probe_schema_names = list(ds.dataset(list(paths), format="parquet").schema.names)
 
         layout = _parquet_schema_layout(probe_schema_names)
-        if layout == "raw" and is_allele_aware_mode(self.identifier_mode):
-            raise ValueError(ALLELE_AWARE_R2_ENDPOINT_ERROR)
+        if layout != "index":
+            raise ValueError(
+                f"'{paths[0]}' is not an index-format R2 parquet (columns IDX_1/IDX_2/R2/SIGN). "
+                "External and legacy R2 formats are not supported; regenerate with `ldsc build-ref-panel`."
+            )
 
         if is_allele_aware_mode(self.identifier_mode):
             a1_col = resolve_required_column(metadata.columns, A1_COLUMN_SPEC, context=metadata_context)
@@ -1589,77 +1592,16 @@ class SortedR2BlockReader:
             metadata = metadata.rename(columns={a1_col: "A1", a2_col: "A2"})
         validate_retained_identifier_uniqueness(metadata, self.identifier_mode, chrom)
 
-        if layout == "index":
-            if len(paths) != 1:
-                raise ValueError(
-                    "index parquet_r2 backend requires exactly one file per chromosome; "
-                    f"got {len(paths)} for chromosome {self.chrom}"
-                )
-            if pq is None:
-                raise LDSCDependencyError("pyarrow is required for index parquet R2 input.")
-            self._runtime_layout = "index"
-            self._pf = pq.ParquetFile(paths[0])
-            self._init_index_path(paths[0], metadata)
-            return
-
-        self.pos = metadata["POS"].to_numpy(dtype=np.int64)
-        self.m = len(metadata)
-        if is_allele_aware_mode(self.identifier_mode):
-            keys = effective_merge_key_series(metadata, self.identifier_mode, context=metadata_context)
-            self.index_map = {str(key): idx for idx, key in enumerate(keys) if pd.notna(key)}
-        elif identity_mode_family(self.identifier_mode) == "rsid":
-            self.index_map = {str(snp): idx for idx, snp in enumerate(metadata["SNP"].astype(str))}
-        else:
-            self.index_map = {int(pos): idx for idx, pos in enumerate(metadata["POS"].astype(np.int64))}
-
-        # Vectorized endpoint-index lookup, built once per chromosome. chr_pos
-        # base reuses the sorted ``self.pos`` via binary search; string-keyed
-        # modes (rsID and allele-aware) use a hashtable join over index_map.
-        if is_allele_aware_mode(self.identifier_mode) or identity_mode_family(self.identifier_mode) == "rsid":
-            self._index_keys: pd.Index | None = pd.Index(list(self.index_map.keys()))
-            self._index_values: np.ndarray | None = np.fromiter(
-                self.index_map.values(), dtype=np.int64, count=len(self.index_map)
+        if len(paths) != 1:
+            raise ValueError(
+                "index parquet_r2 backend requires exactly one file per chromosome; "
+                f"got {len(paths)} for chromosome {self.chrom}"
             )
-        else:
-            self._index_keys = None
-            self._index_values = None
-
-        self._last_query_key: tuple[int, int] | None = None
-        self._last_query_rows: pd.DataFrame | None = None
-
-        if layout == "canonical":
-            if len(paths) != 1:
-                raise ValueError(
-                    "canonical parquet_r2 backend requires exactly one file per chromosome; "
-                    f"got {len(paths)} paths for chromosome {self.chrom}"
-                )
-            if pq is None:
-                raise LDSCDependencyError("pyarrow is required for canonical parquet R2 input.")
-            self._runtime_layout = "canonical"
-            self._pf = pq.ParquetFile(paths[0])
-            self._init_canonical_path(paths[0])
-            return
-
-        if layout == "raw":
-            ds = get_pyarrow_modules()
-            self._runtime_layout = "raw"
-            self.ds = ds
-            self.dataset = ds.dataset(list(paths), format="parquet")
-            self.genome_build = _require_runtime_genome_build(self.genome_build)
-            raw_mapping = _resolve_r2_source_columns(self.dataset.schema.names, context="raw parquet R2 schema")
-            self._raw_pos_columns = get_r2_build_columns(self.genome_build, self.dataset.schema.names)
-            self._raw_query_columns = [raw_mapping[canonical] for canonical in R2_CANONICAL_SOURCE_COLUMNS]
-            LOGGER.warning(
-                f"'{paths[0]}' uses the legacy raw schema. Row-group pruning is disabled "
-                "and query performance will be severely degraded."
-            )
-            return
-
-        raise ValueError(
-            "Parquet R2 input must contain either canonical logical fields "
-            "`CHR`, `POS_1`, `POS_2`, `SNP_1`, `SNP_2`, `R2` (aliases allowed at load time) "
-            "or the raw legacy pairwise columns."
-        )
+        if pq is None:
+            raise LDSCDependencyError("pyarrow is required for index parquet R2 input.")
+        self._runtime_layout = "index"
+        self._pf = pq.ParquetFile(paths[0])
+        self._init_index_path(paths[0], metadata)
 
     def _init_index_path(self, path: str, retained_metadata: pd.DataFrame) -> None:
         """Validate index-format metadata, the sidecar binding, and build the remap."""
@@ -1715,86 +1657,6 @@ class SortedR2BlockReader:
                 continue
             self._rg_bounds.append((int(stats.min), int(stats.max), rg_index))
 
-    def _init_canonical_path(self, path: str) -> None:
-        """Validate canonical parquet metadata and build the row-group index."""
-        if self._pf is None:
-            raise ValueError("Canonical parquet reader is not initialized.")
-
-        schema_names = self._pf.schema_arrow.names
-        try:
-            self._canonical_columns = _resolve_canonical_parquet_columns(
-                schema_names,
-                context="canonical parquet R2 schema",
-                require_endpoint_alleles=is_allele_aware_mode(self.identifier_mode),
-            )
-        except ValueError as exc:
-            if is_allele_aware_mode(self.identifier_mode):
-                raise ValueError(ALLELE_AWARE_R2_ENDPOINT_ERROR) from exc
-            raise
-
-        schema_meta = self._pf.schema_arrow.metadata or {}
-        parquet_build_raw = schema_meta.get(b"ldsc:sorted_by_build")
-        if parquet_build_raw is not None:
-            parquet_build = normalize_genome_build(parquet_build_raw.decode("utf-8"))
-            if self.genome_build not in {None, parquet_build}:
-                raise ValueError(
-                    f"Parquet sorted for {parquet_build} but analysis uses {self.genome_build}. "
-                    f"Use the correct reference file or regenerate with `--genome-build {self.genome_build}`."
-                )
-            self.genome_build = parquet_build
-        else:
-            first = self._pf.read_row_group(
-                0,
-                columns=[
-                    self._canonical_columns["CHR"],
-                    self._canonical_columns["POS_1"],
-                ],
-            )
-            infer_df = pd.DataFrame(
-                {
-                    "CHR": pd.Series(
-                        first[self._canonical_columns["CHR"]].to_pylist(),
-                        dtype="object",
-                    ),
-                    "POS": pd.Series(first[self._canonical_columns["POS_1"]].to_pylist()),
-                }
-            )
-            _, inference = resolve_chr_pos_table(
-                infer_df,
-                context=path,
-                reference_table=load_packaged_reference_table(),
-                logger=LOGGER,
-            )
-            inferred_build = inference.genome_build
-            LOGGER.warning(
-                f"No build metadata found in '{path}'; inferred {inferred_build} from first row group. "
-                "To silence this warning, regenerate the parquet with `ldsc build-ref-panel`."
-            )
-            if self.genome_build not in {None, inferred_build}:
-                raise ValueError(
-                    f"Parquet inferred as {inferred_build} but analysis uses {self.genome_build}."
-                )
-            self.genome_build = inferred_build
-
-        meta = self._pf.metadata
-        if meta.num_row_groups > 0:
-            avg_rows_per_rg = meta.num_rows / meta.num_row_groups
-            if avg_rows_per_rg > 500_000:
-                LOGGER.warning(
-                    f"'{path}' has {meta.num_row_groups} row group(s) "
-                    f"(avg {avg_rows_per_rg:.0f} rows/group). Query performance will be severely degraded. "
-                    "Regenerate with `row_group_size=50000` for optimal speed."
-                )
-
-        pos1_idx = self._pf.schema_arrow.names.index(self._canonical_columns["POS_1"])
-        self._rg_bounds = []
-        for rg_index in range(meta.num_row_groups):
-            rg = meta.row_group(rg_index)
-            stats = rg.column(pos1_idx).statistics
-            if stats is None or not getattr(stats, "has_min_max", False):
-                continue
-            self._rg_bounds.append((int(stats.min), int(stats.max), rg_index))
-
     def _transform_r2(self, values: np.ndarray) -> np.ndarray:
         """Apply the configured raw-to-unbiased R2 correction when required."""
         values = values.astype(np.float32, copy=False)
@@ -1818,25 +1680,15 @@ class SortedR2BlockReader:
             }
         )
 
-    def _row_group_indices_for_pos_window(self, pos_min: int, pos_max: int) -> list[int]:
-        """Return canonical row groups whose footer bounds overlap a POS window."""
-        if not self._rg_bounds:
-            return []
-        pos_min = int(pos_min)
-        pos_max = int(pos_max)
-        return [index for mn, mx, index in self._rg_bounds if mn <= pos_max and mx >= pos_min]
-
     def _row_group_indices_for_index_window(self, start: int, stop: int) -> list[int]:
-        """Return row groups whose footer bounds overlap a retained-SNP index window."""
+        """Return row groups whose IDX_1 footer bounds overlap a retained-SNP index window."""
         start = max(0, int(start))
         stop = min(int(stop), int(getattr(self, "m", 0)))
         if stop <= start or not self._rg_bounds:
             return []
-        if getattr(self, "_runtime_layout", None) == "index":
-            lo = int(self._retained_build_idx[start])
-            hi = int(self._retained_build_idx[stop - 1])
-            return [rg for mn, mx, rg in self._rg_bounds if mn <= hi and mx >= lo]
-        return self._row_group_indices_for_pos_window(int(self.pos[start]), int(self.pos[stop - 1]))
+        lo = int(self._retained_build_idx[start])
+        hi = int(self._retained_build_idx[stop - 1])
+        return [rg for mn, mx, rg in self._rg_bounds if mn <= hi and mx >= lo]
 
     @staticmethod
     def _sliding_query_index_windows(block_left: np.ndarray, snp_batch_size: int, m: int) -> list[tuple[int, int]]:
@@ -1960,85 +1812,15 @@ class SortedR2BlockReader:
             r2=r2[keep].astype(np.float32, copy=False),
         )
 
-    def _decode_canonical_row_group(self, row_group_index: int) -> _DecodedR2RowGroup:
-        """Read and decode one canonical parquet row group into numeric arrays.
-
-        Endpoint identifiers are resolved to retained-SNP indices with a single
-        vectorized pass rather than a per-row ``index_map.get`` loop:
-        :func:`_vectorized_pos_lookup` (binary search over the sorted
-        ``self.pos``) for ``chr_pos`` base mode, and
-        :func:`_vectorized_key_lookup` (a hashtable join over the per-chromosome
-        ``self._index_keys``/``self._index_values``) for the string-keyed rsID
-        and allele-aware modes. Endpoints absent from the retained set map to
-        ``-1`` and are dropped.
-        """
-        if self._pf is None or self._canonical_columns is None:
-            raise ValueError("Canonical parquet reader is not initialized.")
-
-        read_cols = [self._canonical_columns["R2"]]
-        if is_allele_aware_mode(self.identifier_mode):
-            read_cols.extend(
-                [
-                    self._canonical_columns["CHR"],
-                    self._canonical_columns["POS_1"],
-                    self._canonical_columns["POS_2"],
-                    self._canonical_columns["SNP_1"],
-                    self._canonical_columns["SNP_2"],
-                    self._canonical_columns["A1_1"],
-                    self._canonical_columns["A2_1"],
-                    self._canonical_columns["A1_2"],
-                    self._canonical_columns["A2_2"],
-                ]
-            )
-        elif identity_mode_family(self.identifier_mode) == "rsid":
-            read_cols.extend([self._canonical_columns["SNP_1"], self._canonical_columns["SNP_2"]])
-        else:
-            read_cols.extend([self._canonical_columns["POS_1"], self._canonical_columns["POS_2"]])
-
-        table = self._pf.read_row_group(int(row_group_index), columns=read_cols)
-        r2_raw = _arrow_column_to_numpy(table.column(self._canonical_columns["R2"])).astype(np.float32, copy=False)
-        r2 = self._transform_r2(r2_raw)
-
-        if is_allele_aware_mode(self.identifier_mode):
-            rows = table.to_pandas().rename(
-                columns={actual: canonical for canonical, actual in self._canonical_columns.items()}
-            )
-            left_keys = _endpoint_identity_keys(rows, side=1, mode=self.identifier_mode)
-            right_keys = _endpoint_identity_keys(rows, side=2, mode=self.identifier_mode)
-            i_raw = _vectorized_key_lookup(self._index_keys, self._index_values, left_keys.astype(str).to_numpy())
-            j_raw = _vectorized_key_lookup(self._index_keys, self._index_values, right_keys.astype(str).to_numpy())
-        elif identity_mode_family(self.identifier_mode) == "rsid":
-            left_ids = _arrow_column_to_numpy(table.column(self._canonical_columns["SNP_1"])).astype(str)
-            right_ids = _arrow_column_to_numpy(table.column(self._canonical_columns["SNP_2"])).astype(str)
-            i_raw = _vectorized_key_lookup(self._index_keys, self._index_values, left_ids)
-            j_raw = _vectorized_key_lookup(self._index_keys, self._index_values, right_ids)
-        else:
-            pos_1 = _arrow_column_to_numpy(table.column(self._canonical_columns["POS_1"])).astype(np.int64, copy=False)
-            pos_2 = _arrow_column_to_numpy(table.column(self._canonical_columns["POS_2"])).astype(np.int64, copy=False)
-            i_raw = _vectorized_pos_lookup(self.pos, pos_1)
-            j_raw = _vectorized_pos_lookup(self.pos, pos_2)
-
-        keep = (i_raw >= 0) & (j_raw >= 0)
-        return _DecodedR2RowGroup(
-            row_group_index=int(row_group_index),
-            i=i_raw[keep].astype(np.int32, copy=False),
-            j=j_raw[keep].astype(np.int32, copy=False),
-            r2=r2[keep].astype(np.float32, copy=False),
-        )
-
-    def _get_decoded_canonical_row_group(self, row_group_index: int) -> _DecodedR2RowGroup:
-        """Return a decoded row group from cache or parquet."""
+    def _get_decoded_row_group(self, row_group_index: int) -> _DecodedR2RowGroup:
+        """Return a decoded index row group from cache or parquet."""
         cache = self._row_group_cache
         if cache is not None:
             cached = cache.get(row_group_index)
             if cached is not None:
                 return cached
 
-        decoded = (
-            self._decode_index_row_group(row_group_index)
-            if self._runtime_layout == "index"
-            else self._decode_canonical_row_group(row_group_index)
-        )
+        decoded = self._decode_index_row_group(row_group_index)
         if cache is not None:
             cache.row_group_reads += 1
             cache.put(decoded)
@@ -2055,7 +1837,7 @@ class SortedR2BlockReader:
         if not rg_idxs:
             return self._empty_pair_rows()
 
-        decoded = [self._get_decoded_canonical_row_group(index) for index in rg_idxs]
+        decoded = [self._get_decoded_row_group(index) for index in rg_idxs]
         nonempty = [entry for entry in decoded if len(entry.i) > 0]
         if not nonempty:
             return self._empty_pair_rows()
@@ -2067,70 +1849,6 @@ class SortedR2BlockReader:
         if not keep.any():
             return self._empty_pair_rows()
         return pd.DataFrame({"i": i[keep], "j": j[keep], "R2": r2[keep]})
-
-    def _query_union_rows(self, pos_min: int, pos_max: int) -> pd.DataFrame:
-        """Query cached or on-disk pair rows spanning a union genomic window."""
-        if self._runtime_layout == "canonical":
-            return self._query_union_rows_canonical(pos_min, pos_max)
-
-        key = (int(pos_min), int(pos_max))
-        if self._last_query_key == key and self._last_query_rows is not None:
-            return self._last_query_rows.copy()
-
-        rows = self._query_union_rows_raw(pos_min, pos_max)
-
-        self._last_query_key = key
-        self._last_query_rows = rows.copy()
-        return rows
-
-    def _query_union_rows_canonical(self, pos_min: int, pos_max: int) -> pd.DataFrame:
-        """Fast path using decoded row-group cache and numeric endpoint filters."""
-        start = int(np.searchsorted(self.pos, int(pos_min), side="left"))
-        stop = int(np.searchsorted(self.pos, int(pos_max), side="right"))
-        return self._query_union_rows_canonical_by_index(start, stop)
-
-    def _query_union_rows_raw(self, pos_min: int, pos_max: int) -> pd.DataFrame:
-        """Legacy raw-schema path using Dataset filtering and runtime canonicalization."""
-        left_pos_col, right_pos_col = self._raw_pos_columns
-        filter_expr = (
-            (self.ds.field("chr") == self.chrom)
-            & (self.ds.field(left_pos_col) >= int(pos_min))
-            & (self.ds.field(left_pos_col) <= int(pos_max))
-            & (self.ds.field(right_pos_col) >= int(pos_min))
-            & (self.ds.field(right_pos_col) <= int(pos_max))
-        )
-        table = self.dataset.to_table(columns=self._raw_query_columns, filter=filter_expr)
-        rows = table.to_pandas()
-        if len(rows) == 0:
-            return pd.DataFrame(
-                {
-                    "i": pd.Series([], dtype=np.int64),
-                    "j": pd.Series([], dtype=np.int64),
-                    "R2": pd.Series([], dtype=np.float32),
-                }
-            )
-
-        rows = rows.loc[
-            rows["chr"].map(lambda value: normalize_chromosome(value, context="raw parquet R2 query")) == self.chrom
-        ].copy()
-        keep = (
-            pd.to_numeric(rows[left_pos_col], errors="raise").between(int(pos_min), int(pos_max))
-            & pd.to_numeric(rows[right_pos_col], errors="raise").between(int(pos_min), int(pos_max))
-        )
-        rows = rows.loc[keep].reset_index(drop=True)
-        if len(rows) > 0:
-            rows = canonicalize_r2_pairs(rows, self.genome_build)
-        rows["R2"] = self._transform_r2(pd.to_numeric(rows["R2"], errors="raise").to_numpy(dtype=np.float32))
-        if identity_mode_family(self.identifier_mode) == "rsid":
-            rows["i"] = rows["rsID_1"].astype(str).map(self.index_map)
-            rows["j"] = rows["rsID_2"].astype(str).map(self.index_map)
-        else:
-            rows["i"] = pd.to_numeric(rows["pos_1"], errors="raise").astype(np.int64).map(self.index_map)
-            rows["j"] = pd.to_numeric(rows["pos_2"], errors="raise").astype(np.int64).map(self.index_map)
-        rows = rows.dropna(subset=["i", "j"]).copy()
-        rows["i"] = rows["i"].astype(np.int64)
-        rows["j"] = rows["j"].astype(np.int64)
-        return rows
 
     def _deduplicate_pairs(self, pair_rows: pd.DataFrame, context: str) -> pd.DataFrame:
         """Drop duplicate unordered SNP pairs after verifying matching R2 values."""
@@ -2158,12 +1876,7 @@ class SortedR2BlockReader:
         b_start, b_stop = l_B, l_B + c
         union_start = min(a_start, b_start)
         union_stop = max(a_stop, b_stop)
-        if self._runtime_layout in ("canonical", "index"):
-            query_rows = self._query_union_rows_canonical_by_index(union_start, union_stop)
-        else:
-            union_min = int(self.pos[union_start])
-            union_max = int(self.pos[union_stop - 1])
-            query_rows = self._query_union_rows(union_min, union_max)
+        query_rows = self._query_union_rows_canonical_by_index(union_start, union_stop)
         rows = self._deduplicate_pairs(
             query_rows,
             context=f"cross-block query {self.chrom}:{l_A}:{b}:{l_B}:{c}",
@@ -2196,12 +1909,7 @@ class SortedR2BlockReader:
             return np.zeros((0, 0), dtype=np.float32)
 
         b_start, b_stop = l_B, l_B + c
-        if self._runtime_layout in ("canonical", "index"):
-            query_rows = self._query_union_rows_canonical_by_index(b_start, b_stop)
-        else:
-            pos_min = int(self.pos[b_start])
-            pos_max = int(self.pos[b_stop - 1])
-            query_rows = self._query_union_rows(pos_min, pos_max)
+        query_rows = self._query_union_rows_canonical_by_index(b_start, b_stop)
         rows = self._deduplicate_pairs(
             query_rows,
             context=f"within-block query {self.chrom}:{l_B}:{c}",

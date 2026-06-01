@@ -3197,3 +3197,17 @@ class IndexReaderDecodeTest(unittest.TestCase):
             self.assertAlmostEqual(mat[1, 2], 0.4, places=6)
             self.assertAlmostEqual(mat[0, 0], 1.0, places=6)  # diagonal
             self.assertEqual(mat.shape, (3, 3))
+
+
+class RawSchemaRejectedTest(unittest.TestCase):
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
+    def test_legacy_raw_schema_is_rejected(self):
+        from ldsc._kernel.ldscore import SortedR2BlockReader
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "chr1_r2.parquet"
+            _write_legacy_r2_parquet(path)  # writes old 10-col canonical schema
+            meta = pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["a"], "A1": ["A"], "A2": ["G"]})
+            with self.assertRaisesRegex(ValueError, "index-format|build-ref-panel"):
+                SortedR2BlockReader(paths=[str(path)], chrom="1", metadata=meta,
+                                    identifier_mode="chr_pos", r2_bias_mode="unbiased",
+                                    r2_sample_size=None, genome_build="hg19")

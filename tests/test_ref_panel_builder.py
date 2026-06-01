@@ -449,364 +449,61 @@ class StandardTableFormattingTest(unittest.TestCase):
         self.assertTrue(pd.isna(table.loc[0, "hg38_pos"]))
         self.assertTrue(pd.isna(table.loc[0, "hg38_Uniq_ID"]))
 
-    def test_build_standard_r2_table_uses_exact_schema(self):
-        reference_snp_table = pd.DataFrame(
-            {
-                "CHR": ["1", "1"],
-                "hg19_pos": [100, 120],
-                "hg38_pos": [110, 130],
-                "hg19_Uniq_ID": ["1:100:A:G", "1:120:C:T"],
-                "hg38_Uniq_ID": ["1:110:A:G", "1:130:C:T"],
-                "rsID": ["rs1", "rs2"],
-                "MAF": [0.2, 0.3],
-                "A1": ["A", "C"],
-                "A2": ["G", "T"],
-            }
-        )
-        pair_rows = [{"i": 0, "j": 1, "R2": 0.75, "sign": "-"}]
-
-        table = kernel_builder.build_standard_r2_table(
-            pair_rows=pair_rows,
-            reference_snp_table=reference_snp_table,
-            genome_build="hg19",
-        )
-
-        self.assertEqual(
-            table.columns.tolist(),
-            ["CHR", "POS_1", "POS_2", "SNP_1", "SNP_2", "A1_1", "A2_1", "A1_2", "A2_2", "R2"],
-        )
-        self.assertEqual(table.loc[0, "CHR"], "1")
-        self.assertEqual(table.loc[0, "POS_1"], 100)
-        self.assertEqual(table.loc[0, "POS_2"], 120)
-        self.assertAlmostEqual(table.loc[0, "R2"], 0.75, places=4)
-        self.assertEqual(table.loc[0, "SNP_1"], "rs1")
-        self.assertEqual(table.loc[0, "SNP_2"], "rs2")
-        self.assertEqual(table.loc[0, "A1_1"], "A")
-        self.assertEqual(table.loc[0, "A2_1"], "G")
-        self.assertEqual(table.loc[0, "A1_2"], "C")
-        self.assertEqual(table.loc[0, "A2_2"], "T")
-        self.assertEqual(table["POS_1"].dtype, np.dtype("int64"))
-        self.assertEqual(table["POS_2"].dtype, np.dtype("int64"))
-        self.assertEqual(table["R2"].dtype, np.dtype("float32"))
-        self.assertTrue(pd.api.types.is_string_dtype(table["CHR"]))
-        self.assertTrue(pd.api.types.is_string_dtype(table["SNP_1"]))
-        self.assertTrue(pd.api.types.is_string_dtype(table["SNP_2"]))
-
-    def test_build_standard_r2_table_preserves_empty_schema_dtypes(self):
-        reference_snp_table = pd.DataFrame(
-            {
-                "CHR": ["1"],
-                "hg19_pos": [100],
-                "hg38_pos": [110],
-                "hg19_Uniq_ID": ["1:100:A:G"],
-                "hg38_Uniq_ID": ["1:110:A:G"],
-                "rsID": ["rs1"],
-                "MAF": [0.2],
-                "A1": ["A"],
-                "A2": ["G"],
-            }
-        )
-
-        table = kernel_builder.build_standard_r2_table(
-            pair_rows=[],
-            reference_snp_table=reference_snp_table,
-            genome_build="hg19",
-        )
-
-        self.assertEqual(
-            table.columns.tolist(),
-            ["CHR", "POS_1", "POS_2", "SNP_1", "SNP_2", "A1_1", "A2_1", "A1_2", "A2_2", "R2"],
-        )
-        self.assertEqual(table["POS_1"].dtype, np.dtype("int64"))
-        self.assertEqual(table["POS_2"].dtype, np.dtype("int64"))
-        self.assertEqual(table["R2"].dtype, np.dtype("float32"))
-        self.assertTrue(pd.api.types.is_string_dtype(table["CHR"]))
-        self.assertTrue(pd.api.types.is_string_dtype(table["SNP_1"]))
-        self.assertTrue(pd.api.types.is_string_dtype(table["SNP_2"]))
-
     @unittest.skipIf(_HAS_PYARROW, "pyarrow dependency is installed")
     def test_write_r2_parquet_requires_pyarrow_for_canonical_output(self):
-        reference_snp_table = pd.DataFrame(
-            {
-                "CHR": ["1", "1"],
-                "hg19_pos": [100, 120],
-                "hg38_pos": [110, 130],
-                "hg19_Uniq_ID": ["1:100:A:G", "1:120:C:T"],
-                "hg38_Uniq_ID": ["1:110:A:G", "1:130:C:T"],
-                "rsID": ["rs1", "rs2"],
-                "MAF": [0.2, 0.3],
-                "A1": ["A", "C"],
-                "A2": ["G", "T"],
-            }
-        )
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "chr1.parquet"
             with self.assertRaises(ImportError) as ctx:
                 kernel_builder.write_r2_parquet(
                     pair_rows=iter([{"i": 0, "j": 1, "R2": 0.75, "sign": "+"}]),
-                    reference_snp_table=reference_snp_table,
-                    path=path,
-                    genome_build="hg19",
-                    n_samples=10,
-                    snp_identifier="chr_pos",
+                    path=path, genome_build="hg19", n_samples=10,
+                    snp_identifier="chr_pos", n_snps=2, sidecar_identity_sha256="0" * 64,
                 )
             self.assertIn("requires pyarrow", str(ctx.exception))
             self.assertNotIn("fastparquet", str(ctx.exception))
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow dependency is not installed")
-    def test_write_r2_parquet_asserts_sort_invariant(self):
-        reference_snp_table = pd.DataFrame(
-            {
-                "CHR": ["1", "1", "1"],
-                "hg19_pos": [100, 80, 120],
-                "hg38_pos": [110, 90, 130],
-                "hg19_Uniq_ID": ["1:100:A:G", "1:80:C:T", "1:120:G:A"],
-                "hg38_Uniq_ID": ["1:110:A:G", "1:90:C:T", "1:130:G:A"],
-                "rsID": ["rs1", "rs2", "rs3"],
-                "MAF": [0.2, 0.3, 0.1],
-                "A1": ["A", "C", "G"],
-                "A2": ["G", "T", "A"],
-            }
-        )
-        pair_rows = [
-            {"i": 0, "j": 2, "R2": 0.5, "sign": "+"},
-            {"i": 1, "j": 2, "R2": 0.3, "sign": "+"},
-        ]
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "chr1.parquet"
-            with self.assertRaises(ValueError) as ctx:
-                kernel_builder.write_r2_parquet(
-                    pair_rows=iter(pair_rows),
-                    reference_snp_table=reference_snp_table,
-                    path=path,
-                    genome_build="hg19",
-                    n_samples=10,
-                    snp_identifier="chr_pos",
-                )
-            self.assertIn("POS_1=80", str(ctx.exception))
-            self.assertIn("POS_1=100", str(ctx.exception))
-
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow dependency is not installed")
-    def test_write_r2_parquet_writes_schema_metadata(self):
+    def test_write_r2_parquet_stores_provenance_metadata(self):
         import pyarrow.parquet as pq
 
-        reference_snp_table = pd.DataFrame(
-            {
-                "CHR": ["1", "1"],
-                "hg19_pos": [100, 120],
-                "hg38_pos": [110, 130],
-                "hg19_Uniq_ID": ["1:100:A:G", "1:120:C:T"],
-                "hg38_Uniq_ID": ["1:110:A:G", "1:130:C:T"],
-                "rsID": ["rs1", "rs2"],
-                "MAF": [0.2, 0.3],
-                "A1": ["A", "C"],
-                "A2": ["G", "T"],
-            }
-        )
-        pair_rows = [{"i": 0, "j": 1, "R2": 0.75, "sign": "+"}]
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "chr1.parquet"
-            kernel_builder.write_r2_parquet(
-                pair_rows=iter(pair_rows),
-                reference_snp_table=reference_snp_table,
-                path=path,
-                genome_build="hg19",
-                n_samples=10,
-                snp_identifier="rsid_allele_aware",
-                row_group_size=50_000,
-            )
-            pf = pq.ParquetFile(str(path))
-            meta = pf.schema_arrow.metadata
-            self.assertIsNotNone(meta)
-            self.assertIn(b"ldsc:sorted_by_build", meta)
-            self.assertEqual(meta[b"ldsc:sorted_by_build"].decode("utf-8"), "hg19")
-            self.assertIn(b"ldsc:row_group_size", meta)
-            self.assertEqual(meta[b"ldsc:row_group_size"].decode("utf-8"), "50000")
-            self.assertEqual(meta[b"ldsc:schema_version"].decode("utf-8"), "1")
-            self.assertEqual(meta[b"ldsc:artifact_type"].decode("utf-8"), "ref_panel_r2")
-            self.assertEqual(meta[b"ldsc:snp_identifier"].decode("utf-8"), "rsid_allele_aware")
-            self.assertEqual(meta[b"ldsc:genome_build"].decode("utf-8"), "hg19")
-
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow dependency is not installed")
-    def test_write_r2_parquet_stores_n_samples_and_r2_bias(self):
-        import pyarrow.parquet as pq
-
-        ref_table = kernel_builder.build_reference_snp_table(
-            metadata=pd.DataFrame(
-                {
-                    "CHR": ["1", "1"],
-                    "SNP": ["rs1", "rs2"],
-                    "A1": ["A", "T"],
-                    "A2": ["C", "G"],
-                    "MAF": [0.3, 0.4],
-                }
-            ),
-            hg19_positions=np.array([100, 200], dtype=int),
-            hg38_positions=None,
-        )
+        rows = [{"i": 0, "j": 1, "R2": 0.75, "sign": "+"}]
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "hg19" / "chr1_r2.parquet"
             kernel_builder.write_r2_parquet(
-                pair_rows=iter([]),
-                reference_snp_table=ref_table,
-                path=path,
-                genome_build="hg19",
-                n_samples=42,
-                snp_identifier="chr_pos",
+                pair_rows=iter(rows), path=path, genome_build="hg19", n_samples=42,
+                snp_identifier="rsid_allele_aware", row_group_size=50_000,
+                n_snps=2, sidecar_identity_sha256="ab" * 32,
             )
             meta = pq.read_schema(str(path)).metadata
-
-        self.assertEqual(meta[b"ldsc:n_samples"], b"42")
-        self.assertEqual(meta[b"ldsc:r2_bias"], b"unbiased")
+            self.assertEqual(meta[b"ldsc:sorted_by_build"], b"hg19")
+            self.assertEqual(meta[b"ldsc:row_group_size"], b"50000")
+            self.assertEqual(meta[b"ldsc:schema_version"], b"2")
+            self.assertEqual(meta[b"ldsc:artifact_type"], b"ref_panel_r2")
+            self.assertEqual(meta[b"ldsc:snp_identifier"], b"rsid_allele_aware")
+            self.assertEqual(meta[b"ldsc:genome_build"], b"hg19")
+            self.assertEqual(meta[b"ldsc:n_samples"], b"42")
+            self.assertEqual(meta[b"ldsc:r2_bias"], b"unbiased")
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow dependency is not installed")
     def test_write_r2_parquet_records_min_r2_metadata(self):
         import pyarrow.parquet as pq
 
-        ref_table = kernel_builder.build_reference_snp_table(
-            metadata=pd.DataFrame(
-                {
-                    "CHR": ["1", "1"],
-                    "SNP": ["rs1", "rs2"],
-                    "A1": ["A", "T"],
-                    "A2": ["C", "G"],
-                    "MAF": [0.3, 0.4],
-                }
-            ),
-            hg19_positions=np.array([100, 200], dtype=int),
-            hg38_positions=None,
-        )
         with tempfile.TemporaryDirectory() as tmpdir:
             default_path = Path(tmpdir) / "default.parquet"
             kernel_builder.write_r2_parquet(
-                pair_rows=iter([]),
-                reference_snp_table=ref_table,
-                path=default_path,
-                genome_build="hg19",
-                n_samples=10,
-                snp_identifier="chr_pos",
+                pair_rows=iter([]), path=default_path, genome_build="hg19", n_samples=10,
+                snp_identifier="chr_pos", n_snps=2, sidecar_identity_sha256="0" * 64,
             )
             self.assertEqual(pq.read_schema(str(default_path)).metadata[b"ldsc:min_r2"], b"0.0")
 
             filtered_path = Path(tmpdir) / "filtered.parquet"
             kernel_builder.write_r2_parquet(
-                pair_rows=iter([]),
-                reference_snp_table=ref_table,
-                path=filtered_path,
-                genome_build="hg19",
-                n_samples=10,
-                snp_identifier="chr_pos",
-                min_r2=0.3,
+                pair_rows=iter([]), path=filtered_path, genome_build="hg19", n_samples=10,
+                snp_identifier="chr_pos", min_r2=0.3, n_snps=2, sidecar_identity_sha256="0" * 64,
             )
             self.assertEqual(pq.read_schema(str(filtered_path)).metadata[b"ldsc:min_r2"], b"0.3")
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow dependency is not installed")
-    def test_write_r2_parquet_uses_canonical_arrow_column_types(self):
-        import pyarrow as pa
-        import pyarrow.parquet as pq
-
-        reference_snp_table = pd.DataFrame(
-            {
-                "CHR": ["1", "1"],
-                "hg19_pos": [100, 120],
-                "hg38_pos": [110, 130],
-                "hg19_Uniq_ID": ["1:100:A:G", "1:120:C:T"],
-                "hg38_Uniq_ID": ["1:110:A:G", "1:130:C:T"],
-                "rsID": ["rs1", "rs2"],
-                "MAF": [0.2, 0.3],
-                "A1": ["A", "C"],
-                "A2": ["G", "T"],
-            }
-        )
-        pair_rows = [{"i": 0, "j": 1, "R2": 0.75, "sign": "+"}]
-        expected = pa.schema(
-            [
-                ("CHR", pa.string()),
-                ("POS_1", pa.int64()),
-                ("POS_2", pa.int64()),
-                ("SNP_1", pa.string()),
-                ("SNP_2", pa.string()),
-                ("A1_1", pa.string()),
-                ("A2_1", pa.string()),
-                ("A1_2", pa.string()),
-                ("A2_2", pa.string()),
-                ("R2", pa.float32()),
-            ]
-        )
-        with tempfile.TemporaryDirectory() as tmpdir:
-            populated = Path(tmpdir) / "populated.parquet"
-            kernel_builder.write_r2_parquet(
-                pair_rows=iter(pair_rows),
-                reference_snp_table=reference_snp_table,
-                path=populated,
-                genome_build="hg19",
-                n_samples=10,
-                snp_identifier="chr_pos",
-            )
-            empty = Path(tmpdir) / "empty.parquet"
-            kernel_builder.write_r2_parquet(
-                pair_rows=iter([]),
-                reference_snp_table=reference_snp_table,
-                path=empty,
-                genome_build="hg19",
-                n_samples=10,
-                snp_identifier="chr_pos",
-            )
-            for path in (populated, empty):
-                schema = pq.read_schema(str(path))
-                self.assertTrue(
-                    schema.equals(expected, check_metadata=False),
-                    msg=f"unexpected schema for {path.name}: {schema}",
-                )
-            table = pq.read_table(str(populated)).to_pydict()
-            self.assertEqual(table["CHR"], ["1"])
-            self.assertEqual(table["POS_1"], [100])
-            self.assertEqual(table["POS_2"], [120])
-            self.assertEqual(table["SNP_1"], ["rs1"])
-            self.assertEqual(table["SNP_2"], ["rs2"])
-            self.assertEqual(table["A1_1"], ["A"])
-            self.assertEqual(table["A2_1"], ["G"])
-            self.assertEqual(table["A1_2"], ["C"])
-            self.assertEqual(table["A2_2"], ["T"])
-            self.assertAlmostEqual(table["R2"][0], 0.75, places=5)
-
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow dependency is not installed")
-    def test_write_r2_parquet_uses_zstd_compression(self):
-        import pyarrow as pa
-        import pyarrow.parquet as pq
-
-        if not pa.Codec.is_available("zstd"):
-            self.skipTest("zstd codec is unavailable in this pyarrow build")
-
-        reference_snp_table = pd.DataFrame(
-            {
-                "CHR": ["1", "1"],
-                "hg19_pos": [100, 120],
-                "hg38_pos": [110, 130],
-                "hg19_Uniq_ID": ["1:100:A:G", "1:120:C:T"],
-                "hg38_Uniq_ID": ["1:110:A:G", "1:130:C:T"],
-                "rsID": ["rs1", "rs2"],
-                "MAF": [0.2, 0.3],
-                "A1": ["A", "C"],
-                "A2": ["G", "T"],
-            }
-        )
-        pair_rows = [{"i": 0, "j": 1, "R2": 0.75, "sign": "+"}]
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "chr1.parquet"
-            kernel_builder.write_r2_parquet(
-                pair_rows=iter(pair_rows),
-                reference_snp_table=reference_snp_table,
-                path=path,
-                genome_build="hg19",
-                n_samples=10,
-                snp_identifier="chr_pos",
-            )
-            metadata = pq.ParquetFile(str(path)).metadata
-            row_group = metadata.row_group(0)
-            codecs = {row_group.column(c).compression for c in range(row_group.num_columns)}
-            self.assertEqual(codecs, {"ZSTD"})
-
     def test_write_r2_parquet_uses_zstd_level_9(self):
         import pyarrow as pa
         import pyarrow.parquet as pq
@@ -814,20 +511,7 @@ class StandardTableFormattingTest(unittest.TestCase):
         if not pa.Codec.is_available("zstd"):
             self.skipTest("zstd codec is unavailable in this pyarrow build")
 
-        reference_snp_table = pd.DataFrame(
-            {
-                "CHR": ["1", "1"],
-                "hg19_pos": [100, 120],
-                "hg38_pos": [110, 130],
-                "hg19_Uniq_ID": ["1:100:A:G", "1:120:C:T"],
-                "hg38_Uniq_ID": ["1:110:A:G", "1:130:C:T"],
-                "rsID": ["rs1", "rs2"],
-                "MAF": [0.2, 0.3],
-                "A1": ["A", "C"],
-                "A2": ["G", "T"],
-            }
-        )
-        pair_rows = [{"i": 0, "j": 1, "R2": 0.75, "sign": "+"}]
+        rows = [{"i": 0, "j": 1, "R2": 0.75, "sign": "+"}]
         captured: dict[str, object] = {}
         real_writer = pq.ParquetWriter
 
@@ -841,34 +525,19 @@ class StandardTableFormattingTest(unittest.TestCase):
             path = Path(tmpdir) / "chr1.parquet"
             with mock.patch.object(pq, "ParquetWriter", spy_writer):
                 kernel_builder.write_r2_parquet(
-                    pair_rows=iter(pair_rows),
-                    reference_snp_table=reference_snp_table,
-                    path=path,
-                    genome_build="hg19",
-                    n_samples=10,
-                    snp_identifier="chr_pos",
+                    pair_rows=iter(rows), path=path, genome_build="hg19", n_samples=10,
+                    snp_identifier="chr_pos", n_snps=2, sidecar_identity_sha256="0" * 64,
                 )
             self.assertEqual(captured.get("compression"), "zstd")
             self.assertEqual(captured.get("compression_level"), 9)
+            row_group = pq.ParquetFile(str(path)).metadata.row_group(0)
+            codecs = {row_group.column(c).compression for c in range(row_group.num_columns)}
+            self.assertEqual(codecs, {"ZSTD"})
 
     def test_write_r2_parquet_warns_when_falling_back_to_snappy(self):
-        import pyarrow as pa
         import pyarrow.parquet as pq
 
-        reference_snp_table = pd.DataFrame(
-            {
-                "CHR": ["1", "1"],
-                "hg19_pos": [100, 120],
-                "hg38_pos": [110, 130],
-                "hg19_Uniq_ID": ["1:100:A:G", "1:120:C:T"],
-                "hg38_Uniq_ID": ["1:110:A:G", "1:130:C:T"],
-                "rsID": ["rs1", "rs2"],
-                "MAF": [0.2, 0.3],
-                "A1": ["A", "C"],
-                "A2": ["G", "T"],
-            }
-        )
-        pair_rows = [{"i": 0, "j": 1, "R2": 0.75, "sign": "+"}]
+        rows = [{"i": 0, "j": 1, "R2": 0.75, "sign": "+"}]
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "chr1.parquet"
             # pa.Codec is a C extension whose methods cannot be patched via
@@ -883,12 +552,8 @@ class StandardTableFormattingTest(unittest.TestCase):
             with mock.patch("pyarrow.Codec", _NoZstdCodec):
                 with self.assertWarns(UserWarning) as cm:
                     kernel_builder.write_r2_parquet(
-                        pair_rows=iter(pair_rows),
-                        reference_snp_table=reference_snp_table,
-                        path=path,
-                        genome_build="hg19",
-                        n_samples=10,
-                        snp_identifier="chr_pos",
+                        pair_rows=iter(rows), path=path, genome_build="hg19", n_samples=10,
+                        snp_identifier="chr_pos", n_snps=2, sidecar_identity_sha256="0" * 64,
                     )
             self.assertIn("snappy", str(cm.warning).lower())
 
@@ -3297,6 +2962,50 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
             self.assertTrue(np.all(np.isfinite(parquet.baseline_table["base"].to_numpy(dtype=float))))
             self.assertGreater(float(direct.baseline_table["base"].max()), 1.0)
             self.assertGreater(float(parquet.baseline_table["base"].max()), 1.0)
+
+
+class IndexWriterTest(unittest.TestCase):
+    def _rows(self):
+        return [
+            {"i": 0, "j": 1, "R2": 0.8, "sign": "+"},
+            {"i": 0, "j": 2, "R2": 0.1, "sign": "-"},
+            {"i": 1, "j": 2, "R2": 0.3, "sign": "+"},
+        ]
+
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
+    def test_writes_four_columns_and_binding_metadata(self):
+        import pyarrow.parquet as pq
+        from ldsc._kernel import ref_panel_builder as kb
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "hg19" / "chr1_r2.parquet"
+            kb.write_r2_parquet(
+                pair_rows=self._rows(), path=path, genome_build="hg19",
+                n_samples=100, snp_identifier="chr_pos", min_r2=0.0,
+                n_snps=3, sidecar_identity_sha256="deadbeef" * 8,
+            )
+            pf = pq.ParquetFile(path)
+            self.assertEqual(pf.schema_arrow.names, ["IDX_1", "IDX_2", "R2", "SIGN"])
+            meta = {k.decode(): v.decode() for k, v in pf.schema_arrow.metadata.items()}
+            self.assertEqual(meta["ldsc:schema_version"], "2")
+            self.assertEqual(meta["ldsc:n_snps"], "3")
+            self.assertEqual(meta["ldsc:sidecar_identity_sha256"], "deadbeef" * 8)
+            self.assertEqual(meta["ldsc:sorted_by_build"], "hg19")
+
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
+    def test_asserts_idx1_sort_invariant(self):
+        from ldsc._kernel import ref_panel_builder as kb
+
+        bad = [{"i": 2, "j": 3, "R2": 0.5, "sign": "+"},
+               {"i": 0, "j": 1, "R2": 0.5, "sign": "+"}]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "chr1_r2.parquet"
+            with self.assertRaisesRegex(ValueError, "non-decreasing IDX_1"):
+                kb.write_r2_parquet(
+                    pair_rows=bad, path=path, genome_build="hg19", n_samples=100,
+                    snp_identifier="chr_pos", min_r2=0.0, n_snps=4,
+                    sidecar_identity_sha256="0" * 64,
+                )
 
 
 class IndexArrowTableTest(unittest.TestCase):

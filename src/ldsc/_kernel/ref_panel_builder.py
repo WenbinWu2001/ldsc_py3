@@ -43,38 +43,7 @@ GENETIC_MAP_CM_SPEC = ColumnSpec(
     ("CM", "GENETIC_MAP_CM", "GENETICMAPCM", "GENETIC_MAP(CM)", "GENETICMAP(CM)"),
     "genetic map centiMorgan",
 )
-_STANDARD_R2_COLUMNS = [
-    "CHR",
-    "POS_1",
-    "POS_2",
-    "SNP_1",
-    "SNP_2",
-    "A1_1",
-    "A2_1",
-    "A1_2",
-    "A2_2",
-    "R2",
-]
 _INDEX_R2_COLUMNS = ["IDX_1", "IDX_2", "R2", "SIGN"]
-
-
-def _empty_standard_r2_table() -> pd.DataFrame:
-    """Return an empty canonical R2 table with stable physical dtypes."""
-    return pd.DataFrame(
-        {
-            "CHR": pd.Series(dtype="string"),
-            "POS_1": pd.Series(dtype=np.int64),
-            "POS_2": pd.Series(dtype=np.int64),
-            "SNP_1": pd.Series(dtype="string"),
-            "SNP_2": pd.Series(dtype="string"),
-            "A1_1": pd.Series(dtype="string"),
-            "A2_1": pd.Series(dtype="string"),
-            "A1_2": pd.Series(dtype="string"),
-            "A2_2": pd.Series(dtype="string"),
-            "R2": pd.Series(dtype=np.float32),
-        },
-        columns=_STANDARD_R2_COLUMNS,
-    )
 
 def _open_text(path: str | PathLike[str]):
     """Open a plain-text or gzip-compressed text file for reading."""
@@ -577,49 +546,6 @@ def build_reference_snp_table(
     return table.reset_index(drop=True)
 
 
-def build_standard_r2_table(
-    *,
-    pair_rows: list[dict[str, float | int | str]],
-    reference_snp_table: pd.DataFrame,
-    genome_build: str,
-) -> pd.DataFrame:
-    """
-    Build one canonical R2 table batch for a chromosome.
-
-    The returned frame always uses the package-written parquet schema:
-    string-valued ``CHR``/``SNP_1``/``SNP_2``/endpoint allele columns,
-    ``int64`` positions, and ``float32`` R2 values. Empty batches keep the same
-    dtypes so chromosomes with no emitted pairs still serialize as canonical R2
-    parquet files.
-    """
-
-    if not pair_rows:
-        return _empty_standard_r2_table()
-
-    i = np.asarray([int(row["i"]) for row in pair_rows], dtype=np.int64)
-    j = np.asarray([int(row["j"]) for row in pair_rows], dtype=np.int64)
-    r2 = np.asarray([float(row["R2"]) for row in pair_rows], dtype=np.float32)
-    left = reference_snp_table.iloc[i].reset_index(drop=True)
-    right = reference_snp_table.iloc[j].reset_index(drop=True)
-    pos_col = f"{genome_build}_pos"
-    chr_col = resolve_required_column(left.columns, CHR_COLUMN_SPEC, context="standard R2 reference SNP table")
-    return pd.DataFrame(
-        {
-            "CHR": left[chr_col].astype(str),
-            "POS_1": left[pos_col].to_numpy(dtype=np.int64),
-            "POS_2": right[pos_col].to_numpy(dtype=np.int64),
-            "SNP_1": left["rsID"].astype(str),
-            "SNP_2": right["rsID"].astype(str),
-            "A1_1": left["A1"].astype(str),
-            "A2_1": left["A2"].astype(str),
-            "A1_2": right["A1"].astype(str),
-            "A2_2": right["A2"].astype(str),
-            "R2": r2,
-        },
-        columns=_STANDARD_R2_COLUMNS,
-    )
-
-
 def build_runtime_metadata_table(
     *,
     metadata: pd.DataFrame,
@@ -697,95 +623,41 @@ def _standard_r2_index_table(pa, schema, *, pair_rows: list[dict[str, float | in
     )
 
 
-def _standard_r2_arrow_table(
-    pa,
-    schema,
-    *,
-    pair_rows: list[dict[str, float | int | str]],
-    reference_snp_table: pd.DataFrame,
-    genome_build: str,
-):
-    """Build one canonical R2 ``pyarrow.Table`` batch directly from numpy.
-
-    Mirrors :func:`build_standard_r2_table` column-for-column but skips the
-    pandas intermediate, so large builder batches avoid an extra full-width
-    DataFrame copy on the way to the parquet writer. ``schema`` fixes the
-    canonical Arrow column types (string/int64/float32) and carries the
-    ``ldsc:*`` metadata.
-    """
-    if not pair_rows:
-        return schema.empty_table()
-    count = len(pair_rows)
-    i = np.fromiter((int(row["i"]) for row in pair_rows), dtype=np.int64, count=count)
-    j = np.fromiter((int(row["j"]) for row in pair_rows), dtype=np.int64, count=count)
-    r2 = np.fromiter((float(row["R2"]) for row in pair_rows), dtype=np.float32, count=count)
-    left = reference_snp_table.iloc[i]
-    right = reference_snp_table.iloc[j]
-    pos_col = f"{genome_build}_pos"
-    chr_col = resolve_required_column(left.columns, CHR_COLUMN_SPEC, context="standard R2 reference SNP table")
-
-    def _strings(series: pd.Series):
-        return pa.array(series.astype(str).to_numpy(dtype=object), type=pa.string())
-
-    columns = [
-        _strings(left[chr_col]),
-        pa.array(left[pos_col].to_numpy(dtype=np.int64), type=pa.int64()),
-        pa.array(right[pos_col].to_numpy(dtype=np.int64), type=pa.int64()),
-        _strings(left["rsID"]),
-        _strings(right["rsID"]),
-        _strings(left["A1"]),
-        _strings(left["A2"]),
-        _strings(right["A1"]),
-        _strings(right["A2"]),
-        pa.array(r2, type=pa.float32()),
-    ]
-    return pa.Table.from_arrays(columns, schema=schema)
-
-
 def write_r2_parquet(
     *,
     pair_rows: Iterable[dict[str, float | int | str]],
-    reference_snp_table: pd.DataFrame,
     path: str | PathLike[str],
     genome_build: str,
     n_samples: int,
     snp_identifier: str,
+    n_snps: int,
+    sidecar_identity_sha256: str,
     batch_size: int = 100_000,
     row_group_size: int = 50_000,
     min_r2: float = 0.0,
 ) -> str:
     """
-    Write one canonical R2 parquet table with LDSC schema metadata.
+    Write one canonical 4-column index R2 parquet with LDSC schema metadata.
 
-    The writer requires ``pyarrow`` because the canonical format depends on
-    Arrow schema metadata and explicit row-group sizing. It writes exactly the
-    canonical R2 columns and records ``ldsc:sorted_by_build``,
-    ``ldsc:row_group_size``, ``ldsc:n_samples``, ``ldsc:r2_bias``, and
-    ``ldsc:min_r2`` in the Arrow schema. Current package-built panels always
-    store unbiased R2 values, so ``ldsc:r2_bias`` is written as ``"unbiased"``
-    and ``n_samples`` captures the PLINK reader's ``geno.n`` for downstream
-    provenance and future raw-R2 compatibility.
+    Columns are ``IDX_1``/``IDX_2`` (int32 sidecar-row indices), ``R2``
+    (float32 unbiased), and ``SIGN`` (bit-packed bool, ``True`` when the Pearson
+    correlation r >= 0 in the panel's A1/A2 orientation). Pairs must arrive in
+    non-decreasing ``IDX_1`` order because row-group pruning depends on monotonic
+    footer statistics.
+
+    The parquet is bound to its per-SNP sidecar by ``ldsc:n_snps`` (the index
+    space size) and ``ldsc:sidecar_identity_sha256`` (a hash of the sidecar's
+    ``CHR:POS:A1:A2`` identity). The stored indices are meaningless without the
+    matching sidecar, so the reader hard-fails on a binding mismatch.
 
     ``min_r2`` records the unbiased-R2 floor applied upstream during pair
     emission; it is provenance only and does not itself filter rows here. The
     table is pairwise-complete only when ``ldsc:min_r2`` is ``"0.0"`` (or any
     non-positive value), because the read path treats absent pairs as R2=0.
 
-    Each batch is assembled as a :class:`pyarrow.Table` directly from numpy
-    column arrays via :func:`_standard_r2_arrow_table`, bypassing the pandas
-    intermediate to keep peak memory low on deep panels. The on-disk schema is
-    identical to the pandas path (string/int64/float32 columns).
-
     Column chunks are compressed with zstd level 9 when the codec is available
-    in the local ``pyarrow`` build (falling back to snappy otherwise, which has
-    no level knob). Compression is recorded per column-chunk in the parquet
-    footer and auto-detected on read, so it is purely a storage concern and
-    never affects decoded values.
-
-    Incoming pair rows must already be sorted by non-decreasing ``POS_1``. The
-    writer validates that invariant per batch (vectorized over ``POS_1`` and
-    across the batch boundary) because row-group pruning depends on monotonic
-    footer statistics.
+    (falling back to snappy otherwise). Compression is recorded per column-chunk
+    in the footer and auto-detected on read.
     """
 
     _ensure_parent_dir(path)
@@ -797,6 +669,9 @@ def write_r2_parquet(
             "Writing canonical reference-panel R2 parquet artifacts requires pyarrow."
         ) from exc
 
+    if int(n_snps) >= 2**31:
+        raise ValueError(f"n_snps={n_snps} exceeds int32 index range; cannot store IDX columns.")
+
     pa_meta = {
         **{
             f"ldsc:{key}".encode("utf-8"): str(value).encode("utf-8")
@@ -806,55 +681,44 @@ def write_r2_parquet(
                 genome_build=genome_build,
             ).items()
         },
+        b"ldsc:schema_version": b"2",
         b"ldsc:sorted_by_build": genome_build.encode("utf-8"),
         b"ldsc:row_group_size": str(row_group_size).encode("utf-8"),
         b"ldsc:n_samples": str(n_samples).encode("utf-8"),
         b"ldsc:r2_bias": b"unbiased",
         b"ldsc:min_r2": str(min_r2).encode("utf-8"),
+        b"ldsc:n_snps": str(int(n_snps)).encode("utf-8"),
+        b"ldsc:sidecar_identity_sha256": str(sidecar_identity_sha256).encode("utf-8"),
     }
     schema = pa.schema(
         [
-            ("CHR", pa.string()),
-            ("POS_1", pa.int64()),
-            ("POS_2", pa.int64()),
-            ("SNP_1", pa.string()),
-            ("SNP_2", pa.string()),
-            ("A1_1", pa.string()),
-            ("A2_1", pa.string()),
-            ("A1_2", pa.string()),
-            ("A2_2", pa.string()),
+            ("IDX_1", pa.int32()),
+            ("IDX_2", pa.int32()),
             ("R2", pa.float32()),
+            ("SIGN", pa.bool_()),
         ]
     ).with_metadata(pa_meta)
     writer = None
     batch: list[dict[str, float | int | str]] = []
-    prev_pos1: int | None = None
+    prev_idx1: int | None = None
 
     def _flush(rows: list[dict[str, float | int | str]]) -> None:
-        nonlocal writer, prev_pos1
-        table = _standard_r2_arrow_table(
-            pa,
-            schema,
-            pair_rows=rows,
-            reference_snp_table=reference_snp_table,
-            genome_build=genome_build,
-        )
-        pos1 = table.column("POS_1").to_numpy()
-        if pos1.size:
-            sequence = pos1 if prev_pos1 is None else np.concatenate(([prev_pos1], pos1))
+        nonlocal writer, prev_idx1
+        table = _standard_r2_index_table(pa, schema, pair_rows=rows)
+        idx1 = table.column("IDX_1").to_numpy()
+        if idx1.size:
+            sequence = idx1 if prev_idx1 is None else np.concatenate(([prev_idx1], idx1))
             bad = np.flatnonzero(np.diff(sequence) < 0)
             if bad.size:
                 k = int(bad[0])
                 raise ValueError(
-                    "Pairs must arrive in non-decreasing POS_1 order. "
-                    f"Received POS_1={int(sequence[k + 1])} after POS_1={int(sequence[k])}. "
-                    "Verify that the reference panel builder traverses SNPs in ascending positional order."
+                    "Pairs must arrive in non-decreasing IDX_1 order. "
+                    f"Received IDX_1={int(sequence[k + 1])} after IDX_1={int(sequence[k])}. "
+                    "Verify that the reference panel builder traverses SNPs in ascending index order."
                 )
-            prev_pos1 = int(pos1[-1])
+            prev_idx1 = int(idx1[-1])
         if writer is None:
             if pa.Codec.is_available("zstd"):
-                # zstd level 9: ~3.5% smaller than the default level 1 with
-                # identical read speed and memory (snappy has no level knob).
                 writer = pq.ParquetWriter(str(path), schema, compression="zstd", compression_level=9)
             else:
                 warnings.warn(

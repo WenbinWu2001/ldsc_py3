@@ -3156,3 +3156,44 @@ class IndexRemapTest(unittest.TestCase):
         retained = full.iloc[[1]].reset_index(drop=True)  # the A/C variant at pos10
         remap, _ = build_index_remap(full, retained, "chr_pos_allele_aware")
         self.assertEqual(remap.tolist(), [-1, 0])
+
+
+class IndexReaderDecodeTest(unittest.TestCase):
+    def _make_panel(self, tmp):
+        from ldsc._kernel import ref_panel_builder as kb
+        from ldsc._kernel.snp_identity import sidecar_identity_sha256
+
+        full = pd.DataFrame({"CHR": ["1"] * 4, "POS": [10, 20, 30, 40],
+                             "SNP": ["a", "b", "c", "d"], "A1": list("ACGT"),
+                             "A2": list("GTAC"), "CM": [0.0] * 4, "MAF": [0.3] * 4})
+        meta = _write_index_sidecar(tmp, full)
+        r2 = meta.with_name("chr1_r2.parquet")
+        rows = [
+            {"i": 0, "j": 1, "R2": 0.5, "sign": "+"},
+            {"i": 0, "j": 2, "R2": 0.2, "sign": "+"},
+            {"i": 1, "j": 2, "R2": 0.4, "sign": "-"},
+            {"i": 2, "j": 3, "R2": 0.9, "sign": "+"},
+        ]
+        kb.write_r2_parquet(pair_rows=rows, path=r2, genome_build="hg19", n_samples=100,
+                            snp_identifier="chr_pos", min_r2=0.0, n_snps=4,
+                            sidecar_identity_sha256=sidecar_identity_sha256(full))
+        return r2, full
+
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
+    def test_within_block_matrix_drops_unretained_endpoint(self):
+        from ldsc._kernel.ldscore import SortedR2BlockReader
+        with tempfile.TemporaryDirectory() as tmp:
+            r2, full = self._make_panel(tmp)
+            # retained = panel rows 0,1,2 (drop pos40); matrix order = [10,20,30]
+            retained = full.iloc[[0, 1, 2]][["CHR", "POS", "SNP", "A1", "A2", "CM", "MAF"]].reset_index(drop=True)
+            reader = SortedR2BlockReader(
+                paths=[str(r2)], chrom="1", metadata=retained,
+                identifier_mode="chr_pos", r2_bias_mode="unbiased",
+                r2_sample_size=None, genome_build="hg19",
+            )
+            mat = reader.within_block_matrix(0, 3)
+            self.assertAlmostEqual(mat[0, 1], 0.5, places=6)
+            self.assertAlmostEqual(mat[0, 2], 0.2, places=6)
+            self.assertAlmostEqual(mat[1, 2], 0.4, places=6)
+            self.assertAlmostEqual(mat[0, 0], 1.0, places=6)  # diagonal
+            self.assertEqual(mat.shape, (3, 3))

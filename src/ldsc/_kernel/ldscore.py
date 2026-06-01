@@ -896,7 +896,9 @@ def _validate_index_binding(full_sidecar: pd.DataFrame, *, n_snps: int, identity
 
 
 def _parquet_schema_layout(schema_names: Sequence[str]) -> str:
-    """Classify a runtime parquet schema as canonical, raw, or unsupported."""
+    """Classify a runtime parquet schema as index, canonical, raw, or unsupported."""
+    if {"IDX_1", "IDX_2", "R2"}.issubset(set(schema_names)):
+        return "index"
     try:
         _resolve_canonical_parquet_columns(schema_names, require_endpoint_alleles=False)
     except ValueError:
@@ -1586,6 +1588,20 @@ class SortedR2BlockReader:
             a2_col = resolve_required_column(metadata.columns, A2_COLUMN_SPEC, context=metadata_context)
             metadata = metadata.rename(columns={a1_col: "A1", a2_col: "A2"})
         validate_retained_identifier_uniqueness(metadata, self.identifier_mode, chrom)
+
+        if layout == "index":
+            if len(paths) != 1:
+                raise ValueError(
+                    "index parquet_r2 backend requires exactly one file per chromosome; "
+                    f"got {len(paths)} for chromosome {self.chrom}"
+                )
+            if pq is None:
+                raise LDSCDependencyError("pyarrow is required for index parquet R2 input.")
+            self._runtime_layout = "index"
+            self._pf = pq.ParquetFile(paths[0])
+            self._init_index_path(paths[0], metadata)
+            return
+
         self.pos = metadata["POS"].to_numpy(dtype=np.int64)
         self.m = len(metadata)
         if is_allele_aware_mode(self.identifier_mode):
@@ -1644,6 +1660,60 @@ class SortedR2BlockReader:
             "`CHR`, `POS_1`, `POS_2`, `SNP_1`, `SNP_2`, `R2` (aliases allowed at load time) "
             "or the raw legacy pairwise columns."
         )
+
+    def _init_index_path(self, path: str, retained_metadata: pd.DataFrame) -> None:
+        """Validate index-format metadata, the sidecar binding, and build the remap."""
+        if self._pf is None:
+            raise ValueError("Index parquet reader is not initialized.")
+        schema_meta = self._pf.schema_arrow.metadata or {}
+
+        build_raw = schema_meta.get(b"ldsc:sorted_by_build")
+        if build_raw is None:
+            raise ValueError(
+                f"'{path}' is index-format but has no ldsc:sorted_by_build metadata. "
+                "Regenerate with `ldsc build-ref-panel`."
+            )
+        parquet_build = normalize_genome_build(build_raw.decode("utf-8"))
+        if self.genome_build not in {None, parquet_build}:
+            raise ValueError(
+                f"Parquet sorted for {parquet_build} but analysis uses {self.genome_build}. "
+                f"Use the matching reference file or regenerate with `--genome-build {self.genome_build}`."
+            )
+        self.genome_build = parquet_build
+
+        n_snps_raw = schema_meta.get(b"ldsc:n_snps")
+        hash_raw = schema_meta.get(b"ldsc:sidecar_identity_sha256")
+        if n_snps_raw is None or hash_raw is None:
+            raise ValueError(f"'{path}' is missing ldsc:n_snps or ldsc:sidecar_identity_sha256 binding metadata.")
+        n_snps = int(n_snps_raw.decode("utf-8"))
+
+        full_sidecar = _load_full_panel_sidecar(path)
+        _validate_index_binding(
+            full_sidecar, n_snps=n_snps, identity_hash=hash_raw.decode("utf-8"),
+            context=f"SortedR2BlockReader[{self.chrom}] {path}",
+        )
+
+        self._remap, self._retained_build_idx = build_index_remap(
+            full_sidecar, retained_metadata, self.identifier_mode
+        )
+        self.m = len(retained_metadata)
+
+        meta = self._pf.metadata
+        if meta.num_row_groups > 0:
+            avg = meta.num_rows / meta.num_row_groups
+            if avg > 500_000:
+                LOGGER.warning(
+                    f"'{path}' has {meta.num_row_groups} row group(s) (avg {avg:.0f} rows/group); "
+                    "query performance will be degraded. Regenerate with row_group_size=50000."
+                )
+
+        idx1_col = self._pf.schema_arrow.names.index("IDX_1")
+        self._rg_bounds = []
+        for rg_index in range(meta.num_row_groups):
+            stats = meta.row_group(rg_index).column(idx1_col).statistics
+            if stats is None or not getattr(stats, "has_min_max", False):
+                continue
+            self._rg_bounds.append((int(stats.min), int(stats.max), rg_index))
 
     def _init_canonical_path(self, path: str) -> None:
         """Validate canonical parquet metadata and build the row-group index."""
@@ -1757,11 +1827,15 @@ class SortedR2BlockReader:
         return [index for mn, mx, index in self._rg_bounds if mn <= pos_max and mx >= pos_min]
 
     def _row_group_indices_for_index_window(self, start: int, stop: int) -> list[int]:
-        """Return canonical row groups needed for a retained-SNP index window."""
+        """Return row groups whose footer bounds overlap a retained-SNP index window."""
         start = max(0, int(start))
-        stop = min(int(stop), int(getattr(self, "m", len(self.pos))))
-        if stop <= start:
+        stop = min(int(stop), int(getattr(self, "m", 0)))
+        if stop <= start or not self._rg_bounds:
             return []
+        if getattr(self, "_runtime_layout", None) == "index":
+            lo = int(self._retained_build_idx[start])
+            hi = int(self._retained_build_idx[stop - 1])
+            return [rg for mn, mx, rg in self._rg_bounds if mn <= hi and mx >= lo]
         return self._row_group_indices_for_pos_window(int(self.pos[start]), int(self.pos[stop - 1]))
 
     @staticmethod
@@ -1820,7 +1894,7 @@ class SortedR2BlockReader:
 
     def configure_auto_row_group_cache(self, block_left: np.ndarray, snp_batch_size: int) -> None:
         """Size the decoded row-group cache from this chromosome's sliding windows."""
-        if getattr(self, "_runtime_layout", None) != "canonical":
+        if getattr(self, "_runtime_layout", None) not in ("canonical", "index"):
             self._row_group_cache = None
             return
         num_row_groups = len(self._rg_bounds)
@@ -1829,7 +1903,7 @@ class SortedR2BlockReader:
             LOGGER.debug(f"Chromosome {self.chrom} row-group cache disabled: no footer bounds available.")
             return
 
-        m = int(getattr(self, "m", len(self.pos)))
+        m = int(getattr(self, "m", 0))
         query_sets = [
             set(self._row_group_indices_for_index_window(start, stop))
             for start, stop in self._sliding_query_index_windows(block_left, snp_batch_size, m)
@@ -1860,6 +1934,30 @@ class SortedR2BlockReader:
             f"Chromosome {self.chrom} row-group cache summary: capacity={cache.capacity}, "
             f"hits={cache.hits}, misses={cache.misses}, evictions={cache.evictions}, "
             f"row_group_reads={cache.row_group_reads}."
+        )
+
+    def _decode_index_row_group(self, row_group_index: int) -> _DecodedR2RowGroup:
+        """Decode one index row group: gather endpoints through the remap.
+
+        ``IDX_1``/``IDX_2`` are panel (build) indices; ``self._remap`` maps each
+        to its retained matrix index (or ``-1`` when the endpoint SNP is not in
+        the analysis universe). Pairs with either endpoint dropped are removed.
+        ``SIGN`` is not read: it is unused by LD-score computation.
+        """
+        if self._pf is None:
+            raise ValueError("Index parquet reader is not initialized.")
+        table = self._pf.read_row_group(int(row_group_index), columns=["IDX_1", "IDX_2", "R2"])
+        idx1 = _arrow_column_to_numpy(table.column("IDX_1")).astype(np.int64, copy=False)
+        idx2 = _arrow_column_to_numpy(table.column("IDX_2")).astype(np.int64, copy=False)
+        r2 = self._transform_r2(_arrow_column_to_numpy(table.column("R2")).astype(np.float32, copy=False))
+        i = self._remap[idx1]
+        j = self._remap[idx2]
+        keep = (i >= 0) & (j >= 0)
+        return _DecodedR2RowGroup(
+            row_group_index=int(row_group_index),
+            i=i[keep].astype(np.int32, copy=False),
+            j=j[keep].astype(np.int32, copy=False),
+            r2=r2[keep].astype(np.float32, copy=False),
         )
 
     def _decode_canonical_row_group(self, row_group_index: int) -> _DecodedR2RowGroup:
@@ -1936,7 +2034,11 @@ class SortedR2BlockReader:
             if cached is not None:
                 return cached
 
-        decoded = self._decode_canonical_row_group(row_group_index)
+        decoded = (
+            self._decode_index_row_group(row_group_index)
+            if self._runtime_layout == "index"
+            else self._decode_canonical_row_group(row_group_index)
+        )
         if cache is not None:
             cache.row_group_reads += 1
             cache.put(decoded)
@@ -2056,7 +2158,7 @@ class SortedR2BlockReader:
         b_start, b_stop = l_B, l_B + c
         union_start = min(a_start, b_start)
         union_stop = max(a_stop, b_stop)
-        if self._runtime_layout == "canonical":
+        if self._runtime_layout in ("canonical", "index"):
             query_rows = self._query_union_rows_canonical_by_index(union_start, union_stop)
         else:
             union_min = int(self.pos[union_start])
@@ -2094,7 +2196,7 @@ class SortedR2BlockReader:
             return np.zeros((0, 0), dtype=np.float32)
 
         b_start, b_stop = l_B, l_B + c
-        if self._runtime_layout == "canonical":
+        if self._runtime_layout in ("canonical", "index"):
             query_rows = self._query_union_rows_canonical_by_index(b_start, b_stop)
         else:
             pos_min = int(self.pos[b_start])

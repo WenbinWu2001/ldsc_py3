@@ -243,6 +243,7 @@ from .snp_identity import (
     identity_mode_family,
     is_allele_aware_mode,
     restriction_membership_mask,
+    sidecar_identity_sha256,
 )
 
 try:  # pragma: no cover - optional dependency
@@ -819,6 +820,49 @@ def get_pyarrow_modules():
             "pyarrow is required for sorted parquet R2 input. Install pyarrow and retry."
         ) from exc
     return ds
+
+
+def _panel_sidecar_path_for_r2(r2_path: str) -> Path:
+    """Return the ``chrN_meta.tsv.gz`` sidecar path paired with an R2 parquet."""
+    p = Path(r2_path)
+    if not p.name.endswith("_r2.parquet"):
+        raise ValueError(f"Cannot derive sidecar path from non-canonical R2 filename: {p.name}")
+    return p.with_name(p.name[: -len("_r2.parquet")] + "_meta.tsv.gz")
+
+
+def _load_full_panel_sidecar(r2_path: str) -> pd.DataFrame:
+    """Load the complete (unrestricted) panel sidecar that defines the index space."""
+    sidecar_path = _panel_sidecar_path_for_r2(r2_path)
+    if not sidecar_path.exists():
+        raise FileNotFoundError(
+            f"Index-format R2 parquet '{r2_path}' requires its sidecar '{sidecar_path}'. "
+            "The sidecar is mandatory: parquet IDX values are meaningless without it."
+        )
+    df = pd.read_csv(sidecar_path, sep="\t", comment="#")
+    context = f"panel sidecar {sidecar_path}"
+    renamed = {
+        resolve_required_column(df.columns, REFERENCE_METADATA_SPEC_MAP["CHR"], context=context): "CHR",
+        resolve_required_column(df.columns, REFERENCE_METADATA_SPEC_MAP["POS"], context=context): "POS",
+        resolve_required_column(df.columns, REFERENCE_METADATA_SPEC_MAP["SNP"], context=context): "SNP",
+        resolve_required_column(df.columns, A1_COLUMN_SPEC, context=context): "A1",
+        resolve_required_column(df.columns, A2_COLUMN_SPEC, context=context): "A2",
+    }
+    return df.rename(columns=renamed)
+
+
+def _validate_index_binding(full_sidecar: pd.DataFrame, *, n_snps: int, identity_hash: str, context: str) -> None:
+    """Hard-fail if the sidecar does not match the parquet's recorded binding."""
+    if len(full_sidecar) != int(n_snps):
+        raise ValueError(
+            f"{context}: sidecar has {len(full_sidecar)} rows but parquet records n_snps={n_snps}. "
+            "The parquet and sidecar are not a matched pair."
+        )
+    actual = sidecar_identity_sha256(full_sidecar, context=context)
+    if actual != identity_hash:
+        raise ValueError(
+            f"{context}: sidecar identity hash {actual} does not match parquet "
+            f"ldsc:sidecar_identity_sha256 {identity_hash}. The sidecar is wrong, reordered, or edited."
+        )
 
 
 def _parquet_schema_layout(schema_names: Sequence[str]) -> str:

@@ -3091,3 +3091,42 @@ class LDScoreParquetNormalizationTest(unittest.TestCase):
                     r2_sample_size=None,
                     genome_build="auto",
                 )
+
+
+def _write_index_sidecar(tmp, df, *, gz: bool = True):
+    """Write a panel sidecar (CHR,POS,SNP,A1,A2,CM,MAF) as chr1_meta.tsv.gz."""
+    meta = Path(tmp) / "hg19" / "chr1_meta.tsv.gz"
+    meta.parent.mkdir(parents=True, exist_ok=True)
+    with gzip.open(meta, "wt") as h:
+        h.write("# ldsc:schema_version=2\n")
+        df.to_csv(h, sep="\t", index=False)
+    return meta
+
+
+class IndexBindingTest(unittest.TestCase):
+    def _sidecar(self, tmp):
+        df = pd.DataFrame({"CHR": ["1", "1", "1"], "POS": [10, 20, 30],
+                           "SNP": ["rsA", "rsB", "rsC"], "A1": ["A", "C", "G"],
+                           "A2": ["G", "T", "A"], "CM": [0.0, 0.0, 0.0], "MAF": [0.2, 0.3, 0.4]})
+        return _write_index_sidecar(tmp, df), df
+
+    def test_load_full_panel_sidecar_reads_canonical_columns(self):
+        from ldsc._kernel import ldscore as ls
+        with tempfile.TemporaryDirectory() as tmp:
+            meta, df = self._sidecar(tmp)
+            r2 = meta.with_name("chr1_r2.parquet")
+            loaded = ls._load_full_panel_sidecar(str(r2))
+            self.assertEqual(list(loaded["CHR"].astype(str)), ["1", "1", "1"])
+            self.assertEqual(list(loaded["POS"].astype(int)), [10, 20, 30])
+
+    def test_validate_binding_raises_on_hash_mismatch(self):
+        from ldsc._kernel import ldscore as ls
+        from ldsc._kernel.snp_identity import sidecar_identity_sha256
+        with tempfile.TemporaryDirectory() as tmp:
+            meta, df = self._sidecar(tmp)
+            good = sidecar_identity_sha256(df)
+            ls._validate_index_binding(df, n_snps=3, identity_hash=good, context="t")  # no raise
+            with self.assertRaisesRegex(ValueError, "identity hash"):
+                ls._validate_index_binding(df, n_snps=3, identity_hash="0" * 64, context="t")
+            with self.assertRaisesRegex(ValueError, "n_snps"):
+                ls._validate_index_binding(df, n_snps=999, identity_hash=good, context="t")

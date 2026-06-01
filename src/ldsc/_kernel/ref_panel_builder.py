@@ -5,6 +5,7 @@ from __future__ import annotations
 import gzip
 import logging
 import re
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from os import PathLike
@@ -830,6 +831,13 @@ def write_r2_parquet(
                 # identical read speed and memory (snappy has no level knob).
                 writer = pq.ParquetWriter(str(path), schema, compression="zstd", compression_level=9)
             else:
+                warnings.warn(
+                    "zstd codec is not available in this pyarrow build; "
+                    "falling back to snappy compression. "
+                    "Install pyarrow from conda-forge or PyPI to enable zstd.",
+                    UserWarning,
+                    stacklevel=2,
+                )
                 writer = pq.ParquetWriter(str(path), schema, compression="snappy")
         writer.write_table(table, row_group_size=row_group_size)
 

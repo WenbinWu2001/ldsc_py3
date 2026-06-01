@@ -851,6 +851,47 @@ class StandardTableFormattingTest(unittest.TestCase):
             self.assertEqual(captured.get("compression"), "zstd")
             self.assertEqual(captured.get("compression_level"), 9)
 
+    def test_write_r2_parquet_warns_when_falling_back_to_snappy(self):
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        reference_snp_table = pd.DataFrame(
+            {
+                "CHR": ["1", "1"],
+                "hg19_pos": [100, 120],
+                "hg38_pos": [110, 130],
+                "hg19_Uniq_ID": ["1:100:A:G", "1:120:C:T"],
+                "hg38_Uniq_ID": ["1:110:A:G", "1:130:C:T"],
+                "rsID": ["rs1", "rs2"],
+                "MAF": [0.2, 0.3],
+                "A1": ["A", "C"],
+                "A2": ["G", "T"],
+            }
+        )
+        pair_rows = [{"i": 0, "j": 1, "R2": 0.75, "sign": "+"}]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "chr1.parquet"
+            # pa.Codec is a C extension whose methods cannot be patched via
+            # mock.patch.object.  Patch the whole pa.Codec name with a plain
+            # Python stand-in whose is_available always returns False so the
+            # snappy fallback path is exercised.
+            class _NoZstdCodec:
+                @staticmethod
+                def is_available(codec):
+                    return False
+
+            with mock.patch("pyarrow.Codec", _NoZstdCodec):
+                with self.assertWarns(UserWarning) as cm:
+                    kernel_builder.write_r2_parquet(
+                        pair_rows=iter(pair_rows),
+                        reference_snp_table=reference_snp_table,
+                        path=path,
+                        genome_build="hg19",
+                        n_samples=10,
+                        snp_identifier="chr_pos",
+                    )
+            self.assertIn("snappy", str(cm.warning).lower())
+
     def test_build_runtime_metadata_table_is_build_specific(self):
         metadata = pd.DataFrame(
             {

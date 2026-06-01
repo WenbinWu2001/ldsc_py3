@@ -264,11 +264,25 @@ def compute_block_left(coords: np.ndarray, max_dist: float) -> np.ndarray:
     return block_left
 
 
-def _unbiased_r2_from_correlation(correlation: float, n_samples: int) -> float:
-    """Convert a correlation coefficient to the unbiased :math:`R^2` estimate."""
+def _unbiased_r2_array(correlation: np.ndarray, n_samples: int) -> np.ndarray:
+    """Convert correlation coefficients to the unbiased :math:`R^2` estimate."""
     sq = correlation * correlation
     denom = n_samples - 2 if n_samples > 2 else n_samples
     return sq - (1.0 - sq) / denom
+
+
+@dataclass
+class _PendingPairs:
+    """Per-left-index pair columns held until the left index is final."""
+
+    j: list[np.ndarray]
+    r2: list[np.ndarray]
+    sign: list[np.ndarray]
+
+
+# One emitted batch as parallel column arrays: (left index, right index,
+# unbiased R2 as float32, sign of the correlation as int8 +1/-1).
+PairColumns = tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
 
 
 def _emit_cross_block_pairs(
@@ -277,22 +291,15 @@ def _emit_cross_block_pairs(
     b_indices: np.ndarray,
     block_left: np.ndarray,
     n_samples: int,
-) -> list[dict[str, float | int | str]]:
-    """Build pair rows between the carry-over block and the current SNP batch."""
-    rows: list[dict[str, float | int | str]] = []
-    for local_j, global_j in enumerate(b_indices):
-        valid = (a_indices >= int(block_left[global_j])) & (a_indices < global_j)
-        for local_i in np.flatnonzero(valid):
-            corr = float(correlation_matrix[local_i, local_j])
-            rows.append(
-                {
-                    "i": int(a_indices[local_i]),
-                    "j": int(global_j),
-                    "R2": _unbiased_r2_from_correlation(corr, n_samples),
-                    "sign": "+" if corr >= 0 else "-",
-                }
-            )
-    return rows
+) -> PairColumns:
+    """Vectorize pair extraction between the carry-over block and the batch."""
+    left = block_left[b_indices]
+    valid = (a_indices[:, None] >= left[None, :]) & (a_indices[:, None] < b_indices[None, :])
+    local_i, local_j = np.nonzero(valid)
+    corr = correlation_matrix[local_i, local_j]
+    i = a_indices[local_i].astype(np.int64)
+    j = b_indices[local_j].astype(np.int64)
+    return _finalize_pair_columns(i, j, corr, n_samples)
 
 
 def _emit_within_block_pairs(
@@ -300,45 +307,61 @@ def _emit_within_block_pairs(
     b_indices: np.ndarray,
     block_left: np.ndarray,
     n_samples: int,
-) -> list[dict[str, float | int | str]]:
-    """Build pair rows within the current SNP batch subject to ``block_left``."""
-    rows: list[dict[str, float | int | str]] = []
-    for local_j, global_j in enumerate(b_indices):
-        for local_i in range(local_j):
-            global_i = int(b_indices[local_i])
-            if global_i < int(block_left[global_j]):
-                continue
-            corr = float(correlation_matrix[local_i, local_j])
-            rows.append(
-                {
-                    "i": global_i,
-                    "j": int(global_j),
-                    "R2": _unbiased_r2_from_correlation(corr, n_samples),
-                    "sign": "+" if corr >= 0 else "-",
-                }
-            )
-    return rows
+) -> PairColumns:
+    """Vectorize pair extraction within the current SNP batch under block_left."""
+    local_i, local_j = np.triu_indices(len(b_indices), k=1)
+    global_i = b_indices[local_i]
+    global_j = b_indices[local_j]
+    valid = global_i >= block_left[global_j]
+    local_i, local_j = local_i[valid], local_j[valid]
+    corr = correlation_matrix[local_i, local_j]
+    i = global_i[valid].astype(np.int64)
+    j = global_j[valid].astype(np.int64)
+    return _finalize_pair_columns(i, j, corr, n_samples)
 
 
-def _stash_pair_rows(
-    pending: dict[int, list[dict[str, float | int | str]]],
-    rows: Iterable[dict[str, float | int | str]],
-) -> None:
-    """Group emitted pair rows by left SNP index until that index is final."""
-    for row in rows:
-        pending.setdefault(int(row["i"]), []).append(row)
+def _finalize_pair_columns(
+    i: np.ndarray, j: np.ndarray, corr: np.ndarray, n_samples: int
+) -> PairColumns:
+    """Compute unbiased R2 (float32) and correlation sign (int8) for a batch."""
+    r2 = _unbiased_r2_array(corr, n_samples).astype(np.float32)
+    sign = np.where(corr >= 0, np.int8(1), np.int8(-1)).astype(np.int8)
+    return i, j, r2, sign
+
+
+def _stash_pair_rows(pending: dict[int, _PendingPairs], columns: PairColumns) -> None:
+    """Group an emitted pair batch by left SNP index until that index is final."""
+    i, j, r2, sign = columns
+    if i.size == 0:
+        return
+    order = np.argsort(i, kind="stable")
+    boundaries = np.flatnonzero(np.diff(i[order])) + 1
+    for segment in np.split(order, boundaries):
+        bucket = pending.setdefault(int(i[segment[0]]), _PendingPairs([], [], []))
+        bucket.j.append(j[segment])
+        bucket.r2.append(r2[segment])
+        bucket.sign.append(sign[segment])
 
 
 def _pop_pair_rows_before(
-    pending: dict[int, list[dict[str, float | int | str]]],
+    pending: dict[int, _PendingPairs],
     min_future_i: int,
 ) -> Iterator[dict[str, float | int | str]]:
     """Yield pending rows whose left index cannot appear in future batches."""
     flushable = sorted(i for i in pending if i < int(min_future_i))
     for i in flushable:
-        rows = pending.pop(i)
-        rows.sort(key=lambda row: int(row["j"]))
-        yield from rows
+        bucket = pending.pop(i)
+        j = np.concatenate(bucket.j)
+        r2 = np.concatenate(bucket.r2)
+        sign = np.concatenate(bucket.sign)
+        order = np.argsort(j, kind="stable")
+        for k in order:
+            yield {
+                "i": i,
+                "j": int(j[k]),
+                "R2": float(r2[k]),
+                "sign": "+" if sign[k] == 1 else "-",
+            }
 
 
 def yield_pairwise_r2_rows(
@@ -376,7 +399,7 @@ def yield_pairwise_r2_rows(
 
     # Flush in increasing-i order; non-decreasing POS_1 holds only because
     # keep_snps was sorted by source position before reaching here.
-    pending_rows: dict[int, list[dict[str, float | int | str]]] = {}
+    pending_rows: dict[int, _PendingPairs] = {}
     l_A = 0
     A = standardized_snp_getter(b)
     for l_B in range(0, b, snp_batch_size):

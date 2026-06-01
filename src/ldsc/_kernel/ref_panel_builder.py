@@ -55,6 +55,7 @@ _STANDARD_R2_COLUMNS = [
     "A2_2",
     "R2",
 ]
+_INDEX_R2_COLUMNS = ["IDX_1", "IDX_2", "R2", "SIGN"]
 
 
 def _empty_standard_r2_table() -> pd.DataFrame:
@@ -669,6 +670,31 @@ def write_dataframe_to_parquet(df: pd.DataFrame, path: str | PathLike[str]) -> s
             "Writing reference-panel parquet artifacts requires pyarrow or fastparquet."
         ) from exc
     return str(path)
+
+
+def _standard_r2_index_table(pa, schema, *, pair_rows: list[dict[str, float | int | str]]):
+    """Build one 4-column index ``pyarrow.Table`` batch directly from pair rows.
+
+    ``pair_rows`` carry sidecar-row indices ``i``/``j`` (already the panel index
+    space), the unbiased ``R2``, and the correlation ``sign`` as ``"+"``/``"-"``.
+    No reference-SNP join or identifier expansion: the indices are stored as-is.
+    """
+    if not pair_rows:
+        return schema.empty_table()
+    count = len(pair_rows)
+    i = np.fromiter((int(row["i"]) for row in pair_rows), dtype=np.int32, count=count)
+    j = np.fromiter((int(row["j"]) for row in pair_rows), dtype=np.int32, count=count)
+    r2 = np.fromiter((float(row["R2"]) for row in pair_rows), dtype=np.float32, count=count)
+    sign = np.fromiter((row["sign"] == "+" for row in pair_rows), dtype=bool, count=count)
+    return pa.Table.from_arrays(
+        [
+            pa.array(i, type=pa.int32()),
+            pa.array(j, type=pa.int32()),
+            pa.array(r2, type=pa.float32()),
+            pa.array(sign, type=pa.bool_()),
+        ],
+        schema=schema,
+    )
 
 
 def _standard_r2_arrow_table(

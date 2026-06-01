@@ -3299,6 +3299,26 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
             self.assertGreater(float(parquet.baseline_table["base"].max()), 1.0)
 
 
+class IndexArrowTableTest(unittest.TestCase):
+    def test_index_arrow_table_has_four_columns(self):
+        import pyarrow as pa
+        from ldsc._kernel import ref_panel_builder as kb
+
+        schema = pa.schema([("IDX_1", pa.int32()), ("IDX_2", pa.int32()),
+                            ("R2", pa.float32()), ("SIGN", pa.bool_())])
+        rows = [
+            {"i": 0, "j": 2, "R2": 0.5, "sign": "+"},
+            {"i": 0, "j": 3, "R2": -0.01, "sign": "-"},
+        ]
+        table = kb._standard_r2_index_table(pa, schema, pair_rows=rows)
+        self.assertEqual(table.schema.names, ["IDX_1", "IDX_2", "R2", "SIGN"])
+        self.assertEqual(table.column("IDX_1").to_pylist(), [0, 0])
+        self.assertEqual(table.column("IDX_2").to_pylist(), [2, 3])
+        self.assertEqual(table.column("SIGN").to_pylist(), [True, False])
+        self.assertEqual(table.schema.field("IDX_1").type, pa.int32())
+        self.assertEqual(table.schema.field("SIGN").type, pa.bool_())
+
+
 class SidecarIdentityHashTest(unittest.TestCase):
     def test_hash_is_stable_and_order_sensitive(self):
         from ldsc._kernel.snp_identity import sidecar_identity_sha256

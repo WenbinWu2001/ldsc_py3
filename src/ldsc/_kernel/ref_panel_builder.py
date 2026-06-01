@@ -670,6 +670,51 @@ def write_dataframe_to_parquet(df: pd.DataFrame, path: str | PathLike[str]) -> s
     return str(path)
 
 
+def _standard_r2_arrow_table(
+    pa,
+    schema,
+    *,
+    pair_rows: list[dict[str, float | int | str]],
+    reference_snp_table: pd.DataFrame,
+    genome_build: str,
+):
+    """Build one canonical R2 ``pyarrow.Table`` batch directly from numpy.
+
+    Mirrors :func:`build_standard_r2_table` column-for-column but skips the
+    pandas intermediate, so large builder batches avoid an extra full-width
+    DataFrame copy on the way to the parquet writer. ``schema`` fixes the
+    canonical Arrow column types (string/int64/float32) and carries the
+    ``ldsc:*`` metadata.
+    """
+    if not pair_rows:
+        return schema.empty_table()
+    count = len(pair_rows)
+    i = np.fromiter((int(row["i"]) for row in pair_rows), dtype=np.int64, count=count)
+    j = np.fromiter((int(row["j"]) for row in pair_rows), dtype=np.int64, count=count)
+    r2 = np.fromiter((float(row["R2"]) for row in pair_rows), dtype=np.float32, count=count)
+    left = reference_snp_table.iloc[i]
+    right = reference_snp_table.iloc[j]
+    pos_col = f"{genome_build}_pos"
+    chr_col = resolve_required_column(left.columns, CHR_COLUMN_SPEC, context="standard R2 reference SNP table")
+
+    def _strings(series: pd.Series):
+        return pa.array(series.astype(str).to_numpy(dtype=object), type=pa.string())
+
+    columns = [
+        _strings(left[chr_col]),
+        pa.array(left[pos_col].to_numpy(dtype=np.int64), type=pa.int64()),
+        pa.array(right[pos_col].to_numpy(dtype=np.int64), type=pa.int64()),
+        _strings(left["rsID"]),
+        _strings(right["rsID"]),
+        _strings(left["A1"]),
+        _strings(left["A2"]),
+        _strings(right["A1"]),
+        _strings(right["A2"]),
+        pa.array(r2, type=pa.float32()),
+    ]
+    return pa.Table.from_arrays(columns, schema=schema)
+
+
 def write_r2_parquet(
     *,
     pair_rows: Iterable[dict[str, float | int | str]],
@@ -699,13 +744,18 @@ def write_r2_parquet(
     table is pairwise-complete only when ``ldsc:min_r2`` is ``"0.0"`` (or any
     non-positive value), because the read path treats absent pairs as R2=0.
 
+    Each batch is assembled as a :class:`pyarrow.Table` directly from numpy
+    column arrays via :func:`_standard_r2_arrow_table`, bypassing the pandas
+    intermediate to keep peak memory low on deep panels. The on-disk schema is
+    identical to the pandas path (string/int64/float32 columns).
+
     Incoming pair rows must already be sorted by non-decreasing ``POS_1``. The
-    writer validates that invariant while streaming batches because row-group
-    pruning depends on monotonic footer statistics.
+    writer validates that invariant per batch (vectorized over ``POS_1`` and
+    across the batch boundary) because row-group pruning depends on monotonic
+    footer statistics.
     """
 
     _ensure_parent_dir(path)
-    pos_col = f"{genome_build}_pos"
     try:
         import pyarrow as pa
         import pyarrow.parquet as pq
@@ -729,49 +779,57 @@ def write_r2_parquet(
         b"ldsc:r2_bias": b"unbiased",
         b"ldsc:min_r2": str(min_r2).encode("utf-8"),
     }
+    schema = pa.schema(
+        [
+            ("CHR", pa.string()),
+            ("POS_1", pa.int64()),
+            ("POS_2", pa.int64()),
+            ("SNP_1", pa.string()),
+            ("SNP_2", pa.string()),
+            ("A1_1", pa.string()),
+            ("A2_1", pa.string()),
+            ("A1_2", pa.string()),
+            ("A2_2", pa.string()),
+            ("R2", pa.float32()),
+        ]
+    ).with_metadata(pa_meta)
     writer = None
     batch: list[dict[str, float | int | str]] = []
     prev_pos1: int | None = None
-    try:
-        for row in pair_rows:
-            current_pos1 = int(reference_snp_table.iloc[int(row["i"])][pos_col])
-            if prev_pos1 is not None and current_pos1 < prev_pos1:
+
+    def _flush(rows: list[dict[str, float | int | str]]) -> None:
+        nonlocal writer, prev_pos1
+        table = _standard_r2_arrow_table(
+            pa,
+            schema,
+            pair_rows=rows,
+            reference_snp_table=reference_snp_table,
+            genome_build=genome_build,
+        )
+        pos1 = table.column("POS_1").to_numpy()
+        if pos1.size:
+            sequence = pos1 if prev_pos1 is None else np.concatenate(([prev_pos1], pos1))
+            bad = np.flatnonzero(np.diff(sequence) < 0)
+            if bad.size:
+                k = int(bad[0])
                 raise ValueError(
                     "Pairs must arrive in non-decreasing POS_1 order. "
-                    f"Received POS_1={current_pos1} after POS_1={prev_pos1}. "
+                    f"Received POS_1={int(sequence[k + 1])} after POS_1={int(sequence[k])}. "
                     "Verify that the reference panel builder traverses SNPs in ascending positional order."
                 )
-            prev_pos1 = current_pos1
-            batch.append(row)
-            if len(batch) < batch_size:
-                continue
-            frame = build_standard_r2_table(
-                pair_rows=batch,
-                reference_snp_table=reference_snp_table,
-                genome_build=genome_build,
-            )
-            table = pa.Table.from_pandas(frame, preserve_index=False)
-            if writer is None:
-                writer = pq.ParquetWriter(
-                    str(path),
-                    table.schema.with_metadata({**(table.schema.metadata or {}), **pa_meta}),
-                )
-            writer.write_table(table, row_group_size=row_group_size)
-            batch = []
+            prev_pos1 = int(pos1[-1])
+        if writer is None:
+            writer = pq.ParquetWriter(str(path), schema)
+        writer.write_table(table, row_group_size=row_group_size)
 
+    try:
+        for row in pair_rows:
+            batch.append(row)
+            if len(batch) >= batch_size:
+                _flush(batch)
+                batch = []
         if batch or writer is None:
-            frame = build_standard_r2_table(
-                pair_rows=batch,
-                reference_snp_table=reference_snp_table,
-                genome_build=genome_build,
-            )
-            table = pa.Table.from_pandas(frame, preserve_index=False)
-            if writer is None:
-                writer = pq.ParquetWriter(
-                    str(path),
-                    table.schema.with_metadata({**(table.schema.metadata or {}), **pa_meta}),
-                )
-            writer.write_table(table, row_group_size=row_group_size)
+            _flush(batch)
     finally:
         if writer is not None:
             writer.close()

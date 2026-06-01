@@ -698,6 +698,76 @@ class StandardTableFormattingTest(unittest.TestCase):
             )
             self.assertEqual(pq.read_schema(str(filtered_path)).metadata[b"ldsc:min_r2"], b"0.3")
 
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow dependency is not installed")
+    def test_write_r2_parquet_uses_canonical_arrow_column_types(self):
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        reference_snp_table = pd.DataFrame(
+            {
+                "CHR": ["1", "1"],
+                "hg19_pos": [100, 120],
+                "hg38_pos": [110, 130],
+                "hg19_Uniq_ID": ["1:100:A:G", "1:120:C:T"],
+                "hg38_Uniq_ID": ["1:110:A:G", "1:130:C:T"],
+                "rsID": ["rs1", "rs2"],
+                "MAF": [0.2, 0.3],
+                "A1": ["A", "C"],
+                "A2": ["G", "T"],
+            }
+        )
+        pair_rows = [{"i": 0, "j": 1, "R2": 0.75, "sign": "+"}]
+        expected = pa.schema(
+            [
+                ("CHR", pa.string()),
+                ("POS_1", pa.int64()),
+                ("POS_2", pa.int64()),
+                ("SNP_1", pa.string()),
+                ("SNP_2", pa.string()),
+                ("A1_1", pa.string()),
+                ("A2_1", pa.string()),
+                ("A1_2", pa.string()),
+                ("A2_2", pa.string()),
+                ("R2", pa.float32()),
+            ]
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            populated = Path(tmpdir) / "populated.parquet"
+            kernel_builder.write_r2_parquet(
+                pair_rows=iter(pair_rows),
+                reference_snp_table=reference_snp_table,
+                path=populated,
+                genome_build="hg19",
+                n_samples=10,
+                snp_identifier="chr_pos",
+            )
+            empty = Path(tmpdir) / "empty.parquet"
+            kernel_builder.write_r2_parquet(
+                pair_rows=iter([]),
+                reference_snp_table=reference_snp_table,
+                path=empty,
+                genome_build="hg19",
+                n_samples=10,
+                snp_identifier="chr_pos",
+            )
+            for path in (populated, empty):
+                schema = pq.read_schema(str(path))
+                self.assertTrue(
+                    schema.equals(expected, check_metadata=False),
+                    msg=f"unexpected schema for {path.name}: {schema}",
+                )
+            table = pq.read_table(str(populated)).to_pydict()
+            self.assertEqual(table["CHR"], ["1"])
+            self.assertEqual(table["POS_1"], [100])
+            self.assertEqual(table["POS_2"], [120])
+            self.assertEqual(table["SNP_1"], ["rs1"])
+            self.assertEqual(table["SNP_2"], ["rs2"])
+            self.assertEqual(table["A1_1"], ["A"])
+            self.assertEqual(table["A2_1"], ["G"])
+            self.assertEqual(table["A1_2"], ["C"])
+            self.assertEqual(table["A2_2"], ["T"])
+            self.assertAlmostEqual(table["R2"][0], 0.75, places=5)
+
     def test_build_runtime_metadata_table_is_build_specific(self):
         metadata = pd.DataFrame(
             {

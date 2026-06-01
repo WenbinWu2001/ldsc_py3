@@ -469,6 +469,14 @@ class ReferencePanelBuildConfig:
     snp_batch_size : int, optional
         Number of SNPs loaded per pairwise-R2 computation batch. Larger values
         may improve throughput but use more memory. Default is ``128``.
+    min_r2 : float, optional
+        Opt-in unbiased-R2 floor for emitted pairs. ``0.0`` (the default, and
+        any non-positive value) writes every retained pair, preserving exact
+        pairwise completeness. A positive value drops pairs whose unbiased R2
+        is below the threshold, reducing output size and memory at the cost of
+        completeness (the read path treats absent pairs as R2=0). The applied
+        value is recorded as ``ldsc:min_r2`` parquet metadata. Default is
+        ``0.0``.
     overwrite : bool, optional
         If ``True``, replace current panel artifacts and remove stale
         workflow-owned parquet, metadata, dropped-SNP, or log siblings after a
@@ -492,6 +500,7 @@ class ReferencePanelBuildConfig:
     use_hm3_quick_liftover: bool = False
     keep_indivs_file: str | PathLike[str] | None = None
     snp_batch_size: int = 128
+    min_r2: float = 0.0
     overwrite: bool = False
 
     def __post_init__(self) -> None:
@@ -544,6 +553,8 @@ class ReferencePanelBuildConfig:
             raise ValueError("maf_min must lie in [0, 0.5].")
         if self.snp_batch_size <= 0:
             raise ValueError("snp_batch_size must be positive.")
+        if self.min_r2 > 1:
+            raise ValueError("min_r2 must not exceed 1.")
 
 
 @dataclass(frozen=True)

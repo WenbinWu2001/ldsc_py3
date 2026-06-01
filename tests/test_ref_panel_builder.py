@@ -286,6 +286,53 @@ class PairwiseEmissionTest(unittest.TestCase):
             self.assertAlmostEqual(row["R2"], expected_r2)
             self.assertEqual(row["sign"], expected_sign)
 
+    def test_min_r2_default_keeps_negative_unbiased_pairs(self):
+        # col0 == col1 (corr=1 -> R2=1.0); col2 uncorrelated with both
+        # (corr=0 -> unbiased R2 = -0.5). Default min_r2 must keep the negatives.
+        standardized = np.array(
+            [
+                [-1.0, -1.0, -1.0],
+                [-1.0, -1.0, 1.0],
+                [1.0, 1.0, -1.0],
+                [1.0, 1.0, 1.0],
+            ]
+        )
+        block_left = np.array([0, 0, 0], dtype=float)
+        rows = kernel_builder.iter_pairwise_r2_rows(
+            block_left=block_left,
+            snp_batch_size=2,
+            standardized_snp_getter=_SequentialSNPGetter(standardized),
+            m=3,
+            n=4,
+        )
+        by_pair = {(r["i"], r["j"]): r["R2"] for r in rows}
+        self.assertEqual(set(by_pair), {(0, 1), (0, 2), (1, 2)})
+        self.assertAlmostEqual(by_pair[(0, 1)], 1.0, places=6)
+        self.assertAlmostEqual(by_pair[(0, 2)], -0.5, places=6)
+        self.assertAlmostEqual(by_pair[(1, 2)], -0.5, places=6)
+
+    def test_min_r2_filters_subthreshold_pairs(self):
+        standardized = np.array(
+            [
+                [-1.0, -1.0, -1.0],
+                [-1.0, -1.0, 1.0],
+                [1.0, 1.0, -1.0],
+                [1.0, 1.0, 1.0],
+            ]
+        )
+        block_left = np.array([0, 0, 0], dtype=float)
+        rows = kernel_builder.iter_pairwise_r2_rows(
+            block_left=block_left,
+            snp_batch_size=2,
+            standardized_snp_getter=_SequentialSNPGetter(standardized),
+            m=3,
+            n=4,
+            min_r2=0.5,
+        )
+        by_pair = {(r["i"], r["j"]): r["R2"] for r in rows}
+        self.assertEqual(set(by_pair), {(0, 1)})
+        self.assertAlmostEqual(by_pair[(0, 1)], 1.0, places=6)
+
     def test_yield_pairwise_r2_rows_emits_non_decreasing_left_index(self):
         standardized = np.array(
             [
@@ -609,6 +656,47 @@ class StandardTableFormattingTest(unittest.TestCase):
 
         self.assertEqual(meta[b"ldsc:n_samples"], b"42")
         self.assertEqual(meta[b"ldsc:r2_bias"], b"unbiased")
+
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow dependency is not installed")
+    def test_write_r2_parquet_records_min_r2_metadata(self):
+        import pyarrow.parquet as pq
+
+        ref_table = kernel_builder.build_reference_snp_table(
+            metadata=pd.DataFrame(
+                {
+                    "CHR": ["1", "1"],
+                    "SNP": ["rs1", "rs2"],
+                    "A1": ["A", "T"],
+                    "A2": ["C", "G"],
+                    "MAF": [0.3, 0.4],
+                }
+            ),
+            hg19_positions=np.array([100, 200], dtype=int),
+            hg38_positions=None,
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            default_path = Path(tmpdir) / "default.parquet"
+            kernel_builder.write_r2_parquet(
+                pair_rows=iter([]),
+                reference_snp_table=ref_table,
+                path=default_path,
+                genome_build="hg19",
+                n_samples=10,
+                snp_identifier="chr_pos",
+            )
+            self.assertEqual(pq.read_schema(str(default_path)).metadata[b"ldsc:min_r2"], b"0.0")
+
+            filtered_path = Path(tmpdir) / "filtered.parquet"
+            kernel_builder.write_r2_parquet(
+                pair_rows=iter([]),
+                reference_snp_table=ref_table,
+                path=filtered_path,
+                genome_build="hg19",
+                n_samples=10,
+                snp_identifier="chr_pos",
+                min_r2=0.3,
+            )
+            self.assertEqual(pq.read_schema(str(filtered_path)).metadata[b"ldsc:min_r2"], b"0.3")
 
     def test_build_runtime_metadata_table_is_build_specific(self):
         metadata = pd.DataFrame(

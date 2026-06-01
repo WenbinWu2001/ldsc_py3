@@ -291,6 +291,7 @@ def _emit_cross_block_pairs(
     b_indices: np.ndarray,
     block_left: np.ndarray,
     n_samples: int,
+    min_r2: float = 0.0,
 ) -> PairColumns:
     """Vectorize pair extraction between the carry-over block and the batch."""
     left = block_left[b_indices]
@@ -299,7 +300,7 @@ def _emit_cross_block_pairs(
     corr = correlation_matrix[local_i, local_j]
     i = a_indices[local_i].astype(np.int64)
     j = b_indices[local_j].astype(np.int64)
-    return _finalize_pair_columns(i, j, corr, n_samples)
+    return _finalize_pair_columns(i, j, corr, n_samples, min_r2)
 
 
 def _emit_within_block_pairs(
@@ -307,6 +308,7 @@ def _emit_within_block_pairs(
     b_indices: np.ndarray,
     block_left: np.ndarray,
     n_samples: int,
+    min_r2: float = 0.0,
 ) -> PairColumns:
     """Vectorize pair extraction within the current SNP batch under block_left."""
     local_i, local_j = np.triu_indices(len(b_indices), k=1)
@@ -317,15 +319,23 @@ def _emit_within_block_pairs(
     corr = correlation_matrix[local_i, local_j]
     i = global_i[valid].astype(np.int64)
     j = global_j[valid].astype(np.int64)
-    return _finalize_pair_columns(i, j, corr, n_samples)
+    return _finalize_pair_columns(i, j, corr, n_samples, min_r2)
 
 
 def _finalize_pair_columns(
-    i: np.ndarray, j: np.ndarray, corr: np.ndarray, n_samples: int
+    i: np.ndarray, j: np.ndarray, corr: np.ndarray, n_samples: int, min_r2: float = 0.0
 ) -> PairColumns:
-    """Compute unbiased R2 (float32) and correlation sign (int8) for a batch."""
+    """Compute unbiased R2 (float32) and correlation sign (int8) for a batch.
+
+    When ``min_r2 > 0`` the batch is filtered to pairs whose unbiased R2 is at
+    least ``min_r2``; ``min_r2 <= 0`` disables filtering so negative unbiased R2
+    pairs are retained (exact backward-compatible completeness).
+    """
     r2 = _unbiased_r2_array(corr, n_samples).astype(np.float32)
     sign = np.where(corr >= 0, np.int8(1), np.int8(-1)).astype(np.int8)
+    if min_r2 > 0.0:
+        keep = r2 >= min_r2
+        i, j, r2, sign = i[keep], j[keep], r2[keep], sign[keep]
     return i, j, r2, sign
 
 
@@ -371,6 +381,7 @@ def yield_pairwise_r2_rows(
     standardized_snp_getter,
     m: int,
     n: int,
+    min_r2: float = 0.0,
 ) -> Iterator[dict[str, float | int | str]]:
     """
     Yield one unordered `R2` row per retained SNP pair inside the LD window.
@@ -379,6 +390,11 @@ def yield_pairwise_r2_rows(
     from ``standardized_snp_getter`` per computation batch. Window-spanning
     carry-over columns may be retained in memory in addition to the current
     batch.
+
+    ``min_r2`` is an opt-in unbiased-R2 floor: ``min_r2 <= 0`` (the default)
+    emits every retained pair, while ``min_r2 > 0`` drops pairs whose unbiased
+    R2 is below the threshold. Filtering trades completeness for memory and
+    output size, so callers that need exact completeness must keep the default.
     """
 
     block_left = np.asarray(block_left, dtype=int)
@@ -415,6 +431,7 @@ def yield_pairwise_r2_rows(
                 b_indices=np.arange(l_B, l_B + width),
                 block_left=block_left,
                 n_samples=n,
+                min_r2=min_r2,
             ),
         )
 
@@ -452,6 +469,7 @@ def yield_pairwise_r2_rows(
                     b_indices=b_indices,
                     block_left=block_left,
                     n_samples=n,
+                    min_r2=min_r2,
                 ),
             )
 
@@ -463,6 +481,7 @@ def yield_pairwise_r2_rows(
                 b_indices=b_indices,
                 block_left=block_left,
                 n_samples=n,
+                min_r2=min_r2,
             ),
         )
         previous_chunk_width = current_chunk_width
@@ -476,6 +495,7 @@ def iter_pairwise_r2_rows(
     standardized_snp_getter,
     m: int,
     n: int,
+    min_r2: float = 0.0,
 ) -> list[dict[str, float | int | str]]:
     """Materialize :func:`yield_pairwise_r2_rows` as an in-memory list."""
 
@@ -486,6 +506,7 @@ def iter_pairwise_r2_rows(
             standardized_snp_getter=standardized_snp_getter,
             m=m,
             n=n,
+            min_r2=min_r2,
         )
     )
 
@@ -659,6 +680,7 @@ def write_r2_parquet(
     snp_identifier: str,
     batch_size: int = 100_000,
     row_group_size: int = 50_000,
+    min_r2: float = 0.0,
 ) -> str:
     """
     Write one canonical R2 parquet table with LDSC schema metadata.
@@ -666,11 +688,16 @@ def write_r2_parquet(
     The writer requires ``pyarrow`` because the canonical format depends on
     Arrow schema metadata and explicit row-group sizing. It writes exactly the
     canonical R2 columns and records ``ldsc:sorted_by_build``,
-    ``ldsc:row_group_size``, ``ldsc:n_samples``, and ``ldsc:r2_bias`` in the
-    Arrow schema. Current package-built panels always store unbiased R2 values,
-    so ``ldsc:r2_bias`` is written as ``"unbiased"`` and ``n_samples`` captures
-    the PLINK reader's ``geno.n`` for downstream provenance and future raw-R2
-    compatibility.
+    ``ldsc:row_group_size``, ``ldsc:n_samples``, ``ldsc:r2_bias``, and
+    ``ldsc:min_r2`` in the Arrow schema. Current package-built panels always
+    store unbiased R2 values, so ``ldsc:r2_bias`` is written as ``"unbiased"``
+    and ``n_samples`` captures the PLINK reader's ``geno.n`` for downstream
+    provenance and future raw-R2 compatibility.
+
+    ``min_r2`` records the unbiased-R2 floor applied upstream during pair
+    emission; it is provenance only and does not itself filter rows here. The
+    table is pairwise-complete only when ``ldsc:min_r2`` is ``"0.0"`` (or any
+    non-positive value), because the read path treats absent pairs as R2=0.
 
     Incoming pair rows must already be sorted by non-decreasing ``POS_1``. The
     writer validates that invariant while streaming batches because row-group
@@ -700,6 +727,7 @@ def write_r2_parquet(
         b"ldsc:row_group_size": str(row_group_size).encode("utf-8"),
         b"ldsc:n_samples": str(n_samples).encode("utf-8"),
         b"ldsc:r2_bias": b"unbiased",
+        b"ldsc:min_r2": str(min_r2).encode("utf-8"),
     }
     writer = None
     batch: list[dict[str, float | int | str]] = []

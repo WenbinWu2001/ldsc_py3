@@ -3130,3 +3130,29 @@ class IndexBindingTest(unittest.TestCase):
                 ls._validate_index_binding(df, n_snps=3, identity_hash="0" * 64, context="t")
             with self.assertRaisesRegex(ValueError, "n_snps"):
                 ls._validate_index_binding(df, n_snps=999, identity_hash=good, context="t")
+
+
+class IndexRemapTest(unittest.TestCase):
+    def test_remap_maps_build_rows_to_retained_indices_chr_pos(self):
+        from ldsc._kernel.ldscore import build_index_remap
+
+        full = pd.DataFrame({"CHR": ["1"] * 4, "POS": [10, 20, 30, 40],
+                             "SNP": ["a", "b", "c", "d"], "A1": list("ACGT"), "A2": list("GTAC")})
+        # retained = rows 2 and 0 of the panel, in matrix order [pos30, pos10]
+        retained = full.iloc[[2, 0]].reset_index(drop=True)
+        remap, retained_build_idx = build_index_remap(full, retained, "chr_pos")
+        # build row 2 (pos30) -> retained idx 0 ; build row 0 (pos10) -> retained idx 1 ; others -1
+        self.assertEqual(remap.tolist(), [1, -1, 0, -1])
+        # retained_build_idx[matrix_idx] = build row
+        self.assertEqual(retained_build_idx.tolist(), [2, 0])
+
+    def test_remap_allele_aware_uses_alleles(self):
+        from ldsc._kernel.ldscore import build_index_remap
+
+        # Two multi-allelic variants at the same position with distinct,
+        # non-strand-complement allele sets: {A,G} vs {A,C}.
+        full = pd.DataFrame({"CHR": ["1", "1"], "POS": [10, 10],
+                             "SNP": ["a", "b"], "A1": ["A", "A"], "A2": ["G", "C"]})
+        retained = full.iloc[[1]].reset_index(drop=True)  # the A/C variant at pos10
+        remap, _ = build_index_remap(full, retained, "chr_pos_allele_aware")
+        self.assertEqual(remap.tolist(), [-1, 0])

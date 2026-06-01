@@ -678,6 +678,36 @@ def identifier_keys(df: pd.DataFrame, mode: str) -> pd.Series:
     return keys
 
 
+def build_index_remap(
+    full_sidecar: pd.DataFrame,
+    retained_metadata: pd.DataFrame,
+    identifier_mode: str,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Map panel (build) indices to retained matrix indices for the index format.
+
+    ``full_sidecar`` is the complete panel in build order (the parquet IDX
+    space). ``retained_metadata`` is the analysis-restricted matrix universe in
+    matrix order. Returns ``(remap, retained_build_idx)`` where
+    ``remap[build_idx]`` is the retained matrix index or ``-1``, and
+    ``retained_build_idx[matrix_idx]`` is the originating build index (ascending,
+    used for IDX_1 row-group pruning). Matching uses the same mode-dependent
+    identity keys as the legacy per-pair decode, so the result is bit-identical.
+    """
+    mode = normalize_snp_identifier_mode(identifier_mode)
+    full_keys = effective_merge_key_series(full_sidecar, mode, context="panel sidecar index remap").to_numpy()
+    retained_keys = effective_merge_key_series(retained_metadata, mode, context="retained metadata index remap").to_numpy()
+    retained_index = pd.Index(retained_keys)
+    if retained_index.has_duplicates:
+        raise ValueError("Retained metadata has duplicate identity keys; cannot build index remap.")
+    remap = retained_index.get_indexer(full_keys).astype(np.int32, copy=False)
+
+    m = len(retained_metadata)
+    retained_build_idx = np.empty(m, dtype=np.int64)
+    valid = remap >= 0
+    retained_build_idx[remap[valid]] = np.nonzero(valid)[0]
+    return remap, retained_build_idx
+
+
 def sort_frame_by_genomic_position(df: pd.DataFrame) -> pd.DataFrame:
     """Sort a metadata-like frame by chromosome, position, and SNP name."""
     pos_col = find_column(df.columns, POS_ALIASES)

@@ -3297,3 +3297,29 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
             self.assertTrue(np.all(np.isfinite(parquet.baseline_table["base"].to_numpy(dtype=float))))
             self.assertGreater(float(direct.baseline_table["base"].max()), 1.0)
             self.assertGreater(float(parquet.baseline_table["base"].max()), 1.0)
+
+
+class SidecarIdentityHashTest(unittest.TestCase):
+    def test_hash_is_stable_and_order_sensitive(self):
+        from ldsc._kernel.snp_identity import sidecar_identity_sha256
+
+        df = pd.DataFrame(
+            {"CHR": ["1", "1", "1"], "POS": [10, 20, 30],
+             "SNP": ["rsA", "rsB", "rsC"], "A1": ["A", "C", "G"], "A2": ["G", "T", "A"]}
+        )
+        h1 = sidecar_identity_sha256(df)
+        h2 = sidecar_identity_sha256(df.copy())
+        self.assertEqual(h1, h2)
+        self.assertEqual(len(h1), 64)  # sha256 hex
+
+        reordered = df.iloc[[1, 0, 2]].reset_index(drop=True)
+        self.assertNotEqual(sidecar_identity_sha256(reordered), h1)
+
+    def test_hash_ignores_snp_cm_maf_but_not_alleles(self):
+        from ldsc._kernel.snp_identity import sidecar_identity_sha256
+
+        base = pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rsA"], "A1": ["A"], "A2": ["G"]})
+        changed_snp = base.assign(SNP=["rs999"])
+        changed_allele = base.assign(A1=["T"])
+        self.assertEqual(sidecar_identity_sha256(changed_snp), sidecar_identity_sha256(base))
+        self.assertNotEqual(sidecar_identity_sha256(changed_allele), sidecar_identity_sha256(base))

@@ -582,8 +582,16 @@ if ba is not None:
             return (z, m, n_new)
 
         def __filter_snps_maf__(self, geno, m, n, mafMin, keep_snps):
-            """Filter SNPs by explicit keep list and minor-allele frequency."""
+            """Filter SNPs by explicit keep list and minor-allele frequency.
+
+            ``self.geno`` aliases the ``geno`` argument at the sole call site, so
+            it is cleared up front to leave the local parameter as the only owner
+            of the pre-filter bitarray. Once the filtered copy ``y`` is built the
+            parameter is released, freeing the original before this method returns
+            instead of holding both copies through the caller's reassignment.
+            """
             nru = self.nru
+            self.geno = None
             m_poly = 0
             y = ba.bitarray()
             if keep_snps is None:
@@ -606,6 +614,7 @@ if ba is not None:
                     y += z
                     m_poly += 1
                     kept_snps.append(j)
+            del geno
             return (y, m_poly, n, kept_snps, freq)
 
         def nextSNPs(self, b, minorRef=None, dtype=np.float64):

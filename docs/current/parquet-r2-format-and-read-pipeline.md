@@ -301,6 +301,14 @@ from SNP identifier to matrix row/column index — before any window query is is
 The parquet's own identifier columns (`SNP_1`, `SNP_2`, `POS_1`, `POS_2`) serve only
 as lookup keys at query time; all per-SNP analysis metadata comes from the sidecar.
 
+When decoding a row group, each endpoint identifier is resolved to its retained-SNP
+index in a single vectorized pass rather than a per-row `index_map.get` loop:
+`chr_pos` base mode uses `np.searchsorted` over the ascending `self.pos` array plus an
+equality check (absent positions yield `-1`), while the string-keyed modes (`rsid` and
+both allele-aware modes) use a hashtable join (`pd.Index.get_indexer` over the
+`index_map` keys, with a parallel values array so excluded NaN keys stay correct). The
+string-key index is built once per chromosome and reused across all row-group decodes.
+
 This two-file design separates concerns: the parquet is a dense sorted pair table
 optimised for row-group pruning; the sidecar is a lightweight per-SNP lookup table
 that drives SNP universe construction and MAF/CM metadata.

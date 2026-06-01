@@ -849,13 +849,19 @@ class ReferencePanelBuilder:
                 ld_wind_cm=config.ld_wind_cm,
             )
             block_left = kernel_builder.compute_block_left(coords, max_dist)
-            reference_snp_table = kernel_builder.build_reference_snp_table(
-                metadata=metadata,
-                hg19_positions=hg19_positions,
-                hg38_positions=hg38_positions,
-            )
             r2_path = Path(config.output_dir) / build / f"chr{chrom}_r2.parquet"
             meta_path = Path(config.output_dir) / build / f"chr{chrom}_meta.tsv.gz"
+
+            # Build the sidecar table first so the parquet can record the binding
+            # hash (CHR:POS:A1:A2) of the exact sidecar shipped alongside it. The
+            # pair indices emitted below reference this table's row order.
+            runtime_metadata = kernel_builder.build_runtime_metadata_table(
+                metadata=metadata,
+                positions=build_positions,
+                cm_values=cm_values,
+            )
+            identity_hash = kernel_builder.sidecar_identity_sha256(runtime_metadata)
+
             kernel_builder.write_r2_parquet(
                 pair_rows=kernel_builder.yield_pairwise_r2_rows(
                     block_left=block_left,
@@ -865,17 +871,13 @@ class ReferencePanelBuilder:
                     n=geno.n,
                     min_r2=config.min_r2,
                 ),
-                reference_snp_table=reference_snp_table,
                 path=r2_path,
                 genome_build=build,
                 snp_identifier=self.global_config.snp_identifier,
                 n_samples=geno.n,
                 min_r2=config.min_r2,
-            )
-            runtime_metadata = kernel_builder.build_runtime_metadata_table(
-                metadata=metadata,
-                positions=build_positions,
-                cm_values=cm_values,
+                n_snps=len(runtime_metadata),
+                sidecar_identity_sha256=identity_hash,
             )
             kernel_builder.write_runtime_metadata_sidecar(
                 runtime_metadata,

@@ -33,6 +33,7 @@ from .snp_identity import (
     identity_artifact_metadata,
     identity_mode_family,
     restriction_membership_mask,
+    sidecar_identity_sha256,
 )
 
 LOGGER = logging.getLogger("LDSC.ref_panel_builder.kernel")

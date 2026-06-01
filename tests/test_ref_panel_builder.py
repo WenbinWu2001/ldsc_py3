@@ -2769,6 +2769,33 @@ class ReferencePanelBuilderSourceOnlySmokeTest(unittest.TestCase):
             meta_hg38 = pd.read_csv(build_result.output_paths["meta_hg38"][0], sep="\t", comment="#")
             self.assertTrue(meta_hg38["CM"].isna().all())
 
+    def test_built_parquet_records_binding_hash_matching_its_sidecar(self):
+        import pyarrow.parquet as pq
+        from ldsc._kernel.snp_identity import sidecar_identity_sha256
+
+        prefix = MINIMAL_EXTERNAL_FIXTURES / "plink" / "hm3_chr22_subset"
+        if not (Path(str(prefix) + ".bed").exists() and Path(str(prefix) + ".bim").exists() and Path(str(prefix) + ".fam").exists()):
+            self.skipTest("minimal chr22 PLINK fixture is unavailable; run tests/fixtures/generate_minimal_external_resources.py")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            build_result = ref_panel_builder.run_build_ref_panel(
+                plink_prefix=str(prefix),
+                source_genome_build="hg38",
+                genetic_map_hg19_sources=None,
+                genetic_map_hg38_sources=None,
+                output_dir=str(Path(tmpdir) / "panel"),
+                ld_wind_snps=10,
+                ld_wind_kb=None,
+                snp_batch_size=64,
+            )
+            r2_path = build_result.output_paths["r2_hg38"][0]
+            meta_path = build_result.output_paths["meta_hg38"][0]
+            stored = {k.decode(): v.decode() for k, v in pq.ParquetFile(r2_path).schema_arrow.metadata.items()}
+            sidecar = pd.read_csv(meta_path, sep="\t", comment="#")
+            self.assertEqual(stored["ldsc:sidecar_identity_sha256"], sidecar_identity_sha256(sidecar))
+            self.assertEqual(int(stored["ldsc:n_snps"]), len(sidecar))
+            self.assertEqual(pq.ParquetFile(r2_path).schema_arrow.names, ["IDX_1", "IDX_2", "R2", "SIGN"])
+
 
 @unittest.skipUnless(
     _HAS_BITARRAY and _HAS_PYARROW and _HAS_PYLIFTOVER,

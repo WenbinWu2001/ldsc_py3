@@ -9,10 +9,7 @@ if str(SRC) not in sys.path:
 
 from ldsc import column_inference as ci
 from ldsc.column_inference import (
-    PARQUET_R2_CANONICAL_SPECS,
     POS_COLUMN_SPEC,
-    R2_HELPER_COLUMN_SPECS,
-    R2_SOURCE_COLUMN_SPECS,
     resolve_restriction_chr_pos_columns,
     resolve_restriction_rsid_column,
     resolve_required_column,
@@ -121,77 +118,6 @@ class ColumnInferenceTest(unittest.TestCase):
         self.assertTrue(all(record.levelname == "INFO" for record in captured.records))
         self.assertIn("canonical field 'POS'", captured.output[0])
         self.assertIn("input column 'BP'", captured.output[0])
-
-    def test_resolve_r2_source_columns_accepts_legacy_bp_and_build_aliases(self):
-        mapping = resolve_required_columns(
-            [
-                "chromosome",
-                "rs_id_1",
-                "rs_id_2",
-                "grch38_bp_1",
-                "grch38_bp_2",
-                "hg37_bp1",
-                "hg37_bp2",
-                "hg38_uniq_id_1",
-                "hg38_uniq_id_2",
-                "hg19_uniq_id_1",
-                "hg19_uniq_id_2",
-                "r2",
-                "d_prime",
-                "corr",
-            ],
-            R2_SOURCE_COLUMN_SPECS,
-            context="test-r2-source-aliases",
-        )
-
-        self.assertEqual(mapping["chr"], "chromosome")
-        self.assertEqual(mapping["rsID_1"], "rs_id_1")
-        self.assertEqual(mapping["rsID_2"], "rs_id_2")
-        self.assertEqual(mapping["hg38_pos_1"], "grch38_bp_1")
-        self.assertEqual(mapping["hg38_pos_2"], "grch38_bp_2")
-        self.assertEqual(mapping["hg19_pos_1"], "hg37_bp1")
-        self.assertEqual(mapping["hg19_pos_2"], "hg37_bp2")
-        self.assertEqual(mapping["Dprime"], "d_prime")
-        self.assertEqual(mapping["+/-corr"], "corr")
-
-    def test_resolve_r2_helper_columns_accepts_bp_aliases(self):
-        mapping = resolve_required_columns(
-            ["chr", "bp1", "bp_2"],
-            R2_HELPER_COLUMN_SPECS,
-            context="test-r2-helper-aliases",
-        )
-
-        self.assertEqual(mapping["pos_1"], "bp1")
-        self.assertEqual(mapping["pos_2"], "bp_2")
-
-    def test_resolve_canonical_parquet_columns_accepts_aliases(self):
-        mapping = resolve_required_columns(
-            [
-                "chr",
-                "bp_1",
-                "bp2",
-                "rsid_1",
-                "rs_2",
-                "allele1_1",
-                "allele2_1",
-                "allele1_2",
-                "allele2_2",
-                "R2",
-            ],
-            PARQUET_R2_CANONICAL_SPECS,
-            context="test-canonical-parquet-aliases",
-        )
-
-        self.assertEqual(mapping["CHR"], "chr")
-        self.assertEqual(mapping["POS_1"], "bp_1")
-        self.assertEqual(mapping["POS_2"], "bp2")
-        self.assertEqual(mapping["SNP_1"], "rsid_1")
-        self.assertEqual(mapping["SNP_2"], "rs_2")
-        self.assertEqual(mapping["A1_1"], "allele1_1")
-        self.assertEqual(mapping["A2_1"], "allele2_1")
-        self.assertEqual(mapping["A1_2"], "allele1_2")
-        self.assertEqual(mapping["A2_2"], "allele2_2")
-        self.assertEqual(mapping["R2"], "R2")
 
     def test_resolve_restriction_rsid_column_uses_registry_aliases(self):
         self.assertEqual(

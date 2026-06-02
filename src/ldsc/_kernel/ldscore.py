@@ -1279,13 +1279,8 @@ class SortedR2BlockReader:
         assert self.genome_build in {"hg19", "hg38", None}, (
             f"genome_build={self.genome_build!r} must be concrete by this point."
         )
-        self.dataset = None
-        self.ds = None
         self._pf = None
-        self._canonical_columns: dict[str, str] | None = None
         self._rg_bounds: list[tuple[int, int, int]] = []
-        self._raw_pos_columns: tuple[str, str] | None = None
-        self._raw_query_columns: list[str] | None = None
         self._row_group_cache: _RowGroupLRUCache | None = None
         metadata = metadata.copy()
         metadata_context = f"SortedR2BlockReader[{self.chrom}] metadata"
@@ -1469,7 +1464,7 @@ class SortedR2BlockReader:
 
     def configure_auto_row_group_cache(self, block_left: np.ndarray, snp_batch_size: int) -> None:
         """Size the decoded row-group cache from this chromosome's sliding windows."""
-        if getattr(self, "_runtime_layout", None) not in ("canonical", "index"):
+        if getattr(self, "_runtime_layout", None) != "index":
             self._row_group_cache = None
             return
         num_row_groups = len(self._rg_bounds)

@@ -40,7 +40,7 @@ consumers, though LD-score regression — which uses unsigned R² — ignores it
 |---|---|---|
 | `IDX_1` | `int32` | left endpoint: 0-based row index into the panel sidecar |
 | `IDX_2` | `int32` | right endpoint: 0-based row index into the panel sidecar |
-| `R2` | `float32` | unbiased squared correlation between allele dosages |
+| `R2` | `int16` (quantized) | unbiased squared correlation, symmetric int16 quantization (scale 32767); reader dequantizes to `float32`. See §2.3. |
 | `SIGN` | `bool` (bit-packed) | `True` ⇔ Pearson r ≥ 0 in the sidecar's A1/A2 orientation |
 
 There are no `CHR`, `POS_*`, `SNP_*`, or allele columns. The chromosome and all
@@ -78,11 +78,20 @@ structure:
 |---|---|---|
 | `IDX_1` | `RLE_DICTIONARY` (PyArrow default) | Long constant runs (each left SNP appears ~3k times at 1cM/1KG density); dictionary + RLE reduces to ≈0.05 bits/pair. |
 | `IDX_2` | **`DELTA_BINARY_PACKED`** | Within each `IDX_1` run, right-neighbor indices are sorted with a median forward-gap of 1. DELTA stores successive differences, collapsing ~650 MB to ~6 MB vs the default dictionary path. `use_dictionary` is restricted to `IDX_1` only so PyArrow cannot override this encoding. |
-| `R2` | `PLAIN` (PyArrow default) | Unbiased R² values are high-entropy floats; no encoding exploits their structure better than plain bytes before zstd. |
+| `R2` | **`int16` quantization + `BYTE_STREAM_SPLIT`** | R² is stored as symmetric int16 (`round(R²·32767)`, clipped `[-32767, 32767]`) instead of float32. `BYTE_STREAM_SPLIT` separates the two int16 byte planes so zstd compresses the low-entropy high byte (R² clusters near 0) apart from the noisy low byte. Genome-wide this cuts the R² column ~63% vs float32 PLAIN. Lossy but effectively lossless for LD scores: per-pair `|error| ≤ 1.5e-5` (½ step, ~20× below the `1/N` unbiased-correction floor), per-SNP LD-score delta `≤ ~2e-3`. |
 | `SIGN` | `RLE` + bit-packing (PyArrow bool default) | Arrow `bool` is natively bit-packed at 1 bit/value; RLE handles the encoding automatically. |
 
-All encodings are recorded in the parquet footer. PyArrow auto-decodes them on
-read — no reader change is needed when the writer encoding changes.
+**R² quantization (lossy) — endpoint-exact.** The scale `32767` is the int16
+maximum, so the maximum R² round-trips exactly: the writer upper-clips the
+unbiased estimate at `1.0`, `round(1.0·32767) = 32767`, and the reader decodes
+`32767 / 32767 = 1.0` exactly. Negative unbiased values (~15% of pairs) are
+preserved, not floored. The `[-32767, 32767]` clip is defensive — with the `≤1.0`
+clip and `|negatives| ~ 1/N` it never fires on real data.
+
+All encodings are recorded in the parquet footer and PyArrow auto-decodes them.
+The int16→float32 **dequantization is a reader-side step** (divide by
+`ldsc:r2_scale`), not a Parquet codec; see §3.2. A `float32` R² column (legacy
+panels) is detected by dtype and read unscaled, so old panels keep working.
 
 ### 2.4 SNP Identity Modes — handled entirely off the parquet
 
@@ -109,6 +118,8 @@ the panel was built for, as provenance only.
 | `ldsc:min_r2` | string(float) | unbiased-R² floor applied upstream; `"0.0"` means complete |
 | `ldsc:n_snps` | string(int) | length of the panel sidecar = size of the index space |
 | `ldsc:sidecar_identity_sha256` | string(hex) | binding hash of the sidecar identity (§4) |
+| `ldsc:r2_encoding` | string | R² storage encoding; `"int16_symmetric"` for package panels. Absent on legacy float32 panels. |
+| `ldsc:r2_scale` | string(int) | dequant divisor for an integer R² column (`"32767"`). The reader divides the int16 values by this to recover float32 R². |
 
 Stored as UTF-8 byte strings, accessed via
 `pq.ParquetFile(path).schema_arrow.metadata`.
@@ -127,15 +138,19 @@ ldsc:r2_bias                 = "unbiased"
 ldsc:min_r2                  = "0.0"
 ldsc:n_snps                  = "969730"
 ldsc:sidecar_identity_sha256 = "a1b2…(64 hex chars)"
+ldsc:r2_encoding             = "int16_symmetric"
+ldsc:r2_scale                = "32767"
 ```
 
-**Data rows (sorted by non-decreasing `IDX_1`):**
+**Data rows (sorted by non-decreasing `IDX_1`):** R² is stored on disk as int16
+(`round(R²·32767)`); the decoded float32 value the reader yields is shown in
+parentheses.
 
-| IDX_1 | IDX_2 | R2 | SIGN |
+| IDX_1 | IDX_2 | R2 (int16 → decoded) | SIGN |
 |---|---|---|---|
-| 0 | 1 | 0.8214 | True |
-| 0 | 2 | 0.1342 | False |
-| 1 | 2 | 0.0891 | True |
+| 0 | 1 | 26915 → 0.8214 | True |
+| 0 | 2 | 4397 → 0.1342 | False |
+| 1 | 2 | 2920 → 0.0891 | True |
 
 `IDX_1 = 0` is sidecar row 0; the left SNP appears in multiple consecutive rows,
 one per right-side neighbor within the LD window.
@@ -193,8 +208,11 @@ i = remap[IDX_1]; j = remap[IDX_2]
 keep = (i >= 0) & (j >= 0)
 ```
 
-Endpoints not in the analysis universe map to `-1` and are dropped. Optional
-raw→unbiased R² correction (`_transform_r2`) is applied here. `SIGN` is not read
+Endpoints not in the analysis universe map to `-1` and are dropped. When the R²
+column is an integer dtype (quantized panels), the reader **dequantizes**
+(`r2 = int16_values / ldsc:r2_scale`, scale resolved once at open in
+`_resolve_r2_scale`) to `float32` before the optional raw→unbiased R² correction
+(`_transform_r2`); a float32 R² column (legacy) skips dequant. `SIGN` is not read
 (unused by LD-score computation). Decoded row groups are cached as numeric
 `i:int32, j:int32, r2:float32` arrays in a chromosome-local LRU cache auto-sized
 from the sliding-window query sequence.

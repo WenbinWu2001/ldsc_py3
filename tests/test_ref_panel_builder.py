@@ -477,7 +477,7 @@ class StandardTableFormattingTest(unittest.TestCase):
             meta = pq.read_schema(str(path)).metadata
             self.assertEqual(meta[b"ldsc:sorted_by_build"], b"hg19")
             self.assertEqual(meta[b"ldsc:row_group_size"], b"50000")
-            self.assertEqual(meta[b"ldsc:schema_version"], b"2")
+            self.assertEqual(meta[b"ldsc:schema_version"], b"1")
             self.assertEqual(meta[b"ldsc:artifact_type"], b"ref_panel_r2")
             self.assertEqual(meta[b"ldsc:snp_identifier"], b"rsid_allele_aware")
             self.assertEqual(meta[b"ldsc:genome_build"], b"hg19")
@@ -3014,7 +3014,7 @@ class IndexWriterTest(unittest.TestCase):
             pf = pq.ParquetFile(path)
             self.assertEqual(pf.schema_arrow.names, ["IDX_1", "IDX_2", "R2", "SIGN"])
             meta = {k.decode(): v.decode() for k, v in pf.schema_arrow.metadata.items()}
-            self.assertEqual(meta["ldsc:schema_version"], "2")
+            self.assertEqual(meta["ldsc:schema_version"], "1")
             self.assertEqual(meta["ldsc:n_snps"], "3")
             self.assertEqual(meta["ldsc:sidecar_identity_sha256"], "deadbeef" * 8)
             self.assertEqual(meta["ldsc:sorted_by_build"], "hg19")

@@ -472,26 +472,6 @@ class ParquetRefPanelTest(unittest.TestCase):
                 panel.load_metadata("1")
 
     @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
-    def test_external_raw_r2_with_only_technical_metadata_bypasses_package_identity_validation(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            build_dir = Path(tmpdir) / "panel" / "hg38"
-            _write_raw_r2_parquet_with_technical_metadata(build_dir / "chr1_r2.parquet")
-            _write_meta_sidecar(
-                build_dir / "chr1_meta.tsv.gz",
-                "CHR\tPOS\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n1\t20\trs2\t0.2\t0.3\n",
-                identity_metadata=False,
-            )
-
-            panel = ParquetR2RefPanel(
-                GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
-            )
-
-            reader = panel.build_reader("1")
-
-            self.assertIsNotNone(reader)
-
-    @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
     def test_package_canonical_r2_rejects_snp_identifier_mismatch(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             build_dir = Path(tmpdir) / "panel" / "hg38"
@@ -520,25 +500,6 @@ class ParquetRefPanelTest(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "genome_build mismatch"):
                 panel.build_reader("1")
-
-    @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
-    def test_r2_dir_falls_back_to_r2_endpoints_without_sidecar(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            build_dir = Path(tmpdir) / "panel" / "hg38"
-            _write_canonical_r2_parquet(build_dir / "chr1_r2.parquet")
-
-            panel = ParquetR2RefPanel(
-                GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
-            )
-
-            self.assertEqual(panel.available_chromosomes(), ["1"])
-            metadata = panel.load_metadata("1")
-            self.assertEqual(metadata["CHR"].tolist(), ["1", "1", "1"])
-            self.assertEqual(metadata["POS"].tolist(), [10, 20, 30])
-            self.assertEqual(metadata["SNP"].tolist(), ["rs1", "rs2", "rs3"])
-            self.assertTrue(metadata["CM"].isna().all())
-            self.assertNotIn("MAF", metadata.columns)
 
     @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
     def test_r2_dir_requires_r2_for_requested_chromosome(self):

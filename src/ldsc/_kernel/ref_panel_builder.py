@@ -682,7 +682,6 @@ def write_r2_parquet(
                 genome_build=genome_build,
             ).items()
         },
-        b"ldsc:schema_version": b"2",
         b"ldsc:sorted_by_build": genome_build.encode("utf-8"),
         b"ldsc:row_group_size": str(row_group_size).encode("utf-8"),
         b"ldsc:n_samples": str(n_samples).encode("utf-8"),

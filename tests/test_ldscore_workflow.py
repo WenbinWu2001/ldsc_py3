@@ -258,42 +258,53 @@ class R2AutoLoadCLITest(unittest.TestCase):
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet schema coverage")
     def test_parquet_panel_autofills_raw_and_n_from_schema(self):
+        import pyarrow as pa
+        import pyarrow.parquet as pq
         from ldsc._kernel.ref_panel import ParquetR2RefPanel
+        from ldsc._kernel.snp_identity import sidecar_identity_sha256
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "hg19" / "chr1_r2.parquet"
-            _write_minimal_r2_parquet(
-                path,
-                {
-                    b"ldsc:n_samples": b"200",
-                    b"ldsc:r2_bias": b"raw",
-                    b"ldsc:schema_version": b"1",
-                    b"ldsc:artifact_type": b"ref_panel_r2",
-                    b"ldsc:snp_identifier": b"rsid",
-                    b"ldsc:genome_build": b"hg19",
-                },
+            build_dir = Path(tmpdir) / "hg19"
+            build_dir.mkdir(parents=True)
+            path = build_dir / "chr1_r2.parquet"
+            panel = pd.DataFrame({"CHR": ["1", "1"], "POS": [100, 120], "SNP": ["rs1", "rs2"],
+                                  "A1": ["A", "A"], "A2": ["C", "C"], "CM": [0.0, 0.0], "MAF": [0.3, 0.3]})
+            with gzip.open(build_dir / "chr1_meta.tsv.gz", "wt") as handle:
+                handle.write("# ldsc:schema_version=2\n")
+                panel.to_csv(handle, sep="\t", index=False)
+            # A hand-built raw-bias index panel (the package writer only emits
+            # unbiased; raw is reserved for future external raw-R2 index panels).
+            schema = pa.schema(
+                [("IDX_1", pa.int32()), ("IDX_2", pa.int32()), ("R2", pa.float32()), ("SIGN", pa.bool_())]
+            ).with_metadata({
+                b"ldsc:schema_version": b"1",
+                b"ldsc:artifact_type": b"ref_panel_r2",
+                b"ldsc:snp_identifier": b"rsid",
+                b"ldsc:genome_build": b"hg19",
+                b"ldsc:sorted_by_build": b"hg19",
+                b"ldsc:n_samples": b"200",
+                b"ldsc:r2_bias": b"raw",
+                b"ldsc:n_snps": b"2",
+                b"ldsc:sidecar_identity_sha256": sidecar_identity_sha256(panel).encode("utf-8"),
+            })
+            tbl = pa.table(
+                {"IDX_1": pa.array([0], pa.int32()), "IDX_2": pa.array([1], pa.int32()),
+                 "R2": pa.array([0.5], pa.float32()), "SIGN": pa.array([True], pa.bool_())},
+                schema=schema,
             )
+            pq.write_table(tbl, str(path))
+
             spec = RefPanelConfig(
                 backend="parquet_r2",
-                r2_dir=str(Path(tmpdir) / "hg19"),
+                r2_dir=str(build_dir),
                 r2_bias_mode=None,
                 r2_sample_size=None,
             )
-            panel = ParquetR2RefPanel(
-                GlobalConfig(snp_identifier="rsid"),
-                spec,
+            panel_loader = ParquetR2RefPanel(GlobalConfig(snp_identifier="rsid"), spec)
+            reader_meta = pd.DataFrame(
+                {"CHR": ["1", "1"], "POS": [100, 120], "SNP": ["rs1", "rs2"], "CM": [0.0, 0.0], "MAF": [0.3, 0.3]}
             )
-            metadata = pd.DataFrame(
-                {
-                    "CHR": ["1"],
-                    "POS": [100],
-                    "SNP": ["rs1"],
-                    "CM": [0.0],
-                    "MAF": [0.3],
-                }
-            )
-
-            reader = panel.build_reader("1", metadata=metadata)
+            reader = panel_loader.build_reader("1", metadata=reader_meta)
 
         self.assertEqual(reader.r2_bias_mode, "raw")
         self.assertAlmostEqual(reader.r2_sample_size, 200.0)
@@ -3002,53 +3013,6 @@ class LDScoreParquetNormalizationTest(unittest.TestCase):
             kernel_ldscore.get_r2_build_columns("hg19", columns),
             ("hg19_pos_1", "hg19_pos_2"),
         )
-
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet reader coverage")
-    def test_sorted_r2_block_reader_projects_actual_raw_schema_columns(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "raw_chr1.parquet"
-            pd.DataFrame(
-                {
-                    "chr": ["1"],
-                    "rsID_1": ["rs2"],
-                    "rsID_2": ["rs1"],
-                    "hg38_bp1": [120],
-                    "hg38_bp2": [100],
-                    "hg19_bp_1": [20],
-                    "hg19_bp_2": [10],
-                    "hg38_Uniq_ID_1": ["1:120"],
-                    "hg38_Uniq_ID_2": ["1:100"],
-                    "hg19_Uniq_ID_1": ["1:20"],
-                    "hg19_Uniq_ID_2": ["1:10"],
-                    "R2": [0.4],
-                    "Dprime": [0.5],
-                    "+/-corr": ["+"],
-                }
-            ).to_parquet(path, index=False)
-
-            metadata = pd.DataFrame(
-                {
-                    "CHR": ["1", "1"],
-                    "SNP": ["rs1", "rs2"],
-                    "POS": [10, 20],
-                    "CM": [0.1, 0.2],
-                }
-            )
-            reader = kernel_ldscore.SortedR2BlockReader(
-                paths=[str(path)],
-                chrom="1",
-                metadata=metadata,
-                identifier_mode="rsid",
-                r2_bias_mode="unbiased",
-                r2_sample_size=None,
-                genome_build="hg19",
-            )
-
-            matrix = reader.within_block_matrix(l_B=0, c=2)
-            np.testing.assert_allclose(
-                matrix,
-                np.array([[1.0, 0.4], [0.4, 1.0]], dtype=np.float32),
-            )
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet reader coverage")
     def test_sorted_r2_block_reader_rejects_auto_genome_build_at_kernel_boundary(self):

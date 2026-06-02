@@ -3163,6 +3163,54 @@ class IndexReaderDecodeTest(unittest.TestCase):
             self.assertEqual(mat.shape, (3, 3))
 
 
+class IndexCrossModeParityTest(unittest.TestCase):
+    """One index parquet must produce identical LD scores in all four modes."""
+
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
+    def test_ld_scores_identical_across_modes_from_one_index_parquet(self):
+        from ldsc._kernel import ref_panel_builder as kb
+        from ldsc._kernel.snp_identity import sidecar_identity_sha256
+
+        panel = pd.DataFrame({
+            "CHR": ["1"] * 4, "POS": [100, 120, 140, 160], "SNP": ["rs1", "rs2", "rs3", "rs4"],
+            "A1": ["A", "A", "A", "A"], "A2": ["C", "G", "C", "G"], "CM": [0.0] * 4, "MAF": [0.3] * 4,
+        })
+        pairs = [
+            {"i": 0, "j": 1, "R2": 0.4, "sign": "+"},
+            {"i": 0, "j": 2, "R2": 0.2, "sign": "-"},
+            {"i": 1, "j": 2, "R2": 0.6, "sign": "+"},
+            {"i": 2, "j": 3, "R2": 0.5, "sign": "+"},
+        ]
+        # Dense oracle: symmetric R2 matrix with unit diagonal, times all-ones annotation.
+        oracle = np.array([
+            [1.0, 0.4, 0.2, 0.0],
+            [0.4, 1.0, 0.6, 0.0],
+            [0.2, 0.6, 1.0, 0.5],
+            [0.0, 0.0, 0.5, 1.0],
+        ], dtype=np.float64)
+        expected = oracle.sum(axis=1)  # [1.6, 2.0, 2.3, 1.5]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            meta = _write_index_sidecar(tmp, panel)
+            r2 = meta.with_name("chr1_r2.parquet")
+            kb.write_r2_parquet(pair_rows=pairs, path=r2, genome_build="hg19", n_samples=100,
+                                snp_identifier="chr_pos", min_r2=0.0, n_snps=4,
+                                sidecar_identity_sha256=sidecar_identity_sha256(panel))
+            for mode in ("rsid", "chr_pos", "rsid_allele_aware", "chr_pos_allele_aware"):
+                reader = kernel_ldscore.SortedR2BlockReader(
+                    paths=[str(r2)], chrom="1",
+                    metadata=panel[["CHR", "POS", "SNP", "A1", "A2", "CM", "MAF"]].copy(),
+                    identifier_mode=mode, r2_bias_mode="unbiased",
+                    r2_sample_size=None, genome_build="hg19",
+                )
+                scores = kernel_ldscore.ld_score_var_blocks_from_r2_reader(
+                    block_left=np.zeros(4, dtype=np.int64), snp_batch_size=2,
+                    annot=np.ones((4, 1), dtype=np.float32), block_reader=reader,
+                )
+                np.testing.assert_allclose(scores[:, 0], expected, rtol=0, atol=1e-6,
+                                           err_msg=f"mode {mode} diverged from dense oracle")
+
+
 class RawSchemaRejectedTest(unittest.TestCase):
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
     def test_legacy_raw_schema_is_rejected(self):

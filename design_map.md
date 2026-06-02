@@ -87,5 +87,5 @@ contracts move.
 
 | Design document | Implementation |
 | --- | --- |
-| `docs/current/parquet-r2-format-and-read-pipeline.md` | canonical R² parquet schema/metadata (incl. `ldsc:min_r2`), zstd-L9 column-chunk compression, and `SortedR2BlockReader` decode/window read path with vectorized endpoint-index lookup in `_kernel/ldscore.py` |
-| `docs/superpowers/specs/2026-06-01-build-ref-panel-memory-optimization-design.md` | build-ref-panel memory/speed optimization: `--min-r2`, compact numpy pair buffers, vectorized pair extraction, builder-scoped float32 genotypes, direct PyArrow writes, BED bitarray releases (MAF-filter and per-build), zstd-L9, and vectorized canonical decode lookup |
+| `docs/current/parquet-r2-format-and-read-pipeline.md` | canonical R² parquet schema/metadata (incl. `ldsc:min_r2`, `ldsc:r2_encoding`/`ldsc:r2_scale`), int16 R² quantization + `BYTE_STREAM_SPLIT` (`_quantize_r2` in `_kernel/ref_panel_builder.py`), zstd-L9 column-chunk compression, and `SortedR2BlockReader` decode/window read path with int16→float32 dequant (`_resolve_r2_scale`) and vectorized endpoint-index lookup in `_kernel/ldscore.py` |
+| `docs/superpowers/specs/2026-06-01-build-ref-panel-memory-optimization-design.md` | build-ref-panel memory/speed optimization: `--min-r2`, compact numpy pair buffers, vectorized pair extraction, builder-scoped float32 genotypes, direct PyArrow writes, BED bitarray releases (MAF-filter and per-build), zstd-L9, vectorized canonical decode lookup, and (#11) int16 R² quantization + `BYTE_STREAM_SPLIT` |

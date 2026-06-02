@@ -1386,6 +1386,8 @@ class SortedR2BlockReader:
             if denom <= 0:
                 raise ValueError("--r2-sample-size must be greater than 2 for raw R2 correction.")
             values = values - (1.0 - values) / denom
+            # Share the writer's R2<=1 invariant: roundoff/raw inputs can exceed 1.
+            values = np.minimum(values, np.float32(1.0))
         return values
 
     @staticmethod

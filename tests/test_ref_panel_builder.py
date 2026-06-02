@@ -357,6 +357,15 @@ class PairwiseEmissionTest(unittest.TestCase):
         left_indices = [row["i"] for row in rows]
         self.assertEqual(left_indices, sorted(left_indices))
 
+    def test_unbiased_r2_array_upper_clips_at_one_keeps_negatives(self):
+        from ldsc._kernel import ref_panel_builder as kb
+        # corr=1.0 -> raw sq=1.0; float roundoff can give sq slightly >1.
+        corr = np.array([1.0, np.nextafter(np.float64(1.0), 2.0), 0.0], dtype=np.float64)
+        out = kb._unbiased_r2_array(corr, n_samples=100)
+        self.assertLessEqual(float(out.max()), 1.0)            # never exceeds 1.0
+        self.assertEqual(float(out[0]), 1.0)                   # perfect LD -> exactly 1.0
+        self.assertLess(float(out[2]), 0.0)                    # corr=0 -> negative unbiased kept
+
 
 class RetainedSnpOrderingTest(unittest.TestCase):
     def test_sort_retained_snps_uses_requested_build_positions(self):

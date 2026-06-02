@@ -237,10 +237,16 @@ def compute_block_left(coords: np.ndarray, max_dist: float) -> np.ndarray:
 
 
 def _unbiased_r2_array(correlation: np.ndarray, n_samples: int) -> np.ndarray:
-    """Convert correlation coefficients to the unbiased :math:`R^2` estimate."""
+    """Convert correlation coefficients to the unbiased :math:`R^2` estimate.
+
+    Upper-clipped at ``1.0``: float roundoff at perfect LD can push raw
+    :math:`r^2` a hair above 1, and the int16 quantization endpoint must map a
+    true maximum of exactly ``1.0`` to ``32767``. Negative unbiased values are
+    kept (not floored) so the bias correction stays visible downstream.
+    """
     sq = correlation * correlation
     denom = n_samples - 2 if n_samples > 2 else n_samples
-    return sq - (1.0 - sq) / denom
+    return np.minimum(sq - (1.0 - sq) / denom, 1.0)
 
 
 @dataclass

@@ -3090,3 +3090,15 @@ class RawSchemaRejectedTest(unittest.TestCase):
                 SortedR2BlockReader(paths=[str(path)], chrom="1", metadata=meta,
                                     identifier_mode="chr_pos", r2_bias_mode="unbiased",
                                     r2_sample_size=None, genome_build="hg19")
+
+
+class R2TransformClipTest(unittest.TestCase):
+    def test_raw_transform_upper_clips_at_one(self):
+        from ldsc._kernel.ldscore import SortedR2BlockReader
+        reader = SortedR2BlockReader.__new__(SortedR2BlockReader)
+        reader.r2_bias_mode = "raw"
+        reader.r2_sample_size = 100.0
+        # raw r2 = 1.0 -> corrected 1.0 - 0/98 = 1.0; values >1 must clip to 1.0.
+        out = reader._transform_r2(np.array([1.0, 1.05, 0.0], dtype=np.float32))
+        self.assertLessEqual(float(out.max()), 1.0)
+        self.assertEqual(float(out[0]), 1.0)

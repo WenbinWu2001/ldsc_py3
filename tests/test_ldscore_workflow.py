@@ -3063,6 +3063,7 @@ class IndexCrossModeParityTest(unittest.TestCase):
             kb.write_r2_parquet(pair_rows=pairs, path=r2, genome_build="hg19", n_samples=100,
                                 snp_identifier="chr_pos", min_r2=0.0, n_snps=4,
                                 sidecar_identity_sha256=sidecar_identity_sha256(panel))
+            mode_scores = {}
             for mode in ("rsid", "chr_pos", "rsid_allele_aware", "chr_pos_allele_aware"):
                 reader = kernel_ldscore.SortedR2BlockReader(
                     paths=[str(r2)], chrom="1",
@@ -3074,8 +3075,14 @@ class IndexCrossModeParityTest(unittest.TestCase):
                     block_left=np.zeros(4, dtype=np.int64), snp_batch_size=2,
                     annot=np.ones((4, 1), dtype=np.float32), block_reader=reader,
                 )
-                np.testing.assert_allclose(scores[:, 0], expected, rtol=0, atol=1e-6,
-                                           err_msg=f"mode {mode} diverged from dense oracle")
+                mode_scores[mode] = scores[:, 0]
+            # All four modes read one quantized parquet -> bit-identical to each other.
+            first = mode_scores["rsid"]
+            for mode, s in mode_scores.items():
+                np.testing.assert_array_equal(s, first, err_msg=f"mode {mode} differs from rsid")
+            # Dense oracle uses exact R2; int16 quantization adds <= a few half-steps.
+            np.testing.assert_allclose(first, expected, rtol=0, atol=5e-5,
+                                       err_msg="quantized LD scores drifted from dense oracle")
 
 
 class RawSchemaRejectedTest(unittest.TestCase):

@@ -2979,6 +2979,52 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
             self.assertGreater(float(parquet.baseline_table["base"].max()), 1.0)
 
 
+class R2QuantizationTest(unittest.TestCase):
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
+    def test_quantize_r2_endpoint_is_exact(self):
+        from ldsc._kernel import ref_panel_builder as kb
+        q = kb._quantize_r2(np.array([1.0, 1.000010, 0.0, -0.0003], dtype=np.float32))
+        self.assertEqual(q.dtype, np.int16)
+        self.assertEqual(int(q[0]), 32767)                 # 1.0 -> 32767
+        self.assertEqual(int(q[1]), 32767)                 # >1 clips to 32767
+        self.assertEqual(int(q[2]), 0)
+        self.assertLess(int(q[3]), 0)                      # negative preserved
+        # endpoint round-trips to EXACTLY 1.0
+        self.assertEqual(float(np.float32(32767) / np.float32(kb.R2_QUANT_SCALE)), 1.0)
+
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
+    def test_quantize_r2_precision_within_half_step(self):
+        from ldsc._kernel import ref_panel_builder as kb
+        r2 = np.linspace(-0.0003, 1.0, 5000).astype(np.float32)
+        decoded = kb._quantize_r2(r2).astype(np.float32) / np.float32(kb.R2_QUANT_SCALE)
+        self.assertLessEqual(float(np.max(np.abs(decoded - r2))), 2e-5)
+
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
+    def test_write_r2_parquet_stores_int16_with_bss_and_scale_metadata(self):
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+        from ldsc._kernel import ref_panel_builder as kb
+        if not pa.Codec.is_available("zstd"):
+            self.skipTest("zstd unavailable")
+        rows = [{"i": 0, "j": 1, "R2": 1.0, "sign": "+"},
+                {"i": 0, "j": 2, "R2": -0.0003, "sign": "-"}]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "chr1_r2.parquet"
+            kb.write_r2_parquet(pair_rows=iter(rows), path=path, genome_build="hg19",
+                                n_samples=100, snp_identifier="chr_pos", n_snps=3,
+                                sidecar_identity_sha256="0" * 64)
+            pf = pq.ParquetFile(path)
+            self.assertEqual(pf.schema_arrow.field("R2").type, pa.int16())
+            meta = pf.schema_arrow.metadata
+            self.assertEqual(meta[b"ldsc:r2_encoding"], b"int16_symmetric")
+            self.assertEqual(meta[b"ldsc:r2_scale"], b"32767")
+            self.assertEqual(meta[b"ldsc:schema_version"], b"1")
+            rg = pf.metadata.row_group(0)
+            encs = {rg.column(c).path_in_schema: rg.column(c).encodings
+                    for c in range(rg.num_columns)}
+            self.assertIn("BYTE_STREAM_SPLIT", encs.get("R2", ()))
+
+
 class IndexWriterTest(unittest.TestCase):
     def _rows(self):
         return [
@@ -3029,7 +3075,7 @@ class IndexArrowTableTest(unittest.TestCase):
         from ldsc._kernel import ref_panel_builder as kb
 
         schema = pa.schema([("IDX_1", pa.int32()), ("IDX_2", pa.int32()),
-                            ("R2", pa.float32()), ("SIGN", pa.bool_())])
+                            ("R2", pa.int16()), ("SIGN", pa.bool_())])
         rows = [
             {"i": 0, "j": 2, "R2": 0.5, "sign": "+"},
             {"i": 0, "j": 3, "R2": -0.01, "sign": "-"},
@@ -3039,8 +3085,9 @@ class IndexArrowTableTest(unittest.TestCase):
         self.assertEqual(table.column("IDX_1").to_pylist(), [0, 0])
         self.assertEqual(table.column("IDX_2").to_pylist(), [2, 3])
         self.assertEqual(table.column("SIGN").to_pylist(), [True, False])
-        self.assertEqual(table.schema.field("IDX_1").type, pa.int32())
-        self.assertEqual(table.schema.field("SIGN").type, pa.bool_())
+        self.assertEqual(table.schema.field("R2").type, pa.int16())
+        # 0.5 -> round(0.5*32767)=16384 (banker's rounding to even); -0.01 -> -328
+        self.assertEqual(table.column("R2").to_pylist(), [16384, -328])
 
 
 class SidecarIdentityHashTest(unittest.TestCase):

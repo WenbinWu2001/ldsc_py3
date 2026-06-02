@@ -236,6 +236,23 @@ def compute_block_left(coords: np.ndarray, max_dist: float) -> np.ndarray:
     return block_left
 
 
+# int16 symmetric R2 quantization (refactor #11). Scale 32767 = int16 max, so
+# the endpoint is exact: round(1.0 * 32767) = 32767, decoded 32767/32767 = 1.0.
+R2_QUANT_SCALE = 32767
+R2_ENCODING = "int16_symmetric"
+
+
+def _quantize_r2(r2: np.ndarray) -> np.ndarray:
+    """Symmetric int16 quantization of unbiased R2 (scale ``R2_QUANT_SCALE``).
+
+    ``stored = clip(round(R2 * 32767), -32767, 32767)``. The clip is defensive:
+    with the upstream ``min(R2, 1.0)`` and ``|negatives| ~ 1/N`` it never fires
+    on real data. float64 multiply makes rounding deterministic at half-steps.
+    """
+    scaled = np.rint(r2.astype(np.float64) * R2_QUANT_SCALE)
+    return np.clip(scaled, -R2_QUANT_SCALE, R2_QUANT_SCALE).astype(np.int16)
+
+
 def _unbiased_r2_array(correlation: np.ndarray, n_samples: int) -> np.ndarray:
     """Convert correlation coefficients to the unbiased :math:`R^2` estimate.
 
@@ -545,8 +562,9 @@ def _standard_r2_index_table(pa, schema, *, pair_rows: list[dict[str, float | in
     """Build one 4-column index ``pyarrow.Table`` batch directly from pair rows.
 
     ``pair_rows`` carry sidecar-row indices ``i``/``j`` (already the panel index
-    space), the unbiased ``R2``, and the correlation ``sign`` as ``"+"``/``"-"``.
-    No reference-SNP join or identifier expansion: the indices are stored as-is.
+    space), the unbiased ``R2`` (stored as symmetric int16, scale 32767), and the
+    correlation ``sign`` as ``"+"``/``"-"``. No reference-SNP join or identifier
+    expansion: the indices are stored as-is.
     """
     if not pair_rows:
         return schema.empty_table()
@@ -559,7 +577,7 @@ def _standard_r2_index_table(pa, schema, *, pair_rows: list[dict[str, float | in
         [
             pa.array(i, type=pa.int32()),
             pa.array(j, type=pa.int32()),
-            pa.array(r2, type=pa.float32()),
+            pa.array(_quantize_r2(r2), type=pa.int16()),
             pa.array(sign, type=pa.bool_()),
         ],
         schema=schema,
@@ -631,12 +649,14 @@ def write_r2_parquet(
         b"ldsc:min_r2": str(min_r2).encode("utf-8"),
         b"ldsc:n_snps": str(int(n_snps)).encode("utf-8"),
         b"ldsc:sidecar_identity_sha256": str(sidecar_identity_sha256).encode("utf-8"),
+        b"ldsc:r2_encoding": R2_ENCODING.encode("utf-8"),
+        b"ldsc:r2_scale": str(R2_QUANT_SCALE).encode("utf-8"),
     }
     schema = pa.schema(
         [
             ("IDX_1", pa.int32()),
             ("IDX_2", pa.int32()),
-            ("R2", pa.float32()),
+            ("R2", pa.int16()),
             ("SIGN", pa.bool_()),
         ]
     ).with_metadata(pa_meta)
@@ -662,10 +682,12 @@ def write_r2_parquet(
         if writer is None:
             # IDX_2: DELTA_BINARY_PACKED exploits sorted right-neighbors (median
             # forward-gap = 1), collapsing ~650 MB to ~6 MB vs the default
-            # dictionary path. use_dictionary restricts auto-dictionary to IDX_1
-            # only so PyArrow cannot override the DELTA encoding on IDX_2.
+            # dictionary path. R2: BYTE_STREAM_SPLIT splits the int16 byte planes
+            # so zstd compresses the low-entropy high byte (R2 clusters near 0)
+            # apart from the noisy low byte. use_dictionary restricts auto-
+            # dictionary to IDX_1 only so PyArrow cannot override either encoding.
             enc_kwargs = dict(
-                column_encoding={"IDX_2": "DELTA_BINARY_PACKED"},
+                column_encoding={"IDX_2": "DELTA_BINARY_PACKED", "R2": "BYTE_STREAM_SPLIT"},
                 use_dictionary=["IDX_1"],
             )
             if pa.Codec.is_available("zstd"):

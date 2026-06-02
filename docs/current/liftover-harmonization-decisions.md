@@ -140,9 +140,10 @@ output, and metadata contracts.
   artifacts must be regenerated with the current LDSC package.
 - Package-built reference-panel R2 parquet and runtime metadata artifacts carry
   current identity provenance.
-- In allele-aware modes, R2 parquet endpoint columns `A1_1`, `A2_1`, `A1_2`, and
-  `A2_2` are required; reference-panel metadata sidecars require `A1` and `A2`;
-  LD-score artifacts require `A1` and `A2`.
+- In allele-aware modes, reference-panel metadata sidecars require `A1` and `A2`
+  (the index-format R2 parquet carries no endpoint allele columns itself, so
+  allele-aware identity comes entirely from the sidecar); LD-score artifacts
+  require `A1` and `A2`.
 - Dropped-SNP sidecars include `CHR`, `SNP`, `source_pos`, `target_pos`,
   `reason`, `base_key`, `identity_key`, `allele_set`, and `stage`. Consumers
   should read with explicit nullable `string`/`Int64` dtypes because

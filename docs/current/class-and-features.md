@@ -138,9 +138,10 @@ metadata, `--infer-only`, HM3, and liftover guide, see
   allele-aware modes because annotations describe genomic membership; if
   annotations include alleles, they participate in allele-aware
   matching.
-- External raw R2 parquet inputs are supported only in `rsid` and `chr_pos`.
-  Allele-aware modes require package-built canonical R2 parquet with endpoint
-  allele columns `A1_1/A2_1/A1_2/A2_2`.
+- Package-built R2 parquets use the 4-column index format (`IDX_1`, `IDX_2`,
+  `R2`, `SIGN`) and serve all four identifier modes from one file. External R2
+  parquet formats are not supported; panels must be built with
+  `ldsc build-ref-panel`.
 - `--allow-identity-downgrade` is regression-only. It allows same-family
   allele-aware/base mixes to run under the base mode; rsID-family and
   coordinate-family modes never mix.

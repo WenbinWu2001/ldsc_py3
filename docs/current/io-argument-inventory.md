@@ -39,9 +39,8 @@ restrictions, including the packaged HM3 map, match by the effective
 allele-aware key in allele-aware modes. Annotation files may omit alleles in
 allele-aware modes because they describe genomic membership; if
 annotation alleles are present, they participate in allele-aware matching.
-External raw R2 parquet inputs are supported only in `rsid` and `chr_pos`;
-allele-aware modes require package-built canonical R2 parquet with
-`A1_1/A2_1/A1_2/A2_2`.
+Package-built R2 parquets use the 4-column index format and serve all four
+identifier modes. External R2 parquet formats are not supported.
 
 ## Format Policy
 
@@ -157,7 +156,7 @@ Removed flags: `--bed-files`, `--baseline-annot`.
 | `--query-annot-sources` | input | no | prebuilt query annotation files | Supplies prebuilt query annotation files; defaults to omitted/`None`, so no prebuilt query annotations are used. Mutually exclusive with `--query-annot-bed-sources` and requires `--baseline-annot-sources`. |
 | `--query-annot-bed-sources` | input | no | query BED interval files | Supplies BED intervals to project as query annotations; defaults to omitted/`None`, so no BED query annotations are projected. Requires `--baseline-annot-sources`. |
 | `--plink-prefix` | input | conditional | PLINK reference panel prefix | Selects PLINK reference-panel input; defaults to omitted/`None` and is required when `--r2-dir` is omitted. Supports exact prefix, PLINK-prefix glob, or `@` suite. |
-| `--r2-dir` | input | conditional | package-built parquet R2 directory | Selects parquet reference-panel input; defaults to omitted/`None` and is required when `--plink-prefix` is omitted. Use a build-specific directory such as `ref_panel/hg38`. Allele-aware modes require package-built canonical R2 parquet with endpoint allele columns. |
+| `--r2-dir` | input | conditional | package-built parquet R2 directory | Selects parquet reference-panel input; defaults to omitted/`None` and is required when `--plink-prefix` is omitted. Use a build-specific directory such as `ref_panel/hg38`. The directory must contain paired `chrN_r2.parquet` (4-column index format) and `chrN_meta.tsv.gz` sidecar files; the sidecar is mandatory. One parquet serves all identifier modes. |
 | `--r2-bias-mode` | input metadata | optional | parquet R2 bias declaration | Declares whether parquet R2 values are raw or unbiased. Package-built panels auto-load this from `ldsc:r2_bias`; legacy files without metadata still default to `unbiased`. Choose `raw` only for external raw sample R2 values. |
 | `--r2-sample-size` | input metadata | conditional | parquet R2 sample size | Provides the sample size for correcting raw R2. Package-built raw panels can auto-load this from `ldsc:n_samples`; legacy raw files still require an explicit value with `--r2-bias-mode raw`. |
 | `--ref-panel-snps-file` | input | no | reference-panel SNP universe restriction | Restricts the retained reference-panel SNP universe using identity keys only; duplicate restriction keys collapse to one retained key, and non-identity columns such as `CM` or `MAF` are ignored. Defaults to omitted/`None`, so no additional restriction is applied. |

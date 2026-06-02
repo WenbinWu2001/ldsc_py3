@@ -112,12 +112,10 @@ LD scores can be computed from:
 - package-built parquet R2 input through `--r2-dir`
 
 In `--r2-dir` mode, matching `chr*_meta.tsv.gz` sidecars are discovered
-automatically when present. Sidecars are optional but strongly recommended:
-without them, the loader can only synthesize SNP presence from parquet endpoint
-columns and cannot recover MAF or complete cM metadata.
-External raw R2 parquet inputs are supported only in `rsid` and `chr_pos`.
-Allele-aware modes require package-built canonical R2 parquet with endpoint
-allele columns `A1_1/A2_1/A1_2/A2_2`.
+automatically. The sidecar is mandatory for the canonical index-format R2
+parquet — it defines the index space and provides MAF and cM metadata. A missing
+sidecar is a hard error. The same R2 parquet serves all four identifier modes.
+External R2 parquet formats are not supported.
 
 ### Summary Statistics
 

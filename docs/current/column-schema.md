@@ -71,14 +71,16 @@ decimal digits printed, not numpy dtype.
 | --- | --- | --- |
 | `sumstats.parquet` | none | `CHR` (str), `POS` (int64 when complete), `SNP` (str), alleles (str), `Z`/`N`/`FRQ` (numeric precision preserved) |
 | `ldscore.baseline.parquet`, `ldscore.query.parquet` | `regression_ld_scores`, all LD-score / annotation columns | `CHR` (str), `POS` (int64), `SNP` (str) |
-| Pairwise R² parquet | `R2` | `CHR` (str), `POS_1`, `POS_2` (int64), `SNP_1`, `SNP_2` (str) |
+| Pairwise R² parquet | `R2` (float32), `SIGN` (bool) | `IDX_1`, `IDX_2` (int32 sidecar-row indices) |
 
 Pairwise R² parquet schema metadata also stores `ldsc:sorted_by_build`,
-`ldsc:row_group_size`, `ldsc:n_samples`, `ldsc:r2_bias`, and the minimal
-identity provenance keys `ldsc:schema_version`, `ldsc:artifact_type`,
-`ldsc:snp_identifier`, and `ldsc:genome_build`. The R2 bias keys let downstream
-readers distinguish package-built unbiased R2 from raw sample R2 without
-requiring users to repeat sample-size arguments. Old package-written artifacts
+`ldsc:row_group_size`, `ldsc:n_samples`, `ldsc:r2_bias`, `ldsc:n_snps`,
+`ldsc:sidecar_identity_sha256`, and the minimal identity provenance keys
+`ldsc:schema_version`, `ldsc:artifact_type`, `ldsc:snp_identifier`, and
+`ldsc:genome_build`. The R2 bias keys let downstream readers distinguish
+package-built unbiased R2 from raw sample R2 without requiring users to repeat
+sample-size arguments. The sidecar-binding keys bind the parquet to its exact
+sidecar and are validated at load time. Old package-written artifacts
 without current identity provenance must be regenerated with the current
 package.
 
@@ -206,7 +208,7 @@ CM`) follow the annotation rule unconditionally. The annotation-specific columns
 | LD-score output (`ldscore.baseline.parquet`) | `CHR, SNP, POS, regression_ld_scores` | baseline LD-score columns |
 | LD-score output (`ldscore.query.parquet`) | `CHR, SNP, POS` | query LD-score columns |
 | Munged sumstats (`sumstats.parquet` or `.sumstats.gz`) | `SNP, CHR, POS, A1, A2` | `Z, N, FRQ` |
-| Canonical pairwise R² parquet | `CHR, POS_1, POS_2, SNP_1, SNP_2, A1_1, A2_1, A1_2, A2_2, R2` when endpoint alleles are available | endpoint allele columns are required in allele-aware modes and ignored for identity in base modes |
+| Canonical pairwise R² parquet | `IDX_1, IDX_2, R2, SIGN` | index-only format; SNP identity lives in the paired `chrN_meta.tsv.gz` sidecar, not in the parquet |
 | Dropped-SNP audit sidecar (`diagnostics/dropped_snps/*.tsv.gz`) | `CHR, SNP, source_pos, target_pos, reason, base_key, identity_key, allele_set, stage` | |
 
 Dropped-SNP audit sidecars are always written by liftover-aware public

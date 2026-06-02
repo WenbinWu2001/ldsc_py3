@@ -426,11 +426,13 @@ class ParquetR2RefPanel(RefPanel):
     """
     Canonical parquet-R2 reference-panel adapter.
 
-    The metadata sidecar is the authoritative per-SNP universe for this backend:
-    ``load_metadata()`` reads A, applies ``ref_panel_snps_file`` to form A', and
-    returns that restricted table to the LD-score workflow. When no sidecar is
-    present, ``load_metadata()`` scans R2 parquet endpoints to synthesize
-    minimal SNP metadata.
+    Canonical index-format parquet R2 reference-panel adapter.
+
+    The metadata sidecar (``chrN_meta.tsv.gz``) is mandatory and authoritative:
+    ``load_metadata()`` reads it, applies ``ref_panel_snps_file`` to form A',
+    and returns the restricted table to the LD-score workflow. A missing sidecar
+    is a hard error. The paired R2 parquet (``chrN_r2.parquet``) stores only
+    sidecar-row indices and is meaningless without the exact matching sidecar.
     """
     def available_chromosomes(self) -> list[str]:
         """List chromosomes from explicit config, panel directory, sidecars, or R2 files."""

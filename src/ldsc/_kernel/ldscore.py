@@ -152,9 +152,10 @@ MAF and Common-Count Rules
 - If MAF is unavailable, `MAF` is written as `NA` in LD-score outputs and
   common counts are not emitted.
 
-- Runtime parquet input may be either normalized sorted parquet or raw parquet
-  with the legacy pairwise schema in base modes. Allele-aware modes require
-  package-written canonical parquet with endpoint allele columns.
+- Runtime parquet input must be the canonical 4-column index format
+  (``IDX_1``, ``IDX_2``, ``R2``, ``SIGN``), paired with its metadata sidecar.
+  The same parquet serves all four identifier modes; mode-specific matching
+  happens once per chromosome when the reader builds its remap.
 - parquet input requires `pyarrow` at runtime.
 - Per-query partitioned LDSC wrappers are intentionally out of scope for this
   module; this module computes LD scores only.
@@ -1205,7 +1206,7 @@ def check_whole_chromosome_window(block_left: np.ndarray, args: argparse.Namespa
 # Parquet R2 adapter.
 @dataclass(frozen=True)
 class _DecodedR2RowGroup:
-    """Decoded canonical parquet row group stored as numeric endpoint arrays."""
+    """Decoded index-format parquet row group as retained-matrix index arrays."""
 
     row_group_index: int
     i: np.ndarray
@@ -1214,7 +1215,7 @@ class _DecodedR2RowGroup:
 
 
 class _RowGroupLRUCache:
-    """Small LRU cache for decoded canonical parquet R2 row groups."""
+    """Small LRU cache for decoded index-format parquet R2 row groups."""
 
     def __init__(self, capacity: int) -> None:
         if capacity <= 0:
@@ -1658,9 +1659,9 @@ def ld_score_var_blocks_from_r2_reader(
 ) -> np.ndarray:
     """
     Mirror the old LDSC sliding-block accumulation while sourcing block-local
-    dense R2 matrices from a sorted parquet reader instead of genotype blocks.
-    The canonical parquet reader configures a chromosome-local decoded
-    row-group cache from ``block_left`` and ``snp_batch_size`` before traversal.
+    dense R2 matrices from the index-format parquet reader instead of genotype
+    blocks. The reader configures a chromosome-local decoded row-group cache
+    from ``block_left`` and ``snp_batch_size`` before traversal.
     """
     m = annot.shape[0]
     n_a = annot.shape[1]

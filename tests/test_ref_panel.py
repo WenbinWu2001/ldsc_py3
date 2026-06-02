@@ -73,38 +73,6 @@ def _write_canonical_r2_parquet(
     pq.write_table(table, path)
 
 
-def _write_raw_r2_parquet_with_technical_metadata(path: Path, chrom: str = "1") -> None:
-    import pyarrow as pa
-    import pyarrow.parquet as pq
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    frame = pd.DataFrame(
-        {
-            "chr": [chrom],
-            "rsID_1": ["rs1"],
-            "rsID_2": ["rs2"],
-            "hg38_pos_1": [10],
-            "hg38_pos_2": [20],
-            "hg19_pos_1": [9],
-            "hg19_pos_2": [19],
-            "hg38_Uniq_ID_1": ["1:10"],
-            "hg38_Uniq_ID_2": ["1:20"],
-            "hg19_Uniq_ID_1": ["1:9"],
-            "hg19_Uniq_ID_2": ["1:19"],
-            "R2": [0.4],
-            "Dprime": [0.7],
-            "+/-corr": [1],
-        }
-    )
-    table = pa.Table.from_pandas(frame, preserve_index=False).replace_schema_metadata(
-        {
-            b"ldsc:n_samples": b"100",
-            b"ldsc:r2_bias": b"raw",
-        }
-    )
-    pq.write_table(table, path)
-
-
 def _write_meta_sidecar(
     path: Path,
     rows: str,

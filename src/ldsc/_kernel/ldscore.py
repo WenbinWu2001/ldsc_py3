@@ -101,12 +101,6 @@ CLI
         --r2-bias-mode unbiased \
         --ld-wind-cm 1
 
-Preprocessing helper
---------------------
-- Use `convert_r2_table_to_sorted_parquet(source_path, genome_build, output_path)`
-  to convert a common tabular `R2` file into the normalized sorted parquet
-  format consumed by the public `run_ldscore(...)` wrapper.
-
 Computation Overview
 --------------------
 1. Load query and baseline SNP-level annotation files chromosome by chromosome.
@@ -199,22 +193,19 @@ from ..column_inference import (
     ColumnSpec,
     MAF_COLUMN_ALIASES,
     MAF_COLUMN_SPEC,
-    PARQUET_R2_CANONICAL_SPECS,
     POS_COLUMN_ALIASES,
     POS_COLUMN_SPEC,
     REFERENCE_METADATA_SPEC_MAP,
     RESTRICTION_CHRPOS_SPEC_MAP,
     RESTRICTION_RSID_SPEC_MAP,
-    R2_SOURCE_COLUMN_SPECS,
     SNP_COLUMN_ALIASES,
     SNP_COLUMN_SPEC,
     normalize_genome_build,
     normalize_snp_identifier_mode,
     resolve_optional_column,
     resolve_required_column,
-    resolve_required_columns,
 )
-from ..chromosome_inference import chrom_sort_key, normalize_chromosome, normalize_chromosome_series
+from ..chromosome_inference import chrom_sort_key, normalize_chromosome
 from ..errors import LDSCDependencyError
 from ..genome_build_inference import (
     load_packaged_reference_table,
@@ -224,7 +215,6 @@ from ..path_resolution import (
     ANNOTATION_SUFFIXES,
     FREQUENCY_SUFFIXES,
     PARQUET_SUFFIXES,
-    ensure_output_parent_directory,
     resolve_chromosome_group,
     resolve_file_group,
     resolve_plink_prefix,
@@ -268,10 +258,6 @@ POS_ALIASES = POS_COLUMN_ALIASES
 SNP_ALIASES = SNP_COLUMN_ALIASES
 CM_ALIASES = CM_COLUMN_ALIASES
 MAF_ALIASES = MAF_COLUMN_ALIASES
-R2_CANONICAL_SOURCE_COLUMNS = tuple(spec.canonical for spec in R2_SOURCE_COLUMN_SPECS)
-PARQUET_R2_CANONICAL_COLUMNS = tuple(spec.canonical for spec in PARQUET_R2_CANONICAL_SPECS)
-PARQUET_R2_CANONICAL_BASE_COLUMNS = ("CHR", "POS_1", "POS_2", "SNP_1", "SNP_2", "R2")
-PARQUET_R2_ENDPOINT_ALLELE_COLUMNS = ("A1_1", "A2_1", "A1_2", "A2_2")
 ALLELE_AWARE_R2_ENDPOINT_ERROR = (
     "allele-aware SNP identity requires package-built canonical R2 parquet with "
     "A1_1/A2_1/A1_2/A2_2 endpoint allele columns; external raw R2 parquet is supported only for rsid and chr_pos."
@@ -779,64 +765,6 @@ def read_text_table(path: str) -> pd.DataFrame:
     return pd.read_csv(path, sep=r"\s+", compression=compression, comment="#")
 
 
-def _resolve_r2_source_columns(schema_names: Iterable[str], context: str | None = None) -> dict[str, str]:
-    """Resolve raw R2 source columns from an on-disk schema into canonical slots."""
-    return resolve_required_columns(schema_names, R2_SOURCE_COLUMN_SPECS, context=context)
-
-
-def _resolve_canonical_parquet_columns(
-    schema_names: Iterable[str],
-    context: str | None = None,
-    *,
-    require_endpoint_alleles: bool = False,
-) -> dict[str, str]:
-    """Resolve canonical parquet logical fields from an on-disk schema."""
-    required = list(PARQUET_R2_CANONICAL_BASE_COLUMNS)
-    if require_endpoint_alleles:
-        required.extend(PARQUET_R2_ENDPOINT_ALLELE_COLUMNS)
-    spec_map = {spec.canonical: spec for spec in PARQUET_R2_CANONICAL_SPECS}
-    return {
-        canonical: resolve_required_column(schema_names, spec_map[canonical], context=context)
-        for canonical in required
-    }
-
-
-def _resolve_r2_source_subset(
-    schema_names: Iterable[str],
-    canonicals: Sequence[str],
-    context: str | None = None,
-) -> dict[str, str]:
-    """Resolve a required subset of raw R2 source columns from ``schema_names``."""
-    spec_map = {spec.canonical: spec for spec in R2_SOURCE_COLUMN_SPECS}
-    return {
-        canonical: resolve_required_column(schema_names, spec_map[canonical], context=context)
-        for canonical in canonicals
-    }
-
-
-def normalize_r2_source_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """Rename raw pairwise-R2 source columns to the canonical POS-based schema."""
-    rename_map = {
-        actual: canonical
-        for canonical, actual in _resolve_r2_source_columns(df.columns).items()
-        if actual != canonical
-    }
-    return df.rename(columns=rename_map)
-
-
-def get_r2_build_columns(genome_build: str, schema_names: Iterable[str] | None = None) -> tuple[str, str]:
-    """Return the source R2-table coordinate columns for the selected build."""
-    genome_build = _require_runtime_genome_build(genome_build)
-    if genome_build == "hg19":
-        canonical = ("hg19_pos_1", "hg19_pos_2")
-    else:
-        canonical = ("hg38_pos_1", "hg38_pos_2")
-    if schema_names is None:
-        return canonical
-    mapping = _resolve_r2_source_subset(schema_names, canonical)
-    return mapping[canonical[0]], mapping[canonical[1]]
-
-
 def get_pyarrow_modules():
     """Import the pyarrow dataset module or raise a user-facing dependency error."""
     try:
@@ -892,32 +820,10 @@ def _validate_index_binding(full_sidecar: pd.DataFrame, *, n_snps: int, identity
 
 
 def _parquet_schema_layout(schema_names: Sequence[str]) -> str:
-    """Classify a runtime parquet schema as index, canonical, raw, or unsupported."""
+    """Classify a runtime parquet schema as index format or unsupported."""
     if {"IDX_1", "IDX_2", "R2"}.issubset(set(schema_names)):
         return "index"
-    try:
-        _resolve_canonical_parquet_columns(schema_names, require_endpoint_alleles=False)
-    except ValueError:
-        # Canonical schema did not match; try the legacy raw schema before
-        # classifying the file as unsupported.
-        pass
-    else:
-        return "canonical"
-    try:
-        _resolve_r2_source_columns(schema_names)
-    except ValueError:
-        return "unsupported"
-    return "raw"
-
-
-def _require_runtime_genome_build(genome_build: str | None) -> str:
-    """Require a build whenever raw parquet rows must be canonicalized at runtime."""
-    normalized = normalize_genome_build(genome_build)
-    if normalized in {"hg19", "hg38"}:
-        return normalized
-    raise ValueError(
-        "Raw parquet R2 input requires genome_build='hg19'/'hg37'/'GRCh37' or 'hg38'/'GRCh38' so runtime normalization can choose the coordinate columns."
-    )
+    return "unsupported"
 
 
 def _arrow_column_to_numpy(column):
@@ -926,113 +832,6 @@ def _arrow_column_to_numpy(column):
         return column.to_numpy(zero_copy_only=False)
     except TypeError:
         return column.to_numpy()
-
-
-def read_common_tabular_r2(path: str) -> pd.DataFrame:
-    """Read one pairwise-R2 source file from parquet, CSV, TSV, or inferred text."""
-    lower = path.lower()
-    if lower.endswith(".parquet"):
-        try:
-            return pd.read_parquet(path)
-        except ImportError as exc:
-            raise LDSCDependencyError(
-                "Reading parquet R2 input requires pyarrow or fastparquet."
-            ) from exc
-    if lower.endswith(".csv") or lower.endswith(".csv.gz"):
-        return pd.read_csv(path)
-    if lower.endswith(".tsv") or lower.endswith(".tsv.gz"):
-        return pd.read_csv(path, sep="\t")
-    return pd.read_csv(path, sep=None, engine="python")
-
-
-def validate_r2_source_columns(df: pd.DataFrame, path: str) -> None:
-    """Validate that a source R2 table contains the required legacy columns."""
-    try:
-        _resolve_r2_source_columns(df.columns, context=path)
-    except ValueError as exc:
-        raise ValueError(f"{path} is missing required R2 columns.") from exc
-
-
-def canonicalize_r2_pairs(df: pd.DataFrame, genome_build: str) -> pd.DataFrame:
-    """Orient pairwise-R2 rows so the selected build satisfies ``pos_1 <= pos_2``.
-
-    Chromosome labels are normalized through the shared unique-token series
-    helper. That preserves scalar validation/logging semantics while avoiding a
-    row-wise normalization call on large R2 pair tables.
-    """
-    df = normalize_r2_source_columns(df.copy())
-    left_pos_col, right_pos_col = get_r2_build_columns(genome_build, df.columns)
-    df["chr"] = normalize_chromosome_series(df["chr"], context="R2 chromosome column")
-
-    paired_columns = (
-        ("rsID_1", "rsID_2"),
-        ("hg38_pos_1", "hg38_pos_2"),
-        ("hg19_pos_1", "hg19_pos_2"),
-        ("hg38_Uniq_ID_1", "hg38_Uniq_ID_2"),
-        ("hg19_Uniq_ID_1", "hg19_Uniq_ID_2"),
-    )
-    swap = pd.to_numeric(df[left_pos_col], errors="raise") > pd.to_numeric(df[right_pos_col], errors="raise")
-    for left_col, right_col in paired_columns:
-        left_values = df.loc[swap, left_col].copy()
-        df.loc[swap, left_col] = df.loc[swap, right_col].to_numpy()
-        df.loc[swap, right_col] = left_values.to_numpy()
-
-    df["pos_1"] = pd.to_numeric(df[left_pos_col], errors="raise").astype(np.int64)
-    df["pos_2"] = pd.to_numeric(df[right_pos_col], errors="raise").astype(np.int64)
-    return df
-
-
-def deduplicate_normalized_r2_pairs(df: pd.DataFrame) -> pd.DataFrame:
-    """Drop exact duplicate normalized pairs and reject conflicting duplicate R2 rows."""
-    pair_key_columns = [
-        "chr",
-        "rsID_1",
-        "rsID_2",
-        "hg38_pos_1",
-        "hg38_pos_2",
-        "hg19_pos_1",
-        "hg19_pos_2",
-        "hg38_Uniq_ID_1",
-        "hg38_Uniq_ID_2",
-        "hg19_Uniq_ID_1",
-        "hg19_Uniq_ID_2",
-    ]
-    duplicated = df.duplicated(subset=pair_key_columns, keep=False)
-    if not duplicated.any():
-        return df
-
-    dup_df = df.loc[duplicated, pair_key_columns + ["R2"]].copy()
-    nunique = dup_df.groupby(pair_key_columns, dropna=False)["R2"].nunique(dropna=False)
-    inconsistent = nunique[nunique > 1]
-    if len(inconsistent) > 0:
-        raise ValueError("Duplicate normalized R2 pairs detected with conflicting R2 values.")
-
-    return df.drop_duplicates(subset=pair_key_columns, keep="first").reset_index(drop=True)
-
-
-def convert_r2_table_to_sorted_parquet(source_path: str, genome_build: str, output_path: str) -> str:
-    """
-    Convert a common tabular pairwise-R2 file into the normalized sorted parquet
-    format required by the runtime parquet R2 path.
-    """
-    source_path = os.path.expanduser(os.path.expandvars(source_path))
-    output_path = os.path.expanduser(os.path.expandvars(output_path))
-    df = read_common_tabular_r2(source_path)
-    validate_r2_source_columns(df, source_path)
-    df = canonicalize_r2_pairs(df, genome_build)
-    df = deduplicate_normalized_r2_pairs(df)
-    chroms = df["chr"].dropna().map(lambda value: normalize_chromosome(value, context=source_path)).unique().tolist()
-    if len(chroms) != 1:
-        raise ValueError("Each sorted parquet R2 file must contain exactly one chromosome.")
-    df = df.sort_values(by=["pos_1", "pos_2"], kind="mergesort").reset_index(drop=True)
-    ensure_output_parent_directory(output_path, label="output_path")
-    try:
-        df.to_parquet(output_path, index=False)
-    except ImportError as exc:
-        raise LDSCDependencyError(
-            "Writing sorted parquet R2 files requires pyarrow or fastparquet."
-        ) from exc
-    return output_path
 
 
 def validate_retained_identifier_uniqueness(metadata: pd.DataFrame, identifier_mode: str, chrom: str) -> None:
@@ -1470,56 +1269,12 @@ class _RowGroupLRUCache:
             self.evictions += 1
 
 
-def _endpoint_identity_keys(table: pd.DataFrame, *, side: int, mode: str) -> pd.Series:
-    """Build allele-aware identity keys for one canonical R2 endpoint side."""
-    if side == 1:
-        frame = table.rename(columns={"SNP_1": "SNP", "POS_1": "POS", "A1_1": "A1", "A2_1": "A2"})
-    else:
-        frame = table.rename(columns={"SNP_2": "SNP", "POS_2": "POS", "A1_2": "A1", "A2_2": "A2"})
-    return effective_merge_key_series(frame, mode, context=f"R2 endpoint {side}")
-
-
-def _vectorized_pos_lookup(sorted_pos: np.ndarray, query: np.ndarray) -> np.ndarray:
-    """Map integer positions to retained-SNP indices via binary search.
-
-    Vectorized equivalent of ``{pos: idx}.get(q, -1)`` for each ``q`` in
-    ``query`` when ``sorted_pos`` is the ascending retained-position array
-    (array index equals SNP index). Positions absent from ``sorted_pos`` map to
-    ``-1``. Relies on the same sorted-``self.pos`` invariant the row-group
-    windowing already uses (see ``np.searchsorted(self.pos, ...)`` below).
-    """
-    query = np.asarray(query, dtype=np.int64)
-    if sorted_pos.size == 0:
-        return np.full(query.shape, -1, dtype=np.int64)
-    idx = np.searchsorted(sorted_pos, query)
-    idx_clipped = np.clip(idx, 0, sorted_pos.size - 1)
-    matched = sorted_pos[idx_clipped] == query
-    return np.where(matched, idx, -1).astype(np.int64, copy=False)
-
-
-def _vectorized_key_lookup(key_index: pd.Index, key_values: np.ndarray, query) -> np.ndarray:
-    """Map identity keys to retained-SNP indices via a hashtable join.
-
-    Vectorized equivalent of ``index_map.get(q, -1)`` for each ``q`` in
-    ``query`` where ``key_index`` and ``key_values`` are the parallel keys and
-    values of ``index_map`` (so non-contiguous values from excluded NaN keys are
-    preserved). Keys absent from ``key_index`` map to ``-1``.
-    """
-    loc = key_index.get_indexer(np.asarray(query))
-    result = np.full(loc.shape, -1, dtype=np.int64)
-    found = loc >= 0
-    result[found] = key_values[loc[found]]
-    return result
-
-
 class SortedR2BlockReader:
     """
     Query block-local dense R2 matrices from a per-chromosome parquet table.
 
-    Canonical parquet files use logical fields `CHR`, `POS_1`, `POS_2`,
-    `SNP_1`, `SNP_2`, `R2` (with alias-tolerant loading) and are queried via
-    row-group pruning. Legacy raw parquet files keep the historical schema and
-    fall back to the slower Dataset full-scan path.
+    Index-format parquet files use logical fields `IDX_1`, `IDX_2`, `R2`,
+    `SIGN` and are queried via row-group pruning on the sorted `IDX_1` bounds.
     """
 
     def __init__(

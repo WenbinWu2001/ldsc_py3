@@ -1409,7 +1409,7 @@ def _sort_retained_snps_by_build_position(
 ) -> np.ndarray:
     """Return retained PLINK indices in one build's genomic position order."""
     # Monotone position order here makes index i → position monotone, which lets
-    # yield_pairwise_r2_rows flush cross-batch pairs with non-decreasing POS_1.
+    # yield_pairwise_r2_rows flush cross-batch pairs with non-decreasing IDX_1.
     keep_snps = np.asarray(keep_snps, dtype=int)
     lookup = _position_lookup_for_build(
         genome_build,

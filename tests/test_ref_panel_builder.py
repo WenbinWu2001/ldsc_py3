@@ -396,59 +396,6 @@ class RetainedSnpOrderingTest(unittest.TestCase):
 
 
 class StandardTableFormattingTest(unittest.TestCase):
-    def test_build_reference_snp_table_uses_exact_schema(self):
-        metadata = pd.DataFrame(
-            {
-                "CHR": ["1", "X"],
-                "SNP": ["1:100:A:G", "rsX"],
-                "POS": [100, 200],
-                "MAF": [0.2, 0.3],
-                "A1": ["A", "C"],
-                "A2": ["G", "T"],
-            }
-        )
-
-        table = kernel_builder.build_reference_snp_table(
-            metadata=metadata,
-            hg19_positions=np.array([100, 150], dtype=np.int64),
-            hg38_positions=np.array([110, 250], dtype=np.int64),
-        )
-
-        self.assertEqual(
-            table.columns.tolist(),
-            ["chr", "hg19_pos", "hg38_pos", "hg19_Uniq_ID", "hg38_Uniq_ID", "rsID", "MAF", "A1", "A2"],
-        )
-        self.assertEqual(table["hg19_Uniq_ID"].tolist(), ["1:100:A:G", "X:150:C:T"])
-        self.assertEqual(table["hg38_Uniq_ID"].tolist(), ["1:110:A:G", "X:250:C:T"])
-        self.assertEqual(table["rsID"].tolist(), ["1:100:A:G", "rsX"])
-
-    def test_build_reference_snp_table_allows_missing_opposite_build_columns(self):
-        metadata = pd.DataFrame(
-            {
-                "CHR": ["1"],
-                "SNP": ["rs1"],
-                "POS": [100],
-                "MAF": [0.2],
-                "A1": ["A"],
-                "A2": ["G"],
-            }
-        )
-
-        table = kernel_builder.build_reference_snp_table(
-            metadata=metadata,
-            hg19_positions=np.array([100], dtype=np.int64),
-            hg38_positions=None,
-        )
-
-        self.assertEqual(
-            table.columns.tolist(),
-            ["chr", "hg19_pos", "hg38_pos", "hg19_Uniq_ID", "hg38_Uniq_ID", "rsID", "MAF", "A1", "A2"],
-        )
-        self.assertEqual(table.loc[0, "hg19_pos"], 100)
-        self.assertEqual(table.loc[0, "hg19_Uniq_ID"], "1:100:A:G")
-        self.assertTrue(pd.isna(table.loc[0, "hg38_pos"]))
-        self.assertTrue(pd.isna(table.loc[0, "hg38_Uniq_ID"]))
-
     @unittest.skipIf(_HAS_PYARROW, "pyarrow dependency is installed")
     def test_write_r2_parquet_requires_pyarrow_for_canonical_output(self):
         with tempfile.TemporaryDirectory() as tmpdir:

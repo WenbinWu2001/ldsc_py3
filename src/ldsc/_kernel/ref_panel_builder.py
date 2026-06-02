@@ -385,7 +385,7 @@ def yield_pairwise_r2_rows(
         snp_batch_size = 1
         b = m
 
-    # Flush in increasing-i order; non-decreasing POS_1 holds only because
+    # Flush in increasing-i order; non-decreasing IDX_1 holds only because
     # keep_snps was sorted by source position before reaching here.
     pending_rows: dict[int, _PendingPairs] = {}
     l_A = 0
@@ -481,70 +481,6 @@ def iter_pairwise_r2_rows(
             min_r2=min_r2,
         )
     )
-
-
-def _build_unique_ids(chromosomes: pd.Series, positions: np.ndarray, a1: pd.Series, a2: pd.Series) -> pd.Series:
-    """Build ``CHR:POS:A1:A2`` identifiers for one allele-orientation table."""
-    return (
-        chromosomes.astype(str)
-        + ":"
-        + pd.Series(np.asarray(positions, dtype=np.int64), index=chromosomes.index).astype(str)
-        + ":"
-        + a1.astype(str)
-        + ":"
-        + a2.astype(str)
-    )
-
-
-def _optional_position_series(positions: np.ndarray | None, index: pd.Index) -> pd.Series:
-    """Return concrete positions or nullable missing values for one build."""
-    if positions is None:
-        return pd.Series(pd.array([pd.NA] * len(index), dtype="Int64"), index=index)
-    return pd.Series(np.asarray(positions, dtype=np.int64), index=index)
-
-
-def _optional_unique_ids(
-    chromosomes: pd.Series,
-    positions: np.ndarray | None,
-    a1: pd.Series,
-    a2: pd.Series,
-) -> pd.Series:
-    """Build unique IDs when positions exist, otherwise return missing strings."""
-    if positions is None:
-        return pd.Series(pd.array([pd.NA] * len(chromosomes), dtype="string"), index=chromosomes.index)
-    return _build_unique_ids(chromosomes, positions, a1, a2)
-
-
-def build_reference_snp_table(
-    *,
-    metadata: pd.DataFrame,
-    hg19_positions: np.ndarray | None,
-    hg38_positions: np.ndarray | None,
-) -> pd.DataFrame:
-    """Build the in-memory reference SNP table for one chromosome.
-
-    ``hg19_positions`` or ``hg38_positions`` may be ``None`` in source-only
-    builds. The returned table keeps both build-specific coordinate slots and
-    fills unavailable coordinates and unique-ID fields with missing values.
-    """
-
-    chromosomes = metadata["CHR"].map(_normalize_map_chromosome)
-    a1 = metadata["A1"].astype(str)
-    a2 = metadata["A2"].astype(str)
-    table = pd.DataFrame(
-        {
-            "chr": chromosomes.astype(str),
-            "hg19_pos": _optional_position_series(hg19_positions, chromosomes.index),
-            "hg38_pos": _optional_position_series(hg38_positions, chromosomes.index),
-            "hg19_Uniq_ID": _optional_unique_ids(chromosomes, hg19_positions, a1, a2),
-            "hg38_Uniq_ID": _optional_unique_ids(chromosomes, hg38_positions, a1, a2),
-            "rsID": metadata["SNP"].astype(str),
-            "MAF": pd.to_numeric(metadata["MAF"], errors="coerce").astype(float),
-            "A1": a1,
-            "A2": a2,
-        }
-    )
-    return table.reset_index(drop=True)
 
 
 def build_runtime_metadata_table(

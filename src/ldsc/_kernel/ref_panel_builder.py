@@ -601,10 +601,11 @@ def write_r2_parquet(
     Write one canonical 4-column index R2 parquet with LDSC schema metadata.
 
     Columns are ``IDX_1``/``IDX_2`` (int32 sidecar-row indices), ``R2``
-    (float32 unbiased), and ``SIGN`` (bit-packed bool, ``True`` when the Pearson
-    correlation r >= 0 in the panel's A1/A2 orientation). Pairs must arrive in
-    non-decreasing ``IDX_1`` order because row-group pruning depends on monotonic
-    footer statistics.
+    (int16 symmetric quantization, scale ``R2_QUANT_SCALE``=32767, with
+    ``BYTE_STREAM_SPLIT`` encoding; the endpoint ``1.0`` maps to exactly 32767),
+    and ``SIGN`` (bit-packed bool, ``True`` when the Pearson correlation r >= 0).
+    Pairs must arrive in non-decreasing ``IDX_1`` order because row-group pruning
+    depends on monotonic footer statistics.
 
     The parquet is bound to its per-SNP sidecar by ``ldsc:n_snps`` (the index
     space size) and ``ldsc:sidecar_identity_sha256`` (a hash of the sidecar's

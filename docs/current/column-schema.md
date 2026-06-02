@@ -59,9 +59,10 @@ truth for any computation or validation.
 
 ### On-disk dtypes (parquet)
 
-LD-score and pairwise R² float columns are narrowed to `float32` immediately
-before parquet writes. This halves the storage footprint for those dense float
-matrices with no meaningful precision loss. Munged sumstats Parquet preserves
+LD-score annotation columns are narrowed to `float32` before parquet writes.
+Pairwise R² values are stored as int16 (symmetric quantization, scale 32767)
+and dequantized to float32 on read; this cuts the R² column ~63% vs float32
+with no material effect on LD scores (per-pair error ≤ 1.5e-5). Munged sumstats Parquet preserves
 the numeric precision produced by the munger because downstream regression
 uses those values as primary trait data. Text-based formats (`.annot.gz` and
 legacy `.sumstats.gz`) are unaffected; their size is governed by the number of
@@ -71,11 +72,12 @@ decimal digits printed, not numpy dtype.
 | --- | --- | --- |
 | `sumstats.parquet` | none | `CHR` (str), `POS` (int64 when complete), `SNP` (str), alleles (str), `Z`/`N`/`FRQ` (numeric precision preserved) |
 | `ldscore.baseline.parquet`, `ldscore.query.parquet` | `regression_ld_scores`, all LD-score / annotation columns | `CHR` (str), `POS` (int64), `SNP` (str) |
-| Pairwise R² parquet | `R2` (float32), `SIGN` (bool) | `IDX_1`, `IDX_2` (int32 sidecar-row indices) |
+| Pairwise R² parquet | `SIGN` (bool) | `IDX_1`, `IDX_2` (int32 sidecar-row indices); `R2` (int16 on-disk, symmetric quantization scale 32767, dequantized to float32 on read) |
 
 Pairwise R² parquet schema metadata also stores `ldsc:sorted_by_build`,
 `ldsc:row_group_size`, `ldsc:n_samples`, `ldsc:r2_bias`, `ldsc:n_snps`,
-`ldsc:sidecar_identity_sha256`, and the minimal identity provenance keys
+`ldsc:sidecar_identity_sha256`, `ldsc:r2_encoding` (`"int16_symmetric"`),
+`ldsc:r2_scale` (`"32767"`), and the minimal identity provenance keys
 `ldsc:schema_version`, `ldsc:artifact_type`, `ldsc:snp_identifier`, and
 `ldsc:genome_build`. The R2 bias keys let downstream readers distinguish
 package-built unbiased R2 from raw sample R2 without requiring users to repeat

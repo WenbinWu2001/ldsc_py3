@@ -126,8 +126,8 @@ suggests `--signed-sumstats <col>,0`; missing `N` with `NEFF` explains that
 ### Parquet R2 input
 
 Package-built canonical parquet R2 files use the 4-column index format — columns
-`IDX_1` (int32), `IDX_2` (int32), `R2` (float32), `SIGN` (bool) — with no SNP
-identity columns. These are identified at load time by the presence of `IDX_1`
+`IDX_1` (int32), `IDX_2` (int32), `R2` (int16 on-disk, dequantized to float32
+on read), `SIGN` (bool) — with no SNP identity columns. These are identified at load time by the presence of `IDX_1`
 and `IDX_2`; no alias resolution applies to the pair columns themselves.
 
 The companion `chrN_meta.tsv.gz` sidecar defines the SNP universe and accepts

@@ -28,10 +28,11 @@ Supported Inputs
 Index Parquet `R2` Format
 --------------------------
 - Package-written parquet R2 files contain exactly four columns: `IDX_1`,
-  `IDX_2` (int32 sidecar-row indices), `R2` (float32), and `SIGN` (bit-packed
-  bool, ``True`` for Pearson r >= 0). They carry no SNP identity; identity lives
-  once-per-SNP in the paired `chrN_meta.tsv.gz` sidecar, which the parquet
-  references by index. See ``docs/current/parquet-r2-format-and-read-pipeline.md``.
+  `IDX_2` (int32 sidecar-row indices), `R2` (int16, symmetric quantization scale
+  32767, dequantized to float32 on read), and `SIGN` (bit-packed bool, ``True``
+  for Pearson r >= 0). They carry no SNP identity; identity lives once-per-SNP in
+  the paired `chrN_meta.tsv.gz` sidecar. See
+  ``docs/current/parquet-r2-format-and-read-pipeline.md``.
 - The sort build is recorded under `ldsc:sorted_by_build`; the runtime query
   build must match it. The parquet is bound to its sidecar by `ldsc:n_snps` and
   `ldsc:sidecar_identity_sha256`; the sidecar is mandatory.
@@ -1255,8 +1256,11 @@ class SortedR2BlockReader:
     """
     Query block-local dense R2 matrices from a per-chromosome parquet table.
 
-    Index-format parquet files use logical fields `IDX_1`, `IDX_2`, `R2`,
-    `SIGN` and are queried via row-group pruning on the sorted `IDX_1` bounds.
+    Index-format parquet files use logical fields ``IDX_1``, ``IDX_2``, ``R2``
+    (int16 on-disk, dequantized to float32 by dividing by ``ldsc:r2_scale``),
+    and ``SIGN``. Files are queried via row-group pruning on sorted ``IDX_1``
+    bounds. Legacy float32 ``R2`` columns (absent ``ldsc:r2_encoding`` metadata)
+    are read unscaled for backward compatibility.
     """
 
     def __init__(
@@ -1532,11 +1536,13 @@ class SortedR2BlockReader:
         )
 
     def _decode_index_row_group(self, row_group_index: int) -> _DecodedR2RowGroup:
-        """Decode one index row group: gather endpoints through the remap.
+        """Decode one index row group: dequantize R2, gather endpoints through the remap.
 
         ``IDX_1``/``IDX_2`` are panel (build) indices; ``self._remap`` maps each
         to its retained matrix index (or ``-1`` when the endpoint SNP is not in
         the analysis universe). Pairs with either endpoint dropped are removed.
+        When ``self._r2_scale`` is set (int16 panels), the raw int16 column is
+        divided by the scale to produce float32 before the raw→unbiased transform.
         ``SIGN`` is not read: it is unused by LD-score computation.
         """
         if self._pf is None:

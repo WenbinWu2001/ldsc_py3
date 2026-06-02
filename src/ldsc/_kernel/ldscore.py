@@ -1281,6 +1281,7 @@ class SortedR2BlockReader:
             f"genome_build={self.genome_build!r} must be concrete by this point."
         )
         self._pf = None
+        self._r2_scale: float | None = None
         self._rg_bounds: list[tuple[int, int, int]] = []
         self._row_group_cache: _RowGroupLRUCache | None = None
         metadata = metadata.copy()
@@ -1327,6 +1328,7 @@ class SortedR2BlockReader:
         if self._pf is None:
             raise ValueError("Index parquet reader is not initialized.")
         schema_meta = self._pf.schema_arrow.metadata or {}
+        self._r2_scale = self._resolve_r2_scale(schema_meta, path)
 
         build_raw = schema_meta.get(b"ldsc:sorted_by_build")
         if build_raw is None:
@@ -1375,6 +1377,26 @@ class SortedR2BlockReader:
             if stats is None or not getattr(stats, "has_min_max", False):
                 continue
             self._rg_bounds.append((int(stats.min), int(stats.max), rg_index))
+
+    def _resolve_r2_scale(self, schema_meta: dict, path: str) -> float | None:
+        """Return the dequant scale when R2 is stored as quantized integers.
+
+        Detection is by on-disk column dtype: an integer ``R2`` column is
+        quantized and the scale comes from ``ldsc:r2_scale`` (defaulting to
+        32767 with a warning if the key is absent). A float ``R2`` column is the
+        legacy/unquantized path and returns ``None``.
+        """
+        import pyarrow as pa
+
+        if self._pf is None or not pa.types.is_integer(self._pf.schema_arrow.field("R2").type):
+            return None
+        scale_raw = schema_meta.get(b"ldsc:r2_scale")
+        if scale_raw is None:
+            LOGGER.warning(
+                f"'{path}' has an integer R2 column but no ldsc:r2_scale; defaulting to 32767."
+            )
+            return 32767.0
+        return float(scale_raw.decode("utf-8"))
 
     def _transform_r2(self, values: np.ndarray) -> np.ndarray:
         """Apply the configured raw-to-unbiased R2 correction when required."""
@@ -1522,7 +1544,10 @@ class SortedR2BlockReader:
         table = self._pf.read_row_group(int(row_group_index), columns=["IDX_1", "IDX_2", "R2"])
         idx1 = _arrow_column_to_numpy(table.column("IDX_1")).astype(np.int64, copy=False)
         idx2 = _arrow_column_to_numpy(table.column("IDX_2")).astype(np.int64, copy=False)
-        r2 = self._transform_r2(_arrow_column_to_numpy(table.column("R2")).astype(np.float32, copy=False))
+        r2_raw = _arrow_column_to_numpy(table.column("R2")).astype(np.float32, copy=False)
+        if self._r2_scale is not None:
+            r2_raw = r2_raw / np.float32(self._r2_scale)
+        r2 = self._transform_r2(r2_raw)
         i = self._remap[idx1]
         j = self._remap[idx2]
         keep = (i >= 0) & (j >= 0)

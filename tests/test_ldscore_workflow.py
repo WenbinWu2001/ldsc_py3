@@ -3102,3 +3102,68 @@ class R2TransformClipTest(unittest.TestCase):
         out = reader._transform_r2(np.array([1.0, 1.05, 0.0], dtype=np.float32))
         self.assertLessEqual(float(out.max()), 1.0)
         self.assertEqual(float(out[0]), 1.0)
+
+
+class R2DequantizationTest(unittest.TestCase):
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
+    def test_reader_dequantizes_int16_panel_to_float32(self):
+        from ldsc._kernel import ref_panel_builder as kb
+        from ldsc._kernel import ldscore as kernel_ldscore
+        from ldsc._kernel.snp_identity import sidecar_identity_sha256
+        panel = pd.DataFrame({"CHR": ["1"] * 3, "POS": [100, 120, 140],
+                              "SNP": ["rs1", "rs2", "rs3"], "A1": ["A"] * 3, "A2": ["C"] * 3,
+                              "CM": [0.0] * 3, "MAF": [0.3] * 3})
+        pairs = [{"i": 0, "j": 1, "R2": 1.0, "sign": "+"},
+                 {"i": 0, "j": 2, "R2": 0.2, "sign": "-"}]
+        with tempfile.TemporaryDirectory() as tmp:
+            meta = _write_index_sidecar(tmp, panel)
+            r2 = meta.with_name("chr1_r2.parquet")
+            kb.write_r2_parquet(pair_rows=pairs, path=r2, genome_build="hg19", n_samples=100,
+                                snp_identifier="chr_pos", min_r2=0.0, n_snps=3,
+                                sidecar_identity_sha256=sidecar_identity_sha256(panel))
+            reader = kernel_ldscore.SortedR2BlockReader(
+                paths=[str(r2)], chrom="1", metadata=panel.copy(),
+                identifier_mode="chr_pos", r2_bias_mode="unbiased",
+                r2_sample_size=None, genome_build="hg19")
+            self.assertEqual(reader._r2_scale, 32767.0)
+            decoded = reader._decode_index_row_group(0)
+            self.assertEqual(decoded.r2.dtype, np.float32)
+            # endpoint exact; 0.2 within half-step
+            got = dict(zip(zip(decoded.i.tolist(), decoded.j.tolist()), decoded.r2.tolist()))
+            self.assertEqual(got[(0, 1)], 1.0)
+            self.assertAlmostEqual(got[(0, 2)], 0.2, delta=2e-5)
+
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
+    def test_reader_leaves_float32_panel_unscaled(self):
+        # A hand-built float32 R2 index parquet must read with _r2_scale is None.
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+        from ldsc._kernel import ldscore as kernel_ldscore
+        from ldsc._kernel.snp_identity import sidecar_identity_sha256
+        panel = pd.DataFrame({"CHR": ["1", "1"], "POS": [100, 120], "SNP": ["rs1", "rs2"],
+                              "A1": ["A", "A"], "A2": ["C", "G"], "CM": [0.0, 0.0], "MAF": [0.3, 0.3]})
+        with tempfile.TemporaryDirectory() as tmp:
+            meta = _write_index_sidecar(tmp, panel)
+            r2 = meta.with_name("chr1_r2.parquet")
+            schema = pa.schema(
+                [("IDX_1", pa.int32()), ("IDX_2", pa.int32()),
+                 ("R2", pa.float32()), ("SIGN", pa.bool_())]
+            ).with_metadata({
+                b"ldsc:schema_version": b"1", b"ldsc:artifact_type": b"ref_panel_r2",
+                b"ldsc:snp_identifier": b"chr_pos", b"ldsc:genome_build": b"hg19",
+                b"ldsc:sorted_by_build": b"hg19", b"ldsc:n_samples": b"100",
+                b"ldsc:r2_bias": b"unbiased", b"ldsc:min_r2": b"0.0", b"ldsc:n_snps": b"2",
+                b"ldsc:sidecar_identity_sha256": sidecar_identity_sha256(panel).encode(),
+                b"ldsc:row_group_size": b"50000",
+            })
+            tbl = pa.table({"IDX_1": pa.array([0], pa.int32()), "IDX_2": pa.array([1], pa.int32()),
+                            "R2": pa.array([0.5], pa.float32()), "SIGN": pa.array([True], pa.bool_())},
+                           schema=schema)
+            pq.write_table(tbl, str(r2))
+            reader = kernel_ldscore.SortedR2BlockReader(
+                paths=[str(r2)], chrom="1", metadata=panel.copy(),
+                identifier_mode="chr_pos", r2_bias_mode="unbiased",
+                r2_sample_size=None, genome_build="hg19")
+            self.assertIsNone(reader._r2_scale)
+            decoded = reader._decode_index_row_group(0)
+            self.assertAlmostEqual(float(decoded.r2[0]), 0.5, delta=1e-7)

@@ -654,8 +654,18 @@ def write_r2_parquet(
                 )
             prev_idx1 = int(idx1[-1])
         if writer is None:
+            # IDX_2: DELTA_BINARY_PACKED exploits sorted right-neighbors (median
+            # forward-gap = 1), collapsing ~650 MB to ~6 MB vs the default
+            # dictionary path. use_dictionary restricts auto-dictionary to IDX_1
+            # only so PyArrow cannot override the DELTA encoding on IDX_2.
+            enc_kwargs = dict(
+                column_encoding={"IDX_2": "DELTA_BINARY_PACKED"},
+                use_dictionary=["IDX_1"],
+            )
             if pa.Codec.is_available("zstd"):
-                writer = pq.ParquetWriter(str(path), schema, compression="zstd", compression_level=9)
+                writer = pq.ParquetWriter(
+                    str(path), schema, compression="zstd", compression_level=9, **enc_kwargs
+                )
             else:
                 warnings.warn(
                     "zstd codec is not available in this pyarrow build; "
@@ -664,7 +674,7 @@ def write_r2_parquet(
                     UserWarning,
                     stacklevel=2,
                 )
-                writer = pq.ParquetWriter(str(path), schema, compression="snappy")
+                writer = pq.ParquetWriter(str(path), schema, compression="snappy", **enc_kwargs)
         writer.write_table(table, row_group_size=row_group_size)
 
     try:

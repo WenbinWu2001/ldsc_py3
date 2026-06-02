@@ -504,6 +504,38 @@ class StandardTableFormattingTest(unittest.TestCase):
                     )
             self.assertIn("snappy", str(cm.warning).lower())
 
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
+    def test_write_r2_parquet_uses_delta_encoding_for_idx2(self):
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        if not pa.Codec.is_available("zstd"):
+            self.skipTest("zstd codec is unavailable")
+
+        rows = [
+            {"i": 0, "j": 1, "R2": 0.4, "sign": "+"},
+            {"i": 0, "j": 2, "R2": 0.2, "sign": "+"},
+            {"i": 1, "j": 2, "R2": 0.6, "sign": "+"},
+        ]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "chr1_r2.parquet"
+            kernel_builder.write_r2_parquet(
+                pair_rows=iter(rows), path=path, genome_build="hg19", n_samples=10,
+                snp_identifier="chr_pos", n_snps=3, sidecar_identity_sha256="0" * 64,
+            )
+            md = pq.ParquetFile(path).metadata
+            rg = md.row_group(0)
+            col_encs = {
+                rg.column(c).path_in_schema: rg.column(c).encodings
+                for c in range(rg.num_columns)
+            }
+        # IDX_2 must use DELTA_BINARY_PACKED (the only encoding that exploits
+        # sorted right-neighbors); R2 encoding is intentionally left to PyArrow defaults
+        self.assertIn("DELTA_BINARY_PACKED", col_encs.get("IDX_2", ()),
+                      f"IDX_2 encodings: {col_encs.get('IDX_2')}")
+        self.assertNotIn("DELTA_BINARY_PACKED", col_encs.get("R2", ()),
+                         "R2 should not use DELTA_BINARY_PACKED")
+
     def test_build_runtime_metadata_table_is_build_specific(self):
         metadata = pd.DataFrame(
             {

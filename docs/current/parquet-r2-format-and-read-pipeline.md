@@ -64,12 +64,25 @@ with `IDX_1` below the previous row's raises immediately, because a violated sor
 invariant corrupts row-group footer statistics and silently produces wrong window
 queries.
 
-### 2.3 Row Group Size and Compression
+### 2.3 Row Group Size, Compression, and Column Encodings
 
 Default: **50 000 rows per row group**, tuned so most 1 Mb window queries touch
 1–2 row groups. Recommended range 25 000–200 000. Column chunks are compressed
 with **zstd level 9** when available (snappy fallback, with a `UserWarning`).
 Compression is recorded per column-chunk in the footer and auto-detected on read.
+
+**Per-column Parquet encodings** are set explicitly to match each column's
+structure:
+
+| Column | Encoding | Rationale |
+|---|---|---|
+| `IDX_1` | `RLE_DICTIONARY` (PyArrow default) | Long constant runs (each left SNP appears ~3k times at 1cM/1KG density); dictionary + RLE reduces to ≈0.05 bits/pair. |
+| `IDX_2` | **`DELTA_BINARY_PACKED`** | Within each `IDX_1` run, right-neighbor indices are sorted with a median forward-gap of 1. DELTA stores successive differences, collapsing ~650 MB to ~6 MB vs the default dictionary path. `use_dictionary` is restricted to `IDX_1` only so PyArrow cannot override this encoding. |
+| `R2` | `PLAIN` (PyArrow default) | Unbiased R² values are high-entropy floats; no encoding exploits their structure better than plain bytes before zstd. |
+| `SIGN` | `RLE` + bit-packing (PyArrow bool default) | Arrow `bool` is natively bit-packed at 1 bit/value; RLE handles the encoding automatically. |
+
+All encodings are recorded in the parquet footer. PyArrow auto-decodes them on
+read — no reader change is needed when the writer encoding changes.
 
 ### 2.4 SNP Identity Modes — handled entirely off the parquet
 

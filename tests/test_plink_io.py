@@ -330,7 +330,8 @@ class IndexParquetRuntimeTest(unittest.TestCase):
             matrix = reader.within_block_matrix(l_B=0, c=3)
             expected = np.array([[1.0, 0.4, 0.2], [0.4, 1.0, 0.6], [0.2, 0.6, 1.0]], dtype=np.float32)
             self.assertEqual(matrix.dtype, np.dtype("float32"))
-            assert_array_almost_equal(matrix, expected)
+            # off-diagonal R2 is int16-quantized: tolerance is the half-step (1.5e-5)
+            np.testing.assert_allclose(matrix, expected, rtol=0, atol=2e-5)
 
     def test_index_query_reads_only_overlapping_row_groups(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -398,7 +399,8 @@ class IndexParquetRuntimeTest(unittest.TestCase):
                 annot=np.ones((4, 1), dtype=np.float32),
                 block_reader=reader,
             )
-            np.testing.assert_allclose(scores[:, 0], [1.6, 2.0, 2.3, 1.5], rtol=1e-6)
+            # LD-score sums of int16-quantized R2: tolerance covers a few half-steps
+            np.testing.assert_allclose(scores[:, 0], [1.6, 2.0, 2.3, 1.5], rtol=0, atol=5e-5)
             matrix = reader.within_block_matrix(l_B=0, c=4)
             self.assertEqual(matrix[0, 3], 0.0)
             np.testing.assert_allclose(np.diag(matrix), np.ones(4, dtype=np.float32))

@@ -3023,10 +3023,11 @@ class IndexReaderDecodeTest(unittest.TestCase):
                 r2_sample_size=None, genome_build="hg19",
             )
             mat = reader.within_block_matrix(0, 3)
-            self.assertAlmostEqual(mat[0, 1], 0.5, places=6)
-            self.assertAlmostEqual(mat[0, 2], 0.2, places=6)
-            self.assertAlmostEqual(mat[1, 2], 0.4, places=6)
-            self.assertAlmostEqual(mat[0, 0], 1.0, places=6)  # diagonal
+            # off-diagonal R2 is int16-quantized: tolerance is the half-step (1.5e-5)
+            self.assertAlmostEqual(mat[0, 1], 0.5, delta=2e-5)
+            self.assertAlmostEqual(mat[0, 2], 0.2, delta=2e-5)
+            self.assertAlmostEqual(mat[1, 2], 0.4, delta=2e-5)
+            self.assertAlmostEqual(mat[0, 0], 1.0, places=6)  # diagonal: reader-set, exact
             self.assertEqual(mat.shape, (3, 3))
 
 

@@ -207,10 +207,6 @@ from ..column_inference import (
 )
 from ..chromosome_inference import chrom_sort_key, normalize_chromosome
 from ..errors import LDSCDependencyError
-from ..genome_build_inference import (
-    load_packaged_reference_table,
-    resolve_chr_pos_table,
-)
 from ..path_resolution import (
     ANNOTATION_SUFFIXES,
     FREQUENCY_SUFFIXES,
@@ -258,10 +254,6 @@ POS_ALIASES = POS_COLUMN_ALIASES
 SNP_ALIASES = SNP_COLUMN_ALIASES
 CM_ALIASES = CM_COLUMN_ALIASES
 MAF_ALIASES = MAF_COLUMN_ALIASES
-ALLELE_AWARE_R2_ENDPOINT_ERROR = (
-    "allele-aware SNP identity requires package-built canonical R2 parquet with "
-    "A1_1/A2_1/A1_2/A2_2 endpoint allele columns; external raw R2 parquet is supported only for rsid and chr_pos."
-)
 
 
 @dataclass
@@ -763,17 +755,6 @@ def read_text_table(path: str) -> pd.DataFrame:
     """Read a whitespace-delimited kernel input table with optional gzip compression."""
     compression = "gzip" if path.endswith(".gz") else None
     return pd.read_csv(path, sep=r"\s+", compression=compression, comment="#")
-
-
-def get_pyarrow_modules():
-    """Import the pyarrow dataset module or raise a user-facing dependency error."""
-    try:
-        import pyarrow.dataset as ds
-    except ImportError as exc:
-        raise LDSCDependencyError(
-            "pyarrow is required for sorted parquet R2 input. Install pyarrow and retry."
-        ) from exc
-    return ds
 
 
 def _panel_sidecar_path_for_r2(r2_path: str) -> Path:
@@ -1320,17 +1301,10 @@ class SortedR2BlockReader:
 
         try:
             import pyarrow.parquet as pq
-        except ImportError:
-            pq = None
+        except ImportError as exc:
+            raise LDSCDependencyError("pyarrow is required for index parquet R2 input.") from exc
 
-        probe_schema_names: list[str]
-        if pq is not None:
-            probe_schema_names = list(pq.ParquetFile(paths[0]).schema_arrow.names)
-        else:
-            ds = get_pyarrow_modules()
-            probe_schema_names = list(ds.dataset(list(paths), format="parquet").schema.names)
-
-        layout = _parquet_schema_layout(probe_schema_names)
+        layout = _parquet_schema_layout(pq.ParquetFile(paths[0]).schema_arrow.names)
         if layout != "index":
             raise ValueError(
                 f"'{paths[0]}' is not an index-format R2 parquet (columns IDX_1/IDX_2/R2/SIGN). "
@@ -1348,8 +1322,6 @@ class SortedR2BlockReader:
                 "index parquet_r2 backend requires exactly one file per chromosome; "
                 f"got {len(paths)} for chromosome {self.chrom}"
             )
-        if pq is None:
-            raise LDSCDependencyError("pyarrow is required for index parquet R2 input.")
         self._runtime_layout = "index"
         self._pf = pq.ParquetFile(paths[0])
         self._init_index_path(paths[0], metadata)

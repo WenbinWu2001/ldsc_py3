@@ -1,11 +1,11 @@
 # build-ref-panel Memory & Speed Optimization
 
 **Date:** 2026-06-01
-**Implementation status:** **#1–#10 implemented on `restructure`** (six memory
+**Implementation status:** **#1–#11 implemented on `restructure`** (six memory
 refactors #1–#6 plus per-build BED release, zstd-L9 compression, vectorized decode
-lookup; full suite green, 870 passed, 1 skipped). **#11 (int16 R² quantization +
-BYTE_STREAM_SPLIT) planned** on `feat/int16-r2-quantization` — see the §`#11` section
-and the companion plan `docs/superpowers/plans/2026-06-02-int16-r2-quantization-plan.md`.
+lookup, and int16 R² quantization + BYTE_STREAM_SPLIT; full suite green, 864 passed,
+1 skipped). See the §`#11` section and the companion plan
+`docs/superpowers/plans/2026-06-02-int16-r2-quantization-plan.md`.
 **Scope:** `src/ldsc/_kernel/ref_panel_builder.py`, `src/ldsc/ref_panel_builder.py`,
 `src/ldsc/_kernel/ldscore.py`, `docs/current/parquet-r2-format-and-read-pipeline.md`
 **Companion execution plan:** approved plan at the session plan file (six-task roadmap).
@@ -25,7 +25,7 @@ and the companion plan `docs/superpowers/plans/2026-06-02-int16-r2-quantization-
 | 8 | Per-build BED release across emitted genome builds | `1bf1452` | ✅ implemented |
 | 9 | zstd compression (raised to **level 9**) | `1bf1452`, `45f0ec0` | ✅ implemented |
 | 10 | Vectorized canonical decode endpoint-index lookup (read path) | `b112013` | ✅ implemented |
-| 11 | int16 R² quantization + BYTE_STREAM_SPLIT (lossy, ~63% smaller) | — | 🔜 planned (`feat/int16-r2-quantization`) |
+| 11 | int16 R² quantization + BYTE_STREAM_SPLIT (lossy, ~63% smaller) | `8cbcad3`…`0c27652` | ✅ implemented |
 | 7 | Streaming BED reads | — | ⏸ deferred |
 
 Refactors #1–#6 are detailed below; the session additions #8–#10 follow in

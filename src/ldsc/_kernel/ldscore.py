@@ -25,27 +25,23 @@ Supported Inputs
 - Optional regression SNP lists may be provided to define the SNP set used for
   `w_ld`. If omitted, the retained reference SNP set is used.
 
-Canonical Parquet `R2` Format
------------------------------
-- Package-written parquet R2 files contain canonical endpoint identity columns:
-  `CHR`, `POS_1`, `POS_2`, `SNP_1`, `SNP_2`, optional endpoint `A1/A2`
-  allele columns, and `R2`. Endpoint alleles are required in allele-aware
-  modes.
-- `POS_1` and `POS_2` are positions in one sorted genome build. The build is
-  recorded in schema metadata under `ldsc:sorted_by_build`; the runtime query
-  build must match it.
-- Rows are sorted by non-decreasing `POS_1`. Ordering by `POS_2` within equal
-  `POS_1` is not required.
-- Canonical files are opened with `pyarrow.parquet.ParquetFile`; footer
-  statistics for `POS_1` form a row-group index so each genomic window reads
-  only overlapping row groups. Decoded canonical row groups are cached as
-  numeric endpoint arrays across overlapping sliding-window queries.
-- The loader resolves accepted aliases such as `chr`, `bp_1`, `bp_2`,
-  `rsid_1`, `rsid_2`, and endpoint allele aliases to the canonical fields
-  above.
-- Legacy raw-schema parquet files with `hg19_pos_1`, `hg38_pos_1`, `rsID_1`,
-  `rsID_2`, `Dprime`, or `+/-corr` are still accepted through the slower
-  `pyarrow.Dataset` fallback, but row-group pruning is disabled.
+Index Parquet `R2` Format
+--------------------------
+- Package-written parquet R2 files contain exactly four columns: `IDX_1`,
+  `IDX_2` (int32 sidecar-row indices), `R2` (float32), and `SIGN` (bit-packed
+  bool, ``True`` for Pearson r >= 0). They carry no SNP identity; identity lives
+  once-per-SNP in the paired `chrN_meta.tsv.gz` sidecar, which the parquet
+  references by index. See ``docs/current/parquet-r2-format-and-read-pipeline.md``.
+- The sort build is recorded under `ldsc:sorted_by_build`; the runtime query
+  build must match it. The parquet is bound to its sidecar by `ldsc:n_snps` and
+  `ldsc:sidecar_identity_sha256`; the sidecar is mandatory.
+- Rows are sorted by non-decreasing `IDX_1`. Footer statistics for `IDX_1` form
+  a row-group index so each window reads only overlapping row groups; decoded
+  row groups are cached across overlapping sliding-window queries.
+- The same index parquet serves all four identifier modes: the reader resolves
+  each panel SNP to a retained matrix index once per chromosome (the remap), and
+  per-pair decode is a pure integer gather. Legacy 10-column and external raw
+  schemas are not supported; such files raise a regenerate error.
 - In `chr_pos`-family modes, retained reference SNP rows must have unique
   chromosome positions after active identity cleanup. If two retained SNPs
   share the same `CHR` and `POS` in base `chr_pos`, matching to the `R2` table

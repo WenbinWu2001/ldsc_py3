@@ -48,6 +48,20 @@ except ImportError:
 
 
 PLINK_FIXTURES = Path(__file__).resolve().parent / "fixtures" / "plink"
+
+
+def dict_chunks(rows):
+    """Wrap legacy {i,j,R2,sign} dict rows as the chunk iterable write_r2_parquet expects."""
+    rows = list(rows)
+    if not rows:
+        return iter([])
+    i = np.array([r["i"] for r in rows], dtype=np.int64)
+    j = np.array([r["j"] for r in rows], dtype=np.int64)
+    r2 = np.array([r["R2"] for r in rows], dtype=np.float32)
+    sign = np.array([1 if r["sign"] == "+" else -1 for r in rows], dtype=np.int8)
+    return [(i, j, r2, sign)]
+
+
 _HAS_PYARROW = importlib.util.find_spec("pyarrow") is not None
 _HAS_BITARRAY = importlib.util.find_spec("bitarray") is not None
 
@@ -3005,7 +3019,7 @@ class IndexReaderDecodeTest(unittest.TestCase):
             {"i": 1, "j": 2, "R2": 0.4, "sign": "-"},
             {"i": 2, "j": 3, "R2": 0.9, "sign": "+"},
         ]
-        kb.write_r2_parquet(pair_rows=rows, path=r2, genome_build="hg19", n_samples=100,
+        kb.write_r2_parquet(pair_chunks=dict_chunks(rows), path=r2, genome_build="hg19", n_samples=100,
                             snp_identifier="chr_pos", min_r2=0.0, n_snps=4,
                             sidecar_identity_sha256=sidecar_identity_sha256(full))
         return r2, full
@@ -3061,7 +3075,7 @@ class IndexCrossModeParityTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             meta = _write_index_sidecar(tmp, panel)
             r2 = meta.with_name("chr1_r2.parquet")
-            kb.write_r2_parquet(pair_rows=pairs, path=r2, genome_build="hg19", n_samples=100,
+            kb.write_r2_parquet(pair_chunks=dict_chunks(pairs), path=r2, genome_build="hg19", n_samples=100,
                                 snp_identifier="chr_pos", min_r2=0.0, n_snps=4,
                                 sidecar_identity_sha256=sidecar_identity_sha256(panel))
             mode_scores = {}
@@ -3126,7 +3140,7 @@ class R2DequantizationTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             meta = _write_index_sidecar(tmp, panel)
             r2 = meta.with_name("chr1_r2.parquet")
-            kb.write_r2_parquet(pair_rows=pairs, path=r2, genome_build="hg19", n_samples=100,
+            kb.write_r2_parquet(pair_chunks=dict_chunks(pairs), path=r2, genome_build="hg19", n_samples=100,
                                 snp_identifier="chr_pos", min_r2=0.0, n_snps=3,
                                 sidecar_identity_sha256=sidecar_identity_sha256(panel))
             reader = kernel_ldscore.SortedR2BlockReader(

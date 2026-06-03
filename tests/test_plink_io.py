@@ -27,6 +27,22 @@ except ModuleNotFoundError:
 PLINK_FIXTURES = Path(__file__).resolve().parent / "fixtures" / "plink"
 
 
+def pair_chunk(rows):
+    """Build one PairColumns chunk (i, j, r2 float32, sign int8) from dict rows."""
+    rows = list(rows)
+    i = np.array([r["i"] for r in rows], dtype=np.int64)
+    j = np.array([r["j"] for r in rows], dtype=np.int64)
+    r2 = np.array([r["R2"] for r in rows], dtype=np.float32)
+    sign = np.array([1 if r["sign"] == "+" else -1 for r in rows], dtype=np.int8)
+    return (i, j, r2, sign)
+
+
+def dict_chunks(rows):
+    """Wrap legacy dict rows as the chunk iterable write_r2_parquet expects."""
+    rows = list(rows)
+    return [pair_chunk(rows)] if rows else iter([])
+
+
 def _has_module(name: str) -> bool:
     try:
         importlib.import_module(name)
@@ -182,7 +198,7 @@ class IndexParquetRuntimeTest(unittest.TestCase):
             handle.write("# ldsc:schema_version=2\n")
             panel_meta.to_csv(handle, sep="\t", index=False)
         kb.write_r2_parquet(
-            pair_rows=pairs,
+            pair_chunks=dict_chunks(pairs),
             path=r2,
             genome_build=genome_build,
             n_samples=10,

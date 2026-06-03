@@ -25,6 +25,46 @@ from ldsc.config import GlobalConfig, ReferencePanelBuildConfig
 from ldsc import ldscore_calculator, ref_panel_builder, reset_global_config, set_global_config
 
 
+# --- columnar pair-emission test helpers -------------------------------------
+# The pair carrier is PairColumns (i, j, r2 float32, sign int8). These convert
+# the legacy {i,j,R2,sign} dict fixtures to/from columnar chunks so the existing
+# literals stay readable. The alias avoids the iter_pairwise rename below.
+_iter_pairwise_r2_rows = kernel_builder.iter_pairwise_r2_rows
+
+
+def pair_chunk(rows):
+    """Build one PairColumns chunk from legacy {i,j,R2,sign} dict rows."""
+    rows = list(rows)
+    i = np.array([r["i"] for r in rows], dtype=np.int64)
+    j = np.array([r["j"] for r in rows], dtype=np.int64)
+    r2 = np.array([r["R2"] for r in rows], dtype=np.float32)
+    sign = np.array([1 if r["sign"] == "+" else -1 for r in rows], dtype=np.int8)
+    return (i, j, r2, sign)
+
+
+def dict_chunks(rows):
+    """Wrap legacy dict rows as the chunk iterable write_r2_parquet now expects."""
+    rows = list(rows)
+    return [pair_chunk(rows)] if rows else iter([])
+
+
+def flatten_pairs(chunks):
+    """Flatten PairColumns chunks back to {i,j,R2,sign} dict rows for assertions."""
+    out = []
+    for ci, cj, cr2, csign in chunks:
+        for k in range(int(ci.size)):
+            out.append({
+                "i": int(ci[k]), "j": int(cj[k]),
+                "R2": float(cr2[k]), "sign": "+" if csign[k] == 1 else "-",
+            })
+    return out
+
+
+def iter_pairs(**kwargs):
+    """iter_pairwise_r2_rows materialized back to dict rows for assertions."""
+    return flatten_pairs(_iter_pairwise_r2_rows(**kwargs))
+
+
 _HAS_BITARRAY = importlib.util.find_spec("bitarray") is not None
 _HAS_PYARROW = importlib.util.find_spec("pyarrow") is not None
 _HAS_PYLIFTOVER = importlib.util.find_spec("pyliftover") is not None
@@ -263,7 +303,7 @@ class PairwiseEmissionTest(unittest.TestCase):
         )
         block_left = np.array([0, 0, 1, 2], dtype=float)
 
-        rows = kernel_builder.iter_pairwise_r2_rows(
+        rows = iter_pairs(
             block_left=block_left,
             snp_batch_size=2,
             standardized_snp_getter=_SequentialSNPGetter(standardized),
@@ -300,7 +340,7 @@ class PairwiseEmissionTest(unittest.TestCase):
             ]
         )
         block_left = np.array([0, 0, 0], dtype=float)
-        rows = kernel_builder.iter_pairwise_r2_rows(
+        rows = iter_pairs(
             block_left=block_left,
             snp_batch_size=2,
             standardized_snp_getter=_SequentialSNPGetter(standardized),
@@ -323,7 +363,7 @@ class PairwiseEmissionTest(unittest.TestCase):
             ]
         )
         block_left = np.array([0, 0, 0], dtype=float)
-        rows = kernel_builder.iter_pairwise_r2_rows(
+        rows = iter_pairs(
             block_left=block_left,
             snp_batch_size=2,
             standardized_snp_getter=_SequentialSNPGetter(standardized),
@@ -346,7 +386,7 @@ class PairwiseEmissionTest(unittest.TestCase):
         )
         block_left = np.array([0, 0, 0, 1, 1], dtype=int)
 
-        rows = kernel_builder.iter_pairwise_r2_rows(
+        rows = iter_pairs(
             block_left=block_left,
             snp_batch_size=2,
             standardized_snp_getter=_SequentialSNPGetter(standardized),
@@ -411,7 +451,7 @@ class StandardTableFormattingTest(unittest.TestCase):
             path = Path(tmpdir) / "chr1.parquet"
             with self.assertRaises(ImportError) as ctx:
                 kernel_builder.write_r2_parquet(
-                    pair_rows=iter([{"i": 0, "j": 1, "R2": 0.75, "sign": "+"}]),
+                    pair_chunks=dict_chunks([{"i": 0, "j": 1, "R2": 0.75, "sign": "+"}]),
                     path=path, genome_build="hg19", n_samples=10,
                     snp_identifier="chr_pos", n_snps=2, sidecar_identity_sha256="0" * 64,
                 )
@@ -426,7 +466,7 @@ class StandardTableFormattingTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "hg19" / "chr1_r2.parquet"
             kernel_builder.write_r2_parquet(
-                pair_rows=iter(rows), path=path, genome_build="hg19", n_samples=42,
+                pair_chunks=dict_chunks(rows), path=path, genome_build="hg19", n_samples=42,
                 snp_identifier="rsid_allele_aware", row_group_size=50_000,
                 n_snps=2, sidecar_identity_sha256="ab" * 32,
             )
@@ -447,14 +487,14 @@ class StandardTableFormattingTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             default_path = Path(tmpdir) / "default.parquet"
             kernel_builder.write_r2_parquet(
-                pair_rows=iter([]), path=default_path, genome_build="hg19", n_samples=10,
+                pair_chunks=dict_chunks([]), path=default_path, genome_build="hg19", n_samples=10,
                 snp_identifier="chr_pos", n_snps=2, sidecar_identity_sha256="0" * 64,
             )
             self.assertEqual(pq.read_schema(str(default_path)).metadata[b"ldsc:min_r2"], b"0.0")
 
             filtered_path = Path(tmpdir) / "filtered.parquet"
             kernel_builder.write_r2_parquet(
-                pair_rows=iter([]), path=filtered_path, genome_build="hg19", n_samples=10,
+                pair_chunks=dict_chunks([]), path=filtered_path, genome_build="hg19", n_samples=10,
                 snp_identifier="chr_pos", min_r2=0.3, n_snps=2, sidecar_identity_sha256="0" * 64,
             )
             self.assertEqual(pq.read_schema(str(filtered_path)).metadata[b"ldsc:min_r2"], b"0.3")
@@ -481,7 +521,7 @@ class StandardTableFormattingTest(unittest.TestCase):
             path = Path(tmpdir) / "chr1.parquet"
             with mock.patch.object(pq, "ParquetWriter", spy_writer):
                 kernel_builder.write_r2_parquet(
-                    pair_rows=iter(rows), path=path, genome_build="hg19", n_samples=10,
+                    pair_chunks=dict_chunks(rows), path=path, genome_build="hg19", n_samples=10,
                     snp_identifier="chr_pos", n_snps=2, sidecar_identity_sha256="0" * 64,
                 )
             self.assertEqual(captured.get("compression"), "zstd")
@@ -508,7 +548,7 @@ class StandardTableFormattingTest(unittest.TestCase):
             with mock.patch("pyarrow.Codec", _NoZstdCodec):
                 with self.assertWarns(UserWarning) as cm:
                     kernel_builder.write_r2_parquet(
-                        pair_rows=iter(rows), path=path, genome_build="hg19", n_samples=10,
+                        pair_chunks=dict_chunks(rows), path=path, genome_build="hg19", n_samples=10,
                         snp_identifier="chr_pos", n_snps=2, sidecar_identity_sha256="0" * 64,
                     )
             self.assertIn("snappy", str(cm.warning).lower())
@@ -529,7 +569,7 @@ class StandardTableFormattingTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "chr1_r2.parquet"
             kernel_builder.write_r2_parquet(
-                pair_rows=iter(rows), path=path, genome_build="hg19", n_samples=10,
+                pair_chunks=dict_chunks(rows), path=path, genome_build="hg19", n_samples=10,
                 snp_identifier="chr_pos", n_snps=3, sidecar_identity_sha256="0" * 64,
             )
             md = pq.ParquetFile(path).metadata
@@ -3010,7 +3050,7 @@ class R2QuantizationTest(unittest.TestCase):
                 {"i": 0, "j": 2, "R2": -0.0003, "sign": "-"}]
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "chr1_r2.parquet"
-            kb.write_r2_parquet(pair_rows=iter(rows), path=path, genome_build="hg19",
+            kb.write_r2_parquet(pair_chunks=dict_chunks(rows), path=path, genome_build="hg19",
                                 n_samples=100, snp_identifier="chr_pos", n_snps=3,
                                 sidecar_identity_sha256="0" * 64)
             pf = pq.ParquetFile(path)
@@ -3041,7 +3081,7 @@ class IndexWriterTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "hg19" / "chr1_r2.parquet"
             kb.write_r2_parquet(
-                pair_rows=self._rows(), path=path, genome_build="hg19",
+                pair_chunks=dict_chunks(self._rows()), path=path, genome_build="hg19",
                 n_samples=100, snp_identifier="chr_pos", min_r2=0.0,
                 n_snps=3, sidecar_identity_sha256="deadbeef" * 8,
             )
@@ -3063,7 +3103,7 @@ class IndexWriterTest(unittest.TestCase):
             path = Path(tmp) / "chr1_r2.parquet"
             with self.assertRaisesRegex(ValueError, "non-decreasing IDX_1"):
                 kb.write_r2_parquet(
-                    pair_rows=bad, path=path, genome_build="hg19", n_samples=100,
+                    pair_chunks=dict_chunks(bad), path=path, genome_build="hg19", n_samples=100,
                     snp_identifier="chr_pos", min_r2=0.0, n_snps=4,
                     sidecar_identity_sha256="0" * 64,
                 )
@@ -3080,7 +3120,8 @@ class IndexArrowTableTest(unittest.TestCase):
             {"i": 0, "j": 2, "R2": 0.5, "sign": "+"},
             {"i": 0, "j": 3, "R2": -0.01, "sign": "-"},
         ]
-        table = kb._standard_r2_index_table(pa, schema, pair_rows=rows)
+        i, j, r2, sign = pair_chunk(rows)
+        table = kb._standard_r2_index_table(pa, schema, i=i, j=j, r2=r2, sign=sign)
         self.assertEqual(table.schema.names, ["IDX_1", "IDX_2", "R2", "SIGN"])
         self.assertEqual(table.column("IDX_1").to_pylist(), [0, 0])
         self.assertEqual(table.column("IDX_2").to_pylist(), [2, 3])

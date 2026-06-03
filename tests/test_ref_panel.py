@@ -22,6 +22,20 @@ from ldsc._kernel.ref_panel import (
 )
 from ldsc._kernel.ref_panel_builder import build_restriction_mask
 
+import numpy as np
+
+
+def dict_chunks(rows):
+    """Wrap legacy {i,j,R2,sign} dict rows as the chunk iterable write_r2_parquet expects."""
+    rows = list(rows)
+    if not rows:
+        return iter([])
+    i = np.array([r["i"] for r in rows], dtype=np.int64)
+    j = np.array([r["j"] for r in rows], dtype=np.int64)
+    r2 = np.array([r["R2"] for r in rows], dtype=np.float32)
+    sign = np.array([1 if r["sign"] == "+" else -1 for r in rows], dtype=np.int8)
+    return [(i, j, r2, sign)]
+
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "minimal_external_resources" / "plink"
 PLINK_PREFIX = FIXTURES / "hm3_chr22_subset"
@@ -307,7 +321,7 @@ class ParquetRefPanelTest(unittest.TestCase):
             build_dir.mkdir(parents=True)
             # index parquet present, but no chr1_meta.tsv.gz sidecar alongside it
             kb.write_r2_parquet(
-                pair_rows=[{"i": 0, "j": 1, "R2": 0.5, "sign": "+"}],
+                pair_chunks=dict_chunks([{"i": 0, "j": 1, "R2": 0.5, "sign": "+"}]),
                 path=build_dir / "chr1_r2.parquet", genome_build="hg38", n_samples=10,
                 snp_identifier="chr_pos", n_snps=2, sidecar_identity_sha256="0" * 64,
             )

@@ -153,8 +153,16 @@ if ba is not None:
     class PlinkBEDFile(__GenotypeArrayInMemory__):
         """Interface for PLINK .bed format."""
 
-        def __init__(self, fname, n, snp_list, keep_snps=None, keep_indivs=None, mafMin=None):
-            """Initialize the PLINK reader and configure BED bit-pattern decoding."""
+        def __init__(self, fname, n, snp_list, keep_snps=None, keep_indivs=None, mafMin=None,
+                     streaming=False):
+            """Initialize the PLINK reader and configure BED bit-pattern decoding.
+
+            When ``streaming`` is true the retained genotype bitarray is never
+            materialized; ``nextSNPs`` decodes each batch directly from disk. Only
+            ``build-ref-panel`` opts in, and only for unrestricted builds where the
+            kept set spans the whole chromosome.
+            """
+            self._streaming = bool(streaming)
             self._bedcode = {
                 2: ba.bitarray("11"),
                 9: ba.bitarray("10"),
@@ -245,14 +253,16 @@ if ba is not None:
             """Select SNPs by keep list and MAF, reading each SNP from disk.
 
             Each candidate SNP is read from source (and individual-subset) on
-            demand, then counted and packed into the retained bitarray, so the
+            demand, then counted. In the default (in-RAM) mode survivors are packed
+            into the retained bitarray; in streaming mode only the kept-SNP/MAF
+            bookkeeping is built and the genotypes stay on disk. Either way the
             whole-chromosome payload is never held in memory.
             """
             n_eff = n
             if keep_snps is None:
                 keep_snps = range(m)
             m_poly = 0
-            y = ba.bitarray()
+            y = None if self._streaming else ba.bitarray()
             kept_snps = []
             freq = []
             for j in keep_snps:
@@ -268,7 +278,8 @@ if ba is not None:
                 het_miss_ct = a + b - 2 * c
                 if np.minimum(f, 1 - f) > mafMin and het_miss_ct < n_eff:
                     freq.append(f)
-                    y += z
+                    if not self._streaming:
+                        y += z
                     m_poly += 1
                     kept_snps.append(int(j))
             return (y, m_poly, n_eff, kept_snps, freq)
@@ -292,8 +303,13 @@ if ba is not None:
             c = self._currentSNP
             n = self.n
             nru = self.nru
-            slice = self.geno[2 * c * nru:2 * (c + b) * nru]
-            X = np.array(list(slice.decode(self._bedcode)), dtype=dtype).reshape((b, nru)).T
+            if self._streaming:
+                snp_bits = ba.bitarray(endian="little")
+                for k in range(c, c + b):
+                    snp_bits += self._source_snp_bits(self.kept_snps[k])
+            else:
+                snp_bits = self.geno[2 * c * nru:2 * (c + b) * nru]
+            X = np.array(list(snp_bits.decode(self._bedcode)), dtype=dtype).reshape((b, nru)).T
             X = X[0:n, :]
             Y = np.zeros(X.shape, dtype=dtype)
             for j in range(0, b):

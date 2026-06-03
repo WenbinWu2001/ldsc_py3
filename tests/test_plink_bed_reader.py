@@ -81,6 +81,45 @@ def test_no_whole_chromosome_bitarray_after_init():
     assert len(geno.geno) == 2 * geno.nru * geno.m
 
 
+def _build_streaming(keep_indivs=None, maf_min=None):
+    bim = legacy_parse.PlinkBIMFile(str(FIX) + ".bim")
+    fam = legacy_parse.PlinkFAMFile(str(FIX) + ".fam")
+    return PlinkBEDFile(
+        str(FIX) + ".bed", len(fam.IDList), bim,
+        keep_snps=None, keep_indivs=keep_indivs, mafMin=maf_min, streaming=True,
+    )
+
+
+def test_streaming_matches_in_ram_unrestricted():
+    in_ram = _build()
+    streamed = _build_streaming()
+    assert int(streamed.m) == int(in_ram.m)
+    assert int(streamed.n) == int(in_ram.n)
+    assert streamed.geno is None  # streaming never materializes the bitarray
+    np.testing.assert_array_equal(np.asarray(streamed.kept_snps),
+                                  np.asarray(in_ram.kept_snps))
+    np.testing.assert_allclose(np.asarray(streamed.freq),
+                               np.asarray(in_ram.freq), rtol=0, atol=0)
+    np.testing.assert_allclose(_decode_all(streamed), _decode_all(in_ram),
+                               rtol=0, atol=0)
+
+
+def test_streaming_matches_in_ram_with_keep_indivs():
+    in_ram = _build(keep_indivs=[0, 1, 2, 3])
+    streamed = _build_streaming(keep_indivs=[0, 1, 2, 3])
+    np.testing.assert_array_equal(np.asarray(streamed.kept_snps),
+                                  np.asarray(in_ram.kept_snps))
+    np.testing.assert_allclose(_decode_all(streamed), _decode_all(in_ram),
+                               rtol=0, atol=0)
+
+
+def test_streaming_rewind_replays_identically():
+    streamed = _build_streaming()
+    first = _decode_all(streamed)   # _decode_all resets _currentSNP to 0
+    second = _decode_all(streamed)  # rewind + replay
+    np.testing.assert_allclose(first, second, rtol=0, atol=0)
+
+
 def _run_build_ref_panel(tmp_path):
     """Run an unrestricted source-only build on the real fixture; return parquet path."""
     from ldsc.ref_panel_builder import ReferencePanelBuilder, ReferencePanelBuildConfig

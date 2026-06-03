@@ -799,6 +799,9 @@ class ReferencePanelBuilder:
                 hg19_lookup=hg19_lookup,
                 hg38_lookup=hg38_lookup,
             )
+            # Unrestricted builds keep ~every SNP, so selective read cannot shrink
+            # the genotype payload; stream it instead. Restricted builds stay in
+            # RAM, where the kept set is already small.
             geno = kernel_ldscore.PlinkBEDFile(
                 prefix + ".bed",
                 len(fam.IDList),
@@ -806,6 +809,7 @@ class ReferencePanelBuilder:
                 keep_snps=list(build_keep_snps),
                 keep_indivs=None if keep_indivs is None else list(keep_indivs),
                 mafMin=config.maf_min,
+                streaming=build_state.restriction_values is None,
             )
             metadata = kernel_builder.build_plink_metadata_frame(
                 bim=bim,

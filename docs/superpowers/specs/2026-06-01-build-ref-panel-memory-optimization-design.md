@@ -1,9 +1,11 @@
 # build-ref-panel Memory & Speed Optimization
 
 **Date:** 2026-06-01
-**Implementation status:** **implemented on `restructure`.** Six memory refactors
-(#1–#6) plus three additional optimizations (per-build BED release, zstd-L9
-compression, vectorized decode lookup). Full suite green (870 passed, 1 skipped).
+**Implementation status:** **#1–#11 implemented on `restructure`** (six memory
+refactors #1–#6 plus per-build BED release, zstd-L9 compression, vectorized decode
+lookup, and int16 R² quantization + BYTE_STREAM_SPLIT; full suite green, 864 passed,
+1 skipped). See the §`#11` section and the companion plan
+`docs/superpowers/plans/2026-06-02-int16-r2-quantization-plan.md`.
 **Scope:** `src/ldsc/_kernel/ref_panel_builder.py`, `src/ldsc/ref_panel_builder.py`,
 `src/ldsc/_kernel/ldscore.py`, `docs/current/parquet-r2-format-and-read-pipeline.md`
 **Companion execution plan:** approved plan at the session plan file (six-task roadmap).
@@ -23,8 +25,8 @@ compression, vectorized decode lookup). Full suite green (870 passed, 1 skipped)
 | 8 | Per-build BED release across emitted genome builds | `1bf1452` | ✅ implemented |
 | 9 | zstd compression (raised to **level 9**) | `1bf1452`, `45f0ec0` | ✅ implemented |
 | 10 | Vectorized canonical decode endpoint-index lookup (read path) | `b112013` | ✅ implemented |
+| 11 | int16 R² quantization + BYTE_STREAM_SPLIT (lossy, ~63% smaller) | `8cbcad3`…`0c27652` | ✅ implemented |
 | 7 | Streaming BED reads | — | ⏸ deferred |
-| — | R² quantization | — | ⏸ on hold (supplementary info pending) |
 
 Refactors #1–#6 are detailed below; the session additions #8–#10 follow in
 ["Additional optimizations"](#additional-optimizations).
@@ -63,6 +65,7 @@ deferred.
 | 5 | Direct PyArrow writes | Build `pa.Table` directly from numpy column buffers, bypassing the `pd.DataFrame` intermediary. |
 | 6 | Early bitarray release | `del` the source bitarray inside `__filter_snps_maf__` once the filtered copy exists. |
 | — | `sign` field | **KEEP.** Never reaches disk but is pinned by a unit test. Store compactly as `int8` internally; reconstruct `"+"`/`"-"` only at the yielded-dict boundary. |
+| 11 | int16 R² quantization | **Symmetric int16, scale 32767, lossy.** Store `R2` as `int16` (`round(R2·32767)`, clipped `[-32767, 32767]`) with `BYTE_STREAM_SPLIT`; reader dequantizes (`q/32767`) auto-detecting int16 columns. Clip unbiased R² at `1.0` upstream so the endpoint maps to `32767` and decodes to **exactly `1.0`**. Negatives (~15%) preserved. Float32 panels still read via auto-detect. |
 
 ---
 
@@ -454,6 +457,102 @@ path and assert LD-score values against references, guarding the wiring.
 on the lookup itself, with negligible added peak memory and no change to decoded
 values.
 
+### #11 — int16 R² quantization + BYTE_STREAM_SPLIT
+
+**Problem.** The `R2` float32 column dominates the index-format parquet — ~77% of
+the file in the production panel. It is high-entropy (unbiased correction noise in
+the mantissa LSBs) so generic compression barely touches it. It is the only large
+lever left after #9/#10.
+
+**Supplementary evidence (the data that cleared the on-hold).** A genome-wide
+evaluation (all 22 autosomes, 473.5M pairs; notebook
+`2026-06-01_int16_r2_quantization.ipynb`) measured the *downstream LD-score* impact
+of symmetric int16 quantization, not just raw R² error:
+
+| Metric | Value |
+|---|---|
+| Encoding | `stored = clip(round(R²·32767), −32767, 32767)`, `decoded = stored/32767` |
+| Saturation (clipped values) | **0** across every chromosome (R² range `[−0.000312, 1.00001]`) |
+| Per-pair max abs error | `1.5e-5` (= ½ step; pure rounding, no fat tail) |
+| Per-pair mean abs error | `8e-6` (≈ step/4, textbook uniform-rounding fingerprint) |
+| LD-score mean abs delta | `2.1e-4` |
+| LD-score max abs delta (genome-wide) | `2.1e-3` (chr3) |
+
+The per-pair ceiling (1.5e-5) is ~20× below the unbiased-correction noise floor
+(`1/N ≈ 3.1e-4` at `N=3202`), so the quantization adds noise an order of magnitude
+smaller than the statistical noise already in the estimate. Zero-mean independent
+per-pair errors largely cancel when summed into a SNP's LD score (√N, not N
+growth), collapsing the 1.5e-5 per-pair ceiling to a ~2e-3 LD-score ceiling —
+negligible against GWAS χ² sampling variance. Per-chromosome QC is flat (no outlier
+in error, saturation, or LD delta). **Verdict: effectively lossless for LD-score
+regression.**
+
+**Storage (genome-wide aggregate from the same notebook):**
+
+| Variant | Size (MiB) | Reduction vs source float32 |
+|---|---|---|
+| source float32 | 2710.9 | — |
+| float32 + BSS (lossless) | 1856.1 | 31.5% |
+| int16 symmetric | 1076.8 | 60.3% |
+| **int16 symmetric + BSS** | **1014.2** | **62.6%** ← chosen |
+
+BSS adds only ~2.3 pts on top of int16 (vs 31.5 pts on float32) because int16 has
+only two bytes and the high byte is already low-entropy (R² clusters near 0), but
+it is lossless and free, so it is taken.
+
+**Decision.** **int16 symmetric + BYTE_STREAM_SPLIT** (option b). Rejected: lossless
+BSS-only (leaves ~840 MiB for precision below the noise floor); int8 (max_err 2e-3
+is visible at the small-R² mass where ~59% of pairs live).
+
+**Endpoint invariant (user-required).** The maximum R² value must round-trip to
+**exactly `1.0`**. The symmetric scale guarantees this: clip at `1.0` upstream →
+`round(1.0·32767) = 32767` → `32767/32767 = 1.0` exactly (32767 < 2²⁴, exactly
+representable in float32, and `x/x = 1.0` is exact). Using `32767` (not `32768`) as
+both scale and clip bound is what makes the endpoint exact; the `−32767` lower clip
+keeps the mapping symmetric so any negative also round-trips by the same rule.
+
+**Writer.**
+
+```python
+# module constants
+R2_QUANT_SCALE = 32767            # int16 max; symmetric, endpoint-exact
+R2_ENCODING = "int16_symmetric"
+
+# _unbiased_r2_array: upper-clip only, keep negatives
+sq = correlation * correlation
+r2 = sq - (1.0 - sq) / denom
+return np.minimum(r2, 1.0)
+
+# _standard_r2_index_table: quantize instead of float32 R2
+q = np.clip(np.rint(r2 * R2_QUANT_SCALE), -R2_QUANT_SCALE, R2_QUANT_SCALE).astype(np.int16)
+
+# write_r2_parquet: schema + encoding + metadata
+("R2", pa.int16())
+column_encoding={"IDX_2": "DELTA_BINARY_PACKED", "R2": "BYTE_STREAM_SPLIT"}
+use_dictionary=["IDX_1"]   # unchanged; keeps R2 off the dictionary path
+b"ldsc:r2_encoding": b"int16_symmetric"
+b"ldsc:r2_scale": b"32767"
+```
+
+`schema_version` stays `"1"` (the new keys are additive provenance, not a contract
+break). The upstream clip means the quantizer's `[-32767, 32767]` clip never fires
+on real data — it is defensive.
+
+**Reader (auto-detect by column type).** At open, read `ldsc:r2_encoding` /
+`ldsc:r2_scale` from `self._pf.schema_arrow.metadata`. Set `self._r2_scale` to the
+scale when the on-disk `R2` column is an **integer** type, else `None`. In
+`_decode_index_row_group`, when `self._r2_scale` is set, dequantize
+`r2 = col.astype(float32) / scale` **before** `_transform_r2`. If the column is
+int16 but metadata is missing, fall back to `32767` with a warning. float32 columns
+take the existing path unchanged — old panels keep working.
+
+`_transform_r2` raw branch also gets the `np.minimum(..., 1.0)` clip so external raw
+float32 panels share the `R² ≤ 1` invariant. For our int16 panels `r2_bias` resolves
+to `unbiased`, so `_transform_r2` is a no-op after dequant — order is safe regardless.
+
+**Pin.** `environment.yml`: `pyarrow>=14` (int16 BYTE_STREAM_SPLIT support; verified
+on 23.0.1). Below 14, BSS-on-int16 is unavailable.
+
 ---
 
 ## Testing Strategy
@@ -488,6 +587,22 @@ values.
 8. **#10 decode lookup:** `VectorizedIndexLookupTest` pins the vectorized lookups
    bit-for-bit to the dict loop across all four identity modes (incl. `-1` and
    NaN-key cases).
+9. **#11 endpoint exactness (user-required):** an R² of `1.0` (and a corr-roundoff
+   value `>1.0`) stores as int16 `32767` and the reader dequantizes to **exactly
+   `1.0`** (`==`, not `assertAlmostEqual`).
+10. **#11 schema + metadata:** written parquet has `R2` dtype `int16`,
+    `ldsc:r2_encoding == b"int16_symmetric"`, `ldsc:r2_scale == b"32767"`, and the
+    `R2` column chunk reports `BYTE_STREAM_SPLIT` encoding in the footer.
+11. **#11 round-trip precision:** a known float32 R² array written then read back
+    matches within per-pair `atol=2e-5`; a negative unbiased R² survives with sign.
+12. **#11 backward-compat:** a hand-built **float32** `R2` parquet reads unchanged
+    (no dequant; `self._r2_scale is None`).
+13. **#11 clip:** `_unbiased_r2_array` upper-clips at `1.0` (a perfect-LD pair gives
+    exactly `1.0`, never `>1`); negatives are not floored. `_transform_r2` raw branch
+    applies the same upper clip.
+14. **#11 parity (relaxed):** `ReferencePanelBuilderParityTest` /
+    `IndexCrossModeParityTest` on the quantized path assert per-pair R² `atol=2e-5`
+    and LD-score `atol=3e-3` (no longer bit-identical).
 
 ### Full suite + manual
 - `pytest` green — **870 passed, 1 skipped** on `restructure`; `ldsc build-ref-panel
@@ -506,3 +621,8 @@ values.
 | float32 leaks into legacy path | `dtype` defaults to float64; only the builder lambda passes float32; legacy 1e-7 tests guard it. |
 | `sign` accidentally dropped or leaked to parquet | Keep `sign` in yielded dict (test 287); never add to `_STANDARD_R2_COLUMNS`. |
 | Direct-arrow path diverges from canonical schema | Reuse `_STANDARD_R2_COLUMNS` + `.select(...)`; schema-metadata test guards it. |
+| #11 int16 saturates on a smaller-N panel (R² pushed `>1`) | Upstream `min(R²,1.0)` clip + defensive `[-32767,32767]` quantizer clip; endpoint test pins `1.0→32767→1.0`. |
+| #11 endpoint drifts off exactly `1.0` | Scale **and** clip bound are both `32767` (`x/x=1.0` exact, 32767 < 2²⁴); dedicated `==` test (#9 above). |
+| #11 reader mis-reads old float32 panels as int16 | Dequant gated on integer column dtype; float32 → `_r2_scale=None`; backward-compat test (#12). |
+| #11 BSS-on-int16 unsupported in older pyarrow | `environment.yml` pins `pyarrow>=14`; writer already warns + falls back on missing zstd. |
+| #11 lossy values break a downstream consumer that reads R² directly | Per-pair error bounded `≤1.5e-5` (20× below correction floor); documented in `parquet-r2-format-and-read-pipeline.md` §2.3. |

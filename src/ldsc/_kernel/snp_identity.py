@@ -17,6 +17,7 @@ use drop-all duplicate cleanup.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 import logging
 from typing import Literal
 
@@ -269,6 +270,25 @@ def effective_merge_key_series(frame: pd.DataFrame, mode: str, *, context: str =
     valid = base.notna() & allele_set.notna()
     keys.loc[valid] = base.loc[valid].astype(str) + ":" + allele_set.loc[valid].astype(str)
     return keys.rename("snp_id")
+
+
+def sidecar_identity_sha256(metadata: pd.DataFrame, *, context: str = "sidecar identity") -> str:
+    """Hash the panel's physical SNP identity to bind a parquet to its sidecar.
+
+    Computes ``sha256`` over the newline-joined ``CHR:POS:A1:A2`` string of each
+    row, in order. This captures the SNP set and order -- exactly what the index
+    parquet's ``IDX`` values reference -- while ignoring the volatile rsID and the
+    recomputable ``CM``/``MAF`` columns. Built in memory; never written as a
+    sidecar column.
+    """
+    _require_columns(metadata, ("CHR", "POS", "A1", "A2"), context=context)
+    pos = pd.to_numeric(metadata["POS"], errors="raise").astype("int64").astype(str)
+    joined = (
+        metadata["CHR"].astype(str) + ":" + pos + ":"
+        + metadata["A1"].astype(str) + ":" + metadata["A2"].astype(str)
+    )
+    payload = "\n".join(joined.tolist()).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
 
 
 def restriction_membership_mask(

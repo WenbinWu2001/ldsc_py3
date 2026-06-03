@@ -182,6 +182,21 @@ Exactly one of the following must be set:
   Window size in number of SNPs.
   Recommended usage: mostly useful for debugging or for reproducing workflows that are defined in terms of SNP counts.
 
+### Memory and performance
+
+The builder does not load a whole chromosome's genotypes into memory. If you
+restrict SNPs (`--ref-panel-snps-file` or `--use-hm3-snps`), it reads only the
+kept SNP blocks from the `.bed`; the default build (no restriction) streams the
+genotypes a window at a time straight from disk. `--keep-indivs-file` is applied
+during that read, so no second full copy is made.
+
+Practical consequence: peak memory is driven by that bounded genotype read plus
+the fixed Python/library overhead, so the tuning knobs below are **not** memory
+levers. `--snp-batch-size`, `--ld-wind-*`, `--min-r2`, and `--maf-min` affect
+speed and output size (and, for the window/`--min-r2` options, how many pairs are
+written) — not peak RSS. Reach for a narrower LD window or a SNP restriction if
+you need a smaller panel, not a smaller batch size.
+
 ### Optional filters and controls
 
 - `--maf-min`

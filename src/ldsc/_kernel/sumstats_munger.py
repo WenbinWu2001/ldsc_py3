@@ -1194,7 +1194,7 @@ def munge_sumstats(args, p=True):
             )
         sign_cname = sign_cnames[0]
         signed_sumstat_null = null_values[cname_translation[sign_cname]]
-        cname_translation[sign_cname] = 'SIGNED_SUMSTAT'
+        cname_translation[sign_cname] = 'SIGNED_SUMSTAT'    
     else:
         sign_cname = 'SIGNED_SUMSTATS'
 

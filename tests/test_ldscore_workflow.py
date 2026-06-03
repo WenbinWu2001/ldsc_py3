@@ -48,6 +48,20 @@ except ImportError:
 
 
 PLINK_FIXTURES = Path(__file__).resolve().parent / "fixtures" / "plink"
+
+
+def dict_chunks(rows):
+    """Wrap legacy {i,j,R2,sign} dict rows as the chunk iterable write_r2_parquet expects."""
+    rows = list(rows)
+    if not rows:
+        return iter([])
+    i = np.array([r["i"] for r in rows], dtype=np.int64)
+    j = np.array([r["j"] for r in rows], dtype=np.int64)
+    r2 = np.array([r["R2"] for r in rows], dtype=np.float32)
+    sign = np.array([1 if r["sign"] == "+" else -1 for r in rows], dtype=np.int8)
+    return [(i, j, r2, sign)]
+
+
 _HAS_PYARROW = importlib.util.find_spec("pyarrow") is not None
 _HAS_BITARRAY = importlib.util.find_spec("bitarray") is not None
 
@@ -258,42 +272,53 @@ class R2AutoLoadCLITest(unittest.TestCase):
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet schema coverage")
     def test_parquet_panel_autofills_raw_and_n_from_schema(self):
+        import pyarrow as pa
+        import pyarrow.parquet as pq
         from ldsc._kernel.ref_panel import ParquetR2RefPanel
+        from ldsc._kernel.snp_identity import sidecar_identity_sha256
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "hg19" / "chr1_r2.parquet"
-            _write_minimal_r2_parquet(
-                path,
-                {
-                    b"ldsc:n_samples": b"200",
-                    b"ldsc:r2_bias": b"raw",
-                    b"ldsc:schema_version": b"1",
-                    b"ldsc:artifact_type": b"ref_panel_r2",
-                    b"ldsc:snp_identifier": b"rsid",
-                    b"ldsc:genome_build": b"hg19",
-                },
+            build_dir = Path(tmpdir) / "hg19"
+            build_dir.mkdir(parents=True)
+            path = build_dir / "chr1_r2.parquet"
+            panel = pd.DataFrame({"CHR": ["1", "1"], "POS": [100, 120], "SNP": ["rs1", "rs2"],
+                                  "A1": ["A", "A"], "A2": ["C", "C"], "CM": [0.0, 0.0], "MAF": [0.3, 0.3]})
+            with gzip.open(build_dir / "chr1_meta.tsv.gz", "wt") as handle:
+                handle.write("# ldsc:schema_version=2\n")
+                panel.to_csv(handle, sep="\t", index=False)
+            # A hand-built raw-bias index panel (the package writer only emits
+            # unbiased; raw is reserved for future external raw-R2 index panels).
+            schema = pa.schema(
+                [("IDX_1", pa.int32()), ("IDX_2", pa.int32()), ("R2", pa.float32()), ("SIGN", pa.bool_())]
+            ).with_metadata({
+                b"ldsc:schema_version": b"1",
+                b"ldsc:artifact_type": b"ref_panel_r2",
+                b"ldsc:snp_identifier": b"rsid",
+                b"ldsc:genome_build": b"hg19",
+                b"ldsc:sorted_by_build": b"hg19",
+                b"ldsc:n_samples": b"200",
+                b"ldsc:r2_bias": b"raw",
+                b"ldsc:n_snps": b"2",
+                b"ldsc:sidecar_identity_sha256": sidecar_identity_sha256(panel).encode("utf-8"),
+            })
+            tbl = pa.table(
+                {"IDX_1": pa.array([0], pa.int32()), "IDX_2": pa.array([1], pa.int32()),
+                 "R2": pa.array([0.5], pa.float32()), "SIGN": pa.array([True], pa.bool_())},
+                schema=schema,
             )
+            pq.write_table(tbl, str(path))
+
             spec = RefPanelConfig(
                 backend="parquet_r2",
-                r2_dir=str(Path(tmpdir) / "hg19"),
+                r2_dir=str(build_dir),
                 r2_bias_mode=None,
                 r2_sample_size=None,
             )
-            panel = ParquetR2RefPanel(
-                GlobalConfig(snp_identifier="rsid"),
-                spec,
+            panel_loader = ParquetR2RefPanel(GlobalConfig(snp_identifier="rsid"), spec)
+            reader_meta = pd.DataFrame(
+                {"CHR": ["1", "1"], "POS": [100, 120], "SNP": ["rs1", "rs2"], "CM": [0.0, 0.0], "MAF": [0.3, 0.3]}
             )
-            metadata = pd.DataFrame(
-                {
-                    "CHR": ["1"],
-                    "POS": [100],
-                    "SNP": ["rs1"],
-                    "CM": [0.0],
-                    "MAF": [0.3],
-                }
-            )
-
-            reader = panel.build_reader("1", metadata=metadata)
+            reader = panel_loader.build_reader("1", metadata=reader_meta)
 
         self.assertEqual(reader.r2_bias_mode, "raw")
         self.assertAlmostEqual(reader.r2_sample_size, 200.0)
@@ -2854,70 +2879,6 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
 
 @unittest.skipIf(kernel_ldscore is None, "ldscore kernel is not available")
-class VectorizedIndexLookupTest(unittest.TestCase):
-    """Characterize the vectorized endpoint-index lookups against the dict loop.
-
-    The canonical decode path historically resolved each row endpoint with a
-    per-row ``index_map.get(key, -1)`` Python loop. These tests pin the
-    vectorized replacements to bit-for-bit equality with that loop across all
-    four identity modes, including not-found (-1) and NaN-key cases.
-    """
-
-    @staticmethod
-    def _dict_loop(index_map, query, cast):
-        return np.fromiter(
-            (index_map.get(cast(value), -1) for value in query),
-            dtype=np.int64,
-            count=len(query),
-        )
-
-    def test_pos_lookup_matches_dict_loop_chr_pos(self):
-        pos = np.array([10, 25, 40, 100], dtype=np.int64)  # ascending retained positions
-        index_map = {int(p): i for i, p in enumerate(pos)}
-        query = np.array([40, 10, 999, 100, 7, 25], dtype=np.int64)  # present + absent + below-min
-        expected = self._dict_loop(index_map, query, int)
-        result = kernel_ldscore._vectorized_pos_lookup(pos, query)
-        np.testing.assert_array_equal(result, expected)
-        self.assertEqual(result.dtype, np.int64)
-
-    def test_pos_lookup_empty_query_and_empty_panel(self):
-        pos = np.array([10, 25], dtype=np.int64)
-        np.testing.assert_array_equal(
-            kernel_ldscore._vectorized_pos_lookup(pos, np.array([], dtype=np.int64)),
-            np.array([], dtype=np.int64),
-        )
-        empty_pos = np.array([], dtype=np.int64)
-        np.testing.assert_array_equal(
-            kernel_ldscore._vectorized_pos_lookup(empty_pos, np.array([10, 25], dtype=np.int64)),
-            np.array([-1, -1], dtype=np.int64),
-        )
-
-    def test_key_lookup_matches_dict_loop_rsid(self):
-        keys = ["rs1", "rs2", "rs3", "rs10"]
-        index_map = {k: i for i, k in enumerate(keys)}
-        key_index = pd.Index(list(index_map.keys()))
-        key_values = np.fromiter(index_map.values(), dtype=np.int64, count=len(index_map))
-        query = np.array(["rs3", "rsX", "rs1", "rs10", "nope"], dtype=str)
-        expected = self._dict_loop(index_map, query, str)
-        result = kernel_ldscore._vectorized_key_lookup(key_index, key_values, query)
-        np.testing.assert_array_equal(result, expected)
-        self.assertEqual(result.dtype, np.int64)
-
-    def test_key_lookup_matches_dict_loop_allele_aware_with_nan_exclusion(self):
-        # Mirror the allele-aware build: NaN merge keys are excluded from the map,
-        # so retained-SNP values become non-contiguous (0, 2). A 'nan' endpoint
-        # (str() of a NaN key) must resolve to -1.
-        raw_keys = ["1:10:A:G", np.nan, "1:25:C:T"]
-        index_map = {str(k): i for i, k in enumerate(raw_keys) if pd.notna(k)}
-        key_index = pd.Index(list(index_map.keys()))
-        key_values = np.fromiter(index_map.values(), dtype=np.int64, count=len(index_map))
-        query = np.array(["1:25:C:T", "nan", "1:10:A:G", "1:99:A:G"], dtype=str)
-        expected = self._dict_loop(index_map, query, str)
-        result = kernel_ldscore._vectorized_key_lookup(key_index, key_values, query)
-        np.testing.assert_array_equal(result, expected)
-
-
-@unittest.skipIf(kernel_ldscore is None, "ldscore kernel is not available")
 class LDScoreParquetNormalizationTest(unittest.TestCase):
     def test_resolve_parquet_files_accepts_chromosome_specific_resolution(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2932,122 +2893,6 @@ class LDScoreParquetNormalizationTest(unittest.TestCase):
             self.assertEqual(
                 kernel_ldscore.resolve_parquet_files(args, chrom="1"),
                 [str(path1)],
-            )
-
-    def test_canonicalize_r2_pairs_renames_bp_aliases_to_pos_columns(self):
-        df = pd.DataFrame(
-            {
-                "chr": ["1"],
-                "rsID_1": ["rs2"],
-                "rsID_2": ["rs1"],
-                "hg38_bp1": [120],
-                "hg38_bp2": [100],
-                "hg19_bp_1": [20],
-                "hg19_bp_2": [10],
-                "hg38_Uniq_ID_1": ["1:120"],
-                "hg38_Uniq_ID_2": ["1:100"],
-                "hg19_Uniq_ID_1": ["1:20"],
-                "hg19_Uniq_ID_2": ["1:10"],
-                "R2": [0.4],
-                "Dprime": [0.5],
-                "+/-corr": ["+"],
-            }
-        )
-
-        out = kernel_ldscore.canonicalize_r2_pairs(df, "GRCh37")
-
-        self.assertEqual(out["chr"].tolist(), ["1"])
-        self.assertEqual(out["pos_1"].tolist(), [10])
-        self.assertEqual(out["pos_2"].tolist(), [20])
-        self.assertIn("hg38_pos_1", out.columns)
-        self.assertIn("hg38_pos_2", out.columns)
-        self.assertIn("hg19_pos_1", out.columns)
-        self.assertIn("hg19_pos_2", out.columns)
-        self.assertNotIn("pair_chr", out.columns)
-
-    def test_canonicalize_r2_pairs_normalizes_mixed_chromosome_labels(self):
-        df = pd.DataFrame(
-            {
-                "chr": ["chr1.0", "1", "24"],
-                "rsID_1": ["rs2", "rs4", "rsY2"],
-                "rsID_2": ["rs1", "rs3", "rsY1"],
-                "hg38_pos_1": [120, 140, 80],
-                "hg38_pos_2": [100, 130, 70],
-                "hg19_pos_1": [20, 40, 8],
-                "hg19_pos_2": [10, 30, 7],
-                "hg38_Uniq_ID_1": ["1:120", "1:140", "Y:80"],
-                "hg38_Uniq_ID_2": ["1:100", "1:130", "Y:70"],
-                "hg19_Uniq_ID_1": ["1:20", "1:40", "Y:8"],
-                "hg19_Uniq_ID_2": ["1:10", "1:30", "Y:7"],
-                "R2": [0.4, 0.2, 0.1],
-                "Dprime": [0.5, 0.3, 0.2],
-                "+/-corr": ["+", "+", "-"],
-            }
-        )
-
-        out = kernel_ldscore.canonicalize_r2_pairs(df, "hg19")
-
-        self.assertEqual(out["chr"].tolist(), ["1", "1", "Y"])
-        self.assertEqual(out["pos_1"].tolist(), [10, 30, 7])
-        self.assertEqual(out["pos_2"].tolist(), [20, 40, 8])
-
-    def test_require_runtime_genome_build_accepts_aliases(self):
-        self.assertEqual(kernel_ldscore._require_runtime_genome_build("hg37"), "hg19")
-        self.assertEqual(kernel_ldscore._require_runtime_genome_build("GRCh37"), "hg19")
-        self.assertEqual(kernel_ldscore._require_runtime_genome_build("GRCh38"), "hg38")
-
-    def test_get_r2_build_columns_accepts_reduced_position_only_schema(self):
-        columns = ["chr", "hg19_pos_1", "hg19_pos_2"]
-        self.assertEqual(
-            kernel_ldscore.get_r2_build_columns("hg19", columns),
-            ("hg19_pos_1", "hg19_pos_2"),
-        )
-
-    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet reader coverage")
-    def test_sorted_r2_block_reader_projects_actual_raw_schema_columns(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "raw_chr1.parquet"
-            pd.DataFrame(
-                {
-                    "chr": ["1"],
-                    "rsID_1": ["rs2"],
-                    "rsID_2": ["rs1"],
-                    "hg38_bp1": [120],
-                    "hg38_bp2": [100],
-                    "hg19_bp_1": [20],
-                    "hg19_bp_2": [10],
-                    "hg38_Uniq_ID_1": ["1:120"],
-                    "hg38_Uniq_ID_2": ["1:100"],
-                    "hg19_Uniq_ID_1": ["1:20"],
-                    "hg19_Uniq_ID_2": ["1:10"],
-                    "R2": [0.4],
-                    "Dprime": [0.5],
-                    "+/-corr": ["+"],
-                }
-            ).to_parquet(path, index=False)
-
-            metadata = pd.DataFrame(
-                {
-                    "CHR": ["1", "1"],
-                    "SNP": ["rs1", "rs2"],
-                    "POS": [10, 20],
-                    "CM": [0.1, 0.2],
-                }
-            )
-            reader = kernel_ldscore.SortedR2BlockReader(
-                paths=[str(path)],
-                chrom="1",
-                metadata=metadata,
-                identifier_mode="rsid",
-                r2_bias_mode="unbiased",
-                r2_sample_size=None,
-                genome_build="hg19",
-            )
-
-            matrix = reader.within_block_matrix(l_B=0, c=2)
-            np.testing.assert_allclose(
-                matrix,
-                np.array([[1.0, 0.4], [0.4, 1.0]], dtype=np.float32),
             )
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet reader coverage")
@@ -3091,3 +2936,256 @@ class LDScoreParquetNormalizationTest(unittest.TestCase):
                     r2_sample_size=None,
                     genome_build="auto",
                 )
+
+
+def _write_index_sidecar(tmp, df, *, gz: bool = True):
+    """Write a panel sidecar (CHR,POS,SNP,A1,A2,CM,MAF) as chr1_meta.tsv.gz."""
+    meta = Path(tmp) / "hg19" / "chr1_meta.tsv.gz"
+    meta.parent.mkdir(parents=True, exist_ok=True)
+    with gzip.open(meta, "wt") as h:
+        h.write("# ldsc:schema_version=2\n")
+        df.to_csv(h, sep="\t", index=False)
+    return meta
+
+
+class IndexBindingTest(unittest.TestCase):
+    def _sidecar(self, tmp):
+        df = pd.DataFrame({"CHR": ["1", "1", "1"], "POS": [10, 20, 30],
+                           "SNP": ["rsA", "rsB", "rsC"], "A1": ["A", "C", "G"],
+                           "A2": ["G", "T", "A"], "CM": [0.0, 0.0, 0.0], "MAF": [0.2, 0.3, 0.4]})
+        return _write_index_sidecar(tmp, df), df
+
+    def test_load_full_panel_sidecar_reads_canonical_columns(self):
+        from ldsc._kernel import ldscore as ls
+        with tempfile.TemporaryDirectory() as tmp:
+            meta, df = self._sidecar(tmp)
+            r2 = meta.with_name("chr1_r2.parquet")
+            loaded = ls._load_full_panel_sidecar(str(r2))
+            self.assertEqual(list(loaded["CHR"].astype(str)), ["1", "1", "1"])
+            self.assertEqual(list(loaded["POS"].astype(int)), [10, 20, 30])
+
+    def test_validate_binding_raises_on_hash_mismatch(self):
+        from ldsc._kernel import ldscore as ls
+        from ldsc._kernel.snp_identity import sidecar_identity_sha256
+        with tempfile.TemporaryDirectory() as tmp:
+            meta, df = self._sidecar(tmp)
+            good = sidecar_identity_sha256(df)
+            ls._validate_index_binding(df, n_snps=3, identity_hash=good, context="t")  # no raise
+            with self.assertRaisesRegex(ValueError, "identity hash"):
+                ls._validate_index_binding(df, n_snps=3, identity_hash="0" * 64, context="t")
+            with self.assertRaisesRegex(ValueError, "n_snps"):
+                ls._validate_index_binding(df, n_snps=999, identity_hash=good, context="t")
+
+
+class IndexRemapTest(unittest.TestCase):
+    def test_remap_maps_build_rows_to_retained_indices_chr_pos(self):
+        from ldsc._kernel.ldscore import build_index_remap
+
+        full = pd.DataFrame({"CHR": ["1"] * 4, "POS": [10, 20, 30, 40],
+                             "SNP": ["a", "b", "c", "d"], "A1": list("ACGT"), "A2": list("GTAC")})
+        # retained = rows 2 and 0 of the panel, in matrix order [pos30, pos10]
+        retained = full.iloc[[2, 0]].reset_index(drop=True)
+        remap, retained_build_idx = build_index_remap(full, retained, "chr_pos")
+        # build row 2 (pos30) -> retained idx 0 ; build row 0 (pos10) -> retained idx 1 ; others -1
+        self.assertEqual(remap.tolist(), [1, -1, 0, -1])
+        # retained_build_idx[matrix_idx] = build row
+        self.assertEqual(retained_build_idx.tolist(), [2, 0])
+
+    def test_remap_allele_aware_uses_alleles(self):
+        from ldsc._kernel.ldscore import build_index_remap
+
+        # Two multi-allelic variants at the same position with distinct,
+        # non-strand-complement allele sets: {A,G} vs {A,C}.
+        full = pd.DataFrame({"CHR": ["1", "1"], "POS": [10, 10],
+                             "SNP": ["a", "b"], "A1": ["A", "A"], "A2": ["G", "C"]})
+        retained = full.iloc[[1]].reset_index(drop=True)  # the A/C variant at pos10
+        remap, _ = build_index_remap(full, retained, "chr_pos_allele_aware")
+        self.assertEqual(remap.tolist(), [-1, 0])
+
+
+class IndexReaderDecodeTest(unittest.TestCase):
+    def _make_panel(self, tmp):
+        from ldsc._kernel import ref_panel_builder as kb
+        from ldsc._kernel.snp_identity import sidecar_identity_sha256
+
+        full = pd.DataFrame({"CHR": ["1"] * 4, "POS": [10, 20, 30, 40],
+                             "SNP": ["a", "b", "c", "d"], "A1": list("ACGT"),
+                             "A2": list("GTAC"), "CM": [0.0] * 4, "MAF": [0.3] * 4})
+        meta = _write_index_sidecar(tmp, full)
+        r2 = meta.with_name("chr1_r2.parquet")
+        rows = [
+            {"i": 0, "j": 1, "R2": 0.5, "sign": "+"},
+            {"i": 0, "j": 2, "R2": 0.2, "sign": "+"},
+            {"i": 1, "j": 2, "R2": 0.4, "sign": "-"},
+            {"i": 2, "j": 3, "R2": 0.9, "sign": "+"},
+        ]
+        kb.write_r2_parquet(pair_chunks=dict_chunks(rows), path=r2, genome_build="hg19", n_samples=100,
+                            snp_identifier="chr_pos", min_r2=0.0, n_snps=4,
+                            sidecar_identity_sha256=sidecar_identity_sha256(full))
+        return r2, full
+
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
+    def test_within_block_matrix_drops_unretained_endpoint(self):
+        from ldsc._kernel.ldscore import SortedR2BlockReader
+        with tempfile.TemporaryDirectory() as tmp:
+            r2, full = self._make_panel(tmp)
+            # retained = panel rows 0,1,2 (drop pos40); matrix order = [10,20,30]
+            retained = full.iloc[[0, 1, 2]][["CHR", "POS", "SNP", "A1", "A2", "CM", "MAF"]].reset_index(drop=True)
+            reader = SortedR2BlockReader(
+                paths=[str(r2)], chrom="1", metadata=retained,
+                identifier_mode="chr_pos", r2_bias_mode="unbiased",
+                r2_sample_size=None, genome_build="hg19",
+            )
+            mat = reader.within_block_matrix(0, 3)
+            # off-diagonal R2 is int16-quantized: tolerance is the half-step (1.5e-5)
+            self.assertAlmostEqual(mat[0, 1], 0.5, delta=2e-5)
+            self.assertAlmostEqual(mat[0, 2], 0.2, delta=2e-5)
+            self.assertAlmostEqual(mat[1, 2], 0.4, delta=2e-5)
+            self.assertAlmostEqual(mat[0, 0], 1.0, places=6)  # diagonal: reader-set, exact
+            self.assertEqual(mat.shape, (3, 3))
+
+
+class IndexCrossModeParityTest(unittest.TestCase):
+    """One index parquet must produce identical LD scores in all four modes."""
+
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
+    def test_ld_scores_identical_across_modes_from_one_index_parquet(self):
+        from ldsc._kernel import ref_panel_builder as kb
+        from ldsc._kernel.snp_identity import sidecar_identity_sha256
+
+        panel = pd.DataFrame({
+            "CHR": ["1"] * 4, "POS": [100, 120, 140, 160], "SNP": ["rs1", "rs2", "rs3", "rs4"],
+            "A1": ["A", "A", "A", "A"], "A2": ["C", "G", "C", "G"], "CM": [0.0] * 4, "MAF": [0.3] * 4,
+        })
+        pairs = [
+            {"i": 0, "j": 1, "R2": 0.4, "sign": "+"},
+            {"i": 0, "j": 2, "R2": 0.2, "sign": "-"},
+            {"i": 1, "j": 2, "R2": 0.6, "sign": "+"},
+            {"i": 2, "j": 3, "R2": 0.5, "sign": "+"},
+        ]
+        # Dense oracle: symmetric R2 matrix with unit diagonal, times all-ones annotation.
+        oracle = np.array([
+            [1.0, 0.4, 0.2, 0.0],
+            [0.4, 1.0, 0.6, 0.0],
+            [0.2, 0.6, 1.0, 0.5],
+            [0.0, 0.0, 0.5, 1.0],
+        ], dtype=np.float64)
+        expected = oracle.sum(axis=1)  # [1.6, 2.0, 2.3, 1.5]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            meta = _write_index_sidecar(tmp, panel)
+            r2 = meta.with_name("chr1_r2.parquet")
+            kb.write_r2_parquet(pair_chunks=dict_chunks(pairs), path=r2, genome_build="hg19", n_samples=100,
+                                snp_identifier="chr_pos", min_r2=0.0, n_snps=4,
+                                sidecar_identity_sha256=sidecar_identity_sha256(panel))
+            mode_scores = {}
+            for mode in ("rsid", "chr_pos", "rsid_allele_aware", "chr_pos_allele_aware"):
+                reader = kernel_ldscore.SortedR2BlockReader(
+                    paths=[str(r2)], chrom="1",
+                    metadata=panel[["CHR", "POS", "SNP", "A1", "A2", "CM", "MAF"]].copy(),
+                    identifier_mode=mode, r2_bias_mode="unbiased",
+                    r2_sample_size=None, genome_build="hg19",
+                )
+                scores = kernel_ldscore.ld_score_var_blocks_from_r2_reader(
+                    block_left=np.zeros(4, dtype=np.int64), snp_batch_size=2,
+                    annot=np.ones((4, 1), dtype=np.float32), block_reader=reader,
+                )
+                mode_scores[mode] = scores[:, 0]
+            # All four modes read one quantized parquet -> bit-identical to each other.
+            first = mode_scores["rsid"]
+            for mode, s in mode_scores.items():
+                np.testing.assert_array_equal(s, first, err_msg=f"mode {mode} differs from rsid")
+            # Dense oracle uses exact R2; int16 quantization adds <= a few half-steps.
+            np.testing.assert_allclose(first, expected, rtol=0, atol=5e-5,
+                                       err_msg="quantized LD scores drifted from dense oracle")
+
+
+class RawSchemaRejectedTest(unittest.TestCase):
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
+    def test_legacy_raw_schema_is_rejected(self):
+        from ldsc._kernel.ldscore import SortedR2BlockReader
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "chr1_r2.parquet"
+            _write_legacy_r2_parquet(path)  # writes old 10-col canonical schema
+            meta = pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["a"], "A1": ["A"], "A2": ["G"]})
+            with self.assertRaisesRegex(ValueError, "index-format|build-ref-panel"):
+                SortedR2BlockReader(paths=[str(path)], chrom="1", metadata=meta,
+                                    identifier_mode="chr_pos", r2_bias_mode="unbiased",
+                                    r2_sample_size=None, genome_build="hg19")
+
+
+class R2TransformClipTest(unittest.TestCase):
+    def test_raw_transform_upper_clips_at_one(self):
+        from ldsc._kernel.ldscore import SortedR2BlockReader
+        reader = SortedR2BlockReader.__new__(SortedR2BlockReader)
+        reader.r2_bias_mode = "raw"
+        reader.r2_sample_size = 100.0
+        # raw r2 = 1.0 -> corrected 1.0 - 0/98 = 1.0; values >1 must clip to 1.0.
+        out = reader._transform_r2(np.array([1.0, 1.05, 0.0], dtype=np.float32))
+        self.assertLessEqual(float(out.max()), 1.0)
+        self.assertEqual(float(out[0]), 1.0)
+
+
+class R2DequantizationTest(unittest.TestCase):
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
+    def test_reader_dequantizes_int16_panel_to_float32(self):
+        from ldsc._kernel import ref_panel_builder as kb
+        from ldsc._kernel import ldscore as kernel_ldscore
+        from ldsc._kernel.snp_identity import sidecar_identity_sha256
+        panel = pd.DataFrame({"CHR": ["1"] * 3, "POS": [100, 120, 140],
+                              "SNP": ["rs1", "rs2", "rs3"], "A1": ["A"] * 3, "A2": ["C"] * 3,
+                              "CM": [0.0] * 3, "MAF": [0.3] * 3})
+        pairs = [{"i": 0, "j": 1, "R2": 1.0, "sign": "+"},
+                 {"i": 0, "j": 2, "R2": 0.2, "sign": "-"}]
+        with tempfile.TemporaryDirectory() as tmp:
+            meta = _write_index_sidecar(tmp, panel)
+            r2 = meta.with_name("chr1_r2.parquet")
+            kb.write_r2_parquet(pair_chunks=dict_chunks(pairs), path=r2, genome_build="hg19", n_samples=100,
+                                snp_identifier="chr_pos", min_r2=0.0, n_snps=3,
+                                sidecar_identity_sha256=sidecar_identity_sha256(panel))
+            reader = kernel_ldscore.SortedR2BlockReader(
+                paths=[str(r2)], chrom="1", metadata=panel.copy(),
+                identifier_mode="chr_pos", r2_bias_mode="unbiased",
+                r2_sample_size=None, genome_build="hg19")
+            self.assertEqual(reader._r2_scale, 32767.0)
+            decoded = reader._decode_index_row_group(0)
+            self.assertEqual(decoded.r2.dtype, np.float32)
+            # endpoint exact; 0.2 within half-step
+            got = dict(zip(zip(decoded.i.tolist(), decoded.j.tolist()), decoded.r2.tolist()))
+            self.assertEqual(got[(0, 1)], 1.0)
+            self.assertAlmostEqual(got[(0, 2)], 0.2, delta=2e-5)
+
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
+    def test_reader_leaves_float32_panel_unscaled(self):
+        # A hand-built float32 R2 index parquet must read with _r2_scale is None.
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+        from ldsc._kernel import ldscore as kernel_ldscore
+        from ldsc._kernel.snp_identity import sidecar_identity_sha256
+        panel = pd.DataFrame({"CHR": ["1", "1"], "POS": [100, 120], "SNP": ["rs1", "rs2"],
+                              "A1": ["A", "A"], "A2": ["C", "G"], "CM": [0.0, 0.0], "MAF": [0.3, 0.3]})
+        with tempfile.TemporaryDirectory() as tmp:
+            meta = _write_index_sidecar(tmp, panel)
+            r2 = meta.with_name("chr1_r2.parquet")
+            schema = pa.schema(
+                [("IDX_1", pa.int32()), ("IDX_2", pa.int32()),
+                 ("R2", pa.float32()), ("SIGN", pa.bool_())]
+            ).with_metadata({
+                b"ldsc:schema_version": b"1", b"ldsc:artifact_type": b"ref_panel_r2",
+                b"ldsc:snp_identifier": b"chr_pos", b"ldsc:genome_build": b"hg19",
+                b"ldsc:sorted_by_build": b"hg19", b"ldsc:n_samples": b"100",
+                b"ldsc:r2_bias": b"unbiased", b"ldsc:min_r2": b"0.0", b"ldsc:n_snps": b"2",
+                b"ldsc:sidecar_identity_sha256": sidecar_identity_sha256(panel).encode(),
+                b"ldsc:row_group_size": b"50000",
+            })
+            tbl = pa.table({"IDX_1": pa.array([0], pa.int32()), "IDX_2": pa.array([1], pa.int32()),
+                            "R2": pa.array([0.5], pa.float32()), "SIGN": pa.array([True], pa.bool_())},
+                           schema=schema)
+            pq.write_table(tbl, str(r2))
+            reader = kernel_ldscore.SortedR2BlockReader(
+                paths=[str(r2)], chrom="1", metadata=panel.copy(),
+                identifier_mode="chr_pos", r2_bias_mode="unbiased",
+                r2_sample_size=None, genome_build="hg19")
+            self.assertIsNone(reader._r2_scale)
+            decoded = reader._decode_index_row_group(0)
+            self.assertAlmostEqual(float(decoded.r2[0]), 0.5, delta=1e-7)

@@ -125,26 +125,21 @@ suggests `--signed-sumstats <col>,0`; missing `N` with `NEFF` explains that
 
 ### Parquet R2 input
 
-Canonical parquet R2 files are read as the logical fields
-`CHR`, `POS_1`, `POS_2`, `SNP_1`, `SNP_2`, and `R2`. Accepted load-time aliases:
+Package-built canonical parquet R2 files use the 4-column index format — columns
+`IDX_1` (int32), `IDX_2` (int32), `R2` (int16 on-disk, dequantized to float32
+on read), `SIGN` (bool) — with no SNP identity columns. These are identified at load time by the presence of `IDX_1`
+and `IDX_2`; no alias resolution applies to the pair columns themselves.
 
-| Canonical field | Accepted aliases |
-|---|---|
-| `CHR` | `CHR`, `#CHROM`, `CHROM`, `CHROMOSOME` |
-| `POS_1` | `POS_1`, `POS1`, `BP_1`, `BP1`, `POSITION_1`, `POSITION1` |
-| `POS_2` | `POS_2`, `POS2`, `BP_2`, `BP2`, `POSITION_2`, `POSITION2` |
-| `SNP_1` | numbered SNP aliases such as `SNP_1`, `SNP1`, `RSID_1`, `RSID1`, `ID_1`, `ID1` |
-| `SNP_2` | numbered SNP aliases such as `SNP_2`, `SNP2`, `RSID_2`, `RSID2`, `ID_2`, `ID2` |
-| `R2` | `R2` |
+The companion `chrN_meta.tsv.gz` sidecar defines the SNP universe and accepts
+the standard column aliases for `CHR`, `POS`, `SNP`, `A1`, `A2`, `CM`, and
+`MAF`.
 
-Legacy raw R2 parquet files also accept build-specific pair columns such as
-`hg19_pos_1`, `hg19_pos_2`, `hg38_pos_1`, `hg38_pos_2`, their `bp`/`position`
-variants, numbered unique-ID columns, `Dprime` / `D_PRIME`, and
-`+/-corr` / `CORR` / `SIGNCORR` / `SIGN_CORR`.
+The same index parquet serves all four identifier modes; no separate allele-aware
+artifact is needed. Alias-tolerant loading (accepted synonyms for `CHR`, `BP`,
+etc.) applies to the metadata sidecar, not to the parquet pair columns.
 
-External raw R2 parquet inputs are supported only in base modes (`rsid` and
-`chr_pos`). Allele-aware modes require package-built canonical R2 parquet with
-endpoint allele columns `A1_1/A2_1/A1_2/A2_2`.
+External R2 parquet inputs in other formats are not supported; they must be
+regenerated with `ldsc build-ref-panel`.
 
 ### Internal artifacts
 

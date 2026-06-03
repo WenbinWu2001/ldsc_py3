@@ -1,26 +1,23 @@
 # LD Window Behavior for Parquet R2 Panels
 
 This document records how `ldsc ldscore` interprets LD-window flags when the
-reference panel backend is package-style parquet R2, especially when the
-per-chromosome metadata sidecar is absent.
+reference panel backend is the canonical index-format parquet R2 pair.
 
-## Normal Parquet R2 Inputs
+## Paired artifacts
 
-A complete package-built parquet R2 chromosome has two artifacts:
-
-```text
-chr{chrom}_r2.parquet
-chr{chrom}_meta.tsv.gz
-```
-
-The R2 parquet stores pairwise LD rows. Allele-aware package artifacts also
-carry endpoint alleles:
+A complete package-built parquet R2 chromosome has exactly two artifacts, both
+mandatory:
 
 ```text
-CHR  POS_1  POS_2  SNP_1  SNP_2  A1_1  A2_1  A1_2  A2_2  R2
+chr{chrom}_r2.parquet   — 4-column index format: IDX_1, IDX_2, R2, SIGN
+chr{chrom}_meta.tsv.gz  — per-SNP metadata sidecar (CHR, POS, SNP, A1, A2, CM, MAF)
 ```
 
-The metadata sidecar stores the retained SNP universe:
+The R2 parquet stores pairwise LD as sidecar-row indices — it carries no SNP
+identity of its own and is meaningless without the exact matching sidecar. The
+metadata sidecar defines the full panel SNP universe and the index space.
+
+The sidecar format:
 
 ```text
 # ldsc:schema_version=1
@@ -32,40 +29,22 @@ CHR  POS  SNP  CM  MAF  A1  A2
 
 At LD-score runtime, pairwise R2 values come from `chr{chrom}_r2.parquet`.
 Window coordinates, retained SNP order, identifiers, `CM`, and `MAF` come from
-the runtime metadata table, normally loaded from `chr{chrom}_meta.tsv.gz`.
+the runtime metadata table loaded from `chr{chrom}_meta.tsv.gz`.
 
-## Missing Sidecar Fallback
+## Sidecar is mandatory
 
-If the metadata sidecar is missing and
-`GlobalConfig.fail_on_missing_metadata` is false, `ParquetR2RefPanel` falls
-back to scanning R2 pair endpoints. It reads the pair parquet columns and
-synthesizes minimal SNP metadata:
+The metadata sidecar is a hard requirement. If it is absent, `ParquetR2RefPanel`
+raises immediately with an actionable message — there is no synthesize-from-endpoints
+fallback. Regenerate the panel with `ldsc build-ref-panel` to produce a paired
+parquet + sidecar.
 
-```text
-CHR  POS  SNP  CM
-```
+## LD-window flag behavior
 
-In this fallback:
-
-- `CHR`, `POS`, and `SNP` come from the union of `SNP_1`/`SNP_2` and
-  `POS_1`/`POS_2` endpoints.
-- duplicate endpoint rows are removed.
-- rows are sorted by chromosome, position, and SNP.
-- `CM` is present but missing for every row.
-- `MAF` is unavailable.
-- SNPs with no emitted R2 pair cannot be recovered and are absent from the
-  runtime reference universe.
-
-If `GlobalConfig.fail_on_missing_metadata` is true, missing sidecars raise
-immediately instead of using this fallback.
-
-## Window Flag Behavior Without Sidecar
-
-| Flag | Coordinate source without sidecar | Behavior |
+| Flag | Coordinate source | Behavior |
 |---|---|---|
-| `--ld-wind-snps` | synthesized row order | Can run, but only over SNPs recovered from R2 pair endpoints. |
-| `--ld-wind-kb` | synthesized `POS` | Can run, but only over SNPs recovered from R2 pair endpoints. |
-| `--ld-wind-cm` | synthesized `CM`, which is all missing | Fails unless complete `CM` is supplied by annotation metadata. |
+| `--ld-wind-snps` | sidecar row order | Normal operation. |
+| `--ld-wind-kb` | sidecar `POS` | Normal operation. |
+| `--ld-wind-cm` | sidecar `CM` | Normal when `CM` is non-missing. Fails when any retained SNP has missing `CM`. |
 
 The shared LD-window resolver requires exactly one of `--ld-wind-snps`,
 `--ld-wind-kb`, or `--ld-wind-cm`.
@@ -78,43 +57,48 @@ raises:
 --ld-wind-cm requires non-missing CM values for all retained SNPs.
 ```
 
-## Annotation Interaction
+Package-built sidecars from source-only runs (no genetic map supplied) write
+`CM=NA` for every SNP. Use `--ld-wind-snps` or `--ld-wind-kb` in that case, or
+regenerate with a genetic-map input.
+
+## Annotation interaction
 
 When no baseline annotations are supplied, `ldscore` synthesizes an all-ones
-`base` annotation from `ref_panel.load_metadata()`. If the sidecar is missing,
-that synthetic annotation is built from the fallback endpoint metadata, so the
-runtime SNP universe is limited to SNPs present in at least one R2 pair.
+`base` annotation from `ref_panel.load_metadata()`.
 
 When baseline annotations are supplied, the reference-panel metadata is used to
-intersect the annotation rows with the retained reference-panel universe. The
-annotation metadata then enters chromosome computation. For LD-score
-calculation, annotation-provided `CM` is the first source; sidecar metadata only
-fills missing `CM` values later.
+intersect annotation rows with the retained reference-panel universe. For
+LD-score calculation, annotation-provided `CM` is the first source; sidecar `CM`
+only fills missing values from the annotation side.
 
-This means `--ld-wind-cm` can still work without a sidecar only when the
-annotation inputs provide complete non-missing `CM` values for all retained
-rows. Without annotation-side `CM`, the fallback metadata has missing `CM`, and
-the cM window check raises the same missing-`CM` error.
+## MAF and counts
 
-## MAF and Counts
+`MAF` is available when present in the sidecar (package builds always write it).
 
-The fallback endpoint metadata has no `MAF`.
+- `--maf-min` filtering works normally.
+- Common-SNP count vectors use `MAF >= common_maf_min` from the sidecar.
+- All-SNP count vectors are computed from retained annotation rows.
 
-Consequences:
+## Memory
 
-- `--maf-min` cannot be applied; the code logs a warning and keeps rows.
-- common-SNP count vectors are unavailable because `MAF >= common_maf_min`
-  cannot be evaluated.
-- all-SNP count vectors are still computed from the retained annotation rows.
+The builder never loads the whole chromosome's genotypes into RAM. When a SNP
+restriction is supplied (`--ref-panel-snps-file` / `--use-hm3-snps`) it reads only
+the kept SNP blocks from the `.bed`; the default unrestricted build streams a
+sliding window directly from disk. Individual filtering (`--keep-indivs-file`) is
+fused into the per-SNP read, so the raw and filtered bitarrays never coexist.
 
-## Practical Contract
+As a result, peak RSS is governed by that bounded genotype read plus the
+workflow/import floor — **not** by `--snp-batch-size`, `--ld-wind-*`, `--min-r2`,
+or `--maf-min`. Those control speed and output size; the window/min-r2 options
+also change the pair count and pending-pair working set, but they are not peak-RSS
+levers. R2 pairs are emitted as columnar batches; the on-disk parquet format is
+unchanged.
 
-Package-built parquet R2 panels should keep `chr{chrom}_meta.tsv.gz` alongside
-`chr{chrom}_r2.parquet` for every chromosome and emitted build. Current
-package-written metadata sidecars carry leading identity-provenance comments;
-old package-written sidecars without those comments must be regenerated.
+## Practical contract
 
-The missing-sidecar fallback is a compatibility path for limited external or
-legacy inputs. It is acceptable for some SNP- and kb-window runs, but it is not
-equivalent to a complete reference panel because it cannot recover singleton
-SNPs, SNPs with no emitted pairs, `CM`, or `MAF`.
+Keep `chr{chrom}_meta.tsv.gz` alongside `chr{chrom}_r2.parquet` for every
+chromosome and emitted build. The parquet is bound to its sidecar by a SHA-256
+identity hash recorded in the parquet metadata; the reader hard-fails if the
+sidecar is wrong, reordered, or edited. See
+`docs/current/parquet-r2-format-and-read-pipeline.md` §4 for the binding
+specification.

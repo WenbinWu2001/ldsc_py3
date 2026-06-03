@@ -799,6 +799,9 @@ class ReferencePanelBuilder:
                 hg19_lookup=hg19_lookup,
                 hg38_lookup=hg38_lookup,
             )
+            # Unrestricted builds keep ~every SNP, so selective read cannot shrink
+            # the genotype payload; stream it instead. Restricted builds stay in
+            # RAM, where the kept set is already small.
             geno = kernel_ldscore.PlinkBEDFile(
                 prefix + ".bed",
                 len(fam.IDList),
@@ -806,6 +809,7 @@ class ReferencePanelBuilder:
                 keep_snps=list(build_keep_snps),
                 keep_indivs=None if keep_indivs is None else list(keep_indivs),
                 mafMin=config.maf_min,
+                streaming=build_state.restriction_values is None,
             )
             metadata = kernel_builder.build_plink_metadata_frame(
                 bim=bim,
@@ -849,15 +853,21 @@ class ReferencePanelBuilder:
                 ld_wind_cm=config.ld_wind_cm,
             )
             block_left = kernel_builder.compute_block_left(coords, max_dist)
-            reference_snp_table = kernel_builder.build_reference_snp_table(
-                metadata=metadata,
-                hg19_positions=hg19_positions,
-                hg38_positions=hg38_positions,
-            )
             r2_path = Path(config.output_dir) / build / f"chr{chrom}_r2.parquet"
             meta_path = Path(config.output_dir) / build / f"chr{chrom}_meta.tsv.gz"
+
+            # Build the sidecar table first so the parquet can record the binding
+            # hash (CHR:POS:A1:A2) of the exact sidecar shipped alongside it. The
+            # pair indices emitted below reference this table's row order.
+            runtime_metadata = kernel_builder.build_runtime_metadata_table(
+                metadata=metadata,
+                positions=build_positions,
+                cm_values=cm_values,
+            )
+            identity_hash = kernel_builder.sidecar_identity_sha256(runtime_metadata)
+
             kernel_builder.write_r2_parquet(
-                pair_rows=kernel_builder.yield_pairwise_r2_rows(
+                pair_chunks=kernel_builder.yield_pairwise_r2_rows(
                     block_left=block_left,
                     snp_batch_size=config.snp_batch_size,
                     standardized_snp_getter=lambda b: geno.nextSNPs(b, dtype=np.float32),
@@ -865,17 +875,13 @@ class ReferencePanelBuilder:
                     n=geno.n,
                     min_r2=config.min_r2,
                 ),
-                reference_snp_table=reference_snp_table,
                 path=r2_path,
                 genome_build=build,
                 snp_identifier=self.global_config.snp_identifier,
                 n_samples=geno.n,
                 min_r2=config.min_r2,
-            )
-            runtime_metadata = kernel_builder.build_runtime_metadata_table(
-                metadata=metadata,
-                positions=build_positions,
-                cm_values=cm_values,
+                n_snps=len(runtime_metadata),
+                sidecar_identity_sha256=identity_hash,
             )
             kernel_builder.write_runtime_metadata_sidecar(
                 runtime_metadata,
@@ -1407,7 +1413,7 @@ def _sort_retained_snps_by_build_position(
 ) -> np.ndarray:
     """Return retained PLINK indices in one build's genomic position order."""
     # Monotone position order here makes index i → position monotone, which lets
-    # yield_pairwise_r2_rows flush cross-batch pairs with non-decreasing POS_1.
+    # yield_pairwise_r2_rows flush cross-batch pairs with non-decreasing IDX_1.
     keep_snps = np.asarray(keep_snps, dtype=int)
     lookup = _position_lookup_for_build(
         genome_build,

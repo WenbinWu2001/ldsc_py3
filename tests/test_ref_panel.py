@@ -22,6 +22,20 @@ from ldsc._kernel.ref_panel import (
 )
 from ldsc._kernel.ref_panel_builder import build_restriction_mask
 
+import numpy as np
+
+
+def dict_chunks(rows):
+    """Wrap legacy {i,j,R2,sign} dict rows as the chunk iterable write_r2_parquet expects."""
+    rows = list(rows)
+    if not rows:
+        return iter([])
+    i = np.array([r["i"] for r in rows], dtype=np.int64)
+    j = np.array([r["j"] for r in rows], dtype=np.int64)
+    r2 = np.array([r["R2"] for r in rows], dtype=np.float32)
+    sign = np.array([1 if r["sign"] == "+" else -1 for r in rows], dtype=np.int8)
+    return [(i, j, r2, sign)]
+
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "minimal_external_resources" / "plink"
 PLINK_PREFIX = FIXTURES / "hm3_chr22_subset"
@@ -70,38 +84,6 @@ def _write_canonical_r2_parquet(
             }
         )
     table = table.replace_schema_metadata(metadata)
-    pq.write_table(table, path)
-
-
-def _write_raw_r2_parquet_with_technical_metadata(path: Path, chrom: str = "1") -> None:
-    import pyarrow as pa
-    import pyarrow.parquet as pq
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    frame = pd.DataFrame(
-        {
-            "chr": [chrom],
-            "rsID_1": ["rs1"],
-            "rsID_2": ["rs2"],
-            "hg38_pos_1": [10],
-            "hg38_pos_2": [20],
-            "hg19_pos_1": [9],
-            "hg19_pos_2": [19],
-            "hg38_Uniq_ID_1": ["1:10"],
-            "hg38_Uniq_ID_2": ["1:20"],
-            "hg19_Uniq_ID_1": ["1:9"],
-            "hg19_Uniq_ID_2": ["1:19"],
-            "R2": [0.4],
-            "Dprime": [0.7],
-            "+/-corr": [1],
-        }
-    )
-    table = pa.Table.from_pandas(frame, preserve_index=False).replace_schema_metadata(
-        {
-            b"ldsc:n_samples": b"100",
-            b"ldsc:r2_bias": b"raw",
-        }
-    )
     pq.write_table(table, path)
 
 
@@ -331,6 +313,26 @@ class PlinkRefPanelTest(unittest.TestCase):
 
 class ParquetRefPanelTest(unittest.TestCase):
     @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
+    def test_missing_sidecar_is_a_hard_error(self):
+        from ldsc._kernel import ref_panel_builder as kb
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            build_dir = Path(tmpdir) / "panel" / "hg38"
+            build_dir.mkdir(parents=True)
+            # index parquet present, but no chr1_meta.tsv.gz sidecar alongside it
+            kb.write_r2_parquet(
+                pair_chunks=dict_chunks([{"i": 0, "j": 1, "R2": 0.5, "sign": "+"}]),
+                path=build_dir / "chr1_r2.parquet", genome_build="hg38", n_samples=10,
+                snp_identifier="chr_pos", n_snps=2, sidecar_identity_sha256="0" * 64,
+            )
+            panel = ParquetR2RefPanel(
+                GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
+            )
+            with self.assertRaisesRegex(ValueError, "sidecar"):
+                panel.load_metadata("1")
+
+    @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
     def test_r2_dir_loads_sidecar_metadata(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             build_dir = Path(tmpdir) / "panel" / "hg38"
@@ -452,26 +454,6 @@ class ParquetRefPanelTest(unittest.TestCase):
                 panel.load_metadata("1")
 
     @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
-    def test_external_raw_r2_with_only_technical_metadata_bypasses_package_identity_validation(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            build_dir = Path(tmpdir) / "panel" / "hg38"
-            _write_raw_r2_parquet_with_technical_metadata(build_dir / "chr1_r2.parquet")
-            _write_meta_sidecar(
-                build_dir / "chr1_meta.tsv.gz",
-                "CHR\tPOS\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.2\n1\t20\trs2\t0.2\t0.3\n",
-                identity_metadata=False,
-            )
-
-            panel = ParquetR2RefPanel(
-                GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
-            )
-
-            reader = panel.build_reader("1")
-
-            self.assertIsNotNone(reader)
-
-    @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
     def test_package_canonical_r2_rejects_snp_identifier_mismatch(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             build_dir = Path(tmpdir) / "panel" / "hg38"
@@ -500,25 +482,6 @@ class ParquetRefPanelTest(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "genome_build mismatch"):
                 panel.build_reader("1")
-
-    @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
-    def test_r2_dir_falls_back_to_r2_endpoints_without_sidecar(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            build_dir = Path(tmpdir) / "panel" / "hg38"
-            _write_canonical_r2_parquet(build_dir / "chr1_r2.parquet")
-
-            panel = ParquetR2RefPanel(
-                GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
-                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
-            )
-
-            self.assertEqual(panel.available_chromosomes(), ["1"])
-            metadata = panel.load_metadata("1")
-            self.assertEqual(metadata["CHR"].tolist(), ["1", "1", "1"])
-            self.assertEqual(metadata["POS"].tolist(), [10, 20, 30])
-            self.assertEqual(metadata["SNP"].tolist(), ["rs1", "rs2", "rs3"])
-            self.assertTrue(metadata["CM"].isna().all())
-            self.assertNotIn("MAF", metadata.columns)
 
     @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
     def test_r2_dir_requires_r2_for_requested_chromosome(self):

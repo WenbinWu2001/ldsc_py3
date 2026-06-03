@@ -261,10 +261,11 @@ Requirements:
 
 - annotation files must align on SNP rows within each chromosome
 - parquet R2 directories must use the fixed `chr{chrom}_r2.parquet` naming
-  contract, with optional `chr{chrom}_meta.tsv.gz` sidecars
+  contract, with a mandatory paired `chr{chrom}_meta.tsv.gz` sidecar for each
+  chromosome (the sidecar defines the index space)
 - package-built R2 parquet files record `ldsc:r2_bias` and `ldsc:n_samples` in
   schema metadata, so `--r2-bias-mode` and `--r2-sample-size` are only needed
-  for external raw-R2 parquet files without LDSC metadata
+  for panels that record `ldsc:r2_bias=raw` without a stored `ldsc:n_samples`
 
 Examples:
 

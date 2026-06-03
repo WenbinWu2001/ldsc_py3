@@ -867,7 +867,7 @@ class ReferencePanelBuilder:
             identity_hash = kernel_builder.sidecar_identity_sha256(runtime_metadata)
 
             kernel_builder.write_r2_parquet(
-                pair_rows=kernel_builder.yield_pairwise_r2_rows(
+                pair_chunks=kernel_builder.yield_pairwise_r2_rows(
                     block_left=block_left,
                     snp_batch_size=config.snp_batch_size,
                     standardized_snp_getter=lambda b: geno.nextSNPs(b, dtype=np.float32),

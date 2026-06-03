@@ -351,8 +351,13 @@ def _stash_pair_rows(pending: dict[int, _PendingPairs], columns: PairColumns) ->
 def _pop_pair_rows_before(
     pending: dict[int, _PendingPairs],
     min_future_i: int,
-) -> Iterator[dict[str, float | int | str]]:
-    """Yield pending rows whose left index cannot appear in future batches."""
+) -> Iterator[PairColumns]:
+    """Yield one column chunk per left index whose pairs are final.
+
+    Each chunk is ``(i, j, r2, sign)`` for a single left index with ``j`` sorted
+    ascending. Chunks are emitted in increasing left-index order, so concatenated
+    ``i`` stays non-decreasing downstream.
+    """
     flushable = sorted(i for i in pending if i < int(min_future_i))
     for i in flushable:
         bucket = pending.pop(i)
@@ -360,13 +365,9 @@ def _pop_pair_rows_before(
         r2 = np.concatenate(bucket.r2)
         sign = np.concatenate(bucket.sign)
         order = np.argsort(j, kind="stable")
-        for k in order:
-            yield {
-                "i": i,
-                "j": int(j[k]),
-                "R2": float(r2[k]),
-                "sign": "+" if sign[k] == 1 else "-",
-            }
+        j = j[order]
+        i_arr = np.full(j.shape, i, dtype=np.int64)
+        yield (i_arr, j, r2[order], sign[order])
 
 
 def yield_pairwise_r2_rows(
@@ -377,9 +378,12 @@ def yield_pairwise_r2_rows(
     m: int,
     n: int,
     min_r2: float = 0.0,
-) -> Iterator[dict[str, float | int | str]]:
+) -> Iterator[PairColumns]:
     """
-    Yield one unordered `R2` row per retained SNP pair inside the LD window.
+    Yield retained SNP-pair column chunks inside the LD window.
+
+    Each yielded item is one ``PairColumns`` chunk (left index, right index,
+    unbiased R2 float32, correlation sign int8) for a single finalized left SNP.
 
     ``snp_batch_size`` controls the number of SNP genotype columns requested
     from ``standardized_snp_getter`` per computation batch. Window-spanning
@@ -491,8 +495,8 @@ def iter_pairwise_r2_rows(
     m: int,
     n: int,
     min_r2: float = 0.0,
-) -> list[dict[str, float | int | str]]:
-    """Materialize :func:`yield_pairwise_r2_rows` as an in-memory list."""
+) -> list[PairColumns]:
+    """Materialize :func:`yield_pairwise_r2_rows` as an in-memory list of chunks."""
 
     return list(
         yield_pairwise_r2_rows(
@@ -558,27 +562,22 @@ def write_dataframe_to_parquet(df: pd.DataFrame, path: str | PathLike[str]) -> s
     return str(path)
 
 
-def _standard_r2_index_table(pa, schema, *, pair_rows: list[dict[str, float | int | str]]):
-    """Build one 4-column index ``pyarrow.Table`` batch directly from pair rows.
+def _standard_r2_index_table(pa, schema, *, i, j, r2, sign):
+    """Build one 4-column index ``pyarrow.Table`` from concatenated pair columns.
 
-    ``pair_rows`` carry sidecar-row indices ``i``/``j`` (already the panel index
-    space), the unbiased ``R2`` (stored as symmetric int16, scale 32767), and the
-    correlation ``sign`` as ``"+"``/``"-"``. No reference-SNP join or identifier
-    expansion: the indices are stored as-is.
+    ``i``/``j`` are sidecar-row indices (stored int32), ``r2`` is unbiased float32
+    stored as symmetric int16 (scale ``R2_QUANT_SCALE``), and ``sign`` is int8
+    ``+1``/``-1`` stored as the ``SIGN`` bool (``True`` when the correlation r >= 0).
+    The indices are stored as-is; no reference-SNP join or identifier expansion.
     """
-    if not pair_rows:
+    if i.size == 0:
         return schema.empty_table()
-    count = len(pair_rows)
-    i = np.fromiter((int(row["i"]) for row in pair_rows), dtype=np.int32, count=count)
-    j = np.fromiter((int(row["j"]) for row in pair_rows), dtype=np.int32, count=count)
-    r2 = np.fromiter((float(row["R2"]) for row in pair_rows), dtype=np.float32, count=count)
-    sign = np.fromiter((row["sign"] == "+" for row in pair_rows), dtype=bool, count=count)
     return pa.Table.from_arrays(
         [
-            pa.array(i, type=pa.int32()),
-            pa.array(j, type=pa.int32()),
+            pa.array(i.astype(np.int32), type=pa.int32()),
+            pa.array(j.astype(np.int32), type=pa.int32()),
             pa.array(_quantize_r2(r2), type=pa.int16()),
-            pa.array(sign, type=pa.bool_()),
+            pa.array(sign == 1, type=pa.bool_()),
         ],
         schema=schema,
     )
@@ -586,7 +585,7 @@ def _standard_r2_index_table(pa, schema, *, pair_rows: list[dict[str, float | in
 
 def write_r2_parquet(
     *,
-    pair_rows: Iterable[dict[str, float | int | str]],
+    pair_chunks: Iterable[PairColumns],
     path: str | PathLike[str],
     genome_build: str,
     n_samples: int,
@@ -662,15 +661,22 @@ def write_r2_parquet(
         ]
     ).with_metadata(pa_meta)
     writer = None
-    batch: list[dict[str, float | int | str]] = []
+    buf_i: list[np.ndarray] = []
+    buf_j: list[np.ndarray] = []
+    buf_r2: list[np.ndarray] = []
+    buf_sign: list[np.ndarray] = []
+    buffered = 0
     prev_idx1: int | None = None
 
-    def _flush(rows: list[dict[str, float | int | str]]) -> None:
-        nonlocal writer, prev_idx1
-        table = _standard_r2_index_table(pa, schema, pair_rows=rows)
-        idx1 = table.column("IDX_1").to_numpy()
-        if idx1.size:
-            sequence = idx1 if prev_idx1 is None else np.concatenate(([prev_idx1], idx1))
+    def _flush() -> None:
+        nonlocal writer, prev_idx1, buf_i, buf_j, buf_r2, buf_sign, buffered
+        i = np.concatenate(buf_i) if buf_i else np.empty(0, dtype=np.int64)
+        j = np.concatenate(buf_j) if buf_j else np.empty(0, dtype=np.int64)
+        r2 = np.concatenate(buf_r2) if buf_r2 else np.empty(0, dtype=np.float32)
+        sign = np.concatenate(buf_sign) if buf_sign else np.empty(0, dtype=np.int8)
+        table = _standard_r2_index_table(pa, schema, i=i, j=j, r2=r2, sign=sign)
+        if i.size:
+            sequence = i if prev_idx1 is None else np.concatenate(([prev_idx1], i))
             bad = np.flatnonzero(np.diff(sequence) < 0)
             if bad.size:
                 k = int(bad[0])
@@ -679,7 +685,7 @@ def write_r2_parquet(
                     f"Received IDX_1={int(sequence[k + 1])} after IDX_1={int(sequence[k])}. "
                     "Verify that the reference panel builder traverses SNPs in ascending index order."
                 )
-            prev_idx1 = int(idx1[-1])
+            prev_idx1 = int(i[-1])
         if writer is None:
             # IDX_2: DELTA_BINARY_PACKED exploits sorted right-neighbors (median
             # forward-gap = 1), collapsing ~650 MB to ~6 MB vs the default
@@ -705,15 +711,23 @@ def write_r2_parquet(
                 )
                 writer = pq.ParquetWriter(str(path), schema, compression="snappy", **enc_kwargs)
         writer.write_table(table, row_group_size=row_group_size)
+        buf_i, buf_j, buf_r2, buf_sign = [], [], [], []
+        buffered = 0
 
     try:
-        for row in pair_rows:
-            batch.append(row)
-            if len(batch) >= batch_size:
-                _flush(batch)
-                batch = []
-        if batch or writer is None:
-            _flush(batch)
+        for chunk in pair_chunks:
+            ci, cj, cr2, csign = chunk
+            if ci.size == 0:
+                continue
+            buf_i.append(ci)
+            buf_j.append(cj)
+            buf_r2.append(cr2)
+            buf_sign.append(csign)
+            buffered += int(ci.size)
+            if buffered >= batch_size:
+                _flush()
+        if buffered or writer is None:
+            _flush()
     finally:
         if writer is not None:
             writer.close()

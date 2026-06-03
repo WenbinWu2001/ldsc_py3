@@ -135,23 +135,6 @@ class PlinkBedFileTest(unittest.TestCase):
         y = bed.nextSNPs(width, minorRef=True)
         assert_array_equal(x, -y)
 
-    def test_filter_snps_maf_releases_pre_filter_bitarray(self):
-        import gc
-        import weakref
-
-        bed = ld.PlinkBEDFile(str(PLINK_FIXTURES / "plink.bed"), self.sample_count, self.bim)
-        bed.m = self.snp_count
-        _, raw = bed.__read__(str(PLINK_FIXTURES / "plink.bed"), self.snp_count, self.sample_count)
-        self.assertIs(bed.geno, raw)
-        ref = weakref.ref(raw)
-
-        out = bed.__filter_snps_maf__(raw, self.snp_count, self.sample_count, 0, None)
-        del raw, out
-        gc.collect()
-        self.assertIsNone(
-            ref(), "filter must not retain the pre-filter bitarray on the instance"
-        )
-
     def test_next_snps_dtype_default_is_float64(self):
         bed = ld.PlinkBEDFile(str(PLINK_FIXTURES / "plink.bed"), self.sample_count, self.bim)
         x = bed.nextSNPs(3)

@@ -51,6 +51,36 @@ def test_in_ram_reader_matches_golden():
     np.testing.assert_allclose(_decode_all(geno), g["decoded"], rtol=0, atol=0)
 
 
+def test_keep_indivs_matches_golden():
+    g = np.load(READER_GOLDEN)
+    geno = _build(keep_indivs=[0, 1, 2, 3])
+    assert int(geno.m) == int(g["ki_m"])
+    assert int(geno.n) == int(g["ki_n"])
+    np.testing.assert_array_equal(np.asarray(geno.kept_snps), g["ki_kept_snps"])
+    np.testing.assert_allclose(np.asarray(geno.freq), g["ki_freq"], rtol=0, atol=0)
+    np.testing.assert_allclose(_decode_all(geno), g["ki_decoded"], rtol=0, atol=0)
+
+
+def test_selective_read_subset_matches_full():
+    full = _build()
+    full_decoded = _decode_all(full)
+    keep = list(full.kept_snps[:3])  # guaranteed-polymorphic source indices
+    sub = _build(keep_snps=keep)
+    assert list(sub.kept_snps) == keep
+    assert int(sub.m) == len(keep)
+    np.testing.assert_allclose(np.asarray(sub.freq), np.asarray(full.freq[:3]),
+                               rtol=0, atol=0)
+    np.testing.assert_allclose(_decode_all(sub), full_decoded[:, :3], rtol=0, atol=0)
+
+
+def test_no_whole_chromosome_bitarray_after_init():
+    full = _build()
+    keep = list(full.kept_snps[:2])
+    geno = _build(keep_snps=keep)
+    # retained bitarray holds only kept SNPs (2 * nru * m bits), not the chromosome
+    assert len(geno.geno) == 2 * geno.nru * geno.m
+
+
 def _run_build_ref_panel(tmp_path):
     """Run an unrestricted source-only build on the real fixture; return parquet path."""
     from ldsc.ref_panel_builder import ReferencePanelBuilder, ReferencePanelBuildConfig

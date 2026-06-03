@@ -172,7 +172,13 @@ if ba is not None:
             )
 
         def __read__(self, fname, m, n):
-            """Read the raw PLINK BED payload and validate the file header."""
+            """Open the BED file, validate the header, and record geometry.
+
+            The payload is decoded on demand from disk (see ``_source_snp_bits``),
+            so the whole-chromosome bitarray is never materialized. The retained,
+            individual-filtered bitarray that ``nextSNPs`` reads is built lazily by
+            ``__filter_snps_maf__``.
+            """
             if not fname.endswith(".bed"):
                 raise ValueError(".bed filename must end in .bed")
             fh = open(fname, "rb")
@@ -180,74 +186,92 @@ if ba is not None:
             magicNumber.fromfile(fh, 2)
             bedMode = ba.bitarray(endian="little")
             bedMode.fromfile(fh, 1)
-            e = (4 - n % 4) if n % 4 != 0 else 0
-            nru = n + e
-            self.nru = nru
             if magicNumber != ba.bitarray("0011011011011000"):
                 raise IOError("Magic number from Plink .bed file not recognized")
             if bedMode != ba.bitarray("10000000"):
                 raise IOError("Plink .bed file must be in default SNP-major mode")
-            self.geno = ba.bitarray(endian="little")
-            self.geno.fromfile(fh)
-            self.__test_length__(self.geno, self.m, self.nru)
-            return (self.nru, self.geno)
+            e = (4 - n % 4) if n % 4 != 0 else 0
+            nru = n + e
+            self._fh = fh
+            self._data_start = 3
+            self._nru_source = nru
+            self._source_bytes_per_snp = 2 * nru // 8
+            self._pending_keep_indivs = None
+            fh.seek(0, 2)
+            file_size = fh.tell()
+            expected = self._data_start + m * self._source_bytes_per_snp
+            if file_size != expected:
+                raise IOError(
+                    "Plink .bed file has {n1} bytes, expected {n2}".format(n1=file_size, n2=expected)
+                )
+            return (nru, None)
 
-        def __test_length__(self, geno, m, nru):
-            """Validate that the BED payload length matches the expected shape."""
-            exp_len = 2 * m * nru
-            real_len = len(geno)
-            if real_len != exp_len:
-                raise IOError("Plink .bed file has {n1} bits, expected {n2}".format(n1=real_len, n2=exp_len))
+        def _source_snp_bits(self, source_index):
+            """Return one SNP's bits, individual-subset when keep_indivs is active.
+
+            Reads only this SNP's bytes from disk. With no individual filter the
+            full source bits (length ``2 * nru_source``) are returned; otherwise the
+            result has length ``2 * self.nru`` for the kept individuals, packed as
+            the former ``__filter_indivs__`` did.
+            """
+            self._fh.seek(self._data_start + source_index * self._source_bytes_per_snp)
+            raw = ba.bitarray(endian="little")
+            raw.fromfile(self._fh, self._source_bytes_per_snp)
+            keep = self._pending_keep_indivs
+            if keep is None:
+                return raw
+            nru_src = self._nru_source
+            z = ba.bitarray(2 * self.nru, endian="little")
+            z.setall(0)
+            for e, i in enumerate(keep):
+                z[2 * e::2 * self.nru] = raw[2 * i::2 * nru_src]
+                z[2 * e + 1::2 * self.nru] = raw[2 * i + 1::2 * nru_src]
+            return z
 
         def __filter_indivs__(self, geno, keep_indivs, m, n):
-            """Subset the BED bitarray to the requested individuals."""
-            n_new = len(keep_indivs)
+            """Record the individual filter and compute kept-sample geometry.
+
+            No genotype copy is made; individuals are subset per SNP during the
+            on-demand read in ``__filter_snps_maf__``, so the raw and filtered
+            bitarrays never coexist.
+            """
+            self._pending_keep_indivs = [int(i) for i in keep_indivs]
+            n_new = len(self._pending_keep_indivs)
             e = (4 - n_new % 4) if n_new % 4 != 0 else 0
-            nru_new = n_new + e
-            nru = self.nru
-            z = ba.bitarray(m * 2 * nru_new, endian="little")
-            z.setall(0)
-            for e, i in enumerate(keep_indivs):
-                z[2 * e::2 * nru_new] = geno[2 * i::2 * nru]
-                z[2 * e + 1::2 * nru_new] = geno[2 * i + 1::2 * nru]
-            self.nru = nru_new
-            return (z, m, n_new)
+            self.nru = n_new + e
+            return (geno, m, n_new)
 
         def __filter_snps_maf__(self, geno, m, n, mafMin, keep_snps):
-            """Filter SNPs by explicit keep list and minor-allele frequency.
+            """Select SNPs by keep list and MAF, reading each SNP from disk.
 
-            ``self.geno`` aliases the ``geno`` argument at the sole call site, so
-            it is cleared up front to leave the local parameter as the only owner
-            of the pre-filter bitarray. Once the filtered copy ``y`` is built the
-            parameter is released, freeing the original before this method returns
-            instead of holding both copies through the caller's reassignment.
+            Each candidate SNP is read from source (and individual-subset) on
+            demand, then counted and packed into the retained bitarray, so the
+            whole-chromosome payload is never held in memory.
             """
-            nru = self.nru
-            self.geno = None
-            m_poly = 0
-            y = ba.bitarray()
+            n_eff = n
             if keep_snps is None:
                 keep_snps = range(m)
+            m_poly = 0
+            y = ba.bitarray()
             kept_snps = []
             freq = []
             for j in keep_snps:
-                z = geno[2 * nru * j:2 * nru * (j + 1)]
+                z = self._source_snp_bits(int(j))
                 A = z[0::2]
                 a = A.count()
                 B = z[1::2]
                 b = B.count()
                 c = (A & B).count()
                 major_ct = b + c
-                n_nomiss = n - a + c
+                n_nomiss = n_eff - a + c
                 f = major_ct / (2 * n_nomiss) if n_nomiss > 0 else 0
                 het_miss_ct = a + b - 2 * c
-                if np.minimum(f, 1 - f) > mafMin and het_miss_ct < n:
+                if np.minimum(f, 1 - f) > mafMin and het_miss_ct < n_eff:
                     freq.append(f)
                     y += z
                     m_poly += 1
-                    kept_snps.append(j)
-            del geno
-            return (y, m_poly, n, kept_snps, freq)
+                    kept_snps.append(int(j))
+            return (y, m_poly, n_eff, kept_snps, freq)
 
         def nextSNPs(self, b, minorRef=None, dtype=np.float64):
             """Return the next ``b`` standardized SNP columns from the BED stream.

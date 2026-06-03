@@ -284,7 +284,7 @@ if ba is not None:
                     kept_snps.append(int(j))
             return (y, m_poly, n_eff, kept_snps, freq)
 
-        def nextSNPs(self, b, minorRef=None, dtype=np.float64):
+        def nextSNPs(self, b, dtype=np.float64):
             """Return the next ``b`` standardized SNP columns from the BED stream.
 
             ``dtype`` selects the working precision of the decoded and standardized
@@ -320,8 +320,6 @@ if ba is not None:
                 denom = np.std(newsnp)
                 if denom == 0:
                     denom = 1
-                if minorRef is not None and self.freq[self._currentSNP + j] > 0.5:
-                    denom = denom * -1
                 Y[:, j] = (newsnp - avg) / denom
             self._currentSNP += b
             return Y

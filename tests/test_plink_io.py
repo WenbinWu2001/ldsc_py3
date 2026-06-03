@@ -127,14 +127,6 @@ class PlinkBedFileTest(unittest.TestCase):
             self.assertTrue(np.all(np.abs(np.mean(x, axis=0)) < 0.01))
             self.assertTrue(np.all(np.abs(np.std(x, axis=0) - 1) < 0.01))
 
-    def test_next_snps_maf_ref(self):
-        width = 4
-        bed = ld.PlinkBEDFile(str(PLINK_FIXTURES / "plink.bed"), self.sample_count, self.bim)
-        x = bed.nextSNPs(width)
-        bed._currentSNP -= width
-        y = bed.nextSNPs(width, minorRef=True)
-        assert_array_equal(x, -y)
-
     def test_next_snps_dtype_default_is_float64(self):
         bed = ld.PlinkBEDFile(str(PLINK_FIXTURES / "plink.bed"), self.sample_count, self.bim)
         x = bed.nextSNPs(3)

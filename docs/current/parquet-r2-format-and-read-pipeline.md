@@ -282,8 +282,9 @@ canonical index format offline. Existing 10-column panels must be regenerated.
 
 | Module | Role |
 |---|---|
-| `_kernel/ref_panel_builder.py` | `write_r2_parquet`: 4-column index schema, sort assertion on `IDX_1`, binding metadata; `sidecar_identity_sha256` (re-exported from `snp_identity`) |
+| `_kernel/ref_panel_builder.py` | `write_r2_parquet`: 4-column index schema, sort assertion on `IDX_1`, binding metadata; `sidecar_identity_sha256` (re-exported from `snp_identity`). Pairs flow as columnar `PairColumns` `(i, j, r2, sign)` batches from `yield_pairwise_r2_rows` straight into the writer — no per-pair dict — and int16 quantization/encodings are applied at table build; the on-disk format is unchanged. |
 | `_kernel/snp_identity.py` | `sidecar_identity_sha256` binding hash |
+| `_kernel/plink_bed.py` | `PlinkBEDFile` genotype source for the build: selective per-SNP read (restricted) or disk streaming (unrestricted), feeding standardized columns to pairwise-R2 emission without loading the whole chromosome |
 | `ref_panel_builder.py` | build loop: sidecar built first, hash + `n_snps` passed to the writer |
 | `_kernel/ldscore.py` | `SortedR2BlockReader` index path: full-sidecar load, binding validation, `build_index_remap`, gather decode, `IDX_1` pruning; raw/legacy paths removed |
 | `_kernel/ref_panel.py` | sidecar mandatory in `load_metadata` (synthesis fallback removed) |

@@ -79,6 +79,21 @@ only fills missing values from the annotation side.
 - Common-SNP count vectors use `MAF >= common_maf_min` from the sidecar.
 - All-SNP count vectors are computed from retained annotation rows.
 
+## Memory
+
+The builder never loads the whole chromosome's genotypes into RAM. When a SNP
+restriction is supplied (`--ref-panel-snps-file` / `--use-hm3-snps`) it reads only
+the kept SNP blocks from the `.bed`; the default unrestricted build streams a
+sliding window directly from disk. Individual filtering (`--keep-indivs-file`) is
+fused into the per-SNP read, so the raw and filtered bitarrays never coexist.
+
+As a result, peak RSS is governed by that bounded genotype read plus the
+workflow/import floor — **not** by `--snp-batch-size`, `--ld-wind-*`, `--min-r2`,
+or `--maf-min`. Those control speed and output size; the window/min-r2 options
+also change the pair count and pending-pair working set, but they are not peak-RSS
+levers. R2 pairs are emitted as columnar batches; the on-disk parquet format is
+unchanged.
+
 ## Practical contract
 
 Keep `chr{chrom}_meta.tsv.gz` alongside `chr{chrom}_r2.parquet` for every

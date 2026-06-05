@@ -30,12 +30,16 @@ import pandas as pd
 from ._coordinates import CoordinateDropReport, CoordinatePolicy, normalize_chr_pos_frame
 from ._kernel.snp_identity import identity_mode_family, normalize_snp_identifier_mode
 from .column_inference import normalize_genome_build
+from .errors import LDSCInputError, LDSCUsageError
 
 
 AUTO_GENOME_BUILD = "auto"
 DOMINANCE_THRESHOLD = 0.99
 MIN_INSPECTED_REFERENCE_SNPS = 200
 REFERENCE_RESOURCE_PATH = "data/hm3_chr_pos_reference.tsv.gz"
+_GENOME_BUILD_TROUBLESHOOTING = (
+    "docs/troubleshooting.md#common-genome-build-could-not-be-inferred"
+)
 
 __all__ = [
     "ChrPosBuildInference",
@@ -99,7 +103,11 @@ def validate_auto_genome_build_mode(snp_identifier: str, genome_build: str | Non
     if not is_auto_genome_build(genome_build):
         return
     if identity_mode_family(snp_identifier) != "chr_pos":
-        raise ValueError("genome_build='auto' is only supported for chr_pos-family snp_identifier modes.")
+        raise LDSCUsageError(
+            f"Cannot use genome_build='auto' with snp_identifier={snp_identifier!r}. "
+            "Most likely an rsID-family workflow was configured with coordinate-build inference. "
+            "Use genome_build=None for rsID-family workflows or switch to a chr_pos-family snp_identifier."
+        )
 
 
 def resolve_genome_build(
@@ -159,9 +167,10 @@ def resolve_genome_build(
     if hint != AUTO_GENOME_BUILD:
         return hint
     if sample_frame is None:
-        raise ValueError(
-            f"sample_frame is required for genome-build inference of {context!r} "
-            "but None was passed. Pass --genome-build hg19 or --genome-build hg38."
+        raise LDSCUsageError(
+            f"Could not infer genome build for {context}: no CHR/POS sample frame was provided. "
+            "Most likely genome_build='auto' reached a workflow before any coordinate rows were available. "
+            "Pass --genome-build hg19 or --genome-build hg38 explicitly."
         )
 
     try:
@@ -170,12 +179,13 @@ def resolve_genome_build(
             context=context,
             reference_table=reference_table,
         )
-    except ValueError as exc:
+    except (ValueError, LDSCInputError) as exc:
         message = str(exc)
         if "Insufficient evidence" in message:
-            raise ValueError(
-                f"Insufficient overlap with HM3 reference to infer genome build for {context}. "
-                f"{message} Pass --genome-build hg19 or --genome-build hg38 explicitly."
+            raise LDSCInputError(
+                f"Could not infer genome build for {context}: insufficient overlap with the HM3 reference. "
+                "Most likely the input has too few HapMap3-like CHR/POS rows or the coordinates use the wrong build. "
+                f"Pass --genome-build hg19 or --genome-build hg38 explicitly. Other causes & fixes: {_GENOME_BUILD_TROUBLESHOOTING}"
             ) from exc
         raise
 
@@ -357,7 +367,12 @@ def resolve_chr_pos_table(
         returning a normalized copy of the input table.
     """
     if not {"CHR", "POS"}.issubset(df.columns):
-        raise ValueError(f"{context} must contain CHR and POS columns for auto genome-build inference.")
+        missing = [column for column in ("CHR", "POS") if column not in df.columns]
+        raise LDSCInputError(
+            f"Could not infer genome build for {context}: missing required column(s) {missing}. "
+            "Most likely the input header was parsed incorrectly or the wrong columns were selected. "
+            f"Provide CHR and POS columns before using genome_build='auto'. Other causes & fixes: {_GENOME_BUILD_TROUBLESHOOTING}"
+        )
 
     reference = None if reference_table is None else reference_table.copy()
     normalized, coordinate_report = normalize_chr_pos_frame(
@@ -443,9 +458,11 @@ def infer_chr_pos_build(
         for name, *_rest in _HYPOTHESIS_ORDER
     }
     if inspected < MIN_INSPECTED_REFERENCE_SNPS:
-        raise ValueError(
-            f"Insufficient evidence to infer genome build for {context}: "
-            f"matched {inspected} reference SNPs; need at least {MIN_INSPECTED_REFERENCE_SNPS}."
+        raise LDSCInputError(
+            f"Could not infer genome build for {context}: matched {inspected} informative HM3 reference SNPs, "
+            f"but at least {MIN_INSPECTED_REFERENCE_SNPS} are required. "
+            "Most likely the input has too few HapMap3-like CHR/POS rows or the coordinates use the wrong build. "
+            f"Pass --genome-build hg19 or --genome-build hg38 explicitly. Other causes & fixes: {_GENOME_BUILD_TROUBLESHOOTING}"
         )
 
     best_name, best_fraction = max(
@@ -453,10 +470,13 @@ def infer_chr_pos_build(
         key=lambda item: (item[1], match_counts[item[0]], item[0]),
     )
     if best_fraction < DOMINANCE_THRESHOLD:
-        raise ValueError(
-            f"Genome build for {context} could not be inferred confidently: "
-            f"best hypothesis {best_name} matched {match_counts[best_name]}/{inspected} "
-            f"({best_fraction:.1%}); need at least {DOMINANCE_THRESHOLD:.0%}."
+        raise LDSCInputError(
+            f"Could not infer genome build for {context}: best hypothesis {best_name} matched "
+            f"{match_counts[best_name]}/{inspected} informative SNPs ({best_fraction:.1%}), "
+            f"below the {DOMINANCE_THRESHOLD:.0%} confidence threshold. "
+            "Most likely the input mixes genome builds or coordinate bases. "
+            f"Pass --genome-build hg19 or --genome-build hg38 explicitly after confirming the source build. "
+            f"Other causes & fixes: {_GENOME_BUILD_TROUBLESHOOTING}"
         )
 
     build, basis = _hypothesis_metadata(best_name)

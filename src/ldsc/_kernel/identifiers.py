@@ -70,6 +70,7 @@ from ..column_inference import (
     resolve_restriction_chr_pos_columns,
     resolve_restriction_rsid_column,
 )
+from ..errors import LDSCInputError
 from .snp_identity import (
     RestrictionIdentityKeys,
     collapse_restriction_identity_keys,
@@ -120,7 +121,7 @@ def build_snp_id_series(df: pd.DataFrame, mode: str) -> pd.Series:
     mode = normalize_snp_identifier_mode(mode)
     try:
         return effective_merge_key_series(df, mode, context="metadata")
-    except ValueError:
+    except (ValueError, LDSCInputError):
         if is_allele_aware_mode(mode):
             raise
 
@@ -153,12 +154,20 @@ def build_packed_chr_pos_series(
     chrom_codes = normalized_chrom.map(_CHROMOSOME_PACK_CODES)
     if bool(chrom_codes.isna().any()):
         bad = normalized_chrom.loc[chrom_codes.isna()].iloc[0]
-        raise ValueError(f"Unsupported chromosome label {bad!r} in {context}.")
+        raise LDSCInputError(
+            f"Cannot build packed CHR/POS keys for {context}: unsupported chromosome label {bad!r}. "
+            "Most likely the restriction file contains contigs or unsupported chromosomes. "
+            "Use chromosome labels 1-22, X, Y, M, or MT."
+        )
     pos_values = positive_int_position_series(pos, context=context)
     too_large = pos_values > _MAX_PACKED_POS
     if bool(too_large.any()):
         bad = int(pos_values.loc[too_large].iloc[0])
-        raise ValueError(f"POS values in {context} must be <= {_MAX_PACKED_POS}; got {bad}.")
+        raise LDSCInputError(
+            f"Cannot build packed CHR/POS keys for {context}: POS value {bad} exceeds {_MAX_PACKED_POS}. "
+            "Most likely the position column is malformed or not in base-pair units. "
+            "Use positive integer base-pair positions within the supported range."
+        )
 
     chrom_array = chrom_codes.to_numpy(dtype=np.uint64)
     pos_array = pos_values.to_numpy(dtype=np.uint64)
@@ -182,14 +191,18 @@ def validate_unique_snp_ids(df: pd.DataFrame, mode: str, context: str = "table")
                 ". Base chr_pos mode requires one variant per chromosome/position; "
                 "use base rsID mode or prune duplicate-coordinate variants before building or running the reference panel."
             )
-        raise ValueError(message)
+        raise LDSCInputError(
+            f"Cannot use {context}: non-unique SNP identifiers were found in {mode} mode: {preview}. "
+            "Most likely the input contains duplicate rsIDs or duplicate CHR/POS coordinates. "
+            f"Remove duplicate identity rows or choose a more specific snp_identifier mode. Details: {message}"
+        )
 
 
 def _duplicate_identifier_details(df: pd.DataFrame, snp_ids: pd.Series, duplicated: list[object]) -> str:
     """Return a compact description of duplicate keys when SNP labels are available."""
     try:
         snp_col = infer_snp_column(df.columns)
-    except ValueError:
+    except (ValueError, LDSCInputError):
         return ""
     parts: list[str] = []
     for identifier in duplicated:
@@ -423,10 +436,10 @@ def _resolve_restriction_allele_columns(columns: Iterable[str], *, context: str 
     if (a1_col is None) != (a2_col is None):
         present = "A1" if a1_col is not None else "A2"
         missing = "A2" if a1_col is not None else "A1"
-        raise ValueError(
-            f"Restriction file {context or ''} provides only one allele column ({present}); "
-            f"both A1 and A2 allele columns are required for allele-aware restriction matching. "
-            f"Missing {missing}."
+        raise LDSCInputError(
+            f"Cannot read SNP restriction file {context or ''}: only one allele column is present ({present}); missing {missing}. "
+            "Most likely the restriction file was prepared for allele-aware matching but one allele column was omitted. "
+            "Provide both A1 and A2 columns, or omit both to match by base SNP identity only."
         )
     return a1_col, a2_col, a1_col is not None and a2_col is not None
 
@@ -471,7 +484,11 @@ def _read_rsid_restriction(path: Path) -> set[str]:
         if not row:
             continue
         if len(row) <= snp_idx:
-            raise ValueError(f"Restriction row in {path} is missing the SNP column.")
+            raise LDSCInputError(
+                f"Cannot read SNP restriction file {path}: a data row is missing the SNP column. "
+                "Most likely the row has fewer fields than the header because of a delimiter or formatting issue. "
+                "Fix the malformed row or regenerate the restriction file."
+            )
         value = row[snp_idx].strip()
         if value:
             values.add(value)
@@ -509,7 +526,11 @@ def _read_chr_pos_restriction(path: Path, genome_build: str | None = None, logge
         if not row:
             continue
         if len(row) <= max(chr_idx, pos_idx):
-            raise ValueError(f"Restriction row in {path} is missing the CHR or POS column.")
+            raise LDSCInputError(
+                f"Cannot read SNP restriction file {path}: a data row is missing the CHR or POS column. "
+                "Most likely the row has fewer fields than the header because of a delimiter or formatting issue. "
+                "Fix the malformed row or regenerate the restriction file."
+            )
         values.append((row[chr_idx], row[pos_idx]))
     frame = pd.DataFrame(values, columns=["CHR", "POS"])
     return _finalize_chr_pos_restriction_frame(frame, path=path, logger=logger)
@@ -562,7 +583,11 @@ def _read_packed_chr_pos_restriction_rows(
         if not row:
             continue
         if len(row) <= max(chr_idx, pos_idx):
-            raise ValueError(f"Restriction row in {path} is missing the CHR or POS column.")
+            raise LDSCInputError(
+                f"Cannot read SNP restriction file {path}: a data row is missing the CHR or POS column. "
+                "Most likely the row has fewer fields than the header because of a delimiter or formatting issue. "
+                "Fix the malformed row or regenerate the restriction file."
+            )
         chrom_chunk.append(row[chr_idx])
         pos_chunk.append(row[pos_idx])
         if len(chrom_chunk) >= chunk_size:

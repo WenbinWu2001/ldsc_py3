@@ -20,6 +20,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from ldsc.config import ConfigMismatchError, GlobalConfig, RegressionConfig, reset_global_config, set_global_config
+from ldsc.errors import LDSCInputError, LDSCUsageError
 
 try:
     from ldsc.ldscore_calculator import LDScoreResult
@@ -197,7 +198,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             del metadata["snp_identifier"]
             metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
 
-            with self.assertRaisesRegex(ValueError, "Unsupported snp_identifier mode"):
+            with self.assertRaisesRegex(LDSCInputError, "snp_identifier=.*invalid"):
                 load_ldscore_from_dir(str(tmpdir))
 
     def test_load_ldscore_from_dir_rejects_invalid_minimal_identity(self):
@@ -211,7 +212,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             metadata["snp_identifier"] = "bad"
             metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
 
-            with self.assertRaisesRegex(ValueError, "Unsupported snp_identifier mode"):
+            with self.assertRaisesRegex(LDSCInputError, "snp_identifier=.*invalid"):
                 load_ldscore_from_dir(str(tmpdir))
 
     def test_load_ldscore_from_dir_rejects_allele_aware_baseline_without_alleles(self):
@@ -579,7 +580,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             snp_identifier="chr_pos",
         )
 
-        with self.assertRaisesRegex(ValueError, "Cannot mix SNP identifier families"):
+        with self.assertRaisesRegex(LDSCUsageError, "different families"):
             runner.build_dataset(sumstats, ldscore_result)
 
     def test_build_dataset_rejects_same_family_mode_mismatch_by_default(self):
@@ -611,7 +612,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             snp_identifier="chr_pos",
         )
 
-        with self.assertRaisesRegex(ValueError, "allow-identity-downgrade"):
+        with self.assertRaisesRegex(LDSCUsageError, "allow-identity-downgrade"):
             runner.build_dataset(sumstats, ldscore_result)
 
     def test_build_dataset_allows_chr_pos_identity_downgrade_with_effective_base_mode(self):

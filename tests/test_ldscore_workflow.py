@@ -19,6 +19,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from ldsc.config import ConfigMismatchError, GlobalConfig
+from ldsc.errors import LDSCInputError
 
 try:
     from ldsc import (
@@ -400,7 +401,7 @@ class R2AutoLoadCLITest(unittest.TestCase):
                 RefPanelConfig(backend="parquet_r2", r2_dir=str(root)),
             )
 
-            with self.assertRaisesRegex(ValueError, "non-unique SNP identifiers"):
+            with self.assertRaisesRegex(LDSCInputError, "non-unique SNP identifiers"):
                 panel.load_metadata("1")
 
 

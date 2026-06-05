@@ -13,6 +13,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from ldsc.config import GlobalConfig, RefPanelConfig
+from ldsc.errors import LDSCInputError
 from ldsc._kernel.ref_panel import (
     ParquetR2RefPanel,
     PlinkRefPanel,
@@ -232,7 +233,7 @@ class PlinkRefPanelTest(unittest.TestCase):
             path = Path(tmpdir) / "meta.tsv"
             path.write_text("CHR\tPOS\n1\t10\n", encoding="utf-8")
 
-            with self.assertRaisesRegex(ValueError, "SNP column"):
+            with self.assertRaisesRegex(LDSCInputError, "SNP identifier column"):
                 _read_metadata_table(
                     path,
                     None,
@@ -253,7 +254,7 @@ class PlinkRefPanelTest(unittest.TestCase):
                 GlobalConfig(snp_identifier="rsid"),
                 RefPanelConfig(backend="plink", plink_prefix=str(prefix)),
             )
-            with self.assertRaises(ValueError):
+            with self.assertRaises(LDSCInputError):
                 panel.load_metadata("1")
 
     def test_global_restriction_applies(self):

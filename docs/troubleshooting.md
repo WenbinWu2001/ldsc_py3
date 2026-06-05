@@ -55,6 +55,48 @@ that slug is a heading below — jump to it.
 3. Do not share one output directory across concurrent runs unless the workflow
    explicitly supports chromosome-sharded output ownership.
 
+### Common: genome build could not be inferred
+
+**Raised by:** `genome_build_inference.resolve_genome_build()` and
+`genome_build_inference.resolve_chr_pos_table()` · **Exception:** `LDSCInputError`
+**Symptom:** `Could not infer genome build for <context>...`
+
+**Likely causes & how to check** (most probable first):
+
+| # | Likely cause | How to check |
+|---|--------------|--------------|
+| 1 | The CHR/POS input has too little overlap with HapMap3 reference SNPs | Count matched/reference-like variants; small custom SNP lists often cannot infer a build |
+| 2 | The input coordinates are from another build, assembly, or custom reference | Inspect several known SNP coordinates against hg19/hg38 in a genome browser or source metadata |
+| 3 | CHR/POS columns were parsed from the wrong columns or wrong delimiter | Print the header and first rows; confirm `CHR` and `POS` values look like chromosome labels and base-pair positions |
+| 4 | Coordinates are mixed across builds or coordinate bases | Check whether some rows match hg19 and others match hg38/0-based positions |
+
+**Remedies:**
+
+1. Pass an explicit build: `--genome-build hg19` or `--genome-build hg38`.
+2. Fix column mapping or delimiter issues before using `--genome-build auto`.
+3. Rebuild the input so all CHR/POS rows use one genome build and one coordinate basis.
+
+### Common: LDSC artifact schema or provenance is incompatible
+
+**Raised by:** `_kernel.snp_identity.validate_identity_artifact_metadata()` and
+artifact reload guards · **Exception:** `LDSCInputError`
+**Symptom:** `Could not read LDSC <artifact> artifact metadata...`
+
+**Likely causes & how to check** (most probable first):
+
+| # | Likely cause | How to check |
+|---|--------------|--------------|
+| 1 | The artifact was written by an older LDSC package version | Inspect the artifact metadata sidecar or parquet metadata for `schema_version` |
+| 2 | The artifact type does not match the loader | Confirm the file was produced by the command you are now trying to load from |
+| 3 | The metadata sidecar was copied without its matching data file, or vice versa | Compare file modification times and paths for the artifact plus sidecar |
+| 4 | SNP identity provenance was hand-edited or corrupted | Inspect `snp_identifier`, `genome_build`, and identity metadata fields |
+
+**Remedies:**
+
+1. Regenerate the artifact with the current LDSC package and the same command family.
+2. Keep LDSC-generated data files and their sidecars together; do not hand-edit them.
+3. If you need a different `snp_identifier` or `genome_build`, regenerate from the upstream input.
+
 ## munge-sumstats
 
 ### munge-sumstats: could not map a required column
@@ -122,3 +164,26 @@ schema / bad provenance / missing A1-A2 / duplicate identity rows)
 1. Re-run `ldsc munge-sumstats` from the **raw** GWAS file to regenerate the
    artifact with the current schema.
 2. Do not hand-edit curated `.sumstats`/`.parquet` artifacts; treat them as outputs.
+
+### munge-sumstats: liftover dropped all rows
+
+**Raised by:** `_kernel.liftover.apply_sumstats_liftover()`
+· **Exception:** `LDSCInputError`
+**Symptom:** `Summary-statistics liftover from <source> to <target> using <method> dropped all rows...`
+
+**Likely causes & how to check** (most probable first):
+
+| # | Likely cause | How to check |
+|---|--------------|--------------|
+| 1 | The declared source build does not match the input CHR/POS coordinates | Compare several input positions against the declared `--source-genome-build` |
+| 2 | CHR/POS columns are missing, malformed, or parsed from the wrong fields | Inspect the dropped-SNP sidecar and the first rows of the raw file |
+| 3 | The HM3 quick-liftover map cannot cover this non-HM3 SNP set | Check whether the input SNPs are HapMap3-like; use chain-file liftover for broader coverage |
+| 4 | Source or target coordinates collide after liftover | Inspect the drop sidecar for `source_duplicate` or `target_collision` reasons |
+| 5 | The chain file is for the wrong direction or assembly pair | Confirm the chain filename/source-target pair matches the command flags |
+
+**Remedies:**
+
+1. Fix the source CHR/POS coordinates or pass the correct `--source-genome-build`.
+2. Use an explicit chain file for non-HM3 SNP sets instead of HM3 quick liftover.
+3. Review the dropped-SNP sidecar to identify whether missing coordinates,
+   unmapped variants, or duplicate coordinates removed the rows.

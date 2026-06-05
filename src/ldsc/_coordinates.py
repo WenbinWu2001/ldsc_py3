@@ -9,6 +9,7 @@ from typing import Literal, Sequence
 import pandas as pd
 
 from .chromosome_inference import normalize_chromosome, normalize_chromosome_series
+from .errors import LDSCConfigError, LDSCInputError
 
 CHR_POS_KEY_COLUMN = "_ldsc_chr_pos_key"
 NA_COORDINATE_TOKENS = frozenset({"", ".", "na", "nan", "none", "null"})
@@ -68,22 +69,38 @@ def _integer_position_series(
     invalid = (~missing) & numeric.isna()
     if bool(invalid.any()):
         bad_value = tokens.loc[invalid].iloc[0]
-        raise ValueError(f"{label} values in {context} must be numeric; got {bad_value!r}.")
+        raise LDSCInputError(
+            f"{label} values in {context} must be numeric; got {bad_value!r}. "
+            "Most likely the position column contains a header, delimiter artifact, or non-coordinate token. "
+            f"Fix the {label} column so every retained row contains an integer base-pair position."
+        )
 
     if bool(missing.any()):
         bad_row = int(missing.to_numpy().nonzero()[0][0])
-        raise ValueError(f"{label} values in {context} are missing at row {bad_row}.")
+        raise LDSCInputError(
+            f"{label} values in {context} are missing at row {bad_row}. "
+            "Most likely the position column contains blank or NA-like values. "
+            f"Fill or remove rows with missing {label} values before using strict coordinate validation."
+        )
 
     non_integral = (numeric % 1) != 0
     if bool(non_integral.any()):
         bad_value = values.loc[non_integral].iloc[0]
-        raise ValueError(f"{label} values in {context} must be integer base-pair positions; got {bad_value!r}.")
+        raise LDSCInputError(
+            f"{label} values in {context} must be integer base-pair positions; got {bad_value!r}. "
+            "Most likely the position column contains decimal or formatted values. "
+            f"Convert {label} to integer base-pair coordinates."
+        )
 
     below_minimum = numeric < min_position
     if bool(below_minimum.any()):
         bad_value = values.loc[below_minimum].iloc[0]
         requirement = "positive" if min_position == 1 else f">= {min_position}"
-        raise ValueError(f"{label} values in {context} must be {requirement} integer base-pair positions; got {bad_value!r}.")
+        raise LDSCInputError(
+            f"{label} values in {context} must be {requirement} integer base-pair positions; got {bad_value!r}. "
+            "Most likely the input uses invalid, sentinel, or wrong-coordinate-basis positions. "
+            f"Use {requirement} integer base-pair coordinates for {label}."
+        )
 
     return numeric.astype("int64")
 
@@ -109,7 +126,7 @@ def normalize_chr_pos_frame(
     contract requires complete, valid coordinates.
     """
     work = frame.copy()
-    policy = _resolve_coordinate_policy(coordinate_policy=coordinate_policy, drop_missing=drop_missing)
+    policy = _resolve_coordinate_policy(coordinate_policy=coordinate_policy, drop_missing=drop_missing, context=context)
     masks = _coordinate_quality_masks(work, chr_col=chr_col, pos_col=pos_col, context=context, min_position=min_position)
     droppable = masks["droppable"]
     report = _drop_report(
@@ -237,13 +254,18 @@ def _resolve_coordinate_policy(
     *,
     coordinate_policy: CoordinatePolicy | str | None,
     drop_missing: bool | None,
+    context: str,
 ) -> CoordinatePolicy:
     if coordinate_policy is None:
         if drop_missing is None:
             return DEFAULT_COORDINATE_POLICY
         return "drop" if drop_missing else "raise"
     if coordinate_policy not in {"drop", "raise"}:
-        raise ValueError("coordinate_policy must be 'drop' or 'raise'.")
+        raise LDSCConfigError(
+            f"Could not normalize CHR/POS coordinates for {context}: coordinate_policy={coordinate_policy!r} is invalid. "
+            "Most likely an unsupported coordinate policy was passed by a caller. "
+            "Use coordinate_policy='drop' or coordinate_policy='raise'."
+        )
     return coordinate_policy  # type: ignore[return-value]
 
 
@@ -274,7 +296,7 @@ def _invalid_chromosome_mask(values: pd.Series, *, missing: pd.Series, context: 
     for value in pd.unique(values.loc[~missing]):
         try:
             normalize_chromosome(value, context=context)
-        except ValueError:
+        except (ValueError, LDSCInputError):
             invalid_tokens.add(value)
     return (~missing) & values.isin(invalid_tokens)
 
@@ -305,10 +327,18 @@ def _raise_coordinate_policy_error(
             pos_col=pos_col,
             example_columns=None,
         )[0]
-        raise ValueError(f"{context} requires valid CHR/POS coordinates; first missing row: {first}.")
+        raise LDSCInputError(
+            f"{context} requires valid CHR/POS coordinates; first missing row: {first}. "
+            "Most likely CHR or POS contains blank or NA-like values. "
+            "Fill/remove those rows or use coordinate_policy='drop' when dropping invalid rows is acceptable."
+        )
     if bool(masks["invalid_pos"].any()):
         _integer_position_series(frame[pos_col], context=context, label=pos_col, min_position=min_position)
     if bool(masks["invalid_chr"].any()):
         normalize_chromosome_series(frame[chr_col], context=context)
     first = _example_rows(frame, masks["droppable"], chr_col=chr_col, pos_col=pos_col, example_columns=None)[0]
-    raise ValueError(f"{context} requires valid CHR/POS coordinates; first invalid row: {first}.")
+    raise LDSCInputError(
+        f"{context} requires valid CHR/POS coordinates; first invalid row: {first}. "
+        "Most likely CHR or POS contains unsupported chromosome labels or invalid positions. "
+        "Fix the coordinate columns or use coordinate_policy='drop' when dropping invalid rows is acceptable."
+    )

@@ -24,7 +24,7 @@ from ..column_inference import (
     resolve_restriction_chr_pos_columns,
     resolve_restriction_rsid_column,
 )
-from ..errors import LDSCDependencyError
+from ..errors import LDSCDependencyError, LDSCInputError
 from .liftover import LiftOverMappingResult, LiftOverTranslator
 from .snp_identity import (
     RestrictionIdentityKeys,
@@ -159,19 +159,21 @@ def detect_restriction_identifier_mode(path: str | PathLike[str]) -> str:
     try:
         resolve_restriction_chr_pos_columns(header_fields, context=str(path))
         return "chr_pos"
-    except ValueError:
+    except (ValueError, LDSCInputError):
         # Not a chr_pos restriction file; try rsid before raising a combined
         # user-facing header error.
         pass
     try:
         resolve_restriction_rsid_column(header_fields, context=str(path))
         return "rsid"
-    except ValueError:
+    except (ValueError, LDSCInputError):
         # Neither supported restriction schema matched.
         pass
 
-    raise ValueError(
-        f"Restriction file {path} must contain a header row with recognizable SNP or CHR/POS columns."
+    raise LDSCInputError(
+        f"Cannot detect SNP restriction mode for {path}: no recognizable SNP or CHR/POS header was found. "
+        "Most likely the file has no header row or uses unsupported column names. "
+        "Add a header with SNP or CHR/POS columns."
     )
 
 

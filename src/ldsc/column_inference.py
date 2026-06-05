@@ -20,6 +20,7 @@ import re
 from typing import Iterable, Sequence
 
 from ._kernel.snp_identity import SNP_IDENTIFIER_MODES, normalize_snp_identifier_mode
+from .errors import LDSCConfigError, LDSCInputError, LDSCInternalError
 
 LOGGER = logging.getLogger("LDSC.columns")
 _LOGGED_INFERENCES: set[tuple[str, str, str]] = set()
@@ -51,7 +52,11 @@ def normalize_genome_build(genome_build: str | None) -> str | None:
         return "hg19"
     if normalized in {normalize_column_token(alias) for alias in _HG38_BUILD_ALIASES}:
         return "hg38"
-    raise ValueError("genome_build must be None, 'auto', 'hg19', 'hg37', 'GRCh37', 'hg38', or 'GRCh38'.")
+    raise LDSCConfigError(
+        f"Could not normalize genome_build={genome_build!r}. "
+        "Most likely the genome build label is misspelled or unsupported. "
+        "Use None, 'auto', 'hg19', 'hg37', 'GRCh37', 'hg38', or 'GRCh38'."
+    )
 
 
 @dataclass(frozen=True)
@@ -232,8 +237,10 @@ def build_cleaned_alias_lookup(specs: Sequence[ColumnSpec]) -> dict[str, str]:
             key = clean_header(value)
             existing = alias_map.get(key)
             if existing is not None and existing != spec.canonical:
-                raise ValueError(
-                    f"Alias {value!r} maps to both {existing!r} and {spec.canonical!r} in the central registry."
+                raise LDSCInternalError(
+                    f"Cannot build column-alias registry: alias {value!r} maps to both {existing!r} "
+                    f"and {spec.canonical!r}. Most likely a new column alias collides with an existing field. "
+                    "Remove the duplicate alias or split the conflicting spec."
                 )
             alias_map[key] = spec.canonical
     return alias_map
@@ -286,11 +293,18 @@ def resolve_required_column(
     matches = _best_matches(columns, spec)
     if not matches:
         header = ", ".join(str(column) for column in columns)
-        raise ValueError(f"Could not infer a {spec.label} column for canonical field {spec.canonical!r} from: {header}")
+        context_text = f" in {context}" if context else ""
+        raise LDSCInputError(
+            f"Could not map the required {spec.label} column{context_text}: expected canonical field {spec.canonical!r}; "
+            f"available columns: {header}. Most likely the header uses an unrecognized alias or the file delimiter is wrong. "
+            "Pass the matching column explicitly when the workflow supports it, or rename the input header."
+        )
     if len(matches) > 1:
-        raise ValueError(
-            f"Ambiguous {spec.label} columns for canonical field {spec.canonical!r}: "
-            + ", ".join(matches)
+        context_text = f" in {context}" if context else ""
+        raise LDSCInputError(
+            f"Could not map the {spec.label} column{context_text}: multiple columns match canonical field {spec.canonical!r}: "
+            f"{', '.join(matches)}. Most likely the file contains duplicate aliases for the same concept. "
+            "Rename or remove the extra matching columns so exactly one remains."
         )
     actual = matches[0]
     _log_if_inferred(spec.canonical, actual, context)
@@ -308,9 +322,11 @@ def resolve_optional_column(
     if not matches:
         return None
     if len(matches) > 1:
-        raise ValueError(
-            f"Ambiguous {spec.label} columns for canonical field {spec.canonical!r}: "
-            + ", ".join(matches)
+        context_text = f" in {context}" if context else ""
+        raise LDSCInputError(
+            f"Could not map the optional {spec.label} column{context_text}: multiple columns match canonical field {spec.canonical!r}: "
+            f"{', '.join(matches)}. Most likely the file contains duplicate aliases for the same optional field. "
+            "Rename or remove the extra matching columns so at most one remains."
         )
     actual = matches[0]
     _log_if_inferred(spec.canonical, actual, context)
@@ -345,13 +361,15 @@ def infer_chr_bp_columns(header: Iterable[str], *, context: str | None = None) -
     return infer_chr_pos_columns(header, context=context)
 
 
-def _restriction_header_error(columns: Iterable[str], missing: Sequence[str]) -> ValueError:
+def _restriction_header_error(columns: Iterable[str], missing: Sequence[str]) -> LDSCInputError:
     """Build the shared error when a restriction header lacks required aliases."""
     header = ", ".join(str(column) for column in columns)
     joined = ", ".join(missing)
-    return ValueError(
-        "Restriction files must contain a header row with recognizable "
-        f"{joined} column(s). Available columns: {header}"
+    return LDSCInputError(
+        f"Could not read SNP restriction file header: missing recognizable {joined} column(s). "
+        f"Available columns: {header}. Most likely the restriction file uses unsupported column names, "
+        "has no header row, or was parsed with the wrong delimiter. Rename the header to recognizable "
+        "SNP or CHR/POS column names."
     )
 
 
@@ -364,7 +382,7 @@ def resolve_restriction_rsid_column(
     columns = list(columns)
     try:
         return infer_snp_column(columns, context=context)
-    except ValueError as exc:
+    except (ValueError, LDSCInputError) as exc:
         raise _restriction_header_error(columns, ("SNP",)) from exc
 
 
@@ -376,17 +394,24 @@ def resolve_restriction_chr_pos_columns(
 ) -> tuple[str, str]:
     """Resolve the relevant columns for a ``chr_pos`` restriction file."""
     columns = list(columns)
-    normalized_build = normalize_genome_build(genome_build)
+    try:
+        normalized_build = normalize_genome_build(genome_build)
+    except LDSCConfigError as exc:
+        raise LDSCConfigError(
+            f"Could not resolve SNP restriction columns: genome_build={genome_build!r} is invalid. "
+            "Most likely a misspelled build was passed while selecting build-specific position columns. "
+            "Use genome_build='hg19', genome_build='hg38', genome_build='auto', or None."
+        ) from exc
 
     try:
         chr_col = resolve_required_column(columns, RESTRICTION_CHRPOS_SPEC_MAP["CHR"], context=context)
-    except ValueError as exc:
+    except (ValueError, LDSCInputError) as exc:
         raise _restriction_header_error(columns, ("CHR", "POS")) from exc
 
     try:
         pos_col = resolve_required_column(columns, RESTRICTION_CHRPOS_SPEC_MAP["POS"], context=context)
         return chr_col, pos_col
-    except ValueError as generic_error:
+    except (ValueError, LDSCInputError) as generic_error:
         # Fall through to build-specific position aliases before reporting the
         # generic POS failure to the caller.
         pass
@@ -394,12 +419,12 @@ def resolve_restriction_chr_pos_columns(
     if normalized_build == "hg19":
         try:
             return chr_col, resolve_required_column(columns, RESTRICTION_HG19_POS_SPEC, context=context)
-        except ValueError as exc:
+        except (ValueError, LDSCInputError) as exc:
             raise _restriction_header_error(columns, ("POS",)) from exc
     if normalized_build == "hg38":
         try:
             return chr_col, resolve_required_column(columns, RESTRICTION_HG38_POS_SPEC, context=context)
-        except ValueError as exc:
+        except (ValueError, LDSCInputError) as exc:
             raise _restriction_header_error(columns, ("POS",)) from exc
 
     if normalized_build == "auto":
@@ -411,9 +436,11 @@ def resolve_restriction_chr_pos_columns(
         if len(matches) == 1:
             return chr_col, matches[0]
         if len(matches) > 1:
-            raise ValueError(
-                "Restriction file exposes multiple build-specific position columns; "
-                "set genome_build to 'hg19' or 'hg38', or rename the desired column to POS/BP."
+            raise LDSCInputError(
+                f"Could not resolve SNP restriction position column{f' in {context}' if context else ''}: "
+                f"multiple build-specific position columns matched ({', '.join(matches)}). "
+                "Most likely the restriction file contains both hg19 and hg38 coordinates while genome_build='auto'. "
+                "Set genome_build to 'hg19' or 'hg38', or rename the desired column to POS/BP."
             ) from generic_error
 
     raise _restriction_header_error(columns, ("POS",)) from generic_error

@@ -15,6 +15,7 @@ from ldsc.chromosome_inference import (
     normalize_chromosome,
     normalize_chromosome_series,
 )
+from ldsc.errors import LDSCInputError
 
 
 class ChromosomeInferenceTest(unittest.TestCase):
@@ -63,5 +64,5 @@ class ChromosomeInferenceTest(unittest.TestCase):
     def test_normalize_chromosome_series_raises_on_invalid_unique_label(self):
         series = pd.Series(["1", "27", "27"], dtype="object")
 
-        with self.assertRaisesRegex(ValueError, "Unsupported chromosome label"):
+        with self.assertRaisesRegex(LDSCInputError, "Unsupported chromosome label"):
             normalize_chromosome_series(series, context="series-invalid")

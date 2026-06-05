@@ -22,7 +22,7 @@ if str(SRC) not in sys.path:
 from ldsc._kernel import ref_panel_builder as kernel_builder
 from ldsc._kernel.snp_identity import IDENTITY_DROP_COLUMNS, RestrictionIdentityKeys, empty_identity_drop_frame
 from ldsc.config import GlobalConfig, ReferencePanelBuildConfig
-from ldsc.errors import LDSCConfigError
+from ldsc.errors import LDSCConfigError, LDSCInputError, LDSCUsageError
 from ldsc import ldscore_calculator, ref_panel_builder, reset_global_config, set_global_config
 
 
@@ -123,7 +123,7 @@ class GeneticMapParserTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with self.assertRaisesRegex(ValueError, "M' or 'MT"):
+            with self.assertRaisesRegex(LDSCInputError, "M' or 'MT"):
                 kernel_builder.load_genetic_map(path)
 
     def test_load_genetic_map_rejects_unsorted_rows(self):
@@ -240,7 +240,7 @@ class LiftOverTranslatorTest(unittest.TestCase):
         self.assertEqual(result.unmapped_count, 0)
 
     def test_explicit_chain_path_is_required_for_cross_build_translation(self):
-        with self.assertRaises(ValueError) as exc:
+        with self.assertRaises(LDSCUsageError) as exc:
             kernel_builder.LiftOverTranslator(
                 source_build="hg38",
                 target_build="hg19",
@@ -277,7 +277,7 @@ class RestrictionModeDetectionTest(unittest.TestCase):
             path = Path(tmpdir) / "restrict.txt"
             path.write_text("rs1\nrs2\n", encoding="utf-8")
 
-            with self.assertRaisesRegex(ValueError, "header"):
+            with self.assertRaisesRegex(LDSCInputError, "header"):
                 kernel_builder.detect_restriction_identifier_mode(path)
 
 
@@ -2222,7 +2222,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             }
         )
 
-        with self.assertRaisesRegex(ValueError, "hg19.*1:6265368.*1:6205309:A:C.*1:6205308:A:G"):
+        with self.assertRaisesRegex(LDSCInputError, "hg19.*1:6265368.*1:6205309:A:C.*1:6205308:A:G"):
             ref_panel_builder._validate_emitted_build_chr_pos_uniqueness(
                 metadata=metadata,
                 positions=np.array([6265368, 6265368, 7060000], dtype=np.int64),

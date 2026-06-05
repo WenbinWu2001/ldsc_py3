@@ -13,6 +13,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 import ldsc
+from ldsc.errors import LDSCConfigError, LDSCInputError, LDSCUsageError
 from ldsc.config import (
     AnnotationBuildConfig,
     GlobalConfig,
@@ -151,7 +152,7 @@ class TestGlobalConfigValidation(unittest.TestCase):
 
     def test_auto_genome_build_validation_uses_identifier_family(self):
         validate_auto_genome_build_mode("chr_pos_allele_aware", "auto")
-        with self.assertRaisesRegex(ValueError, "chr_pos"):
+        with self.assertRaisesRegex(LDSCUsageError, "chr_pos"):
             validate_auto_genome_build_mode("rsid_allele_aware", "auto")
 
     def test_resolve_genome_build_treats_rsid_family_as_buildless(self):
@@ -581,7 +582,7 @@ class IdentifierHelpersTest(unittest.TestCase):
         for value in ("rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"):
             self.assertEqual(normalize_snp_identifier_mode(value), value)
         for value in ("rsID", "SNPID", "snp_id", "snp", "chrpos", "rsid_alleles", "chr_pos_alleles"):
-            with self.assertRaises(ValueError):
+            with self.assertRaises(LDSCConfigError):
                 normalize_snp_identifier_mode(value)
 
     def test_infer_snp_column_aliases(self):
@@ -613,7 +614,7 @@ class IdentifierHelpersTest(unittest.TestCase):
 
     def test_normalize_chromosome_rejects_numeric_mitochondrial_codes(self):
         for value in ["25", "26", "25.0", "26.0"]:
-            with self.assertRaisesRegex(ValueError, "M' or 'MT"):
+            with self.assertRaisesRegex(LDSCInputError, "M' or 'MT"):
                 normalize_chromosome(value, context="test-mito-code")
 
     def test_build_chr_pos_snp_id(self):
@@ -631,7 +632,7 @@ class IdentifierHelpersTest(unittest.TestCase):
 
     def test_validate_unique_snp_ids(self):
         df = pd.DataFrame({"SNP": ["rs1", "rs1"]})
-        with self.assertRaises(ValueError):
+        with self.assertRaises(LDSCInputError):
             validate_unique_snp_ids(df, "rsid", context="test")
 
     def test_validate_unique_chr_pos_ids_reports_colliding_snps(self):
@@ -642,7 +643,7 @@ class IdentifierHelpersTest(unittest.TestCase):
                 "SNP": ["rsA", "rsB", "rsC"],
             }
         )
-        with self.assertRaisesRegex(ValueError, "1:10.*rsA.*rsB.*prune duplicate-coordinate variants"):
+        with self.assertRaisesRegex(LDSCInputError, "1:10.*rsA.*rsB.*prune duplicate-coordinate variants"):
             validate_unique_snp_ids(df, "chr_pos", context="test")
 
 
@@ -658,7 +659,7 @@ class RestrictionReadersTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "restrict.txt"
             path.write_text("rs1\nrs2\n", encoding="utf-8")
-            with self.assertRaisesRegex(ValueError, "header"):
+            with self.assertRaisesRegex(LDSCInputError, "header"):
                 read_global_snp_restriction(path, "rsid")
 
     def test_read_global_snp_restriction_rsid_table(self):
@@ -759,21 +760,21 @@ class RestrictionReadersTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "restrict.tsv"
             path.write_text("1\t10\n2\t20\n", encoding="utf-8")
-            with self.assertRaisesRegex(ValueError, "header"):
+            with self.assertRaisesRegex(LDSCInputError, "header"):
                 read_global_snp_restriction(path, "chr_pos")
 
     def test_read_global_snp_restriction_rsid_missing_alias_raises_clear_error(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "restrict.tsv"
             path.write_text("variant\tother\nrs1\ta\n", encoding="utf-8")
-            with self.assertRaisesRegex(ValueError, "SNP"):
+            with self.assertRaisesRegex(LDSCInputError, "SNP"):
                 read_global_snp_restriction(path, "rsid")
 
     def test_read_global_snp_restriction_chr_pos_missing_alias_raises_clear_error(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "restrict.tsv"
             path.write_text("variant\tother\nrs1\ta\n", encoding="utf-8")
-            with self.assertRaisesRegex(ValueError, "CHR, POS|POS, CHR"):
+            with self.assertRaisesRegex(LDSCInputError, "CHR, POS|POS, CHR"):
                 read_global_snp_restriction(path, "chr_pos")
 
     def test_read_snp_restriction_keys_without_alleles_uses_base_match_in_allele_aware_mode(self):
@@ -804,7 +805,7 @@ class RestrictionReadersTest(unittest.TestCase):
             path = Path(tmpdir) / "restrict.tsv"
             path.write_text("SNP\tREF\nrs1\tA\n", encoding="utf-8")
 
-            with self.assertRaisesRegex(ValueError, "both A1 and A2"):
+            with self.assertRaisesRegex(LDSCInputError, "both A1 and A2"):
                 read_snp_restriction_keys(path, "rsid_allele_aware")
 
     def test_read_snp_restriction_keys_drops_invalid_allele_rows_with_warning(self):

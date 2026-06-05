@@ -23,7 +23,7 @@ import pandas as pd
 from .._coordinates import complete_coordinate_mask, normalize_chr_pos_frame
 from ..chromosome_inference import normalize_chromosome
 from ..column_inference import normalize_genome_build, normalize_snp_identifier_mode
-from ..errors import LDSCDependencyError
+from ..errors import LDSCConfigError, LDSCDependencyError, LDSCInputError, LDSCInternalError, LDSCUsageError
 from ..hm3 import _load_hm3_curated_map_from_path
 from .snp_identity import identity_mode_family
 
@@ -31,6 +31,9 @@ LOGGER = logging.getLogger("LDSC.liftover")
 
 SUPPORTED_LIFTOVER_BUILDS = {"hg19", "hg38"}
 LIFTOVER_DROP_COLUMNS = ["CHR", "SNP", "source_pos", "target_pos", "reason"]
+_SUMSTATS_LIFTOVER_TROUBLESHOOTING = (
+    "docs/troubleshooting.md#munge-sumstats-liftover-dropped-all-rows"
+)
 
 @dataclass(frozen=True)
 class LiftOverMappingResult:
@@ -90,9 +93,10 @@ class LiftOverTranslator:
         self._identity = False
         if self.chain_path is None:
             flag = chain_flag_hint or _default_chain_flag_hint(source_build, target_build)
-            raise ValueError(
-                f"{workflow_label} requires an explicit liftover chain path for {source_build} -> {target_build}. "
-                f"Provide it via {flag}."
+            raise LDSCUsageError(
+                f"Cannot run {workflow_label}: liftover from {source_build} to {target_build} requires a chain file. "
+                "Most likely a build-changing liftover was requested without the matching chain path. "
+                f"Provide the chain file with {flag}."
             )
         try:
             from pyliftover import LiftOver
@@ -155,9 +159,11 @@ class LiftOverTranslator:
         if not result.keep_mask.all():
             failed = np.asarray(positions, dtype=np.int64)[~result.keep_mask]
             preview = ", ".join(str(int(value)) for value in failed[:5])
-            raise ValueError(
-                f"Failed to liftover {len(failed)} positions on chromosome {chrom} "
-                f"from {self.source_build} to {self.target_build}: {preview}"
+            raise LDSCInputError(
+                f"Could not liftover {len(failed)} positions on chromosome {chrom} "
+                f"from {self.source_build} to {self.target_build}: {preview}. "
+                "Most likely those positions are absent from the chain mapping or map off chromosome. "
+                "Check the source genome build and use the correct chain file."
             )
         return result.translated_positions
 
@@ -173,20 +179,43 @@ class SumstatsLiftoverRequest:
 
     def __post_init__(self) -> None:
         """Normalize build and path fields, then validate method-level shape."""
-        target_build = normalize_genome_build(self.target_build)
+        try:
+            target_build = normalize_genome_build(self.target_build)
+        except ValueError as exc:
+            raise LDSCConfigError(
+                f"Could not configure summary-statistics liftover: output_genome_build={self.target_build!r} is invalid. "
+                "Most likely the target build is misspelled or unsupported. "
+                "Use output_genome_build='hg19' or output_genome_build='hg38'."
+            ) from exc
         if target_build == "auto":
-            raise ValueError("output_genome_build must be hg19 or hg38; 'auto' is not a valid liftover target.")
+            raise LDSCUsageError(
+                "Could not configure summary-statistics liftover: output_genome_build='auto' is not a valid liftover target. "
+                "Most likely genome-build inference was requested where an explicit target build is required. "
+                "Use output_genome_build='hg19' or output_genome_build='hg38'."
+            )
         if target_build is not None and target_build not in SUPPORTED_LIFTOVER_BUILDS:
-            raise ValueError("output_genome_build must be hg19 or hg38.")
+            raise LDSCConfigError(
+                f"Could not configure summary-statistics liftover: output_genome_build={target_build!r} is unsupported. "
+                "Most likely the requested target build is outside LDSC liftover support. "
+                "Use output_genome_build='hg19' or output_genome_build='hg38'."
+            )
         chain_file = None if self.liftover_chain_file is None else str(self.liftover_chain_file)
         hm3_map_file = None if self.hm3_map_file is None else str(self.hm3_map_file)
         object.__setattr__(self, "target_build", target_build)
         object.__setattr__(self, "liftover_chain_file", chain_file)
         object.__setattr__(self, "hm3_map_file", hm3_map_file)
         if chain_file is not None and self.use_hm3_quick_liftover:
-            raise ValueError("liftover_chain_file and use_hm3_quick_liftover are mutually exclusive.")
+            raise LDSCUsageError(
+                "Could not configure summary-statistics liftover: liftover_chain_file and use_hm3_quick_liftover are mutually exclusive. "
+                "Most likely two liftover methods were selected for one run. "
+                "Choose either chain-file liftover or HM3 quick liftover, not both."
+            )
         if self.method is not None and target_build is None:
-            raise ValueError("output_genome_build is required when a liftover method is specified.")
+            raise LDSCUsageError(
+                "Could not configure summary-statistics liftover: output_genome_build is required when a liftover method is specified. "
+                "Most likely a method flag was set without the target build. "
+                "Set output_genome_build='hg19' or output_genome_build='hg38'."
+            )
 
     @property
     def method(self) -> str | None:
@@ -213,10 +242,20 @@ class Hm3DualBuildLifter:
 
     def __post_init__(self) -> None:
         """Normalize build labels and validate the supported HM3 pair."""
-        source = normalize_genome_build(self.source_build)
-        target = normalize_genome_build(self.target_build)
+        try:
+            source = normalize_genome_build(self.source_build)
+            target = normalize_genome_build(self.target_build)
+        except ValueError as exc:
+            raise LDSCConfigError(
+                "Could not configure HM3 quick liftover: source or target genome build is invalid. "
+                "Most likely the build label is misspelled. Use hg19 or hg38."
+            ) from exc
         if source not in SUPPORTED_LIFTOVER_BUILDS or target not in SUPPORTED_LIFTOVER_BUILDS:
-            raise ValueError("HM3 quick liftover supports only hg19 and hg38.")
+            raise LDSCUsageError(
+                f"Could not configure HM3 quick liftover from {source!r} to {target!r}: only hg19 and hg38 are supported. "
+                "Most likely a build outside the curated HM3 map was requested. "
+                "Use hg19/hg38 or choose chain-file liftover for other builds."
+            )
         object.__setattr__(self, "source_build", source)
         object.__setattr__(self, "target_build", target)
         object.__setattr__(self, "map_path", str(self.map_path))
@@ -459,12 +498,17 @@ def apply_sumstats_liftover(
     mode = normalize_snp_identifier_mode(snp_identifier)
     source = normalize_genome_build(source_build)
     if request.requested and identity_mode_family(mode) != "chr_pos":
-        raise ValueError("Summary-statistics liftover is only valid for chr_pos-family snp_identifier modes.")
+        raise LDSCUsageError(
+            f"Cannot apply summary-statistics liftover with snp_identifier={mode!r}: liftover is only valid for chr_pos-family modes. "
+            "Most likely liftover was requested for rsID-only summary statistics. "
+            "Use chr_pos or chr_pos_allele_aware identifiers, or omit liftover for rsID-family inputs."
+        )
     if not request.requested:
         return frame, default_liftover_metadata(source_build=source, snp_identifier=mode), _empty_liftover_drop_frame()
     if source not in SUPPORTED_LIFTOVER_BUILDS:
-        raise ValueError(
-            "Cannot apply summary-statistics liftover because the source genome build is unresolved. "
+        raise LDSCUsageError(
+            "Cannot apply summary-statistics liftover: the source genome build is unresolved. "
+            "Most likely source genome-build inference was skipped or had insufficient coordinate evidence. "
             "Use --source-genome-build hg19/hg38 or --source-genome-build auto with inferable coordinates."
         )
     if request.target_build == source:
@@ -477,7 +521,11 @@ def apply_sumstats_liftover(
             logger.warning(message)
         return frame, default_liftover_metadata(source_build=source, snp_identifier=mode), _empty_liftover_drop_frame()
     if request.method is None:
-        raise ValueError("output_genome_build differs from the source genome build, but no liftover method was specified.")
+        raise LDSCUsageError(
+            f"Cannot apply summary-statistics liftover from {source} to {request.target_build}: no liftover method was specified. "
+            "Most likely the target build differs from the source build but neither a chain file nor HM3 quick liftover was selected. "
+            "Provide --liftover-chain-file or enable HM3 quick liftover."
+        )
 
     _require_supported_pair(source, request.target_build)
     missing_mask = ~complete_coordinate_mask(frame)
@@ -654,7 +702,7 @@ def _try_normalize_liftover_chromosome(value: object) -> str | None:
     """Normalize a liftover hit chromosome, ignoring unsupported auxiliary contigs."""
     try:
         return _normalize_liftover_chromosome(value)
-    except ValueError:
+    except (ValueError, LDSCInputError):
         return None
 
 
@@ -664,15 +712,27 @@ def _reject_duplicate_hm3_coordinates(frame: pd.DataFrame, *, build: str) -> Non
     duplicated = frame.duplicated(subset=["CHR", pos_column], keep=False)
     if duplicated.any():
         examples = frame.loc[duplicated, ["CHR", pos_column, "SNP"]].head(5).to_dict("records")
-        raise ValueError(f"HM3 curated map contains duplicate {build} coordinates: {examples}")
+        raise LDSCInputError(
+            f"Cannot use HM3 curated liftover map: duplicate {build} coordinates were found: {examples}. "
+            "Most likely the map file is malformed or not the packaged LDSC HM3 dual-build map. "
+            "Use the packaged HM3 map or regenerate the map with unique CHR/POS rows."
+        )
 
 
 def _require_supported_pair(source_build: str, target_build: str | None) -> None:
     """Raise for unsupported build pairs before applying a method."""
     if source_build not in SUPPORTED_LIFTOVER_BUILDS or target_build not in SUPPORTED_LIFTOVER_BUILDS:
-        raise ValueError("Summary-statistics liftover supports only hg19 and hg38.")
+        raise LDSCUsageError(
+            f"Cannot apply summary-statistics liftover from {source_build!r} to {target_build!r}: only hg19 and hg38 are supported. "
+            "Most likely an unsupported source or target build was requested. "
+            "Use hg19/hg38 or a workflow-specific chain liftover path that supports the requested pair."
+        )
     if source_build == target_build:
-        raise ValueError("source and target genome builds are identical.")
+        raise LDSCInternalError(
+            f"Cannot apply summary-statistics liftover from {source_build} to {target_build}: source and target builds are identical. "
+            "Most likely an internal caller failed to short-circuit a no-op liftover. "
+            "Return no-op liftover metadata before calling the mapping stage."
+        )
 
 
 def _normalized_coordinate_frame(
@@ -684,7 +744,11 @@ def _normalized_coordinate_frame(
     """Return a copy with complete normalized CHR/POS columns for liftover."""
     missing_columns = [column for column in ("CHR", "POS") if column not in frame.columns]
     if missing_columns:
-        raise ValueError(f"Summary-statistics liftover requires CHR/POS columns; missing {missing_columns}.")
+        raise LDSCInputError(
+            f"Cannot apply summary-statistics liftover: missing CHR/POS column(s) {missing_columns}. "
+            "Most likely the raw summary statistics were parsed without coordinate columns. "
+            "Provide CHR and POS columns or use a chr_pos-compatible input format."
+        )
     return normalize_chr_pos_frame(
         frame,
         context="sumstats liftover",
@@ -706,13 +770,15 @@ def _raise_sumstats_all_dropped(
     n_target_duplicate: int,
 ) -> None:
     """Raise the standardized hard error when liftover removes every row."""
-    raise ValueError(
-        "Summary-statistics liftover dropped all rows. "
-        f"source_build={source}; target_build={target}; method={method}; "
+    raise LDSCInputError(
+        f"Summary-statistics liftover from {source} to {target} using {method} dropped all rows. "
+        "Most likely the declared source build does not match the input CHR/POS coordinates, or the liftover method cannot map this SNP set. "
+        "Fix the source CHR/POS coordinates, pass the correct --source-genome-build, or use chain-file liftover for non-HM3 SNP sets. "
         f"n_input={n_input}; n_missing_chr_pos_dropped={n_missing}; "
         f"n_duplicate_source_dropped={n_source_duplicate}; "
         f"n_unmapped={n_unmapped}; n_cross_chrom={n_cross_chrom}; "
-        f"n_duplicate_target_dropped={n_target_duplicate}."
+        f"n_duplicate_target_dropped={n_target_duplicate}. "
+        f"Other causes & fixes: {_SUMSTATS_LIFTOVER_TROUBLESHOOTING}"
     )
 
 
@@ -725,7 +791,11 @@ def _apply_hm3_liftover(
 ) -> tuple[pd.DataFrame, int, pd.DataFrame]:
     """Apply coordinate-only HM3 map liftover and return unmapped sidecar rows."""
     if request.hm3_map_file is None:
-        raise ValueError("hm3_map_file is required for HM3 quick liftover.")
+        raise LDSCUsageError(
+            "Cannot apply HM3 quick liftover: hm3_map_file is missing. "
+            "Most likely HM3 quick liftover was enabled without a curated map path. "
+            "Provide the packaged HM3 dual-build map file."
+        )
     mapping = load_hm3_curated_map(request.hm3_map_file)
     source_column = f"{source_build}_POS"
     target_column = f"{request.target_build}_POS"

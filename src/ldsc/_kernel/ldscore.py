@@ -284,11 +284,13 @@ class ChromComputationResult:
 
 # Basic configuration and shared helpers.
 def configure_logging(level: str) -> None:
-    """Configure the module logger for CLI-style execution."""
-    logging.basicConfig(
-        level=getattr(logging, level.upper()),
-        format="%(levelname)s: %(message)s",
-    )
+    """Set the ``LDSC`` logger threshold for kernel-side execution.
+
+    Console and file routing is owned by the public workflow boundary
+    (``ldsc._logging`` / ``ldsc.cli``); the kernel only adjusts the level so
+    direct kernel invocation does not install a root console handler.
+    """
+    logging.getLogger("LDSC").setLevel(getattr(logging, level.upper()))
 
 
 def get_legacy_ld_module():

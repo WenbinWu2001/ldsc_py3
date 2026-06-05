@@ -181,6 +181,15 @@ class LoggingRefactorTest(unittest.TestCase):
                 pass
             self.assertEqual(_logging.last_workflow_log_path(), str(log_path))
 
+    def test_kernel_configure_logging_adds_no_root_handler(self):
+        from ldsc._kernel import ldscore
+
+        root_logger = logging.getLogger()
+        original = list(root_logger.handlers)
+        ldscore.configure_logging("INFO")
+        self.assertEqual(root_logger.handlers, original)
+        self.assertEqual(logging.getLogger("LDSC").level, logging.INFO)
+
     def test_package_exports_domain_error_hierarchy(self):
         import ldsc
         from ldsc.config import ConfigMismatchError

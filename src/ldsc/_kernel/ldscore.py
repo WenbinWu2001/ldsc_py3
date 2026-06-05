@@ -1482,6 +1482,56 @@ class SortedR2BlockReader:
             return self._empty_pair_rows()
         return pd.DataFrame({"i": i[keep], "j": j[keep], "R2": r2[keep]})
 
+    def _query_union_arrays(self, start: int, stop: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Return ``(i, j, r2)`` numpy arrays for retained-index window ``[start, stop)``.
+
+        Each selected decoded row group has ``i`` sorted ascending (the remap
+        preserves build order), so the window's rows are located by binary
+        search on ``i`` and only the slice with ``j`` in ``[start, stop)`` is
+        kept. Canonical artifacts are duplicate-free (parquet pair uniqueness +
+        the injective remap from ``build_index_remap``), so no deduplication is
+        performed.
+        """
+        start = max(0, int(start))
+        stop = min(int(stop), self.m)
+        if stop <= start:
+            return (
+                np.empty(0, dtype=np.int32),
+                np.empty(0, dtype=np.int32),
+                np.empty(0, dtype=np.float32),
+            )
+
+        parts_i: list[np.ndarray] = []
+        parts_j: list[np.ndarray] = []
+        parts_r2: list[np.ndarray] = []
+        for index in self._row_group_indices_for_index_window(start, stop):
+            group = self._get_decoded_row_group(index)
+            if group.i.size == 0:
+                continue
+            lo = int(np.searchsorted(group.i, start, side="left"))
+            hi = int(np.searchsorted(group.i, stop, side="left"))
+            if hi <= lo:
+                continue
+            gj = group.j[lo:hi]
+            keep = (gj >= start) & (gj < stop)
+            if not keep.any():
+                continue
+            parts_i.append(group.i[lo:hi][keep])
+            parts_j.append(gj[keep])
+            parts_r2.append(group.r2[lo:hi][keep])
+
+        if not parts_i:
+            return (
+                np.empty(0, dtype=np.int32),
+                np.empty(0, dtype=np.int32),
+                np.empty(0, dtype=np.float32),
+            )
+        return (
+            np.concatenate(parts_i),
+            np.concatenate(parts_j),
+            np.concatenate(parts_r2),
+        )
+
     def _deduplicate_pairs(self, pair_rows: pd.DataFrame, context: str) -> pd.DataFrame:
         """Drop duplicate unordered SNP pairs after verifying matching R2 values."""
         if len(pair_rows) == 0:

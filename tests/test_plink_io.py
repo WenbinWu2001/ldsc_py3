@@ -463,3 +463,37 @@ class IndexParquetRuntimeTest(unittest.TestCase):
         remap, retained_build_idx = ld.build_index_remap(full, retained, "rsid")
         np.testing.assert_array_equal(remap, [0, -1, 1])
         np.testing.assert_array_equal(retained_build_idx, [0, 2])
+
+    def test_query_union_arrays_returns_numpy_window_slice(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            snps = ["rs1", "rs2", "rs3", "rs4"]
+            bps = [100, 120, 140, 160]
+            panel = self._panel_meta(snps, bps)
+            pairs = [
+                {"i": 0, "j": 1, "R2": 0.4, "sign": "+"},
+                {"i": 0, "j": 2, "R2": 0.2, "sign": "+"},
+                {"i": 1, "j": 2, "R2": 0.6, "sign": "+"},
+                {"i": 2, "j": 3, "R2": 0.5, "sign": "+"},
+            ]
+            r2 = self._write_index_panel(tmpdir, panel, pairs, row_group_size=2)
+            reader = self._reader(r2, self._reader_meta(snps, bps))
+            i, j, values = reader._query_union_arrays(1, 3)  # window {1, 2}
+            self.assertEqual(i.dtype, np.dtype("int32"))
+            self.assertEqual(j.dtype, np.dtype("int32"))
+            self.assertEqual(values.dtype, np.dtype("float32"))
+            # Only the (1, 2) pair has both endpoints inside [1, 3).
+            self.assertEqual(sorted(zip(i.tolist(), j.tolist())), [(1, 2)])
+            np.testing.assert_allclose(values, [0.6], rtol=0, atol=2e-5)
+
+    def test_query_union_arrays_empty_window_returns_empty_arrays(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            snps = ["rs1", "rs2", "rs3"]
+            bps = [100, 120, 140]
+            panel = self._panel_meta(snps, bps)
+            pairs = [{"i": 0, "j": 1, "R2": 0.4, "sign": "+"}]
+            r2 = self._write_index_panel(tmpdir, panel, pairs, row_group_size=2)
+            reader = self._reader(r2, self._reader_meta(snps, bps))
+            i, j, values = reader._query_union_arrays(2, 2)  # empty window
+            self.assertEqual(i.size, 0)
+            self.assertEqual(j.size, 0)
+            self.assertEqual(values.size, 0)

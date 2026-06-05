@@ -239,3 +239,47 @@ def test_init_worker_respects_user_blas_env(monkeypatch):
     monkeypatch.setenv("OMP_NUM_THREADS", "4")
     _init_worker(regression_snps=None, log_level="WARNING")
     assert os.environ["OMP_NUM_THREADS"] == "4"
+
+
+# --- Task 5: sequential-vs-pool equivalence ---------------------------------
+
+
+def test_run_chromosomes_dispatch_exists():
+    # Guards that the sequential-vs-pool dispatch seam exists, so the equivalence
+    # test below actually exercises the pool path rather than passing trivially.
+    from ldsc.ldscore_calculator import LDScoreCalculator
+
+    assert hasattr(LDScoreCalculator, "_run_chromosomes")
+
+
+def test_pool_path_executes_for_multiple_workers(run_minimal_ldscore, monkeypatch):
+    # Confirm a ProcessPoolExecutor is actually constructed when worker_count>1.
+    import ldsc.ldscore_calculator as mod
+
+    calls = {"n": 0}
+    real_executor = mod.ProcessPoolExecutor
+
+    def _spy(*args, **kwargs):
+        calls["n"] += 1
+        return real_executor(*args, **kwargs)
+
+    monkeypatch.setattr(mod, "ProcessPoolExecutor", _spy)
+    run_minimal_ldscore(num_workers=2, out_subdir="pool_spy")
+    assert calls["n"] == 1
+
+
+def test_parallel_output_matches_sequential(run_minimal_ldscore):
+    seq = run_minimal_ldscore(num_workers=1, out_subdir="seq")
+    par = run_minimal_ldscore(num_workers=3, out_subdir="par")
+    seq_base = pd.read_parquet(seq / "ldscore.baseline.parquet")
+    par_base = pd.read_parquet(par / "ldscore.baseline.parquet")
+    pd.testing.assert_frame_equal(seq_base, par_base)
+
+
+def test_parallel_run_is_deterministic(run_minimal_ldscore):
+    a = run_minimal_ldscore(num_workers=3, out_subdir="a")
+    b = run_minimal_ldscore(num_workers=3, out_subdir="b")
+    pd.testing.assert_frame_equal(
+        pd.read_parquet(a / "ldscore.baseline.parquet"),
+        pd.read_parquet(b / "ldscore.baseline.parquet"),
+    )

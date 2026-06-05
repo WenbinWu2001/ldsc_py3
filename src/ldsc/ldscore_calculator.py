@@ -347,23 +347,23 @@ class LDScoreCalculator:
             )
         chromosomes = _chromosomes_from_bundle(annotation_bundle)
         LOGGER.info(_format_ldscore_start_message(annotation_bundle, len(chromosomes)))
+        worker_count = _resolve_worker_count(ldscore_config.num_workers, len(chromosomes))
+        outcomes = self._run_chromosomes(
+            chromosomes=chromosomes,
+            annotation_bundle=annotation_bundle,
+            ref_panel=ref_panel,
+            ldscore_config=ldscore_config,
+            global_config=global_config,
+            regression_snps=regression_snps,
+            worker_count=worker_count,
+        )
         chromosome_results: list[ChromLDScoreResult] = []
         for chrom in chromosomes:
-            chrom_bundle = _slice_annotation_bundle(annotation_bundle, chrom)
-            try:
-                chromosome_result = self.compute_chromosome(
-                    chrom=chrom,
-                    annotation_bundle=chrom_bundle,
-                    ref_panel=ref_panel,
-                    ldscore_config=ldscore_config,
-                    global_config=global_config,
-                    regression_snps=regression_snps,
-                )
-            except (ValueError, LDSCInputError) as exc:
-                if _warn_and_skip_empty_intersection(exc, chrom):
-                    continue
-                raise
-            chromosome_results.append(chromosome_result)
+            outcome = outcomes[chrom]
+            if outcome.skipped:
+                warnings.warn(f"Skipping chromosome {chrom}: {outcome.skip_message}", UserWarning, stacklevel=2)
+                continue
+            chromosome_results.append(outcome.result)
         if not chromosome_results:
             raise LDSCInputError(
                 "ldscore could not compute any chromosome results after intersecting annotations "
@@ -387,6 +387,80 @@ class LDScoreCalculator:
             f"and {len(result.baseline_table)} retained SNP rows."
         )
         return result
+
+    def _run_chromosomes(
+        self,
+        chromosomes,
+        annotation_bundle,
+        ref_panel,
+        ldscore_config: LDScoreConfig,
+        global_config: GlobalConfig,
+        regression_snps,
+        worker_count: int,
+    ) -> dict[str, _ChromOutcome]:
+        """Compute every chromosome, sequentially or via a spawn process pool.
+
+        Returns outcomes keyed by chromosome. ``worker_count == 1`` runs inline
+        on this calculator and the passed ``ref_panel`` (the exact pre-parallel
+        path); larger counts fan out over a spawn ``ProcessPoolExecutor`` whose
+        workers rebuild the panel from ``ref_panel.spec`` because a live reader
+        cannot cross the process boundary. Callers re-order by the original
+        chromosome list for deterministic aggregation, so completion order does
+        not matter.
+        """
+        if worker_count == 1:
+            outcomes: dict[str, _ChromOutcome] = {}
+            for chrom in chromosomes:
+                chrom_bundle = _slice_annotation_bundle(annotation_bundle, chrom)
+                try:
+                    result = self.compute_chromosome(
+                        chrom=chrom,
+                        annotation_bundle=chrom_bundle,
+                        ref_panel=ref_panel,
+                        ldscore_config=ldscore_config,
+                        global_config=global_config,
+                        regression_snps=regression_snps,
+                    )
+                except (ValueError, LDSCInputError) as exc:
+                    if _is_empty_intersection(exc, chrom):
+                        outcomes[chrom] = _ChromOutcome(chrom=chrom, result=None, skipped=True, skip_message=str(exc))
+                        continue
+                    raise
+                outcomes[chrom] = _ChromOutcome(chrom=chrom, result=result, skipped=False)
+            return outcomes
+
+        ref_panel_spec = ref_panel.spec
+        ctx = mp.get_context("spawn")
+        outcomes = {}
+        with ProcessPoolExecutor(
+            max_workers=worker_count,
+            mp_context=ctx,
+            initializer=_init_worker,
+            initargs=(regression_snps, global_config.log_level),
+        ) as pool:
+            futures = {
+                pool.submit(
+                    _compute_one_chromosome,
+                    chrom,
+                    _slice_annotation_bundle(annotation_bundle, chrom),
+                    ref_panel_spec,
+                    ldscore_config,
+                    global_config,
+                ): chrom
+                for chrom in chromosomes
+            }
+            try:
+                for future in futures:
+                    outcome = future.result()
+                    outcomes[outcome.chrom] = outcome
+            except mp.ProcessError as exc:  # BrokenProcessPool subclasses this
+                raise LDSCInternalError(
+                    "ldscore parallel chromosome computation aborted: a worker process "
+                    "crashed (most likely out-of-memory or a native library fault). "
+                    "Re-run with a lower `--num-workers`, or `--num-workers 1` to isolate "
+                    "the failing chromosome."
+                ) from exc
+        return outcomes
 
     def compute_chromosome(
         self,

@@ -1287,17 +1287,6 @@ class SortedR2BlockReader:
             values = np.minimum(values, np.float32(1.0))
         return values
 
-    @staticmethod
-    def _empty_pair_rows() -> pd.DataFrame:
-        """Return an empty numeric pair-row table."""
-        return pd.DataFrame(
-            {
-                "i": pd.Series([], dtype=np.int64),
-                "j": pd.Series([], dtype=np.int64),
-                "R2": pd.Series([], dtype=np.float32),
-            }
-        )
-
     def _row_group_indices_for_index_window(self, start: int, stop: int) -> list[int]:
         """Return row groups whose IDX_1 footer bounds overlap a retained-SNP index window."""
         start = max(0, int(start))
@@ -1458,30 +1447,6 @@ class SortedR2BlockReader:
             cache.put(decoded)
         return decoded
 
-    def _query_union_rows_canonical_by_index(self, start: int, stop: int) -> pd.DataFrame:
-        """Query numeric pair rows spanning a retained-SNP index window."""
-        start = max(0, int(start))
-        stop = min(int(stop), self.m)
-        if stop <= start:
-            return self._empty_pair_rows()
-
-        rg_idxs = self._row_group_indices_for_index_window(start, stop)
-        if not rg_idxs:
-            return self._empty_pair_rows()
-
-        decoded = [self._get_decoded_row_group(index) for index in rg_idxs]
-        nonempty = [entry for entry in decoded if len(entry.i) > 0]
-        if not nonempty:
-            return self._empty_pair_rows()
-
-        i = np.concatenate([entry.i for entry in nonempty]).astype(np.int64, copy=False)
-        j = np.concatenate([entry.j for entry in nonempty]).astype(np.int64, copy=False)
-        r2 = np.concatenate([entry.r2 for entry in nonempty]).astype(np.float32, copy=False)
-        keep = (start <= i) & (i < stop) & (start <= j) & (j < stop)
-        if not keep.any():
-            return self._empty_pair_rows()
-        return pd.DataFrame({"i": i[keep], "j": j[keep], "R2": r2[keep]})
-
     def _query_union_arrays(self, start: int, stop: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Return ``(i, j, r2)`` numpy arrays for retained-index window ``[start, stop)``.
 
@@ -1532,29 +1497,6 @@ class SortedR2BlockReader:
             np.concatenate(parts_r2),
         )
 
-    def _deduplicate_pairs(self, pair_rows: pd.DataFrame, context: str) -> pd.DataFrame:
-        """Drop duplicate unordered SNP pairs after verifying matching R2 values."""
-        if len(pair_rows) == 0:
-            return pair_rows
-        pair_rows = pair_rows.copy()
-        pair_rows["lo"] = np.minimum(pair_rows["i"], pair_rows["j"])
-        pair_rows["hi"] = np.maximum(pair_rows["i"], pair_rows["j"])
-        duplicated = pair_rows.duplicated(subset=["lo", "hi"], keep=False)
-        if not duplicated.any():
-            return pair_rows
-
-        dup_df = pair_rows.loc[duplicated, ["lo", "hi", "R2"]]
-        nunique = dup_df.groupby(["lo", "hi"], dropna=False)["R2"].nunique(dropna=False)
-        if (nunique > 1).any():
-            raise LDSCInputError(
-                f"ldscore could not use parquet R2 pair rows in {context}: duplicate "
-                "unordered SNP pairs have conflicting R2 values. Most likely the R2 "
-                "parquet was generated from inconsistent duplicate pair records. "
-                "Regenerate the reference panel from a deduplicated source. "
-                f"Other causes & fixes: {_LDSCORE_PARQUET_DOC}"
-            )
-        return pair_rows.drop_duplicates(subset=["lo", "hi"], keep="first").reset_index(drop=True)
-
     def cross_block_matrix(self, l_A: int, b: int, l_B: int, c: int) -> np.ndarray:
         """Build the dense cross-block R2 matrix used by the parquet backend."""
         if b <= 0 or c <= 0:
@@ -1562,20 +1504,10 @@ class SortedR2BlockReader:
 
         a_start, a_stop = l_A, l_A + b
         b_start, b_stop = l_B, l_B + c
-        union_start = min(a_start, b_start)
-        union_stop = max(a_stop, b_stop)
-        query_rows = self._query_union_rows_canonical_by_index(union_start, union_stop)
-        rows = self._deduplicate_pairs(
-            query_rows,
-            context=f"cross-block query {self.chrom}:{l_A}:{b}:{l_B}:{c}",
-        )
+        i, j, values = self._query_union_arrays(min(a_start, b_start), max(a_stop, b_stop))
 
         matrix = np.zeros((b, c), dtype=np.float32)
-        if len(rows) > 0:
-            i = rows["i"].to_numpy(dtype=np.int64)
-            j = rows["j"].to_numpy(dtype=np.int64)
-            values = rows["R2"].to_numpy(dtype=np.float32)
-
+        if i.size > 0:
             left_i = (a_start <= i) & (i < a_stop) & (b_start <= j) & (j < b_stop)
             if left_i.any():
                 matrix[i[left_i] - a_start, j[left_i] - b_start] = values[left_i]
@@ -1597,24 +1529,15 @@ class SortedR2BlockReader:
             return np.zeros((0, 0), dtype=np.float32)
 
         b_start, b_stop = l_B, l_B + c
-        query_rows = self._query_union_rows_canonical_by_index(b_start, b_stop)
-        rows = self._deduplicate_pairs(
-            query_rows,
-            context=f"within-block query {self.chrom}:{l_B}:{c}",
-        )
+        # _query_union_arrays already restricts both endpoints to [b_start, b_stop).
+        i, j, values = self._query_union_arrays(b_start, b_stop)
 
         matrix = np.zeros((c, c), dtype=np.float32)
-        if len(rows) > 0:
-            i = rows["i"].to_numpy(dtype=np.int64)
-            j = rows["j"].to_numpy(dtype=np.int64)
-            values = rows["R2"].to_numpy(dtype=np.float32)
-            keep = (b_start <= i) & (i < b_stop) & (b_start <= j) & (j < b_stop)
-            if keep.any():
-                i = i[keep] - b_start
-                j = j[keep] - b_start
-                values = values[keep]
-                matrix[i, j] = values
-                matrix[j, i] = values
+        if i.size > 0:
+            ii = i - b_start
+            jj = j - b_start
+            matrix[ii, jj] = values
+            matrix[jj, ii] = values
 
         np.fill_diagonal(matrix, 1.0)
         return matrix

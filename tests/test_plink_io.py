@@ -348,9 +348,9 @@ class IndexParquetRuntimeTest(unittest.TestCase):
                 return original_read_row_group(index, **kwargs)
 
             reader._pf.read_row_group = mock_read_row_group
-            rows = reader._query_union_rows_canonical_by_index(0, 3)
+            i, j, r2 = reader._query_union_arrays(0, 3)
             self.assertEqual(sorted(set(rg_idxs_used)), [0])
-            self.assertEqual(len(rows), 2)
+            self.assertEqual(i.size, 2)
 
     def test_auto_row_group_cache_capacity_uses_adjacent_query_union(self):
         reader = object.__new__(ld.SortedR2BlockReader)
@@ -484,6 +484,25 @@ class IndexParquetRuntimeTest(unittest.TestCase):
             # Only the (1, 2) pair has both endpoints inside [1, 3).
             self.assertEqual(sorted(zip(i.tolist(), j.tolist())), [(1, 2)])
             np.testing.assert_allclose(values, [0.6], rtol=0, atol=2e-5)
+
+    def test_index_cross_block_matrix_correctness(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            snps = ["rs1", "rs2", "rs3", "rs4"]
+            bps = [100, 120, 140, 160]
+            panel = self._panel_meta(snps, bps)
+            pairs = [
+                {"i": 0, "j": 1, "R2": 0.4, "sign": "+"},
+                {"i": 0, "j": 2, "R2": 0.2, "sign": "+"},
+                {"i": 1, "j": 2, "R2": 0.6, "sign": "+"},
+                {"i": 2, "j": 3, "R2": 0.5, "sign": "+"},
+            ]
+            r2 = self._write_index_panel(tmpdir, panel, pairs, row_group_size=2)
+            reader = self._reader(r2, self._reader_meta(snps, bps))
+            # Block A = rows [0, 2), Block B = rows [2, 4): cross R2 of A×B.
+            matrix = reader.cross_block_matrix(l_A=0, b=2, l_B=2, c=2)
+            expected = np.array([[0.2, 0.0], [0.6, 0.0]], dtype=np.float32)
+            self.assertEqual(matrix.dtype, np.dtype("float32"))
+            np.testing.assert_allclose(matrix, expected, rtol=0, atol=2e-5)
 
     def test_query_union_arrays_empty_window_returns_empty_arrays(self):
         with tempfile.TemporaryDirectory() as tmpdir:

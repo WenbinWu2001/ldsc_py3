@@ -22,6 +22,12 @@ import sys
 from typing import Sequence
 
 from . import annotation_builder, ldscore_calculator, ref_panel_builder
+from ._logging import (
+    install_cli_console_handler,
+    last_workflow_log_path,
+    remove_cli_console_handler,
+    reset_workflow_log_path,
+)
 from .errors import LDSCError, LDSCUsageError, LDSCUserError
 
 LOGGER = logging.getLogger("LDSC.cli")
@@ -163,8 +169,10 @@ def main(argv: Sequence[str] | None = None):
 
 def run_cli(argv: Sequence[str] | None = None) -> int:
     """Run the CLI with a clean user-error boundary and traceback logging."""
-    if argv is None:
-        logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    cli_mode = argv is None
+    if cli_mode:
+        reset_workflow_log_path()
+        install_cli_console_handler()
     try:
         main(argv)
     except SystemExit as exc:
@@ -178,12 +186,22 @@ def run_cli(argv: Sequence[str] | None = None) -> int:
         LOGGER.error(f"Error: {exc}")
         return 1
     except LDSCError as exc:
-        LOGGER.exception(f"Internal LDSC error while running ldsc: {exc}")
+        _log_internal_error(exc)
         return 2
     except Exception as exc:
-        LOGGER.exception(f"Internal error while running ldsc: {exc}")
+        _log_internal_error(exc)
         return 2
+    finally:
+        if cli_mode:
+            remove_cli_console_handler()
     return 0
+
+
+def _log_internal_error(exc: BaseException) -> None:
+    """Emit a concise internal-error line; full traceback is in the run log file."""
+    log_path = last_workflow_log_path()
+    pointer = f" See {log_path} for the full traceback." if log_path else ""
+    LOGGER.error(f"Internal error while running ldsc: {exc}.{pointer}")
 
 
 def _run_annotate(args: argparse.Namespace):

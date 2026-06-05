@@ -204,7 +204,7 @@ class LoggingRefactorTest(unittest.TestCase):
         self.assertIsNone(record.exc_info)
         self.assertIn("bad input", record.getMessage())
 
-    def test_run_cli_logs_unexpected_errors_with_traceback(self):
+    def test_run_cli_logs_unexpected_errors_concisely(self):
         from ldsc import cli
 
         with mock.patch.object(cli, "main", side_effect=RuntimeError("boom")):
@@ -215,7 +215,7 @@ class LoggingRefactorTest(unittest.TestCase):
         self.assertEqual(len(caught.records), 1)
         record = caught.records[0]
         self.assertEqual(record.levelname, "ERROR")
-        self.assertIs(record.exc_info[0], RuntimeError)
+        self.assertIsNone(record.exc_info)
         self.assertIn("Internal error while running ldsc", record.getMessage())
         self.assertIn("boom", record.getMessage())
 

@@ -19,6 +19,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from ldsc.config import ConfigMismatchError, GlobalConfig
+from ldsc.errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
 
 try:
     from ldsc import (
@@ -366,7 +367,7 @@ class R2AutoLoadCLITest(unittest.TestCase):
                 RefPanelConfig(backend="parquet_r2", r2_dir=str(root)),
             )
 
-            with self.assertRaisesRegex(ValueError, "No parquet metadata rows remain after SNP identity cleanup"):
+            with self.assertRaisesRegex(LDSCInputError, "retained no parquet metadata rows"):
                 panel.load_metadata("1")
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet schema coverage")
@@ -400,7 +401,7 @@ class R2AutoLoadCLITest(unittest.TestCase):
                 RefPanelConfig(backend="parquet_r2", r2_dir=str(root)),
             )
 
-            with self.assertRaisesRegex(ValueError, "non-unique SNP identifiers"):
+            with self.assertRaisesRegex(LDSCInputError, "non-unique SNP identifiers"):
                 panel.load_metadata("1")
 
 
@@ -510,7 +511,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             snp_batch_size=50,
         )
 
-        with self.assertRaisesRegex(ValueError, "--r2-sample-size is required"):
+        with self.assertRaisesRegex(LDSCUsageError, "raw R2 bias correction.*r2-sample-size"):
             ldscore_workflow._validate_run_args(args)
 
     def test_kernel_build_parser_defaults_r2_bias_mode_to_unbiased(self):
@@ -608,7 +609,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
     def test_run_ldscore_rejects_removed_parquet_input_kwargs(self):
         for name in ("r2_ref_panel_dir", "ref_panel_dir", "r2_sources", "metadata_sources", "chunk_size"):
             with self.subTest(name=name):
-                with self.assertRaisesRegex(ValueError, "no longer accepts"):
+                with self.assertRaisesRegex(LDSCUsageError, "removed IO argument"):
                     ldscore_workflow.run_ldscore(output_dir="out", **{name: "value"})
 
     def test_normalize_run_args_chr_pos_still_requires_genome_build(self):
@@ -625,7 +626,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             log_level="INFO",
         )
 
-        with self.assertRaisesRegex(ValueError, "genome_build is required"):
+        with self.assertRaisesRegex(LDSCUsageError, "chr_pos-family SNP identifiers.*genome build"):
             ldscore_workflow._normalize_run_args(args)
 
     def test_auto_genome_build_does_not_infer_from_r2_directory_name_without_parquet_metadata(self):
@@ -646,7 +647,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 log_level="INFO",
             )
 
-            with self.assertRaisesRegex(ValueError, "Cannot infer --genome-build"):
+            with self.assertRaisesRegex(LDSCInputError, "could not infer the genome build"):
                 ldscore_workflow._normalize_run_args(args)
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet schema coverage")
@@ -729,7 +730,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 log_level="INFO",
             )
 
-            with self.assertRaisesRegex(ValueError, "Conflicting R2 parquet genome-build metadata"):
+            with self.assertRaisesRegex(LDSCInputError, "conflicting R2 parquet genome-build metadata"):
                 ldscore_workflow._normalize_run_args(args)
 
     def make_chrom_result(self, chrom: str, bp: int, score: float, count: float):
@@ -908,7 +909,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             ]
         )
 
-        with self.assertRaisesRegex(ValueError, "regression_snps_file.*use_hm3_regression_snps"):
+        with self.assertRaisesRegex(LDSCUsageError, "two regression SNP restrictions"):
             ldscore_workflow._normalize_run_args(args)
 
     def test_ldscore_config_from_args_preserves_hm3_regression_flag(self):
@@ -1021,7 +1022,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             }
         )
 
-        with self.assertRaisesRegex(ValueError, "A1/A2"):
+        with self.assertRaisesRegex(LDSCInternalError, "A1/A2"):
             ldscore_workflow._split_ldscore_table(
                 ldscore_table,
                 baseline_columns=["base"],
@@ -1054,7 +1055,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with self.assertRaisesRegex(ValueError, "Annotation file has only one allele column"):
+            with self.assertRaisesRegex(LDSCInputError, "only one allele column"):
                 kernel_ldscore.parse_annotation_file(str(path))
 
     def test_kernel_combine_annotation_groups_aligns_allele_free_annotations_in_allele_aware_mode(self):
@@ -1827,7 +1828,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             log_level="INFO",
         )
 
-        with self.assertRaisesRegex(ValueError, "Query annotations require baseline annotations.*all-ones `base` baseline annotation"):
+        with self.assertRaisesRegex(LDSCUsageError, "query annotations without baseline annotations.*all-ones `base`"):
             ldscore_workflow.run_ldscore_from_args(args)
 
     def test_run_ldscore_from_args_rejects_query_bed_without_baseline(self):
@@ -1859,7 +1860,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             log_level="INFO",
         )
 
-        with self.assertRaisesRegex(ValueError, "Query annotations require baseline annotations.*all-ones `base` baseline annotation"):
+        with self.assertRaisesRegex(LDSCUsageError, "query annotations without baseline annotations.*all-ones `base`"):
             ldscore_workflow.run_ldscore_from_args(args)
 
     def test_run_ldscore_from_args_loads_regression_snps_and_writes_filtered_ldscore(self):
@@ -2172,7 +2173,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 log_level="INFO",
             )
 
-            with self.assertRaisesRegex(ValueError, "Cannot infer --genome-build"):
+            with self.assertRaisesRegex(LDSCInputError, "could not infer the genome build"):
                 ldscore_workflow._normalize_run_args(args)
 
     def test_normalize_run_args_rsid_concrete_genome_build_warns_and_nulls(self):
@@ -2226,7 +2227,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 "resolve_genome_build",
                 return_value="hg19",
             ):
-                with self.assertRaisesRegex(ValueError, "genome build.*disagree"):
+                with self.assertRaisesRegex(LDSCInputError, "conflicting genome-build evidence"):
                     ldscore_workflow._normalize_run_args(args)
 
     def test_run_ldscore_from_args_rejects_keep_in_parquet_mode(self):
@@ -2259,7 +2260,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             log_level="INFO",
         )
 
-        with self.assertRaisesRegex(ValueError, "--keep-indivs-file.*PLINK"):
+        with self.assertRaisesRegex(LDSCUsageError, "keep-indivs-file.*parquet R2 mode"):
             ldscore_workflow.run_ldscore_from_args(args)
 
     def test_run_ldscore_from_args_warns_and_skips_empty_intersection_chromosome(self):
@@ -2498,7 +2499,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         )
 
         with mock.patch.object(ldscore_workflow.kernel_ldscore, "compute_chrom_from_parquet") as patched_compute:
-            with self.assertRaisesRegex(ValueError, "No retained annotation SNPs remain"):
+            with self.assertRaisesRegex(LDSCInputError, "retained no annotation SNPs"):
                 ldscore_workflow.LDScoreCalculator().compute_chromosome(
                     chrom="1",
                     annotation_bundle=annotation_bundle,
@@ -2549,7 +2550,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
         )
 
         with mock.patch.object(ldscore_workflow.kernel_ldscore, "compute_chrom_from_parquet") as patched_compute:
-            with self.assertRaisesRegex(ValueError, "No retained annotation SNPs remain"):
+            with self.assertRaisesRegex(LDSCInputError, "retained no annotation SNPs"):
                 ldscore_workflow.LDScoreCalculator().compute_chromosome(
                     chrom="1",
                     annotation_bundle=annotation_bundle,
@@ -2971,9 +2972,9 @@ class IndexBindingTest(unittest.TestCase):
             meta, df = self._sidecar(tmp)
             good = sidecar_identity_sha256(df)
             ls._validate_index_binding(df, n_snps=3, identity_hash=good, context="t")  # no raise
-            with self.assertRaisesRegex(ValueError, "identity hash"):
+            with self.assertRaisesRegex(LDSCInputError, "identity hash"):
                 ls._validate_index_binding(df, n_snps=3, identity_hash="0" * 64, context="t")
-            with self.assertRaisesRegex(ValueError, "n_snps"):
+            with self.assertRaisesRegex(LDSCInputError, "n_snps"):
                 ls._validate_index_binding(df, n_snps=999, identity_hash=good, context="t")
 
 
@@ -3108,7 +3109,7 @@ class RawSchemaRejectedTest(unittest.TestCase):
             path = Path(tmp) / "chr1_r2.parquet"
             _write_legacy_r2_parquet(path)  # writes old 10-col canonical schema
             meta = pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["a"], "A1": ["A"], "A2": ["G"]})
-            with self.assertRaisesRegex(ValueError, "index-format|build-ref-panel"):
+            with self.assertRaisesRegex(LDSCInputError, "index-format|build-ref-panel"):
                 SortedR2BlockReader(paths=[str(path)], chrom="1", metadata=meta,
                                     identifier_mode="chr_pos", r2_bias_mode="unbiased",
                                     r2_sample_size=None, genome_build="hg19")

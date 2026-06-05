@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 
 from ..chromosome_inference import chrom_sort_key, normalize_chromosome
-from ..errors import LDSCDependencyError
+from ..errors import LDSCDependencyError, LDSCInputError, LDSCInternalError
 from ..path_resolution import ensure_output_parent_directory, resolve_scalar_path
 
 
@@ -39,7 +39,9 @@ def _get_pybedtools():
         import pybedtools
     except ImportError as exc:  # pragma: no cover - dependency check
         raise LDSCDependencyError(
-            "pybedtools is required for BED-based annotation projection. Install pybedtools and bedtools, then retry."
+            "annotate could not project BED intervals because pybedtools is not installed. "
+            "Most likely BED-based annotation projection was requested in an environment missing "
+            "pybedtools or the bedtools binary. Install pybedtools and bedtools, then retry."
         ) from exc
     return pybedtools
 
@@ -88,7 +90,11 @@ def _write_baseline_bed(rows: Sequence[_BaselineRow], path: Path) -> Path:
         for row in rows:
             start = row.pos - 1
             if start < 0:
-                raise ValueError(f"Invalid POS={row.pos} for SNP {row.snp} in baseline template.")
+                raise LDSCInputError(
+                    f"annotate could not project BED annotations because baseline SNP {row.snp} has invalid POS={row.pos}. "
+                    "Most likely the baseline annotation file has non-positive genomic positions. "
+                    "Regenerate the baseline annotation file with 1-based positive POS values."
+                )
             handle.write(f"{_to_bed_chromosome(row.chrom)}\t{start}\t{row.pos}\t{row.snp}\n")
     return path
 
@@ -103,7 +109,11 @@ def _write_normalized_bed(in_path: Path, out_path: Path) -> Path:
                     continue
                 fields = _split_delimited_line(line, None)
                 if len(fields) < 3:
-                    raise ValueError(f"BED file {in_path} has a row with fewer than three columns: {line!r}")
+                    raise LDSCInputError(
+                        f"annotate could not normalize BED file '{in_path}': row has fewer than three columns: {line!r}. "
+                        "Most likely the BED file is malformed or uses the wrong delimiter. "
+                        "Provide a valid BED file with chrom, start, and end columns."
+                    )
                 chrom = _to_bed_chromosome(fields[0])
                 dst.write("\t".join([chrom] + fields[1:]) + "\n")
     return out_path
@@ -114,24 +124,36 @@ def _validate_and_convert_intersection(results, baseline_rows: Sequence[_Baselin
     mask: list[bool] = []
     for idx, feature in enumerate(results):
         if idx >= len(baseline_rows):
-            raise ValueError("Intersection returned more rows than the baseline SNP template.")
+            raise LDSCInternalError(
+                "annotate BED projection returned more intersection rows than baseline SNPs. "
+                "Most likely the BED intersection backend changed row cardinality unexpectedly. "
+                "Re-run with `--log-level DEBUG` and report the traceback."
+            )
         row = baseline_rows[idx]
         fields = feature.fields
         overlap_count = int(fields[-1])
         if fields[3] != row.snp:
-            raise ValueError(
-                f"Intersection row order mismatch at index {idx}: expected SNP {row.snp}, got {fields[3]}"
+            raise LDSCInternalError(
+                f"annotate BED projection row order mismatch at index {idx}: expected SNP {row.snp}, got {fields[3]}. "
+                "Most likely the BED intersection output no longer matches the baseline template order. "
+                "Re-run with `--log-level DEBUG` and report the traceback."
             )
         if sanity_mode == "chr_pos":
             feature_chr = _to_bed_chromosome(fields[0])
             feature_pos = int(fields[2])
             if feature_chr != _to_bed_chromosome(row.chrom) or feature_pos != row.pos:
-                raise ValueError(
-                    f"Intersection coordinate mismatch at index {idx}: expected ({row.chrom}, {row.pos}), got ({fields[0]}, {fields[2]})"
+                raise LDSCInternalError(
+                    f"annotate BED projection coordinate mismatch at index {idx}: expected ({row.chrom}, {row.pos}), got ({fields[0]}, {fields[2]}). "
+                    "Most likely the BED intersection output desynchronized from the baseline SNP template. "
+                    "Re-run with `--log-level DEBUG` and report the traceback."
                 )
         mask.append(overlap_count > 0)
     if len(mask) != len(baseline_rows):
-        raise ValueError(f"Intersection returned {len(mask)} rows for a baseline template with {len(baseline_rows)} rows.")
+        raise LDSCInternalError(
+            f"annotate BED projection returned {len(mask)} rows for {len(baseline_rows)} baseline SNPs. "
+            "Most likely the BED intersection output omitted or added template rows. "
+            "Re-run with `--log-level DEBUG` and report the traceback."
+        )
     return mask
 
 

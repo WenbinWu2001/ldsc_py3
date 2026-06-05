@@ -10,6 +10,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from ldsc._kernel._irwls import IRWLS
+from ldsc.errors import LDSCInternalError
 
 
 class TestIRWLS2D(unittest.TestCase):
@@ -52,7 +53,7 @@ class TestIRWLS1D(unittest.TestCase):
 
     def test_neg_weight(self):
         self.w *= 0
-        with self.assertRaises(ValueError):
+        with self.assertRaises(LDSCInternalError):
             IRWLS._weight(self.x, self.w)
 
     def test_wls_1d(self):

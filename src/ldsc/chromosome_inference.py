@@ -8,6 +8,8 @@ import re
 
 import pandas as pd
 
+from .errors import LDSCInputError
+
 
 LOGGER = logging.getLogger("LDSC.chromosomes")
 _LOGGED_NORMALIZATIONS: set[tuple[str, str, str, str]] = set()
@@ -44,15 +46,17 @@ def _normalize_numeric_chromosome(raw: str, text: str, *, context: str | None) -
     try:
         number = float(text)
     except ValueError as exc:
-        raise ValueError(
-            f"Unsupported chromosome label {text!r}. Allowed chromosome labels are "
-            "1-22, X, Y, M, and MT."
+        raise LDSCInputError(
+            f"Unsupported chromosome label {text!r}. "
+            "Most likely the CHR column contains contigs or non-standard labels. "
+            "Use chromosome labels 1-22, X, Y, M, or MT."
         ) from exc
 
     if not math.isfinite(number) or not number.is_integer():
-        raise ValueError(
-            f"Unsupported chromosome label {text!r}. Allowed chromosome labels are "
-            "1-22, X, Y, M, and MT."
+        raise LDSCInputError(
+            f"Unsupported chromosome label {text!r}. "
+            "Most likely the CHR column contains a non-integer numeric token. "
+            "Use chromosome labels 1-22, X, Y, M, or MT."
         )
 
     integer = int(number)
@@ -67,14 +71,16 @@ def _normalize_numeric_chromosome(raw: str, text: str, *, context: str | None) -
         _log_normalization(raw=raw, canonical=canonical, context=context, kind="sex_code")
         return canonical
     elif integer in {25, 26}:
-        raise ValueError(
-            f"Numeric chromosome code {text!r} is not supported. If you mean a mitochondrial "
-            "chromosome, encode it explicitly as 'M' or 'MT'."
+        raise LDSCInputError(
+            f"Numeric chromosome code {text!r} is not supported. "
+            "Most likely a mitochondrial chromosome was encoded as a numeric code. "
+            "Encode mitochondrial chromosomes explicitly as 'M' or 'MT'."
         )
     else:
-        raise ValueError(
-            f"Unsupported chromosome label {text!r}. Allowed chromosome labels are "
-            "1-22, X, Y, M, and MT."
+        raise LDSCInputError(
+            f"Unsupported chromosome label {text!r}. "
+            "Most likely the CHR column contains contigs or chromosomes outside LDSC's supported set. "
+            "Use chromosome labels 1-22, X, Y, M, or MT."
         )
 
     if raw != canonical:
@@ -86,11 +92,19 @@ def normalize_chromosome(value: object, *, context: str | None = None) -> str:
     """Normalize one raw chromosome token into the package-wide canonical set."""
     raw = str(value).strip()
     if not raw:
-        raise ValueError("Encountered an empty chromosome label.")
+        raise LDSCInputError(
+            "Encountered an empty chromosome label. "
+            "Most likely the CHR column contains blank values. "
+            "Fill or remove rows with missing chromosome labels."
+        )
 
     stripped = re.sub(r"^chr", "", raw, flags=re.IGNORECASE).strip()
     if not stripped:
-        raise ValueError(f"Encountered an empty chromosome label after removing the 'chr' prefix from {raw!r}.")
+        raise LDSCInputError(
+            f"Encountered an empty chromosome label after removing the 'chr' prefix from {raw!r}. "
+            "Most likely the CHR column contains only a prefix without a chromosome value. "
+            "Use chromosome labels 1-22, X, Y, M, or MT."
+        )
 
     upper = stripped.upper()
     if upper in {"X", "Y", "M", "MT"}:

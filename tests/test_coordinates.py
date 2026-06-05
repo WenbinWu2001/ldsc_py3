@@ -16,6 +16,7 @@ from ldsc._coordinates import (
     coordinate_missing_mask,
     normalize_chr_pos_frame,
 )
+from ldsc.errors import LDSCConfigError, LDSCInputError
 
 
 class CoordinateHelperTest(unittest.TestCase):
@@ -56,20 +57,31 @@ class CoordinateHelperTest(unittest.TestCase):
 
     def test_normalize_chr_pos_frame_strict_policy_errors_on_invalid_or_missing_coordinates(self):
         missing = pd.DataFrame({"CHR": ["1"], "POS": [pd.NA]})
-        with self.assertRaisesRegex(ValueError, "requires valid CHR/POS coordinates"):
+        with self.assertRaisesRegex(LDSCInputError, "requires valid CHR/POS coordinates"):
             normalize_chr_pos_frame(missing, context="missing POS", coordinate_policy="raise")
 
         bad_pos = pd.DataFrame({"CHR": ["1"], "POS": ["abc"]})
-        with self.assertRaisesRegex(ValueError, "POS values in bad POS must be numeric"):
+        with self.assertRaisesRegex(LDSCInputError, "POS values in bad POS must be numeric"):
             normalize_chr_pos_frame(bad_pos, context="bad POS", coordinate_policy="raise")
 
         zero_pos = pd.DataFrame({"CHR": ["1"], "POS": [0]})
-        with self.assertRaisesRegex(ValueError, "positive"):
+        with self.assertRaisesRegex(LDSCInputError, "positive"):
             normalize_chr_pos_frame(zero_pos, context="zero POS", coordinate_policy="raise")
 
         bad_chr = pd.DataFrame({"CHR": ["foo"], "POS": [10]})
-        with self.assertRaisesRegex(ValueError, "Unsupported chromosome label"):
+        with self.assertRaisesRegex(LDSCInputError, "Unsupported chromosome label"):
             normalize_chr_pos_frame(bad_chr, context="bad CHR", coordinate_policy="raise")
+
+    def test_normalize_chr_pos_frame_rejects_unknown_coordinate_policy_as_config_error(self):
+        frame = pd.DataFrame({"CHR": ["1"], "POS": [10]})
+
+        with self.assertRaises(LDSCConfigError) as ctx:
+            normalize_chr_pos_frame(frame, context="policy test", coordinate_policy="discard")
+
+        message = str(ctx.exception)
+        self.assertIn("Could not normalize CHR/POS coordinates for policy test", message)
+        self.assertIn("Most likely", message)
+        self.assertIn("Use coordinate_policy='drop' or coordinate_policy='raise'", message)
 
     def test_build_chr_pos_key_frame_adds_canonical_key_after_drop(self):
         frame = pd.DataFrame({"CHR": ["chr1", pd.NA, "2"], "POS": [10, 20, 30], "value": [1, 2, 3]})

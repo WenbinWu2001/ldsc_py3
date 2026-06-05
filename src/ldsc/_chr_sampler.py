@@ -9,6 +9,7 @@ from pathlib import Path
 import pandas as pd
 
 from .column_inference import infer_chr_pos_columns
+from .errors import LDSCInputError
 from .path_resolution import substitute_chromosome
 
 
@@ -37,16 +38,19 @@ def sample_frame_from_chr_pattern(
             return frame.loc[:, [chr_col, pos_col]].rename(columns={chr_col: "CHR", pos_col: "POS"}), path
 
     if not saw_suite_token:
-        raise ValueError(
+        raise LDSCInputError(
             f"Cannot infer --genome-build for {context}: at least one input path token must contain '@' "
-            "so a chromosome-specific sample can be read."
+            "so a chromosome-specific sample can be read. Most likely `--genome-build auto` was used "
+            "with whole-genome inputs. Pass `--genome-build hg19` or `--genome-build hg38`, or use "
+            "an explicit '@' chromosome-suite token."
         )
     attempted_text = ", ".join(attempted[:5])
     if len(attempted) > 5:
         attempted_text += ", ..."
-    raise FileNotFoundError(
+    raise LDSCInputError(
         f"Cannot infer --genome-build for {context}: no chromosome sample file exists for the provided "
-        f"'@' token(s). Tried: {attempted_text}"
+        f"'@' token(s). Tried: {attempted_text}. Most likely the token points at the wrong directory "
+        "or chromosome naming convention. Fix the path token or pass an explicit genome build."
     )
 
 

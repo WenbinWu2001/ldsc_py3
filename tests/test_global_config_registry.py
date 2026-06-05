@@ -15,6 +15,7 @@ if str(SRC) not in sys.path:
 import ldsc
 from ldsc import GlobalConfig, set_global_config, reset_global_config
 from ldsc.config import ConfigMismatchError, validate_config_compatibility
+from ldsc.errors import LDSCUsageError
 from ldsc import annotation_builder, ldscore_calculator, ref_panel_builder, regression_runner
 from ldsc.ldscore_calculator import LDScoreResult
 from ldsc.ref_panel_builder import ReferencePanelBuildConfig, ReferencePanelBuilder
@@ -91,7 +92,7 @@ class GlobalConfigRegistryTest(unittest.TestCase):
         self.assertEqual(config.genome_build, "auto")
 
     def test_chr_pos_requires_genome_build_fix_it(self):
-        with self.assertRaisesRegex(ValueError, "Pass genome_build='auto'"):
+        with self.assertRaisesRegex(ldsc.LDSCConfigError, "Pass genome_build='auto'"):
             GlobalConfig(snp_identifier="chr_pos", genome_build=None)
 
     def test_rsid_default_keeps_genome_build_none(self):
@@ -173,7 +174,7 @@ class GlobalConfigRegistryTest(unittest.TestCase):
                 )
 
     def test_run_ldscore_rejects_removed_shared_kwargs(self):
-        with self.assertRaisesRegex(ValueError, "set_global_config"):
+        with self.assertRaisesRegex(LDSCUsageError, "set_global_config"):
             ldscore_calculator.run_ldscore(
                 output_dir="results/example",
                 baseline_annot_sources="baseline.annot.gz",
@@ -183,7 +184,7 @@ class GlobalConfigRegistryTest(unittest.TestCase):
             )
 
     def test_run_ldscore_rejects_retired_io_kwargs(self):
-        with self.assertRaisesRegex(ValueError, "baseline_annot_paths"):
+        with self.assertRaisesRegex(LDSCUsageError, "baseline_annot_paths"):
             ldscore_calculator.run_ldscore(
                 output_dir="results/example",
                 baseline_annot_paths="baseline.annot.gz",
@@ -192,7 +193,7 @@ class GlobalConfigRegistryTest(unittest.TestCase):
             )
 
     def test_run_build_ref_panel_rejects_removed_shared_kwargs(self):
-        with self.assertRaisesRegex(ValueError, "set_global_config"):
+        with self.assertRaisesRegex(LDSCUsageError, "set_global_config"):
             ref_panel_builder.run_build_ref_panel(
                 plink_prefix="plink/panel",
                 source_genome_build="hg19",
@@ -205,7 +206,7 @@ class GlobalConfigRegistryTest(unittest.TestCase):
             )
 
     def test_run_build_ref_panel_rejects_retired_io_kwargs(self):
-        with self.assertRaisesRegex(ValueError, "plink_path"):
+        with self.assertRaisesRegex(LDSCUsageError, "plink_path"):
             ref_panel_builder.run_build_ref_panel(
                 plink_path="plink/panel",
                 source_genome_build="hg19",

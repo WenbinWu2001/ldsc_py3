@@ -12,6 +12,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from ldsc._kernel import formats as ps
+from ldsc.errors import LDSCInputError
 
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -37,14 +38,14 @@ class ParseHelpersTest(unittest.TestCase):
         match_snps = pd.Series(["rs1", "rs2", "rs3"])
         path = PARSE_FIXTURES / "test.cts"
         assert_array_equal(ps.read_cts(str(path), match_snps), [1, 2, 3])
-        with self.assertRaises(ValueError):
+        with self.assertRaises(LDSCInputError):
             ps.read_cts(str(path), match_snps.iloc[0:2])
 
     def test_read_sumstats(self):
         x = ps.sumstats(str(PARSE_FIXTURES / "test.sumstats"), dropna=True, alleles=True)
         self.assertEqual(len(x), 1)
         assert_array_equal(x.SNP, ["rs1"])
-        with self.assertRaises(ValueError):
+        with self.assertRaises(LDSCInputError):
             ps.sumstats(str(PARSE_FIXTURES / "test.l2.ldscore.gz"))
 
     def test_frq_parser(self):
@@ -79,7 +80,7 @@ class LDScoreParsingTest(unittest.TestCase):
         y = ps.ldscore(fh)
         assert_array_equal(x.iloc[:, 0:3].to_numpy(), y.to_numpy())
         assert_array_equal(x.iloc[:, [0, 3, 4]].to_numpy(), y.to_numpy())
-        with self.assertRaises(ValueError):
+        with self.assertRaises(LDSCInputError):
             ps.ldscore_fromlist([fh, str(PARSE_FIXTURES / "test2")])
 
 
@@ -113,7 +114,7 @@ class PlinkFilesTest(unittest.TestCase):
         assert_array_equal(fam.IDList.values.reshape((5,)), correct)
 
     def test_fam_bad_filename(self):
-        with self.assertRaises(ValueError):
+        with self.assertRaises(LDSCInputError):
             ps.PlinkFAMFile(str(PLINK_FIXTURES / "plink.bim"))
 
     def test_bim(self):
@@ -123,5 +124,5 @@ class PlinkFilesTest(unittest.TestCase):
         assert_array_equal(bim.IDList.values.reshape(8), correct)
 
     def test_bim_bad_filename(self):
-        with self.assertRaises(ValueError):
+        with self.assertRaises(LDSCInputError):
             ps.PlinkBIMFile(str(PLINK_FIXTURES / "plink.fam"))

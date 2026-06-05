@@ -38,6 +38,8 @@ import pandas as pd
 import os
 import glob
 
+from ..errors import LDSCInputError
+
 
 def series_eq(x, y):
     '''Compare series, return False if lengths not equal.'''
@@ -78,7 +80,11 @@ def which_compression(fh):
         suffix = ''
         compression = None
     else:
-        raise IOError('Could not open {F}[./gz/bz2]'.format(F=fh))
+        raise LDSCInputError(
+            f"Legacy LDSC format reader could not open '{fh}' with no suffix, .gz, or .bz2. "
+            "Most likely the file prefix is wrong or the compressed file has a different suffix. "
+            "Pass the exact existing LDSC text artifact path or prefix."
+        )
 
     return suffix, compression
 
@@ -100,7 +106,11 @@ def read_cts(fh, match_snps):
     compression = get_compression(fh)
     cts = read_csv(fh, compression=compression, header=None, names=['SNP', 'ANNOT'])
     if not series_eq(cts.SNP, match_snps):
-        raise ValueError('--cts-bin and the .bim file must have identical SNP columns.')
+        raise LDSCInputError(
+            f"Legacy LDSC format reader could not use cts-bin file '{fh}' because its SNP column does not "
+            "match the .bim SNP order. Most likely the cts-bin file was built for a different PLINK panel. "
+            "Regenerate the cts-bin file from the same .bim file."
+        )
 
     return cts.ANNOT.values
 
@@ -116,7 +126,11 @@ def sumstats(fh, alleles=False, dropna=True):
     try:
         x = read_csv(fh, usecols=usecols, dtype=dtype_dict, compression=compression)
     except (AttributeError, ValueError) as e:
-        raise ValueError('Improperly formatted sumstats file: ' + str(e.args))
+        raise LDSCInputError(
+            f"Legacy LDSC format reader could not parse sumstats file '{fh}' with required columns {usecols}. "
+            "Most likely the file is not a munged LDSC .sumstats file or its header/delimiter is malformed. "
+            "Regenerate it with `ldsc munge-sumstats`."
+        ) from e
 
     if dropna:
         x = x.dropna(how='any')
@@ -131,7 +145,11 @@ def ldscore_fromlist(flist, num=None):
         y = ldscore(fh, num)
         if i > 0:
             if not series_eq(y.SNP, ldscore_array[0].SNP):
-                raise ValueError('LD Scores for concatenation must have identical SNP columns.')
+                raise LDSCInputError(
+                    "Legacy LDSC format reader could not concatenate LD-score files because their SNP columns "
+                    "do not match in order. Most likely the files were generated from different SNP universes "
+                    "or chromosome shards. Regenerate them from the same reference SNP set."
+                )
             else:  # keep SNP column from only the first file
                 y = y.drop(['SNP'], axis=1)
 
@@ -305,7 +323,11 @@ def __ID_List_Factory__(colnames, keepcol, fname_end, header=None, usecols=None)
             """Read one identifier-list file into ``self.df`` and ``self.IDList``."""
             end = self.__fname_end__
             if end and not fname.endswith(end):
-                raise ValueError('{f} filename must end in {f}'.format(f=end))
+                raise LDSCInputError(
+                    f"Legacy LDSC identifier-list reader could not open '{fname}' because the filename does "
+                    f"not end with '{end}'. Most likely the wrong file type was passed to this loader. "
+                    f"Pass a file whose name ends with '{end}'."
+                )
 
             comp = get_compression(fname)
             self.df = pd.read_csv(fname, header=self.__header__, usecols=self.__usecols__,

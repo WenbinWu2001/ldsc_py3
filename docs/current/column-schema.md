@@ -150,13 +150,34 @@ Base modes are fully allele-blind. `rsid` uses only `SNP`; `chr_pos` uses only
 for output or signed-statistic orientation, but they do not affect identity,
 duplicate filtering, retention, or drop reasons.
 
-Allele-aware modes use `A1/A2` only to build safer merge keys. The unordered,
-strand-aware allele set participates in `SNP:<allele_set>` or
-`CHR:POS:<allele_set>` identity. Allele-aware artifact cleanup drops rows with
-missing alleles, invalid or non-SNP alleles, identical pairs, strand-ambiguous
-pairs, package-wide multi-allelic base-key clusters, and duplicate effective
-merge-key clusters. The duplicate policy is drop-all after computing the
-effective merge key for the active mode.
+Allele-aware modes use `A1/A2` only to build safer internal merge keys; they do
+not rewrite the written `A1`/`A2` columns or make `A1` the minor allele. The
+key builder treats `(A1, A2)` as an unordered, strand-aware set:
+
+1. Clean each allele by trimming whitespace and uppercasing it.
+2. Reject missing, non-`A/C/G/T`, identical, or strand-ambiguous pairs
+   (`A/T` or `C/G`).
+3. Sort the observed pair lexicographically to form an observed allele-set
+   label.
+4. Complement both alleles, sort that complement pair, and compare the two
+   labels.
+5. Use the lexicographically smaller label as the canonical allele set.
+6. Append that canonical set to the base identity key, producing
+   `SNP:<allele_set>` or `CHR:POS:<allele_set>`.
+
+For example, with `chr_pos_allele_aware`, `CHR=1`, `POS=100`, `A1=C`, and
+`A2=A`, the observed sorted label is `A:C`; the complement pair is `G/T`, whose
+sorted label is `G:T`; the canonical allele set is `min("A:C", "G:T") =
+"A:C"`; and the effective key is `1:100:A:C`. This key matches rows with allele
+pairs `(A, C)`, `(C, A)`, `(G, T)`, or `(T, G)` at the same base key. The
+canonical label is not emitted as `A1/A2`; those columns keep their source
+allele order in output artifacts.
+
+Allele-aware artifact cleanup drops rows with missing alleles, invalid or
+non-SNP alleles, identical pairs, strand-ambiguous pairs, package-wide
+multi-allelic base-key clusters, and duplicate effective merge-key clusters.
+The duplicate policy is drop-all after computing the effective merge key for
+the active mode.
 To munge raw summary statistics without allele columns, choose the base `rsid`
 or `chr_pos` SNP identifier mode; there is no separate allele-skip flag.
 

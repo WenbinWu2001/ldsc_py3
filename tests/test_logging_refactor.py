@@ -112,7 +112,7 @@ class LoggingRefactorTest(unittest.TestCase):
         self.assertIn("Finished", text)
         self.assertIn("Elapsed time:", text)
 
-    def test_workflow_logging_failed_footer_does_not_record_exception_message(self):
+    def test_workflow_logging_failed_footer_records_traceback(self):
         from ldsc._logging import workflow_logging
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -125,7 +125,70 @@ class LoggingRefactorTest(unittest.TestCase):
 
         self.assertIn("Failed", text)
         self.assertIn("Elapsed time:", text)
-        self.assertNotIn("boom", text)
+        self.assertIn("Traceback (most recent call last):", text)
+        self.assertIn("RuntimeError: boom", text)
+
+    def test_cli_console_handler_install_remove_is_clean(self):
+        from ldsc import _logging
+
+        ldsc_logger = logging.getLogger("LDSC")
+        original = list(ldsc_logger.handlers)
+        handler = _logging.install_cli_console_handler()
+        try:
+            self.assertIn(handler, ldsc_logger.handlers)
+            self.assertEqual(handler.level, logging.ERROR)
+            self.assertIs(_logging.cli_console_handler(), handler)
+        finally:
+            _logging.remove_cli_console_handler()
+        self.assertEqual(ldsc_logger.handlers, original)
+        self.assertIsNone(_logging.cli_console_handler())
+
+    def test_console_level_lowered_to_info_when_no_log_path(self):
+        from ldsc import _logging
+        from ldsc._logging import workflow_logging
+
+        handler = _logging.install_cli_console_handler()
+        try:
+            self.assertEqual(handler.level, logging.ERROR)
+            with workflow_logging("unit", None, log_level="INFO"):
+                self.assertEqual(handler.level, logging.INFO)
+            self.assertEqual(handler.level, logging.ERROR)
+        finally:
+            _logging.remove_cli_console_handler()
+
+    def test_console_level_stays_error_when_log_path_present(self):
+        from ldsc import _logging
+        from ldsc._logging import workflow_logging
+
+        handler = _logging.install_cli_console_handler()
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                log_path = Path(tmpdir) / "workflow.log"
+                with workflow_logging("unit", log_path, log_level="INFO"):
+                    self.assertEqual(handler.level, logging.ERROR)
+        finally:
+            _logging.remove_cli_console_handler()
+
+    def test_last_workflow_log_path_tracks_active_run(self):
+        from ldsc import _logging
+        from ldsc._logging import workflow_logging
+
+        _logging.reset_workflow_log_path()
+        self.assertIsNone(_logging.last_workflow_log_path())
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = Path(tmpdir) / "workflow.log"
+            with workflow_logging("unit", log_path, log_level="INFO"):
+                pass
+            self.assertEqual(_logging.last_workflow_log_path(), str(log_path))
+
+    def test_kernel_configure_logging_adds_no_root_handler(self):
+        from ldsc._kernel import ldscore
+
+        root_logger = logging.getLogger()
+        original = list(root_logger.handlers)
+        ldscore.configure_logging("INFO")
+        self.assertEqual(root_logger.handlers, original)
+        self.assertEqual(logging.getLogger("LDSC").level, logging.INFO)
 
     def test_package_exports_domain_error_hierarchy(self):
         import ldsc
@@ -150,7 +213,7 @@ class LoggingRefactorTest(unittest.TestCase):
         self.assertIsNone(record.exc_info)
         self.assertIn("bad input", record.getMessage())
 
-    def test_run_cli_logs_unexpected_errors_with_traceback(self):
+    def test_run_cli_logs_unexpected_errors_concisely(self):
         from ldsc import cli
 
         with mock.patch.object(cli, "main", side_effect=RuntimeError("boom")):
@@ -161,7 +224,7 @@ class LoggingRefactorTest(unittest.TestCase):
         self.assertEqual(len(caught.records), 1)
         record = caught.records[0]
         self.assertEqual(record.levelname, "ERROR")
-        self.assertIs(record.exc_info[0], RuntimeError)
+        self.assertIsNone(record.exc_info)
         self.assertIn("Internal error while running ldsc", record.getMessage())
         self.assertIn("boom", record.getMessage())
 

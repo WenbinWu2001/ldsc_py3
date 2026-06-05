@@ -11,6 +11,7 @@ import itertools as it
 import numpy as np
 import pandas as pd
 from scipy.stats import norm, chi2
+from ..errors import LDSCConfigError, LDSCInternalError, LDSCUsageError
 from . import _jackknife as jk
 from ._irwls import IRWLS
 from scipy.stats import t as tdist
@@ -42,7 +43,11 @@ def _scalar_float(x):
     """Return a Python float from a scalar or one-element array-like value."""
     values = np.ravel(x)
     if values.size != 1:
-        raise TypeError(f"expected exactly one numeric value, got shape {np.shape(x)}")
+        raise LDSCInternalError(
+            f"Regression estimator expected exactly one numeric value, got shape {np.shape(x)}. "
+            "Most likely a jackknife summary returned a non-scalar value. "
+            "Re-run with `--log-level DEBUG` and report the traceback."
+        )
     return float(values[0])
 
 
@@ -153,9 +158,17 @@ def h2_obs_to_liab(h2_obs, P, K):
     if np.isnan(P) and np.isnan(K):
         return h2_obs
     if K <= 0 or K >= 1:
-        raise ValueError('K must be in the range (0,1)')
+        raise LDSCConfigError(
+            f"Regression liability-scale conversion received invalid population prevalence K={K}. "
+            "Most likely `pop_prev` was set outside the open interval (0, 1). "
+            "Pass a prevalence strictly between 0 and 1, or omit liability-scale conversion."
+        )
     if P <= 0 or P >= 1:
-        raise ValueError('P must be in the range (0,1)')
+        raise LDSCConfigError(
+            f"Regression liability-scale conversion received invalid sample prevalence P={P}. "
+            "Most likely `samp_prev` was set outside the open interval (0, 1). "
+            "Pass a prevalence strictly between 0 and 1, or omit liability-scale conversion."
+        )
 
     thresh = norm.isf(K)
     conversion_factor = K ** 2 * \
@@ -176,16 +189,31 @@ class LD_Score_Regression(object):
         for i in [y, x, w, M, N]:
             try:
                 if len(i.shape) != 2:
-                    raise TypeError('Arguments must be 2D arrays.')
+                    raise LDSCInternalError(
+                        f"Regression estimator expected 2D arrays, got shape {i.shape}. "
+                        "Most likely regression preprocessing passed an unreshaped vector. "
+                        "Re-run with `--log-level DEBUG` and report the traceback."
+                    )
             except AttributeError:
-                raise TypeError('Arguments must be arrays.')
+                raise LDSCInternalError(
+                    f"Regression estimator expected numpy-like arrays, got {type(i).__name__}. "
+                    "Most likely regression preprocessing passed a malformed object. "
+                    "Re-run with `--log-level DEBUG` and report the traceback."
+                )
 
         n_snp, self.n_annot = x.shape
         if any(i.shape != (n_snp, 1) for i in [y, w, N]):
-            raise ValueError(
-                'N, weights and response (z1z2 or chisq) must have shape (n_snp, 1).')
+            raise LDSCInternalError(
+                f"Regression estimator expected N, weights, and response to have shape ({n_snp}, 1). "
+                f"Got y={y.shape}, w={w.shape}, N={N.shape}. Most likely regression preprocessing "
+                "misaligned model inputs. Re-run with `--log-level DEBUG` and report the traceback."
+            )
         if M.shape != (1, self.n_annot):
-            raise ValueError('M must have shape (1, n_annot).')
+            raise LDSCInternalError(
+                f"Regression estimator expected M shape (1, {self.n_annot}), got {M.shape}. "
+                "Most likely reference-SNP count metadata is misaligned with retained LD-score columns. "
+                "Re-run with `--log-level DEBUG` and report the traceback."
+            )
 
         M_tot = float(np.sum(M))
         x_tot = np.sum(x, axis=1).reshape((n_snp, 1))
@@ -206,11 +234,17 @@ class LD_Score_Regression(object):
         del y
         self.twostep_filtered = None
         if step1_ii is not None and self.constrain_intercept:
-            raise ValueError(
-                'twostep is not compatible with constrain_intercept.')
+            raise LDSCConfigError(
+                "Regression cannot combine two-step estimation with a fixed intercept. "
+                "Most likely `two_step_cutoff` was supplied together with an intercept override. "
+                "Remove the two-step cutoff or allow the intercept to be estimated."
+            )
         elif step1_ii is not None and self.n_annot > 1:
-            raise ValueError(
-                'twostep not compatible with partitioned LD Score yet.')
+            raise LDSCUsageError(
+                "Regression cannot use two-step estimation for partitioned LD Score models. "
+                "Most likely `two_step_cutoff` was combined with query annotations. "
+                "Remove the two-step cutoff for partitioned-h2 runs."
+            )
         elif step1_ii is not None:
             n1 = np.sum(step1_ii)
             self.twostep_filtered = n_snp - n1
@@ -348,8 +382,11 @@ class LD_Score_Regression(object):
         n_blocks, n_annot = step1_jknife.delete_values.shape
         n_annot -= 1
         if n_annot > 2:
-            raise ValueError(
-                'twostep not yet implemented for partitioned LD Score.')
+            raise LDSCUsageError(
+                "Regression cannot combine two-step jackknife summaries for partitioned LD Score models. "
+                "Most likely `two_step_cutoff` was combined with more than one retained annotation. "
+                "Remove the two-step cutoff for partitioned models."
+            )
 
         step1_int, _ = self._intercept(step1_jknife)
         est = np.hstack(
@@ -403,8 +440,11 @@ class Hsq(LD_Score_Regression):
             intercept = max(x[0][1])  # divide by zero error if intercept < 0
         else:
             if ref_ld_tot.shape[1] > 1:
-                raise ValueError(
-                    'Design matrix has intercept column for constrained intercept regression!')
+                raise LDSCInternalError(
+                    f"Regression heritability weights received constrained-intercept design shape {ref_ld_tot.shape}. "
+                    "Most likely the estimator kept an intercept column after fixing the intercept. "
+                    "Re-run with `--log-level DEBUG` and report the traceback."
+                )
 
         ld = ref_ld_tot[:, 0].reshape(w_ld.shape)  # remove intercept
         w = self.weights(ld, w_ld, N, M, hsq, intercept, ii)
@@ -509,7 +549,7 @@ class Hsq(LD_Score_Regression):
         out.append('Mean Chi^2: ' + s(self.mean_chisq))
         if self.constrain_intercept:
             out.append(
-                'Intercept: constrained to {C}'.format(C=s(self.intercept)))
+                f'Intercept: constrained to {s(self.intercept)}')
         else:
             out.append(
                 'Intercept: ' + s(self.intercept) + ' (' + s(self.intercept_se) + ')')
@@ -620,7 +660,7 @@ class Gencov(LD_Score_Regression):
         out.append('Mean z1*z2: ' + s(self.mean_z1z2))
         if self.constrain_intercept:
             out.append(
-                'Intercept: constrained to {C}'.format(C=s(self.intercept)))
+                f'Intercept: constrained to {s(self.intercept)}')
         else:
             out.append(
                 'Intercept: ' + s(self.intercept) + ' (' + s(self.intercept_se) + ')')
@@ -710,7 +750,11 @@ class Gencov(LD_Score_Regression):
         try:
             het_w = 1.0 / (np.multiply(a, b) + np.square(c))
         except FloatingPointError:  # bizarre error; should never happen
-            raise FloatingPointError('Why did you set hsq intercept <= 0?')
+            raise LDSCInternalError(
+                "Regression genetic-correlation weights became numerically invalid while computing heteroskedastic weights. "
+                "Most likely an intercept or heritability estimate made the variance denominator non-positive. "
+                "Re-run with `--log-level DEBUG` and report the traceback."
+            )
 
         oc_w = 1.0 / w_ld
         w = np.multiply(het_w, oc_w)
@@ -795,7 +839,9 @@ def _align_alleles(z, alleles):
     try:
         z *= (-1) ** alleles.apply(lambda y: FLIP_ALLELES[y])
     except KeyError as e:
-        msg = 'Incompatible alleles in .sumstats files: %s. ' % e.args
-        msg += 'Did you forget to harmonize alleles during munging?'
-        raise KeyError(msg)
+        raise LDSCInternalError(
+            f"Regression allele alignment found an unsupported allele pattern {e.args}. "
+            "Most likely allele harmonization let an incompatible SNP through preprocessing. "
+            "Regenerate the munged sumstats with allele harmonization and re-run regression."
+        ) from e
     return z

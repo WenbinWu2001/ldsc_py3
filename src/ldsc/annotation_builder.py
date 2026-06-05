@@ -82,6 +82,7 @@ from .config import (
     get_global_config,
     print_global_config_banner,
 )
+from .errors import LDSCInputError, LDSCInternalError, LDSCUsageError, LDSCUserError
 from .genome_build_inference import resolve_genome_build
 from .path_resolution import (
     ANNOTATION_SUFFIXES,
@@ -107,6 +108,7 @@ _ANNOTATION_A2_COLUMN_SPEC = ColumnSpec(
     A2_COLUMN_SPEC.label,
     allow_suffix_match=False,
 )
+_ANNOTATE_NO_ROWS_DOC = "docs/troubleshooting.md#annotate-no-annotation-snp-rows-remain"
 
 
 @dataclass(frozen=True)
@@ -160,13 +162,29 @@ class AnnotationBundle:
             SNP identity cleanup before construction.
         """
         if len(self.metadata) != len(self.baseline_annotations):
-            raise ValueError("metadata and baseline_annotations must have the same number of rows.")
+            raise LDSCInternalError(
+                "AnnotationBundle validation failed: metadata and baseline annotations have different row counts. "
+                "Most likely annotation bundle construction desynchronized metadata and baseline rows. "
+                "Re-run with `--log-level DEBUG` and report the traceback."
+            )
         if len(self.metadata) != len(self.query_annotations):
-            raise ValueError("metadata and query_annotations must have the same number of rows.")
+            raise LDSCInternalError(
+                "AnnotationBundle validation failed: metadata and query annotations have different row counts. "
+                "Most likely annotation bundle construction desynchronized metadata and query rows. "
+                "Re-run with `--log-level DEBUG` and report the traceback."
+            )
         if list(self.baseline_annotations.columns) != list(self.baseline_columns):
-            raise ValueError("baseline_annotations columns do not match baseline_columns.")
+            raise LDSCInternalError(
+                "AnnotationBundle validation failed: baseline annotation columns do not match baseline column metadata. "
+                "Most likely annotation bundle construction recorded columns out of order. "
+                "Re-run with `--log-level DEBUG` and report the traceback."
+            )
         if list(self.query_annotations.columns) != list(self.query_columns):
-            raise ValueError("query_annotations columns do not match query_columns.")
+            raise LDSCInternalError(
+                "AnnotationBundle validation failed: query annotation columns do not match query column metadata. "
+                "Most likely annotation bundle construction recorded columns out of order. "
+                "Re-run with `--log-level DEBUG` and report the traceback."
+            )
 
     def reference_snps(self, snp_identifier: str = "chr_pos_allele_aware") -> set[str]:
         """Return the retained reference SNP universe for this bundle.
@@ -269,7 +287,10 @@ class AnnotationBuilder:
         source_spec = source_spec or self.build_config
         self._identity_drop_frame = empty_identity_drop_frame()
         if not source_spec.baseline_annot_sources:
-            raise ValueError("AnnotationBuildConfig must include at least one baseline annotation file.")
+            raise LDSCUserError(
+                "annotate requires at least one baseline annotation file. Most likely `baseline_annot_sources` "
+                "was omitted. Pass one or more baseline `.annot` files."
+            )
         baseline_files = resolve_file_group(
             source_spec.baseline_annot_sources,
             suffixes=ANNOTATION_SUFFIXES,
@@ -291,8 +312,10 @@ class AnnotationBuilder:
         if sharded_baseline is not None:
             sharded_query = self._detect_chromosome_shards(query_files, group_name="query") if query_files else {}
             if query_files and sharded_query is None:
-                raise ValueError(
-                    "Query annotation chromosome shards must match the baseline chromosome shards exactly."
+                raise LDSCInputError(
+                    "annotate could not combine query annotations with sharded baseline annotations: query shards "
+                    "do not match the baseline chromosome shards. Most likely query inputs are whole-genome while "
+                    "baseline inputs are chromosome-sharded. Use the same sharding convention for both."
                 )
             return self._run_sharded_inputs(
                 source_spec,
@@ -332,7 +355,11 @@ class AnnotationBuilder:
 
                 duplicate_columns = sorted(set(annotations.columns) & seen_columns)
                 if duplicate_columns:
-                    raise ValueError(f"Duplicate annotation column names detected: {duplicate_columns}")
+                    raise LDSCInputError(
+                        f"annotate found duplicate annotation column names: {duplicate_columns}. "
+                        "Most likely two input annotation files contain columns with the same names. "
+                        "Rename duplicate annotation columns before rerunning."
+                    )
                 seen_columns.update(annotations.columns)
 
                 if group_name == "baseline":
@@ -343,7 +370,11 @@ class AnnotationBuilder:
                     query_columns.extend(annotations.columns.tolist())
 
         if metadata is None:
-            raise ValueError("No annotation rows were loaded from the supplied sources.")
+            raise LDSCInputError(
+                "annotate loaded no SNP rows from the supplied annotation sources. Most likely the selected "
+                "chromosome is absent or every source file is empty after filtering. Check the input files and "
+                f"chromosome selection. Other causes & fixes: {_ANNOTATE_NO_ROWS_DOC}"
+            )
 
         metadata, baseline_blocks, query_blocks = self._apply_identity_cleanup(
             metadata,
@@ -358,15 +389,17 @@ class AnnotationBuilder:
             stems = [path.stem for path in resolved_bed_paths]
             duplicate_stems = sorted({stem for stem in stems if stems.count(stem) > 1})
             if duplicate_stems:
-                raise ValueError(
+                raise LDSCInputError(
                     "BED basenames must be unique because they become annotation column names. "
-                    f"Duplicate names: {', '.join(duplicate_stems)}"
+                    f"Duplicate names: {', '.join(duplicate_stems)}. Most likely two BED files share the same "
+                    "basename after suffix removal. Rename the BED files so each query annotation column is unique."
                 )
             duplicate_columns = sorted(set(stems) & seen_columns)
             if duplicate_columns:
-                raise ValueError(
+                raise LDSCInputError(
                     "BED file stems clash with loaded annotation column names: "
-                    f"{duplicate_columns}"
+                    f"{duplicate_columns}. Most likely a BED filename duplicates an existing query/baseline "
+                    "annotation column. Rename the BED file or the existing annotation column."
                 )
             with tempfile.TemporaryDirectory(prefix="bed2annot_") as tmpdir:
                 tempdir = Path(tmpdir)
@@ -411,10 +444,16 @@ class AnnotationBuilder:
             query_by_chrom = {chrom_key: query_by_chrom[chrom_key]} if chrom_key in query_by_chrom else {}
 
         if not baseline_by_chrom:
-            raise ValueError("No annotation rows were loaded from the supplied sources.")
+            raise LDSCInputError(
+                "annotate loaded no chromosome shards from the supplied baseline annotation sources. "
+                "Most likely the requested chromosome is absent from the path tokens. Check the input "
+                f"paths and chromosome selection. Other causes & fixes: {_ANNOTATE_NO_ROWS_DOC}"
+            )
         if has_query_inputs and set(query_by_chrom) != set(baseline_by_chrom):
-            raise ValueError(
-                "Query annotation chromosome shards must match the baseline chromosome shards exactly."
+            raise LDSCInputError(
+                "annotate could not combine chromosome-sharded annotations because query shards do not "
+                "match baseline shards exactly. Most likely a query chromosome file is missing or extra. "
+                "Provide matching chromosome shards for baseline and query annotations."
             )
 
         bundles: list[AnnotationBundle] = []
@@ -438,8 +477,10 @@ class AnnotationBuilder:
         query_columns = bundles[0].query_columns
         for bundle in bundles[1:]:
             if bundle.baseline_columns != baseline_columns or bundle.query_columns != query_columns:
-                raise ValueError(
-                    "Per-chromosome annotation shards must expose the same baseline and query annotation columns."
+                raise LDSCInputError(
+                    "annotate could not aggregate chromosome shards because annotation columns differ across chromosomes. "
+                    "Most likely one shard has a missing, extra, or renamed annotation column. "
+                    "Make every chromosome shard use the same annotation header."
                 )
 
         metadata = pd.concat([bundle.metadata for bundle in bundles], axis=0, ignore_index=True)
@@ -477,7 +518,13 @@ class AnnotationBuilder:
         )
         self._identity_drop_frame = _concat_annotation_drop_frames([self._identity_drop_frame, cleanup.dropped])
         if len(cleanup.cleaned) == 0:
-            raise ValueError("no annotation rows remain after SNP identity cleanup.")
+            raise LDSCInputError(
+                "annotate retained no annotation rows after SNP identity cleanup in "
+                "AnnotationBuilder._apply_identity_cleanup(). Most likely every row has a missing, duplicate, "
+                "or incompatible SNP identity for the active --snp-identifier mode. Regenerate the annotation "
+                "inputs with valid SNP/CHR/POS and allele columns for that mode, then rerun. "
+                f"Other causes & fixes: {_ANNOTATE_NO_ROWS_DOC}"
+            )
         retained_rows = cleanup.cleaned[row_column].astype(int).to_numpy()
         cleaned_metadata = metadata_reset.iloc[retained_rows].reset_index(drop=True)
         cleaned_baseline = [block.reset_index(drop=True).iloc[retained_rows].reset_index(drop=True) for block in baseline_blocks]
@@ -527,14 +574,16 @@ class AnnotationBuilder:
                 continue
             saw_sharded = True
             if chrom in shard_map:
-                raise ValueError(
-                    f"Ambiguous {group_name} annotation chromosome shards: multiple files map to chromosome {chrom}."
+                raise LDSCInputError(
+                    f"annotate found multiple {group_name} annotation files for chromosome {chrom}. "
+                    "Most likely a glob or path list resolves duplicate shards. Keep only one file per chromosome."
                 )
             shard_map[chrom] = path
 
         if saw_sharded and saw_unsharded:
-            raise ValueError(
-                f"Mixed whole-genome and per-chromosome {group_name} annotation inputs are not supported."
+            raise LDSCInputError(
+                f"annotate cannot mix whole-genome and per-chromosome {group_name} annotation inputs. "
+                "Most likely a glob matched both sharded and unsharded files. Use one input layout consistently."
             )
         if saw_sharded:
             return shard_map
@@ -551,7 +600,10 @@ class AnnotationBuilder:
         a1_col = resolve_optional_column(df.columns, _ANNOTATION_A1_COLUMN_SPEC, context=context)
         a2_col = resolve_optional_column(df.columns, _ANNOTATION_A2_COLUMN_SPEC, context=context)
         if (a1_col is None) ^ (a2_col is None):
-            raise ValueError("Annotation file has only one allele column; provide both A1 and A2 or neither.")
+            raise LDSCInputError(
+                f"annotate could not read annotation file '{path}': exactly one allele column was found. "
+                "Most likely the file has A1 without A2 or A2 without A1. Provide both allele columns or neither."
+            )
         metadata = pd.DataFrame(
             {
                 "CHR": df[chr_col],
@@ -581,7 +633,10 @@ class AnnotationBuilder:
         metadata_source_columns = {chr_col, pos_col, snp_col, cm_col, maf_col, a1_col, a2_col}
         annotation_columns = [column for column in df.columns if column not in metadata_source_columns]
         if not annotation_columns:
-            raise ValueError(f"{path} does not contain any annotation columns.")
+            raise LDSCInputError(
+                f"annotate could not read annotation file '{path}': no annotation value columns remain after metadata columns. "
+                "Most likely the file contains only CHR/POS/SNP/CM/allele metadata. Add at least one numeric annotation column."
+            )
         annotations = df.loc[:, annotation_columns].astype(np.float32).reset_index(drop=True)
         metadata = metadata.reset_index(drop=True)
         return metadata, annotations
@@ -886,11 +941,20 @@ def run_annotate_from_args(args: argparse.Namespace) -> AnnotationBundle:
         Produced annotation bundle.
     """
     if not getattr(args, "query_annot_bed_sources", None):
-        raise ValueError("ldsc annotate requires --query-annot-bed-sources.")
+        raise LDSCUserError(
+            "ldsc annotate requires `--query-annot-bed-sources`. Most likely the query BED input was omitted. "
+            "Pass one or more BED files to project."
+        )
     if not getattr(args, "baseline_annot_sources", None):
-        raise ValueError("ldsc annotate requires --baseline-annot-sources.")
+        raise LDSCUserError(
+            "ldsc annotate requires `--baseline-annot-sources`. Most likely the baseline SNP grid was omitted. "
+            "Pass one or more baseline `.annot` files."
+        )
     if not getattr(args, "output_dir", None):
-        raise ValueError("ldsc annotate requires --output-dir.")
+        raise LDSCUserError(
+            "ldsc annotate requires `--output-dir`. Most likely the destination directory was omitted. "
+            "Pass `--output-dir <dir>` for generated query annotation shards."
+        )
 
     normalized_mode = normalize_snp_identifier_mode(args.snp_identifier)
     genome_build = _resolve_annotation_cli_genome_build(args, normalized_mode)
@@ -925,9 +989,10 @@ def _resolve_annotation_cli_genome_build(args: argparse.Namespace, snp_identifie
         return normalize_genome_build(args.genome_build)
     genome_build = normalize_genome_build(args.genome_build)
     if genome_build is None:
-        raise ValueError(
-            "genome_build is required for chr_pos-family snp_identifier modes. "
-            "Pass --genome-build auto, --genome-build hg19, or --genome-build hg38."
+        raise LDSCUsageError(
+            "annotate cannot use chr_pos-family SNP identifiers without a genome build. "
+            "Most likely `--snp-identifier chr_pos*` was used without `--genome-build`. "
+            "Pass `--genome-build auto`, `--genome-build hg19`, or `--genome-build hg38`."
         )
     if genome_build == "auto":
         frame, sampled_path = sample_frame_from_chr_pattern(

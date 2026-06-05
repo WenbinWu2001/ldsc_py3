@@ -94,6 +94,7 @@ from .outputs import (
     _validate_ldscore_allele_columns,
 )
 from .sumstats_munger import SumstatsTable, load_sumstats
+from .errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError, LDSCUserError
 
 
 COMMON_COUNT_KEY = "common_reference_snp_counts"
@@ -123,11 +124,17 @@ PARTITIONED_H2_FULL_COLUMNS = [
     "Coefficient_p",
 ]
 PARTITIONED_H2_REQUIRES_QUERY_ANNOTATIONS_MESSAGE = (
-    "partitioned-h2 requires query annotations in --ldscore-dir. "
-    "Rerun `ldsc ldscore` with --query-annot-sources or --query-annot-bed-sources plus explicit baseline annotations."
+    "partitioned-h2 cannot run because the LD-score directory has no query annotation columns. "
+    "Most likely `ldsc ldscore` was run with baseline annotations only. Rerun `ldsc ldscore` "
+    "with `--query-annot-sources` or `--query-annot-bed-sources` plus explicit baseline annotations. "
+    "Other causes & fixes: docs/troubleshooting.md#regression-partitioned-h2-ld-score-directory-has-no-query-annotations"
 )
 FAILED_RG_NOTE = "Failed; see rg_full.tsv error column; use --output-dir for diagnostics/rg.log."
 REGRESSION_IDENTITY_KEY_COLUMN = "_ldsc_regression_identity_key"
+_REGRESSION_NO_OVERLAP_DOC = (
+    "docs/troubleshooting.md#regression-no-snps-remain-after-merging-regression-inputs"
+)
+_REGRESSION_SCHEMA_DOC = "docs/troubleshooting.md#common-ldsc-artifact-schema-or-provenance-is-incompatible"
 
 
 @dataclass(frozen=True)
@@ -151,7 +158,11 @@ class RegressionDataset:
         required = {"SNP", self.weight_column, "Z", "N"}
         missing = required - set(self.merged.columns)
         if missing:
-            raise ValueError(f"RegressionDataset is missing required columns: {sorted(missing)}")
+            raise LDSCInternalError(
+                f"h2 regression dataset validation failed: merged table is missing columns {sorted(missing)}. "
+                "Most likely regression preprocessing dropped required sumstats or LD-score columns. "
+                "Re-run with `--log-level DEBUG` and report the traceback."
+            )
 
 
 @dataclass(frozen=True)
@@ -175,7 +186,11 @@ class RGRegressionDataset:
         required = {"SNP", self.weight_column, "Z1", "N1", "Z2", "N2"}
         missing = required - set(self.merged.columns)
         if missing:
-            raise ValueError(f"RGRegressionDataset is missing required columns: {sorted(missing)}")
+            raise LDSCInternalError(
+                f"rg regression dataset validation failed: merged table is missing columns {sorted(missing)}. "
+                "Most likely regression preprocessing dropped required trait or LD-score columns. "
+                "Re-run with `--log-level DEBUG` and report the traceback."
+            )
 
 
 @dataclass(frozen=True)
@@ -293,13 +308,9 @@ class RegressionRunner:
             dropped_identity_rows = int(len(sumstats_dropped) + len(ldscore_dropped))
             sumstats_mode = _sumstats_identity_mode(sumstats_table, self.global_config, fallback_mode=ldscore_mode)
             LOGGER.warning(
-                "Identity downgrade enabled: LD-score mode %s, sumstats mode %s; "
-                "running regression with effective snp_identifier=%r. "
-                "Dropped %d duplicate effective-key rows before merge.",
-                ldscore_mode,
-                sumstats_mode,
-                identifier_mode,
-                dropped_identity_rows,
+                f"Identity downgrade enabled: LD-score mode {ldscore_mode}, sumstats mode {sumstats_mode}; "
+                f"running regression with effective snp_identifier={identifier_mode!r}. "
+                f"Dropped {dropped_identity_rows} duplicate effective-key rows before merge."
             )
         if is_allele_aware_mode(identifier_mode):
             sumstats_keyed = _with_effective_identity_key(
@@ -342,10 +353,12 @@ class RegressionRunner:
             )
         if merged.empty:
             source = sumstats_table.source_path or sumstats_table.trait_name or "sumstats"
-            raise ValueError(
-                f"No overlapping {identifier_mode} SNPs remain after merging sumstats '{source}' "
-                f"with {len(ldscore_frame)} LD-score rows. Check that snp_identifier and genome_build match. "
-                f"Active config: {self.global_config!r}."
+            raise LDSCInputError(
+                f"h2 regression retained no overlapping {identifier_mode} SNPs after merging sumstats "
+                f"'{source}' with {len(ldscore_frame)} LD-score rows. Most likely the sumstats and "
+                "LD-score directory use different SNP identifiers or genome builds. Regenerate both inputs "
+                "with the same `--snp-identifier` and `--genome-build`, or use `--allow-identity-downgrade` "
+                f"for same-family allele-aware/base mixes. Other causes & fixes: {_REGRESSION_NO_OVERLAP_DOC}"
             )
 
         retained_ld_columns = list(ref_ld_columns)
@@ -357,7 +370,12 @@ class RegressionRunner:
             if retained_ld_columns:
                 merged = merged.loc[:, [column for column in merged.columns if column not in dropped_ld_columns]]
             else:
-                raise ValueError("All LD-score columns have zero variance.")
+                raise LDSCInputError(
+                    "h2 regression cannot run because all retained LD-score columns have zero variance "
+                    "after merging with sumstats. Most likely the LD-score directory contains a constant "
+                    "annotation on the retained SNP set. Use LD scores with at least one varying annotation "
+                    "or broaden the regression SNP set."
+                )
 
         count_totals = _count_totals_for_columns(ldscore_result.count_records, ref_ld_columns)
         count_key = _select_count_key(count_totals, config.use_common_counts)
@@ -440,14 +458,9 @@ class RegressionRunner:
             )
             dropped_identity_rows = int(len(left_dropped) + len(right_dropped) + len(ldscore_dropped))
             LOGGER.warning(
-                "Identity downgrade enabled: LD-score mode %s, trait 1 mode %s, trait 2 mode %s; "
-                "running rg with effective snp_identifier=%r. "
-                "Dropped %d duplicate effective-key rows before merge.",
-                ldscore_mode,
-                trait_1_mode,
-                trait_2_mode,
-                identifier_mode,
-                dropped_identity_rows,
+                f"Identity downgrade enabled: LD-score mode {ldscore_mode}, trait 1 mode {trait_1_mode}, "
+                f"trait 2 mode {trait_2_mode}; running rg with effective snp_identifier={identifier_mode!r}. "
+                f"Dropped {dropped_identity_rows} duplicate effective-key rows before merge."
             )
 
         left = left_frame.rename(columns={"N": "N1", "Z": "Z1"})
@@ -509,9 +522,12 @@ class RegressionRunner:
             )
         merged = merged.dropna(how="any").reset_index(drop=True)
         if merged.empty:
-            raise ValueError(
-                f"No overlapping {identifier_mode} SNPs remain after merging both sumstats tables "
-                f"with {len(ldscore_frame)} LD-score rows."
+            raise LDSCInputError(
+                f"rg regression retained no overlapping {identifier_mode} SNPs after merging both sumstats "
+                f"tables with {len(ldscore_frame)} LD-score rows. Most likely one trait was munged with a "
+                "different SNP identifier mode, genome build, or allele convention than the LD-score directory. "
+                "Regenerate all inputs with matching identity settings, or use `--allow-identity-downgrade` "
+                f"for same-family allele-aware/base mixes. Other causes & fixes: {_REGRESSION_NO_OVERLAP_DOC}"
             )
 
         if {"A1", "A2", "A1x", "A2x"}.issubset(merged.columns):
@@ -520,7 +536,12 @@ class RegressionRunner:
             kept_alleles = alleles.loc[keep].reset_index(drop=True)
             merged = merged.loc[keep].reset_index(drop=True)
             if merged.empty:
-                raise ValueError("No allele-compatible SNPs remain after harmonizing the two sumstats tables.")
+                raise LDSCInputError(
+                    "rg regression retained no allele-compatible SNPs after harmonizing the two sumstats tables. "
+                    "Most likely the traits use different effect-allele conventions or one input was not allele "
+                    "harmonized during munging. Regenerate both munged sumstats with A1/A2 columns and matching "
+                    "SNP identifier mode."
+                )
             merged["Z2"] = reg._align_alleles(merged["Z2"].copy(), kept_alleles)
 
         retained_ld_columns = list(ref_ld_columns)
@@ -532,7 +553,12 @@ class RegressionRunner:
             if retained_ld_columns:
                 merged = merged.loc[:, [column for column in merged.columns if column not in dropped_ld_columns]]
             else:
-                raise ValueError("All LD-score columns have zero variance.")
+                raise LDSCInputError(
+                    "rg regression cannot run because all retained LD-score columns have zero variance "
+                    "after merging the two traits with LD scores. Most likely the LD-score directory contains "
+                    "constant annotations on the retained SNP set. Use LD scores with at least one varying "
+                    "annotation or broaden the regression SNP set."
+                )
 
         count_totals = _count_totals_for_columns(ldscore_result.count_records, ref_ld_columns)
         if dropped_ld_columns:
@@ -816,9 +842,16 @@ class RegressionRunner:
         config = config or self.regression_config
         tables = list(sumstats_tables)
         if len(tables) < 2:
-            raise ValueError("--sumstats-sources must resolve to at least two sumstats files.")
+            raise LDSCUserError(
+                "rg regression requires at least two sumstats inputs. Most likely `--sumstats-sources` "
+                "resolved to fewer than two files. Pass two or more munged `.sumstats` artifacts."
+            )
         if anchor_index is not None and not 0 <= anchor_index < len(tables):
-            raise ValueError(f"anchor_index must be in [0, {len(tables) - 1}], got {anchor_index}.")
+            raise LDSCUsageError(
+                f"rg regression received anchor_index={anchor_index}, but valid indices are 0 through {len(tables) - 1}. "
+                "Most likely the anchor trait was resolved against a different input list. "
+                "Pass an anchor trait name or path that belongs to the current `--sumstats-sources` list."
+            )
 
         h2_rows = []
         for table in tables:
@@ -841,7 +874,7 @@ class RegressionRunner:
                 metadata = _rg_pair_metadata(tables[i], tables[j], dataset, full_row, config, pair_kind)
             except Exception as exc:
                 error = _format_exception(exc)
-                LOGGER.warning("Failed rg for pair '%s' vs '%s': %s", trait_1, trait_2, error, exc_info=True)
+                LOGGER.warning(f"Failed rg for pair '{trait_1}' vs '{trait_2}': {error}", exc_info=True)
                 full_row = _failed_rg_full_row(trait_1=trait_1, trait_2=trait_2, pair_kind=pair_kind, error=error)
                 metadata = _failed_rg_pair_metadata(tables[i], tables[j], full_row, config, pair_kind)
             rg_full_rows.append(full_row)
@@ -1022,13 +1055,14 @@ def _validate_partitioned_query_columns(ldscore_result: LDScoreResult, query_col
     """Return requested query columns after enforcing the partitioned-h2 contract."""
     requested = list(query_columns)
     if not ldscore_result.query_columns or not requested:
-        raise ValueError(PARTITIONED_H2_REQUIRES_QUERY_ANNOTATIONS_MESSAGE)
+        raise LDSCInputError(PARTITIONED_H2_REQUIRES_QUERY_ANNOTATIONS_MESSAGE)
     available = list(ldscore_result.query_columns)
     missing = [column for column in requested if column not in available]
     if missing:
-        raise ValueError(
-            f"Unknown query annotation requested for partitioned-h2: {missing}. "
-            f"Available query annotations: {available}"
+        raise LDSCInputError(
+            f"partitioned-h2 could not find requested query annotation columns {missing} in the LD-score directory. "
+            f"Most likely the query annotation name was misspelled or the LD-score directory was generated from "
+            f"different query inputs. Choose one of the available query annotations: {available}."
         )
     return requested
 
@@ -1044,10 +1078,14 @@ def _assemble_regression_ldscore_table(
     if not query_columns:
         return baseline_table.copy()
     if ldscore_result.query_table is None:
-        raise ValueError("LD-score result does not contain query annotations.")
+        raise LDSCInputError(PARTITIONED_H2_REQUIRES_QUERY_ANNOTATIONS_MESSAGE)
     missing = [column for column in query_columns if column not in ldscore_result.query_columns]
     if missing:
-        raise ValueError(f"Unknown query LD-score columns requested: {missing}")
+        raise LDSCInputError(
+            f"partitioned-h2 requested query LD-score columns {missing}, but they are absent from the LD-score result. "
+            "Most likely query metadata and query parquet columns are out of sync. "
+            "Regenerate the LD-score directory with matching query annotations."
+        )
     query_table = ldscore_result.query_table.reset_index(drop=True)
     assert_same_snp_rows(
         baseline_table,
@@ -1063,7 +1101,11 @@ def _count_totals_for_columns(count_records: Sequence[dict[str, Any]], columns: 
     records_by_column = {str(record["column"]): record for record in count_records}
     missing = [column for column in columns if column not in records_by_column]
     if missing:
-        raise ValueError(f"LD-score metadata is missing count records for columns: {missing}")
+        raise LDSCInputError(
+            f"Regression cannot align LD-score count metadata: count records are missing for columns {missing}. "
+            "Most likely the LD-score metadata was written by an older version or edited separately from "
+            "the parquet tables. Regenerate the LD-score directory with the current `ldsc ldscore`."
+        )
     all_counts = [float(records_by_column[column]["all_reference_snp_count"]) for column in columns]
     count_totals = {ALL_COUNT_KEY: np.asarray(all_counts, dtype=np.float64)}
     if all("common_reference_snp_count" in records_by_column[column] for column in columns):
@@ -1403,13 +1445,21 @@ def _numeric_scalar(value: object, field: str, *, fail_on_non_numeric: bool = Fa
         stripped = value.strip()
         if stripped.upper() == "NA":
             if fail_on_non_numeric:
-                raise ValueError(f"{field} is non-numeric kernel value 'NA'.")
+                raise LDSCInternalError(
+                    f"Regression summary field {field} is the non-numeric kernel value 'NA'. "
+                    "Most likely the estimator returned an unavailable headline statistic where a number was required. "
+                    "Re-run with `--log-level DEBUG` and report the traceback."
+                )
             return math.nan
         try:
             return float(stripped)
         except ValueError as exc:
             if fail_on_non_numeric:
-                raise ValueError(f"{field} is non-numeric kernel value {value!r}.") from exc
+                raise LDSCInternalError(
+                    f"Regression summary field {field} is non-numeric kernel value {value!r}. "
+                    "Most likely the estimator returned an unavailable headline statistic where a number was required. "
+                    "Re-run with `--log-level DEBUG` and report the traceback."
+                ) from exc
             return math.nan
     if hasattr(value, "__array__") or isinstance(value, (list, tuple)):
         array = np.ravel(value)
@@ -1425,7 +1475,11 @@ def _numeric_scalar(value: object, field: str, *, fail_on_non_numeric: bool = Fa
         return float(value)
     except (TypeError, ValueError) as exc:
         if fail_on_non_numeric:
-            raise ValueError(f"{field} is non-numeric kernel value {value!r}.") from exc
+            raise LDSCInternalError(
+                f"Regression summary field {field} is non-numeric kernel value {value!r}. "
+                "Most likely the estimator returned an unavailable headline statistic where a number was required. "
+                "Re-run with `--log-level DEBUG` and report the traceback."
+            ) from exc
         return math.nan
 
 
@@ -1442,8 +1496,10 @@ def _retained_snp_counts(dataset: RegressionDataset) -> np.ndarray:
         dtype=np.float64,
     ).reshape(-1)
     if len(counts) != len(dataset.retained_ld_columns):
-        raise ValueError(
-            "Reference SNP count vector is not aligned to retained LD-score columns."
+        raise LDSCInternalError(
+            "Regression summary could not align reference SNP counts to retained LD-score columns. "
+            "Most likely zero-variance column dropping desynchronized the count vector. "
+            "Re-run with `--log-level DEBUG` and report the traceback."
         )
     return counts
 
@@ -1730,7 +1786,11 @@ def run_rg_from_args(args):
     """
     _validate_intercept_conflicts(args)
     if getattr(args, "write_per_pair_detail", False) and not getattr(args, "output_dir", None):
-        raise ValueError("--write-per-pair-detail requires --output-dir.")
+        raise LDSCUsageError(
+            "rg cannot write per-pair detail without `--output-dir`. Most likely "
+            "`--write-per-pair-detail` was requested for a stdout-only run. "
+            "Pass `--output-dir <dir>` or omit `--write-per-pair-detail`."
+        )
     output_names = ["rg.tsv", "rg_full.tsv", "h2_per_trait.tsv", "diagnostics/metadata.json"]
     if getattr(args, "write_per_pair_detail", False):
         output_names.append("diagnostics/pairs")
@@ -1748,7 +1808,10 @@ def run_rg_from_args(args):
     )
     sumstats_paths = resolve_file_group(getattr(args, "sumstats_sources", ()), label="sumstats sources")
     if len(sumstats_paths) < 2:
-        raise ValueError("--sumstats-sources must resolve to at least two sumstats files.")
+        raise LDSCUserError(
+            "rg requires at least two sumstats inputs. Most likely `--sumstats-sources` "
+            "resolved to fewer than two files. Pass two or more munged `.sumstats` artifacts."
+        )
     with workflow_logging("rg", log_path, log_level=getattr(args, "log_level", "INFO")):
         runner, config = _runner_from_args(args)
         print_global_config_banner("run_rg_from_args", runner.global_config)
@@ -1862,7 +1925,11 @@ def _validate_intercept_conflicts(args) -> None:
     if getattr(args, "intercept_gencov", None) is not None:
         conflicting.append("--intercept-gencov")
     if conflicting:
-        raise ValueError(f"--no-intercept cannot be combined with {', '.join(conflicting)}.")
+        raise LDSCUsageError(
+            f"Regression cannot combine `--no-intercept` with {', '.join(conflicting)}. "
+            "Most likely fixed-intercept options were left in the command while disabling intercept estimation. "
+            "Remove the fixed-intercept option(s) or omit `--no-intercept`."
+        )
 
 
 def _disambiguate_trait_names(tables: Sequence[SumstatsTable]) -> list[SumstatsTable]:
@@ -1899,7 +1966,7 @@ def _disambiguate_trait_names(tables: Sequence[SumstatsTable]) -> list[SumstatsT
 
     for original, resolved in zip(labels, unique):
         if original != resolved:
-            LOGGER.info("Disambiguated duplicate rg trait name '%s' as '%s'.", original, resolved)
+            LOGGER.info(f"Disambiguated duplicate rg trait name '{original}' as '{resolved}'.")
     return [replace(table, trait_name=label) for table, label in zip(tables, unique)]
 
 
@@ -1917,9 +1984,10 @@ def _resolve_anchor_index(
         return next(iter(trait_matches))
     if len(trait_matches) > 1:
         available = [table.trait_name or Path(path).name for table, path in zip(sumstats_tables, sumstats_paths)]
-        raise ValueError(
-            f"--anchor-trait must match exactly one trait name or input path; "
-            f"got {len(trait_matches)} trait-name matches for {anchor_trait!r}. Available traits: {available}"
+        raise LDSCUsageError(
+            f"rg could not resolve `--anchor-trait={anchor_trait}` because it matched "
+            f"{len(trait_matches)} trait names. Most likely multiple inputs have the same trait label. "
+            f"Use a unique input path or one of these resolved trait names: {available}."
         )
 
     path_matches: set[int] = set()
@@ -1929,12 +1997,13 @@ def _resolve_anchor_index(
             if Path(path).resolve(strict=False) == anchor_path:
                 path_matches.add(idx)
     except OSError:
-        pass
+        LOGGER.debug(f"Could not resolve anchor trait path candidate '{anchor_trait}' against rg inputs.", exc_info=True)
     if len(path_matches) != 1:
         available = [table.trait_name or Path(path).name for table, path in zip(sumstats_tables, sumstats_paths)]
-        raise ValueError(
-            f"--anchor-trait must match exactly one trait name or input path; "
-            f"got {len(path_matches)} path matches for {anchor_trait!r}. Available traits: {available}"
+        raise LDSCUsageError(
+            f"rg could not resolve `--anchor-trait={anchor_trait}` because it matched "
+            f"{len(path_matches)} input paths. Most likely the anchor token is misspelled or not part "
+            f"of `--sumstats-sources`. Use one of these trait names or exact input paths: {available}."
         )
     return next(iter(path_matches))
 
@@ -1995,17 +2064,28 @@ def load_ldscore_from_dir(
     """
     root = Path(normalize_path_token(ldscore_dir))
     if not root.is_dir():
-        raise NotADirectoryError(f"LD-score directory does not exist or is not a directory: {root}")
+        raise LDSCInputError(
+            f"Regression could not load LD-score directory '{root}': path is not an existing directory. "
+            "Most likely `--ldscore-dir` points at the wrong location. Pass the directory written by `ldsc ldscore`."
+        )
     metadata_path = root / "metadata.json"
     if not metadata_path.exists():
-        raise FileNotFoundError(f"LD-score directory is missing metadata.json: {root}")
+        raise LDSCInputError(
+            f"Regression could not load LD-score directory '{root}': missing `metadata.json`. "
+            "Most likely this is not a canonical `ldsc ldscore` output directory or the diagnostics file "
+            "was copied without the data files. Pass the complete LD-score output directory."
+        )
     LOGGER.info(f"Loading LD-score result directory from '{root}'.")
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     config_snapshot = _global_config_from_metadata(metadata)
     files = metadata.get("files", {})
     baseline_rel = files.get("baseline")
     if not baseline_rel:
-        raise ValueError("LD-score metadata is missing files.baseline.")
+        raise LDSCInputError(
+            f"Regression could not load LD-score directory '{root}': metadata is missing `files.baseline`. "
+            "Most likely the LD-score artifact was written by an older version or edited by hand. "
+            f"Regenerate it with the current `ldsc ldscore`. Other causes & fixes: {_REGRESSION_SCHEMA_DOC}"
+        )
     baseline_table = pd.read_parquet(root / baseline_rel)
     query_rel = files.get("query")
     query_table = pd.read_parquet(root / query_rel) if query_rel else None
@@ -2064,7 +2144,11 @@ def load_ldscore_from_dir(
 def _global_config_from_metadata(metadata: dict[str, Any]) -> GlobalConfig | None:
     """Recreate a GlobalConfig snapshot when LD-score metadata contains one."""
     if "schema_version" not in metadata and "artifact_type" not in metadata:
-        raise ValueError(REGENERATE_ARTIFACT_MESSAGE)
+        raise LDSCInputError(
+            "Regression could not read LD-score artifact provenance: metadata lacks `schema_version` and `artifact_type`. "
+            "Most likely the LD-score directory was written by an older LDSC version. "
+            f"Regenerate it with the current `ldsc ldscore`. Other causes & fixes: {_REGRESSION_SCHEMA_DOC}"
+        )
     mode = validate_identity_artifact_metadata(metadata, expected_artifact_type="ldscore")
     return GlobalConfig(
         snp_identifier=mode,

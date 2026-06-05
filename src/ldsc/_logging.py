@@ -29,16 +29,20 @@ import shlex
 import sys
 import threading
 import time
+import traceback
 from datetime import datetime
 from os import PathLike
 from types import TracebackType
 from typing import Any
+
+from .errors import LDSCUsageError
 
 
 _LDSC_LOGGER_NAME = "LDSC"
 _CURRENT: threading.local = threading.local()
 _BORDER = "=" * 51
 _FLOAT_FORMAT = ".4g"
+_CLI_CONSOLE_HANDLER: logging.Handler | None = None
 
 
 def format_float(value: float) -> str:
@@ -49,6 +53,50 @@ def format_float(value: float) -> str:
 def configure_package_logging(level: str = "INFO") -> None:
     """Set the ``LDSC`` logger threshold for console-style workflow logging."""
     logging.getLogger(_LDSC_LOGGER_NAME).setLevel(_level_number(level))
+
+
+def install_cli_console_handler(level: str = "ERROR") -> logging.Handler:
+    """Attach a single stderr console handler to the ``LDSC`` logger for CLI runs.
+
+    The handler is owned by the CLI boundary, not by individual workflows, so it
+    outlives every :func:`workflow_logging` block and can still surface errors
+    raised at the command boundary. It is a no-op-safe singleton: a second call
+    returns the existing handler.
+    """
+    global _CLI_CONSOLE_HANDLER
+    if _CLI_CONSOLE_HANDLER is not None:
+        return _CLI_CONSOLE_HANDLER
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setLevel(_level_number(level))
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    logging.getLogger(_LDSC_LOGGER_NAME).addHandler(handler)
+    _CLI_CONSOLE_HANDLER = handler
+    return handler
+
+
+def remove_cli_console_handler() -> None:
+    """Remove and close the CLI console handler if one is installed."""
+    global _CLI_CONSOLE_HANDLER
+    if _CLI_CONSOLE_HANDLER is None:
+        return
+    logging.getLogger(_LDSC_LOGGER_NAME).removeHandler(_CLI_CONSOLE_HANDLER)
+    _CLI_CONSOLE_HANDLER.close()
+    _CLI_CONSOLE_HANDLER = None
+
+
+def cli_console_handler() -> logging.Handler | None:
+    """Return the installed CLI console handler, or ``None``."""
+    return _CLI_CONSOLE_HANDLER
+
+
+def reset_workflow_log_path() -> None:
+    """Clear the recorded most-recent workflow log path for this thread."""
+    _CURRENT.last_log_path = None
+
+
+def last_workflow_log_path() -> str | None:
+    """Return the most recent workflow log path on this thread, or ``None``."""
+    return getattr(_CURRENT, "last_log_path", None)
 
 
 def workflow_logging(
@@ -110,9 +158,15 @@ def _level_number(level: str) -> int:
     normalized = str(level).upper()
     value = logging.getLevelName(normalized)
     if not isinstance(value, int):
-        raise ValueError(f"log_level must be one of DEBUG, INFO, WARNING, ERROR; got {level!r}.")
+        raise LDSCUsageError(
+            f"Workflow logging could not use log_level={level!r}. Most likely the command or API call passed "
+            "an unsupported logging level. Use one of DEBUG, INFO, WARNING, or ERROR."
+        )
     if normalized not in {"DEBUG", "INFO", "WARNING", "ERROR"}:
-        raise ValueError(f"log_level must be one of DEBUG, INFO, WARNING, ERROR; got {level!r}.")
+        raise LDSCUsageError(
+            f"Workflow logging could not use log_level={level!r}. Most likely the command or API call passed "
+            "an unsupported logging level. Use one of DEBUG, INFO, WARNING, or ERROR."
+        )
     return value
 
 
@@ -139,6 +193,8 @@ class _WorkflowLoggingContext:
         self._saved_level: int | None = None
         self._start_time: float | None = None
         self._nested = False
+        self._console_handler: logging.Handler | None = None
+        self._saved_console_level: int | None = None
 
     def __enter__(self) -> "_WorkflowLoggingContext":
         if _active_context() is not None:
@@ -149,6 +205,13 @@ class _WorkflowLoggingContext:
         self._saved_level = logger.level
         logger.setLevel(self._level)
         self._start_time = time.monotonic()
+        _CURRENT.last_log_path = str(self._log_path) if self._log_path is not None else None
+        if self._log_path is None:
+            handler = cli_console_handler()
+            if handler is not None:
+                self._console_handler = handler
+                self._saved_console_level = handler.level
+                handler.setLevel(self._level)
 
         try:
             if self._log_path is not None:
@@ -165,6 +228,8 @@ class _WorkflowLoggingContext:
                 logger.removeHandler(self._handler)
                 self._handler.close()
                 self._handler = None
+            if self._console_handler is not None and self._saved_console_level is not None:
+                self._console_handler.setLevel(self._saved_console_level)
             logger.setLevel(self._saved_level)
             if _active_context() is self:
                 _CURRENT.context = None
@@ -175,18 +240,20 @@ class _WorkflowLoggingContext:
         self,
         exc_type: type[BaseException] | None,
         exc_value: BaseException | None,
-        traceback: TracebackType | None,
+        exc_tb: TracebackType | None,
     ) -> bool:
         if self._nested:
             return False
 
         status = "Failed" if exc_type is not None else "Finished"
-        self._write_footer(status)
+        self._write_footer(status, exc_type, exc_value, exc_tb)
 
         logger = logging.getLogger(_LDSC_LOGGER_NAME)
         if self._handler is not None:
             logger.removeHandler(self._handler)
             self._handler.close()
+        if self._console_handler is not None and self._saved_console_level is not None:
+            self._console_handler.setLevel(self._saved_console_level)
         if self._saved_level is not None:
             logger.setLevel(self._saved_level)
         if _active_context() is self:
@@ -208,7 +275,13 @@ class _WorkflowLoggingContext:
         self._write_call_section(sys.argv)
         self._write_line("")
 
-    def _write_footer(self, status: str) -> None:
+    def _write_footer(
+        self,
+        status: str,
+        exc_type: type[BaseException] | None = None,
+        exc_value: BaseException | None = None,
+        exc_tb: TracebackType | None = None,
+    ) -> None:
         end_dt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         elapsed = 0.0 if self._start_time is None else time.monotonic() - self._start_time
         minutes = int(elapsed // 60)
@@ -219,6 +292,11 @@ class _WorkflowLoggingContext:
         self._write_line("")
         self._write_line(f"{status} {end_dt}")
         self._write_line(f"Elapsed time: {float(minutes):.1f}min:{seconds}s")
+        if exc_type is not None:
+            self._write_line("")
+            formatted = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+            for line in formatted.rstrip("\n").split("\n"):
+                self._write_line(line)
         self._write_line(_BORDER)
 
     def _write_items(self, title: str, items: dict[str, Any], *, leading_blank: bool = False) -> None:
@@ -273,9 +351,14 @@ def _group_invocation_units(argv: list[str]) -> list[str]:
 
 
 __all__ = [
+    "cli_console_handler",
     "configure_package_logging",
     "format_float",
+    "install_cli_console_handler",
+    "last_workflow_log_path",
     "log_inputs",
     "log_outputs",
+    "remove_cli_console_handler",
+    "reset_workflow_log_path",
     "workflow_logging",
 ]

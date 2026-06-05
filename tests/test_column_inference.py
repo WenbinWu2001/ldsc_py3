@@ -15,6 +15,7 @@ from ldsc.column_inference import (
     resolve_required_column,
     resolve_required_columns,
 )
+from ldsc.errors import LDSCConfigError, LDSCInputError
 
 
 class ColumnInferenceTest(unittest.TestCase):
@@ -36,7 +37,7 @@ class ColumnInferenceTest(unittest.TestCase):
         for value in ("rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"):
             self.assertEqual(ci.normalize_snp_identifier_mode(value), value)
         for value in ("rsID", "SNPID", "snp_id", "snp", "chrpos", "rsid_alleles", "chr_pos_alleles"):
-            with self.assertRaises(ValueError):
+            with self.assertRaises(LDSCConfigError):
                 ci.normalize_snp_identifier_mode(value)
 
         self.assertIsNotNone(getattr(ci, "normalize_genome_build", None))
@@ -98,9 +99,9 @@ class ColumnInferenceTest(unittest.TestCase):
         self.assertIsNotNone(internal_specs)
         internal_snp = self._spec_by_canonical(internal_specs, "SNP")
         internal_pos = self._spec_by_canonical(internal_specs, "POS")
-        with self.assertRaises(ValueError):
+        with self.assertRaises(LDSCInputError):
             resolve_required_column(["CHR", "rsid", "POS", "CM"], internal_snp)
-        with self.assertRaises(ValueError):
+        with self.assertRaises(LDSCInputError):
             resolve_required_column(["CHR", "SNP", "BP", "CM"], internal_pos)
 
     def test_resolve_required_column_logs_when_alias_maps_to_canonical_field(self):

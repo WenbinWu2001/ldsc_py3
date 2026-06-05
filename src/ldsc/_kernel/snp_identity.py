@@ -24,6 +24,7 @@ from typing import Literal
 import pandas as pd
 
 from .._coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame
+from ..errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
 
 SNPIdentifierMode = Literal["rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware"]
 SNP_IDENTIFIER_MODES = ("rsid", "rsid_allele_aware", "chr_pos", "chr_pos_allele_aware")
@@ -36,6 +37,9 @@ ARTIFACT_TYPES = frozenset({"sumstats", "ref_panel_r2", "ref_panel_metadata", "l
 REGENERATE_ARTIFACT_MESSAGE = (
     "This artifact was not written with the current LDSC schema/provenance contract. "
     "Regenerate it with the current LDSC package."
+)
+_ARTIFACT_METADATA_TROUBLESHOOTING = (
+    "docs/troubleshooting.md#common-ldsc-artifact-schema-or-provenance-is-incompatible"
 )
 
 IDENTITY_DROP_COLUMNS = [
@@ -93,7 +97,11 @@ def normalize_snp_identifier_mode(value: str) -> str:
     if value in SNP_IDENTIFIER_MODES:
         return value
     allowed = ", ".join(repr(mode) for mode in SNP_IDENTIFIER_MODES)
-    raise ValueError(f"Unsupported snp_identifier mode: {value!r}. Expected one of {allowed}.")
+    raise LDSCConfigError(
+        f"Could not configure SNP identity: snp_identifier mode {value!r} is invalid. "
+        "Most likely the mode is misspelled or an input column alias was passed as the mode. "
+        f"Use one of {allowed}."
+    )
 
 
 def identity_artifact_metadata(
@@ -104,7 +112,11 @@ def identity_artifact_metadata(
 ) -> dict[str, object]:
     """Return the minimal identity metadata persisted with reloadable artifacts."""
     if artifact_type not in ARTIFACT_TYPES:
-        raise ValueError(f"Unknown LDSC artifact_type {artifact_type!r}.")
+        raise LDSCInternalError(
+            f"Cannot write LDSC identity metadata: artifact_type={artifact_type!r} is not registered. "
+            "Most likely a new internal artifact writer was added without updating ARTIFACT_TYPES. "
+            "Add the artifact type to the central identity metadata registry."
+        )
     return {
         "schema_version": SCHEMA_VERSION,
         "artifact_type": artifact_type,
@@ -116,8 +128,25 @@ def identity_artifact_metadata(
 def validate_identity_artifact_metadata(metadata: dict[str, object], *, expected_artifact_type: str) -> str:
     """Validate minimal identity metadata and return the normalized SNP identifier mode."""
     if metadata.get("schema_version") != SCHEMA_VERSION or metadata.get("artifact_type") != expected_artifact_type:
-        raise ValueError(REGENERATE_ARTIFACT_MESSAGE)
-    return normalize_snp_identifier_mode(str(metadata.get("snp_identifier")))
+        actual_schema = metadata.get("schema_version")
+        actual_type = metadata.get("artifact_type")
+        raise LDSCInputError(
+            f"Could not read LDSC {expected_artifact_type} artifact metadata: expected schema_version={SCHEMA_VERSION} "
+            f"and artifact_type={expected_artifact_type!r}, got schema_version={actual_schema!r} "
+            f"and artifact_type={actual_type!r}. Most likely the artifact was written by an older LDSC version "
+            "or copied without its matching metadata sidecar. Regenerate the artifact with the current LDSC package. "
+            f"Other causes & fixes: {_ARTIFACT_METADATA_TROUBLESHOOTING}"
+        )
+    try:
+        return normalize_snp_identifier_mode(str(metadata.get("snp_identifier")))
+    except LDSCConfigError as exc:
+        actual_mode = metadata.get("snp_identifier")
+        raise LDSCInputError(
+            f"Could not read LDSC {expected_artifact_type} artifact metadata: snp_identifier={actual_mode!r} is invalid. "
+            "Most likely the artifact metadata is missing, outdated, or was edited by hand. "
+            "Regenerate the artifact with the current LDSC package. "
+            f"Other causes & fixes: {_ARTIFACT_METADATA_TROUBLESHOOTING}"
+        ) from exc
 
 
 def identity_mode_family(mode: str) -> Literal["rsid", "chr_pos"]:
@@ -150,11 +179,16 @@ def resolve_regression_identity_mode(
     if left == right:
         return IdentityCompatibility(effective_mode=left, downgrade_applied=False)
     if identity_mode_family(left) != identity_mode_family(right):
-        raise ValueError(f"Cannot mix SNP identifier families in regression: {left!r} vs {right!r}.")
+        raise LDSCUsageError(
+            f"Cannot resolve regression SNP identity: input modes {left!r} and {right!r} are from different families. "
+            "Most likely one regression input was built with rsID identifiers and the other with CHR/POS identifiers. "
+            "Use inputs from the same snp_identifier family before running regression."
+        )
     if not allow_identity_downgrade:
-        raise ValueError(
-            f"snp_identifier mismatch: {left!r} vs {right!r}. "
-            "Use --allow-identity-downgrade to run same-family allele-aware/base inputs under the base mode."
+        raise LDSCUsageError(
+            f"Cannot resolve regression SNP identity: input modes {left!r} and {right!r} differ in allele-awareness. "
+            "Most likely one input is allele-aware and the other is allele-blind. "
+            "Use matching snp_identifier modes, or pass --allow-identity-downgrade to run under the base mode."
         )
     return IdentityCompatibility(effective_mode=identity_base_mode(left), downgrade_applied=True)
 
@@ -213,7 +247,11 @@ def _require_columns(frame: pd.DataFrame, columns: tuple[str, ...], *, context: 
     missing = [column for column in columns if column not in frame.columns]
     if missing:
         joined = ", ".join(missing)
-        raise ValueError(f"{context} requires canonical column(s): {joined}.")
+        raise LDSCInputError(
+            f"Cannot build SNP identity for {context}: missing canonical column(s) {joined}. "
+            "Most likely the input file schema does not match the requested snp_identifier mode. "
+            "Use the correct input file or regenerate the artifact with the current LDSC package."
+        )
 
 
 def base_key_series(frame: pd.DataFrame, mode: str, *, context: str) -> pd.Series:
@@ -265,7 +303,11 @@ def effective_merge_key_series(frame: pd.DataFrame, mode: str, *, context: str =
     invalid = reasons.notna()
     if bool(invalid.any()):
         reason = str(reasons.loc[invalid].iloc[0])
-        raise ValueError(f"{context} contains invalid allele identity rows: {reason}.")
+        raise LDSCInputError(
+            f"Cannot build allele-aware SNP identity for {context}: invalid A1/A2 rows were found ({reason}). "
+            "Most likely the input contains missing, non-ACGT, identical, or strand-ambiguous allele pairs. "
+            "Clean the allele columns or use an allele-blind snp_identifier mode."
+        )
     keys = pd.Series(pd.NA, index=frame.index, dtype=object)
     valid = base.notna() & allele_set.notna()
     keys.loc[valid] = base.loc[valid].astype(str) + ":" + allele_set.loc[valid].astype(str)
@@ -331,7 +373,11 @@ def coerce_identity_drop_frame(frame: pd.DataFrame) -> pd.DataFrame:
 def _identity_drop_rows(frame: pd.DataFrame, *, reason: str, stage: str) -> pd.DataFrame:
     """Build drop-report rows for one policy reason."""
     if reason not in IDENTITY_DROP_REASONS:
-        raise ValueError(f"Unsupported identity drop reason: {reason!r}.")
+        raise LDSCInternalError(
+            f"Cannot build SNP identity drop report: unsupported drop reason {reason!r}. "
+            "Most likely an internal cleanup stage emitted a reason outside IDENTITY_DROP_REASONS. "
+            "Add the reason to the shared drop-report schema before using it."
+        )
     if frame.empty:
         return empty_identity_drop_frame()
 
@@ -495,4 +541,4 @@ def _log_identity_drops(dropped: pd.DataFrame, *, context: str, logger: logging.
     if logger is None or dropped.empty:
         return
     counts = dropped["reason"].value_counts().to_dict()
-    logger.warning("Dropped %d SNP identity rows in %s: %s.", len(dropped), context, counts)
+    logger.warning(f"Dropped {len(dropped)} SNP identity rows in {context}: {counts}.")

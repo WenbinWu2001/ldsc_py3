@@ -67,15 +67,23 @@ from ._kernel import ldscore as kernel_ldscore
 from ._kernel.identifiers import build_snp_id_series, read_snp_restriction_keys
 from ._kernel.snp_identity import RestrictionIdentityKeys, restriction_membership_mask
 from ._row_alignment import assert_same_snp_rows
+from .errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
 
 
 LOGGER = logging.getLogger("LDSC.ldscore_calculator")
 _LDSCORE_SUFFIX_COLUMNS = ("CHR", "SNP", "POS", "BP", "CM", "MAF")
 _QUERY_REQUIRES_BASELINE_MESSAGE = (
-    "Query annotations require baseline annotations. If you intentionally want to test query annotations "
-    "against an all-ones baseline, create an explicit all-ones `base` baseline annotation over the query "
-    "annotation universe, then run the partitioned LDSC workflow with both baseline and query annotations."
+    "ldscore cannot run query annotations without baseline annotations. Most likely "
+    "`--query-annot` or `--query-annot-bed` was supplied without `--baseline-annot`. "
+    "Pass matching baseline annotations, or create an explicit all-ones `base` "
+    "baseline annotation over the query annotation universe before running "
+    "partitioned LDSC."
 )
+_LDSCORE_INTERSECTION_DOC = (
+    "docs/troubleshooting.md#ldscore-no-annotation-snps-remain-after-reference-panel-intersection"
+)
+_LDSCORE_PARQUET_DOC = "docs/troubleshooting.md#ldscore-parquet-r2-input-is-incompatible"
+_LDSCORE_BUILD_DOC = "docs/troubleshooting.md#ldscore-genome-build-could-not-be-resolved-consistently"
 
 
 @dataclass(frozen=True)
@@ -134,13 +142,28 @@ class ChromLDScoreResult:
         required = {"CHR", "SNP", "POS", REGRESSION_LD_SCORE_COLUMN, *self.baseline_columns}
         missing = required - set(self.baseline_table.columns)
         if missing:
-            raise ValueError(f"baseline_table is missing required columns: {sorted(missing)}")
+            raise LDSCInternalError(
+                "LD-score result validation failed in ChromLDScoreResult.validate(): "
+                f"baseline_table is missing required columns {sorted(missing)}. "
+                "Most likely an internal result assembly step dropped metadata or LD-score columns. "
+                "Re-run with DEBUG logging and report the traceback."
+            )
         if self.query_columns and self.query_table is None:
-            raise ValueError("query_table is required when query_columns are present.")
+            raise LDSCInternalError(
+                "LD-score result validation failed in ChromLDScoreResult.validate(): "
+                "query columns are present but query_table is missing. Most likely an internal "
+                "split-table assembly step lost the query table. Re-run with DEBUG logging and "
+                "report the traceback."
+            )
         if self.query_table is not None:
             missing_query = {"CHR", "SNP", "POS", *self.query_columns} - set(self.query_table.columns)
             if missing_query:
-                raise ValueError(f"query_table is missing required columns: {sorted(missing_query)}")
+                raise LDSCInternalError(
+                    "LD-score result validation failed in ChromLDScoreResult.validate(): "
+                    f"query_table is missing required columns {sorted(missing_query)}. "
+                    "Most likely an internal query-table assembly step dropped metadata or "
+                    "annotation columns. Re-run with DEBUG logging and report the traceback."
+                )
             assert_same_snp_rows(
                 self.baseline_table,
                 self.query_table,
@@ -205,15 +228,34 @@ class LDScoreResult:
         required = {"CHR", "SNP", "POS", REGRESSION_LD_SCORE_COLUMN, *self.baseline_columns}
         missing = required - set(self.baseline_table.columns)
         if missing:
-            raise ValueError(f"baseline_table is missing required columns: {sorted(missing)}")
+            raise LDSCInternalError(
+                "LD-score result validation failed in LDScoreResult.validate(): "
+                f"baseline_table is missing required columns {sorted(missing)}. "
+                "Most likely chromosome aggregation dropped metadata or LD-score columns. "
+                "Re-run with DEBUG logging and report the traceback."
+            )
         if self.query_columns and self.query_table is None:
-            raise ValueError("query_table is required when query_columns are present.")
+            raise LDSCInternalError(
+                "LD-score result validation failed in LDScoreResult.validate(): "
+                "query columns are present but query_table is missing. Most likely chromosome "
+                "aggregation lost the query table. Re-run with DEBUG logging and report the traceback."
+            )
         if not self.query_columns and self.query_table is not None:
-            raise ValueError("query_table was provided but query_columns is empty.")
+            raise LDSCInternalError(
+                "LD-score result validation failed in LDScoreResult.validate(): "
+                "query_table was provided but query_columns is empty. Most likely an internal "
+                "result assembly step preserved an unexpected query table. Re-run with DEBUG "
+                "logging and report the traceback."
+            )
         if self.query_table is not None:
             missing_query = {"CHR", "SNP", "POS", *self.query_columns} - set(self.query_table.columns)
             if missing_query:
-                raise ValueError(f"query_table is missing required columns: {sorted(missing_query)}")
+                raise LDSCInternalError(
+                    "LD-score result validation failed in LDScoreResult.validate(): "
+                    f"query_table is missing required columns {sorted(missing_query)}. "
+                    "Most likely chromosome aggregation dropped metadata or query annotation "
+                    "columns. Re-run with DEBUG logging and report the traceback."
+                )
             if require_query_alignment:
                 assert_same_snp_rows(
                     self.baseline_table,
@@ -314,13 +356,20 @@ class LDScoreCalculator:
                     global_config=global_config,
                     regression_snps=regression_snps,
                 )
-            except ValueError as exc:
+            except (ValueError, LDSCInputError) as exc:
                 if _warn_and_skip_empty_intersection(exc, chrom):
                     continue
                 raise
             chromosome_results.append(chromosome_result)
         if not chromosome_results:
-            raise ValueError("No chromosome results were produced after intersecting annotations with the reference panel.")
+            raise LDSCInputError(
+                "ldscore could not compute any chromosome results after intersecting annotations "
+                "with the reference panel. Most likely the annotation SNP IDs, genome build, "
+                "or allele-aware identifier mode do not match the reference panel. Use matching "
+                "annotation and reference-panel artifacts, or rerun with the correct "
+                "`--snp-identifier` and `--genome-build`. "
+                f"Other causes & fixes: {_LDSCORE_INTERSECTION_DOC}"
+            )
         result = self._aggregate_chromosome_results(
             chromosome_results,
             global_config=global_config,
@@ -462,7 +511,11 @@ class LDScoreCalculator:
     ) -> LDScoreResult:
         """Concatenate and sum per-chromosome results into one aggregate object."""
         if not chromosome_results:
-            raise ValueError("At least one chromosome result is required.")
+            raise LDSCInternalError(
+                "LD-score aggregation failed in LDScoreCalculator._aggregate_chromosome_results(): "
+                "no chromosome results were supplied. Most likely all chromosomes were skipped "
+                "before aggregation. Re-run with DEBUG logging and report the traceback."
+            )
         snapshots = [result.config_snapshot for result in chromosome_results if result.config_snapshot is not None]
         if snapshots:
             for snapshot in snapshots[1:]:
@@ -554,19 +607,34 @@ def _split_ldscore_table(
 ) -> tuple[pd.DataFrame, pd.DataFrame | None]:
     """Split a merged LD-score table into baseline and optional query tables."""
     if is_allele_aware_mode(snp_identifier) and not {"A1", "A2"}.issubset(ldscore_table.columns):
-        raise ValueError("LD-score table is missing A1/A2 columns required by allele-aware SNP identity.")
+        raise LDSCInternalError(
+            "LD-score split-table assembly failed in _split_ldscore_table(): allele-aware "
+            f"SNP identity mode '{snp_identifier}' requires A1/A2 columns, but the LD-score "
+            "table does not contain both. Most likely an upstream reference-panel or annotation "
+            "assembly step dropped allele columns. Re-run with DEBUG logging and report the traceback."
+        )
     metadata_columns = ["CHR", "SNP", "POS", *[column for column in ("A1", "A2") if column in ldscore_table.columns]]
     baseline_order = [*metadata_columns, REGRESSION_LD_SCORE_COLUMN, *baseline_columns]
     query_order = [*metadata_columns, *query_columns]
     missing_baseline = [column for column in baseline_order if column not in ldscore_table.columns]
     if missing_baseline:
-        raise ValueError(f"LD-score table is missing baseline columns: {missing_baseline}")
+        raise LDSCInternalError(
+            "LD-score split-table assembly failed in _split_ldscore_table(): "
+            f"the merged table is missing baseline columns {missing_baseline}. Most likely "
+            "a kernel result omitted expected baseline annotation scores. Re-run with DEBUG "
+            "logging and report the traceback."
+        )
     baseline_table = ldscore_table.loc[:, baseline_order].reset_index(drop=True).copy()
     query_table = None
     if query_columns:
         missing_query = [column for column in query_order if column not in ldscore_table.columns]
         if missing_query:
-            raise ValueError(f"LD-score table is missing query columns: {missing_query}")
+            raise LDSCInternalError(
+                "LD-score split-table assembly failed in _split_ldscore_table(): "
+                f"the merged table is missing query columns {missing_query}. Most likely "
+                "a kernel result omitted expected query annotation scores. Re-run with DEBUG "
+                "logging and report the traceback."
+            )
         query_table = ldscore_table.loc[:, query_order].reset_index(drop=True).copy()
         assert_same_snp_rows(
             baseline_table,
@@ -608,11 +676,23 @@ def _count_records_from_totals(
     groups = ["baseline"] * len(baseline_columns) + ["query"] * len(query_columns)
     all_counts = np.asarray(count_totals.get("all_reference_snp_counts"), dtype=np.float64)
     if all_counts.size != len(columns):
-        raise ValueError("all_reference_snp_counts length does not match annotation columns.")
+        raise LDSCInternalError(
+            "LD-score count assembly failed in _count_records_from_totals(): "
+            f"all_reference_snp_counts has length {all_counts.size}, but there are "
+            f"{len(columns)} annotation columns. Most likely the kernel returned count "
+            "vectors for a different annotation matrix. Re-run with DEBUG logging and "
+            "report the traceback."
+        )
     common_raw = count_totals.get("common_reference_snp_counts")
     common_counts = None if common_raw is None else np.asarray(common_raw, dtype=np.float64)
     if common_counts is not None and common_counts.size != len(columns):
-        raise ValueError("common_reference_snp_counts length does not match annotation columns.")
+        raise LDSCInternalError(
+            "LD-score count assembly failed in _count_records_from_totals(): "
+            f"common_reference_snp_counts has length {common_counts.size}, but there are "
+            f"{len(columns)} annotation columns. Most likely the kernel returned common-SNP "
+            "count vectors for a different annotation matrix. Re-run with DEBUG logging and "
+            "report the traceback."
+        )
     records: list[dict[str, Any]] = []
     for idx, (group, column) in enumerate(zip(groups, columns)):
         record: dict[str, Any] = {
@@ -825,31 +905,74 @@ def _validate_run_args(args: argparse.Namespace) -> None:
     if not _has_cli_tokens(args.baseline_annot_sources) and (
         _has_cli_tokens(args.query_annot_sources) or _has_cli_tokens(getattr(args, "query_annot_bed_sources", None))
     ):
-        raise ValueError(_QUERY_REQUIRES_BASELINE_MESSAGE)
+        raise LDSCUsageError(_QUERY_REQUIRES_BASELINE_MESSAGE)
     keep = getattr(args, "keep", None)
     if _uses_parquet_reference(args) == bool(args.bfile):
-        raise ValueError("Specify exactly one reference-panel mode: parquet or PLINK.")
+        raise LDSCUsageError(
+            "ldscore could not choose a reference-panel backend. Most likely both parquet "
+            "R2 input and PLINK input were supplied, or neither was supplied. Pass exactly "
+            "one of `--r2-dir` for parquet mode or `--plink-prefix` for PLINK mode."
+        )
     if _uses_parquet_reference(args):
         if keep:
-            raise ValueError("--keep-indivs-file is only supported in PLINK mode.")
+            raise LDSCUsageError(
+                "ldscore cannot apply `--keep-indivs-file` in parquet R2 mode. Most likely "
+                "`--keep-indivs-file` was combined with `--r2-dir`, but individual-level "
+                "filtering only exists before PLINK genotype LD calculation. Remove "
+                "`--keep-indivs-file`, or rerun in PLINK mode with `--plink-prefix`."
+            )
         if args.r2_bias_mode is None:
             args.r2_bias_mode = "unbiased"
         if args.r2_bias_mode == "raw" and args.r2_sample_size is None:
-            raise ValueError("--r2-sample-size is required when --r2-bias-mode raw.")
+            raise LDSCUsageError(
+                "ldscore cannot apply raw R2 bias correction without `--r2-sample-size`. "
+                "Most likely `--r2-bias-mode raw` was selected for parquet input without "
+                "the sample size used to estimate R2. Pass `--r2-sample-size <N>`, or use "
+                "`--r2-bias-mode unbiased` for pre-corrected R2 values."
+            )
         if identity_mode_family(args.snp_identifier) == "chr_pos" and args.genome_build is None:
-            raise ValueError("--genome-build is required in parquet mode for chr_pos-family snp_identifier modes.")
+            raise LDSCUsageError(
+                "ldscore cannot run parquet R2 mode with chr_pos-family SNP identifiers "
+                "without a genome build. Most likely `--snp-identifier chr_pos` or an "
+                "allele-aware chr_pos mode was supplied without `--genome-build`. Pass "
+                "`--genome-build hg19`, `--genome-build hg38`, or `--genome-build auto`."
+            )
     if args.ld_wind_cm is not None and args.ld_wind_cm <= 0:
-        raise ValueError("--ld-wind-cm must be positive.")
+        raise LDSCConfigError(
+            f"ldscore received invalid `--ld-wind-cm={args.ld_wind_cm}`. Most likely "
+            "the LD window was set to zero or a negative value. Pass a positive "
+            "centimorgan window, for example `--ld-wind-cm 1.0`."
+        )
     if args.ld_wind_kb is not None and args.ld_wind_kb <= 0:
-        raise ValueError("--ld-wind-kb must be positive.")
+        raise LDSCConfigError(
+            f"ldscore received invalid `--ld-wind-kb={args.ld_wind_kb}`. Most likely "
+            "the LD window was set to zero or a negative value. Pass a positive "
+            "kilobase window."
+        )
     if args.ld_wind_snps is not None and args.ld_wind_snps <= 0:
-        raise ValueError("--ld-wind-snps must be positive.")
+        raise LDSCConfigError(
+            f"ldscore received invalid `--ld-wind-snps={args.ld_wind_snps}`. Most likely "
+            "the LD window was set to zero or a negative SNP count. Pass a positive "
+            "SNP-count window."
+        )
     if getattr(args, "maf_min", None) is not None and not 0 <= args.maf_min <= 0.5:
-        raise ValueError("--maf-min must lie in [0, 0.5].")
+        raise LDSCConfigError(
+            f"ldscore received invalid `--maf-min={args.maf_min}`. Most likely the "
+            "minor-allele frequency threshold was entered outside the valid [0, 0.5] "
+            "range. Pass a value between 0 and 0.5, or omit the option."
+        )
     if not 0 <= getattr(args, "common_maf_min", 0.05) <= 0.5:
-        raise ValueError("--common-maf-min must lie in [0, 0.5].")
+        raise LDSCConfigError(
+            f"ldscore received invalid `--common-maf-min={args.common_maf_min}`. Most "
+            "likely the common-SNP MAF threshold was entered outside the valid [0, 0.5] "
+            "range. Pass a value between 0 and 0.5."
+        )
     if args.snp_batch_size <= 0:
-        raise ValueError("--snp-batch-size must be positive.")
+        raise LDSCConfigError(
+            f"ldscore received invalid `--snp-batch-size={args.snp_batch_size}`. Most "
+            "likely the parquet query batch size was set to zero or a negative value. "
+            "Pass a positive integer batch size."
+        )
 
 
 def _has_cli_tokens(value: str | Sequence[str] | None) -> bool:
@@ -907,7 +1030,13 @@ def _pseudo_base_annotation_bundle_from_ref_panel(ref_panel, global_config: Glob
         metadata_columns = ["CHR", "SNP", "CM", "POS", *[column for column in ("A1", "A2") if column in metadata.columns]]
         metadata_frames.append(metadata.loc[:, metadata_columns].reset_index(drop=True))
     if not metadata_frames:
-        raise ValueError("No reference-panel SNP metadata rows are available for pseudo `base` annotation.")
+        raise LDSCInputError(
+            "ldscore could not build the synthetic `base` annotation from the reference panel: "
+            "no retained reference-panel SNP metadata rows were available. Most likely the "
+            "reference panel was filtered to zero SNPs by `--ref-panel-snps-file` or the "
+            "selected chromosomes are absent. Use a reference panel and SNP restriction file "
+            "with overlapping SNPs, or pass explicit baseline annotations."
+        )
     metadata = pd.concat(metadata_frames, axis=0, ignore_index=True)
     baseline = pd.DataFrame({"base": np.ones(len(metadata), dtype=np.float32)})
     query = pd.DataFrame(index=metadata.index)
@@ -952,7 +1081,12 @@ def run_ldscore(**kwargs) -> LDScoreResult:
     forbidden = sorted({"snp_identifier", "genome_build", "log_level"} & set(kwargs))
     if forbidden:
         joined = ", ".join(forbidden)
-        raise ValueError(f"Python run_ldscore() no longer accepts {joined}; call set_global_config(...) first.")
+        raise LDSCUsageError(
+            f"Python run_ldscore() cannot accept shared runtime option(s): {joined}. "
+            "Most likely this call still passes pre-restructure keyword arguments for "
+            "SNP identity, genome build, or logging. Call set_global_config(...) first, "
+            "then pass only LD-score run-specific options to run_ldscore()."
+        )
     removed = sorted(
         {
             "out",
@@ -983,7 +1117,12 @@ def run_ldscore(**kwargs) -> LDScoreResult:
     )
     if removed:
         joined = ", ".join(removed)
-        raise ValueError(f"Python run_ldscore() no longer accepts removed IO argument(s): {joined}.")
+        raise LDSCUsageError(
+            f"Python run_ldscore() cannot accept removed IO argument(s): {joined}. "
+            "Most likely this call still uses legacy keyword names from the old LDSC API. "
+            "Use CLI-style names such as `baseline_annot_sources`, `query_annot_sources`, "
+            "`plink_prefix`, `r2_dir`, and `output_dir`."
+        )
     parser = build_parser()
     defaults = vars(parser.parse_args(["--output-dir", "placeholder"]))
     global_config = get_global_config()
@@ -1031,9 +1170,19 @@ def _normalize_run_args(args: argparse.Namespace) -> tuple[argparse.Namespace, G
     normalized_args.ref_panel_snps_file = normalize_optional_path_token(getattr(args, "ref_panel_snps_file", None))
     normalized_args.regression_snps_file = normalize_optional_path_token(getattr(args, "regression_snps_file", None))
     if normalized_args.ref_panel_snps_file is not None and normalized_args.use_hm3_ref_panel_snps:
-        raise ValueError("ref_panel_snps_file and use_hm3_ref_panel_snps are mutually exclusive.")
+        raise LDSCUsageError(
+            "ldscore received two reference-panel SNP restrictions: `ref_panel_snps_file` "
+            "and `use_hm3_ref_panel_snps`. Most likely a custom SNP list was combined "
+            "with the packaged HM3 shortcut. Choose one restriction source: pass the "
+            "custom file or use the HM3 flag, not both."
+        )
     if normalized_args.regression_snps_file is not None and normalized_args.use_hm3_regression_snps:
-        raise ValueError("regression_snps_file and use_hm3_regression_snps are mutually exclusive.")
+        raise LDSCUsageError(
+            "ldscore received two regression SNP restrictions: `regression_snps_file` "
+            "and `use_hm3_regression_snps`. Most likely a custom regression list was "
+            "combined with the packaged HM3 shortcut. Choose one restriction source: "
+            "pass the custom file or use the HM3 flag, not both."
+        )
     # The numerical kernel still consumes the historical namespace shape.
     normalized_args.query_annot = normalized_args.query_annot_sources
     normalized_args.baseline_annot = normalized_args.baseline_annot_sources
@@ -1065,9 +1214,11 @@ def _normalize_run_args(args: argparse.Namespace) -> tuple[argparse.Namespace, G
 def _resolve_ldscore_chr_pos_genome_build(args: argparse.Namespace, genome_build: str | None) -> str:
     normalized = normalize_genome_build(genome_build)
     if normalized is None:
-        raise ValueError(
-            "genome_build is required for chr_pos-family snp_identifier modes. "
-            "Pass --genome-build auto, --genome-build hg19, or --genome-build hg38."
+        raise LDSCUsageError(
+            "ldscore cannot resolve chr_pos-family SNP identifiers without a genome build. "
+            "Most likely `--snp-identifier` was set to a chr_pos mode but `--genome-build` "
+            "was omitted. Pass `--genome-build auto`, `--genome-build hg19`, or "
+            "`--genome-build hg38`."
         )
     if normalized != "auto":
         return normalized
@@ -1099,14 +1250,23 @@ def _resolve_ldscore_chr_pos_genome_build(args: argparse.Namespace, genome_build
             resolved.append(("reference panel", ref_panel_build))
             LOGGER.info(f"Resolved LD-score reference-panel genome build from parquet schema metadata in '{r2_dir}'.")
     if not resolved:
-        raise ValueError(
-            "Cannot infer --genome-build for LD-score chr_pos inputs because no chromosome-suite "
-            "annotation or R2 parquet build metadata was available."
+        raise LDSCInputError(
+            "ldscore could not infer the genome build for chr_pos inputs. Most likely "
+            "no chromosome-suite annotation sample or R2 parquet build metadata was "
+            "available to inspect. Pass `--genome-build hg19` or `--genome-build hg38`, "
+            "or provide LDSC-generated parquet R2 files with build metadata. "
+            f"Other causes & fixes: {_LDSCORE_BUILD_DOC}"
         )
     builds = {build for _label, build in resolved}
     if len(builds) != 1:
         details = ", ".join(f"{label}={build}" for label, build in resolved)
-        raise ValueError(f"LD-score input genome build sources disagree: {details}.")
+        raise LDSCInputError(
+            f"ldscore found conflicting genome-build evidence: {details}. Most likely "
+            "the annotation files and parquet reference panel were generated on different "
+            "builds. Regenerate one input on the same build, or rerun with a matching "
+            "reference panel and `--genome-build`. "
+            f"Other causes & fixes: {_LDSCORE_BUILD_DOC}"
+        )
     return resolved[0][1]
 
 
@@ -1144,7 +1304,13 @@ def _infer_r2_dir_genome_build(r2_dir: str) -> str | None:
     builds = set(builds_by_path.values())
     if len(builds) > 1:
         details = ", ".join(f"{path}={build}" for path, build in sorted(builds_by_path.items()))
-        raise ValueError(f"Conflicting R2 parquet genome-build metadata in '{r2_dir}': {details}.")
+        raise LDSCInputError(
+            f"ldscore found conflicting R2 parquet genome-build metadata in '{r2_dir}': "
+            f"{details}. Most likely the R2 directory mixes files from different reference-panel "
+            "builds. Keep only one build in the R2 directory or regenerate the panel as a single "
+            "consistent artifact. "
+            f"Other causes & fixes: {_LDSCORE_BUILD_DOC}"
+        )
     return next(iter(builds), None)
 
 
@@ -1315,7 +1481,14 @@ def _align_annotation_bundle_to_ref_panel(annotation_bundle, ref_panel, chrom: s
     if not bool(keep.any()):
         backend = getattr(getattr(ref_panel, "spec", None), "backend", None)
         intersection = "parquet" if backend == "parquet_r2" else "PLINK"
-        raise ValueError(f"No retained annotation SNPs remain on chromosome {chrom} after {intersection} intersection.")
+        raise LDSCInputError(
+            f"ldscore retained no annotation SNPs on chromosome {chrom} after intersecting "
+            f"with the {intersection} reference panel. Most likely the annotation SNP "
+            "identifiers, genome build, or allele-aware identifier mode do not match the "
+            "reference panel. Use annotation and reference-panel artifacts built with the "
+            "same SNP identifier mode and genome build. "
+            f"Other causes & fixes: {_LDSCORE_INTERSECTION_DOC}"
+        )
     metadata = annotation_bundle.metadata.loc[keep].reset_index(drop=True)
     metadata = _annotation_metadata_with_reference_alleles(
         annotation_metadata=metadata,
@@ -1370,15 +1543,24 @@ def _annotation_metadata_with_reference_alleles(
     duplicate_mask = reference_lookup["_match_key"].duplicated(keep=False)
     if bool(duplicate_mask.any()):
         duplicate_key = str(reference_lookup.loc[duplicate_mask, "_match_key"].iloc[0])
-        raise ValueError(
-            "Cannot infer annotation alleles from reference metadata because "
-            f"base identity {duplicate_key!r} is not unique under {mode}."
+        raise LDSCInputError(
+            "ldscore could not infer missing annotation alleles from reference metadata. "
+            f"Base identity {duplicate_key!r} is not unique under SNP identifier mode "
+            f"'{mode}'. Most likely the reference panel contains duplicate base SNP "
+            "identities after dropping alleles. Provide allele-aware annotation columns "
+            "A1/A2, or regenerate the reference panel with unique retained SNP identities."
         )
     reference_lookup = reference_lookup.set_index("_match_key")
     missing = ~annotation_keys.isin(reference_lookup.index)
     if bool(missing.any()):
         missing_key = str(annotation_keys.loc[missing].iloc[0])
-        raise ValueError(f"Reference metadata is missing alleles for retained annotation SNP {missing_key!r}.")
+        raise LDSCInputError(
+            "ldscore could not infer missing annotation alleles from reference metadata. "
+            f"Retained annotation SNP {missing_key!r} has no matching A1/A2 values in "
+            "the reference metadata. Most likely the annotation and reference panel were "
+            "matched with base chr_pos/rsID identities but the allele metadata is incomplete. "
+            "Provide A1/A2 in the annotation input or regenerate the reference panel with allele columns."
+        )
 
     enriched = annotation_metadata.copy()
     enriched["A1"] = annotation_keys.map(reference_lookup["A1"]).astype(str)
@@ -1386,12 +1568,16 @@ def _annotation_metadata_with_reference_alleles(
     return enriched
 
 
-def _warn_and_skip_empty_intersection(error: ValueError, chrom: str) -> bool:
+def _warn_and_skip_empty_intersection(error: Exception, chrom: str) -> bool:
     """Warn and signal skip when a chromosome loses all SNPs after reference intersection."""
     message = str(error)
-    if not message.startswith("No retained annotation SNPs remain on chromosome "):
+    old_shape = message.startswith("No retained annotation SNPs remain on chromosome ")
+    new_shape = message.startswith("ldscore retained no annotation SNPs on chromosome ")
+    if not (old_shape or new_shape):
         return False
-    if not any(suffix in message for suffix in (" after parquet intersection.", " after PLINK intersection.")):
+    if old_shape and not any(suffix in message for suffix in (" after parquet intersection.", " after PLINK intersection.")):
+        return False
+    if new_shape and "after intersecting with the " not in message:
         return False
     warnings.warn(f"Skipping chromosome {chrom}: {message}", UserWarning, stacklevel=3)
     return True

@@ -24,7 +24,7 @@ from ..column_inference import (
     resolve_restriction_chr_pos_columns,
     resolve_restriction_rsid_column,
 )
-from ..errors import LDSCDependencyError
+from ..errors import LDSCConfigError, LDSCDependencyError, LDSCInputError, LDSCInternalError
 from .liftover import LiftOverMappingResult, LiftOverTranslator
 from .snp_identity import (
     RestrictionIdentityKeys,
@@ -37,6 +37,9 @@ from .snp_identity import (
 )
 
 LOGGER = logging.getLogger("LDSC.ref_panel_builder.kernel")
+_BUILD_REF_PANEL_LIFTOVER_DOC = (
+    "docs/troubleshooting.md#build-ref-panel-liftover-or-genetic-map-configuration-is-incomplete"
+)
 
 
 GENETIC_MAP_CM_SPEC = ColumnSpec(
@@ -103,15 +106,28 @@ def load_genetic_map(path: str | PathLike[str]) -> pd.DataFrame:
     )
     duplicated = out.duplicated(subset=["CHR", "POS"], keep=False)
     if duplicated.any():
-        raise ValueError(f"Genetic map {path} contains duplicate chromosome/position rows.")
+        raise LDSCInputError(
+            f"build-ref-panel could not load genetic map '{path}': duplicate CHR/POS "
+            "rows were found. Most likely the map file contains repeated positions. "
+            "Deduplicate the map or provide a clean genetic map. "
+            f"Other causes & fixes: {_BUILD_REF_PANEL_LIFTOVER_DOC}"
+        )
 
     chrom_order = out["CHR"].map(_chrom_sort_key)
     if not chrom_order.equals(chrom_order.sort_values(ignore_index=True)):
-        raise ValueError(f"Genetic map {path} must be sorted by chromosome.")
+        raise LDSCInputError(
+            f"build-ref-panel could not load genetic map '{path}': rows are not sorted "
+            "by chromosome. Most likely map shards were concatenated out of order. Sort "
+            "the file by chromosome and position, or pass correctly ordered map shards."
+        )
     for chrom, chrom_frame in out.groupby("CHR", sort=False):
         positions = chrom_frame["POS"].reset_index(drop=True)
         if not positions.equals(positions.sort_values(ignore_index=True)):
-            raise ValueError(f"Genetic map {path} must be sorted by position within chromosome {chrom}.")
+            raise LDSCInputError(
+                f"build-ref-panel could not load genetic map '{path}': positions are not "
+                f"sorted within chromosome {chrom}. Most likely this chromosome's map rows "
+                "were shuffled. Sort the map by chromosome and position before rerunning."
+            )
 
     return out.reset_index(drop=True)
 
@@ -120,13 +136,22 @@ def load_genetic_map_group(paths: Sequence[str | PathLike[str]]) -> pd.DataFrame
     """Load and combine one or more genetic map files into one canonical table."""
 
     if not paths:
-        raise ValueError("At least one genetic map path is required.")
+        raise LDSCInputError(
+            "build-ref-panel could not load a genetic map group because no map paths "
+            "were supplied. Most likely an empty path token reached the kernel. Pass at "
+            "least one genetic map file or omit cM-window output."
+        )
     frames = [load_genetic_map(path) for path in paths]
     combined = pd.concat(frames, axis=0, ignore_index=True)
     combined = combined.sort_values(by=["CHR", "POS"], key=lambda col: col.map(_chrom_sort_key) if col.name == "CHR" else col, kind="mergesort")
     duplicated = combined.duplicated(subset=["CHR", "POS"], keep=False)
     if duplicated.any():
-        raise ValueError("Combined genetic map inputs contain duplicate chromosome/position rows.")
+        raise LDSCInputError(
+            "build-ref-panel could not combine genetic map inputs: duplicate CHR/POS "
+            "rows were found across map files. Most likely overlapping map shards were "
+            "supplied. Use non-overlapping shards or a single deduplicated genetic map. "
+            f"Other causes & fixes: {_BUILD_REF_PANEL_LIFTOVER_DOC}"
+        )
     return combined.reset_index(drop=True)
 
 
@@ -140,7 +165,12 @@ def interpolate_genetic_map_cm(
     chrom = _normalize_map_chromosome(chrom)
     chrom_map = genetic_map.loc[genetic_map["CHR"] == chrom, ["POS", "CM"]].reset_index(drop=True)
     if len(chrom_map) == 0:
-        raise ValueError(f"Genetic map does not contain chromosome {chrom}.")
+        raise LDSCInputError(
+            f"build-ref-panel could not interpolate cM positions for chromosome {chrom}: "
+            "the genetic map contains no rows for that chromosome. Most likely the wrong "
+            "map build or incomplete chromosome shard was supplied. Pass a map that covers "
+            f"chromosome {chrom}. Other causes & fixes: {_BUILD_REF_PANEL_LIFTOVER_DOC}"
+        )
     return np.interp(
         np.asarray(positions, dtype=np.int64),
         chrom_map["POS"].to_numpy(dtype=np.int64),
@@ -159,19 +189,21 @@ def detect_restriction_identifier_mode(path: str | PathLike[str]) -> str:
     try:
         resolve_restriction_chr_pos_columns(header_fields, context=str(path))
         return "chr_pos"
-    except ValueError:
+    except (ValueError, LDSCInputError):
         # Not a chr_pos restriction file; try rsid before raising a combined
         # user-facing header error.
         pass
     try:
         resolve_restriction_rsid_column(header_fields, context=str(path))
         return "rsid"
-    except ValueError:
+    except (ValueError, LDSCInputError):
         # Neither supported restriction schema matched.
         pass
 
-    raise ValueError(
-        f"Restriction file {path} must contain a header row with recognizable SNP or CHR/POS columns."
+    raise LDSCInputError(
+        f"Cannot detect SNP restriction mode for {path}: no recognizable SNP or CHR/POS header was found. "
+        "Most likely the file has no header row or uses unsupported column names. "
+        "Add a header with SNP or CHR/POS columns."
     )
 
 
@@ -186,7 +218,11 @@ def build_plink_metadata_frame(
     kept_snps = np.asarray(kept_snps, dtype=int)
     maf_values = np.asarray(maf_values, dtype=float)
     if len(kept_snps) != len(maf_values):
-        raise ValueError("kept_snps and maf_values must have the same length.")
+        raise LDSCInternalError(
+            "build-ref-panel metadata assembly failed: kept_snps and maf_values have "
+            f"different lengths ({len(kept_snps)} vs {len(maf_values)}). Most likely "
+            "PLINK filtering bookkeeping desynchronized. Re-run with DEBUG logging and report the traceback."
+        )
     kept = bim.df.iloc[kept_snps].reset_index(drop=True).copy()
     out = pd.DataFrame(
         {
@@ -218,7 +254,12 @@ def build_window_coordinates(
         return metadata["POS"].to_numpy(dtype=float), float(ld_wind_kb) * 1000.0
     cm_values = np.asarray(cm_values, dtype=float)
     if np.isnan(cm_values).any():
-        raise ValueError("--ld-wind-cm requires non-missing interpolated CM values.")
+        raise LDSCInputError(
+            "build-ref-panel cannot use cM LD windows because interpolated CM values "
+            "are missing for retained SNPs. Most likely the genetic map does not cover "
+            "all retained positions. Provide a complete genetic map or use an SNP/kb "
+            f"LD window. Other causes & fixes: {_BUILD_REF_PANEL_LIFTOVER_DOC}"
+        )
     return cm_values, float(ld_wind_cm)
 
 
@@ -398,9 +439,17 @@ def yield_pairwise_r2_rows(
 
     block_left = np.asarray(block_left, dtype=int)
     if len(block_left) != m:
-        raise ValueError("block_left length must match the SNP count.")
+        raise LDSCInternalError(
+            "build-ref-panel pairwise R2 emission failed: block_left length does not "
+            f"match SNP count ({len(block_left)} vs {m}). Most likely LD-window setup "
+            "desynchronized from retained SNP metadata. Re-run with DEBUG logging and report the traceback."
+        )
     if snp_batch_size <= 0:
-        raise ValueError("snp_batch_size must be positive.")
+        raise LDSCConfigError(
+            f"build-ref-panel received invalid snp_batch_size={snp_batch_size}. Most "
+            "likely the batch size was set to zero or a negative value. Pass a positive "
+            "integer batch size."
+        )
 
     block_sizes = np.array(np.arange(m) - block_left)
     block_sizes = np.ceil(block_sizes / snp_batch_size) * snp_batch_size
@@ -557,7 +606,9 @@ def write_dataframe_to_parquet(df: pd.DataFrame, path: str | PathLike[str]) -> s
         df.to_parquet(path, index=False)
     except ImportError as exc:
         raise LDSCDependencyError(
-            "Writing reference-panel parquet artifacts requires pyarrow or fastparquet."
+            "build-ref-panel could not write reference-panel parquet artifacts because no parquet engine is installed. "
+            "Most likely the environment is missing pyarrow or fastparquet. Install pyarrow, or install fastparquet "
+            "for this legacy parquet writer path."
         ) from exc
     return str(path)
 
@@ -627,11 +678,18 @@ def write_r2_parquet(
         import pyarrow.parquet as pq
     except ImportError as exc:
         raise LDSCDependencyError(
-            "Writing canonical reference-panel R2 parquet artifacts requires pyarrow."
+            "build-ref-panel could not write canonical R2 parquet artifacts because pyarrow is not installed. "
+            "Most likely parquet reference-panel generation was requested in an environment missing pyarrow. "
+            "Install pyarrow and rerun build-ref-panel."
         ) from exc
 
     if int(n_snps) >= 2**31:
-        raise ValueError(f"n_snps={n_snps} exceeds int32 index range; cannot store IDX columns.")
+        raise LDSCInputError(
+            f"build-ref-panel cannot write R2 parquet with n_snps={n_snps}: the index "
+            "space exceeds the int32 IDX column range. Most likely the retained reference "
+            "panel is too large for the current parquet format. Split the panel or reduce "
+            "the retained SNP universe."
+        )
 
     pa_meta = {
         **{
@@ -680,10 +738,12 @@ def write_r2_parquet(
             bad = np.flatnonzero(np.diff(sequence) < 0)
             if bad.size:
                 k = int(bad[0])
-                raise ValueError(
-                    "Pairs must arrive in non-decreasing IDX_1 order. "
+                raise LDSCInternalError(
+                    "build-ref-panel R2 parquet writing failed: pair rows arrived out of "
+                    "non-decreasing IDX_1 order. "
                     f"Received IDX_1={int(sequence[k + 1])} after IDX_1={int(sequence[k])}. "
-                    "Verify that the reference panel builder traverses SNPs in ascending index order."
+                    "Most likely retained SNP sorting or pair emission is inconsistent. "
+                    "Re-run with DEBUG logging and report the traceback."
                 )
             prev_idx1 = int(i[-1])
         if writer is None:

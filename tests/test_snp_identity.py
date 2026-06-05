@@ -9,6 +9,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from ldsc._kernel import snp_identity as si
+from ldsc.errors import LDSCConfigError, LDSCInputError, LDSCUsageError
 
 
 class SNPIdentityModeTest(unittest.TestCase):
@@ -23,8 +24,17 @@ class SNPIdentityModeTest(unittest.TestCase):
         rejected = ["rsID", "SNPID", "snp_id", "chrpos", "rsid_alleles", "chr_pos_alleles"]
         for value in rejected:
             with self.subTest(value=value):
-                with self.assertRaises(ValueError):
+                with self.assertRaises(LDSCConfigError):
                     si.normalize_snp_identifier_mode(value)
+
+    def test_invalid_mode_message_reports_cause_and_fix(self):
+        with self.assertRaises(LDSCConfigError) as ctx:
+            si.normalize_snp_identifier_mode("rsID")
+
+        message = str(ctx.exception)
+        self.assertIn("snp_identifier mode 'rsID' is invalid", message)
+        self.assertIn("Most likely", message)
+        self.assertIn("Use one of", message)
 
     def test_mode_family_helpers_return_base_family(self):
         self.assertEqual(si.identity_mode_family("rsid"), "rsid")
@@ -83,8 +93,38 @@ class EffectiveKeyTest(unittest.TestCase):
     def test_effective_key_raises_for_invalid_alleles_in_allele_aware_modes(self):
         frame = pd.DataFrame({"CHR": [1], "POS": [101], "SNP": ["rs1"], "A1": ["A"], "A2": ["T"]})
 
-        with self.assertRaisesRegex(ValueError, "strand_ambiguous_allele"):
+        with self.assertRaisesRegex(LDSCInputError, "strand_ambiguous_allele"):
             si.effective_merge_key_series(frame, "rsid_allele_aware")
+
+
+class IdentityMetadataValidationTest(unittest.TestCase):
+    def test_invalid_artifact_metadata_reports_cause_fix_and_reference(self):
+        metadata = {"schema_version": 0, "artifact_type": "ldscore", "snp_identifier": "chr_pos"}
+
+        with self.assertRaises(LDSCInputError) as ctx:
+            si.validate_identity_artifact_metadata(metadata, expected_artifact_type="sumstats")
+
+        message = str(ctx.exception)
+        self.assertIn("Could not read LDSC sumstats artifact metadata", message)
+        self.assertIn("Most likely", message)
+        self.assertIn("Regenerate the artifact with the current LDSC package", message)
+        self.assertIn(
+            "docs/troubleshooting.md#common-ldsc-artifact-schema-or-provenance-is-incompatible",
+            message,
+        )
+
+    def test_regression_identity_mismatch_reports_cause_and_fix(self):
+        with self.assertRaises(LDSCUsageError) as ctx:
+            si.resolve_regression_identity_mode(
+                "rsid",
+                "chr_pos",
+                allow_identity_downgrade=False,
+            )
+
+        message = str(ctx.exception)
+        self.assertIn("Cannot resolve regression SNP identity", message)
+        self.assertIn("Most likely", message)
+        self.assertIn("Use inputs from the same snp_identifier family", message)
 
 
 class IdentityArtifactCleanupTest(unittest.TestCase):

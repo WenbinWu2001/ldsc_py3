@@ -137,6 +137,17 @@ When initializing the project, create `design_map.md` to track the correspondenc
 between design documents and function/module implementations. After any major change,
 update `design_map.md` to keep it aligned with the current implementation.
 
+## Troubleshooting reference
+
+`docs/troubleshooting.md` is a browse-able, command-sectioned reference for
+run-aborting errors that have multiple causes. When you add or change such an error:
+- Make the in-code message self-contained: what & where + the most likely cause
+  + the top remedy.
+- If the error has 3+ distinct causes, add/update its section (plain-language
+  heading, ranked causes + checks + remedies) and link the message to that
+  heading's slug.
+- Keep any in-code `docs/troubleshooting.md#...` link in sync with its heading.
+
 ## Architecture
 
 Use `my-skills:architecture-doc` to create or update `architecture.md` whenever

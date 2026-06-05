@@ -8,6 +8,7 @@ import pandas as pd
 from ._coordinates import positive_int_position_series
 from ._kernel.snp_identity import effective_merge_key_series, identity_mode_family, is_allele_aware_mode
 from .column_inference import normalize_snp_identifier_mode
+from .errors import LDSCInputError
 
 
 NUMERIC_METADATA_COLUMNS = ("CM", "MAF")
@@ -26,7 +27,11 @@ def assert_same_snp_rows(
     _require_columns(left, side="left", context=context, snp_identifier=mode)
     _require_columns(right, side="right", context=context, snp_identifier=mode)
     if len(left) != len(right):
-        raise ValueError(f"{context}: row count mismatch ({len(left)} != {len(right)}).")
+        raise LDSCInputError(
+            f"{context}: row count mismatch ({len(left)} != {len(right)}). "
+            "Most likely paired LDSC artifacts were generated from different SNP sets. "
+            "Regenerate the paired artifacts together with the same SNP identifier mode."
+        )
 
     extra_columns = _extra_row_metadata_columns(left, right, snp_identifier=mode)
     left_keys = _row_key_frame(left, side="left", context=context, snp_identifier=mode, extra_columns=extra_columns)
@@ -35,9 +40,11 @@ def assert_same_snp_rows(
     if mismatched.any():
         row = int(np.flatnonzero(mismatched.to_numpy())[0])
         columns = left_keys.columns[left_keys.loc[row].ne(right_keys.loc[row])].tolist()
-        raise ValueError(
+        raise LDSCInputError(
             f"{context}: SNP row mismatch at row {row} in {columns}: "
-            f"left={left_keys.loc[row].to_dict()}, right={right_keys.loc[row].to_dict()}."
+            f"left={left_keys.loc[row].to_dict()}, right={right_keys.loc[row].to_dict()}. "
+            "Most likely paired LDSC artifacts were sorted or filtered differently. "
+            "Regenerate the paired artifacts together from the same SNP universe."
         )
 
     for column in NUMERIC_METADATA_COLUMNS:
@@ -51,7 +58,11 @@ def _require_columns(frame: pd.DataFrame, *, side: str, context: str, snp_identi
         required.extend(["A1", "A2"])
     missing = [column for column in required if column not in frame.columns]
     if missing:
-        raise ValueError(f"{context}: {side} table is missing required SNP row columns: {missing}")
+        raise LDSCInputError(
+            f"{context}: {side} table is missing required SNP row columns: {missing}. "
+            "Most likely the artifact was written by an older LDSC version or with a different "
+            "SNP identifier mode. Regenerate the artifact with the current workflow."
+        )
 
 
 def _extra_row_metadata_columns(left: pd.DataFrame, right: pd.DataFrame, *, snp_identifier: str) -> list[str]:
@@ -108,7 +119,9 @@ def _assert_close_numeric_metadata(
     )
     if not bool(np.all(close)):
         row = int(np.flatnonzero(~close)[0])
-        raise ValueError(
+        raise LDSCInputError(
             f"{context}: numeric metadata column {column!r} differs at row {row}: "
-            f"left={left_values[row]!r}, right={right_values[row]!r}."
+            f"left={left_values[row]!r}, right={right_values[row]!r}. "
+            "Most likely paired LDSC artifacts have inconsistent metadata sidecars. "
+            "Regenerate the paired artifacts together."
         )

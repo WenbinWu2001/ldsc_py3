@@ -12,6 +12,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from ldsc._row_alignment import assert_same_snp_rows
+from ldsc.errors import LDSCInputError
 
 
 class RowAlignmentTest(unittest.TestCase):
@@ -37,7 +38,7 @@ class RowAlignmentTest(unittest.TestCase):
     def test_reordered_rows_fail(self):
         right = self.make_rows().iloc[[1, 0]].reset_index(drop=True)
 
-        with self.assertRaisesRegex(ValueError, "test rows.*row 0"):
+        with self.assertRaisesRegex(LDSCInputError, "test rows.*row 0"):
             assert_same_snp_rows(self.make_rows(), right, context="test rows")
 
     def test_default_chr_pos_identity_column_mismatch_fails(self):
@@ -45,7 +46,7 @@ class RowAlignmentTest(unittest.TestCase):
             right = self.make_rows()
             right.loc[0, column] = value
             with self.subTest(column=column):
-                with self.assertRaisesRegex(ValueError, "test rows.*identity_key"):
+                with self.assertRaisesRegex(LDSCInputError, "test rows.*identity_key"):
                     assert_same_snp_rows(self.make_rows(), right, context="test rows")
 
     def test_default_chr_pos_identity_ignores_snp_label_mismatch(self):
@@ -58,7 +59,7 @@ class RowAlignmentTest(unittest.TestCase):
         right = self.make_rows()
         right.loc[0, "SNP"] = "rs9"
 
-        with self.assertRaisesRegex(ValueError, "test rows.*SNP"):
+        with self.assertRaisesRegex(LDSCInputError, "test rows.*SNP"):
             assert_same_snp_rows(self.make_rows(), right, context="test rows", snp_identifier="rsid")
 
     def test_chr_pos_mode_ignores_snp_label_mismatch(self):
@@ -79,11 +80,11 @@ class RowAlignmentTest(unittest.TestCase):
         right["SNP"] = ["ld_rs1", "ld_rs2"]
         right.loc[0, "POS"] = 99
 
-        with self.assertRaisesRegex(ValueError, "test rows.*identity_key.*1:10.*1:99"):
+        with self.assertRaisesRegex(LDSCInputError, "test rows.*identity_key.*1:10.*1:99"):
             assert_same_snp_rows(self.make_rows(), right, context="test rows", snp_identifier="chr_pos")
 
     def test_default_allele_aware_mode_rejects_missing_allele_columns(self):
-        with self.assertRaisesRegex(ValueError, "test rows.*missing required.*A1.*A2"):
+        with self.assertRaisesRegex(LDSCInputError, "test rows.*missing required.*A1.*A2"):
             assert_same_snp_rows(self.make_rows_without_alleles(), self.make_rows(), context="test rows")
 
     def test_default_allele_aware_mode_rejects_allele_mismatch(self):
@@ -91,7 +92,7 @@ class RowAlignmentTest(unittest.TestCase):
         right.loc[0, "A1"] = "A"
         right.loc[0, "A2"] = "G"
 
-        with self.assertRaisesRegex(ValueError, "test rows.*identity_key.*1:10:A:C.*1:10:A:G"):
+        with self.assertRaisesRegex(LDSCInputError, "test rows.*identity_key.*1:10:A:C.*1:10:A:G"):
             assert_same_snp_rows(self.make_rows(), right, context="test rows")
 
     def test_float_metadata_within_float16_epsilon_passes(self):
@@ -106,7 +107,7 @@ class RowAlignmentTest(unittest.TestCase):
         right = self.make_rows()
         right.loc[0, "CM"] += np.finfo(np.float16).eps * 4
 
-        with self.assertRaisesRegex(ValueError, "test rows.*CM"):
+        with self.assertRaisesRegex(LDSCInputError, "test rows.*CM"):
             assert_same_snp_rows(self.make_rows(), right, context="test rows")
 
     def test_nan_numeric_metadata_matches_nan(self):
@@ -122,7 +123,7 @@ class RowAlignmentTest(unittest.TestCase):
         right = self.make_rows()
         left.loc[0, "CM"] = np.nan
 
-        with self.assertRaisesRegex(ValueError, "test rows.*CM"):
+        with self.assertRaisesRegex(LDSCInputError, "test rows.*CM"):
             assert_same_snp_rows(left, right, context="test rows")
 
 

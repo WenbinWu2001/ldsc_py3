@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Optional, Union
 
 from .chromosome_inference import STANDARD_CHROMOSOMES
+from .errors import LDSCInputError
 
 InputPathToken = Union[str, PathLike[str]]
 InputPathCollection = Union[InputPathToken, Sequence[InputPathToken]]
@@ -42,6 +43,12 @@ InputPathCollection = Union[InputPathToken, Sequence[InputPathToken]]
 ANNOTATION_SUFFIXES = ("", ".annot.gz", ".annot", ".txt.gz", ".txt", ".tsv.gz", ".tsv")
 PARQUET_SUFFIXES = ("", ".parquet")
 FREQUENCY_SUFFIXES = ("", ".frq.gz", ".frq", ".txt.gz", ".txt", ".tsv.gz", ".tsv")
+_INPUT_PATH_TROUBLESHOOTING = (
+    "docs/troubleshooting.md#common-input-path-did-not-resolve-to-one-file"
+)
+_OUTPUT_COLLISION_TROUBLESHOOTING = (
+    "docs/troubleshooting.md#common-output-artifact-already-exists"
+)
 
 
 def normalize_path_token(path: InputPathToken) -> str:
@@ -90,6 +97,49 @@ def substitute_chromosome(token: str, chrom: str) -> str:
     return token.replace("@", str(chrom))
 
 
+def _format_input_path_resolution_message(
+    *,
+    label: str,
+    token: str,
+    match_count: int,
+    likely: str,
+    fix: str,
+) -> str:
+    """Build the shared user-facing path-resolution failure message."""
+    noun = "file" if match_count == 1 else "files"
+    return (
+        f"Could not resolve {label} path from token {token!r}: matched {match_count} {noun}. "
+        f"Most likely {likely}. {fix} "
+        f"Other causes & fixes: {_INPUT_PATH_TROUBLESHOOTING}"
+    )
+
+
+def _raise_missing_input_path(label: str, token: str) -> None:
+    """Raise the shared no-match input-path error."""
+    raise LDSCInputError(
+        _format_input_path_resolution_message(
+            label=label,
+            token=token,
+            match_count=0,
+            likely="the path is misspelled, relative to the wrong working directory, or missing a required suffix",
+            fix="Pass an existing path, an exact-one glob, or an explicit @ chromosome pattern.",
+        )
+    )
+
+
+def _raise_ambiguous_input_path(label: str, token: str, match_count: int) -> None:
+    """Raise the shared too-many-matches input-path error."""
+    raise LDSCInputError(
+        _format_input_path_resolution_message(
+            label=label,
+            token=token,
+            match_count=match_count,
+            likely="the glob is too broad for an input that must resolve to exactly one file",
+            fix="Narrow the path pattern or pass the exact file path.",
+        )
+    )
+
+
 def resolve_scalar_path(
     token: InputPathToken,
     *,
@@ -117,14 +167,19 @@ def resolve_scalar_path(
 
     Raises
     ------
-    FileNotFoundError
-        If ``token`` resolves to no paths.
-    ValueError
-        If ``token`` resolves to more than one path.
+    LDSCInputError
+        If ``token`` resolves to zero paths or more than one path.
     """
-    matches = _resolve_direct_token(normalize_path_token(token), suffixes=suffixes)
+    normalized_token = normalize_path_token(token)
+    try:
+        matches = _resolve_direct_token(normalized_token, suffixes=suffixes)
+    except FileNotFoundError as exc:
+        try:
+            _raise_missing_input_path(label, normalized_token)
+        except LDSCInputError as wrapped:
+            raise wrapped from exc
     if len(matches) != 1:
-        raise ValueError(f"{label} must resolve to exactly one path; got {len(matches)} matches for {token!r}.")
+        _raise_ambiguous_input_path(label, normalized_token, len(matches))
     return matches[0]
 
 
@@ -169,7 +224,7 @@ def resolve_file_group(
 
     Raises
     ------
-    FileNotFoundError
+    LDSCInputError
         If any token resolves to nothing, or if the full group resolves to no
         files.
     """
@@ -180,14 +235,18 @@ def resolve_file_group(
             matches = _resolve_direct_token(token, suffixes=suffixes)
         except FileNotFoundError:
             if not allow_chromosome_suite:
-                raise FileNotFoundError(f"Could not resolve {label} token: {token}") from None
+                _raise_missing_input_path(label, token)
             matches = _resolve_suite_token(token, suffixes=suffixes, chromosomes=chromosomes)
             if not matches:
-                raise FileNotFoundError(f"Could not resolve {label} token: {token}") from None
+                _raise_missing_input_path(label, token)
         resolved.extend(matches)
     resolved = _dedupe_preserving_order(resolved)
     if not resolved:
-        raise FileNotFoundError(f"No {label} files were resolved from the supplied tokens.")
+        raise LDSCInputError(
+            f"Could not resolve {label} paths: no files were resolved from the supplied tokens. "
+            "Most likely the path list is empty or every token points to missing files. "
+            f"Pass at least one existing path or exact glob. Other causes & fixes: {_INPUT_PATH_TROUBLESHOOTING}"
+        )
     return resolved
 
 
@@ -232,7 +291,7 @@ def resolve_chromosome_group(
 
     Raises
     ------
-    FileNotFoundError
+    LDSCInputError
         If ``required`` is true and no files can be resolved for ``chrom``.
     """
     normalized = normalize_path_tokens(tokens)
@@ -249,22 +308,31 @@ def resolve_chromosome_group(
                 chrom_token = substitute_chromosome(token, chrom)
             except FileNotFoundError:
                 if required:
-                    raise FileNotFoundError(
-                        f"Could not resolve {label} token {token!r} for chromosome {chrom}."
+                    raise LDSCInputError(
+                        f"Could not resolve {label} path for chromosome {chrom} from token {token!r}. "
+                        "Most likely the token does not contain the @ chromosome placeholder and does not exist directly. "
+                        f"Use an existing chromosome-specific path or an explicit @ token. Other causes & fixes: {_INPUT_PATH_TROUBLESHOOTING}"
                     ) from None
                 continue
             try:
                 matches = _resolve_direct_token(chrom_token, suffixes=suffixes)
             except FileNotFoundError:
                 if required:
-                    raise FileNotFoundError(
-                        f"Could not resolve {label} token {token!r} for chromosome {chrom}."
+                    raise LDSCInputError(
+                        f"Could not resolve {label} path for chromosome {chrom} from token {token!r}. "
+                        "Most likely the chromosome placeholder expands to a file that is not present. "
+                        f"Check the chromosome-specific filename or provide the missing file. Other causes & fixes: {_INPUT_PATH_TROUBLESHOOTING}"
                     ) from None
                 continue
         resolved.extend(matches)
     resolved = _dedupe_preserving_order(resolved)
     if required and not resolved:
-        raise FileNotFoundError(f"No {label} files were resolved for chromosome {chrom}.")
+        raise LDSCInputError(
+            f"Could not resolve {label} paths for chromosome {chrom}: matched 0 files. "
+            "Most likely the input tokens do not include this chromosome. "
+            f"Provide chromosome {chrom} inputs or run with required=False for optional inputs. "
+            f"Other causes & fixes: {_INPUT_PATH_TROUBLESHOOTING}"
+        )
     return resolved
 
 
@@ -290,14 +358,12 @@ def resolve_plink_prefix(
 
     Raises
     ------
-    FileNotFoundError
-        If ``token`` cannot be resolved.
-    ValueError
-        If ``token`` resolves to more than one prefix.
+    LDSCInputError
+        If ``token`` cannot be resolved or resolves to more than one prefix.
     """
     matches = resolve_plink_prefix_group((token,), chrom=chrom, allow_chromosome_suite=(chrom is None))
     if len(matches) != 1:
-        raise ValueError(f"PLINK prefix must resolve to exactly one path; got {len(matches)} matches for {token!r}.")
+        _raise_ambiguous_input_path("PLINK prefix", normalize_path_token(token), len(matches))
     return matches[0]
 
 
@@ -330,25 +396,33 @@ def resolve_plink_prefix_group(
                 try:
                     chrom_token = substitute_chromosome(token, chrom)
                 except FileNotFoundError:
-                    raise FileNotFoundError(
-                        f"Could not resolve PLINK prefix token {token!r} for chromosome {chrom}."
+                    raise LDSCInputError(
+                        f"Could not resolve PLINK prefix path for chromosome {chrom} from token {token!r}. "
+                        "Most likely the token does not contain the @ chromosome placeholder and no complete PLINK trio exists directly. "
+                        f"Use a complete .bed/.bim/.fam prefix for chromosome {chrom}. Other causes & fixes: {_INPUT_PATH_TROUBLESHOOTING}"
                     ) from None
                 try:
                     matches = _resolve_direct_plink_token(chrom_token)
                 except FileNotFoundError:
-                    raise FileNotFoundError(
-                        f"Could not resolve PLINK prefix token {token!r} for chromosome {chrom}."
+                    raise LDSCInputError(
+                        f"Could not resolve PLINK prefix path for chromosome {chrom} from token {token!r}. "
+                        "Most likely one or more .bed/.bim/.fam files are missing for the expanded prefix. "
+                        f"Provide a complete PLINK trio for chromosome {chrom}. Other causes & fixes: {_INPUT_PATH_TROUBLESHOOTING}"
                     ) from None
             elif allow_chromosome_suite:
                 matches = _resolve_plink_suite_token(token, chromosomes=chromosomes)
                 if not matches:
-                    raise FileNotFoundError(f"Could not resolve PLINK prefix token: {token}") from None
+                    _raise_missing_input_path("PLINK prefix", token)
             else:
-                raise FileNotFoundError(f"Could not resolve PLINK prefix token: {token}") from None
+                _raise_missing_input_path("PLINK prefix", token)
         resolved.extend(matches)
     resolved = _dedupe_preserving_order(resolved)
     if not resolved:
-        raise FileNotFoundError("No PLINK prefixes were resolved from the supplied tokens.")
+        raise LDSCInputError(
+            f"Could not resolve PLINK prefix paths: matched 0 complete prefixes. "
+            "Most likely no supplied token points to a complete .bed/.bim/.fam trio. "
+            f"Provide at least one complete PLINK prefix. Other causes & fixes: {_INPUT_PATH_TROUBLESHOOTING}"
+        )
     return resolved
 
 
@@ -450,7 +524,11 @@ def ensure_output_directory(
     output_dir = Path(normalize_path_token(path))
     if output_dir.exists():
         if not output_dir.is_dir():
-            raise NotADirectoryError(f"{label} exists but is not a directory: {output_dir}")
+            raise LDSCInputError(
+                f"Cannot use {label} at '{output_dir}': the path exists but is not a directory. "
+                "Most likely an output file already uses that name. "
+                "Choose a directory path or move the existing file."
+            )
         return output_dir
     warnings.warn(
         f"{label} does not exist and is created: {output_dir}",
@@ -652,8 +730,10 @@ def _format_output_collision_message(paths: Sequence[Path], *, label: str) -> st
         preview = f"{preview}, ... ({len(paths) - 3} more)"
     noun = label if len(paths) == 1 else f"{label}s"
     return (
-        f"Refusing to overwrite existing {noun}: {preview}. "
-        "Pass --overwrite on the CLI or overwrite=True in Python to replace them."
+        f"Cannot write {noun}: existing output artifact already exists at {preview}. "
+        "Most likely this output directory contains results from an earlier run. "
+        f"Pass --overwrite on the CLI or overwrite=True in Python to replace them. "
+        f"Other causes & fixes: {_OUTPUT_COLLISION_TROUBLESHOOTING}"
     )
 
 

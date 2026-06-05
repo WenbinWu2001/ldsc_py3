@@ -10,6 +10,8 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from ldsc.errors import LDSCInputError, LDSCUsageError
+
 
 def _load_module(testcase: unittest.TestCase):
     spec = importlib.util.find_spec("ldsc.genome_build_inference")
@@ -63,7 +65,7 @@ class GenomeBuildInferenceTest(unittest.TestCase):
         reference = _build_reference_table()
         raw = pd.DataFrame({"CHR": ["1", "chrUn"], "POS": [1000, 1010]})
 
-        with self.assertRaisesRegex(ValueError, "Unsupported chromosome label"):
+        with self.assertRaisesRegex(LDSCInputError, "Unsupported chromosome label"):
             module.resolve_chr_pos_table(
                 raw,
                 context="unit-strict",
@@ -103,7 +105,7 @@ class GenomeBuildInferenceTest(unittest.TestCase):
             }
         )
 
-        with self.assertRaisesRegex(ValueError, "could not be inferred confidently"):
+        with self.assertRaisesRegex(LDSCInputError, "Could not infer genome build"):
             module.resolve_chr_pos_table(
                 raw,
                 context="unit-mixed",
@@ -115,12 +117,33 @@ class GenomeBuildInferenceTest(unittest.TestCase):
         reference = _build_reference_table(n_rows=150)
         raw = pd.DataFrame({"CHR": ["1"] * len(reference), "POS": reference["hg19_POS"]})
 
-        with self.assertRaisesRegex(ValueError, "Insufficient evidence"):
+        with self.assertRaisesRegex(LDSCInputError, "Could not infer genome build"):
             module.resolve_chr_pos_table(
                 raw,
                 context="unit-insufficient",
                 reference_table=reference,
             )
+
+    def test_resolve_chr_pos_table_reports_auto_inference_cause_fix_and_reference(self):
+        module = _load_module(self)
+        reference = _build_reference_table(n_rows=150)
+        raw = pd.DataFrame({"CHR": ["1"] * len(reference), "POS": reference["hg19_POS"]})
+
+        with self.assertRaises(LDSCInputError) as ctx:
+            module.resolve_chr_pos_table(
+                raw,
+                context="unit-insufficient",
+                reference_table=reference,
+            )
+
+        message = str(ctx.exception)
+        self.assertIn("Could not infer genome build for unit-insufficient", message)
+        self.assertIn("Most likely", message)
+        self.assertIn("Pass --genome-build hg19 or --genome-build hg38", message)
+        self.assertIn(
+            "docs/troubleshooting.md#common-genome-build-could-not-be-inferred",
+            message,
+        )
 
 
 class TestResolveGenomeBuild(unittest.TestCase):
@@ -179,16 +202,18 @@ class TestResolveGenomeBuild(unittest.TestCase):
 
     def test_auto_none_sample_frame_raises(self):
         module = _load_module(self)
-        with self.assertRaises(ValueError) as ctx:
+        with self.assertRaises(LDSCUsageError) as ctx:
             module.resolve_genome_build("auto", "chr_pos", None, context="test")
         self.assertIn("--genome-build", str(ctx.exception))
 
     def test_auto_insufficient_overlap_raises(self):
         module = _load_module(self)
         frame = self._make_tiny_frame()
-        with self.assertRaises(ValueError) as ctx:
+        with self.assertRaises(LDSCInputError) as ctx:
             module.resolve_genome_build("auto", "chr_pos", frame, context="test")
         self.assertIn("--genome-build", str(ctx.exception))
+        self.assertIn("Most likely", str(ctx.exception))
+        self.assertIn("docs/troubleshooting.md#common-genome-build-could-not-be-inferred", str(ctx.exception))
 
     def test_auto_logs_inference_summary(self):
         module = _load_module(self)
@@ -264,7 +289,7 @@ class TestResolveGenomeBuildFromChrPosFrames(unittest.TestCase):
         reference = _build_reference_table(n_rows=250)
         frames = [pd.DataFrame({"CHR": ["1"] * 5, "POS": reference["hg19_POS"].iloc[:5].tolist()})]
 
-        with self.assertRaises(ValueError) as ctx:
+        with self.assertRaises(LDSCInputError) as ctx:
             module.resolve_genome_build_from_chr_pos_frames(
                 "auto",
                 "chr_pos",
@@ -273,5 +298,5 @@ class TestResolveGenomeBuildFromChrPosFrames(unittest.TestCase):
                 reference_table=reference,
             )
 
-        self.assertIn("Insufficient overlap with HM3 reference", str(ctx.exception))
+        self.assertIn("Could not infer genome build for too-small", str(ctx.exception))
         self.assertIn("--genome-build hg19", str(ctx.exception))

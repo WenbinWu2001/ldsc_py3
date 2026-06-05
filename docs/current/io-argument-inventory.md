@@ -140,7 +140,7 @@ are written.
 | `--baseline-annot-sources` | input | yes | baseline `.annot[.gz]` templates | Accepts exact files, globs, and `@` chromosome-suite tokens. |
 | `--output-dir` | output | yes | generated query annotation directory | Writes combined root `query.<chrom>.annot.gz` files, with all BED inputs represented as query columns, plus diagnostic `metadata.json`, `dropped_snps/dropped.tsv.gz`, and `annotate.log` under `diagnostics/`. |
 | `--overwrite` | output mode | no | collision policy | Controls whether generated annotation files and diagnostics may be replaced; defaults to `False`, so any existing root-level `query.*.annot.gz` shard or owned diagnostic artifact is refused. With overwrite, stale query shards outside the current chromosome set are removed after a successful run. |
-| `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger records in console and `diagnostics/annotate.log`; lifecycle audit lines always appear in the file. |
+| `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger record verbosity; these records go to `diagnostics/annotate.log` and the CLI console (stderr) shows only errors. Lifecycle audit lines always appear in the file. |
 | `--snp-identifier`, `--genome-build` | config | no | coordinate interpretation | Define how SNP coordinates are interpreted; `--snp-identifier` defaults to `chr_pos_allele_aware`, and `--genome-build` defaults to omitted/`None`, which is invalid for coordinate-family inputs unless the workflow can infer it. |
 
 Removed flags: `--bed-files`, `--baseline-annot`.
@@ -151,7 +151,7 @@ Removed flags: `--bed-files`, `--baseline-annot`.
 |---|---:|---:|---|---|
 | `--output-dir` | output | yes | canonical LD-score result directory | Writes root `metadata.json`, `ldscore.baseline.parquet`, optional `ldscore.query.parquet`, and `diagnostics/ldscore.log`; parquet row groups are chromosome-aligned. |
 | `--overwrite` | output mode | no | collision policy | Controls whether fixed LD-score files and `diagnostics/ldscore.log` may be replaced; defaults to `False`, so any existing owned LD-score artifact in `output_dir` is refused. With overwrite, stale `ldscore.query.parquet` is removed after successful baseline-only runs. |
-| `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger records in console and `diagnostics/ldscore.log`; lifecycle audit lines always appear in the file. |
+| `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger record verbosity; these records go to `diagnostics/ldscore.log` and the CLI console (stderr) shows only errors. Lifecycle audit lines always appear in the file. |
 | `--baseline-annot-sources` | input | no | baseline annotation files | Supplies baseline annotation files; defaults to omitted/`None`, and if no query inputs are supplied `ldscore` synthesizes an all-ones `base` column. |
 | `--query-annot-sources` | input | no | prebuilt query annotation files | Supplies prebuilt query annotation files; defaults to omitted/`None`, so no prebuilt query annotations are used. Mutually exclusive with `--query-annot-bed-sources` and requires `--baseline-annot-sources`. |
 | `--query-annot-bed-sources` | input | no | query BED interval files | Supplies BED intervals to project as query annotations; defaults to omitted/`None`, so no BED query annotations are projected. Requires `--baseline-annot-sources`. |
@@ -204,7 +204,7 @@ LD-score output schema:
 | `--maf-min` | input metadata | no | retained SNP MAF filter | Filters retained SNPs by MAF during PLINK loading; defaults to omitted/`None`, so no retained-SNP MAF filter is applied. |
 | `--output-dir` | output | yes | reference-panel artifact directory | Run identity is `Path(output_dir).name`; no separate label is accepted. |
 | `--overwrite` | output mode | no | collision policy | Controls whether reference-panel artifacts, diagnostic metadata, always-written `diagnostics/dropped_snps/chr{chrom}_dropped.tsv.gz` audit files, and build-ref-panel workflow logs may be replaced; defaults to `False`, so existing owned outputs are refused. Concrete chromosome prefixes own and clean only that chromosome's package. `@` chromosome-suite runs own the full panel package and can remove stale target-build, out-of-scope chromosome, dropped-SNP, metadata, or log siblings after success. |
-| `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger records in console and the build-ref-panel workflow log; lifecycle audit lines always appear in the file. |
+| `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger record verbosity; these records go to the build-ref-panel workflow log and the CLI console (stderr) shows only errors. Lifecycle audit lines always appear in the file. |
 | `--snp-batch-size` | performance | no | SNP computation batch size | Number of SNPs decoded per pairwise-R2 computation batch; larger values size the pairwise working set (decoded window and correlation block) and can improve throughput. It does **not** drive peak RSS: the genotype payload is read selectively (restricted builds) or streamed (unrestricted builds), so peak is governed by that bounded read plus the workflow/import floor, not by this batch size. Defaults to `128`. |
 
 Removed flags: `--bfile`, `--out`, `--panel-label`, `--keep-indivs`, `--maf`,
@@ -272,7 +272,7 @@ inside the owned package are removed after the successful write.
 | `--use-hm3-quick-liftover` | input mode | no | packaged HM3 coordinate map | Uses the curated dual-build HM3 map for HM3-only quick liftover. Requires `--use-hm3-snps` and is mutually exclusive with `--liftover-chain-file`. |
 | `--daner-old`, `--daner-new` | input metadata | no | DANER schema interpretation | `--daner-old` parses case/control N from `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` headers; `--daner-new` parses exact `Nca` and `Nco` columns. |
 | `--snp-identifier` | config | no | provenance | Defaults to `chr_pos_allele_aware`. Coordinate-family munger runs use `--source-genome-build` and `--output-genome-build`; rsid-family munger runs reject genome-build and liftover build flags and store `genome_build=None`. Allele-aware modes require usable `A1/A2`; rerun with `--snp-identifier chr_pos` or `--snp-identifier rsid` to run without allele-aware identity. |
-| `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger records in console and `diagnostics/sumstats.log`; lifecycle audit lines always appear in the file. |
+| `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger record verbosity; these records go to `diagnostics/sumstats.log` and the CLI console (stderr) shows only errors. Lifecycle audit lines always appear in the file. |
 | `--overwrite` | output mode | no | collision policy | Controls whether fixed sumstats outputs may be replaced; defaults to `False`, so any owned `sumstats.*` artifact is refused. With overwrite, stale sibling formats not produced by the current `--output-format` are removed after a successful run. |
 
 Removed flags: `--sumstats`, `--sumstats-file` for raw munge input,
@@ -319,7 +319,7 @@ INFO flags.
 | `--trait-name` | input metadata | no | output trait label | Optional label override. If omitted, regression uses sumstats root `metadata.json["trait_name"]` when present, then the filename fallback. |
 | `--output-dir` | output | no | result output directory | Selects where to write h2 results; defaults to omitted/`None`, so the CLI prints the compact `h2.tsv` schema to stdout and writes no files. |
 | `--count-kind` | model | no | count vector choice | Selects the count vector used by regression; defaults to `common`, while `all` uses all-SNP counts. |
-| `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger records in console and `diagnostics/h2.log` when `output_dir` is supplied; lifecycle audit lines always appear in the file. |
+| `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger record verbosity. With `output_dir`, records go to `diagnostics/h2.log` and the console (stderr) shows only errors; without it (console-only run) they print to the console. Lifecycle audit lines always appear in the file when one is created. |
 | `--overwrite` | output mode | no | collision policy | Controls whether `h2.tsv` and diagnostics may be replaced; defaults to `False`, so an existing owned artifact is refused. |
 
 Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
@@ -335,7 +335,7 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 | `--output-dir` | output | no | result output directory | Selects where to write partitioned-h2 results; defaults to omitted/`None`, so the CLI prints the compact `partitioned_h2.tsv` schema to stdout and writes no files. |
 | `--count-kind` | model | no | count vector choice | Selects the count vector used by regression; defaults to `common`, while `all` uses all-SNP counts. |
 | `--write-per-query-results` | output mode | no | per-query result tree | Requests per-query output folders under `diagnostics/query_annotations`; defaults to `False`, so only the aggregate table is returned/written. |
-| `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger records in console and `diagnostics/partitioned-h2.log` when `output_dir` is supplied; lifecycle audit lines always appear in the file. |
+| `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger record verbosity. With `output_dir`, records go to `diagnostics/partitioned-h2.log` and the console (stderr) shows only errors; without it (console-only run) they print to the console. Lifecycle audit lines always appear in the file when one is created. |
 | `--overwrite` | output mode | no | collision policy | Controls whether aggregate/per-query outputs and diagnostics may be replaced; defaults to `False`, so any owned partitioned-h2 artifact is refused. With overwrite, aggregate-only runs remove stale `diagnostics/query_annotations/` trees after successful writes. |
 
 Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
@@ -351,7 +351,7 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 | `--output-dir` | output | no | result output directory | Selects where to write the rg output family. Without it, Python returns `RgResultFamily` and the CLI prints only the concise `rg.tsv` schema to stdout. |
 | `--write-per-pair-detail` | output mode | no | optional pair result tree | Requires `--output-dir`; writes `diagnostics/pairs/manifest.tsv` plus one `rg_full.tsv` and `metadata.json` per attempted pair. |
 | `--count-kind` | model | no | count vector choice | Selects the count vector used by regression; defaults to `common`, while `all` uses all-SNP counts. |
-| `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger records in console and `diagnostics/rg.log` when `output_dir` is supplied; lifecycle audit lines always appear in the file. |
+| `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger record verbosity. With `output_dir`, records go to `diagnostics/rg.log` and the console (stderr) shows only errors; without it (console-only run) they print to the console. Lifecycle audit lines always appear in the file when one is created. |
 | `--overwrite` | output mode | no | collision policy | Controls whether `rg.tsv`, `rg_full.tsv`, `h2_per_trait.tsv`, optional `diagnostics/pairs/`, and diagnostics may be replaced; defaults to `False`, so an existing owned artifact is refused. |
 
 Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,

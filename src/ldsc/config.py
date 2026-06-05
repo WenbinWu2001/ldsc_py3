@@ -64,7 +64,11 @@ def _normalize_optional_path(path: str | PathLike[str] | None) -> str | None:
 def _normalize_required_path(path: str | PathLike[str]) -> str:
     """Return a required path-like value as a plain string."""
     if path is None or not str(path).strip():
-        raise ValueError("Required path value is missing.")
+        raise LDSCConfigError(
+            "Could not construct workflow config: a required path value is missing. "
+            "Most likely a required input or output path argument was omitted. "
+            "Provide the path before starting the workflow."
+        )
     return normalize_path_token(path)
 
 
@@ -79,7 +83,11 @@ def _normalize_trait_name(value: str | None) -> str | None:
         return None
     normalized = str(value).strip()
     if not normalized:
-        raise ValueError("trait_name must not be blank.")
+        raise LDSCConfigError(
+            "Could not construct MungeConfig: trait_name is blank. "
+            "Most likely whitespace was passed as the trait label. "
+            "Use a non-empty trait name or omit trait_name to derive it from the input."
+        )
     return normalized
 
 
@@ -88,8 +96,57 @@ def _normalize_log_level(level: str) -> LogLevel:
     normalized = level.upper()
     allowed = set(LOG_LEVEL_CHOICES)
     if normalized not in allowed:
-        raise ValueError(f"log_level must be one of {', '.join(LOG_LEVEL_CHOICES)}; got {level!r}.")
+        raise LDSCConfigError(
+            f"Could not construct GlobalConfig: log_level={level!r} is invalid. "
+            "Most likely the log level name is misspelled. "
+            f"Use one of {', '.join(LOG_LEVEL_CHOICES)}."
+        )
     return normalized  # type: ignore[return-value]
+
+
+def _invalid_choice_message(config_name: str, field_name: str, value, choices: str) -> str:
+    """Return a self-contained message for a config enum validation failure."""
+    return (
+        f"Could not construct {config_name}: {field_name}={value!r} is invalid. "
+        f"Most likely the option value is misspelled or from an older API. "
+        f"Use one of {choices}."
+    )
+
+
+def _positive_number_message(config_name: str, field_name: str, value) -> str:
+    """Return a self-contained message for positive numeric config fields."""
+    return (
+        f"Could not construct {config_name}: {field_name}={value!r} must be positive. "
+        "Most likely a zero or negative value was supplied. "
+        f"Set {field_name} to a value greater than 0."
+    )
+
+
+def _range_message(config_name: str, field_name: str, value, allowed_range: str) -> str:
+    """Return a self-contained message for bounded numeric config fields."""
+    return (
+        f"Could not construct {config_name}: {field_name}={value!r} is outside {allowed_range}. "
+        "Most likely the threshold was entered on the wrong scale. "
+        f"Set {field_name} within {allowed_range}."
+    )
+
+
+def _mutually_exclusive_message(config_name: str, left: str, right: str) -> str:
+    """Return a self-contained message for mutually exclusive config options."""
+    return (
+        f"Could not construct {config_name}: {left} and {right} are mutually exclusive. "
+        "Most likely both a custom file and packaged shortcut were selected for the same input. "
+        f"Set only one of {left} or {right}."
+    )
+
+
+def _one_ld_window_message(config_name: str) -> str:
+    """Return a self-contained message for LD-window selector validation."""
+    return (
+        f"Could not construct {config_name}: exactly one LD-window option must be set. "
+        "Most likely no window was supplied or multiple window units were combined. "
+        "Set exactly one of ld_wind_snps, ld_wind_kb, or ld_wind_cm."
+    )
 
 
 @dataclass(frozen=True, init=False)
@@ -133,7 +190,14 @@ class GlobalConfig:
         fail_on_missing_metadata: bool = False,
     ) -> None:
         """Initialize global workflow assumptions with mode-aware defaults."""
-        snp_identifier = normalize_snp_identifier_mode(snp_identifier)  # type: ignore[assignment]
+        try:
+            snp_identifier = normalize_snp_identifier_mode(snp_identifier)  # type: ignore[assignment]
+        except ValueError as exc:
+            raise LDSCConfigError(
+                f"Could not construct GlobalConfig: snp_identifier={snp_identifier!r} is invalid. "
+                "Most likely the identifier mode is misspelled. "
+                "Use one of rsid, rsid_allele_aware, chr_pos, or chr_pos_allele_aware."
+            ) from exc
         if genome_build is _GENOME_BUILD_UNSET:
             genome_build = None if identity_mode_family(snp_identifier) == "rsid" else "auto"
         object.__setattr__(self, "snp_identifier", snp_identifier)
@@ -147,15 +211,28 @@ class GlobalConfig:
         mode = normalize_snp_identifier_mode(self.snp_identifier)
         family = identity_mode_family(mode)
         object.__setattr__(self, "snp_identifier", mode)
-        object.__setattr__(self, "genome_build", normalize_genome_build(self.genome_build))
+        try:
+            genome_build = normalize_genome_build(self.genome_build)
+        except ValueError as exc:
+            raise LDSCConfigError(
+                f"Could not construct GlobalConfig: genome_build={self.genome_build!r} is invalid. "
+                "Most likely the genome build name is misspelled or unsupported. "
+                "Use 'auto', 'hg19', 'hg38', 'GRCh37', or 'GRCh38'."
+            ) from exc
+        object.__setattr__(self, "genome_build", genome_build)
         object.__setattr__(self, "log_level", _normalize_log_level(self.log_level))
         if family == "chr_pos" and self.genome_build is None:
-            raise ValueError(
-                "genome_build is required when snp_identifier is in the chr_pos family. "
+            raise LDSCConfigError(
+                "Could not construct GlobalConfig: genome_build is required for chr_pos-family "
+                f"snp_identifier={mode!r}. Most likely genome_build=None was passed explicitly. "
                 "Pass genome_build='auto' to infer from data, or 'hg19'/'hg38' explicitly."
             )
         if family == "rsid" and self.genome_build == "auto":
-            raise ValueError("genome_build='auto' is not valid for rsid-family snp_identifier modes.")
+            raise LDSCConfigError(
+                f"Could not construct GlobalConfig: genome_build='auto' is not valid for rsid-family "
+                f"snp_identifier={mode!r}. Most likely an auto-build coordinate setting was reused with rsID mode. "
+                "Omit genome_build or pass genome_build=None for rsID-family workflows."
+            )
         if family == "rsid" and self.genome_build is not None:
             warnings.warn(
                 "genome_build is set but will be ignored in rsid-family mode.",
@@ -180,7 +257,10 @@ def get_global_config() -> GlobalConfig:
 def set_global_config(config: GlobalConfig) -> None:
     """Replace the process-wide default configuration used by Python workflows."""
     if not isinstance(config, GlobalConfig):
-        raise TypeError(f"config must be a GlobalConfig instance, got {type(config).__name__}.")
+        raise TypeError(
+            f"set_global_config expected a GlobalConfig instance, got {type(config).__name__}. "
+            "Most likely an unrelated config object was passed. Construct GlobalConfig(...) first."
+        )
     global _GLOBAL_CONFIG
     _GLOBAL_CONFIG = config
 
@@ -201,15 +281,17 @@ def validate_config_compatibility(
     prefix = f" when combining {context}" if context else ""
     if a.snp_identifier != b.snp_identifier:
         raise ConfigMismatchError(
-            f"snp_identifier mismatch{prefix}: {a.snp_identifier!r} vs "
-            f"{b.snp_identifier!r}. These objects were computed under different "
-            "SNP-identifier modes and cannot be safely merged."
+            f"Cannot combine LDSC results{prefix}: snp_identifier mismatch "
+            f"{a.snp_identifier!r} vs {b.snp_identifier!r}. Most likely the inputs were produced "
+            "with different --snp-identifier modes. Re-run the upstream workflows with the same "
+            "snp_identifier before combining them."
         )
     if a.genome_build != b.genome_build:
         raise ConfigMismatchError(
-            f"genome_build mismatch{prefix}: {a.genome_build!r} vs "
-            f"{b.genome_build!r}. These objects were computed under different "
-            "genome-build assumptions and cannot be safely merged."
+            f"Cannot combine LDSC results{prefix}: genome_build mismatch "
+            f"{a.genome_build!r} vs {b.genome_build!r}. Most likely the inputs were produced "
+            "under different coordinate-build assumptions. Re-run or reload the inputs with the "
+            "same genome_build before combining them."
         )
 
 
@@ -269,7 +351,9 @@ class AnnotationBuildConfig:
         object.__setattr__(self, "query_annot_bed_sources", _normalize_path_tuple(self.query_annot_bed_sources))
         object.__setattr__(self, "output_dir", _normalize_optional_path(self.output_dir))
         if self.compression not in {"auto", "gzip", "bz2", "none"}:
-            raise ValueError("compression must be one of 'auto', 'gzip', 'bz2', or 'none'.")
+            raise LDSCConfigError(
+                _invalid_choice_message("AnnotationBuildConfig", "compression", self.compression, "'auto', 'gzip', 'bz2', or 'none'")
+            )
 
 
 @dataclass(frozen=True)
@@ -320,15 +404,15 @@ class RefPanelConfig:
     def __post_init__(self) -> None:
         """Normalize backend path tokens and validate parquet-R2 settings."""
         if self.backend not in {"auto", "plink", "parquet_r2"}:
-            raise ValueError("backend must be 'auto', 'plink', or 'parquet_r2'.")
+            raise LDSCConfigError(_invalid_choice_message("RefPanelConfig", "backend", self.backend, "'auto', 'plink', or 'parquet_r2'"))
         if self.r2_bias_mode not in {None, "raw", "unbiased"}:
-            raise ValueError("r2_bias_mode must be None, 'raw', or 'unbiased'.")
+            raise LDSCConfigError(_invalid_choice_message("RefPanelConfig", "r2_bias_mode", self.r2_bias_mode, "None, 'raw', or 'unbiased'"))
         if self.r2_sample_size is not None and self.r2_sample_size <= 0:
-            raise ValueError("r2_sample_size must be positive when provided.")
+            raise LDSCConfigError(_positive_number_message("RefPanelConfig", "r2_sample_size", self.r2_sample_size))
         if self.sample_size is not None and self.sample_size <= 0:
-            raise ValueError("sample_size must be positive when provided.")
+            raise LDSCConfigError(_positive_number_message("RefPanelConfig", "sample_size", self.sample_size))
         if self.maf_min is not None and not 0 <= self.maf_min <= 0.5:
-            raise ValueError("maf_min must lie in [0, 0.5].")
+            raise LDSCConfigError(_range_message("RefPanelConfig", "maf_min", self.maf_min, "[0, 0.5]"))
         if self.sample_size is None and self.r2_sample_size is not None:
             object.__setattr__(self, "sample_size", int(self.r2_sample_size))
         object.__setattr__(self, "plink_prefix", _normalize_optional_path(self.plink_prefix))
@@ -336,7 +420,7 @@ class RefPanelConfig:
         object.__setattr__(self, "keep_indivs_file", _normalize_optional_path(self.keep_indivs_file))
         object.__setattr__(self, "ref_panel_snps_file", _normalize_optional_path(self.ref_panel_snps_file))
         if self.ref_panel_snps_file is not None and self.use_hm3_ref_panel_snps:
-            raise ValueError("ref_panel_snps_file and use_hm3_ref_panel_snps are mutually exclusive.")
+            raise LDSCConfigError(_mutually_exclusive_message("RefPanelConfig", "ref_panel_snps_file", "use_hm3_ref_panel_snps"))
         if self.chromosomes is not None:
             from .chromosome_inference import normalize_chromosome
 
@@ -392,20 +476,20 @@ class LDScoreConfig:
         """Validate LD-window settings and normalize optional SNP-list paths."""
         windows = [self.ld_wind_snps, self.ld_wind_kb, self.ld_wind_cm]
         if sum(value is not None for value in windows) != 1:
-            raise ValueError("Exactly one LD-window option must be set.")
+            raise LDSCConfigError(_one_ld_window_message("LDScoreConfig"))
         if self.ld_wind_snps is not None and self.ld_wind_snps <= 0:
-            raise ValueError("ld_wind_snps must be positive.")
+            raise LDSCConfigError(_positive_number_message("LDScoreConfig", "ld_wind_snps", self.ld_wind_snps))
         if self.ld_wind_kb is not None and self.ld_wind_kb <= 0:
-            raise ValueError("ld_wind_kb must be positive.")
+            raise LDSCConfigError(_positive_number_message("LDScoreConfig", "ld_wind_kb", self.ld_wind_kb))
         if self.ld_wind_cm is not None and self.ld_wind_cm <= 0:
-            raise ValueError("ld_wind_cm must be positive.")
+            raise LDSCConfigError(_positive_number_message("LDScoreConfig", "ld_wind_cm", self.ld_wind_cm))
         if not 0 <= self.common_maf_min <= 0.5:
-            raise ValueError("common_maf_min must lie in [0, 0.5].")
+            raise LDSCConfigError(_range_message("LDScoreConfig", "common_maf_min", self.common_maf_min, "[0, 0.5]"))
         if self.snp_batch_size <= 0:
-            raise ValueError("snp_batch_size must be positive.")
+            raise LDSCConfigError(_positive_number_message("LDScoreConfig", "snp_batch_size", self.snp_batch_size))
         object.__setattr__(self, "regression_snps_file", _normalize_optional_path(self.regression_snps_file))
         if self.regression_snps_file is not None and self.use_hm3_regression_snps:
-            raise ValueError("regression_snps_file and use_hm3_regression_snps are mutually exclusive.")
+            raise LDSCConfigError(_mutually_exclusive_message("LDScoreConfig", "regression_snps_file", "use_hm3_regression_snps"))
 
 
 @dataclass(frozen=True)
@@ -506,9 +590,21 @@ class ReferencePanelBuildConfig:
     def __post_init__(self) -> None:
         """Normalize build paths and validate liftover and LD-window settings."""
         object.__setattr__(self, "plink_prefix", _normalize_required_path(self.plink_prefix))
-        object.__setattr__(self, "source_genome_build", normalize_genome_build(self.source_genome_build))
+        try:
+            source_genome_build = normalize_genome_build(self.source_genome_build)
+        except ValueError as exc:
+            raise LDSCConfigError(
+                f"Could not construct ReferencePanelBuildConfig: source_genome_build={self.source_genome_build!r} is invalid. "
+                "Most likely the genome build name is misspelled or unsupported. "
+                "Use 'auto', 'hg19', 'hg38', 'GRCh37', or 'GRCh38'."
+            ) from exc
+        object.__setattr__(self, "source_genome_build", source_genome_build)
         if self.source_genome_build is None:
-            raise ValueError("source_genome_build must be 'auto', 'hg19', or 'hg38'.")
+            raise LDSCConfigError(
+                "Could not construct ReferencePanelBuildConfig: source_genome_build=None is invalid. "
+                "Most likely the build was omitted for a coordinate reference-panel build. "
+                "Use source_genome_build='auto', 'hg19', or 'hg38'."
+            )
         object.__setattr__(self, "genetic_map_hg19_sources", _normalize_optional_path(self.genetic_map_hg19_sources))
         object.__setattr__(self, "genetic_map_hg38_sources", _normalize_optional_path(self.genetic_map_hg38_sources))
         object.__setattr__(
@@ -525,36 +621,52 @@ class ReferencePanelBuildConfig:
         object.__setattr__(self, "ref_panel_snps_file", _normalize_optional_path(self.ref_panel_snps_file))
         object.__setattr__(self, "keep_indivs_file", _normalize_optional_path(self.keep_indivs_file))
         if self.ref_panel_snps_file is not None and self.use_hm3_snps:
-            raise ValueError("ref_panel_snps_file and use_hm3_snps are mutually exclusive.")
+            raise LDSCConfigError(_mutually_exclusive_message("ReferencePanelBuildConfig", "ref_panel_snps_file", "use_hm3_snps"))
         if self.use_hm3_quick_liftover and not self.use_hm3_snps:
-            raise ValueError("use_hm3_quick_liftover requires use_hm3_snps.")
+            raise LDSCConfigError(
+                "Could not construct ReferencePanelBuildConfig: use_hm3_quick_liftover=True requires use_hm3_snps=True. "
+                "Most likely quick liftover was enabled without selecting the packaged HM3 SNP set. "
+                "Enable use_hm3_snps or use a chain-file liftover option instead."
+            )
         if self.use_hm3_quick_liftover and (
             self.liftover_chain_hg19_to_hg38_file is not None
             or self.liftover_chain_hg38_to_hg19_file is not None
         ):
-            raise ValueError("Reference-panel chain liftover and use_hm3_quick_liftover are mutually exclusive.")
+            raise LDSCConfigError(
+                "Could not construct ReferencePanelBuildConfig: chain-file liftover and use_hm3_quick_liftover are mutually exclusive. "
+                "Most likely two liftover methods were selected for the same reference-panel build. "
+                "Choose either the HM3 quick liftover shortcut or chain-file liftover, not both."
+            )
         windows = [self.ld_wind_snps, self.ld_wind_kb, self.ld_wind_cm]
         if sum(value is not None for value in windows) != 1:
-            raise ValueError("Exactly one LD-window option must be set.")
+            raise LDSCConfigError(_one_ld_window_message("ReferencePanelBuildConfig"))
         source_map = None
         if self.source_genome_build == "hg19":
             source_map = self.genetic_map_hg19_sources
         elif self.source_genome_build == "hg38":
             source_map = self.genetic_map_hg38_sources
         if self.ld_wind_cm is not None and self.source_genome_build is not None and source_map is None:
-            raise ValueError(f"{self.source_genome_build} genetic map path is required when ld_wind_cm is set.")
+            raise LDSCConfigError(
+                f"Could not construct ReferencePanelBuildConfig: ld_wind_cm requires a {self.source_genome_build} genetic map path. "
+                "Most likely cM-window LD scores were requested without the matching genetic map. "
+                f"Set genetic_map_{self.source_genome_build}_sources or use ld_wind_snps/ld_wind_kb."
+            )
         if self.ld_wind_snps is not None and self.ld_wind_snps <= 0:
-            raise ValueError("ld_wind_snps must be positive.")
+            raise LDSCConfigError(_positive_number_message("ReferencePanelBuildConfig", "ld_wind_snps", self.ld_wind_snps))
         if self.ld_wind_kb is not None and self.ld_wind_kb <= 0:
-            raise ValueError("ld_wind_kb must be positive.")
+            raise LDSCConfigError(_positive_number_message("ReferencePanelBuildConfig", "ld_wind_kb", self.ld_wind_kb))
         if self.ld_wind_cm is not None and self.ld_wind_cm <= 0:
-            raise ValueError("ld_wind_cm must be positive.")
+            raise LDSCConfigError(_positive_number_message("ReferencePanelBuildConfig", "ld_wind_cm", self.ld_wind_cm))
         if self.maf_min is not None and not 0 <= self.maf_min <= 0.5:
-            raise ValueError("maf_min must lie in [0, 0.5].")
+            raise LDSCConfigError(_range_message("ReferencePanelBuildConfig", "maf_min", self.maf_min, "[0, 0.5]"))
         if self.snp_batch_size <= 0:
-            raise ValueError("snp_batch_size must be positive.")
+            raise LDSCConfigError(_positive_number_message("ReferencePanelBuildConfig", "snp_batch_size", self.snp_batch_size))
         if self.min_r2 > 1:
-            raise ValueError("min_r2 must not exceed 1.")
+            raise LDSCConfigError(
+                f"Could not construct ReferencePanelBuildConfig: min_r2={self.min_r2!r} must not exceed 1. "
+                "Most likely an R2 percentage or invalid threshold was supplied. "
+                "Use a decimal threshold in [0, 1]."
+            )
 
 
 @dataclass(frozen=True)
@@ -683,21 +795,46 @@ class MungeConfig:
     def __post_init__(self) -> None:
         """Validate munging thresholds and normalize optional file paths."""
         if self.info_min < 0:
-            raise ValueError("info_min must be non-negative.")
+            raise LDSCConfigError(
+                f"Could not construct MungeConfig: info_min={self.info_min!r} must be non-negative. "
+                "Most likely a negative INFO threshold was supplied. Set info_min to 0 or higher."
+            )
         if self.maf_min < 0 or self.maf_min > 0.5:
-            raise ValueError("maf_min must lie in [0, 0.5].")
+            raise LDSCConfigError(_range_message("MungeConfig", "maf_min", self.maf_min, "[0, 0.5]"))
         if self.chunk_size <= 0:
-            raise ValueError("chunk_size must be positive.")
+            raise LDSCConfigError(_positive_number_message("MungeConfig", "chunk_size", self.chunk_size))
         if self.output_format not in {"parquet", "tsv.gz", "both"}:
-            raise ValueError("output_format must be one of 'parquet', 'tsv.gz', or 'both'.")
+            raise LDSCConfigError(_invalid_choice_message("MungeConfig", "output_format", self.output_format, "'parquet', 'tsv.gz', or 'both'"))
         if self.sumstats_format not in {"auto", "plain", "daner-old", "daner-new"}:
-            raise ValueError("sumstats_format must be one of 'auto', 'plain', 'daner-old', or 'daner-new'.")
-        source_genome_build = normalize_genome_build(self.source_genome_build)
+            raise LDSCConfigError(_invalid_choice_message("MungeConfig", "sumstats_format", self.sumstats_format, "'auto', 'plain', 'daner-old', or 'daner-new'"))
+        try:
+            source_genome_build = normalize_genome_build(self.source_genome_build)
+        except ValueError as exc:
+            raise LDSCConfigError(
+                f"Could not construct MungeConfig: source_genome_build={self.source_genome_build!r} is invalid. "
+                "Most likely the genome build name is misspelled or unsupported. "
+                "Use 'auto', 'hg19', 'hg38', 'GRCh37', or 'GRCh38'."
+            ) from exc
         if source_genome_build is None:
-            raise ValueError("source_genome_build must be 'auto', 'hg19', or 'hg38'.")
-        output_genome_build = normalize_genome_build(self.output_genome_build)
+            raise LDSCConfigError(
+                "Could not construct MungeConfig: source_genome_build=None is invalid. "
+                "Most likely the raw coordinate build was omitted. "
+                "Use source_genome_build='auto', 'hg19', or 'hg38'."
+            )
+        try:
+            output_genome_build = normalize_genome_build(self.output_genome_build)
+        except ValueError as exc:
+            raise LDSCConfigError(
+                f"Could not construct MungeConfig: output_genome_build={self.output_genome_build!r} is invalid. "
+                "Most likely the output genome build name is misspelled or unsupported. "
+                "Use 'hg19', 'hg38', 'GRCh37', or 'GRCh38', or omit it for rsID workflows."
+            ) from exc
         if output_genome_build == "auto":
-            raise ValueError("output_genome_build must be hg19 or hg38; 'auto' is not a valid output build.")
+            raise LDSCConfigError(
+                "Could not construct MungeConfig: output_genome_build='auto' is invalid. "
+                "Most likely an inference setting was used for an output coordinate build. "
+                "Choose a concrete output_genome_build of 'hg19' or 'hg38'."
+            )
         object.__setattr__(self, "output_dir", _normalize_optional_path(self.output_dir))
         object.__setattr__(self, "raw_sumstats_file", _normalize_optional_path(self.raw_sumstats_file))
         object.__setattr__(self, "sumstats_snps_file", _normalize_optional_path(self.sumstats_snps_file))
@@ -709,11 +846,19 @@ class MungeConfig:
         object.__setattr__(self, "info_list_columns", tuple(self.info_list_columns))
         object.__setattr__(self, "column_hints", dict(self.column_hints))
         if self.sumstats_snps_file is not None and self.use_hm3_snps:
-            raise ValueError("sumstats_snps_file and use_hm3_snps are mutually exclusive.")
+            raise LDSCConfigError(_mutually_exclusive_message("MungeConfig", "sumstats_snps_file", "use_hm3_snps"))
         if self.use_hm3_quick_liftover and not self.use_hm3_snps:
-            raise ValueError("use_hm3_quick_liftover requires use_hm3_snps.")
+            raise LDSCConfigError(
+                "Could not construct MungeConfig: use_hm3_quick_liftover=True requires use_hm3_snps=True. "
+                "Most likely quick liftover was enabled without selecting the packaged HM3 SNP set. "
+                "Enable use_hm3_snps or use a chain-file liftover option instead."
+            )
         if self.liftover_chain_file is not None and self.use_hm3_quick_liftover:
-            raise ValueError("liftover_chain_file and use_hm3_quick_liftover are mutually exclusive.")
+            raise LDSCConfigError(
+                "Could not construct MungeConfig: liftover_chain_file and use_hm3_quick_liftover are mutually exclusive. "
+                "Most likely two liftover methods were selected for the same munge-sumstats run. "
+                "Choose either a chain file or HM3 quick liftover, not both."
+            )
 
 
 @dataclass(frozen=True)
@@ -763,8 +908,11 @@ class RegressionConfig:
     def __post_init__(self) -> None:
         """Validate regression hyperparameters after dataclass construction."""
         if self.n_blocks <= 1:
-            raise ValueError("n_blocks must be greater than 1.")
+            raise LDSCConfigError(
+                f"Could not construct RegressionConfig: n_blocks={self.n_blocks!r} must be greater than 1. "
+                "Most likely too few jackknife blocks were requested. Set n_blocks to at least 2."
+            )
         if self.two_step_cutoff is not None and self.two_step_cutoff <= 0:
-            raise ValueError("two_step_cutoff must be positive when provided.")
+            raise LDSCConfigError(_positive_number_message("RegressionConfig", "two_step_cutoff", self.two_step_cutoff))
         if self.chisq_max is not None and self.chisq_max <= 0:
-            raise ValueError("chisq_max must be positive when provided.")
+            raise LDSCConfigError(_positive_number_message("RegressionConfig", "chisq_max", self.chisq_max))

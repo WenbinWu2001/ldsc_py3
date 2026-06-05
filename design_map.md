@@ -39,6 +39,7 @@ contracts move.
 | `docs/current/workflow-logging.md` | `src/ldsc/_logging.py`; workflow wrappers in `annotation_builder.py`, `ldscore_calculator.py`, `ref_panel_builder.py`, `sumstats_munger.py`, and `regression_runner.py` |
 | `docs/superpowers/specs/2026-05-02-logging-harmonization-design.md` | final logging harmonization decisions and result-contract boundaries |
 | `docs/superpowers/plans/2026-05-02-logging-harmonization-implementation-plan.md` | completed implementation checklist and verification commands |
+| `docs/superpowers/plans/2026-06-04-logging-console-file-routing-plan.md` | console/file routing: file-authoritative sink, console error-only echo, no-output console fallback, run-aborting traceback capture; touches `src/ldsc/_logging.py`, `src/ldsc/cli.py`, `src/ldsc/_kernel/ldscore.py` |
 
 ## Liftover Harmonization
 

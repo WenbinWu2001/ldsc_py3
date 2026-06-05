@@ -10,6 +10,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from ldsc._kernel import _jackknife as jk
+from ldsc.errors import LDSCInternalError
 
 
 class TestJackknife(unittest.TestCase):
@@ -56,7 +57,7 @@ class TestJackknife(unittest.TestCase):
             x = jk.Jackknife.delete_values_to_pseudovalues(delete_values, est)
             assert_array_equal(x, np.ones_like(delete_values))
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(LDSCInternalError):
             jk.Jackknife.delete_values_to_pseudovalues(delete_values, est.T)
 
 
@@ -99,13 +100,13 @@ class TestLstsqJackknifeSlow(unittest.TestCase):
     def test_bad_data(self):
         x = np.arange(10)
         y = 2 * np.arange(9)
-        with self.assertRaises(ValueError):
+        with self.assertRaises(LDSCInternalError):
             jk.LstsqJackknifeSlow(x, y, 10)
 
     def test_too_many_blocks(self):
         x = np.arange(10)
         y = 2 * np.arange(10)
-        with self.assertRaises(ValueError):
+        with self.assertRaises(LDSCInternalError):
             jk.LstsqJackknifeSlow(x, y, 11)
 
 
@@ -151,11 +152,11 @@ class TestLstsqJackknifeFast(unittest.TestCase):
             assert_array_equal(est.shape, (1, 2))
             assert_array_almost_equal(est, [[1, 1]])
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(LDSCInternalError):
             jk.LstsqJackknifeFast.block_values_to_est(xty[0:2], xtx)
-        with self.assertRaises(ValueError):
+        with self.assertRaises(LDSCInternalError):
             jk.LstsqJackknifeFast.block_values_to_est(xty, xtx[:, :, 0:1])
-        with self.assertRaises(ValueError):
+        with self.assertRaises(LDSCInternalError):
             jk.LstsqJackknifeFast.block_values_to_est(xty, xtx[:, :, 0])
 
     def test_block_to_delete_1d(self):
@@ -186,11 +187,11 @@ class TestLstsqJackknifeFast(unittest.TestCase):
 
     def test_bad_data(self):
         x = np.arange(6).reshape((1, 6))
-        with self.assertRaises(ValueError):
+        with self.assertRaises(LDSCInternalError):
             jk.LstsqJackknifeFast(x, x, n_blocks=3)
-        with self.assertRaises(ValueError):
+        with self.assertRaises(LDSCInternalError):
             jk.LstsqJackknifeFast(x.T, x.T, n_blocks=8)
-        with self.assertRaises(ValueError):
+        with self.assertRaises(LDSCInternalError):
             jk.LstsqJackknifeFast(x.T, x.T, separators=list(range(10)))
 
 

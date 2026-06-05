@@ -16,6 +16,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from ldsc.config import GlobalConfig
+from ldsc.errors import LDSCInputError, LDSCInternalError
 from ldsc.ldscore_calculator import LDScoreResult
 from ldsc.outputs import (
     H2DirectoryWriter,
@@ -188,7 +189,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
     def test_ldscore_writer_requires_config_snapshot(self):
         result = dataclass_replace(make_split_ldscore_result(query=False), config_snapshot=None)
         with tempfile.TemporaryDirectory() as tmpdir:
-            with self.assertRaisesRegex(ValueError, "config_snapshot"):
+            with self.assertRaisesRegex(LDSCInternalError, "config_snapshot"):
                 LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=tmpdir))
 
     def test_ldscore_writer_rejects_allele_aware_without_baseline_alleles(self):
@@ -197,7 +198,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
             config_snapshot=GlobalConfig(snp_identifier="rsid_allele_aware"),
         )
         with tempfile.TemporaryDirectory() as tmpdir:
-            with self.assertRaisesRegex(ValueError, "baseline_table.*A1/A2"):
+            with self.assertRaisesRegex(LDSCInternalError, "baseline_table.*A1/A2"):
                 LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=tmpdir))
 
     def test_ldscore_writer_rejects_allele_aware_without_query_alleles(self):
@@ -205,7 +206,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
         query = result.query_table.drop(columns=["A1", "A2"])
         result = dataclass_replace(result, query_table=query)
         with tempfile.TemporaryDirectory() as tmpdir:
-            with self.assertRaisesRegex(ValueError, "query_table.*A1/A2"):
+            with self.assertRaisesRegex(LDSCInternalError, "query_table.*A1/A2"):
                 LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=tmpdir))
 
     def test_ldscore_writer_rejects_allele_aware_query_allele_mismatch(self):
@@ -215,7 +216,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
         result = dataclass_replace(result, query_table=query)
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            with self.assertRaisesRegex(ValueError, "query rows must match baseline rows"):
+            with self.assertRaisesRegex(LDSCInputError, "query rows must match baseline rows"):
                 LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=tmpdir))
 
     def test_ldscore_writer_round_trips_through_public_loader(self):
@@ -346,7 +347,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
         bad_result = dataclass_replace(result, query_table=bad_query)
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            with self.assertRaisesRegex(ValueError, "query rows must match baseline rows"):
+            with self.assertRaisesRegex(LDSCInputError, "query rows must match baseline rows"):
                 LDScoreDirectoryWriter().write(bad_result, LDScoreOutputConfig(output_dir=tmpdir))
 
     def test_refuses_overwrite_before_writing_any_file(self):
@@ -988,7 +989,7 @@ class FixedOutputDirectoryTest(unittest.TestCase):
                 trait_name="trait",
             )
 
-            with self.assertRaisesRegex(ValueError, "config_snapshot"):
+            with self.assertRaisesRegex(module.LDSCInputError, "config_snapshot"):
                 module.SumstatsMunger().write_output(table, tmpdir)
 
     def test_munge_write_output_refuses_existing_file_by_default(self):

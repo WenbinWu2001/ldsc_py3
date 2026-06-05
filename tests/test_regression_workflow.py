@@ -20,6 +20,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from ldsc.config import ConfigMismatchError, GlobalConfig, RegressionConfig, reset_global_config, set_global_config
+from ldsc.errors import LDSCInputError, LDSCInternalError, LDSCUsageError
 
 try:
     from ldsc.ldscore_calculator import LDScoreResult
@@ -166,7 +167,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with self.assertRaisesRegex(ValueError, "baseline_table is missing required columns.*POS"):
+            with self.assertRaisesRegex(LDSCInternalError, "baseline_table is missing required columns.*POS"):
                 load_ldscore_from_dir(str(tmpdir))
 
     def test_load_ldscore_from_dir_reads_minimal_identity_metadata(self):
@@ -197,7 +198,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             del metadata["snp_identifier"]
             metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
 
-            with self.assertRaisesRegex(ValueError, "Unsupported snp_identifier mode"):
+            with self.assertRaisesRegex(LDSCInputError, "snp_identifier=.*invalid"):
                 load_ldscore_from_dir(str(tmpdir))
 
     def test_load_ldscore_from_dir_rejects_invalid_minimal_identity(self):
@@ -211,7 +212,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             metadata["snp_identifier"] = "bad"
             metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
 
-            with self.assertRaisesRegex(ValueError, "Unsupported snp_identifier mode"):
+            with self.assertRaisesRegex(LDSCInputError, "snp_identifier=.*invalid"):
                 load_ldscore_from_dir(str(tmpdir))
 
     def test_load_ldscore_from_dir_rejects_allele_aware_baseline_without_alleles(self):
@@ -229,7 +230,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             metadata["snp_identifier"] = "rsid_allele_aware"
             metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
 
-            with self.assertRaisesRegex(ValueError, "baseline_table.*A1/A2"):
+            with self.assertRaisesRegex(LDSCInputError, "baseline_table.*allele columns are missing"):
                 load_ldscore_from_dir(str(tmpdir))
 
     def test_load_ldscore_from_dir_rejects_allele_aware_query_without_alleles(self):
@@ -247,7 +248,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             metadata["snp_identifier"] = "rsid_allele_aware"
             metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
 
-            with self.assertRaisesRegex(ValueError, "query_table.*A1/A2"):
+            with self.assertRaisesRegex(LDSCInputError, "query_table.*allele columns are missing"):
                 load_ldscore_from_dir(str(tmpdir))
 
     def test_load_ldscore_from_dir_rejects_snp_identifier_override_mismatch(self):
@@ -579,7 +580,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             snp_identifier="chr_pos",
         )
 
-        with self.assertRaisesRegex(ValueError, "Cannot mix SNP identifier families"):
+        with self.assertRaisesRegex(LDSCUsageError, "different families"):
             runner.build_dataset(sumstats, ldscore_result)
 
     def test_build_dataset_rejects_same_family_mode_mismatch_by_default(self):
@@ -611,7 +612,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             snp_identifier="chr_pos",
         )
 
-        with self.assertRaisesRegex(ValueError, "allow-identity-downgrade"):
+        with self.assertRaisesRegex(LDSCUsageError, "allow-identity-downgrade"):
             runner.build_dataset(sumstats, ldscore_result)
 
     def test_build_dataset_allows_chr_pos_identity_downgrade_with_effective_base_mode(self):
@@ -796,7 +797,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             data=self.make_sumstats_table().data.assign(SNP=["missing1", "missing2", "missing3"]),
         )
 
-        with self.assertRaisesRegex(ValueError, "Active config:"):
+        with self.assertRaisesRegex(LDSCInputError, "retained no overlapping.*Other causes"):
             runner.build_dataset(sumstats, self.make_ldscore_result())
 
     def test_build_dataset_with_query_rejects_misaligned_query_table(self):
@@ -806,7 +807,7 @@ class RegressionWorkflowTest(unittest.TestCase):
         bad_query.loc[1, "POS"] = 999
         result = replace(result, query_table=bad_query)
 
-        with self.assertRaisesRegex(ValueError, "query rows must match baseline rows"):
+        with self.assertRaisesRegex(LDSCInputError, "query rows must match baseline rows"):
             runner.build_dataset(self.make_sumstats_table(), result, query_columns=["query2"])
 
     def test_old_common_count_metadata_key_is_not_recognized(self):
@@ -1379,7 +1380,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             ],
         )
 
-        with self.assertRaisesRegex(ValueError, "partitioned-h2 requires query annotations"):
+        with self.assertRaisesRegex(LDSCInputError, "LD-score directory has no query annotation columns"):
             runner.estimate_partitioned_h2(
                 self.make_sumstats_table(),
                 ldscore_result,
@@ -1427,7 +1428,7 @@ class RegressionWorkflowTest(unittest.TestCase):
     def test_estimate_partitioned_h2_rejects_unknown_query_column(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
 
-        with self.assertRaisesRegex(ValueError, "Unknown query annotation requested.*missing"):
+        with self.assertRaisesRegex(LDSCInputError, "requested query annotation columns.*missing"):
             runner.estimate_partitioned_h2(
                 self.make_sumstats_table(),
                 self.make_ldscore_result(),
@@ -1442,7 +1443,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             query_columns=[],
         )
 
-        with self.assertRaisesRegex(ValueError, "partitioned-h2 requires query annotations"):
+        with self.assertRaisesRegex(LDSCInputError, "LD-score directory has no query annotation columns"):
             runner.estimate_partitioned_h2_batch(
                 self.make_sumstats_table(),
                 self.make_ldscore_result(),
@@ -1952,7 +1953,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             "_load_sumstats_table",
             side_effect=AssertionError("sumstats should not load"),
         ):
-            with self.assertRaisesRegex(ValueError, "--write-per-pair-detail requires --output-dir"):
+            with self.assertRaisesRegex(LDSCUsageError, "per-pair detail without `--output-dir`"):
                 regression_runner.run_rg_from_args(args)
 
     def test_run_rg_from_args_returns_result_family_without_printing_when_output_dir_is_absent(self):

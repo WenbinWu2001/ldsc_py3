@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 
 from ._kernel.snp_identity import allele_set_series
+from .errors import LDSCUsageError
 from .hm3 import _load_hm3_curated_map_from_path, packaged_hm3_curated_map_path
 
 REFERENCE_COLUMNS = ["CHR", "hg19_POS", "hg38_POS"]
@@ -30,7 +31,11 @@ def build_hm3_chr_pos_reference(
     are evenly sampled by hg38 position within each chromosome.
     """
     if snps_per_chromosome <= 0:
-        raise ValueError("snps_per_chromosome must be positive.")
+        raise LDSCUsageError(
+            f"HM3 reference build received snps_per_chromosome={snps_per_chromosome}. "
+            "Most likely the sampling count was set to zero or a negative value. "
+            "Pass a positive SNP count per chromosome."
+        )
     curated = _load_hm3_curated_map_from_path(curated_map_path, preserve_extra_columns=True)
     filtered = _filter_reference_candidates(curated, min_maf=min_maf)
     sampled = _sample_evenly_by_chromosome(filtered, snps_per_chromosome=snps_per_chromosome)

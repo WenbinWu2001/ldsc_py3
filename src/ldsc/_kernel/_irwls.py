@@ -6,6 +6,7 @@ Iterativey re-weighted least squares.
 '''
 from __future__ import division
 import numpy as np
+from ..errors import LDSCInternalError
 from . import _jackknife as jk
 
 
@@ -60,8 +61,11 @@ class IRWLS(object):
         if w is None:
             w = np.ones_like(y)
         if w.shape != (n, 1):
-            raise ValueError(
-                'w has shape {S}. w must have shape ({N}, 1).'.format(S=w.shape, N=n))
+            raise LDSCInternalError(
+                f"Regression IRWLS setup received weights with shape {w.shape}, expected ({n}, 1). "
+                "Most likely regression preprocessing passed a misaligned weight vector. "
+                "Re-run with `--log-level DEBUG` and report the traceback."
+            )
 
         jknife = self.irwls(
             x, y, update_func, n_blocks, w, slow=slow, separators=separators)
@@ -103,19 +107,26 @@ class IRWLS(object):
         '''
         (n, p) = x.shape
         if y.shape != (n, 1):
-            raise ValueError(
-                'y has shape {S}. y must have shape ({N}, 1).'.format(S=y.shape, N=n))
+            raise LDSCInternalError(
+                f"Regression IRWLS setup received response with shape {y.shape}, expected ({n}, 1). "
+                "Most likely regression preprocessing passed a misaligned response vector. "
+                "Re-run with `--log-level DEBUG` and report the traceback."
+            )
         if w.shape != (n, 1):
-            raise ValueError(
-                'w has shape {S}. w must have shape ({N}, 1).'.format(S=w.shape, N=n))
+            raise LDSCInternalError(
+                f"Regression IRWLS setup received weights with shape {w.shape}, expected ({n}, 1). "
+                "Most likely regression preprocessing passed a misaligned weight vector. "
+                "Re-run with `--log-level DEBUG` and report the traceback."
+            )
 
         w = np.sqrt(w)
         for i in range(2):  # update this later
             new_w = np.sqrt(update_func(cls.wls(x, y, w)))
             if new_w.shape != w.shape:
-                raise ValueError(
-                    'New weights must have same shape as current weights; '
-                    'got {N} and expected {W}.'.format(N=new_w.shape, W=w.shape)
+                raise LDSCInternalError(
+                    f"Regression IRWLS update produced weights with shape {new_w.shape}, expected {w.shape}. "
+                    "Most likely the estimator weight update returned the wrong matrix shape. "
+                    "Re-run with `--log-level DEBUG` and report the traceback."
                 )
             else:
                 w = new_w
@@ -153,11 +164,17 @@ class IRWLS(object):
         '''
         (n, p) = x.shape
         if y.shape != (n, 1):
-            raise ValueError(
-                'y has shape {S}. y must have shape ({N}, 1).'.format(S=y.shape, N=n))
+            raise LDSCInternalError(
+                f"Regression weighted least squares received response with shape {y.shape}, expected ({n}, 1). "
+                "Most likely regression preprocessing passed a misaligned response vector. "
+                "Re-run with `--log-level DEBUG` and report the traceback."
+            )
         if w.shape != (n, 1):
-            raise ValueError(
-                'w has shape {S}. w must have shape ({N}, 1).'.format(S=w.shape, N=n))
+            raise LDSCInternalError(
+                f"Regression weighted least squares received weights with shape {w.shape}, expected ({n}, 1). "
+                "Most likely regression preprocessing passed a misaligned weight vector. "
+                "Re-run with `--log-level DEBUG` and report the traceback."
+            )
 
         x = cls._weight(x, w)
         y = cls._weight(y, w)
@@ -188,11 +205,18 @@ class IRWLS(object):
 
         '''
         if np.any(w <= 0):
-            raise ValueError('Weights must be > 0')
+            raise LDSCInternalError(
+                "Regression weighted least squares received non-positive weights. "
+                "Most likely the LDSC weight update became numerically invalid for this dataset. "
+                "Re-run with `--log-level DEBUG` and report the traceback."
+            )
         (n, p) = x.shape
         if w.shape != (n, 1):
-            raise ValueError(
-                'w has shape {S}. w must have shape (n, 1).'.format(S=w.shape))
+            raise LDSCInternalError(
+                f"Regression weighted least squares received weights with shape {w.shape}, expected ({n}, 1). "
+                "Most likely regression preprocessing passed a misaligned weight vector. "
+                "Re-run with `--log-level DEBUG` and report the traceback."
+            )
 
         w = w / float(np.sum(w))
         x_new = np.multiply(x, w)

@@ -128,6 +128,59 @@ class LoggingRefactorTest(unittest.TestCase):
         self.assertIn("Traceback (most recent call last):", text)
         self.assertIn("RuntimeError: boom", text)
 
+    def test_cli_console_handler_install_remove_is_clean(self):
+        from ldsc import _logging
+
+        ldsc_logger = logging.getLogger("LDSC")
+        original = list(ldsc_logger.handlers)
+        handler = _logging.install_cli_console_handler()
+        try:
+            self.assertIn(handler, ldsc_logger.handlers)
+            self.assertEqual(handler.level, logging.ERROR)
+            self.assertIs(_logging.cli_console_handler(), handler)
+        finally:
+            _logging.remove_cli_console_handler()
+        self.assertEqual(ldsc_logger.handlers, original)
+        self.assertIsNone(_logging.cli_console_handler())
+
+    def test_console_level_lowered_to_info_when_no_log_path(self):
+        from ldsc import _logging
+        from ldsc._logging import workflow_logging
+
+        handler = _logging.install_cli_console_handler()
+        try:
+            self.assertEqual(handler.level, logging.ERROR)
+            with workflow_logging("unit", None, log_level="INFO"):
+                self.assertEqual(handler.level, logging.INFO)
+            self.assertEqual(handler.level, logging.ERROR)
+        finally:
+            _logging.remove_cli_console_handler()
+
+    def test_console_level_stays_error_when_log_path_present(self):
+        from ldsc import _logging
+        from ldsc._logging import workflow_logging
+
+        handler = _logging.install_cli_console_handler()
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                log_path = Path(tmpdir) / "workflow.log"
+                with workflow_logging("unit", log_path, log_level="INFO"):
+                    self.assertEqual(handler.level, logging.ERROR)
+        finally:
+            _logging.remove_cli_console_handler()
+
+    def test_last_workflow_log_path_tracks_active_run(self):
+        from ldsc import _logging
+        from ldsc._logging import workflow_logging
+
+        _logging.reset_workflow_log_path()
+        self.assertIsNone(_logging.last_workflow_log_path())
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = Path(tmpdir) / "workflow.log"
+            with workflow_logging("unit", log_path, log_level="INFO"):
+                pass
+            self.assertEqual(_logging.last_workflow_log_path(), str(log_path))
+
     def test_package_exports_domain_error_hierarchy(self):
         import ldsc
         from ldsc.config import ConfigMismatchError

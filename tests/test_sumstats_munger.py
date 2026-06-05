@@ -2673,6 +2673,42 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertIn("Liftover required: yes (method: chain file)", output)
             self.assertIn("Expected chain direction: hg19 -> hg38", output)
 
+    def test_infer_only_reports_missing_liftover_chain_path_with_fix(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "CHR POS SNP A1 A2 P BETA N\n"
+                "1 100 rs1 A G 0.05 0.1 1000\n",
+                encoding="utf-8",
+            )
+            missing_chain_path = tmpdir / "missing.over.chain"
+            stdout = io.StringIO()
+
+            with mock.patch("ldsc.sumstats_munger.resolve_genome_build", return_value="hg19"):
+                with contextlib.redirect_stdout(stdout):
+                    result = sumstats_workflow.main(
+                        [
+                            "--raw-sumstats-file",
+                            str(raw_path),
+                            "--infer-only",
+                            "--output-genome-build",
+                            "hg38",
+                            "--liftover-chain-file",
+                            str(missing_chain_path),
+                        ]
+                    )
+
+            output = stdout.getvalue()
+            self.assertFalse(result.runnable)
+            self.assertIn("liftover_chain_file", result.missing_fields)
+            self.assertIn("Could not resolve liftover chain file path from token", output)
+            self.assertIn("matched 0 files", output)
+            self.assertIn("Most likely the path is misspelled", output)
+            self.assertIn("pass one existing chain file for the expected direction (hg19ToHg38.over.chain)", output)
+            self.assertIn("or use --use-hm3-snps --use-hm3-quick-liftover", output)
+            self.assertIn("Expected chain direction: hg19 -> hg38", output)
+
     def test_infer_only_reports_hm3_quick_liftover_method(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)

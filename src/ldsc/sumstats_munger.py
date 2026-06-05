@@ -1402,9 +1402,13 @@ def _apply_build_inference_report(
         _append_suggested_option(suggested, "--liftover-chain-file", munge_config.liftover_chain_file)
         try:
             resolve_scalar_path(munge_config.liftover_chain_file, label="liftover chain file")
-        except FileNotFoundError as exc:
+        except LDSCInputError as exc:
             missing.append("liftover_chain_file")
-            notes.append(f"Liftover chain file was not found: {exc}")
+            notes.append(
+                f"{exc} For this infer-only report, pass one existing chain file for the expected direction "
+                f"({_expected_chain_label(resolved_source, output_build)}), or use "
+                "--use-hm3-snps --use-hm3-quick-liftover."
+            )
         if resolved_source in {"hg19", "hg38"} and output_build in {"hg19", "hg38"}:
             notes.append(f"Expected chain direction: {resolved_source} -> {output_build}.")
     missing_fields = tuple(dict.fromkeys(missing))

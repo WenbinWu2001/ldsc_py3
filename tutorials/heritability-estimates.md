@@ -172,7 +172,8 @@ ldsc ldscore \
   --snp-identifier chr_pos \
   --genome-build auto \
   --common-maf-min 0.05 \
-  --ld-wind-cm 1.0
+  --ld-wind-cm 1.0 \
+  --num-workers 0   # 0 = use all cores; chromosomes run in parallel, output is identical
 
 ldsc h2 \
   --sumstats-file tutorial_outputs/trait/sumstats.parquet \

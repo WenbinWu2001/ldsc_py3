@@ -446,3 +446,20 @@ class IndexParquetRuntimeTest(unittest.TestCase):
             reader.within_block_matrix(l_B=0, c=2)
             reader.within_block_matrix(l_B=1, c=2)
             self.assertEqual(rg_idxs_used.count(1), 1)
+
+    def test_build_index_remap_rejects_collapsing_sidecar(self):
+        # Two distinct panel rows share an rsID; under rsid mode they collapse
+        # onto the single retained "rsX", which must be a hard error.
+        full = pd.DataFrame({"SNP": ["rsX", "rsY", "rsX"]})
+        retained = pd.DataFrame({"SNP": ["rsX", "rsY"]})
+        with self.assertRaises(LDSCInputError) as ctx:
+            ld.build_index_remap(full, retained, "rsid")
+        self.assertIn("collapse", str(ctx.exception).lower())
+
+    def test_build_index_remap_injective_builds_retained_build_idx(self):
+        # rsB is absent from the retained universe (maps to -1); rsA, rsC are kept.
+        full = pd.DataFrame({"SNP": ["rsA", "rsB", "rsC"]})
+        retained = pd.DataFrame({"SNP": ["rsA", "rsC"]})
+        remap, retained_build_idx = ld.build_index_remap(full, retained, "rsid")
+        np.testing.assert_array_equal(remap, [0, -1, 1])
+        np.testing.assert_array_equal(retained_build_idx, [0, 2])

@@ -397,6 +397,10 @@ def build_index_remap(
     ``retained_build_idx[matrix_idx]`` is the originating build index (ascending,
     used for IDX_1 row-group pruning). Matching uses the same mode-dependent
     identity keys as the legacy per-pair decode, so the result is bit-identical.
+
+    The remap must be injective over retained indices: two distinct panel rows
+    sharing an identity key under ``identifier_mode`` (a collapse) is a hard
+    error, which also keeps ``retained_build_idx`` a well-defined permutation.
     """
     mode = normalize_snp_identifier_mode(identifier_mode)
     full_keys = effective_merge_key_series(full_sidecar, mode, context="panel sidecar index remap").to_numpy()
@@ -412,10 +416,21 @@ def build_index_remap(
         )
     remap = retained_index.get_indexer(full_keys).astype(np.int32, copy=False)
 
+    valid = remap >= 0
+    valid_targets = remap[valid]
+    if np.unique(valid_targets).size != valid_targets.size:
+        raise LDSCInputError(
+            "ldscore could not align the reference panel to its sidecar: distinct "
+            f"panel SNPs collapse onto the same retained SNP under mode '{mode}'. "
+            "Most likely the panel sidecar has duplicate SNP identities at this "
+            "identifier resolution. Use an allele-aware `--snp-identifier` mode, or "
+            "rebuild the reference panel after removing duplicate SNP identities. "
+            f"Other causes & fixes: {_LDSCORE_PARQUET_DOC}"
+        )
+
     m = len(retained_metadata)
     retained_build_idx = np.empty(m, dtype=np.int64)
-    valid = remap >= 0
-    retained_build_idx[remap[valid]] = np.nonzero(valid)[0]
+    retained_build_idx[valid_targets] = np.nonzero(valid)[0]
     return remap, retained_build_idx
 
 

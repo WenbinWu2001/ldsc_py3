@@ -245,6 +245,11 @@ column is an integer dtype (quantized panels), the reader **dequantizes**
 `i:int32, j:int32, r2:float32` arrays in a chromosome-local LRU cache auto-sized
 from the sliding-window query sequence.
 
+Within a decoded group the `i` array is **sorted ascending**: on-disk `IDX_1` is
+non-decreasing (§2.2) and `build_index_remap` assigns retained indices in build
+order, so the remap is monotonic on kept endpoints. The window query (§3.3)
+relies on this to slice rows by binary search instead of scanning the group.
+
 ### 3.3 Window Queries and Pruning
 
 A retained-index window `[start, stop)` is mapped to a build-index range
@@ -253,12 +258,20 @@ A retained-index window `[start, stop)` is mapped to a build-index range
 pruning exactly, with `IDX_1` in place of `POS_1`. Coarse files (few large row
 groups) still work but prune poorly and emit a startup warning.
 
+Within each selected (cached) group the query locates the window's rows by
+**binary search** (`np.searchsorted`) on the sorted `i` array — `[lo, hi)` such
+that `i ∈ [start, stop)` — then keeps only the slice where `j ∈ [start, stop)`.
+The query returns plain `numpy` arrays `(i, j, r2)`, never a `DataFrame`, and
+performs **no deduplication** (guaranteed unique by §2.2 + the injective remap of
+§3.1). This bounds per-window work by the window's pair count rather than the
+full row-group size.
+
 ### 3.4 Dense Matrix Construction
 
-`cross_block_matrix` / `within_block_matrix` consume decoded pair rows and fill a
-dense `float32` matrix by vectorized fancy-index assignment, with `1.0` on the
-diagonal — unchanged from before. These feed
-`ld_score_var_blocks_from_r2_reader`.
+`cross_block_matrix` / `within_block_matrix` consume the query's `(i, j, r2)`
+numpy arrays directly and fill a dense `float32` matrix by vectorized fancy-index
+assignment, with `1.0` on the diagonal. No `DataFrame` round-trip and no
+per-window deduplication occur. These feed `ld_score_var_blocks_from_r2_reader`.
 
 ### 3.5 Mode-agnosticism
 

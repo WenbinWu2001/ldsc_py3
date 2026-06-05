@@ -102,8 +102,10 @@ class LiftOverTranslator:
             from pyliftover import LiftOver
         except ImportError as exc:
             raise LDSCDependencyError(
-                f"{workflow_label} from {source_build} to {target_build} requires the optional dependency "
-                "'pyliftover'. Install pyliftover or use a workflow that does not request chain-file liftover."
+                f"{workflow_label} from {source_build} to {target_build} could not run chain-file liftover "
+                "because pyliftover is not installed. Most likely a build-changing liftover was requested "
+                "in an environment missing the optional dependency. Install pyliftover or use a workflow "
+                "that does not request chain-file liftover."
             ) from exc
         self.chain_path = Path(self.chain_path)
         self._liftover = LiftOver(str(self.chain_path))

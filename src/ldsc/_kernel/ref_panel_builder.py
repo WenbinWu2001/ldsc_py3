@@ -606,7 +606,9 @@ def write_dataframe_to_parquet(df: pd.DataFrame, path: str | PathLike[str]) -> s
         df.to_parquet(path, index=False)
     except ImportError as exc:
         raise LDSCDependencyError(
-            "Writing reference-panel parquet artifacts requires pyarrow or fastparquet."
+            "build-ref-panel could not write reference-panel parquet artifacts because no parquet engine is installed. "
+            "Most likely the environment is missing pyarrow or fastparquet. Install pyarrow, or install fastparquet "
+            "for this legacy parquet writer path."
         ) from exc
     return str(path)
 
@@ -676,7 +678,9 @@ def write_r2_parquet(
         import pyarrow.parquet as pq
     except ImportError as exc:
         raise LDSCDependencyError(
-            "Writing canonical reference-panel R2 parquet artifacts requires pyarrow."
+            "build-ref-panel could not write canonical R2 parquet artifacts because pyarrow is not installed. "
+            "Most likely parquet reference-panel generation was requested in an environment missing pyarrow. "
+            "Install pyarrow and rerun build-ref-panel."
         ) from exc
 
     if int(n_snps) >= 2**31:

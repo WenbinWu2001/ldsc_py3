@@ -301,8 +301,8 @@ def get_legacy_ld_module():
     """Return the bitarray-backed LD kernel or raise a dependency error."""
     if ba is None:
         raise LDSCDependencyError(
-            "PLINK reference-panel mode requires the internal bitarray-backed LD kernel. "
-            "Install bitarray and retry."
+            "ldscore could not use PLINK reference-panel mode because the bitarray-backed LD kernel is unavailable. "
+            "Most likely the optional dependency 'bitarray' is not installed. Install bitarray and retry."
         )
     return sys.modules[__name__]
 
@@ -1123,7 +1123,11 @@ class SortedR2BlockReader:
         try:
             import pyarrow.parquet as pq
         except ImportError as exc:
-            raise LDSCDependencyError("pyarrow is required for index parquet R2 input.") from exc
+            raise LDSCDependencyError(
+                "ldscore could not read index parquet R2 input because pyarrow is not installed. "
+                "Most likely parquet reference-panel mode was requested in an environment missing pyarrow. "
+                "Install pyarrow or use PLINK reference-panel input instead."
+            ) from exc
 
         layout = _parquet_schema_layout(pq.ParquetFile(paths[0]).schema_arrow.names)
         if layout != "index":

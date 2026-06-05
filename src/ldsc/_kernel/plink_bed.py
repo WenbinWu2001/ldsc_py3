@@ -378,4 +378,8 @@ else:
         """Fallback PLINK reader that raises when `bitarray` is unavailable."""
         def __init__(self, *args, **kwargs):
             """Raise an informative import error for dependency-gated PLINK support."""
-            raise LDSCDependencyError("PLINK LD-score support requires the optional dependency 'bitarray'.")
+            raise LDSCDependencyError(
+                "PLINK LD-score support could not open genotype data because bitarray is not installed. "
+                "Most likely PLINK reference-panel mode was requested in an environment missing the optional "
+                "dependency. Install bitarray or use parquet R2 reference-panel input."
+            )

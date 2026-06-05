@@ -39,7 +39,9 @@ def _get_pybedtools():
         import pybedtools
     except ImportError as exc:  # pragma: no cover - dependency check
         raise LDSCDependencyError(
-            "pybedtools is required for BED-based annotation projection. Install pybedtools and bedtools, then retry."
+            "annotate could not project BED intervals because pybedtools is not installed. "
+            "Most likely BED-based annotation projection was requested in an environment missing "
+            "pybedtools or the bedtools binary. Install pybedtools and bedtools, then retry."
         ) from exc
     return pybedtools
 

@@ -811,18 +811,21 @@ def _resolve_main_global_config(args: argparse.Namespace) -> GlobalConfig:
     if identity_mode_family(mode) == "rsid":
         if source_build not in {None, "auto"}:
             raise LDSCUsageError(
-                "--source-genome-build applies only to chr_pos-family --snp-identifier modes, "
-                "but the current mode is rsID-based. Either drop the build flag or switch to a chr_pos identifier."
+                "munge-sumstats cannot use `--source-genome-build` with an rsID-family SNP identifier. "
+                "Most likely a coordinate-build option was copied from a chr_pos command into an rsID-based run. "
+                "Drop the build flag or switch to a chr_pos identifier."
             )
         if output_build is not None:
             raise LDSCUsageError(
-                "--output-genome-build applies only to chr_pos-family --snp-identifier modes, "
-                "but the current mode is rsID-based. Either drop the output build flag or switch to a chr_pos identifier."
+                "munge-sumstats cannot use `--output-genome-build` with an rsID-family SNP identifier. "
+                "Most likely a coordinate-liftover option was copied from a chr_pos command into an rsID-based run. "
+                "Drop the output build flag or switch to a chr_pos identifier."
             )
         if getattr(args, "liftover_chain_file", None) is not None or getattr(args, "use_hm3_quick_liftover", False):
             raise LDSCUsageError(
-                "Summary-statistics liftover applies only to chr_pos-family --snp-identifier modes, "
-                "but the current mode is rsID-based. Either drop the liftover option or switch to a chr_pos identifier."
+                "munge-sumstats cannot run summary-statistics liftover with an rsID-family SNP identifier. "
+                "Most likely a liftover option was supplied while SNP identity is based on rsIDs rather than coordinates. "
+                "Drop the liftover option or switch to a chr_pos identifier."
             )
         args.genome_build = None
         return GlobalConfig(snp_identifier=mode, log_level=getattr(args, "log_level", "INFO"))
@@ -863,18 +866,21 @@ def _validate_munge_build_contract(config: MungeConfig, source_config: GlobalCon
     if identity_mode_family(source_config.snp_identifier) == "rsid":
         if config.source_genome_build != "auto":
             raise LDSCUsageError(
-                "MungeConfig.source_genome_build applies only to chr_pos-family snp_identifier modes, "
-                "but the active mode is rsID-based. Set source_genome_build='auto' or switch to a chr_pos identifier."
+                "MungeConfig.source_genome_build cannot be a concrete build in rsID-family snp_identifier modes. "
+                "Most likely coordinate-build configuration was reused for an rsID-based run. "
+                "Set source_genome_build='auto' or switch to a chr_pos identifier."
             )
         if config.output_genome_build is not None:
             raise LDSCUsageError(
-                "MungeConfig.output_genome_build applies only to chr_pos-family snp_identifier modes, "
-                "but the active mode is rsID-based. Set output_genome_build=None or switch to a chr_pos identifier."
+                "MungeConfig.output_genome_build cannot be set in rsID-family snp_identifier modes. "
+                "Most likely coordinate-liftover configuration was reused for an rsID-based run. "
+                "Set output_genome_build=None or switch to a chr_pos identifier."
             )
         if config.liftover_chain_file is not None or config.use_hm3_quick_liftover:
             raise LDSCUsageError(
-                "Summary-statistics liftover applies only to chr_pos-family snp_identifier modes, "
-                "but the active mode is rsID-based. Remove liftover options or switch to a chr_pos identifier."
+                "MungeConfig cannot request summary-statistics liftover in rsID-family snp_identifier modes. "
+                "Most likely coordinate-liftover configuration was reused while SNP identity is based on rsIDs. "
+                "Remove liftover options or switch to a chr_pos identifier."
             )
         return
     if config.output_genome_build is None:
@@ -1639,6 +1645,7 @@ def _write_sumstats_parquet(data: pd.DataFrame, path: str) -> list[dict[str, Any
     except ImportError as exc:
         raise LDSCDependencyError(
             "munge-sumstats needs the 'pyarrow' package to write Parquet output, but it is not installed. "
+            "Most likely Parquet output was requested in an environment missing pyarrow. "
             "Install it (pip install pyarrow) or choose --output-format tsv.gz."
         ) from exc
 

@@ -164,7 +164,10 @@ def main(argv: Sequence[str] | None = None):
         result = _load_regression_runner().run_rg_from_args(args)
         _print_rg_stdout_if_needed(args, result)
         return result
-    raise LDSCUsageError(f"Unsupported command: {args.command}")
+    raise LDSCUsageError(
+        f"ldsc could not dispatch command {args.command!r}. Most likely the command name is misspelled "
+        "or the parser and dispatcher are out of sync. Run `ldsc --help` and choose one of the listed commands."
+    )
 
 
 def run_cli(argv: Sequence[str] | None = None) -> int:

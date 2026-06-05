@@ -1663,6 +1663,20 @@ def _compute_one_chromosome(
     return _ChromOutcome(chrom=chrom, result=result, skipped=False)
 
 
+def _init_worker(regression_snps, log_level: str) -> None:
+    """Initialize a pool worker: shared regression keys, logging, BLAS threads.
+
+    Pins BLAS thread counts to 1 unless the user already set them, so ``W``
+    worker processes do not oversubscribe ``W x BLAS_threads`` cores.
+    """
+    from ._logging import configure_package_logging
+
+    _WORKER_STATE["regression_snps"] = regression_snps
+    for var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
+        os.environ.setdefault(var, "1")
+    configure_package_logging(log_level)
+
+
 def _namespace_from_configs(chrom: str, ref_panel, ldscore_config: LDScoreConfig, global_config: GlobalConfig) -> argparse.Namespace:
     """Build the legacy-kernel namespace expected by the chromosome backends."""
     spec = getattr(ref_panel, "spec", None)

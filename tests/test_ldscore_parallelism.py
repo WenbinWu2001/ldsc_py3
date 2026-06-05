@@ -9,6 +9,7 @@ parallel path is exercised end-to-end through `SortedR2BlockReader`, not a mock.
 from __future__ import annotations
 
 import importlib.util
+import os
 from pathlib import Path
 
 import numpy as np
@@ -214,3 +215,27 @@ def test_compute_one_chromosome_returns_success_outcome(two_chrom_panel):
     assert outcome.skipped is False
     assert outcome.result is not None
     assert outcome.result.baseline_table["SNP"].tolist() == ["rs1", "rs2", "rs3", "rs4"]
+
+
+# --- Task 4: pool initializer -----------------------------------------------
+
+
+def test_init_worker_sets_state_and_blas_env(monkeypatch):
+    from ldsc.ldscore_calculator import _WORKER_STATE, _init_worker
+
+    monkeypatch.delenv("OMP_NUM_THREADS", raising=False)
+    monkeypatch.delenv("OPENBLAS_NUM_THREADS", raising=False)
+    monkeypatch.delenv("MKL_NUM_THREADS", raising=False)
+    _init_worker(regression_snps={"rs1", "rs2"}, log_level="WARNING")
+    assert _WORKER_STATE["regression_snps"] == {"rs1", "rs2"}
+    assert os.environ["OMP_NUM_THREADS"] == "1"
+    assert os.environ["OPENBLAS_NUM_THREADS"] == "1"
+    assert os.environ["MKL_NUM_THREADS"] == "1"
+
+
+def test_init_worker_respects_user_blas_env(monkeypatch):
+    from ldsc.ldscore_calculator import _init_worker
+
+    monkeypatch.setenv("OMP_NUM_THREADS", "4")
+    _init_worker(regression_snps=None, log_level="WARNING")
+    assert os.environ["OMP_NUM_THREADS"] == "4"

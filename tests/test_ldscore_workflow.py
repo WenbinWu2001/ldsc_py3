@@ -2291,6 +2291,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 snp_batch_size=50,
                 per_chr_output=False,
                 yes_really=False,
+                parallel=False,
                 log_level="INFO",
             )
 
@@ -2870,7 +2871,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                             }
                         ),
                     ),
-                    ldscore_config=LDScoreConfig(ld_wind_cm=1.0),
+                    ldscore_config=LDScoreConfig(ld_wind_cm=1.0, parallel=False),
                     global_config=GlobalConfig(snp_identifier="rsid"),
                 )
 

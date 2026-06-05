@@ -90,7 +90,7 @@ def _write_index_panel(
         )
 
 
-def _run_minimal_ldscore(build_dir: Path, out_dir: Path, num_workers: int) -> Path:
+def _run_minimal_ldscore(build_dir: Path, out_dir: Path, num_workers: int, parallel: bool = True) -> Path:
     """Run a synthetic-base LD-score job over the index panel; return out_dir."""
     from ldsc.config import GlobalConfig, set_global_config
     from ldsc.ldscore_calculator import run_ldscore
@@ -102,6 +102,7 @@ def _run_minimal_ldscore(build_dir: Path, out_dir: Path, num_workers: int) -> Pa
         ld_wind_kb=1.0,
         snp_batch_size=2,
         yes_really=True,
+        parallel=parallel,
         num_workers=num_workers,
     )
     return out_dir
@@ -116,8 +117,8 @@ def two_chrom_panel(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def run_minimal_ldscore(two_chrom_panel: Path, tmp_path: Path):
-    def _runner(num_workers: int, out_subdir: str) -> Path:
-        return _run_minimal_ldscore(two_chrom_panel, tmp_path / out_subdir, num_workers)
+    def _runner(num_workers: int, out_subdir: str, parallel: bool = True) -> Path:
+        return _run_minimal_ldscore(two_chrom_panel, tmp_path / out_subdir, num_workers, parallel=parallel)
 
     return _runner
 
@@ -144,8 +145,12 @@ def _cfg(**kw):
     return LDScoreConfig(**base)
 
 
-def test_num_workers_defaults_to_one():
-    assert _cfg().num_workers == 1
+def test_parallel_defaults_to_true():
+    assert _cfg().parallel is True
+
+
+def test_num_workers_defaults_to_zero_auto():
+    assert _cfg().num_workers == 0
 
 
 def test_num_workers_negative_rejected():
@@ -155,8 +160,8 @@ def test_num_workers_negative_rejected():
         _cfg(num_workers=-1)
 
 
-def test_num_workers_zero_allowed_as_auto_sentinel():
-    assert _cfg(num_workers=0).num_workers == 0
+def test_num_workers_explicit_value_preserved():
+    assert _cfg(num_workers=4).num_workers == 4
 
 
 # --- Task 2: worker-count resolution ----------------------------------------
@@ -172,6 +177,16 @@ def test_resolve_worker_count():
     assert 1 <= auto <= 2
     assert _resolve_worker_count(8, n_chromosomes=1) == 1
     assert _resolve_worker_count(8, n_chromosomes=0) == 1
+
+
+def test_resolve_worker_count_parallel_disabled_forces_sequential():
+    from ldsc.ldscore_calculator import _resolve_worker_count
+
+    # parallel=False forces sequential regardless of num_workers (explicit or auto).
+    assert _resolve_worker_count(8, n_chromosomes=22, parallel=False) == 1
+    assert _resolve_worker_count(0, n_chromosomes=22, parallel=False) == 1
+    # parallel=True with auto (0) requests up to the chromosome count.
+    assert _resolve_worker_count(0, n_chromosomes=22, parallel=True) >= 1
 
 
 # --- Task 3: module-level chromosome worker ---------------------------------
@@ -353,9 +368,47 @@ def test_cli_num_workers_reaches_config():
     assert _ldscore_config_from_args(args).num_workers == 2
 
 
-def test_cli_num_workers_defaults_to_one():
+def test_cli_defaults_are_parallel_auto():
     from ldsc.ldscore_calculator import _ldscore_config_from_args, build_parser
 
     parser = build_parser()
     args = parser.parse_args(["--output-dir", "x", "--ld-wind-cm", "1"])
-    assert _ldscore_config_from_args(args).num_workers == 1
+    config = _ldscore_config_from_args(args)
+    assert config.parallel is True
+    assert config.num_workers == 0
+
+
+def test_cli_no_parallel_disables():
+    from ldsc.ldscore_calculator import _ldscore_config_from_args, build_parser
+
+    parser = build_parser()
+    args = parser.parse_args(["--output-dir", "x", "--ld-wind-cm", "1", "--no-parallel"])
+    assert _ldscore_config_from_args(args).parallel is False
+
+
+# --- Binary parallel switch: end-to-end behavior ----------------------------
+
+
+def test_no_parallel_output_matches_parallel(run_minimal_ldscore):
+    seq = run_minimal_ldscore(num_workers=0, out_subdir="noparallel", parallel=False)
+    par = run_minimal_ldscore(num_workers=3, out_subdir="parallel", parallel=True)
+    pd.testing.assert_frame_equal(
+        pd.read_parquet(seq / "ldscore.baseline.parquet"),
+        pd.read_parquet(par / "ldscore.baseline.parquet"),
+    )
+
+
+def test_no_parallel_does_not_construct_pool(run_minimal_ldscore, monkeypatch):
+    import ldsc.ldscore_calculator as mod
+
+    calls = {"n": 0}
+    real_executor = mod.ProcessPoolExecutor
+
+    def _spy(*args, **kwargs):
+        calls["n"] += 1
+        return real_executor(*args, **kwargs)
+
+    monkeypatch.setattr(mod, "ProcessPoolExecutor", _spy)
+    # parallel=False must stay sequential even though num_workers would request a pool.
+    run_minimal_ldscore(num_workers=4, out_subdir="noparallel_spy", parallel=False)
+    assert calls["n"] == 0

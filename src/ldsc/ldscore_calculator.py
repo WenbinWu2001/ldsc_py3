@@ -307,10 +307,11 @@ class LDScoreCalculator:
         """Compute and aggregate LD scores across all chromosomes.
 
         Chromosomes are computed independently and then aggregated in input
-        order. ``ldscore_config.num_workers`` controls cross-chromosome
-        parallelism: ``1`` (default) runs sequentially in-process, while larger
-        values fan out over a spawn ``ProcessPoolExecutor``. The aggregated
-        output is identical regardless of the worker count.
+        order. ``ldscore_config.parallel`` (default ``True``) fans the
+        chromosomes out over a spawn ``ProcessPoolExecutor`` sized by
+        ``ldscore_config.num_workers`` (``0`` = auto, all cores capped at the
+        chromosome count); ``parallel=False`` runs sequentially in-process. The
+        aggregated output is identical regardless of these settings.
 
         Parameters
         ----------
@@ -353,7 +354,9 @@ class LDScoreCalculator:
             )
         chromosomes = _chromosomes_from_bundle(annotation_bundle)
         LOGGER.info(_format_ldscore_start_message(annotation_bundle, len(chromosomes)))
-        worker_count = _resolve_worker_count(ldscore_config.num_workers, len(chromosomes))
+        worker_count = _resolve_worker_count(
+            ldscore_config.num_workers, len(chromosomes), parallel=ldscore_config.parallel
+        )
         outcomes = self._run_chromosomes(
             chromosomes=chromosomes,
             annotation_bundle=annotation_bundle,
@@ -891,7 +894,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--maf-min", default=None, type=float, help="Optional MAF filter for retained reference-panel SNPs when MAF is available.")
     parser.add_argument("--common-maf-min", default=0.05, type=float, help="MAF threshold used only for common-SNP annotation count vectors.")
     parser.add_argument("--snp-batch-size", default=128, type=int, help="Number of SNPs processed per LD-score sliding batch.")
-    parser.add_argument("--num-workers", default=1, type=int, help="Worker processes for cross-chromosome parallelism. 1=sequential, 0=auto (all cores).")
+    parser.add_argument("--no-parallel", dest="parallel", default=True, action="store_false", help="Force sequential (single-process) chromosome computation. Parallel over a process pool is the default.")
+    parser.add_argument("--num-workers", default=0, type=int, help="Worker processes when parallel. 0=auto (all cores, capped at chromosome count); ignored with --no-parallel.")
     parser.add_argument("--yes-really", default=False, action="store_true", help="Allow whole-chromosome LD windows.")
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"), help="Logging verbosity.")
     return parser
@@ -1468,7 +1472,8 @@ def _ldscore_config_from_args(args: argparse.Namespace) -> LDScoreConfig:
         snp_batch_size=getattr(args, "snp_batch_size", 128),
         common_maf_min=getattr(args, "common_maf_min", 0.05),
         whole_chromosome_ok=getattr(args, "yes_really", False),
-        num_workers=getattr(args, "num_workers", 1),
+        parallel=getattr(args, "parallel", True),
+        num_workers=getattr(args, "num_workers", 0),
     )
 
 
@@ -1514,14 +1519,16 @@ def _replace_result_output_paths(result: LDScoreResult, output_paths: dict[str, 
     )
 
 
-def _resolve_worker_count(num_workers: int, n_chromosomes: int) -> int:
-    """Resolve the configured ``num_workers`` against the chromosome count.
+def _resolve_worker_count(num_workers: int, n_chromosomes: int, parallel: bool = True) -> int:
+    """Resolve the effective worker count from the parallelism settings.
 
-    ``0`` means auto (``min(os.cpu_count(), n_chromosomes)``). Any value is
-    capped at ``n_chromosomes`` and floored at ``1`` so a single chromosome
-    never spawns a pool.
+    ``parallel=False`` forces sequential execution (``1``) regardless of
+    ``num_workers``. When ``parallel=True``, ``num_workers=0`` means auto
+    (``min(os.cpu_count(), n_chromosomes)``); any value is capped at
+    ``n_chromosomes`` and floored at ``1`` so a single chromosome never spawns a
+    pool.
     """
-    if n_chromosomes <= 0:
+    if not parallel or n_chromosomes <= 0:
         return 1
     if num_workers == 0:
         num_workers = os.cpu_count() or 1

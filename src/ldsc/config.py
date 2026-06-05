@@ -462,6 +462,16 @@ class LDScoreConfig:
     whole_chromosome_ok : bool, optional
         Override the guard that rejects windows effectively spanning an entire
         chromosome. Default is ``False``.
+    parallel : bool, optional
+        Master switch for cross-chromosome parallelism on one machine. ``True``
+        (default) runs chromosomes concurrently over a process pool; ``False``
+        forces sequential in-process computation regardless of ``num_workers``.
+    num_workers : int, optional
+        Number of worker processes when ``parallel`` is ``True``. ``0`` (default)
+        means auto: ``min(os.cpu_count(), n_chromosomes)`` (all available cores,
+        capped at the chromosome count). Values ``>0`` cap at the chromosome
+        count; ``1`` is effectively sequential. Ignored when ``parallel`` is
+        ``False``. Output is identical regardless of this value.
     """
     ld_wind_snps: int | None = None
     ld_wind_kb: float | None = None
@@ -471,7 +481,8 @@ class LDScoreConfig:
     snp_batch_size: int = 128
     common_maf_min: float = 0.05
     whole_chromosome_ok: bool = False
-    num_workers: int = 1
+    parallel: bool = True
+    num_workers: int = 0
 
     def __post_init__(self) -> None:
         """Validate LD-window settings and normalize optional SNP-list paths."""

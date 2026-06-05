@@ -112,7 +112,7 @@ class LoggingRefactorTest(unittest.TestCase):
         self.assertIn("Finished", text)
         self.assertIn("Elapsed time:", text)
 
-    def test_workflow_logging_failed_footer_does_not_record_exception_message(self):
+    def test_workflow_logging_failed_footer_records_traceback(self):
         from ldsc._logging import workflow_logging
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -125,7 +125,8 @@ class LoggingRefactorTest(unittest.TestCase):
 
         self.assertIn("Failed", text)
         self.assertIn("Elapsed time:", text)
-        self.assertNotIn("boom", text)
+        self.assertIn("Traceback (most recent call last):", text)
+        self.assertIn("RuntimeError: boom", text)
 
     def test_package_exports_domain_error_hierarchy(self):
         import ldsc

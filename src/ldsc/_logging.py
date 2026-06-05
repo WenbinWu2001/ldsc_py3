@@ -29,6 +29,7 @@ import shlex
 import sys
 import threading
 import time
+import traceback
 from datetime import datetime
 from os import PathLike
 from types import TracebackType
@@ -175,13 +176,13 @@ class _WorkflowLoggingContext:
         self,
         exc_type: type[BaseException] | None,
         exc_value: BaseException | None,
-        traceback: TracebackType | None,
+        exc_tb: TracebackType | None,
     ) -> bool:
         if self._nested:
             return False
 
         status = "Failed" if exc_type is not None else "Finished"
-        self._write_footer(status)
+        self._write_footer(status, exc_type, exc_value, exc_tb)
 
         logger = logging.getLogger(_LDSC_LOGGER_NAME)
         if self._handler is not None:
@@ -208,7 +209,13 @@ class _WorkflowLoggingContext:
         self._write_call_section(sys.argv)
         self._write_line("")
 
-    def _write_footer(self, status: str) -> None:
+    def _write_footer(
+        self,
+        status: str,
+        exc_type: type[BaseException] | None = None,
+        exc_value: BaseException | None = None,
+        exc_tb: TracebackType | None = None,
+    ) -> None:
         end_dt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         elapsed = 0.0 if self._start_time is None else time.monotonic() - self._start_time
         minutes = int(elapsed // 60)
@@ -219,6 +226,11 @@ class _WorkflowLoggingContext:
         self._write_line("")
         self._write_line(f"{status} {end_dt}")
         self._write_line(f"Elapsed time: {float(minutes):.1f}min:{seconds}s")
+        if exc_type is not None:
+            self._write_line("")
+            formatted = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+            for line in formatted.rstrip("\n").split("\n"):
+                self._write_line(line)
         self._write_line(_BORDER)
 
     def _write_items(self, title: str, items: dict[str, Any], *, leading_blank: bool = False) -> None:

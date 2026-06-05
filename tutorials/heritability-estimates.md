@@ -172,9 +172,8 @@ ldsc ldscore \
   --snp-identifier chr_pos \
   --genome-build auto \
   --common-maf-min 0.05 \
-  --ld-wind-cm 1.0
-# Chromosomes run in parallel over all cores by default (output is identical).
-# Cap workers with `--num-workers N`, or force single-process with `--no-parallel`.
+  --ld-wind-cm 1.0 \
+  --threads -1   # -1 = all cores; default is 1 (sequential). Output is identical.
 
 ldsc h2 \
   --sumstats-file tutorial_outputs/trait/sumstats.parquet \

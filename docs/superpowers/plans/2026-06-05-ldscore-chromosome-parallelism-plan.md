@@ -1,5 +1,12 @@
 # ldscore cross-chromosome parallelism — Implementation Plan
 
+> **Superseded note (final API):** this plan was executed, but the public knob
+> was simplified post-implementation to a single integer `LDScoreConfig.threads`
+> / `--threads` flag (joblib `n_jobs` convention: `1`=sequential default, `-1`=all
+> cores, `-2`=all but one), affinity-aware via `_available_cpu_count`. The earlier
+> `num_workers`/`parallel` two-knob design below is historical. See the design doc
+> §3.1 for the final semantics.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Compute per-chromosome LD scores concurrently on one machine via a process pool, controlled by a new `num_workers` knob, with output bit-identical to the sequential path.

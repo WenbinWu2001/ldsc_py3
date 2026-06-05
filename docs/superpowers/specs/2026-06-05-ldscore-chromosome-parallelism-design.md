@@ -29,7 +29,7 @@ largest chromosome, chr1 ≈ 8% of the genome).
   Approach A from brainstorming; per-chromosome public output files (Approach C)
   are explicitly rejected.
 - **No change to LD-score math or numerical output.** Results must be identical
-  to the sequential path (same row order, same values) for any `num_workers`.
+  to the sequential path (same row order, same values) for any `threads`.
 - **No within-chromosome parallelism**, no thread pool, and no change to the
   per-window kernel (strategies #1/#2/#5 from the speedup analysis are separate
   later efforts).
@@ -79,32 +79,35 @@ per-chromosome metadata cache in each worker is correct and not wasteful.
 
 ## 3. Design
 
-### 3.1 New knobs: `LDScoreConfig.parallel` and `num_workers`
+### 3.1 New knob: `LDScoreConfig.threads`
 
-Add two fields to `LDScoreConfig` (`config.py:431`):
+Add one integer field to `LDScoreConfig` (`config.py:431`), following the
+scikit-learn/joblib `n_jobs` convention — the industrial standard for a compute
+library (one integer, default sequential, opt-in parallelism):
 
 ```
-parallel: bool = True
-num_workers: int = 0
+threads: int = 1
 ```
 
-Semantics (resolved by `_resolve_worker_count(num_workers, n_chromosomes, parallel)`):
+Semantics (resolved by `_resolve_worker_count(threads, n_chromosomes)`):
 
-- `parallel=False` → **sequential in-process path**, no pool created, regardless
-  of `num_workers`. The simplest code path, bit-identical to the pre-parallel
-  behavior.
-- `parallel=True` (default), `num_workers=0` (default) → "auto":
-  `min(os.cpu_count() or 1, n_chromosomes)` — all available cores, capped at the
-  chromosome count. **This is the package default: parallel over all cores.**
-- `parallel=True`, `num_workers>0` → pool of that many workers, capped at the
-  chromosome count (`1` is effectively sequential).
+- `1` (default) → **sequential in-process path**, no pool created. The default
+  is sequential/opt-in, matching scikit-learn, BWA, STAR, bowtie2, samtools.
+- `N > 1` → pool of `N` workers, capped at the chromosome count.
+- `-1` → all available cores; `-2` → all but one; `-k` → `n_cpus + 1 - k`
+  (joblib semantics), capped at the chromosome count.
+- `0` → rejected by `__post_init__` (ambiguous).
 
-`__post_init__` validates `num_workers >= 0`. The CLI exposes `--no-parallel`
-(a `store_false` on `parallel`, default `True`) and `--num-workers` (default
-`0`), wired through `run_ldscore_from_args` alongside the existing
-`--snp-batch-size`. A `store_false` single flag is used rather than
-`argparse.BooleanOptionalAction` because `cli.py._copy_actions` clones only
-`store_true`/`store_false` actions onto the unified CLI parser.
+**Core counts respect CPU affinity**, not the raw machine size:
+`_available_cpu_count()` prefers `os.sched_getaffinity(0)` (Linux; honors
+SLURM/cgroup/cpuset/Docker allocations) and falls back to `os.cpu_count()` on
+platforms without affinity support. This prevents oversubscribing shared HPC
+nodes — the key correctness rule, more important than the default value.
+
+The CLI exposes a single integer `--threads` (default `1`), wired through
+`run_ldscore_from_args` alongside the existing `--snp-batch-size`. No boolean
+on/off switch is added: `1` already means "no parallelism", so a separate flag
+would be redundant.
 
 ### 3.2 Module-level worker
 
@@ -134,9 +137,9 @@ serialization of a potentially large SNP set per task.
 ### 3.3 Parent orchestration (replaces the loop body)
 
 `run` builds the ordered chromosome list, resolves `worker_count` from
-`num_workers` and the chromosome count, then branches on the **resolved**
-`worker_count` (not the raw `num_workers`, so `num_workers=0` auto-resolving to
-`1` on a single-core or single-chromosome run still takes the inline path):
+`threads` and the chromosome count, then branches on the **resolved**
+`worker_count` (not the raw `threads`, so `threads=-1` resolving to `1` on a
+single-core or single-chromosome run still takes the inline path):
 
 - **`worker_count == 1`** → call `_compute_one_chromosome` inline in a `for` loop
   (no pool). Preserves the current path exactly for the default.
@@ -172,7 +175,7 @@ ordered surviving results.
 ```
 run()
  ├─ chromosomes = ordered list
- ├─ resolve worker_count(num_workers, n_chromosomes, parallel)
+ ├─ resolve worker_count(threads, n_chromosomes)   # affinity-aware
  ├─ if worker_count == 1:
  │     for chrom: outcome = _compute_one_chromosome(...)   # inline, unchanged path
  └─ else:
@@ -191,36 +194,38 @@ run()
 |---|---|---|
 | Empty intersection on a chromosome | warn + skip | worker returns `skipped` outcome → parent warns + skips (same message) |
 | Other `LDSCInputError`/`ValueError` | re-raise, abort run | worker re-raises → propagates to parent → abort run |
-| Unexpected worker crash (segfault/OOM) | n/a | `ProcessPoolExecutor` raises `BrokenProcessPool`; parent wraps it in an `LDSCInternalError` advising a lower `--num-workers` |
-| `num_workers` invalid (`< 0`) | n/a | `LDScoreConfig.__post_init__` raises `LDSCConfigError` |
+| Unexpected worker crash (segfault/OOM) | n/a | `ProcessPoolExecutor` raises `BrokenProcessPool`; parent wraps it in an `LDSCInternalError` advising a lower `--threads` |
+| `threads == 0` | n/a | `LDScoreConfig.__post_init__` raises `LDSCConfigError` |
 
 ## 6. Testing
 
 Correctness is defined as **identical output to the sequential path**.
 
 1. **Equivalence test (core):** on a small fixture panel + annotation, compute
-   with `num_workers=1` and `num_workers=3` and assert the written
+   with `threads=1` and `threads=3` and assert the written
    `ldscore.baseline.parquet`, `ldscore.query.parquet`, and the LD-score columns
    of `metadata.json` are identical (same row order, same float values). This is
-   the gate.
-2. **Determinism:** `num_workers=3` produces byte-identical baseline parquet
-   across two runs (chromosome ordering is stable).
+   the gate. A second equivalence test uses `threads=-1` (all cores) to exercise
+   the affinity-resolved pool path.
+2. **Determinism:** `threads=3` produces byte-identical baseline parquet across
+   two runs (chromosome ordering is stable).
 3. **Skip path:** a fixture where one chromosome has empty annotation
    intersection still completes and skips exactly that chromosome under
-   `num_workers>1`, matching sequential.
-4. **Config validation:** `LDScoreConfig(num_workers=-1)` raises
-   `LDSCConfigError`; `num_workers=0` resolves to a positive worker count.
-5. **CLI plumbing:** `--num-workers 2` reaches `LDScoreConfig.num_workers`;
-   `--no-parallel` sets `LDScoreConfig.parallel = False`; bare defaults resolve
-   to `parallel=True`, `num_workers=0`.
-6. **Parallel master switch:** `parallel=False` produces output identical to the
-   pool path and never constructs a `ProcessPoolExecutor` (spy assertion).
+   `threads>1`, matching sequential.
+4. **Config validation:** `LDScoreConfig(threads=0)` raises `LDSCConfigError`;
+   negative and positive values are accepted.
+5. **Resolution:** `_resolve_worker_count` honors the joblib convention
+   (`-1`→all, `-2`→all-but-one via a mocked `_available_cpu_count`), caps at the
+   chromosome count, and `_available_cpu_count` prefers `os.sched_getaffinity`.
+6. **Dispatch:** `threads=1` constructs no `ProcessPoolExecutor`; `threads>1`
+   constructs exactly one (spy assertions).
+7. **CLI plumbing:** `--threads 2` / `--threads -1` reach `LDScoreConfig.threads`;
+   bare default is `1`.
 
-Because the package default is now parallel, in-process orchestration tests that
-**mock** `compute_chromosome`/`compute_chrom_from_parquet` or stub `ref_panel`
-must pin `parallel=False` (mocks do not cross the spawn boundary). Skip-under-pool
-behavior is instead covered by a dedicated real-panel fixture test. All other
-existing LD-score correctness tests stay green; many now exercise the pool path.
+Because the default is sequential, in-process orchestration tests that **mock**
+`compute_chromosome`/`compute_chrom_from_parquet` or stub `ref_panel` work
+unchanged (`threads=1`). Skip-under-pool and equivalence under a real pool are
+covered by dedicated real-panel fixture tests in `tests/test_ldscore_parallelism.py`.
 
 ## 7. Risks and mitigations
 

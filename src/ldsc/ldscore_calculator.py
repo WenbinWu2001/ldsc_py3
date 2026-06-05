@@ -23,8 +23,11 @@ files.
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
 import logging
+import multiprocessing as mp
+import os
 from pathlib import Path
 from typing import Any, Sequence
 import warnings
@@ -1428,6 +1431,20 @@ def _replace_result_output_paths(result: LDScoreResult, output_paths: dict[str, 
         count_config=dict(result.count_config),
         config_snapshot=result.config_snapshot,
     )
+
+
+def _resolve_worker_count(num_workers: int, n_chromosomes: int) -> int:
+    """Resolve the configured ``num_workers`` against the chromosome count.
+
+    ``0`` means auto (``min(os.cpu_count(), n_chromosomes)``). Any value is
+    capped at ``n_chromosomes`` and floored at ``1`` so a single chromosome
+    never spawns a pool.
+    """
+    if n_chromosomes <= 0:
+        return 1
+    if num_workers == 0:
+        num_workers = os.cpu_count() or 1
+    return max(1, min(num_workers, n_chromosomes))
 
 
 def _chromosomes_from_bundle(annotation_bundle) -> list[str]:

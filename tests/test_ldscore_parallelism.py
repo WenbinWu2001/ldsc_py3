@@ -156,3 +156,18 @@ def test_num_workers_negative_rejected():
 
 def test_num_workers_zero_allowed_as_auto_sentinel():
     assert _cfg(num_workers=0).num_workers == 0
+
+
+# --- Task 2: worker-count resolution ----------------------------------------
+
+
+def test_resolve_worker_count():
+    from ldsc.ldscore_calculator import _resolve_worker_count
+
+    assert _resolve_worker_count(1, n_chromosomes=22) == 1
+    assert _resolve_worker_count(8, n_chromosomes=3) == 3
+    assert _resolve_worker_count(4, n_chromosomes=22) == 4
+    auto = _resolve_worker_count(0, n_chromosomes=2)
+    assert 1 <= auto <= 2
+    assert _resolve_worker_count(8, n_chromosomes=1) == 1
+    assert _resolve_worker_count(8, n_chromosomes=0) == 1

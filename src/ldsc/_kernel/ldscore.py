@@ -208,7 +208,7 @@ from ..column_inference import (
     resolve_required_column,
 )
 from ..chromosome_inference import chrom_sort_key, normalize_chromosome
-from ..errors import LDSCDependencyError, LDSCInputError
+from ..errors import LDSCConfigError, LDSCDependencyError, LDSCInputError, LDSCInternalError, LDSCUsageError
 from ..path_resolution import (
     ANNOTATION_SUFFIXES,
     FREQUENCY_SUFFIXES,
@@ -238,6 +238,10 @@ except ImportError:  # pragma: no cover - optional dependency
 
 
 LOGGER = logging.getLogger("LDSC.ldscore")
+_LDSCORE_INTERSECTION_DOC = (
+    "docs/troubleshooting.md#ldscore-no-annotation-snps-remain-after-reference-panel-intersection"
+)
+_LDSCORE_PARQUET_DOC = "docs/troubleshooting.md#ldscore-parquet-r2-input-is-incompatible"
 REQUIRED_ANNOT_COLUMNS = ("CHR", "POS", "SNP", "CM")
 ANNOT_META_COLUMNS = ("CHR", "POS", "SNP", "A1", "A2", "CM", "MAF")
 ANNOTATION_A1_COLUMN_SPEC = ColumnSpec(
@@ -399,7 +403,13 @@ def build_index_remap(
     retained_keys = effective_merge_key_series(retained_metadata, mode, context="retained metadata index remap").to_numpy()
     retained_index = pd.Index(retained_keys)
     if retained_index.has_duplicates:
-        raise ValueError("Retained metadata has duplicate identity keys; cannot build index remap.")
+        raise LDSCInputError(
+            "ldscore could not align retained reference metadata to the parquet R2 sidecar. "
+            f"The retained metadata has duplicate SNP identity keys under mode '{mode}'. "
+            "Most likely the SNP identifier mode is too coarse for this reference panel. "
+            "Use an allele-aware `--snp-identifier` mode or rebuild the reference panel "
+            "after removing duplicate SNP identities."
+        )
     remap = retained_index.get_indexer(full_keys).astype(np.int32, copy=False)
 
     m = len(retained_metadata)
@@ -488,7 +498,13 @@ def _panel_sidecar_path_for_r2(r2_path: str) -> Path:
     """Return the ``chrN_meta.tsv.gz`` sidecar path paired with an R2 parquet."""
     p = Path(r2_path)
     if not p.name.endswith("_r2.parquet"):
-        raise ValueError(f"Cannot derive sidecar path from non-canonical R2 filename: {p.name}")
+        raise LDSCInputError(
+            f"ldscore could not locate the sidecar for R2 parquet '{r2_path}'. Most likely "
+            "the parquet file does not use the canonical `chrN_r2.parquet` filename written "
+            "by `ldsc build-ref-panel`. Regenerate the reference panel or pass the canonical "
+            "R2 directory. "
+            f"Other causes & fixes: {_LDSCORE_PARQUET_DOC}"
+        )
     return p.with_name(p.name[: -len("_r2.parquet")] + "_meta.tsv.gz")
 
 
@@ -496,9 +512,12 @@ def _load_full_panel_sidecar(r2_path: str) -> pd.DataFrame:
     """Load the complete (unrestricted) panel sidecar that defines the index space."""
     sidecar_path = _panel_sidecar_path_for_r2(r2_path)
     if not sidecar_path.exists():
-        raise FileNotFoundError(
-            f"Index-format R2 parquet '{r2_path}' requires its sidecar '{sidecar_path}'. "
-            "The sidecar is mandatory: parquet IDX values are meaningless without it."
+        raise LDSCInputError(
+            f"ldscore could not load index-format R2 parquet '{r2_path}' because the "
+            f"required sidecar '{sidecar_path}' is missing. Most likely the parquet file "
+            "was copied without its matching `chrN_meta.tsv.gz` sidecar. Keep the R2 "
+            "parquet and sidecar together or regenerate with `ldsc build-ref-panel`. "
+            f"Other causes & fixes: {_LDSCORE_PARQUET_DOC}"
         )
     df = pd.read_csv(sidecar_path, sep="\t", comment="#")
     context = f"panel sidecar {sidecar_path}"
@@ -515,15 +534,21 @@ def _load_full_panel_sidecar(r2_path: str) -> pd.DataFrame:
 def _validate_index_binding(full_sidecar: pd.DataFrame, *, n_snps: int, identity_hash: str, context: str) -> None:
     """Hard-fail if the sidecar does not match the parquet's recorded binding."""
     if len(full_sidecar) != int(n_snps):
-        raise ValueError(
-            f"{context}: sidecar has {len(full_sidecar)} rows but parquet records n_snps={n_snps}. "
-            "The parquet and sidecar are not a matched pair."
+        raise LDSCInputError(
+            f"ldscore could not use parquet R2 input at {context}: the sidecar has "
+            f"{len(full_sidecar)} rows but the parquet records n_snps={n_snps}. Most "
+            "likely the parquet and sidecar are not a matched pair. Restore the matching "
+            "sidecar or regenerate the reference panel. "
+            f"Other causes & fixes: {_LDSCORE_PARQUET_DOC}"
         )
     actual = sidecar_identity_sha256(full_sidecar, context=context)
     if actual != identity_hash:
-        raise ValueError(
-            f"{context}: sidecar identity hash {actual} does not match parquet "
-            f"ldsc:sidecar_identity_sha256 {identity_hash}. The sidecar is wrong, reordered, or edited."
+        raise LDSCInputError(
+            f"ldscore could not use parquet R2 input at {context}: the sidecar identity "
+            f"hash {actual} does not match parquet ldsc:sidecar_identity_sha256 "
+            f"{identity_hash}. Most likely the sidecar is wrong, reordered, or edited. "
+            "Restore the matching sidecar or regenerate the reference panel. "
+            f"Other causes & fixes: {_LDSCORE_PARQUET_DOC}"
         )
 
 
@@ -552,26 +577,32 @@ def validate_retained_identifier_uniqueness(metadata: pd.DataFrame, identifier_m
         )
         duplicated = keys.duplicated(keep=False)
         if duplicated.any():
-            raise ValueError(
+            raise LDSCInputError(
                 f"Chromosome {chrom} has duplicate retained SNP identities. "
-                f"This is ambiguous in {identifier_mode} mode."
+                f"This is ambiguous in {identifier_mode} mode. Most likely the selected "
+                "SNP identifier mode is too coarse for the retained reference panel. "
+                "Use an allele-aware mode or remove duplicate retained SNP identities."
             )
         return
 
     if identity_mode_family(identifier_mode) == "chr_pos":
         duplicated = metadata.duplicated(subset=["CHR", "POS"], keep=False)
         if duplicated.any():
-            raise ValueError(
+            raise LDSCInputError(
                 f"Chromosome {chrom} has duplicate retained SNP positions. "
-                "This is ambiguous in base chr_pos mode."
+                "This is ambiguous in base chr_pos mode. Most likely multiple alleles "
+                "share the same CHR/POS coordinate. Use an allele-aware chr_pos mode or "
+                "remove duplicate retained positions."
             )
         return
 
     duplicated = metadata["SNP"].duplicated(keep=False)
     if duplicated.any():
-        raise ValueError(
+        raise LDSCInputError(
             f"Chromosome {chrom} has duplicate retained SNP IDs. "
-            "This is ambiguous in base rsID mode."
+            "This is ambiguous in base rsID mode. Most likely the retained reference "
+            "panel contains duplicate rsIDs. Use an allele-aware rsID mode or remove "
+            "duplicate retained SNP IDs."
         )
 
 
@@ -597,7 +628,11 @@ def parse_annotation_file(path: str, chrom: str | None = None) -> tuple[pd.DataF
     a1_col = resolve_optional_column(df.columns, ANNOTATION_A1_COLUMN_SPEC, context=context)
     a2_col = resolve_optional_column(df.columns, ANNOTATION_A2_COLUMN_SPEC, context=context)
     if (a1_col is None) ^ (a2_col is None):
-        raise ValueError("Annotation file has only one allele column; provide both A1 and A2 or neither.")
+        raise LDSCInputError(
+            f"ldscore could not parse annotation file '{path}': it has only one allele "
+            "column. Most likely the file contains A1 without A2, or A2 without A1. "
+            "Provide both allele columns, or remove both and run with a base SNP identifier mode."
+        )
 
     meta = pd.DataFrame(
         {
@@ -631,7 +666,12 @@ def parse_annotation_file(path: str, chrom: str | None = None) -> tuple[pd.DataF
     metadata_source_columns = {chr_col, pos_col, snp_col, cm_col, maf_col, a1_col, a2_col}
     annotation_columns = [col for col in df.columns if col not in metadata_source_columns]
     if not annotation_columns:
-        raise ValueError(f"{path} does not contain any annotation columns.")
+        raise LDSCInputError(
+            f"ldscore could not parse annotation file '{path}': no annotation value "
+            "columns remain after metadata columns were removed. Most likely the file "
+            "contains only CHR/POS/SNP/CM metadata, or the annotation columns were named "
+            "as metadata aliases. Add at least one annotation column with numeric values."
+        )
 
     sorted_df = df.copy()
     sorted_df["_CHR"] = sorted_df[chr_col].map(lambda value: normalize_chromosome(value, context=path))
@@ -642,7 +682,11 @@ def parse_annotation_file(path: str, chrom: str | None = None) -> tuple[pd.DataF
     annotations = sorted_df.loc[:, annotation_columns].astype(np.float32).reset_index(drop=True)
     meta = meta.reset_index(drop=True)
     if len(meta) != len(annotations):
-        raise ValueError(f"{path} metadata and annotation lengths diverged after sorting.")
+        raise LDSCInternalError(
+            f"LD-score annotation parsing failed for '{path}': metadata and annotation "
+            "lengths diverged after sorting. Most likely an internal sorting step was "
+            "applied inconsistently. Re-run with DEBUG logging and report the traceback."
+        )
 
     return meta, annotations
 
@@ -710,7 +754,12 @@ def combine_annotation_groups(
 
             for column in annotations.columns:
                 if column in seen_columns:
-                    raise ValueError(f"Duplicate annotation column name detected: {column}")
+                    raise LDSCInputError(
+                        f"ldscore could not combine annotation files for chromosome {chrom}: "
+                        f"duplicate annotation column '{column}' was found. Most likely two "
+                        "baseline/query files define the same annotation name. Rename one "
+                        "column or remove the duplicate annotation input."
+                    )
                 seen_columns.add(column)
 
             blocks.append(annotations.reset_index(drop=True))
@@ -777,7 +826,11 @@ def parse_frequency_metadata(path: str, chrom: str | None, identifier_mode: str)
     a1_col = resolve_optional_column(df.columns, A1_COLUMN_SPEC, context=context)
     a2_col = resolve_optional_column(df.columns, A2_COLUMN_SPEC, context=context)
     if (a1_col is None) != (a2_col is None):
-        raise ValueError(f"{path} has only one allele column; provide both A1 and A2 or neither.")
+        raise LDSCInputError(
+            f"ldscore could not parse frequency metadata '{path}': it has only one allele "
+            "column. Most likely the file contains A1 without A2, or A2 without A1. "
+            "Provide both allele columns, or remove both and use a base SNP identifier mode."
+        )
 
     if chrom is not None and chr_col is not None and identity_mode_family(identifier_mode) == "rsid":
         keep = df[chr_col].map(lambda value: normalize_chromosome(value, context=path)) == normalize_chromosome(chrom, context=path)
@@ -790,11 +843,21 @@ def parse_frequency_metadata(path: str, chrom: str | None, identifier_mode: str)
     key_frame = pd.DataFrame(index=df.index)
     if identity_mode_family(identifier_mode) == "rsid":
         if snp_col is None:
-            raise ValueError(f"{path} must contain a SNP column in rsID-family modes.")
+            raise LDSCInputError(
+                f"ldscore could not parse frequency metadata '{path}' in rsID-family mode: "
+                "no SNP column was found. Most likely the sidecar uses CHR/POS-only "
+                "identifiers or an unrecognized SNP column name. Add a SNP column or run "
+                "with a chr_pos-family SNP identifier mode."
+            )
         key_frame["SNP"] = df[snp_col].astype(str)
     else:
         if chr_col is None or pos_col is None:
-            raise ValueError(f"{path} must contain CHR and POS columns in chr_pos-family modes.")
+            raise LDSCInputError(
+                f"ldscore could not parse frequency metadata '{path}' in chr_pos-family mode: "
+                "CHR and POS columns are required. Most likely the sidecar uses rsID-only "
+                "identifiers or unrecognized CHR/POS column names. Add CHR and POS columns "
+                "or run with an rsID-family SNP identifier mode."
+            )
         key_frame["CHR"] = df[chr_col]
         key_frame["POS"] = df[pos_col]
     has_alleles = a1_col is not None and a2_col is not None
@@ -896,11 +959,21 @@ def chromosome_set_from_annotation_inputs(args: argparse.Namespace) -> list[str]
     for path in all_files:
         df = read_text_table(path)
         if "CHR" not in df.columns:
-            raise ValueError(f"{path} is missing CHR.")
+            raise LDSCInputError(
+                f"ldscore could not discover chromosomes from annotation file '{path}': "
+                "the file is missing a CHR column. Most likely this is not an LDSC "
+                "annotation table or the header uses an unrecognized chromosome name. "
+                "Provide annotation files with CHR/POS/SNP/CM metadata columns."
+            )
         chromosomes.update(df["CHR"].map(lambda value: normalize_chromosome(value, context=path)).unique().tolist())
 
     if not chromosomes:
-        raise ValueError("No annotation chromosomes could be resolved from the supplied inputs.")
+        raise LDSCInputError(
+            "ldscore could not resolve any chromosomes from the supplied annotation inputs. "
+            "Most likely the annotation paths are empty after chromosome filtering or contain "
+            "no CHR values. Check the annotation headers and pass files that contain retained "
+            "chromosome rows."
+        )
     return sorted(chromosomes, key=chrom_sort_key)
 
 
@@ -908,14 +981,23 @@ def build_window_coordinates(metadata: pd.DataFrame, args: argparse.Namespace) -
     """Build the coordinate array and maximum distance for the active LD window mode."""
     selectors = np.array([args.ld_wind_snps is not None, args.ld_wind_kb is not None, args.ld_wind_cm is not None], dtype=bool)
     if selectors.sum() != 1:
-        raise ValueError("Must specify exactly one of --ld-wind-snps, --ld-wind-kb, or --ld-wind-cm.")
+        raise LDSCUsageError(
+            "ldscore could not choose an LD-window mode. Most likely zero or multiple "
+            "LD-window options were supplied. Specify exactly one of `--ld-wind-snps`, "
+            "`--ld-wind-kb`, or `--ld-wind-cm`."
+        )
 
     if args.ld_wind_snps is not None:
         return np.arange(len(metadata), dtype=float), float(args.ld_wind_snps)
     if args.ld_wind_kb is not None:
         return metadata["POS"].to_numpy(dtype=float), float(args.ld_wind_kb) * 1000.0
     if metadata["CM"].isna().any():
-        raise ValueError("--ld-wind-cm requires non-missing CM values for all retained SNPs.")
+        raise LDSCInputError(
+            "ldscore cannot use `--ld-wind-cm` because retained SNP metadata contains "
+            "missing CM values. Most likely the annotation or frequency sidecar lacks "
+            "genetic-map positions for at least one retained SNP. Provide complete CM "
+            "metadata or use `--ld-wind-kb` / `--ld-wind-snps`."
+        )
     return metadata["CM"].to_numpy(dtype=float), float(args.ld_wind_cm)
 
 
@@ -924,8 +1006,11 @@ def check_whole_chromosome_window(block_left: np.ndarray, args: argparse.Namespa
     if len(block_left) == 0:
         return
     if block_left[-1] == 0 and not args.yes_really:
-        raise ValueError(
-            f"Chromosome {chrom} would use a whole-chromosome LD window. Re-run with --yes-really to allow this."
+        raise LDSCUsageError(
+            f"ldscore would use a whole-chromosome LD window on chromosome {chrom}. "
+            "Most likely the LD-window setting is too large for this chromosome. "
+            "Use a smaller LD window, or rerun with `--yes-really` if a whole-chromosome "
+            "window is intentional."
         )
 
 
@@ -945,7 +1030,11 @@ class _RowGroupLRUCache:
 
     def __init__(self, capacity: int) -> None:
         if capacity <= 0:
-            raise ValueError("row-group cache capacity must be positive.")
+            raise LDSCInternalError(
+                f"LD-score row-group cache setup failed: capacity={capacity} is not positive. "
+                "Most likely automatic cache sizing produced an invalid value. Re-run with "
+                "DEBUG logging and report the traceback."
+            )
         self.capacity = int(capacity)
         self._entries: OrderedDict[int, _DecodedR2RowGroup] = OrderedDict()
         self.hits = 0
@@ -1000,7 +1089,13 @@ class SortedR2BlockReader:
     ) -> None:
         """Open one chromosome's sorted parquet R2 tables and build index maps."""
         if not paths:
-            raise FileNotFoundError(f"No sorted parquet R2 files resolved for chromosome {chrom}.")
+            raise LDSCInputError(
+                f"ldscore could not find sorted parquet R2 input for chromosome {chrom}. "
+                "Most likely the R2 directory is missing this chromosome or the path token "
+                "does not resolve to `chrN_r2.parquet`. Pass the correct `--r2-dir` or "
+                "regenerate the reference panel. "
+                f"Other causes & fixes: {_LDSCORE_PARQUET_DOC}"
+            )
         self.chrom = normalize_chromosome(chrom)
         self.identifier_mode = normalize_snp_identifier_mode(identifier_mode)
         self.r2_bias_mode = r2_bias_mode
@@ -1032,9 +1127,12 @@ class SortedR2BlockReader:
 
         layout = _parquet_schema_layout(pq.ParquetFile(paths[0]).schema_arrow.names)
         if layout != "index":
-            raise ValueError(
-                f"'{paths[0]}' is not an index-format R2 parquet (columns IDX_1/IDX_2/R2/SIGN). "
-                "External and legacy R2 formats are not supported; regenerate with `ldsc build-ref-panel`."
+            raise LDSCInputError(
+                f"ldscore could not use R2 parquet '{paths[0]}': it is not an index-format "
+                "R2 parquet with columns IDX_1/IDX_2/R2/SIGN. Most likely this file was "
+                "written by an old LDSC version or is not an LDSC R2 artifact. Regenerate "
+                "the reference panel with `ldsc build-ref-panel`. "
+                f"Other causes & fixes: {_LDSCORE_PARQUET_DOC}"
             )
 
         if is_allele_aware_mode(self.identifier_mode):
@@ -1044,9 +1142,11 @@ class SortedR2BlockReader:
         validate_retained_identifier_uniqueness(metadata, self.identifier_mode, chrom)
 
         if len(paths) != 1:
-            raise ValueError(
-                "index parquet_r2 backend requires exactly one file per chromosome; "
-                f"got {len(paths)} for chromosome {self.chrom}"
+            raise LDSCInputError(
+                f"ldscore resolved {len(paths)} parquet R2 files for chromosome {self.chrom}, "
+                "but index parquet mode requires exactly one file per chromosome. Most likely "
+                "the R2 path/glob is too broad or the directory contains duplicate chromosome "
+                "artifacts. Narrow `--r2-dir` or remove duplicate parquet files."
             )
         self._runtime_layout = "index"
         self._pf = pq.ParquetFile(paths[0])
@@ -1055,28 +1155,45 @@ class SortedR2BlockReader:
     def _init_index_path(self, path: str, retained_metadata: pd.DataFrame) -> None:
         """Validate index-format metadata, the sidecar binding, and build the remap."""
         if self._pf is None:
-            raise ValueError("Index parquet reader is not initialized.")
+            raise LDSCInternalError(
+                "LD-score parquet reader failed in SortedR2BlockReader._init_index_path(): "
+                "the parquet file handle is not initialized. Most likely reader construction "
+                "was bypassed. Re-run with DEBUG logging and report the traceback."
+            )
         schema_meta = self._pf.schema_arrow.metadata or {}
         self._r2_scale = self._resolve_r2_scale(schema_meta, path)
 
         build_raw = schema_meta.get(b"ldsc:sorted_by_build")
         if build_raw is None:
-            raise ValueError(
-                f"'{path}' is index-format but has no ldsc:sorted_by_build metadata. "
-                "Regenerate with `ldsc build-ref-panel`."
+            raise LDSCInputError(
+                f"ldscore could not use index-format R2 parquet '{path}': it has no "
+                "ldsc:sorted_by_build metadata. Most likely the artifact was written by "
+                "an old LDSC version or had schema metadata stripped. Regenerate with "
+                "`ldsc build-ref-panel`. "
+                f"Other causes & fixes: {_LDSCORE_PARQUET_DOC}"
             )
         parquet_build = normalize_genome_build(build_raw.decode("utf-8"))
         if self.genome_build not in {None, parquet_build}:
-            raise ValueError(
-                f"Parquet sorted for {parquet_build} but analysis uses {self.genome_build}. "
-                f"Use the matching reference file or regenerate with `--genome-build {self.genome_build}`."
+            raise LDSCInputError(
+                f"ldscore could not use R2 parquet '{path}': it is sorted for "
+                f"{parquet_build}, but the analysis uses {self.genome_build}. Most likely "
+                "the reference panel and annotation inputs use different genome builds. "
+                "Use the matching reference file or regenerate with "
+                f"`--genome-build {self.genome_build}`. "
+                f"Other causes & fixes: {_LDSCORE_PARQUET_DOC}"
             )
         self.genome_build = parquet_build
 
         n_snps_raw = schema_meta.get(b"ldsc:n_snps")
         hash_raw = schema_meta.get(b"ldsc:sidecar_identity_sha256")
         if n_snps_raw is None or hash_raw is None:
-            raise ValueError(f"'{path}' is missing ldsc:n_snps or ldsc:sidecar_identity_sha256 binding metadata.")
+            raise LDSCInputError(
+                f"ldscore could not use R2 parquet '{path}': it is missing ldsc:n_snps "
+                "or ldsc:sidecar_identity_sha256 binding metadata. Most likely the file "
+                "was written by an old LDSC version or metadata was stripped. Regenerate "
+                "with `ldsc build-ref-panel`. "
+                f"Other causes & fixes: {_LDSCORE_PARQUET_DOC}"
+            )
         n_snps = int(n_snps_raw.decode("utf-8"))
 
         full_sidecar = _load_full_panel_sidecar(path)
@@ -1132,10 +1249,20 @@ class SortedR2BlockReader:
         values = values.astype(np.float32, copy=False)
         if self.r2_bias_mode == "raw":
             if self.r2_sample_size is None:
-                raise ValueError("--r2-sample-size is required when --r2-bias-mode raw.")
+                raise LDSCUsageError(
+                    "ldscore cannot apply raw R2 bias correction without `--r2-sample-size`. "
+                    "Most likely `--r2-bias-mode raw` was selected without the sample size "
+                    "used to estimate R2. Pass `--r2-sample-size <N>`, or use "
+                    "`--r2-bias-mode unbiased` for pre-corrected R2 values."
+                )
             denom = self.r2_sample_size - 2
             if denom <= 0:
-                raise ValueError("--r2-sample-size must be greater than 2 for raw R2 correction.")
+                raise LDSCConfigError(
+                    f"ldscore received invalid `--r2-sample-size={self.r2_sample_size}` "
+                    "for raw R2 correction. Most likely the sample size is too small "
+                    "for the unbiased correction denominator. Pass a sample size greater "
+                    "than 2, or use `--r2-bias-mode unbiased`."
+                )
             values = values - (1.0 - values) / denom
             # Share the writer's R2<=1 invariant: roundoff/raw inputs can exceed 1.
             values = np.minimum(values, np.float32(1.0))
@@ -1169,7 +1296,11 @@ class SortedR2BlockReader:
             return []
         snp_batch_size = int(snp_batch_size)
         if snp_batch_size <= 0:
-            raise ValueError("snp_batch_size must be positive.")
+            raise LDSCConfigError(
+                f"ldscore received invalid snp_batch_size={snp_batch_size}. Most likely "
+                "the parquet query batch size was set to zero or a negative value. Pass "
+                "a positive integer batch size."
+            )
 
         block_sizes = np.array(np.arange(m) - block_left)
         block_sizes = np.ceil(block_sizes / snp_batch_size) * snp_batch_size
@@ -1271,7 +1402,12 @@ class SortedR2BlockReader:
         ``SIGN`` is not read: it is unused by LD-score computation.
         """
         if self._pf is None:
-            raise ValueError("Index parquet reader is not initialized.")
+            raise LDSCInternalError(
+                "LD-score parquet reader failed in SortedR2BlockReader._decode_index_row_group(): "
+                "the parquet file handle is not initialized. Most likely row-group decoding "
+                "was called before reader setup completed. Re-run with DEBUG logging and "
+                "report the traceback."
+            )
         table = self._pf.read_row_group(int(row_group_index), columns=["IDX_1", "IDX_2", "R2"])
         idx1 = _arrow_column_to_numpy(table.column("IDX_1")).astype(np.int64, copy=False)
         idx2 = _arrow_column_to_numpy(table.column("IDX_2")).astype(np.int64, copy=False)
@@ -1341,7 +1477,13 @@ class SortedR2BlockReader:
         dup_df = pair_rows.loc[duplicated, ["lo", "hi", "R2"]]
         nunique = dup_df.groupby(["lo", "hi"], dropna=False)["R2"].nunique(dropna=False)
         if (nunique > 1).any():
-            raise ValueError(f"Duplicate unordered SNP pairs with conflicting R2 values detected in {context}.")
+            raise LDSCInputError(
+                f"ldscore could not use parquet R2 pair rows in {context}: duplicate "
+                "unordered SNP pairs have conflicting R2 values. Most likely the R2 "
+                "parquet was generated from inconsistent duplicate pair records. "
+                "Regenerate the reference panel from a deduplicated source. "
+                f"Other causes & fixes: {_LDSCORE_PARQUET_DOC}"
+            )
         return pair_rows.drop_duplicates(subset=["lo", "hi"], keep="first").reset_index(drop=True)
 
     def cross_block_matrix(self, l_A: int, b: int, l_B: int, c: int) -> np.ndarray:
@@ -1424,7 +1566,11 @@ def ld_score_var_blocks_from_r2_reader(
     m = annot.shape[0]
     n_a = annot.shape[1]
     if snp_batch_size <= 0:
-        raise ValueError("snp_batch_size must be positive.")
+        raise LDSCConfigError(
+            f"ldscore received invalid snp_batch_size={snp_batch_size}. Most likely "
+            "the parquet query batch size was set to zero or a negative value. Pass "
+            "a positive integer batch size."
+        )
     block_sizes = np.array(np.arange(m) - block_left)
     block_sizes = np.ceil(block_sizes / snp_batch_size) * snp_batch_size
     cor_sum = np.zeros((m, n_a), dtype=np.float64)
@@ -1553,7 +1699,14 @@ def compute_chrom_from_parquet(
         context="parquet mode",
     )
     if len(metadata) == 0:
-        raise ValueError(f"No retained annotation SNPs remain on chromosome {chrom} after sidecar alignment.")
+        raise LDSCInputError(
+            f"ldscore retained no annotation SNPs on chromosome {chrom} after parquet "
+            "sidecar alignment. Most likely the annotation SNP identifiers, genome build, "
+            "or allele-aware identifier mode do not match the parquet R2 sidecar. Use "
+            "annotation and R2 artifacts built with the same SNP identifier mode and "
+            "genome build. "
+            f"Other causes & fixes: {_LDSCORE_INTERSECTION_DOC}"
+        )
 
     validate_retained_identifier_uniqueness(metadata, args.snp_identifier, chrom)
     coords, max_dist = build_window_coordinates(metadata, args)
@@ -1621,7 +1774,12 @@ def compute_chrom_from_plink(
     legacy_ld = get_legacy_ld_module()
     prefix = resolve_bfile_prefix(args, chrom=chrom)
     if prefix is None:
-        raise ValueError("PLINK mode requested without --bfile.")
+        raise LDSCUsageError(
+            "ldscore cannot run PLINK mode without a PLINK prefix. Most likely PLINK "
+            "mode was selected but `--plink-prefix`/`--bfile` was omitted. Pass the "
+            "prefix shared by the `.bed`, `.bim`, and `.fam` files, or use parquet "
+            "mode with `--r2-dir`."
+        )
 
     bim = legacy_parse.PlinkBIMFile(prefix + ".bim")
     fam = legacy_parse.PlinkFAMFile(prefix + ".fam")
@@ -1634,7 +1792,12 @@ def compute_chrom_from_plink(
     panel_df["A2"] = panel_df["A2"].astype(str)
     panel_df = panel_df.loc[panel_df["CHR"] == normalize_chromosome(chrom, context=prefix + ".bim")].copy()
     if len(panel_df) == 0:
-        raise ValueError(f"No PLINK SNPs found for chromosome {chrom} in {prefix}.")
+        raise LDSCInputError(
+            f"ldscore found no PLINK SNPs for chromosome {chrom} in prefix '{prefix}'. "
+            "Most likely the `.bim` file does not contain that chromosome or the chromosome "
+            "labels do not match the annotation inputs. Pass the correct chromosome-specific "
+            "PLINK prefix or rebuild the reference panel with matching chromosome labels."
+        )
     panel_df["_key"] = identifier_keys(panel_df, args.snp_identifier)
 
     metadata = bundle.metadata.copy()
@@ -1654,7 +1817,14 @@ def compute_chrom_from_plink(
     if regression_keys is not None and not isinstance(regression_keys, RestrictionIdentityKeys):
         regression_keys = regression_keys.intersection(set(metadata["_key"]))
     if len(metadata) == 0:
-        raise ValueError(f"No retained annotation SNPs remain on chromosome {chrom} after PLINK intersection.")
+        raise LDSCInputError(
+            f"ldscore retained no annotation SNPs on chromosome {chrom} after PLINK "
+            "intersection. Most likely the annotation SNP identifiers, genome build, "
+            "or allele-aware identifier mode do not match the PLINK `.bim` file. Use "
+            "annotation and PLINK reference files built with the same SNP identifier mode "
+            "and genome build. "
+            f"Other causes & fixes: {_LDSCORE_INTERSECTION_DOC}"
+        )
 
     keep_indivs = resolve_keep_individuals(getattr(args, "keep", None), fam)
     keep_snps = [key_to_panel_index[key] for key in metadata["_key"]]
@@ -1718,7 +1888,11 @@ def resolve_keep_individuals(keep_path: str | None, fam) -> list[int] | None:
         return None
     keep_indivs = fam.loj(legacy_parse.FilterFile(keep_path).IDList)
     if len(keep_indivs) == 0:
-        raise ValueError("No individuals retained for analysis")
+        raise LDSCInputError(
+            f"ldscore retained no PLINK individuals after applying keep file '{keep_path}'. "
+            "Most likely the keep-list IDs do not match the `.fam` file. Check IID/FID "
+            "columns in the keep file and pass a keep list from the same PLINK sample set."
+        )
     return keep_indivs.tolist()
 
 
@@ -1781,7 +1955,11 @@ def aggregate_results(results: Sequence[ChromComputationResult]) -> tuple[pd.Dat
 def emit_outputs(results: Sequence[ChromComputationResult], args: argparse.Namespace) -> None:
     """Write either per-chromosome outputs or one aggregated LDSC-compatible result set."""
     if not results:
-        raise ValueError("No chromosome results were produced.")
+        raise LDSCInternalError(
+            "LD-score output emission failed in emit_outputs(): no chromosome results were "
+            "provided. Most likely all chromosomes were skipped before output writing. "
+            "Re-run with DEBUG logging and report the traceback."
+        )
 
     write_annotation_groups(
         args.out + ".annotation_groups.tsv",
@@ -1848,12 +2026,25 @@ def validate_args(args: argparse.Namespace) -> None:
     )
     keep = getattr(args, "keep", None)
     if not (args.query_annot or args.baseline_annot):
-        raise ValueError("At least one of query or baseline annotation inputs must be supplied.")
+        raise LDSCUsageError(
+            "ldscore cannot run without annotation inputs. Most likely neither "
+            "`--baseline-annot` nor `--query-annot` was supplied to the standalone "
+            "kernel CLI. Pass at least one annotation input path."
+        )
     if bool(args.r2_table) == bool(args.bfile):
-        raise ValueError("Specify exactly one reference-panel mode: parquet or PLINK.")
+        raise LDSCUsageError(
+            "ldscore could not choose a reference-panel backend. Most likely both parquet "
+            "R2 input and PLINK input were supplied, or neither was supplied. Pass exactly "
+            "one of `--r2-table` for parquet mode or `--bfile` for PLINK mode."
+        )
     if args.r2_table:
         if keep:
-            raise ValueError("--keep-indivs-file is only supported in PLINK mode.")
+            raise LDSCUsageError(
+                "ldscore cannot apply `--keep-indivs-file` in parquet R2 mode. Most likely "
+                "`--keep-indivs-file` was combined with parquet R2 input, but individual-level "
+                "filtering only exists before PLINK genotype LD calculation. Remove "
+                "`--keep-indivs-file`, or rerun in PLINK mode with `--bfile`."
+            )
         first_r2 = _first_resolved_r2_parquet(args)
         if first_r2 is not None:
             from . import ref_panel as ref_panel_mod
@@ -1867,21 +2058,55 @@ def validate_args(args: argparse.Namespace) -> None:
         if args.r2_bias_mode is None:
             args.r2_bias_mode = "unbiased"
         if args.r2_bias_mode == "raw" and args.r2_sample_size is None:
-            raise ValueError("--r2-sample-size is required when --r2-bias-mode raw.")
+            raise LDSCUsageError(
+                "ldscore cannot apply raw R2 bias correction without `--r2-sample-size`. "
+                "Most likely `--r2-bias-mode raw` was selected for parquet input without "
+                "the sample size used to estimate R2. Pass `--r2-sample-size <N>`, or use "
+                "`--r2-bias-mode unbiased` for pre-corrected R2 values."
+            )
         if identity_mode_family(args.snp_identifier) == "chr_pos" and args.genome_build is None:
-            raise ValueError("--genome-build is required in parquet mode for chr_pos-family snp_identifier modes.")
+            raise LDSCUsageError(
+                "ldscore cannot run parquet R2 mode with chr_pos-family SNP identifiers "
+                "without a genome build. Most likely `--snp-identifier chr_pos` or an "
+                "allele-aware chr_pos mode was supplied without `--genome-build`. Pass "
+                "`--genome-build hg19`, `--genome-build hg38`, or `--genome-build auto`."
+            )
     if args.ld_wind_cm is not None and args.ld_wind_cm <= 0:
-        raise ValueError("--ld-wind-cm must be positive.")
+        raise LDSCConfigError(
+            f"ldscore received invalid `--ld-wind-cm={args.ld_wind_cm}`. Most likely "
+            "the LD window was set to zero or a negative value. Pass a positive "
+            "centimorgan window."
+        )
     if args.ld_wind_kb is not None and args.ld_wind_kb <= 0:
-        raise ValueError("--ld-wind-kb must be positive.")
+        raise LDSCConfigError(
+            f"ldscore received invalid `--ld-wind-kb={args.ld_wind_kb}`. Most likely "
+            "the LD window was set to zero or a negative value. Pass a positive "
+            "kilobase window."
+        )
     if args.ld_wind_snps is not None and args.ld_wind_snps <= 0:
-        raise ValueError("--ld-wind-snps must be positive.")
+        raise LDSCConfigError(
+            f"ldscore received invalid `--ld-wind-snps={args.ld_wind_snps}`. Most likely "
+            "the LD window was set to zero or a negative SNP count. Pass a positive "
+            "SNP-count window."
+        )
     if getattr(args, "maf_min", None) is not None and not 0 <= args.maf_min <= 0.5:
-        raise ValueError("--maf-min must lie in [0, 0.5].")
+        raise LDSCConfigError(
+            f"ldscore received invalid `--maf-min={args.maf_min}`. Most likely the "
+            "minor-allele frequency threshold was entered outside the valid [0, 0.5] "
+            "range. Pass a value between 0 and 0.5, or omit the option."
+        )
     if not 0 <= getattr(args, "common_maf_min", 0.05) <= 0.5:
-        raise ValueError("--common-maf-min must lie in [0, 0.5].")
+        raise LDSCConfigError(
+            f"ldscore received invalid `--common-maf-min={args.common_maf_min}`. Most "
+            "likely the common-SNP MAF threshold was entered outside the valid [0, 0.5] "
+            "range. Pass a value between 0 and 0.5."
+        )
     if args.snp_batch_size <= 0:
-        raise ValueError("--snp-batch-size must be positive.")
+        raise LDSCConfigError(
+            f"ldscore received invalid `--snp-batch-size={args.snp_batch_size}`. Most "
+            "likely the parquet query batch size was set to zero or a negative value. "
+            "Pass a positive integer batch size."
+        )
 
 
 def build_parser() -> argparse.ArgumentParser:

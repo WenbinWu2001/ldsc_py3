@@ -20,7 +20,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from ldsc.config import ConfigMismatchError, GlobalConfig, RegressionConfig, reset_global_config, set_global_config
-from ldsc.errors import LDSCInputError, LDSCUsageError
+from ldsc.errors import LDSCInputError, LDSCInternalError, LDSCUsageError
 
 try:
     from ldsc.ldscore_calculator import LDScoreResult
@@ -167,7 +167,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with self.assertRaisesRegex(ValueError, "baseline_table is missing required columns.*POS"):
+            with self.assertRaisesRegex(LDSCInternalError, "baseline_table is missing required columns.*POS"):
                 load_ldscore_from_dir(str(tmpdir))
 
     def test_load_ldscore_from_dir_reads_minimal_identity_metadata(self):

@@ -187,3 +187,75 @@ schema / bad provenance / missing A1-A2 / duplicate identity rows)
 2. Use an explicit chain file for non-HM3 SNP sets instead of HM3 quick liftover.
 3. Review the dropped-SNP sidecar to identify whether missing coordinates,
    unmapped variants, or duplicate coordinates removed the rows.
+
+## ldscore
+
+### ldscore: no annotation SNPs remain after reference-panel intersection
+
+**Raised by:** `ldscore_calculator._align_annotation_bundle_to_ref_panel()`,
+`_kernel.ldscore.compute_chrom_from_parquet()`, and
+`_kernel.ldscore.compute_chrom_from_plink()` · **Exception:** `LDSCInputError`
+**Symptom:** `ldscore retained no annotation SNPs on chromosome <chrom> after ... intersection`
+
+**Likely causes & how to check** (most probable first):
+
+| # | Likely cause | How to check |
+|---|--------------|--------------|
+| 1 | Annotation SNP identifiers use a different identity space than the reference panel | Compare a few annotation SNP IDs against reference-panel metadata; confirm both use the same `--snp-identifier` |
+| 2 | Annotation coordinates and reference-panel coordinates are on different genome builds | Check `--genome-build` and the build recorded in R2 parquet or reference-panel metadata |
+| 3 | Allele-aware mode was requested but annotation/reference alleles do not match | Inspect A1/A2 columns in annotation and reference metadata for a few expected overlapping SNPs |
+| 4 | A reference-panel SNP restriction removed all overlapping annotation SNPs | Re-run without `--ref-panel-snps-file` / HM3 restriction to confirm overlap returns |
+| 5 | Chromosome labels or chromosome-sharded path tokens resolved to mismatched chromosomes | Print CHR values from the annotation and reference metadata for the failing chromosome |
+
+**Remedies:**
+
+1. Regenerate annotation and reference-panel artifacts with the same
+   `--snp-identifier` and `--genome-build`.
+2. Use an allele-aware SNP identifier only when both annotation and reference
+   metadata carry matching A1/A2 columns.
+3. Relax or rebuild the reference-panel SNP restriction so it overlaps the
+   annotation SNP universe.
+
+### ldscore: parquet R2 input is incompatible
+
+**Raised by:** `_kernel.ldscore.SortedR2BlockReader`, sidecar-binding guards,
+and parquet row decoders · **Exception:** `LDSCInputError`
+**Symptom:** `ldscore could not use R2 parquet ...` / `... sidecar ... missing`
+
+**Likely causes & how to check** (most probable first):
+
+| # | Likely cause | How to check |
+|---|--------------|--------------|
+| 1 | The R2 parquet was written by an older LDSC version or another tool | Inspect columns; current files contain `IDX_1`, `IDX_2`, `R2`, and `SIGN` |
+| 2 | The matching `chrN_meta.tsv.gz` sidecar is missing or was copied from another panel | Confirm each `chrN_r2.parquet` has a same-directory `chrN_meta.tsv.gz` with matching timestamps/provenance |
+| 3 | Parquet schema metadata was stripped or edited | Inspect parquet metadata for `ldsc:sorted_by_build`, `ldsc:n_snps`, and `ldsc:sidecar_identity_sha256` |
+| 4 | The R2 directory mixes chromosomes or builds from different reference-panel runs | List files in the R2 directory and compare recorded `genome_build` metadata |
+| 5 | Duplicate or conflicting pair rows survived in the R2 artifact | Regenerate from a deduplicated reference-panel source and current `ldsc build-ref-panel` |
+
+**Remedies:**
+
+1. Regenerate the reference panel with the current `ldsc build-ref-panel`.
+2. Keep each `chrN_r2.parquet` with its matching `chrN_meta.tsv.gz` sidecar; do
+   not hand-edit or independently copy sidecars.
+3. Use one consistent R2 directory per genome build and reference-panel run.
+
+### ldscore: genome build could not be resolved consistently
+
+**Raised by:** `ldscore_calculator._resolve_ldscore_chr_pos_genome_build()` and
+`ldscore_calculator._infer_r2_dir_genome_build()` · **Exception:** `LDSCInputError`
+**Symptom:** `ldscore could not infer the genome build...` / `ldscore found conflicting genome-build evidence...`
+
+**Likely causes & how to check** (most probable first):
+
+| # | Likely cause | How to check |
+|---|--------------|--------------|
+| 1 | `--genome-build auto` had no annotation sample or R2 parquet build metadata to inspect | Confirm annotation path tokens resolve and R2 parquet metadata contains `ldsc:sorted_by_build` |
+| 2 | Annotation inputs and R2 parquet metadata were generated on different genome builds | Compare annotation coordinate build against the R2 parquet `ldsc:sorted_by_build` value |
+| 3 | The R2 directory contains parquet files from multiple builds | Inspect build metadata across `chr*_r2.parquet` files in the directory |
+| 4 | Annotation CHR/POS columns were parsed from the wrong fields | Print the annotation header and first rows; confirm CHR/POS look like genomic coordinates |
+
+**Remedies:**
+
+1. Pass an explicit build: `--genome-build hg19` or `--genome-build hg38`.
+2. Regenerate annotation and R2 reference-panel artifacts on the same genome build.
+3. Keep only one build's R2 parquet files in a given `--r2-dir`.

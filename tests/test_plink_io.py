@@ -15,6 +15,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from ldsc._kernel import formats as ps
+from ldsc.errors import LDSCInputError
 
 try:
     import bitarray as ba
@@ -253,7 +254,7 @@ class IndexParquetRuntimeTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             panel = self._panel_meta(["rs1", "rs2"], [100, 120])
             r2 = self._write_index_panel(tmpdir, panel, [{"i": 0, "j": 1, "R2": 0.5, "sign": "+"}], genome_build="hg19")
-            with self.assertRaises(ValueError) as ctx:
+            with self.assertRaises(LDSCInputError) as ctx:
                 self._reader(r2, self._reader_meta(["rs1", "rs2"], [100, 120]), genome_build="hg38")
             self.assertIn("hg19", str(ctx.exception))
             self.assertIn("hg38", str(ctx.exception))
@@ -295,7 +296,7 @@ class IndexParquetRuntimeTest(unittest.TestCase):
             import shutil
 
             shutil.copy(r2a, r2b)
-            with self.assertRaises(ValueError) as ctx:
+            with self.assertRaises(LDSCInputError) as ctx:
                 ld.SortedR2BlockReader(
                     paths=[str(r2a), str(r2b)],
                     chrom="1",

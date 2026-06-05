@@ -808,13 +808,15 @@ class ReferencePanelBuilder:
         )
         if not identity_result.dropped.empty:
             dropped_frames.append(identity_result.dropped)
-            LOGGER.debug(
-                "Reference-panel identity cleanup drops on chromosome %s: %s",
-                chrom,
+            dropped_examples = (
                 identity_result.dropped.loc[:, ["SNP", "reason", "base_key", "identity_key", "allele_set"]]
                 .head(10)
-                .to_dict(orient="records"),
+                .to_dict(orient="records")
             )
+            message = (
+                f"Reference-panel identity cleanup drops on chromosome {chrom}: {dropped_examples}"
+            )
+            LOGGER.debug(message)
         keep_snps = identity_result.cleaned["_plink_row_index"].to_numpy(dtype=int)
         if len(keep_snps) == 0:
             dropped_df = _concat_drop_frames(dropped_frames)

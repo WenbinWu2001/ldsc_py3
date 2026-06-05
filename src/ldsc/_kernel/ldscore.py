@@ -906,12 +906,12 @@ def merge_frequency_metadata(
     freq_df = pd.concat(frames, axis=0, ignore_index=True) if frames else pd.DataFrame(columns=["_key", "_key_mode", "CM", "MAF"])
     duplicate_mask = freq_df[["_key_mode", "_key"]].duplicated(keep=False)
     if bool(duplicate_mask.any()):
-        LOGGER.warning(
-            "Dropping %d frequency metadata rows in duplicate SNP identity clusters for chromosome %s; "
-            "CM/MAF will remain missing for those keys unless already present in annotation metadata.",
-            int(duplicate_mask.sum()),
-            chrom,
+        message = (
+            f"Dropping {int(duplicate_mask.sum())} frequency metadata rows in duplicate SNP identity clusters "
+            f"for chromosome {chrom}; CM/MAF will remain missing for those keys unless already present in "
+            "annotation metadata."
         )
+        LOGGER.warning(message)
         freq_df = freq_df.loc[~duplicate_mask].reset_index(drop=True)
 
     merged = metadata.copy()

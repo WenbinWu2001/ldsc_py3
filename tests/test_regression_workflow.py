@@ -230,7 +230,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             metadata["snp_identifier"] = "rsid_allele_aware"
             metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
 
-            with self.assertRaisesRegex(ValueError, "baseline_table.*A1/A2"):
+            with self.assertRaisesRegex(LDSCInputError, "baseline_table.*allele columns are missing"):
                 load_ldscore_from_dir(str(tmpdir))
 
     def test_load_ldscore_from_dir_rejects_allele_aware_query_without_alleles(self):
@@ -248,7 +248,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             metadata["snp_identifier"] = "rsid_allele_aware"
             metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
 
-            with self.assertRaisesRegex(ValueError, "query_table.*A1/A2"):
+            with self.assertRaisesRegex(LDSCInputError, "query_table.*allele columns are missing"):
                 load_ldscore_from_dir(str(tmpdir))
 
     def test_load_ldscore_from_dir_rejects_snp_identifier_override_mismatch(self):
@@ -807,7 +807,7 @@ class RegressionWorkflowTest(unittest.TestCase):
         bad_query.loc[1, "POS"] = 999
         result = replace(result, query_table=bad_query)
 
-        with self.assertRaisesRegex(ValueError, "query rows must match baseline rows"):
+        with self.assertRaisesRegex(LDSCInputError, "query rows must match baseline rows"):
             runner.build_dataset(self.make_sumstats_table(), result, query_columns=["query2"])
 
     def test_old_common_count_metadata_key_is_not_recognized(self):

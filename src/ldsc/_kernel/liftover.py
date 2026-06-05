@@ -316,7 +316,11 @@ def duplicate_coordinate_drop_result(
     """
     if chrom_col not in frame.columns or pos_col not in frame.columns:
         missing = [column for column in (chrom_col, pos_col) if column not in frame.columns]
-        raise ValueError(f"Duplicate coordinate detection requires columns: {missing}.")
+        raise LDSCInternalError(
+            "liftover duplicate-coordinate detection could not run because the prepared table is missing "
+            f"required columns: {missing}. Most likely an upstream liftover caller passed a frame before "
+            "coordinate normalization. Re-run with DEBUG logging and report the traceback."
+        )
     duplicate_mask = frame.duplicated(subset=[chrom_col, pos_col], keep=False).to_numpy(dtype=bool)
     report = liftover_drop_report(
         frame,
@@ -345,7 +349,11 @@ def liftover_drop_report(
     """Build a compact readable drop report with shared core fields."""
     mask = np.asarray(drop_mask, dtype=bool)
     if len(mask) != len(frame):
-        raise ValueError("drop_mask length must match frame length.")
+        raise LDSCInternalError(
+            "liftover drop-report construction failed because drop_mask length does not match the input frame. "
+            "Most likely an upstream liftover filter produced a mask from a different table version. "
+            "Re-run with DEBUG logging and report the traceback."
+        )
     dropped = frame.loc[mask]
     examples = _drop_examples(
         dropped,
@@ -435,7 +443,11 @@ def _liftover_drop_frame(
     """Build unified dropped-SNP sidecar rows from one filtered frame slice."""
     mask = np.asarray(drop_mask, dtype=bool)
     if len(mask) != len(frame):
-        raise ValueError("drop_mask length must match frame length.")
+        raise LDSCInternalError(
+            "liftover dropped-SNP sidecar construction failed because drop_mask length does not match the input frame. "
+            "Most likely an upstream liftover filter produced a mask from a different table version. "
+            "Re-run with DEBUG logging and report the traceback."
+        )
     if not bool(mask.any()):
         return _empty_liftover_drop_frame()
     dropped = frame.loc[mask]

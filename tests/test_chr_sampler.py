@@ -12,6 +12,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from ldsc._chr_sampler import sample_frame_from_chr_pattern
+from ldsc.errors import LDSCInputError
 
 
 _HAS_PYARROW = importlib.util.find_spec("pyarrow") is not None
@@ -62,14 +63,14 @@ class ChrSamplerTest(unittest.TestCase):
             path = tmpdir / "baseline.1.annot.gz"
             path.write_text("CHR\tPOS\n1\t100\n", encoding="utf-8")
 
-            with self.assertRaisesRegex(ValueError, "--genome-build"):
+            with self.assertRaisesRegex(LDSCInputError, "--genome-build"):
                 sample_frame_from_chr_pattern([str(path)], context="annotation")
 
     def test_reports_when_no_candidate_chromosome_file_exists(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
 
-            with self.assertRaisesRegex(FileNotFoundError, "--genome-build"):
+            with self.assertRaisesRegex(LDSCInputError, "--genome-build"):
                 sample_frame_from_chr_pattern(
                     [str(tmpdir / "baseline.@.annot.gz")],
                     chromosomes=("2",),

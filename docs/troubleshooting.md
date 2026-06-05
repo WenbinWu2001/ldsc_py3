@@ -188,6 +188,31 @@ schema / bad provenance / missing A1-A2 / duplicate identity rows)
 3. Review the dropped-SNP sidecar to identify whether missing coordinates,
    unmapped variants, or duplicate coordinates removed the rows.
 
+## annotate
+
+### annotate: no annotation SNP rows remain
+
+**Raised by:** `annotation_builder.AnnotationBuilder._run_single_universe()`,
+`annotation_builder.AnnotationBuilder._run_sharded_inputs()`, and
+`annotation_builder.AnnotationBuilder._apply_identity_cleanup()` · **Exception:** `LDSCInputError`
+**Symptom:** `annotate loaded no SNP rows...` / `...no annotation rows remain after SNP identity cleanup...`
+
+**Likely causes & how to check** (most probable first):
+
+| # | Likely cause | How to check |
+|---|--------------|--------------|
+| 1 | The selected chromosome is absent from the annotation shards | List the resolved annotation files and confirm their chromosome token or filename contains the requested chromosome |
+| 2 | Annotation files are empty or contain only headers | `zcat <annot.gz> \| head` (or `head <annot>`); confirm data rows exist after the header |
+| 3 | SNP identity cleanup dropped every row because identities are missing, duplicated, or incompatible | Inspect `diagnostics/dropped_snps/` or the run log for identity-cleanup drop reasons |
+| 4 | Baseline and query annotation inputs use mismatched shard sets or a mixed sharded/unsharded layout | Compare resolved baseline and query files; each chromosome should have the same shard structure |
+| 5 | Allele-aware mode was requested but annotation rows lack usable A1/A2 values | Inspect the annotation header and first rows for both allele columns and non-missing allele values |
+
+**Remedies:**
+
+1. Use baseline and query annotation inputs that cover the same chromosome shards.
+2. Regenerate annotation files with `CHR`, `POS`, `SNP`, `CM`, and at least one annotation column.
+3. Match `--snp-identifier` and `--genome-build` to the annotation identity columns, then rerun.
+
 ## ldscore
 
 ### ldscore: no annotation SNPs remain after reference-panel intersection

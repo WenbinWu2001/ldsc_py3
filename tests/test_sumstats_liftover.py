@@ -65,7 +65,7 @@ class SumstatsLiftoverTest(unittest.TestCase):
                 "1\t100\t1000\trs1\n"
                 "1\t100\t2000\trs2\n",
             )
-            with self.assertRaisesRegex(ValueError, "duplicate.*hg19"):
+            with self.assertRaisesRegex(LDSCInputError, "duplicate.*hg19"):
                 load_hm3_curated_map(duplicate_hg19)
 
             duplicate_hg38 = self.write_hm3_map(
@@ -74,7 +74,7 @@ class SumstatsLiftoverTest(unittest.TestCase):
                 "1\t100\t1000\trs1\n"
                 "1\t200\t1000\trs2\n",
             )
-            with self.assertRaisesRegex(ValueError, "duplicate.*hg38"):
+            with self.assertRaisesRegex(LDSCInputError, "duplicate.*hg38"):
                 load_hm3_curated_map(duplicate_hg38)
 
     def test_hm3_liftover_uses_coordinates_only_and_preserves_snp_labels(self):

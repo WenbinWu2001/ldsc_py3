@@ -45,6 +45,7 @@ import pyarrow.parquet as pq
 from ._row_alignment import assert_same_snp_rows
 from ._kernel.snp_identity import effective_merge_key_series, identity_artifact_metadata, is_allele_aware_mode
 from .config import _normalize_required_path
+from .errors import LDSCConfigError, LDSCInputError, LDSCInternalError
 from .path_resolution import (
     ensure_output_directory,
     preflight_output_artifact_family,
@@ -247,7 +248,11 @@ class LDScoreOutputConfig:
         object.__setattr__(self, "output_dir", _normalize_required_path(self.output_dir))
         allowed = {"snappy", "gzip", "brotli", "zstd", "none", None}
         if self.parquet_compression not in allowed:
-            raise ValueError("parquet_compression must be one of 'snappy', 'gzip', 'brotli', 'zstd', 'none', or None.")
+            raise LDSCConfigError(
+                "LD-score output configuration could not use parquet_compression="
+                f"{self.parquet_compression!r}. Most likely the output config was created with an unsupported "
+                "compression codec. Choose one of 'snappy', 'gzip', 'brotli', 'zstd', 'none', or None."
+            )
 
 
 class LDScoreDirectoryWriter:
@@ -272,7 +277,11 @@ class LDScoreDirectoryWriter:
         baseline_table = getattr(result, "baseline_table", None)
         query_table = getattr(result, "query_table", None)
         if baseline_table is None:
-            raise ValueError("LDScoreResult is missing baseline_table.")
+            raise LDSCInternalError(
+                "LD-score output writer could not write the result because LDScoreDirectoryWriter.write() "
+                "received an LDScoreResult without baseline_table. Most likely an upstream LD-score workflow "
+                "returned an incomplete result object. Re-run with DEBUG logging and report the traceback."
+            )
         self._validate_tables(result)
 
         paths = {
@@ -322,7 +331,11 @@ class LDScoreDirectoryWriter:
         query_table = getattr(result, "query_table", None)
         config_snapshot = getattr(result, "config_snapshot", None)
         if config_snapshot is None:
-            raise ValueError("LDScoreResult.config_snapshot is required to write current LD-score artifacts.")
+            raise LDSCInternalError(
+                "LD-score output writer could not build metadata because LDScoreResult.config_snapshot is missing. "
+                "Most likely an upstream LD-score workflow returned an older or incomplete result object. "
+                "Re-run with DEBUG logging and report the traceback."
+            )
         identity_metadata = identity_artifact_metadata(
             artifact_type="ldscore",
             snp_identifier=config_snapshot.snp_identifier,
@@ -352,34 +365,58 @@ class LDScoreDirectoryWriter:
         query_columns = list(getattr(result, "query_columns", []))
         config_snapshot = getattr(result, "config_snapshot", None)
         if config_snapshot is None:
-            raise ValueError("LDScoreResult.config_snapshot is required to write current LD-score artifacts.")
+            raise LDSCInternalError(
+                "LD-score output writer could not validate tables because LDScoreResult.config_snapshot is missing. "
+                "Most likely an upstream LD-score workflow returned an older or incomplete result object. "
+                "Re-run with DEBUG logging and report the traceback."
+            )
         snp_identifier = config_snapshot.snp_identifier
         identity_columns = ["A1", "A2"] if is_allele_aware_mode(snp_identifier) else []
         required_baseline = ["CHR", "POS", "SNP", *identity_columns, REGRESSION_LD_SCORE_COLUMN, *baseline_columns]
         missing = [column for column in required_baseline if column not in baseline_table.columns]
         if missing:
             if any(column in missing for column in ("A1", "A2")):
-                raise ValueError(
-                    f"baseline_table is missing required columns: {missing}; allele-aware LD-score artifacts "
-                    "require A1/A2 columns. Regenerate it with the current LDSC package."
+                raise LDSCInternalError(
+                    "LD-score output writer could not validate baseline_table for allele-aware output because "
+                    f"required columns are missing: {missing}. Most likely an upstream LD-score step dropped A1/A2 "
+                    "from an allele-aware result table. Regenerate the LD-score artifact with the current LDSC "
+                    "package; if this was produced by this run, re-run with DEBUG logging and report the traceback."
                 )
-            raise ValueError(f"baseline_table is missing required columns: {missing}")
+            raise LDSCInternalError(
+                "LD-score output writer could not validate baseline_table because required columns are missing: "
+                f"{missing}. Most likely an upstream LD-score step returned a result table with the wrong schema. "
+                "Re-run with DEBUG logging and report the traceback."
+            )
         _validate_ldscore_allele_columns(baseline_table, table_name="baseline_table", snp_identifier=snp_identifier)
         if query_columns and query_table is None:
-            raise ValueError("query_table is required when query_columns are present.")
+            raise LDSCInternalError(
+                "LD-score output writer could not write query annotations because result.query_columns is non-empty "
+                "but query_table is missing. Most likely an upstream LD-score step returned an incomplete query "
+                "annotation result. Re-run with DEBUG logging and report the traceback."
+            )
         if not query_columns and query_table is not None:
-            raise ValueError("query_table was provided but query_columns is empty.")
+            raise LDSCInternalError(
+                "LD-score output writer could not write the result because query_table was provided while "
+                "result.query_columns is empty. Most likely an upstream LD-score step returned inconsistent "
+                "query annotation metadata. Re-run with DEBUG logging and report the traceback."
+            )
         if query_table is None:
             return
         required_query = ["CHR", "POS", "SNP", *identity_columns, *query_columns]
         missing = [column for column in required_query if column not in query_table.columns]
         if missing:
             if any(column in missing for column in ("A1", "A2")):
-                raise ValueError(
-                    f"query_table is missing required columns: {missing}; allele-aware LD-score artifacts "
-                    "require A1/A2 columns. Regenerate it with the current LDSC package."
+                raise LDSCInternalError(
+                    "LD-score output writer could not validate query_table for allele-aware output because required "
+                    f"columns are missing: {missing}. Most likely an upstream LD-score step dropped A1/A2 from an "
+                    "allele-aware query table. Regenerate the LD-score artifact with the current LDSC package; if "
+                    "this was produced by this run, re-run with DEBUG logging and report the traceback."
                 )
-            raise ValueError(f"query_table is missing required columns: {missing}")
+            raise LDSCInternalError(
+                "LD-score output writer could not validate query_table because required columns are missing: "
+                f"{missing}. Most likely an upstream LD-score step returned a query table with the wrong schema. "
+                "Re-run with DEBUG logging and report the traceback."
+            )
         _validate_ldscore_allele_columns(query_table, table_name="query_table", snp_identifier=snp_identifier)
         assert_same_snp_rows(
             baseline_table,
@@ -395,15 +432,19 @@ def _validate_ldscore_allele_columns(table: pd.DataFrame, *, table_name: str, sn
         return
     missing = [column for column in ("A1", "A2") if column not in table.columns]
     if missing:
-        raise ValueError(
-            f"{table_name} is malformed for snp_identifier='{snp_identifier}': allele-aware LD-score artifacts "
-            "require A1/A2 columns. Regenerate it with the current LDSC package."
+        raise LDSCInputError(
+            f"LD-score artifact table {table_name} is malformed for snp_identifier='{snp_identifier}' because "
+            f"allele columns are missing: {missing}. Most likely this artifact was produced by an older package "
+            "version or copied without allele-aware columns. Regenerate the LD-score artifact with the current "
+            "LDSC package."
         )
     try:
         effective_merge_key_series(table, snp_identifier, context=table_name)
-    except ValueError as exc:
-        raise ValueError(
-            f"{table_name} has unusable A1/A2 columns for snp_identifier='{snp_identifier}': {exc}"
+    except (LDSCInputError, ValueError) as exc:
+        raise LDSCInputError(
+            f"LD-score artifact table {table_name} is malformed for snp_identifier='{snp_identifier}' because "
+            f"its A1/A2 columns are unusable: {exc}. Most likely the artifact contains malformed allele values "
+            "or duplicate allele-aware SNP identities. Regenerate the LD-score artifact with the current LDSC package."
         ) from exc
 
 
@@ -570,7 +611,11 @@ class PartitionedH2DirectoryWriter:
     def _validate_summary(self, summary: pd.DataFrame) -> None:
         """Validate the aggregate summary before writing any final files."""
         if "Category" not in summary.columns:
-            raise ValueError("partitioned-h2 summary is missing required column: Category")
+            raise LDSCInternalError(
+                "partitioned-h2 output writer could not validate the aggregate summary because the required "
+                "'Category' column is missing. Most likely the regression workflow returned a result table with "
+                "the wrong schema. Re-run with DEBUG logging and report the traceback."
+            )
 
     def _query_records(self, summary: pd.DataFrame) -> list[dict[str, object]]:
         """Return ordered query records with deterministic safe folder names."""
@@ -716,7 +761,11 @@ class RgDirectoryWriter:
         h2_per_trait = getattr(result, "h2_per_trait")
         per_pair_metadata = list(getattr(result, "per_pair_metadata", []))
         if output_config.write_per_pair_detail and len(per_pair_metadata) != len(rg_full):
-            raise ValueError("per_pair_metadata must contain one record per rg_full row when pair detail is enabled.")
+            raise LDSCInternalError(
+                "rg output writer could not write per-pair diagnostics because per_pair_metadata does not contain "
+                "one record per rg_full row. Most likely the rg workflow returned inconsistent pair-detail "
+                "metadata. Re-run with DEBUG logging and report the traceback."
+            )
 
         output_dir = ensure_output_directory(output_config.output_dir, label="output directory")
         diagnostics_dir = output_dir / "diagnostics"
@@ -924,7 +973,11 @@ def _select_columns(df: pd.DataFrame, columns: list[str], *, label: str) -> pd.D
         return df
     missing = [column for column in columns if column not in df.columns]
     if missing:
-        raise ValueError(f"{label} is missing required columns: {missing}")
+        raise LDSCInternalError(
+            f"output writer could not select public columns for {label} because required columns are missing: "
+            f"{missing}. Most likely the upstream workflow returned a result table with the wrong schema. "
+            "Re-run with DEBUG logging and report the traceback."
+        )
     return df.loc[:, columns]
 
 

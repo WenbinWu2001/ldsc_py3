@@ -35,6 +35,8 @@ from os import PathLike
 from types import TracebackType
 from typing import Any
 
+from .errors import LDSCUsageError
+
 
 _LDSC_LOGGER_NAME = "LDSC"
 _CURRENT: threading.local = threading.local()
@@ -156,9 +158,15 @@ def _level_number(level: str) -> int:
     normalized = str(level).upper()
     value = logging.getLevelName(normalized)
     if not isinstance(value, int):
-        raise ValueError(f"log_level must be one of DEBUG, INFO, WARNING, ERROR; got {level!r}.")
+        raise LDSCUsageError(
+            f"Workflow logging could not use log_level={level!r}. Most likely the command or API call passed "
+            "an unsupported logging level. Use one of DEBUG, INFO, WARNING, or ERROR."
+        )
     if normalized not in {"DEBUG", "INFO", "WARNING", "ERROR"}:
-        raise ValueError(f"log_level must be one of DEBUG, INFO, WARNING, ERROR; got {level!r}.")
+        raise LDSCUsageError(
+            f"Workflow logging could not use log_level={level!r}. Most likely the command or API call passed "
+            "an unsupported logging level. Use one of DEBUG, INFO, WARNING, or ERROR."
+        )
     return value
 
 

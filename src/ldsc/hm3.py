@@ -10,6 +10,7 @@ import pandas as pd
 
 from .chromosome_inference import normalize_chromosome
 from .column_inference import A1_COLUMN_SPEC, A2_COLUMN_SPEC, CHR_COLUMN_SPEC, SNP_COLUMN_SPEC, ColumnSpec, resolve_required_column
+from .errors import LDSCInputError
 from ._coordinates import positive_int_position_series
 
 
@@ -115,7 +116,11 @@ def _canonical_hm3_allele(values, *, label: str, context: str) -> pd.Series:
     invalid = series.isna() | ~series.isin(["A", "C", "G", "T"])
     if bool(invalid.any()):
         examples = series.loc[invalid].head(5).astype(object).where(series.loc[invalid].notna(), "NA").tolist()
-        raise ValueError(f"HM3 curated map contains invalid {label} alleles in {context}: {examples}")
+        raise LDSCInputError(
+            f"HM3 curated map '{context}' contains invalid {label} alleles: {examples}. "
+            "Most likely the curated map is malformed or was edited manually. "
+            "Use the packaged HM3 map or regenerate the curated map with A/C/G/T alleles."
+        )
     return series.astype("string")
 
 
@@ -132,7 +137,11 @@ def _reject_duplicate_hm3_coordinates(frame: pd.DataFrame, *, build: str) -> Non
         .apply(lambda row: f"{row['CHR']}:{int(row[pos_col])}", axis=1)
         .tolist()
     )
-    raise ValueError(f"HM3 curated map contains duplicate {build} coordinates: {', '.join(duplicate_keys)}")
+    raise LDSCInputError(
+        f"HM3 curated map contains duplicate {build} coordinates: {', '.join(duplicate_keys)}. "
+        "Most likely the curated map is malformed or not deduplicated for genome-build inference. "
+        "Use the packaged HM3 map or regenerate the curated map with unique build-specific coordinates."
+    )
 
 
 __all__ = ["load_hm3_curated_map"]

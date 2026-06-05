@@ -172,11 +172,11 @@ class TestGlobalConfigValidation(unittest.TestCase):
             snp_identifier="chr_pos_allele_aware",
         )
 
-        with self.assertRaisesRegex(ValueError, "missing required.*A1.*A2"):
+        with self.assertRaisesRegex(LDSCInputError, "missing required.*A1.*A2"):
             assert_same_snp_rows(left, right_chr_pos, context="test", snp_identifier="chr_pos_allele_aware")
 
         right_rsid = pd.DataFrame({"CHR": ["1"], "POS": [10], "SNP": ["rs2"], "A1": ["A"], "A2": ["C"]})
-        with self.assertRaisesRegex(ValueError, "SNP"):
+        with self.assertRaisesRegex(LDSCInputError, "SNP"):
             assert_same_snp_rows(left_alleles, right_rsid, context="test", snp_identifier="rsid_allele_aware")
 
 

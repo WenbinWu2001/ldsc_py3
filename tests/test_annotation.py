@@ -17,6 +17,7 @@ from ldsc._kernel import annotation as kernel_annotation
 from ldsc import annotation_builder
 from ldsc.annotation_builder import AnnotationBuilder, AnnotationBundle, run_bed_to_annot
 from ldsc.config import AnnotationBuildConfig, GlobalConfig
+from ldsc.errors import LDSCInputError
 
 
 ANNOT_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "annotation" / "test.annot"
@@ -126,7 +127,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             _write_annot(base, rows, {"base_a": [1, 0]})
             _write_annot(query, list(reversed(rows)), {"query_a": [0, 1]})
 
-            with self.assertRaises(ValueError):
+            with self.assertRaises(LDSCInputError):
                 builder.run(
                     AnnotationBuildConfig(
                         baseline_annot_sources=(str(base),),
@@ -341,7 +342,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             _write_annot(base, rows, {"base_a": [1, 0]})
 
             builder = AnnotationBuilder(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"), AnnotationBuildConfig())
-            with self.assertRaisesRegex(ValueError, "no annotation rows remain after SNP identity cleanup"):
+            with self.assertRaisesRegex(LDSCInputError, "retained no annotation rows.*Other causes"):
                 builder.run(AnnotationBuildConfig(baseline_annot_sources=(str(base),)))
 
     def test_run_with_bed_paths_returns_bundle_with_binary_query_columns(self):
@@ -677,7 +678,7 @@ class AnnotationBuilderTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with self.assertRaisesRegex(ValueError, "Annotation file has only one allele column"):
+            with self.assertRaisesRegex(LDSCInputError, "exactly one allele column"):
                 builder.parse_annotation_file(path)
 
     def test_annotation_builder_accepts_auto_genome_build(self):
@@ -817,7 +818,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             _write_annot(base_all, rows_all, {"base_a": [1, 0]})
             _write_annot(base1, rows1, {"base_b": [1]})
 
-            with self.assertRaisesRegex(ValueError, "mixed|chromosome|shard"):
+            with self.assertRaisesRegex(LDSCInputError, "mix whole-genome and per-chromosome"):
                 builder.run(
                     AnnotationBuildConfig(
                         baseline_annot_sources=(str(base_all), str(base1)),
@@ -837,7 +838,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             _write_annot(base2, rows2, {"base_a": [0]})
             _write_annot(query1, rows1, {"query_a": [1]})
 
-            with self.assertRaisesRegex(ValueError, "query|chromosome|shard"):
+            with self.assertRaisesRegex(LDSCInputError, "query shards do not match baseline shards"):
                 builder.run(
                     AnnotationBuildConfig(
                         baseline_annot_sources=(str(base1), str(base2)),
@@ -858,7 +859,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             _write_annot(base2, rows2, {"base_a": [0]})
             _write_annot(query, rows1 + rows2, {"query_a": [1, 0]})
 
-            with self.assertRaisesRegex(ValueError, "query|chromosome|shard"):
+            with self.assertRaisesRegex(LDSCInputError, "query shards.*do not match"):
                 builder.run(
                     AnnotationBuildConfig(
                         baseline_annot_sources=(str(base1), str(base2)),
@@ -876,7 +877,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             _write_annot(base1a, rows, {"base_a": [1, 0]})
             _write_annot(base1b, rows, {"base_b": [0, 1]})
 
-            with self.assertRaisesRegex(ValueError, "ambiguous|duplicate|chromosome"):
+            with self.assertRaisesRegex(LDSCInputError, "multiple baseline annotation files for chromosome"):
                 builder.run(
                     AnnotationBuildConfig(
                         baseline_annot_sources=(str(base1a), str(base1b)),
@@ -899,7 +900,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             _write_annot(query1, bad_rows1, {"query_a": [1, 0]})
             _write_annot(query2, rows2, {"query_a": [1]})
 
-            with self.assertRaisesRegex(ValueError, "Annotation SNP rows do not match"):
+            with self.assertRaisesRegex(LDSCInputError, "Annotation SNP rows do not match"):
                 builder.run(
                     AnnotationBuildConfig(
                         baseline_annot_sources=(str(base1), str(base2)),

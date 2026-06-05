@@ -92,3 +92,10 @@ contracts move.
 | `docs/superpowers/specs/2026-06-01-build-ref-panel-memory-optimization-design.md` | build-ref-panel memory/speed optimization: `--min-r2`, compact numpy pair buffers, vectorized pair extraction, builder-scoped float32 genotypes, direct PyArrow writes, BED bitarray releases (MAF-filter and per-build), zstd-L9, vectorized canonical decode lookup, and (#11) int16 R² quantization + `BYTE_STREAM_SPLIT` |
 | `docs/superpowers/specs/2026-06-02-build-ref-panel-reader-streaming-design.md` | shared PLINK genotype reader extracted to `_kernel/plink_bed.py`; lazy header read + per-SNP selective decode with fused individual filter (O1/O3) and opt-in disk streaming for unrestricted builds (O2). Benefits `build-ref-panel`, the legacy `compute_chrom_from_plink` LD-score path, and `PlinkRefPanel`; never materializes the whole-chromosome bitarray |
 | `docs/superpowers/specs/2026-06-03-pair-emission-columnar-and-doc-sync-design.md` | columnar `PairColumns` pair emission end-to-end (O6): `_pop_pair_rows_before`/`yield_pairwise_r2_rows` yield `(i, j, r2, sign)` chunks and `write_r2_parquet`/`_standard_r2_index_table` consume them, removing the per-pair dict round-trip; parquet format/encoding unchanged. Also the O7 memory doc sync across `docs/current/` and the build tutorial |
+
+## LD-Score Calculation Parallelism
+
+| Design document | Implementation |
+| --- | --- |
+| `docs/superpowers/specs/2026-06-05-ldscore-chromosome-parallelism-design.md` | single-machine cross-chromosome process-pool parallelism: `LDScoreConfig.num_workers` + `--num-workers`, `_resolve_worker_count`, `LDScoreCalculator._run_chromosomes` (inline vs spawn `ProcessPoolExecutor`), module-level `_compute_one_chromosome` worker, `_ChromOutcome`, `_init_worker` BLAS-thread guard, deterministic chromosome-ordered aggregation. Output contract unchanged. All in `src/ldsc/ldscore_calculator.py` |
+| `docs/superpowers/plans/2026-06-05-ldscore-chromosome-parallelism-plan.md` | TDD implementation checklist and the two-chromosome canonical index-panel fixture in `tests/test_ldscore_parallelism.py` |

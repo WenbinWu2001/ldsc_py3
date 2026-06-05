@@ -306,6 +306,12 @@ class LDScoreCalculator:
     ) -> LDScoreResult:
         """Compute and aggregate LD scores across all chromosomes.
 
+        Chromosomes are computed independently and then aggregated in input
+        order. ``ldscore_config.num_workers`` controls cross-chromosome
+        parallelism: ``1`` (default) runs sequentially in-process, while larger
+        values fan out over a spawn ``ProcessPoolExecutor``. The aggregated
+        output is identical regardless of the worker count.
+
         Parameters
         ----------
         annotation_bundle : AnnotationBundle

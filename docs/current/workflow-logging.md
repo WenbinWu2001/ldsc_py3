@@ -9,11 +9,35 @@ Public workflow entry points share one logging policy:
   owned siblings that are not produced by the current run. If preflight fails,
   no new log file is created.
 - If execution fails after preflight, the log is kept and ends with a `Failed`
-  footer plus elapsed time.
-- `--log-level` controls module records in console and file; lifecycle audit
-  lines always appear in the file. Supported levels are `DEBUG`, `INFO`,
-  `WARNING`, and `ERROR`.
+  footer, the full Python traceback, and elapsed time, so failures are
+  diagnosable from the log file alone.
+- `--log-level` controls module-record verbosity. With an output directory, those
+  records go to the workflow log file (see routing below); lifecycle audit lines
+  always appear in the file. Supported levels are `DEBUG`, `INFO`, `WARNING`, and
+  `ERROR`.
 - Workflow result objects and `output_paths` mappings do not include log files.
+
+## Console vs File Routing
+
+The per-run `.log` file is the authoritative sink. Console output (stderr) is a
+CLI-only concern, installed by `ldsc.cli.run_cli`; `stdout` is reserved for
+deliverable command output (e.g. regression TSV tables), so log records never go
+to `stdout`. The Python API never writes to the console.
+
+| Context | Output dir | Module records (INFO/DEBUG) | Errors |
+| --- | --- | --- | --- |
+| CLI | provided | `.log` file only | full traceback to `.log`; concise line + logfile pointer to console |
+| CLI | none | console (stderr) | console |
+| Python API | provided | `.log` file only | full traceback to `.log`; exception propagates to caller |
+| Python API | none | nowhere | exception propagates to caller |
+
+Mechanism: `run_cli` installs one stderr `StreamHandler` on the `LDSC` logger at
+`ERROR` level for the duration of the command. When a run has no log file (a
+console-only quick run), `workflow_logging` temporarily lowers that handler to the
+run's level so progress is visible; with a log file it stays at `ERROR`, so
+ordinary records go to the file and only errors echo to the console. The `LDSC`
+logger keeps `propagate = True` and the root logger is never given a handler, so
+nothing is duplicated to the console and `caplog`-based tests keep working.
 
 ## Output-Family Preflight
 
@@ -75,13 +99,17 @@ Elapsed time: 2.0min:12s
 | `rg` | `<output_dir>/diagnostics/rg.log` |
 
 Regression commands without `--output-dir` stay console-only and do not create
-log files.
+log files; their progress records print to the console (stderr) via the routing
+described above.
 
 ## API Boundary
 
 Python convenience wrappers that delegate through parsed workflow functions may
-create logs because they use the same output-directory contract as the CLI.
-Direct computational class APIs remain data-oriented:
+create logs because they use the same output-directory contract as the CLI. The
+console handler is installed only by `run_cli`, so direct API use never emits
+console output: records go to the workflow log file when one is created, and
+otherwise nowhere, while exceptions propagate to the caller unchanged. Direct
+computational class APIs remain data-oriented:
 
 - `AnnotationBuilder.project_bed_annotations(...)` does not create
   `diagnostics/annotate.log` when called directly.
@@ -94,4 +122,6 @@ Direct computational class APIs remain data-oriented:
 path but includes data artifacts such as the dropped-SNP audit sidecar.
 
 For the implementation rationale, see
-`docs/superpowers/specs/2026-05-02-logging-harmonization-design.md`.
+`docs/superpowers/specs/2026-05-02-logging-harmonization-design.md` and the
+console/file routing change in
+`docs/superpowers/plans/2026-06-04-logging-console-file-routing-plan.md`.

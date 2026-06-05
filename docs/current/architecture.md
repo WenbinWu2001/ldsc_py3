@@ -92,10 +92,15 @@ These modules define the package-wide contracts that every workflow shares. They
 
 This module owns the small shared logging context used by workflow wrappers.
 It sets the LDSC logger threshold, attaches a per-run file handler to the
-`LDSC` ancestor logger, writes lifecycle audit lines, restores logger state on
-exit, and exposes log-only formatting helpers. Architecture invariant:
-workflows preflight the log path with scientific outputs before entering the
-context, and result `output_paths` mappings do not include logs.
+`LDSC` ancestor logger, writes lifecycle audit lines, captures a run-aborting
+traceback into the log file on failure, restores logger state on exit, and
+exposes log-only formatting helpers. It also owns the CLI console-handler
+lifecycle: the per-run `.log` file is the authoritative sink, while the console
+(stderr) is CLI-only and silent except for errors (it falls back to full
+verbosity only for console-only runs without an output directory). The Python
+API never emits console output. Architecture invariant: workflows preflight the
+log path with scientific outputs before entering the context, and result
+`output_paths` mappings do not include logs.
 
 ### `ldsc.annotation_builder`
 
@@ -159,10 +164,13 @@ The kernel layer contains the actual numerical methods and low-level readers. It
   chromosome package, while `@` suite runs own the full panel package.
 - **Workflow logging**: `ldsc._logging.workflow_logging()` attaches file
   handlers to the `LDSC` logger so workflow and kernel records are captured
-  together. Logs are audit files, not scientific outputs, so result
-  `output_paths` mappings exclude them. Lifecycle sections use a multi-line
-  `Call:` block, separated `Inputs:`/`Outputs:` audit blocks, and an explicit
-  elapsed-time footer such as `Elapsed time: 2.0min:12s`.
+  together. The log file is the authoritative sink; the CLI console (stderr,
+  installed by `run_cli`) stays silent except for errors, and `stdout` is left
+  for deliverable command output. Logs are audit files, not scientific outputs,
+  so result `output_paths` mappings exclude them. Lifecycle sections use a
+  multi-line `Call:` block, separated `Inputs:`/`Outputs:` audit blocks, and an
+  explicit elapsed-time footer such as `Elapsed time: 2.0min:12s`; a failed run
+  also records the full traceback before the footer.
 - **Dependency split**: base package dependencies cover core pandas/numpy/SciPy
   workflows and parquet I/O. PLINK-backed LD computation requires the
   `plink` extra (`bitarray`), BED projection requires the `bed` extra

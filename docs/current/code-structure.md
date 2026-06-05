@@ -43,7 +43,7 @@ ldsc_py3_Jerry/
 | `ldsc.cli` | unified `ldsc` command and subcommand dispatch |
 | `ldsc.config` | frozen public config dataclasses and basic validation |
 | `ldsc.path_resolution` | normalize path tokens, resolve concrete input files, create output directories, preflight fixed output paths, and enforce coherent output artifact families |
-| `ldsc._logging` | shared workflow logging context, LDSC logger level handling, lifecycle audit lines, and log-only formatting helpers |
+| `ldsc._logging` | shared workflow logging context, LDSC logger level handling, lifecycle audit lines, CLI console-handler routing (file-authoritative, console error-only) with run-aborting traceback capture, and log-only formatting helpers |
 | `ldsc.column_inference` | resolve header aliases and normalize identifier/build tokens |
 | `ldsc.chromosome_inference` | canonical chromosome normalization and ordering |
 | `ldsc.genome_build_inference` | public `chr_pos` build and coordinate-basis inference helpers |

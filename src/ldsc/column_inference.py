@@ -105,7 +105,7 @@ def _build_uniq_id_aliases(build_aliases: Sequence[str], index: int) -> tuple[st
 
 
 # Shared external column families.
-SNP_COLUMN_ALIASES = ("SNP", "SNPID", "SNP_ID", "RSID", "RS_ID", "RS", "ID", "MARKERNAME", "MARKER")
+SNP_COLUMN_ALIASES = ("SNP", "SNPID", "SNP_ID", "RSID", "RS_ID", "RS", "ID", "MARKERNAME", "MARKER", "MARKERID")
 CHR_COLUMN_ALIASES = ("CHR", "#CHROM", "CHROM", "CHROMOSOME")
 POS_COLUMN_ALIASES = ("POS", "BP", "POSITION", "BASE_PAIR", "BASEPAIR")
 CM_COLUMN_ALIASES = ("CM", "CMBP", "CENTIMORGAN")
@@ -134,7 +134,7 @@ RESTRICTION_ALLELE_SPECS = (A1_COLUMN_SPEC, A2_COLUMN_SPEC)
 RAW_SUMSTATS_REQUIRED_OR_OPTIONAL_SPECS = (
     ColumnSpec(
         "SNP",
-        ("SNP", "MARKERNAME", "SNPID", "SNP_ID", "RS", "RSID", "RS_ID", "ID", "RS_NUMBER", "RS_NUMBERS", "MARKER"),
+        ("SNP", "MARKERNAME", "MARKERID", "SNPID", "SNP_ID", "RS", "RSID", "RS_ID", "ID", "RS_NUMBER", "RS_NUMBERS", "MARKER"),
         "summary-stat SNP identifier",
     ),
     CHR_COLUMN_SPEC,
@@ -153,7 +153,7 @@ RAW_SUMSTATS_REQUIRED_OR_OPTIONAL_SPECS = (
     ),
     ColumnSpec("N", ("N", "WEIGHT"), "summary-stat sample size"),
     ColumnSpec("N_CAS", ("NCASE", "CASES_N", "N_CASE", "N_CASES", "N_CAS", "NCAS", "Nca"), "summary-stat case count"),
-    ColumnSpec("N_CON", ("N_CONTROLS", "N_CON", "NCONTROL", "CONTROLS_N", "N_CONTROL", "NCON", "Nco"), "summary-stat control count"),
+    ColumnSpec("N_CON", ("N_CONTROLS", "N_CON", "NCONTROL", "CONTROLS_N", "N_CONTROL", "N_CTRL", "NCON", "Nco"), "summary-stat control count"),
     ColumnSpec("INFO", ("INFO", "IMPINFO"), "summary-stat INFO"),
     ColumnSpec("FRQ", ("EAF", "FRQ", "MAF", "FRQ_U", "F_U"), "summary-stat allele frequency"),
 )

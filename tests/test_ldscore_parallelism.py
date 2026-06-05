@@ -283,3 +283,60 @@ def test_parallel_run_is_deterministic(run_minimal_ldscore):
         pd.read_parquet(a / "ldscore.baseline.parquet"),
         pd.read_parquet(b / "ldscore.baseline.parquet"),
     )
+
+
+# --- Task 6: empty-intersection skip parity under the pool ------------------
+
+
+def _run_with_one_empty_chrom(build_dir: Path, out_dir: Path, num_workers: int) -> Path:
+    """Run with a bundle whose chr2 SNPs do not match the panel (forces a skip)."""
+    import warnings as _warnings
+
+    from ldsc._kernel.ref_panel import RefPanelLoader
+    from ldsc.annotation_builder import AnnotationBundle
+    from ldsc.config import GlobalConfig, LDScoreConfig, RefPanelConfig
+    from ldsc.ldscore_calculator import LDScoreCalculator
+    from ldsc.outputs import LDScoreOutputConfig
+
+    metadata = pd.DataFrame(
+        {
+            "CHR": ["1", "1", "1", "1", "2", "2"],
+            "SNP": ["rs1", "rs2", "rs3", "rs4", "rs_nomatch1", "rs_nomatch2"],
+            "POS": [100, 200, 300, 400, 100, 200],
+            "CM": [np.nan] * 6,
+        }
+    )
+    gcfg = GlobalConfig(snp_identifier="rsid")
+    bundle = AnnotationBundle(
+        metadata=metadata,
+        baseline_annotations=pd.DataFrame({"base": np.ones(len(metadata), dtype=np.float32)}),
+        query_annotations=pd.DataFrame(index=metadata.index),
+        baseline_columns=["base"],
+        query_columns=[],
+        chromosomes=["1", "2"],
+        source_summary={},
+        config_snapshot=gcfg,
+    )
+    spec = RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir))
+    ref_panel = RefPanelLoader(gcfg).load(spec)
+    ldcfg = LDScoreConfig(ld_wind_kb=1.0, snp_batch_size=2, whole_chromosome_ok=True, num_workers=num_workers)
+    with _warnings.catch_warnings():
+        _warnings.simplefilter("ignore")
+        LDScoreCalculator().run(
+            annotation_bundle=bundle,
+            ref_panel=ref_panel,
+            ldscore_config=ldcfg,
+            global_config=gcfg,
+            output_config=LDScoreOutputConfig(output_dir=str(out_dir)),
+        )
+    return out_dir
+
+
+def test_skip_path_matches_under_pool(two_chrom_panel, tmp_path):
+    seq = _run_with_one_empty_chrom(two_chrom_panel, tmp_path / "skip_seq", num_workers=1)
+    par = _run_with_one_empty_chrom(two_chrom_panel, tmp_path / "skip_par", num_workers=3)
+    seq_base = pd.read_parquet(seq / "ldscore.baseline.parquet")
+    par_base = pd.read_parquet(par / "ldscore.baseline.parquet")
+    # Only the matching chromosome 1 survives in both paths.
+    assert seq_base["CHR"].astype(str).tolist() == ["1", "1", "1", "1"]
+    pd.testing.assert_frame_equal(seq_base, par_base)

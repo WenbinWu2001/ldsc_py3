@@ -130,3 +130,29 @@ def test_fixture_builds_and_runs_sequential(run_minimal_ldscore):
     assert baseline["CHR"].astype(str).tolist() == ["1", "1", "1", "1", "2", "2", "2"]
     assert baseline["SNP"].tolist() == ["rs1", "rs2", "rs3", "rs4", "rs5", "rs6", "rs7"]
     assert "base" in baseline.columns
+
+
+# --- Task 1: LDScoreConfig.num_workers --------------------------------------
+
+
+def _cfg(**kw):
+    from ldsc.config import LDScoreConfig
+
+    base = dict(ld_wind_cm=1.0)
+    base.update(kw)
+    return LDScoreConfig(**base)
+
+
+def test_num_workers_defaults_to_one():
+    assert _cfg().num_workers == 1
+
+
+def test_num_workers_negative_rejected():
+    from ldsc.errors import LDSCConfigError
+
+    with pytest.raises(LDSCConfigError):
+        _cfg(num_workers=-1)
+
+
+def test_num_workers_zero_allowed_as_auto_sentinel():
+    assert _cfg(num_workers=0).num_workers == 0

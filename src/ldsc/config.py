@@ -471,6 +471,7 @@ class LDScoreConfig:
     snp_batch_size: int = 128
     common_maf_min: float = 0.05
     whole_chromosome_ok: bool = False
+    num_workers: int = 1
 
     def __post_init__(self) -> None:
         """Validate LD-window settings and normalize optional SNP-list paths."""
@@ -487,6 +488,8 @@ class LDScoreConfig:
             raise LDSCConfigError(_range_message("LDScoreConfig", "common_maf_min", self.common_maf_min, "[0, 0.5]"))
         if self.snp_batch_size <= 0:
             raise LDSCConfigError(_positive_number_message("LDScoreConfig", "snp_batch_size", self.snp_batch_size))
+        if self.num_workers < 0:
+            raise LDSCConfigError(_positive_number_message("LDScoreConfig", "num_workers", self.num_workers))
         object.__setattr__(self, "regression_snps_file", _normalize_optional_path(self.regression_snps_file))
         if self.regression_snps_file is not None and self.use_hm3_regression_snps:
             raise LDSCConfigError(_mutually_exclusive_message("LDScoreConfig", "regression_snps_file", "use_hm3_regression_snps"))

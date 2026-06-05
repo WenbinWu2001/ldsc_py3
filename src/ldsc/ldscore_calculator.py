@@ -1384,6 +1384,7 @@ def _ldscore_config_from_args(args: argparse.Namespace) -> LDScoreConfig:
         snp_batch_size=getattr(args, "snp_batch_size", 128),
         common_maf_min=getattr(args, "common_maf_min", 0.05),
         whole_chromosome_ok=getattr(args, "yes_really", False),
+        num_workers=getattr(args, "num_workers", 1),
     )
 
 

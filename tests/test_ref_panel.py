@@ -233,7 +233,7 @@ class PlinkRefPanelTest(unittest.TestCase):
             path = Path(tmpdir) / "meta.tsv"
             path.write_text("CHR\tPOS\n1\t10\n", encoding="utf-8")
 
-            with self.assertRaisesRegex(LDSCInputError, "SNP identifier column"):
+            with self.assertRaisesRegex(LDSCInputError, "no SNP column was found"):
                 _read_metadata_table(
                     path,
                     None,
@@ -330,7 +330,7 @@ class ParquetRefPanelTest(unittest.TestCase):
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
                 RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
             )
-            with self.assertRaisesRegex(ValueError, "sidecar"):
+            with self.assertRaisesRegex(LDSCInputError, "sidecar"):
                 panel.load_metadata("1")
 
     @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
@@ -392,7 +392,7 @@ class ParquetRefPanelTest(unittest.TestCase):
                 RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
             )
 
-            with self.assertRaisesRegex(ValueError, "malformed.*A1/A2"):
+            with self.assertRaisesRegex(LDSCInputError, "malformed.*A1/A2"):
                 panel.load_metadata("1")
 
     @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
@@ -408,8 +408,8 @@ class ParquetRefPanelTest(unittest.TestCase):
             )
 
             with self.assertRaisesRegex(
-                ValueError,
-                "This artifact was not written with the current LDSC schema/provenance contract",
+                LDSCInputError,
+                "required identity/provenance keys are missing",
             ):
                 panel.build_reader("1")
 
@@ -430,8 +430,8 @@ class ParquetRefPanelTest(unittest.TestCase):
             )
 
             with self.assertRaisesRegex(
-                ValueError,
-                "This artifact was not written with the current LDSC schema/provenance contract",
+                LDSCInputError,
+                "no LDSC identity metadata",
             ):
                 panel.load_metadata("1")
 
@@ -494,7 +494,7 @@ class ParquetRefPanelTest(unittest.TestCase):
                 RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
             )
 
-            with self.assertRaisesRegex(FileNotFoundError, "chr1_r2.parquet"):
+            with self.assertRaisesRegex(LDSCInputError, "chr1_r2.parquet"):
                 panel.load_metadata("1")
 
     @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
@@ -507,7 +507,7 @@ class ParquetRefPanelTest(unittest.TestCase):
                 RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
             )
 
-            with self.assertRaisesRegex(ValueError, "metadata sidecar"):
+            with self.assertRaisesRegex(LDSCInputError, "metadata sidecar"):
                 panel.load_metadata("1")
 
     @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
@@ -535,7 +535,7 @@ class ParquetRefPanelTest(unittest.TestCase):
                 RefPanelConfig(backend="parquet_r2", r2_dir=str(root)),
             )
 
-            with self.assertRaisesRegex(ValueError, "ambiguous"):
+            with self.assertRaisesRegex(LDSCInputError, "ambiguous"):
                 panel.available_chromosomes()
 
     @unittest.skipUnless(_has_module("pyarrow"), "pyarrow is not installed")
@@ -550,7 +550,7 @@ class ParquetRefPanelTest(unittest.TestCase):
                 RefPanelConfig(backend="parquet_r2", r2_dir=str(root)),
             )
 
-            with self.assertRaisesRegex(ValueError, "ambiguous"):
+            with self.assertRaisesRegex(LDSCInputError, "ambiguous"):
                 panel.available_chromosomes()
 
     def test_sidecar_metadata_loading(self):
@@ -669,7 +669,7 @@ class ParquetRefPanelTest(unittest.TestCase):
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
                 RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir)),
             )
-            with self.assertRaises(FileNotFoundError):
+            with self.assertRaises(LDSCInputError):
                 panel.build_reader("1")
 
     def test_plink_prefix_accepts_suite_token(self):

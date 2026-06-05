@@ -367,7 +367,7 @@ class R2AutoLoadCLITest(unittest.TestCase):
                 RefPanelConfig(backend="parquet_r2", r2_dir=str(root)),
             )
 
-            with self.assertRaisesRegex(ValueError, "No parquet metadata rows remain after SNP identity cleanup"):
+            with self.assertRaisesRegex(LDSCInputError, "retained no parquet metadata rows"):
                 panel.load_metadata("1")
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for parquet schema coverage")

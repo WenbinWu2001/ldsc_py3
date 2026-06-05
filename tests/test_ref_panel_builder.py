@@ -22,7 +22,7 @@ if str(SRC) not in sys.path:
 from ldsc._kernel import ref_panel_builder as kernel_builder
 from ldsc._kernel.snp_identity import IDENTITY_DROP_COLUMNS, RestrictionIdentityKeys, empty_identity_drop_frame
 from ldsc.config import GlobalConfig, ReferencePanelBuildConfig
-from ldsc.errors import LDSCConfigError, LDSCInputError, LDSCUsageError
+from ldsc.errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
 from ldsc import ldscore_calculator, ref_panel_builder, reset_global_config, set_global_config
 
 
@@ -136,7 +136,7 @@ class GeneticMapParserTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with self.assertRaises(ValueError):
+            with self.assertRaises(LDSCInputError):
                 kernel_builder.load_genetic_map(path)
 
     def test_load_genetic_map_rejects_duplicate_positions(self):
@@ -149,7 +149,7 @@ class GeneticMapParserTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with self.assertRaises(ValueError):
+            with self.assertRaises(LDSCInputError):
                 kernel_builder.load_genetic_map(path)
 
 
@@ -1049,7 +1049,7 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
         self.assertEqual(captured["config"].snp_batch_size, 64)
 
     def test_run_build_ref_panel_rejects_conflicting_batch_size_keywords(self):
-        with self.assertRaisesRegex(ValueError, "chunk_size or snp_batch_size"):
+        with self.assertRaisesRegex(LDSCUsageError, "chunk_size.*snp_batch_size"):
             ref_panel_builder.run_build_ref_panel(
                 plink_prefix="plink/panel.@",
                 source_genome_build="hg19",
@@ -1061,7 +1061,7 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
             )
 
     def test_run_build_ref_panel_rejects_explicit_genome_build_keyword(self):
-        with self.assertRaisesRegex(ValueError, "set_global_config"):
+        with self.assertRaisesRegex(LDSCUsageError, "set_global_config"):
             ref_panel_builder.run_build_ref_panel(
                 plink_prefix="plink/panel.@",
                 source_genome_build="hg19",
@@ -1074,7 +1074,7 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
             )
 
     def test_run_build_ref_panel_rejects_explicit_snp_identifier_keyword(self):
-        with self.assertRaisesRegex(ValueError, "set_global_config"):
+        with self.assertRaisesRegex(LDSCUsageError, "set_global_config"):
             ref_panel_builder.run_build_ref_panel(
                 plink_prefix="plink/panel.@",
                 source_genome_build="hg19",
@@ -1462,7 +1462,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 global_config=GlobalConfig(snp_identifier="rsid")
             )
 
-            with self.assertRaisesRegex(ValueError, "No chromosome artifacts"):
+            with self.assertRaisesRegex(LDSCInputError, "no chromosome artifacts"):
                 builder.run(config)
 
             sidecar = tmpdir / "out" / "diagnostics" / "dropped_snps" / "chr1_dropped.tsv.gz"
@@ -1543,7 +1543,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 "_build_chromosome",
                 side_effect=AssertionError("chromosome build should not run"),
             ):
-                with self.assertRaisesRegex(ValueError, "chain liftover.*chr_pos-family"):
+                with self.assertRaisesRegex(LDSCUsageError, "chain liftover.*chr_pos-family"):
                     builder.run(config)
 
     def test_builder_run_rejects_matching_chain_in_rsid_allele_aware_mode(self):
@@ -1562,9 +1562,8 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             )
 
             with self.assertRaisesRegex(
-                ValueError,
-                "Reference-panel chain liftover is only valid for chr_pos-family modes; "
-                "omit the matching liftover chain in rsID-family modes.",
+                LDSCUsageError,
+                "chain liftover.*rsID-family",
             ):
                 builder.run(config)
 
@@ -1582,8 +1581,8 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             for mode in ("rsid", "rsid_allele_aware"):
                 builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier=mode))
                 with self.assertRaisesRegex(
-                    ValueError,
-                    "Reference-panel HM3 quick liftover is only valid for chr_pos-family modes.",
+                    LDSCUsageError,
+                    "HM3 quick liftover.*rsID-family",
                 ):
                     builder._prepare_build_state(config)
 
@@ -1604,7 +1603,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 global_config=GlobalConfig(snp_identifier="chr_pos_allele_aware")
             )
 
-            with self.assertRaisesRegex(ValueError, "A1.*A2|columns do not match"):
+            with self.assertRaisesRegex(LDSCInputError, "A1.*A2|columns do not match"):
                 builder.run(config)
 
     def test_chr_pos_allele_aware_drops_invalid_allele_rows_before_genotype_loading(self):
@@ -2416,7 +2415,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             )
 
             with mock.patch.object(ref_panel_builder, "resolve_genome_build", return_value="hg38"):
-                with self.assertRaisesRegex(ValueError, "restriction.*hg38.*source.*hg19"):
+                with self.assertRaisesRegex(LDSCInputError, "restriction.*hg38.*source.*hg19"):
                     builder._prepare_build_state(config)
 
     def test_chr_pos_restriction_filters_before_liftover(self):
@@ -2692,7 +2691,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 "_build_chromosome",
                 return_value={"r2_hg19": "r2-19", "r2_hg38": "r2-38", "meta_hg19": "m19", "meta_hg38": "m38"},
             ):
-                with self.assertRaises(ValueError):
+                with self.assertRaises(LDSCInputError):
                     builder.run(config)
 
     def test_map_positions_passes_explicit_chain_path_to_translator(self):
@@ -2932,7 +2931,7 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
             self.skipTest("minimal hg38 genetic-map fixture is unavailable; run tests/fixtures/generate_minimal_external_resources.py")
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            with self.assertRaisesRegex(ValueError, "hg19 genetic map.*required"):
+            with self.assertRaisesRegex(LDSCUsageError, "cannot emit hg19.*hg19 genetic map was not supplied"):
                 ref_panel_builder.run_build_ref_panel(
                     plink_prefix=str(prefix),
                     source_genome_build="hg38",
@@ -3102,7 +3101,7 @@ class IndexWriterTest(unittest.TestCase):
                {"i": 0, "j": 1, "R2": 0.5, "sign": "+"}]
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "chr1_r2.parquet"
-            with self.assertRaisesRegex(ValueError, "non-decreasing IDX_1"):
+            with self.assertRaisesRegex(LDSCInternalError, "non-decreasing IDX_1"):
                 kb.write_r2_parquet(
                     pair_chunks=dict_chunks(bad), path=path, genome_build="hg19", n_samples=100,
                     snp_identifier="chr_pos", min_r2=0.0, n_snps=4,

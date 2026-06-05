@@ -12,7 +12,7 @@ try:  # pragma: no cover - optional dependency
 except ImportError:  # pragma: no cover - optional dependency
     ba = None
 
-from ..errors import LDSCDependencyError
+from ..errors import LDSCConfigError, LDSCDependencyError, LDSCInputError, LDSCInternalError
 
 
 class __GenotypeArrayInMemory__(object):
@@ -32,19 +32,37 @@ class __GenotypeArrayInMemory__(object):
         if keep_indivs is not None:
             keep_indivs = np.array(keep_indivs, dtype="int")
             if np.any(keep_indivs > self.n):
-                raise ValueError("keep_indivs indices out of bounds")
+                raise LDSCInputError(
+                    "PLINK BED loading could not apply the individual keep list: at least "
+                    "one keep_indivs index is outside the `.fam` sample range. Most likely "
+                    "the keep list was built from a different PLINK sample set. Use a keep "
+                    "file from the same `.fam` file."
+                )
             (self.geno, self.m, self.n) = self.__filter_indivs__(self.geno, keep_indivs, self.m, self.n)
             if self.n <= 0:
-                raise ValueError("After filtering, no individuals remain")
+                raise LDSCInputError(
+                    "PLINK BED loading retained no individuals after sample filtering. "
+                    "Most likely the keep list IDs do not match the `.fam` file. Check "
+                    "FID/IID values and use a keep file from the same PLINK sample set."
+                )
         if keep_snps is not None:
             keep_snps = np.array(keep_snps, dtype="int")
             if np.any(keep_snps > self.m):
-                raise ValueError("keep_snps indices out of bounds")
+                raise LDSCInputError(
+                    "PLINK BED loading could not apply the SNP keep list: at least one "
+                    "keep_snps index is outside the `.bim` SNP range. Most likely SNP "
+                    "indices were built from a different PLINK prefix. Rebuild the keep "
+                    "list from the same `.bim` file."
+                )
         (self.geno, self.m, self.n, self.kept_snps, self.freq) = self.__filter_snps_maf__(
             self.geno, self.m, self.n, self.mafMin, keep_snps
         )
         if self.m <= 0:
-            raise ValueError("After filtering, no SNPs remain")
+            raise LDSCInputError(
+                "PLINK BED loading retained no SNPs after SNP/MAF filtering. Most likely "
+                "the SNP restriction, chromosome selection, or MAF threshold removed every "
+                "variant. Relax the filters or use a matching PLINK reference panel."
+            )
         self.df = self.df[self.kept_snps, :]
         self.maf = np.minimum(self.freq, np.ones(self.m) - self.freq)
         self.sqrtpq = np.sqrt(self.freq * (np.ones(self.m) - self.freq))
@@ -91,7 +109,12 @@ class __GenotypeArrayInMemory__(object):
         else:
             annot_m = annot.shape[0]
             if annot_m != self.m:
-                raise ValueError("Incorrect number of SNPs in annot")
+                raise LDSCInternalError(
+                    "PLINK LD-score calculation received an annotation matrix with the "
+                    f"wrong SNP count ({annot_m} rows for {self.m} retained SNPs). Most "
+                    "likely annotation/reference alignment desynchronized before PLINK "
+                    "computation. Re-run with DEBUG logging and report the traceback."
+                )
 
         n_a = annot.shape[1]
         cor_sum = np.zeros((m, n_a))
@@ -188,16 +211,28 @@ if ba is not None:
             ``__filter_snps_maf__``.
             """
             if not fname.endswith(".bed"):
-                raise ValueError(".bed filename must end in .bed")
+                raise LDSCInputError(
+                    f"PLINK BED loading expected a `.bed` file, got '{fname}'. Most "
+                    "likely the PLINK prefix points at the wrong file. Pass the prefix "
+                    "without extension so LDSC can open `<prefix>.bed`."
+                )
             fh = open(fname, "rb")
             magicNumber = ba.bitarray(endian="little")
             magicNumber.fromfile(fh, 2)
             bedMode = ba.bitarray(endian="little")
             bedMode.fromfile(fh, 1)
             if magicNumber != ba.bitarray("0011011011011000"):
-                raise IOError("Magic number from Plink .bed file not recognized")
+                raise LDSCInputError(
+                    f"PLINK BED file '{fname}' has an unrecognized magic number. Most "
+                    "likely the file is not a PLINK BED file or is corrupted. Regenerate "
+                    "the PLINK binary files and retry."
+                )
             if bedMode != ba.bitarray("10000000"):
-                raise IOError("Plink .bed file must be in default SNP-major mode")
+                raise LDSCInputError(
+                    f"PLINK BED file '{fname}' is not in SNP-major mode. Most likely it "
+                    "was written in an unsupported PLINK layout. Regenerate it in the "
+                    "default SNP-major BED format."
+                )
             e = (4 - n % 4) if n % 4 != 0 else 0
             nru = n + e
             self._fh = fh
@@ -209,8 +244,11 @@ if ba is not None:
             file_size = fh.tell()
             expected = self._data_start + m * self._source_bytes_per_snp
             if file_size != expected:
-                raise IOError(
-                    "Plink .bed file has {n1} bytes, expected {n2}".format(n1=file_size, n2=expected)
+                raise LDSCInputError(
+                    f"PLINK BED file '{fname}' has {file_size} bytes, expected {expected}. "
+                    "Most likely the `.bed`, `.bim`, and `.fam` files are not a matched "
+                    "set or the BED file is truncated. Use a consistent PLINK prefix and "
+                    "regenerate the binary files if needed."
                 )
             return (nru, None)
 
@@ -295,11 +333,23 @@ if ba is not None:
             try:
                 b = int(b)
                 if b <= 0:
-                    raise ValueError("b must be > 0")
+                    raise LDSCConfigError(
+                        f"PLINK BED batch read received invalid b={b}. Most likely the "
+                        "SNP batch size was set to zero or a negative value. Pass a "
+                        "positive SNP batch size."
+                    )
             except TypeError:
-                raise TypeError("b must be an integer")
+                raise LDSCConfigError(
+                    f"PLINK BED batch read received non-integer b={b!r}. Most likely a "
+                    "Python caller passed an invalid batch size. Pass a positive integer."
+                ) from None
             if self._currentSNP + b > self.m:
-                raise ValueError("{b} SNPs requested, {k} SNPs remain".format(b=b, k=(self.m - self._currentSNP)))
+                remaining = self.m - self._currentSNP
+                raise LDSCInternalError(
+                    f"PLINK BED batch read requested {b} SNPs but only {remaining} remain. "
+                    "Most likely LD-window traversal asked past the retained SNP matrix. "
+                    "Re-run with DEBUG logging and report the traceback."
+                )
             c = self._currentSNP
             n = self.n
             nru = self.nru

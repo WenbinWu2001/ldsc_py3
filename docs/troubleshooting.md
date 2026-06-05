@@ -259,3 +259,95 @@ and parquet row decoders · **Exception:** `LDSCInputError`
 1. Pass an explicit build: `--genome-build hg19` or `--genome-build hg38`.
 2. Regenerate annotation and R2 reference-panel artifacts on the same genome build.
 3. Keep only one build's R2 parquet files in a given `--r2-dir`.
+
+## build-ref-panel
+
+### build-ref-panel: no reference-panel artifacts were produced
+
+**Raised by:** `ref_panel_builder.ReferencePanelBuilder.run()` and reference-panel
+metadata cleanup paths · **Exception:** `LDSCInputError`
+**Symptom:** `build-ref-panel produced no chromosome artifacts...` / `...retained no parquet metadata rows...`
+
+**Likely causes & how to check** (most probable first):
+
+| # | Likely cause | How to check |
+|---|--------------|--------------|
+| 1 | The SNP restriction does not overlap the PLINK source panel | Compare the first IDs/coordinates in `--ref-panel-snps-file` against the `.bim` file |
+| 2 | The restriction or PLINK panel is on the wrong genome build | Check `--source-genome-build` and any build-specific restriction position columns |
+| 3 | Identity cleanup dropped all rows because identifiers are missing or duplicated | Inspect `diagnostics/dropped_snps/chr*_dropped.tsv.gz` for `reason` values |
+| 4 | Liftover or duplicate-position filtering removed every retained SNP | Inspect the dropped-SNP sidecar for `unmapped_liftover`, `source_duplicate`, or `target_collision` |
+| 5 | MAF or individual filtering removed all SNPs before artifact writing | Relax `--maf-min` or check the keep-individual file against the `.fam` file |
+
+**Remedies:**
+
+1. Build the SNP restriction from the same PLINK source build and SNP identifier mode.
+2. Review `diagnostics/dropped_snps/` to identify the first filter that removed rows.
+3. Relax filters or regenerate the PLINK/reference inputs so at least one SNP remains
+   per chromosome.
+
+### build-ref-panel: liftover or genetic-map configuration is incomplete
+
+**Raised by:** `ref_panel_builder.ReferencePanelBuilder._prepare_build_state()`,
+chromosome liftover setup, and genetic-map interpolation helpers · **Exception:** `LDSCUsageError` / `LDSCInputError`
+**Symptom:** `build-ref-panel cannot emit <build>...` / `...genetic map...`
+
+**Likely causes & how to check** (most probable first):
+
+| # | Likely cause | How to check |
+|---|--------------|--------------|
+| 1 | `--ld-wind-cm` was requested without the source-build genetic map | Confirm the matching `--genetic-map-hg19-sources` or `--genetic-map-hg38-sources` option is present |
+| 2 | Liftover enabled an opposite-build output without that build's genetic map | Check whether a chain file or HM3 quick liftover emits the other build |
+| 3 | The genetic map is for the wrong build or lacks the failing chromosome | Inspect CHR values in the map and compare them to `--source-genome-build` |
+| 4 | Genetic map shards overlap or are not sorted by chromosome/position | Sort and deduplicate map rows by CHR/POS |
+| 5 | A chain file is missing, reversed, or incompatible with the source/target pair | Check the chain filename and source-target CLI flag direction |
+
+**Remedies:**
+
+1. For cM windows, provide every genetic map needed by the emitted build(s).
+2. Use `--ld-wind-kb` or `--ld-wind-snps` when genetic maps are unavailable.
+3. Use liftover chains only in chr_pos-family modes and make the chain direction
+   match the source and target builds.
+
+### build-ref-panel: SNP restriction does not match the source panel
+
+**Raised by:** `ref_panel_builder._read_ref_panel_snp_restriction()` and
+restriction build/column readers · **Exception:** `LDSCInputError`
+**Symptom:** `build-ref-panel SNP restriction does not match the source panel build...`
+
+**Likely causes & how to check** (most probable first):
+
+| # | Likely cause | How to check |
+|---|--------------|--------------|
+| 1 | The restriction's generic POS column is on a different build than the PLINK source | Infer or inspect several CHR/POS rows against hg19/hg38 |
+| 2 | The restriction file has ambiguous build-specific position columns | Print the header and keep only one `hg19_POS` or `hg38_POS` source-build column |
+| 3 | CHR/POS columns were parsed from the wrong delimiter or header names | Inspect the header with `head -1 <file> | cat -A` |
+| 4 | Allele-aware restriction rows are missing A1/A2 values | Check whether every row has both allele columns when using allele-aware modes |
+| 5 | The file contains too little HM3 overlap for automatic build inference | Use explicit source-build-specific position columns instead of generic `POS` |
+
+**Remedies:**
+
+1. Prepare the restriction file on the same build as the PLINK source panel.
+2. Prefer source-build-specific position columns such as `hg19_POS` or `hg38_POS`.
+3. Fix ragged rows or delimiter/header issues before rerunning.
+
+### build-ref-panel: reference-panel artifact is incompatible
+
+**Raised by:** `_kernel.ref_panel.ParquetR2RefPanel` and metadata sidecar readers
+· **Exception:** `LDSCInputError`
+**Symptom:** `Reference-panel metadata sidecar is missing...` / `...required identity/provenance keys are missing...`
+
+**Likely causes & how to check** (most probable first):
+
+| # | Likely cause | How to check |
+|---|--------------|--------------|
+| 1 | The R2 parquet was copied without its matching `chrN_meta.tsv.gz` sidecar | Confirm each `chrN_r2.parquet` has a same-directory `chrN_meta.tsv.gz` |
+| 2 | The artifact was written by an older LDSC version | Inspect parquet or sidecar metadata for `schema_version` and `artifact_type` |
+| 3 | A parent directory with multiple build children was passed without a concrete build | Check for `hg19/` and `hg38/` children under `--r2-dir` |
+| 4 | The metadata sidecar lacks required SNP identity columns for the active mode | Inspect sidecar columns for SNP or CHR/POS plus A1/A2 in allele-aware modes |
+| 5 | The selected chromosome/build was not generated | List `chr*_r2.parquet` files in the selected build directory |
+
+**Remedies:**
+
+1. Keep R2 parquet files and metadata sidecars together as one artifact family.
+2. Regenerate the reference panel with the current `ldsc build-ref-panel`.
+3. Pass a concrete build-specific R2 directory or set the matching genome build.

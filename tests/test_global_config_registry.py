@@ -193,7 +193,7 @@ class GlobalConfigRegistryTest(unittest.TestCase):
             )
 
     def test_run_build_ref_panel_rejects_removed_shared_kwargs(self):
-        with self.assertRaisesRegex(ValueError, "set_global_config"):
+        with self.assertRaisesRegex(LDSCUsageError, "set_global_config"):
             ref_panel_builder.run_build_ref_panel(
                 plink_prefix="plink/panel",
                 source_genome_build="hg19",
@@ -206,7 +206,7 @@ class GlobalConfigRegistryTest(unittest.TestCase):
             )
 
     def test_run_build_ref_panel_rejects_retired_io_kwargs(self):
-        with self.assertRaisesRegex(ValueError, "plink_path"):
+        with self.assertRaisesRegex(LDSCUsageError, "plink_path"):
             ref_panel_builder.run_build_ref_panel(
                 plink_path="plink/panel",
                 source_genome_build="hg19",

@@ -26,6 +26,7 @@ from ..column_inference import (
     resolve_required_column,
 )
 from ..config import GlobalConfig, RefPanelConfig, validate_config_compatibility
+from ..errors import LDSCConfigError, LDSCDependencyError, LDSCInputError, LDSCInternalError, LDSCUsageError
 from ..genome_build_inference import resolve_genome_build, validate_auto_genome_build_mode
 from ..hm3 import packaged_hm3_curated_map_path
 from ..path_resolution import resolve_plink_prefix, resolve_plink_prefix_group
@@ -48,6 +49,8 @@ from .snp_identity import (
 
 LOGGER = logging.getLogger("LDSC.ref_panel")
 _REF_PANEL_R2_RE = re.compile(r"^chr(?P<chrom>.+)_r2\.parquet$", flags=re.IGNORECASE)
+_REF_PANEL_ARTIFACT_DOC = "docs/troubleshooting.md#build-ref-panel-reference-panel-artifact-is-incompatible"
+_REF_PANEL_EMPTY_DOC = "docs/troubleshooting.md#build-ref-panel-no-reference-panel-artifacts-were-produced"
 
 
 def _snp_id_series_for_matching(metadata: pd.DataFrame, snp_identifier: str, *, context: str) -> pd.Series:
@@ -106,7 +109,11 @@ def _read_identity_schema_meta(path: str, *, expected_artifact_type: str) -> dic
     try:
         import pyarrow.parquet as pq
     except ImportError as exc:
-        raise ImportError("Reading LDSC R2 identity schema metadata requires pyarrow.") from exc
+        raise LDSCDependencyError(
+            "Reading LDSC R2 identity schema metadata requires pyarrow. Most likely "
+            "parquet reference-panel input was requested in an environment without pyarrow. "
+            "Install pyarrow or activate the LDSC environment that includes it."
+        ) from exc
 
     raw = pq.read_schema(path).metadata or {}
     required_keys = {
@@ -116,7 +123,13 @@ def _read_identity_schema_meta(path: str, *, expected_artifact_type: str) -> dic
         b"ldsc:genome_build",
     }
     if not required_keys.issubset(raw):
-        raise ValueError(REGENERATE_ARTIFACT_MESSAGE)
+        raise LDSCInputError(
+            "Could not read LDSC reference-panel R2 artifact metadata: required "
+            "identity/provenance keys are missing from the parquet schema. Most likely "
+            "the R2 file was written by an older LDSC version or by another tool. "
+            "Regenerate the reference panel with the current `ldsc build-ref-panel`. "
+            f"Other causes & fixes: {_REF_PANEL_ARTIFACT_DOC}"
+        )
     metadata = {
         "schema_version": int(raw[b"ldsc:schema_version"].decode("utf-8")),
         "artifact_type": raw[b"ldsc:artifact_type"].decode("utf-8"),
@@ -300,7 +313,12 @@ class PlinkRefPanel(RefPanel):
         df["POS"] = pd.to_numeric(df["POS"], errors="raise").astype(int)
         metadata = df.loc[df["CHR"] == chrom, ["_raw_index", "CHR", "SNP", "CM", "POS", "A1", "A2"]].reset_index(drop=True)
         if len(metadata) == 0:
-            raise ValueError(f"No PLINK metadata rows found for chromosome {chrom}.")
+            raise LDSCInputError(
+                f"Reference-panel loading found no PLINK metadata rows for chromosome {chrom}. "
+                "Most likely the PLINK `.bim` file does not contain that chromosome or "
+                "chromosome labels do not match the requested run. Pass a PLINK prefix "
+                "with matching chromosome rows."
+            )
         metadata = self._apply_snp_restriction(metadata)
         validate_unique_snp_ids(metadata, self.global_config.snp_identifier, context=f"{type(self).__name__}[{chrom}]")
         metadata = self._load_genotype_metadata(chrom, metadata)
@@ -312,7 +330,11 @@ class PlinkRefPanel(RefPanel):
         """Build a PLINK BED reader with optional SNP, sample, and MAF filters."""
         prefix = None if self.spec.plink_prefix is None else resolve_plink_prefix(self.spec.plink_prefix, chrom=chrom)
         if prefix is None:
-            raise ValueError("PlinkRefPanel requires plink_prefix.")
+            raise LDSCUsageError(
+                "PLINK reference-panel loading requires a PLINK prefix. Most likely "
+                "`RefPanelConfig(backend='plink')` was used without `plink_prefix`. "
+                "Pass the prefix shared by `.bed`, `.bim`, and `.fam`."
+            )
         bim = legacy_parse.PlinkBIMFile(prefix + ".bim")
         fam = legacy_parse.PlinkFAMFile(prefix + ".fam")
 
@@ -350,7 +372,11 @@ class PlinkRefPanel(RefPanel):
         """Return PLINK metadata with genotype-derived MAF when the reader is available."""
         prefix = None if self.spec.plink_prefix is None else resolve_plink_prefix(self.spec.plink_prefix, chrom=chrom)
         if prefix is None:
-            raise ValueError("PlinkRefPanel requires plink_prefix.")
+            raise LDSCUsageError(
+                "PLINK reference-panel metadata loading requires a PLINK prefix. Most likely "
+                "`RefPanelConfig(backend='plink')` was used without `plink_prefix`. Pass "
+                "the prefix shared by `.bed`, `.bim`, and `.fam`."
+            )
         bim = legacy_parse.PlinkBIMFile(prefix + ".bim")
         fam = legacy_parse.PlinkFAMFile(prefix + ".fam")
         keep_indivs = self._resolve_keep_individuals(fam)
@@ -393,7 +419,12 @@ class PlinkRefPanel(RefPanel):
             return None
         keep_indivs = fam.loj(legacy_parse.FilterFile(self.spec.keep_indivs_file).IDList)
         if len(keep_indivs) == 0:
-            raise ValueError("No individuals retained for analysis")
+            raise LDSCInputError(
+                f"Reference-panel loading retained no PLINK individuals after applying "
+                f"keep file '{self.spec.keep_indivs_file}'. Most likely the keep-list IDs "
+                "do not match the `.fam` file. Check IID/FID columns and use a keep list "
+                "from the same PLINK sample set."
+            )
         return keep_indivs.tolist()
 
     def _read_bim_table(self, chrom: str | None) -> pd.DataFrame:
@@ -408,7 +439,11 @@ class PlinkRefPanel(RefPanel):
             )
         )
         if not prefixes:
-            raise ValueError("PlinkRefPanel requires plink_prefix.")
+            raise LDSCUsageError(
+                "PLINK reference-panel loading requires a PLINK prefix. Most likely "
+                "`RefPanelConfig(backend='plink')` was used without `plink_prefix` or "
+                "the prefix token resolved to no files. Pass a valid PLINK prefix."
+            )
         frames = [
             pd.read_csv(
                 prefix + ".bim",
@@ -452,9 +487,19 @@ class ParquetR2RefPanel(RefPanel):
             }
             if chromosomes:
                 return sorted(chromosomes, key=_chrom_sort_key)
-            raise FileNotFoundError(f"No chr*_r2.parquet files found in R2 directory '{self.spec.r2_dir}'.")
+            raise LDSCInputError(
+                f"Reference-panel loading found no `chr*_r2.parquet` files in R2 "
+                f"directory '{self.spec.r2_dir}'. Most likely the directory is not an "
+                "`ldsc build-ref-panel` output directory or the wrong genome-build child "
+                "directory was selected. Pass the directory containing canonical R2 parquet files. "
+                f"Other causes & fixes: {_REF_PANEL_ARTIFACT_DOC}"
+            )
 
-        raise ImportError("Chromosome discovery for parquet R2 requires explicit chromosomes or r2_dir.")
+        raise LDSCUsageError(
+            "Parquet R2 chromosome discovery requires explicit chromosomes or `r2_dir`. "
+            "Most likely `RefPanelConfig(backend='parquet_r2')` was used without an R2 "
+            "directory. Pass `r2_dir` or an explicit chromosome list."
+        )
 
     def load_metadata(self, chrom: str) -> pd.DataFrame:
         """Load, restrict, validate, and cache metadata for one chromosome."""
@@ -462,7 +507,11 @@ class ParquetR2RefPanel(RefPanel):
         if chrom in self._metadata_cache:
             return self._metadata_cache[chrom].copy()
         if self.spec.keep_indivs_file is not None:
-            raise ValueError("--keep-indivs-file is only supported in PLINK mode.")
+            raise LDSCUsageError(
+                "Reference-panel loading cannot apply `--keep-indivs-file` in parquet R2 mode. "
+                "Most likely individual filtering was combined with precomputed parquet R2 "
+                "input. Remove the keep file or use PLINK mode."
+            )
 
         r2_paths = self.resolve_r2_paths(chrom)
         metadata_paths = self.resolve_metadata_paths(chrom)
@@ -481,13 +530,20 @@ class ParquetR2RefPanel(RefPanel):
             ]
             frames = [frame for frame in frames if len(frame) > 0]
             if not frames:
-                raise ValueError(f"No parquet metadata rows found for chromosome {chrom}.")
+                raise LDSCInputError(
+                    f"Reference-panel loading found no metadata rows for chromosome {chrom}. "
+                    "Most likely the metadata sidecar exists but contains no rows for this "
+                    "chromosome after filtering. Check the sidecar and selected chromosome."
+                )
             metadata = pd.concat(frames, axis=0, ignore_index=True)
         else:
-            raise ValueError(
+            raise LDSCInputError(
                 f"Reference-panel metadata sidecar is missing for chromosome {chrom}. "
-                "Index-format R2 parquets require their chrN_meta.tsv.gz sidecar: the parquet "
-                "stores only sidecar-row indices and cannot be read without it."
+                "Index-format R2 parquets require their `chrN_meta.tsv.gz` sidecar because "
+                "the parquet stores only sidecar-row indices. Most likely the sidecar was "
+                "not copied with the R2 parquet. Restore the matching sidecar or regenerate "
+                "the panel. "
+                f"Other causes & fixes: {_REF_PANEL_ARTIFACT_DOC}"
             )
         metadata = self._apply_snp_restriction(metadata)
         metadata = self._apply_maf_filter(metadata, chrom)
@@ -501,7 +557,13 @@ class ParquetR2RefPanel(RefPanel):
             )
             metadata = cleanup.cleaned
             if len(metadata) == 0:
-                raise ValueError(f"No parquet metadata rows remain after SNP identity cleanup on chromosome {chrom}.")
+                raise LDSCInputError(
+                    f"Reference-panel loading retained no parquet metadata rows on chromosome "
+                    f"{chrom} after SNP identity cleanup. Most likely metadata rows have "
+                    "missing or duplicate SNP identities under the active identifier mode. "
+                    "Regenerate the reference panel or use an identifier mode compatible "
+                    f"with the sidecar. Other causes & fixes: {_REF_PANEL_EMPTY_DOC}"
+                )
         metadata = self._validate_metadata(metadata, chrom)
         self._metadata_cache[chrom] = metadata.copy()
         return metadata
@@ -556,7 +618,11 @@ class ParquetR2RefPanel(RefPanel):
                 genome_build=self.global_config.genome_build,
                 chrom=chrom,
             )
-        raise FileNotFoundError("Parquet R2 reference-panel loading requires r2_dir.")
+        raise LDSCUsageError(
+            "Parquet R2 reference-panel loading requires `r2_dir`. Most likely "
+            "`RefPanelConfig(backend='parquet_r2')` was used without an R2 directory. "
+            "Pass the directory containing `chrN_r2.parquet` files."
+        )
 
     def resolve_metadata_paths(self, chrom: str) -> list[str]:
         """Resolve optional metadata sidecars for one chromosome."""
@@ -582,9 +648,17 @@ def _resolve_r2_build_dir(r2_dir: str | Path, genome_build: str | None) -> Path:
     """Resolve a build-specific R2 directory from user input."""
     root = Path(r2_dir)
     if not root.exists():
-        raise FileNotFoundError(f"Reference panel directory does not exist: {root}")
+        raise LDSCInputError(
+            f"Reference-panel R2 directory does not exist: '{root}'. Most likely the "
+            "path is misspelled or relative to a different working directory. Pass the "
+            "existing `ldsc build-ref-panel` output directory."
+        )
     if not root.is_dir():
-        raise NotADirectoryError(f"Reference panel path is not a directory: {root}")
+        raise LDSCInputError(
+            f"Reference-panel R2 path is not a directory: '{root}'. Most likely a file "
+            "path was passed where an R2 directory was expected. Pass the directory "
+            "containing `chrN_r2.parquet` files."
+        )
     if list(root.glob("chr*_r2.parquet")):
         return root
 
@@ -594,9 +668,11 @@ def _resolve_r2_build_dir(r2_dir: str | Path, genome_build: str | None) -> Path:
         return build_dirs[requested_build]
     if len(build_dirs) > 1:
         builds = ", ".join(sorted(build_dirs))
-        raise ValueError(
-            f"Reference panel directory '{root}' is ambiguous because it contains multiple genome-build directories ({builds}). "
-            "Pass the build-specific directory or set genome_build to hg19 or hg38."
+        raise LDSCInputError(
+            f"Reference-panel directory '{root}' is ambiguous because it contains multiple "
+            f"genome-build directories ({builds}). Most likely a parent output directory "
+            "was passed while genome_build is unset or auto. Pass the build-specific "
+            "directory or set genome_build to hg19 or hg38."
         )
     if len(build_dirs) == 1:
         return next(iter(build_dirs.values()))
@@ -611,7 +687,13 @@ def _r2_dir_r2_paths(r2_dir: str | Path, *, genome_build: str | None, chrom: str
     if chrom is not None:
         path = build_dir / f"chr{normalize_chromosome(chrom)}_r2.parquet"
         if not path.exists():
-            raise FileNotFoundError(f"Required parquet R2 file is missing: {path}")
+            raise LDSCInputError(
+                f"Required parquet R2 file is missing: '{path}'. Most likely the "
+                "reference panel was not built for this chromosome/build, or the wrong "
+                "R2 directory was selected. Regenerate the missing chromosome or pass "
+                "the correct `r2_dir`. "
+                f"Other causes & fixes: {_REF_PANEL_ARTIFACT_DOC}"
+            )
         return [str(path)]
     paths = sorted(
         build_dir.glob("chr*_r2.parquet"),
@@ -642,7 +724,10 @@ class RefPanelLoader:
             return PlinkRefPanel(global_config, ref_panel_spec)
         if backend == "parquet_r2":
             return ParquetR2RefPanel(global_config, ref_panel_spec)
-        raise ValueError(f"Unsupported reference-panel backend: {backend}")
+        raise LDSCConfigError(
+            f"Unsupported reference-panel backend {backend!r}. Most likely a Python "
+            "caller supplied an invalid RefPanelConfig backend. Use `plink` or `parquet_r2`."
+        )
 
     def _global_config_for_spec(self, ref_panel_spec: RefPanelConfig) -> GlobalConfig:
         """Resolve direct Python auto-build restrictions before backend loading."""
@@ -674,14 +759,18 @@ def _infer_restricted_ref_panel_build(ref_panel_spec: RefPanelConfig) -> str:
         else:
             inferred = None
     except Exception as exc:
-        raise ValueError(
-            "Cannot infer genome_build='auto' before applying chr_pos reference-panel SNP restrictions. "
-            "Pass GlobalConfig(genome_build='hg19') or GlobalConfig(genome_build='hg38') explicitly."
+        raise LDSCInputError(
+            "Reference-panel loading could not infer genome_build='auto' before applying "
+            "chr_pos SNP restrictions. Most likely the restriction file, PLINK BIM, or "
+            "parquet R2 metadata did not contain enough build evidence. Pass "
+            "GlobalConfig(genome_build='hg19') or GlobalConfig(genome_build='hg38') explicitly."
         ) from exc
     if inferred not in {"hg19", "hg38"}:
-        raise ValueError(
-            "Cannot infer genome_build='auto' before applying chr_pos reference-panel SNP restrictions. "
-            "Pass GlobalConfig(genome_build='hg19') or GlobalConfig(genome_build='hg38') explicitly."
+        raise LDSCInputError(
+            "Reference-panel loading could not infer genome_build='auto' before applying "
+            "chr_pos SNP restrictions. Most likely the restriction file and reference panel "
+            "do not expose concrete build metadata. Pass GlobalConfig(genome_build='hg19') "
+            "or GlobalConfig(genome_build='hg38') explicitly."
         )
     return inferred
 
@@ -783,7 +872,12 @@ def _read_metadata_sidecar_identity(path: str | Path) -> dict[str, object] | Non
         return None
     required = {"schema_version", "artifact_type", "snp_identifier", "genome_build"}
     if not required.issubset(raw):
-        raise ValueError(REGENERATE_ARTIFACT_MESSAGE)
+        raise LDSCInputError(
+            f"Reference-panel metadata sidecar '{path}' is missing LDSC identity "
+            "metadata. Most likely it was written by an older LDSC version or edited. "
+            "Regenerate the reference panel with the current `ldsc build-ref-panel`. "
+            f"Other causes & fixes: {_REF_PANEL_ARTIFACT_DOC}"
+        )
     return {
         "schema_version": int(raw["schema_version"]),
         "artifact_type": raw["artifact_type"],
@@ -821,7 +915,13 @@ def _read_metadata_table(
 
     identity_metadata = _read_metadata_sidecar_identity(path)
     if require_identity_metadata and identity_metadata is None:
-        raise ValueError(REGENERATE_ARTIFACT_MESSAGE)
+        raise LDSCInputError(
+            f"Reference-panel metadata sidecar '{path}' has no LDSC identity metadata, "
+            "but its paired R2 parquet requires package provenance. Most likely the "
+            "sidecar was written by an older LDSC version or copied from an external "
+            "source. Regenerate the reference panel with the current `ldsc build-ref-panel`. "
+            f"Other causes & fixes: {_REF_PANEL_ARTIFACT_DOC}"
+        )
     if identity_metadata is not None:
         validate_identity_artifact_metadata(identity_metadata, expected_artifact_type="ref_panel_metadata")
         _validate_metadata_identity_matches_config(identity_metadata, global_config)
@@ -840,22 +940,32 @@ def _read_metadata_table(
     try:
         chr_col = resolve_required_column(df.columns, REFERENCE_METADATA_SPEC_MAP["CHR"], context=context)
         pos_col = resolve_required_column(df.columns, REFERENCE_METADATA_SPEC_MAP["POS"], context=context)
-    except ValueError:
+    except (ValueError, LDSCInputError):
         # Metadata may be rsid-only; validate the required identifier columns
         # after probing both coordinate and SNP schemas.
         pass
     try:
         snp_col = resolve_required_column(df.columns, REFERENCE_METADATA_SPEC_MAP["SNP"], context=context)
-    except ValueError:
+    except (ValueError, LDSCInputError):
         # Metadata may be coordinate-only; mode-specific validation below
         # decides whether the missing SNP column is an error.
         pass
 
     family = identity_mode_family(snp_identifier)
     if family == "rsid" and snp_col is None:
-        raise ValueError(f"{path} must contain a SNP column in rsID-family modes.")
+        raise LDSCInputError(
+            f"Reference-panel metadata sidecar '{path}' is incompatible with rsID-family "
+            "mode: no SNP column was found. Most likely the sidecar uses CHR/POS-only "
+            "identifiers or an unrecognized SNP header. Regenerate the panel or run with "
+            "a chr_pos-family SNP identifier."
+        )
     if family == "chr_pos" and (chr_col is None or pos_col is None):
-        raise ValueError(f"{path} must contain CHR and POS columns in chr_pos-family modes.")
+        raise LDSCInputError(
+            f"Reference-panel metadata sidecar '{path}' is incompatible with chr_pos-family "
+            "mode: CHR and POS columns are required. Most likely the sidecar uses rsID-only "
+            "identifiers or unrecognized CHR/POS headers. Regenerate the panel or run with "
+            "an rsID-family SNP identifier."
+        )
 
     out = pd.DataFrame(index=df.index)
     if chr_col is not None:
@@ -875,14 +985,28 @@ def _read_metadata_table(
         maf = pd.to_numeric(df[maf_col], errors="coerce").astype(float)
         out["MAF"] = pd.Series(maf).map(lambda value: value if pd.isna(value) else min(value, 1.0 - value))
     elif global_config.fail_on_missing_metadata:
-        raise ValueError(f"{path} is missing MAF metadata.")
+        raise LDSCInputError(
+            f"Reference-panel metadata sidecar '{path}' is missing MAF metadata. Most "
+            "likely the sidecar was produced without allele-frequency values, but the "
+            "active configuration requires complete metadata. Regenerate the panel with "
+            "MAF metadata or disable strict missing-metadata checks."
+        )
 
     a1_col = resolve_optional_column(df.columns, A1_COLUMN_SPEC, context=context)
     a2_col = resolve_optional_column(df.columns, A2_COLUMN_SPEC, context=context)
     if (a1_col is None) != (a2_col is None):
-        raise ValueError(f"{path} has only one allele column; provide both A1 and A2 or neither.")
+        raise LDSCInputError(
+            f"Reference-panel metadata sidecar '{path}' has only one allele column. "
+            "Most likely A1 or A2 is missing from the sidecar. Provide both allele "
+            "columns, or regenerate the panel in a base SNP identifier mode."
+        )
     if is_allele_aware_mode(snp_identifier) and (a1_col is None or a2_col is None):
-        raise ValueError(f"{path} is malformed for allele-aware SNP identity: A1/A2 columns are required.")
+        raise LDSCInputError(
+            f"Reference-panel metadata sidecar '{path}' is malformed for allele-aware "
+            "SNP identity: A1/A2 columns are required. Most likely the panel was built "
+            "without allele metadata. Regenerate with A1/A2 metadata or use a base SNP "
+            "identifier mode."
+        )
     if a1_col is not None and a2_col is not None:
         out["A1"] = df[a1_col].astype(str)
         out["A2"] = df[a2_col].astype(str)

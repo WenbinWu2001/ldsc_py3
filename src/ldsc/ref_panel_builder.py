@@ -75,6 +75,7 @@ from .path_resolution import (
     resolve_scalar_path,
 )
 from ._logging import configure_package_logging, log_inputs, log_outputs, workflow_logging
+from .errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
 from ._kernel import formats as legacy_parse
 from ._kernel import identifiers as kernel_identifiers
 from ._kernel import ldscore as kernel_ldscore
@@ -92,6 +93,13 @@ LOGGER = logging.getLogger("LDSC.ref_panel_builder")
 _GENETIC_MAP_SUFFIXES = ("", ".txt", ".txt.gz", ".tsv", ".tsv.gz", ".csv", ".csv.gz")
 _TABLE_SUFFIXES = ("", ".txt", ".txt.gz", ".tsv", ".tsv.gz", ".csv", ".csv.gz")
 _BIM_BUILD_INFERENCE_CHUNKSIZE = 5_000
+_BUILD_REF_PANEL_EMPTY_DOC = "docs/troubleshooting.md#build-ref-panel-no-reference-panel-artifacts-were-produced"
+_BUILD_REF_PANEL_LIFTOVER_DOC = (
+    "docs/troubleshooting.md#build-ref-panel-liftover-or-genetic-map-configuration-is-incomplete"
+)
+_BUILD_REF_PANEL_RESTRICTION_DOC = (
+    "docs/troubleshooting.md#build-ref-panel-snp-restriction-does-not-match-the-source-panel"
+)
 
 
 @dataclass(frozen=True)
@@ -136,7 +144,12 @@ def _emitted_genome_builds(config: ReferencePanelBuildConfig) -> list[str]:
     """Return source and optional target builds emitted by one build config."""
     source_build = config.source_genome_build
     if source_build not in {"hg19", "hg38"}:
-        raise ValueError("source_genome_build must be resolved before output paths are generated.")
+        raise LDSCInternalError(
+            "build-ref-panel output planning failed in _emitted_genome_builds(): "
+            f"source_genome_build={source_build!r} is not concrete. Most likely source "
+            "build inference was skipped before output path generation. Re-run with DEBUG "
+            "logging and report the traceback."
+        )
     target_build = "hg38" if source_build == "hg19" else "hg19"
     if config.use_hm3_quick_liftover:
         return [source_build, target_build]
@@ -415,7 +428,12 @@ class ReferencePanelBuilder:
         for prefix in resolved_prefixes:
             for chrom in self._discover_prefix_chromosomes(prefix):
                 if chrom in seen_chromosomes:
-                    raise ValueError(f"Chromosome {chrom} is present in multiple PLINK inputs. Emit one source per chromosome.")
+                    raise LDSCInputError(
+                        f"build-ref-panel could not assign chromosome {chrom} to one PLINK input: "
+                        "that chromosome is present in multiple resolved PLINK prefixes. Most likely "
+                        "`--plink-prefix` matched overlapping files or mixed a concrete prefix with an "
+                        "`@` chromosome suite. Emit one PLINK source per chromosome and narrow the path token."
+                    )
                 seen_chromosomes.add(chrom)
                 chrom_sources.append((prefix, chrom))
 
@@ -453,7 +471,13 @@ class ReferencePanelBuilder:
                 chrom_records.append((chrom, chrom_paths))
 
             if not chrom_records:
-                raise ValueError("No chromosome artifacts were produced from the supplied PLINK inputs.")
+                raise LDSCInputError(
+                    "build-ref-panel produced no chromosome artifacts from the supplied PLINK inputs. "
+                    "Most likely every chromosome was removed by the SNP restriction, identity cleanup, "
+                    "liftover, duplicate-coordinate filtering, MAF filtering, or missing chromosome data. "
+                    "Check the dropped-SNP sidecars and relax or rebuild the restriction/reference inputs. "
+                    f"Other causes & fixes: {_BUILD_REF_PANEL_EMPTY_DOC}"
+                )
 
             chrom_records.sort(key=lambda item: kernel_ldscore.chrom_sort_key(item[0]))
             output_keys = sorted({key for _, paths in chrom_records for key in paths})
@@ -494,7 +518,11 @@ class ReferencePanelBuilder:
         if config.source_genome_build in {"hg19", "hg38"}:
             return config
         if config.source_genome_build != "auto":
-            raise ValueError(f"Unsupported source_genome_build: {config.source_genome_build!r}.")
+            raise LDSCConfigError(
+                f"build-ref-panel received unsupported source_genome_build={config.source_genome_build!r}. "
+                "Most likely a Python caller bypassed CLI choices with an invalid build token. "
+                "Use `source_genome_build='auto'`, `'hg19'`, or `'hg38'`."
+            )
         try:
             source_build = resolve_genome_build_from_chr_pos_frames(
                 "auto",
@@ -503,17 +531,24 @@ class ReferencePanelBuilder:
                 context="build-ref-panel PLINK .bim",
                 logger=LOGGER,
             )
-        except ValueError as exc:
+        except (ValueError, LDSCInputError) as exc:
             details = str(exc).replace(
                 "Pass --genome-build hg19 or --genome-build hg38",
                 "Pass --source-genome-build hg19 or --source-genome-build hg38",
             )
-            raise ValueError(
-                "Unable to infer source_genome_build from PLINK .bim coordinates. "
+            raise LDSCInputError(
+                "build-ref-panel could not infer source_genome_build from PLINK .bim "
+                f"coordinates. Most likely the BIM coordinates do not overlap enough HM3 "
+                "reference SNPs, or CHR/BP columns are malformed. Pass "
+                "`--source-genome-build hg19` or `--source-genome-build hg38`. "
                 f"{details}"
             ) from exc
         if source_build not in {"hg19", "hg38"}:
-            raise ValueError("Unable to resolve source_genome_build from PLINK .bim coordinates.")
+            raise LDSCInputError(
+                "build-ref-panel could not resolve source_genome_build from PLINK .bim "
+                "coordinates. Most likely build inference returned no concrete build. "
+                "Pass `--source-genome-build hg19` or `--source-genome-build hg38`."
+            )
         LOGGER.info(f"Using source_genome_build='{source_build}' for PLINK reference-panel coordinates.")
         return dataclass_replace(config, source_genome_build=source_build)
 
@@ -543,7 +578,11 @@ class ReferencePanelBuilder:
             )
         source_build = config.source_genome_build
         if source_build not in {"hg19", "hg38"}:
-            raise ValueError("source_genome_build must be resolved before loading build-ref-panel shared state.")
+            raise LDSCInternalError(
+                "build-ref-panel shared-state preparation failed: source_genome_build is "
+                f"{source_build!r}, not a concrete build. Most likely source build inference "
+                "was skipped before state preparation. Re-run with DEBUG logging and report the traceback."
+            )
         target_build = "hg38" if source_build == "hg19" else "hg19"
         matching_chain = (
             config.liftover_chain_hg19_to_hg38_file
@@ -556,11 +595,17 @@ class ReferencePanelBuilder:
             else config.liftover_chain_hg19_to_hg38_file
         )
         if config.use_hm3_quick_liftover and identity_mode_family(self.global_config.snp_identifier) == "rsid":
-            raise ValueError("Reference-panel HM3 quick liftover is only valid for chr_pos-family modes.")
+            raise LDSCUsageError(
+                "build-ref-panel cannot use HM3 quick liftover in rsID-family SNP identifier modes. "
+                "Most likely `--use-hm3-quick-liftover` was combined with `--snp-identifier rsid` "
+                "or `rsid_allele_aware`. Use a chr_pos-family SNP identifier mode, or omit quick liftover."
+            )
         if matching_chain is not None and identity_mode_family(self.global_config.snp_identifier) == "rsid":
-            raise ValueError(
-                "Reference-panel chain liftover is only valid for chr_pos-family modes; "
-                "omit the matching liftover chain in rsID-family modes."
+            raise LDSCUsageError(
+                "build-ref-panel cannot use chain liftover in rsID-family SNP identifier modes. "
+                "Most likely a matching liftover chain was supplied with `--snp-identifier rsid` "
+                "or `rsid_allele_aware`. Use a chr_pos-family SNP identifier mode, or omit "
+                "the matching liftover chain."
             )
         restriction_mode = None
         restriction_values = None
@@ -601,7 +646,13 @@ class ReferencePanelBuilder:
                 (target_build == "hg38" and config.genetic_map_hg38_sources is None)
                 or (target_build == "hg19" and config.genetic_map_hg19_sources is None)
             ):
-                raise ValueError(f"{target_build} genetic map path is required when ld_wind_cm is set and liftover emits {target_build}.")
+                raise LDSCUsageError(
+                    f"build-ref-panel cannot emit {target_build} with `--ld-wind-cm` because "
+                    f"the {target_build} genetic map was not supplied. Most likely liftover "
+                    "enabled an opposite-build output without its matching genetic map. "
+                    f"Pass `--genetic-map-{target_build}-sources <path>` or use an SNP/kb window. "
+                    f"Other causes & fixes: {_BUILD_REF_PANEL_LIFTOVER_DOC}"
+                )
             if (target_build == "hg38" and config.genetic_map_hg38_sources is None) or (
                 target_build == "hg19" and config.genetic_map_hg19_sources is None
             ):
@@ -625,7 +676,13 @@ class ReferencePanelBuilder:
             (source_build == "hg38" and config.genetic_map_hg38_sources is None)
             or (source_build == "hg19" and config.genetic_map_hg19_sources is None)
         ):
-            raise ValueError(f"{source_build} genetic map path is required when ld_wind_cm is set.")
+            raise LDSCUsageError(
+                f"build-ref-panel cannot use `--ld-wind-cm` because the {source_build} "
+                "genetic map was not supplied. Most likely the source-build map option "
+                "was omitted. Pass the matching `--genetic-map-*-sources` file or use "
+                "`--ld-wind-kb` / `--ld-wind-snps`. "
+                f"Other causes & fixes: {_BUILD_REF_PANEL_LIFTOVER_DOC}"
+            )
         if (source_build == "hg38" and config.genetic_map_hg38_sources is None) or (
             source_build == "hg19" and config.genetic_map_hg19_sources is None
         ):
@@ -653,7 +710,12 @@ class ReferencePanelBuilder:
             bim = legacy_parse.PlinkBIMFile(prefix + ".bim")
         except ValueError as exc:
             if "Usecols do not match columns" in str(exc):
-                raise ValueError("Reference-panel PLINK .bim files must include A1 and A2 allele columns.") from exc
+                raise LDSCInputError(
+                    f"build-ref-panel could not read PLINK BIM file '{prefix}.bim': "
+                    "A1 and A2 allele columns are required. Most likely the BIM file "
+                    "has fewer than six standard PLINK columns. Provide a complete "
+                    ".bim file with CHR/SNP/CM/BP/A1/A2 columns."
+                ) from exc
             raise
         normalized, _report = normalize_chr_pos_frame(
             bim.df,
@@ -689,7 +751,12 @@ class ReferencePanelBuilder:
             bim = legacy_parse.PlinkBIMFile(prefix + ".bim")
         except ValueError as exc:
             if "Usecols do not match columns" in str(exc):
-                raise ValueError("Reference-panel PLINK .bim files must include A1 and A2 allele columns.") from exc
+                raise LDSCInputError(
+                    f"build-ref-panel could not read PLINK BIM file '{prefix}.bim': "
+                    "A1 and A2 allele columns are required. Most likely the BIM file "
+                    "has fewer than six standard PLINK columns. Provide a complete "
+                    ".bim file with CHR/SNP/CM/BP/A1/A2 columns."
+                ) from exc
             raise
         fam = legacy_parse.PlinkFAMFile(prefix + ".fam")
         panel_df, _report = normalize_chr_pos_frame(
@@ -702,7 +769,12 @@ class ReferencePanelBuilder:
         )
         chrom_df = panel_df.loc[panel_df["CHR"] == chrom].copy()
         if len(chrom_df) == 0:
-            raise ValueError(f"No SNPs found for chromosome {chrom} in {prefix}.")
+            raise LDSCInputError(
+                f"build-ref-panel found no SNPs for chromosome {chrom} in PLINK prefix "
+                f"'{prefix}'. Most likely the `.bim` file does not contain that chromosome "
+                "after chromosome normalization. Pass the correct chromosome-specific PLINK "
+                "prefix or rebuild the PLINK panel with matching chromosome labels."
+            )
 
         metadata_columns = ["CHR", "SNP", "BP", "A1", "A2"]
         chrom_metadata = chrom_df.loc[:, metadata_columns].copy().rename(columns={"BP": "POS"})
@@ -820,14 +892,24 @@ class ReferencePanelBuilder:
                 LOGGER.info(f"Skipping chromosome {chrom} because no SNPs remain after PLINK filtering.")
                 return None
             if set(metadata["CHR"]) != {chrom}:
-                raise ValueError(f"PLINK filtering for chromosome {chrom} retained rows from multiple chromosomes.")
+                raise LDSCInternalError(
+                    f"build-ref-panel PLINK filtering for chromosome {chrom} retained rows "
+                    "from multiple chromosomes. Most likely the retained SNP index mapping "
+                    "desynchronized from the BIM table. Re-run with DEBUG logging and report the traceback."
+                )
 
             geno_kept_snps = list(geno.kept_snps)
             hg19_positions = self._positions_from_lookup(geno_kept_snps, hg19_lookup) if hg19_lookup else None
             hg38_positions = self._positions_from_lookup(geno_kept_snps, hg38_lookup) if hg38_lookup else None
             build_positions = hg19_positions if build == "hg19" else hg38_positions
             if build_positions is None:
-                raise ValueError(f"{build} positions are unavailable for chromosome {chrom}; provide a matching liftover chain.")
+                raise LDSCInputError(
+                    f"build-ref-panel cannot emit {build} artifacts for chromosome {chrom}: "
+                    "positions for that build are unavailable. Most likely the matching "
+                    "liftover chain was omitted or dropped all retained SNPs. Provide the "
+                    "matching liftover chain or disable opposite-build emission. "
+                    f"Other causes & fixes: {_BUILD_REF_PANEL_LIFTOVER_DOC}"
+                )
             _validate_emitted_build_chr_pos_uniqueness(
                 metadata=metadata,
                 positions=build_positions,
@@ -844,7 +926,13 @@ class ReferencePanelBuilder:
                 else None
             )
             if cm_values is None and config.ld_wind_cm is not None:
-                raise ValueError(f"{build} genetic map is required for chromosome {chrom}.")
+                raise LDSCUsageError(
+                    f"build-ref-panel cannot compute cM LD windows for chromosome {chrom} "
+                    f"in {build}: no genetic map values are available. Most likely the "
+                    f"{build} genetic map is missing this chromosome or was not supplied. "
+                    "Pass the matching genetic map or use an SNP/kb LD window. "
+                    f"Other causes & fixes: {_BUILD_REF_PANEL_LIFTOVER_DOC}"
+                )
             coords, max_dist = kernel_builder.build_window_coordinates(
                 metadata=_metadata_with_build_positions(metadata, build_positions),
                 cm_values=cm_values,
@@ -922,7 +1010,11 @@ class ReferencePanelBuilder:
         if build_state.use_hm3_quick_liftover:
             target_build = "hg38" if source_build == "hg19" else "hg19"
             if build_state.hm3_map_file is None:
-                raise ValueError("HM3 quick liftover requires a packaged HM3 map path.")
+                raise LDSCInternalError(
+                    "build-ref-panel HM3 quick liftover setup failed: no packaged HM3 "
+                    "map path is available. Most likely package resource discovery failed. "
+                    "Re-run with DEBUG logging and report the traceback."
+                )
             query = pd.DataFrame(
                 {
                     "CHR": [chrom] * len(keep_snps),
@@ -1175,7 +1267,11 @@ def _read_ref_panel_snp_restriction(
     if identity_mode_family(restriction_mode) == "rsid":
         return kernel_identifiers.read_snp_restriction_keys(path, restriction_mode, logger=LOGGER)
     if source_genome_build not in {"hg19", "hg38"}:
-        raise ValueError("source_genome_build must be resolved before CHR/POS SNP restriction loading.")
+        raise LDSCInternalError(
+            "build-ref-panel SNP restriction loading failed: source_genome_build is not "
+            f"concrete ({source_genome_build!r}). Most likely source build inference was "
+            "skipped before CHR/POS restriction loading. Re-run with DEBUG logging and report the traceback."
+        )
     frame, has_allele_columns = _read_source_build_chr_pos_restriction_frame(
         Path(path),
         source_genome_build,
@@ -1219,9 +1315,13 @@ def _resolve_build_specific_position_column(
     if not matches:
         return None
     if len(matches) > 1:
-        raise ValueError(
-            f"Ambiguous {source_genome_build} position columns in reference-panel "
-            f"SNP restriction '{path}': {', '.join(map(str, matches))}"
+        raise LDSCInputError(
+            f"build-ref-panel could not choose the {source_genome_build} position column "
+            f"in SNP restriction '{path}': multiple matching columns were found "
+            f"({', '.join(map(str, matches))}). Most likely the restriction file carries "
+            "duplicate build-specific position columns. Keep one source-build position "
+            "column or rename the extras. "
+            f"Other causes & fixes: {_BUILD_REF_PANEL_RESTRICTION_DOC}"
         )
     return matches[0]
 
@@ -1252,11 +1352,21 @@ def _restriction_frame_from_columns(
         if not row:
             continue
         if len(row) <= max(chr_idx, pos_idx):
-            raise ValueError(f"Restriction row in {path} is missing the CHR or POS column.")
+            raise LDSCInputError(
+                f"build-ref-panel could not read SNP restriction '{path}': a row is "
+                "missing the CHR or POS column. Most likely the file has ragged rows "
+                "or the delimiter is inconsistent. Fix the row or re-export the table "
+                "with a consistent delimiter."
+            )
         record = {"CHR": row[chr_idx], "POS": row[pos_idx]}
         if allele_indices is not None:
             if len(row) <= max(allele_indices):
-                raise ValueError(f"Restriction row in {path} is missing the A1 or A2 column.")
+                raise LDSCInputError(
+                    f"build-ref-panel could not read SNP restriction '{path}': a row is "
+                    "missing the A1 or A2 column required by allele-aware mode. Most likely "
+                    "the file has ragged rows or incomplete allele columns. Fix the row or "
+                    "use a base SNP identifier mode."
+                )
             record["A1"] = row[allele_indices[0]]
             record["A2"] = row[allele_indices[1]]
         values.append(record)
@@ -1280,14 +1390,23 @@ def _infer_generic_restriction_build(frame: pd.DataFrame, path: Path) -> str:
             context=f"reference-panel SNP restriction '{path}'",
             logger=LOGGER,
         )
-    except ValueError as exc:
-        raise ValueError(
-            "Unable to infer the genome build of the generic POS column in "
-            f"reference-panel SNP restriction '{path}'. Provide a source-build-specific "
-            "position column such as hg19_POS or hg38_POS, aligned to the PLINK source build."
+    except (ValueError, LDSCInputError) as exc:
+        raise LDSCInputError(
+            f"build-ref-panel could not infer the genome build of the generic POS column "
+            f"in SNP restriction '{path}'. Most likely the restriction coordinates have "
+            "too little HM3 overlap, use the wrong columns, or mix builds. Provide a "
+            "source-build-specific position column such as hg19_POS or hg38_POS aligned "
+            "to the PLINK source build. "
+            f"Other causes & fixes: {_BUILD_REF_PANEL_RESTRICTION_DOC}"
         ) from exc
     if inferred_build not in {"hg19", "hg38"}:
-        raise ValueError(f"Unable to infer the genome build of reference-panel SNP restriction '{path}'.")
+        raise LDSCInputError(
+            f"build-ref-panel could not infer the genome build of SNP restriction '{path}'. "
+            "Most likely the restriction file lacks usable CHR/POS evidence. Add a "
+            "source-build-specific position column or pass a restriction file aligned "
+            "to the PLINK source build. "
+            f"Other causes & fixes: {_BUILD_REF_PANEL_RESTRICTION_DOC}"
+        )
     return inferred_build
 
 
@@ -1348,12 +1467,14 @@ def _read_source_build_chr_pos_restriction_frame(
     )
     restriction_build = _infer_generic_restriction_build(frame, path)
     if restriction_build != source_genome_build:
-        raise ValueError(
-            "Reference-panel SNP restriction build mismatch: generic POS column "
-            f"in '{path}' was inferred as {restriction_build}, but the source "
-            f"reference panel build is {source_genome_build}. Provide SNP restrictions "
-            "aligned to the PLINK source build, or add a source-build-specific "
-            f"{source_genome_build}_POS column."
+        raise LDSCInputError(
+            "build-ref-panel SNP restriction does not match the source panel build: "
+            f"the generic POS column in '{path}' was inferred as {restriction_build}, "
+            f"but the PLINK source build is {source_genome_build}. Most likely the "
+            "restriction file was prepared on a different genome build. Provide SNP "
+            "restrictions aligned to the PLINK source build, or add a source-build-specific "
+            f"{source_genome_build}_POS column. "
+            f"Other causes & fixes: {_BUILD_REF_PANEL_RESTRICTION_DOC}"
         )
     LOGGER.info(
         f"Generic POS column in reference-panel SNP restriction '{path}' "
@@ -1421,7 +1542,11 @@ def _sort_retained_snps_by_build_position(
         hg38_lookup=hg38_lookup,
     )
     if not lookup:
-        raise ValueError(f"{genome_build} positions are unavailable for retained SNP sorting.")
+        raise LDSCInternalError(
+            f"build-ref-panel retained SNP sorting failed for {genome_build}: no position "
+            "lookup is available. Most likely opposite-build emission reached sorting "
+            "without a liftover lookup. Re-run with DEBUG logging and report the traceback."
+        )
     return np.asarray(
         sorted(keep_snps.tolist(), key=lambda idx: (int(lookup[int(idx)]), int(idx))),
         dtype=int,
@@ -1683,7 +1808,11 @@ def config_from_args(args: argparse.Namespace) -> tuple[ReferencePanelBuildConfi
     snp_identifier = normalize_snp_identifier_mode(args.snp_identifier or registered_config.snp_identifier)
     source_genome_build = normalize_genome_build(args.source_genome_build)
     if source_genome_build not in {"auto", "hg19", "hg38"}:
-        raise ValueError("--source-genome-build must be auto, hg19, or hg38.")
+        raise LDSCConfigError(
+            f"build-ref-panel received invalid `--source-genome-build={args.source_genome_build}`. "
+            "Most likely the source build was misspelled or is unsupported. Pass "
+            "`--source-genome-build auto`, `hg19`, or `hg38`."
+        )
 
     build_config = ReferencePanelBuildConfig(
         plink_prefix=args.plink_prefix,
@@ -1738,8 +1867,11 @@ def run_build_ref_panel(**kwargs: Any) -> ReferencePanelBuildResult:
     forbidden = sorted({"genome_build", "log_level", "snp_identifier"} & set(kwargs))
     if forbidden:
         joined = ", ".join(forbidden)
-        raise ValueError(
-            f"Python run_build_ref_panel() no longer accepts {joined}; call set_global_config(...) first."
+        raise LDSCUsageError(
+            f"Python run_build_ref_panel() cannot accept shared runtime option(s): {joined}. "
+            "Most likely this call still passes pre-restructure keyword arguments for "
+            "SNP identity, genome build, or logging. Call set_global_config(...) first, "
+            "then pass only build-ref-panel run-specific options."
         )
     removed = sorted(
         {
@@ -1764,7 +1896,12 @@ def run_build_ref_panel(**kwargs: Any) -> ReferencePanelBuildResult:
     )
     if removed:
         joined = ", ".join(removed)
-        raise ValueError(f"Python run_build_ref_panel() no longer accepts removed IO argument(s): {joined}.")
+        raise LDSCUsageError(
+            f"Python run_build_ref_panel() cannot accept removed IO argument(s): {joined}. "
+            "Most likely this call still uses legacy keyword names from the old LDSC API. "
+            "Use CLI-style names such as `plink_prefix`, `genetic_map_hg19_sources`, "
+            "`genetic_map_hg38_sources`, `keep_indivs_file`, and `output_dir`."
+        )
 
     parser = build_parser()
     defaults = vars(
@@ -1787,7 +1924,11 @@ def run_build_ref_panel(**kwargs: Any) -> ReferencePanelBuildResult:
     defaults["log_level"] = global_config.log_level
     if "chunk_size" in kwargs:
         if "snp_batch_size" in kwargs:
-            raise ValueError("Pass only one of chunk_size or snp_batch_size.")
+            raise LDSCUsageError(
+                "Python run_build_ref_panel() received both `chunk_size` and `snp_batch_size`. "
+                "Most likely legacy and current batch-size keyword names were combined. "
+                "Pass only `snp_batch_size`."
+            )
         kwargs["snp_batch_size"] = kwargs.pop("chunk_size")
     defaults.update(kwargs)
     args = argparse.Namespace(**defaults)

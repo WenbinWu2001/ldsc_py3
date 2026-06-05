@@ -988,7 +988,7 @@ class FixedOutputDirectoryTest(unittest.TestCase):
                 trait_name="trait",
             )
 
-            with self.assertRaisesRegex(ValueError, "config_snapshot"):
+            with self.assertRaisesRegex(module.LDSCInputError, "config_snapshot"):
                 module.SumstatsMunger().write_output(table, tmpdir)
 
     def test_munge_write_output_refuses_existing_file_by_default(self):

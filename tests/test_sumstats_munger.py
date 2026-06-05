@@ -39,10 +39,6 @@ except ImportError:
 
 @unittest.skipIf(SumstatsMunger is None, "sumstats_munger module is not available")
 class SumstatsMungerTest(unittest.TestCase):
-    REGENERATE_MESSAGE = (
-        "This artifact was not written with the current LDSC schema/provenance contract. "
-        "Regenerate it with the current LDSC package."
-    )
     SUMSTATS_METADATA_KEYS = {"schema_version", "artifact_type", "files", "snp_identifier", "genome_build", "trait_name"}
 
     DROPPED_SNP_DTYPES = {
@@ -218,7 +214,7 @@ class SumstatsMungerTest(unittest.TestCase):
             ["--raw-sumstats-file", "raw.tsv", "--output-dir", "out", "--format", "daner-old", "--daner-new"]
         )
 
-        with self.assertRaisesRegex(ValueError, "--format daner-old.*--daner-new"):
+        with self.assertRaisesRegex(ldsc.LDSCUsageError, "--format daner-old.*--daner-new"):
             sumstats_workflow.run_munge_sumstats_from_args(args)
 
     def test_build_parser_uses_raw_sumstats_file_for_raw_input(self):
@@ -356,7 +352,7 @@ class SumstatsMungerTest(unittest.TestCase):
     def test_kernel_reports_actionable_signed_sumstats_format_error(self):
         args = kernel_munge.parser.parse_args(["--signed-sumstats", "BETA"])
 
-        with self.assertRaisesRegex(ValueError, "Invalid --signed-sumstats value 'BETA'.*BETA,0"):
+        with self.assertRaisesRegex(ldsc.LDSCUsageError, "could not parse --signed-sumstats='BETA'.*BETA,0"):
             kernel_munge.parse_flag_cnames(args)
 
     def test_kernel_p_to_z_matches_legacy_direction_convention(self):
@@ -676,7 +672,11 @@ class SumstatsMungerTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with self.assertRaisesRegex(ValueError, self.REGENERATE_MESSAGE):
+            with self.assertRaisesRegex(
+                ldsc.LDSCInputError,
+                "metadata.json sidecar is missing the genome_build field.*"
+                "docs/troubleshooting.md#munge-sumstats-curated-artifact-is-malformed-or-outdated",
+            ):
                 ldsc.load_sumstats(sumstats_file)
 
     def test_load_sumstats_rejects_sidecar_without_genome_build_key(self):
@@ -697,7 +697,11 @@ class SumstatsMungerTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with self.assertRaisesRegex(ValueError, self.REGENERATE_MESSAGE):
+            with self.assertRaisesRegex(
+                ldsc.LDSCInputError,
+                "metadata.json sidecar is missing the genome_build field.*"
+                "docs/troubleshooting.md#munge-sumstats-curated-artifact-is-malformed-or-outdated",
+            ):
                 ldsc.load_sumstats(sumstats_file)
 
     def test_load_sumstats_rejects_malformed_json_metadata_sidecar(self):
@@ -708,7 +712,11 @@ class SumstatsMungerTest(unittest.TestCase):
                 handle.write("SNP\tCHR\tPOS\tZ\tN\nrs1\t1\t100\t1.0\t100.0\n")
             (tmpdir / "metadata.json").write_text("{not-json", encoding="utf-8")
 
-            with self.assertRaisesRegex(ValueError, self.REGENERATE_MESSAGE):
+            with self.assertRaisesRegex(
+                ldsc.LDSCInputError,
+                "metadata.json sidecar is not valid JSON.*"
+                "docs/troubleshooting.md#munge-sumstats-curated-artifact-is-malformed-or-outdated",
+            ):
                 ldsc.load_sumstats(sumstats_file)
 
     def test_load_sumstats_rejects_non_dict_metadata_sidecar(self):
@@ -722,7 +730,11 @@ class SumstatsMungerTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with self.assertRaisesRegex(ValueError, self.REGENERATE_MESSAGE):
+            with self.assertRaisesRegex(
+                ldsc.LDSCInputError,
+                "metadata.json sidecar is not a JSON object.*"
+                "docs/troubleshooting.md#munge-sumstats-curated-artifact-is-malformed-or-outdated",
+            ):
                 ldsc.load_sumstats(sumstats_file)
 
     def test_load_sumstats_rejects_missing_metadata_sidecar(self):
@@ -732,7 +744,11 @@ class SumstatsMungerTest(unittest.TestCase):
             with gzip.open(sumstats_file, "wt", encoding="utf-8") as handle:
                 handle.write("SNP\tCHR\tPOS\tZ\tN\nrs1\t1\t100\t1.0\t100.0\n")
 
-            with self.assertRaisesRegex(ValueError, self.REGENERATE_MESSAGE):
+            with self.assertRaisesRegex(
+                ldsc.LDSCInputError,
+                "Cannot load curated sumstats at .*metadata.json sidecar is missing.*"
+                "docs/troubleshooting.md#munge-sumstats-curated-artifact-is-malformed-or-outdated",
+            ):
                 ldsc.load_sumstats(sumstats_file)
 
     def test_load_sumstats_rejects_allele_aware_artifact_without_alleles(self):
@@ -748,8 +764,10 @@ class SumstatsMungerTest(unittest.TestCase):
             )
 
             with self.assertRaisesRegex(
-                ValueError,
-                "Munged sumstats artifact is malformed: snp_identifier='rsid_allele_aware' requires A1/A2 columns",
+                ldsc.LDSCInputError,
+                "Cannot load curated sumstats at .*snp_identifier='rsid_allele_aware' requires A1/A2 columns.*"
+                "Re-run munge-sumstats from the raw GWAS file.*"
+                "docs/troubleshooting.md#munge-sumstats-curated-artifact-is-malformed-or-outdated",
             ):
                 ldsc.load_sumstats(sumstats_file)
 
@@ -770,7 +788,11 @@ class SumstatsMungerTest(unittest.TestCase):
                 trait_name="trait",
             )
 
-            with self.assertRaisesRegex(ValueError, "Munged sumstats artifact is malformed.*SNP identity"):
+            with self.assertRaisesRegex(
+                ldsc.LDSCInputError,
+                "missing or invalid SNP identity rows.*"
+                "docs/troubleshooting.md#munge-sumstats-curated-artifact-is-malformed-or-outdated",
+            ):
                 ldsc.load_sumstats(sumstats_file)
 
     def test_load_sumstats_rejects_unknown_suffix(self):
@@ -778,7 +800,7 @@ class SumstatsMungerTest(unittest.TestCase):
             path = Path(tmpdir) / "trait.csv"
             path.write_text("SNP,Z,N\nrs1,1.5,1000\n", encoding="utf-8")
 
-            with self.assertRaisesRegex(ValueError, "Unsupported munged sumstats format"):
+            with self.assertRaisesRegex(ldsc.LDSCInputError, "unsupported file suffix.*run munge-sumstats first"):
                 ldsc.load_sumstats(path)
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for default parquet output")
@@ -1133,7 +1155,7 @@ class SumstatsMungerTest(unittest.TestCase):
             raw_path.write_text("SNP A1 A2 P BETA N\nrs1 A G 0.05 0.1 1000\n", encoding="utf-8")
 
             with mock.patch.object(kernel_munge, "munge_sumstats", side_effect=AssertionError("kernel should not run")):
-                with self.assertRaisesRegex(ValueError, "liftover.*chr_pos"):
+                with self.assertRaisesRegex(ldsc.LDSCUsageError, "liftover.*chr_pos"):
                     SumstatsMunger().run(
                         MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
                         MungeConfig(
@@ -1150,7 +1172,7 @@ class SumstatsMungerTest(unittest.TestCase):
             raw_path = tmpdir / "raw.tsv"
             raw_path.write_text("CHR POS SNP A1 A2 P BETA N\n1 100 rs1 A G 0.05 0.1 1000\n", encoding="utf-8")
 
-            with self.assertRaisesRegex(ValueError, "liftover method"):
+            with self.assertRaisesRegex(ldsc.LDSCUsageError, "liftover method"):
                 SumstatsMunger().run(
                     MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
                     MungeConfig(output_dir=tmpdir / "munged", source_genome_build="hg19", output_genome_build="hg38"),
@@ -1424,7 +1446,7 @@ class SumstatsMungerTest(unittest.TestCase):
             raw_path = tmpdir / "raw.tsv"
             raw_path.write_text("CHR POS SNP A1 A2 P N\n1 100 rs1 A G 0.05 1000\n", encoding="utf-8")
 
-            with self.assertRaisesRegex(ValueError, "Pass --output-genome-build"):
+            with self.assertRaisesRegex(ldsc.LDSCUsageError, "Pass --output-genome-build"):
                 sumstats_workflow.main(
                     [
                         "--raw-sumstats-file",
@@ -1540,8 +1562,27 @@ class SumstatsMungerTest(unittest.TestCase):
             raw_path.write_text("SNP A1 A2 P OR\nrs1 A G 0.05 1.1\n", encoding="utf-8")
             args = kernel_munge.parser.parse_args(["--sumstats", str(raw_path), "--out", str(tmpdir / "sumstats")])
 
-            with self.assertRaisesRegex(ValueError, "--N.*--N-cas.*--N-con.*N column"):
+            with self.assertRaisesRegex(
+                ldsc.LDSCInputError,
+                "munge-sumstats could not determine sample size \\(N\\).*"
+                "--N.*--N-cas.*--N-con.*N column",
+            ):
                 kernel_munge.munge_sumstats(args, p=True)
+
+    def test_sumstats_table_missing_required_columns_uses_input_error(self):
+        table = sumstats_workflow.SumstatsTable(
+            data=pd.DataFrame({"SNP": ["rs1"], "N": [1000.0]}),
+            has_alleles=False,
+            source_path="trait.sumstats.gz",
+            trait_name="trait",
+        )
+
+        with self.assertRaisesRegex(
+            ldsc.LDSCInputError,
+            "munge-sumstats could not map required column.*Z.*"
+            "docs/troubleshooting.md#munge-sumstats-could-not-map-a-required-column",
+        ):
+            table.validate()
 
     def test_kernel_error_path_does_not_write_progress_to_stdout(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1552,10 +1593,19 @@ class SumstatsMungerTest(unittest.TestCase):
             stdout = io.StringIO()
 
             with contextlib.redirect_stdout(stdout):
-                with self.assertRaisesRegex(ValueError, "Could not determine N"):
+                with self.assertRaisesRegex(ldsc.LDSCInputError, "munge-sumstats could not determine sample size"):
                     kernel_munge.munge_sumstats(args, p=True)
 
             self.assertEqual(stdout.getvalue(), "")
+
+    def test_internal_sample_size_guard_uses_internal_error(self):
+        args = Namespace(N=None, N_cas=None, N_con=None, daner_old=False, n_min=None, nstudy_min=None)
+
+        with self.assertRaisesRegex(
+            ldsc.LDSCInternalError,
+            "munge-sumstats could not derive a sample size \\(N\\).*unreachable.*--debug",
+        ):
+            kernel_munge.process_n(pd.DataFrame({"P": [0.05]}), args)
 
     def test_default_allele_aware_mode_rejects_missing_alleles_and_suggests_base_mode(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1564,7 +1614,10 @@ class SumstatsMungerTest(unittest.TestCase):
             raw_path.write_text("CHR POS SNP P BETA N\n1 100 rs1 0.05 0.1 1000\n", encoding="utf-8")
             args = kernel_munge.parser.parse_args(["--sumstats", str(raw_path), "--out", str(tmpdir / "sumstats")])
 
-            with self.assertRaisesRegex(ValueError, "snp_identifier='chr_pos_allele_aware'.*--snp-identifier chr_pos"):
+            with self.assertRaisesRegex(
+                ldsc.LDSCInputError,
+                "snp_identifier='chr_pos_allele_aware'.*--snp-identifier chr_pos",
+            ):
                 kernel_munge.munge_sumstats(args, p=True)
 
     def test_kernel_parser_rejects_removed_no_alleles_flag(self):
@@ -1595,7 +1648,7 @@ class SumstatsMungerTest(unittest.TestCase):
                 ]
             )
 
-            with self.assertRaisesRegex(ValueError, "--a1 REF --a2 ALT"):
+            with self.assertRaisesRegex(ldsc.LDSCInputError, "--a1 REF --a2 ALT"):
                 kernel_munge.munge_sumstats(args, p=True)
 
     def test_rsid_allele_aware_requires_alleles(self):
@@ -1614,7 +1667,10 @@ class SumstatsMungerTest(unittest.TestCase):
                 ]
             )
 
-            with self.assertRaisesRegex(ValueError, "snp_identifier='rsid_allele_aware'.*--snp-identifier rsid"):
+            with self.assertRaisesRegex(
+                ldsc.LDSCInputError,
+                "snp_identifier='rsid_allele_aware'.*--snp-identifier rsid",
+            ):
                 kernel_munge.munge_sumstats(args, p=True)
 
     def test_base_modes_run_without_alleles_without_extra_flag(self):
@@ -1881,7 +1937,11 @@ class SumstatsMungerTest(unittest.TestCase):
                 handle.write("SNP\tZ\tN\nrs1\t1.0\t100.0\nrs1\t2.0\t100.0\n")
             self._write_sumstats_sidecar(tmpdir / "metadata.json", snp_identifier="rsid", trait_name="trait")
 
-            with self.assertRaisesRegex(ValueError, "Munged sumstats artifact is malformed.*duplicate_identity"):
+            with self.assertRaisesRegex(
+                ldsc.LDSCInputError,
+                "duplicate or invalid SNP identity rows.*duplicate_identity.*"
+                "docs/troubleshooting.md#munge-sumstats-curated-artifact-is-malformed-or-outdated",
+            ):
                 ldsc.load_sumstats(sumstats_file)
 
     def test_kernel_missing_sample_size_error_explains_neff_is_not_n(self):
@@ -1891,7 +1951,7 @@ class SumstatsMungerTest(unittest.TestCase):
             raw_path.write_text("SNP A1 A2 P OR NEFF\nrs1 A G 0.05 1.1 1000\n", encoding="utf-8")
             args = kernel_munge.parser.parse_args(["--sumstats", str(raw_path), "--out", str(tmpdir / "sumstats")])
 
-            with self.assertRaisesRegex(ValueError, "NEFF is not treated as N.*--N-col NEFF"):
+            with self.assertRaisesRegex(ldsc.LDSCInputError, "NEFF is not treated as N.*--N-col NEFF"):
                 kernel_munge.munge_sumstats(args, p=True)
 
     def test_kernel_missing_signed_stat_error_suggests_likely_effect_column(self):
@@ -1901,7 +1961,7 @@ class SumstatsMungerTest(unittest.TestCase):
             raw_path.write_text("SNP A1 A2 P EFFECT_SIZE N\nrs1 A G 0.05 0.2 1000\n", encoding="utf-8")
             args = kernel_munge.parser.parse_args(["--sumstats", str(raw_path), "--out", str(tmpdir / "sumstats")])
 
-            with self.assertRaisesRegex(ValueError, "--signed-sumstats EFFECT_SIZE,0"):
+            with self.assertRaisesRegex(ldsc.LDSCInputError, "--signed-sumstats EFFECT_SIZE,0"):
                 kernel_munge.munge_sumstats(args, p=True)
 
     def test_kernel_parser_rejects_removed_merge_alleles(self):
@@ -2137,8 +2197,10 @@ class SumstatsMungerTest(unittest.TestCase):
             keep_path.write_text("SNP\nrs2\n", encoding="utf-8")
 
             with self.assertRaisesRegex(
-                ValueError,
-                "Keep-list file: .*snp_identifier=rsid.*keep-list identifiers=1",
+                ldsc.LDSCInputError,
+                "munge-sumstats no SNPs remain after applying --sumstats-snps-file.*"
+                "snp_identifier=rsid.*keep-list identifiers=1.*"
+                "docs/troubleshooting.md#munge-sumstats-no-snps-remain-after-filtering",
             ):
                 SumstatsMunger().run(
                     MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
@@ -2155,7 +2217,7 @@ class SumstatsMungerTest(unittest.TestCase):
             keep_path.write_text("SNP\n", encoding="utf-8")
 
             with mock.patch.object(kernel_munge, "parse_dat", side_effect=AssertionError("raw chunks parsed")):
-                with self.assertRaisesRegex(ValueError, "keep-list identifiers=0"):
+                with self.assertRaisesRegex(ldsc.LDSCInputError, "keep-list identifiers=0"):
                     SumstatsMunger().run(
                         MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
                         MungeConfig(output_dir=tmpdir / "munged", sumstats_snps_file=keep_path),
@@ -2304,7 +2366,7 @@ class SumstatsMungerTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with self.assertRaisesRegex(ValueError, "NEFF is not treated as N"):
+            with self.assertRaisesRegex(ldsc.LDSCInputError, "NEFF is not treated as N"):
                 SumstatsMunger().run(
                     MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
                     MungeConfig(output_dir=tmpdir / "munged", source_genome_build="hg38", output_genome_build="hg38"),
@@ -2358,7 +2420,7 @@ class SumstatsMungerTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with self.assertRaisesRegex(ValueError, "--ignore IMPINFO.*--info-list IMPINFO"):
+            with self.assertRaisesRegex(ldsc.LDSCInputError, "--ignore IMPINFO.*--info-list IMPINFO"):
                 SumstatsMunger().run(
                     MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
                     MungeConfig(output_dir=tmpdir / "munged", source_genome_build="hg38", output_genome_build="hg38"),
@@ -2822,7 +2884,7 @@ class SumstatsMungerTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with self.assertRaisesRegex(ValueError, "CHR"):
+            with self.assertRaisesRegex(ldsc.LDSCInputError, "CHR"):
                 SumstatsMunger().run(
                     MungeConfig(raw_sumstats_file=raw_path, trait_name="trait"),
                     MungeConfig(output_dir=tmpdir / "munged", source_genome_build="hg38", output_genome_build="hg38"),

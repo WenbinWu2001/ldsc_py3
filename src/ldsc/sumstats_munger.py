@@ -52,7 +52,13 @@ from .column_inference import (
     resolve_required_column,
 )
 from .config import GlobalConfig, MungeConfig, _normalize_trait_name, get_global_config
-from .errors import LDSCDependencyError
+from .errors import (
+    LDSCDependencyError,
+    LDSCInputError,
+    LDSCInternalError,
+    LDSCUsageError,
+    LDSCUserError,
+)
 from .genome_build_inference import collect_chr_pos_build_evidence_frame, resolve_genome_build
 from .hm3 import packaged_hm3_curated_map_path
 from .path_resolution import (
@@ -64,7 +70,6 @@ from .path_resolution import (
 from ._logging import log_inputs, log_outputs, workflow_logging
 from ._kernel.snp_identity import (
     IDENTITY_DROP_COLUMNS,
-    REGENERATE_ARTIFACT_MESSAGE,
     clean_identity_artifact_table,
     coerce_identity_drop_frame,
     effective_merge_key_series,
@@ -102,6 +107,12 @@ _SUMSTATS_OUTPUT_FORMATS = {"parquet", "tsv.gz", "both"}
 _RAW_SUMSTATS_FORMATS = {"auto", "plain", "daner-old", "daner-new"}
 _SUMSTATS_PARQUET_COMPRESSION = "snappy"
 _INFER_ONLY_COORDINATE_CHUNKSIZE = 5_000
+_REQUIRED_COLUMN_TROUBLESHOOTING = (
+    "docs/troubleshooting.md#munge-sumstats-could-not-map-a-required-column"
+)
+_CURATED_ARTIFACT_TROUBLESHOOTING = (
+    "docs/troubleshooting.md#munge-sumstats-curated-artifact-is-malformed-or-outdated"
+)
 
 
 @dataclass(frozen=True)
@@ -175,9 +186,20 @@ class SumstatsTable:
         required = {"SNP", "Z", "N"}
         missing = required - set(self.data.columns)
         if missing:
-            raise ValueError(f"SumstatsTable is missing required columns: {sorted(missing)}")
+            raise LDSCInputError(
+                f"munge-sumstats could not map required column(s) {sorted(missing)} "
+                f"from the input header for '{self.source_path or self.trait_name or 'sumstats'}'. "
+                "Most likely the file uses unrecognized column names. Pass explicit hints "
+                f"(e.g. --snp-col, --a1-col) or rename the columns. Other causes & fixes: "
+                f"{_REQUIRED_COLUMN_TROUBLESHOOTING}"
+            )
         if self.has_alleles and not {"A1", "A2"}.issubset(self.data.columns):
-            raise ValueError("SumstatsTable.has_alleles=True requires A1 and A2 columns.")
+            raise LDSCInputError(
+                f"munge-sumstats expected A1/A2 allele columns in "
+                f"'{self.source_path or self.trait_name or 'sumstats'}' because this table is allele-aware. "
+                "Most likely the artifact was produced without allele columns. Re-run munge-sumstats "
+                "with A1/A2 column hints or use an allele-blind --snp-identifier mode."
+            )
 
     def snp_identifiers(self) -> pd.Series:
         """Return the active SNP identifiers for this table."""
@@ -314,20 +336,37 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
     """
     resolved = resolve_scalar_path(path, label="munged sumstats")
     df = _read_curated_sumstats_artifact(resolved)
-    resolved_columns = _resolve_curated_sumstats_columns(list(df.columns), context=resolved)
+    try:
+        resolved_columns = _resolve_curated_sumstats_columns(list(df.columns), context=resolved)
+    except ValueError as exc:
+        raise LDSCInputError(
+            f"Cannot load curated sumstats at '{resolved}': could not map the required SNP, N, and Z "
+            "columns from its header. Most likely this is not a current curated sumstats artifact. "
+            "Re-run munge-sumstats from the raw GWAS file. Other causes & fixes: "
+            f"{_REQUIRED_COLUMN_TROUBLESHOOTING}"
+        ) from exc
     df = df.loc[:, list(resolved_columns.values())].rename(
         columns={actual: canonical for canonical, actual in resolved_columns.items()}
     )
     metadata_path = _sumstats_metadata_path(resolved)
-    metadata = _read_sumstats_metadata(metadata_path)
+    metadata = _read_sumstats_metadata(metadata_path, artifact_path=resolved)
     if metadata is None:
-        raise ValueError(REGENERATE_ARTIFACT_MESSAGE)
-    config_snapshot = _global_config_from_sumstats_metadata(metadata)
+        raise LDSCInputError(
+            _curated_sumstats_artifact_message(
+                resolved,
+                "its metadata.json sidecar is missing, so its identity semantics are unknown.",
+                "Most likely it predates the current schema.",
+            )
+        )
+    config_snapshot = _global_config_from_sumstats_metadata(metadata, artifact_path=resolved)
     mode = normalize_snp_identifier_mode(config_snapshot.snp_identifier)
     if is_allele_aware_mode(mode) and not {"A1", "A2"}.issubset(df.columns):
-        raise ValueError(
-            f"Munged sumstats artifact is malformed: snp_identifier='{mode}' requires A1/A2 columns. "
-            "Regenerate it with the current LDSC package."
+        raise LDSCInputError(
+            _curated_sumstats_artifact_message(
+                resolved,
+                f"snp_identifier='{mode}' requires A1/A2 columns, but the artifact does not contain both.",
+                "Most likely the artifact was produced by an older or allele-blind munging run.",
+            )
         )
     cleanup = clean_identity_artifact_table(
         df,
@@ -341,9 +380,12 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
             f"{reason}={int(count)}"
             for reason, count in cleanup.dropped["reason"].value_counts(sort=False).items()
         )
-        raise ValueError(
-            "Munged sumstats artifact is malformed: duplicate or invalid SNP identity rows were found "
-            f"({reasons}). Regenerate it with the current LDSC package."
+        raise LDSCInputError(
+            _curated_sumstats_artifact_message(
+                resolved,
+                f"duplicate or invalid SNP identity rows were found ({reasons}).",
+                "Most likely the artifact was hand-edited or produced before identity cleanup was enforced.",
+            )
         )
     effective_keys = effective_merge_key_series(
         cleanup.cleaned,
@@ -351,9 +393,12 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
         context="loaded munged sumstats artifact",
     )
     if bool(effective_keys.isna().any()):
-        raise ValueError(
-            "Munged sumstats artifact is malformed: missing or invalid SNP identity rows were found. "
-            "Regenerate it with the current LDSC package."
+        raise LDSCInputError(
+            _curated_sumstats_artifact_message(
+                resolved,
+                "missing or invalid SNP identity rows were found after identity cleanup.",
+                "Most likely the artifact contains incomplete CHR/POS or allele identity columns.",
+            )
         )
     table = SumstatsTable(
         data=df.reset_index(drop=True),
@@ -439,9 +484,15 @@ class SumstatsMunger:
             global_config = munge_config
             munge_config = raw_sumstats_config
         if raw_sumstats_config.raw_sumstats_file is None:
-            raise ValueError("MungeConfig.raw_sumstats_file is required to run summary-statistics munging.")
+            raise LDSCUserError(
+                "No input summary statistics given to munge-sumstats. Most likely --sumstats was omitted. "
+                "Pass --sumstats <file> (and --out <stem>)."
+            )
         if munge_config.output_dir is None:
-            raise ValueError("MungeConfig.output_dir is required to run summary-statistics munging.")
+            raise LDSCUserError(
+                "No output directory given to munge-sumstats. Most likely --out or output_dir was omitted. "
+                "Pass --out <stem> on the CLI or set MungeConfig.output_dir."
+            )
 
         config_snapshot = _source_global_config_for_munge(munge_config, global_config or get_global_config())
         _validate_munge_build_contract(munge_config, config_snapshot)
@@ -621,7 +672,12 @@ class SumstatsMunger:
         sidecar can be written for downstream provenance recovery.
         """
         if sumstats.config_snapshot is None:
-            raise ValueError("SumstatsTable.config_snapshot is required to write current sumstats artifacts.")
+            raise LDSCInputError(
+                "Cannot write current munge-sumstats artifacts from this SumstatsTable because "
+                "config_snapshot is missing. Most likely the table was constructed manually or loaded "
+                "from a legacy artifact. Re-run munge-sumstats from the raw GWAS file or attach a "
+                "GlobalConfig snapshot before writing."
+            )
         output_format = _normalize_output_format(output_format)
         output_root = ensure_output_directory(output_dir, label="output directory")
         fixed_output_stem = str(output_root / "sumstats")
@@ -652,7 +708,11 @@ class SumstatsMunger:
     def build_run_summary(self, _sumstats: SumstatsTable | None = None) -> MungeRunSummary:
         """Return the summary captured from the most recent call to :meth:`run`."""
         if self._last_summary is None:
-            raise ValueError("No munging run has been executed yet.")
+            raise LDSCUsageError(
+                "Cannot build a munge-sumstats run summary before a run has completed. "
+                "Most likely build_run_summary() was called on a fresh SumstatsMunger. "
+                "Call SumstatsMunger.run(...) first, then request the summary."
+            )
         return self._last_summary
 
     def _build_args(
@@ -749,22 +809,32 @@ def _resolve_main_global_config(args: argparse.Namespace) -> GlobalConfig:
     output_build = normalize_genome_build(getattr(args, "output_genome_build", None))
     if identity_mode_family(mode) == "rsid":
         if source_build not in {None, "auto"}:
-            raise ValueError("--source-genome-build is only valid for chr_pos-family snp_identifier modes.")
+            raise LDSCUsageError(
+                "--source-genome-build applies only to chr_pos-family --snp-identifier modes, "
+                "but the current mode is rsID-based. Either drop the build flag or switch to a chr_pos identifier."
+            )
         if output_build is not None:
-            raise ValueError("--output-genome-build is only valid for chr_pos-family snp_identifier modes.")
+            raise LDSCUsageError(
+                "--output-genome-build applies only to chr_pos-family --snp-identifier modes, "
+                "but the current mode is rsID-based. Either drop the output build flag or switch to a chr_pos identifier."
+            )
         if getattr(args, "liftover_chain_file", None) is not None or getattr(args, "use_hm3_quick_liftover", False):
-            raise ValueError("Summary-statistics liftover is only valid for chr_pos-family snp_identifier modes.")
+            raise LDSCUsageError(
+                "Summary-statistics liftover applies only to chr_pos-family --snp-identifier modes, "
+                "but the current mode is rsID-based. Either drop the liftover option or switch to a chr_pos identifier."
+            )
         args.genome_build = None
         return GlobalConfig(snp_identifier=mode, log_level=getattr(args, "log_level", "INFO"))
     if source_build is None:
-        raise ValueError(
-            "source_genome_build is required for chr_pos-family snp_identifier modes. "
-            "Pass --source-genome-build auto, --source-genome-build hg19, or --source-genome-build hg38."
+        raise LDSCUsageError(
+            "munge-sumstats needs a source genome build for chr_pos-family --snp-identifier modes. "
+            "Most likely --source-genome-build was omitted or set to an empty value. "
+            "Pass --source-genome-build auto, hg19, or hg38."
         )
     if output_build is None:
-        raise ValueError(
-            "output_genome_build is required for chr_pos-family snp_identifier modes. "
-            "Pass --output-genome-build hg19 or --output-genome-build hg38."
+        raise LDSCUsageError(
+            "munge-sumstats needs an output genome build for chr_pos-family --snp-identifier modes. "
+            "Most likely --output-genome-build was omitted. Pass --output-genome-build hg19 or hg38."
         )
     args.genome_build = source_build
     return GlobalConfig(snp_identifier=mode, genome_build=source_build, log_level=getattr(args, "log_level", "INFO"))
@@ -791,16 +861,25 @@ def _validate_munge_build_contract(config: MungeConfig, source_config: GlobalCon
     """Validate source/output build options against the active SNP identifier mode."""
     if identity_mode_family(source_config.snp_identifier) == "rsid":
         if config.source_genome_build != "auto":
-            raise ValueError("source_genome_build is only valid for chr_pos-family snp_identifier modes.")
+            raise LDSCUsageError(
+                "MungeConfig.source_genome_build applies only to chr_pos-family snp_identifier modes, "
+                "but the active mode is rsID-based. Set source_genome_build='auto' or switch to a chr_pos identifier."
+            )
         if config.output_genome_build is not None:
-            raise ValueError("output_genome_build is only valid for chr_pos-family snp_identifier modes.")
+            raise LDSCUsageError(
+                "MungeConfig.output_genome_build applies only to chr_pos-family snp_identifier modes, "
+                "but the active mode is rsID-based. Set output_genome_build=None or switch to a chr_pos identifier."
+            )
         if config.liftover_chain_file is not None or config.use_hm3_quick_liftover:
-            raise ValueError("Summary-statistics liftover is only valid for chr_pos-family snp_identifier modes.")
+            raise LDSCUsageError(
+                "Summary-statistics liftover applies only to chr_pos-family snp_identifier modes, "
+                "but the active mode is rsID-based. Remove liftover options or switch to a chr_pos identifier."
+            )
         return
     if config.output_genome_build is None:
-        raise ValueError(
-            "output_genome_build is required for chr_pos-family snp_identifier modes. "
-            "Pass output_genome_build='hg19' or output_genome_build='hg38'."
+        raise LDSCUsageError(
+            "MungeConfig.output_genome_build is required for chr_pos-family snp_identifier modes. "
+            "Most likely output_genome_build was omitted. Set output_genome_build='hg19' or 'hg38'."
         )
 
 
@@ -834,7 +913,11 @@ def _liftover_request_from_config(config: MungeConfig) -> SumstatsLiftoverReques
 def _validate_liftover_request_before_io(config: GlobalConfig, request: SumstatsLiftoverRequest) -> None:
     """Reject liftover requests that can be proven invalid before input IO."""
     if request.requested and identity_mode_family(config.snp_identifier) != "chr_pos":
-        raise ValueError("Summary-statistics liftover is only valid for chr_pos-family snp_identifier modes.")
+        raise LDSCUsageError(
+            "Summary-statistics liftover applies only to chr_pos-family snp_identifier modes. "
+            "Most likely liftover was requested with an rsID-based identifier. "
+            "Drop the liftover option or switch to a chr_pos identifier."
+        )
     source_build = normalize_genome_build(config.genome_build)
     if source_build not in {"hg19", "hg38"} or request.target_build is None:
         return
@@ -846,7 +929,11 @@ def _validate_liftover_request_before_io(config: GlobalConfig, request: Sumstats
         warnings.warn(message, UserWarning, stacklevel=2)
         LOGGER.warning(message)
     if request.target_build != source_build and request.method is None:
-        raise ValueError("output_genome_build differs from source_genome_build, but no liftover method was specified.")
+        raise LDSCUsageError(
+            "munge-sumstats cannot convert source_genome_build to output_genome_build because no liftover "
+            "method was specified. Most likely the requested builds differ. Add --liftover-chain-file "
+            "<chain.over.chain.gz> or --use-hm3-quick-liftover."
+        )
 
 
 def _munge_configs_from_args(args: argparse.Namespace) -> tuple[MungeConfig, MungeConfig]:
@@ -1341,7 +1428,11 @@ def _read_infer_only_coordinate_frame(
     raw_chr = [raw for raw, target in translation.items() if target == "CHR"]
     raw_pos = [raw for raw, target in translation.items() if target == "POS"]
     if not raw_chr or not raw_pos:
-        raise ValueError("raw input must contain inferable CHR and POS columns.")
+        raise LDSCInputError(
+            f"munge-sumstats --infer-only could not infer source genome build from '{source_path}' because "
+            "the raw input has no inferable CHR/POS column pair. Most likely the coordinate columns use "
+            "unrecognized names. Pass --chr <column> and --pos <column>, or pass --source-genome-build hg19/hg38."
+        )
     _openfunc, compression = get_compression(source_path)
     reader = pd.read_csv(
         source_path,
@@ -1377,11 +1468,21 @@ def _append_suggested_flag(args: list[str], flag: str) -> None:
 def _validate_sumstats_format_flags(munge_config: MungeConfig) -> None:
     fmt = munge_config.sumstats_format
     if fmt == "daner-old" and munge_config.daner_new:
-        raise ValueError("--format daner-old conflicts with --daner-new.")
+        raise LDSCUsageError(
+            "munge-sumstats cannot use --format daner-old together with --daner-new. "
+            "Most likely both legacy DANER modes were selected. Keep only --format daner-old or --daner-new."
+        )
     if fmt == "daner-new" and munge_config.daner_old:
-        raise ValueError("--format daner-new conflicts with --daner-old.")
+        raise LDSCUsageError(
+            "munge-sumstats cannot use --format daner-new together with --daner-old. "
+            "Most likely both legacy DANER modes were selected. Keep only --format daner-new or --daner-old."
+        )
     if fmt == "plain" and (munge_config.daner_old or munge_config.daner_new):
-        raise ValueError(f"--format {fmt} conflicts with DANER-specific flags.")
+        raise LDSCUsageError(
+            f"munge-sumstats cannot use --format {fmt} together with DANER-specific flags. "
+            "Most likely a plain-text override was combined with --daner-old/--daner-new. "
+            "Drop the DANER flag or choose the matching DANER format."
+        )
 
 
 def _render_inference_report(inference: RawSumstatsInference, raw_sumstats_file: str) -> str:
@@ -1436,7 +1537,10 @@ def _format_shell_command(command: list[str], *, base_indent: str = "  ", option
 def _normalize_output_format(output_format: str) -> str:
     """Return a validated curated sumstats output-format token."""
     if output_format not in _SUMSTATS_OUTPUT_FORMATS:
-        raise ValueError("output_format must be one of 'parquet', 'tsv.gz', or 'both'.")
+        raise LDSCUsageError(
+            f"munge-sumstats does not support output_format={output_format!r}. "
+            "Most likely the output format was misspelled. Use one of 'parquet', 'tsv.gz', or 'both'."
+        )
     return output_format
 
 
@@ -1479,7 +1583,10 @@ def _prepare_sumstats_parquet_frame(data: pd.DataFrame) -> pd.DataFrame:
     invalid_pos = (~pos_missing) & pos_numeric.isna()
     if invalid_pos.any():
         bad_value = frame.loc[invalid_pos, "POS"].iloc[0]
-        raise ValueError(f"POS values must be numeric base-pair positions; got {bad_value!r}.")
+        raise LDSCInputError(
+            f"munge-sumstats could not write Parquet output because POS contains a non-numeric value {bad_value!r}. "
+            "Most likely a coordinate column was mapped incorrectly. Pass the correct --pos column or fix the POS values."
+        )
 
     complete = ~(chr_missing | pos_missing)
     if complete.any():
@@ -1529,7 +1636,10 @@ def _write_sumstats_parquet(data: pd.DataFrame, path: str) -> list[dict[str, Any
         import pyarrow as pa
         import pyarrow.parquet as pq
     except ImportError as exc:
-        raise LDSCDependencyError("Writing sumstats parquet artifacts requires pyarrow.") from exc
+        raise LDSCDependencyError(
+            "munge-sumstats needs the 'pyarrow' package to write Parquet output, but it is not installed. "
+            "Install it (pip install pyarrow) or choose --output-format tsv.gz."
+        ) from exc
 
     frame = _prepare_sumstats_parquet_frame(data)
     schema = pa.Schema.from_pandas(frame, preserve_index=False)
@@ -1651,9 +1761,10 @@ def _read_curated_sumstats_artifact(path: str) -> pd.DataFrame:
         return pd.read_csv(path, sep=r"\s+", compression="gzip")
     if token.endswith(".sumstats"):
         return pd.read_csv(path, sep=r"\s+", compression="infer")
-    raise ValueError(
-        "Unsupported munged sumstats format. Expected a path ending in "
-        "'.parquet', '.sumstats.gz', or '.sumstats'."
+    raise LDSCInputError(
+        f"Cannot load curated sumstats at '{path}': unsupported file suffix. "
+        "Most likely this is a raw GWAS file or CSV, not a curated sumstats artifact. "
+        "Use a path ending in '.parquet', '.sumstats.gz', or '.sumstats', or run munge-sumstats first."
     )
 
 
@@ -1675,14 +1786,29 @@ def _sumstats_metadata_path(path: str | PathLike[str]) -> Path:
     return Path(path).parent / "metadata.json"
 
 
-def _read_sumstats_metadata(path: Path) -> dict[str, Any] | None:
+def _curated_sumstats_artifact_message(path: str | PathLike[str], detail: str, likely: str) -> str:
+    """Return the standard malformed curated-artifact diagnostic."""
+    return (
+        f"Cannot load curated sumstats at '{path}': {detail} "
+        f"{likely} Re-run munge-sumstats from the raw GWAS file. Other causes & fixes: "
+        f"{_CURATED_ARTIFACT_TROUBLESHOOTING}"
+    )
+
+
+def _read_sumstats_metadata(path: Path, *, artifact_path: str | PathLike[str]) -> dict[str, Any] | None:
     """Read a sumstats sidecar metadata file when it exists."""
     if not path.exists():
         return None
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
-        raise ValueError(REGENERATE_ARTIFACT_MESSAGE) from exc
+        raise LDSCInputError(
+            _curated_sumstats_artifact_message(
+                artifact_path,
+                "its metadata.json sidecar is not valid JSON, so its identity semantics cannot be read.",
+                "Most likely the sidecar was truncated or hand-edited.",
+            )
+        ) from exc
 
 
 def _resolve_sumstats_trait_name(
@@ -1701,12 +1827,28 @@ def _resolve_sumstats_trait_name(
     return Path(resolved_path).name
 
 
-def _global_config_from_sumstats_metadata(metadata: dict[str, Any] | None) -> GlobalConfig | None:
+def _global_config_from_sumstats_metadata(
+    metadata: dict[str, Any] | None,
+    *,
+    artifact_path: str | PathLike[str],
+) -> GlobalConfig | None:
     """Recreate a GlobalConfig snapshot from a sumstats sidecar."""
     if not isinstance(metadata, dict):
-        raise ValueError(REGENERATE_ARTIFACT_MESSAGE)
+        raise LDSCInputError(
+            _curated_sumstats_artifact_message(
+                artifact_path,
+                "its metadata.json sidecar is not a JSON object, so provenance fields cannot be read.",
+                "Most likely the sidecar was hand-edited or corrupted.",
+            )
+        )
     if "genome_build" not in metadata:
-        raise ValueError(REGENERATE_ARTIFACT_MESSAGE)
+        raise LDSCInputError(
+            _curated_sumstats_artifact_message(
+                artifact_path,
+                "its metadata.json sidecar is missing the genome_build field.",
+                "Most likely it predates the current schema.",
+            )
+        )
     try:
         mode = validate_identity_artifact_metadata(metadata, expected_artifact_type="sumstats")
         return GlobalConfig(
@@ -1715,9 +1857,13 @@ def _global_config_from_sumstats_metadata(metadata: dict[str, Any] | None) -> Gl
             log_level="INFO",
         )
     except Exception as exc:
-        if isinstance(exc, ValueError) and str(exc) == REGENERATE_ARTIFACT_MESSAGE:
-            raise
-        raise ValueError("Sumstats metadata sidecar has invalid identity provenance.") from exc
+        raise LDSCInputError(
+            _curated_sumstats_artifact_message(
+                artifact_path,
+                "its metadata.json sidecar has invalid identity provenance.",
+                "Most likely it predates the current schema or was edited after munging.",
+            )
+        ) from exc
 
 
 def _effective_sumstats_config(config: GlobalConfig, coordinate_metadata: dict[str, Any]) -> GlobalConfig:
@@ -1769,24 +1915,20 @@ def _log_sumstats_provenance(
         ),
     )
     LOGGER.info(
-        "Summary-statistics output bookkeeping: output_format=%s; output_files=%s; "
-        "parquet_compression=%s; parquet_row_groups=%d",
-        output_format,
-        _format_log_mapping(dict(output_files)),
-        parquet_compression or "none",
-        len(parquet_row_groups),
+        f"Summary-statistics output bookkeeping: output_format={output_format}; "
+        f"output_files={_format_log_mapping(dict(output_files))}; "
+        f"parquet_compression={parquet_compression or 'none'}; "
+        f"parquet_row_groups={len(parquet_row_groups)}"
     )
     LOGGER.info(
-        "Summary-statistics coordinate provenance: %s",
-        _format_log_mapping(coordinate_provenance),
+        f"Summary-statistics coordinate provenance: {_format_log_mapping(coordinate_provenance)}"
     )
     if isinstance(liftover, dict):
-        LOGGER.info("Summary-statistics liftover report: %s", _format_log_mapping(liftover))
+        LOGGER.info(f"Summary-statistics liftover report: {_format_log_mapping(liftover)}")
         if liftover.get("method") == "hm3_curated":
             LOGGER.info(
-                "Summary-statistics HM3 liftover provenance: method=%s; hm3_map_file=%s",
-                liftover.get("method"),
-                liftover.get("hm3_map_file"),
+                f"Summary-statistics HM3 liftover provenance: method={liftover.get('method')}; "
+                f"hm3_map_file={liftover.get('hm3_map_file')}"
             )
 
 

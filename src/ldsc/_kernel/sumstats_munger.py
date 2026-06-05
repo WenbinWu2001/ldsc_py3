@@ -39,6 +39,7 @@ from .._coordinates import (
     normalize_chr_pos_frame,
     positive_int_position_series,
 )
+from ..errors import LDSCDependencyError, LDSCInputError, LDSCInternalError, LDSCUsageError, LDSCUserError
 from ..column_inference import (
     RAW_SUMSTATS_REQUIRED_OR_OPTIONAL_SPECS,
     RAW_SUMSTATS_SIGNED_STAT_SPECS,
@@ -95,7 +96,10 @@ try:
     x = pd.DataFrame({'A': [1, 2, 3]})
     x.sort_values(by='A')
 except AttributeError:
-    raise ImportError('LDSC requires pandas version >= 0.17.0')
+    raise LDSCDependencyError(
+        "munge-sumstats requires pandas version >= 0.17.0, but the installed pandas is older. "
+        "Most likely the active environment is stale. Upgrade pandas or activate the ldsc3-dev environment."
+    )
 
 null_values = {
     'LOG_ODDS': 0,
@@ -206,8 +210,7 @@ def filter_pvals(P, args):
     ii = (P > 0) & (P <= 1)
     bad_p = (~ii).sum()
     if bad_p > 0:
-        msg = 'WARNING: {N} SNPs had P outside of (0,1]. The P column may be mislabeled.'
-        LOGGER.warning(msg.format(N=bad_p))
+        LOGGER.warning(f"WARNING: {bad_p} SNPs had P outside of (0,1]. The P column may be mislabeled.")
 
     return ii
 
@@ -222,12 +225,17 @@ def filter_info(info, args):
             (info < 0) & info.notnull()).any(axis=1))
         ii = (info.sum(axis=1) >= args.info_min * (len(info.columns)))
     else:
-        raise ValueError('Expected pd.DataFrame or pd.Series.')
+        raise LDSCInternalError(
+            "munge-sumstats received an invalid INFO object inside _kernel.sumstats_munger.filter_info(); "
+            "expected a pandas Series or DataFrame. Most likely an internal parser contract changed. "
+            "Re-run with --debug and report the traceback."
+        )
 
     bad_info = jj.sum()
     if bad_info > 0:
-        msg = 'WARNING: {N} SNPs had INFO outside of [0,1.5]. The INFO column may be mislabeled.'
-        LOGGER.warning(msg.format(N=bad_info))
+        LOGGER.warning(
+            f"WARNING: {bad_info} SNPs had INFO outside of [0,1.5]. The INFO column may be mislabeled."
+        )
 
     return ii
 
@@ -239,8 +247,7 @@ def filter_frq(frq, args):
     jj = (frq < 0) | (frq > 1)
     bad_frq = jj.sum()
     if bad_frq > 0:
-        msg = 'WARNING: {N} SNPs had FRQ outside of [0,1]. The FRQ column may be mislabeled.'
-        LOGGER.warning(msg.format(N=bad_frq))
+        LOGGER.warning(f"WARNING: {bad_frq} SNPs had FRQ outside of [0,1]. The FRQ column may be mislabeled.")
 
     frq = np.minimum(frq, 1 - frq)
     ii = frq > args.maf_min
@@ -257,7 +264,7 @@ def filter_signed_sumstats(x, null_value):
     ii = x != null_value
     removed = (~ii).sum()
     if removed > 0:
-        LOGGER.info('Removed {N} SNPs with null signed summary statistics.'.format(N=removed))
+        LOGGER.info(f"Removed {removed} SNPs with null signed summary statistics.")
     return ii
 
 
@@ -277,8 +284,9 @@ def _mean_info_list_value(value, column):
         try:
             numeric.append(float(token))
         except ValueError as exc:
-            raise ValueError(
-                f"Column {column} contains comma-separated INFO values but token {token!r} is not numeric. "
+            raise LDSCInputError(
+                f"munge-sumstats could not parse INFO-list column '{column}' in _kernel.sumstats_munger._mean_info_list_value(): "
+                f"token {token!r} is not numeric or NA. Most likely --info-list was pointed at a non-INFO column. "
                 f"Use --ignore {column} to skip it, or pass --info-list {column} only for numeric/NA per-study INFO lists."
             ) from exc
     if not numeric:
@@ -300,8 +308,7 @@ def parse_dat(dat_gen, convert_colname, args, restriction=None):
     '''Parse and filter a sumstats file chunk-wise'''
     tot_snps = 0
     dat_list = []
-    msg = 'Reading sumstats from {F} into memory {N} SNPs at a time.'
-    LOGGER.info(msg.format(F=args.sumstats, N=int(args.chunksize)))
+    LOGGER.info(f"Reading sumstats from {args.sumstats} into memory {int(args.chunksize)} SNPs at a time.")
     drops = {'NA': 0, 'P': 0, 'INFO': 0,
              'FRQ': 0, 'A': 0, 'SNP': 0}
     mode = normalize_snp_identifier_mode(getattr(args, 'snp_identifier', 'chr_pos_allele_aware'))
@@ -325,7 +332,11 @@ def parse_dat(dat_gen, convert_colname, args, restriction=None):
             if c in numeric_cols and c != 'POS' and not np.issubdtype(dat[c].dtype, np.number)
         ]
         if len(wrong_types) > 0:
-            raise ValueError('Columns {} are expected to be numeric'.format(wrong_types))
+            raise LDSCInputError(
+                f"munge-sumstats could not parse numeric column(s) {wrong_types} from '{args.sumstats}'. "
+                "Most likely one of these columns contains text values or was mapped to the wrong header. "
+                "Check the raw header and pass the correct column hints or clean the non-numeric values."
+            )
 
         if identity_mode_family(mode) == 'chr_pos':
             dat = _normalize_chr_pos_chunk(dat, args)
@@ -373,17 +384,15 @@ def parse_dat(dat_gen, convert_colname, args, restriction=None):
         dat_list.append(retained.reset_index(drop=True))
 
     dat = pd.concat(dat_list, axis=0).reset_index(drop=True) if dat_list else pd.DataFrame()
-    msg = 'Read {N} SNPs from --sumstats file.\n'.format(N=tot_snps)
-    msg += 'Removed {N} SNPs with missing values.\n'.format(N=drops['NA'])
-    msg += 'Removed {N} SNPs with INFO <= {I}.\n'.format(
-        N=drops['INFO'], I=args.info_min)
-    msg += 'Removed {N} SNPs with MAF <= {M}.\n'.format(
-        N=drops['FRQ'], M=args.maf_min)
-    msg += 'Removed {N} SNPs with out-of-bounds p-values.\n'.format(
-        N=drops['P'])
-    msg += 'Removed {N} variants that were not SNPs or were strand-ambiguous.\n'.format(
-        N=drops['A'])
-    msg += '{N} SNPs remain.'.format(N=len(dat))
+    msg = (
+        f"Read {tot_snps} SNPs from --sumstats file.\n"
+        f"Removed {drops['NA']} SNPs with missing values.\n"
+        f"Removed {drops['INFO']} SNPs with INFO <= {args.info_min}.\n"
+        f"Removed {drops['FRQ']} SNPs with MAF <= {args.maf_min}.\n"
+        f"Removed {drops['P']} SNPs with out-of-bounds p-values.\n"
+        f"Removed {drops['A']} variants that were not SNPs or were strand-ambiguous.\n"
+        f"{len(dat)} SNPs remain."
+    )
     LOGGER.info(msg)
     _log_coordinate_drop_summary(args)
     if restriction is not None:
@@ -563,14 +572,14 @@ def _raise_sumstats_restriction_empty(restriction, *, input_rows=None, usable_ro
     if restriction.identity_keys is not None and not restriction.identity_keys.dropped.empty:
         counts = restriction.identity_keys.dropped["reason"].value_counts(sort=False).to_dict()
         drop_details = f" Restriction rows dropped before matching: {counts}."
-    raise ValueError(
-        "After applying --sumstats-snps-file, no SNPs remain. "
-        f"Keep-list file: {restriction.path}. "
-        f"snp_identifier={restriction.mode}; genome_build={build_label}; "
+    raise LDSCInputError(
+        "munge-sumstats no SNPs remain after applying --sumstats-snps-file. "
+        "Most likely the keep-list uses a different SNP identifier mode or genome build than the input. "
+        "Regenerate the keep-list in the same snp_identifier mode and build as the sumstats. "
+        f"Keep-list file: {restriction.path}. snp_identifier={restriction.mode}; genome_build={build_label}; "
         f"input rows before filtering={input_rows}; usable row identifiers={usable_rows}; "
-        f"keep-list identifiers={len(restriction.identifiers)}."
-        f"{drop_details} "
-        "Check that the keep-list uses the same identifier mode and genome build as the munged sumstats."
+        f"keep-list identifiers={len(restriction.identifiers)}.{drop_details} "
+        "Other causes & fixes: docs/troubleshooting.md#munge-sumstats-no-snps-remain-after-filtering"
     )
 
 
@@ -657,8 +666,7 @@ def process_n(dat, args):
         old = len(dat)
         dat = dat[dat.N >= n_min].reset_index(drop=True)
         new = len(dat)
-        LOGGER.info('Removed {M} SNPs with N < {MIN} ({N} SNPs remain).'.format(
-            M=old - new, N=new, MIN=n_min))
+        LOGGER.info(f"Removed {old - new} SNPs with N < {n_min} ({new} SNPs remain).")
 
     elif 'NSTUDY' in dat.columns and 'N' not in dat.columns:
         nstudy_min = args.nstudy_min if args.nstudy_min else dat.NSTUDY.max()
@@ -666,21 +674,22 @@ def process_n(dat, args):
         dat = dat[dat.NSTUDY >= nstudy_min].drop(
             ['NSTUDY'], axis=1).reset_index(drop=True)
         new = len(dat)
-        LOGGER.info('Removed {M} SNPs with NSTUDY < {MIN} ({N} SNPs remain).'.format(
-            M=old - new, N=new, MIN=nstudy_min))
+        LOGGER.info(f"Removed {old - new} SNPs with NSTUDY < {nstudy_min} ({new} SNPs remain).")
 
     if 'N' not in dat.columns:
         if args.N:
             dat['N'] = args.N
-            LOGGER.info('Using N = {N}'.format(N=args.N))
+            LOGGER.info(f"Using N = {args.N}")
         elif args.N_cas and args.N_con:
             dat['N'] = args.N_cas + args.N_con
             if not args.daner_old:
-                msg = 'Using N_cas = {N1}; N_con = {N2}'
-                LOGGER.info(msg.format(N1=args.N_cas, N2=args.N_con))
+                LOGGER.info(f"Using N_cas = {args.N_cas}; N_con = {args.N_con}")
         else:
-            raise ValueError('Cannot determine N. This message indicates a bug.\n'
-                             'N should have been checked earlier in the program.')
+            raise LDSCInternalError(
+                "munge-sumstats could not derive a sample size (N) and reached a state that should be unreachable. "
+                "Most likely an earlier input validation step failed to stop a missing-N file. "
+                "Re-run with --debug and report the traceback."
+            )
 
     return dat
 
@@ -694,11 +703,13 @@ def check_median(x, expected_median, tolerance, name):
     '''Check that median(x) is within tolerance of expected_median.'''
     m = np.median(x)
     if np.abs(m - expected_median) > tolerance:
-        msg = 'WARNING: median value of {F} is {V} (should be close to {M}). This column may be mislabeled.'
-        raise ValueError(msg.format(F=name, M=expected_median, V=round(m, 2)))
+        raise LDSCInputError(
+            f"munge-sumstats rejected signed statistic column '{name}' because its median is {round(m, 2)}, "
+            f"but expected a value close to {expected_median}. Most likely the signed statistic column or "
+            "its null value is mislabeled. Pass the correct --signed-sumstats <column>,<null_value> option."
+        )
     else:
-        msg = 'Median value of {F} was {C}, which seems sensible.'.format(
-            C=m, F=name)
+        msg = f"Median value of {name} was {m}, which seems sensible."
 
     return msg
 
@@ -730,9 +741,10 @@ def parse_flag_cnames(args):
             flag_cnames.update(
                 {clean_header(x): 'INFO' for x in args.info_list.split(',')})
         except ValueError as exc:
-            raise ValueError(
-                f"Invalid --info-list value {args.info_list!r}. "
-                "Expected a comma-separated list of INFO column names, for example 'INFO,INFO_SCORE'."
+            raise LDSCUsageError(
+                f"munge-sumstats could not parse --info-list={args.info_list!r}. "
+                "Most likely the value is not a comma-separated list of column names. "
+                "Use a value such as --info-list INFO,INFO_SCORE."
             ) from exc
 
     null_value = None
@@ -742,9 +754,10 @@ def parse_flag_cnames(args):
             null_value = float(null_value)
             flag_cnames[clean_header(cname)] = 'SIGNED_SUMSTAT'
         except ValueError as exc:
-            raise ValueError(
-                f"Invalid --signed-sumstats value {args.signed_sumstats!r}. "
-                "Expected '<column>,<null_value>', for example 'BETA,0' or 'OR,1'."
+            raise LDSCUsageError(
+                f"munge-sumstats could not parse --signed-sumstats={args.signed_sumstats!r}. "
+                "Most likely the value is missing '<column>,<null_value>' or the null value is not numeric. "
+                "Use a value such as --signed-sumstats BETA,0 or --signed-sumstats OR,1."
             ) from exc
 
     return [flag_cnames, null_value]
@@ -799,9 +812,10 @@ def _resolve_auto_genome_build_before_chunks(args, cname_translation, compressio
             logger=None,
         )
     except ValueError as exc:
-        raise ValueError(
-            "Unable to infer genome_build from raw sumstats CHR/POS coordinates. "
-            f"{exc} Pass --genome-build hg19 or --genome-build hg38 explicitly."
+        raise LDSCInputError(
+            f"munge-sumstats could not infer genome_build from raw CHR/POS coordinates in "
+            f"'{getattr(args, 'sumstats', 'sumstats')}'. Most likely too few coordinates match a known build. "
+            "Pass --genome-build hg19 or --genome-build hg38 explicitly."
         ) from exc
 
     args.genome_build = inference.genome_build
@@ -832,9 +846,10 @@ def _read_raw_sumstats_coordinate_frame(args, cname_translation, *, compression,
     raw_chr = [raw for raw, target in cname_translation.items() if target == 'CHR']
     raw_pos = [raw for raw, target in cname_translation.items() if target == 'POS']
     if not raw_chr or not raw_pos:
-        raise ValueError(
-            "genome_build='auto' requires CHR and POS columns in --sumstats input. "
-            "Pass --chr/--pos column hints, or pass --genome-build hg19 or --genome-build hg38 explicitly."
+        raise LDSCInputError(
+            f"munge-sumstats could not infer genome_build='auto' for '{getattr(args, 'sumstats', 'sumstats')}' "
+            "because no CHR/POS column pair was mapped. Most likely the coordinate columns use unrecognized names. "
+            "Pass --chr/--pos column hints, or pass --genome-build hg19 or hg38 explicitly."
         )
     raw_columns = [raw_chr[0], raw_pos[0]]
     reader = pd.read_csv(
@@ -1111,7 +1126,9 @@ def munge_sumstats(args, p=True):
         Munged summary-statistics table when ``p`` is true.
     """
     if args.out is None:
-        raise ValueError('The --out flag is required.')
+        raise LDSCUserError(
+            "No output path given to munge-sumstats. Most likely --out was omitted. Pass --out <stem>."
+        )
     args._coordinate_metadata = {
         'snp_identifier': normalize_snp_identifier_mode(getattr(args, 'snp_identifier', 'chr_pos_allele_aware')),
         'genome_build': normalize_genome_build(getattr(args, 'genome_build', None)),
@@ -1119,10 +1136,15 @@ def munge_sumstats(args, p=True):
     }
 
     if args.sumstats is None:
-        raise ValueError('The --sumstats flag is required.')
+        raise LDSCUserError(
+            "No input summary statistics given to munge-sumstats. Most likely --sumstats was omitted. "
+            "Pass --sumstats <file>."
+        )
     if args.daner_old and args.daner_new:
-        raise ValueError('--daner-old and --daner-new are not compatible. Use --daner-old for sample '
-        'size from FRQ_A/FRQ_U headers, use --daner-new for values from Nca/Nco columns')
+        raise LDSCUsageError(
+            "munge-sumstats cannot use --daner-old and --daner-new together. Most likely both DANER "
+            "formats were selected. Use --daner-old for FRQ_A/FRQ_U headers or --daner-new for Nca/Nco columns."
+        )
 
     file_cnames = read_header(args.sumstats)  # note keys not cleaned
     flag_cnames, signed_sumstat_null = parse_flag_cnames(args)
@@ -1146,7 +1168,8 @@ def munge_sumstats(args, p=True):
         N_cas = float(frq_a[6:])
         N_con = float(frq_u[6:])
         LOGGER.info(
-            'Inferred that N_cas = {N1}, N_con = {N2} from the FRQ_[A/U] columns.'.format(N1=N_cas, N2=N_con))
+            f"Inferred that N_cas = {N_cas}, N_con = {N_con} from the FRQ_[A/U] columns."
+        )
         args.N_cas = N_cas
         args.N_con = N_con
         # drop any N, N_cas, N_con or FRQ columns
@@ -1160,12 +1183,20 @@ def munge_sumstats(args, p=True):
         cname_map[frq_u] = 'FRQ'
         try:
             dan_cas = clean_header(file_cnames[file_cnames.index('Nca')])
-        except ValueError:
-            raise ValueError('Could not find Nca column expected for daner-new format')
+        except ValueError as exc:
+            raise LDSCInputError(
+                f"munge-sumstats could not find the Nca column required by --daner-new in '{args.sumstats}'. "
+                "Most likely the file is not in new-DANER format or uses a different case-count header. "
+                "Drop --daner-new or pass the correct case-count column with --N-cas-col."
+            ) from exc
         try:
             dan_con = clean_header(file_cnames[file_cnames.index('Nco')])
-        except ValueError:
-            raise ValueError('Could not find Nco column expected for daner-new format')
+        except ValueError as exc:
+            raise LDSCInputError(
+                f"munge-sumstats could not find the Nco column required by --daner-new in '{args.sumstats}'. "
+                "Most likely the file is not in new-DANER format or uses a different control-count header. "
+                "Drop --daner-new or pass the correct control-count column with --N-con-col."
+            ) from exc
         cname_map[dan_cas] = 'N_CAS'
         cname_map[dan_con] = 'N_CON'
 
@@ -1181,15 +1212,18 @@ def munge_sumstats(args, p=True):
         sign_cnames = [
             x for x in cname_translation if cname_translation[x] in null_values]
         if len(sign_cnames) > 1:
-            raise ValueError(
-                'Too many signed sumstat columns. Specify which to ignore with the --ignore flag.')
+            raise LDSCInputError(
+                f"munge-sumstats found multiple signed statistic columns in '{args.sumstats}': {sign_cnames}. "
+                "Most likely more than one effect column is present. Pass --signed-sumstats <column>,<null_value> "
+                "or use --ignore for the extra signed-statistic columns."
+            )
         if len(sign_cnames) == 0:
             available = ', '.join(file_cnames)
             accepted = ', '.join(sorted(null_values))
-            raise ValueError(
-                f"Could not find a signed summary statistic column in --sumstats input. "
-                f"Available columns: {available}. Expected one of: {accepted}, "
-                "or pass --signed-sumstats <column>,<null_value>."
+            raise LDSCInputError(
+                f"munge-sumstats could not find a signed summary statistic column in '{args.sumstats}'. "
+                f"Available columns: {available}. Most likely the effect column has an unrecognized name. "
+                f"Expected one of: {accepted}, or pass --signed-sumstats <column>,<null_value>."
                 f"{_suggest_signed_sumstat_fix(file_cnames)}"
             )
         sign_cname = sign_cnames[0]
@@ -1207,28 +1241,38 @@ def munge_sumstats(args, p=True):
     for c in req_cols:
         if c not in cname_translation.values():
             available = ', '.join(file_cnames)
-            raise ValueError(
-                f"Could not find {c} column in --sumstats input. "
-                f"Available columns: {available}. Use the matching column flag or --ignore to resolve ambiguous headers."
+            raise LDSCInputError(
+                f"munge-sumstats could not map the required column '{c}' from the header of '{args.sumstats}'. "
+                f"Available columns: {available}. Most likely the file uses an unrecognized name for it. "
+                "Pass the matching column flag or rename the column. Other causes & fixes: "
+                "docs/troubleshooting.md#munge-sumstats-could-not-map-a-required-column"
             )
 
     # check aren't any duplicated column names in mapping
     for field in cname_translation:
         numk = file_cnames.count(field)
         if numk > 1:
-            raise ValueError('Found {num} columns named {C}'.format(C=field,num=str(numk)))
+            raise LDSCInputError(
+                f"munge-sumstats found {numk} columns named '{field}' in '{args.sumstats}'. "
+                "Most likely the raw header contains duplicate labels. Rename or remove the duplicate column before munging."
+            )
 
     # check multiple different column names don't map to same data field
     for head in cname_translation.values():
         numc = list(cname_translation.values()).count(head)
         if numc > 1:
-            raise ValueError('Found {num} different {C} columns'.format(C=head,num=str(numc)))
+            raise LDSCInputError(
+                f"munge-sumstats mapped {numc} different input columns to canonical field '{head}' in '{args.sumstats}'. "
+                "Most likely an explicit column hint conflicts with an auto-detected alias. "
+                "Use --ignore for the extra column or remove the conflicting hint."
+            )
 
     if (not args.N) and (not (args.N_cas and args.N_con)) and ('N' not in cname_translation.values()) and\
             (any(x not in cname_translation.values() for x in ['N_CAS', 'N_CON'])):
-        raise ValueError(
-            'Could not determine N. Provide --N, provide both --N-cas and --N-con, '
-            'or include an inferable N column in the input summary statistics.'
+        raise LDSCInputError(
+            f"munge-sumstats could not determine sample size (N) for '{args.sumstats}'. "
+            "Most likely the input has no recognized N, N_CAS/N_CON, or DANER sample-size columns. "
+            "Provide --N, provide both --N-cas and --N-con, or include an inferable N column."
             f"{_suggest_n_fix(file_cnames)}"
         )
     if ('N' in cname_translation.values() or all(x in cname_translation.values() for x in ['N_CAS', 'N_CON']))\
@@ -1240,10 +1284,11 @@ def munge_sumstats(args, p=True):
     mode = normalize_snp_identifier_mode(getattr(args, 'snp_identifier', 'chr_pos_allele_aware'))
     requires_alleles = is_allele_aware_mode(mode)
     if requires_alleles and not all(x in cname_translation.values() for x in ['A1', 'A2']):
-        raise ValueError(
+        raise LDSCInputError(
             f"This run is using snp_identifier={mode!r}, which requires A1/A2 allele columns. "
-            "No usable allele columns were found. "
-            f"To run without allele-aware SNP identity, rerun with --snp-identifier {identity_base_mode(mode)}."
+            f"munge-sumstats could not map usable allele columns from '{args.sumstats}'. "
+            "Most likely the file uses REF/ALT or other unrecognized allele headers. "
+            f"Pass --a1/--a2 column hints, or rerun with --snp-identifier {identity_base_mode(mode)}."
             f"{_suggest_allele_fix(file_cnames)}"
         )
 
@@ -1273,7 +1318,11 @@ def munge_sumstats(args, p=True):
 
     dat = parse_dat(dat_gen, cname_translation, args, restriction=restriction)
     if len(dat) == 0:
-        raise ValueError('After applying filters, no SNPs remain.')
+        raise LDSCInputError(
+            "munge-sumstats removed every SNP during quality filtering. Most likely --info-min/--maf-min "
+            "are too strict for this file. Relax the thresholds and check the dropped-SNP sidecar. "
+            "Other causes & fixes: docs/troubleshooting.md#munge-sumstats-no-snps-remain-after-filtering"
+        )
 
     dat = dat.reset_index(drop=True)
     median_msg = None
@@ -1296,30 +1345,27 @@ def munge_sumstats(args, p=True):
     if args.keep_maf and 'FRQ' in dat.columns:
         print_colnames.append('FRQ')
     if p:
-        msg = 'Writing summary statistics for {M} SNPs ({N} with nonmissing beta) to {F}.'
         LOGGER.info(
-            msg.format(M=len(dat), F=out_fname + '.gz', N=dat.N.notnull().sum()))
+            f"Writing summary statistics for {len(dat)} SNPs ({dat.N.notnull().sum()} with nonmissing beta) "
+            f"to {out_fname + '.gz'}."
+        )
         dat.to_csv(out_fname + '.gz', sep="\t", index=False,
                    columns=print_colnames, float_format='%.3f', compression = 'gzip')
     else:
         LOGGER.info(
-            'Prepared summary statistics for {M} SNPs ({N} with nonmissing beta).'.format(
-                M=len(dat),
-                N=dat.N.notnull().sum(),
-            )
+            f"Prepared summary statistics for {len(dat)} SNPs ({dat.N.notnull().sum()} with nonmissing beta)."
         )
 
     LOGGER.info('\nMetadata:')
     CHISQ = (dat.Z ** 2)
     mean_chisq = CHISQ.mean()
-    LOGGER.info('Mean chi^2 = ' + str(round(mean_chisq, 3)))
+    LOGGER.info(f"Mean chi^2 = {round(mean_chisq, 3)}")
     if mean_chisq < 1.02:
         LOGGER.warning("WARNING: mean chi^2 may be too small.")
 
-    LOGGER.info('Lambda GC = ' + str(round(CHISQ.median() / 0.4549, 3)))
-    LOGGER.info('Max chi^2 = ' + str(round(CHISQ.max(), 3)))
-    LOGGER.info('{N} Genome-wide significant SNPs (some may have been removed by filtering).'.format(N=(CHISQ
-                                                                                                    > 29).sum()))
+    LOGGER.info(f"Lambda GC = {round(CHISQ.median() / 0.4549, 3)}")
+    LOGGER.info(f"Max chi^2 = {round(CHISQ.max(), 3)}")
+    LOGGER.info(f"{(CHISQ > 29).sum()} Genome-wide significant SNPs (some may have been removed by filtering).")
     return dat
 
 

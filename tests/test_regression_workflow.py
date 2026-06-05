@@ -797,7 +797,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             data=self.make_sumstats_table().data.assign(SNP=["missing1", "missing2", "missing3"]),
         )
 
-        with self.assertRaisesRegex(ValueError, "Active config:"):
+        with self.assertRaisesRegex(LDSCInputError, "retained no overlapping.*Other causes"):
             runner.build_dataset(sumstats, self.make_ldscore_result())
 
     def test_build_dataset_with_query_rejects_misaligned_query_table(self):
@@ -1380,7 +1380,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             ],
         )
 
-        with self.assertRaisesRegex(ValueError, "partitioned-h2 requires query annotations"):
+        with self.assertRaisesRegex(LDSCInputError, "LD-score directory has no query annotation columns"):
             runner.estimate_partitioned_h2(
                 self.make_sumstats_table(),
                 ldscore_result,
@@ -1428,7 +1428,7 @@ class RegressionWorkflowTest(unittest.TestCase):
     def test_estimate_partitioned_h2_rejects_unknown_query_column(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
 
-        with self.assertRaisesRegex(ValueError, "Unknown query annotation requested.*missing"):
+        with self.assertRaisesRegex(LDSCInputError, "requested query annotation columns.*missing"):
             runner.estimate_partitioned_h2(
                 self.make_sumstats_table(),
                 self.make_ldscore_result(),
@@ -1443,7 +1443,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             query_columns=[],
         )
 
-        with self.assertRaisesRegex(ValueError, "partitioned-h2 requires query annotations"):
+        with self.assertRaisesRegex(LDSCInputError, "LD-score directory has no query annotation columns"):
             runner.estimate_partitioned_h2_batch(
                 self.make_sumstats_table(),
                 self.make_ldscore_result(),
@@ -1953,7 +1953,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             "_load_sumstats_table",
             side_effect=AssertionError("sumstats should not load"),
         ):
-            with self.assertRaisesRegex(ValueError, "--write-per-pair-detail requires --output-dir"):
+            with self.assertRaisesRegex(LDSCUsageError, "per-pair detail without `--output-dir`"):
                 regression_runner.run_rg_from_args(args)
 
     def test_run_rg_from_args_returns_result_family_without_printing_when_output_dir_is_absent(self):

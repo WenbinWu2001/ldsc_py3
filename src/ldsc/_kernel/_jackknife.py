@@ -14,21 +14,39 @@ of the data.
 
 import numpy as np
 from scipy.optimize import nnls
+
+from ..errors import LDSCInternalError
+
 np.seterr(divide='raise', invalid='raise')
 
 
 def _check_shape(x, y):
     '''Check that x and y have the correct shapes (for regression jackknives).'''
     if len(x.shape) != 2 or len(y.shape) != 2:
-        raise ValueError('x and y must be 2D arrays.')
+        raise LDSCInternalError(
+            f"Regression jackknife setup expected 2D x and y arrays, got shapes {x.shape} and {y.shape}. "
+            "Most likely regression preprocessing passed an unreshaped vector. "
+            "Re-run with `--log-level DEBUG` and report the traceback."
+        )
     if x.shape[0] != y.shape[0]:
-        raise ValueError(
-            'Number of datapoints in x != number of datapoints in y.')
+        raise LDSCInternalError(
+            f"Regression jackknife setup received {x.shape[0]} x rows and {y.shape[0]} y rows. "
+            "Most likely regression preprocessing misaligned the design matrix and response. "
+            "Re-run with `--log-level DEBUG` and report the traceback."
+        )
     if y.shape[1] != 1:
-        raise ValueError('y must have shape (n_snp, 1)')
+        raise LDSCInternalError(
+            f"Regression jackknife setup expected y shape (n_snp, 1), got {y.shape}. "
+            "Most likely regression preprocessing passed multiple response columns. "
+            "Re-run with `--log-level DEBUG` and report the traceback."
+        )
     n, p = x.shape
     if p > n:
-        raise ValueError('More dimensions than datapoints.')
+        raise LDSCInternalError(
+            f"Regression jackknife setup received {p} predictors for {n} SNPs. "
+            "Most likely too few SNPs remain for the regression model after filtering. "
+            "Use a broader SNP set or fewer annotation columns."
+        )
 
     return (n, p)
 
@@ -36,13 +54,23 @@ def _check_shape(x, y):
 def _check_shape_block(xty_block_values, xtx_block_values):
     '''Check that xty_block_values and xtx_block_values have correct shapes.'''
     if xtx_block_values.shape[0:2] != xty_block_values.shape:
-        raise ValueError(
-            'Shape of xty_block_values must equal shape of first two dimensions of xty_block_values.')
+        raise LDSCInternalError(
+            "Regression jackknife block summaries have inconsistent X'Y and X'X shapes: "
+            f"{xty_block_values.shape} vs {xtx_block_values.shape}. Most likely block "
+            "summary construction became inconsistent. Re-run with `--log-level DEBUG` and report the traceback."
+        )
     if len(xtx_block_values.shape) < 3:
-        raise ValueError('xtx_block_values must be a 3D array.')
+        raise LDSCInternalError(
+            f"Regression jackknife block X'X summary expected a 3D array, got shape {xtx_block_values.shape}. "
+            "Most likely block summary construction dropped one dimension. "
+            "Re-run with `--log-level DEBUG` and report the traceback."
+        )
     if xtx_block_values.shape[1] != xtx_block_values.shape[2]:
-        raise ValueError(
-            'Last two axes of xtx_block_values must have same dimension.')
+        raise LDSCInternalError(
+            f"Regression jackknife block X'X matrices are not square: shape {xtx_block_values.shape}. "
+            "Most likely block summary construction became inconsistent. "
+            "Re-run with `--log-level DEBUG` and report the traceback."
+        )
 
     return xtx_block_values.shape[0:2]
 
@@ -90,20 +118,35 @@ class Jackknife(object):
         self.N, self.p = _check_shape(x, y)
         if separators is not None:
             if max(separators) != self.N:
-                raise ValueError(
-                    'Max(separators) must be equal to number of data points.')
+                raise LDSCInternalError(
+                    f"Regression jackknife separators end at {max(separators)}, expected {self.N} data points. "
+                    "Most likely custom jackknife separators do not match the regression rows. "
+                    "Re-run with `--log-level DEBUG` and report the traceback."
+                )
             if min(separators) != 0:
-                raise ValueError('Max(separators) must be equal to 0.')
+                raise LDSCInternalError(
+                    f"Regression jackknife separators start at {min(separators)}, expected 0. "
+                    "Most likely custom jackknife separators are malformed. "
+                    "Re-run with `--log-level DEBUG` and report the traceback."
+                )
             self.separators = sorted(separators)
             self.n_blocks = len(separators) - 1
         elif n_blocks is not None:
             self.n_blocks = n_blocks
             self.separators = self.get_separators(self.N, self.n_blocks)
         else:
-            raise ValueError('Must specify either n_blocks are separators.')
+            raise LDSCInternalError(
+                "Regression jackknife setup received neither n_blocks nor separators. "
+                "Most likely the regression config did not propagate block settings. "
+                "Re-run with `--log-level DEBUG` and report the traceback."
+            )
 
         if self.n_blocks > self.N:
-            raise ValueError('More blocks than data points.')
+            raise LDSCInternalError(
+                f"Regression jackknife requested {self.n_blocks} blocks for {self.N} SNPs. "
+                "Most likely too few SNPs remain after filtering for the requested block count. "
+                "Use a broader SNP set or reduce --n-blocks."
+            )
 
     @classmethod
     def jknife(cls, pseudovalues):
@@ -158,8 +201,11 @@ class Jackknife(object):
         '''
         n_blocks, p = delete_values.shape
         if est.shape != (1, p):
-            raise ValueError(
-                'Different number of parameters in delete_values than in est.')
+            raise LDSCInternalError(
+                f"Regression jackknife pseudovalue setup got est shape {est.shape} for delete-values shape {delete_values.shape}. "
+                "Most likely jackknife delete-value construction became inconsistent. "
+                "Re-run with `--log-level DEBUG` and report the traceback."
+            )
 
         return n_blocks * est - (n_blocks - 1) * delete_values
 
@@ -468,13 +514,23 @@ class RatioJackknife(Jackknife):
     def __init__(self, est, numer_delete_values, denom_delete_values):
         """Build ratio-jackknife pseudovalues from numerator and denominator deletes."""
         if numer_delete_values.shape != denom_delete_values.shape:
-            raise ValueError(
-                'numer_delete_values.shape != denom_delete_values.shape.')
+            raise LDSCInternalError(
+                f"Regression ratio jackknife numerator and denominator delete values have shapes "
+                f"{numer_delete_values.shape} and {denom_delete_values.shape}. Most likely ratio "
+                "summary construction became inconsistent. Re-run with `--log-level DEBUG` and report the traceback."
+            )
         if len(numer_delete_values.shape) != 2:
-            raise ValueError('Delete values must be matrices.')
+            raise LDSCInternalError(
+                f"Regression ratio jackknife expected 2D delete values, got shape {numer_delete_values.shape}. "
+                "Most likely ratio summary construction passed a malformed array. "
+                "Re-run with `--log-level DEBUG` and report the traceback."
+            )
         if len(est.shape) != 2 or est.shape[0] != 1 or est.shape[1] != numer_delete_values.shape[1]:
-            raise ValueError(
-                'Shape of est does not match shape of delete values.')
+            raise LDSCInternalError(
+                f"Regression ratio jackknife estimate shape {est.shape} does not match delete-values shape {numer_delete_values.shape}. "
+                "Most likely ratio summary construction became inconsistent. "
+                "Re-run with `--log-level DEBUG` and report the traceback."
+            )
 
         self.n_blocks = numer_delete_values.shape[0]
         self.est = est

@@ -351,3 +351,53 @@ restriction build/column readers · **Exception:** `LDSCInputError`
 1. Keep R2 parquet files and metadata sidecars together as one artifact family.
 2. Regenerate the reference panel with the current `ldsc build-ref-panel`.
 3. Pass a concrete build-specific R2 directory or set the matching genome build.
+
+## regression
+
+### regression: no SNPs remain after merging regression inputs
+
+**Raised by:** `regression_runner.RegressionRunner.build_dataset()` and
+`regression_runner.RegressionRunner.build_rg_dataset()` · **Exception:** `LDSCInputError`
+**Symptom:** `h2 regression retained no overlapping...` / `rg regression retained no overlapping...`
+
+**Likely causes & how to check** (most probable first):
+
+| # | Likely cause | How to check |
+|---|--------------|--------------|
+| 1 | Sumstats and LD-score artifacts use different SNP identifier modes | Compare `snp_identifier` in each artifact's metadata |
+| 2 | Coordinate-mode inputs are on different genome builds | Compare `genome_build` metadata for sumstats and the LD-score directory |
+| 3 | One input was generated allele-aware and another was generated allele-blind | Check whether each artifact has A1/A2 columns and allele-aware provenance |
+| 4 | The regression SNP universe or filters removed all shared SNPs | Inspect the retained SNP counts and any dropped-SNP sidecars from upstream commands |
+| 5 | For `rg`, the two traits use incompatible allele conventions | Confirm both munged sumstats were generated with harmonized A1/A2 columns |
+
+**Remedies:**
+
+1. Regenerate sumstats and LD scores with the same `--snp-identifier` and
+   `--genome-build`.
+2. Use `--allow-identity-downgrade` only for same-family allele-aware/base mixes
+   when duplicate base identities have been cleaned.
+3. Broaden or rebuild the regression SNP universe so the traits and LD-score
+   directory share retained SNPs.
+
+### regression: partitioned-h2 LD-score directory has no query annotations
+
+**Raised by:** `regression_runner._validate_partitioned_query_columns()` and
+`regression_runner._assemble_regression_ldscore_table()` · **Exception:** `LDSCInputError`
+**Symptom:** `partitioned-h2 cannot run because the LD-score directory has no query annotation columns...`
+
+**Likely causes & how to check** (most probable first):
+
+| # | Likely cause | How to check |
+|---|--------------|--------------|
+| 1 | `ldsc ldscore` was run with baseline annotations only | Inspect `metadata.json` for an empty `query_columns` list |
+| 2 | Query BED or annotation sources were passed to the wrong command/run | Check the LD-score run log under `diagnostics/ldscore.log` |
+| 3 | Query annotations were omitted because only the unpartitioned h2 workflow was planned | Confirm whether the intended command is `h2` or `partitioned-h2` |
+| 4 | The LD-score directory was copied from an older or partial run | Confirm `ldscore.query.parquet` exists when `metadata.json` lists query files |
+
+**Remedies:**
+
+1. Rerun `ldsc ldscore` with explicit baseline annotations plus
+   `--query-annot-sources` or `--query-annot-bed-sources`.
+2. Use `ldsc h2` for baseline-only LD-score directories.
+3. Keep `metadata.json`, baseline parquet, and query parquet files from the same
+   LD-score run together.

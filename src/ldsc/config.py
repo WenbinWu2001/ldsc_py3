@@ -462,16 +462,15 @@ class LDScoreConfig:
     whole_chromosome_ok : bool, optional
         Override the guard that rejects windows effectively spanning an entire
         chromosome. Default is ``False``.
-    parallel : bool, optional
-        Master switch for cross-chromosome parallelism on one machine. ``True``
-        (default) runs chromosomes concurrently over a process pool; ``False``
-        forces sequential in-process computation regardless of ``num_workers``.
-    num_workers : int, optional
-        Number of worker processes when ``parallel`` is ``True``. ``0`` (default)
-        means auto: ``min(os.cpu_count(), n_chromosomes)`` (all available cores,
-        capped at the chromosome count). Values ``>0`` cap at the chromosome
-        count; ``1`` is effectively sequential. Ignored when ``parallel`` is
-        ``False``. Output is identical regardless of this value.
+    threads : int, optional
+        Number of worker processes for cross-chromosome parallelism on one
+        machine, using the scikit-learn/joblib ``n_jobs`` convention: ``1``
+        (default) runs sequentially in-process; ``-1`` uses all available cores;
+        ``-2`` uses all but one; any other negative ``-k`` uses
+        ``n_cpus + 1 - k``. Core counts respect CPU affinity (SLURM/cgroup
+        allocations), not the raw machine size. The effective count is capped at
+        the chromosome count, and ``0`` is rejected. Output is identical
+        regardless of this value.
     """
     ld_wind_snps: int | None = None
     ld_wind_kb: float | None = None
@@ -481,8 +480,7 @@ class LDScoreConfig:
     snp_batch_size: int = 128
     common_maf_min: float = 0.05
     whole_chromosome_ok: bool = False
-    parallel: bool = True
-    num_workers: int = 0
+    threads: int = 1
 
     def __post_init__(self) -> None:
         """Validate LD-window settings and normalize optional SNP-list paths."""
@@ -499,8 +497,13 @@ class LDScoreConfig:
             raise LDSCConfigError(_range_message("LDScoreConfig", "common_maf_min", self.common_maf_min, "[0, 0.5]"))
         if self.snp_batch_size <= 0:
             raise LDSCConfigError(_positive_number_message("LDScoreConfig", "snp_batch_size", self.snp_batch_size))
-        if self.num_workers < 0:
-            raise LDSCConfigError(_positive_number_message("LDScoreConfig", "num_workers", self.num_workers))
+        if self.threads == 0:
+            raise LDSCConfigError(
+                "LDScoreConfig received threads=0, which is ambiguous. Most likely the "
+                "thread count was left unset to a sentinel. Use 1 for sequential, a "
+                "positive count for that many workers, -1 for all cores, or -2 for all "
+                "but one."
+            )
         object.__setattr__(self, "regression_snps_file", _normalize_optional_path(self.regression_snps_file))
         if self.regression_snps_file is not None and self.use_hm3_regression_snps:
             raise LDSCConfigError(_mutually_exclusive_message("LDScoreConfig", "regression_snps_file", "use_hm3_regression_snps"))

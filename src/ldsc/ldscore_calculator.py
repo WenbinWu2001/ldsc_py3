@@ -307,11 +307,11 @@ class LDScoreCalculator:
         """Compute and aggregate LD scores across all chromosomes.
 
         Chromosomes are computed independently and then aggregated in input
-        order. ``ldscore_config.parallel`` (default ``True``) fans the
-        chromosomes out over a spawn ``ProcessPoolExecutor`` sized by
-        ``ldscore_config.num_workers`` (``0`` = auto, all cores capped at the
-        chromosome count); ``parallel=False`` runs sequentially in-process. The
-        aggregated output is identical regardless of these settings.
+        order. ``ldscore_config.threads`` controls cross-chromosome parallelism
+        (joblib ``n_jobs`` convention): ``1`` (default) runs sequentially
+        in-process, while ``-1`` (all cores), ``-2`` (all but one), or any
+        positive ``N`` fan out over a spawn ``ProcessPoolExecutor``. The
+        aggregated output is identical regardless of this setting.
 
         Parameters
         ----------
@@ -354,9 +354,7 @@ class LDScoreCalculator:
             )
         chromosomes = _chromosomes_from_bundle(annotation_bundle)
         LOGGER.info(_format_ldscore_start_message(annotation_bundle, len(chromosomes)))
-        worker_count = _resolve_worker_count(
-            ldscore_config.num_workers, len(chromosomes), parallel=ldscore_config.parallel
-        )
+        worker_count = _resolve_worker_count(ldscore_config.threads, len(chromosomes))
         outcomes = self._run_chromosomes(
             chromosomes=chromosomes,
             annotation_bundle=annotation_bundle,
@@ -894,8 +892,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--maf-min", default=None, type=float, help="Optional MAF filter for retained reference-panel SNPs when MAF is available.")
     parser.add_argument("--common-maf-min", default=0.05, type=float, help="MAF threshold used only for common-SNP annotation count vectors.")
     parser.add_argument("--snp-batch-size", default=128, type=int, help="Number of SNPs processed per LD-score sliding batch.")
-    parser.add_argument("--no-parallel", dest="parallel", default=True, action="store_false", help="Force sequential (single-process) chromosome computation. Parallel over a process pool is the default.")
-    parser.add_argument("--num-workers", default=0, type=int, help="Worker processes when parallel. 0=auto (all cores, capped at chromosome count); ignored with --no-parallel.")
+    parser.add_argument("--threads", default=1, type=int, help="Worker processes for cross-chromosome parallelism (joblib n_jobs convention): 1=sequential (default), N=N workers, -1=all cores, -2=all but one. Respects CPU affinity; capped at the chromosome count.")
     parser.add_argument("--yes-really", default=False, action="store_true", help="Allow whole-chromosome LD windows.")
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"), help="Logging verbosity.")
     return parser
@@ -1472,8 +1469,7 @@ def _ldscore_config_from_args(args: argparse.Namespace) -> LDScoreConfig:
         snp_batch_size=getattr(args, "snp_batch_size", 128),
         common_maf_min=getattr(args, "common_maf_min", 0.05),
         whole_chromosome_ok=getattr(args, "yes_really", False),
-        parallel=getattr(args, "parallel", True),
-        num_workers=getattr(args, "num_workers", 0),
+        threads=getattr(args, "threads", 1),
     )
 
 
@@ -1519,20 +1515,39 @@ def _replace_result_output_paths(result: LDScoreResult, output_paths: dict[str, 
     )
 
 
-def _resolve_worker_count(num_workers: int, n_chromosomes: int, parallel: bool = True) -> int:
-    """Resolve the effective worker count from the parallelism settings.
+def _available_cpu_count() -> int:
+    """Return the number of CPUs available to this process.
 
-    ``parallel=False`` forces sequential execution (``1``) regardless of
-    ``num_workers``. When ``parallel=True``, ``num_workers=0`` means auto
-    (``min(os.cpu_count(), n_chromosomes)``); any value is capped at
+    Prefers ``os.sched_getaffinity`` (Linux) so SLURM/cgroup/cpuset/Docker CPU
+    allocations are respected rather than the whole machine's core count; falls
+    back to ``os.cpu_count()`` on platforms without affinity support.
+    """
+    getaffinity = getattr(os, "sched_getaffinity", None)
+    if getaffinity is not None:
+        try:
+            return len(getaffinity(0)) or 1
+        except OSError:
+            pass
+    return os.cpu_count() or 1
+
+
+def _resolve_worker_count(threads: int, n_chromosomes: int) -> int:
+    """Resolve the effective worker-process count from the ``threads`` setting.
+
+    Uses the joblib ``n_jobs`` convention: ``1`` is sequential, a positive ``N``
+    requests ``N`` workers, ``-1`` requests all available cores, ``-2`` all but
+    one, and any negative ``-k`` requests ``n_cpus + 1 - k``. Core counts respect
+    CPU affinity (see :func:`_available_cpu_count`). The result is capped at
     ``n_chromosomes`` and floored at ``1`` so a single chromosome never spawns a
     pool.
     """
-    if not parallel or n_chromosomes <= 0:
+    if n_chromosomes <= 0:
         return 1
-    if num_workers == 0:
-        num_workers = os.cpu_count() or 1
-    return max(1, min(num_workers, n_chromosomes))
+    if threads < 0:
+        resolved = _available_cpu_count() + 1 + threads
+    else:
+        resolved = threads
+    return max(1, min(resolved, n_chromosomes))
 
 
 def _chromosomes_from_bundle(annotation_bundle) -> list[str]:

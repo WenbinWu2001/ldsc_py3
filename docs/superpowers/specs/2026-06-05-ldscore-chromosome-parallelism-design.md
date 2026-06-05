@@ -79,25 +79,32 @@ per-chromosome metadata cache in each worker is correct and not wasteful.
 
 ## 3. Design
 
-### 3.1 New knob: `LDScoreConfig.num_workers`
+### 3.1 New knobs: `LDScoreConfig.parallel` and `num_workers`
 
-Add one field to `LDScoreConfig` (`config.py:431`):
+Add two fields to `LDScoreConfig` (`config.py:431`):
 
 ```
-num_workers: int = 1
+parallel: bool = True
+num_workers: int = 0
 ```
 
-Semantics:
+Semantics (resolved by `_resolve_worker_count(num_workers, n_chromosomes, parallel)`):
 
-- `1` (default) → **exact current sequential path**, no pool created. This keeps
-  the default behavior and the simplest code path bit-identical.
-- `> 1` → process pool of that many workers, capped at the number of
-  chromosomes.
-- `0` → "auto": `min(os.cpu_count() or 1, n_chromosomes)`.
+- `parallel=False` → **sequential in-process path**, no pool created, regardless
+  of `num_workers`. The simplest code path, bit-identical to the pre-parallel
+  behavior.
+- `parallel=True` (default), `num_workers=0` (default) → "auto":
+  `min(os.cpu_count() or 1, n_chromosomes)` — all available cores, capped at the
+  chromosome count. **This is the package default: parallel over all cores.**
+- `parallel=True`, `num_workers>0` → pool of that many workers, capped at the
+  chromosome count (`1` is effectively sequential).
 
-`__post_init__` validates `num_workers >= 0`. A CLI flag `--num-workers`
-(default `1`) is wired through `run_ldscore_from_args` into the config, alongside
-the existing `--snp-batch-size`.
+`__post_init__` validates `num_workers >= 0`. The CLI exposes `--no-parallel`
+(a `store_false` on `parallel`, default `True`) and `--num-workers` (default
+`0`), wired through `run_ldscore_from_args` alongside the existing
+`--snp-batch-size`. A `store_false` single flag is used rather than
+`argparse.BooleanOptionalAction` because `cli.py._copy_actions` clones only
+`store_true`/`store_false` actions onto the unified CLI parser.
 
 ### 3.2 Module-level worker
 
@@ -165,7 +172,7 @@ ordered surviving results.
 ```
 run()
  ├─ chromosomes = ordered list
- ├─ resolve worker_count(num_workers, n_chromosomes)
+ ├─ resolve worker_count(num_workers, n_chromosomes, parallel)
  ├─ if worker_count == 1:
  │     for chrom: outcome = _compute_one_chromosome(...)   # inline, unchanged path
  └─ else:
@@ -203,10 +210,17 @@ Correctness is defined as **identical output to the sequential path**.
    `num_workers>1`, matching sequential.
 4. **Config validation:** `LDScoreConfig(num_workers=-1)` raises
    `LDSCConfigError`; `num_workers=0` resolves to a positive worker count.
-5. **CLI plumbing:** `--num-workers 2` reaches `LDScoreConfig.num_workers`.
+5. **CLI plumbing:** `--num-workers 2` reaches `LDScoreConfig.num_workers`;
+   `--no-parallel` sets `LDScoreConfig.parallel = False`; bare defaults resolve
+   to `parallel=True`, `num_workers=0`.
+6. **Parallel master switch:** `parallel=False` produces output identical to the
+   pool path and never constructs a `ProcessPoolExecutor` (spy assertion).
 
-The existing LD-score correctness suite continues to run with the default
-(`num_workers=1`) and must stay green unchanged.
+Because the package default is now parallel, in-process orchestration tests that
+**mock** `compute_chromosome`/`compute_chrom_from_parquet` or stub `ref_panel`
+must pin `parallel=False` (mocks do not cross the spawn boundary). Skip-under-pool
+behavior is instead covered by a dedicated real-panel fixture test. All other
+existing LD-score correctness tests stay green; many now exercise the pool path.
 
 ## 7. Risks and mitigations
 

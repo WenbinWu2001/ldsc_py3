@@ -58,7 +58,7 @@ metadata, `--infer-only`, HM3, and liftover guide, see
 | `AnnotationBuilder` | load aligned annotation bundles or project BED inputs to SNP-level annotations |
 | `ReferencePanelBuilder` | emit standard parquet reference artifacts from PLINK |
 | `RefPanelLoader` | load runtime PLINK or parquet reference-panel adapters |
-| `LDScoreCalculator` | run per-chromosome LD-score computation and aggregate outputs; chromosomes run sequentially (`--num-workers 1`, default) or in parallel over a spawn process pool (`--num-workers >1`, `0`=auto), with identical aggregated output either way |
+| `LDScoreCalculator` | run per-chromosome LD-score computation and aggregate outputs; chromosomes run in parallel over a spawn process pool by default (`--num-workers 0`=auto, all cores capped at the chromosome count), `--num-workers N` to cap, or `--no-parallel` to force sequential, with identical aggregated output either way |
 | `SumstatsMunger` | normalize raw GWAS tables into curated LDSC-ready tables |
 | `RegressionRunner` | build regression datasets and run `h2`, partitioned `h2`, and `rg` |
 | `LDScoreDirectoryWriter` | write the canonical LD-score result directory, including chromosome-aligned parquet row groups and root `metadata.json` row-group metadata |

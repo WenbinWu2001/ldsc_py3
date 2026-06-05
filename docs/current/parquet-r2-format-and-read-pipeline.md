@@ -52,6 +52,17 @@ the sidecar's A1/A2 alleles.
 ### 2.2 Invariants
 
 - `IDX_1 < IDX_2` for every row (canonical pair orientation).
+- **Each unordered SNP pair appears exactly once.** With `IDX_1 < IDX_2`, every
+  `(IDX_1, IDX_2)` row is unique — the builder never emits a pair twice. This is
+  an index-level (identifier-mode-independent) property: `IDX_k` are sidecar row
+  numbers, so pair identity does not depend on `snp_identifier`. This is
+  **guaranteed by construction** (builder + the §4 SHA-256 sidecar binding, which
+  fixes the exact `(IDX_1, IDX_2)` set), so the read path **trusts it and does
+  not scan the parquet for duplicate rows** — there is no per-window and no
+  whole-file deduplication. The only uniqueness enforcement at read time is the
+  up-front, mode-aware collapse rejection at remap time (§3.1), which guards the
+  one case that *can* induce a duplicate in the retained matrix: two distinct
+  panel SNPs sharing an identity key under the active mode.
 - Rows are sorted by non-decreasing `IDX_1`. Because sidecar row order is
   position-sorted, this equals `POS_1` order, so row-group pruning works on
   `IDX_1` footer statistics.
@@ -196,7 +207,24 @@ does not change any filtering/restriction/intersection step. It then:
    mode-dependent identity key (`effective_merge_key_series`) that the matrix
    universe is keyed by, so the result is identical to the legacy per-pair
    identity lookup. **This is the only place identifier-mode matching happens —
-   once per chromosome.**
+   once per chromosome.** The remap **must be injective over retained indices**:
+   if two distinct panel sidecar rows share the same identity key under the
+   active `snp_identifier` and both map onto the analysis universe, they collapse
+   onto one retained SNP and would silently double-count that SNP's pairs. Any
+   such collapse is a **hard error** (rebuild the panel or use an allele-aware
+   `--snp-identifier`). Because the check is the injectivity of a remap built
+   from mode-derived keys (`base_key [+ ":" + normalized allele set]`), it is
+   automatically mode-aware. Two panel rows collapse only when they share the
+   full key for the active mode: `rsid` → same **rsID**; `rsid_allele_aware` →
+   same **rsID + normalized allele pair**; `chr_pos` → same **CHR:POS**;
+   `chr_pos_allele_aware` → same **CHR:POS + normalized allele pair**. So two
+   rows at the same `CHR:POS` with different rsIDs stay distinct in both
+   rsid-family modes, and a multi-allelic site splits into distinct SNPs in both
+   allele-aware modes (the allele set is order-independent, so `A/G` ≡ `G/A`).
+   This up-front rejection is what
+   lets §3.4 build matrices with no per-window pair deduplication; with each
+   `(IDX_1, IDX_2)` pair unique (§2.2) and the remap injective, every decoded
+   retained pair is necessarily unique.
 6. Builds the `_rg_bounds` row-group index from `IDX_1` footer statistics.
 
 ### 3.2 Decode (`_decode_index_row_group`)

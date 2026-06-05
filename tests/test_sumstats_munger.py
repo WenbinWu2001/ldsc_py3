@@ -335,12 +335,12 @@ class SumstatsMungerTest(unittest.TestCase):
         self.assertEqual(config.liftover_chain_file, "liftover/hg19ToHg38.over.chain")
         self.assertEqual(MungeConfig(output_dir="out").source_genome_build, "auto")
 
-        with self.assertRaisesRegex(ValueError, "use_hm3_snps"):
+        with self.assertRaisesRegex(ldsc.LDSCConfigError, "use_hm3_snps"):
             MungeConfig(output_dir="out", output_genome_build="hg38", use_hm3_quick_liftover=True)
-        with self.assertRaisesRegex(ValueError, "source_genome_build"):
+        with self.assertRaisesRegex(ldsc.LDSCConfigError, "source_genome_build"):
             MungeConfig(output_dir="out", source_genome_build=None, output_genome_build="hg38")
         self.assertTrue(MungeConfig(output_dir="out", use_hm3_snps=True, use_hm3_quick_liftover=True).use_hm3_quick_liftover)
-        with self.assertRaisesRegex(ValueError, "mutually exclusive"):
+        with self.assertRaisesRegex(ldsc.LDSCConfigError, "mutually exclusive"):
             MungeConfig(
                 output_dir="out",
                 output_genome_build="hg38",
@@ -629,7 +629,11 @@ class SumstatsMungerTest(unittest.TestCase):
                 handle.write("SNP\tZ\tN\nrs1\t1.5\t1000\n")
             self._write_sumstats_sidecar(tmpdir / "metadata.json", trait_name=" ")
 
-            with self.assertRaisesRegex(ValueError, "trait_name"):
+            with self.assertRaisesRegex(
+                ldsc.LDSCInputError,
+                "metadata.json sidecar has a blank trait_name field.*"
+                "docs/troubleshooting.md#munge-sumstats-curated-artifact-is-malformed-or-outdated",
+            ):
                 ldsc.load_sumstats(sumstats_file)
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")

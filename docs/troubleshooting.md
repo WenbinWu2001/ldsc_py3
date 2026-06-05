@@ -8,6 +8,53 @@ Most errors are self-explanatory from their terminal message alone and are not
 repeated here. When a message says `... see docs/troubleshooting.md#<section>`,
 that slug is a heading below — jump to it.
 
+## Common
+
+### Common: input path did not resolve to one file
+
+**Raised by:** `path_resolution.resolve_scalar_path()` and group/path-prefix resolvers
+· **Exception:** `LDSCInputError`
+**Symptom:** `Could not resolve <label> path from token '<token>': matched 0 files` / `matched N files`
+
+**Likely causes & how to check** (most probable first):
+
+| # | Likely cause | How to check |
+|---|--------------|--------------|
+| 1 | The path is misspelled or relative to a different working directory | `pwd`; then `ls <path>` from the same shell |
+| 2 | A glob is too broad for an input that must be one file | `python -c "import glob; print(glob.glob('<pattern>'))"` |
+| 3 | A chromosome-suite token is missing the explicit `@` placeholder | Check whether the token looks like `chr@` / `.@.` rather than a bare prefix |
+| 4 | The file exists only with a suffix LDSC does not infer | `ls <prefix>*`; pass the full filename including suffix |
+| 5 | A PLINK prefix is incomplete | Confirm all three files exist: `<prefix>.bed`, `<prefix>.bim`, `<prefix>.fam` |
+
+**Remedies:**
+
+1. Pass the exact existing file path when the command expects a single file.
+2. Narrow broad globs so they match exactly the intended file.
+3. For chromosome suites, use an explicit `@` token such as `baseline.@.annot.gz`.
+
+### Common: output artifact already exists
+
+**Raised by:** `path_resolution.ensure_output_paths_available()` and
+`path_resolution.preflight_output_artifact_family()` · **Exception:** `FileExistsError`
+**Symptom:** `Cannot write <artifact>: existing output artifact already exists at ...`
+
+**Likely causes & how to check** (most probable first):
+
+| # | Likely cause | How to check |
+|---|--------------|--------------|
+| 1 | The output directory contains results from an earlier run | `ls <output-dir>` |
+| 2 | A previous run used a different output-format option and left stale sibling files | Compare existing files against the current command's `--output-format` / workflow mode |
+| 3 | The target directory is shared by two concurrent or interrupted runs | Check job logs and file modification times with `ls -l <output-dir>` |
+| 4 | The output path points at a file created manually or by another workflow | Inspect the listed path before overwriting it |
+
+**Remedies:**
+
+1. Use a fresh output directory for independent runs.
+2. If replacing prior results is intended, pass `--overwrite` on the CLI or
+   `overwrite=True` in Python.
+3. Do not share one output directory across concurrent runs unless the workflow
+   explicitly supports chromosome-sharded output ownership.
+
 ## munge-sumstats
 
 ### munge-sumstats: could not map a required column

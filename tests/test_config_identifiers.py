@@ -69,11 +69,20 @@ class GlobalConfigTest(unittest.TestCase):
         self.assertEqual(ldsc.get_global_config(), GlobalConfig())
 
     def test_validates_values(self):
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ldsc.LDSCConfigError):
             GlobalConfig(snp_identifier="bad")
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ldsc.LDSCConfigError):
             GlobalConfig(snp_identifier="chr_pos", genome_build="hg18")
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ldsc.LDSCConfigError):
+            GlobalConfig(snp_identifier="rsid", log_level="trace")
+
+    def test_invalid_global_config_reports_cause_and_fix(self):
+        with self.assertRaisesRegex(
+            ldsc.LDSCConfigError,
+            "Could not construct GlobalConfig.*log_level='trace'.*"
+            "Most likely the log level name is misspelled.*"
+            "Use one of DEBUG, INFO, WARNING, ERROR",
+        ):
             GlobalConfig(snp_identifier="rsid", log_level="trace")
 
     def test_normalizes_genome_build_aliases(self):
@@ -97,7 +106,7 @@ class TestGlobalConfigValidation(unittest.TestCase):
     def test_chr_pos_explicit_none_raises(self):
         for mode in ("chr_pos", "chr_pos_allele_aware"):
             with self.subTest(mode=mode):
-                with self.assertRaisesRegex(ValueError, "Pass genome_build='auto'"):
+                with self.assertRaisesRegex(ldsc.LDSCConfigError, "Pass genome_build='auto'"):
                     GlobalConfig(snp_identifier=mode, genome_build=None)
 
     def test_chr_pos_hg38_ok(self):
@@ -111,7 +120,7 @@ class TestGlobalConfigValidation(unittest.TestCase):
     def test_rsid_auto_raises(self):
         for mode in ("rsid", "rsid_allele_aware"):
             with self.subTest(mode=mode):
-                with self.assertRaises(ValueError):
+                with self.assertRaises(ldsc.LDSCConfigError):
                     GlobalConfig(snp_identifier=mode, genome_build="auto")
 
     def test_rsid_no_genome_build_ok(self):
@@ -221,11 +230,11 @@ class WorkflowConfigTest(unittest.TestCase):
                     self.assertNotIn(name, lazy_exports)
 
     def test_ref_panel_config_validates_r2_args(self):
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ldsc.LDSCConfigError):
             RefPanelConfig(backend="bad")
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ldsc.LDSCConfigError):
             RefPanelConfig(r2_bias_mode="bad")
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ldsc.LDSCConfigError):
             RefPanelConfig(r2_sample_size=0)
 
     def test_ldscore_config_requires_one_window(self):
@@ -234,9 +243,9 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertEqual(config.snp_batch_size, 128)
         self.assertFalse(hasattr(config, "chunk_size"))
         self.assertEqual(config.common_maf_min, 0.05)
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ldsc.LDSCConfigError):
             LDScoreConfig()
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ldsc.LDSCConfigError):
             LDScoreConfig(ld_wind_cm=1.0, ld_wind_kb=100.0)
 
     def test_ldscore_config_accepts_snp_batch_size_and_rejects_chunk_size(self):
@@ -249,7 +258,7 @@ class WorkflowConfigTest(unittest.TestCase):
         config = LDScoreConfig(ld_wind_snps=10, use_hm3_regression_snps=True)
 
         self.assertTrue(config.use_hm3_regression_snps)
-        with self.assertRaisesRegex(ValueError, "regression_snps_file.*use_hm3_regression_snps"):
+        with self.assertRaisesRegex(ldsc.LDSCConfigError, "regression_snps_file.*use_hm3_regression_snps"):
             LDScoreConfig(
                 ld_wind_snps=10,
                 regression_snps_file="custom.tsv",
@@ -280,7 +289,7 @@ class WorkflowConfigTest(unittest.TestCase):
             ld_wind_kb=100.0,
         )
         self.assertEqual(default_source.source_genome_build, "auto")
-        with self.assertRaisesRegex(ValueError, "source_genome_build"):
+        with self.assertRaisesRegex(ldsc.LDSCConfigError, "source_genome_build"):
             ReferencePanelBuildConfig(
                 plink_prefix="plink/panel.@",
                 source_genome_build=None,
@@ -307,7 +316,7 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertEqual(config.snp_batch_size, 128)
         self.assertTrue(config.overwrite)
 
-        with self.assertRaisesRegex(ValueError, "ld_wind_cm"):
+        with self.assertRaisesRegex(ldsc.LDSCConfigError, "ld_wind_cm"):
             ReferencePanelBuildConfig(
                 plink_prefix="plink/panel",
                 source_genome_build="hg19",
@@ -317,7 +326,7 @@ class WorkflowConfigTest(unittest.TestCase):
                 output_dir="out",
                 ld_wind_cm=1.0,
             )
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ldsc.LDSCConfigError):
             ReferencePanelBuildConfig(
                 plink_prefix="plink/panel",
                 source_genome_build="hg19",
@@ -373,7 +382,7 @@ class WorkflowConfigTest(unittest.TestCase):
 
         self.assertTrue(config.use_hm3_snps)
         self.assertTrue(config.use_hm3_quick_liftover)
-        with self.assertRaisesRegex(ValueError, "ref_panel_snps_file.*use_hm3_snps"):
+        with self.assertRaisesRegex(ldsc.LDSCConfigError, "ref_panel_snps_file.*use_hm3_snps"):
             ReferencePanelBuildConfig(
                 plink_prefix="plink/panel",
                 source_genome_build="hg19",
@@ -382,7 +391,7 @@ class WorkflowConfigTest(unittest.TestCase):
                 ref_panel_snps_file="custom.tsv",
                 use_hm3_snps=True,
             )
-        with self.assertRaisesRegex(ValueError, "use_hm3_snps"):
+        with self.assertRaisesRegex(ldsc.LDSCConfigError, "use_hm3_snps"):
             ReferencePanelBuildConfig(
                 plink_prefix="plink/panel",
                 source_genome_build="hg19",
@@ -390,7 +399,7 @@ class WorkflowConfigTest(unittest.TestCase):
                 ld_wind_snps=500,
                 use_hm3_quick_liftover=True,
             )
-        with self.assertRaisesRegex(ValueError, "mutually exclusive"):
+        with self.assertRaisesRegex(ldsc.LDSCConfigError, "mutually exclusive"):
             ReferencePanelBuildConfig(
                 plink_prefix="plink/panel",
                 source_genome_build="hg19",
@@ -411,7 +420,7 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertFalse(config.overwrite)
 
     def test_munge_config_rejects_unknown_output_format(self):
-        with self.assertRaisesRegex(ValueError, "output_format"):
+        with self.assertRaisesRegex(ldsc.LDSCConfigError, "output_format"):
             MungeConfig(output_dir="out", output_format="csv")
 
     def test_munge_config_normalizes_pathlike_fields(self):
@@ -438,9 +447,9 @@ class WorkflowConfigTest(unittest.TestCase):
 
         self.assertTrue(config.use_hm3_snps)
         self.assertTrue(config.use_hm3_quick_liftover)
-        with self.assertRaisesRegex(ValueError, "sumstats_snps_file.*use_hm3_snps"):
+        with self.assertRaisesRegex(ldsc.LDSCConfigError, "sumstats_snps_file.*use_hm3_snps"):
             MungeConfig(output_dir="out", sumstats_snps_file="custom.tsv", use_hm3_snps=True)
-        with self.assertRaisesRegex(ValueError, "use_hm3_snps"):
+        with self.assertRaisesRegex(ldsc.LDSCConfigError, "use_hm3_snps"):
             MungeConfig(output_dir="out", output_genome_build="hg38", use_hm3_quick_liftover=True)
 
     def test_munge_config_normalizes_trait_name(self):
@@ -449,7 +458,7 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertEqual(config.trait_name, "MDD")
 
     def test_munge_config_rejects_blank_trait_name(self):
-        with self.assertRaisesRegex(ValueError, "trait_name"):
+        with self.assertRaisesRegex(ldsc.LDSCConfigError, "trait_name"):
             MungeConfig(raw_sumstats_file="sumstats/trait.tsv.gz", trait_name="  ")
 
     def test_munge_config_accepts_source_fields(self):
@@ -462,7 +471,7 @@ class WorkflowConfigTest(unittest.TestCase):
         config = RegressionConfig()
         self.assertEqual(config.n_blocks, 200)
         self.assertTrue(config.use_common_counts)
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ldsc.LDSCConfigError):
             RegressionConfig(n_blocks=1)
 
     def test_ref_panel_config_normalizes_path_fields(self):
@@ -485,7 +494,7 @@ class WorkflowConfigTest(unittest.TestCase):
         config = RefPanelConfig(backend="plink", use_hm3_ref_panel_snps=True)
 
         self.assertTrue(config.use_hm3_ref_panel_snps)
-        with self.assertRaisesRegex(ValueError, "ref_panel_snps_file.*use_hm3_ref_panel_snps"):
+        with self.assertRaisesRegex(ldsc.LDSCConfigError, "ref_panel_snps_file.*use_hm3_ref_panel_snps"):
             RefPanelConfig(
                 backend="plink",
                 ref_panel_snps_file="custom.tsv",

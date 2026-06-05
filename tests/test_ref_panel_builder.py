@@ -22,6 +22,7 @@ if str(SRC) not in sys.path:
 from ldsc._kernel import ref_panel_builder as kernel_builder
 from ldsc._kernel.snp_identity import IDENTITY_DROP_COLUMNS, RestrictionIdentityKeys, empty_identity_drop_frame
 from ldsc.config import GlobalConfig, ReferencePanelBuildConfig
+from ldsc.errors import LDSCConfigError
 from ldsc import ldscore_calculator, ref_panel_builder, reset_global_config, set_global_config
 
 
@@ -677,7 +678,7 @@ class ReferencePanelBuildConfigOptionalLiftoverTest(unittest.TestCase):
         self.assertIsNone(config.genetic_map_hg38_sources)
 
     def test_missing_source_map_raises_for_cm_window(self):
-        with self.assertRaisesRegex(ValueError, "hg19 genetic map.*required.*ld_wind_cm"):
+        with self.assertRaisesRegex(LDSCConfigError, "ld_wind_cm requires a hg19 genetic map path"):
             ReferencePanelBuildConfig(
                 plink_prefix="plink/panel.@",
                 source_genome_build="hg19",

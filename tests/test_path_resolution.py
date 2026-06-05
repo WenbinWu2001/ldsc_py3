@@ -18,6 +18,7 @@ from ldsc.path_resolution import (
     resolve_plink_prefix,
     resolve_scalar_path,
 )
+from ldsc.errors import LDSCInputError
 
 
 class PathResolutionTest(unittest.TestCase):
@@ -50,7 +51,21 @@ class PathResolutionTest(unittest.TestCase):
 
             second = tmpdir / "trait.extra.tsv"
             second.write_text("x\n", encoding="utf-8")
-            with self.assertRaisesRegex(ValueError, "exactly one"):
+            with self.assertRaisesRegex(LDSCInputError, "matched 2 files"):
+                resolve_scalar_path(str(tmpdir / "trait.*.tsv"), label="sumstats")
+
+    def test_resolve_scalar_path_reports_cause_fix_and_reference(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            (tmpdir / "trait.raw.tsv").write_text("x\n", encoding="utf-8")
+            (tmpdir / "trait.extra.tsv").write_text("x\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(
+                LDSCInputError,
+                "Could not resolve sumstats path.*matched 2 files.*"
+                "Most likely the glob is too broad.*"
+                "docs/troubleshooting.md#common-input-path-did-not-resolve-to-one-file",
+            ):
                 resolve_scalar_path(str(tmpdir / "trait.*.tsv"), label="sumstats")
 
     def test_resolve_file_group_handles_globs_prefixes_and_deduplicates(self):
@@ -87,7 +102,7 @@ class PathResolutionTest(unittest.TestCase):
             tmpdir = Path(tmpdir)
             (tmpdir / "baseline.1.annot.gz").write_text("x\n", encoding="utf-8")
 
-            with self.assertRaisesRegex(FileNotFoundError, "annotation token"):
+            with self.assertRaisesRegex(LDSCInputError, "annotation path for chromosome 1"):
                 resolve_chromosome_group(
                     [str(tmpdir / "baseline.")],
                     chrom="1",
@@ -137,7 +152,7 @@ class PathResolutionTest(unittest.TestCase):
             (tmpdir / "panel.2.bed").write_text("", encoding="utf-8")
             (tmpdir / "panel.2.bim").write_text("", encoding="utf-8")
             (tmpdir / "panel.2.fam").write_text("", encoding="utf-8")
-            with self.assertRaisesRegex(ValueError, "exactly one"):
+            with self.assertRaisesRegex(LDSCInputError, "matched 2 files"):
                 resolve_plink_prefix(str(tmpdir / "panel.*"), chrom=None)
 
     def test_resolve_scalar_path_rejects_suffix_inference(self):
@@ -146,11 +161,23 @@ class PathResolutionTest(unittest.TestCase):
             path = tmpdir / "reference.1.parquet"
             path.write_text("x\n", encoding="utf-8")
 
-            with self.assertRaisesRegex(FileNotFoundError, str(tmpdir / "reference.1")):
+            with self.assertRaisesRegex(LDSCInputError, str(tmpdir / "reference.1")):
                 resolve_scalar_path(
                     str(tmpdir / "reference.1"),
                     label="parquet",
                 )
+
+    def test_resolve_scalar_path_missing_reports_cause_fix_and_reference(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+
+            with self.assertRaisesRegex(
+                LDSCInputError,
+                "Could not resolve parquet path.*matched 0 files.*"
+                "Most likely the path is misspelled.*"
+                "docs/troubleshooting.md#common-input-path-did-not-resolve-to-one-file",
+            ):
+                resolve_scalar_path(str(tmpdir / "reference.1"), label="parquet")
 
     def test_resolve_file_group_requires_full_explicit_suite_pattern(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -158,7 +185,7 @@ class PathResolutionTest(unittest.TestCase):
             gz = tmpdir / "baseline.1.annot.gz"
             gz.write_text("gz\n", encoding="utf-8")
 
-            with self.assertRaisesRegex(FileNotFoundError, "annotation token"):
+            with self.assertRaisesRegex(LDSCInputError, "annotation path"):
                 resolve_file_group(
                     str(tmpdir / "baseline.@"),
                     label="annotation",
@@ -179,6 +206,19 @@ class PathResolutionTest(unittest.TestCase):
             path.write_text("existing\n", encoding="utf-8")
 
             with self.assertRaisesRegex(FileExistsError, "overwrite"):
+                ensure_output_paths_available([path], overwrite=False)
+
+    def test_output_collision_message_reports_cause_fix_and_reference(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "results.tsv"
+            path.write_text("existing\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(
+                FileExistsError,
+                "Cannot write output artifact.*already exists.*"
+                "Most likely this output directory contains results from an earlier run.*"
+                "docs/troubleshooting.md#common-output-artifact-already-exists",
+            ):
                 ensure_output_paths_available([path], overwrite=False)
 
     def test_ensure_output_paths_available_allows_existing_paths_with_overwrite(self):

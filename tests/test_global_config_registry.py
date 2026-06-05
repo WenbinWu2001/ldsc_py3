@@ -91,7 +91,7 @@ class GlobalConfigRegistryTest(unittest.TestCase):
         self.assertEqual(config.genome_build, "auto")
 
     def test_chr_pos_requires_genome_build_fix_it(self):
-        with self.assertRaisesRegex(ValueError, "Pass genome_build='auto'"):
+        with self.assertRaisesRegex(ldsc.LDSCConfigError, "Pass genome_build='auto'"):
             GlobalConfig(snp_identifier="chr_pos", genome_build=None)
 
     def test_rsid_default_keeps_genome_build_none(self):

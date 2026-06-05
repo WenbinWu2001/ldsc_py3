@@ -208,7 +208,7 @@ from ..column_inference import (
     resolve_required_column,
 )
 from ..chromosome_inference import chrom_sort_key, normalize_chromosome
-from ..errors import LDSCDependencyError
+from ..errors import LDSCDependencyError, LDSCInputError
 from ..path_resolution import (
     ANNOTATION_SUFFIXES,
     FREQUENCY_SUFFIXES,
@@ -1822,7 +1822,7 @@ def _first_resolved_r2_parquet(args: argparse.Namespace) -> str | None:
     """
     try:
         paths = resolve_parquet_files(args)
-    except FileNotFoundError:
+    except (FileNotFoundError, LDSCInputError):
         return None
     for path in paths:
         candidate = Path(path)

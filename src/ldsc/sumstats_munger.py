@@ -53,6 +53,7 @@ from .column_inference import (
 )
 from .config import GlobalConfig, MungeConfig, _normalize_trait_name, get_global_config
 from .errors import (
+    LDSCConfigError,
     LDSCDependencyError,
     LDSCInputError,
     LDSCInternalError,
@@ -1817,11 +1818,27 @@ def _resolve_sumstats_trait_name(
     resolved_path: str,
 ) -> str:
     """Resolve the public trait label using CLI/API, sidecar, then filename."""
-    explicit = _normalize_trait_name(explicit_trait_name)
+    try:
+        explicit = _normalize_trait_name(explicit_trait_name)
+    except LDSCConfigError as exc:
+        raise LDSCConfigError(
+            f"Cannot load curated sumstats at '{resolved_path}': trait_name argument is blank. "
+            "Most likely whitespace was passed as the trait label. "
+            "Use a non-empty trait name or omit trait_name to derive it from the artifact."
+        ) from exc
     if explicit is not None:
         return explicit
     if isinstance(metadata, dict) and "trait_name" in metadata:
-        metadata_trait = _normalize_trait_name(metadata.get("trait_name"))
+        try:
+            metadata_trait = _normalize_trait_name(metadata.get("trait_name"))
+        except LDSCConfigError as exc:
+            raise LDSCInputError(
+                _curated_sumstats_artifact_message(
+                    resolved_path,
+                    "its metadata.json sidecar has a blank trait_name field.",
+                    "Most likely the sidecar was hand-edited or written by an outdated workflow.",
+                )
+            ) from exc
         if metadata_trait is not None:
             return metadata_trait
     return Path(resolved_path).name

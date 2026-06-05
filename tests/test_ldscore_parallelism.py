@@ -340,3 +340,22 @@ def test_skip_path_matches_under_pool(two_chrom_panel, tmp_path):
     # Only the matching chromosome 1 survives in both paths.
     assert seq_base["CHR"].astype(str).tolist() == ["1", "1", "1", "1"]
     pd.testing.assert_frame_equal(seq_base, par_base)
+
+
+# --- Task 7: --num-workers CLI flag -----------------------------------------
+
+
+def test_cli_num_workers_reaches_config():
+    from ldsc.ldscore_calculator import _ldscore_config_from_args, build_parser
+
+    parser = build_parser()
+    args = parser.parse_args(["--output-dir", "x", "--ld-wind-cm", "1", "--num-workers", "2"])
+    assert _ldscore_config_from_args(args).num_workers == 2
+
+
+def test_cli_num_workers_defaults_to_one():
+    from ldsc.ldscore_calculator import _ldscore_config_from_args, build_parser
+
+    parser = build_parser()
+    args = parser.parse_args(["--output-dir", "x", "--ld-wind-cm", "1"])
+    assert _ldscore_config_from_args(args).num_workers == 1

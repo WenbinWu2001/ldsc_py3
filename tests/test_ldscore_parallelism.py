@@ -171,3 +171,46 @@ def test_resolve_worker_count():
     assert 1 <= auto <= 2
     assert _resolve_worker_count(8, n_chromosomes=1) == 1
     assert _resolve_worker_count(8, n_chromosomes=0) == 1
+
+
+# --- Task 3: module-level chromosome worker ---------------------------------
+
+
+def _chrom1_inputs(build_dir: Path):
+    """Build (chrom, bundle, spec, ldscore_config, global_config, regression) for chr1."""
+    from ldsc.annotation_builder import AnnotationBundle
+    from ldsc.config import GlobalConfig, LDScoreConfig, RefPanelConfig
+
+    panel, _pairs = _PANEL_CHROMS["1"]
+    metadata = pd.DataFrame(
+        {
+            "CHR": panel["CHR"].astype(str),
+            "SNP": panel["SNP"].astype(str),
+            "POS": panel["POS"].astype(int),
+            "CM": [np.nan] * len(panel),
+        }
+    )
+    bundle = AnnotationBundle(
+        metadata=metadata,
+        baseline_annotations=pd.DataFrame({"base": np.ones(len(panel), dtype=np.float32)}),
+        query_annotations=pd.DataFrame(index=metadata.index),
+        baseline_columns=["base"],
+        query_columns=[],
+        chromosomes=["1"],
+        source_summary={},
+        config_snapshot=GlobalConfig(snp_identifier="rsid"),
+    )
+    spec = RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir))
+    ldscore_config = LDScoreConfig(ld_wind_kb=1.0, snp_batch_size=2, whole_chromosome_ok=True)
+    return "1", bundle, spec, ldscore_config, GlobalConfig(snp_identifier="rsid"), None
+
+
+def test_compute_one_chromosome_returns_success_outcome(two_chrom_panel):
+    from ldsc.ldscore_calculator import _compute_one_chromosome
+
+    chrom, bundle, spec, ldcfg, gcfg, reg = _chrom1_inputs(two_chrom_panel)
+    outcome = _compute_one_chromosome(chrom, bundle, spec, ldcfg, gcfg, regression_snps=reg)
+    assert outcome.chrom == "1"
+    assert outcome.skipped is False
+    assert outcome.result is not None
+    assert outcome.result.baseline_table["SNP"].tolist() == ["rs1", "rs2", "rs3", "rs4"]

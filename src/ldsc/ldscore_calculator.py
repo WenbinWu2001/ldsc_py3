@@ -1586,8 +1586,8 @@ def _annotation_metadata_with_reference_alleles(
     return enriched
 
 
-def _warn_and_skip_empty_intersection(error: Exception, chrom: str) -> bool:
-    """Warn and signal skip when a chromosome loses all SNPs after reference intersection."""
+def _is_empty_intersection(error: Exception, chrom: str) -> bool:
+    """Return whether ``error`` is the recoverable empty-intersection case."""
     message = str(error)
     old_shape = message.startswith("No retained annotation SNPs remain on chromosome ")
     new_shape = message.startswith("ldscore retained no annotation SNPs on chromosome ")
@@ -1597,8 +1597,70 @@ def _warn_and_skip_empty_intersection(error: Exception, chrom: str) -> bool:
         return False
     if new_shape and "after intersecting with the " not in message:
         return False
-    warnings.warn(f"Skipping chromosome {chrom}: {message}", UserWarning, stacklevel=3)
     return True
+
+
+def _warn_and_skip_empty_intersection(error: Exception, chrom: str) -> bool:
+    """Warn and signal skip when a chromosome loses all SNPs after reference intersection."""
+    if not _is_empty_intersection(error, chrom):
+        return False
+    warnings.warn(f"Skipping chromosome {chrom}: {error}", UserWarning, stacklevel=3)
+    return True
+
+
+# Worker state shared within a pool worker process. ``regression_snps`` is set
+# once by the pool initializer so a large SNP set is transferred per worker, not
+# per task; the inline (single-worker) caller passes it explicitly instead.
+_WORKER_UNSET = "__use_worker_global__"
+_WORKER_STATE: dict[str, Any] = {}
+
+
+@dataclass(frozen=True)
+class _ChromOutcome:
+    """Tagged result of one chromosome's LD-score computation in a worker."""
+
+    chrom: str
+    result: "ChromLDScoreResult | None"
+    skipped: bool
+    skip_message: str | None = None
+
+
+def _compute_one_chromosome(
+    chrom: str,
+    chrom_bundle,
+    ref_panel_spec,
+    ldscore_config: LDScoreConfig,
+    global_config: GlobalConfig,
+    regression_snps=_WORKER_UNSET,
+) -> _ChromOutcome:
+    """Compute one chromosome end-to-end and return a tagged outcome.
+
+    Rebuilds the reference-panel adapter locally from ``ref_panel_spec`` so no
+    live reader/file handle crosses the process boundary. ``regression_snps``
+    defaults to the pool-initializer-provided global; the inline single-worker
+    caller passes it explicitly. Recoverable empty-intersection errors return a
+    skipped outcome rather than raising across the pool boundary.
+    """
+    from ._kernel.ref_panel import RefPanelLoader
+
+    if regression_snps == _WORKER_UNSET:
+        regression_snps = _WORKER_STATE.get("regression_snps")
+    ref_panel = RefPanelLoader(global_config).load(ref_panel_spec)
+    calculator = LDScoreCalculator()
+    try:
+        result = calculator.compute_chromosome(
+            chrom=chrom,
+            annotation_bundle=chrom_bundle,
+            ref_panel=ref_panel,
+            ldscore_config=ldscore_config,
+            global_config=global_config,
+            regression_snps=regression_snps,
+        )
+    except (ValueError, LDSCInputError) as exc:
+        if _is_empty_intersection(exc, chrom):
+            return _ChromOutcome(chrom=chrom, result=None, skipped=True, skip_message=str(exc))
+        raise
+    return _ChromOutcome(chrom=chrom, result=result, skipped=False)
 
 
 def _namespace_from_configs(chrom: str, ref_panel, ldscore_config: LDScoreConfig, global_config: GlobalConfig) -> argparse.Namespace:

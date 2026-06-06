@@ -163,7 +163,7 @@ $$
 
 where $A[\mathbf{j}]$ gathers the rows of $A$ at indices $\mathbf{j}$, and
 $\mathbf{v}=(v_{ij})$ is the chunk's value vector whose entry scales each gathered
-row (broadcast over the $n_a$ columns). $\odot$ is the Hadamard (elementwise) product. **The scatter must be unbuffered**
+row (broadcast over the $n_a$ columns). **The scatter must be unbuffered**
 (`np.add.at`): within a chunk
 $\mathbf{i}$ contains repeats (one left SNP, many right neighbours), and a buffered
 `+=` keeps only one of them. See §6.3.

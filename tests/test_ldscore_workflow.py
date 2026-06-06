@@ -3026,7 +3026,7 @@ class IndexReaderDecodeTest(unittest.TestCase):
         return r2, full
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
-    def test_within_block_matrix_drops_unretained_endpoint(self):
+    def test_streaming_drops_unretained_endpoint(self):
         from ldsc._kernel.ldscore import SortedR2BlockReader
         with tempfile.TemporaryDirectory() as tmp:
             r2, full = self._make_panel(tmp)
@@ -3037,13 +3037,16 @@ class IndexReaderDecodeTest(unittest.TestCase):
                 identifier_mode="chr_pos", r2_bias_mode="unbiased",
                 r2_sample_size=None, genome_build="hg19",
             )
-            mat = reader.within_block_matrix(0, 3)
+            seen = {}
+            for i, j, r2v in reader.iter_all_pairs():
+                for a, b, v in zip(i.tolist(), j.tolist(), r2v.tolist()):
+                    seen[(a, b)] = v
+            # pair (2,3) touches the dropped SNP (pos40) -> excluded by remap
+            self.assertEqual(sorted(seen), [(0, 1), (0, 2), (1, 2)])
             # off-diagonal R2 is int16-quantized: tolerance is the half-step (1.5e-5)
-            self.assertAlmostEqual(mat[0, 1], 0.5, delta=2e-5)
-            self.assertAlmostEqual(mat[0, 2], 0.2, delta=2e-5)
-            self.assertAlmostEqual(mat[1, 2], 0.4, delta=2e-5)
-            self.assertAlmostEqual(mat[0, 0], 1.0, places=6)  # diagonal: reader-set, exact
-            self.assertEqual(mat.shape, (3, 3))
+            self.assertAlmostEqual(seen[(0, 1)], 0.5, delta=2e-5)
+            self.assertAlmostEqual(seen[(0, 2)], 0.2, delta=2e-5)
+            self.assertAlmostEqual(seen[(1, 2)], 0.4, delta=2e-5)
 
 
 class IndexCrossModeParityTest(unittest.TestCase):
@@ -3087,8 +3090,8 @@ class IndexCrossModeParityTest(unittest.TestCase):
                     identifier_mode=mode, r2_bias_mode="unbiased",
                     r2_sample_size=None, genome_build="hg19",
                 )
-                scores = kernel_ldscore.ld_score_var_blocks_from_r2_reader(
-                    block_left=np.zeros(4, dtype=np.int64), snp_batch_size=2,
+                scores = kernel_ldscore.ld_score_streaming_from_r2_reader(
+                    block_left=np.zeros(4, dtype=np.int64),
                     annot=np.ones((4, 1), dtype=np.float32), block_reader=reader,
                 )
                 mode_scores[mode] = scores[:, 0]

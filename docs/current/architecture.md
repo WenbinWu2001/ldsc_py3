@@ -112,7 +112,7 @@ This module builds standard parquet R2 reference artifacts from PLINK inputs. It
 
 ### `ldsc.ldscore_calculator`
 
-This module orchestrates chromosome-wise LD-score computation. It resolves annotation and reference-panel inputs, synthesizes the all-ones `base` annotation when an unpartitioned run omits baseline/query inputs, builds per-chromosome runs, aggregates them into `LDScoreResult`, routes artifact writing through `ldsc.outputs`, and writes `diagnostics/ldscore.log` for parsed workflow runs. The index-format parquet backend sizes a decoded row-group cache once per chromosome from the actual LD-window sequence and `snp_batch_size`; cache hits only avoid parquet rereads and never define whether a pair exists. Architecture invariant: computation stays chromosome-wise; the aggregate result is assembled only after all chromosome runs finish.
+This module orchestrates chromosome-wise LD-score computation. It resolves annotation and reference-panel inputs, synthesizes the all-ones `base` annotation when an unpartitioned run omits baseline/query inputs, builds per-chromosome runs, aggregates them into `LDScoreResult`, routes artifact writing through `ldsc.outputs`, and writes `diagnostics/ldscore.log` for parsed workflow runs. The index-format parquet backend streams every stored R2 pair once (`iter_all_pairs`) and accumulates `cor_sum = R · annot` directly (no block tiling, no decoded-row-group cache); read-side peak RSS is bounded by `cor_sum`, not the LD window. Architecture invariant: computation stays chromosome-wise; the aggregate result is assembled only after all chromosome runs finish.
 
 ### `ldsc.sumstats_munger`
 

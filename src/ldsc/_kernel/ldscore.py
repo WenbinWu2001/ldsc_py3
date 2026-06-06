@@ -1040,47 +1040,6 @@ class _DecodedR2RowGroup:
     r2: np.ndarray
 
 
-class _RowGroupLRUCache:
-    """Small LRU cache for decoded index-format parquet R2 row groups."""
-
-    def __init__(self, capacity: int) -> None:
-        if capacity <= 0:
-            raise LDSCInternalError(
-                f"LD-score row-group cache setup failed: capacity={capacity} is not positive. "
-                "Most likely automatic cache sizing produced an invalid value. Re-run with "
-                "DEBUG logging and report the traceback."
-            )
-        self.capacity = int(capacity)
-        self._entries: OrderedDict[int, _DecodedR2RowGroup] = OrderedDict()
-        self.hits = 0
-        self.misses = 0
-        self.evictions = 0
-        self.row_group_reads = 0
-
-    def get(self, row_group_index: int) -> _DecodedR2RowGroup | None:
-        """Return a cached decoded row group, updating LRU counters."""
-        key = int(row_group_index)
-        entry = self._entries.get(key)
-        if entry is None:
-            self.misses += 1
-            return None
-        self.hits += 1
-        self._entries.move_to_end(key)
-        return entry
-
-    def put(self, entry: _DecodedR2RowGroup) -> None:
-        """Insert ``entry`` and evict the least recently used group if needed."""
-        key = int(entry.row_group_index)
-        if key in self._entries:
-            self._entries[key] = entry
-            self._entries.move_to_end(key)
-            return
-        self._entries[key] = entry
-        while len(self._entries) > self.capacity:
-            self._entries.popitem(last=False)
-            self.evictions += 1
-
-
 class SortedR2BlockReader:
     """
     Query block-local dense R2 matrices from a per-chromosome parquet table.
@@ -1121,8 +1080,6 @@ class SortedR2BlockReader:
         )
         self._pf = None
         self._r2_scale: float | None = None
-        self._rg_bounds: list[tuple[int, int, int]] = []
-        self._row_group_cache: _RowGroupLRUCache | None = None
         metadata = metadata.copy()
         metadata_context = f"SortedR2BlockReader[{self.chrom}] metadata"
         renamed = {
@@ -1235,14 +1192,6 @@ class SortedR2BlockReader:
                     "query performance will be degraded. Regenerate with row_group_size=50000."
                 )
 
-        idx1_col = self._pf.schema_arrow.names.index("IDX_1")
-        self._rg_bounds = []
-        for rg_index in range(meta.num_row_groups):
-            stats = meta.row_group(rg_index).column(idx1_col).statistics
-            if stats is None or not getattr(stats, "has_min_max", False):
-                continue
-            self._rg_bounds.append((int(stats.min), int(stats.max), rg_index))
-
     def _resolve_r2_scale(self, schema_meta: dict, path: str) -> float | None:
         """Return the dequant scale when R2 is stored as quantized integers.
 
@@ -1286,118 +1235,6 @@ class SortedR2BlockReader:
             # Share the writer's R2<=1 invariant: roundoff/raw inputs can exceed 1.
             values = np.minimum(values, np.float32(1.0))
         return values
-
-    def _row_group_indices_for_index_window(self, start: int, stop: int) -> list[int]:
-        """Return row groups whose IDX_1 footer bounds overlap a retained-SNP index window."""
-        start = max(0, int(start))
-        stop = min(int(stop), int(getattr(self, "m", 0)))
-        if stop <= start or not self._rg_bounds:
-            return []
-        lo = int(self._retained_build_idx[start])
-        hi = int(self._retained_build_idx[stop - 1])
-        return [rg for mn, mx, rg in self._rg_bounds if mn <= hi and mx >= lo]
-
-    @staticmethod
-    def _sliding_query_index_windows(block_left: np.ndarray, snp_batch_size: int, m: int) -> list[tuple[int, int]]:
-        """Mirror parquet LD-score matrix query windows for cache sizing."""
-        if m <= 0:
-            return []
-        snp_batch_size = int(snp_batch_size)
-        if snp_batch_size <= 0:
-            raise LDSCConfigError(
-                f"ldscore received invalid snp_batch_size={snp_batch_size}. Most likely "
-                "the parquet query batch size was set to zero or a negative value. Pass "
-                "a positive integer batch size."
-            )
-
-        block_sizes = np.array(np.arange(m) - block_left)
-        block_sizes = np.ceil(block_sizes / snp_batch_size) * snp_batch_size
-        windows: list[tuple[int, int]] = []
-
-        positive = np.nonzero(block_left > 0)
-        if np.any(positive):
-            block_width = int(positive[0][0])
-        else:
-            block_width = m
-        block_width = int(np.ceil(block_width / snp_batch_size) * snp_batch_size)
-        if block_width > m:
-            snp_batch_size = 1
-            block_width = m
-
-        l_A = 0
-        for l_B in range(0, block_width, snp_batch_size):
-            chunk_width = min(snp_batch_size, m - l_B)
-            if chunk_width <= 0:
-                continue
-            windows.append((min(l_A, l_B), max(l_A + block_width, l_B + chunk_width)))
-
-        b0 = block_width
-        md = int(snp_batch_size * np.floor(m / snp_batch_size))
-        end = md + 1 if md != m else md
-        for l_B in range(b0, end, snp_batch_size):
-            old_block_width = block_width
-            block_width = int(block_sizes[l_B])
-            if l_B > b0 and block_width > 0:
-                l_A += old_block_width - block_width + snp_batch_size
-            elif l_B == b0 and block_width > 0:
-                l_A = b0 - block_width
-            elif block_width == 0:
-                l_A = l_B
-
-            chunk_width = snp_batch_size
-            if l_B == md:
-                chunk_width = m - md
-            if chunk_width <= 0:
-                continue
-            if block_width > 0:
-                windows.append((min(l_A, l_B), max(l_A + block_width, l_B + chunk_width)))
-            windows.append((l_B, l_B + chunk_width))
-
-        return windows
-
-    def configure_auto_row_group_cache(self, block_left: np.ndarray, snp_batch_size: int) -> None:
-        """Size the decoded row-group cache from this chromosome's sliding windows."""
-        if getattr(self, "_runtime_layout", None) != "index":
-            self._row_group_cache = None
-            return
-        num_row_groups = len(self._rg_bounds)
-        if num_row_groups == 0:
-            self._row_group_cache = None
-            LOGGER.debug(f"Chromosome {self.chrom} row-group cache disabled: no footer bounds available.")
-            return
-
-        m = int(getattr(self, "m", 0))
-        query_sets = [
-            set(self._row_group_indices_for_index_window(start, stop))
-            for start, stop in self._sliding_query_index_windows(block_left, snp_batch_size, m)
-        ]
-        query_sets = [rg_set for rg_set in query_sets if rg_set]
-        if not query_sets:
-            self._row_group_cache = None
-            LOGGER.debug(f"Chromosome {self.chrom} row-group cache disabled: no row groups overlap LD windows.")
-            return
-
-        if len(query_sets) == 1:
-            max_adjacent_union = len(query_sets[0])
-        else:
-            max_adjacent_union = max(len(left | right) for left, right in zip(query_sets, query_sets[1:]))
-        capacity = min(max_adjacent_union + 1, num_row_groups)
-        self._row_group_cache = _RowGroupLRUCache(capacity)
-        LOGGER.debug(
-            f"Chromosome {self.chrom} row-group cache capacity={capacity}, "
-            f"row_groups={num_row_groups}, query_windows={len(query_sets)}."
-        )
-
-    def log_row_group_cache_summary(self) -> None:
-        """Log DEBUG-only cache diagnostics after a chromosome finishes."""
-        cache = self._row_group_cache
-        if cache is None:
-            return
-        LOGGER.debug(
-            f"Chromosome {self.chrom} row-group cache summary: capacity={cache.capacity}, "
-            f"hits={cache.hits}, misses={cache.misses}, evictions={cache.evictions}, "
-            f"row_group_reads={cache.row_group_reads}."
-        )
 
     def _decode_index_row_group(self, row_group_index: int) -> _DecodedR2RowGroup:
         """Decode one index row group: dequantize R2, gather endpoints through the remap.
@@ -1454,115 +1291,6 @@ class SortedR2BlockReader:
                 continue
             yield group.i, group.j, group.r2
 
-    def _get_decoded_row_group(self, row_group_index: int) -> _DecodedR2RowGroup:
-        """Return a decoded index row group from cache or parquet."""
-        cache = self._row_group_cache
-        if cache is not None:
-            cached = cache.get(row_group_index)
-            if cached is not None:
-                return cached
-
-        decoded = self._decode_index_row_group(row_group_index)
-        if cache is not None:
-            cache.row_group_reads += 1
-            cache.put(decoded)
-        return decoded
-
-    def _query_union_arrays(self, start: int, stop: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Return ``(i, j, r2)`` numpy arrays for retained-index window ``[start, stop)``.
-
-        Each selected decoded row group has ``i`` sorted ascending (the remap
-        preserves build order), so the window's rows are located by binary
-        search on ``i`` and only the slice with ``j`` in ``[start, stop)`` is
-        kept. Canonical artifacts are duplicate-free (parquet pair uniqueness +
-        the injective remap from ``build_index_remap``), so no deduplication is
-        performed.
-        """
-        start = max(0, int(start))
-        stop = min(int(stop), self.m)
-        if stop <= start:
-            return (
-                np.empty(0, dtype=np.int32),
-                np.empty(0, dtype=np.int32),
-                np.empty(0, dtype=np.float32),
-            )
-
-        parts_i: list[np.ndarray] = []
-        parts_j: list[np.ndarray] = []
-        parts_r2: list[np.ndarray] = []
-        for index in self._row_group_indices_for_index_window(start, stop):
-            group = self._get_decoded_row_group(index)
-            if group.i.size == 0:
-                continue
-            lo = int(np.searchsorted(group.i, start, side="left"))
-            hi = int(np.searchsorted(group.i, stop, side="left"))
-            if hi <= lo:
-                continue
-            gj = group.j[lo:hi]
-            keep = (gj >= start) & (gj < stop)
-            if not keep.any():
-                continue
-            parts_i.append(group.i[lo:hi][keep])
-            parts_j.append(gj[keep])
-            parts_r2.append(group.r2[lo:hi][keep])
-
-        if not parts_i:
-            return (
-                np.empty(0, dtype=np.int32),
-                np.empty(0, dtype=np.int32),
-                np.empty(0, dtype=np.float32),
-            )
-        return (
-            np.concatenate(parts_i),
-            np.concatenate(parts_j),
-            np.concatenate(parts_r2),
-        )
-
-    def cross_block_matrix(self, l_A: int, b: int, l_B: int, c: int) -> np.ndarray:
-        """Build the dense cross-block R2 matrix used by the parquet backend."""
-        if b <= 0 or c <= 0:
-            return np.zeros((max(b, 0), max(c, 0)), dtype=np.float32)
-
-        a_start, a_stop = l_A, l_A + b
-        b_start, b_stop = l_B, l_B + c
-        i, j, values = self._query_union_arrays(min(a_start, b_start), max(a_stop, b_stop))
-
-        matrix = np.zeros((b, c), dtype=np.float32)
-        if i.size > 0:
-            left_i = (a_start <= i) & (i < a_stop) & (b_start <= j) & (j < b_stop)
-            if left_i.any():
-                matrix[i[left_i] - a_start, j[left_i] - b_start] = values[left_i]
-
-            left_j = (a_start <= j) & (j < a_stop) & (b_start <= i) & (i < b_stop)
-            if left_j.any():
-                matrix[j[left_j] - a_start, i[left_j] - b_start] = values[left_j]
-
-        overlap_start = max(a_start, b_start)
-        overlap_stop = min(a_stop, b_stop)
-        for idx in range(overlap_start, overlap_stop):
-            matrix[idx - a_start, idx - b_start] = 1.0
-
-        return matrix
-
-    def within_block_matrix(self, l_B: int, c: int) -> np.ndarray:
-        """Build the dense within-block R2 matrix used by the parquet backend."""
-        if c <= 0:
-            return np.zeros((0, 0), dtype=np.float32)
-
-        b_start, b_stop = l_B, l_B + c
-        # _query_union_arrays already restricts both endpoints to [b_start, b_stop).
-        i, j, values = self._query_union_arrays(b_start, b_stop)
-
-        matrix = np.zeros((c, c), dtype=np.float32)
-        if i.size > 0:
-            ii = i - b_start
-            jj = j - b_start
-            matrix[ii, jj] = values
-            matrix[jj, ii] = values
-
-        np.fill_diagonal(matrix, 1.0)
-        return matrix
-
 
 def _accumulate_pair_contributions(
     cor_sum: np.ndarray,
@@ -1605,86 +1333,6 @@ def ld_score_streaming_from_r2_reader(
     cor_sum = annot.astype(np.float64, copy=True)  # diagonal R2 = 1 for every SNP
     for i, j, r2 in block_reader.iter_all_pairs():
         _accumulate_pair_contributions(cor_sum, i, j, r2, annot, block_left)
-    return np.asarray(cor_sum, dtype=np.float32)
-
-
-def ld_score_var_blocks_from_r2_reader(
-    block_left: np.ndarray,
-    snp_batch_size: int,
-    annot: np.ndarray,
-    block_reader: SortedR2BlockReader,
-) -> np.ndarray:
-    """
-    Mirror the old LDSC sliding-block accumulation while sourcing block-local
-    dense R2 matrices from the index-format parquet reader instead of genotype
-    blocks. The reader configures a chromosome-local decoded row-group cache
-    from ``block_left`` and ``snp_batch_size`` before traversal.
-    """
-    m = annot.shape[0]
-    n_a = annot.shape[1]
-    if snp_batch_size <= 0:
-        raise LDSCConfigError(
-            f"ldscore received invalid snp_batch_size={snp_batch_size}. Most likely "
-            "the parquet query batch size was set to zero or a negative value. Pass "
-            "a positive integer batch size."
-        )
-    block_sizes = np.array(np.arange(m) - block_left)
-    block_sizes = np.ceil(block_sizes / snp_batch_size) * snp_batch_size
-    cor_sum = np.zeros((m, n_a), dtype=np.float64)
-    block_reader.configure_auto_row_group_cache(block_left, snp_batch_size)
-
-    try:
-        b = np.nonzero(block_left > 0)
-        if np.any(b):
-            b = b[0][0]
-        else:
-            b = m
-        b = int(np.ceil(b / snp_batch_size) * snp_batch_size)
-        if b > m:
-            snp_batch_size = 1
-            b = m
-
-        l_A = 0
-        for l_B in range(0, b, snp_batch_size):
-            chunk_width = min(snp_batch_size, m - l_B)
-            if chunk_width <= 0:
-                continue
-            rfuncAB = block_reader.cross_block_matrix(l_A, b, l_B, chunk_width)
-            cor_sum[l_A:l_A + b, :] += np.dot(rfuncAB, annot[l_B:l_B + chunk_width, :])
-
-        b0 = b
-        md = int(snp_batch_size * np.floor(m / snp_batch_size))
-        end = md + 1 if md != m else md
-        for l_B in range(b0, end, snp_batch_size):
-            old_b = b
-            b = int(block_sizes[l_B])
-            if l_B > b0 and b > 0:
-                l_A += old_b - b + snp_batch_size
-            elif l_B == b0 and b > 0:
-                l_A = b0 - b
-            elif b == 0:
-                l_A = l_B
-
-            chunk_width = snp_batch_size
-            if l_B == md:
-                chunk_width = m - md
-            if chunk_width <= 0:
-                continue
-
-            p1 = np.all(annot[l_A:l_A + b, :] == 0)
-            p2 = np.all(annot[l_B:l_B + chunk_width, :] == 0)
-            if p1 and p2:
-                continue
-
-            rfuncAB = block_reader.cross_block_matrix(l_A, b, l_B, chunk_width)
-            cor_sum[l_A:l_A + b, :] += np.dot(rfuncAB, annot[l_B:l_B + chunk_width, :])
-            cor_sum[l_B:l_B + chunk_width, :] += np.dot(annot[l_A:l_A + b, :].T, rfuncAB).T
-
-            rfuncBB = block_reader.within_block_matrix(l_B, chunk_width)
-            cor_sum[l_B:l_B + chunk_width, :] += np.dot(rfuncBB, annot[l_B:l_B + chunk_width, :])
-    finally:
-        block_reader.log_row_group_cache_summary()
-
     return np.asarray(cor_sum, dtype=np.float32)
 
 
@@ -2212,7 +1860,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ld-wind-cm", default=None, type=float, help="LD window size in centiMorgans.")
     parser.add_argument("--maf-min", default=None, type=float, help="Optional MAF filter for retained SNPs when MAF is available.")
     parser.add_argument("--common-maf-min", default=0.05, type=float, help="MAF threshold used only for common-SNP annotation count vectors.")
-    parser.add_argument("--snp-batch-size", default=128, type=int, help="Number of SNPs processed per LD-score sliding batch.")
+    parser.add_argument("--snp-batch-size", default=128, type=int, help="Genotype batch size for the PLINK reference-panel backend; ignored by the parquet-R2 backend, which streams stored pairs. Defaults to 128.")
     parser.add_argument("--per-chr-output", default=False, action="store_true", help="Emit per-chromosome outputs instead of an aggregated output.")
     parser.add_argument("--yes-really", default=False, action="store_true", help="Allow whole-chromosome LD windows.")
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"), help="Logging verbosity.")

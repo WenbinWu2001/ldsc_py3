@@ -206,10 +206,9 @@ Canonical parquet R2 files written by `ldsc build-ref-panel` store the build in
 Arrow schema metadata under `ldsc:sorted_by_build`. Reading that metadata costs
 only a parquet footer read and no row data.
 
-For externally generated canonical R2 files that lack this metadata,
-`SortedR2BlockReader._init_canonical_path()` reads row group 0 with only
-`CHR` and `POS_1`, then runs the same coordinate inference. Dense reference
-panels usually have enough HapMap3 overlap in the first row group.
+Index-format R2 files **require** `ldsc:sorted_by_build`: a file lacking it is a
+hard error in `SortedR2BlockReader._init_index_path()` (there is no row-data
+inference fallback). Regenerate such files with `ldsc build-ref-panel`.
 
 If the inferred or declared R2 build disagrees with the runtime
 `--genome-build`, the reader raises an error rather than mixing coordinate

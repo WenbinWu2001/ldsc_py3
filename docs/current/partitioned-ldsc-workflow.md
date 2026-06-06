@@ -104,6 +104,13 @@ against an all-ones universe, they should create an explicit all-ones `base`
 baseline annotation over the query annotation universe and run the partitioned
 workflow with both baseline and query inputs.
 
+For gene-set or pathway BEDs that need flanking sequence, `--bed-padding-bp`
+expands each query BED interval by the requested number of base pairs on both
+sides before projection; starts are clipped at zero. The default is `0`, so BED
+files are used exactly as supplied. Do not set this option for BED files already
+expanded during upstream gene-set preparation, because that would double-count
+the flank.
+
 ### Reference Panel
 
 LD scores can be computed from:
@@ -238,6 +245,7 @@ ldsc ldscore \
   --output-dir results/my_study_ldscore \
   --baseline-annot-sources resources/baseline_v1.2/baseline.@.annot.gz \
   --query-annot-bed-sources my_peaks.bed \
+  --bed-padding-bp 0 \
   --plink-prefix resources/1kg/1KG_EUR_Phase3_chr@ \
   --use-hm3-ref-panel-snps \
   --use-hm3-regression-snps \

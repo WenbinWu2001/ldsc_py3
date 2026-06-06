@@ -823,6 +823,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Comma-separated BED file path tokens projected in memory as query annotations. Requires --baseline-annot-sources.",
     )
     parser.add_argument(
+        "--bed-padding-bp",
+        type=int,
+        default=0,
+        help="Base pairs to add to both sides of each query BED interval before in-memory projection. Default: 0.",
+    )
+    parser.add_argument(
         "--baseline-annot-sources",
         default=None,
         help="Comma-separated baseline annotation path tokens. If omitted with no query inputs, an all-ones `base` annotation is synthesized.",
@@ -937,6 +943,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
             baseline_annot_sources=tuple(split_cli_path_tokens(normalized_args.baseline_annot_sources)),
             query_annot_sources=tuple(split_cli_path_tokens(normalized_args.query_annot_sources)),
             query_annot_bed_sources=tuple(split_cli_path_tokens(getattr(normalized_args, "query_annot_bed_sources", None))),
+            bed_padding_bp=normalized_args.bed_padding_bp,
         )
         annotation_bundle = AnnotationBuilder(global_config).run(source_spec)
         ref_panel = _ref_panel_from_args(normalized_args, global_config)
@@ -1246,6 +1253,8 @@ def _normalize_run_args(args: argparse.Namespace) -> tuple[argparse.Namespace, G
         normalized_args.maf_min = None
     if not hasattr(normalized_args, "common_maf_min"):
         normalized_args.common_maf_min = 0.05
+    if not hasattr(normalized_args, "bed_padding_bp"):
+        normalized_args.bed_padding_bp = 0
     if not hasattr(normalized_args, "snp_batch_size"):
         normalized_args.snp_batch_size = 128
     normalized_args.snp_identifier = normalized_mode

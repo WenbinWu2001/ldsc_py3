@@ -104,7 +104,7 @@ log path with scientific outputs before entering the context, and result
 
 ### `ldsc.annotation_builder`
 
-This is the public interface and workflow implementation for annotation loading and BED projection. It owns `AnnotationBuilder`, `AnnotationBundle`, `run_bed_to_annot()`, `run_annotate_from_args()`, `main()`, parser construction, path-token resolution, genome-build inference for `--genome-build auto`, annotation identity cleanup, output preflight, root `query.<chrom>.annot.gz` writing, and annotation diagnostics under `diagnostics/`. It delegates only low-level text-table and BED intersection primitives to `ldsc._kernel.annotation`. Public interface: users should start here rather than importing the kernel directly.
+This is the public interface and workflow implementation for annotation loading and BED projection. It owns `AnnotationBuilder`, `AnnotationBundle`, `run_bed_to_annot()`, `run_annotate_from_args()`, `main()`, parser construction, path-token resolution, genome-build inference for `--genome-build auto`, optional BED interval expansion through `bed_padding_bp` / `--bed-padding-bp`, annotation identity cleanup, output preflight, root `query.<chrom>.annot.gz` writing, and annotation diagnostics under `diagnostics/`. It delegates only low-level text-table and BED intersection primitives to `ldsc._kernel.annotation`. Public interface: users should start here rather than importing the kernel directly.
 
 ### `ldsc.ref_panel_builder`
 
@@ -194,6 +194,10 @@ The kernel layer contains the actual numerical methods and low-level readers. It
 - Query annotations are valid only with explicit baseline annotations; the
   synthetic `base` path is for ordinary unpartitioned LD-score generation and
   downstream `h2`/`rg`, not for `partitioned-h2`.
+- BED projection uses input intervals as provided unless `bed_padding_bp` /
+  `--bed-padding-bp` is set. Padding expands both interval ends in base pairs
+  before projection and clips starts at zero; it should not be applied again to
+  BED files already expanded upstream.
 - Every workflow that writes fixed artifacts must precompute expected output
   paths, including its log path, and call the shared output preflight before
   the first write.

@@ -25,6 +25,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 import logging
+from numbers import Integral
 from os import PathLike
 from typing import Literal
 import warnings
@@ -337,6 +338,9 @@ class AnnotationBuildConfig:
     query_annot_bed_sources : str, os.PathLike[str], or sequence of those, optional
         BED inputs that should be projected to SNP-level annotations. Default is
         ``()``.
+    bed_padding_bp : int, optional
+        Number of base pairs to add to both sides of each BED interval before
+        SNP overlap projection. Starts are clipped at zero. Default is ``0``.
     output_dir : str or os.PathLike[str] or None, optional
         Output directory used by file-writing helpers. Default is ``None``.
     compression : {"auto", "gzip", "bz2", "none"}, optional
@@ -351,6 +355,7 @@ class AnnotationBuildConfig:
     baseline_annot_sources: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
     query_annot_sources: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
     query_annot_bed_sources: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
+    bed_padding_bp: int = 0
     output_dir: str | PathLike[str] | None = None
     compression: CompressionMode = "gzip"
     allow_missing_query: bool = True
@@ -362,6 +367,32 @@ class AnnotationBuildConfig:
         object.__setattr__(self, "query_annot_sources", _normalize_path_tuple(self.query_annot_sources))
         object.__setattr__(self, "query_annot_bed_sources", _normalize_path_tuple(self.query_annot_bed_sources))
         object.__setattr__(self, "output_dir", _normalize_optional_path(self.output_dir))
+        if isinstance(self.bed_padding_bp, bool):
+            raise LDSCConfigError(
+                f"Could not construct AnnotationBuildConfig: bed_padding_bp={self.bed_padding_bp!r} must be an integer. "
+                "Most likely a boolean padding value was supplied. Set bed_padding_bp to 0 or a positive integer."
+            )
+        if isinstance(self.bed_padding_bp, Integral):
+            bed_padding_bp = int(self.bed_padding_bp)
+        elif isinstance(self.bed_padding_bp, str):
+            stripped_padding = self.bed_padding_bp.strip()
+            if not stripped_padding or stripped_padding in {"+", "-"} or not stripped_padding.lstrip("+-").isdigit():
+                raise LDSCConfigError(
+                    f"Could not construct AnnotationBuildConfig: bed_padding_bp={self.bed_padding_bp!r} must be an integer. "
+                    "Most likely a non-integer padding value was supplied. Set bed_padding_bp to 0 or a positive integer."
+                )
+            bed_padding_bp = int(stripped_padding)
+        else:
+            raise LDSCConfigError(
+                f"Could not construct AnnotationBuildConfig: bed_padding_bp={self.bed_padding_bp!r} must be an integer. "
+                "Most likely a non-integer padding value was supplied. Set bed_padding_bp to 0 or a positive integer."
+            )
+        object.__setattr__(self, "bed_padding_bp", bed_padding_bp)
+        if self.bed_padding_bp < 0:
+            raise LDSCConfigError(
+                f"Could not construct AnnotationBuildConfig: bed_padding_bp={self.bed_padding_bp!r} must be non-negative. "
+                "Most likely a negative padding value was supplied. Set bed_padding_bp to 0 or a positive integer."
+            )
         if self.compression not in {"auto", "gzip", "bz2", "none"}:
             raise LDSCConfigError(
                 _invalid_choice_message("AnnotationBuildConfig", "compression", self.compression, "'auto', 'gzip', 'bz2', or 'none'")

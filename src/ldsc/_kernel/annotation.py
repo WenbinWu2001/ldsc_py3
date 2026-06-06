@@ -99,7 +99,7 @@ def _write_baseline_bed(rows: Sequence[_BaselineRow], path: Path) -> Path:
     return path
 
 
-def _write_normalized_bed(in_path: Path, out_path: Path) -> Path:
+def _write_normalized_bed(in_path: Path, out_path: Path, *, bed_padding_bp: int = 0) -> Path:
     """Normalize one BED input into a plain tab-delimited UCSC-style BED file."""
     with (gzip.open(in_path, "rt") if in_path.suffix.lower() == ".gz" else open(in_path, "rt")) as src:
         with out_path.open("w", encoding="utf-8") as dst:
@@ -114,8 +114,19 @@ def _write_normalized_bed(in_path: Path, out_path: Path) -> Path:
                         "Most likely the BED file is malformed or uses the wrong delimiter. "
                         "Provide a valid BED file with chrom, start, and end columns."
                     )
+                try:
+                    start = int(fields[1])
+                    end = int(fields[2])
+                except ValueError as exc:
+                    raise LDSCInputError(
+                        f"annotate could not normalize BED file '{in_path}': start/end are not integer coordinates: {line!r}. "
+                        "Most likely the BED file has a header row or malformed coordinates. "
+                        "Provide BED intervals with integer start and end columns."
+                    ) from exc
                 chrom = _to_bed_chromosome(fields[0])
-                dst.write("\t".join([chrom] + fields[1:]) + "\n")
+                start = max(0, start - bed_padding_bp)
+                end = end + bed_padding_bp
+                dst.write("\t".join([chrom, str(start), str(end)] + fields[3:]) + "\n")
     return out_path
 
 

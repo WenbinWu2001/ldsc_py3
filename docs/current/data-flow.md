@@ -262,7 +262,10 @@ For ordinary unpartitioned LD scores, callers may omit both baseline and query
 inputs. The workflow then creates a synthetic baseline annotation named exactly
 `base`, with value `1.0` for every row returned by the retained reference-panel
 metadata. Query annotations are partitioned-LDSC inputs and require explicit
-baseline annotations.
+baseline annotations. Query BED inputs are projected to the baseline SNP
+universe as supplied unless `bed_padding_bp` / `--bed-padding-bp` is set; that
+option expands each interval on both sides in base pairs before overlap
+projection and clips starts at zero.
 
 ### Required inputs
 

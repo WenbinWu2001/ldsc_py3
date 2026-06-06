@@ -1199,9 +1199,12 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 "10",
                 "--query-annot-bed-sources",
                 "query.bed",
+                "--bed-padding-bp",
+                "50000",
             ]
         )
         self.assertEqual(args.query_annot_bed_sources, "query.bed")
+        self.assertEqual(args.bed_padding_bp, 50000)
 
     def test_build_parser_defaults_snp_batch_size_to_128(self):
         parser = ldscore_workflow.build_parser()

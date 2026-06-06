@@ -516,3 +516,29 @@ class IndexParquetRuntimeTest(unittest.TestCase):
             self.assertEqual(i.size, 0)
             self.assertEqual(j.size, 0)
             self.assertEqual(values.size, 0)
+
+    def test_iter_all_pairs_yields_every_stored_pair_once(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            snps = ["rs1", "rs2", "rs3", "rs4"]
+            bps = [100, 120, 140, 160]
+            panel = self._panel_meta(snps, bps)
+            pairs = [
+                {"i": 0, "j": 1, "R2": 0.4, "sign": "+"},
+                {"i": 0, "j": 2, "R2": 0.2, "sign": "+"},
+                {"i": 1, "j": 2, "R2": 0.6, "sign": "+"},
+                {"i": 2, "j": 3, "R2": 0.5, "sign": "+"},
+            ]
+            r2 = self._write_index_panel(tmpdir, panel, pairs, row_group_size=2)
+            reader = self._reader(r2, self._reader_meta(snps, bps))
+            seen = {}
+            for i, j, r2v in reader.iter_all_pairs():
+                self.assertEqual(i.dtype, np.dtype("int32"))
+                self.assertEqual(r2v.dtype, np.dtype("float32"))
+                for a, b, v in zip(i.tolist(), j.tolist(), r2v.tolist()):
+                    seen[(a, b)] = v
+            self.assertEqual(sorted(seen), [(0, 1), (0, 2), (1, 2), (2, 3)])
+            # int16-quantized R2: tolerance is the half-step
+            np.testing.assert_allclose(
+                [seen[k] for k in [(0, 1), (0, 2), (1, 2), (2, 3)]],
+                [0.4, 0.2, 0.6, 0.5], rtol=0, atol=2e-5,
+            )

@@ -1433,6 +1433,27 @@ class SortedR2BlockReader:
             r2=r2[keep].astype(np.float32, copy=False),
         )
 
+    def iter_all_pairs(self):
+        """Yield ``(i, j, r2)`` arrays for every row group, decoding each once.
+
+        Streams the whole chromosome's stored pairs in IDX_1 order with no
+        window pruning and no row-group cache: each row group is decoded a
+        single time, remapped to retained indices, and dropped endpoints
+        removed. Empty groups (all endpoints outside the analysis universe) are
+        skipped.
+        """
+        if self._pf is None:
+            raise LDSCInternalError(
+                "LD-score parquet reader failed in SortedR2BlockReader.iter_all_pairs(): "
+                "the parquet file handle is not initialized. Re-run with DEBUG logging "
+                "and report the traceback."
+            )
+        for rg_index in range(self._pf.metadata.num_row_groups):
+            group = self._decode_index_row_group(rg_index)
+            if group.i.size == 0:
+                continue
+            yield group.i, group.j, group.r2
+
     def _get_decoded_row_group(self, row_group_index: int) -> _DecodedR2RowGroup:
         """Return a decoded index row group from cache or parquet."""
         cache = self._row_group_cache

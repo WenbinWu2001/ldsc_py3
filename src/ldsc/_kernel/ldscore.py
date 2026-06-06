@@ -1564,6 +1564,31 @@ class SortedR2BlockReader:
         return matrix
 
 
+def _accumulate_pair_contributions(
+    cor_sum: np.ndarray,
+    i: np.ndarray,
+    j: np.ndarray,
+    r2: np.ndarray,
+    annot: np.ndarray,
+    block_left: np.ndarray,
+) -> None:
+    """Scatter-add one chunk of stored pairs ``(i<j, r2)`` into ``cor_sum``.
+
+    Implements ``cor_sum += R @ annot`` for the off-diagonal pairs of one chunk:
+    each pair contributes ``r2 * annot[j]`` to row ``i`` and ``r2 * annot[i]`` to
+    row ``j`` (R is symmetric). Pairs outside the ldscore window are dropped via
+    ``i >= block_left[j]``. ``np.add.at`` is required because ``i`` (and ``j``)
+    contain repeated indices within a chunk; a buffered ``+=`` would collapse them.
+    """
+    keep = i >= block_left[j]
+    if not keep.all():
+        i, j, r2 = i[keep], j[keep], r2[keep]
+    if i.size == 0:
+        return
+    np.add.at(cor_sum, i, r2[:, None] * annot[j])
+    np.add.at(cor_sum, j, r2[:, None] * annot[i])
+
+
 def ld_score_var_blocks_from_r2_reader(
     block_left: np.ndarray,
     snp_batch_size: int,

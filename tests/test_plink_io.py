@@ -542,3 +542,38 @@ class IndexParquetRuntimeTest(unittest.TestCase):
                 [seen[k] for k in [(0, 1), (0, 2), (1, 2), (2, 3)]],
                 [0.4, 0.2, 0.6, 0.5], rtol=0, atol=2e-5,
             )
+
+    def test_accumulate_full_window_matches_R_at_annot(self):
+        annot = np.ones((4, 1), dtype=np.float32)
+        cor_sum = annot.astype(np.float64).copy()  # diagonal R2 = 1
+        block_left = np.zeros(4, dtype=np.int64)
+        i = np.array([0, 0, 1, 2], dtype=np.int32)
+        j = np.array([1, 2, 2, 3], dtype=np.int32)
+        r2 = np.array([0.4, 0.2, 0.6, 0.5], dtype=np.float32)
+        ld._accumulate_pair_contributions(cor_sum, i, j, r2, annot, block_left)
+        # Row sums of symmetric R (unit diagonal):
+        np.testing.assert_allclose(cor_sum[:, 0], [1.6, 2.0, 2.3, 1.5], atol=1e-6)
+
+    def test_accumulate_handles_duplicate_left_index(self):
+        # SNP 0 pairs with SNP 1 and SNP 2 — both must accumulate into cor_sum[0].
+        annot = np.array([[1.0], [2.0], [3.0], [0.0]], dtype=np.float32)
+        cor_sum = np.zeros((4, 1), dtype=np.float64)
+        block_left = np.zeros(4, dtype=np.int64)
+        i = np.array([0, 0], dtype=np.int32)
+        j = np.array([1, 2], dtype=np.int32)
+        r2 = np.array([0.5, 0.5], dtype=np.float32)
+        ld._accumulate_pair_contributions(cor_sum, i, j, r2, annot, block_left)
+        np.testing.assert_allclose(cor_sum[0, 0], 0.5 * 2.0 + 0.5 * 3.0)  # 2.5
+        np.testing.assert_allclose(cor_sum[1, 0], 0.5 * 1.0)
+        np.testing.assert_allclose(cor_sum[2, 0], 0.5 * 1.0)
+
+    def test_accumulate_window_filter_drops_out_of_window_pairs(self):
+        annot = np.ones((4, 1), dtype=np.float32)
+        cor_sum = np.zeros((4, 1), dtype=np.float64)
+        block_left = np.array([0, 0, 1, 2], dtype=np.int64)  # SNP2 window starts at 1
+        i = np.array([0, 0, 1, 2], dtype=np.int32)
+        j = np.array([1, 2, 2, 3], dtype=np.int32)
+        r2 = np.array([0.4, 0.2, 0.6, 0.5], dtype=np.float32)
+        # (0,2) dropped: 0 < block_left[2]=1. Others kept.
+        ld._accumulate_pair_contributions(cor_sum, i, j, r2, annot, block_left)
+        np.testing.assert_allclose(cor_sum[:, 0], [0.4, 1.0, 1.1, 0.5], atol=1e-6)

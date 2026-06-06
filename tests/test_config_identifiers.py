@@ -871,3 +871,49 @@ class RestrictionReadersTest(unittest.TestCase):
             self.assertEqual(restriction.match_kind, "base")
             self.assertEqual(restriction.keys, {"rs1", "rs2"})
             self.assertTrue(restriction.dropped.empty)
+
+
+import pytest
+
+from ldsc.config import RefPanelConfig, ReferencePanelBuildConfig
+from ldsc.errors import LDSCConfigError
+
+
+def test_refpanelconfig_preset_requires_build():
+    with pytest.raises(LDSCConfigError, match="exclude-regions-build"):
+        RefPanelConfig(backend="plink", plink_prefix="x", exclude_regions=("mhc",))
+
+
+def test_refpanelconfig_preset_with_build_ok():
+    cfg = RefPanelConfig(
+        backend="plink", plink_prefix="x", exclude_regions=("mhc",), exclude_regions_build="hg19"
+    )
+    assert cfg.exclude_regions == ("mhc",)
+    assert cfg.exclude_regions_build == "hg19"
+
+
+def test_refpanelconfig_unknown_preset_raises():
+    with pytest.raises(LDSCConfigError, match="unknown region preset"):
+        RefPanelConfig(backend="plink", plink_prefix="x", exclude_regions=("telomeres",), exclude_regions_build="hg19")
+
+
+def test_refpanelconfig_user_bed_without_build_ok():
+    cfg = RefPanelConfig(backend="plink", plink_prefix="x", exclude_regions_bed=("/tmp/a.bed",))
+    assert cfg.exclude_regions_bed == ("/tmp/a.bed",)
+
+
+def test_build_config_unknown_preset_raises():
+    with pytest.raises(LDSCConfigError, match="unknown region preset"):
+        ReferencePanelBuildConfig(plink_prefix="x", output_dir="o", ld_wind_snps=1, exclude_regions=("foo",))
+
+
+def test_build_config_preset_no_build_field_required():
+    cfg = ReferencePanelBuildConfig(
+        plink_prefix="x", output_dir="o", ld_wind_snps=1, exclude_regions=("mhc", "centromeres")
+    )
+    assert cfg.exclude_regions == ("mhc", "centromeres")
+
+
+def test_refpanelconfig_invalid_build_value_raises():
+    with pytest.raises(LDSCConfigError, match="exclude_regions_build"):
+        RefPanelConfig(backend="plink", plink_prefix="x", exclude_regions_build="hg17")

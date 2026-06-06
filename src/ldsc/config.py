@@ -149,6 +149,18 @@ def _one_ld_window_message(config_name: str) -> str:
     )
 
 
+def _validate_region_presets(class_name: str, names: tuple[str, ...]) -> None:
+    """Raise if any preset name is outside the supported region menu."""
+    from ._kernel.regions import REGION_PRESETS
+
+    unknown = sorted(set(names) - REGION_PRESETS)
+    if unknown:
+        raise LDSCConfigError(
+            f"Could not construct {class_name}: unknown region preset(s) {unknown}. "
+            f"Most likely a name was misspelled. Valid presets are {sorted(REGION_PRESETS)}."
+        )
+
+
 @dataclass(frozen=True, init=False)
 class GlobalConfig:
     """Shared configuration used across the refactored workflows.
@@ -388,6 +400,15 @@ class RefPanelConfig:
         If ``True``, restrict the runtime reference-panel universe to the
         packaged curated HM3 SNP map. Mutually exclusive with
         ``ref_panel_snps_file``. Default is ``False``.
+    exclude_regions : tuple of str, optional
+        Named region presets to exclude (e.g. ``"mhc"``, ``"centromeres"``).
+        Requires ``exclude_regions_build``. Default is ``()``.
+    exclude_regions_bed : tuple of str, optional
+        Paths to user-supplied BED files whose intervals are excluded.
+        Build-agnostic; may be combined with ``exclude_regions``. Default is ``()``.
+    exclude_regions_build : {"hg19", "hg38"} or None, optional
+        Genome build used to resolve preset intervals. Required when
+        ``exclude_regions`` is non-empty. Default is ``None``.
     """
     backend: RefPanelBackend = "auto"
     plink_prefix: str | PathLike[str] | None = None
@@ -400,6 +421,9 @@ class RefPanelConfig:
     sample_size: int | None = None
     ref_panel_snps_file: str | PathLike[str] | None = None
     use_hm3_ref_panel_snps: bool = False
+    exclude_regions: tuple[str, ...] = ()
+    exclude_regions_bed: tuple[str, ...] = ()
+    exclude_regions_build: Literal["hg19", "hg38"] | None = None
 
     def __post_init__(self) -> None:
         """Normalize backend path tokens and validate parquet-R2 settings."""
@@ -425,6 +449,25 @@ class RefPanelConfig:
             from .chromosome_inference import normalize_chromosome
 
             object.__setattr__(self, "chromosomes", tuple(normalize_chromosome(chrom) for chrom in self.chromosomes))
+        object.__setattr__(self, "exclude_regions", tuple(self.exclude_regions))
+        object.__setattr__(
+            self,
+            "exclude_regions_bed",
+            tuple(_normalize_optional_path(token) for token in self.exclude_regions_bed if token),
+        )
+        _validate_region_presets("RefPanelConfig", self.exclude_regions)
+        if self.exclude_regions_build not in {None, "hg19", "hg38"}:
+            raise LDSCConfigError(
+                _invalid_choice_message(
+                    "RefPanelConfig", "exclude_regions_build", self.exclude_regions_build, "None, 'hg19', or 'hg38'"
+                )
+            )
+        if self.exclude_regions and self.exclude_regions_build is None:
+            raise LDSCConfigError(
+                "RefPanelConfig received exclude_regions presets without exclude_regions_build. "
+                "Most likely --exclude-regions was passed without --exclude-regions-build. "
+                "Region presets are build-specific; pass --exclude-regions-build hg19 or hg38."
+            )
 
 
 @dataclass(frozen=True)
@@ -583,6 +626,12 @@ class ReferencePanelBuildConfig:
         workflow-owned parquet, metadata, dropped-SNP, or log siblings after a
         successful run. If ``False``, output collisions raise before
         chromosome processing starts. Default is ``False``.
+    exclude_regions : tuple of str, optional
+        Named region presets to exclude. Build is resolved from
+        ``source_genome_build``. Default is ``()``.
+    exclude_regions_bed : tuple of str, optional
+        Paths to user-supplied BED files whose intervals are excluded.
+        Default is ``()``.
     """
 
     plink_prefix: str | PathLike[str]
@@ -603,6 +652,8 @@ class ReferencePanelBuildConfig:
     snp_batch_size: int = 128
     min_r2: float = 0.0
     overwrite: bool = False
+    exclude_regions: tuple[str, ...] = ()
+    exclude_regions_bed: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         """Normalize build paths and validate liftover and LD-window settings."""
@@ -684,6 +735,13 @@ class ReferencePanelBuildConfig:
                 "Most likely an R2 percentage or invalid threshold was supplied. "
                 "Use a decimal threshold in [0, 1]."
             )
+        object.__setattr__(self, "exclude_regions", tuple(self.exclude_regions))
+        object.__setattr__(
+            self,
+            "exclude_regions_bed",
+            tuple(_normalize_optional_path(token) for token in self.exclude_regions_bed if token),
+        )
+        _validate_region_presets("ReferencePanelBuildConfig", self.exclude_regions)
 
 
 @dataclass(frozen=True)

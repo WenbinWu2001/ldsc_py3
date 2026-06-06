@@ -1589,6 +1589,25 @@ def _accumulate_pair_contributions(
     np.add.at(cor_sum, j, r2[:, None] * annot[i])
 
 
+def ld_score_streaming_from_r2_reader(
+    block_left: np.ndarray,
+    annot: np.ndarray,
+    block_reader: SortedR2BlockReader,
+) -> np.ndarray:
+    """Compute ``cor_sum = R @ annot`` by streaming the parquet's stored R2 pairs.
+
+    The diagonal (R2=1) seeds ``cor_sum`` from ``annot``; each stored within-window
+    pair is then scattered into both endpoints via ``_accumulate_pair_contributions``,
+    restricted to the ldscore window by ``block_left``. Replaces the sliding-block
+    GEMM imitation: each stored pair is touched exactly once (O(nnz * n_a)).
+    """
+    block_left = np.asarray(block_left, dtype=np.int64)
+    cor_sum = annot.astype(np.float64, copy=True)  # diagonal R2 = 1 for every SNP
+    for i, j, r2 in block_reader.iter_all_pairs():
+        _accumulate_pair_contributions(cor_sum, i, j, r2, annot, block_left)
+    return np.asarray(cor_sum, dtype=np.float32)
+
+
 def ld_score_var_blocks_from_r2_reader(
     block_left: np.ndarray,
     snp_batch_size: int,
@@ -1765,9 +1784,8 @@ def compute_chrom_from_parquet(
         r2_sample_size=args.r2_sample_size,
         genome_build=args.genome_build,
     )
-    combined_scores = ld_score_var_blocks_from_r2_reader(
+    combined_scores = ld_score_streaming_from_r2_reader(
         block_left=block_left,
-        snp_batch_size=args.snp_batch_size,
         annot=combined_annot,
         block_reader=block_reader,
     )

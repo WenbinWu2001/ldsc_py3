@@ -157,6 +157,7 @@ ldsc partitioned-h2 \
   --trait-name trait \
   --ldscore-dir tutorial_outputs/cell_specific_ldscores \
   --count-kind common \
+  --summary-sort-by enrichment-p \
   --output-dir tutorial_outputs/cell_specific_ldsc \
   --write-per-query-results
 ```

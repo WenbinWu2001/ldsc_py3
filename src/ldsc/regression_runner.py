@@ -109,6 +109,19 @@ PARTITIONED_H2_AGGREGATE_COLUMNS = [
     "Coefficient",
     "Coefficient_p",
 ]
+PARTITIONED_H2_SUMMARY_SORT_COLUMNS = {
+    "category": "Category",
+    "prop-snps": "Prop._SNPs",
+    "prop-h2": "Prop._h2",
+    "enrichment": "Enrichment",
+    "enrichment-p": "Enrichment_p",
+    "coefficient": "Coefficient",
+    "coefficient-p": "Coefficient_p",
+}
+PARTITIONED_H2_SUMMARY_ASCENDING_SORTS = {
+    "enrichment-p",
+    "coefficient-p",
+}
 PARTITIONED_H2_FULL_COLUMNS = [
     "Category",
     "Prop._SNPs",
@@ -1582,6 +1595,31 @@ def _scalar_or_value(value):
     return value
 
 
+def _sort_partitioned_h2_summary(summary: pd.DataFrame, sort_by: str = "category") -> pd.DataFrame:
+    """Return ``summary`` ordered by a public partitioned-h2 summary column."""
+    if sort_by == "category":
+        return summary.reset_index(drop=True)
+    column = PARTITIONED_H2_SUMMARY_SORT_COLUMNS.get(sort_by)
+    if column is None:
+        valid = ", ".join(PARTITIONED_H2_SUMMARY_SORT_COLUMNS)
+        raise LDSCUsageError(
+            f"partitioned-h2 summary sort key {sort_by!r} is not supported. "
+            f"Choose one of: {valid}."
+        )
+    if column not in summary.columns:
+        raise LDSCInternalError(
+            f"partitioned-h2 summary cannot be sorted by {sort_by!r} because required column {column!r} "
+            "is missing. Most likely the regression workflow returned a result table with the wrong schema. "
+            "Re-run with DEBUG logging and report the traceback."
+        )
+    return summary.sort_values(
+        by=column,
+        ascending=sort_by in PARTITIONED_H2_SUMMARY_ASCENDING_SORTS,
+        na_position="last",
+        kind="mergesort",
+    ).reset_index(drop=True)
+
+
 def _select_intercept(value: float | None, use_intercept: bool, default_when_disabled: float):
     """Resolve fixed-intercept config into the scalar expected by the kernel."""
     if not use_intercept:
@@ -1608,6 +1646,15 @@ def add_partitioned_h2_arguments(parser) -> None:
         action="store_true",
         default=False,
         help="Also write one sanitized result folder per query annotation under output_dir/diagnostics/query_annotations.",
+    )
+    parser.add_argument(
+        "--summary-sort-by",
+        default="category",
+        choices=tuple(PARTITIONED_H2_SUMMARY_SORT_COLUMNS),
+        help=(
+            "Column used to order partitioned_h2.tsv rows. Default 'category' preserves query annotation input order; "
+            "p-value columns sort ascending and other numeric columns sort descending."
+        ),
     )
 
 
@@ -1729,6 +1776,7 @@ def run_partitioned_h2_from_args(args):
             summary = result
             per_query_category_tables = None
             per_query_metadata = None
+        summary = _sort_partitioned_h2_summary(summary, getattr(args, "summary_sort_by", "category"))
         output_dir_arg = getattr(args, "output_dir", None)
         if output_dir_arg:
             written = PartitionedH2DirectoryWriter().write(

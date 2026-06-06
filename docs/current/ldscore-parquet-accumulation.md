@@ -38,7 +38,10 @@ SNPs after intersection/restriction), in **genomic (position-sorted) order**.
 | $N$ | scalar | reference sample size (only used for the *raw*→unbiased correction of external panels; §6.4) |
 
 Convention: $\mathrel{+}=$ means "add into" (accumulate); $\leftarrow$ means
-assignment.
+assignment; $\mathbf{v}\odot M$ is the row-wise scaling of matrix $M$ by vector
+$\mathbf{v}$ (Hadamard product broadcast over columns, i.e.
+$(\mathbf{v}\odot M)_{t,a}=\mathbf{v}_t\,M_{t,a}$, equivalently
+$\operatorname{diag}(\mathbf{v})\,M$).
 
 ---
 
@@ -138,7 +141,6 @@ The first update is the term $R_{ij}A_{j,\cdot}$ in row $i$; the second is the
 symmetric term $R_{ji}A_{i,\cdot}$ in row $j$.
 
 **Step 3 — output.** After all pairs:
-
 $$
 C = RA,\qquad \ell_{k,a}=C_{k,a}.
 $$
@@ -161,7 +163,7 @@ $$
 
 where $A[\mathbf{j}]$ gathers the rows of $A$ at indices $\mathbf{j}$, and
 $\mathbf{v}=(v_{ij})$ is the chunk's value vector whose entry scales each gathered
-row (broadcast over the $n_a$ columns). **The scatter must be unbuffered**
+row (broadcast over the $n_a$ columns). $\odot$ is the Hadamard (elementwise) product. **The scatter must be unbuffered**
 (`np.add.at`): within a chunk
 $\mathbf{i}$ contains repeats (one left SNP, many right neighbours), and a buffered
 `+=` keeps only one of them. See §6.3.

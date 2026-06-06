@@ -122,6 +122,9 @@ obviously correct, and bounded-memory. (`scipy` is already a dependency.)
 | Module | Change |
 |---|---|
 | `_kernel/ldscore.py` | add `iter_all_pairs()` + streaming accumulator; switch `compute_chrom_from_parquet`; delete block/query/LRU-cache machinery |
-| `docs/current/parquet-r2-format-and-read-pipeline.md` | §3.3/§3.4: streaming replaces windowed queries + dense matrices |
+| `docs/current/parquet-r2-format-and-read-pipeline.md` | §3.2–§3.6 + §6: streaming replaces windowed queries, dense matrices, and the decoded-row-group cache |
+| `docs/current/ldscore-parquet-accumulation.md` | math spec of the streaming accumulation (`C = R·A`); notation glossary |
+| `docs/current/ld-window-parquet-r2-sidecar-behavior.md` | read-side/Memory: read-side RSS flat in the LD window |
+| `docs/current/architecture.md`, `layer-structure.md`, `io-argument-inventory.md`, `inference-genome-build.md` | drop "decoded row-group cache" / `--snp-batch-size`-sizes-cache statements (Task 5 sweep) |
 | `tests/test_plink_io.py` | replace obsolete query/matrix/cache tests with streaming + `iter_all_pairs` tests |
 | `design_map.md` | update kernel ↔ design mapping |

@@ -39,7 +39,7 @@ setup(
     package_dir={"": "src"},
     packages=find_packages(where="src"),
     include_package_data=True,
-    package_data={"ldsc": ["data/*.tsv.gz"]},
+    package_data={"ldsc": ["data/*.tsv.gz", "data/regions/*.bed"]},
     entry_points={
         "console_scripts": [
             "ldsc=ldsc.cli:run_cli",

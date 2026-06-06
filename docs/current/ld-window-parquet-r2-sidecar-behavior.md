@@ -81,8 +81,10 @@ only fills missing values from the annotation side.
 
 ## Memory
 
-Build and read have **opposite** memory profiles with respect to the LD window,
-so they are described separately.
+Both build and read peak RSS are **flat in the LD window width** — the builder
+streams a bounded genotype window from disk, and the reader streams stored R2
+pairs into a window-independent accumulator. They are described separately because
+the floor each is bounded by differs (genotype read vs. `cor_sum`).
 
 ### Build side (`build-ref-panel`)
 
@@ -101,15 +103,18 @@ format is unchanged.
 
 ### Read side (`ldscore`)
 
-Reading a parquet R2 panel for LD-score computation is the reverse: peak RSS is
-dominated by the reader's **decoded row-group cache**, not a bounded genotype
-read. That cache is auto-sized per chromosome, and its size scales with **LD
-window width × local SNP density**. So on the read side `--ld-wind-*` *is* a
-peak-RSS lever, and dense, wide-window chromosomes (notably the chr6 MHC) set the
-high-water mark; under cross-chromosome parallelism each worker holds its own
-chromosome's cache, so aggregate RSS scales with the worker count. See
-`docs/current/parquet-r2-format-and-read-pipeline.md` §3.6 for the cache-sizing
-formula, worked chr6/chr22 numbers, and per-worker budgeting.
+Reading a parquet R2 panel streams every stored pair once (`iter_all_pairs`) and
+accumulates `cor_sum = R · annot` directly — no decoded-row-group cache and no
+sliding-window block matrices. Peak read RSS is therefore bounded by the
+accumulator `cor_sum` (`m · n_a · 8` bytes, float64), plus one decoded row group
+at a time and the workflow/import floor. Like the build side, the read side is
+**flat in `--ld-wind-*`**: the window only filters which streamed pairs contribute
+(`i ≥ block_left[j]`), it does not change resident memory; dense wide-window
+regions (the chr6 MHC) add pairs to stream but are not a memory high-water mark.
+Under cross-chromosome parallelism each worker holds its own `cor_sum`, so
+aggregate RSS scales with the worker count. See
+`docs/current/parquet-r2-format-and-read-pipeline.md` §3.6 for the read-side memory
+model.
 
 ## Practical contract
 

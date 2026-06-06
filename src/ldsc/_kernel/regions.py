@@ -178,3 +178,57 @@ def merge_intervals(*groups: RegionIntervals) -> RegionIntervals:
                 rows.append((chrom, int(start), int(end)))
         labels.extend(group.source_labels)
     return RegionIntervals(intervals=_intervals_from_rows(rows), source_labels=tuple(labels))
+
+
+def region_exclusion_keep_mask(
+    metadata: pd.DataFrame,
+    intervals: RegionIntervals,
+    *,
+    chr_col: str = "CHR",
+    pos_col: str = "POS",
+) -> np.ndarray:
+    """Return a boolean KEEP mask over ``metadata`` rows.
+
+    A 1-based SNP position ``p`` is excluded iff it falls within a BED interval:
+    ``start < p <= end``, equivalently the 0-based position ``p - 1`` satisfies
+    ``start <= p - 1 < end``. Intervals are assumed sorted and disjoint per
+    chromosome (guaranteed by the loaders). Rows whose chromosome has no
+    intervals are kept. Returns all-True when ``intervals`` is empty.
+
+    Parameters
+    ----------
+    metadata : pandas.DataFrame
+        Must contain ``chr_col`` and ``pos_col``. Positions are 1-based.
+    intervals : RegionIntervals
+        Exclusion intervals to apply.
+    chr_col, pos_col : str, optional
+        Column names for chromosome and 1-based position. Defaults ``"CHR"`` /
+        ``"POS"``.
+
+    Returns
+    -------
+    numpy.ndarray
+        Boolean array, ``True`` to keep the row.
+    """
+    n = len(metadata)
+    keep = np.ones(n, dtype=bool)
+    if not intervals.intervals or n == 0:
+        return keep
+    chrom_tokens = metadata[chr_col].astype(str).map(normalize_chromosome).to_numpy()
+    pos = pd.to_numeric(metadata[pos_col], errors="raise").to_numpy()
+    for chrom, bounds in intervals.intervals.items():
+        sel = chrom_tokens == chrom
+        if not sel.any():
+            continue
+        p = pos[sel]
+        starts = bounds[:, 0]
+        ends = bounds[:, 1]
+        # Candidate interval for each p: the last one with start < p.
+        idx = np.searchsorted(starts, p, side="left") - 1
+        excluded = np.zeros(p.shape, dtype=bool)
+        valid = idx >= 0
+        excluded[valid] = ends[idx[valid]] >= p[valid]
+        local = keep[sel]
+        local[excluded] = False
+        keep[sel] = local
+    return keep

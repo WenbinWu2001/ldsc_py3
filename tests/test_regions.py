@@ -1,6 +1,7 @@
 from importlib import resources
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from ldsc._kernel import regions
@@ -94,3 +95,67 @@ def test_merge_intervals_unions_sources():
     # chr6 now has the MHC interval plus the extra disjoint interval, sorted
     assert merged.intervals["6"].tolist() == [[25_000_000, 35_000_000], [40_000_000, 41_000_000]]
     assert set(merged.source_labels) == {"preset:mhc[hg19]", "bed:x"}
+
+
+def _meta(chrom_pos: list[tuple[str, int]]) -> pd.DataFrame:
+    return pd.DataFrame({"CHR": [c for c, _ in chrom_pos], "POS": [p for _, p in chrom_pos]})
+
+
+def test_keep_mask_half_open_boundaries():
+    # BED [100, 200) 0-based excludes 1-based POS 101..200 inclusive.
+    intervals = regions.RegionIntervals(
+        intervals={"1": np.array([[100, 200]], dtype=np.int64)}, source_labels=("bed:x",)
+    )
+    meta = _meta([("1", 100), ("1", 101), ("1", 200), ("1", 201)])
+    keep = regions.region_exclusion_keep_mask(meta, intervals)
+    assert keep.tolist() == [True, False, False, True]
+
+
+def test_keep_mask_other_chromosome_untouched():
+    intervals = regions.RegionIntervals(
+        intervals={"1": np.array([[100, 200]], dtype=np.int64)}, source_labels=("bed:x",)
+    )
+    meta = _meta([("2", 150), ("1", 150)])
+    keep = regions.region_exclusion_keep_mask(meta, intervals)
+    assert keep.tolist() == [True, False]
+
+
+def test_keep_mask_empty_intervals_keeps_all():
+    intervals = regions.RegionIntervals(intervals={}, source_labels=())
+    meta = _meta([("1", 10), ("2", 20)])
+    keep = regions.region_exclusion_keep_mask(meta, intervals)
+    assert keep.tolist() == [True, True]
+
+
+def test_keep_mask_multiple_disjoint_intervals():
+    intervals = regions.RegionIntervals(
+        intervals={"1": np.array([[100, 200], [300, 400]], dtype=np.int64)}, source_labels=("bed:x",)
+    )
+    meta = _meta([("1", 150), ("1", 250), ("1", 350)])
+    keep = regions.region_exclusion_keep_mask(meta, intervals)
+    assert keep.tolist() == [False, True, False]
+
+
+def test_keep_mask_uses_bp_column_when_requested():
+    intervals = regions.RegionIntervals(
+        intervals={"1": np.array([[100, 200]], dtype=np.int64)}, source_labels=("bed:x",)
+    )
+    meta = pd.DataFrame({"CHR": ["1"], "BP": [150]})
+    keep = regions.region_exclusion_keep_mask(meta, intervals, pos_col="BP")
+    assert keep.tolist() == [False]
+
+
+def test_keep_mask_empty_metadata_with_intervals():
+    intervals = regions.RegionIntervals(
+        intervals={"1": np.array([[100, 200]], dtype=np.int64)}, source_labels=("bed:x",)
+    )
+    keep = regions.region_exclusion_keep_mask(_meta([]), intervals)
+    assert keep.tolist() == []
+
+
+def test_keep_mask_interval_chrom_absent_from_metadata():
+    intervals = regions.RegionIntervals(
+        intervals={"9": np.array([[100, 200]], dtype=np.int64)}, source_labels=("bed:x",)
+    )
+    keep = regions.region_exclusion_keep_mask(_meta([("1", 150), ("2", 150)]), intervals)
+    assert keep.tolist() == [True, True]

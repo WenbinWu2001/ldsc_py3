@@ -29,8 +29,9 @@ from ..config import GlobalConfig, RefPanelConfig, validate_config_compatibility
 from ..errors import LDSCConfigError, LDSCDependencyError, LDSCInputError, LDSCInternalError, LDSCUsageError
 from ..genome_build_inference import resolve_genome_build, validate_auto_genome_build_mode
 from ..hm3 import packaged_hm3_curated_map_path
-from ..path_resolution import resolve_plink_prefix, resolve_plink_prefix_group
+from ..path_resolution import resolve_plink_prefix, resolve_plink_prefix_group, resolve_scalar_path
 from . import formats as legacy_parse
+from . import regions
 from . import ldscore as kernel_ldscore
 from .identifiers import (
     build_snp_id_series,
@@ -212,6 +213,7 @@ class RefPanel(ABC):
         self.global_config = global_config
         self.spec = spec
         self._metadata_cache: dict[str, pd.DataFrame] = {}
+        self._region_intervals_cache: "regions.RegionIntervals | None" = None
 
     @abstractmethod
     def available_chromosomes(self) -> list[str]:
@@ -265,6 +267,12 @@ class RefPanel(ABC):
         return metadata.loc[keep].reset_index(drop=True)
 
     def _apply_snp_restriction(self, metadata: pd.DataFrame) -> pd.DataFrame:
+        """Filter metadata to the keep-restriction, then drop excluded regions."""
+        metadata = self._apply_keep_restriction(metadata)
+        metadata = self._apply_region_exclusion(metadata)
+        return metadata
+
+    def _apply_keep_restriction(self, metadata: pd.DataFrame) -> pd.DataFrame:
         """Filter metadata rows to ``RefPanelConfig.ref_panel_snps_file`` when set."""
         restrict_path = packaged_hm3_curated_map_path() if self.spec.use_hm3_ref_panel_snps else self.spec.ref_panel_snps_file
         if restrict_path is None or len(metadata) == 0:
@@ -283,6 +291,37 @@ class RefPanel(ABC):
             self.global_config.snp_identifier,
             context=f"reference-panel restriction matching for {restrict_path}",
         )
+        return metadata.loc[keep].reset_index(drop=True)
+
+    def _region_intervals(self) -> regions.RegionIntervals:
+        """Resolve and cache region-exclusion intervals for this panel."""
+        if self._region_intervals_cache is not None:
+            return self._region_intervals_cache
+        groups: list[regions.RegionIntervals] = []
+        if self.spec.exclude_regions:
+            groups.append(
+                regions.load_preset_intervals(list(self.spec.exclude_regions), self.spec.exclude_regions_build)
+            )
+        if self.spec.exclude_regions_bed:
+            paths = [resolve_scalar_path(token, suffixes=("", ".bed"), label="region exclusion BED") for token in self.spec.exclude_regions_bed]
+            groups.append(regions.load_bed_intervals(paths))
+        merged = regions.merge_intervals(*groups) if groups else regions.RegionIntervals(intervals={}, source_labels=())
+        self._region_intervals_cache = merged
+        return merged
+
+    def _apply_region_exclusion(self, metadata: pd.DataFrame) -> pd.DataFrame:
+        """Drop SNPs inside any configured exclusion region (CHR/POS based)."""
+        intervals = self._region_intervals()
+        if not intervals.intervals or len(metadata) == 0:
+            return metadata
+        pos_col = "POS" if "POS" in metadata.columns else "BP"
+        keep = regions.region_exclusion_keep_mask(metadata, intervals, pos_col=pos_col)
+        dropped = int((~keep).sum())
+        if dropped:
+            LOGGER.info(
+                f"Region exclusion dropped {dropped} reference-panel SNPs via "
+                f"{', '.join(intervals.source_labels)}."
+            )
         return metadata.loc[keep].reset_index(drop=True)
 
     def _validate_metadata(self, metadata: pd.DataFrame, chrom: str) -> pd.DataFrame:

@@ -7,6 +7,7 @@ import unittest
 from unittest import mock
 
 import pandas as pd
+import pytest
 
 SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
@@ -693,3 +694,31 @@ class ParquetRefPanelTest(unittest.TestCase):
             self.assertEqual(panel.available_chromosomes(), ["1"])
             metadata = panel.load_metadata("1")
             self.assertEqual(metadata["SNP"].tolist(), ["rs1"])
+
+
+_CHR22 = Path(__file__).resolve().parent / "fixtures" / "minimal_external_resources" / "plink" / "hm3_chr22_subset"
+
+
+def _chr22_available() -> bool:
+    return all(Path(str(_CHR22) + ext).exists() for ext in (".bed", ".bim", ".fam"))
+
+
+def test_ldscore_panel_excludes_user_bed_region(tmp_path):
+    if not _chr22_available():
+        pytest.skip("chr22 PLINK fixture unavailable; run tests/fixtures/generate_minimal_external_resources.py")
+    gc = GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38")
+
+    base_panel = PlinkRefPanel(gc, RefPanelConfig(backend="plink", plink_prefix=str(_CHR22)))
+    base_meta = base_panel.load_metadata("22")
+    target_pos = int(base_meta["POS"].iloc[0])
+
+    # BED [target_pos-1, target_pos) (0-based half-open) excludes 1-based POS == target_pos.
+    bed = tmp_path / "exclude.bed"
+    bed.write_text(f"22\t{target_pos - 1}\t{target_pos}\n", encoding="utf-8")
+
+    panel = PlinkRefPanel(
+        gc, RefPanelConfig(backend="plink", plink_prefix=str(_CHR22), exclude_regions_bed=(str(bed),))
+    )
+    meta = panel.load_metadata("22")
+    assert target_pos not in set(meta["POS"])
+    assert len(meta) == len(base_meta) - int((base_meta["POS"] == target_pos).sum())

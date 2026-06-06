@@ -81,18 +81,35 @@ only fills missing values from the annotation side.
 
 ## Memory
 
+Build and read have **opposite** memory profiles with respect to the LD window,
+so they are described separately.
+
+### Build side (`build-ref-panel`)
+
 The builder never loads the whole chromosome's genotypes into RAM. When a SNP
 restriction is supplied (`--ref-panel-snps-file` / `--use-hm3-snps`) it reads only
 the kept SNP blocks from the `.bed`; the default unrestricted build streams a
 sliding window directly from disk. Individual filtering (`--keep-indivs-file`) is
 fused into the per-SNP read, so the raw and filtered bitarrays never coexist.
 
-As a result, peak RSS is governed by that bounded genotype read plus the
+As a result, **build** peak RSS is governed by that bounded genotype read plus the
 workflow/import floor — **not** by `--snp-batch-size`, `--ld-wind-*`, `--min-r2`,
 or `--maf-min`. Those control speed and output size; the window/min-r2 options
-also change the pair count and pending-pair working set, but they are not peak-RSS
-levers. R2 pairs are emitted as columnar batches; the on-disk parquet format is
-unchanged.
+also change the pair count and pending-pair working set, but they are not build
+peak-RSS levers. R2 pairs are emitted as columnar batches; the on-disk parquet
+format is unchanged.
+
+### Read side (`ldscore`)
+
+Reading a parquet R2 panel for LD-score computation is the reverse: peak RSS is
+dominated by the reader's **decoded row-group cache**, not a bounded genotype
+read. That cache is auto-sized per chromosome, and its size scales with **LD
+window width × local SNP density**. So on the read side `--ld-wind-*` *is* a
+peak-RSS lever, and dense, wide-window chromosomes (notably the chr6 MHC) set the
+high-water mark; under cross-chromosome parallelism each worker holds its own
+chromosome's cache, so aggregate RSS scales with the worker count. See
+`docs/current/parquet-r2-format-and-read-pipeline.md` §3.6 for the cache-sizing
+formula, worked chr6/chr22 numbers, and per-worker budgeting.
 
 ## Practical contract
 

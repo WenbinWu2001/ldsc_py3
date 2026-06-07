@@ -118,7 +118,6 @@ def _read_identity_schema_meta(path: str, *, expected_artifact_type: str) -> dic
 
     raw = pq.read_schema(path).metadata or {}
     required_keys = {
-        b"ldsc:schema_version",
         b"ldsc:artifact_type",
         b"ldsc:snp_identifier",
         b"ldsc:genome_build",
@@ -132,7 +131,6 @@ def _read_identity_schema_meta(path: str, *, expected_artifact_type: str) -> dic
             f"Other causes & fixes: {_REF_PANEL_ARTIFACT_DOC}"
         )
     metadata = {
-        "schema_version": int(raw[b"ldsc:schema_version"].decode("utf-8")),
         "artifact_type": raw[b"ldsc:artifact_type"].decode("utf-8"),
         "snp_identifier": raw[b"ldsc:snp_identifier"].decode("utf-8"),
         "genome_build": raw[b"ldsc:genome_build"].decode("utf-8"),
@@ -151,7 +149,6 @@ def _r2_path_has_ldsc_package_schema(path: str) -> bool:
     package_keys = {
         b"ldsc:sorted_by_build",
         b"ldsc:row_group_size",
-        b"ldsc:schema_version",
         b"ldsc:artifact_type",
     }
     return any(key in raw for key in package_keys)
@@ -917,7 +914,7 @@ def _read_metadata_sidecar_identity(path: str | Path) -> dict[str, object] | Non
                 raw[key] = value
     if not raw:
         return None
-    required = {"schema_version", "artifact_type", "snp_identifier", "genome_build"}
+    required = {"artifact_type", "snp_identifier", "genome_build"}
     if not required.issubset(raw):
         raise LDSCInputError(
             f"Reference-panel metadata sidecar '{path}' is missing LDSC identity "
@@ -926,7 +923,6 @@ def _read_metadata_sidecar_identity(path: str | Path) -> dict[str, object] | Non
             f"Other causes & fixes: {_REF_PANEL_ARTIFACT_DOC}"
         )
     return {
-        "schema_version": int(raw["schema_version"]),
         "artifact_type": raw["artifact_type"],
         "snp_identifier": raw["snp_identifier"],
         "genome_build": raw["genome_build"],

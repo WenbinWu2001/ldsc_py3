@@ -55,7 +55,6 @@ class RegressionWorkflowTest(unittest.TestCase):
         path.write_text(
             json.dumps(
                 {
-                    "schema_version": 1,
                     "artifact_type": "sumstats",
                     "files": {},
                     "trait_name": trait_name,
@@ -64,6 +63,27 @@ class RegressionWorkflowTest(unittest.TestCase):
                 }
             ),
             encoding="utf-8",
+        )
+
+    def write_footer_sumstats_parquet(
+        self,
+        path: Path,
+        *,
+        frame: pd.DataFrame | None = None,
+        trait_name: str | None = "trait",
+        snp_identifier: str = "rsid",
+        genome_build: str | None = None,
+    ) -> None:
+        """Write a self-describing sumstats parquet carrying identity footer metadata."""
+        from ldsc.sumstats_munger import _sumstats_footer_metadata, _write_sumstats_outputs
+
+        if frame is None:
+            frame = pd.DataFrame({"SNP": ["rs1"], "Z": [1.0], "N": [1000.0]})
+        footer = _sumstats_footer_metadata(
+            GlobalConfig(snp_identifier=snp_identifier, genome_build=genome_build), trait_name
+        )
+        _write_sumstats_outputs(
+            frame, output_files={"parquet": str(path)}, output_format="parquet", footer_metadata=footer
         )
 
     def test_load_ldscore_from_dir_is_public(self):
@@ -1768,27 +1788,13 @@ class RegressionWorkflowTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             set_global_config(GlobalConfig(snp_identifier="rsid"))
-            with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
-                handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
-            (tmpdir / "metadata.json").write_text(
-                json.dumps(
-                    {
-                        "schema_version": 1,
-                        "artifact_type": "sumstats",
-                        "files": {},
-                        "trait_name": "MDD",
-                        "snp_identifier": "rsid",
-                        "genome_build": None,
-                    }
-                ),
-                encoding="utf-8",
-            )
+            self.write_footer_sumstats_parquet(tmpdir / "trait.parquet", trait_name="MDD", snp_identifier="rsid")
             ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
             args = type(
                 "Args",
                 (),
                 {
-                    "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
+                    "sumstats_file": str(tmpdir / "trait.parquet"),
                     "trait_name": None,
                     "ldscore_dir": str(ldscore_dir),
                     "count_kind": "common",
@@ -2048,22 +2054,8 @@ class RegressionWorkflowTest(unittest.TestCase):
             for stem, trait_name in (("a", "MDD"), ("b", "SCZ")):
                 trait_dir = tmpdir / stem
                 trait_dir.mkdir()
-                source = trait_dir / "sumstats.sumstats.gz"
-                with gzip.open(source, "wt", encoding="utf-8") as handle:
-                    handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
-                (trait_dir / "metadata.json").write_text(
-                    json.dumps(
-                        {
-                            "schema_version": 1,
-                            "artifact_type": "sumstats",
-                            "files": {"tsv.gz": "sumstats.sumstats.gz"},
-                            "trait_name": trait_name,
-                            "snp_identifier": "rsid",
-                            "genome_build": None,
-                        }
-                    ),
-                    encoding="utf-8",
-                )
+                source = trait_dir / "sumstats.parquet"
+                self.write_footer_sumstats_parquet(source, trait_name=trait_name, snp_identifier="rsid")
                 sumstats_sources.append(str(source))
             ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
             expected = regression_runner.RgResultFamily(
@@ -2607,28 +2599,14 @@ class RegressionWorkflowTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             set_global_config(GlobalConfig(snp_identifier="rsid"))
-            with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
-                handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
-            (tmpdir / "metadata.json").write_text(
-                json.dumps(
-                    {
-                        "schema_version": 1,
-                        "artifact_type": "sumstats",
-                        "files": {},
-                        "trait_name": "MDD",
-                        "snp_identifier": "rsid",
-                        "genome_build": None,
-                    }
-                ),
-                encoding="utf-8",
-            )
+            self.write_footer_sumstats_parquet(tmpdir / "trait.parquet", trait_name="MDD", snp_identifier="rsid")
             ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
             output_dir = tmpdir / "out"
             args = type(
                 "Args",
                 (),
                 {
-                    "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
+                    "sumstats_file": str(tmpdir / "trait.parquet"),
                     "trait_name": None,
                     "ldscore_dir": str(ldscore_dir),
                     "count_kind": "common",

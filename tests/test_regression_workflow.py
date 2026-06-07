@@ -1,6 +1,7 @@
 import argparse
 import contextlib
 from dataclasses import replace
+from types import SimpleNamespace
 import gzip
 import io
 import json
@@ -1364,8 +1365,63 @@ class RegressionWorkflowTest(unittest.TestCase):
             config_snapshot=GlobalConfig(genome_build="hg19", snp_identifier="chr_pos"),
         )
 
-        with self.assertRaisesRegex(ConfigMismatchError, "genome_build mismatch"):
+        with self.assertRaisesRegex(LDSCInputError, "Liftover"):
             runner.build_dataset(sumstats, ldscore_result)
+
+    def _chr_pos_ldscore(self, genome_build="hg38"):
+        return replace(
+            self.make_ldscore_result(),
+            config_snapshot=GlobalConfig(snp_identifier="chr_pos", genome_build=genome_build),
+        )
+
+    def test_regression_genome_build_skips_rsid_family(self):
+        sumstats = replace(self.make_sumstats_table(), config_snapshot=None)
+        ldscore = replace(self.make_ldscore_result(), config_snapshot=GlobalConfig(snp_identifier="rsid_allele_aware"))
+        # rsID-family run: no error even though the sumstats carries no build metadata.
+        regression_runner._regression_genome_build(sumstats, ldscore, "rsid_allele_aware", context="sumstats")
+
+    def test_regression_genome_build_passes_on_metadata_match(self):
+        sumstats = replace(
+            self.make_sumstats_table(),
+            config_snapshot=GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+        )
+        regression_runner._regression_genome_build(sumstats, self._chr_pos_ldscore("hg38"), "chr_pos", context="sumstats")
+
+    def test_regression_genome_build_errors_on_metadata_mismatch(self):
+        sumstats = replace(
+            self.make_sumstats_table(),
+            config_snapshot=GlobalConfig(snp_identifier="chr_pos", genome_build="hg19"),
+        )
+        with self.assertRaisesRegex(LDSCInputError, "Liftover"):
+            regression_runner._regression_genome_build(sumstats, self._chr_pos_ldscore("hg38"), "chr_pos", context="sumstats")
+
+    def test_regression_genome_build_infers_when_metadata_absent(self):
+        frame = pd.DataFrame({"SNP": ["rs1"], "CHR": ["1"], "POS": [10], "Z": [1.0], "N": [100.0]})
+        sumstats = replace(self.make_sumstats_table(), data=frame, config_snapshot=None)
+        with mock.patch.object(
+            regression_runner, "infer_chr_pos_build", return_value=SimpleNamespace(genome_build="hg38")
+        ):
+            regression_runner._regression_genome_build(sumstats, self._chr_pos_ldscore("hg38"), "chr_pos", context="sumstats")
+        with mock.patch.object(
+            regression_runner, "infer_chr_pos_build", return_value=SimpleNamespace(genome_build="hg19")
+        ):
+            with self.assertRaisesRegex(LDSCInputError, "Liftover"):
+                regression_runner._regression_genome_build(sumstats, self._chr_pos_ldscore("hg38"), "chr_pos", context="sumstats")
+
+    def test_regression_genome_build_errors_when_inference_inconclusive(self):
+        frame = pd.DataFrame({"SNP": ["rs1"], "CHR": ["1"], "POS": [10], "Z": [1.0], "N": [100.0]})
+        sumstats = replace(self.make_sumstats_table(), data=frame, config_snapshot=None)
+        with mock.patch.object(
+            regression_runner, "infer_chr_pos_build", side_effect=LDSCInputError("could not infer")
+        ):
+            with self.assertRaisesRegex(LDSCInputError, "Re-munge.*liftover"):
+                regression_runner._regression_genome_build(sumstats, self._chr_pos_ldscore("hg38"), "chr_pos", context="sumstats")
+
+    def test_regression_genome_build_errors_when_chr_pos_columns_missing(self):
+        # Metadata-absent chr_pos run on a sumstats lacking CHR/POS (e.g. a legacy rsID file).
+        sumstats = replace(self.make_sumstats_table(), config_snapshot=None)
+        with self.assertRaisesRegex(LDSCInputError, "Re-munge.*liftover"):
+            regression_runner._regression_genome_build(sumstats, self._chr_pos_ldscore("hg38"), "chr_pos", context="sumstats")
 
     def test_build_dataset_skips_compatibility_check_for_legacy_none_snapshots(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())

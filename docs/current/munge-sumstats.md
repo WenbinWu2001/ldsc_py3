@@ -105,8 +105,8 @@ sidecar is written.
 | `ldsc:genome_build` | Final output build in coordinate-family modes; empty for rsID-family modes (decoded as `null`). |
 | `ldsc:trait_name` | Optional biological trait label supplied by the user; empty otherwise. |
 
-There is no `schema_version`. The same compatibility state is attached to
-in-memory results as `SumstatsTable.config_snapshot`.
+The same compatibility state is attached to in-memory results as
+`SumstatsTable.config_snapshot`.
 
 `sumstats.sumstats.gz` is a plain TSV and carries no embedded metadata; in `both`
 mode only the `.parquet` is self-describing. When a downstream input has no

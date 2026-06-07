@@ -117,7 +117,6 @@ the panel was built for, as provenance only.
 
 | Key | Type | Description |
 |---|---|---|
-| `ldsc:schema_version` | string(int) | identity-provenance contract version, `"1"` (shared across all LDSC artifact types; **not** a per-layout marker — the index layout is identified structurally by its columns and the keys below) |
 | `ldsc:artifact_type` | string | `ref_panel_r2` |
 | `ldsc:snp_identifier` | string | mode the panel was built for (provenance only) |
 | `ldsc:genome_build` | string | genome build of the sidecar coordinates |
@@ -138,7 +137,6 @@ Stored as UTF-8 byte strings, accessed via
 
 **Schema metadata:**
 ```
-ldsc:schema_version          = "1"
 ldsc:artifact_type           = "ref_panel_r2"
 ldsc:snp_identifier          = "chr_pos"
 ldsc:genome_build            = "hg19"

@@ -78,8 +78,8 @@ Pairwise R² parquet schema metadata also stores `ldsc:sorted_by_build`,
 `ldsc:row_group_size`, `ldsc:n_samples`, `ldsc:r2_bias`, `ldsc:n_snps`,
 `ldsc:sidecar_identity_sha256`, `ldsc:r2_encoding` (`"int16_symmetric"`),
 `ldsc:r2_scale` (`"32767"`), and the minimal identity provenance keys
-`ldsc:schema_version`, `ldsc:artifact_type`, `ldsc:snp_identifier`, and
-`ldsc:genome_build`. The R2 bias keys let downstream readers distinguish
+`ldsc:artifact_type`, `ldsc:snp_identifier`, and `ldsc:genome_build`. The R2
+bias keys let downstream readers distinguish
 package-built unbiased R2 from raw sample R2 without requiring users to repeat
 sample-size arguments. The sidecar-binding keys bind the parquet to its exact
 sidecar and are validated at load time. Old package-written artifacts
@@ -88,8 +88,8 @@ package.
 
 Reference-panel metadata sidecars (`chr{chrom}_meta.tsv.gz`) remain TSV files,
 but current package-written sidecars start with comment lines carrying the same
-minimal identity provenance as `ldsc:schema_version`, `ldsc:artifact_type`,
-`ldsc:snp_identifier`, and `ldsc:genome_build`.
+minimal identity provenance as `ldsc:artifact_type`, `ldsc:snp_identifier`, and
+`ldsc:genome_build`.
 
 `N`, `N_CAS`, `N_CON`, and `NSTUDY` remain `float64` in memory and are **not**
 subject to float32 narrowing. Curated `sumstats.parquet` keeps `N` as numeric

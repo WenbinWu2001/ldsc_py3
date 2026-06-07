@@ -8,6 +8,7 @@ Related docs:
 - [class-and-features.md](class-and-features.md): public API surface and major types
 - [code-structure.md](code-structure.md): module map and change guide
 - [workflow-logging.md](workflow-logging.md): per-run log naming, preflight, and API boundaries
+- [ref-panel-r2-query.md](ref-panel-r2-query.md): pairwise R2 lookup contract for package-built panels
 - [liftover-harmonization-decisions.md](liftover-harmonization-decisions.md): current liftover contracts and follow-up handoff prompt
 - [partitioned-h2-results.md](partitioned-h2-results.md): partitioned-h2 result columns and interpretation
 - [layer-structure.md](layer-structure.md): layer-by-function object matrix
@@ -19,6 +20,7 @@ Related docs:
 
 - **Build query annotations**: project BED intervals onto a baseline SNP grid. Entry points: `ldsc annotate`, `ldsc.AnnotationBuilder`
 - **Build parquet reference panels**: convert PLINK genotype panels into standard parquet R2 artifacts. Entry points: `ldsc build-ref-panel`, `ldsc.ReferencePanelBuilder`
+- **Query reference-panel R2**: look up adjusted R2, sign, and optional signed Pearson `r` for SNP pairs in package-built index-format panels. Entry points: `ldsc query-r2`, `ldsc.R2Panel`, `ldsc.query_r2()`
 - **Compute LD scores**: align annotations to a reference panel and emit LDSC-compatible LD-score artifacts; ordinary unpartitioned runs may omit annotations and receive a synthetic all-ones `base` annotation. Entry points: `ldsc ldscore`, `ldsc.run_ldscore()`, `ldsc.LDScoreCalculator`
 - **Munge raw summary statistics**: normalize raw GWAS tables into curated Parquet-first sumstats artifacts, with optional legacy `.sumstats.gz` output. Entry points: `ldsc munge-sumstats`, `ldsc.SumstatsMunger`
 - **Run LDSC regression**: consume munged sumstats and LD-score artifacts to estimate `h2`, partitioned `h2`, or `rg`. Entry points: `ldsc h2`, `ldsc partitioned-h2`, `ldsc rg`, `ldsc.RegressionRunner`
@@ -29,7 +31,7 @@ Related docs:
 ## Layer Structure
 
 - **CLI Layer**: public command dispatch in `ldsc.cli`
-- **Workflow And Preprocessing Layer**: public services in `ldsc.annotation_builder`, `ldsc.ref_panel_builder`, `ldsc.ldscore_calculator`, `ldsc.sumstats_munger`, and `ldsc.regression_runner`, plus shared normalization in `ldsc.config`, `ldsc.path_resolution`, `ldsc.column_inference`, `ldsc.chromosome_inference`, and `ldsc.genome_build_inference`
+- **Workflow And Preprocessing Layer**: public services in `ldsc.annotation_builder`, `ldsc.ref_panel_builder`, `ldsc.r2_query`, `ldsc.ldscore_calculator`, `ldsc.sumstats_munger`, and `ldsc.regression_runner`, plus shared normalization in `ldsc.config`, `ldsc.path_resolution`, `ldsc.column_inference`, `ldsc.chromosome_inference`, and `ldsc.genome_build_inference`
 - **Compute Kernel**: private file-format and numerical code in `ldsc._kernel.*`
 - **Output Layer**: canonical LD-score, partitioned-h2, and rg artifact writing
   in `ldsc.outputs`, plus the fixed h2 summary writer in
@@ -58,6 +60,7 @@ ldsc_py3_Jerry/
 │   ├── genome_build_inference.py
 │   ├── annotation_builder.py
 │   ├── ref_panel_builder.py
+│   ├── r2_query.py
 │   ├── ldscore_calculator.py
 │   ├── sumstats_munger.py
 │   ├── regression_runner.py
@@ -66,9 +69,12 @@ ldsc_py3_Jerry/
 │       ├── annotation.py    # low-level annotation table/BED helpers
 │       ├── ref_panel_builder.py
 │       ├── ref_panel.py
+│       ├── r2_query.py
 │       ├── ldscore.py
 │       ├── sumstats_munger.py
 │       ├── snp_identity.py # shared SNP identity and restriction policy
+│       ├── liftover.py
+│       ├── regions.py
 │       ├── regression.py
 │       ├── _jackknife.py
 │       ├── _irwls.py
@@ -108,7 +114,11 @@ This is the public interface and workflow implementation for annotation loading 
 
 ### `ldsc.ref_panel_builder`
 
-This module builds standard parquet R2 reference artifacts from PLINK inputs. It handles optional genetic-map loading, optional chain-file or HM3 quick liftover selection, explicit or packaged HM3 restriction filtering, liftover-stage drop audit sidecars, output-path construction, and build logs under `diagnostics/`, then delegates pairwise-R2 emission to the kernel. PLINK source build is explicit or inferred locally; a matching chain or HM3 quick liftover emits the opposite build only in `chr_pos`-family modes, while `rsid`-family builds are source-build-only. Coordinate duplicate handling is `chr_pos`-family behavior and always uses drop-all for source/target collision groups; processed chromosomes always write `diagnostics/dropped_snps/chr{chrom}_dropped.tsv.gz`, header-only when no liftover-stage rows dropped. Architecture invariant: emitted parquet schemas are part of the public file contract for parquet-backed LDSC workflows.
+This module builds standard parquet R2 reference artifacts from PLINK inputs. It handles optional genetic-map loading, optional chain-file or HM3 quick liftover selection, explicit or packaged HM3 restriction filtering, source-build region exclusion, liftover-stage drop audit sidecars, output-path construction, and build logs under `diagnostics/`, then delegates pairwise-R2 emission to the kernel. PLINK source build is explicit or inferred locally; a matching chain or HM3 quick liftover emits the opposite build only in `chr_pos`-family modes, while `rsid`-family builds are source-build-only. Coordinate duplicate handling is `chr_pos`-family behavior and always uses drop-all for source/target collision groups; processed chromosomes always write `diagnostics/dropped_snps/chr{chrom}_dropped.tsv.gz`, header-only when no liftover-stage rows dropped. Architecture invariant: emitted parquet schemas are part of the public file contract for parquet-backed LDSC workflows.
+
+### `ldsc.r2_query`
+
+This module is the public pair-query surface for package-built index-format R2 panels. `R2Panel.open()` accepts either a build-ref-panel directory or one explicit `chrN_meta.tsv.gz` plus `chrN_r2.parquet` pair, validates sidecar binding, and lazily caches per-chromosome sidecar/index state. `R2Panel.query_pairs()` and `query_r2()` accept endpoint-suffixed pair tables and append `r2`, nullable `sign`, `status`, and optionally signed Pearson `r`; low-level parquet lookup lives in `ldsc._kernel.r2_query`. Architecture invariant: `query-r2` reads canonical package-built panels only; it does not define a second external R2 format.
 
 ### `ldsc.ldscore_calculator`
 
@@ -153,7 +163,7 @@ The kernel layer contains the actual numerical methods and low-level readers. It
 - **Column and identifier normalization**: `column_inference.py` is the single source of truth for raw-input aliases, including `#CHROM`/`CHROM` as `CHR`, internal artifact headers, SNP identifier modes, and genome-build aliases. The sumstats workflow owns higher-level raw-format inference and conservative repair suggestions before the kernel runs. `A1` means the allele that the signed statistic is relative to, not necessarily the genome reference allele; `NEFF` is not inferred as `N`. `genome_build_inference.py` owns automatic hg19/hg38 and 0-based/1-based inference for `chr_pos` tables.
 - **SNP identity policy**: public `snp_identifier` values are exactly `rsid`, `rsid_allele_aware`, `chr_pos`, and `chr_pos_allele_aware`; the default is `chr_pos_allele_aware`. Mode names are exact, while column aliases such as `RSID`, `BP`, and `POSITION` apply only to input headers. Base modes are fully allele-blind: `rsid` uses only `SNP`, and `chr_pos` uses only `CHR:POS`; allele columns may be preserved as passive data but never affect base-mode identity, duplicate filtering, retention, or drop reasons. Allele-free munging is selected through a base identifier mode, not through a separate skip flag. Allele-aware modes require usable `A1/A2` for sumstats, the reference-panel sidecar, and LD-score artifacts; they drop missing, invalid/non-SNP, identical, strand-ambiguous allele pairs, package-wide multi-allelic base-key clusters, and duplicate effective-key clusters. For artifact-like tables, the duplicate policy is always compute the active effective merge key, then drop all rows in duplicate-key clusters.
 - **Restrictions and annotations**: restriction files may omit alleles. Allele-free restrictions match by base key and can retain multiple candidate rows before later artifact cleanup. Allele-bearing restrictions, including packaged HM3 restrictions, match by the effective allele-aware key in allele-aware modes. Restriction files are identity-only filters: duplicate restriction keys collapse to one retained key, and non-identity columns such as `CM`, `MAF`, or other metadata are not carried into downstream artifacts. Annotation files may omit alleles even in allele-aware modes because annotations describe genomic membership, not variant alleles; if annotation files include alleles, those alleles participate in allele-aware matching.
-- **Artifact compatibility**: Public downstream chaining uses `.annot.gz`, self-describing Parquet munged sumstats (identity in the footer) with optional `.sumstats.gz` compatibility output, and canonical LD-score result directories with root `metadata.json`. The forward format rule is parquet for internal artifacts and TSV for science-facing result tables. LD-score and sumstats parquet payloads use chromosome-aligned row groups where useful, so full-file readers still work while chromosome-specific readers can skip unrelated row groups. Legacy `.l2.ldscore(.gz)`, `.l2.M`, `.l2.M_5_50`, and separate `.w.l2.ldscore(.gz)` files remain internal/legacy file-format concerns, not the public LD-score writer contract.
+- **Artifact compatibility**: Public downstream chaining uses `.annot.gz`, self-describing Parquet munged sumstats (identity in the footer) with optional `.sumstats.gz` compatibility output, canonical package-built R2 panels, and canonical LD-score result directories with root `metadata.json`. The forward format rule is parquet for internal artifacts and TSV for science-facing result tables. LD-score and sumstats parquet payloads use chromosome-aligned row groups where useful, so full-file readers still work while chromosome-specific readers can skip unrelated row groups. Legacy `.l2.ldscore(.gz)`, `.l2.M`, `.l2.M_5_50`, and separate `.w.l2.ldscore(.gz)` files remain internal/legacy file-format concerns, not the public LD-score writer contract.
 - **Output collision handling**: output directories are literal destinations.
   Missing directories are created, existing directories are reused, and fixed
   output files, including workflow logs, are checked before writing. By
@@ -188,6 +198,9 @@ The kernel layer contains the actual numerical methods and low-level readers. It
 - Public LD-score output layout is fixed by `LDScoreDirectoryWriter`;
   partitioned-h2 result tables use fixed compact/full schemas owned by
   `PartitionedH2DirectoryWriter`.
+- Package-built index-format R2 panels are the only public R2 parquet format
+  for `ldsc ldscore` and `ldsc query-r2`; external R2 parquet layouts are not
+  supported as public inputs.
 - New internal or intermediate artifacts should be parquet by default; new
   science-facing result tables should be TSV. Compatibility text outputs must
   be called out as legacy or sidecar exceptions.

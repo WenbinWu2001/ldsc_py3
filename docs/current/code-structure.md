@@ -19,6 +19,7 @@ ldsc_py3_Jerry/
 │   ├── genome_build_inference.py
 │   ├── annotation_builder.py
 │   ├── ref_panel_builder.py
+│   ├── r2_query.py
 │   ├── ldscore_calculator.py
 │   ├── sumstats_munger.py
 │   ├── regression_runner.py
@@ -50,9 +51,11 @@ ldsc_py3_Jerry/
 | `ldsc.hm3` | public packaged curated HM3 map loader and installed map path helper for workflow internals |
 | `ldsc.hm3_reference` | reproducible builder for the compact HM3 coordinate reference used by genome-build inference |
 | `ldsc._kernel.liftover` | shared hg19/hg38 liftover helpers, chain-file translation, curated HM3 dual-build coordinate conversion, drop-all coordinate collision helpers, and readable drop reports |
+| `ldsc._kernel.regions` | packaged and user BED interval loading plus region-exclusion masks |
 | `ldsc._kernel.plink_bed` | PLINK genotype reader (`PlinkBEDFile` and its `__GenotypeArrayInMemory__` base, incl. the in-class LD-score block sums): lazy header read, per-SNP selective decode with fused individual filter, and opt-in disk streaming for unrestricted builds; never materializes the whole-chromosome bitarray |
 | `ldsc.annotation_builder` | public annotation workflow: CLI args, parser entry point, path resolution, bundle loading, BED projection, and query `.annot.gz` writing |
-| `ldsc.ref_panel_builder` | parquet reference-panel build workflow |
+| `ldsc.ref_panel_builder` | parquet reference-panel build workflow, including source-build region exclusion and optional `min_r2` pair-emission threshold |
+| `ldsc.r2_query` | public `query-r2` CLI/API, `R2Panel`, one-shot `query_r2()`, sidecar-binding validation, endpoint key resolution, sign harmonization, and optional adjusted-R2-to-Pearson-r conversion |
 | `ldsc.ldscore_calculator` | LD-score orchestration, optional synthetic `base` annotation construction, aggregation, and output routing |
 | `ldsc.sumstats_munger` | raw-sumstats CLI/API orchestration, `--format auto` / `--infer-only` header inference, Parquet/TSV curated output writing, self-describing `sumstats.parquet` footer identity metadata, diagnostics under `diagnostics/`, canonical `CHR`/`POS` sumstats output, and curated sumstats loader |
 | `ldsc.regression_runner` | file-driven regression dataset assembly, active effective identity-key merging (`SNP`, `SNP:<allele_set>`, `CHR:POS`, or `CHR:POS:<allele_set>`), h2/partitioned-h2/rg estimator dispatch, and rg result-family writing |
@@ -60,6 +63,7 @@ ldsc_py3_Jerry/
 | `ldsc._kernel.annotation` | low-level annotation table reading and BED intersection helpers |
 | `ldsc._kernel.ref_panel_builder` | optional genetic-map parsing, optional liftover, parquet schemas, pairwise LD emission |
 | `ldsc._kernel.ref_panel` | runtime PLINK/parquet reference-panel adapters |
+| `ldsc._kernel.r2_query` | low-level index-format parquet pair lookup used by `ldsc.r2_query` |
 | `ldsc._kernel.ldscore` | LD-score math and legacy-compatible computation helpers |
 | `ldsc._kernel.sumstats_munger` | legacy-compatible raw summary-statistics QC, normalization, optional coordinate liftover, and `.sumstats.gz` writing without public CLI or log-file ownership |
 | `ldsc._kernel.regression` | LDSC estimators for `Hsq` and `RG` |
@@ -78,6 +82,8 @@ ldsc_py3_Jerry/
 | change automatic `chr_pos` genome-build inference | `src/ldsc/genome_build_inference.py` |
 | change annotation loading, `ldsc annotate` behavior, or BED projection | `src/ldsc/annotation_builder.py`, then `src/ldsc/_kernel/annotation.py` |
 | change parquet reference-panel build logic | `src/ldsc/ref_panel_builder.py`, then `src/ldsc/_kernel/ref_panel_builder.py` |
+| change source-build region exclusion for panel building or LD-score runtime | `src/ldsc/config.py`, `src/ldsc/_kernel/regions.py`, then `src/ldsc/ref_panel_builder.py` or `src/ldsc/_kernel/ref_panel.py` |
+| change R2 pair lookup CLI/API behavior | `src/ldsc/r2_query.py`, then `src/ldsc/_kernel/r2_query.py` |
 | change runtime PLINK/parquet reference access | `src/ldsc/_kernel/ref_panel.py` |
 | change LD-score orchestration, optional-baseline behavior, or output packaging | `src/ldsc/ldscore_calculator.py`, `src/ldsc/outputs.py` |
 | change LD-score math | `src/ldsc/_kernel/ldscore.py` |
@@ -91,6 +97,9 @@ ldsc_py3_Jerry/
 - Treat `src/ldsc/` as the only supported Python import surface.
 - Do not add user-facing path discovery to `_kernel`; pass concrete files in.
 - Keep public file contracts for `.annot(.gz)`, self-describing Parquet munged sumstats (footer identity metadata) plus optional `.sumstats.gz` compatibility output, canonical LD-score result directories, and regression summary directories stable unless the change is intentional and coordinated. LD-score parquet files remain flat files, with chromosome-aligned row groups documented through root `metadata.json`; diagnostic logs, dropped-SNP reports, and diagnostic metadata live under `diagnostics/`. Legacy `.l2.ldscore(.gz)`, `.w.l2.ldscore(.gz)`, `.l2.M`, and `.l2.M_5_50` files are compatibility concerns rather than the public LD-score output surface.
+- Treat package-built index-format R2 panels as the only public R2 parquet
+  format. Both `ldsc ldscore --r2-dir` and `ldsc query-r2` depend on the paired
+  `chr*_r2.parquet` / `chr*_meta.tsv.gz` layout and sidecar identity binding.
 - Keep optional-baseline behavior in the public LD-score workflow layer: no baseline and no query means a synthetic all-ones `base`; query annotations require explicit baseline annotations. Regression treats that synthetic `base` path as an `h2`/`rg` input only; `partitioned-h2` requires explicit query LD-score columns.
 - Keep `ldsc annotate` orchestration in `ldsc.annotation_builder`. The CLI
   registers annotation flags from that module and dispatches parsed namespaces
@@ -126,7 +135,9 @@ ldsc_py3_Jerry/
 | output layer | `tests/test_output.py` |
 | annotation workflow | `tests/test_annotation.py` |
 | reference-panel builder | `tests/test_ref_panel_builder.py` |
+| R2 pair query | `tests/test_r2_query.py` |
 | LD-score workflow | `tests/test_ldscore_workflow.py` |
 | sumstats munging | `tests/test_sumstats_munger.py` |
 | regression workflow | `tests/test_regression_workflow.py` |
 | path and config contracts | `tests/test_path_resolution.py`, `tests/test_config_identifiers.py`, `tests/test_column_inference.py`, `tests/test_genome_build_inference.py` |
+| region exclusion | `tests/test_regions.py` |

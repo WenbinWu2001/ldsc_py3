@@ -132,12 +132,12 @@ output, and metadata contracts.
 
 ## Backward Compatibility Rules
 
-- Sumstats sidecars written by the current workflow must include
-  `schema_version`, `artifact_type`, `snp_identifier`, and `genome_build`.
-- Old package-written sumstats metadata sidecars without current identity
+- Sumstats parquet footers written by the current workflow must include
+  `artifact_type`, `snp_identifier`, and `genome_build`.
+- Old package-written sumstats metadata sidecars without current footer identity
   provenance do not need migration support.
-- Missing sumstats sidecars on package-written artifacts are rejected; those
-  artifacts must be regenerated with the current LDSC package.
+- Legacy package-written sumstats artifacts without current footer provenance
+  must be regenerated with the current LDSC package.
 - Package-built reference-panel R2 parquet and runtime metadata artifacts carry
   current identity provenance.
 - In allele-aware modes, reference-panel metadata sidecars require `A1` and `A2`

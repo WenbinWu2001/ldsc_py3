@@ -20,7 +20,6 @@ metadata sidecar defines the full panel SNP universe and the index space.
 The sidecar format:
 
 ```text
-# ldsc:schema_version=1
 # ldsc:artifact_type=ref_panel_metadata
 # ldsc:snp_identifier=chr_pos_allele_aware
 # ldsc:genome_build=hg38

@@ -31,7 +31,7 @@ An LD-score run writes:
 
 `metadata.json` is the downstream metadata contract. It contains:
 
-- `schema_version` and `artifact_type: "ldscore"`
+- `artifact_type: "ldscore"`
 - relative file paths for `baseline` and optional `query`
 - `snp_identifier`, `genome_build`, and processed `chromosomes`
 - ordered `baseline_columns` and `query_columns`
@@ -133,13 +133,12 @@ Regression commands still read munged summary statistics:
 - `ldsc rg --sumstats-sources <file-or-glob> <file-or-glob> [...]`
 
 Current `ldsc munge-sumstats` outputs include canonical `CHR` and `POS` columns
-beside `SNP`, `Z`, and `N`, write `sumstats.parquet` by default, write
-root `metadata.json` beside the table, and write
-`diagnostics/dropped_snps/dropped.tsv.gz` for row-level liftover-drop auditing. The metadata
-sidecar stores the thin compatibility payload: `schema_version`,
-`artifact_type`, `snp_identifier`, `genome_build`, and optional `trait_name`.
-Legacy package-written `.sumstats.gz`
-files without the current sidecar are rejected and must be regenerated.
+beside `SNP`, `Z`, and `N`, write `sumstats.parquet` by default, embed the thin
+compatibility payload in the parquet footer (`artifact_type`, `snp_identifier`,
+`genome_build`, and optional `trait_name`), and write
+`diagnostics/dropped_snps/dropped.tsv.gz` for row-level liftover-drop auditing.
+Legacy package-written `.sumstats.gz` files or footer-less parquet artifacts
+must be regenerated.
 In allele-aware modes, current sumstats artifacts require usable `A1/A2`. To
 run without allele-aware SNP identity, set `--snp-identifier chr_pos` or
 `--snp-identifier rsid` intentionally.

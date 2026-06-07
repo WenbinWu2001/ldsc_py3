@@ -22,8 +22,7 @@ inspect it for reproducibility/debugging, but LDSC downstream workflows must not
 load it, require it, or change behavior when it is present.
 
 There is no "optional but used if present" metadata. No JSON metadata file
-contains a top-level `format`; `artifact_type` is the schema discriminator and
-there is no `schema_version`.
+contains a top-level `format`; `artifact_type` is the schema discriminator.
 
 ## Output Ownership Rule
 

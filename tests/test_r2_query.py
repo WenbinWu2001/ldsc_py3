@@ -253,3 +253,29 @@ class TestQueryPairs:
         out_b = panel.query_pairs(without)
         assert out_a["r2"].iloc[0] == pytest.approx(out_b["r2"].iloc[0], abs=1.5e-5)
         assert pd.isna(out_a["sign"].iloc[0]) and pd.isna(out_b["sign"].iloc[0])
+
+
+class TestQueryR2Wrapper:
+    def test_query_r2_one_shot_matches_handle(self, tmp_path):
+        from ldsc.r2_query import query_r2
+
+        build_test_panel(tmp_path, snp_identifier="chr_pos_allele_aware")
+        pairs = pd.DataFrame(
+            {"CHR_1": [1], "POS_1": [100], "A1_1": ["A"], "A2_1": ["G"],
+             "CHR_2": [1], "POS_2": [200], "A1_2": ["C"], "A2_2": ["T"]}
+        )
+        out = query_r2(pairs, panel_dir=tmp_path, genome_build="hg38")
+        assert out["r2"].iloc[0] == pytest.approx(0.64, abs=1.5e-5)
+        assert "status" in out.columns
+
+    def test_with_r_adds_signed_correlation(self, tmp_path):
+        from ldsc.r2_query import query_r2
+
+        build_test_panel(tmp_path, snp_identifier="chr_pos_allele_aware", n_samples=1000)
+        pairs = pd.DataFrame(
+            {"CHR_1": [1], "POS_1": [100], "A1_1": ["G"], "A2_1": ["A"],  # swapped -> negative r
+             "CHR_2": [1], "POS_2": [200], "A1_2": ["C"], "A2_2": ["T"]}
+        )
+        out = query_r2(pairs, panel_dir=tmp_path, genome_build="hg38", with_r=True)
+        assert "r" in out.columns
+        assert out["r"].iloc[0] < 0

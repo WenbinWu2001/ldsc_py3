@@ -70,6 +70,34 @@ def unbiased_r2_to_pearson_r(r2_adj, n, sign=None):
     return r if r.ndim else r.item()
 
 
+def query_r2(
+    pairs: pd.DataFrame,
+    *,
+    panel_dir=None,
+    meta_path=None,
+    parquet_path=None,
+    snp_identifier: str | None = None,
+    genome_build: str | None = None,
+    with_r: bool = False,
+    strategy: str = "auto",
+    strategy_threshold: int = 50_000,
+) -> pd.DataFrame:
+    """Open a panel, query ``pairs`` once, and return the annotated DataFrame.
+
+    Thin one-shot wrapper over :meth:`R2Panel.open` + :meth:`R2Panel.query_pairs`.
+    """
+    panel = R2Panel.open(
+        panel_dir,
+        meta_path=meta_path,
+        parquet_path=parquet_path,
+        snp_identifier=snp_identifier,
+        genome_build=genome_build,
+    )
+    return panel.query_pairs(
+        pairs, with_r=with_r, strategy=strategy, strategy_threshold=strategy_threshold
+    )
+
+
 @dataclass
 class _ChromState:
     """Cached per-chromosome state for one open panel chromosome."""

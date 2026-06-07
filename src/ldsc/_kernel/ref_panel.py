@@ -267,7 +267,12 @@ class RefPanel(ABC):
         return metadata.loc[keep].reset_index(drop=True)
 
     def _apply_snp_restriction(self, metadata: pd.DataFrame) -> pd.DataFrame:
-        """Filter metadata to the keep-restriction, then drop excluded regions."""
+        """Apply the keep-restriction, then drop excluded regions.
+
+        The keep-restriction (``ref_panel_snps_file`` / HM3) runs first so region
+        exclusion operates on the already-restricted SNP set. Region exclusion
+        always runs, even when no keep-restriction is configured.
+        """
         metadata = self._apply_keep_restriction(metadata)
         metadata = self._apply_region_exclusion(metadata)
         return metadata
@@ -303,7 +308,10 @@ class RefPanel(ABC):
                 regions.load_preset_intervals(list(self.spec.exclude_regions), self.spec.exclude_regions_build)
             )
         if self.spec.exclude_regions_bed:
-            paths = [resolve_scalar_path(token, suffixes=("", ".bed"), label="region exclusion BED") for token in self.spec.exclude_regions_bed]
+            paths = [
+                resolve_scalar_path(token, suffixes=("", ".bed"), label="region exclusion BED")
+                for token in self.spec.exclude_regions_bed
+            ]
             groups.append(regions.load_bed_intervals(paths))
         merged = regions.merge_intervals(*groups) if groups else regions.RegionIntervals(intervals={}, source_labels=())
         self._region_intervals_cache = merged

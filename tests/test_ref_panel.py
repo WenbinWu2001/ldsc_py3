@@ -710,6 +710,7 @@ def test_ldscore_panel_excludes_user_bed_region(tmp_path):
 
     base_panel = PlinkRefPanel(gc, RefPanelConfig(backend="plink", plink_prefix=str(_CHR22)))
     base_meta = base_panel.load_metadata("22")
+    # base_panel has no exclusion configured, so target_pos is guaranteed present in base_meta.
     target_pos = int(base_meta["POS"].iloc[0])
 
     # BED [target_pos-1, target_pos) (0-based half-open) excludes 1-based POS == target_pos.

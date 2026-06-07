@@ -28,7 +28,8 @@ The normal workflow is:
    effective identities are dropped as whole duplicate groups.
 8. If the resolved source build differs from the requested output build, apply
    exactly one liftover method.
-9. Write fixed outputs, root metadata, and diagnostic audit files.
+9. Write the self-describing `sumstats.parquet` (identity payload in its footer)
+   and diagnostic audit files.
 
 The default identity mode is `chr_pos_allele_aware`, so `A1/A2` are required by
 default. Use `--snp-identifier chr_pos` for coordinate identity without
@@ -63,17 +64,16 @@ for the source build.
 
 In rsID-family modes, genome build is not part of the merge identity. The
 munger rejects source-build, output-build, and liftover flags in those modes.
-`--use-hm3-snps` remains valid because it is a row filter. The written
-`metadata.json` and in-memory `SumstatsTable.config_snapshot` store
-`genome_build=null` for rsID-family artifacts.
+`--use-hm3-snps` remains valid because it is a row filter. The parquet footer
+`ldsc:genome_build` key and in-memory `SumstatsTable.config_snapshot` store an
+empty/`null` build for rsID-family artifacts.
 
 ## Output Artifacts
 
-The output directory is a coherent artifact family:
+The output directory holds one self-describing data file plus audit diagnostics:
 
 ```text
 <output_dir>/
-  metadata.json
   sumstats.parquet
   sumstats.sumstats.gz
   diagnostics/
@@ -82,34 +82,42 @@ The output directory is a coherent artifact family:
       dropped.tsv.gz
 ```
 
-`sumstats.parquet` is the default data artifact. `sumstats.sumstats.gz` is
-written only with `--output-format tsv.gz` or `--output-format both`.
+`sumstats.parquet` is the default data artifact and is self-describing: it needs
+no `metadata.json` sidecar. `sumstats.sumstats.gz` is written only with
+`--output-format tsv.gz` or `--output-format both`.
 
 Without `--overwrite`, any existing owned artifact blocks the run before output
 files are opened. With `--overwrite`, the workflow replaces current-run outputs
 and removes stale owned siblings not produced by the successful run. Unrelated
 files in the output directory are preserved.
 
-## Root Metadata Schema
+## Embedded Identity Metadata
 
-Root `metadata.json` is a downstream compatibility contract. It is intentionally
-small:
+The curated `sumstats.parquet` is self-describing: its downstream identity
+payload is written into the Parquet **footer** as discrete `ldsc:*` key/value
+entries, so the data file alone is sufficient for regression. No `metadata.json`
+sidecar is written.
 
-| Field | Meaning |
+| Footer key | Meaning |
 | --- | --- |
-| `schema_version` | Artifact metadata schema version. |
-| `artifact_type` | Always `sumstats`. |
-| `files` | Relative paths for written data artifacts, usually `sumstats.parquet` and optionally `sumstats.sumstats.gz`. |
-| `snp_identifier` | Identity mode used when writing the artifact. |
-| `genome_build` | Final output build in coordinate-family modes; `null` in rsID-family modes. |
-| `trait_name` | Optional biological trait label supplied by the user. |
+| `ldsc:artifact_type` | Always `sumstats`. The sole identity guard. |
+| `ldsc:snp_identifier` | Identity mode used when writing the artifact. |
+| `ldsc:genome_build` | Final output build in coordinate-family modes; empty for rsID-family modes (decoded as `null`). |
+| `ldsc:trait_name` | Optional biological trait label supplied by the user; empty otherwise. |
 
-The same compatibility state is attached to in-memory results as
-`SumstatsTable.config_snapshot`. Downstream regression checks `snp_identifier`
-and `genome_build` compatibility against LD-score artifacts before merging.
+There is no `schema_version`. The same compatibility state is attached to
+in-memory results as `SumstatsTable.config_snapshot`.
+
+`sumstats.sumstats.gz` is a plain TSV and carries no embedded metadata; in `both`
+mode only the `.parquet` is self-describing. When a downstream input has no
+footer metadata (a legacy `.sumstats.gz` or a footer-less parquet), regression
+infers the identifier mode from the LD-score panel. For `chr_pos`-family runs it
+also verifies the genome build: it reads the build from the footer when present,
+otherwise infers it from the coordinates, and rejects a build that disagrees
+with the LD-score panel with a message directing the user to liftover.
 
 Detailed source-build inference, liftover decisions, method names, and drop
-counts live in `diagnostics/sumstats.log`, not root metadata.
+counts live in `diagnostics/sumstats.log`, not in the footer.
 
 ## Dropped-SNP Audit
 

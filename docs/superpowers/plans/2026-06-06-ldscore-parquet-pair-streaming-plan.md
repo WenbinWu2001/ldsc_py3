@@ -4,9 +4,11 @@
 
 **Goal:** Replace the parquet LD-score backend's sliding-block GEMM imitation with a direct pair-streaming accumulation (`cor_sum = R @ annot` by scattering each stored pair once), eliminating the `O(b³/c)` query/scatter blowup.
 
-**Architecture:** The parquet panel stores each within-window R² pair once as `(i<j, r2)`. Instead of tiling R into blocks and rebuilding each tile, stream every stored pair and scatter-add `cor_sum[i] += r2·annot[j]; cor_sum[j] += r2·annot[i]`, with the diagonal seeded from `annot` and an `i >= block_left[j]` window filter. Parquet-only; the PLINK genotype backend is untouched. Not bit-identical (~1e-6 drift), guarded by exact small-fixture unit tests plus the existing parity suites at tolerance.
+**Architecture:** The parquet panel stores each within-window R² pair once as `(i<j, r2)`. Instead of tiling R into blocks and rebuilding each tile, stream every stored pair and accumulate `cor_sum = annot + U·annot + Uᵀ·annot` (U = strict-upper-triangular pair matrix), with an `i >= block_left[j]` window filter. Parquet-only; the PLINK genotype backend is untouched. Not bit-identical (~5e-4 vs the block path), guarded by exact small-fixture unit tests plus the existing parity suites at tolerance.
 
-**Tech Stack:** Python, numpy (`np.add.at` scatter-add), pyarrow parquet, pytest/unittest.
+**Status:** Tasks 1–5 (the streaming structure with a `np.add.at` scatter) are **complete** (commits `d84d4cd`…`2fe1dcc`). A 2026-06-06 re-profile showed `np.add.at` is a ~10× regression on chr22 (89% of time in unbuffered scatter); **Task 6** replaces it with the chunked float64 `scipy.sparse` CSR SpMM (benchmarked ~75× faster, exact). Tasks 1–5 below are kept for history; Task 6 is the active work.
+
+**Tech Stack:** Python, numpy, `scipy.sparse` (chunked float64 CSR SpMM — Task 6), pyarrow parquet, pytest/unittest.
 
 **Design source of truth:** `docs/superpowers/specs/2026-06-06-ldscore-parquet-pair-streaming-design.md` and `docs/current/parquet-r2-format-and-read-pipeline.md`.
 
@@ -480,3 +482,170 @@ git commit -m "refactor(ldscore): remove block/query/cache machinery for streami
 - **`--snp-batch-size` becomes a parquet-read no-op** (Task 5 Step 4): the flag is kept but documented as not affecting parquet LD-score reads (still used by `build-ref-panel`). A later cleanup could deprecate it if desired.
 - **Type consistency:** `iter_all_pairs` yields `(int32, int32, float32)`; `_accumulate_pair_contributions(cor_sum:float64, i, j, r2, annot:float32, block_left:int64)`; `ld_score_streaming_from_r2_reader(block_left, annot, block_reader) -> float32` (note: drops the `snp_batch_size` parameter the old driver had — the single caller is updated in Task 3 Step 5).
 - **Ordering:** the old block driver is kept through Task 4 so the transitional parity test can compare against it; it is deleted only in Task 5.
+
+---
+
+## Task 6: Replace the `np.add.at` scatter with chunked float64 CSR SpMM
+
+The streaming structure (Tasks 1–5) is correct but the `np.add.at` scatter is ~10× slower than the block path on chr22 (89% of time in numpy's unbuffered `ufunc.at`). Replace it with a chunked `scipy.sparse` CSR SpMM in **float64** — benchmarked ~75× faster than `np.add.at` and exact (a float32 SpMM accumulates row sums in float32 and loses ~3e-3; see `lessons.md`). `scipy` is already a kernel dependency.
+
+**Current line numbers** (`src/ldsc/_kernel/ldscore.py`): `iter_all_pairs` L1273, `_accumulate_pair_contributions` L1295 (with `np.add.at` at L1316–1317), `ld_score_streaming_from_r2_reader` L1320, `compute_chrom_from_parquet` L1380. `scipy` is imported in sibling kernels (`regression.py`, `_jackknife.py`) but **not** in `ldscore.py` yet.
+
+**Files:**
+- Modify: `src/ldsc/_kernel/ldscore.py` (`_accumulate_pair_contributions` body, `ld_score_streaming_from_r2_reader`, add `_CSR_CHUNK_PAIRS` constant)
+- Test: `tests/test_plink_io.py` (`IndexParquetRuntimeTest`)
+
+- [ ] **Step 1: Write the failing chunking-equivalence test**
+
+`ld_score_streaming_from_r2_reader` will gain a `chunk_pairs` parameter (default `_CSR_CHUNK_PAIRS`). Different chunk sizes must agree to float rounding (chunking is exact by linearity). Add to `IndexParquetRuntimeTest`:
+
+```python
+    def test_streaming_chunk_size_invariant(self):
+        rng = np.random.default_rng(1)
+        n = 12
+        snps = [f"rs{k+1}" for k in range(n)]
+        bps = [100 + 10 * k for k in range(n)]
+        panel = self._panel_meta(snps, bps)
+        pairs = []
+        for a in range(n):
+            for b in range(a + 1, min(a + 4, n)):
+                pairs.append({"i": a, "j": b, "R2": float(rng.uniform(0.05, 0.95)), "sign": "+"})
+        with tempfile.TemporaryDirectory() as tmpdir:
+            r2 = self._write_index_panel(tmpdir, panel, pairs, row_group_size=3)
+            reader = self._reader(r2, self._reader_meta(snps, bps))
+            block_left = np.array([max(0, k - 3) for k in range(n)], dtype=np.int64)
+            annot = rng.uniform(0, 1, size=(n, 3)).astype(np.float32)
+            tiny = ld.ld_score_streaming_from_r2_reader(block_left, annot, reader, chunk_pairs=2)
+            whole = ld.ld_score_streaming_from_r2_reader(block_left, annot, reader, chunk_pairs=10**9)
+            np.testing.assert_allclose(tiny, whole, rtol=0, atol=1e-6)
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run:
+```bash
+pytest tests/test_plink_io.py::IndexParquetRuntimeTest::test_streaming_chunk_size_invariant -v
+```
+Expected: FAIL — `ld_score_streaming_from_r2_reader()` has no `chunk_pairs` keyword.
+
+- [ ] **Step 3: Implement the chunked float64 CSR scatter**
+
+In `src/ldsc/_kernel/ldscore.py`, add the chunk constant near the top of the module (with the other module constants):
+
+```python
+_CSR_CHUNK_PAIRS = 16_000_000  # K: pairs buffered before one CSR SpMM step (~0.45 GiB/chunk)
+```
+
+Replace `_accumulate_pair_contributions` (L1295–1317) with a float64 CSR builder (same signature; `m` is derived from `cor_sum`):
+
+```python
+def _accumulate_pair_contributions(
+    cor_sum: np.ndarray,
+    i: np.ndarray,
+    j: np.ndarray,
+    r2: np.ndarray,
+    annot: np.ndarray,
+    block_left: np.ndarray,
+) -> None:
+    """Add one chunk of stored pairs ``(i<j, r2)`` to ``cor_sum`` via a float64 CSR SpMM.
+
+    Builds the strict-upper-triangular sparse matrix ``U`` of the window-filtered
+    chunk and accumulates ``cor_sum += U @ annot + U.T @ annot`` (R is symmetric).
+    The SpMM is float64 (``U.data`` is float64 and the driver passes a float64
+    ``annot``): scipy accumulates each row sum in the operand dtype, so a float32
+    SpMM would lose ~3e-3 (see lessons.md). Window filter: ``i >= block_left[j]``.
+    """
+    from scipy import sparse
+
+    keep = i >= block_left[j]
+    if not keep.all():
+        i, j, r2 = i[keep], j[keep], r2[keep]
+    if i.size == 0:
+        return
+    m = cor_sum.shape[0]
+    u = sparse.csr_matrix((r2.astype(np.float64, copy=False), (i, j)), shape=(m, m))
+    cor_sum += u @ annot
+    cor_sum += u.T @ annot
+```
+
+Replace `ld_score_streaming_from_r2_reader` (L1320–1336) with a chunk-buffering driver:
+
+```python
+def ld_score_streaming_from_r2_reader(
+    block_left: np.ndarray,
+    annot: np.ndarray,
+    block_reader: SortedR2BlockReader,
+    chunk_pairs: int = _CSR_CHUNK_PAIRS,
+) -> np.ndarray:
+    """Compute ``cor_sum = R @ annot`` by streaming the parquet's stored R2 pairs.
+
+    The diagonal (R2=1) seeds ``cor_sum`` from ``annot``; stored within-window pairs
+    are buffered into chunks of ~``chunk_pairs`` and accumulated with a float64 CSR
+    SpMM (`_accumulate_pair_contributions`), restricted to the ldscore window by
+    ``block_left``. Each stored pair is touched exactly once (O(nnz * n_a)).
+    """
+    block_left = np.asarray(block_left, dtype=np.int64)
+    annot64 = annot.astype(np.float64, copy=False)
+    cor_sum = annot64.copy()  # diagonal R2 = 1 for every SNP
+    buf_i: list[np.ndarray] = []
+    buf_j: list[np.ndarray] = []
+    buf_r2: list[np.ndarray] = []
+    buffered = 0
+
+    def flush() -> None:
+        nonlocal buffered
+        if buffered == 0:
+            return
+        _accumulate_pair_contributions(
+            cor_sum,
+            np.concatenate(buf_i),
+            np.concatenate(buf_j),
+            np.concatenate(buf_r2),
+            annot64,
+            block_left,
+        )
+        buf_i.clear(); buf_j.clear(); buf_r2.clear()
+        buffered = 0
+
+    for i, j, r2 in block_reader.iter_all_pairs():
+        buf_i.append(i); buf_j.append(j); buf_r2.append(r2)
+        buffered += int(i.size)
+        if buffered >= chunk_pairs:
+            flush()
+    flush()
+    return np.asarray(cor_sum, dtype=np.float32)
+```
+
+- [ ] **Step 4: Run the accumulator + chunking + reader tests**
+
+Run:
+```bash
+pytest tests/test_plink_io.py -k "accumulate or streaming or iter_all_pairs" -v
+```
+Expected: PASS. The three existing `test_accumulate_*` tests pass unchanged (same signature; `m = cor_sum.shape[0]`; the n=4 fixtures are exact at that scale), and `test_streaming_chunk_size_invariant` passes.
+
+- [ ] **Step 5: Run the parity-critical + full suites**
+
+Run:
+```bash
+pytest tests/test_ldscore_workflow.py tests/test_ldscore_parallelism.py tests/test_plink_io.py 2>&1 | tail -6
+pytest 2>&1 | tail -6
+```
+Expected: PASS, including the build→read parity and cross-mode oracle (`atol≈5e-5`) — float64 CSR is *more* precise than the prior `np.add.at`, so these should not regress. If the oracle test tightens below tolerance, that is expected improvement, not a failure.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/ldsc/_kernel/ldscore.py tests/test_plink_io.py
+git commit -m "perf(ldscore): chunked float64 CSR scatter for parquet LD scores"
+```
+
+- [ ] **Step 7: Re-profile on the server**
+
+Re-run the 2026-06-06 re-profile prompt (chr22 + chr6, `--threads 1`, cProfile + `/usr/bin/time`). Confirm: chr22 ≈ block parity (~45 s, no longer 483 s); chr6 a few minutes (not 111 min); peak RSS ≈ `cor_sum` + ~0.45 GiB chunk; the dominant self-time is no longer `ufunc.at`. Compare LD scores to the saved block-path baseline (expect ≤ ~5e-4).
+
+### Task 6 notes
+- **Signature preserved:** `_accumulate_pair_contributions` keeps its 6-arg signature, so the Task 2 exact unit tests are unchanged; only the body (np.add.at → CSR) and the driver (chunk buffering) change.
+- **float64 is mandatory, not optional:** `U.data` must be float64 and the driver passes `annot64`. A float32 SpMM loses ~3e-3 (lessons.md). This is the one easy way to get a *correct-looking but wrong* result.
+- **`chunk_pairs` is a test seam, not a CLI flag:** the parameter exists so `test_streaming_chunk_size_invariant` can force many small chunks; production uses the `_CSR_CHUNK_PAIRS=16M` default. Do not expose it on the CLI.
+- **Docs already updated** (commits `5641286`, `db0712b`): math spec §5/§6.5, format doc §3.4/§3.6, design spec §5/§7 describe chunked float64 CSR with `K=16M`. No further doc sweep needed for Task 6 beyond verifying these still match.

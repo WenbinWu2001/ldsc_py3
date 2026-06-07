@@ -63,9 +63,9 @@ output, and metadata contracts.
   `invalid_allele`, `strand_ambiguous_allele`, `multi_allelic_base_key`) and
   liftover drops (`missing_coordinate`, `source_duplicate`,
   `unmapped_liftover`, `cross_chromosome_liftover`, `target_collision`).
-- Newly written sumstats root `metadata.json` sidecars are intentionally thin:
-  `schema_version`, `artifact_type`, `snp_identifier`, `genome_build`, and
-  optional `trait_name`.
+- Newly written sumstats embed a thin identity payload in the `sumstats.parquet`
+  footer (`ldsc:artifact_type`, `ldsc:snp_identifier`, `ldsc:genome_build`, and
+  optional `ldsc:trait_name`); no `metadata.json` sidecar is written.
 - Detailed coordinate provenance, liftover counts, HM3 map provenance, output
   paths, and row-group details are readable `diagnostics/sumstats.log` entries rather than
   sidecar payloads.
@@ -132,12 +132,12 @@ output, and metadata contracts.
 
 ## Backward Compatibility Rules
 
-- Sumstats sidecars written by the current workflow must include
-  `schema_version`, `artifact_type`, `snp_identifier`, and `genome_build`.
-- Old package-written sumstats metadata sidecars without current identity
+- Sumstats parquet footers written by the current workflow must include
+  `artifact_type`, `snp_identifier`, and `genome_build`.
+- Old package-written sumstats metadata sidecars without current footer identity
   provenance do not need migration support.
-- Missing sumstats sidecars on package-written artifacts are rejected; those
-  artifacts must be regenerated with the current LDSC package.
+- Legacy package-written sumstats artifacts without current footer provenance
+  must be regenerated with the current LDSC package.
 - Package-built reference-panel R2 parquet and runtime metadata artifacts carry
   current identity provenance.
 - In allele-aware modes, reference-panel metadata sidecars require `A1` and `A2`

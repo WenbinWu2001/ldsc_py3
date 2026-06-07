@@ -25,6 +25,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 import logging
+from numbers import Integral
 from os import PathLike
 from typing import Literal
 import warnings
@@ -147,6 +148,18 @@ def _one_ld_window_message(config_name: str) -> str:
         "Most likely no window was supplied or multiple window units were combined. "
         "Set exactly one of ld_wind_snps, ld_wind_kb, or ld_wind_cm."
     )
+
+
+def _validate_region_presets(class_name: str, names: tuple[str, ...]) -> None:
+    """Raise if any preset name is outside the supported region menu."""
+    from ._kernel.regions import REGION_PRESETS
+
+    unknown = sorted(set(names) - REGION_PRESETS)
+    if unknown:
+        raise LDSCConfigError(
+            f"Could not construct {class_name}: unknown region preset(s) {unknown}. "
+            f"Most likely a name was misspelled. Valid presets are {sorted(REGION_PRESETS)}."
+        )
 
 
 @dataclass(frozen=True, init=False)
@@ -325,6 +338,9 @@ class AnnotationBuildConfig:
     query_annot_bed_sources : str, os.PathLike[str], or sequence of those, optional
         BED inputs that should be projected to SNP-level annotations. Default is
         ``()``.
+    bed_padding_bp : int, optional
+        Number of base pairs to add to both sides of each BED interval before
+        SNP overlap projection. Starts are clipped at zero. Default is ``0``.
     output_dir : str or os.PathLike[str] or None, optional
         Output directory used by file-writing helpers. Default is ``None``.
     compression : {"auto", "gzip", "bz2", "none"}, optional
@@ -339,6 +355,7 @@ class AnnotationBuildConfig:
     baseline_annot_sources: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
     query_annot_sources: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
     query_annot_bed_sources: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
+    bed_padding_bp: int = 0
     output_dir: str | PathLike[str] | None = None
     compression: CompressionMode = "gzip"
     allow_missing_query: bool = True
@@ -350,6 +367,32 @@ class AnnotationBuildConfig:
         object.__setattr__(self, "query_annot_sources", _normalize_path_tuple(self.query_annot_sources))
         object.__setattr__(self, "query_annot_bed_sources", _normalize_path_tuple(self.query_annot_bed_sources))
         object.__setattr__(self, "output_dir", _normalize_optional_path(self.output_dir))
+        if isinstance(self.bed_padding_bp, bool):
+            raise LDSCConfigError(
+                f"Could not construct AnnotationBuildConfig: bed_padding_bp={self.bed_padding_bp!r} must be an integer. "
+                "Most likely a boolean padding value was supplied. Set bed_padding_bp to 0 or a positive integer."
+            )
+        if isinstance(self.bed_padding_bp, Integral):
+            bed_padding_bp = int(self.bed_padding_bp)
+        elif isinstance(self.bed_padding_bp, str):
+            stripped_padding = self.bed_padding_bp.strip()
+            if not stripped_padding or stripped_padding in {"+", "-"} or not stripped_padding.lstrip("+-").isdigit():
+                raise LDSCConfigError(
+                    f"Could not construct AnnotationBuildConfig: bed_padding_bp={self.bed_padding_bp!r} must be an integer. "
+                    "Most likely a non-integer padding value was supplied. Set bed_padding_bp to 0 or a positive integer."
+                )
+            bed_padding_bp = int(stripped_padding)
+        else:
+            raise LDSCConfigError(
+                f"Could not construct AnnotationBuildConfig: bed_padding_bp={self.bed_padding_bp!r} must be an integer. "
+                "Most likely a non-integer padding value was supplied. Set bed_padding_bp to 0 or a positive integer."
+            )
+        object.__setattr__(self, "bed_padding_bp", bed_padding_bp)
+        if self.bed_padding_bp < 0:
+            raise LDSCConfigError(
+                f"Could not construct AnnotationBuildConfig: bed_padding_bp={self.bed_padding_bp!r} must be non-negative. "
+                "Most likely a negative padding value was supplied. Set bed_padding_bp to 0 or a positive integer."
+            )
         if self.compression not in {"auto", "gzip", "bz2", "none"}:
             raise LDSCConfigError(
                 _invalid_choice_message("AnnotationBuildConfig", "compression", self.compression, "'auto', 'gzip', 'bz2', or 'none'")
@@ -388,6 +431,15 @@ class RefPanelConfig:
         If ``True``, restrict the runtime reference-panel universe to the
         packaged curated HM3 SNP map. Mutually exclusive with
         ``ref_panel_snps_file``. Default is ``False``.
+    exclude_regions : tuple of str, optional
+        Named region presets to exclude (e.g. ``"mhc"``, ``"centromeres"``).
+        Requires ``exclude_regions_build``. Default is ``()``.
+    exclude_regions_bed : tuple of str, optional
+        Paths to user-supplied BED files whose intervals are excluded.
+        Build-agnostic; may be combined with ``exclude_regions``. Default is ``()``.
+    exclude_regions_build : {"hg19", "hg38"} or None, optional
+        Genome build used to resolve preset intervals. Required when
+        ``exclude_regions`` is non-empty. Default is ``None``.
     """
     backend: RefPanelBackend = "auto"
     plink_prefix: str | PathLike[str] | None = None
@@ -400,6 +452,9 @@ class RefPanelConfig:
     sample_size: int | None = None
     ref_panel_snps_file: str | PathLike[str] | None = None
     use_hm3_ref_panel_snps: bool = False
+    exclude_regions: tuple[str, ...] = ()
+    exclude_regions_bed: tuple[str, ...] = ()
+    exclude_regions_build: Literal["hg19", "hg38"] | None = None
 
     def __post_init__(self) -> None:
         """Normalize backend path tokens and validate parquet-R2 settings."""
@@ -425,6 +480,25 @@ class RefPanelConfig:
             from .chromosome_inference import normalize_chromosome
 
             object.__setattr__(self, "chromosomes", tuple(normalize_chromosome(chrom) for chrom in self.chromosomes))
+        object.__setattr__(self, "exclude_regions", tuple(self.exclude_regions))
+        object.__setattr__(
+            self,
+            "exclude_regions_bed",
+            tuple(_normalize_optional_path(token) for token in self.exclude_regions_bed if token),
+        )
+        _validate_region_presets("RefPanelConfig", self.exclude_regions)
+        if self.exclude_regions_build not in {None, "hg19", "hg38"}:
+            raise LDSCConfigError(
+                _invalid_choice_message(
+                    "RefPanelConfig", "exclude_regions_build", self.exclude_regions_build, "None, 'hg19', or 'hg38'"
+                )
+            )
+        if self.exclude_regions and self.exclude_regions_build is None:
+            raise LDSCConfigError(
+                "RefPanelConfig received exclude_regions presets without exclude_regions_build. "
+                "Most likely --exclude-regions was passed without --exclude-regions-build. "
+                "Region presets are build-specific; pass --exclude-regions-build hg19 or hg38."
+            )
 
 
 @dataclass(frozen=True)
@@ -462,6 +536,15 @@ class LDScoreConfig:
     whole_chromosome_ok : bool, optional
         Override the guard that rejects windows effectively spanning an entire
         chromosome. Default is ``False``.
+    threads : int, optional
+        Number of worker processes for cross-chromosome parallelism on one
+        machine, using the scikit-learn/joblib ``n_jobs`` convention: ``1``
+        (default) runs sequentially in-process; ``-1`` uses all available cores;
+        ``-2`` uses all but one; any other negative ``-k`` uses
+        ``n_cpus + 1 - k``. Core counts respect CPU affinity (SLURM/cgroup
+        allocations), not the raw machine size. The effective count is capped at
+        the chromosome count, and ``0`` is rejected. Output is identical
+        regardless of this value.
     """
     ld_wind_snps: int | None = None
     ld_wind_kb: float | None = None
@@ -471,6 +554,7 @@ class LDScoreConfig:
     snp_batch_size: int = 128
     common_maf_min: float = 0.05
     whole_chromosome_ok: bool = False
+    threads: int = 1
 
     def __post_init__(self) -> None:
         """Validate LD-window settings and normalize optional SNP-list paths."""
@@ -487,6 +571,13 @@ class LDScoreConfig:
             raise LDSCConfigError(_range_message("LDScoreConfig", "common_maf_min", self.common_maf_min, "[0, 0.5]"))
         if self.snp_batch_size <= 0:
             raise LDSCConfigError(_positive_number_message("LDScoreConfig", "snp_batch_size", self.snp_batch_size))
+        if self.threads == 0:
+            raise LDSCConfigError(
+                "LDScoreConfig received threads=0, which is ambiguous. Most likely the "
+                "thread count was left unset to a sentinel. Use 1 for sequential, a "
+                "positive count for that many workers, -1 for all cores, or -2 for all "
+                "but one."
+            )
         object.__setattr__(self, "regression_snps_file", _normalize_optional_path(self.regression_snps_file))
         if self.regression_snps_file is not None and self.use_hm3_regression_snps:
             raise LDSCConfigError(_mutually_exclusive_message("LDScoreConfig", "regression_snps_file", "use_hm3_regression_snps"))
@@ -566,6 +657,12 @@ class ReferencePanelBuildConfig:
         workflow-owned parquet, metadata, dropped-SNP, or log siblings after a
         successful run. If ``False``, output collisions raise before
         chromosome processing starts. Default is ``False``.
+    exclude_regions : tuple of str, optional
+        Named region presets to exclude. Build is resolved from
+        ``source_genome_build``. Default is ``()``.
+    exclude_regions_bed : tuple of str, optional
+        Paths to user-supplied BED files whose intervals are excluded.
+        Default is ``()``.
     """
 
     plink_prefix: str | PathLike[str]
@@ -586,6 +683,8 @@ class ReferencePanelBuildConfig:
     snp_batch_size: int = 128
     min_r2: float = 0.0
     overwrite: bool = False
+    exclude_regions: tuple[str, ...] = ()
+    exclude_regions_bed: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         """Normalize build paths and validate liftover and LD-window settings."""
@@ -667,6 +766,13 @@ class ReferencePanelBuildConfig:
                 "Most likely an R2 percentage or invalid threshold was supplied. "
                 "Use a decimal threshold in [0, 1]."
             )
+        object.__setattr__(self, "exclude_regions", tuple(self.exclude_regions))
+        object.__setattr__(
+            self,
+            "exclude_regions_bed",
+            tuple(_normalize_optional_path(token) for token in self.exclude_regions_bed if token),
+        )
+        _validate_region_presets("ReferencePanelBuildConfig", self.exclude_regions)
 
 
 @dataclass(frozen=True)

@@ -73,6 +73,7 @@ from .path_resolution import (
     resolve_file_group,
     resolve_plink_prefix_group,
     resolve_scalar_path,
+    split_cli_path_tokens,
 )
 from ._logging import configure_package_logging, log_inputs, log_outputs, workflow_logging
 from .errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
@@ -80,6 +81,7 @@ from ._kernel import formats as legacy_parse
 from ._kernel import identifiers as kernel_identifiers
 from ._kernel import ldscore as kernel_ldscore
 from ._kernel import ref_panel_builder as kernel_builder
+from ._kernel import regions as kernel_regions
 from ._kernel.liftover import (
     Hm3DualBuildLifter,
     duplicate_coordinate_drop_result,
@@ -138,6 +140,7 @@ class _BuildState:
     restriction_values: set[str] | None = None
     restriction_keys: RestrictionIdentityKeys | None = None
     translator_cache: dict[tuple[str, str], kernel_builder.LiftOverTranslator] = field(default_factory=dict)
+    region_intervals: kernel_regions.RegionIntervals | None = None
 
 
 def _emitted_genome_builds(config: ReferencePanelBuildConfig) -> list[str]:
@@ -324,7 +327,6 @@ def _write_ref_panel_metadata(
         if key != "metadata"
     }
     payload = {
-        "schema_version": 1,
         "artifact_type": "ref_panel",
         "files": files,
         "snp_identifier": global_config.snp_identifier,
@@ -690,6 +692,24 @@ class ReferencePanelBuilder:
                 f"No {source_build} genetic map was provided; "
                 f"{source_build} metadata CM values will be written as NA."
             )
+        # Mirrors RefPanel._region_intervals in _kernel/ref_panel.py (ldscore layer); the two
+        # are kept separate by the public/kernel boundary. Keep them in sync if loading changes.
+        region_groups: list[kernel_regions.RegionIntervals] = []
+        if config.exclude_regions:
+            region_groups.append(kernel_regions.load_preset_intervals(list(config.exclude_regions), source_build))
+        if config.exclude_regions_bed:
+            bed_paths = [
+                resolve_scalar_path(token, suffixes=("", ".bed"), label="region exclusion BED")
+                for token in config.exclude_regions_bed
+            ]
+            region_groups.append(kernel_regions.load_bed_intervals(bed_paths))
+        region_intervals = (
+            kernel_regions.merge_intervals(*region_groups)
+            if region_groups
+            else kernel_regions.RegionIntervals(intervals={}, source_labels=())
+        )
+        if region_intervals.intervals:
+            LOGGER.info(f"Reference-panel region exclusion active: {', '.join(region_intervals.source_labels)}.")
         return _BuildState(
             genetic_map_hg19=None if hg19_files is None else kernel_builder.load_genetic_map_group(hg19_files),
             genetic_map_hg38=None if hg38_files is None else kernel_builder.load_genetic_map_group(hg38_files),
@@ -702,6 +722,7 @@ class ReferencePanelBuilder:
             restriction_mode=restriction_mode,
             restriction_values=restriction_values,
             restriction_keys=restriction_keys,
+            region_intervals=region_intervals,
         )
 
     def _discover_prefix_chromosomes(self, prefix: str) -> list[str]:
@@ -781,6 +802,22 @@ class ReferencePanelBuilder:
         chrom_metadata["POS"] = chrom_metadata["POS"].astype(int)
         chrom_metadata["_plink_row_index"] = chrom_metadata.index.astype(int)
         keep_snps = chrom_df.index.to_numpy(dtype=int)
+        if build_state.region_intervals is not None and build_state.region_intervals.intervals:
+            region_keep = kernel_regions.region_exclusion_keep_mask(
+                chrom_metadata, build_state.region_intervals, pos_col="POS"
+            )
+            dropped = int((~region_keep).sum())
+            if dropped:
+                LOGGER.info(f"Region exclusion dropped {dropped} SNPs on chromosome {chrom} (source build).")
+            # Keep the original PLINK-row index as labels here (no reset_index): downstream
+            # identity cleanup, restriction, and liftover look rows up via
+            # chrom_metadata.loc[keep_snps] and the _plink_row_index column.
+            chrom_metadata = chrom_metadata[region_keep]
+            keep_snps = chrom_metadata["_plink_row_index"].to_numpy(dtype=int)
+            if len(keep_snps) == 0:
+                _write_dropped_sidecar(_empty_unified_drop_frame(), sidecar_path, chrom)
+                LOGGER.info(f"Skipping chromosome {chrom}: no SNPs remain after region exclusion.")
+                return None
         if (
             build_state.restriction_values is not None
             and build_state.restriction_mode is not None
@@ -791,7 +828,10 @@ class ReferencePanelBuilder:
                 active_restriction,
                 build_state.restriction_mode,
             )
-            keep_snps = chrom_df.index[keep_mask].to_numpy(dtype=int)
+            # Use _plink_row_index, not chrom_metadata.index: region exclusion may have
+            # compacted the frame, so the positional index no longer maps to PLINK rows;
+            # the column preserves the original indices keep_mask selects against.
+            keep_snps = chrom_metadata["_plink_row_index"].to_numpy(dtype=int)[keep_mask]
             if len(keep_snps) == 0:
                 _write_dropped_sidecar(_empty_unified_drop_frame(), sidecar_path, chrom)
                 LOGGER.info(f"Skipping chromosome {chrom} because no SNPs remain after restriction.")
@@ -889,6 +929,7 @@ class ReferencePanelBuilder:
                 bim=bim,
                 kept_snps=geno.kept_snps,
                 maf_values=geno.maf,
+                freq_values=geno.freq,
             )
             if len(metadata) == 0:
                 LOGGER.info(f"Skipping chromosome {chrom} because no SNPs remain after PLINK filtering.")
@@ -956,11 +997,19 @@ class ReferencePanelBuilder:
             )
             identity_hash = kernel_builder.sidecar_identity_sha256(runtime_metadata)
 
+            # Canonical A1=minor orientation: negate standardized columns where the
+            # .bim A2 allele is minor (freq < 0.5) so SIGN is computed in the same
+            # orientation as the swapped meta sidecar. nextSNPs stays orientation-free.
+            flip_sign = kernel_builder.orientation_flip_sign(geno.freq)
+            oriented_snp_getter = kernel_builder.make_oriented_snp_getter(
+                lambda b: geno.nextSNPs(b, dtype=np.float32),
+                flip_sign,
+            )
             kernel_builder.write_r2_parquet(
                 pair_chunks=kernel_builder.yield_pairwise_r2_rows(
                     block_left=block_left,
                     snp_batch_size=config.snp_batch_size,
-                    standardized_snp_getter=lambda b: geno.nextSNPs(b, dtype=np.float32),
+                    standardized_snp_getter=oriented_snp_getter,
                     m=geno.m,
                     n=geno.n,
                     min_r2=config.min_r2,
@@ -972,6 +1021,20 @@ class ReferencePanelBuilder:
                 min_r2=config.min_r2,
                 n_snps=len(runtime_metadata),
                 sidecar_identity_sha256=identity_hash,
+                ld_window_mode=(
+                    "snps"
+                    if config.ld_wind_snps is not None
+                    else "kb"
+                    if config.ld_wind_kb is not None
+                    else "cm"
+                ),
+                ld_window_value=(
+                    config.ld_wind_snps
+                    if config.ld_wind_snps is not None
+                    else config.ld_wind_kb
+                    if config.ld_wind_kb is not None
+                    else config.ld_wind_cm
+                ),
             )
             kernel_builder.write_runtime_metadata_sidecar(
                 runtime_metadata,
@@ -1734,6 +1797,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ld-wind-cm", default=None, type=float, help="LD window size in centiMorgans.")
     parser.add_argument("--maf-min", default=None, type=float, help="Optional MAF filter for retained SNPs.")
     parser.add_argument(
+        "--exclude-regions",
+        default=None,
+        help="Comma-separated curated region presets to exclude before R2 computation (choices: mhc, centromeres). Resolved in the panel's source build and removed from every emitted build.",
+    )
+    parser.add_argument(
+        "--exclude-regions-bed",
+        default=None,
+        help="Comma-separated user BED file path tokens of regions to exclude, applied as-is on source-build CHR/POS (0-based half-open).",
+    )
+    parser.add_argument(
         "--ref-panel-snps-file",
         default=None,
         help=(
@@ -1835,6 +1908,8 @@ def config_from_args(args: argparse.Namespace) -> tuple[ReferencePanelBuildConfi
         keep_indivs_file=args.keep_indivs_file,
         snp_batch_size=args.snp_batch_size,
         min_r2=getattr(args, "min_r2", 0.0),
+        exclude_regions=tuple(split_cli_path_tokens(getattr(args, "exclude_regions", None))),
+        exclude_regions_bed=tuple(split_cli_path_tokens(getattr(args, "exclude_regions_bed", None))),
     )
     global_config = GlobalConfig(
         snp_identifier=snp_identifier,

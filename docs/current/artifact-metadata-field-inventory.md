@@ -1,25 +1,28 @@
 # Artifact Metadata Field Inventory
 
-metadata.json is a downstream contract only for sumstats and ldscore. Downstream workflows validate and consume sumstats/metadata.json and ldscore/metadata.json. Any metadata emitted by annotate, ref-panel, h2, partitioned-h2, rg, query-level, or pair-level outputs is diagnostic provenance only and must not be required to run downstream analysis.
+Downstream identity metadata lives in the `sumstats.parquet` footer (for munged
+sumstats) and in `ldscore/metadata.json` (for LD scores). Any metadata emitted by
+annotate, ref-panel, h2, partitioned-h2, rg, query-level, or pair-level outputs is
+diagnostic provenance only and must not be required to run downstream analysis.
 
 This document inventories metadata, schema metadata, and audit sidecars written
 by the current LDSC workflows. The goal is to keep downstream contracts obvious:
-only input artifacts required by another LDSC command have required root
-`metadata.json` files. Diagnostic metadata lives under `diagnostics/`.
+only input artifacts required by another LDSC command carry required identity
+metadata. Diagnostic metadata lives under `diagnostics/`.
 
 ## Boundary Rule
 
-`metadata.json` has exactly two roles:
+Downstream-required identity metadata has exactly two carriers:
 
-- **Required contract:** downstream LDSC code validates and consumes it. This
-  role is limited to `sumstats/metadata.json` and `ldscore/metadata.json`.
-- **Diagnostic provenance:** humans and external tools may inspect it for
-  reproducibility/debugging. LDSC downstream workflows must not load it, require
-  it, or change behavior when it is present.
+- The **`sumstats.parquet` footer** (discrete `ldsc:*` keys) for munged sumstats.
+- **`ldscore/metadata.json`** for LD-score directories.
+
+Everything else is **diagnostic provenance:** humans and external tools may
+inspect it for reproducibility/debugging, but LDSC downstream workflows must not
+load it, require it, or change behavior when it is present.
 
 There is no "optional but used if present" metadata. No JSON metadata file
-contains a top-level `format`; `schema_version` plus `artifact_type` is the
-schema discriminator.
+contains a top-level `format`; `artifact_type` is the schema discriminator.
 
 ## Output Ownership Rule
 
@@ -49,7 +52,6 @@ included in the owned family.
 
 ```text
 sumstats/
-  metadata.json
   sumstats.parquet
   sumstats.sumstats.gz
   diagnostics/
@@ -60,16 +62,18 @@ sumstats/
 `sumstats.sumstats.gz` is present only when the selected output format writes
 the legacy TSV artifact.
 
-`metadata.json` is downstream-required.
+The downstream-required identity metadata is embedded in the `sumstats.parquet`
+**footer** as discrete `ldsc:*` keys; no `metadata.json` is written. `.sumstats.gz`
+carries no embedded metadata. An input without footer metadata (legacy `.sumstats.gz`
+or footer-less parquet) loads with an inferred identifier mode rather than being
+rejected.
 
-| Field | Explanation | Downstream usage |
+| Footer key | Explanation | Downstream usage |
 | --- | --- | --- |
-| `schema_version` | Current LDSC artifact identity schema version. | Required and validated. |
-| `artifact_type` | Must be `sumstats`. | Required and validated. |
-| `files` | Relative data-file map for `sumstats.parquet` and/or `sumstats.sumstats.gz`. | Required to locate the data artifact. |
-| `snp_identifier` | SNP identity mode used when the munged artifact was written. | Required for regression compatibility checks. |
-| `genome_build` | Final output genome build for coordinate-family identity modes; `null` for rsID-family modes because rsID identity is build-independent. | Required for regression compatibility checks when known. |
-| `trait_name` | Trait label from the raw sumstats config, when supplied. | Used for output labels, not compatibility. |
+| `ldsc:artifact_type` | Must be `sumstats`. | Required and validated. |
+| `ldsc:snp_identifier` | SNP identity mode used when the munged artifact was written. | Recovered for regression compatibility checks. |
+| `ldsc:genome_build` | Final output genome build for coordinate-family identity modes; empty (`null`) for rsID-family modes because rsID identity is build-independent. | Recovered for the regression genome-build check when known. |
+| `ldsc:trait_name` | Trait label from the raw sumstats config, when supplied; empty otherwise. | Used for output labels, not compatibility. |
 
 ### Sumstats `diagnostics/dropped_snps/dropped.tsv.gz`
 
@@ -78,8 +82,8 @@ written even for clean runs so users can distinguish "no drops" from "missing
 sidecar".
 
 Detailed source-build inference, requested output build, and liftover method
-provenance live in `diagnostics/sumstats.log`, not root `metadata.json`. The
-root sumstats metadata and `SumstatsTable.config_snapshot` intentionally expose
+provenance live in `diagnostics/sumstats.log`, not the parquet footer. The
+footer metadata and `SumstatsTable.config_snapshot` intentionally expose
 only the final downstream compatibility build.
 
 | Field | Explanation | Downstream usage |
@@ -117,9 +121,7 @@ shared diagnostics.
 `diagnostics/metadata*.json` is provenance only.
 
 | Field | Explanation | Downstream usage |
-| --- | --- | --- |
-| `schema_version` | Diagnostic metadata schema version. | None. |
-| `artifact_type` | Must be `ref_panel`. | None. |
+| --- | --- | --- || `artifact_type` | Must be `ref_panel`. | None. |
 | `files` | Relative map of emitted R2, metadata, and diagnostic sidecars. | None. |
 | `snp_identifier` | SNP identity mode used for emitted panel artifacts. | None for root metadata. Per-file schema/header metadata carries runtime validation. |
 | `source_genome_build` | Build of source PLINK coordinates. | None for root metadata. |
@@ -132,9 +134,7 @@ Ref-panel runtime compatibility is carried by per-file metadata, not the root
 diagnostic JSON.
 
 | Field | Location | Downstream usage |
-| --- | --- | --- |
-| `ldsc:schema_version` | `chr<chrom>_r2.parquet` Arrow schema and `chr<chrom>_meta.tsv.gz` header. | Validated when package metadata is present. |
-| `ldsc:artifact_type` | Same. Must be `ref_panel_r2` or `ref_panel_metadata`. | Validated when package metadata is present. |
+| --- | --- | --- || `ldsc:artifact_type` | Same. Must be `ref_panel_r2` or `ref_panel_metadata`. | Validated when package metadata is present. |
 | `ldsc:snp_identifier` | Same. | Compared with runtime identity mode. |
 | `ldsc:genome_build` | Same. | Compared with runtime genome build when known. |
 | `ldsc:sorted_by_build` | R2 parquet schema metadata. | Used to infer/validate R2 coordinate build. |
@@ -155,9 +155,7 @@ annotate/
 `diagnostics/metadata.json` is provenance only.
 
 | Field | Explanation | Downstream usage |
-| --- | --- | --- |
-| `schema_version` | Diagnostic metadata schema version. | None. |
-| `artifact_type` | Must be `annotation_projection`. | None. |
+| --- | --- | --- || `artifact_type` | Must be `annotation_projection`. | None. |
 | `files` | Relative map of query annotation shards and diagnostics. | None. |
 | `snp_identifier` | SNP identity mode used when writing projected annotations. | None for diagnostic JSON. Query shard columns are runtime data. |
 | `genome_build` | Genome-build assumption for projected annotations. | None for diagnostic JSON. |
@@ -182,9 +180,7 @@ ldscore/
 `metadata.json` is downstream-required.
 
 | Field | Explanation | Downstream usage |
-| --- | --- | --- |
-| `schema_version` | Current LDSC artifact identity schema version. | Required and validated. |
-| `artifact_type` | Must be `ldscore`. | Required and validated. |
+| --- | --- | --- || `artifact_type` | Must be `ldscore`. | Required and validated. |
 | `files` | Relative data-file map with required `baseline` and optional `query`. | Required to locate parquet data. |
 | `snp_identifier` | SNP identity mode used for LD-score rows. | Required for regression compatibility checks. |
 | `genome_build` | Genome build associated with LD-score identity metadata. | Required for regression compatibility checks when known. |
@@ -213,9 +209,7 @@ h2/
 the CLI prints compact TSV output to stdout and writes no diagnostics.
 
 | Field | Explanation | Downstream usage |
-| --- | --- | --- |
-| `schema_version` | Diagnostic metadata schema version. | None. |
-| `artifact_type` | Must be `h2_result`. | None. |
+| --- | --- | --- || `artifact_type` | Must be `h2_result`. | None. |
 | `files` | Relative map with `summary: "h2.tsv"`. | None. |
 | `trait_name` | Trait label resolved from CLI input or sumstats metadata. | None. |
 | `sumstats_file` | Source sumstats path. | None. |
@@ -283,13 +277,13 @@ This applies to `h2`, `partitioned-h2`, and `rg`.
 
 Fields that LDSC downstream workflows treat as runtime compatibility-critical:
 
-- Sumstats `metadata.json`: `schema_version`, `artifact_type`,
-  `snp_identifier`, `genome_build`, and `files`.
-- LD-score `metadata.json`: `schema_version`, `artifact_type`,
+- Sumstats `sumstats.parquet` footer: `ldsc:artifact_type`,
+  `ldsc:snp_identifier`, `ldsc:genome_build`, and `ldsc:trait_name`.
+- LD-score `metadata.json`: `artifact_type`,
   `snp_identifier`, `genome_build`, `files`, `baseline_columns`,
   `query_columns`, and `counts[].column`.
 - Ref-panel per-file schema/header metadata when present:
-  `ldsc:schema_version`, `ldsc:artifact_type`, `ldsc:snp_identifier`,
+  `ldsc:artifact_type`, `ldsc:snp_identifier`,
   `ldsc:genome_build`, and `ldsc:sorted_by_build`.
 
 Everything else in JSON metadata is provenance, navigation, or reporting data.

@@ -406,7 +406,11 @@ class AnnotationBuilder:
                 normalized_beds: list[Path] = []
                 for bed_path in resolved_bed_paths:
                     normalized_path = tempdir / bed_path.name
-                    kernel_annotation._write_normalized_bed(bed_path, normalized_path)
+                    kernel_annotation._write_normalized_bed(
+                        bed_path,
+                        normalized_path,
+                        bed_padding_bp=source_spec.bed_padding_bp,
+                    )
                     normalized_beds.append(normalized_path)
                 bed_df = kernel_annotation._compute_bed_query_columns(metadata, normalized_beds, tempdir)
             query_blocks.append(bed_df)
@@ -462,6 +466,7 @@ class AnnotationBuilder:
                 baseline_annot_sources=(baseline_by_chrom[chrom_key],),
                 query_annot_sources=(() if not has_query_inputs else (query_by_chrom[chrom_key],)),
                 query_annot_bed_sources=source_spec.query_annot_bed_sources,
+                bed_padding_bp=source_spec.bed_padding_bp,
                 allow_missing_query=source_spec.allow_missing_query,
             )
             bundles.append(
@@ -553,6 +558,7 @@ class AnnotationBuilder:
                 "baseline_annot_sources": list(source_spec.baseline_annot_sources),
                 "query_annot_sources": list(source_spec.query_annot_sources),
                 "query_annot_bed_sources": list(source_spec.query_annot_bed_sources),
+                "bed_padding_bp": source_spec.bed_padding_bp,
             },
             config_snapshot=self.global_config,
         )
@@ -646,6 +652,7 @@ class AnnotationBuilder:
         query_annot_bed_sources: str | PathLike[str] | Sequence[str | PathLike[str]],
         baseline_annot_sources: str | PathLike[str] | Sequence[str | PathLike[str]],
         output_dir: str | Path | None = None,
+        bed_padding_bp: int = 0,
         log_level: str | None = None,
         overwrite: bool | None = None,
     ) -> AnnotationBundle:
@@ -671,6 +678,9 @@ class AnnotationBuilder:
         output_dir : str or pathlib.Path, optional
             Directory for materialized ``query.<chrom>.annot.gz`` files. If
             omitted, projection stays in memory.
+        bed_padding_bp : int, optional
+            Number of base pairs to add to both sides of each BED interval
+            before projection. Starts are clipped at zero. Default is ``0``.
         log_level : str, optional
             Logging threshold for standalone projection calls. When the method
             is reached from the parsed workflow wrapper, the same threshold
@@ -690,6 +700,7 @@ class AnnotationBuilder:
         source_spec = AnnotationBuildConfig(
             baseline_annot_sources=baseline_annot_sources,
             query_annot_bed_sources=query_annot_bed_sources,
+            bed_padding_bp=bed_padding_bp,
         )
         bundle = self.run(source_spec)
         if output_dir is not None:
@@ -715,6 +726,7 @@ class AnnotationBuilder:
                 log_inputs(
                     query_annot_bed_sources=query_annot_bed_sources,
                     baseline_annot_sources=baseline_annot_sources,
+                    bed_padding_bp=bed_padding_bp,
                     output_dir=str(output_path),
                 )
                 written = _write_bundle_query_as_annot_files(bundle, output_path)
@@ -725,6 +737,7 @@ class AnnotationBuilder:
                     bundle=bundle,
                     query_annot_bed_sources=query_annot_bed_sources,
                     baseline_annot_sources=baseline_annot_sources,
+                    bed_padding_bp=bed_padding_bp,
                     dropped_snps_path=drop_sidecar_path,
                     written_query_paths=written,
                 )
@@ -777,6 +790,7 @@ def run_bed_to_annot(
     query_annot_bed_sources: str | PathLike[str] | Sequence[str | PathLike[str]],
     baseline_annot_sources: str | PathLike[str] | Sequence[str | PathLike[str]],
     output_dir: str | Path | None = None,
+    bed_padding_bp: int = 0,
     overwrite: bool = False,
 ) -> AnnotationBundle:
     """Project BED files to an ``AnnotationBundle`` using registered globals.
@@ -799,6 +813,9 @@ def run_bed_to_annot(
     output_dir : str or pathlib.Path, optional
         Destination directory for generated query annotation shards. Omit to
         keep the result in memory only.
+    bed_padding_bp : int, optional
+        Number of base pairs to add to both sides of each BED interval before
+        projection. Starts are clipped at zero. Default is ``0``.
     overwrite : bool, optional
         Replace existing ``query.<chrom>.annot.gz`` files when true. Default is
         ``False``.
@@ -812,6 +829,7 @@ def run_bed_to_annot(
         query_annot_bed_sources=query_annot_bed_sources,
         baseline_annot_sources=baseline_annot_sources,
         output_dir=output_dir,
+        bed_padding_bp=bed_padding_bp,
         overwrite=overwrite,
         global_config=get_global_config(),
         entrypoint="run_bed_to_annot",
@@ -823,13 +841,14 @@ def _run_bed_to_annot_with_global_config(
     baseline_annot_sources: str | PathLike[str] | Sequence[str | PathLike[str]],
     output_dir: str | Path | None,
     *,
+    bed_padding_bp: int,
     overwrite: bool,
     global_config: GlobalConfig,
     entrypoint: str,
 ) -> AnnotationBundle:
     """Run BED-to-annotation projection with an explicit resolved GlobalConfig."""
     print_global_config_banner(entrypoint, global_config)
-    build_config = AnnotationBuildConfig(query_annot_bed_sources=query_annot_bed_sources)
+    build_config = AnnotationBuildConfig(query_annot_bed_sources=query_annot_bed_sources, bed_padding_bp=bed_padding_bp)
     builder = AnnotationBuilder(global_config, build_config)
     if output_dir is not None:
         builder._workflow_log_path = Path(output_dir) / "diagnostics" / "annotate.log"
@@ -837,6 +856,7 @@ def _run_bed_to_annot_with_global_config(
         query_annot_bed_sources=query_annot_bed_sources,
         baseline_annot_sources=baseline_annot_sources,
         output_dir=output_dir,
+        bed_padding_bp=bed_padding_bp,
         log_level=global_config.log_level,
         overwrite=overwrite,
     )
@@ -864,6 +884,12 @@ def add_annotate_arguments(parser: argparse.ArgumentParser) -> None:
         "--output-dir",
         required=True,
         help="Destination directory for generated .annot.gz files.",
+    )
+    parser.add_argument(
+        "--bed-padding-bp",
+        type=int,
+        default=0,
+        help="Base pairs to add to both sides of each BED interval before projection. Default: 0.",
     )
     parser.add_argument(
         "--overwrite",
@@ -967,6 +993,7 @@ def run_annotate_from_args(args: argparse.Namespace) -> AnnotationBundle:
         query_annot_bed_sources=split_cli_path_tokens(args.query_annot_bed_sources),
         baseline_annot_sources=split_cli_path_tokens(args.baseline_annot_sources),
         output_dir=args.output_dir,
+        bed_padding_bp=getattr(args, "bed_padding_bp", 0),
         overwrite=args.overwrite,
         global_config=cli_global_config,
         entrypoint="run_annotate_from_args",
@@ -1040,6 +1067,7 @@ def _write_annotation_metadata(
     bundle: AnnotationBundle,
     query_annot_bed_sources: str | PathLike[str] | Sequence[str | PathLike[str]] | None,
     baseline_annot_sources: str | PathLike[str] | Sequence[str | PathLike[str]] | None,
+    bed_padding_bp: int,
     dropped_snps_path: Path,
     written_query_paths: Sequence[Path],
 ) -> None:
@@ -1051,7 +1079,6 @@ def _write_annotation_metadata(
         "dropped_snps": str(dropped_snps_path.relative_to(output_dir)),
     }
     payload = {
-        "schema_version": 1,
         "artifact_type": "annotation_projection",
         "files": files,
         "snp_identifier": None if config is None else config.snp_identifier,
@@ -1062,6 +1089,7 @@ def _write_annotation_metadata(
         "n_snps": int(len(bundle.metadata)),
         "query_annot_bed_sources": _metadata_path_tokens(query_annot_bed_sources),
         "baseline_annot_sources": _metadata_path_tokens(baseline_annot_sources),
+        "bed_padding_bp": int(bed_padding_bp),
     }
     _atomic_write_json(payload, path)
 

@@ -12,6 +12,8 @@ import unittest
 from unittest import mock
 from typing import Optional
 
+import pytest
+
 import numpy as np
 import pandas as pd
 
@@ -474,7 +476,6 @@ class StandardTableFormattingTest(unittest.TestCase):
             meta = pq.read_schema(str(path)).metadata
             self.assertEqual(meta[b"ldsc:sorted_by_build"], b"hg19")
             self.assertEqual(meta[b"ldsc:row_group_size"], b"50000")
-            self.assertEqual(meta[b"ldsc:schema_version"], b"1")
             self.assertEqual(meta[b"ldsc:artifact_type"], b"ref_panel_r2")
             self.assertEqual(meta[b"ldsc:snp_identifier"], b"rsid_allele_aware")
             self.assertEqual(meta[b"ldsc:genome_build"], b"hg19")
@@ -499,6 +500,28 @@ class StandardTableFormattingTest(unittest.TestCase):
                 snp_identifier="chr_pos", min_r2=0.3, n_snps=2, sidecar_identity_sha256="0" * 64,
             )
             self.assertEqual(pq.read_schema(str(filtered_path)).metadata[b"ldsc:min_r2"], b"0.3")
+
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow dependency is not installed")
+    def test_write_r2_parquet_records_ld_window_metadata(self):
+        import pyarrow.parquet as pq
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "panel.parquet"
+            kernel_builder.write_r2_parquet(
+                pair_chunks=dict_chunks([]),
+                path=path,
+                genome_build="hg19",
+                n_samples=10,
+                snp_identifier="chr_pos",
+                n_snps=2,
+                sidecar_identity_sha256="0" * 64,
+                ld_window_mode="kb",
+                ld_window_value=1000.0,
+            )
+
+            metadata = pq.read_schema(str(path)).metadata
+            self.assertEqual(metadata[b"ldsc:ld_window_mode"], b"kb")
+            self.assertEqual(metadata[b"ldsc:ld_window_value"], b"1000.0")
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow dependency is not installed")
     def test_write_r2_parquet_uses_zstd_level_9(self):
@@ -1271,6 +1294,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             ) as mock_bed:
                 mock_bed.return_value.kept_snps = [2]
                 mock_bed.return_value.maf = np.array([0.3])
+                mock_bed.return_value.freq = 1 - np.array([0.3])
                 mock_bed.return_value.m = 1
                 mock_bed.return_value.n = 1
                 mock_bed.return_value.nextSNPs = lambda: iter([np.array([0.0])])
@@ -1331,6 +1355,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             ) as mock_bed:
                 mock_bed.return_value.kept_snps = [2]
                 mock_bed.return_value.maf = np.array([0.3])
+                mock_bed.return_value.freq = 1 - np.array([0.3])
                 mock_bed.return_value.m = 1
                 mock_bed.return_value.n = 1
                 mock_bed.return_value.nextSNPs = lambda: iter([np.array([0.0])])
@@ -1400,6 +1425,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             ), mock.patch("ldsc.ref_panel_builder.kernel_ldscore.PlinkBEDFile") as mock_bed:
                 mock_bed.return_value.kept_snps = [0]
                 mock_bed.return_value.maf = np.array([0.3])
+                mock_bed.return_value.freq = 1 - np.array([0.3])
                 mock_bed.return_value.m = 1
                 mock_bed.return_value.n = 1
                 mock_bed.return_value.nextSNPs = lambda: iter([np.zeros((1, 1))])
@@ -1436,6 +1462,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             ), mock.patch("ldsc.ref_panel_builder.kernel_ldscore.PlinkBEDFile") as mock_bed:
                 mock_bed.return_value.kept_snps = [0]
                 mock_bed.return_value.maf = np.array([0.3])
+                mock_bed.return_value.freq = 1 - np.array([0.3])
                 mock_bed.return_value.m = 1
                 mock_bed.return_value.n = 1
                 mock_bed.return_value.nextSNPs = lambda: iter([np.zeros((1, 1))])
@@ -1509,6 +1536,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             ) as mock_bed:
                 mock_bed.return_value.kept_snps = [0, 1, 2]
                 mock_bed.return_value.maf = np.array([0.2, 0.2, 0.3])
+                mock_bed.return_value.freq = 1 - np.array([0.2, 0.2, 0.3])
                 mock_bed.return_value.m = 3
                 mock_bed.return_value.n = 1
                 mock_bed.return_value.nextSNPs = lambda: iter([np.zeros((1, 3))])
@@ -1731,6 +1759,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             ) as mock_bed:
                 mock_bed.return_value.kept_snps = [0]
                 mock_bed.return_value.maf = np.array([0.3])
+                mock_bed.return_value.freq = 1 - np.array([0.3])
                 mock_bed.return_value.m = 1
                 mock_bed.return_value.n = 1
                 mock_bed.return_value.nextSNPs = lambda: iter([np.zeros((1, 1))])
@@ -2280,6 +2309,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 bed = mock.Mock()
                 bed.kept_snps = [2]
                 bed.maf = np.array([0.3])
+                bed.freq = 1 - np.array([0.3])
                 bed.m = 1
                 bed.n = 1
                 bed.nextSNPs = lambda _width: np.zeros((1, 1))
@@ -2639,6 +2669,7 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
             ) as mock_bed:
                 mock_bed.return_value.kept_snps = [0]
                 mock_bed.return_value.maf = np.array([0.3])
+                mock_bed.return_value.freq = 1 - np.array([0.3])
                 mock_bed.return_value.m = 1
                 mock_bed.return_value.n = 1
                 mock_bed.return_value.nextSNPs = lambda: iter([np.zeros((1, 1))])
@@ -2796,6 +2827,27 @@ class ReferencePanelBuilderSourceOnlySmokeTest(unittest.TestCase):
 
             meta_hg38 = pd.read_csv(build_result.output_paths["meta_hg38"][0], sep="\t", comment="#")
             self.assertTrue(meta_hg38["CM"].isna().all())
+
+    def test_hm3_chr22_subset_sidecar_is_canonical_a1_minor(self):
+        prefix = MINIMAL_EXTERNAL_FIXTURES / "plink" / "hm3_chr22_subset"
+        if not (Path(str(prefix) + ".bed").exists() and Path(str(prefix) + ".bim").exists() and Path(str(prefix) + ".fam").exists()):
+            self.skipTest("minimal chr22 PLINK fixture is unavailable; run tests/fixtures/generate_minimal_external_resources.py")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            build_result = ref_panel_builder.run_build_ref_panel(
+                plink_prefix=str(prefix),
+                source_genome_build="hg38",
+                genetic_map_hg19_sources=None,
+                genetic_map_hg38_sources=None,
+                output_dir=str(Path(tmpdir) / "panel"),
+                ld_wind_snps=10,
+                ld_wind_kb=None,
+                snp_batch_size=64,
+            )
+            meta = pd.read_csv(build_result.output_paths["meta_hg38"][0], sep="\t", comment="#")
+            # Canonical invariant: MAF = freq(A1) <= 0.5 and A1/A2 stay a valid biallelic pair.
+            self.assertTrue((meta["MAF"] <= 0.5 + 1e-12).all())
+            self.assertTrue((meta["A1"].astype(str) != meta["A2"].astype(str)).all())
 
     def test_built_parquet_records_binding_hash_matching_its_sidecar(self):
         import pyarrow.parquet as pq
@@ -3019,6 +3071,76 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
             self.assertGreater(float(parquet.baseline_table["base"].max()), 1.0)
 
 
+    def test_build_ref_panel_excludes_region_from_both_emitted_builds(self):
+        resources = _find_resources_root()
+        if resources is None:
+            self.skipTest("resources directory is not available from this workspace")
+
+        prefix = MINIMAL_EXTERNAL_FIXTURES / "plink" / "hm3_chr22_subset"
+        if not (Path(str(prefix) + ".bed").exists() and Path(str(prefix) + ".bim").exists() and Path(str(prefix) + ".fam").exists()):
+            self.skipTest("minimal chr22 PLINK fixture is unavailable; run tests/fixtures/generate_minimal_external_resources.py")
+
+        map_hg19 = MINIMAL_EXTERNAL_FIXTURES / "genetic_maps" / "genetic_map_hg19_chr22_subset.txt"
+        map_hg38 = MINIMAL_EXTERNAL_FIXTURES / "genetic_maps" / "genetic_map_hg38_chr22_subset.txt"
+        if not (map_hg19.exists() and map_hg38.exists()):
+            self.skipTest("minimal genetic-map fixtures are unavailable; run tests/fixtures/generate_minimal_external_resources.py")
+
+        chain = resources / "liftover" / "hg38ToHg19.over.chain"
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+
+            # Baseline dual-build run (no exclusion).
+            base_result = ref_panel_builder.run_build_ref_panel(
+                plink_prefix=str(prefix),
+                source_genome_build="hg38",
+                genetic_map_hg19_sources=str(map_hg19),
+                genetic_map_hg38_sources=str(map_hg38),
+                liftover_chain_hg38_to_hg19_file=str(chain),
+                output_dir=str(tmpdir / "base"),
+                ld_wind_snps=10,
+                ld_wind_kb=None,
+                snp_batch_size=64,
+            )
+
+            with gzip.open(base_result.output_paths["meta_hg38"][0], "rt", encoding="utf-8") as handle:
+                base_meta_hg38 = pd.read_csv(handle, sep="\t", comment="#")
+
+            first_row = base_meta_hg38.iloc[0]
+            pos = int(first_row["POS"])
+            snp_id = str(first_row["SNP"])
+
+            # BED that excludes exactly the one source-build SNP.
+            bed_path = tmpdir / "exclude.bed"
+            bed_path.write_text(f"22\t{pos - 1}\t{pos}\n", encoding="utf-8")
+
+            # Excluded dual-build run.
+            excl_result = ref_panel_builder.run_build_ref_panel(
+                plink_prefix=str(prefix),
+                source_genome_build="hg38",
+                genetic_map_hg19_sources=str(map_hg19),
+                genetic_map_hg38_sources=str(map_hg38),
+                liftover_chain_hg38_to_hg19_file=str(chain),
+                output_dir=str(tmpdir / "excl"),
+                ld_wind_snps=10,
+                ld_wind_kb=None,
+                snp_batch_size=64,
+                exclude_regions_bed=(str(bed_path),),
+            )
+
+            with gzip.open(excl_result.output_paths["meta_hg38"][0], "rt", encoding="utf-8") as handle:
+                excl_meta_hg38 = pd.read_csv(handle, sep="\t", comment="#")
+            with gzip.open(excl_result.output_paths["meta_hg19"][0], "rt", encoding="utf-8") as handle:
+                excl_meta_hg19 = pd.read_csv(handle, sep="\t", comment="#")
+
+        assert snp_id not in set(excl_meta_hg38["SNP"]), (
+            f"SNP {snp_id!r} (hg38 POS={pos}) still present in hg38 sidecar after exclusion"
+        )
+        assert snp_id not in set(excl_meta_hg19["SNP"]), (
+            f"SNP {snp_id!r} (hg38 POS={pos}) still present in hg19 sidecar after exclusion"
+        )
+
+
 class R2QuantizationTest(unittest.TestCase):
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
     def test_quantize_r2_endpoint_is_exact(self):
@@ -3058,7 +3180,6 @@ class R2QuantizationTest(unittest.TestCase):
             meta = pf.schema_arrow.metadata
             self.assertEqual(meta[b"ldsc:r2_encoding"], b"int16_symmetric")
             self.assertEqual(meta[b"ldsc:r2_scale"], b"32767")
-            self.assertEqual(meta[b"ldsc:schema_version"], b"1")
             rg = pf.metadata.row_group(0)
             encs = {rg.column(c).path_in_schema: rg.column(c).encodings
                     for c in range(rg.num_columns)}
@@ -3088,7 +3209,6 @@ class IndexWriterTest(unittest.TestCase):
             pf = pq.ParquetFile(path)
             self.assertEqual(pf.schema_arrow.names, ["IDX_1", "IDX_2", "R2", "SIGN"])
             meta = {k.decode(): v.decode() for k, v in pf.schema_arrow.metadata.items()}
-            self.assertEqual(meta["ldsc:schema_version"], "1")
             self.assertEqual(meta["ldsc:n_snps"], "3")
             self.assertEqual(meta["ldsc:sidecar_identity_sha256"], "deadbeef" * 8)
             self.assertEqual(meta["ldsc:sorted_by_build"], "hg19")
@@ -3155,3 +3275,164 @@ class SidecarIdentityHashTest(unittest.TestCase):
         changed_allele = base.assign(A1=["T"])
         self.assertEqual(sidecar_identity_sha256(changed_snp), sidecar_identity_sha256(base))
         self.assertNotEqual(sidecar_identity_sha256(changed_allele), sidecar_identity_sha256(base))
+
+
+# ---------------------------------------------------------------------------
+# Region exclusion behavior test (Task 7)
+# ---------------------------------------------------------------------------
+_CHR22 = Path(__file__).resolve().parent / "fixtures" / "minimal_external_resources" / "plink" / "hm3_chr22_subset"
+
+
+def _chr22_available() -> bool:
+    return all(Path(str(_CHR22) + ext).exists() for ext in (".bed", ".bim", ".fam"))
+
+
+def _read_meta(path) -> pd.DataFrame:
+    with gzip.open(path, "rt", encoding="utf-8") as handle:
+        return pd.read_csv(handle, sep="\t", comment="#")
+
+
+def test_build_ref_panel_excludes_user_bed_region(tmp_path):
+    if not _chr22_available():
+        pytest.skip("chr22 PLINK fixture unavailable; run tests/fixtures/generate_minimal_external_resources.py")
+    set_global_config(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
+
+    base = ref_panel_builder.run_build_ref_panel(
+        plink_prefix=str(_CHR22), source_genome_build="hg38",
+        genetic_map_hg19_sources=None, genetic_map_hg38_sources=None,
+        output_dir=str(tmp_path / "base"), ld_wind_snps=10, ld_wind_kb=None,
+        snp_batch_size=64,
+    )
+    base_meta = _read_meta(base.output_paths["meta_hg38"][0])
+    target_pos = int(base_meta["POS"].iloc[0])
+
+    bed = tmp_path / "exclude.bed"
+    bed.write_text(f"22\t{target_pos - 1}\t{target_pos}\n", encoding="utf-8")
+
+    excluded = ref_panel_builder.run_build_ref_panel(
+        plink_prefix=str(_CHR22), source_genome_build="hg38",
+        genetic_map_hg19_sources=None, genetic_map_hg38_sources=None,
+        output_dir=str(tmp_path / "excl"), ld_wind_snps=10, ld_wind_kb=None,
+        snp_batch_size=64,
+        exclude_regions_bed=(str(bed),),
+    )
+    excl_meta = _read_meta(excluded.output_paths["meta_hg38"][0])
+    assert target_pos not in set(excl_meta["POS"])
+    assert len(excl_meta) == len(base_meta) - int((base_meta["POS"] == target_pos).sum())
+
+
+def test_build_ref_panel_parser_region_flags():
+    parser = ref_panel_builder.build_parser()
+    args = parser.parse_args(
+        ["--plink-prefix", "p", "--output-dir", "o", "--ld-wind-kb", "1000",
+         "--exclude-regions", "mhc,centromeres", "--exclude-regions-bed", "/tmp/x.bed"]
+    )
+    build_config, _global = ref_panel_builder.config_from_args(args)
+    assert build_config.exclude_regions == ("mhc", "centromeres")
+    assert build_config.exclude_regions_bed == ("/tmp/x.bed",)
+
+    empty = ref_panel_builder.build_parser().parse_args(
+        ["--plink-prefix", "p", "--output-dir", "o", "--ld-wind-kb", "1000"]
+    )
+    empty_config, _ = ref_panel_builder.config_from_args(empty)
+    assert empty_config.exclude_regions == ()
+    assert empty_config.exclude_regions_bed == ()
+
+
+# --- Allele orientation canonicalization (A1 = minor allele) ---------------
+
+
+def test_orientation_flip_sign_rule():
+    # freq is the .bim A2 allele frequency; A1 must end up minor (freq(A1) <= 0.5).
+    freq = np.array([0.9, 0.5, 0.49999, 0.1, 0.5000001])
+    sign = kernel_builder.orientation_flip_sign(freq)
+    # Flip (sign -1) exactly where A2 freq < 0.5 (strict; 0.5 keeps PLINK order).
+    np.testing.assert_array_equal(sign, np.array([1.0, 1.0, -1.0, -1.0, 1.0], dtype=np.float32))
+    assert sign.dtype == np.float32
+
+
+def test_oriented_snp_getter_negates_flagged_columns_sequentially():
+    rng = np.random.default_rng(0)
+    full = rng.standard_normal((6, 5)).astype(np.float32)  # n=6 individuals, m=5 SNPs
+
+    class _Base:
+        def __init__(self):
+            self.pos = 0
+
+        def __call__(self, b):
+            out = full[:, self.pos:self.pos + b].copy()
+            self.pos += b
+            return out
+
+    sign = np.array([1.0, -1.0, 1.0, -1.0, 1.0], dtype=np.float32)
+    getter = kernel_builder.make_oriented_snp_getter(_Base(), sign)
+    first = getter(3)   # columns 0,1,2
+    second = getter(2)  # columns 3,4
+    got = np.hstack((first, second))
+    expected = full * sign  # broadcast over rows
+    np.testing.assert_allclose(got, expected, rtol=0, atol=0)
+
+
+def test_oriented_getter_is_identity_when_no_flips():
+    rng = np.random.default_rng(1)
+    full = rng.standard_normal((4, 3)).astype(np.float32)
+
+    class _Base:
+        def __init__(self):
+            self.pos = 0
+
+        def __call__(self, b):
+            out = full[:, self.pos:self.pos + b].copy()
+            self.pos += b
+            return out
+
+    getter = kernel_builder.make_oriented_snp_getter(_Base(), np.ones(3, dtype=np.float32))
+    np.testing.assert_allclose(getter(3), full, rtol=0, atol=0)
+
+
+def test_build_plink_metadata_frame_swaps_to_minor_a1():
+    class _Bim:
+        df = pd.DataFrame(
+            {
+                "CHR": ["22", "22", "22"],
+                "SNP": ["rs1", "rs2", "rs3"],
+                "CM": [0.0, 0.0, 0.0],
+                "BP": [100, 200, 300],
+                "A1": ["G", "C", "A"],   # .bim allele 1
+                "A2": ["A", "T", "G"],   # .bim allele 2 (package A2; freq is its frequency)
+            }
+        )
+
+    bim = _Bim()
+    kept_snps = [0, 1, 2]
+    a2_freq = [0.8, 0.3, 0.5]            # SNP rs2 must flip; rs3 (==0.5) keeps order
+    maf = np.minimum(a2_freq, 1 - np.asarray(a2_freq))
+
+    out = kernel_builder.build_plink_metadata_frame(
+        bim=bim, kept_snps=kept_snps, maf_values=maf, freq_values=a2_freq
+    )
+
+    # rs1: A2 major -> no swap; rs2: A2 minor -> swap; rs3: tie -> keep order.
+    assert list(out["A1"]) == ["G", "T", "A"]
+    assert list(out["A2"]) == ["A", "C", "G"]
+    # MAF is unchanged numerically and is now freq(A1) (<= 0.5 for all rows).
+    np.testing.assert_allclose(out["MAF"].to_numpy(), maf, rtol=0, atol=1e-12)
+    assert (out["MAF"] <= 0.5).all()
+    # Unordered allele set is preserved per SNP.
+    assert {out["A1"][1], out["A2"][1]} == {"C", "T"}
+
+
+def test_r2_is_orientation_invariant():
+    # Unit-level proof that negating standardized columns leaves R2 unchanged
+    # and flips SIGN iff exactly one endpoint of a pair was flipped.
+    rng = np.random.default_rng(7)
+    n, m = 50, 8
+    base = rng.standard_normal((n, m)).astype(np.float32)
+    base = (base - base.mean(0)) / base.std(0)
+    sign = np.array([1, -1, 1, 1, -1, -1, 1, -1], dtype=np.float32)
+    corr_plain = base.T @ (base / n)
+    flipped = base * sign
+    corr_flipped = flipped.T @ (flipped / n)
+    np.testing.assert_allclose(corr_plain ** 2, corr_flipped ** 2, rtol=0, atol=1e-6)
+    outer = np.outer(sign, sign)
+    np.testing.assert_allclose(np.sign(corr_flipped), np.sign(corr_plain) * outer, atol=1e-6)

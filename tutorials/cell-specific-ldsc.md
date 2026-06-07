@@ -108,9 +108,9 @@ print(cell_specific)
 `annotation_bundle.query_columns` are derived from the query annotation files. For BED inputs, the column names come from the BED basenames after normalization.
 
 The LD-score result and annotation bundle retain known `GlobalConfig`
-snapshots. Current disk-loaded sumstats recover the same provenance from
-root `metadata.json`. Old package-written sumstats artifacts without current
-provenance must be regenerated with the current LDSC package. With
+snapshots. Current disk-loaded `sumstats.parquet` recover the same provenance from
+their footer. A legacy `.sumstats.gz` or footer-less parquet carries no embedded
+metadata and loads with its identifier mode inferred from the LD-score panel. With
 `snp_identifier="chr_pos_allele_aware"`, the merge uses normalized
 `CHR:POS:<allele_set>` identity rather than rsIDs, and the `SNP` column remains
 a label. To run coordinate identity without allele-aware matching, set
@@ -157,6 +157,7 @@ ldsc partitioned-h2 \
   --trait-name trait \
   --ldscore-dir tutorial_outputs/cell_specific_ldscores \
   --count-kind common \
+  --summary-sort-by enrichment-p \
   --output-dir tutorial_outputs/cell_specific_ldsc \
   --write-per-query-results
 ```

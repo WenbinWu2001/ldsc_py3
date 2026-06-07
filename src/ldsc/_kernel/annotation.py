@@ -8,7 +8,6 @@ configuration handling, and output policy belong in ``ldsc.annotation_builder``.
 
 from __future__ import annotations
 
-import csv
 import gzip
 import re
 from dataclasses import dataclass
@@ -21,6 +20,7 @@ import pandas as pd
 from ..chromosome_inference import chrom_sort_key, normalize_chromosome
 from ..errors import LDSCDependencyError, LDSCInputError, LDSCInternalError
 from ..path_resolution import ensure_output_parent_directory, resolve_scalar_path
+from . import regions as kernel_regions
 
 
 @dataclass(frozen=True)
@@ -74,16 +74,6 @@ def _to_bed_chromosome(chrom: object) -> str:
     return "chr" + normalize_chromosome(chrom)
 
 
-def _split_delimited_line(line: str, delimiter: str | None) -> list[str]:
-    """Split one line according to the inferred delimiter convention."""
-    line = line.rstrip("\n")
-    if delimiter == ",":
-        return next(csv.reader([line]))
-    if delimiter == "\t":
-        return line.split("\t")
-    return re.split(r"\s+", line.strip())
-
-
 def _write_baseline_bed(rows: Sequence[_BaselineRow], path: Path) -> Path:
     """Write baseline SNP rows as single-base BED intervals for overlap queries."""
     with path.open("w", encoding="utf-8") as handle:
@@ -99,23 +89,15 @@ def _write_baseline_bed(rows: Sequence[_BaselineRow], path: Path) -> Path:
     return path
 
 
-def _write_normalized_bed(in_path: Path, out_path: Path) -> Path:
+def _write_normalized_bed(in_path: Path, out_path: Path, *, bed_padding_bp: int = 0) -> Path:
     """Normalize one BED input into a plain tab-delimited UCSC-style BED file."""
     with (gzip.open(in_path, "rt") if in_path.suffix.lower() == ".gz" else open(in_path, "rt")) as src:
         with out_path.open("w", encoding="utf-8") as dst:
-            for line in src:
-                stripped = line.strip()
-                if not stripped or stripped.startswith("#"):
-                    continue
-                fields = _split_delimited_line(line, None)
-                if len(fields) < 3:
-                    raise LDSCInputError(
-                        f"annotate could not normalize BED file '{in_path}': row has fewer than three columns: {line!r}. "
-                        "Most likely the BED file is malformed or uses the wrong delimiter. "
-                        "Provide a valid BED file with chrom, start, and end columns."
-                    )
-                chrom = _to_bed_chromosome(fields[0])
-                dst.write("\t".join([chrom] + fields[1:]) + "\n")
+            for row in kernel_regions.parse_bed_text(src.read(), label=str(in_path)):
+                chrom = _to_bed_chromosome(row.chrom)
+                start = max(0, row.start - bed_padding_bp)
+                end = row.end + bed_padding_bp
+                dst.write("\t".join([chrom, str(start), str(end), *row.extra_fields]) + "\n")
     return out_path
 
 

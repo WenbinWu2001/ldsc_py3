@@ -44,7 +44,7 @@ Several workflows write a fixed family of files that share one run identity
 through `output_dir`. These families are treated as one coherent set, not as
 independent optional files:
 
-- `munge-sumstats`: `metadata.json`, `sumstats.parquet`,
+- `munge-sumstats`: `sumstats.parquet` (self-describing footer),
   `sumstats.sumstats.gz`, `diagnostics/dropped_snps/dropped.tsv.gz`, and
   `diagnostics/sumstats.log`
   for CLI/workflow runs
@@ -190,6 +190,9 @@ How files are handled:
 
 - every resolved BED file becomes one annotation column
 - every resolved baseline annotation file is used as a SNP template
+- `bed_padding_bp` / `--bed-padding-bp` expands each BED interval on both
+  sides before projection and clips starts at zero; the default `0` leaves
+  intervals unchanged
 - CLI dispatch through `ldsc annotate` calls the same workflow module directly;
   parsed namespaces are not converted back to argv and reparsed
 
@@ -205,6 +208,7 @@ run_bed_to_annot(
     query_annot_bed_sources="beds/*.bed",
     baseline_annot_sources="annotations/baseline_chr/baseline.@.annot.gz",
     output_dir="annotations/query_from_beds",
+    bed_padding_bp=0,
     overwrite=True,
 )
 ```
@@ -240,6 +244,15 @@ Scalar-style inputs:
 
 - `ref_panel_snps_file`
 - `regression_snps_file`
+
+These SNP restriction files are scalar identity filters, not chromosome-suite
+inputs. They may resolve through exact-one globs where the workflow calls the
+scalar resolver, but `@` is not a chromosome placeholder for these files. The
+restriction universe is also materialized as an in-memory key set before
+matching. `munge-sumstats` streams raw sumstats chunks and uses packed integer
+keys for base `chr_pos` keep-lists, but it still keeps the complete restriction
+key set in memory; `ldscore` and reference-panel workflows likewise do not
+lazy-load restriction rows by chromosome.
 
 Packaged HM3 convenience flags:
 
@@ -327,7 +340,9 @@ Accepted path forms:
   modes match by the effective allele-aware key; packaged HM3 is allele-bearing
   and participates in allele-aware matching; duplicate restriction keys collapse
   to one retained key and non-identity columns such as `CM` or `MAF` are ignored;
-  `chr_pos`-family coordinates must be aligned to the PLINK source build
+  `chr_pos`-family coordinates must be aligned to the PLINK source build; the
+  resolved restriction is loaded into an in-memory key set before per-chromosome
+  PLINK filtering, so very large custom keep-lists can become a memory input
 - `use_hm3_snps`, when set: uses the packaged curated HM3 map instead of an
   explicit `ref_panel_snps_file`
 
@@ -426,8 +441,9 @@ How they are handled:
 
 Output:
 
-- `ldsc munge-sumstats` writes `sumstats.parquet` by default, plus root
-  `metadata.json`, `diagnostics/sumstats.log`, and
+- `ldsc munge-sumstats` writes a self-describing `sumstats.parquet` by default
+  (identity in its footer; no `metadata.json`), plus
+  `diagnostics/sumstats.log`, and
   `diagnostics/dropped_snps/dropped.tsv.gz` under `output_dir`;
   `--output-format tsv.gz` writes legacy `sumstats.sumstats.gz`, and
   `--output-format both` writes both curated artifacts. Existing owned

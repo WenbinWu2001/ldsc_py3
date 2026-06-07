@@ -54,6 +54,8 @@ contracts move.
 | `docs/superpowers/plans/2026-05-10-liftover-harmonization.md` | implemented task plan and verification checklist for liftover harmonization |
 | `docs/superpowers/specs/2026-05-11-ref-panel-stale-class2-warning.md` | additive stale class-2 reference-panel warning design |
 | `docs/superpowers/plans/2026-05-11-ref-panel-stale-class2-warning.md` | implemented task plan for stale class-2 warning tests and helper |
+| `docs/superpowers/specs/2026-06-06-sumstats-self-describing-artifact-design.md` | self-describing single-file sumstats artifact: parquet footer identity metadata + `load_sumstats` footer reader (`sumstats_munger.py`), chr_pos genome-build guard (`regression_runner._regression_genome_build`), package-wide `schema_version` removal |
+| `docs/superpowers/plans/2026-06-06-sumstats-self-describing-artifact-plan.md` | implemented task plan for the self-describing sumstats artifact and `schema_version` removal |
 
 ## Liftover Tutorials
 
@@ -88,7 +90,33 @@ contracts move.
 
 | Design document | Implementation |
 | --- | --- |
-| `docs/current/parquet-r2-format-and-read-pipeline.md` | canonical R² parquet schema/metadata (incl. `ldsc:min_r2`, `ldsc:r2_encoding`/`ldsc:r2_scale`), int16 R² quantization + `BYTE_STREAM_SPLIT` (`_quantize_r2` in `_kernel/ref_panel_builder.py`), zstd-L9 column-chunk compression, and `SortedR2BlockReader` decode/window read path with int16→float32 dequant (`_resolve_r2_scale`) and vectorized endpoint-index lookup in `_kernel/ldscore.py` |
+| `docs/current/parquet-r2-format-and-read-pipeline.md` | canonical R² parquet schema/metadata (incl. `ldsc:min_r2`, `ldsc:r2_encoding`/`ldsc:r2_scale`), int16 R² quantization + `BYTE_STREAM_SPLIT` (`_quantize_r2` in `_kernel/ref_panel_builder.py`), zstd-L9 column-chunk compression, and `SortedR2BlockReader` decode + pair-streaming read path (`iter_all_pairs` → `ld_score_streaming_from_r2_reader`) with int16→float32 dequant (`_resolve_r2_scale`) and `build_index_remap` endpoint lookup in `_kernel/ldscore.py` |
+| `docs/current/ldscore-parquet-accumulation.md` | math spec of the parquet LD-score streaming accumulation (`cor_sum = R · annot`, `_accumulate_pair_contributions` + `ld_score_streaming_from_r2_reader` in `_kernel/ldscore.py`); notation glossary |
 | `docs/superpowers/specs/2026-06-01-build-ref-panel-memory-optimization-design.md` | build-ref-panel memory/speed optimization: `--min-r2`, compact numpy pair buffers, vectorized pair extraction, builder-scoped float32 genotypes, direct PyArrow writes, BED bitarray releases (MAF-filter and per-build), zstd-L9, vectorized canonical decode lookup, and (#11) int16 R² quantization + `BYTE_STREAM_SPLIT` |
 | `docs/superpowers/specs/2026-06-02-build-ref-panel-reader-streaming-design.md` | shared PLINK genotype reader extracted to `_kernel/plink_bed.py`; lazy header read + per-SNP selective decode with fused individual filter (O1/O3) and opt-in disk streaming for unrestricted builds (O2). Benefits `build-ref-panel`, the legacy `compute_chrom_from_plink` LD-score path, and `PlinkRefPanel`; never materializes the whole-chromosome bitarray |
 | `docs/superpowers/specs/2026-06-03-pair-emission-columnar-and-doc-sync-design.md` | columnar `PairColumns` pair emission end-to-end (O6): `_pop_pair_rows_before`/`yield_pairwise_r2_rows` yield `(i, j, r2, sign)` chunks and `write_r2_parquet`/`_standard_r2_index_table` consume them, removing the per-pair dict round-trip; parquet format/encoding unchanged. Also the O7 memory doc sync across `docs/current/` and the build tutorial |
+
+## Reference Panel (R²) Pair Query
+
+| Design document | Implementation |
+| --- | --- |
+| `docs/superpowers/specs/2026-06-06-ref-panel-r2-query-design.md` | public surface `src/ldsc/r2_query.py`: `R2Panel` handle (`open`, lazy `_chrom_state`, `_resolve_endpoint`, `query_pairs`), one-shot `query_r2`, pure `unbiased_r2_to_pearson_r`, and `build_parser`/`run_query_r2_from_args`/`main`; `query-r2` registration + dispatch in `src/ldsc/cli.py`; exports in `src/ldsc/__init__.py` |
+| `docs/superpowers/specs/2026-06-06-ref-panel-r2-query-design.md` | point-lookup kernel `src/ldsc/_kernel/r2_query.py`: `lookup_pairs_in_parquet` (int64-key match, random-access row-group pruning vs. streaming, int16→float32 dequant), `_prune_row_groups`, `_arrow_to_numpy` |
+| `docs/superpowers/plans/2026-06-06-ref-panel-r2-query-plan.md` | TDD checklist and the binding-valid panel fixture `build_test_panel` in `tests/test_r2_query.py` |
+| `docs/current/ref-panel-r2-query.md` | user-facing API + `ldsc query-r2` CLI reference (input columns, output schema, status vocabulary, sign rule, strategies) |
+
+## Region Exclusion
+
+| Design document | Implementation |
+| --- | --- |
+| `docs/superpowers/specs/2026-06-06-region-exclusion-design.md` | kernel engine `src/ldsc/_kernel/regions.py`: `load_preset_intervals`, `load_bed_intervals`, `merge_intervals`, `region_exclusion_keep_mask`, `RegionIntervals` |
+| `docs/superpowers/specs/2026-06-06-region-exclusion-design.md` | `ldscore` chokepoint: `RefPanel._apply_region_exclusion` in `src/ldsc/_kernel/ref_panel.py`; resolved via `RefPanel._region_intervals` which reads `RefPanelConfig.exclude_regions`, `RefPanelConfig.exclude_regions_bed`, `RefPanelConfig.exclude_regions_build` |
+| `docs/superpowers/specs/2026-06-06-region-exclusion-design.md` | `build-ref-panel` chokepoint: `ReferencePanelBuilder._build_chromosome` in `src/ldsc/ref_panel_builder.py`; intervals built once in `_prepare_build_state` from `ReferencePanelBuildConfig.exclude_regions`, `ReferencePanelBuildConfig.exclude_regions_bed`; no `exclude_regions_build` field — source build reused automatically |
+| `docs/current/data-flow.md` (`## Region Exclusion`) | packaged preset BEDs under `src/ldsc/data/regions/`; CLI flags `--exclude-regions`, `--exclude-regions-bed`, `--exclude-regions-build` (ldscore only); config fields in `RefPanelConfig` and `ReferencePanelBuildConfig` in `src/ldsc/config.py` |
+
+## LD-Score Calculation Parallelism
+
+| Design document | Implementation |
+| --- | --- |
+| `docs/superpowers/specs/2026-06-05-ldscore-chromosome-parallelism-design.md` | single-machine cross-chromosome process-pool parallelism via one `LDScoreConfig.threads` knob / `--threads` flag (joblib `n_jobs`: `1`=sequential default, `-1`=all cores, `-2`=all but one), affinity-aware core detection (`_available_cpu_count` via `os.sched_getaffinity`), `_resolve_worker_count`, `LDScoreCalculator._run_chromosomes` (inline vs spawn `ProcessPoolExecutor`), module-level `_compute_one_chromosome` worker, `_ChromOutcome`, `_init_worker` BLAS-thread guard, deterministic chromosome-ordered aggregation. Output contract unchanged. All in `src/ldsc/ldscore_calculator.py` |
+| `docs/superpowers/plans/2026-06-05-ldscore-chromosome-parallelism-plan.md` | TDD implementation checklist and the two-chromosome canonical index-panel fixture in `tests/test_ldscore_parallelism.py` |

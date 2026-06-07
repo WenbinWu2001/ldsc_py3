@@ -21,7 +21,7 @@ import logging
 import sys
 from typing import Sequence
 
-from . import annotation_builder, ldscore_calculator, ref_panel_builder
+from . import annotation_builder, ldscore_calculator, r2_query, ref_panel_builder
 from ._logging import (
     install_cli_console_handler,
     last_workflow_log_path,
@@ -85,6 +85,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     rg_parser = subparsers.add_parser("rg", help="Estimate genetic correlation.")
     regression_runner.add_rg_arguments(rg_parser)
+
+    query_r2_parser = subparsers.add_parser("query-r2", help="Query R2 for SNP pairs from a reference panel.")
+    _copy_actions(query_r2_parser, r2_query.build_parser())
     return parser
 
 
@@ -112,6 +115,8 @@ def main(argv: Sequence[str] | None = None):
             return ldscore_calculator.main(subargv)
         if command == "build-ref-panel":
             return ref_panel_builder.main(subargv)
+        if command == "query-r2":
+            return r2_query.main(subargv)
         if command == "munge-sumstats":
             sumstats_munger = _load_sumstats_munger()
             return sumstats_munger.main(subargv)
@@ -150,6 +155,8 @@ def main(argv: Sequence[str] | None = None):
         return ldscore_calculator.run_ldscore_from_args(args)
     if args.command == "build-ref-panel":
         return ref_panel_builder.run_build_ref_panel_from_args(args)
+    if args.command == "query-r2":
+        return r2_query.run_query_r2_from_args(args)
     if args.command == "munge-sumstats":
         return _load_sumstats_munger().run_munge_sumstats_from_args(args)
     if args.command == "h2":

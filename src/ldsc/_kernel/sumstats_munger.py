@@ -249,6 +249,9 @@ def filter_frq(frq, args):
     if bad_frq > 0:
         LOGGER.warning(f"WARNING: {bad_frq} SNPs had FRQ outside of [0,1]. The FRQ column may be mislabeled.")
 
+    # Carve-out: sumstats A1 is the EFFECT allele, not the minor allele. The fold
+    # below is a local mask for the --maf-min threshold only; never reorient
+    # A1/A2 or overwrite FRQ here (FRQ stays freq(A1), may exceed 0.5).
     frq = np.minimum(frq, 1 - frq)
     ii = frq > args.maf_min
     return ii & ~jj

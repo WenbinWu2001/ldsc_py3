@@ -20,7 +20,6 @@ metadata sidecar defines the full panel SNP universe and the index space.
 The sidecar format:
 
 ```text
-# ldsc:schema_version=1
 # ldsc:artifact_type=ref_panel_metadata
 # ldsc:snp_identifier=chr_pos_allele_aware
 # ldsc:genome_build=hg38
@@ -81,18 +80,40 @@ only fills missing values from the annotation side.
 
 ## Memory
 
+Both build and read peak RSS are **flat in the LD window width** — the builder
+streams a bounded genotype window from disk, and the reader streams stored R2
+pairs into a window-independent accumulator. They are described separately because
+the floor each is bounded by differs (genotype read vs. `cor_sum`).
+
+### Build side (`build-ref-panel`)
+
 The builder never loads the whole chromosome's genotypes into RAM. When a SNP
 restriction is supplied (`--ref-panel-snps-file` / `--use-hm3-snps`) it reads only
 the kept SNP blocks from the `.bed`; the default unrestricted build streams a
 sliding window directly from disk. Individual filtering (`--keep-indivs-file`) is
 fused into the per-SNP read, so the raw and filtered bitarrays never coexist.
 
-As a result, peak RSS is governed by that bounded genotype read plus the
+As a result, **build** peak RSS is governed by that bounded genotype read plus the
 workflow/import floor — **not** by `--snp-batch-size`, `--ld-wind-*`, `--min-r2`,
 or `--maf-min`. Those control speed and output size; the window/min-r2 options
-also change the pair count and pending-pair working set, but they are not peak-RSS
-levers. R2 pairs are emitted as columnar batches; the on-disk parquet format is
-unchanged.
+also change the pair count and pending-pair working set, but they are not build
+peak-RSS levers. R2 pairs are emitted as columnar batches; the on-disk parquet
+format is unchanged.
+
+### Read side (`ldscore`)
+
+Reading a parquet R2 panel streams every stored pair once (`iter_all_pairs`) and
+accumulates `cor_sum = R · annot` directly — no decoded-row-group cache and no
+sliding-window block matrices. Peak read RSS is therefore bounded by the
+accumulator `cor_sum` (`m · n_a · 8` bytes, float64), plus one decoded row group
+at a time and the workflow/import floor. Like the build side, the read side is
+**flat in `--ld-wind-*`**: the window only filters which streamed pairs contribute
+(`i ≥ block_left[j]`), it does not change resident memory; dense wide-window
+regions (the chr6 MHC) add pairs to stream but are not a memory high-water mark.
+Under cross-chromosome parallelism each worker holds its own `cor_sum`, so
+aggregate RSS scales with the worker count. See
+`docs/current/parquet-r2-format-and-read-pipeline.md` §3.6 for the read-side memory
+model.
 
 ## Practical contract
 

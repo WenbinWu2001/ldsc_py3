@@ -23,8 +23,11 @@ files.
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
 import logging
+import multiprocessing as mp
+import os
 from pathlib import Path
 from typing import Any, Sequence
 import warnings
@@ -303,6 +306,13 @@ class LDScoreCalculator:
     ) -> LDScoreResult:
         """Compute and aggregate LD scores across all chromosomes.
 
+        Chromosomes are computed independently and then aggregated in input
+        order. ``ldscore_config.threads`` controls cross-chromosome parallelism
+        (joblib ``n_jobs`` convention): ``1`` (default) runs sequentially
+        in-process, while ``-1`` (all cores), ``-2`` (all but one), or any
+        positive ``N`` fan out over a spawn ``ProcessPoolExecutor``. The
+        aggregated output is identical regardless of this setting.
+
         Parameters
         ----------
         annotation_bundle : AnnotationBundle
@@ -344,23 +354,23 @@ class LDScoreCalculator:
             )
         chromosomes = _chromosomes_from_bundle(annotation_bundle)
         LOGGER.info(_format_ldscore_start_message(annotation_bundle, len(chromosomes)))
+        worker_count = _resolve_worker_count(ldscore_config.threads, len(chromosomes))
+        outcomes = self._run_chromosomes(
+            chromosomes=chromosomes,
+            annotation_bundle=annotation_bundle,
+            ref_panel=ref_panel,
+            ldscore_config=ldscore_config,
+            global_config=global_config,
+            regression_snps=regression_snps,
+            worker_count=worker_count,
+        )
         chromosome_results: list[ChromLDScoreResult] = []
         for chrom in chromosomes:
-            chrom_bundle = _slice_annotation_bundle(annotation_bundle, chrom)
-            try:
-                chromosome_result = self.compute_chromosome(
-                    chrom=chrom,
-                    annotation_bundle=chrom_bundle,
-                    ref_panel=ref_panel,
-                    ldscore_config=ldscore_config,
-                    global_config=global_config,
-                    regression_snps=regression_snps,
-                )
-            except (ValueError, LDSCInputError) as exc:
-                if _warn_and_skip_empty_intersection(exc, chrom):
-                    continue
-                raise
-            chromosome_results.append(chromosome_result)
+            outcome = outcomes[chrom]
+            if outcome.skipped:
+                warnings.warn(f"Skipping chromosome {chrom}: {outcome.skip_message}", UserWarning, stacklevel=2)
+                continue
+            chromosome_results.append(outcome.result)
         if not chromosome_results:
             raise LDSCInputError(
                 "ldscore could not compute any chromosome results after intersecting annotations "
@@ -384,6 +394,80 @@ class LDScoreCalculator:
             f"and {len(result.baseline_table)} retained SNP rows."
         )
         return result
+
+    def _run_chromosomes(
+        self,
+        chromosomes,
+        annotation_bundle,
+        ref_panel,
+        ldscore_config: LDScoreConfig,
+        global_config: GlobalConfig,
+        regression_snps,
+        worker_count: int,
+    ) -> dict[str, _ChromOutcome]:
+        """Compute every chromosome, sequentially or via a spawn process pool.
+
+        Returns outcomes keyed by chromosome. ``worker_count == 1`` runs inline
+        on this calculator and the passed ``ref_panel`` (the exact pre-parallel
+        path); larger counts fan out over a spawn ``ProcessPoolExecutor`` whose
+        workers rebuild the panel from ``ref_panel.spec`` because a live reader
+        cannot cross the process boundary. Callers re-order by the original
+        chromosome list for deterministic aggregation, so completion order does
+        not matter.
+        """
+        if worker_count == 1:
+            outcomes: dict[str, _ChromOutcome] = {}
+            for chrom in chromosomes:
+                chrom_bundle = _slice_annotation_bundle(annotation_bundle, chrom)
+                try:
+                    result = self.compute_chromosome(
+                        chrom=chrom,
+                        annotation_bundle=chrom_bundle,
+                        ref_panel=ref_panel,
+                        ldscore_config=ldscore_config,
+                        global_config=global_config,
+                        regression_snps=regression_snps,
+                    )
+                except (ValueError, LDSCInputError) as exc:
+                    if _is_empty_intersection(exc, chrom):
+                        outcomes[chrom] = _ChromOutcome(chrom=chrom, result=None, skipped=True, skip_message=str(exc))
+                        continue
+                    raise
+                outcomes[chrom] = _ChromOutcome(chrom=chrom, result=result, skipped=False)
+            return outcomes
+
+        ref_panel_spec = ref_panel.spec
+        ctx = mp.get_context("spawn")
+        outcomes = {}
+        with ProcessPoolExecutor(
+            max_workers=worker_count,
+            mp_context=ctx,
+            initializer=_init_worker,
+            initargs=(regression_snps, global_config.log_level),
+        ) as pool:
+            futures = {
+                pool.submit(
+                    _compute_one_chromosome,
+                    chrom,
+                    _slice_annotation_bundle(annotation_bundle, chrom),
+                    ref_panel_spec,
+                    ldscore_config,
+                    global_config,
+                ): chrom
+                for chrom in chromosomes
+            }
+            try:
+                for future in futures:
+                    outcome = future.result()
+                    outcomes[outcome.chrom] = outcome
+            except mp.ProcessError as exc:  # BrokenProcessPool subclasses this
+                raise LDSCInternalError(
+                    "ldscore parallel chromosome computation aborted: a worker process "
+                    "crashed (most likely out-of-memory or a native library fault). "
+                    "Re-run with a lower `--num-workers`, or `--num-workers 1` to isolate "
+                    "the failing chromosome."
+                ) from exc
+        return outcomes
 
     def compute_chromosome(
         self,
@@ -544,6 +628,7 @@ class LDScoreCalculator:
             ignore_index=True,
         )
         merged_table = kernel_ldscore.sort_frame_by_genomic_position(merged_table)
+        _assert_canonical_maf(merged_table)
         baseline_table, query_table = _split_ldscore_table(
             merged_table,
             baseline_columns=list(chromosome_results[0].baseline_columns),
@@ -596,6 +681,26 @@ class LDScoreCalculator:
         """
         del config_snapshot
         return self.output_writer.write(result, output_config)
+
+
+def _assert_canonical_maf(metadata: pd.DataFrame) -> None:
+    """Verify the canonical invariant that MAF = freq(A1) is the minor allele.
+
+    LD-score artifacts inherit A1/A2/MAF from the reference panel. A panel built
+    before allele-orientation canonicalization can carry MAF > 0.5 (folded MAF not
+    tied to A1); fail loudly rather than silently mis-tie MAF to A1.
+    """
+    if "MAF" not in metadata.columns:
+        return
+    maf = pd.to_numeric(metadata["MAF"], errors="coerce")
+    over = maf[maf > 0.5 + 1e-9]
+    if len(over):
+        raise LDSCInternalError(
+            "LD-score metadata carries MAF > 0.5, violating the canonical "
+            f"A1=minor invariant ({len(over)} rows; first={float(over.iloc[0]):.4f}). "
+            "Most likely the reference panel was built before allele-orientation "
+            "canonicalization. Rebuild the reference panel with the current package."
+        )
 
 
 def _split_ldscore_table(
@@ -739,6 +844,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Comma-separated BED file path tokens projected in memory as query annotations. Requires --baseline-annot-sources.",
     )
     parser.add_argument(
+        "--bed-padding-bp",
+        type=int,
+        default=0,
+        help="Base pairs to add to both sides of each query BED interval before in-memory projection. Default: 0.",
+    )
+    parser.add_argument(
         "--baseline-annot-sources",
         default=None,
         help="Comma-separated baseline annotation path tokens. If omitted with no query inputs, an all-ones `base` annotation is synthesized.",
@@ -784,6 +895,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Restrict the reference-panel universe to the packaged curated HM3 SNP map.",
     )
     parser.add_argument(
+        "--exclude-regions",
+        default=None,
+        help="Comma-separated curated region presets to exclude before LD computation (choices: mhc, centromeres). Requires --exclude-regions-build.",
+    )
+    parser.add_argument(
+        "--exclude-regions-build",
+        choices=("hg19", "hg38"),
+        default=None,
+        help="Genome build of the panel coordinates, used to select preset BEDs. Required whenever --exclude-regions is given.",
+    )
+    parser.add_argument(
+        "--exclude-regions-bed",
+        default=None,
+        help="Comma-separated user BED file path tokens of regions to exclude, applied as-is on panel CHR/POS (0-based half-open).",
+    )
+    parser.add_argument(
         "--regression-snps-file",
         default=None,
         help=(
@@ -807,7 +934,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ld-wind-cm", default=None, type=float, help="LD window size in centiMorgans.")
     parser.add_argument("--maf-min", default=None, type=float, help="Optional MAF filter for retained reference-panel SNPs when MAF is available.")
     parser.add_argument("--common-maf-min", default=0.05, type=float, help="MAF threshold used only for common-SNP annotation count vectors.")
-    parser.add_argument("--snp-batch-size", default=128, type=int, help="Number of SNPs processed per LD-score sliding batch.")
+    parser.add_argument("--snp-batch-size", default=128, type=int, help="Genotype batch size for the PLINK reference-panel backend; ignored by the parquet-R2 backend, which streams stored pairs. Defaults to 128.")
+    parser.add_argument("--threads", default=1, type=int, help="Worker processes for cross-chromosome parallelism (joblib n_jobs convention): 1=sequential (default), N=N workers, -1=all cores, -2=all but one. Respects CPU affinity; capped at the chromosome count.")
     parser.add_argument("--yes-really", default=False, action="store_true", help="Allow whole-chromosome LD windows.")
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"), help="Logging verbosity.")
     return parser
@@ -852,6 +980,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
             baseline_annot_sources=tuple(split_cli_path_tokens(normalized_args.baseline_annot_sources)),
             query_annot_sources=tuple(split_cli_path_tokens(normalized_args.query_annot_sources)),
             query_annot_bed_sources=tuple(split_cli_path_tokens(getattr(normalized_args, "query_annot_bed_sources", None))),
+            bed_padding_bp=normalized_args.bed_padding_bp,
         )
         annotation_bundle = AnnotationBuilder(global_config).run(source_spec)
         ref_panel = _ref_panel_from_args(normalized_args, global_config)
@@ -1154,6 +1283,9 @@ def _normalize_run_args(args: argparse.Namespace) -> tuple[argparse.Namespace, G
     for attr in ("ref_panel_snps_file", "regression_snps_file"):
         if not hasattr(normalized_args, attr):
             setattr(normalized_args, attr, None)
+    for attr in ("exclude_regions", "exclude_regions_build", "exclude_regions_bed"):
+        if not hasattr(normalized_args, attr):
+            setattr(normalized_args, attr, None)
     for attr in ("use_hm3_ref_panel_snps", "use_hm3_regression_snps"):
         if not hasattr(normalized_args, attr):
             setattr(normalized_args, attr, False)
@@ -1161,6 +1293,8 @@ def _normalize_run_args(args: argparse.Namespace) -> tuple[argparse.Namespace, G
         normalized_args.maf_min = None
     if not hasattr(normalized_args, "common_maf_min"):
         normalized_args.common_maf_min = 0.05
+    if not hasattr(normalized_args, "bed_padding_bp"):
+        normalized_args.bed_padding_bp = 0
     if not hasattr(normalized_args, "snp_batch_size"):
         normalized_args.snp_batch_size = 128
     normalized_args.snp_identifier = normalized_mode
@@ -1169,6 +1303,9 @@ def _normalize_run_args(args: argparse.Namespace) -> tuple[argparse.Namespace, G
     normalized_args.keep_indivs_file = normalize_optional_path_token(getattr(args, "keep_indivs_file", None))
     normalized_args.ref_panel_snps_file = normalize_optional_path_token(getattr(args, "ref_panel_snps_file", None))
     normalized_args.regression_snps_file = normalize_optional_path_token(getattr(args, "regression_snps_file", None))
+    normalized_args.exclude_regions = getattr(args, "exclude_regions", None)
+    normalized_args.exclude_regions_build = getattr(args, "exclude_regions_build", None)
+    normalized_args.exclude_regions_bed = getattr(args, "exclude_regions_bed", None)
     if normalized_args.ref_panel_snps_file is not None and normalized_args.use_hm3_ref_panel_snps:
         raise LDSCUsageError(
             "ldscore received two reference-panel SNP restrictions: `ref_panel_snps_file` "
@@ -1360,6 +1497,9 @@ def _ref_panel_from_args(args: argparse.Namespace, global_config: GlobalConfig):
             use_hm3_ref_panel_snps=getattr(args, "use_hm3_ref_panel_snps", False),
             maf_min=getattr(args, "maf_min", None),
             keep_indivs_file=getattr(args, "keep_indivs_file", None),
+            exclude_regions=tuple(split_cli_path_tokens(getattr(args, "exclude_regions", None))),
+            exclude_regions_bed=tuple(split_cli_path_tokens(getattr(args, "exclude_regions_bed", None))),
+            exclude_regions_build=getattr(args, "exclude_regions_build", None),
         )
     else:
         spec = RefPanelConfig(
@@ -1369,6 +1509,9 @@ def _ref_panel_from_args(args: argparse.Namespace, global_config: GlobalConfig):
             use_hm3_ref_panel_snps=getattr(args, "use_hm3_ref_panel_snps", False),
             maf_min=getattr(args, "maf_min", None),
             keep_indivs_file=getattr(args, "keep_indivs_file", None),
+            exclude_regions=tuple(split_cli_path_tokens(getattr(args, "exclude_regions", None))),
+            exclude_regions_bed=tuple(split_cli_path_tokens(getattr(args, "exclude_regions_bed", None))),
+            exclude_regions_build=getattr(args, "exclude_regions_build", None),
         )
     return RefPanelLoader(global_config).load(spec)
 
@@ -1384,6 +1527,7 @@ def _ldscore_config_from_args(args: argparse.Namespace) -> LDScoreConfig:
         snp_batch_size=getattr(args, "snp_batch_size", 128),
         common_maf_min=getattr(args, "common_maf_min", 0.05),
         whole_chromosome_ok=getattr(args, "yes_really", False),
+        threads=getattr(args, "threads", 1),
     )
 
 
@@ -1427,6 +1571,41 @@ def _replace_result_output_paths(result: LDScoreResult, output_paths: dict[str, 
         count_config=dict(result.count_config),
         config_snapshot=result.config_snapshot,
     )
+
+
+def _available_cpu_count() -> int:
+    """Return the number of CPUs available to this process.
+
+    Prefers ``os.sched_getaffinity`` (Linux) so SLURM/cgroup/cpuset/Docker CPU
+    allocations are respected rather than the whole machine's core count; falls
+    back to ``os.cpu_count()`` on platforms without affinity support.
+    """
+    getaffinity = getattr(os, "sched_getaffinity", None)
+    if getaffinity is not None:
+        try:
+            return len(getaffinity(0)) or 1
+        except OSError:
+            pass
+    return os.cpu_count() or 1
+
+
+def _resolve_worker_count(threads: int, n_chromosomes: int) -> int:
+    """Resolve the effective worker-process count from the ``threads`` setting.
+
+    Uses the joblib ``n_jobs`` convention: ``1`` is sequential, a positive ``N``
+    requests ``N`` workers, ``-1`` requests all available cores, ``-2`` all but
+    one, and any negative ``-k`` requests ``n_cpus + 1 - k``. Core counts respect
+    CPU affinity (see :func:`_available_cpu_count`). The result is capped at
+    ``n_chromosomes`` and floored at ``1`` so a single chromosome never spawns a
+    pool.
+    """
+    if n_chromosomes <= 0:
+        return 1
+    if threads < 0:
+        resolved = _available_cpu_count() + 1 + threads
+    else:
+        resolved = threads
+    return max(1, min(resolved, n_chromosomes))
 
 
 def _chromosomes_from_bundle(annotation_bundle) -> list[str]:
@@ -1568,8 +1747,8 @@ def _annotation_metadata_with_reference_alleles(
     return enriched
 
 
-def _warn_and_skip_empty_intersection(error: Exception, chrom: str) -> bool:
-    """Warn and signal skip when a chromosome loses all SNPs after reference intersection."""
+def _is_empty_intersection(error: Exception, chrom: str) -> bool:
+    """Return whether ``error`` is the recoverable empty-intersection case."""
     message = str(error)
     old_shape = message.startswith("No retained annotation SNPs remain on chromosome ")
     new_shape = message.startswith("ldscore retained no annotation SNPs on chromosome ")
@@ -1579,8 +1758,84 @@ def _warn_and_skip_empty_intersection(error: Exception, chrom: str) -> bool:
         return False
     if new_shape and "after intersecting with the " not in message:
         return False
-    warnings.warn(f"Skipping chromosome {chrom}: {message}", UserWarning, stacklevel=3)
     return True
+
+
+def _warn_and_skip_empty_intersection(error: Exception, chrom: str) -> bool:
+    """Warn and signal skip when a chromosome loses all SNPs after reference intersection."""
+    if not _is_empty_intersection(error, chrom):
+        return False
+    warnings.warn(f"Skipping chromosome {chrom}: {error}", UserWarning, stacklevel=3)
+    return True
+
+
+# Worker state shared within a pool worker process. ``regression_snps`` is set
+# once by the pool initializer so a large SNP set is transferred per worker, not
+# per task; the inline (single-worker) caller passes it explicitly instead.
+_WORKER_UNSET = "__use_worker_global__"
+_WORKER_STATE: dict[str, Any] = {}
+
+
+@dataclass(frozen=True)
+class _ChromOutcome:
+    """Tagged result of one chromosome's LD-score computation in a worker."""
+
+    chrom: str
+    result: "ChromLDScoreResult | None"
+    skipped: bool
+    skip_message: str | None = None
+
+
+def _compute_one_chromosome(
+    chrom: str,
+    chrom_bundle,
+    ref_panel_spec,
+    ldscore_config: LDScoreConfig,
+    global_config: GlobalConfig,
+    regression_snps=_WORKER_UNSET,
+) -> _ChromOutcome:
+    """Compute one chromosome end-to-end and return a tagged outcome.
+
+    Rebuilds the reference-panel adapter locally from ``ref_panel_spec`` so no
+    live reader/file handle crosses the process boundary. ``regression_snps``
+    defaults to the pool-initializer-provided global; the inline single-worker
+    caller passes it explicitly. Recoverable empty-intersection errors return a
+    skipped outcome rather than raising across the pool boundary.
+    """
+    from ._kernel.ref_panel import RefPanelLoader
+
+    if regression_snps == _WORKER_UNSET:
+        regression_snps = _WORKER_STATE.get("regression_snps")
+    ref_panel = RefPanelLoader(global_config).load(ref_panel_spec)
+    calculator = LDScoreCalculator()
+    try:
+        result = calculator.compute_chromosome(
+            chrom=chrom,
+            annotation_bundle=chrom_bundle,
+            ref_panel=ref_panel,
+            ldscore_config=ldscore_config,
+            global_config=global_config,
+            regression_snps=regression_snps,
+        )
+    except (ValueError, LDSCInputError) as exc:
+        if _is_empty_intersection(exc, chrom):
+            return _ChromOutcome(chrom=chrom, result=None, skipped=True, skip_message=str(exc))
+        raise
+    return _ChromOutcome(chrom=chrom, result=result, skipped=False)
+
+
+def _init_worker(regression_snps, log_level: str) -> None:
+    """Initialize a pool worker: shared regression keys, logging, BLAS threads.
+
+    Pins BLAS thread counts to 1 unless the user already set them, so ``W``
+    worker processes do not oversubscribe ``W x BLAS_threads`` cores.
+    """
+    from ._logging import configure_package_logging
+
+    _WORKER_STATE["regression_snps"] = regression_snps
+    for var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
+        os.environ.setdefault(var, "1")
+    configure_package_logging(log_level)
 
 
 def _namespace_from_configs(chrom: str, ref_panel, ldscore_config: LDScoreConfig, global_config: GlobalConfig) -> argparse.Namespace:

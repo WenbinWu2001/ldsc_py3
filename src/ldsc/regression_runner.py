@@ -80,6 +80,7 @@ from ._kernel.snp_identity import (
 )
 from ._row_alignment import assert_same_snp_rows
 from .column_inference import infer_chr_pos_columns, normalize_snp_identifier_mode
+from .genome_build_inference import infer_chr_pos_build
 from .ldscore_calculator import LDScoreResult
 from .outputs import (
     H2DirectoryWriter,
@@ -109,6 +110,19 @@ PARTITIONED_H2_AGGREGATE_COLUMNS = [
     "Coefficient",
     "Coefficient_p",
 ]
+PARTITIONED_H2_SUMMARY_SORT_COLUMNS = {
+    "category": "Category",
+    "prop-snps": "Prop._SNPs",
+    "prop-h2": "Prop._h2",
+    "enrichment": "Enrichment",
+    "enrichment-p": "Enrichment_p",
+    "coefficient": "Coefficient",
+    "coefficient-p": "Coefficient_p",
+}
+PARTITIONED_H2_SUMMARY_ASCENDING_SORTS = {
+    "enrichment-p",
+    "coefficient-p",
+}
 PARTITIONED_H2_FULL_COLUMNS = [
     "Category",
     "Prop._SNPs",
@@ -277,13 +291,19 @@ class RegressionRunner:
         selected_query_columns = list(query_columns or [])
         ref_ld_columns = list(ldscore_result.baseline_columns) + selected_query_columns
         identity = _resolve_h2_identity(sumstats_table, ldscore_result, self.global_config, config)
+        identifier_mode = identity.effective_mode
+        _regression_genome_build(
+            sumstats_table,
+            ldscore_result,
+            identifier_mode,
+            context=sumstats_table.source_path or sumstats_table.trait_name or "sumstats",
+        )
         if sumstats_table.config_snapshot is not None and ldscore_result.config_snapshot is not None:
             _validate_regression_config_compatibility(
                 sumstats_table.config_snapshot,
                 ldscore_result.config_snapshot,
                 context="SumstatsTable and LDScoreResult",
             )
-        identifier_mode = identity.effective_mode
         ldscore_mode = _ldscore_identity_mode(ldscore_result, self.global_config, fallback_mode=identifier_mode)
         ldscore_frame = _assemble_regression_ldscore_table(
             ldscore_result,
@@ -420,17 +440,23 @@ class RegressionRunner:
         print_global_config_banner(type(self).__name__, self.global_config)
         config = config or self.regression_config
         identity = _resolve_rg_identity(sumstats_table_1, sumstats_table_2, ldscore_result, self.global_config, config)
-        for table, label in ((sumstats_table_1, "trait 1 SumstatsTable"), (sumstats_table_2, "trait 2 SumstatsTable")):
+        identifier_mode = identity.effective_mode
+        for table, label in ((sumstats_table_1, "trait 1"), (sumstats_table_2, "trait 2")):
+            _regression_genome_build(
+                table,
+                ldscore_result,
+                identifier_mode,
+                context=table.source_path or table.trait_name or label,
+            )
             if table.config_snapshot is not None and ldscore_result.config_snapshot is not None:
                 _validate_regression_config_compatibility(
                     table.config_snapshot,
                     ldscore_result.config_snapshot,
-                    context=f"{label} and LDScoreResult",
+                    context=f"{label} SumstatsTable and LDScoreResult",
                 )
 
         weight_column = REGRESSION_LD_SCORE_COLUMN
         ref_ld_columns = list(ldscore_result.baseline_columns)
-        identifier_mode = identity.effective_mode
         ldscore_mode = _ldscore_identity_mode(ldscore_result, self.global_config, fallback_mode=identifier_mode)
         trait_1_mode = _sumstats_identity_mode(sumstats_table_1, self.global_config, fallback_mode=ldscore_mode)
         trait_2_mode = _sumstats_identity_mode(sumstats_table_2, self.global_config, fallback_mode=ldscore_mode)
@@ -902,6 +928,54 @@ def _validate_regression_config_compatibility(
         )
 
 
+def _regression_genome_build(
+    sumstats_table: SumstatsTable,
+    ldscore_result: LDScoreResult,
+    identifier_mode: str,
+    *,
+    context: str,
+) -> None:
+    """Verify a chr_pos sumstats shares the LD-score panel's genome build.
+
+    rsID-family runs skip the check entirely because their merge identity is
+    independent of coordinate build. For chr_pos-family runs the sumstats build
+    is taken from its footer metadata when present, otherwise inferred from its
+    coordinates. A build that disagrees with the panel, or coordinates that
+    cannot be confidently dated, is a hard error directing the user to liftover
+    or re-munge.
+    """
+    if identity_mode_family(identifier_mode) != "chr_pos":
+        return
+    panel_build = getattr(ldscore_result.config_snapshot, "genome_build", None)
+    snapshot = sumstats_table.config_snapshot
+    sumstats_build = getattr(snapshot, "genome_build", None) if snapshot is not None else None
+    if sumstats_build is None:
+        if not {"CHR", "POS"}.issubset(sumstats_table.data.columns):
+            raise LDSCInputError(
+                f"Regression could not verify the genome build of sumstats '{context}': it carries no build "
+                "metadata and has no CHR/POS columns to infer one from. Most likely it is a legacy rsID-keyed "
+                "file being run against a chr_pos LD-score panel. Re-munge it with the current `ldsc munge-sumstats` "
+                "so it records its build, or liftover it to match the panel, then re-run."
+            )
+        try:
+            sumstats_build = infer_chr_pos_build(sumstats_table.data, context=context).genome_build
+        except LDSCInputError as exc:
+            raise LDSCInputError(
+                f"Regression could not verify the genome build of sumstats '{context}': its coordinates did not "
+                "match the reference closely enough to infer a build, and it carries no build metadata. "
+                "Re-munge it with the current `ldsc munge-sumstats` so it records its build, or liftover it to "
+                "match the LD-score panel, then re-run."
+            ) from exc
+        LOGGER.info(f"Inferred genome build '{sumstats_build}' for sumstats '{context}'.")
+    if panel_build is not None and sumstats_build != panel_build:
+        raise LDSCInputError(
+            f"Regression genome-build mismatch: sumstats '{context}' is {sumstats_build!r} but the LD-score "
+            f"panel is {panel_build!r}. Coordinate merges require the same build. Liftover the sumstats to "
+            f"{panel_build!r} and re-run."
+        )
+    LOGGER.info(f"Regression genome build for sumstats '{context}': {sumstats_build!r} (panel {panel_build!r}).")
+
+
 def _snapshot_identity_mode(snapshot: GlobalConfig | None) -> str | None:
     """Return a normalized SNP identity mode from ``snapshot`` if present."""
     value = getattr(snapshot, "snp_identifier", None)
@@ -1326,7 +1400,6 @@ def _h2_metadata(args, sumstats_table: SumstatsTable, dataset: RegressionDataset
     """Build the metadata sidecar for one unpartitioned h2 output."""
     config_snapshot = dataset.config_snapshot
     return {
-        "schema_version": 1,
         "artifact_type": "h2_result",
         "trait_name": sumstats_table.trait_name,
         "sumstats_file": getattr(args, "sumstats_file", None),
@@ -1582,6 +1655,31 @@ def _scalar_or_value(value):
     return value
 
 
+def _sort_partitioned_h2_summary(summary: pd.DataFrame, sort_by: str = "category") -> pd.DataFrame:
+    """Return ``summary`` ordered by a public partitioned-h2 summary column."""
+    if sort_by == "category":
+        return summary.reset_index(drop=True)
+    column = PARTITIONED_H2_SUMMARY_SORT_COLUMNS.get(sort_by)
+    if column is None:
+        valid = ", ".join(PARTITIONED_H2_SUMMARY_SORT_COLUMNS)
+        raise LDSCUsageError(
+            f"partitioned-h2 summary sort key {sort_by!r} is not supported. "
+            f"Choose one of: {valid}."
+        )
+    if column not in summary.columns:
+        raise LDSCInternalError(
+            f"partitioned-h2 summary cannot be sorted by {sort_by!r} because required column {column!r} "
+            "is missing. Most likely the regression workflow returned a result table with the wrong schema. "
+            "Re-run with DEBUG logging and report the traceback."
+        )
+    return summary.sort_values(
+        by=column,
+        ascending=sort_by in PARTITIONED_H2_SUMMARY_ASCENDING_SORTS,
+        na_position="last",
+        kind="mergesort",
+    ).reset_index(drop=True)
+
+
 def _select_intercept(value: float | None, use_intercept: bool, default_when_disabled: float):
     """Resolve fixed-intercept config into the scalar expected by the kernel."""
     if not use_intercept:
@@ -1608,6 +1706,15 @@ def add_partitioned_h2_arguments(parser) -> None:
         action="store_true",
         default=False,
         help="Also write one sanitized result folder per query annotation under output_dir/diagnostics/query_annotations.",
+    )
+    parser.add_argument(
+        "--summary-sort-by",
+        default="category",
+        choices=tuple(PARTITIONED_H2_SUMMARY_SORT_COLUMNS),
+        help=(
+            "Column used to order partitioned_h2.tsv rows. Default 'category' preserves query annotation input order; "
+            "p-value columns sort ascending and other numeric columns sort descending."
+        ),
     )
 
 
@@ -1729,6 +1836,7 @@ def run_partitioned_h2_from_args(args):
             summary = result
             per_query_category_tables = None
             per_query_metadata = None
+        summary = _sort_partitioned_h2_summary(summary, getattr(args, "summary_sort_by", "category"))
         output_dir_arg = getattr(args, "output_dir", None)
         if output_dir_arg:
             written = PartitionedH2DirectoryWriter().write(
@@ -2143,9 +2251,9 @@ def load_ldscore_from_dir(
 
 def _global_config_from_metadata(metadata: dict[str, Any]) -> GlobalConfig | None:
     """Recreate a GlobalConfig snapshot when LD-score metadata contains one."""
-    if "schema_version" not in metadata and "artifact_type" not in metadata:
+    if "artifact_type" not in metadata:
         raise LDSCInputError(
-            "Regression could not read LD-score artifact provenance: metadata lacks `schema_version` and `artifact_type`. "
+            "Regression could not read LD-score artifact provenance: metadata lacks `artifact_type`. "
             "Most likely the LD-score directory was written by an older LDSC version. "
             f"Regenerate it with the current `ldsc ldscore`. Other causes & fixes: {_REGRESSION_SCHEMA_DOC}"
         )

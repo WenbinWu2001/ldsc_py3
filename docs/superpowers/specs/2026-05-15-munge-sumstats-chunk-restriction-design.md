@@ -43,6 +43,16 @@ the user-visible workflow and log messages close to the existing behavior.
    filtering, p-value to Z conversion, signed-statistic direction, optional
    source-build liftover, metadata, and output writing.
 
+### Restriction-memory caveat
+
+Chunk restriction reduces retained raw-sumstats memory, but it does not make the
+restriction file itself lazy. The active keep-list is prepared once and retained
+as an in-memory membership set for the whole run. Base `chr_pos` keep-lists use
+a bounded-row parser and packed `uint64` keys, which lowers overhead versus
+`CHR:POS` strings, but the final set still scales with the number of restriction
+SNPs. `rsid` and allele-aware keep-lists use the shared restriction reader and
+materialize the relevant identity keys before chunk filtering.
+
 ## Identifier Behavior
 
 `rsid` mode treats `SNP` labels as row identity. Keep-list filtering happens in

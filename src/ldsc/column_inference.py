@@ -105,17 +105,22 @@ def _build_uniq_id_aliases(build_aliases: Sequence[str], index: int) -> tuple[st
 
 
 # Shared external column families.
-SNP_COLUMN_ALIASES = ("SNP", "SNPID", "SNP_ID", "RSID", "RS_ID", "RS", "ID", "MARKERNAME", "MARKER")
+SNP_COLUMN_ALIASES = ("SNP", "SNPID", "SNP_ID", "RSID", "RS_ID", "RS", "ID", "MARKERNAME", "MARKER", "MARKERID")
 CHR_COLUMN_ALIASES = ("CHR", "#CHROM", "CHROM", "CHROMOSOME")
 POS_COLUMN_ALIASES = ("POS", "BP", "POSITION", "BASE_PAIR", "BASEPAIR")
 CM_COLUMN_ALIASES = ("CM", "CMBP", "CENTIMORGAN")
-MAF_COLUMN_ALIASES = ("MAF", "FRQ", "FREQ", "FREQUENCY")
+MAF_COLUMN_ALIASES = ("MAF",)
 
 CHR_COLUMN_SPEC = ColumnSpec("CHR", CHR_COLUMN_ALIASES, "chromosome")
 POS_COLUMN_SPEC = ColumnSpec("POS", POS_COLUMN_ALIASES, "position")
 SNP_COLUMN_SPEC = ColumnSpec("SNP", SNP_COLUMN_ALIASES, "SNP identifier")
 CM_COLUMN_SPEC = ColumnSpec("CM", CM_COLUMN_ALIASES, "centiMorgan")
-MAF_COLUMN_SPEC = ColumnSpec("MAF", MAF_COLUMN_ALIASES, "minor-allele frequency")
+MAF_COLUMN_SPEC = ColumnSpec("MAF", MAF_COLUMN_ALIASES, "folded minor-allele frequency")
+# Oriented frequency of the A1 allele (may exceed 0.5). Distinct from folded MAF
+# so external sidecars can signal orientation by column name (design 2026-06-07
+# allele-orientation-canonicalization, section 2.1).
+ORIENTED_FRQ_COLUMN_ALIASES = ("FRQ", "FREQ", "FREQUENCY", "EAF", "A1_FRQ", "FRQ_A1", "FREQ_A1")
+ORIENTED_FRQ_COLUMN_SPEC = ColumnSpec("FRQ", ORIENTED_FRQ_COLUMN_ALIASES, "oriented A1-allele frequency")
 A1_COLUMN_SPEC = ColumnSpec(
     "A1",
     ("A1", "ALLELE1", "ALLELE_1", "EFFECT_ALLELE", "REFERENCE_ALLELE", "REF", "EA"),
@@ -134,7 +139,7 @@ RESTRICTION_ALLELE_SPECS = (A1_COLUMN_SPEC, A2_COLUMN_SPEC)
 RAW_SUMSTATS_REQUIRED_OR_OPTIONAL_SPECS = (
     ColumnSpec(
         "SNP",
-        ("SNP", "MARKERNAME", "SNPID", "SNP_ID", "RS", "RSID", "RS_ID", "ID", "RS_NUMBER", "RS_NUMBERS", "MARKER"),
+        ("SNP", "MARKERNAME", "MARKERID", "SNPID", "SNP_ID", "RS", "RSID", "RS_ID", "ID", "RS_NUMBER", "RS_NUMBERS", "MARKER"),
         "summary-stat SNP identifier",
     ),
     CHR_COLUMN_SPEC,
@@ -153,7 +158,7 @@ RAW_SUMSTATS_REQUIRED_OR_OPTIONAL_SPECS = (
     ),
     ColumnSpec("N", ("N", "WEIGHT"), "summary-stat sample size"),
     ColumnSpec("N_CAS", ("NCASE", "CASES_N", "N_CASE", "N_CASES", "N_CAS", "NCAS", "Nca"), "summary-stat case count"),
-    ColumnSpec("N_CON", ("N_CONTROLS", "N_CON", "NCONTROL", "CONTROLS_N", "N_CONTROL", "NCON", "Nco"), "summary-stat control count"),
+    ColumnSpec("N_CON", ("N_CONTROLS", "N_CON", "NCONTROL", "CONTROLS_N", "N_CONTROL", "N_CTRL", "NCON", "Nco"), "summary-stat control count"),
     ColumnSpec("INFO", ("INFO", "IMPINFO"), "summary-stat INFO"),
     ColumnSpec("FRQ", ("EAF", "FRQ", "MAF", "FRQ_U", "F_U"), "summary-stat allele frequency"),
 )

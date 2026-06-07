@@ -24,6 +24,15 @@ with `ldsc h2` or `ldsc rg`, not `ldsc partitioned-h2`.
 The same seven-column schema is used for each one-row
 `diagnostics/query_annotations/<folder>/partitioned_h2.tsv` file.
 
+Rows default to query annotation input order. `--summary-sort-by` can instead
+order the compact table by one of these keys:
+`category`, `prop-snps`, `prop-h2`, `enrichment`, `enrichment-p`,
+`coefficient`, or `coefficient-p`. `category` preserves input order. P-value
+keys sort ascending, other numeric keys sort descending, ties preserve input
+order, and missing values are placed last. When per-query diagnostics are
+enabled, the manifest order and folder ordinals follow the sorted compact
+summary order.
+
 Output directories follow the coherent artifact-family policy. The root
 `partitioned_h2.tsv`, diagnostic metadata, optional
 `diagnostics/query_annotations/` tree, and `diagnostics/partitioned-h2.log` are

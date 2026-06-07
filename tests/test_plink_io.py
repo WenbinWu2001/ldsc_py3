@@ -236,20 +236,6 @@ class IndexParquetRuntimeTest(unittest.TestCase):
             {"i": 2, "j": 3, "R2": 0.5, "sign": "+"},
         ]
 
-    def test_index_init_builds_rg_bounds(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            snps = [f"rs{i + 1}" for i in range(7)]
-            bps = [100 + i * 10 for i in range(7)]
-            panel = self._panel_meta(snps, bps)
-            pairs = [{"i": i, "j": i + 1, "R2": 0.5, "sign": "+"} for i in range(6)]
-            r2 = self._write_index_panel(tmpdir, panel, pairs, row_group_size=2)
-            reader = self._reader(r2, self._reader_meta(snps, bps))
-            self.assertEqual(reader._runtime_layout, "index")
-            self.assertGreater(len(reader._rg_bounds), 1)
-            for mn, mx, idx in reader._rg_bounds:
-                self.assertLessEqual(mn, mx)
-                self.assertIsInstance(idx, int)
-
     def test_index_init_raises_on_build_mismatch(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             panel = self._panel_meta(["rs1", "rs2"], [100, 120])
@@ -308,141 +294,99 @@ class IndexParquetRuntimeTest(unittest.TestCase):
                 )
             self.assertIn("exactly one file", str(ctx.exception))
 
-    def test_index_within_block_matrix_correctness(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            panel = self._panel_meta(["rs1", "rs2", "rs3"], [100, 120, 140])
-            pairs = [
-                {"i": 0, "j": 1, "R2": 0.4, "sign": "+"},
-                {"i": 0, "j": 2, "R2": 0.2, "sign": "+"},
-                {"i": 1, "j": 2, "R2": 0.6, "sign": "+"},
-            ]
-            r2 = self._write_index_panel(tmpdir, panel, pairs, row_group_size=2)
-            reader = self._reader(r2, self._reader_meta(["rs1", "rs2", "rs3"], [100, 120, 140]))
-            self.assertEqual(reader._runtime_layout, "index")
-            matrix = reader.within_block_matrix(l_B=0, c=3)
-            expected = np.array([[1.0, 0.4, 0.2], [0.4, 1.0, 0.6], [0.2, 0.6, 1.0]], dtype=np.float32)
-            self.assertEqual(matrix.dtype, np.dtype("float32"))
-            # off-diagonal R2 is int16-quantized: tolerance is the half-step (1.5e-5)
-            np.testing.assert_allclose(matrix, expected, rtol=0, atol=2e-5)
+    def test_build_index_remap_rejects_collapsing_sidecar(self):
+        # Two distinct panel rows share an rsID; under rsid mode they collapse
+        # onto the single retained "rsX", which must be a hard error.
+        full = pd.DataFrame({"SNP": ["rsX", "rsY", "rsX"]})
+        retained = pd.DataFrame({"SNP": ["rsX", "rsY"]})
+        with self.assertRaises(LDSCInputError) as ctx:
+            ld.build_index_remap(full, retained, "rsid")
+        self.assertIn("collapse", str(ctx.exception).lower())
 
-    def test_index_query_reads_only_overlapping_row_groups(self):
+    def test_build_index_remap_injective_builds_retained_build_idx(self):
+        # rsB is absent from the retained universe (maps to -1); rsA, rsC are kept.
+        full = pd.DataFrame({"SNP": ["rsA", "rsB", "rsC"]})
+        retained = pd.DataFrame({"SNP": ["rsA", "rsC"]})
+        remap, retained_build_idx = ld.build_index_remap(full, retained, "rsid")
+        np.testing.assert_array_equal(remap, [0, -1, 1])
+        np.testing.assert_array_equal(retained_build_idx, [0, 2])
+
+    def test_iter_all_pairs_yields_every_stored_pair_once(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            snps = ["rs1", "rs2", "rs2b", "rs3", "rs4", "rs5", "rs6"]
-            bps = [100, 120, 130, 200, 220, 300, 320]
+            snps = ["rs1", "rs2", "rs3", "rs4"]
+            bps = [100, 120, 140, 160]
             panel = self._panel_meta(snps, bps)
             pairs = [
                 {"i": 0, "j": 1, "R2": 0.4, "sign": "+"},
-                {"i": 0, "j": 2, "R2": 0.3, "sign": "+"},
-                {"i": 3, "j": 4, "R2": 0.5, "sign": "+"},
-                {"i": 3, "j": 6, "R2": 0.6, "sign": "+"},
-                {"i": 4, "j": 5, "R2": 0.7, "sign": "+"},
-                {"i": 5, "j": 6, "R2": 0.8, "sign": "+"},
-            ]
-            r2 = self._write_index_panel(tmpdir, panel, pairs, row_group_size=2)
-            reader = self._reader(r2, self._reader_meta(snps, bps))
-            rg_idxs_used = []
-            original_read_row_group = reader._pf.read_row_group
-
-            def mock_read_row_group(index, **kwargs):
-                rg_idxs_used.append(index)
-                return original_read_row_group(index, **kwargs)
-
-            reader._pf.read_row_group = mock_read_row_group
-            rows = reader._query_union_rows_canonical_by_index(0, 3)
-            self.assertEqual(sorted(set(rg_idxs_used)), [0])
-            self.assertEqual(len(rows), 2)
-
-    def test_auto_row_group_cache_capacity_uses_adjacent_query_union(self):
-        reader = object.__new__(ld.SortedR2BlockReader)
-        reader.chrom = "1"
-        reader._runtime_layout = "index"
-        reader.m = 8
-        reader._retained_build_idx = np.arange(8, dtype=np.int64) * 10
-        reader._rg_bounds = [(0, 19, 0), (20, 39, 1), (40, 59, 2), (60, 79, 3), (80, 99, 4)]
-        reader._row_group_cache = None
-        block_left = np.array([0, 0, 0, 1, 2, 3, 4, 5], dtype=np.int64)
-
-        reader.configure_auto_row_group_cache(block_left=block_left, snp_batch_size=2)
-
-        self.assertEqual(reader._row_group_cache.capacity, 4)
-
-    def test_auto_row_group_cache_capacity_uses_actual_cm_block_left(self):
-        reader = object.__new__(ld.SortedR2BlockReader)
-        reader.chrom = "1"
-        reader._runtime_layout = "index"
-        reader.m = 8
-        reader._retained_build_idx = np.array([100, 110, 120, 130, 140, 150, 160, 170], dtype=np.int64)
-        reader._rg_bounds = [(100, 119, 0), (120, 139, 1), (140, 159, 2), (160, 179, 3)]
-        reader._row_group_cache = None
-        cm = np.array([0.0, 0.01, 0.02, 0.30, 0.31, 0.32, 0.70, 0.71], dtype=float)
-        block_left = ld.getBlockLefts(cm, 0.05)
-
-        reader.configure_auto_row_group_cache(block_left=block_left, snp_batch_size=2)
-
-        self.assertEqual(reader._row_group_cache.capacity, 4)
-
-    def test_cached_ld_score_matches_expected_and_preserves_absent_pairs(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            r2 = self._write_index_panel(tmpdir, self._four_snp_panel(), self._four_snp_pairs(), row_group_size=2)
-            reader = self._reader(r2, self._four_snp_reader_meta())
-            scores = ld.ld_score_var_blocks_from_r2_reader(
-                block_left=np.zeros(4, dtype=np.int64),
-                snp_batch_size=2,
-                annot=np.ones((4, 1), dtype=np.float32),
-                block_reader=reader,
-            )
-            # LD-score sums of int16-quantized R2: tolerance covers a few half-steps
-            np.testing.assert_allclose(scores[:, 0], [1.6, 2.0, 2.3, 1.5], rtol=0, atol=5e-5)
-            matrix = reader.within_block_matrix(l_B=0, c=4)
-            self.assertEqual(matrix[0, 3], 0.0)
-            np.testing.assert_allclose(np.diag(matrix), np.ones(4, dtype=np.float32))
-
-    def test_tiny_row_group_cache_preserves_results_but_reads_more(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            r2 = self._write_index_panel(tmpdir, self._four_snp_panel(), self._four_snp_pairs(), row_group_size=2)
-            block_left = np.zeros(4, dtype=np.int64)
-            annot = np.ones((4, 1), dtype=np.float32)
-            full_reader = self._reader(r2, self._four_snp_reader_meta())
-            full_scores = ld.ld_score_var_blocks_from_r2_reader(
-                block_left=block_left, snp_batch_size=2, annot=annot, block_reader=full_reader,
-            )
-            full_reads = full_reader._row_group_cache.row_group_reads
-
-            tiny_reader = self._reader(r2, self._four_snp_reader_meta())
-            real_configure = tiny_reader.configure_auto_row_group_cache
-
-            def configure_tiny_cache(block_left, snp_batch_size):
-                real_configure(block_left, snp_batch_size)
-                tiny_reader._row_group_cache.capacity = 1
-
-            tiny_reader.configure_auto_row_group_cache = configure_tiny_cache
-            tiny_scores = ld.ld_score_var_blocks_from_r2_reader(
-                block_left=block_left, snp_batch_size=2, annot=annot, block_reader=tiny_reader,
-            )
-            np.testing.assert_allclose(tiny_scores, full_scores, rtol=1e-6)
-            self.assertGreater(tiny_reader._row_group_cache.row_group_reads, full_reads)
-
-    def test_overlapping_windows_reuse_cached_decoded_row_groups(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            panel = self._four_snp_panel()
-            pairs = [
-                {"i": 0, "j": 1, "R2": 0.4, "sign": "+"},
                 {"i": 0, "j": 2, "R2": 0.2, "sign": "+"},
                 {"i": 1, "j": 2, "R2": 0.6, "sign": "+"},
-                {"i": 1, "j": 3, "R2": 0.3, "sign": "+"},
                 {"i": 2, "j": 3, "R2": 0.5, "sign": "+"},
             ]
             r2 = self._write_index_panel(tmpdir, panel, pairs, row_group_size=2)
-            reader = self._reader(r2, self._four_snp_reader_meta())
-            reader.configure_auto_row_group_cache(block_left=np.zeros(4, dtype=np.int64), snp_batch_size=2)
-            rg_idxs_used = []
-            original_read_row_group = reader._pf.read_row_group
+            reader = self._reader(r2, self._reader_meta(snps, bps))
+            seen = {}
+            for i, j, r2v in reader.iter_all_pairs():
+                self.assertEqual(i.dtype, np.dtype("int32"))
+                self.assertEqual(r2v.dtype, np.dtype("float32"))
+                for a, b, v in zip(i.tolist(), j.tolist(), r2v.tolist()):
+                    seen[(a, b)] = v
+            self.assertEqual(sorted(seen), [(0, 1), (0, 2), (1, 2), (2, 3)])
+            # int16-quantized R2: tolerance is the half-step
+            np.testing.assert_allclose(
+                [seen[k] for k in [(0, 1), (0, 2), (1, 2), (2, 3)]],
+                [0.4, 0.2, 0.6, 0.5], rtol=0, atol=2e-5,
+            )
 
-            def mock_read_row_group(index, **kwargs):
-                rg_idxs_used.append(index)
-                return original_read_row_group(index, **kwargs)
+    def test_accumulate_full_window_matches_R_at_annot(self):
+        annot = np.ones((4, 1), dtype=np.float32)
+        cor_sum = annot.astype(np.float64).copy()  # diagonal R2 = 1
+        block_left = np.zeros(4, dtype=np.int64)
+        i = np.array([0, 0, 1, 2], dtype=np.int32)
+        j = np.array([1, 2, 2, 3], dtype=np.int32)
+        r2 = np.array([0.4, 0.2, 0.6, 0.5], dtype=np.float32)
+        ld._accumulate_pair_contributions(cor_sum, i, j, r2, annot, block_left)
+        # Row sums of symmetric R (unit diagonal):
+        np.testing.assert_allclose(cor_sum[:, 0], [1.6, 2.0, 2.3, 1.5], atol=1e-6)
 
-            reader._pf.read_row_group = mock_read_row_group
-            reader.within_block_matrix(l_B=0, c=2)
-            reader.within_block_matrix(l_B=1, c=2)
-            self.assertEqual(rg_idxs_used.count(1), 1)
+    def test_accumulate_handles_duplicate_left_index(self):
+        # SNP 0 pairs with SNP 1 and SNP 2 — both must accumulate into cor_sum[0].
+        annot = np.array([[1.0], [2.0], [3.0], [0.0]], dtype=np.float32)
+        cor_sum = np.zeros((4, 1), dtype=np.float64)
+        block_left = np.zeros(4, dtype=np.int64)
+        i = np.array([0, 0], dtype=np.int32)
+        j = np.array([1, 2], dtype=np.int32)
+        r2 = np.array([0.5, 0.5], dtype=np.float32)
+        ld._accumulate_pair_contributions(cor_sum, i, j, r2, annot, block_left)
+        np.testing.assert_allclose(cor_sum[0, 0], 0.5 * 2.0 + 0.5 * 3.0)  # 2.5
+        np.testing.assert_allclose(cor_sum[1, 0], 0.5 * 1.0)
+        np.testing.assert_allclose(cor_sum[2, 0], 0.5 * 1.0)
+
+    def test_accumulate_window_filter_drops_out_of_window_pairs(self):
+        annot = np.ones((4, 1), dtype=np.float32)
+        cor_sum = np.zeros((4, 1), dtype=np.float64)
+        block_left = np.array([0, 0, 1, 2], dtype=np.int64)  # SNP2 window starts at 1
+        i = np.array([0, 0, 1, 2], dtype=np.int32)
+        j = np.array([1, 2, 2, 3], dtype=np.int32)
+        r2 = np.array([0.4, 0.2, 0.6, 0.5], dtype=np.float32)
+        # (0,2) dropped: 0 < block_left[2]=1. Others kept.
+        ld._accumulate_pair_contributions(cor_sum, i, j, r2, annot, block_left)
+        np.testing.assert_allclose(cor_sum[:, 0], [0.4, 1.0, 1.1, 0.5], atol=1e-6)
+
+    def test_streaming_chunk_size_invariant(self):
+        rng = np.random.default_rng(1)
+        n = 12
+        snps = [f"rs{k+1}" for k in range(n)]
+        bps = [100 + 10 * k for k in range(n)]
+        panel = self._panel_meta(snps, bps)
+        pairs = []
+        for a in range(n):
+            for b in range(a + 1, min(a + 4, n)):
+                pairs.append({"i": a, "j": b, "R2": float(rng.uniform(0.05, 0.95)), "sign": "+"})
+        with tempfile.TemporaryDirectory() as tmpdir:
+            r2 = self._write_index_panel(tmpdir, panel, pairs, row_group_size=3)
+            reader = self._reader(r2, self._reader_meta(snps, bps))
+            block_left = np.array([max(0, k - 3) for k in range(n)], dtype=np.int64)
+            annot = rng.uniform(0, 1, size=(n, 3)).astype(np.float32)
+            tiny = ld.ld_score_streaming_from_r2_reader(block_left, annot, reader, chunk_pairs=2)
+            whole = ld.ld_score_streaming_from_r2_reader(block_left, annot, reader, chunk_pairs=10**9)
+            np.testing.assert_allclose(tiny, whole, rtol=0, atol=1e-6)

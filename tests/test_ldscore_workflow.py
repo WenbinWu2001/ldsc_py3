@@ -13,12 +13,13 @@ import warnings
 
 import numpy as np
 import pandas as pd
+import pytest
 
 SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from ldsc.config import ConfigMismatchError, GlobalConfig
+from ldsc.config import ConfigMismatchError, GlobalConfig, set_global_config
 from ldsc.errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
 
 try:
@@ -31,6 +32,7 @@ try:
         RefPanelConfig,
     )
     from ldsc import ldscore_calculator as ldscore_workflow
+    from ldsc.ldscore_calculator import build_parser, _ref_panel_from_args, _normalize_run_args, run_ldscore
     from ldsc._kernel import formats as kernel_formats
     from ldsc._kernel import ldscore as kernel_ldscore
     from ldsc._kernel.snp_identity import RestrictionIdentityKeys, empty_identity_drop_frame
@@ -43,6 +45,10 @@ except ImportError:
     RefPanelConfig = None
     kernel_formats = None
     ldscore_workflow = None
+    build_parser = None
+    _ref_panel_from_args = None
+    _normalize_run_args = None
+    run_ldscore = None
     kernel_ldscore = None
     RestrictionIdentityKeys = None
     empty_identity_drop_frame = None
@@ -1199,9 +1205,12 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 "10",
                 "--query-annot-bed-sources",
                 "query.bed",
+                "--bed-padding-bp",
+                "50000",
             ]
         )
         self.assertEqual(args.query_annot_bed_sources, "query.bed")
+        self.assertEqual(args.bed_padding_bp, 50000)
 
     def test_build_parser_defaults_snp_batch_size_to_128(self):
         parser = ldscore_workflow.build_parser()
@@ -3026,7 +3035,7 @@ class IndexReaderDecodeTest(unittest.TestCase):
         return r2, full
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
-    def test_within_block_matrix_drops_unretained_endpoint(self):
+    def test_streaming_drops_unretained_endpoint(self):
         from ldsc._kernel.ldscore import SortedR2BlockReader
         with tempfile.TemporaryDirectory() as tmp:
             r2, full = self._make_panel(tmp)
@@ -3037,13 +3046,66 @@ class IndexReaderDecodeTest(unittest.TestCase):
                 identifier_mode="chr_pos", r2_bias_mode="unbiased",
                 r2_sample_size=None, genome_build="hg19",
             )
-            mat = reader.within_block_matrix(0, 3)
+            seen = {}
+            for i, j, r2v in reader.iter_all_pairs():
+                for a, b, v in zip(i.tolist(), j.tolist(), r2v.tolist()):
+                    seen[(a, b)] = v
+            # pair (2,3) touches the dropped SNP (pos40) -> excluded by remap
+            self.assertEqual(sorted(seen), [(0, 1), (0, 2), (1, 2)])
             # off-diagonal R2 is int16-quantized: tolerance is the half-step (1.5e-5)
-            self.assertAlmostEqual(mat[0, 1], 0.5, delta=2e-5)
-            self.assertAlmostEqual(mat[0, 2], 0.2, delta=2e-5)
-            self.assertAlmostEqual(mat[1, 2], 0.4, delta=2e-5)
-            self.assertAlmostEqual(mat[0, 0], 1.0, places=6)  # diagonal: reader-set, exact
-            self.assertEqual(mat.shape, (3, 3))
+            self.assertAlmostEqual(seen[(0, 1)], 0.5, delta=2e-5)
+            self.assertAlmostEqual(seen[(0, 2)], 0.2, delta=2e-5)
+            self.assertAlmostEqual(seen[(1, 2)], 0.4, delta=2e-5)
+
+
+class R2PanelWindowValidationTest(unittest.TestCase):
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
+    def test_ldscore_rejects_window_wider_than_recorded_r2_panel_window(self):
+        from ldsc._kernel import ref_panel_builder as kb
+        from ldsc._kernel.snp_identity import sidecar_identity_sha256
+
+        panel = pd.DataFrame(
+            {
+                "CHR": ["1"] * 3,
+                "POS": [100, 200, 300],
+                "SNP": ["rs1", "rs2", "rs3"],
+                "A1": ["A", "A", "A"],
+                "A2": ["C", "C", "C"],
+                "CM": [0.0, 0.1, 0.2],
+                "MAF": [0.3, 0.3, 0.3],
+            }
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            meta = _write_index_sidecar(tmp, panel)
+            r2 = meta.with_name("chr1_r2.parquet")
+            kb.write_r2_parquet(
+                pair_chunks=dict_chunks([{"i": 0, "j": 1, "R2": 0.5, "sign": "+"}]),
+                path=r2,
+                genome_build="hg19",
+                n_samples=100,
+                snp_identifier="chr_pos",
+                min_r2=0.0,
+                n_snps=3,
+                sidecar_identity_sha256=sidecar_identity_sha256(panel),
+                ld_window_mode="kb",
+                ld_window_value=0.1,
+            )
+
+            args = Namespace(
+                ld_wind_snps=None,
+                ld_wind_kb=1.0,
+                ld_wind_cm=None,
+                r2_table=str(r2),
+            )
+            with self.assertRaisesRegex(
+                LDSCUsageError,
+                "user-requested LD window `--ld-wind-kb 1.0` is wider than the input R2 parquet panel window `--ld-wind-kb 0.1`",
+            ):
+                kernel_ldscore.validate_ldscore_window_within_r2_panel_window(
+                    args,
+                    parquet_paths=[str(r2)],
+                    chrom="1",
+                )
 
 
 class IndexCrossModeParityTest(unittest.TestCase):
@@ -3087,8 +3149,8 @@ class IndexCrossModeParityTest(unittest.TestCase):
                     identifier_mode=mode, r2_bias_mode="unbiased",
                     r2_sample_size=None, genome_build="hg19",
                 )
-                scores = kernel_ldscore.ld_score_var_blocks_from_r2_reader(
-                    block_left=np.zeros(4, dtype=np.int64), snp_batch_size=2,
+                scores = kernel_ldscore.ld_score_streaming_from_r2_reader(
+                    block_left=np.zeros(4, dtype=np.int64),
                     annot=np.ones((4, 1), dtype=np.float32), block_reader=reader,
                 )
                 mode_scores[mode] = scores[:, 0]
@@ -3190,3 +3252,70 @@ class R2DequantizationTest(unittest.TestCase):
             self.assertIsNone(reader._r2_scale)
             decoded = reader._decode_index_row_group(0)
             self.assertAlmostEqual(float(decoded.r2[0]), 0.5, delta=1e-7)
+
+
+def test_ldscore_parser_accepts_region_flags():
+    parser = build_parser()
+    args = parser.parse_args(
+        ["--output-dir", "o", "--plink-prefix", "p", "--ld-wind-cm", "1",
+         "--exclude-regions", "mhc,centromeres", "--exclude-regions-build", "hg19",
+         "--exclude-regions-bed", "/tmp/a.bed,/tmp/b.bed"]
+    )
+    assert args.exclude_regions == "mhc,centromeres"
+    assert args.exclude_regions_build == "hg19"
+    assert args.exclude_regions_bed == "/tmp/a.bed,/tmp/b.bed"
+
+
+def test_ldscore_preset_without_build_rejected():
+    parser = build_parser()
+    args = parser.parse_args(
+        ["--output-dir", "o", "--plink-prefix", "p", "--ld-wind-cm", "1",
+         "--snp-identifier", "chr_pos_allele_aware", "--genome-build", "hg19",
+         "--exclude-regions", "mhc"]
+    )
+    normalized, global_config = _normalize_run_args(args)
+    with pytest.raises(LDSCConfigError, match="exclude-regions-build"):
+        _ref_panel_from_args(normalized, global_config)
+
+
+_CHR22 = Path(__file__).resolve().parent / "fixtures" / "minimal_external_resources" / "plink" / "hm3_chr22_subset"
+
+
+def _chr22_available() -> bool:
+    return all(Path(str(_CHR22) + ext).exists() for ext in (".bed", ".bim", ".fam"))
+
+
+def test_ldscore_end_to_end_drops_user_bed_snp(tmp_path):
+    if not _chr22_available():
+        pytest.skip("chr22 PLINK fixture unavailable; run tests/fixtures/generate_minimal_external_resources.py")
+    set_global_config(GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"))
+
+    # Discover a real emitted POS from a no-exclusion panel load.
+    base_meta = PlinkRefPanel(
+        GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
+        RefPanelConfig(backend="plink", plink_prefix=str(_CHR22)),
+    ).load_metadata("22")
+    target_pos = int(base_meta["POS"].iloc[0])
+
+    bed = tmp_path / "exclude.bed"
+    bed.write_text(f"22\t{target_pos - 1}\t{target_pos}\n", encoding="utf-8")
+
+    result = run_ldscore(
+        plink_prefix=str(_CHR22),
+        output_dir=str(tmp_path / "ld"),
+        ld_wind_snps=10,
+        exclude_regions_bed=(str(bed),),
+    )
+    assert target_pos not in set(result.baseline_table["POS"])
+
+
+def test_ldscore_rejects_non_minor_maf():
+    bad = pd.DataFrame({"CHR": ["22"], "SNP": ["rs1"], "POS": [1],
+                        "A1": ["A"], "A2": ["G"], "MAF": [0.73]})
+    with pytest.raises(LDSCInternalError, match="MAF"):
+        ldscore_workflow._assert_canonical_maf(bad)
+
+
+def test_assert_canonical_maf_passes_for_minor():
+    ok = pd.DataFrame({"MAF": [0.0, 0.2, 0.5]})
+    ldscore_workflow._assert_canonical_maf(ok)  # no raise

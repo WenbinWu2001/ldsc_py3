@@ -79,6 +79,7 @@ from .outputs import (
 )
 from .ref_panel_builder import ReferencePanelBuildResult, ReferencePanelBuilder, run_build_ref_panel
 from ._kernel.ref_panel import ParquetR2RefPanel, PlinkRefPanel, RefPanel, RefPanelLoader
+from .r2_query import R2Panel, query_r2, unbiased_r2_to_pearson_r
 
 _LAZY_EXPORTS = {
     "MungeRunSummary": (".sumstats_munger", "MungeRunSummary"),
@@ -134,6 +135,9 @@ __all__ = [
     "MungeRunSummary",
     "RawSumstatsInference",
     "ParquetR2RefPanel",
+    "R2Panel",
+    "query_r2",
+    "unbiased_r2_to_pearson_r",
     "PartitionedH2DirectoryWriter",
     "PartitionedH2OutputConfig",
     "PlinkRefPanel",

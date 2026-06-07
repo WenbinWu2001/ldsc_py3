@@ -13,10 +13,11 @@ Three implementation details are important to know:
   package-written artifacts. Old package-written sumstats and LD-score artifacts
   without the current schema/provenance contract are rejected and must be
   regenerated with the current LDSC package.
-- Current `ldsc munge-sumstats` writes root `metadata.json` beside
-  `sumstats.parquet` by default, or beside legacy `sumstats.sumstats.gz` when
-  `--output-format tsv.gz` is selected; `load_sumstats()` recovers the original
-  downstream compatibility `GlobalConfig` from that thin sidecar. In
+- Current `ldsc munge-sumstats` embeds identity metadata in the
+  `sumstats.parquet` footer (no `metadata.json` sidecar); legacy
+  `sumstats.sumstats.gz` carries no embedded metadata. `load_sumstats()` recovers the original
+  downstream compatibility `GlobalConfig` from that footer, or returns ``None``
+  when the artifact has no footer metadata. In
   coordinate-family modes, that snapshot stores the final output genome build;
   in rsid-family modes, it stores `genome_build=None`. Row-level liftover drops are
   audited separately in the always-written
@@ -67,9 +68,9 @@ were active when that object was produced.
 
 File-reloaded package-written artifacts must prove their original settings with
 current identity provenance. For example, `load_sumstats()` recovers provenance
-from root `metadata.json` written by the current munger, while older
-package-written `.sumstats.gz` files without the current sidecar are rejected
-and must be regenerated.
+from the `sumstats.parquet` footer written by the current munger, while a legacy
+`.sumstats.gz` or footer-less parquet has no embedded provenance and loads with
+its identifier mode inferred from the LD-score panel.
 
 This means reproducibility is structural for package-written artifacts:
 interrogating a loaded result object tells you the frozen config it was computed
@@ -338,10 +339,10 @@ callers who need to preserve that provenance should persist the
 `RefPanelConfig` / `LDScoreConfig` they used alongside the written artifacts.
 
 **`load_sumstats()` recovers provenance for current disk artifacts.**
-Curated `sumstats.parquet` and `.sumstats(.gz)` artifacts written by the current
-munger have a neighboring root `metadata.json` sidecar that records a thin
-metadata payload: `schema_version`, `artifact_type`, `snp_identifier`,
-`genome_build`, and optional `trait_name`. Detailed coordinate provenance, liftover
+Curated `sumstats.parquet` artifacts written by the current munger embed a thin
+identity payload in their footer: `ldsc:artifact_type`, `ldsc:snp_identifier`,
+`ldsc:genome_build`, and optional `ldsc:trait_name`. `.sumstats.gz` carries no
+embedded metadata. Detailed coordinate provenance, liftover
 reports, HM3 provenance, output bookkeeping, and row counts are written to
 `diagnostics/sumstats.log`; row-level liftover drops are written to
 `diagnostics/dropped_snps/dropped.tsv.gz`. Neither belongs in the metadata sidecar. The

@@ -29,8 +29,9 @@ from ..config import GlobalConfig, RefPanelConfig, validate_config_compatibility
 from ..errors import LDSCConfigError, LDSCDependencyError, LDSCInputError, LDSCInternalError, LDSCUsageError
 from ..genome_build_inference import resolve_genome_build, validate_auto_genome_build_mode
 from ..hm3 import packaged_hm3_curated_map_path
-from ..path_resolution import resolve_plink_prefix, resolve_plink_prefix_group
+from ..path_resolution import resolve_plink_prefix, resolve_plink_prefix_group, resolve_scalar_path
 from . import formats as legacy_parse
+from . import regions
 from . import ldscore as kernel_ldscore
 from .identifiers import (
     build_snp_id_series,
@@ -117,7 +118,6 @@ def _read_identity_schema_meta(path: str, *, expected_artifact_type: str) -> dic
 
     raw = pq.read_schema(path).metadata or {}
     required_keys = {
-        b"ldsc:schema_version",
         b"ldsc:artifact_type",
         b"ldsc:snp_identifier",
         b"ldsc:genome_build",
@@ -131,7 +131,6 @@ def _read_identity_schema_meta(path: str, *, expected_artifact_type: str) -> dic
             f"Other causes & fixes: {_REF_PANEL_ARTIFACT_DOC}"
         )
     metadata = {
-        "schema_version": int(raw[b"ldsc:schema_version"].decode("utf-8")),
         "artifact_type": raw[b"ldsc:artifact_type"].decode("utf-8"),
         "snp_identifier": raw[b"ldsc:snp_identifier"].decode("utf-8"),
         "genome_build": raw[b"ldsc:genome_build"].decode("utf-8"),
@@ -150,7 +149,6 @@ def _r2_path_has_ldsc_package_schema(path: str) -> bool:
     package_keys = {
         b"ldsc:sorted_by_build",
         b"ldsc:row_group_size",
-        b"ldsc:schema_version",
         b"ldsc:artifact_type",
     }
     return any(key in raw for key in package_keys)
@@ -212,6 +210,7 @@ class RefPanel(ABC):
         self.global_config = global_config
         self.spec = spec
         self._metadata_cache: dict[str, pd.DataFrame] = {}
+        self._region_intervals_cache: "regions.RegionIntervals | None" = None
 
     @abstractmethod
     def available_chromosomes(self) -> list[str]:
@@ -265,6 +264,17 @@ class RefPanel(ABC):
         return metadata.loc[keep].reset_index(drop=True)
 
     def _apply_snp_restriction(self, metadata: pd.DataFrame) -> pd.DataFrame:
+        """Apply the keep-restriction, then drop excluded regions.
+
+        The keep-restriction (``ref_panel_snps_file`` / HM3) runs first so region
+        exclusion operates on the already-restricted SNP set. Region exclusion
+        always runs, even when no keep-restriction is configured.
+        """
+        metadata = self._apply_keep_restriction(metadata)
+        metadata = self._apply_region_exclusion(metadata)
+        return metadata
+
+    def _apply_keep_restriction(self, metadata: pd.DataFrame) -> pd.DataFrame:
         """Filter metadata rows to ``RefPanelConfig.ref_panel_snps_file`` when set."""
         restrict_path = packaged_hm3_curated_map_path() if self.spec.use_hm3_ref_panel_snps else self.spec.ref_panel_snps_file
         if restrict_path is None or len(metadata) == 0:
@@ -283,6 +293,40 @@ class RefPanel(ABC):
             self.global_config.snp_identifier,
             context=f"reference-panel restriction matching for {restrict_path}",
         )
+        return metadata.loc[keep].reset_index(drop=True)
+
+    def _region_intervals(self) -> regions.RegionIntervals:
+        """Resolve and cache region-exclusion intervals for this panel."""
+        if self._region_intervals_cache is not None:
+            return self._region_intervals_cache
+        groups: list[regions.RegionIntervals] = []
+        if self.spec.exclude_regions:
+            groups.append(
+                regions.load_preset_intervals(list(self.spec.exclude_regions), self.spec.exclude_regions_build)
+            )
+        if self.spec.exclude_regions_bed:
+            paths = [
+                resolve_scalar_path(token, suffixes=("", ".bed"), label="region exclusion BED")
+                for token in self.spec.exclude_regions_bed
+            ]
+            groups.append(regions.load_bed_intervals(paths))
+        merged = regions.merge_intervals(*groups) if groups else regions.RegionIntervals(intervals={}, source_labels=())
+        self._region_intervals_cache = merged
+        return merged
+
+    def _apply_region_exclusion(self, metadata: pd.DataFrame) -> pd.DataFrame:
+        """Drop SNPs inside any configured exclusion region (CHR/POS based)."""
+        intervals = self._region_intervals()
+        if not intervals.intervals or len(metadata) == 0:
+            return metadata
+        pos_col = "POS" if "POS" in metadata.columns else "BP"
+        keep = regions.region_exclusion_keep_mask(metadata, intervals, pos_col=pos_col)
+        dropped = int((~keep).sum())
+        if dropped:
+            LOGGER.info(
+                f"Region exclusion dropped {dropped} reference-panel SNPs via "
+                f"{', '.join(intervals.source_labels)}."
+            )
         return metadata.loc[keep].reset_index(drop=True)
 
     def _validate_metadata(self, metadata: pd.DataFrame, chrom: str) -> pd.DataFrame:
@@ -870,7 +914,7 @@ def _read_metadata_sidecar_identity(path: str | Path) -> dict[str, object] | Non
                 raw[key] = value
     if not raw:
         return None
-    required = {"schema_version", "artifact_type", "snp_identifier", "genome_build"}
+    required = {"artifact_type", "snp_identifier", "genome_build"}
     if not required.issubset(raw):
         raise LDSCInputError(
             f"Reference-panel metadata sidecar '{path}' is missing LDSC identity "
@@ -879,7 +923,6 @@ def _read_metadata_sidecar_identity(path: str | Path) -> dict[str, object] | Non
             f"Other causes & fixes: {_REF_PANEL_ARTIFACT_DOC}"
         )
     return {
-        "schema_version": int(raw["schema_version"]),
         "artifact_type": raw["artifact_type"],
         "snp_identifier": raw["snp_identifier"],
         "genome_build": raw["genome_build"],

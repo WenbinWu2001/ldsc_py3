@@ -12,16 +12,16 @@ Python dataclasses and a small service object. The public workflow boundary
 accepts path-like inputs, normalizes them once, and then passes primitive
 values into the internal kernel so numerical behavior stays aligned with
 established LDSC outputs. The workflow layer owns CLI orchestration, output
-preflight, root ``metadata.json``, diagnostics, and result
-objects; the kernel keeps the legacy-compatible parsing and filtering
+preflight, the self-describing ``sumstats.parquet`` footer, diagnostics, and
+result objects; the kernel keeps the legacy-compatible parsing and filtering
 primitives. Coordinate-family runs separate raw source-build interpretation
 from final output-build compatibility: ``source_genome_build="auto"`` infers
 the raw ``CHR``/``POS`` build, while ``output_genome_build`` is the required
-build recorded in root metadata after any liftover. rsID-family runs reject
-build and liftover fields and record ``genome_build=None``. Run summaries and
-metadata expose curated data artifacts only; ``diagnostics/sumstats.log`` is an
-audit file and is not included in ``output_paths``. Summary-statistics metadata
-sidecars stay thin for downstream compatibility; source-build and liftover
+build recorded in the parquet footer after any liftover. rsID-family runs reject
+build and liftover fields and record ``genome_build=None``. Run summaries
+expose curated data artifacts only; ``diagnostics/sumstats.log`` is an audit
+file and is not included in ``output_paths``. The ``sumstats.parquet`` footer
+carries only the thin downstream-identity payload; source-build and liftover
 provenance is written as readable workflow-log text.
 """
 
@@ -170,10 +170,12 @@ class SumstatsTable:
         Default is an empty dict.
     config_snapshot : GlobalConfig or None, optional
         Shared configuration captured when the table was produced in-process or
-        recovered from root ``metadata.json``. Coordinate-family munged
-        artifacts store the final output genome build here. rsID-family
-        artifacts store ``genome_build=None`` because their merge identity is
-        independent of coordinate build.
+        recovered from the ``sumstats.parquet`` footer. It is ``None`` when the
+        artifact carries no embedded identity metadata (a legacy ``.sumstats.gz``
+        or a footer-less parquet), in which case the identifier mode is inferred
+        downstream. Coordinate-family munged artifacts store the final output
+        genome build here; rsID-family artifacts store ``genome_build=None``
+        because their merge identity is independent of coordinate build.
     """
     data: pd.DataFrame
     has_alleles: bool
@@ -268,8 +270,8 @@ class SumstatsTable:
 class MungeRunSummary:
     """Compact summary of one munging run.
 
-    ``output_paths`` records curated sumstats data artifacts and the metadata
-    sidecar. It intentionally excludes ``diagnostics/sumstats.log`` so Python result
+    ``output_paths`` records curated sumstats data artifacts and the dropped-SNP
+    audit sidecar. It intentionally excludes ``diagnostics/sumstats.log`` so Python result
     contracts stay aligned with other workflow modules.
     """
     n_input_rows: int
@@ -302,16 +304,18 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
     trait_name : str or None, optional
         Optional trait label propagated into downstream regression summaries.
         When supplied, this value overrides any metadata label. When
-        omitted, the loader uses root ``metadata.json`` ``trait_name`` when
+        omitted, the loader uses the parquet footer ``trait_name`` when
         present, then falls back to the resolved filename. Default is ``None``.
 
     Returns
     -------
     SumstatsTable
         Validated in-memory table with canonical LDSC columns such as ``SNP``,
-        ``CHR``, ``POS``, ``N``, and ``Z`` when present in the artifact. When a
-        root ``metadata.json`` is present next to the artifact, the
-        returned table also recovers its munge-time ``GlobalConfig`` snapshot.
+        ``CHR``, ``POS``, ``N``, and ``Z`` when present in the artifact. When the
+        ``sumstats.parquet`` footer carries identity metadata, the returned table
+        also recovers its munge-time ``GlobalConfig`` snapshot; otherwise
+        ``config_snapshot`` is ``None`` and the identifier mode is inferred
+        downstream.
 
     Raises
     ------
@@ -327,13 +331,11 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
     whitespace reader. Other suffixes are refused so callers do not
     accidentally parse CSV or raw GWAS input as curated sumstats.
 
-    Metadata lookup reads ``metadata.json`` from the artifact's parent
-    directory.
-
-    Current package-written artifacts must have root metadata
-    with the minimal identity provenance contract. Missing or old sidecars are
-    rejected so callers regenerate artifacts instead of loading unknown
-    identity semantics.
+    Identity metadata is read from the parquet footer (discrete ``ldsc:*``
+    keys). No ``metadata.json`` sidecar is consulted. Artifacts without footer
+    metadata -- legacy ``.sumstats.gz`` files or footer-less parquet -- load
+    with ``config_snapshot=None`` rather than being rejected; their identifier
+    mode is inferred from the LD-score panel during regression.
     """
     resolved = resolve_scalar_path(path, label="munged sumstats")
     df = _read_curated_sumstats_artifact(resolved)
@@ -349,16 +351,22 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
     df = df.loc[:, list(resolved_columns.values())].rename(
         columns={actual: canonical for canonical, actual in resolved_columns.items()}
     )
-    metadata_path = _sumstats_metadata_path(resolved)
-    metadata = _read_sumstats_metadata(metadata_path, artifact_path=resolved)
+    metadata = _read_sumstats_parquet_footer(resolved)
     if metadata is None:
-        raise LDSCInputError(
-            _curated_sumstats_artifact_message(
-                resolved,
-                "its metadata.json sidecar is missing, so its identity semantics are unknown.",
-                "Most likely it predates the current schema.",
-            )
+        LOGGER.info(
+            f"No embedded identity metadata in '{resolved}'. The SNP identifier mode will be "
+            "inferred from the LD-score panel during regression."
         )
+        table = SumstatsTable(
+            data=df.reset_index(drop=True),
+            has_alleles={"A1", "A2"}.issubset(df.columns),
+            source_path=resolved,
+            trait_name=_resolve_sumstats_trait_name(trait_name, None, resolved),
+            provenance={},
+            config_snapshot=None,
+        )
+        table.validate()
+        return table
     config_snapshot = _global_config_from_sumstats_metadata(metadata, artifact_path=resolved)
     mode = normalize_snp_identifier_mode(config_snapshot.snp_identifier)
     if is_allele_aware_mode(mode) and not {"A1", "A2"}.issubset(df.columns):
@@ -406,9 +414,7 @@ def load_sumstats(path: str | PathLike[str], trait_name: str | None = None) -> S
         has_alleles={"A1", "A2"}.issubset(df.columns),
         source_path=resolved,
         trait_name=_resolve_sumstats_trait_name(trait_name, metadata, resolved),
-        provenance={
-            **({"metadata_path": str(metadata_path), "metadata": metadata} if metadata is not None else {}),
-        },
+        provenance={"metadata": metadata},
         config_snapshot=config_snapshot,
     )
     table.validate()
@@ -441,7 +447,7 @@ class SumstatsMunger:
         munge_config : MungeConfig
             Munging thresholds, output directory, and curated output format. The
             workflow writes fixed root data files named ``sumstats.parquet``
-            and/or ``sumstats.sumstats.gz``, root ``metadata.json``, and
+            (self-describing via its footer) and/or ``sumstats.sumstats.gz``, and
             diagnostics under ``diagnostics/``. Any
             existing owned ``sumstats.*`` artifact is refused before the kernel
             runs unless ``munge_config.overwrite`` is true; successful
@@ -470,7 +476,7 @@ class SumstatsMunger:
             Validated, in-memory table suitable for the regression workflow.
             The table includes canonical ``CHR`` and ``POS`` columns, preserves
             the active or inferred ``GlobalConfig`` snapshot, and writes the
-            same provenance into ``metadata.json`` so downstream
+            same provenance into the ``sumstats.parquet`` footer so downstream
             regression can detect incompatible LD-score results after reload.
             Optional ``sumstats_snps_file`` filtering is reflected in both the
             returned table and the written curated artifact(s).
@@ -506,16 +512,14 @@ class SumstatsMunger:
         output_dir = ensure_output_directory(munge_config.output_dir, label="output directory")
         diagnostics_dir = output_dir / "diagnostics"
         fixed_output_stem = str(output_dir / "sumstats")
-        metadata_path = output_dir / "metadata.json"
         output_files = _sumstats_output_files(fixed_output_stem, munge_config.output_format)
         log_path = str(diagnostics_dir / "sumstats.log")
         dropped_snps_path = diagnostics_dir / "dropped_snps" / "dropped.tsv.gz"
         sumstats_snps_path = _sumstats_snps_file_from_config(munge_config)
         sumstats_snps_label = "none" if sumstats_snps_path is None else str(sumstats_snps_path)
-        produced_paths = [*output_files.values(), metadata_path, log_path, dropped_snps_path]
+        produced_paths = [*output_files.values(), log_path, dropped_snps_path]
         owned_paths = [
             *_sumstats_output_files(fixed_output_stem, "both").values(),
-            metadata_path,
             log_path,
             dropped_snps_path,
         ]
@@ -551,11 +555,6 @@ class SumstatsMunger:
                 f"liftover_method='{liftover_request.method}'."
             )
             data = kernel_munge.munge_sumstats(args, p=False)
-            primary_sumstats_file, parquet_row_groups = _write_sumstats_outputs(
-                data,
-                output_files=output_files,
-                output_format=munge_config.output_format,
-            )
             coordinate_metadata = dict(getattr(args, "_coordinate_metadata", {}))
             drop_frame = _coerce_sumstats_dropped_snps_frame(
                 coordinate_metadata.pop("liftover_drop_frame", None)
@@ -569,6 +568,12 @@ class SumstatsMunger:
                 default_stage=None,
             )
             table_config_snapshot = _effective_sumstats_config(config_snapshot, coordinate_metadata)
+            primary_sumstats_file, parquet_row_groups = _write_sumstats_outputs(
+                data,
+                output_files=output_files,
+                output_format=munge_config.output_format,
+                footer_metadata=_sumstats_footer_metadata(table_config_snapshot, raw_sumstats_config.trait_name),
+            )
             _log_sumstats_provenance(
                 coordinate_metadata=coordinate_metadata,
                 output_format=munge_config.output_format,
@@ -584,12 +589,6 @@ class SumstatsMunger:
             # clean run from a missing or stale dropped-SNP artifact.
             _write_sumstats_dropped_snps_sidecar(drop_frame, dropped_snps_path)
             _log_sumstats_dropped_snps_summary(drop_frame, dropped_snps_path)
-            _write_sumstats_metadata(
-                metadata_path,
-                config_snapshot=table_config_snapshot,
-                trait_name=raw_sumstats_config.trait_name,
-                files={name: Path(path).name for name, path in output_files.items()},
-            )
             table = SumstatsTable(
                 data=data.reset_index(drop=True),
                 has_alleles={"A1", "A2"}.issubset(data.columns),
@@ -601,7 +600,6 @@ class SumstatsMunger:
                     "output_format": munge_config.output_format,
                     "output_files": dict(output_files),
                     "column_hints": dict(raw_sumstats_config.column_hints),
-                    "metadata_path": str(metadata_path),
                     "coordinate_provenance": coordinate_metadata,
                     "metadata": coordinate_metadata,
                 },
@@ -611,7 +609,6 @@ class SumstatsMunger:
             run_output_paths = {
                 **({"sumstats_parquet": output_files["parquet"]} if "parquet" in output_files else {}),
                 **({"sumstats_gz": output_files["tsv.gz"]} if "tsv.gz" in output_files else {}),
-                "metadata_json": str(metadata_path),
                 "dropped_snps_tsv_gz": str(dropped_snps_path),
             }
             self._last_summary = MungeRunSummary(
@@ -669,8 +666,8 @@ class SumstatsMunger:
         -----
         This helper follows the public workflow naming policy but does not
         create ``diagnostics/sumstats.log`` because no raw munging kernel is run. A config
-        snapshot is required so the root ``metadata.json``
-        sidecar can be written for downstream provenance recovery.
+        snapshot is required so the ``sumstats.parquet`` footer can record
+        identity provenance for downstream recovery.
         """
         if sumstats.config_snapshot is None:
             raise LDSCInputError(
@@ -682,13 +679,11 @@ class SumstatsMunger:
         output_format = _normalize_output_format(output_format)
         output_root = ensure_output_directory(output_dir, label="output directory")
         fixed_output_stem = str(output_root / "sumstats")
-        metadata_path = output_root / "metadata.json"
         output_files = _sumstats_output_files(fixed_output_stem, output_format)
         produced_paths = list(output_files.values())
-        produced_paths.append(metadata_path)
         stale_paths = preflight_output_artifact_family(
             produced_paths,
-            [*_sumstats_output_files(fixed_output_stem, "both").values(), metadata_path],
+            list(_sumstats_output_files(fixed_output_stem, "both").values()),
             overwrite=overwrite,
             label="munged output artifact",
         )
@@ -696,12 +691,7 @@ class SumstatsMunger:
             sumstats.data,
             output_files=output_files,
             output_format=output_format,
-        )
-        _write_sumstats_metadata(
-            metadata_path,
-            config_snapshot=sumstats.config_snapshot,
-            trait_name=sumstats.trait_name,
-            files={name: Path(path).name for name, path in output_files.items()},
+            footer_metadata=_sumstats_footer_metadata(sumstats.config_snapshot, sumstats.trait_name),
         )
         remove_output_artifacts(stale_paths)
         return primary_sumstats_file
@@ -1402,9 +1392,13 @@ def _apply_build_inference_report(
         _append_suggested_option(suggested, "--liftover-chain-file", munge_config.liftover_chain_file)
         try:
             resolve_scalar_path(munge_config.liftover_chain_file, label="liftover chain file")
-        except FileNotFoundError as exc:
+        except LDSCInputError as exc:
             missing.append("liftover_chain_file")
-            notes.append(f"Liftover chain file was not found: {exc}")
+            notes.append(
+                f"{exc} For this infer-only report, pass one existing chain file for the expected direction "
+                f"({_expected_chain_label(resolved_source, output_build)}), or use "
+                "--use-hm3-snps --use-hm3-quick-liftover."
+            )
         if resolved_source in {"hg19", "hg38"} and output_build in {"hg19", "hg38"}:
             notes.append(f"Expected chain direction: {resolved_source} -> {output_build}.")
     missing_fields = tuple(dict.fromkeys(missing))
@@ -1631,13 +1625,37 @@ def _write_sumstats_tsv_gz(data: pd.DataFrame, path: str) -> None:
     frame.to_csv(path, sep="\t", index=False, float_format="%.3f", compression="gzip")
 
 
-def _write_sumstats_parquet(data: pd.DataFrame, path: str) -> list[dict[str, Any]]:
+def _sumstats_footer_metadata(config_snapshot: GlobalConfig, trait_name: str | None) -> dict[bytes, bytes]:
+    """Return discrete ``ldsc:*`` Parquet footer keys for a curated sumstats artifact.
+
+    Mirrors the reference-panel footer convention in ``_kernel/ref_panel.py``. A
+    ``None`` ``genome_build`` (rsID-family) or ``trait_name`` is encoded as an
+    empty string and decoded back to ``None`` on read.
+    """
+    identity = identity_artifact_metadata(
+        artifact_type="sumstats",
+        snp_identifier=config_snapshot.snp_identifier,
+        genome_build=config_snapshot.genome_build,
+    )
+    footer = {
+        f"ldsc:{key}".encode("utf-8"): ("" if value is None else str(value)).encode("utf-8")
+        for key, value in identity.items()
+    }
+    footer[b"ldsc:trait_name"] = ("" if trait_name is None else str(trait_name)).encode("utf-8")
+    return footer
+
+
+def _write_sumstats_parquet(
+    data: pd.DataFrame, path: str, footer_metadata: dict[bytes, bytes] | None = None
+) -> list[dict[str, Any]]:
     """Write snappy-compressed Parquet and return row-group metadata.
 
     The Parquet payload keeps the munger's numeric precision. One row group is
     emitted per normalized chromosome among complete-coordinate rows. If rows
     without complete coordinates exist, they are emitted as the last row group
-    with ``chrom`` recorded as ``None``.
+    with ``chrom`` recorded as ``None``. When ``footer_metadata`` is supplied,
+    its ``ldsc:*`` identity keys are merged into the Parquet schema footer so the
+    file is self-describing downstream.
     """
     try:
         import pyarrow as pa
@@ -1651,6 +1669,8 @@ def _write_sumstats_parquet(data: pd.DataFrame, path: str) -> list[dict[str, Any
 
     frame = _prepare_sumstats_parquet_frame(data)
     schema = pa.Schema.from_pandas(frame, preserve_index=False)
+    if footer_metadata:
+        schema = schema.with_metadata({**(schema.metadata or {}), **footer_metadata})
     row_groups: list[dict[str, Any]] = []
     offset = 0
     with pq.ParquetWriter(path, schema, compression=_SUMSTATS_PARQUET_COMPRESSION) as writer:
@@ -1688,14 +1708,19 @@ def _write_sumstats_outputs(
     *,
     output_files: dict[str, str],
     output_format: str,
+    footer_metadata: dict[bytes, bytes] | None = None,
 ) -> tuple[str, list[dict[str, Any]]]:
-    """Write selected artifacts and return the primary path plus Parquet row groups."""
+    """Write selected artifacts and return the primary path plus Parquet row groups.
+
+    The ``.sumstats.gz`` TSV artifact carries no embedded metadata; only the
+    Parquet artifact receives the self-describing ``footer_metadata``.
+    """
     output_format = _normalize_output_format(output_format)
     parquet_row_groups: list[dict[str, Any]] = []
     if "tsv.gz" in output_files:
         _write_sumstats_tsv_gz(data, output_files["tsv.gz"])
     if "parquet" in output_files:
-        parquet_row_groups = _write_sumstats_parquet(data, output_files["parquet"])
+        parquet_row_groups = _write_sumstats_parquet(data, output_files["parquet"], footer_metadata)
     primary = output_files["parquet"] if output_format in {"parquet", "both"} else output_files["tsv.gz"]
     return primary, parquet_row_groups
 
@@ -1789,9 +1814,28 @@ def _resolve_curated_sumstats_columns(columns: list[str], *, context: str) -> di
     return {canonical: resolved[canonical] for canonical in ("SNP", "CHR", "POS", "N", "Z", "A1", "A2", "FRQ") if canonical in resolved}
 
 
-def _sumstats_metadata_path(path: str | PathLike[str]) -> Path:
-    """Return the root ``metadata.json`` next to a curated sumstats artifact."""
-    return Path(path).parent / "metadata.json"
+def _read_sumstats_parquet_footer(path: str) -> dict[str, Any] | None:
+    """Return the embedded sumstats identity payload, or ``None`` when absent.
+
+    Only Parquet artifacts carry a footer. ``.sumstats(.gz)`` and footer-less
+    Parquet files return ``None``. Empty ``genome_build``/``trait_name`` footer
+    values decode back to ``None``.
+    """
+    if not str(path).endswith(".parquet"):
+        return None
+    import pyarrow.parquet as pq
+
+    raw = pq.read_schema(path).metadata or {}
+    if b"ldsc:artifact_type" not in raw:
+        return None
+    genome_build = raw.get(b"ldsc:genome_build", b"").decode("utf-8") or None
+    trait_name = raw.get(b"ldsc:trait_name", b"").decode("utf-8") or None
+    return {
+        "artifact_type": raw[b"ldsc:artifact_type"].decode("utf-8"),
+        "snp_identifier": raw[b"ldsc:snp_identifier"].decode("utf-8"),
+        "genome_build": genome_build,
+        "trait_name": trait_name,
+    }
 
 
 def _curated_sumstats_artifact_message(path: str | PathLike[str], detail: str, likely: str) -> str:
@@ -1803,28 +1847,12 @@ def _curated_sumstats_artifact_message(path: str | PathLike[str], detail: str, l
     )
 
 
-def _read_sumstats_metadata(path: Path, *, artifact_path: str | PathLike[str]) -> dict[str, Any] | None:
-    """Read a sumstats sidecar metadata file when it exists."""
-    if not path.exists():
-        return None
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise LDSCInputError(
-            _curated_sumstats_artifact_message(
-                artifact_path,
-                "its metadata.json sidecar is not valid JSON, so its identity semantics cannot be read.",
-                "Most likely the sidecar was truncated or hand-edited.",
-            )
-        ) from exc
-
-
 def _resolve_sumstats_trait_name(
     explicit_trait_name: str | None,
     metadata: dict[str, Any] | None,
     resolved_path: str,
 ) -> str:
-    """Resolve the public trait label using CLI/API, sidecar, then filename."""
+    """Resolve the public trait label using CLI/API, parquet footer, then filename."""
     try:
         explicit = _normalize_trait_name(explicit_trait_name)
     except LDSCConfigError as exc:
@@ -1842,8 +1870,8 @@ def _resolve_sumstats_trait_name(
             raise LDSCInputError(
                 _curated_sumstats_artifact_message(
                     resolved_path,
-                    "its metadata.json sidecar has a blank trait_name field.",
-                    "Most likely the sidecar was hand-edited or written by an outdated workflow.",
+                    "its embedded parquet footer has a blank trait_name field.",
+                    "Most likely the artifact was hand-edited or written by an outdated workflow.",
                 )
             ) from exc
         if metadata_trait is not None:
@@ -1856,20 +1884,20 @@ def _global_config_from_sumstats_metadata(
     *,
     artifact_path: str | PathLike[str],
 ) -> GlobalConfig | None:
-    """Recreate a GlobalConfig snapshot from a sumstats sidecar."""
+    """Recreate a GlobalConfig snapshot from a sumstats parquet footer payload."""
     if not isinstance(metadata, dict):
         raise LDSCInputError(
             _curated_sumstats_artifact_message(
                 artifact_path,
-                "its metadata.json sidecar is not a JSON object, so provenance fields cannot be read.",
-                "Most likely the sidecar was hand-edited or corrupted.",
+                "its embedded parquet footer metadata could not be read, so provenance fields are unavailable.",
+                "Most likely the artifact was hand-edited or corrupted.",
             )
         )
     if "genome_build" not in metadata:
         raise LDSCInputError(
             _curated_sumstats_artifact_message(
                 artifact_path,
-                "its metadata.json sidecar is missing the genome_build field.",
+                "its embedded parquet footer is missing the genome_build field.",
                 "Most likely it predates the current schema.",
             )
         )
@@ -1884,7 +1912,7 @@ def _global_config_from_sumstats_metadata(
         raise LDSCInputError(
             _curated_sumstats_artifact_message(
                 artifact_path,
-                "its metadata.json sidecar has invalid identity provenance.",
+                "its embedded parquet footer has invalid identity provenance.",
                 "Most likely it predates the current schema or was edited after munging.",
             )
         ) from exc
@@ -1901,26 +1929,6 @@ def _effective_sumstats_config(config: GlobalConfig, coordinate_metadata: dict[s
     )
 
 
-def _write_sumstats_metadata(
-    path: str | PathLike[str],
-    *,
-    config_snapshot: GlobalConfig,
-    trait_name: str | None,
-    files: dict[str, str],
-) -> None:
-    """Write the thin metadata sidecar used for downstream compatibility."""
-    payload = {
-        **identity_artifact_metadata(
-            artifact_type="sumstats",
-            snp_identifier=config_snapshot.snp_identifier,
-            genome_build=config_snapshot.genome_build,
-        ),
-        "files": dict(files),
-        "trait_name": trait_name,
-    }
-    Path(path).write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-
-
 def _log_sumstats_provenance(
     *,
     coordinate_metadata: dict[str, Any],
@@ -1929,7 +1937,7 @@ def _log_sumstats_provenance(
     parquet_compression: str | None,
     parquet_row_groups: list[dict[str, Any]],
 ) -> None:
-    """Log detailed provenance that is intentionally excluded from the sidecar."""
+    """Log detailed provenance that is intentionally excluded from the parquet footer."""
     coordinate_provenance = dict(coordinate_metadata)
     liftover = coordinate_provenance.pop(
         "liftover",

@@ -48,8 +48,13 @@ class ColumnInferenceTest(unittest.TestCase):
     def test_raw_sumstats_families_cover_legacy_and_current_aliases(self):
         specs = getattr(ci, "RAW_SUMSTATS_REQUIRED_OR_OPTIONAL_SPECS", None)
         self.assertIsNotNone(specs)
+        raw_lookup = ci.build_cleaned_alias_lookup(specs)
+        self.assertEqual(raw_lookup["MARKERID"], "SNP")
+        self.assertEqual(raw_lookup["N_CTRL"], "N_CON")
+        self.assertEqual(raw_lookup["N_CASE"], "N_CAS")
 
         snp_spec = self._spec_by_canonical(specs, "SNP")
+        self.assertEqual(resolve_required_column(["MarkerID"], snp_spec), "MarkerID")
         self.assertEqual(resolve_required_column(["rs_number"], snp_spec), "rs_number")
         self.assertEqual(resolve_required_column(["snp_id"], snp_spec), "snp_id")
         self.assertEqual(resolve_required_column(["id"], snp_spec), "id")
@@ -59,10 +64,12 @@ class ColumnInferenceTest(unittest.TestCase):
 
         n_cas_spec = self._spec_by_canonical(specs, "N_CAS")
         self.assertEqual(resolve_required_column(["ncas"], n_cas_spec), "ncas")
+        self.assertEqual(resolve_required_column(["N_case"], n_cas_spec), "N_case")
         self.assertEqual(resolve_required_column(["Nca"], n_cas_spec), "Nca")
 
         n_con_spec = self._spec_by_canonical(specs, "N_CON")
         self.assertEqual(resolve_required_column(["ncon"], n_con_spec), "ncon")
+        self.assertEqual(resolve_required_column(["N_ctrl"], n_con_spec), "N_ctrl")
         self.assertEqual(resolve_required_column(["Nco"], n_con_spec), "Nco")
 
         info_spec = self._spec_by_canonical(specs, "INFO")
@@ -92,6 +99,7 @@ class ColumnInferenceTest(unittest.TestCase):
         restriction_specs = getattr(ci, "RESTRICTION_RSID_SPECS", None)
         self.assertIsNotNone(restriction_specs)
         restriction_snp = self._spec_by_canonical(restriction_specs, "SNP")
+        self.assertEqual(resolve_required_column(["MarkerID"], restriction_snp), "MarkerID")
         self.assertEqual(resolve_required_column(["rs_id"], restriction_snp), "rs_id")
         self.assertEqual(resolve_required_column(["id"], restriction_snp), "id")
 
@@ -145,3 +153,14 @@ class ColumnInferenceTest(unittest.TestCase):
             ),
             ("chr", "hg19_pos"),
         )
+
+
+def test_maf_alias_family_is_folded_only():
+    # MAF (folded) no longer absorbs FRQ/FREQ; those are the oriented family.
+    assert ci.MAF_COLUMN_ALIASES == ("MAF",)
+
+
+def test_oriented_frq_alias_family_exists():
+    fam = set(ci.ORIENTED_FRQ_COLUMN_ALIASES)
+    assert {"FRQ", "FREQ", "FREQUENCY", "EAF", "A1_FRQ", "FRQ_A1", "FREQ_A1"} <= fam
+    assert "MAF" not in fam  # MAF stays folded, never oriented

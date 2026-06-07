@@ -21,6 +21,7 @@ import hashlib
 import logging
 from typing import Literal
 
+import numpy as np
 import pandas as pd
 
 from .._coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame
@@ -32,7 +33,6 @@ RSID_FAMILY_MODES = ("rsid", "rsid_allele_aware")
 CHR_POS_FAMILY_MODES = ("chr_pos", "chr_pos_allele_aware")
 ALLELE_AWARE_MODES = ("rsid_allele_aware", "chr_pos_allele_aware")
 BASE_MODES = ("rsid", "chr_pos")
-SCHEMA_VERSION = 1
 ARTIFACT_TYPES = frozenset({"sumstats", "ref_panel_r2", "ref_panel_metadata", "ldscore"})
 REGENERATE_ARTIFACT_MESSAGE = (
     "This artifact was not written with the current LDSC schema/provenance contract. "
@@ -118,7 +118,6 @@ def identity_artifact_metadata(
             "Add the artifact type to the central identity metadata registry."
         )
     return {
-        "schema_version": SCHEMA_VERSION,
         "artifact_type": artifact_type,
         "snp_identifier": normalize_snp_identifier_mode(snp_identifier),
         "genome_build": genome_build,
@@ -127,14 +126,13 @@ def identity_artifact_metadata(
 
 def validate_identity_artifact_metadata(metadata: dict[str, object], *, expected_artifact_type: str) -> str:
     """Validate minimal identity metadata and return the normalized SNP identifier mode."""
-    if metadata.get("schema_version") != SCHEMA_VERSION or metadata.get("artifact_type") != expected_artifact_type:
-        actual_schema = metadata.get("schema_version")
+    if metadata.get("artifact_type") != expected_artifact_type:
         actual_type = metadata.get("artifact_type")
         raise LDSCInputError(
-            f"Could not read LDSC {expected_artifact_type} artifact metadata: expected schema_version={SCHEMA_VERSION} "
-            f"and artifact_type={expected_artifact_type!r}, got schema_version={actual_schema!r} "
-            f"and artifact_type={actual_type!r}. Most likely the artifact was written by an older LDSC version "
-            "or copied without its matching metadata sidecar. Regenerate the artifact with the current LDSC package. "
+            f"Could not read LDSC {expected_artifact_type} artifact metadata: expected "
+            f"artifact_type={expected_artifact_type!r}, got artifact_type={actual_type!r}. "
+            "Most likely the artifact was written by an older LDSC version or by another tool. "
+            "Regenerate the artifact with the current LDSC package. "
             f"Other causes & fixes: {_ARTIFACT_METADATA_TROUBLESHOOTING}"
         )
     try:
@@ -243,6 +241,93 @@ def normalize_allele_set(a1: object, a2: object) -> object:
     return min(observed, complement)
 
 
+_BASE_ORDER = ("A", "C", "G", "T")
+_BASE_CODE = {base: code for code, base in enumerate(_BASE_ORDER)}
+
+
+def _build_allele_lookup_tables() -> tuple[np.ndarray, np.ndarray]:
+    """Tabulate the 16 valid base-pair outcomes from the scalar reference.
+
+    Returns ``(canonical, reason)`` object arrays indexed by ``L*4 + R`` (base
+    codes ``A,C,G,T -> 0..3``). Each entry is derived from :func:`normalize_allele_set`
+    / :func:`_allele_failure_reason`, so the vectorized path is correct by
+    construction. ``canonical[code]`` is the normalized key or ``pd.NA``;
+    ``reason[code]`` is the failure reason or ``pd.NA``.
+    """
+    canonical = np.empty(16, dtype=object)
+    reason = np.empty(16, dtype=object)
+    for left_code, left in enumerate(_BASE_ORDER):
+        for right_code, right in enumerate(_BASE_ORDER):
+            code = left_code * 4 + right_code
+            failure = _allele_failure_reason(left, right)
+            if failure is None:
+                canonical[code] = normalize_allele_set(left, right)
+                reason[code] = pd.NA
+            else:
+                canonical[code] = pd.NA
+                reason[code] = failure
+    return canonical, reason
+
+
+_ALLELE_CANONICAL16, _ALLELE_REASON16 = _build_allele_lookup_tables()
+
+
+def _clean_allele_series(column: pd.Series) -> pd.Series:
+    """Vectorized :func:`_clean_allele` over a column.
+
+    Returns a ``StringDtype`` series of stripped, uppercased allele tokens with
+    ``pd.NA`` for missing or empty values. ``astype("string")`` reproduces the
+    scalar ``str(value)`` coercion (including non-string inputs) while preserving
+    missing values, so each element matches ``_clean_allele`` exactly.
+    """
+    cleaned = column.astype("string").str.strip().str.upper()
+    return cleaned.where(cleaned != "", other=pd.NA)
+
+
+def _base_codes(cleaned: pd.Series) -> np.ndarray:
+    """Map cleaned allele tokens to base codes ``A,C,G,T -> 0..3`` (``-1`` otherwise)."""
+    tokens = cleaned.fillna("").to_numpy()
+    codes = np.full(len(tokens), -1, dtype=np.int64)
+    for base, code in _BASE_CODE.items():
+        codes[tokens == base] = code
+    return codes
+
+
+def _allele_set_series_vectorized(frame: pd.DataFrame, *, context: str) -> tuple[pd.Series, pd.Series]:
+    """Vectorized equivalent of the scalar per-row loop in :func:`allele_set_series`.
+
+    Produces ``(values, reasons)`` object series bit-identical to validating each
+    row with :func:`_allele_failure_reason` and normalizing the valid rows with
+    :func:`normalize_allele_set`. Because allele-aware identity has only 16 valid
+    base pairs, cleaned alleles are encoded as base codes and the canonical key and
+    failure reason are read from precomputed 16-entry tables, removing the per-row
+    Python string work that dominates identity setup.
+    """
+    _require_columns(frame, ("A1", "A2"), context=context)
+    index = frame.index
+
+    left = _clean_allele_series(frame["A1"])
+    right = _clean_allele_series(frame["A2"])
+    code_left = _base_codes(left)
+    code_right = _base_codes(right)
+
+    missing = (left.isna() | right.isna()).to_numpy()
+    valid_base = (code_left >= 0) & (code_right >= 0)
+    pair = np.where(valid_base, code_left * 4 + code_right, 0)
+
+    # Valid base pairs read key/reason from the tables (which already encode the
+    # identical and strand-ambiguous failures); the rest follow reason precedence.
+    values = np.where(valid_base, _ALLELE_CANONICAL16[pair], pd.NA)
+    reasons = np.where(valid_base, _ALLELE_REASON16[pair], pd.NA)
+    reasons[missing] = "missing_allele"
+    reasons[(~missing) & (~valid_base)] = "invalid_allele"
+
+    return (
+        pd.Series(values, index=index, dtype=object),
+        pd.Series(reasons, index=index, dtype=object),
+    )
+
+
 def _require_columns(frame: pd.DataFrame, columns: tuple[str, ...], *, context: str) -> None:
     missing = [column for column in columns if column not in frame.columns]
     if missing:
@@ -274,22 +359,13 @@ def base_key_series(frame: pd.DataFrame, mode: str, *, context: str) -> pd.Serie
 
 
 def allele_set_series(frame: pd.DataFrame, *, context: str) -> tuple[pd.Series, pd.Series]:
-    """Return normalized allele sets plus per-row failure reasons."""
-    _require_columns(frame, ("A1", "A2"), context=context)
-    values: list[object] = []
-    reasons: list[object] = []
-    for a1, a2 in zip(frame["A1"], frame["A2"]):
-        reason = _allele_failure_reason(a1, a2)
-        if reason is None:
-            values.append(normalize_allele_set(a1, a2))
-            reasons.append(pd.NA)
-        else:
-            values.append(pd.NA)
-            reasons.append(reason)
-    return (
-        pd.Series(values, index=frame.index, dtype=object),
-        pd.Series(reasons, index=frame.index, dtype=object),
-    )
+    """Return normalized allele sets plus per-row failure reasons.
+
+    Output is identical to validating each row with :func:`_allele_failure_reason`
+    and normalizing valid rows with :func:`normalize_allele_set`; the work is done
+    column-at-a-time by :func:`_allele_set_series_vectorized`.
+    """
+    return _allele_set_series_vectorized(frame, context=context)
 
 
 def effective_merge_key_series(frame: pd.DataFrame, mode: str, *, context: str = "table") -> pd.Series:
@@ -542,3 +618,31 @@ def _log_identity_drops(dropped: pd.DataFrame, *, context: str, logger: logging.
         return
     counts = dropped["reason"].value_counts().to_dict()
     logger.warning(f"Dropped {len(dropped)} SNP identity rows in {context}: {counts}.")
+
+
+def canonicalize_alleles(
+    df: pd.DataFrame,
+    *,
+    a1_col: str = "A1",
+    a2_col: str = "A2",
+    freq_col: str = "MAF",
+) -> pd.DataFrame:
+    """Re-orient ``A1``/``A2`` so ``A1`` is the minor allele (``freq(A1) <= 0.5``).
+
+    ``freq_col`` must hold the *oriented* frequency of the allele in ``a1_col``
+    (may exceed 0.5). Rows with ``freq(A1) > 0.5`` have their alleles swapped and
+    ``freq`` replaced by ``1 - freq``; ``freq == 0.5`` rows are left as-is
+    (tie-break: keep order). The function is idempotent and returns a copy without
+    mutating the input. It cannot recover orientation from a folded value, so the
+    caller must pass an oriented column (see design 2026-06-07
+    allele-orientation-canonicalization, section 2.1).
+    """
+    out = df.copy()
+    freq = pd.to_numeric(out[freq_col], errors="coerce").to_numpy(dtype=float)
+    flip = freq > 0.5
+    a1 = out[a1_col].to_numpy()
+    a2 = out[a2_col].to_numpy()
+    out[a1_col] = np.where(flip, a2, a1)
+    out[a2_col] = np.where(flip, a1, a2)
+    out[freq_col] = np.where(flip, 1.0 - freq, freq)
+    return out

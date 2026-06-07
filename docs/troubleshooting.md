@@ -86,7 +86,7 @@ artifact reload guards · **Exception:** `LDSCInputError`
 
 | # | Likely cause | How to check |
 |---|--------------|--------------|
-| 1 | The artifact was written by an older LDSC package version | Inspect the artifact metadata sidecar or parquet metadata for `schema_version` |
+| 1 | The artifact was written by an older LDSC package version | Inspect the artifact metadata sidecar or parquet footer for `artifact_type`, `snp_identifier`, and `genome_build` |
 | 2 | The artifact type does not match the loader | Confirm the file was produced by the command you are now trying to load from |
 | 3 | The metadata sidecar was copied without its matching data file, or vice versa | Compare file modification times and paths for the artifact plus sidecar |
 | 4 | SNP identity provenance was hand-edited or corrupted | Inspect `snp_identifier`, `genome_build`, and identity metadata fields |
@@ -146,16 +146,16 @@ artifact reload guards · **Exception:** `LDSCInputError`
 
 **Raised by:** `sumstats_munger.load_sumstats()` and its metadata helpers
 · **Exception:** `LDSCInputError`
-**Symptom:** `Cannot load curated sumstats at '<path>': ...` (sidecar missing / old
-schema / bad provenance / missing A1-A2 / duplicate identity rows)
+**Symptom:** `Cannot load curated sumstats at '<path>': ...` (old schema /
+bad provenance / missing A1-A2 / duplicate identity rows)
 
 **Likely causes & how to check** (most probable first):
 
 | # | Likely cause | How to check |
 |---|--------------|--------------|
-| 1 | Artifact predates the current schema (no/old `metadata.json` sidecar) | Check for `metadata.json` beside the artifact; inspect its `schema_version` |
-| 2 | The `metadata.json` sidecar is missing or unreadable | `python -m json.tool metadata.json` |
-| 3 | Identity provenance in the sidecar is invalid/corrupt | Inspect the sidecar's identity fields against the current contract |
+| 1 | Artifact predates the current self-describing parquet schema | Inspect the parquet footer for `ldsc:artifact_type`, `ldsc:snp_identifier`, and `ldsc:genome_build` |
+| 2 | The artifact is a legacy `.sumstats.gz` or footer-less parquet | Re-munge from the raw GWAS input to produce `sumstats.parquet` |
+| 3 | Identity provenance in the parquet footer is invalid/corrupt | Inspect the footer identity fields against the current contract |
 | 4 | An allele-aware `snp_identifier` artifact lacks A1/A2 columns | `python -c "import pandas; print(pandas.read_parquet('<f>').columns)"` |
 | 5 | Duplicate/invalid SNP-identity rows survived in the artifact | Re-munge from raw input; the loader reports the dropped-row reasons |
 
@@ -366,7 +366,7 @@ restriction build/column readers · **Exception:** `LDSCInputError`
 | # | Likely cause | How to check |
 |---|--------------|--------------|
 | 1 | The R2 parquet was copied without its matching `chrN_meta.tsv.gz` sidecar | Confirm each `chrN_r2.parquet` has a same-directory `chrN_meta.tsv.gz` |
-| 2 | The artifact was written by an older LDSC version | Inspect parquet or sidecar metadata for `schema_version` and `artifact_type` |
+| 2 | The artifact was written by an older LDSC version | Inspect parquet or sidecar metadata for `artifact_type`, `snp_identifier`, and `genome_build` |
 | 3 | A parent directory with multiple build children was passed without a concrete build | Check for `hg19/` and `hg38/` children under `--r2-dir` |
 | 4 | The metadata sidecar lacks required SNP identity columns for the active mode | Inspect sidecar columns for SNP or CHR/POS plus A1/A2 in allele-aware modes |
 | 5 | The selected chromosome/build was not generated | List `chr*_r2.parquet` files in the selected build directory |

@@ -31,7 +31,7 @@ An LD-score run writes:
 
 `metadata.json` is the downstream metadata contract. It contains:
 
-- `schema_version` and `artifact_type: "ldscore"`
+- `artifact_type: "ldscore"`
 - relative file paths for `baseline` and optional `query`
 - `snp_identifier`, `genome_build`, and processed `chromosomes`
 - ordered `baseline_columns` and `query_columns`
@@ -104,6 +104,13 @@ against an all-ones universe, they should create an explicit all-ones `base`
 baseline annotation over the query annotation universe and run the partitioned
 workflow with both baseline and query inputs.
 
+For gene-set or pathway BEDs that need flanking sequence, `--bed-padding-bp`
+expands each query BED interval by the requested number of base pairs on both
+sides before projection; starts are clipped at zero. The default is `0`, so BED
+files are used exactly as supplied. Do not set this option for BED files already
+expanded during upstream gene-set preparation, because that would double-count
+the flank.
+
 ### Reference Panel
 
 LD scores can be computed from:
@@ -126,13 +133,12 @@ Regression commands still read munged summary statistics:
 - `ldsc rg --sumstats-sources <file-or-glob> <file-or-glob> [...]`
 
 Current `ldsc munge-sumstats` outputs include canonical `CHR` and `POS` columns
-beside `SNP`, `Z`, and `N`, write `sumstats.parquet` by default, write
-root `metadata.json` beside the table, and write
-`diagnostics/dropped_snps/dropped.tsv.gz` for row-level liftover-drop auditing. The metadata
-sidecar stores the thin compatibility payload: `schema_version`,
-`artifact_type`, `snp_identifier`, `genome_build`, and optional `trait_name`.
-Legacy package-written `.sumstats.gz`
-files without the current sidecar are rejected and must be regenerated.
+beside `SNP`, `Z`, and `N`, write `sumstats.parquet` by default, embed the thin
+compatibility payload in the parquet footer (`artifact_type`, `snp_identifier`,
+`genome_build`, and optional `trait_name`), and write
+`diagnostics/dropped_snps/dropped.tsv.gz` for row-level liftover-drop auditing.
+Legacy package-written `.sumstats.gz` files or footer-less parquet artifacts
+must be regenerated.
 In allele-aware modes, current sumstats artifacts require usable `A1/A2`. To
 run without allele-aware SNP identity, set `--snp-identifier chr_pos` or
 `--snp-identifier rsid` intentionally.
@@ -238,6 +244,7 @@ ldsc ldscore \
   --output-dir results/my_study_ldscore \
   --baseline-annot-sources resources/baseline_v1.2/baseline.@.annot.gz \
   --query-annot-bed-sources my_peaks.bed \
+  --bed-padding-bp 0 \
   --plink-prefix resources/1kg/1KG_EUR_Phase3_chr@ \
   --use-hm3-ref-panel-snps \
   --use-hm3-regression-snps \

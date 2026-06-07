@@ -137,10 +137,14 @@ HM3 evidence accumulator, and stops once the same inference thresholds are met.
 The final build decision still goes through `resolve_genome_build()`, so
 confidence thresholds and error messages stay aligned with other workflows.
 
-SNP restriction files are not converted to adaptive streaming. They are small
-control artifacts in typical use and are read for filtering after source-build
-resolution, so their generic `POS` build check continues to use the materialized
-restriction frame.
+SNP restriction files are not converted to adaptive or chromosome-lazy
+streaming. They are small control artifacts in typical use and are read for
+filtering after source-build resolution. Base `chr_pos` munging can parse the
+restriction rows in bounded chunks and store packed integer keys, but the final
+restriction universe is still a complete in-memory set. Allele-aware,
+reference-panel, and LD-score restrictions materialize the restriction table or
+identity key set before matching, so their generic `POS` build check continues
+to use the materialized restriction frame.
 
 ## Annotation Inputs
 
@@ -206,10 +210,9 @@ Canonical parquet R2 files written by `ldsc build-ref-panel` store the build in
 Arrow schema metadata under `ldsc:sorted_by_build`. Reading that metadata costs
 only a parquet footer read and no row data.
 
-For externally generated canonical R2 files that lack this metadata,
-`SortedR2BlockReader._init_canonical_path()` reads row group 0 with only
-`CHR` and `POS_1`, then runs the same coordinate inference. Dense reference
-panels usually have enough HapMap3 overlap in the first row group.
+Index-format R2 files **require** `ldsc:sorted_by_build`: a file lacking it is a
+hard error in `SortedR2BlockReader._init_index_path()` (there is no row-data
+inference fallback). Regenerate such files with `ldsc build-ref-panel`.
 
 If the inferred or declared R2 build disagrees with the runtime
 `--genome-build`, the reader raises an error rather than mixing coordinate

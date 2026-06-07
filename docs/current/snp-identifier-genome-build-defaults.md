@@ -105,7 +105,7 @@ because they serve different user models.
 | `munge-sumstats` | `chr_pos_allele_aware` | source: `auto`; output: required for coordinate-family modes | Pass `--output-genome-build hg19` or `--output-genome-build hg38`; the raw source build is inferred unless `--source-genome-build hg19/hg38` is supplied. rsid-family modes reject source/output/liftover build flags and store `genome_build=None`. Requires usable `A1/A2`; rerun with `--snp-identifier chr_pos` or `--snp-identifier rsid` to run without allele-aware identity. The removed `--no-alleles` flag is not accepted. |
 | `ldscore` | `chr_pos_allele_aware` | `None` (CLI requires explicit for coordinate-family modes) | Allele-aware parquet mode requires package-built canonical R2 endpoint alleles. |
 | `build-ref-panel` | registry or `--snp-identifier` | **ignored** | Uses `--source-genome-build` (separate field); `GlobalConfig.genome_build` is never consulted. |
-| `h2`, `partitioned-h2`, `rg` | registry at construction | registry at construction | On-disk provenance from LD-score and sumstats root `metadata.json` contracts takes precedence over the runner's live config. |
+| `h2`, `partitioned-h2`, `rg` | registry at construction | registry at construction | On-disk provenance from the LD-score `metadata.json` and the sumstats parquet footer takes precedence over the runner's live config; a sumstats without footer metadata has its identifier mode inferred from the LD-score panel. |
 | Python `run_ldscore()` wrapper | registry | registry (`"auto"`) | Inherits `chr_pos_allele_aware + auto` from the registry; `auto` is resolved to `hg19`/`hg38` during inference. |
 
 ### `build-ref-panel` isolation

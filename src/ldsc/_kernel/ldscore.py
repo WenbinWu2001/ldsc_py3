@@ -242,6 +242,8 @@ _LDSCORE_INTERSECTION_DOC = (
     "docs/troubleshooting.md#ldscore-no-annotation-snps-remain-after-reference-panel-intersection"
 )
 _LDSCORE_PARQUET_DOC = "docs/troubleshooting.md#ldscore-parquet-r2-input-is-incompatible"
+# K: stored R2 pairs buffered before one float64 CSR SpMM step (~0.45 GiB/chunk).
+_CSR_CHUNK_PAIRS = 16_000_000
 REQUIRED_ANNOT_COLUMNS = ("CHR", "POS", "SNP", "CM")
 ANNOT_META_COLUMNS = ("CHR", "POS", "SNP", "A1", "A2", "CM", "MAF")
 ANNOTATION_A1_COLUMN_SPEC = ColumnSpec(
@@ -260,7 +262,11 @@ CHROM_ALIASES = CHR_COLUMN_ALIASES
 POS_ALIASES = POS_COLUMN_ALIASES
 SNP_ALIASES = SNP_COLUMN_ALIASES
 CM_ALIASES = CM_COLUMN_ALIASES
-MAF_ALIASES = MAF_COLUMN_ALIASES
+# Legacy .l2.ldscore parsing stays permissive: a folded MAF column may appear
+# under FRQ/FREQ/FREQUENCY in older files. The registry's MAF_COLUMN_ALIASES is
+# narrowed to ("MAF",) for the oriented-vs-folded sidecar distinction, so keep the
+# legacy breadth here explicitly.
+MAF_ALIASES = ("MAF", "FRQ", "FREQ", "FREQUENCY")
 
 
 @dataclass
@@ -397,6 +403,10 @@ def build_index_remap(
     ``retained_build_idx[matrix_idx]`` is the originating build index (ascending,
     used for IDX_1 row-group pruning). Matching uses the same mode-dependent
     identity keys as the legacy per-pair decode, so the result is bit-identical.
+
+    The remap must be injective over retained indices: two distinct panel rows
+    sharing an identity key under ``identifier_mode`` (a collapse) is a hard
+    error, which also keeps ``retained_build_idx`` a well-defined permutation.
     """
     mode = normalize_snp_identifier_mode(identifier_mode)
     full_keys = effective_merge_key_series(full_sidecar, mode, context="panel sidecar index remap").to_numpy()
@@ -412,10 +422,21 @@ def build_index_remap(
         )
     remap = retained_index.get_indexer(full_keys).astype(np.int32, copy=False)
 
+    valid = remap >= 0
+    valid_targets = remap[valid]
+    if np.unique(valid_targets).size != valid_targets.size:
+        raise LDSCInputError(
+            "ldscore could not align the reference panel to its sidecar: distinct "
+            f"panel SNPs collapse onto the same retained SNP under mode '{mode}'. "
+            "Most likely the panel sidecar has duplicate SNP identities at this "
+            "identifier resolution. Use an allele-aware `--snp-identifier` mode, or "
+            "rebuild the reference panel after removing duplicate SNP identities. "
+            f"Other causes & fixes: {_LDSCORE_PARQUET_DOC}"
+        )
+
     m = len(retained_metadata)
     retained_build_idx = np.empty(m, dtype=np.int64)
-    valid = remap >= 0
-    retained_build_idx[remap[valid]] = np.nonzero(valid)[0]
+    retained_build_idx[valid_targets] = np.nonzero(valid)[0]
     return remap, retained_build_idx
 
 
@@ -528,6 +549,9 @@ def _load_full_panel_sidecar(r2_path: str) -> pd.DataFrame:
         resolve_required_column(df.columns, A1_COLUMN_SPEC, context=context): "A1",
         resolve_required_column(df.columns, A2_COLUMN_SPEC, context=context): "A2",
     }
+    cm_col = resolve_optional_column(df.columns, REFERENCE_METADATA_SPEC_MAP["CM"], context=context)
+    if cm_col is not None:
+        renamed[cm_col] = "CM"
     return df.rename(columns=renamed)
 
 
@@ -1014,6 +1038,216 @@ def check_whole_chromosome_window(block_left: np.ndarray, args: argparse.Namespa
         )
 
 
+@dataclass(frozen=True)
+class _LDWindowSpec:
+    mode: str
+    value: float
+
+    @property
+    def flag(self) -> str:
+        return {
+            "snps": "--ld-wind-snps",
+            "kb": "--ld-wind-kb",
+            "cm": "--ld-wind-cm",
+        }[self.mode]
+
+
+def _format_ld_window_spec(spec: _LDWindowSpec) -> str:
+    """Return the CLI spelling of one LD-window specification."""
+    return f"{spec.flag} {spec.value}"
+
+
+def _requested_ld_window_spec(args: argparse.Namespace) -> _LDWindowSpec:
+    """Return the user-requested LD-window mode and value from parsed args."""
+    if args.ld_wind_snps is not None:
+        return _LDWindowSpec("snps", float(args.ld_wind_snps))
+    if args.ld_wind_kb is not None:
+        return _LDWindowSpec("kb", float(args.ld_wind_kb))
+    if args.ld_wind_cm is not None:
+        return _LDWindowSpec("cm", float(args.ld_wind_cm))
+    raise LDSCUsageError(
+        "ldscore could not validate the parquet R2 panel LD window because no "
+        "user LD-window option was set. Most likely argument validation was "
+        "bypassed. Specify exactly one of `--ld-wind-snps`, `--ld-wind-kb`, or "
+        "`--ld-wind-cm`."
+    )
+
+
+def _read_r2_panel_ld_window_spec(path: str) -> _LDWindowSpec | None:
+    """Read build-time LD-window metadata from one canonical R2 parquet."""
+    try:
+        import pyarrow.parquet as pq
+    except ImportError as exc:
+        raise LDSCDependencyError(
+            "ldscore could not validate the parquet R2 panel LD window because "
+            "pyarrow is not installed. Most likely parquet reference-panel mode "
+            "was requested in an environment missing pyarrow. Install pyarrow or "
+            "use PLINK reference-panel input instead."
+        ) from exc
+
+    schema_meta = pq.read_schema(str(path)).metadata or {}
+    mode_raw = schema_meta.get(b"ldsc:ld_window_mode")
+    value_raw = schema_meta.get(b"ldsc:ld_window_value")
+    if mode_raw is None and value_raw is None:
+        return None
+    if mode_raw is None or value_raw is None:
+        raise LDSCInputError(
+            f"ldscore could not validate the LD window for R2 parquet '{path}': "
+            "the parquet has incomplete ldsc:ld_window_* schema metadata. Most "
+            "likely the artifact was edited or written by an incompatible "
+            "development version. Regenerate the reference panel with "
+            "`ldsc build-ref-panel`."
+        )
+    mode = mode_raw.decode("utf-8")
+    if mode not in {"snps", "kb", "cm"}:
+        raise LDSCInputError(
+            f"ldscore could not validate the LD window for R2 parquet '{path}': "
+            f"unsupported parquet ldsc:ld_window_mode={mode!r}. Most likely the "
+            "artifact was edited or written by an incompatible development "
+            "version. Regenerate the reference panel with `ldsc build-ref-panel`."
+        )
+    try:
+        value = float(value_raw.decode("utf-8"))
+    except ValueError as exc:
+        raise LDSCInputError(
+            f"ldscore could not validate the LD window for R2 parquet '{path}': "
+            f"parquet ldsc:ld_window_value={value_raw.decode('utf-8', errors='replace')!r} "
+            "is not numeric. Most likely the artifact schema metadata was edited "
+            "or corrupted. Regenerate the reference panel with `ldsc build-ref-panel`."
+        ) from exc
+    if value <= 0:
+        raise LDSCInputError(
+            f"ldscore could not validate the LD window for R2 parquet '{path}': "
+            f"parquet ldsc:ld_window_value={value} is not positive. Most likely "
+            "the artifact schema metadata was edited or corrupted. Regenerate the "
+            "reference panel with `ldsc build-ref-panel`."
+        )
+    return _LDWindowSpec(mode, value)
+
+
+def _r2_panel_ld_window_spec(parquet_paths: Sequence[str]) -> _LDWindowSpec | None:
+    """Return the common recorded LD-window spec for a parquet R2 input set."""
+    panel_spec: _LDWindowSpec | None = None
+    for path in parquet_paths:
+        current = _read_r2_panel_ld_window_spec(path)
+        if current is None:
+            continue
+        if panel_spec is None:
+            panel_spec = current
+            continue
+        if current != panel_spec:
+            raise LDSCInputError(
+                "ldscore could not validate the parquet R2 panel LD window because "
+                "the resolved parquet files record conflicting build windows: "
+                f"`{_format_ld_window_spec(panel_spec)}` and "
+                f"`{_format_ld_window_spec(current)}`. Most likely files from "
+                "different reference-panel builds were mixed in one input. Use a "
+                "single coherent `--r2-dir` or regenerate the panel."
+            )
+    return panel_spec
+
+
+def _block_left_for_window_spec(metadata: pd.DataFrame, spec: _LDWindowSpec, *, context: str) -> np.ndarray:
+    """Compute ``block_left`` for an LD-window spec against one metadata table."""
+    if spec.mode == "snps":
+        coords = np.arange(len(metadata), dtype=float)
+        max_dist = spec.value
+    elif spec.mode == "kb":
+        if "POS" not in metadata.columns:
+            raise LDSCInputError(
+                f"ldscore could not validate the parquet R2 panel LD window for {context}: "
+                "position metadata is missing. Most likely the R2 sidecar is malformed. "
+                "Regenerate the reference panel with `ldsc build-ref-panel`."
+            )
+        coords = metadata["POS"].to_numpy(dtype=float)
+        max_dist = spec.value * 1000.0
+    else:
+        if "CM" not in metadata.columns or metadata["CM"].isna().any():
+            raise LDSCInputError(
+                f"ldscore could not validate the parquet R2 panel LD window for {context}: "
+                "CM metadata is missing for at least one panel SNP, but the parquet "
+                f"records a cM build window `{_format_ld_window_spec(spec)}`. Most "
+                "likely the sidecar is incomplete or was edited. Regenerate the "
+                "reference panel with complete genetic-map metadata."
+            )
+        coords = metadata["CM"].to_numpy(dtype=float)
+        max_dist = spec.value
+    return get_block_lefts(coords, max_dist).astype(np.int64, copy=False)
+
+
+def _raise_ldscore_window_exceeds_panel_window(
+    *,
+    requested: _LDWindowSpec,
+    panel: _LDWindowSpec,
+    chrom: str,
+) -> None:
+    """Raise the user-facing parquet-window mismatch error."""
+    raise LDSCUsageError(
+        f"ldscore cannot compute chromosome {chrom} from the R2 parquet reference "
+        f"panel: the user-requested LD window `{_format_ld_window_spec(requested)}` "
+        f"is wider than the input R2 parquet panel window "
+        f"`{_format_ld_window_spec(panel)}`. Most likely the parquet reference "
+        "panel was built with a smaller LD window, so it does not contain all "
+        "SNP pairs required by this ldscore run. Rebuild the R2 parquet panel "
+        f"with `{_format_ld_window_spec(requested)}` or a wider build window, or "
+        f"rerun ldscore with an LD window no wider than the recorded panel window "
+        f"`{_format_ld_window_spec(panel)}`."
+    )
+
+
+def validate_ldscore_window_within_r2_panel_window(
+    args: argparse.Namespace,
+    *,
+    parquet_paths: Sequence[str],
+    chrom: str,
+    metadata: pd.DataFrame | None = None,
+    requested_block_left: np.ndarray | None = None,
+) -> None:
+    """Reject ldscore windows wider than the recorded R2 parquet build window.
+
+    Old parquet artifacts without ``ldsc:ld_window_*`` metadata cannot be checked
+    reliably, so they retain their previous behavior. When metadata is supplied,
+    the comparison is exact in retained SNP space and supports mixed units.
+    """
+    panel_spec = _r2_panel_ld_window_spec(parquet_paths)
+    if panel_spec is None:
+        return
+    requested_spec = _requested_ld_window_spec(args)
+
+    if metadata is None or requested_block_left is None:
+        if requested_spec.mode == panel_spec.mode and requested_spec.value > panel_spec.value:
+            _raise_ldscore_window_exceeds_panel_window(
+                requested=requested_spec,
+                panel=panel_spec,
+                chrom=chrom,
+            )
+        return
+
+    full_sidecar = _load_full_panel_sidecar(parquet_paths[0])
+    _, retained_build_idx = build_index_remap(
+        full_sidecar,
+        metadata,
+        getattr(args, "snp_identifier", "chr_pos"),
+    )
+    panel_full_block_left = _block_left_for_window_spec(
+        full_sidecar,
+        panel_spec,
+        context=f"chromosome {chrom} panel sidecar",
+    )
+    panel_retained_block_left = np.searchsorted(
+        retained_build_idx,
+        panel_full_block_left[retained_build_idx],
+        side="left",
+    ).astype(np.int64, copy=False)
+    requested_block_left = np.asarray(requested_block_left, dtype=np.int64)
+    if np.any(requested_block_left < panel_retained_block_left):
+        _raise_ldscore_window_exceeds_panel_window(
+            requested=requested_spec,
+            panel=panel_spec,
+            chrom=chrom,
+        )
+
+
 # Parquet R2 adapter.
 @dataclass(frozen=True)
 class _DecodedR2RowGroup:
@@ -1023,47 +1257,6 @@ class _DecodedR2RowGroup:
     i: np.ndarray
     j: np.ndarray
     r2: np.ndarray
-
-
-class _RowGroupLRUCache:
-    """Small LRU cache for decoded index-format parquet R2 row groups."""
-
-    def __init__(self, capacity: int) -> None:
-        if capacity <= 0:
-            raise LDSCInternalError(
-                f"LD-score row-group cache setup failed: capacity={capacity} is not positive. "
-                "Most likely automatic cache sizing produced an invalid value. Re-run with "
-                "DEBUG logging and report the traceback."
-            )
-        self.capacity = int(capacity)
-        self._entries: OrderedDict[int, _DecodedR2RowGroup] = OrderedDict()
-        self.hits = 0
-        self.misses = 0
-        self.evictions = 0
-        self.row_group_reads = 0
-
-    def get(self, row_group_index: int) -> _DecodedR2RowGroup | None:
-        """Return a cached decoded row group, updating LRU counters."""
-        key = int(row_group_index)
-        entry = self._entries.get(key)
-        if entry is None:
-            self.misses += 1
-            return None
-        self.hits += 1
-        self._entries.move_to_end(key)
-        return entry
-
-    def put(self, entry: _DecodedR2RowGroup) -> None:
-        """Insert ``entry`` and evict the least recently used group if needed."""
-        key = int(entry.row_group_index)
-        if key in self._entries:
-            self._entries[key] = entry
-            self._entries.move_to_end(key)
-            return
-        self._entries[key] = entry
-        while len(self._entries) > self.capacity:
-            self._entries.popitem(last=False)
-            self.evictions += 1
 
 
 class SortedR2BlockReader:
@@ -1106,8 +1299,6 @@ class SortedR2BlockReader:
         )
         self._pf = None
         self._r2_scale: float | None = None
-        self._rg_bounds: list[tuple[int, int, int]] = []
-        self._row_group_cache: _RowGroupLRUCache | None = None
         metadata = metadata.copy()
         metadata_context = f"SortedR2BlockReader[{self.chrom}] metadata"
         renamed = {
@@ -1220,14 +1411,6 @@ class SortedR2BlockReader:
                     "query performance will be degraded. Regenerate with row_group_size=50000."
                 )
 
-        idx1_col = self._pf.schema_arrow.names.index("IDX_1")
-        self._rg_bounds = []
-        for rg_index in range(meta.num_row_groups):
-            stats = meta.row_group(rg_index).column(idx1_col).statistics
-            if stats is None or not getattr(stats, "has_min_max", False):
-                continue
-            self._rg_bounds.append((int(stats.min), int(stats.max), rg_index))
-
     def _resolve_r2_scale(self, schema_meta: dict, path: str) -> float | None:
         """Return the dequant scale when R2 is stored as quantized integers.
 
@@ -1272,129 +1455,6 @@ class SortedR2BlockReader:
             values = np.minimum(values, np.float32(1.0))
         return values
 
-    @staticmethod
-    def _empty_pair_rows() -> pd.DataFrame:
-        """Return an empty numeric pair-row table."""
-        return pd.DataFrame(
-            {
-                "i": pd.Series([], dtype=np.int64),
-                "j": pd.Series([], dtype=np.int64),
-                "R2": pd.Series([], dtype=np.float32),
-            }
-        )
-
-    def _row_group_indices_for_index_window(self, start: int, stop: int) -> list[int]:
-        """Return row groups whose IDX_1 footer bounds overlap a retained-SNP index window."""
-        start = max(0, int(start))
-        stop = min(int(stop), int(getattr(self, "m", 0)))
-        if stop <= start or not self._rg_bounds:
-            return []
-        lo = int(self._retained_build_idx[start])
-        hi = int(self._retained_build_idx[stop - 1])
-        return [rg for mn, mx, rg in self._rg_bounds if mn <= hi and mx >= lo]
-
-    @staticmethod
-    def _sliding_query_index_windows(block_left: np.ndarray, snp_batch_size: int, m: int) -> list[tuple[int, int]]:
-        """Mirror parquet LD-score matrix query windows for cache sizing."""
-        if m <= 0:
-            return []
-        snp_batch_size = int(snp_batch_size)
-        if snp_batch_size <= 0:
-            raise LDSCConfigError(
-                f"ldscore received invalid snp_batch_size={snp_batch_size}. Most likely "
-                "the parquet query batch size was set to zero or a negative value. Pass "
-                "a positive integer batch size."
-            )
-
-        block_sizes = np.array(np.arange(m) - block_left)
-        block_sizes = np.ceil(block_sizes / snp_batch_size) * snp_batch_size
-        windows: list[tuple[int, int]] = []
-
-        positive = np.nonzero(block_left > 0)
-        if np.any(positive):
-            block_width = int(positive[0][0])
-        else:
-            block_width = m
-        block_width = int(np.ceil(block_width / snp_batch_size) * snp_batch_size)
-        if block_width > m:
-            snp_batch_size = 1
-            block_width = m
-
-        l_A = 0
-        for l_B in range(0, block_width, snp_batch_size):
-            chunk_width = min(snp_batch_size, m - l_B)
-            if chunk_width <= 0:
-                continue
-            windows.append((min(l_A, l_B), max(l_A + block_width, l_B + chunk_width)))
-
-        b0 = block_width
-        md = int(snp_batch_size * np.floor(m / snp_batch_size))
-        end = md + 1 if md != m else md
-        for l_B in range(b0, end, snp_batch_size):
-            old_block_width = block_width
-            block_width = int(block_sizes[l_B])
-            if l_B > b0 and block_width > 0:
-                l_A += old_block_width - block_width + snp_batch_size
-            elif l_B == b0 and block_width > 0:
-                l_A = b0 - block_width
-            elif block_width == 0:
-                l_A = l_B
-
-            chunk_width = snp_batch_size
-            if l_B == md:
-                chunk_width = m - md
-            if chunk_width <= 0:
-                continue
-            if block_width > 0:
-                windows.append((min(l_A, l_B), max(l_A + block_width, l_B + chunk_width)))
-            windows.append((l_B, l_B + chunk_width))
-
-        return windows
-
-    def configure_auto_row_group_cache(self, block_left: np.ndarray, snp_batch_size: int) -> None:
-        """Size the decoded row-group cache from this chromosome's sliding windows."""
-        if getattr(self, "_runtime_layout", None) != "index":
-            self._row_group_cache = None
-            return
-        num_row_groups = len(self._rg_bounds)
-        if num_row_groups == 0:
-            self._row_group_cache = None
-            LOGGER.debug(f"Chromosome {self.chrom} row-group cache disabled: no footer bounds available.")
-            return
-
-        m = int(getattr(self, "m", 0))
-        query_sets = [
-            set(self._row_group_indices_for_index_window(start, stop))
-            for start, stop in self._sliding_query_index_windows(block_left, snp_batch_size, m)
-        ]
-        query_sets = [rg_set for rg_set in query_sets if rg_set]
-        if not query_sets:
-            self._row_group_cache = None
-            LOGGER.debug(f"Chromosome {self.chrom} row-group cache disabled: no row groups overlap LD windows.")
-            return
-
-        if len(query_sets) == 1:
-            max_adjacent_union = len(query_sets[0])
-        else:
-            max_adjacent_union = max(len(left | right) for left, right in zip(query_sets, query_sets[1:]))
-        capacity = min(max_adjacent_union + 1, num_row_groups)
-        self._row_group_cache = _RowGroupLRUCache(capacity)
-        LOGGER.debug(
-            f"Chromosome {self.chrom} row-group cache capacity={capacity}, "
-            f"row_groups={num_row_groups}, query_windows={len(query_sets)}."
-        )
-
-    def log_row_group_cache_summary(self) -> None:
-        """Log DEBUG-only cache diagnostics after a chromosome finishes."""
-        cache = self._row_group_cache
-        if cache is None:
-            return
-        LOGGER.debug(
-            f"Chromosome {self.chrom} row-group cache summary: capacity={cache.capacity}, "
-            f"hits={cache.hits}, misses={cache.misses}, evictions={cache.evictions}, "
-            f"row_group_reads={cache.row_group_reads}."
-        )
-
     def _decode_index_row_group(self, row_group_index: int) -> _DecodedR2RowGroup:
         """Decode one index row group: dequantize R2, gather endpoints through the remap.
 
@@ -1429,209 +1489,104 @@ class SortedR2BlockReader:
             r2=r2[keep].astype(np.float32, copy=False),
         )
 
-    def _get_decoded_row_group(self, row_group_index: int) -> _DecodedR2RowGroup:
-        """Return a decoded index row group from cache or parquet."""
-        cache = self._row_group_cache
-        if cache is not None:
-            cached = cache.get(row_group_index)
-            if cached is not None:
-                return cached
+    def iter_all_pairs(self):
+        """Yield ``(i, j, r2)`` arrays for every row group, decoding each once.
 
-        decoded = self._decode_index_row_group(row_group_index)
-        if cache is not None:
-            cache.row_group_reads += 1
-            cache.put(decoded)
-        return decoded
-
-    def _query_union_rows_canonical_by_index(self, start: int, stop: int) -> pd.DataFrame:
-        """Query numeric pair rows spanning a retained-SNP index window."""
-        start = max(0, int(start))
-        stop = min(int(stop), self.m)
-        if stop <= start:
-            return self._empty_pair_rows()
-
-        rg_idxs = self._row_group_indices_for_index_window(start, stop)
-        if not rg_idxs:
-            return self._empty_pair_rows()
-
-        decoded = [self._get_decoded_row_group(index) for index in rg_idxs]
-        nonempty = [entry for entry in decoded if len(entry.i) > 0]
-        if not nonempty:
-            return self._empty_pair_rows()
-
-        i = np.concatenate([entry.i for entry in nonempty]).astype(np.int64, copy=False)
-        j = np.concatenate([entry.j for entry in nonempty]).astype(np.int64, copy=False)
-        r2 = np.concatenate([entry.r2 for entry in nonempty]).astype(np.float32, copy=False)
-        keep = (start <= i) & (i < stop) & (start <= j) & (j < stop)
-        if not keep.any():
-            return self._empty_pair_rows()
-        return pd.DataFrame({"i": i[keep], "j": j[keep], "R2": r2[keep]})
-
-    def _deduplicate_pairs(self, pair_rows: pd.DataFrame, context: str) -> pd.DataFrame:
-        """Drop duplicate unordered SNP pairs after verifying matching R2 values."""
-        if len(pair_rows) == 0:
-            return pair_rows
-        pair_rows = pair_rows.copy()
-        pair_rows["lo"] = np.minimum(pair_rows["i"], pair_rows["j"])
-        pair_rows["hi"] = np.maximum(pair_rows["i"], pair_rows["j"])
-        duplicated = pair_rows.duplicated(subset=["lo", "hi"], keep=False)
-        if not duplicated.any():
-            return pair_rows
-
-        dup_df = pair_rows.loc[duplicated, ["lo", "hi", "R2"]]
-        nunique = dup_df.groupby(["lo", "hi"], dropna=False)["R2"].nunique(dropna=False)
-        if (nunique > 1).any():
-            raise LDSCInputError(
-                f"ldscore could not use parquet R2 pair rows in {context}: duplicate "
-                "unordered SNP pairs have conflicting R2 values. Most likely the R2 "
-                "parquet was generated from inconsistent duplicate pair records. "
-                "Regenerate the reference panel from a deduplicated source. "
-                f"Other causes & fixes: {_LDSCORE_PARQUET_DOC}"
+        Streams the whole chromosome's stored pairs in IDX_1 order with no
+        window pruning and no row-group cache: each row group is decoded a
+        single time, remapped to retained indices, and dropped endpoints
+        removed. Empty groups (all endpoints outside the analysis universe) are
+        skipped.
+        """
+        if self._pf is None:
+            raise LDSCInternalError(
+                "LD-score parquet reader failed in SortedR2BlockReader.iter_all_pairs(): "
+                "the parquet file handle is not initialized. Re-run with DEBUG logging "
+                "and report the traceback."
             )
-        return pair_rows.drop_duplicates(subset=["lo", "hi"], keep="first").reset_index(drop=True)
-
-    def cross_block_matrix(self, l_A: int, b: int, l_B: int, c: int) -> np.ndarray:
-        """Build the dense cross-block R2 matrix used by the parquet backend."""
-        if b <= 0 or c <= 0:
-            return np.zeros((max(b, 0), max(c, 0)), dtype=np.float32)
-
-        a_start, a_stop = l_A, l_A + b
-        b_start, b_stop = l_B, l_B + c
-        union_start = min(a_start, b_start)
-        union_stop = max(a_stop, b_stop)
-        query_rows = self._query_union_rows_canonical_by_index(union_start, union_stop)
-        rows = self._deduplicate_pairs(
-            query_rows,
-            context=f"cross-block query {self.chrom}:{l_A}:{b}:{l_B}:{c}",
-        )
-
-        matrix = np.zeros((b, c), dtype=np.float32)
-        if len(rows) > 0:
-            i = rows["i"].to_numpy(dtype=np.int64)
-            j = rows["j"].to_numpy(dtype=np.int64)
-            values = rows["R2"].to_numpy(dtype=np.float32)
-
-            left_i = (a_start <= i) & (i < a_stop) & (b_start <= j) & (j < b_stop)
-            if left_i.any():
-                matrix[i[left_i] - a_start, j[left_i] - b_start] = values[left_i]
-
-            left_j = (a_start <= j) & (j < a_stop) & (b_start <= i) & (i < b_stop)
-            if left_j.any():
-                matrix[j[left_j] - a_start, i[left_j] - b_start] = values[left_j]
-
-        overlap_start = max(a_start, b_start)
-        overlap_stop = min(a_stop, b_stop)
-        for idx in range(overlap_start, overlap_stop):
-            matrix[idx - a_start, idx - b_start] = 1.0
-
-        return matrix
-
-    def within_block_matrix(self, l_B: int, c: int) -> np.ndarray:
-        """Build the dense within-block R2 matrix used by the parquet backend."""
-        if c <= 0:
-            return np.zeros((0, 0), dtype=np.float32)
-
-        b_start, b_stop = l_B, l_B + c
-        query_rows = self._query_union_rows_canonical_by_index(b_start, b_stop)
-        rows = self._deduplicate_pairs(
-            query_rows,
-            context=f"within-block query {self.chrom}:{l_B}:{c}",
-        )
-
-        matrix = np.zeros((c, c), dtype=np.float32)
-        if len(rows) > 0:
-            i = rows["i"].to_numpy(dtype=np.int64)
-            j = rows["j"].to_numpy(dtype=np.int64)
-            values = rows["R2"].to_numpy(dtype=np.float32)
-            keep = (b_start <= i) & (i < b_stop) & (b_start <= j) & (j < b_stop)
-            if keep.any():
-                i = i[keep] - b_start
-                j = j[keep] - b_start
-                values = values[keep]
-                matrix[i, j] = values
-                matrix[j, i] = values
-
-        np.fill_diagonal(matrix, 1.0)
-        return matrix
+        for rg_index in range(self._pf.metadata.num_row_groups):
+            group = self._decode_index_row_group(rg_index)
+            if group.i.size == 0:
+                continue
+            yield group.i, group.j, group.r2
 
 
-def ld_score_var_blocks_from_r2_reader(
+def _accumulate_pair_contributions(
+    cor_sum: np.ndarray,
+    i: np.ndarray,
+    j: np.ndarray,
+    r2: np.ndarray,
+    annot: np.ndarray,
     block_left: np.ndarray,
-    snp_batch_size: int,
+) -> None:
+    """Add one chunk of stored pairs ``(i<j, r2)`` to ``cor_sum`` via a float64 CSR SpMM.
+
+    Builds the strict-upper-triangular sparse matrix ``U`` of the window-filtered
+    chunk and accumulates ``cor_sum += U @ annot + U.T @ annot`` (R is symmetric).
+    The SpMM is float64 (``U.data`` is float64 and the driver passes a float64
+    ``annot``): scipy accumulates each row sum in the operand dtype, so a float32
+    SpMM would lose ~3e-3 (see ``lessons.md``). Pairs outside the ldscore window are
+    dropped via ``i >= block_left[j]``; the CSR sums repeated row indices natively.
+    """
+    from scipy import sparse
+
+    keep = i >= block_left[j]
+    if not keep.all():
+        i, j, r2 = i[keep], j[keep], r2[keep]
+    if i.size == 0:
+        return
+    m = cor_sum.shape[0]
+    u = sparse.csr_matrix((r2.astype(np.float64, copy=False), (i, j)), shape=(m, m))
+    cor_sum += u @ annot
+    cor_sum += u.T @ annot
+
+
+def ld_score_streaming_from_r2_reader(
+    block_left: np.ndarray,
     annot: np.ndarray,
     block_reader: SortedR2BlockReader,
+    chunk_pairs: int = _CSR_CHUNK_PAIRS,
 ) -> np.ndarray:
+    """Compute ``cor_sum = R @ annot`` by streaming the parquet's stored R2 pairs.
+
+    The diagonal (R2=1) seeds ``cor_sum`` from ``annot``; stored within-window pairs
+    are buffered into chunks of ~``chunk_pairs`` and accumulated with a float64 CSR
+    SpMM (:func:`_accumulate_pair_contributions`), restricted to the ldscore window
+    by ``block_left``. Each stored pair is touched exactly once (O(nnz * n_a)).
     """
-    Mirror the old LDSC sliding-block accumulation while sourcing block-local
-    dense R2 matrices from the index-format parquet reader instead of genotype
-    blocks. The reader configures a chromosome-local decoded row-group cache
-    from ``block_left`` and ``snp_batch_size`` before traversal.
-    """
-    m = annot.shape[0]
-    n_a = annot.shape[1]
-    if snp_batch_size <= 0:
-        raise LDSCConfigError(
-            f"ldscore received invalid snp_batch_size={snp_batch_size}. Most likely "
-            "the parquet query batch size was set to zero or a negative value. Pass "
-            "a positive integer batch size."
+    block_left = np.asarray(block_left, dtype=np.int64)
+    annot64 = annot.astype(np.float64, copy=False)
+    cor_sum = annot64.copy()  # diagonal R2 = 1 for every SNP
+    buf_i: list[np.ndarray] = []
+    buf_j: list[np.ndarray] = []
+    buf_r2: list[np.ndarray] = []
+    buffered = 0
+
+    def flush() -> None:
+        nonlocal buffered
+        if buffered == 0:
+            return
+        _accumulate_pair_contributions(
+            cor_sum,
+            np.concatenate(buf_i),
+            np.concatenate(buf_j),
+            np.concatenate(buf_r2),
+            annot64,
+            block_left,
         )
-    block_sizes = np.array(np.arange(m) - block_left)
-    block_sizes = np.ceil(block_sizes / snp_batch_size) * snp_batch_size
-    cor_sum = np.zeros((m, n_a), dtype=np.float64)
-    block_reader.configure_auto_row_group_cache(block_left, snp_batch_size)
+        buf_i.clear()
+        buf_j.clear()
+        buf_r2.clear()
+        buffered = 0
 
-    try:
-        b = np.nonzero(block_left > 0)
-        if np.any(b):
-            b = b[0][0]
-        else:
-            b = m
-        b = int(np.ceil(b / snp_batch_size) * snp_batch_size)
-        if b > m:
-            snp_batch_size = 1
-            b = m
-
-        l_A = 0
-        for l_B in range(0, b, snp_batch_size):
-            chunk_width = min(snp_batch_size, m - l_B)
-            if chunk_width <= 0:
-                continue
-            rfuncAB = block_reader.cross_block_matrix(l_A, b, l_B, chunk_width)
-            cor_sum[l_A:l_A + b, :] += np.dot(rfuncAB, annot[l_B:l_B + chunk_width, :])
-
-        b0 = b
-        md = int(snp_batch_size * np.floor(m / snp_batch_size))
-        end = md + 1 if md != m else md
-        for l_B in range(b0, end, snp_batch_size):
-            old_b = b
-            b = int(block_sizes[l_B])
-            if l_B > b0 and b > 0:
-                l_A += old_b - b + snp_batch_size
-            elif l_B == b0 and b > 0:
-                l_A = b0 - b
-            elif b == 0:
-                l_A = l_B
-
-            chunk_width = snp_batch_size
-            if l_B == md:
-                chunk_width = m - md
-            if chunk_width <= 0:
-                continue
-
-            p1 = np.all(annot[l_A:l_A + b, :] == 0)
-            p2 = np.all(annot[l_B:l_B + chunk_width, :] == 0)
-            if p1 and p2:
-                continue
-
-            rfuncAB = block_reader.cross_block_matrix(l_A, b, l_B, chunk_width)
-            cor_sum[l_A:l_A + b, :] += np.dot(rfuncAB, annot[l_B:l_B + chunk_width, :])
-            cor_sum[l_B:l_B + chunk_width, :] += np.dot(annot[l_A:l_A + b, :].T, rfuncAB).T
-
-            rfuncBB = block_reader.within_block_matrix(l_B, chunk_width)
-            cor_sum[l_B:l_B + chunk_width, :] += np.dot(rfuncBB, annot[l_B:l_B + chunk_width, :])
-    finally:
-        block_reader.log_row_group_cache_summary()
-
+    for i, j, r2 in block_reader.iter_all_pairs():
+        buf_i.append(i)
+        buf_j.append(j)
+        buf_r2.append(r2)
+        buffered += int(i.size)
+        if buffered >= chunk_pairs:
+            flush()
+    flush()
     return np.asarray(cor_sum, dtype=np.float32)
 
 
@@ -1718,12 +1673,20 @@ def compute_chrom_from_parquet(
         coords,
         max_dist,
     )
-    check_whole_chromosome_window(block_left, args, chrom)
     regression_mask = regression_mask_from_keys(metadata, regression_keys, args.snp_identifier).reshape(-1, 1)
     annot_matrix = annotations.to_numpy(dtype=np.float32, copy=True)
     combined_annot = np.c_[annot_matrix, regression_mask]
+    parquet_paths = resolve_parquet_files(args, chrom=chrom)
+    validate_ldscore_window_within_r2_panel_window(
+        args,
+        parquet_paths=parquet_paths,
+        chrom=chrom,
+        metadata=metadata,
+        requested_block_left=block_left,
+    )
+    check_whole_chromosome_window(block_left, args, chrom)
     block_reader = SortedR2BlockReader(
-        paths=resolve_parquet_files(args, chrom=chrom),
+        paths=parquet_paths,
         chrom=chrom,
         metadata=metadata,
         identifier_mode=args.snp_identifier,
@@ -1731,9 +1694,8 @@ def compute_chrom_from_parquet(
         r2_sample_size=args.r2_sample_size,
         genome_build=args.genome_build,
     )
-    combined_scores = ld_score_var_blocks_from_r2_reader(
+    combined_scores = ld_score_streaming_from_r2_reader(
         block_left=block_left,
-        snp_batch_size=args.snp_batch_size,
         annot=combined_annot,
         block_reader=block_reader,
     )
@@ -2160,7 +2122,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ld-wind-cm", default=None, type=float, help="LD window size in centiMorgans.")
     parser.add_argument("--maf-min", default=None, type=float, help="Optional MAF filter for retained SNPs when MAF is available.")
     parser.add_argument("--common-maf-min", default=0.05, type=float, help="MAF threshold used only for common-SNP annotation count vectors.")
-    parser.add_argument("--snp-batch-size", default=128, type=int, help="Number of SNPs processed per LD-score sliding batch.")
+    parser.add_argument("--snp-batch-size", default=128, type=int, help="Genotype batch size for the PLINK reference-panel backend; ignored by the parquet-R2 backend, which streams stored pairs. Defaults to 128.")
     parser.add_argument("--per-chr-output", default=False, action="store_true", help="Emit per-chromosome outputs instead of an aggregated output.")
     parser.add_argument("--yes-really", default=False, action="store_true", help="Allow whole-chromosome LD windows.")
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"), help="Logging verbosity.")

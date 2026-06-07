@@ -39,7 +39,6 @@ except ImportError:
 
 @unittest.skipIf(SumstatsMunger is None, "sumstats_munger module is not available")
 class SumstatsMungerTest(unittest.TestCase):
-    SUMSTATS_METADATA_KEYS = {"schema_version", "artifact_type", "files", "snp_identifier", "genome_build", "trait_name"}
 
     DROPPED_SNP_DTYPES = {
         "CHR": "string",
@@ -67,26 +66,21 @@ class SumstatsMungerTest(unittest.TestCase):
     def _fake_munged_frame(self) -> pd.DataFrame:
         return pd.DataFrame({"SNP": ["rs1"], "A1": ["A"], "A2": ["G"], "Z": [1.0], "N": [1000.0]})
 
-    def _write_sumstats_sidecar(
+    def _write_footer_parquet(
         self,
         path: Path,
+        frame: pd.DataFrame,
         *,
         snp_identifier: str = "rsid",
         genome_build: str | None = None,
         trait_name: str | None = "trait",
     ) -> None:
-        path.write_text(
-            json.dumps(
-                {
-                    "schema_version": 1,
-                    "artifact_type": "sumstats",
-                    "files": {},
-                    "snp_identifier": snp_identifier,
-                    "genome_build": genome_build,
-                    "trait_name": trait_name,
-                }
-            ),
-            encoding="utf-8",
+        """Write a self-describing sumstats parquet with identity footer metadata."""
+        footer = sumstats_workflow._sumstats_footer_metadata(
+            GlobalConfig(snp_identifier=snp_identifier, genome_build=genome_build), trait_name
+        )
+        sumstats_workflow._write_sumstats_outputs(
+            frame, output_files={"parquet": str(path)}, output_format="parquet", footer_metadata=footer
         )
 
     def test_build_parser_defaults_chunksize_to_one_million_rows(self):
@@ -563,90 +557,104 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(table.config_snapshot.genome_build, "hg19")
             self.assertEqual(table.data["POS"].tolist(), [100])
 
-    def test_load_sumstats_reads_curated_sumstats_gz_with_exact_one_glob(self):
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
+    def test_load_sumstats_reads_footer_parquet_with_exact_one_glob(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
-            sumstats_file = tmpdir / "trait.v1.sumstats.gz"
-            with gzip.open(sumstats_file, "wt", encoding="utf-8") as handle:
-                handle.write("SNP\tZ\tN\tA1\tA2\tFRQ\nrs1\t1.5\t1000\tA\tG\t0.2\n")
-            self._write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="trait")
+            sumstats_file = tmpdir / "trait.v1.parquet"
+            self._write_footer_parquet(
+                sumstats_file,
+                pd.DataFrame({"SNP": ["rs1"], "Z": [1.5], "N": [1000.0], "A1": ["A"], "A2": ["G"], "FRQ": [0.2]}),
+                snp_identifier="rsid_allele_aware",
+                trait_name="trait",
+            )
 
             self.assertTrue(hasattr(ldsc, "load_sumstats"))
             with warnings.catch_warnings(record=True) as caught:
                 warnings.simplefilter("always")
-                table = ldsc.load_sumstats(str(tmpdir / "trait*.sumstats.gz"), trait_name="trait")
+                table = ldsc.load_sumstats(str(tmpdir / "trait*.parquet"), trait_name="trait")
 
             self.assertEqual(table.source_path, str(sumstats_file))
             self.assertEqual(table.trait_name, "trait")
             self.assertTrue(table.has_alleles)
-            self.assertEqual(table.data.columns.tolist(), ["SNP", "N", "Z", "A1", "A2", "FRQ"])
             self.assertEqual(table.data.loc[0, "SNP"], "rs1")
-            self.assertEqual(table.config_snapshot, GlobalConfig(snp_identifier="rsid"))
+            self.assertEqual(table.config_snapshot, GlobalConfig(snp_identifier="rsid_allele_aware"))
             self.assertFalse(any("cannot recover the GlobalConfig" in str(item.message) for item in caught))
 
-    def test_load_sumstats_reads_uncompressed_curated_sumstats(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            sumstats_file = tmpdir / "trait.sumstats"
-            sumstats_file.write_text("SNP\tZ\tN\nrs1\t1.5\t1000\n", encoding="utf-8")
-            self._write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="trait")
-
-            with warnings.catch_warnings(record=True):
-                table = ldsc.load_sumstats(sumstats_file, trait_name="trait")
-
-            self.assertEqual(table.data.columns.tolist(), ["SNP", "N", "Z"])
-            self.assertEqual(table.data.loc[0, "SNP"], "rs1")
-
-    def test_load_sumstats_recovers_trait_name_from_sidecar(self):
+    def test_load_sumstats_reads_legacy_sumstats_gz_without_metadata(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             sumstats_file = tmpdir / "trait.sumstats.gz"
             with gzip.open(sumstats_file, "wt", encoding="utf-8") as handle:
-                handle.write("SNP\tZ\tN\nrs1\t1.5\t1000\n")
-            self._write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="MDD")
+                handle.write("SNP\tA1\tA2\tZ\tN\nrs1\tA\tG\t1.5\t1000\n")
+
+            table = ldsc.load_sumstats(sumstats_file, trait_name="trait")
+
+            self.assertIsNone(table.config_snapshot)
+            self.assertEqual(table.trait_name, "trait")
+            self.assertTrue(table.has_alleles)
+            self.assertEqual(table.data.loc[0, "SNP"], "rs1")
+
+    def test_load_sumstats_reads_uncompressed_legacy_sumstats(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            sumstats_file = tmpdir / "trait.sumstats"
+            sumstats_file.write_text("SNP\tZ\tN\nrs1\t1.5\t1000\n", encoding="utf-8")
+
+            table = ldsc.load_sumstats(sumstats_file, trait_name="trait")
+
+            self.assertIsNone(table.config_snapshot)
+            self.assertEqual(table.data.columns.tolist(), ["SNP", "N", "Z"])
+            self.assertEqual(table.data.loc[0, "SNP"], "rs1")
+
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
+    def test_load_sumstats_footerless_parquet_has_no_config(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            sumstats_file = tmpdir / "plain.parquet"
+            pd.DataFrame({"SNP": ["rs1"], "A1": ["A"], "A2": ["G"], "Z": [1.5], "N": [1000.0]}).to_parquet(
+                sumstats_file, index=False
+            )
+
+            table = ldsc.load_sumstats(sumstats_file)
+
+            self.assertIsNone(table.config_snapshot)
+            self.assertEqual(table.trait_name, "plain.parquet")
+
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
+    def test_load_sumstats_recovers_trait_name_from_footer(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            sumstats_file = tmpdir / "trait.parquet"
+            self._write_footer_parquet(
+                sumstats_file, pd.DataFrame({"SNP": ["rs1"], "Z": [1.5], "N": [1000.0]}), trait_name="MDD"
+            )
 
             table = ldsc.load_sumstats(sumstats_file)
 
             self.assertEqual(table.trait_name, "MDD")
 
-    def test_load_sumstats_explicit_trait_name_overrides_sidecar(self):
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
+    def test_load_sumstats_explicit_trait_name_overrides_footer(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
-            sumstats_file = tmpdir / "trait.sumstats.gz"
-            with gzip.open(sumstats_file, "wt", encoding="utf-8") as handle:
-                handle.write("SNP\tZ\tN\nrs1\t1.5\t1000\n")
-            self._write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="MDD")
+            sumstats_file = tmpdir / "trait.parquet"
+            self._write_footer_parquet(
+                sumstats_file, pd.DataFrame({"SNP": ["rs1"], "Z": [1.5], "N": [1000.0]}), trait_name="MDD"
+            )
 
             table = ldsc.load_sumstats(sumstats_file, trait_name=" SCZ ")
 
             self.assertEqual(table.trait_name, "SCZ")
 
-    def test_load_sumstats_rejects_blank_sidecar_trait_name(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            sumstats_file = tmpdir / "trait.sumstats.gz"
-            with gzip.open(sumstats_file, "wt", encoding="utf-8") as handle:
-                handle.write("SNP\tZ\tN\nrs1\t1.5\t1000\n")
-            self._write_sumstats_sidecar(tmpdir / "metadata.json", trait_name=" ")
-
-            with self.assertRaisesRegex(
-                ldsc.LDSCInputError,
-                "metadata.json sidecar has a blank trait_name field.*"
-                "docs/troubleshooting.md#munge-sumstats-curated-artifact-is-malformed-or-outdated",
-            ):
-                ldsc.load_sumstats(sumstats_file)
-
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
-    def test_load_sumstats_reads_parquet_with_exact_one_glob_and_sidecar(self):
+    def test_load_sumstats_reads_chr_pos_footer_parquet_with_exact_one_glob(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             sumstats_file = tmpdir / "trait.parquet"
-            pd.DataFrame({"SNP": ["rs1"], "CHR": ["1"], "POS": [100], "Z": [1.5], "N": [1000.0]}).to_parquet(
+            self._write_footer_parquet(
                 sumstats_file,
-                index=False,
-            )
-            self._write_sumstats_sidecar(
-                tmpdir / "metadata.json",
+                pd.DataFrame({"SNP": ["rs1"], "CHR": ["1"], "POS": [100], "Z": [1.5], "N": [1000.0]}),
                 snp_identifier="chr_pos",
                 genome_build="hg38",
                 trait_name=None,
@@ -657,112 +665,17 @@ class SumstatsMungerTest(unittest.TestCase):
                 table = ldsc.load_sumstats(str(tmpdir / "trait*.parquet"), trait_name="trait")
 
             self.assertEqual(table.source_path, str(sumstats_file))
-            self.assertEqual(table.data.columns.tolist(), ["SNP", "CHR", "POS", "N", "Z"])
             self.assertEqual(table.config_snapshot, GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
             self.assertFalse(any("cannot recover the GlobalConfig" in str(item.message) for item in caught))
 
-    def test_load_sumstats_rejects_sidecar_without_schema_version(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            sumstats_file = tmpdir / "trait.sumstats.gz"
-            with gzip.open(sumstats_file, "wt", encoding="utf-8") as handle:
-                handle.write("SNP\tCHR\tPOS\tZ\tN\nrs1\t1\t100\t1.0\t100.0\n")
-            (tmpdir / "metadata.json").write_text(
-                json.dumps(
-                    {
-                        "trait_name": "trait",
-                    }
-                ),
-                encoding="utf-8",
-            )
-
-            with self.assertRaisesRegex(
-                ldsc.LDSCInputError,
-                "metadata.json sidecar is missing the genome_build field.*"
-                "docs/troubleshooting.md#munge-sumstats-curated-artifact-is-malformed-or-outdated",
-            ):
-                ldsc.load_sumstats(sumstats_file)
-
-    def test_load_sumstats_rejects_sidecar_without_genome_build_key(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            sumstats_file = tmpdir / "trait.sumstats.gz"
-            with gzip.open(sumstats_file, "wt", encoding="utf-8") as handle:
-                handle.write("SNP\tCHR\tPOS\tZ\tN\nrs1\t1\t100\t1.0\t100.0\n")
-            (tmpdir / "metadata.json").write_text(
-                json.dumps(
-                    {
-                        "schema_version": 1,
-                        "artifact_type": "sumstats",
-                        "snp_identifier": "rsid",
-                        "trait_name": "trait",
-                    }
-                ),
-                encoding="utf-8",
-            )
-
-            with self.assertRaisesRegex(
-                ldsc.LDSCInputError,
-                "metadata.json sidecar is missing the genome_build field.*"
-                "docs/troubleshooting.md#munge-sumstats-curated-artifact-is-malformed-or-outdated",
-            ):
-                ldsc.load_sumstats(sumstats_file)
-
-    def test_load_sumstats_rejects_malformed_json_metadata_sidecar(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            sumstats_file = tmpdir / "trait.sumstats.gz"
-            with gzip.open(sumstats_file, "wt", encoding="utf-8") as handle:
-                handle.write("SNP\tCHR\tPOS\tZ\tN\nrs1\t1\t100\t1.0\t100.0\n")
-            (tmpdir / "metadata.json").write_text("{not-json", encoding="utf-8")
-
-            with self.assertRaisesRegex(
-                ldsc.LDSCInputError,
-                "metadata.json sidecar is not valid JSON.*"
-                "docs/troubleshooting.md#munge-sumstats-curated-artifact-is-malformed-or-outdated",
-            ):
-                ldsc.load_sumstats(sumstats_file)
-
-    def test_load_sumstats_rejects_non_dict_metadata_sidecar(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            sumstats_file = tmpdir / "trait.sumstats.gz"
-            with gzip.open(sumstats_file, "wt", encoding="utf-8") as handle:
-                handle.write("SNP\tCHR\tPOS\tZ\tN\nrs1\t1\t100\t1.0\t100.0\n")
-            (tmpdir / "metadata.json").write_text(
-                json.dumps(["schema_version", "artifact_type"]),
-                encoding="utf-8",
-            )
-
-            with self.assertRaisesRegex(
-                ldsc.LDSCInputError,
-                "metadata.json sidecar is not a JSON object.*"
-                "docs/troubleshooting.md#munge-sumstats-curated-artifact-is-malformed-or-outdated",
-            ):
-                ldsc.load_sumstats(sumstats_file)
-
-    def test_load_sumstats_rejects_missing_metadata_sidecar(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            sumstats_file = tmpdir / "trait.sumstats.gz"
-            with gzip.open(sumstats_file, "wt", encoding="utf-8") as handle:
-                handle.write("SNP\tCHR\tPOS\tZ\tN\nrs1\t1\t100\t1.0\t100.0\n")
-
-            with self.assertRaisesRegex(
-                ldsc.LDSCInputError,
-                "Cannot load curated sumstats at .*metadata.json sidecar is missing.*"
-                "docs/troubleshooting.md#munge-sumstats-curated-artifact-is-malformed-or-outdated",
-            ):
-                ldsc.load_sumstats(sumstats_file)
-
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
     def test_load_sumstats_rejects_allele_aware_artifact_without_alleles(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
-            sumstats_file = tmpdir / "trait.sumstats.gz"
-            with gzip.open(sumstats_file, "wt", encoding="utf-8") as handle:
-                handle.write("SNP\tZ\tN\nrs1\t1.0\t100.0\n")
-            self._write_sumstats_sidecar(
-                tmpdir / "metadata.json",
+            sumstats_file = tmpdir / "trait.parquet"
+            self._write_footer_parquet(
+                sumstats_file,
+                pd.DataFrame({"SNP": ["rs1"], "Z": [1.0], "N": [100.0]}),
                 snp_identifier="rsid_allele_aware",
                 trait_name="trait",
             )
@@ -775,18 +688,22 @@ class SumstatsMungerTest(unittest.TestCase):
             ):
                 ldsc.load_sumstats(sumstats_file)
 
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
     def test_load_sumstats_rejects_chr_pos_artifact_with_missing_base_identity(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
-            sumstats_file = tmpdir / "trait.sumstats.gz"
-            with gzip.open(sumstats_file, "wt", encoding="utf-8") as handle:
-                handle.write(
-                    "SNP\tCHR\tPOS\tZ\tN\n"
-                    "rs_missing_chr\tNA\t100\t1.0\t100.0\n"
-                    "rs_missing_pos\t1\tNA\t1.0\t100.0\n"
-                )
-            self._write_sumstats_sidecar(
-                tmpdir / "metadata.json",
+            sumstats_file = tmpdir / "trait.parquet"
+            self._write_footer_parquet(
+                sumstats_file,
+                pd.DataFrame(
+                    {
+                        "SNP": ["rs_missing_chr", "rs_missing_pos"],
+                        "CHR": [pd.NA, "1"],
+                        "POS": [100, pd.NA],
+                        "Z": [1.0, 1.0],
+                        "N": [100.0, 100.0],
+                    }
+                ),
                 snp_identifier="chr_pos",
                 genome_build="hg38",
                 trait_name="trait",
@@ -830,25 +747,22 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(output.columns.tolist(), ["SNP", "CHR", "POS", "A1", "A2", "Z", "N"])
             self.assertTrue(output["CHR"].isna().all())
             self.assertTrue(output["POS"].isna().all())
-            self.assertTrue((tmpdir / "munged" / "metadata.json").exists())
+            self.assertFalse((tmpdir / "munged" / "metadata.json").exists())
             self.assertFalse((tmpdir / "munged" / "sumstats.metadata.json").exists())
-            metadata = json.loads((tmpdir / "munged" / "metadata.json").read_text(encoding="utf-8"))
-            self.assertEqual(metadata["trait_name"], "trait")
-            self.assertEqual(metadata["schema_version"], 1)
-            self.assertEqual(metadata["artifact_type"], "sumstats")
-            self.assertEqual(metadata["snp_identifier"], "rsid")
-            self.assertIsNone(metadata["genome_build"])
-            self.assertEqual(metadata["files"], {"parquet": "sumstats.parquet"})
-            self.assertEqual(
-                set(metadata),
-                self.SUMSTATS_METADATA_KEYS,
-            )
+            import pyarrow.parquet as pq
+
+            footer = pq.read_schema(str(tmpdir / "munged" / "sumstats.parquet")).metadata
+            self.assertEqual(footer[b"ldsc:artifact_type"], b"sumstats")
+            self.assertEqual(footer[b"ldsc:snp_identifier"], b"rsid")
+            self.assertEqual(footer[b"ldsc:genome_build"], b"")
+            self.assertEqual(footer[b"ldsc:trait_name"], b"trait")
+            self.assertNotIn(b"ldsc:schema_version", footer)
             summary = munger.build_run_summary(table)
             self.assertEqual(summary.n_retained_rows, 2)
             self.assertIn("sumstats_parquet", summary.output_paths)
             self.assertNotIn("sumstats_gz", summary.output_paths)
             self.assertNotIn("log", summary.output_paths)
-            self.assertIn("metadata_json", summary.output_paths)
+            self.assertNotIn("metadata_json", summary.output_paths)
             self.assertEqual(summary.inferred_columns["detected_format"], "plain")
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for default parquet output")
@@ -897,10 +811,8 @@ class SumstatsMungerTest(unittest.TestCase):
             with gzip.open(tmpdir / "munged" / "sumstats.sumstats.gz", "rt", encoding="utf-8") as handle:
                 output = pd.read_csv(handle, sep="\t")
             self.assertEqual(output.columns.tolist(), ["SNP", "CHR", "POS", "A1", "A2", "Z", "N"])
-            metadata = json.loads((tmpdir / "munged" / "metadata.json").read_text(encoding="utf-8"))
-            self.assertEqual(metadata["trait_name"], "trait")
-            self.assertEqual(metadata["files"], {"tsv.gz": "sumstats.sumstats.gz"})
-            self.assertEqual(set(metadata), self.SUMSTATS_METADATA_KEYS)
+            # tsv.gz carries no embedded metadata and no metadata.json sidecar is written.
+            self.assertFalse((tmpdir / "munged" / "metadata.json").exists())
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
     def test_run_writes_both_formats_and_lists_outputs_in_metadata(self):
@@ -919,14 +831,14 @@ class SumstatsMungerTest(unittest.TestCase):
                 GlobalConfig(snp_identifier="rsid"),
             )
 
-            metadata = json.loads((tmpdir / "munged" / "metadata.json").read_text(encoding="utf-8"))
+            import pyarrow.parquet as pq
+
             self.assertTrue((tmpdir / "munged" / "sumstats.parquet").exists())
             self.assertTrue((tmpdir / "munged" / "sumstats.sumstats.gz").exists())
-            self.assertEqual(
-                metadata["files"],
-                {"parquet": "sumstats.parquet", "tsv.gz": "sumstats.sumstats.gz"},
-            )
-            self.assertEqual(set(metadata), self.SUMSTATS_METADATA_KEYS)
+            self.assertFalse((tmpdir / "munged" / "metadata.json").exists())
+            footer = pq.read_schema(str(tmpdir / "munged" / "sumstats.parquet")).metadata
+            self.assertEqual(footer[b"ldsc:artifact_type"], b"sumstats")
+            self.assertEqual(footer[b"ldsc:trait_name"], b"trait")
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
     def test_run_overwrite_removes_unselected_sumstats_sibling(self):
@@ -949,11 +861,9 @@ class SumstatsMungerTest(unittest.TestCase):
                 GlobalConfig(snp_identifier="rsid"),
             )
 
-            metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
             self.assertTrue((output_dir / "sumstats.parquet").exists())
             self.assertFalse((output_dir / "sumstats.sumstats.gz").exists())
-            self.assertEqual(metadata["files"], {"parquet": "sumstats.parquet"})
-            self.assertEqual(set(metadata), self.SUMSTATS_METADATA_KEYS)
+            self.assertFalse((output_dir / "metadata.json").exists())
 
     def test_run_refuses_unselected_owned_sumstats_sibling_without_overwrite(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -996,7 +906,7 @@ class SumstatsMungerTest(unittest.TestCase):
 
             self.assertEqual((output_dir / "sumstats.log").read_text(encoding="utf-8"), "legacy log\n")
             self.assertEqual((root_drop_dir / "dropped.tsv.gz").read_text(encoding="utf-8"), "legacy drops\n")
-            self.assertTrue((output_dir / "metadata.json").exists())
+            self.assertFalse((output_dir / "metadata.json").exists())
             self.assertTrue((output_dir / "diagnostics" / "sumstats.log").exists())
             self.assertTrue((output_dir / "diagnostics" / "dropped_snps" / "dropped.tsv.gz").exists())
 
@@ -1057,7 +967,7 @@ class SumstatsMungerTest(unittest.TestCase):
             SumstatsMunger().write_output(table, output_dir, output_format="parquet", overwrite=True)
 
             self.assertTrue((output_dir / "sumstats.parquet").exists())
-            self.assertTrue((output_dir / "metadata.json").exists())
+            self.assertFalse((output_dir / "metadata.json").exists())
             self.assertFalse((output_dir / "sumstats.metadata.json").exists())
             self.assertFalse(stale.exists())
 
@@ -1101,9 +1011,9 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertTrue(pd.isna(output.loc[3, "POS"]))
             parquet_file = pq.ParquetFile(parquet_path)
             self.assertEqual(parquet_file.num_row_groups, 3)
-            metadata = json.loads((tmpdir / "munged" / "metadata.json").read_text(encoding="utf-8"))
-            self.assertEqual(metadata["files"], {"parquet": "sumstats.parquet"})
-            self.assertEqual(set(metadata), self.SUMSTATS_METADATA_KEYS)
+            self.assertFalse((tmpdir / "munged" / "metadata.json").exists())
+            footer = parquet_file.schema_arrow.metadata
+            self.assertEqual(footer[b"ldsc:artifact_type"], b"sumstats")
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for default parquet output")
     def test_run_writes_thin_sidecar_and_logs_coordinate_liftover_provenance(self):
@@ -1130,27 +1040,20 @@ class SumstatsMungerTest(unittest.TestCase):
                     GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
                 )
 
-            metadata = json.loads((tmpdir / "munged" / "metadata.json").read_text(encoding="utf-8"))
-            self.assertEqual(
-                metadata,
-                {
-                    "schema_version": 1,
-                    "artifact_type": "sumstats",
-                    "files": {"parquet": "sumstats.parquet"},
-                    "snp_identifier": "chr_pos",
-                    "genome_build": "hg38",
-                    "trait_name": "trait",
-                },
-            )
+            import pyarrow.parquet as pq
+
+            self.assertFalse((tmpdir / "munged" / "metadata.json").exists())
+            footer = pq.read_schema(str(tmpdir / "munged" / "sumstats.parquet")).metadata
+            self.assertEqual(footer[b"ldsc:artifact_type"], b"sumstats")
+            self.assertEqual(footer[b"ldsc:snp_identifier"], b"chr_pos")
+            self.assertEqual(footer[b"ldsc:genome_build"], b"hg38")
+            self.assertEqual(footer[b"ldsc:trait_name"], b"trait")
+            self.assertNotIn(b"ldsc:schema_version", footer)
             log_text = (tmpdir / "munged" / "diagnostics" / "sumstats.log").read_text(encoding="utf-8")
             self.assertIn("Summary-statistics coordinate provenance", log_text)
             self.assertIn("coordinate_basis=1-based", log_text)
             self.assertIn("Summary-statistics liftover report", log_text)
             self.assertNotIn('"coordinate_basis"', log_text)
-            self.assertEqual(
-                set(metadata),
-                self.SUMSTATS_METADATA_KEYS,
-            )
 
     def test_run_rejects_liftover_request_in_rsid_mode_before_kernel_call(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1933,13 +1836,17 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertEqual(dropped["SNP"].tolist(), ["rs_bad", "rs_ambiguous"])
             self.assertEqual(dropped["reason"].tolist(), ["invalid_allele", "strand_ambiguous_allele"])
 
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow is required for sumstats parquet coverage")
     def test_load_sumstats_rejects_duplicate_effective_keys(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
-            sumstats_file = tmpdir / "trait.sumstats.gz"
-            with gzip.open(sumstats_file, "wt", encoding="utf-8") as handle:
-                handle.write("SNP\tZ\tN\nrs1\t1.0\t100.0\nrs1\t2.0\t100.0\n")
-            self._write_sumstats_sidecar(tmpdir / "metadata.json", snp_identifier="rsid", trait_name="trait")
+            sumstats_file = tmpdir / "trait.parquet"
+            self._write_footer_parquet(
+                sumstats_file,
+                pd.DataFrame({"SNP": ["rs1", "rs1"], "Z": [1.0, 2.0], "N": [100.0, 100.0]}),
+                snp_identifier="rsid",
+                trait_name="trait",
+            )
 
             with self.assertRaisesRegex(
                 ldsc.LDSCInputError,
@@ -2673,6 +2580,42 @@ class SumstatsMungerTest(unittest.TestCase):
             self.assertIn("Liftover required: yes (method: chain file)", output)
             self.assertIn("Expected chain direction: hg19 -> hg38", output)
 
+    def test_infer_only_reports_missing_liftover_chain_path_with_fix(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            raw_path = tmpdir / "raw.tsv"
+            raw_path.write_text(
+                "CHR POS SNP A1 A2 P BETA N\n"
+                "1 100 rs1 A G 0.05 0.1 1000\n",
+                encoding="utf-8",
+            )
+            missing_chain_path = tmpdir / "missing.over.chain"
+            stdout = io.StringIO()
+
+            with mock.patch("ldsc.sumstats_munger.resolve_genome_build", return_value="hg19"):
+                with contextlib.redirect_stdout(stdout):
+                    result = sumstats_workflow.main(
+                        [
+                            "--raw-sumstats-file",
+                            str(raw_path),
+                            "--infer-only",
+                            "--output-genome-build",
+                            "hg38",
+                            "--liftover-chain-file",
+                            str(missing_chain_path),
+                        ]
+                    )
+
+            output = stdout.getvalue()
+            self.assertFalse(result.runnable)
+            self.assertIn("liftover_chain_file", result.missing_fields)
+            self.assertIn("Could not resolve liftover chain file path from token", output)
+            self.assertIn("matched 0 files", output)
+            self.assertIn("Most likely the path is misspelled", output)
+            self.assertIn("pass one existing chain file for the expected direction (hg19ToHg38.over.chain)", output)
+            self.assertIn("or use --use-hm3-snps --use-hm3-quick-liftover", output)
+            self.assertIn("Expected chain direction: hg19 -> hg38", output)
+
     def test_infer_only_reports_hm3_quick_liftover_method(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -2895,7 +2838,7 @@ class SumstatsMungerTest(unittest.TestCase):
                     GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
                 )
 
-    def test_load_sumstats_reads_minimal_identity_metadata_sidecar(self):
+    def test_munge_then_load_roundtrips_identity_through_parquet_footer(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             raw_path = tmpdir / "raw.tsv"
@@ -2912,15 +2855,55 @@ class SumstatsMungerTest(unittest.TestCase):
                 GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
             )
 
-            metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
-            self.assertEqual(metadata["schema_version"], 1)
-            self.assertEqual(metadata["artifact_type"], "sumstats")
-            self.assertEqual(metadata["snp_identifier"], "chr_pos")
-            self.assertEqual(metadata["genome_build"], "hg38")
-            self.assertEqual(metadata["files"], {"parquet": "sumstats.parquet"})
-            self.assertEqual(set(metadata), self.SUMSTATS_METADATA_KEYS)
+            import pyarrow.parquet as pq
+
+            self.assertFalse((output_dir / "metadata.json").exists())
+            footer = pq.read_schema(str(output_dir / "sumstats.parquet")).metadata
+            self.assertEqual(footer[b"ldsc:artifact_type"], b"sumstats")
+            self.assertEqual(footer[b"ldsc:snp_identifier"], b"chr_pos")
+            self.assertEqual(footer[b"ldsc:genome_build"], b"hg38")
             with warnings.catch_warnings(record=True) as caught:
                 warnings.simplefilter("always")
                 table = ldsc.load_sumstats(output_dir / "sumstats.parquet", trait_name="trait")
             self.assertEqual(table.config_snapshot, GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
             self.assertFalse(any("cannot recover the GlobalConfig" in str(item.message) for item in caught))
+
+
+@unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
+class SumstatsParquetFooterTest(unittest.TestCase):
+    def _frame(self):
+        return pd.DataFrame(
+            {
+                "SNP": ["rs1", "rs2"],
+                "CHR": ["1", "1"],
+                "POS": [10, 20],
+                "A1": ["A", "C"],
+                "A2": ["G", "T"],
+                "Z": [0.1, 0.2],
+                "N": [100, 100],
+            }
+        )
+
+    def test_footer_encodes_identity_and_trait(self):
+        import pyarrow.parquet as pq
+
+        snapshot = GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg19")
+        footer = sumstats_workflow._sumstats_footer_metadata(snapshot, trait_name="height")
+        with tempfile.TemporaryDirectory() as tmp:
+            out = str(Path(tmp) / "sumstats.parquet")
+            sumstats_workflow._write_sumstats_outputs(
+                self._frame(), output_files={"parquet": out}, output_format="parquet", footer_metadata=footer
+            )
+            raw = pq.read_schema(out).metadata
+        self.assertEqual(raw[b"ldsc:artifact_type"], b"sumstats")
+        self.assertEqual(raw[b"ldsc:snp_identifier"], b"chr_pos_allele_aware")
+        self.assertEqual(raw[b"ldsc:genome_build"], b"hg19")
+        self.assertEqual(raw[b"ldsc:trait_name"], b"height")
+        self.assertNotIn(b"ldsc:schema_version", raw)
+
+    def test_footer_encodes_none_genome_build_and_trait_as_empty(self):
+        footer = sumstats_workflow._sumstats_footer_metadata(
+            GlobalConfig(snp_identifier="rsid_allele_aware"), trait_name=None
+        )
+        self.assertEqual(footer[b"ldsc:genome_build"], b"")
+        self.assertEqual(footer[b"ldsc:trait_name"], b"")

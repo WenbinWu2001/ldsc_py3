@@ -87,6 +87,37 @@ Notes:
 - Sumstats `A1` carries **no minor/major or reference semantics** — it is the
   effect allele for statistical direction, nothing more.
 
+### 2.1 How a sidecar signals that its frequency is *oriented*
+
+The defensive-read helper (§7) can only normalize a table whose frequency is the
+**oriented frequency of `A1`** (which may exceed 0.5). A **folded** `min(p, 1-p)`
+value cannot be normalized because folding already discarded the orientation. A
+sidecar declares which kind it provides **by column name**:
+
+| Column name (and aliases) | Meaning | Range | Orientation source? |
+|---|---|---|---|
+| `FRQ` (`FREQ`, `EAF`, `A1_FRQ`, `FRQ_A1`, `FREQ_A1`) | **Oriented** frequency of the allele in the `A1` column | `[0, 1]` — values `> 0.5` allowed | **Yes** — helper swaps `A1`/`A2` and sets `freq := 1 - freq` for rows with `freq(A1) > 0.5` |
+| `MAF` | **Folded** minor-allele frequency (orientation-free) | `[0, 0.5]` | **No** — identity-only; cannot drive `A1`/`A2` normalization |
+
+Requirements for an oriented (`FRQ`-family) frequency sidecar:
+
+- It carries `A1` and `A2` columns alongside the frequency, so the helper can
+  swap both alleles and the value together.
+- The frequency is the frequency of the allele named in `A1` (not of a reference
+  or alternate allele); `REF`/`ALT` frequencies are a different concept and are
+  not accepted as `A1` frequencies.
+- A sidecar that provides only a `MAF` column (no oriented `FRQ`) is read as
+  identity-only: its alleles still participate in allele-aware matching, but its
+  frequency is not used to re-orient `A1`/`A2`.
+
+**Registry implication.** Today `MAF`, `FRQ`, `FREQ`, `FREQUENCY` are mutual
+aliases for a single `MAF` column ([`column_inference.py:112`](../../../src/ldsc/column_inference.py)).
+For the defensive-read path the `FRQ`-family (oriented) names must be separated
+from `MAF` (folded) so the helper can tell them apart. Inside sumstats the
+existing conflation is fine and stays (everything there is the oriented `A1`
+frequency regardless of source name); the split applies to the non-sumstats
+sidecar reader.
+
 ## 3. Is the frequency always the MAF (`<= 0.5`)?
 
 - **Reference panel, LD-score artifacts, annotation/frequency sidecars:** **Yes.**
@@ -243,7 +274,9 @@ canonicalize_alleles(df, a1_col="A1", a2_col="A2", freq_col="MAF") -> df
   already canonical at write, so the helper is a no-op verification for them.
 - It **cannot** repair a table that lacks an oriented frequency (e.g. a legacy
   folded `MAF` with arbitrary `A1`/`A2`) — the orientation is unrecoverable. Such
-  tables are out of scope for repair (see §8).
+  tables are out of scope for repair (see §8). The oriented vs folded distinction
+  is signaled by column name per §2.1: only an `FRQ`-family column drives
+  normalization; a `MAF` column is identity-only.
 
 ## 8. Legacy artifacts
 
@@ -275,7 +308,8 @@ minor-allele canonical rule **must not** be applied to sumstats, so a future
 
 - `docs/current/column-schema.md`: define `A1`/`A2`/`FRQ`/`MAF` per artifact per
   the table in §2; state the unifying rule (§1); state the `MAF <= 0.5` guarantee
-  and its sumstats exception (§3); state the sign convention (§4).
+  and its sumstats exception (§3); state the sign convention (§4); document the
+  oriented-vs-folded naming convention for external frequency sidecars (§2.1).
 - `docs/current/data-flow.md` / `architecture.md`: note the build-stage flip
   point and that `nextSNPs` is orientation-free.
 - `query-r2` CLI help / docstring: document signed r as the `A1` (minor) allele

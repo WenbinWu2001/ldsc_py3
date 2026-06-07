@@ -263,6 +263,13 @@ Restriction files define candidate membership before artifact identity cleanup.
 7. Match retained candidates by either base keys or effective allele-aware keys,
    depending on restriction precision.
 
+Restriction parsing is set-oriented rather than chromosome-lazy. Callers build
+the complete restriction key set before matching; base `chr_pos`
+`munge-sumstats` uses packed integer keys and a bounded-row parser, but still
+keeps the complete restriction universe in memory. Reference-panel and LD-score
+restriction paths materialize the shared `RestrictionIdentityKeys` object before
+per-chromosome filtering.
+
 ### `munge-sumstats`
 
 1. Parse and QC raw chunks.

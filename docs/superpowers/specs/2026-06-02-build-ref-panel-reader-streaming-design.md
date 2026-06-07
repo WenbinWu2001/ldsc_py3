@@ -18,6 +18,13 @@ pairwise R2 computation itself never exceeds ~370 MiB; the read is the cost.
 - Unrestricted builds (the default, keep-all) stream the genotypes so only a
   sliding window is ever resident (chr1 ~940 MB → ~one window + workflow floor).
 
+This optimization is limited to PLINK genotype payload reading. The SNP
+restriction file itself is not streamed by chromosome: `--ref-panel-snps-file`
+or HM3 is resolved up front into an in-memory identity key set, and each
+chromosome's PLINK metadata is matched against that set. Very large custom
+restriction files therefore still contribute O(number of restriction SNPs)
+memory before selective genotype reading begins.
+
 The same reader is shared with the legacy LD-score-with-PLINK path
 (`compute_chrom_from_plink`) and the `PlinkRefPanel` API, so the change must be
 made at the shared reader **without altering LD-score output and without new

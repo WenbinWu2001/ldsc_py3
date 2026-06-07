@@ -137,10 +137,14 @@ HM3 evidence accumulator, and stops once the same inference thresholds are met.
 The final build decision still goes through `resolve_genome_build()`, so
 confidence thresholds and error messages stay aligned with other workflows.
 
-SNP restriction files are not converted to adaptive streaming. They are small
-control artifacts in typical use and are read for filtering after source-build
-resolution, so their generic `POS` build check continues to use the materialized
-restriction frame.
+SNP restriction files are not converted to adaptive or chromosome-lazy
+streaming. They are small control artifacts in typical use and are read for
+filtering after source-build resolution. Base `chr_pos` munging can parse the
+restriction rows in bounded chunks and store packed integer keys, but the final
+restriction universe is still a complete in-memory set. Allele-aware,
+reference-panel, and LD-score restrictions materialize the restriction table or
+identity key set before matching, so their generic `POS` build check continues
+to use the materialized restriction frame.
 
 ## Annotation Inputs
 

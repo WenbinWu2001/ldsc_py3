@@ -1,5 +1,6 @@
 from pathlib import Path
 import contextlib
+import gzip
 import io
 import json
 import sys
@@ -389,6 +390,71 @@ class AnnotationBuilderTest(unittest.TestCase):
                 "chr1\t25\t100\tgene_a\t0.1\nchr2\t0\t45\tgene_b\t0.2\n",
             )
 
+    def test_bed_normalization_skips_non_interval_lines_and_standard_header(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            bed = tmpdir / "query.bed"
+            normalized = tmpdir / "query.normalized.bed"
+            bed.write_text(
+                "\n# comment line\ntrack name=\"enhancers\"\nbrowser position chr1:1-1000\n"
+                "chrom\tstart\tend\tname\n1\t50\t75\tgene_a\n",
+                encoding="utf-8",
+            )
+
+            kernel_annotation._write_normalized_bed(bed, normalized)
+
+            self.assertEqual(normalized.read_text(encoding="utf-8"), "chr1\t50\t75\tgene_a\n")
+
+    def test_bed_normalization_skips_chrom_start_end_header_variant(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            bed = tmpdir / "query.bed"
+            normalized = tmpdir / "query.normalized.bed"
+            bed.write_text("chrom\tchromStart\tchromEnd\nchr2\t5\t20\n", encoding="utf-8")
+
+            kernel_annotation._write_normalized_bed(bed, normalized)
+
+            self.assertEqual(normalized.read_text(encoding="utf-8"), "chr2\t5\t20\n")
+
+    def test_bed_normalization_rejects_header_after_data(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            bed = tmpdir / "query.bed"
+            normalized = tmpdir / "query.normalized.bed"
+            bed.write_text("chr1\t50\t75\nchrom\tstart\tend\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(LDSCInputError, "header"):
+                kernel_annotation._write_normalized_bed(bed, normalized)
+
+    def test_bed_normalization_rejects_invalid_standard_bed_bounds(self):
+        cases = {
+            "negative_start.bed": "chr1\t-1\t75\n",
+            "zero_length.bed": "chr1\t75\t75\n",
+            "reversed.bed": "chr1\t75\t50\n",
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            for filename, content in cases.items():
+                with self.subTest(filename=filename):
+                    bed = tmpdir / filename
+                    normalized = tmpdir / f"{filename}.normalized"
+                    bed.write_text(content, encoding="utf-8")
+
+                    with self.assertRaisesRegex(LDSCInputError, "start"):
+                        kernel_annotation._write_normalized_bed(bed, normalized)
+
+    def test_bed_normalization_accepts_gzip_bed(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            bed = tmpdir / "query.bed.gz"
+            normalized = tmpdir / "query.normalized.bed"
+            with gzip.open(bed, "wt", encoding="utf-8") as handle:
+                handle.write("chrom\tstart\tend\nchr1\t50\t75\n")
+
+            kernel_annotation._write_normalized_bed(bed, normalized)
+
+            self.assertEqual(normalized.read_text(encoding="utf-8"), "chr1\t50\t75\n")
+
     def test_bed_normalization_preserves_intervals_without_padding(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -415,7 +481,7 @@ class AnnotationBuilderTest(unittest.TestCase):
             tmpdir = Path(tmpdir)
             bed = tmpdir / "query.bed"
             normalized = tmpdir / "query.normalized.bed"
-            bed.write_text("chrom\tstart\tend\tname\n", encoding="utf-8")
+            bed.write_text("chr1\tstart\tend\tname\n", encoding="utf-8")
 
             with self.assertRaisesRegex(LDSCInputError, "start/end are not integer coordinates"):
                 kernel_annotation._write_normalized_bed(bed, normalized)

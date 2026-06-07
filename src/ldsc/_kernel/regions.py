@@ -7,6 +7,7 @@ position ``p`` is excluded iff some interval contains it, i.e.
 """
 from __future__ import annotations
 
+import gzip
 from dataclasses import dataclass
 from importlib import resources
 from os import PathLike
@@ -20,6 +21,17 @@ from ..errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsa
 
 REGION_PRESETS: frozenset[str] = frozenset({"mhc", "centromeres"})
 _PRESET_BUILDS: frozenset[str] = frozenset({"hg19", "hg38"})
+
+
+@dataclass(frozen=True)
+class BedIntervalRow:
+    """One parsed BED interval row with source context."""
+
+    chrom: str
+    start: int
+    end: int
+    extra_fields: tuple[str, ...]
+    line_number: int
 
 
 @dataclass(frozen=True)
@@ -62,36 +74,72 @@ def _intervals_from_rows(rows: Sequence[tuple[str, int, int]]) -> dict[str, np.n
     return {chrom: _coalesce(pairs) for chrom, pairs in grouped.items()}
 
 
-def _parse_bed_text(text: str, label: str) -> list[tuple[str, int, int]]:
-    """Parse standard BED text into ``(chrom, start, end)`` rows."""
-    rows: list[tuple[str, int, int]] = []
+def _is_bed_header(fields: Sequence[str]) -> bool:
+    """Return whether ``fields`` begin with an accepted BED header triple."""
+    first_three = tuple(field.lower() for field in fields[:3])
+    return first_three in {("chrom", "start", "end"), ("chrom", "chromstart", "chromend")}
+
+
+def parse_bed_text(text: str, label: str) -> list[BedIntervalRow]:
+    """Parse standard BED3+ text into interval rows with line provenance."""
+    rows: list[BedIntervalRow] = []
+    seen_data = False
+    seen_header = False
     for lineno, raw in enumerate(text.splitlines(), start=1):
         line = raw.strip()
-        if not line or line.startswith(("#", "track", "browser")):
+        if not line or line.startswith("#"):
             continue
-        fields = line.split("\t") if "\t" in line else line.split()
+        fields = line.split()
+        first_token = fields[0].lower() if fields else ""
+        if first_token in {"track", "browser"}:
+            continue
         if len(fields) < 3:
             raise LDSCInputError(
-                f"Region BED parsing failed in '{label}' line {lineno}: expected at least 3 "
-                f"columns (chrom start end), found {len(fields)}. Most likely the file is not "
+                f"BED parsing failed in '{label}' line {lineno}: row has fewer than three columns; "
+                f"expected at least 3 columns (chrom start end), found {len(fields)}. Most likely the file is not "
                 "tab/space-delimited BED. Provide a standard BED file."
             )
+        if _is_bed_header(fields):
+            if seen_data:
+                raise LDSCInputError(
+                    f"BED parsing failed in '{label}' line {lineno}: header-like row appears after data rows. "
+                    "Most likely the BED file concatenated multiple files or contains a misplaced header. "
+                    "Keep at most one leading chrom/start/end header before the first interval."
+                )
+            if seen_header:
+                raise LDSCInputError(
+                    f"BED parsing failed in '{label}' line {lineno}: multiple BED header rows were found. "
+                    "Keep at most one leading chrom/start/end header before the first interval."
+                )
+            seen_header = True
+            continue
         chrom, start_token, end_token = fields[0], fields[1], fields[2]
         try:
             start, end = int(start_token), int(end_token)
         except ValueError as exc:
             raise LDSCInputError(
-                f"Region BED parsing failed in '{label}' line {lineno}: start/end "
+                f"BED parsing failed in '{label}' line {lineno}: start/end are not integer coordinates; "
                 f"('{start_token}', '{end_token}') are not integers. Provide 0-based "
                 "half-open integer BED coordinates."
             ) from exc
+        if start < 0:
+            raise LDSCInputError(
+                f"BED parsing failed in '{label}' line {lineno}: start {start} is negative. "
+                "BED intervals must use non-negative 0-based start coordinates."
+            )
         if start >= end:
             raise LDSCInputError(
-                f"Region BED parsing failed in '{label}' line {lineno}: start {start} is not "
+                f"BED parsing failed in '{label}' line {lineno}: start {start} is not "
                 f"less than end {end}. BED intervals are 0-based half-open with start < end."
             )
-        rows.append((chrom, start, end))
+        rows.append(BedIntervalRow(chrom, start, end, tuple(fields[3:]), lineno))
+        seen_data = True
     return rows
+
+
+def _parse_bed_text(text: str, label: str) -> list[tuple[str, int, int]]:
+    """Parse standard BED text into ``(chrom, start, end)`` rows."""
+    return [(row.chrom, row.start, row.end) for row in parse_bed_text(text, label)]
 
 
 def load_preset_intervals(names: Sequence[str], build: str) -> RegionIntervals:
@@ -156,7 +204,8 @@ def load_bed_intervals(paths: Sequence[str | PathLike[str]]) -> RegionIntervals:
     for path in paths:
         path_str = str(path)
         try:
-            with open(path_str, encoding="utf-8") as handle:
+            opener = gzip.open if path_str.lower().endswith(".gz") else open
+            with opener(path_str, "rt", encoding="utf-8") as handle:
                 text = handle.read()
         except (FileNotFoundError, OSError) as exc:
             raise LDSCInputError(

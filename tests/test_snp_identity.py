@@ -98,6 +98,34 @@ class EffectiveKeyTest(unittest.TestCase):
 
 
 class IdentityMetadataValidationTest(unittest.TestCase):
+    def test_identity_artifact_metadata_has_no_schema_version(self):
+        meta = si.identity_artifact_metadata(
+            artifact_type="sumstats",
+            snp_identifier="chr_pos_allele_aware",
+            genome_build="hg19",
+        )
+        self.assertNotIn("schema_version", meta)
+        self.assertEqual(
+            meta,
+            {
+                "artifact_type": "sumstats",
+                "snp_identifier": "chr_pos_allele_aware",
+                "genome_build": "hg19",
+            },
+        )
+
+    def test_validate_accepts_payload_without_schema_version(self):
+        meta = {"artifact_type": "sumstats", "snp_identifier": "rsid_allele_aware", "genome_build": None}
+        self.assertEqual(
+            si.validate_identity_artifact_metadata(meta, expected_artifact_type="sumstats"),
+            "rsid_allele_aware",
+        )
+
+    def test_validate_rejects_wrong_artifact_type_without_schema_version(self):
+        meta = {"artifact_type": "ldscore", "snp_identifier": "rsid", "genome_build": None}
+        with self.assertRaises(LDSCInputError):
+            si.validate_identity_artifact_metadata(meta, expected_artifact_type="sumstats")
+
     def test_invalid_artifact_metadata_reports_cause_fix_and_reference(self):
         metadata = {"schema_version": 0, "artifact_type": "ldscore", "snp_identifier": "chr_pos"}
 

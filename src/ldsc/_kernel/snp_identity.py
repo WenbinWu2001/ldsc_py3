@@ -32,7 +32,6 @@ RSID_FAMILY_MODES = ("rsid", "rsid_allele_aware")
 CHR_POS_FAMILY_MODES = ("chr_pos", "chr_pos_allele_aware")
 ALLELE_AWARE_MODES = ("rsid_allele_aware", "chr_pos_allele_aware")
 BASE_MODES = ("rsid", "chr_pos")
-SCHEMA_VERSION = 1
 ARTIFACT_TYPES = frozenset({"sumstats", "ref_panel_r2", "ref_panel_metadata", "ldscore"})
 REGENERATE_ARTIFACT_MESSAGE = (
     "This artifact was not written with the current LDSC schema/provenance contract. "
@@ -118,7 +117,6 @@ def identity_artifact_metadata(
             "Add the artifact type to the central identity metadata registry."
         )
     return {
-        "schema_version": SCHEMA_VERSION,
         "artifact_type": artifact_type,
         "snp_identifier": normalize_snp_identifier_mode(snp_identifier),
         "genome_build": genome_build,
@@ -127,14 +125,13 @@ def identity_artifact_metadata(
 
 def validate_identity_artifact_metadata(metadata: dict[str, object], *, expected_artifact_type: str) -> str:
     """Validate minimal identity metadata and return the normalized SNP identifier mode."""
-    if metadata.get("schema_version") != SCHEMA_VERSION or metadata.get("artifact_type") != expected_artifact_type:
-        actual_schema = metadata.get("schema_version")
+    if metadata.get("artifact_type") != expected_artifact_type:
         actual_type = metadata.get("artifact_type")
         raise LDSCInputError(
-            f"Could not read LDSC {expected_artifact_type} artifact metadata: expected schema_version={SCHEMA_VERSION} "
-            f"and artifact_type={expected_artifact_type!r}, got schema_version={actual_schema!r} "
-            f"and artifact_type={actual_type!r}. Most likely the artifact was written by an older LDSC version "
-            "or copied without its matching metadata sidecar. Regenerate the artifact with the current LDSC package. "
+            f"Could not read LDSC {expected_artifact_type} artifact metadata: expected "
+            f"artifact_type={expected_artifact_type!r}, got artifact_type={actual_type!r}. "
+            "Most likely the artifact was written by an older LDSC version or by another tool. "
+            "Regenerate the artifact with the current LDSC package. "
             f"Other causes & fixes: {_ARTIFACT_METADATA_TROUBLESHOOTING}"
         )
     try:

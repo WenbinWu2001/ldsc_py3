@@ -31,7 +31,7 @@ source /Users/wenbinwu/miniforge3/etc/profile.d/conda.sh && conda activate ldsc3
 - `src/ldsc/` is the only supported public package surface. `src/ldsc/_kernel/`
   is private implementation code.
 - Keep one CLI surface: `ldsc` with subcommands `annotate`, `build-ref-panel`,
-  `ldscore`, `munge-sumstats`, `h2`, `partitioned-h2`, and `rg`.
+  `ldscore`, `munge-sumstats`, `h2`, `partitioned-h2`, `rg`, and `query-r2`.
 - Public workflow modules own user-facing path resolution, header inference,
   global config handling, genome-build inference, and output preflight. Kernel
   modules receive resolved primitive inputs and do numerical work or low-level

@@ -8,9 +8,12 @@ the :class:`R2Panel` handle, the one-shot :func:`query_r2` wrapper, and the pure
 """
 from __future__ import annotations
 
+import argparse
 import logging
+import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Sequence
 
 import numpy as np
 import pandas as pd
@@ -467,3 +470,52 @@ def _orientation_multiplier(query_a1: np.ndarray, panel_a1: np.ndarray, panel_a2
         elif q == p2u or q == p2u.translate(COMPLEMENT):
             out[k] = -1
     return out
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Build the ``ldsc query-r2`` argument parser."""
+    parser = argparse.ArgumentParser(
+        prog="ldsc query-r2",
+        description="Query adjusted R2 (and signed r) for SNP pairs from a reference panel.",
+        allow_abbrev=False,
+    )
+    parser.add_argument("--panel-dir", default=None, help="build-ref-panel output directory.")
+    parser.add_argument("--meta", default=None, help="Explicit chrN_meta.tsv.gz path (with --parquet).")
+    parser.add_argument("--parquet", default=None, help="Explicit chrN_r2.parquet path (with --meta).")
+    parser.add_argument("--pairs", required=True, help="TSV/CSV of pairs with _1/_2 endpoint columns ('-' = stdin).")
+    parser.add_argument("--out", default=None, help="Output TSV path (default: stdout).")
+    parser.add_argument("--snp-identifier", default=None, help="Override panel SNP identifier mode.")
+    parser.add_argument("--genome-build", choices=["hg19", "hg38"], default=None, help="Genome build for sub-dir resolution.")
+    parser.add_argument("--with-r", action="store_true", help="Add a signed Pearson r column.")
+    parser.add_argument("--strategy", choices=["auto", "random", "stream"], default="auto", help="Lookup strategy.")
+    parser.add_argument("--strategy-threshold", type=int, default=50_000, help="Auto-select pair-count threshold.")
+    return parser
+
+
+def run_query_r2_from_args(args: argparse.Namespace) -> pd.DataFrame:
+    """Run ``query-r2`` from parsed CLI arguments and write the output table."""
+    pairs_handle = sys.stdin if args.pairs == "-" else args.pairs
+    sep = "," if str(args.pairs).endswith(".csv") else "\t"
+    pairs = pd.read_csv(pairs_handle, sep=sep)
+    result = query_r2(
+        pairs,
+        panel_dir=args.panel_dir,
+        meta_path=args.meta,
+        parquet_path=args.parquet,
+        snp_identifier=args.snp_identifier,
+        genome_build=args.genome_build,
+        with_r=args.with_r,
+        strategy=args.strategy,
+        strategy_threshold=args.strategy_threshold,
+    )
+    if args.out is None:
+        result.to_csv(sys.stdout, sep="\t", index=False)
+    else:
+        result.to_csv(args.out, sep="\t", index=False)
+    return result
+
+
+def main(argv: Sequence[str] | None = None) -> pd.DataFrame:
+    """Command-line entry point for the R2 pair-query workflow."""
+    args = build_parser().parse_args(argv)
+    return run_query_r2_from_args(args)

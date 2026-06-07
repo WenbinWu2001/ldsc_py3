@@ -279,3 +279,23 @@ class TestQueryR2Wrapper:
         out = query_r2(pairs, panel_dir=tmp_path, genome_build="hg38", with_r=True)
         assert "r" in out.columns
         assert out["r"].iloc[0] < 0
+
+
+class TestQueryR2CLI:
+    def test_cli_reads_tsv_and_writes_tsv(self, tmp_path):
+        from ldsc.cli import main as cli_main
+
+        build_test_panel(tmp_path, snp_identifier="chr_pos_allele_aware")
+        pairs_path = tmp_path / "pairs.tsv"
+        pd.DataFrame(
+            {"CHR_1": [1], "POS_1": [100], "A1_1": ["A"], "A2_1": ["G"],
+             "CHR_2": [1], "POS_2": [200], "A1_2": ["C"], "A2_2": ["T"]}
+        ).to_csv(pairs_path, sep="\t", index=False)
+        out_path = tmp_path / "out.tsv"
+        cli_main([
+            "query-r2", "--panel-dir", str(tmp_path), "--genome-build", "hg38",
+            "--pairs", str(pairs_path), "--out", str(out_path), "--with-r",
+        ])
+        result = pd.read_csv(out_path, sep="\t")
+        assert result["r2"].iloc[0] == pytest.approx(0.64, abs=1e-4)
+        assert "status" in result.columns and "r" in result.columns

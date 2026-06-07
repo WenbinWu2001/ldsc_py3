@@ -327,7 +327,6 @@ def _write_ref_panel_metadata(
         if key != "metadata"
     }
     payload = {
-        "schema_version": 1,
         "artifact_type": "ref_panel",
         "files": files,
         "snp_identifier": global_config.snp_identifier,

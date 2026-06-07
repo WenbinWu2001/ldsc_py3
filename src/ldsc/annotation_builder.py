@@ -1079,7 +1079,6 @@ def _write_annotation_metadata(
         "dropped_snps": str(dropped_snps_path.relative_to(output_dir)),
     }
     payload = {
-        "schema_version": 1,
         "artifact_type": "annotation_projection",
         "files": files,
         "snp_identifier": None if config is None else config.snp_identifier,

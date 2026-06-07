@@ -1339,7 +1339,6 @@ def _h2_metadata(args, sumstats_table: SumstatsTable, dataset: RegressionDataset
     """Build the metadata sidecar for one unpartitioned h2 output."""
     config_snapshot = dataset.config_snapshot
     return {
-        "schema_version": 1,
         "artifact_type": "h2_result",
         "trait_name": sumstats_table.trait_name,
         "sumstats_file": getattr(args, "sumstats_file", None),
@@ -2191,9 +2190,9 @@ def load_ldscore_from_dir(
 
 def _global_config_from_metadata(metadata: dict[str, Any]) -> GlobalConfig | None:
     """Recreate a GlobalConfig snapshot when LD-score metadata contains one."""
-    if "schema_version" not in metadata and "artifact_type" not in metadata:
+    if "artifact_type" not in metadata:
         raise LDSCInputError(
-            "Regression could not read LD-score artifact provenance: metadata lacks `schema_version` and `artifact_type`. "
+            "Regression could not read LD-score artifact provenance: metadata lacks `artifact_type`. "
             "Most likely the LD-score directory was written by an older LDSC version. "
             f"Regenerate it with the current `ldsc ldscore`. Other causes & fixes: {_REGRESSION_SCHEMA_DOC}"
         )

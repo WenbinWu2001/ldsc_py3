@@ -1701,7 +1701,6 @@ class RegressionWorkflowTest(unittest.TestCase):
             self.assertEqual(
                 metadata,
                 {
-                    "schema_version": 1,
                     "artifact_type": "h2_result",
                     "files": {"summary": "h2.tsv"},
                     "trait_name": "trait",

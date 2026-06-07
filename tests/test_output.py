@@ -164,7 +164,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
 
             self.assertEqual(set(output_paths), {"metadata", "baseline", "query"})
             metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
-            self.assertEqual(metadata["schema_version"], 1)
+            self.assertNotIn("schema_version", metadata)
             self.assertEqual(metadata["artifact_type"], "ldscore")
             self.assertEqual(metadata["snp_identifier"], "rsid")
             self.assertIsNone(metadata["genome_build"])
@@ -420,7 +420,6 @@ class H2DirectoryWriterTest(unittest.TestCase):
 
     def make_metadata(self) -> dict[str, object]:
         return {
-            "schema_version": 1,
             "artifact_type": "h2_result",
             "trait_name": "trait",
             "sumstats_file": "trait.sumstats.gz",
@@ -494,7 +493,7 @@ class H2DirectoryWriterTest(unittest.TestCase):
             self.assertFalse((output_dir / "metadata.json").exists())
             metadata = json.loads((output_dir / "diagnostics" / "metadata.json").read_text(encoding="utf-8"))
             self.assertNotIn("old", metadata)
-            self.assertEqual(metadata["schema_version"], 1)
+            self.assertNotIn("schema_version", metadata)
 
     def test_ignores_legacy_root_metadata(self):
         with tempfile.TemporaryDirectory() as tmpdir:

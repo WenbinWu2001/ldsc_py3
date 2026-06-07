@@ -668,7 +668,6 @@ class PartitionedH2DirectoryWriter:
             payload = {
                 **metadata,
                 **per_query_metadata.get(query_name, {}),
-                "schema_version": 1,
                 "artifact_type": "partitioned_h2_query_result",
                 "files": {"summary": summary_rel, "full": full_rel},
                 "ordinal": record["ordinal"],
@@ -869,7 +868,6 @@ class RgDirectoryWriter:
             _atomic_write_dataframe(row, pair_dir / "rg_full.tsv", na_rep="NaN")
             payload = {
                 **dict(record["metadata"]),
-                "schema_version": 1,
                 "artifact_type": "rg_pair_result",
                 "files": {"rg_full": detail_rel},
                 "ordinal": record["ordinal"],
@@ -910,7 +908,6 @@ def _result_metadata(
 ) -> dict[str, object]:
     """Return root result metadata with the canonical discriminator fields."""
     payload = dict(metadata or {})
-    payload["schema_version"] = 1
     payload["artifact_type"] = artifact_type
     payload["files"] = dict(files)
     return payload

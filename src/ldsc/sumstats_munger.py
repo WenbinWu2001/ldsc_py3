@@ -1635,13 +1635,37 @@ def _write_sumstats_tsv_gz(data: pd.DataFrame, path: str) -> None:
     frame.to_csv(path, sep="\t", index=False, float_format="%.3f", compression="gzip")
 
 
-def _write_sumstats_parquet(data: pd.DataFrame, path: str) -> list[dict[str, Any]]:
+def _sumstats_footer_metadata(config_snapshot: GlobalConfig, trait_name: str | None) -> dict[bytes, bytes]:
+    """Return discrete ``ldsc:*`` Parquet footer keys for a curated sumstats artifact.
+
+    Mirrors the reference-panel footer convention in ``_kernel/ref_panel.py``. A
+    ``None`` ``genome_build`` (rsID-family) or ``trait_name`` is encoded as an
+    empty string and decoded back to ``None`` on read.
+    """
+    identity = identity_artifact_metadata(
+        artifact_type="sumstats",
+        snp_identifier=config_snapshot.snp_identifier,
+        genome_build=config_snapshot.genome_build,
+    )
+    footer = {
+        f"ldsc:{key}".encode("utf-8"): ("" if value is None else str(value)).encode("utf-8")
+        for key, value in identity.items()
+    }
+    footer[b"ldsc:trait_name"] = ("" if trait_name is None else str(trait_name)).encode("utf-8")
+    return footer
+
+
+def _write_sumstats_parquet(
+    data: pd.DataFrame, path: str, footer_metadata: dict[bytes, bytes] | None = None
+) -> list[dict[str, Any]]:
     """Write snappy-compressed Parquet and return row-group metadata.
 
     The Parquet payload keeps the munger's numeric precision. One row group is
     emitted per normalized chromosome among complete-coordinate rows. If rows
     without complete coordinates exist, they are emitted as the last row group
-    with ``chrom`` recorded as ``None``.
+    with ``chrom`` recorded as ``None``. When ``footer_metadata`` is supplied,
+    its ``ldsc:*`` identity keys are merged into the Parquet schema footer so the
+    file is self-describing downstream.
     """
     try:
         import pyarrow as pa
@@ -1655,6 +1679,8 @@ def _write_sumstats_parquet(data: pd.DataFrame, path: str) -> list[dict[str, Any
 
     frame = _prepare_sumstats_parquet_frame(data)
     schema = pa.Schema.from_pandas(frame, preserve_index=False)
+    if footer_metadata:
+        schema = schema.with_metadata({**(schema.metadata or {}), **footer_metadata})
     row_groups: list[dict[str, Any]] = []
     offset = 0
     with pq.ParquetWriter(path, schema, compression=_SUMSTATS_PARQUET_COMPRESSION) as writer:
@@ -1692,14 +1718,19 @@ def _write_sumstats_outputs(
     *,
     output_files: dict[str, str],
     output_format: str,
+    footer_metadata: dict[bytes, bytes] | None = None,
 ) -> tuple[str, list[dict[str, Any]]]:
-    """Write selected artifacts and return the primary path plus Parquet row groups."""
+    """Write selected artifacts and return the primary path plus Parquet row groups.
+
+    The ``.sumstats.gz`` TSV artifact carries no embedded metadata; only the
+    Parquet artifact receives the self-describing ``footer_metadata``.
+    """
     output_format = _normalize_output_format(output_format)
     parquet_row_groups: list[dict[str, Any]] = []
     if "tsv.gz" in output_files:
         _write_sumstats_tsv_gz(data, output_files["tsv.gz"])
     if "parquet" in output_files:
-        parquet_row_groups = _write_sumstats_parquet(data, output_files["parquet"])
+        parquet_row_groups = _write_sumstats_parquet(data, output_files["parquet"], footer_metadata)
     primary = output_files["parquet"] if output_format in {"parquet", "both"} else output_files["tsv.gz"]
     return primary, parquet_row_groups
 

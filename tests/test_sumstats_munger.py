@@ -2960,3 +2960,43 @@ class SumstatsMungerTest(unittest.TestCase):
                 table = ldsc.load_sumstats(output_dir / "sumstats.parquet", trait_name="trait")
             self.assertEqual(table.config_snapshot, GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
             self.assertFalse(any("cannot recover the GlobalConfig" in str(item.message) for item in caught))
+
+
+@unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
+class SumstatsParquetFooterTest(unittest.TestCase):
+    def _frame(self):
+        return pd.DataFrame(
+            {
+                "SNP": ["rs1", "rs2"],
+                "CHR": ["1", "1"],
+                "POS": [10, 20],
+                "A1": ["A", "C"],
+                "A2": ["G", "T"],
+                "Z": [0.1, 0.2],
+                "N": [100, 100],
+            }
+        )
+
+    def test_footer_encodes_identity_and_trait(self):
+        import pyarrow.parquet as pq
+
+        snapshot = GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg19")
+        footer = sumstats_workflow._sumstats_footer_metadata(snapshot, trait_name="height")
+        with tempfile.TemporaryDirectory() as tmp:
+            out = str(Path(tmp) / "sumstats.parquet")
+            sumstats_workflow._write_sumstats_outputs(
+                self._frame(), output_files={"parquet": out}, output_format="parquet", footer_metadata=footer
+            )
+            raw = pq.read_schema(out).metadata
+        self.assertEqual(raw[b"ldsc:artifact_type"], b"sumstats")
+        self.assertEqual(raw[b"ldsc:snp_identifier"], b"chr_pos_allele_aware")
+        self.assertEqual(raw[b"ldsc:genome_build"], b"hg19")
+        self.assertEqual(raw[b"ldsc:trait_name"], b"height")
+        self.assertNotIn(b"ldsc:schema_version", raw)
+
+    def test_footer_encodes_none_genome_build_and_trait_as_empty(self):
+        footer = sumstats_workflow._sumstats_footer_metadata(
+            GlobalConfig(snp_identifier="rsid_allele_aware"), trait_name=None
+        )
+        self.assertEqual(footer[b"ldsc:genome_build"], b"")
+        self.assertEqual(footer[b"ldsc:trait_name"], b"")

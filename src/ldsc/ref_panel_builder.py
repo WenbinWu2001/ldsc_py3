@@ -80,6 +80,7 @@ from ._kernel import formats as legacy_parse
 from ._kernel import identifiers as kernel_identifiers
 from ._kernel import ldscore as kernel_ldscore
 from ._kernel import ref_panel_builder as kernel_builder
+from ._kernel import regions as kernel_regions
 from ._kernel.liftover import (
     Hm3DualBuildLifter,
     duplicate_coordinate_drop_result,
@@ -138,6 +139,7 @@ class _BuildState:
     restriction_values: set[str] | None = None
     restriction_keys: RestrictionIdentityKeys | None = None
     translator_cache: dict[tuple[str, str], kernel_builder.LiftOverTranslator] = field(default_factory=dict)
+    region_intervals: kernel_regions.RegionIntervals | None = None
 
 
 def _emitted_genome_builds(config: ReferencePanelBuildConfig) -> list[str]:
@@ -690,6 +692,22 @@ class ReferencePanelBuilder:
                 f"No {source_build} genetic map was provided; "
                 f"{source_build} metadata CM values will be written as NA."
             )
+        region_groups: list[kernel_regions.RegionIntervals] = []
+        if config.exclude_regions:
+            region_groups.append(kernel_regions.load_preset_intervals(list(config.exclude_regions), source_build))
+        if config.exclude_regions_bed:
+            bed_paths = [
+                resolve_scalar_path(token, suffixes=("", ".bed"), label="region exclusion BED")
+                for token in config.exclude_regions_bed
+            ]
+            region_groups.append(kernel_regions.load_bed_intervals(bed_paths))
+        region_intervals = (
+            kernel_regions.merge_intervals(*region_groups)
+            if region_groups
+            else kernel_regions.RegionIntervals(intervals={}, source_labels=())
+        )
+        if region_intervals.intervals:
+            LOGGER.info(f"Reference-panel region exclusion active: {', '.join(region_intervals.source_labels)}.")
         return _BuildState(
             genetic_map_hg19=None if hg19_files is None else kernel_builder.load_genetic_map_group(hg19_files),
             genetic_map_hg38=None if hg38_files is None else kernel_builder.load_genetic_map_group(hg38_files),
@@ -702,6 +720,7 @@ class ReferencePanelBuilder:
             restriction_mode=restriction_mode,
             restriction_values=restriction_values,
             restriction_keys=restriction_keys,
+            region_intervals=region_intervals,
         )
 
     def _discover_prefix_chromosomes(self, prefix: str) -> list[str]:
@@ -781,6 +800,19 @@ class ReferencePanelBuilder:
         chrom_metadata["POS"] = chrom_metadata["POS"].astype(int)
         chrom_metadata["_plink_row_index"] = chrom_metadata.index.astype(int)
         keep_snps = chrom_df.index.to_numpy(dtype=int)
+        if build_state.region_intervals is not None and build_state.region_intervals.intervals:
+            region_keep = kernel_regions.region_exclusion_keep_mask(
+                chrom_metadata, build_state.region_intervals, pos_col="POS"
+            )
+            dropped = int((~region_keep).sum())
+            if dropped:
+                LOGGER.info(f"Region exclusion dropped {dropped} SNPs on chromosome {chrom} (source build).")
+            chrom_metadata = chrom_metadata[region_keep]
+            keep_snps = chrom_metadata["_plink_row_index"].to_numpy(dtype=int)
+            if len(keep_snps) == 0:
+                _write_dropped_sidecar(_empty_unified_drop_frame(), sidecar_path, chrom)
+                LOGGER.info(f"Skipping chromosome {chrom}: no SNPs remain after region exclusion.")
+                return None
         if (
             build_state.restriction_values is not None
             and build_state.restriction_mode is not None
@@ -791,7 +823,7 @@ class ReferencePanelBuilder:
                 active_restriction,
                 build_state.restriction_mode,
             )
-            keep_snps = chrom_df.index[keep_mask].to_numpy(dtype=int)
+            keep_snps = chrom_metadata["_plink_row_index"].to_numpy(dtype=int)[keep_mask]
             if len(keep_snps) == 0:
                 _write_dropped_sidecar(_empty_unified_drop_frame(), sidecar_path, chrom)
                 LOGGER.info(f"Skipping chromosome {chrom} because no SNPs remain after restriction.")
@@ -1835,6 +1867,8 @@ def config_from_args(args: argparse.Namespace) -> tuple[ReferencePanelBuildConfi
         keep_indivs_file=args.keep_indivs_file,
         snp_batch_size=args.snp_batch_size,
         min_r2=getattr(args, "min_r2", 0.0),
+        exclude_regions=tuple(getattr(args, "exclude_regions", None) or ()),
+        exclude_regions_bed=tuple(getattr(args, "exclude_regions_bed", None) or ()),
     )
     global_config = GlobalConfig(
         snp_identifier=snp_identifier,

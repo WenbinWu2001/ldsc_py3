@@ -12,6 +12,8 @@ import unittest
 from unittest import mock
 from typing import Optional
 
+import pytest
+
 import numpy as np
 import pandas as pd
 
@@ -3155,3 +3157,47 @@ class SidecarIdentityHashTest(unittest.TestCase):
         changed_allele = base.assign(A1=["T"])
         self.assertEqual(sidecar_identity_sha256(changed_snp), sidecar_identity_sha256(base))
         self.assertNotEqual(sidecar_identity_sha256(changed_allele), sidecar_identity_sha256(base))
+
+
+# ---------------------------------------------------------------------------
+# Region exclusion behavior test (Task 7)
+# ---------------------------------------------------------------------------
+_CHR22 = Path(__file__).resolve().parent / "fixtures" / "minimal_external_resources" / "plink" / "hm3_chr22_subset"
+
+
+def _chr22_available() -> bool:
+    return all(Path(str(_CHR22) + ext).exists() for ext in (".bed", ".bim", ".fam"))
+
+
+def _read_meta(path) -> pd.DataFrame:
+    with gzip.open(path, "rt", encoding="utf-8") as handle:
+        return pd.read_csv(handle, sep="\t", comment="#")
+
+
+def test_build_ref_panel_excludes_user_bed_region(tmp_path):
+    if not _chr22_available():
+        pytest.skip("chr22 PLINK fixture unavailable; run tests/fixtures/generate_minimal_external_resources.py")
+    set_global_config(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
+
+    base = ref_panel_builder.run_build_ref_panel(
+        plink_prefix=str(_CHR22), source_genome_build="hg38",
+        genetic_map_hg19_sources=None, genetic_map_hg38_sources=None,
+        output_dir=str(tmp_path / "base"), ld_wind_snps=10, ld_wind_kb=None,
+        snp_batch_size=64,
+    )
+    base_meta = _read_meta(base.output_paths["meta_hg38"][0])
+    target_pos = int(base_meta["POS"].iloc[0])
+
+    bed = tmp_path / "exclude.bed"
+    bed.write_text(f"22\t{target_pos - 1}\t{target_pos}\n", encoding="utf-8")
+
+    excluded = ref_panel_builder.run_build_ref_panel(
+        plink_prefix=str(_CHR22), source_genome_build="hg38",
+        genetic_map_hg19_sources=None, genetic_map_hg38_sources=None,
+        output_dir=str(tmp_path / "excl"), ld_wind_snps=10, ld_wind_kb=None,
+        snp_batch_size=64,
+        exclude_regions_bed=(str(bed),),
+    )
+    excl_meta = _read_meta(excluded.output_paths["meta_hg38"][0])
+    assert target_pos not in set(excl_meta["POS"])
+    assert len(excl_meta) == len(base_meta) - int((base_meta["POS"] == target_pos).sum())

@@ -153,13 +153,20 @@ one queried pair; the two endpoints are columns suffixed **`_1`** and **`_2`**:
 | Endpoint 1 | Endpoint 2 | Required when |
 |---|---|---|
 | `CHR_1, POS_1` | `CHR_2, POS_2` | `chr_pos*` modes |
-| `A1_1, A2_1` | `A1_2, A2_2` | allele-aware modes; and for sign harmonization |
+| `A1_1, A2_1` | `A1_2, A2_2` | allele-aware modes only (matching + sign) |
 | `SNP_1` | `SNP_2` | `rsid*` modes |
 
 Resolution splits the frame into two endpoint tables, renames `*_1`/`*_2` to the
 canonical `CHR/POS/SNP/A1/A2`, and calls `build_snp_id_series` on each in the
 panel's mode. Column-name resolution reuses the package's inference aliases where
 practical; the canonical suffixed names above are the documented contract.
+
+**Base modes ignore alleles entirely.** In `rsid` / `chr_pos` modes the tool
+consumes only the matching columns (`SNP_*` or `CHR_*/POS_*`); any `A1_*`/`A2_*`
+columns present in the input are **dropped before resolution and never read**.
+A base-mode query therefore behaves identically whether or not allele columns
+are supplied — same matching, same `r2`, and `sign = NA` either way (§9). Allele
+columns are read only in allele-aware modes.
 
 ## 7. Identity resolution, chromosome routing & status
 

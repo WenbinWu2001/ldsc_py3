@@ -169,6 +169,7 @@ Removed flags: `--bed-files`, `--baseline-annot`.
 | `--maf-min` | input metadata | no | retained reference-panel MAF filter | Filters retained reference-panel SNPs by MAF; defaults to omitted/`None`, so no retained-reference MAF filter is applied. |
 | `--common-maf-min` | input metadata | no | common-SNP count threshold | Sets the MAF threshold for common-SNP count vectors; defaults to `0.05` and uses `MAF >= common_maf_min`. |
 | `--snp-batch-size` | performance | no | LD-score SNP batch size | Genotype batch size for the PLINK reference-panel backend; defaults to `128`. The parquet-R2 backend streams stored pairs and ignores this value. |
+| `--threads` | performance | no | cross-chromosome parallelism | Worker processes for cross-chromosome parallelism (joblib `n_jobs` convention): `1`=sequential (default), `N`=`N` workers, `-1`=all cores, `-2`=all but one. Capped at the chromosome count and CPU affinity. Workers are processes (the LD-score kernel is CPU-bound), each rebuilding its chromosome's panel, so peak RSS scales with the worker count. |
 | `--yes-really` | safety override | no | whole-chromosome LD windows | Allows whole-chromosome LD windows; defaults to `False`, so such windows are rejected unless this flag is supplied. |
 
 Removed flags: `--bfile`, `--r2-table`, `--frqfile`, `--r2-sources`,
@@ -399,6 +400,7 @@ Removed Python names: `bed_paths`, `query_bed_paths`, `bed_files`,
 | `LDScoreConfig` | `regression_snps_file` | input | regression SNP restriction |
 | `LDScoreConfig` | `use_hm3_regression_snps` | input mode | packaged HM3 regression SNP restriction |
 | `LDScoreConfig` | `snp_batch_size` | performance | LD-score SNP batch size |
+| `LDScoreConfig` | `threads` | performance | cross-chromosome worker processes |
 | `LDScoreConfig` | `common_maf_min` | input metadata | common-SNP count threshold only |
 | `LDScoreOutputConfig` | `output_dir` | output | canonical LD-score result directory |
 | `run_ldscore(**kwargs)` | `baseline_annot_sources`, `query_annot_sources`, `query_annot_bed_sources`, `bed_padding_bp` | input | optional annotation sources and BED padding; query inputs require baseline sources, and no-annotation runs synthesize `base` |

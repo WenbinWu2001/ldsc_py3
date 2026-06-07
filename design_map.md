@@ -94,6 +94,15 @@ contracts move.
 | `docs/superpowers/specs/2026-06-02-build-ref-panel-reader-streaming-design.md` | shared PLINK genotype reader extracted to `_kernel/plink_bed.py`; lazy header read + per-SNP selective decode with fused individual filter (O1/O3) and opt-in disk streaming for unrestricted builds (O2). Benefits `build-ref-panel`, the legacy `compute_chrom_from_plink` LD-score path, and `PlinkRefPanel`; never materializes the whole-chromosome bitarray |
 | `docs/superpowers/specs/2026-06-03-pair-emission-columnar-and-doc-sync-design.md` | columnar `PairColumns` pair emission end-to-end (O6): `_pop_pair_rows_before`/`yield_pairwise_r2_rows` yield `(i, j, r2, sign)` chunks and `write_r2_parquet`/`_standard_r2_index_table` consume them, removing the per-pair dict round-trip; parquet format/encoding unchanged. Also the O7 memory doc sync across `docs/current/` and the build tutorial |
 
+## Reference Panel (R²) Pair Query
+
+| Design document | Implementation |
+| --- | --- |
+| `docs/superpowers/specs/2026-06-06-ref-panel-r2-query-design.md` | public surface `src/ldsc/r2_query.py`: `R2Panel` handle (`open`, lazy `_chrom_state`, `_resolve_endpoint`, `query_pairs`), one-shot `query_r2`, pure `unbiased_r2_to_pearson_r`, and `build_parser`/`run_query_r2_from_args`/`main`; `query-r2` registration + dispatch in `src/ldsc/cli.py`; exports in `src/ldsc/__init__.py` |
+| `docs/superpowers/specs/2026-06-06-ref-panel-r2-query-design.md` | point-lookup kernel `src/ldsc/_kernel/r2_query.py`: `lookup_pairs_in_parquet` (int64-key match, random-access row-group pruning vs. streaming, int16→float32 dequant), `_prune_row_groups`, `_arrow_to_numpy` |
+| `docs/superpowers/plans/2026-06-06-ref-panel-r2-query-plan.md` | TDD checklist and the binding-valid panel fixture `build_test_panel` in `tests/test_r2_query.py` |
+| `docs/current/ref-panel-r2-query.md` | user-facing API + `ldsc query-r2` CLI reference (input columns, output schema, status vocabulary, sign rule, strategies) |
+
 ## Region Exclusion
 
 | Design document | Implementation |

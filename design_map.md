@@ -54,6 +54,8 @@ contracts move.
 | `docs/superpowers/plans/2026-05-10-liftover-harmonization.md` | implemented task plan and verification checklist for liftover harmonization |
 | `docs/superpowers/specs/2026-05-11-ref-panel-stale-class2-warning.md` | additive stale class-2 reference-panel warning design |
 | `docs/superpowers/plans/2026-05-11-ref-panel-stale-class2-warning.md` | implemented task plan for stale class-2 warning tests and helper |
+| `docs/superpowers/specs/2026-06-06-sumstats-self-describing-artifact-design.md` | self-describing single-file sumstats artifact: parquet footer identity metadata + `load_sumstats` footer reader (`sumstats_munger.py`), chr_pos genome-build guard (`regression_runner._regression_genome_build`), package-wide `schema_version` removal |
+| `docs/superpowers/plans/2026-06-06-sumstats-self-describing-artifact-plan.md` | implemented task plan for the self-describing sumstats artifact and `schema_version` removal |
 
 ## Liftover Tutorials
 

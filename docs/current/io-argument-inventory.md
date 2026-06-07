@@ -318,7 +318,7 @@ INFO flags.
 |---|---:|---:|---|---|
 | `--ldscore-dir` | input | yes | canonical LD-score result directory | Reads baseline LD scores and embedded `regression_ld_scores`, the historical `w_ld` component used when final h2 weights are computed. |
 | `--sumstats-file` | input | yes | munged summary-statistics file | Exact path or exact-one glob. |
-| `--trait-name` | input metadata | no | output trait label | Optional label override. If omitted, regression uses sumstats root `metadata.json["trait_name"]` when present, then the filename fallback. |
+| `--trait-name` | input metadata | no | output trait label | Optional label override. If omitted, regression uses the sumstats parquet footer `ldsc:trait_name` when present, then the filename fallback. |
 | `--output-dir` | output | no | result output directory | Selects where to write h2 results; defaults to omitted/`None`, so the CLI prints the compact `h2.tsv` schema to stdout and writes no files. |
 | `--count-kind` | model | no | count vector choice | Selects the count vector used by regression; defaults to `common`, while `all` uses all-SNP counts. |
 | `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger record verbosity. With `output_dir`, records go to `diagnostics/h2.log` and the console (stderr) shows only errors; without it (console-only run) they print to the console. Lifecycle audit lines always appear in the file when one is created. |
@@ -333,7 +333,7 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 |---|---:|---:|---|---|
 | `--ldscore-dir` | input | yes | canonical LD-score result directory | Must contain baseline plus query LD scores; baseline-only directories are rejected. |
 | `--sumstats-file` | input | yes | munged summary-statistics file | Exact path or exact-one glob. |
-| `--trait-name` | input metadata | no | output trait label | Optional label override. If omitted, regression uses sumstats root `metadata.json["trait_name"]` when present, then the filename fallback. |
+| `--trait-name` | input metadata | no | output trait label | Optional label override. If omitted, regression uses the sumstats parquet footer `ldsc:trait_name` when present, then the filename fallback. |
 | `--output-dir` | output | no | result output directory | Selects where to write partitioned-h2 results; defaults to omitted/`None`, so the CLI prints the compact `partitioned_h2.tsv` schema to stdout and writes no files. |
 | `--count-kind` | model | no | count vector choice | Selects the count vector used by regression; defaults to `common`, while `all` uses all-SNP counts. |
 | `--write-per-query-results` | output mode | no | per-query result tree | Requests per-query output folders under `diagnostics/query_annotations`; defaults to `False`, so only the aggregate table is returned/written. |
@@ -449,7 +449,7 @@ Removed Python names: `plink_path`, `bfile`, `out`, `panel_label`,
 | `MungeConfig` | `use_hm3_quick_liftover` | input mode | use packaged curated HM3 dual-build map for coordinate-only liftover |
 | `MungeConfig` | `output_dir` | output | munged output directory; `SumstatsMunger.run()` writes `diagnostics/sumstats.log` |
 | `MungeConfig` | `output_format` | output mode | `parquet`, `tsv.gz`, or `both`; defaults to `parquet` |
-| `SumstatsMunger.run(munge_config, ...)` | `munge_config` | input/output | normalized munging workflow; owns fixed output preflight, root `metadata.json`, diagnostics, always-written `diagnostics/dropped_snps/dropped.tsv.gz`, and result construction; summary `output_paths` excludes logs |
+| `SumstatsMunger.run(munge_config, ...)` | `munge_config` | input/output | normalized munging workflow; owns fixed output preflight, the self-describing `sumstats.parquet` footer, diagnostics, always-written `diagnostics/dropped_snps/dropped.tsv.gz`, and result construction; summary `output_paths` excludes logs |
 | `SumstatsMunger.write_output(sumstats, output_dir, output_format='parquet')` | `output_dir` | output | writes fixed `sumstats.parquet` and/or `sumstats.sumstats.gz` |
 
 Removed Python names: legacy separate source-path object field,
@@ -476,13 +476,14 @@ Removed Python names: legacy separate source-path object field,
 Removed Python/public argparse names: `sumstats`, `sumstats_1`, `sumstats_2`,
 `out`, `ldscore`, `counts`, `w_ld`, `annotation_manifest`, `query_columns`.
 
-Current curated `sumstats.parquet` and `.sumstats.gz` artifacts provide
+Current curated `sumstats.parquet` artifacts provide
 canonical `SNP`, `CHR`, `POS`, `Z`, and `N` fields when written by
-`ldsc munge-sumstats`, plus neighboring root `metadata.json` with
-`schema_version`, `artifact_type`, `snp_identifier`, `genome_build`, and
-optional `trait_name`. `load_sumstats()` reconstructs the config snapshot from
-that identity provenance and resolves labels as explicit override, then sidecar
-`trait_name`, then filename fallback.
+`ldsc munge-sumstats`, plus an embedded footer identity payload with
+`ldsc:artifact_type`, `ldsc:snp_identifier`, `ldsc:genome_build`, and
+optional `ldsc:trait_name`. `.sumstats.gz` carries no embedded metadata.
+`load_sumstats()` reconstructs the config snapshot from
+that footer payload (or `None` when absent) and resolves labels as explicit
+override, then footer `trait_name`, then filename fallback.
 Liftover reports, coordinate provenance, selected curated output files, and
 Parquet row groups are log provenance, not metadata sidecar payload.
 Regression therefore merges on the effective identity key: literal `SNP` in

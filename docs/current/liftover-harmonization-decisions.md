@@ -63,9 +63,9 @@ output, and metadata contracts.
   `invalid_allele`, `strand_ambiguous_allele`, `multi_allelic_base_key`) and
   liftover drops (`missing_coordinate`, `source_duplicate`,
   `unmapped_liftover`, `cross_chromosome_liftover`, `target_collision`).
-- Newly written sumstats root `metadata.json` sidecars are intentionally thin:
-  `schema_version`, `artifact_type`, `snp_identifier`, `genome_build`, and
-  optional `trait_name`.
+- Newly written sumstats embed a thin identity payload in the `sumstats.parquet`
+  footer (`ldsc:artifact_type`, `ldsc:snp_identifier`, `ldsc:genome_build`, and
+  optional `ldsc:trait_name`); no `metadata.json` sidecar is written.
 - Detailed coordinate provenance, liftover counts, HM3 map provenance, output
   paths, and row-group details are readable `diagnostics/sumstats.log` entries rather than
   sidecar payloads.

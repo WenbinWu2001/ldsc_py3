@@ -390,7 +390,7 @@ full design rationale and preset catalog.
 For the user-facing contract, command patterns, and output schema, see
 [munge-sumstats.md](munge-sumstats.md).
 
-The munging workflow preflights root `metadata.json`, `sumstats.parquet`,
+The munging workflow preflights `sumstats.parquet`,
 `sumstats.sumstats.gz`, `diagnostics/sumstats.log`, and
 `diagnostics/dropped_snps/dropped.tsv.gz` as one owned family before delegating to
 `SumstatsMunger.run()` and then the
@@ -453,7 +453,7 @@ flowchart LR
 
   I1 --> D1 --> D2 --> D3 --> D5 --> D6 --> D7 --> D4
   I2 --> D2
-  D4 --> O4[metadata.json + sumstats.parquet by default<br/>optional sumstats.sumstats.gz + diagnostics/]
+  D4 --> O4[self-describing sumstats.parquet by default<br/>optional sumstats.sumstats.gz + diagnostics/]
 ```
 
 ### Outputs
@@ -462,7 +462,7 @@ flowchart LR
 | --- | --- | --- |
 | curated sumstats | `SNP CHR POS A1 A2 Z N`<br/>`rs3131969 1 754182 A G 0.74 829249.58` | written as `sumstats.parquet` by default under `output_dir`; `--output-format tsv.gz` writes legacy `sumstats.sumstats.gz`, and `both` writes both; `CHR`/`POS` are present and may be missing when absent from raw input; optional `FRQ` may also be present |
 | log file | plain-text lifecycle, QC log, coordinate provenance, readable liftover reports, HM3 provenance, output bookkeeping, and count-level drop summaries | workflow-owned `diagnostics/sumstats.log` under `output_dir`, populated from package logger messages emitted during workflow orchestration and kernel QC; excluded from `MungeRunSummary.output_paths` |
-| metadata sidecar | thin JSON with `schema_version`, `artifact_type`, `snp_identifier`, `genome_build`, and optional `trait_name` | written as root `metadata.json` under `output_dir`; used by `load_sumstats()` to reconstruct config provenance and trait labels |
+| embedded identity metadata | discrete footer keys `ldsc:artifact_type`, `ldsc:snp_identifier`, `ldsc:genome_build`, and optional `ldsc:trait_name` | written into the `sumstats.parquet` footer (no `metadata.json` sidecar); used by `load_sumstats()` to reconstruct config provenance and trait labels, or `None` when absent |
 | dropped-SNP audit sidecar | `CHR SNP source_pos target_pos reason base_key identity_key allele_set stage` | always written as `diagnostics/dropped_snps/dropped.tsv.gz`; header-only when no rows were dropped; reasons may include identity drops (`missing_allele`, `invalid_allele`, `strand_ambiguous_allele`, `multi_allelic_base_key`, `duplicate_identity`) and liftover drops (`missing_coordinate`, `source_duplicate`, `unmapped_liftover`, `cross_chromosome_liftover`, `target_collision`) |
 
 ### Modules used
@@ -512,7 +512,7 @@ merge. rsID-family and coordinate-family modes never mix.
 
 | File | Example | Notes |
 | --- | --- | --- |
-| munged sumstats | `SNP CHR POS A1 A2 Z N`<br/>`rs1 1 754182 A G 1.96 1000` | one file for `h2` and `partitioned-h2`, two or more files for `rg`; root `metadata.json` recovers config provenance and `trait_name` when present |
+| munged sumstats | `SNP CHR POS A1 A2 Z N`<br/>`rs1 1 754182 A G 1.96 1000` | one file for `h2` and `partitioned-h2`, two or more files for `rg`; the `sumstats.parquet` footer recovers config provenance and `trait_name` when present, otherwise the identifier mode is inferred from the LD-score panel |
 | LD-score directory | `metadata.json`, `ldscore.baseline.parquet`, optional `ldscore.query.parquet` | produced by the LD-score workflow and supplied as `ldscore_dir`; `partitioned-h2` requires `ldscore.query.parquet` and non-empty `query_columns`; current parquet files have chromosome-aligned row groups; package-written directories without current metadata identity provenance are rejected and must be regenerated |
 
 ### Flow

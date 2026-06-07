@@ -105,11 +105,13 @@ legacy `sumstats.sumstats.gz` output through `--output-format tsv.gz` or
 files may provide chromosome and position columns through common aliases such as
 `#CHROM`, `CHROM`, `CHR`, `POS`, or `BP`, or explicitly through `--chr` and
 `--pos`; pass the raw input as `--raw-sumstats-file`. Leading `##`
-metadata/comment lines are skipped before the real header is parsed. Each
-munged run also writes a thin `sumstats.metadata.json` beside the selected
-artifact(s) so later regression commands can recover `snp_identifier`,
-`genome_build`, and optional `--trait-name` provenance; detailed coordinate and
-liftover bookkeeping is written to `sumstats.log`. The default
+metadata/comment lines are skipped before the real header is parsed. The
+`sumstats.parquet` is self-describing: its `snp_identifier`, `genome_build`, and
+optional `--trait-name` provenance ride in the Parquet footer, so later
+regression commands need only that one file -- no `metadata.json` sidecar is
+written. The legacy `sumstats.sumstats.gz` carries no embedded metadata; a file
+without footer metadata loads with its identifier mode inferred downstream.
+Detailed coordinate and liftover bookkeeping is written to `sumstats.log`. The default
 `snp_identifier` is `chr_pos_allele_aware`, which requires usable `A1/A2`; rerun
 with `--snp-identifier chr_pos` to use coordinate identity without
 allele-aware matching. The legacy `--no-alleles` escape hatch is no longer

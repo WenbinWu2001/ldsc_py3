@@ -44,7 +44,7 @@ Several workflows write a fixed family of files that share one run identity
 through `output_dir`. These families are treated as one coherent set, not as
 independent optional files:
 
-- `munge-sumstats`: `metadata.json`, `sumstats.parquet`,
+- `munge-sumstats`: `sumstats.parquet` (self-describing footer),
   `sumstats.sumstats.gz`, `diagnostics/dropped_snps/dropped.tsv.gz`, and
   `diagnostics/sumstats.log`
   for CLI/workflow runs
@@ -245,6 +245,15 @@ Scalar-style inputs:
 - `ref_panel_snps_file`
 - `regression_snps_file`
 
+These SNP restriction files are scalar identity filters, not chromosome-suite
+inputs. They may resolve through exact-one globs where the workflow calls the
+scalar resolver, but `@` is not a chromosome placeholder for these files. The
+restriction universe is also materialized as an in-memory key set before
+matching. `munge-sumstats` streams raw sumstats chunks and uses packed integer
+keys for base `chr_pos` keep-lists, but it still keeps the complete restriction
+key set in memory; `ldscore` and reference-panel workflows likewise do not
+lazy-load restriction rows by chromosome.
+
 Packaged HM3 convenience flags:
 
 - `use_hm3_ref_panel_snps`
@@ -331,7 +340,9 @@ Accepted path forms:
   modes match by the effective allele-aware key; packaged HM3 is allele-bearing
   and participates in allele-aware matching; duplicate restriction keys collapse
   to one retained key and non-identity columns such as `CM` or `MAF` are ignored;
-  `chr_pos`-family coordinates must be aligned to the PLINK source build
+  `chr_pos`-family coordinates must be aligned to the PLINK source build; the
+  resolved restriction is loaded into an in-memory key set before per-chromosome
+  PLINK filtering, so very large custom keep-lists can become a memory input
 - `use_hm3_snps`, when set: uses the packaged curated HM3 map instead of an
   explicit `ref_panel_snps_file`
 
@@ -430,8 +441,9 @@ How they are handled:
 
 Output:
 
-- `ldsc munge-sumstats` writes `sumstats.parquet` by default, plus root
-  `metadata.json`, `diagnostics/sumstats.log`, and
+- `ldsc munge-sumstats` writes a self-describing `sumstats.parquet` by default
+  (identity in its footer; no `metadata.json`), plus
+  `diagnostics/sumstats.log`, and
   `diagnostics/dropped_snps/dropped.tsv.gz` under `output_dir`;
   `--output-format tsv.gz` writes legacy `sumstats.sumstats.gz`, and
   `--output-format both` writes both curated artifacts. Existing owned

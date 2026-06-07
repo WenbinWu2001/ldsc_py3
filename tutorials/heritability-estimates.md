@@ -96,7 +96,7 @@ print("sumstats_config =", sumstats.config_snapshot)
 print("dataset_config =", dataset.config_snapshot)
 ```
 
-`SumstatsMunger` captures `GlobalConfig` provenance into `SumstatsTable.config_snapshot` and writes the same settings to root `metadata.json`. If you pass `trait_name=` in Python or `--trait-name` in the CLI, the sidecar also stores that biological label for downstream result tables. `RegressionRunner.build_dataset()` checks that current sumstats and LD-score snapshots agree on critical settings such as `snp_identifier` and `genome_build`. If current snapshots are incompatible, the workflow raises `ConfigMismatchError` instead of silently merging inconsistent artifacts. Sumstats loaded from current `sumstats.parquet` or `.sumstats.gz` artifacts recover that snapshot and trait label from the sidecar; old package-written files without current provenance must be regenerated with the current LDSC package.
+`SumstatsMunger` captures `GlobalConfig` provenance into `SumstatsTable.config_snapshot` and writes the same settings into the `sumstats.parquet` footer. If you pass `trait_name=` in Python or `--trait-name` in the CLI, the footer also stores that biological label for downstream result tables. `RegressionRunner.build_dataset()` checks that current sumstats and LD-score snapshots agree on critical settings such as `snp_identifier` and `genome_build`. If current snapshots are incompatible, the workflow raises an error instead of silently merging inconsistent artifacts. Sumstats loaded from a current `sumstats.parquet` recover that snapshot and trait label from the footer; a legacy `.sumstats.gz` or footer-less parquet carries no embedded metadata and loads with its identifier mode inferred from the LD-score panel (for `chr_pos`-family runs the genome build is verified, inferring it from coordinates when absent).
 
 `SumstatsMunger.run()` is also the shared implementation path behind
 `ldsc munge-sumstats`: the CLI parser maps arguments into `MungeConfig`, then
@@ -187,7 +187,7 @@ The command writes `tutorial_outputs/trait_h2/h2.tsv` and
 `tutorial_outputs/trait_h2/diagnostics/h2.log`.
 If any owned output-family file already exists from a previous run, the
 relevant command fails before writing. For `munge-sumstats`, that family is
-`metadata.json`, `sumstats.parquet`, `sumstats.sumstats.gz`,
+`sumstats.parquet`, `sumstats.sumstats.gz`,
 `diagnostics/dropped_snps/dropped.tsv.gz`, and `diagnostics/sumstats.log`, even if the current
 `--output-format` would write only one data format. Add `--overwrite` only for an intentional rerun; when used, stale
 sumstats sibling formats not produced by the successful run are removed.

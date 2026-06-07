@@ -20,7 +20,7 @@ existing directories are reused, and existing current-contract workflow
 artifacts are refused before writing unless you pass `--overwrite` or
 `overwrite=True`.
 For each trait's sumstats directory, that family includes `sumstats.parquet`,
-`sumstats.sumstats.gz`, root `metadata.json`, `diagnostics/sumstats.log`, and
+`sumstats.sumstats.gz`, `diagnostics/sumstats.log`, and
 `diagnostics/dropped_snps/dropped.tsv.gz`, even when the current run would not write every
 format. Successful overwrites remove
 stale owned siblings not produced by the current configuration and preserve
@@ -110,10 +110,10 @@ that needs the raw kernel object. For user-facing analyses, prefer
 
 When both traits are produced by `SumstatsMunger.run()` in the same workflow,
 their known `GlobalConfig` snapshots are checked against the LD-score snapshot
-before regression. Current disk artifacts recover that snapshot from
-root `metadata.json`; old package-written `.sumstats.gz` files without
-current provenance must be regenerated rather than loaded with inferred
-provenance. In `chr_pos_allele_aware` mode, both trait tables and the
+before regression. Current `sumstats.parquet` artifacts recover that snapshot from
+their footer; a legacy `.sumstats.gz` or footer-less parquet carries no embedded
+metadata and loads with its identifier mode inferred from the LD-score panel
+rather than being rejected. In `chr_pos_allele_aware` mode, both trait tables and the
 LD-score table merge by normalized `CHR:POS:<allele_set>` identity, and
 `SNP` is treated as a label. To run coordinate identity without allele-aware
 matching, set `snp_identifier="chr_pos"` or pass `--snp-identifier chr_pos`;

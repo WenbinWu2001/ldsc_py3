@@ -83,8 +83,8 @@ written even for clean runs so users can distinguish "no drops" from "missing
 sidecar".
 
 Detailed source-build inference, requested output build, and liftover method
-provenance live in `diagnostics/sumstats.log`, not root `metadata.json`. The
-root sumstats metadata and `SumstatsTable.config_snapshot` intentionally expose
+provenance live in `diagnostics/sumstats.log`, not the parquet footer. The
+footer metadata and `SumstatsTable.config_snapshot` intentionally expose
 only the final downstream compatibility build.
 
 | Field | Explanation | Downstream usage |

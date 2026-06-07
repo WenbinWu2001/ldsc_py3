@@ -3021,6 +3021,76 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
             self.assertGreater(float(parquet.baseline_table["base"].max()), 1.0)
 
 
+    def test_build_ref_panel_excludes_region_from_both_emitted_builds(self):
+        resources = _find_resources_root()
+        if resources is None:
+            self.skipTest("resources directory is not available from this workspace")
+
+        prefix = MINIMAL_EXTERNAL_FIXTURES / "plink" / "hm3_chr22_subset"
+        if not (Path(str(prefix) + ".bed").exists() and Path(str(prefix) + ".bim").exists() and Path(str(prefix) + ".fam").exists()):
+            self.skipTest("minimal chr22 PLINK fixture is unavailable; run tests/fixtures/generate_minimal_external_resources.py")
+
+        map_hg19 = MINIMAL_EXTERNAL_FIXTURES / "genetic_maps" / "genetic_map_hg19_chr22_subset.txt"
+        map_hg38 = MINIMAL_EXTERNAL_FIXTURES / "genetic_maps" / "genetic_map_hg38_chr22_subset.txt"
+        if not (map_hg19.exists() and map_hg38.exists()):
+            self.skipTest("minimal genetic-map fixtures are unavailable; run tests/fixtures/generate_minimal_external_resources.py")
+
+        chain = resources / "liftover" / "hg38ToHg19.over.chain"
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+
+            # Baseline dual-build run (no exclusion).
+            base_result = ref_panel_builder.run_build_ref_panel(
+                plink_prefix=str(prefix),
+                source_genome_build="hg38",
+                genetic_map_hg19_sources=str(map_hg19),
+                genetic_map_hg38_sources=str(map_hg38),
+                liftover_chain_hg38_to_hg19_file=str(chain),
+                output_dir=str(tmpdir / "base"),
+                ld_wind_snps=10,
+                ld_wind_kb=None,
+                snp_batch_size=64,
+            )
+
+            with gzip.open(base_result.output_paths["meta_hg38"][0], "rt", encoding="utf-8") as handle:
+                base_meta_hg38 = pd.read_csv(handle, sep="\t", comment="#")
+
+            first_row = base_meta_hg38.iloc[0]
+            pos = int(first_row["POS"])
+            snp_id = str(first_row["SNP"])
+
+            # BED that excludes exactly the one source-build SNP.
+            bed_path = tmpdir / "exclude.bed"
+            bed_path.write_text(f"22\t{pos - 1}\t{pos}\n", encoding="utf-8")
+
+            # Excluded dual-build run.
+            excl_result = ref_panel_builder.run_build_ref_panel(
+                plink_prefix=str(prefix),
+                source_genome_build="hg38",
+                genetic_map_hg19_sources=str(map_hg19),
+                genetic_map_hg38_sources=str(map_hg38),
+                liftover_chain_hg38_to_hg19_file=str(chain),
+                output_dir=str(tmpdir / "excl"),
+                ld_wind_snps=10,
+                ld_wind_kb=None,
+                snp_batch_size=64,
+                exclude_regions_bed=(str(bed_path),),
+            )
+
+            with gzip.open(excl_result.output_paths["meta_hg38"][0], "rt", encoding="utf-8") as handle:
+                excl_meta_hg38 = pd.read_csv(handle, sep="\t", comment="#")
+            with gzip.open(excl_result.output_paths["meta_hg19"][0], "rt", encoding="utf-8") as handle:
+                excl_meta_hg19 = pd.read_csv(handle, sep="\t", comment="#")
+
+        assert snp_id not in set(excl_meta_hg38["SNP"]), (
+            f"SNP {snp_id!r} (hg38 POS={pos}) still present in hg38 sidecar after exclusion"
+        )
+        assert snp_id not in set(excl_meta_hg19["SNP"]), (
+            f"SNP {snp_id!r} (hg38 POS={pos}) still present in hg19 sidecar after exclusion"
+        )
+
+
 class R2QuantizationTest(unittest.TestCase):
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
     def test_quantize_r2_endpoint_is_exact(self):

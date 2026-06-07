@@ -346,7 +346,10 @@ by the loaders before masking.
 
 `ldscore` (`RefPanelConfig`) **requires** `--exclude-regions-build {hg19,hg38}`
 whenever presets are used: the parquet reference panel can represent either
-build, so the caller must declare which build the panel was built from.
+build, so the caller must declare which build the panel was built from; the
+flag is also required in rsID-family identifier modes because
+`GlobalConfig.genome_build` is `None` in those modes, meaning no build is
+in scope even for the PLINK backend.
 
 `build-ref-panel` (`ReferencePanelBuildConfig`) has **no** `--exclude-regions-build`
 flag. It reuses the resolved `source_genome_build` automatically, so exclusion

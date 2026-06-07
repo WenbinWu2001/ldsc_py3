@@ -116,25 +116,70 @@ with numpy `int64` (which cannot represent `NaN`) and matches legacy LDSC
 convention. float32 is unsafe here: it can only represent integers exactly up to
 2²⁴ = 16,777,216, and modern mega-GWAS meta-analyses routinely exceed this.
 
-### `MAF` vs `FRQ`
-These measure the same quantity but in different contexts:
+### Allele orientation and frequency (`A1`, `A2`, `MAF`, `FRQ`)
 
-- **`MAF`** (ref panel, annotation): always ≤ 0.5; represents the minor allele
-  in the reference population.
-- **`FRQ`** (munged sumstats): effect-allele frequency; may exceed 0.5 depending
-  on allele coding. When a raw sumstats file provides a column named `MAF`, the
-  munger renames it to `FRQ` on output.
+See `docs/superpowers/specs/2026-06-07-allele-orientation-canonicalization-design.md`
+for the full rationale.
+
+**Unifying rule:** the frequency column always means **frequency of `A1`**. The
+two regimes differ only in what `A1` *is* and what that implies:
+
+- **Outside sumstats** (reference panel, LD-score artifacts, annotation):
+  `A1 ≡ minor allele`, so `MAF = freq(A1)` and is **guaranteed ≤ 0.5**.
+- **In sumstats**: `A1 ≡ effect allele`, so `FRQ = freq(A1)` is **unconstrained**
+  (may exceed 0.5), and is **never folded or reoriented**.
+
+The PLINK association case (`A1` = minor = effect) is just the point where the
+two regimes coincide.
+
+#### Is the frequency always the MAF (≤ 0.5)?
+
+- **Reference panel / LD-score / annotation `MAF`:** yes — `A1` is the minor
+  allele, so `MAF = freq(A1) ≤ 0.5` by construction. (Numerically this equals the
+  folded `min(p, 1−p)`; the guarantee added by canonicalization is that the value
+  belongs to `A1`.)
+- **Sumstats `FRQ`:** no — `FRQ = freq(A1=effect)`, not folded; `--maf-min` folds
+  only a local mask for the threshold and never mutates the column or the alleles.
+  When a raw sumstats file provides a column named `MAF`, the munger renames it to
+  `FRQ` on output.
+
+#### Folded vs oriented frequency (external sidecars)
+
+- **Folded** = `min(p, 1−p)`: orientation-free, ≤ 0.5, named **`MAF`**.
+- **Oriented** = frequency of the named `A1` allele (may exceed 0.5), named with
+  an **`FRQ`-family** column: `FRQ`, `FREQ`, `FREQUENCY`, `EAF`, `A1_FRQ`,
+  `FRQ_A1`, `FREQ_A1`.
+
+An external sidecar can be re-canonicalized to `A1`=minor **only** if it carries
+an oriented `FRQ`-family column (`canonicalize_alleles` swaps `A1`/`A2` and sets
+`freq := 1 − freq` where `freq(A1) > 0.5`). A `MAF`-only sidecar is identity-only:
+its alleles still match, but its folded frequency cannot drive re-orientation.
 
 ### `A1` and `A2`
 
 `A1` and `A2` remain the canonical written LDSC column names for compatibility.
-`A1` is the allele that the signed statistic is relative to; in most GWAS
-formats this is the effect or increasing allele. `A2` is the counterpart
-allele. Positive `Z`, positive `BETA`, positive `LOG_ODDS`, and `OR > 1` mean
-the effect is increasing with respect to `A1`.
+Their meaning depends on the artifact:
 
-Aliases such as `REFERENCE_ALLELE` are interpreted in this signed-statistic
-sense only. They do not claim that `A1` is the genome reference allele. Genome
+- **Sumstats:** `A1` is the allele the signed statistic is relative to (the
+  effect/increasing allele); `A2` is the counterpart. Positive `Z`, `BETA`,
+  `LOG_ODDS`, and `OR > 1` mean the effect is increasing with respect to `A1`.
+  `A1` is **not** necessarily the minor or genome-reference allele.
+- **Reference panel / LD-score / annotation:** `A1` is the **minor allele** and
+  `A2` the major allele — identity-and-frequency labels only, with no effect or
+  reference meaning.
+
+For **matching**, even in allele-aware modes, `{A1, A2}` is treated as an
+unordered, strand-aware set; orientation is never used for identity (a sumstats
+`A1`=effect and a panel `A1`=minor still match, with any disagreement resolved as
+a sign flip at alignment).
+
+**Signed r (reference panel, `query-r2 --with-r`):** defined in the canonical
+orientation as the correlation between the two SNPs' `A1` (minor) allele dosages.
+A **positive** sign means the minor alleles co-occur on haplotypes more than
+chance — positive LD between minor alleles.
+
+Aliases such as `REFERENCE_ALLELE` are interpreted in the signed-statistic sense
+only. They do not claim that `A1` is the genome reference allele. Genome
 `REF`/`ALT` columns are therefore not global aliases; they are applied only by
 format-aware inference when the workflow can make the semantics explicit.
 

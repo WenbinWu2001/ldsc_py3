@@ -232,11 +232,21 @@ flowchart LR
 
 | File | Example | Notes |
 | --- | --- | --- |
-| build-specific R2 parquet | `hg38/chr22_r2.parquet` with 4 columns: `IDX_1`, `IDX_2` (int32 sidecar-row indices), `R2` (float32 unbiased), `SIGN` (bool, Pearson r ≥ 0) | one row per unordered SNP pair inside the LD window; row groups sorted by `IDX_1` (equivalent to `POS_1` order since sidecar is position-sorted); schema metadata records minimal identity provenance plus `ldsc:n_samples`, `ldsc:r2_bias`, `ldsc:n_snps`, and `ldsc:sidecar_identity_sha256`; serves all four identifier modes from one file; paired sidecar is mandatory |
-| build-specific runtime metadata sidecar | `hg38/chr22_meta.tsv.gz` with leading `# ldsc:*` identity-provenance comments and `CHR POS SNP CM MAF A1 A2` columns | mandatory authoritative per-SNP universe for the matching R2 parquet; defines the index space referenced by `IDX_1`/`IDX_2`; current package-written sidecars carry `schema_version`, `artifact_type`, `snp_identifier`, and `genome_build` |
+| build-specific R2 parquet | `hg38/chr22_r2.parquet` with 4 columns: `IDX_1`, `IDX_2` (int32 sidecar-row indices), `R2` (float32 unbiased), `SIGN` (bool, Pearson r ≥ 0 between the `A1`/minor allele dosages of the pair) | one row per unordered SNP pair inside the LD window; row groups sorted by `IDX_1` (equivalent to `POS_1` order since sidecar is position-sorted); schema metadata records minimal identity provenance plus `ldsc:n_samples`, `ldsc:r2_bias`, `ldsc:n_snps`, and `ldsc:sidecar_identity_sha256`; serves all four identifier modes from one file; paired sidecar is mandatory |
+| build-specific runtime metadata sidecar | `hg38/chr22_meta.tsv.gz` with leading `# ldsc:*` identity-provenance comments and `CHR POS SNP CM MAF A1 A2` columns | mandatory authoritative per-SNP universe for the matching R2 parquet; defines the index space referenced by `IDX_1`/`IDX_2`; `A1` is the **minor allele** and `MAF = freq(A1) ≤ 0.5` (canonical orientation); current package-written sidecars carry `schema_version`, `artifact_type`, `snp_identifier`, and `genome_build` |
 | dropped-SNP audit sidecar | `diagnostics/dropped_snps/chr22_dropped.tsv.gz` with `CHR SNP source_pos target_pos reason base_key identity_key allele_set stage` | always written for each processed chromosome; header-only when no rows were dropped; identity reasons include `missing_allele`, `invalid_allele`, `strand_ambiguous_allele`, `multi_allelic_base_key`, and `duplicate_identity`; liftover reasons include `source_duplicate`, `unmapped_liftover`, `cross_chromosome_liftover`, and `target_collision` |
 | diagnostic metadata | JSON provenance | `diagnostics/metadata.json` for full-suite runs or `diagnostics/metadata.chr<chrom>.json` for concrete single-chromosome runs; not consumed downstream |
 | workflow log | plain-text lifecycle and package records | `diagnostics/build-ref-panel.log` for full-suite runs or `diagnostics/build-ref-panel.chr<chrom>.log` for concrete single-chromosome runs; not included in `ReferencePanelBuildResult.output_paths` |
+
+**Allele-orientation canonicalization.** The builder orients every SNP so `A1`
+is the minor allele (`freq(A1) ≤ 0.5`): where the `.bim` `A2` allele is the minor
+allele (`freq < 0.5`) it swaps `A1`/`A2` in the meta sidecar **and** negates that
+SNP's standardized genotype column before the correlation, so `SIGN` is computed
+in the same orientation as the swapped labels. This happens at the standardized-
+SNP getter inside the builder; `nextSNPs` itself stays orientation-free, and the
+r²-based in-PLINK LD-score path is unaffected (R² is sign-invariant). A frequency
+tie at exactly 0.5 keeps PLINK order. See
+`docs/superpowers/specs/2026-06-07-allele-orientation-canonicalization-design.md`.
 
 ### Modules used
 

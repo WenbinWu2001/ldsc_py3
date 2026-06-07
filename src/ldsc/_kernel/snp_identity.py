@@ -21,6 +21,7 @@ import hashlib
 import logging
 from typing import Literal
 
+import numpy as np
 import pandas as pd
 
 from .._coordinates import CHR_POS_KEY_COLUMN, build_chr_pos_key_frame
@@ -539,3 +540,31 @@ def _log_identity_drops(dropped: pd.DataFrame, *, context: str, logger: logging.
         return
     counts = dropped["reason"].value_counts().to_dict()
     logger.warning(f"Dropped {len(dropped)} SNP identity rows in {context}: {counts}.")
+
+
+def canonicalize_alleles(
+    df: pd.DataFrame,
+    *,
+    a1_col: str = "A1",
+    a2_col: str = "A2",
+    freq_col: str = "MAF",
+) -> pd.DataFrame:
+    """Re-orient ``A1``/``A2`` so ``A1`` is the minor allele (``freq(A1) <= 0.5``).
+
+    ``freq_col`` must hold the *oriented* frequency of the allele in ``a1_col``
+    (may exceed 0.5). Rows with ``freq(A1) > 0.5`` have their alleles swapped and
+    ``freq`` replaced by ``1 - freq``; ``freq == 0.5`` rows are left as-is
+    (tie-break: keep order). The function is idempotent and returns a copy without
+    mutating the input. It cannot recover orientation from a folded value, so the
+    caller must pass an oriented column (see design 2026-06-07
+    allele-orientation-canonicalization, section 2.1).
+    """
+    out = df.copy()
+    freq = pd.to_numeric(out[freq_col], errors="coerce").to_numpy(dtype=float)
+    flip = freq > 0.5
+    a1 = out[a1_col].to_numpy()
+    a2 = out[a2_col].to_numpy()
+    out[a1_col] = np.where(flip, a2, a1)
+    out[a2_col] = np.where(flip, a1, a2)
+    out[freq_col] = np.where(flip, 1.0 - freq, freq)
+    return out

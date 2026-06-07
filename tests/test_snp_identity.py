@@ -2,6 +2,7 @@ from pathlib import Path
 import sys
 import unittest
 
+import numpy as np
 import pandas as pd
 
 SRC = Path(__file__).resolve().parents[1] / "src"
@@ -255,3 +256,35 @@ class RestrictionIdentityKeysTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# --- canonicalize_alleles defensive-read helper ---------------------------
+
+
+def test_canonicalize_alleles_flips_oriented_rows():
+    df = pd.DataFrame(
+        {
+            "A1": ["G", "C", "A"],
+            "A2": ["A", "T", "G"],
+            "FRQ": [0.20, 0.80, 0.50],  # oriented freq of A1
+        }
+    )
+    out = si.canonicalize_alleles(df, freq_col="FRQ")
+    # Row 0: freq(A1)=0.2 <=0.5 keep. Row 1: 0.8 >0.5 flip. Row 2: 0.5 tie keep.
+    assert list(out["A1"]) == ["G", "T", "A"]
+    assert list(out["A2"]) == ["A", "C", "G"]
+    np.testing.assert_allclose(out["FRQ"].to_numpy(), [0.20, 0.20, 0.50])
+    assert (out["FRQ"] <= 0.5 + 1e-12).all()
+
+
+def test_canonicalize_alleles_is_idempotent():
+    df = pd.DataFrame({"A1": ["G", "C"], "A2": ["A", "T"], "FRQ": [0.7, 0.3]})
+    once = si.canonicalize_alleles(df, freq_col="FRQ")
+    twice = si.canonicalize_alleles(once, freq_col="FRQ")
+    pd.testing.assert_frame_equal(once.reset_index(drop=True), twice.reset_index(drop=True))
+
+
+def test_canonicalize_alleles_does_not_mutate_input():
+    df = pd.DataFrame({"A1": ["C"], "A2": ["T"], "FRQ": [0.9]})
+    _ = si.canonicalize_alleles(df, freq_col="FRQ")
+    assert list(df["A1"]) == ["C"] and list(df["FRQ"]) == [0.9]

@@ -269,11 +269,12 @@ for each stored pair (i, j, r2) with i < j and i ≥ block_left[j]:
 
 `block_left[j]` applies the ldscore LD window (`--ld-wind-*`), which may be
 narrower than the panel's build window: a stored pair contributes iff
-`i ≥ block_left[j]`. The two scatter-adds use `np.add.at` (unbuffered) because a
-row group repeats each left index `i` across its many right neighbours; a buffered
-`+=` would silently collapse them. Cost is `O(nnz · n_a)` — each stored pair is
-touched once per annotation. `annot` carries the partitioned annotation columns
-plus the regression-weight column, so a single pass yields both the reference and
+`i ≥ block_left[j]`. The accumulation is realized as `cor_sum = annot + U·annot +
+Uᵀ·annot`, where `U` is the strict-upper-triangular CSR of the streamed pairs, built
+and multiplied in **chunks** of ~`K` pairs to bound memory (chunked CSR SpMM, not
+element-wise scatter). Cost is `O(nnz · n_a)` — each stored pair is touched once per
+annotation. `annot` carries the partitioned annotation columns plus the
+regression-weight column, so a single pass yields both the reference and
 regression-universe LD scores.
 
 `cor_sum` accumulates in `float64` from `float32` products, so results are *not
@@ -292,15 +293,17 @@ builds one index parquet and asserts identical LD scores in all four modes.
 ### 3.6 Read-side memory (streaming)
 
 The streaming reader holds no decoded-row-group cache and no dense block matrices.
-Peak reader RSS is bounded by the accumulator, plus one decoded row group at a
-time and the workflow/import floor:
+Peak reader RSS is bounded by the accumulator plus one CSR chunk (~`K` pairs and its
+sparse matrix), and the workflow/import floor:
 
 ```
-RSS ≈ m · n_a · 8 bytes  (cor_sum, float64)  +  one decoded row group  +  fixed floor
+RSS ≈ m · n_a · 8 bytes  (cor_sum, float64)  +  ~24·K bytes  (one chunk + its CSR)  +  fixed floor
 ```
 
-For chr6 (`m ≈ 664k`, `n_a ≈ 57`): `cor_sum ≈ 303 MiB`; one row group adds a few
-MiB. Two consequences vs. the prior block reader:
+For chr6 (`m ≈ 664k`, `n_a ≈ 57`): `cor_sum ≈ 303 MiB`; one chunk at the fixed
+`K = 16M` adds ~0.4 GiB. The chunk size `K` (not the chromosome's total pair count)
+caps the chunk term, so the scatter footprint stays bounded regardless of how dense
+or wide the chromosome is. Two consequences vs. the prior block reader:
 
 - **`--ld-wind-*` is not a read-side peak-RSS lever.** The window only filters
   which streamed pairs contribute (`i ≥ block_left[j]`); it does not change

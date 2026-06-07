@@ -25,7 +25,8 @@ SNPs after intersection/restriction), in **genomic (position-sorted) order**.
 | $A_{l,\cdot}$ | row vector $\mathbb{R}^{1\times n_a}$ | the whole annotation row for SNP $l$ |
 | $r^2(k,l)$ | scalar in $(-\,\cdot,1]$ | **unbiased** squared correlation between SNPs $k$ and $l$ (may be slightly negative; see §6.4) |
 | $\mathrm{win}(k)$ | set $\subseteq\{0,\dots,m-1\}$ | the LD-window neighbours of SNP $k$ (SNPs within the configured window of $k$) |
-| $R$ | matrix $\mathbb{R}^{m\times m}$ | symmetric within-window LD matrix (defined in §3); **never materialized** |
+| $R$ | matrix $\mathbb{R}^{m\times m}$ | symmetric within-window LD matrix (defined in §3); **never materialized** as a dense matrix |
+| $U$ | sparse matrix $\mathbb{R}^{m\times m}$ | strict upper triangle of the stored pairs: $U_{ij}=v_{ij}$ for $(i,j)\in P$, $0$ elsewhere; gives $R=I+U+U^{\top}$ (§5) |
 | $C$ | matrix $\mathbb{R}^{m\times n_a}$ | the accumulator (`cor_sum` in code); on completion $C=RA$ |
 | $\ell_{k,a}$ | scalar | the LD score of SNP $k$ for annotation $a$ (an entry of $C$) |
 | $\mathrm{block\_left}[j]$ | index | smallest retained index inside the LD window of SNP $j$ (the window's left edge) |
@@ -36,6 +37,7 @@ SNPs after intersection/restriction), in **genomic (position-sorted) order**.
 | $q$ | on-disk int16 | the quantized R² of a pair as stored on disk |
 | $s$ | scalar | dequantization scale, $s=32767$ (`ldsc:r2_scale`) |
 | $N$ | scalar | reference sample size (only used for the *raw*→unbiased correction of external panels; §6.4) |
+| $K$ | scalar | CSR chunk size: target number of pairs buffered before one SpMM step (§5) |
 
 Convention: $\mathrel{+}=$ means "add into" (accumulate); $\leftarrow$ means
 assignment; $\mathbf{v}\odot M$ is the row-wise scaling of matrix $M$ by vector
@@ -149,24 +151,78 @@ Columns $1..(n_a-1)$ are the reference/partitioned LD scores; the appended colum
 the regression-universe weight $w_\ell$. Both come out of the **same pass**, because
 the regression weight is just one more column of $A$.
 
-### Vectorized form (per chunk)
+### Sparse realization (chunked CSR)
 
-Pairs arrive in chunks (one decoded row group). For a chunk with index vectors
-$\mathbf{i},\mathbf{j}$ and value vector $\mathbf{v}$ (after applying the §4
-filters), Step 2 is the unbuffered scatter-add
+Steps 1–3 are computed with two sparse matrix–dense matrix products (SpMM) instead
+of element-wise scatter-adds. With $R=I+U+U^{\top}$ (§1),
 
 $$
-C[\mathbf{i}] \mathrel{+}= \mathbf{v}\odot A[\mathbf{j}],
+C \;=\; RA \;=\; \underbrace{A}_{\text{diagonal}} \;+\; \underbrace{U A}_{i\text{-side}} \;+\; \underbrace{U^{\top}A}_{j\text{-side}}.
+$$
+
+$U$ is stored in **compressed sparse row (CSR)** form: a `data` array of nonzero
+values (row by row), an `indices` array of their column indices, and an `indptr`
+array of length $m{+}1$ where row $k$'s entries are `data[indptr[k]:indptr[k+1]]`.
+
+**Numeric example** (the §3 panel: $m=4$, pairs $(0,1){=}0.4,\ (0,2){=}0.2,\
+(1,2){=}0.6,\ (2,3){=}0.5$, single all-ones annotation $A=[1,1,1,1]^{\top}$):
+
+$$
+U=\begin{bmatrix}0&0.4&0.2&0\\0&0&0.6&0\\0&0&0&0.5\\0&0&0&0\end{bmatrix},
 \qquad
-C[\mathbf{j}] \mathrel{+}= \mathbf{v}\odot A[\mathbf{i}],
+\begin{aligned}
+\texttt{data}&=[\,0.4,\ 0.2,\ 0.6,\ 0.5\,]\\
+\texttt{indices}&=[\,1,\ \ \ 2,\ \ \ 2,\ \ \ 3\,]\\
+\texttt{indptr}&=[\,0,\ \ \ 2,\ \ \ 3,\ \ \ 4,\ \ \ 4\,]
+\end{aligned}
 $$
 
-where $A[\mathbf{j}]$ gathers the rows of $A$ at indices $\mathbf{j}$, and
-$\mathbf{v}=(v_{ij})$ is the chunk's value vector whose entry scales each gathered
-row (broadcast over the $n_a$ columns). **The scatter must be unbuffered**
-(`np.add.at`): within a chunk
-$\mathbf{i}$ contains repeats (one left SNP, many right neighbours), and a buffered
-`+=` keeps only one of them. See §6.3.
+$$
+UA=\begin{bmatrix}0.6\\0.6\\0.5\\0\end{bmatrix}\!\text{(row sums)},\quad
+U^{\top}A=\begin{bmatrix}0\\0.4\\0.8\\0.5\end{bmatrix}\!\text{(col sums)},\quad
+C=A+UA+U^{\top}A=\begin{bmatrix}1.6\\2.0\\2.3\\1.5\end{bmatrix}.
+$$
+
+$U^{\top}$ is a no-copy transpose (the CSR of $U$ is the CSC of $U^{\top}$, sharing
+the same three arrays), so the $j$-side is a second SpMM with no extra storage.
+
+#### Chunking
+
+Materializing $U$ for a whole chromosome would hold all $|P|$ pairs in memory at
+once. Instead the stored pairs are partitioned into chunks of $K$ pairs
+($U=\sum_c U_c$), and each chunk's two SpMMs are accumulated:
+
+$$
+C \;\leftarrow\; A \;+\; \sum_c\bigl(U_c A + U_c^{\top}A\bigr).
+$$
+
+This is **exact** by linearity of the matrix product,
+$\bigl(\sum_c U_c\bigr)A=\sum_c U_c A$: no pair is dropped or double-counted because
+each $(i,j)$ lands in exactly one chunk. Splitting the example after the first two
+pairs:
+
+$$
+U_1=\begin{bmatrix}0&0.4&0.2&0\\0&0&0&0\\0&0&0&0\\0&0&0&0\end{bmatrix},\quad
+U_2=\begin{bmatrix}0&0&0&0\\0&0&0.6&0\\0&0&0&0.5\\0&0&0&0\end{bmatrix},\quad
+U_1+U_2=U,
+$$
+
+$$
+U_1 A=\begin{bmatrix}0.6\\0\\0\\0\end{bmatrix},\quad
+U_2 A=\begin{bmatrix}0\\0.6\\0.5\\0\end{bmatrix},\quad
+U_1 A+U_2 A=\begin{bmatrix}0.6\\0.6\\0.5\\0\end{bmatrix}=UA.
+$$
+
+$K$ (the chunk's target pair count) is a fixed memory-budget constant, **independent
+of** the PLINK `snp_batch_size` and the parquet `row_group_size`: chunks are formed
+by accumulating whole decoded row groups until $\sim K$ pairs are buffered. $K$ is
+bounded **below** by $m$ (so the size-$(m{+}1)$ `indptr` rebuilt per chunk is
+amortized) and **above** by the per-chunk RAM budget ($\approx 24K$ bytes — buffered
+pairs $12K$ + CSR $8K$ + sort workspace). The package fixes
+$K = 1.6\times10^{7}$ pairs, so the chunk's footprint is $\approx 0.4$ GiB and the
+scatter never dominates peak RSS. Note this caps the *scatter* memory only; the
+window-independent fixed term ($C$, the annotation matrix, the $UA$ SpMM output, the
+sidecar) scales with $m\,n_a$, not $K$ (§7).
 
 ---
 
@@ -183,11 +239,13 @@ Every SNP's self term $R_{kk}A_{k,\cdot}=A_{k,\cdot}$ is added exactly once by t
 Step 1 seed $C\leftarrow A$, and never by Step 2 (stored pairs have $i<j$, so they
 are strictly off-diagonal).
 
-### 6.3 Duplicate left indices
-Within one chunk the left index $i$ repeats across a SNP's many neighbours. The
-accumulation is therefore a true scatter-**add**, not an assignment: $C_i$ receives
-the sum of all $v_{ij}\,A_{j,\cdot}$ for that $i$. A buffered $C[\mathbf{i}]\mathrel{+}=\dots$
-would drop all but one contribution per repeated index, undercounting LD scores.
+### 6.3 Repeated indices within a chunk
+A SNP's left index $i$ repeats across its many neighbours, so several stored entries
+share the same CSR row. The SpMM sums them by construction — row $i$ of $UA$ is the
+sum over that row's entries, $\sum_{(i,j)\in P_c} v_{ij}A_{j,\cdot}$ — so repeated
+indices accumulate correctly with no element-wise scatter and no risk of a buffered
+overwrite. (This is what an earlier `np.add.at` scatter did element by element and
+far more slowly.)
 
 ### 6.4 The stored R² is already unbiased
 `build-ref-panel` writes the **unbiased** estimate $r^2$ (`_unbiased_r2_array`,
@@ -199,10 +257,15 @@ Either way the $v_{ij}$ entering §5 is the final R². Possible small negative
 $v_{ij}$ (≈15% of pairs) are preserved, not floored.
 
 ### 6.5 Numerical precision
-$C$ accumulates in `float64` from `float32` products. The summation order differs
-from the legacy genotype-block path, so results are **not bit-identical** (≈1e-6
-drift) — well within LD-score tolerances (int16 quantization alone already perturbs
-per-SNP LD scores by ≤~2e-3).
+$C$ accumulates in `float64` from `float32` products. Two things reorder the
+floating-point sums relative to the legacy genotype-block path: the streaming order
+itself, and the chunk partition (a SNP's neighbours split across chunks are summed
+across chunk boundaries). Both are **reorderings of an exact sum** — no pair is
+dropped, quantized, or thresholded — so results are *not bit-identical* but differ
+only at float rounding (≈1e-6), well within LD-score tolerances (int16 quantization
+alone already perturbs per-SNP LD scores by ≤~2e-3). The chunk size $K$ changes only
+the summation order, not which pairs are summed; different $K$ agree to float
+rounding.
 
 ---
 
@@ -213,9 +276,11 @@ Let $\mathrm{nnz}=|P|$ be the number of consumed pairs.
 $$
 \text{time} = O(\mathrm{nnz}\cdot n_a)\quad(\text{each pair touched once per annotation}),
 \qquad
-\text{memory} = \underbrace{O(m\,n_a)}_{C} + \underbrace{O(\text{one row group})}_{\text{stream}}.
+\text{memory} = \underbrace{O(m\,n_a)}_{C} + \underbrace{O(K)}_{\text{one chunk + its CSR}}.
 $$
 
-This is the optimal arithmetic for $C=RA$ given $R$ as an edge list, and the peak
-memory is independent of the LD window width (the window only filters $P$). There is
-no block tiling, no dense $R$ tile, and no decoded-row-group cache.
+This is the optimal arithmetic for $C=RA$ given $R$ as an edge list. With chunked
+CSR the peak memory is bounded by the chunk size $K$ — independent of **both** the
+LD window width (which only filters $P$) **and** the chromosome's total pair count
+$\mathrm{nnz}$. There is no block tiling, no dense $R$ tile, and no
+decoded-row-group cache.

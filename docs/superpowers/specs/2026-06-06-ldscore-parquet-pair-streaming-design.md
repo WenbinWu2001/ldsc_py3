@@ -81,24 +81,31 @@ tests (`atol≈2e-5` per pair; LD-score deltas ≤~2e-3 from int16 quantization 
 
 Guardrails:
 - **Exact** hand-computed unit tests on tiny fixtures (no float drift at small scale)
-  for the diagonal, both orientations, duplicate left-index correctness
-  (`np.add.at`), and the window filter.
+  for the diagonal, both orientations, repeated-index correctness (CSR SpMM sums
+  shared rows), and the window filter.
 - The existing **build→read parity** and **cross-mode parity** suites, run within
   tolerance, prove end-to-end agreement with the genotype path and across identifier
   modes.
 
 ## 5. Memory
 
-`O(m · n_a)` for `cor_sum` plus one decoded row group at a time while streaming —
-**lower** than the prior sliding-band decoded cache (~1.15 GiB on chr6). Streaming
-reads each row group exactly once.
+`O(m · n_a)` for `cor_sum` plus one **CSR chunk** (~`K` pairs and its sparse matrix,
+≈`24·K` bytes). The package fixes **`K = 16M` pairs ⇒ ~0.4 GiB chunk**, bounding the
+scatter footprint independent of the LD window width **and** the chromosome's total
+pair count. `K` is a fixed constant, independent of `snp_batch_size` and the parquet
+`row_group_size` (chunks accumulate whole decoded row groups until ~`K` pairs), and
+`K ≫ m` so the per-chunk `indptr` is amortized. (The window-independent fixed term —
+`cor_sum`, the annotation matrix, the SpMM output, the sidecar — scales with `m·n_a`,
+not `K`.)
 
-## 6. Performance expectation
+## 6. Performance expectation (measured + projected)
 
-- chr22: the ~11 s of query+scatter collapse to a single `O(nnz·n_a)` pass; the run
-  becomes decode/IO-bound.
-- chr6: removes the `O(b³/c)` blowup entirely; the MHC stops being pathological.
-  Target: minutes, not 38+ minutes.
+- chr22 (47 s on the block path): an initial `np.add.at` scatter was a **~10×
+  regression** (483 s; 89% of time in numpy's unbuffered `ufunc.at`). The chunked
+  `scipy.sparse` CSR SpMM realization restores chr22 to ~block parity (~setup-bound).
+- chr6 (block path **DNF >38 min** from the `O(b³/c)` blowup): streaming + `np.add.at`
+  completed in 111 min; chunked CSR targets a few minutes (no redundancy + an
+  optimized SpMM kernel). See the 2026-06-06 re-profile report.
 
 ## 7. Scope and non-goals
 
@@ -113,9 +120,13 @@ reads each row group exactly once.
 - Panel format, the index↔sidecar binding, regression, output writer.
 - The injective-remap collapse check and `iter`-time decode/dequant (reused as-is).
 
-**Deferred:** replacing `np.add.at` with a `scipy.sparse` CSR `R @ annot` is a later
-optional optimization; the initial implementation uses `np.add.at`, which is simple,
-obviously correct, and bounded-memory. (`scipy` is already a dependency.)
+**Scatter realization:** the two scatter-adds are computed as **chunked
+`scipy.sparse` CSR SpMM** — `cor_sum = annot + U·annot + Uᵀ·annot`, with `U` (the
+strict-upper-triangular pair matrix) built and multiplied per chunk of ~`K` pairs.
+An initial `np.add.at` implementation was correct but ~10× slower on chr22 (numpy's
+unbuffered scatter), so it was replaced. Chunking keeps the result exact (linearity:
+`(ΣUc)·annot = Σ(Uc·annot)`) while bounding memory. (`scipy` is already a dependency.)
+See `docs/current/ldscore-parquet-accumulation.md` §5 for the math + numeric example.
 
 ## 8. Affected modules
 

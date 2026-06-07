@@ -377,7 +377,14 @@ class R2Panel:
         return out
 
     def _signed_r(self, r2: np.ndarray, sign_col) -> np.ndarray:
-        """Compute the signed r column from adjusted r2 and the sign column."""
+        """Compute the signed Pearson r from adjusted r2 and the sign column.
+
+        Sign is defined in the canonical reference-panel orientation: r is the
+        correlation between the two SNPs' A1 (minor) allele dosages. A positive
+        value means the minor alleles co-occur on haplotypes more than chance
+        (positive LD between minor alleles). A1 is guaranteed minor by the
+        canonical panel (design 2026-06-07 allele-orientation-canonicalization).
+        """
         n_samples = self.n_samples
         if n_samples is None:
             raise LDSCInputError(
@@ -486,7 +493,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--out", default=None, help="Output TSV path (default: stdout).")
     parser.add_argument("--snp-identifier", default=None, help="Override panel SNP identifier mode.")
     parser.add_argument("--genome-build", choices=["hg19", "hg38"], default=None, help="Genome build for sub-dir resolution.")
-    parser.add_argument("--with-r", action="store_true", help="Add a signed Pearson r column.")
+    parser.add_argument(
+        "--with-r",
+        action="store_true",
+        help="Add a signed Pearson r column (correlation of A1/minor allele dosages; "
+        "positive = positive LD between minor alleles). Allele-aware panels only.",
+    )
     parser.add_argument("--strategy", choices=["auto", "random", "stream"], default="auto", help="Lookup strategy.")
     parser.add_argument("--strategy-threshold", type=int, default=50_000, help="Auto-select pair-count threshold.")
     return parser

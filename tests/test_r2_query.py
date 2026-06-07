@@ -299,3 +299,14 @@ class TestQueryR2CLI:
         result = pd.read_csv(out_path, sep="\t")
         assert result["r2"].iloc[0] == pytest.approx(0.64, abs=1e-4)
         assert "status" in result.columns and "r" in result.columns
+
+
+class TestPackageExports:
+    def test_public_symbols_importable_from_ldsc(self):
+        import ldsc
+
+        assert hasattr(ldsc, "R2Panel")
+        assert hasattr(ldsc, "query_r2")
+        assert hasattr(ldsc, "unbiased_r2_to_pearson_r")
+        for name in ("R2Panel", "query_r2", "unbiased_r2_to_pearson_r"):
+            assert name in ldsc.__all__

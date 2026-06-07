@@ -110,7 +110,7 @@ class PackageLayoutTest(unittest.TestCase):
         )
         self.assertEqual(
             set(subparsers_action.choices),
-            {"annotate", "ldscore", "build-ref-panel", "munge-sumstats", "h2", "partitioned-h2", "rg"},
+            {"annotate", "ldscore", "build-ref-panel", "munge-sumstats", "h2", "partitioned-h2", "rg", "query-r2"},
         )
         self.assertNotIn("infer-build", subparsers_action.choices)
 

@@ -262,7 +262,11 @@ CHROM_ALIASES = CHR_COLUMN_ALIASES
 POS_ALIASES = POS_COLUMN_ALIASES
 SNP_ALIASES = SNP_COLUMN_ALIASES
 CM_ALIASES = CM_COLUMN_ALIASES
-MAF_ALIASES = MAF_COLUMN_ALIASES
+# Legacy .l2.ldscore parsing stays permissive: a folded MAF column may appear
+# under FRQ/FREQ/FREQUENCY in older files. The registry's MAF_COLUMN_ALIASES is
+# narrowed to ("MAF",) for the oriented-vs-folded sidecar distinction, so keep the
+# legacy breadth here explicitly.
+MAF_ALIASES = ("MAF", "FRQ", "FREQ", "FREQUENCY")
 
 
 @dataclass

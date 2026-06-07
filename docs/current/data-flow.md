@@ -326,6 +326,53 @@ flowchart LR
 - Kernel: `ldsc._kernel.ldscore`
 - Postprocessing: `ldsc.outputs`
 
+## Region Exclusion
+
+Region exclusion filters SNPs by genomic coordinates before LD computation or
+panel emission. Two input sources are supported and may be combined.
+
+**Preset regions** (`--exclude-regions {mhc,centromeres}`) read packaged BED
+files under `src/ldsc/data/regions/` keyed by name and genome build (e.g.
+`mhc.hg19.bed`). **User BEDs** (`--exclude-regions-bed <file>`) read any
+standard 0-based half-open BED file and apply intervals as-is against panel
+`CHR/POS`.
+
+The keep rule in `region_exclusion_keep_mask` (`src/ldsc/_kernel/regions.py`)
+is: a 1-based SNP position `p` is excluded iff `start < p <= end` for some
+BED interval `[start, end)`. Overlapping intervals per chromosome are coalesced
+by the loaders before masking.
+
+### Build-resolution asymmetry
+
+`ldscore` (`RefPanelConfig`) **requires** `--exclude-regions-build {hg19,hg38}`
+whenever presets are used: the parquet reference panel can represent either
+build, so the caller must declare which build the panel was built from.
+
+`build-ref-panel` (`ReferencePanelBuildConfig`) has **no** `--exclude-regions-build`
+flag. It reuses the resolved `source_genome_build` automatically, so exclusion
+always operates on source coordinates before liftover. A SNP excluded from the
+source build is absent from every emitted build artifact.
+
+### Chokepoints
+
+| Workflow | Chokepoint | Location |
+| --- | --- | --- |
+| `ldscore` (PLINK and parquet backends) | `RefPanel._apply_region_exclusion` | `src/ldsc/_kernel/ref_panel.py` |
+| `build-ref-panel` | `ReferencePanelBuilder._build_chromosome` | `src/ldsc/ref_panel_builder.py` |
+
+`RefPanel._apply_region_exclusion` is called once per chromosome load inside
+`RefPanel.load_metadata` and covers both the PLINK and parquet ldscore
+backends. `ReferencePanelBuilder._build_chromosome` applies exclusion on the
+source-build metadata frame immediately after PLINK `.bim` loading, before
+identity cleanup, restriction, and liftover.
+
+The build-state object `_BuildState.region_intervals` (a `RegionIntervals`
+instance) is constructed once in `ReferencePanelBuilder._prepare_build_state`
+for the full run and shared across all chromosome invocations.
+
+See `docs/superpowers/specs/2026-06-06-region-exclusion-design.md` for the
+full design rationale and preset catalog.
+
 ## 4. `munge-sumstats`: Raw GWAS Table To Curated Sumstats
 
 For the user-facing contract, command patterns, and output schema, see

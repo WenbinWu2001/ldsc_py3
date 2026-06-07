@@ -94,6 +94,15 @@ contracts move.
 | `docs/superpowers/specs/2026-06-02-build-ref-panel-reader-streaming-design.md` | shared PLINK genotype reader extracted to `_kernel/plink_bed.py`; lazy header read + per-SNP selective decode with fused individual filter (O1/O3) and opt-in disk streaming for unrestricted builds (O2). Benefits `build-ref-panel`, the legacy `compute_chrom_from_plink` LD-score path, and `PlinkRefPanel`; never materializes the whole-chromosome bitarray |
 | `docs/superpowers/specs/2026-06-03-pair-emission-columnar-and-doc-sync-design.md` | columnar `PairColumns` pair emission end-to-end (O6): `_pop_pair_rows_before`/`yield_pairwise_r2_rows` yield `(i, j, r2, sign)` chunks and `write_r2_parquet`/`_standard_r2_index_table` consume them, removing the per-pair dict round-trip; parquet format/encoding unchanged. Also the O7 memory doc sync across `docs/current/` and the build tutorial |
 
+## Region Exclusion
+
+| Design document | Implementation |
+| --- | --- |
+| `docs/superpowers/specs/2026-06-06-region-exclusion-design.md` | kernel engine `src/ldsc/_kernel/regions.py`: `load_preset_intervals`, `load_bed_intervals`, `merge_intervals`, `region_exclusion_keep_mask`, `RegionIntervals` |
+| `docs/superpowers/specs/2026-06-06-region-exclusion-design.md` | `ldscore` chokepoint: `RefPanel._apply_region_exclusion` in `src/ldsc/_kernel/ref_panel.py`; resolved via `RefPanel._region_intervals` which reads `RefPanelConfig.exclude_regions`, `RefPanelConfig.exclude_regions_bed`, `RefPanelConfig.exclude_regions_build` |
+| `docs/superpowers/specs/2026-06-06-region-exclusion-design.md` | `build-ref-panel` chokepoint: `ReferencePanelBuilder._build_chromosome` in `src/ldsc/ref_panel_builder.py`; intervals built once in `_prepare_build_state` from `ReferencePanelBuildConfig.exclude_regions`, `ReferencePanelBuildConfig.exclude_regions_bed`; no `exclude_regions_build` field — source build reused automatically |
+| `docs/current/data-flow.md` (`## Region Exclusion`) | packaged preset BEDs under `src/ldsc/data/regions/`; CLI flags `--exclude-regions`, `--exclude-regions-bed`, `--exclude-regions-build` (ldscore only); config fields in `RefPanelConfig` and `ReferencePanelBuildConfig` in `src/ldsc/config.py` |
+
 ## LD-Score Calculation Parallelism
 
 | Design document | Implementation |

@@ -221,14 +221,25 @@ the **preset** build differently, and this asymmetry is intentional and safe.
 ### Why `build-ref-panel` needs no `--exclude-regions-build`
 
 `ReferencePanelBuilder._run` calls `_resolve_source_genome_build`
-(`ref_panel_builder.py:422`) *before* `_prepare_build_state`
-(`ref_panel_builder.py:423`), so `source_genome_build` is always a concrete
+(`ref_panel_builder.py:425`) *before* `_prepare_build_state`
+(`ref_panel_builder.py:426`), so `source_genome_build` is always a concrete
 `hg19`/`hg38` when intervals load. That resolved build **is** the coordinate
 system every panel SNP is addressed in at the filter point, so it is the only
 correct preset build — there is no second build to disambiguate. Adding a flag
 would *introduce* a contradiction state (`--source-genome-build hg19
 --exclude-regions-build hg38`) we would then have to detect and reject. Omitting
 it makes that state unrepresentable.
+
+**Where auto-build resolution happens.** The preset build *can* be auto-resolved,
+but only as a side effect of the panel's own source-build inference — the preset
+itself performs no inference. When `--source-genome-build auto` (the default),
+`_resolve_source_genome_build` infers `hg19`/`hg38` from the PLINK `.bim`
+coordinates (HM3-overlap coordinate inference). Because that runs before
+`_prepare_build_state`, `load_preset_intervals(..., source_build)`
+(`ref_panel_builder.py:700`) always receives a concrete build. So
+`build-ref-panel` is the *only* place an auto-inferred build selects a preset
+BED, and it inherits whatever the panel resolved to — there is no separate
+region-build inference step.
 
 ### Why `ldscore` does need it
 
@@ -239,7 +250,10 @@ coordinate preset cannot know which packaged BED to apply without being told.
 We therefore **always require** `--exclude-regions-build` when a preset is named
 (even in `chr_pos` modes where a build is otherwise known), so the safe,
 explicit path is the only path and we never silently rely on an auto-inferred
-build that might disagree with the panel.
+build that might disagree with the panel. The flag accepts `hg19`/`hg38` only —
+there is deliberately **no `auto` choice** — so on the `ldscore` side the preset
+build is never inferred; the caller always states it. `load_preset_intervals`
+enforces this, raising `LDSCConfigError` for any build outside `{hg19, hg38}`.
 
 User BEDs are exempt: the user owns those coordinates and supplies them in the
 panel's build, the same trust model as `--ref-panel-snps-file`. The `-build`

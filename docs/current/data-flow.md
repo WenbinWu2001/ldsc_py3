@@ -349,12 +349,21 @@ whenever presets are used: the parquet reference panel can represent either
 build, so the caller must declare which build the panel was built from; the
 flag is also required in rsID-family identifier modes because
 `GlobalConfig.genome_build` is `None` in those modes, meaning no build is
-in scope even for the PLINK backend.
+in scope even for the PLINK backend. The flag accepts `hg19`/`hg38` only — there
+is **no `auto` choice** — so on the `ldscore` side the preset build is never
+inferred; the caller always states it explicitly.
 
 `build-ref-panel` (`ReferencePanelBuildConfig`) has **no** `--exclude-regions-build`
 flag. It reuses the resolved `source_genome_build` automatically, so exclusion
 always operates on source coordinates before liftover. A SNP excluded from the
-source build is absent from every emitted build artifact.
+source build is absent from every emitted build artifact. The build *may* be
+auto-resolved, but only via the panel's own inference: when
+`--source-genome-build auto` (the default), `_resolve_source_genome_build`
+infers `hg19`/`hg38` from the PLINK `.bim` coordinates *before*
+`_prepare_build_state` loads the preset, so `load_preset_intervals` always
+receives a concrete build. The preset performs no build inference of its own —
+`build-ref-panel` is the only workflow where an auto-inferred build selects a
+preset BED.
 
 ### Chokepoints
 

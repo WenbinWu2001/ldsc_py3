@@ -137,3 +137,119 @@ class TestLookupPairsInParquet:
         )
         np.testing.assert_array_equal(np.nan_to_num(rg_r2, nan=-1), np.nan_to_num(st_r2, nan=-1))
         np.testing.assert_array_equal(rg_sign, st_sign)
+
+
+class TestR2PanelOpen:
+    def test_open_panel_dir_exposes_metadata(self, tmp_path):
+        from ldsc.r2_query import R2Panel
+
+        build_test_panel(tmp_path, snp_identifier="chr_pos_allele_aware", n_samples=1234)
+        panel = R2Panel.open(tmp_path, genome_build="hg38")
+        assert panel.chromosomes == ["1"]
+        assert panel.snp_identifier == "chr_pos_allele_aware"
+        assert panel.n_samples == 1234
+
+    def test_open_explicit_meta_and_parquet(self, tmp_path):
+        from ldsc.r2_query import R2Panel
+
+        _, meta_path, r2_path = build_test_panel(tmp_path)
+        panel = R2Panel.open(meta_path=meta_path, parquet_path=r2_path)
+        assert panel.chromosomes == ["1"]
+
+    def test_open_requires_exactly_one_input_mode(self, tmp_path):
+        from ldsc.errors import LDSCUsageError
+        from ldsc.r2_query import R2Panel
+
+        with pytest.raises(LDSCUsageError):
+            R2Panel.open()  # neither
+        _, meta_path, r2_path = build_test_panel(tmp_path)
+        with pytest.raises(LDSCUsageError):
+            R2Panel.open(tmp_path, meta_path=meta_path, parquet_path=r2_path)  # both
+
+    def test_binding_mismatch_is_hard_error(self, tmp_path):
+        from ldsc.errors import LDSCInputError
+        from ldsc.r2_query import R2Panel
+
+        build_dir, meta_path, _ = build_test_panel(tmp_path)
+        # Corrupt the sidecar identity by rewriting one allele (breaks the hash).
+        with gzip.open(meta_path, "rt") as handle:
+            lines = handle.readlines()
+        body = [ln for ln in lines if not ln.startswith("#")]
+        header = [ln for ln in lines if ln.startswith("#")]
+        body[1] = body[1].replace("\tA\t", "\tT\t", 1)  # first data row allele edit
+        with gzip.open(meta_path, "wt") as handle:
+            handle.writelines(header + body)
+        panel = R2Panel.open(tmp_path, genome_build="hg38")
+        with pytest.raises(LDSCInputError):
+            panel.query_pairs(pd.DataFrame({
+                "CHR_1": [1], "POS_1": [100], "A1_1": ["A"], "A2_1": ["G"],
+                "CHR_2": [1], "POS_2": [200], "A1_2": ["C"], "A2_2": ["T"],
+            }))
+
+
+class TestQueryPairs:
+    def _panel(self, tmp_path, mode="chr_pos_allele_aware"):
+        from ldsc.r2_query import R2Panel
+
+        build_test_panel(tmp_path, snp_identifier=mode)
+        return R2Panel.open(tmp_path, genome_build="hg38")
+
+    def test_stored_diagonal_absent_cross_and_missing(self, tmp_path):
+        from ldsc.r2_query import R2Panel
+
+        # Two-chromosome panel so the cross-chromosome row resolves both endpoints.
+        build_test_panel(tmp_path, chrom="1", snp_identifier="chr_pos_allele_aware")
+        build_test_panel(tmp_path, chrom="2", snp_identifier="chr_pos_allele_aware")
+        panel = R2Panel.open(tmp_path, genome_build="hg38")
+        pairs = pd.DataFrame(
+            {
+                # stored (0,1); diagonal (0,0); absent (0,3); not-in-panel; cross-chr
+                "CHR_1": [1, 1, 1, 1, 1],
+                "POS_1": [100, 100, 100, 100, 100],
+                "A1_1": ["A", "A", "A", "A", "A"],
+                "A2_1": ["G", "G", "G", "G", "G"],
+                "CHR_2": [1, 1, 1, 1, 2],
+                "POS_2": [200, 100, 400, 999, 200],
+                "A1_2": ["C", "A", "G", "X", "C"],
+                "A2_2": ["T", "G", "T", "Y", "T"],
+            }
+        )
+        out = panel.query_pairs(pairs)
+        assert out["r2"].iloc[0] == pytest.approx(0.64, abs=1.5e-5)
+        assert out["status"].iloc[0] == ""
+        assert out["r2"].iloc[1] == 1.0           # diagonal
+        assert out["status"].iloc[1] == ""
+        assert np.isnan(out["r2"].iloc[2]) and out["status"].iloc[2] == "absent"
+        assert np.isnan(out["r2"].iloc[3]) and out["status"].iloc[3] == "not_in_panel"
+        assert np.isnan(out["r2"].iloc[4]) and out["status"].iloc[4] == "cross_chromosome"
+
+    def test_sign_harmonized_in_allele_aware_mode(self, tmp_path):
+        panel = self._panel(tmp_path)
+        # Panel pair (0,1)=SNP1 A/G, SNP2 C/T, stored SIGN=+ (r>=0).
+        pairs = pd.DataFrame(
+            {
+                "CHR_1": [1, 1, 1],
+                "POS_1": [100, 100, 100],
+                "A1_1": ["A", "G", "G"],   # aligned / swapped / swapped
+                "A2_1": ["G", "A", "A"],
+                "CHR_2": [1, 1, 1],
+                "POS_2": [200, 200, 200],
+                "A1_2": ["C", "C", "T"],   # aligned / aligned / swapped
+                "A2_2": ["T", "T", "C"],
+            }
+        )
+        out = panel.query_pairs(pairs)
+        assert out["sign"].tolist() == [1, -1, 1]  # 0 / 1 / 2 swaps -> +,-,+
+
+    def test_base_mode_ignores_alleles_and_sign_is_na(self, tmp_path):
+        panel = self._panel(tmp_path, mode="chr_pos")
+        # With alleles supplied vs not supplied: identical r2, sign always NA.
+        with_alleles = pd.DataFrame(
+            {"CHR_1": [1], "POS_1": [100], "A1_1": ["A"], "A2_1": ["G"],
+             "CHR_2": [1], "POS_2": [200], "A1_2": ["C"], "A2_2": ["T"]}
+        )
+        without = pd.DataFrame({"CHR_1": [1], "POS_1": [100], "CHR_2": [1], "POS_2": [200]})
+        out_a = panel.query_pairs(with_alleles)
+        out_b = panel.query_pairs(without)
+        assert out_a["r2"].iloc[0] == pytest.approx(out_b["r2"].iloc[0], abs=1.5e-5)
+        assert pd.isna(out_a["sign"].iloc[0]) and pd.isna(out_b["sign"].iloc[0])

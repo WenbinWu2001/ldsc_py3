@@ -3307,3 +3307,15 @@ def test_ldscore_end_to_end_drops_user_bed_snp(tmp_path):
         exclude_regions_bed=(str(bed),),
     )
     assert target_pos not in set(result.baseline_table["POS"])
+
+
+def test_ldscore_rejects_non_minor_maf():
+    bad = pd.DataFrame({"CHR": ["22"], "SNP": ["rs1"], "POS": [1],
+                        "A1": ["A"], "A2": ["G"], "MAF": [0.73]})
+    with pytest.raises(LDSCInternalError, match="MAF"):
+        ldscore_workflow._assert_canonical_maf(bad)
+
+
+def test_assert_canonical_maf_passes_for_minor():
+    ok = pd.DataFrame({"MAF": [0.0, 0.2, 0.5]})
+    ldscore_workflow._assert_canonical_maf(ok)  # no raise

@@ -628,6 +628,7 @@ class LDScoreCalculator:
             ignore_index=True,
         )
         merged_table = kernel_ldscore.sort_frame_by_genomic_position(merged_table)
+        _assert_canonical_maf(merged_table)
         baseline_table, query_table = _split_ldscore_table(
             merged_table,
             baseline_columns=list(chromosome_results[0].baseline_columns),
@@ -680,6 +681,26 @@ class LDScoreCalculator:
         """
         del config_snapshot
         return self.output_writer.write(result, output_config)
+
+
+def _assert_canonical_maf(metadata: pd.DataFrame) -> None:
+    """Verify the canonical invariant that MAF = freq(A1) is the minor allele.
+
+    LD-score artifacts inherit A1/A2/MAF from the reference panel. A panel built
+    before allele-orientation canonicalization can carry MAF > 0.5 (folded MAF not
+    tied to A1); fail loudly rather than silently mis-tie MAF to A1.
+    """
+    if "MAF" not in metadata.columns:
+        return
+    maf = pd.to_numeric(metadata["MAF"], errors="coerce")
+    over = maf[maf > 0.5 + 1e-9]
+    if len(over):
+        raise LDSCInternalError(
+            "LD-score metadata carries MAF > 0.5, violating the canonical "
+            f"A1=minor invariant ({len(over)} rows; first={float(over.iloc[0]):.4f}). "
+            "Most likely the reference panel was built before allele-orientation "
+            "canonicalization. Rebuild the reference panel with the current package."
+        )
 
 
 def _split_ldscore_table(

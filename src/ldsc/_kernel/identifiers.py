@@ -240,6 +240,14 @@ def read_global_snp_restriction(
     return _read_chr_pos_restriction(path, genome_build=genome_build, logger=LOGGER if logger is None else logger)
 
 
+_RESTRICTION_KEYS_CACHE: dict[tuple, RestrictionIdentityKeys] = {}
+
+
+def clear_snp_restriction_keys_cache() -> None:
+    """Drop all memoized :func:`read_snp_restriction_keys` results."""
+    _RESTRICTION_KEYS_CACHE.clear()
+
+
 def read_snp_restriction_keys(
     path: str | Path,
     snp_identifier: str,
@@ -252,14 +260,40 @@ def read_snp_restriction_keys(
     The result is a set-like filter for SNP matching only. Duplicate restriction
     keys collapse to one retained key, and columns outside the active identity
     schema, such as ``CM`` or ``MAF``, are ignored rather than propagated.
+
+    Results are memoized by file identity (path, mtime, size) and identifier
+    mode/build, so loading the same map twice in one run -- e.g. the packaged HM3
+    map used for both the reference-panel and regression restrictions -- reparses
+    and re-collapses it once. The cache holds the read-only filter object; call
+    :func:`clear_snp_restriction_keys_cache` to reset it.
     """
     mode = normalize_snp_identifier_mode(snp_identifier)
     genome_build = normalize_genome_build(genome_build)
+    path = Path(path)
+    try:
+        stat = path.stat()
+        cache_key: tuple | None = (str(path.resolve()), stat.st_mtime_ns, stat.st_size, mode, genome_build)
+    except OSError:
+        # Let _read_snp_restriction_table raise the canonical read error.
+        cache_key = None
+    if cache_key is not None and cache_key in _RESTRICTION_KEYS_CACHE:
+        return _RESTRICTION_KEYS_CACHE[cache_key]
+    result = _compute_snp_restriction_keys(path, mode, genome_build, logger)
+    if cache_key is not None:
+        _RESTRICTION_KEYS_CACHE[cache_key] = result
+    return result
+
+
+def _compute_snp_restriction_keys(
+    path: Path,
+    mode: str,
+    genome_build: str | None,
+    logger,
+) -> RestrictionIdentityKeys:
     assert genome_build in {"hg19", "hg38", None}, (
         f"genome_build reached kernel as {genome_build!r}; "
         "should have been resolved at workflow entry."
     )
-    path = Path(path)
     raw_frame = _read_snp_restriction_table(path)
     if len(raw_frame.columns) == 0:
         return RestrictionIdentityKeys(

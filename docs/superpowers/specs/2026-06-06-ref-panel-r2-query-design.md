@@ -3,7 +3,7 @@
 **Date:** 2026-06-06
 **Status:** Approved design (pre-implementation)
 **Topic:** `ref-panel-r2-query`
-**Companion plan:** `docs/superpowers/plans/2026-06-06-ref-panel-r2-query-plan.md` (to be written)
+**Companion plan:** `docs/superpowers/plans/2026-06-06-ref-panel-r2-query-plan.md`
 
 ---
 

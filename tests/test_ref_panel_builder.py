@@ -3201,3 +3201,17 @@ def test_build_ref_panel_excludes_user_bed_region(tmp_path):
     excl_meta = _read_meta(excluded.output_paths["meta_hg38"][0])
     assert target_pos not in set(excl_meta["POS"])
     assert len(excl_meta) == len(base_meta) - int((base_meta["POS"] == target_pos).sum())
+
+
+from ldsc.ref_panel_builder import build_parser, config_from_args
+
+
+def test_build_ref_panel_parser_region_flags():
+    parser = build_parser()
+    args = parser.parse_args(
+        ["--plink-prefix", "p", "--output-dir", "o", "--ld-wind-kb", "1000",
+         "--exclude-regions", "mhc,centromeres", "--exclude-regions-bed", "/tmp/x.bed"]
+    )
+    build_config, _global = config_from_args(args)
+    assert build_config.exclude_regions == ("mhc", "centromeres")
+    assert build_config.exclude_regions_bed == ("/tmp/x.bed",)

@@ -73,6 +73,7 @@ from .path_resolution import (
     resolve_file_group,
     resolve_plink_prefix_group,
     resolve_scalar_path,
+    split_cli_path_tokens,
 )
 from ._logging import configure_package_logging, log_inputs, log_outputs, workflow_logging
 from .errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
@@ -1774,6 +1775,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ld-wind-cm", default=None, type=float, help="LD window size in centiMorgans.")
     parser.add_argument("--maf-min", default=None, type=float, help="Optional MAF filter for retained SNPs.")
     parser.add_argument(
+        "--exclude-regions",
+        default=None,
+        help="Comma-separated curated region presets to exclude before R2 computation (choices: mhc, centromeres). Resolved in the panel's source build and removed from every emitted build.",
+    )
+    parser.add_argument(
+        "--exclude-regions-bed",
+        default=None,
+        help="Comma-separated user BED file path tokens of regions to exclude, applied as-is on source-build CHR/POS (0-based half-open).",
+    )
+    parser.add_argument(
         "--ref-panel-snps-file",
         default=None,
         help=(
@@ -1875,8 +1886,8 @@ def config_from_args(args: argparse.Namespace) -> tuple[ReferencePanelBuildConfi
         keep_indivs_file=args.keep_indivs_file,
         snp_batch_size=args.snp_batch_size,
         min_r2=getattr(args, "min_r2", 0.0),
-        exclude_regions=tuple(getattr(args, "exclude_regions", None) or ()),
-        exclude_regions_bed=tuple(getattr(args, "exclude_regions_bed", None) or ()),
+        exclude_regions=tuple(split_cli_path_tokens(getattr(args, "exclude_regions", None))),
+        exclude_regions_bed=tuple(split_cli_path_tokens(getattr(args, "exclude_regions_bed", None))),
     )
     global_config = GlobalConfig(
         snp_identifier=snp_identifier,

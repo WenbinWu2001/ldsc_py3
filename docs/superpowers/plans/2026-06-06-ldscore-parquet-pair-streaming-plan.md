@@ -640,9 +640,13 @@ git add src/ldsc/_kernel/ldscore.py tests/test_plink_io.py
 git commit -m "perf(ldscore): chunked float64 CSR scatter for parquet LD scores"
 ```
 
-- [ ] **Step 7: Re-profile on the server**
+- [x] **Step 7: Re-profile on the server** — DONE (`7568f72`, `--threads 1`).
 
-Re-run the 2026-06-06 re-profile prompt (chr22 + chr6, `--threads 1`, cProfile + `/usr/bin/time`). Confirm: chr22 ≈ block parity (~45 s, no longer 483 s); chr6 a few minutes (not 111 min); peak RSS ≈ `cor_sum` + ~0.45 GiB chunk; the dominant self-time is no longer `ufunc.at`. Compare LD scores to the saved block-path baseline (expect ≤ ~5e-4).
+Measured: chr22 **45 s** (block parity, 10.7× vs `np.add.at`); chr6 **2 min 36 s**
+(42.75× vs `np.add.at`, vs block DNF); `ufunc.at` 0%, SpMM+CSR build 5.5% — now
+setup-bound (annotation parsing ≈25%); chr6 peak RSS 3.35 GiB; chr22 max |Δ| vs
+block 4.88e-4 (below the ~2e-3 quantization floor). The scatter optimization is
+complete; the remaining lever is annotation/identifier parsing setup (~11 s/chrom).
 
 ### Task 6 notes
 - **Signature preserved:** `_accumulate_pair_contributions` keeps its 6-arg signature, so the Task 2 exact unit tests are unchanged; only the body (np.add.at → CSR) and the driver (chunk buffering) change.

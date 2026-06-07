@@ -100,14 +100,20 @@ pair count. `K` is a fixed constant, independent of `snp_batch_size` and the par
 `cor_sum`, the annotation matrix, the SpMM output, the sidecar — scales with `m·n_a`,
 not `K`.)
 
-## 6. Performance expectation (measured + projected)
+## 6. Performance (measured, `--threads 1`, `7568f72`)
 
-- chr22 (47 s on the block path): an initial `np.add.at` scatter was a **~10×
-  regression** (483 s; 89% of time in numpy's unbuffered `ufunc.at`). The chunked
-  `scipy.sparse` CSR SpMM realization restores chr22 to ~block parity (~setup-bound).
-- chr6 (block path **DNF >38 min** from the `O(b³/c)` blowup): streaming + `np.add.at`
-  completed in 111 min; chunked CSR targets a few minutes (no redundancy + an
-  optimized SpMM kernel). See the 2026-06-06 re-profile report.
+| | block + LRU | streaming + `np.add.at` | **chunked float64 CSR** |
+|---|---:|---:|---:|
+| chr22 wall | 47 s | 483 s | **45 s** |
+| chr6 wall | DNF (>38 min) | 111 min | **2 min 36 s** |
+| chr6 peak RSS | 4.71 GiB | 2.60 GiB | 3.35 GiB |
+
+- chr22 reaches ~block parity (10.7× faster than `np.add.at`); chr6 is 42.75× faster
+  than `np.add.at` and completes where the block path did not.
+- cProfile: `ufunc.at` = 0%, SpMM + CSR build = 5.5% of self-time — the run is now
+  **setup-bound** (annotation/identifier parsing ≈ 25%), not scatter-bound.
+- Correctness: chr22 max |Δ| vs the block path = 4.88e-4 (a multiple of the int16
+  step 1/32768), below the ~2e-3 quantization floor.
 
 ## 7. Scope and non-goals
 

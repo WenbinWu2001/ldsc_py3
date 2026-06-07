@@ -371,3 +371,22 @@ class IndexParquetRuntimeTest(unittest.TestCase):
         # (0,2) dropped: 0 < block_left[2]=1. Others kept.
         ld._accumulate_pair_contributions(cor_sum, i, j, r2, annot, block_left)
         np.testing.assert_allclose(cor_sum[:, 0], [0.4, 1.0, 1.1, 0.5], atol=1e-6)
+
+    def test_streaming_chunk_size_invariant(self):
+        rng = np.random.default_rng(1)
+        n = 12
+        snps = [f"rs{k+1}" for k in range(n)]
+        bps = [100 + 10 * k for k in range(n)]
+        panel = self._panel_meta(snps, bps)
+        pairs = []
+        for a in range(n):
+            for b in range(a + 1, min(a + 4, n)):
+                pairs.append({"i": a, "j": b, "R2": float(rng.uniform(0.05, 0.95)), "sign": "+"})
+        with tempfile.TemporaryDirectory() as tmpdir:
+            r2 = self._write_index_panel(tmpdir, panel, pairs, row_group_size=3)
+            reader = self._reader(r2, self._reader_meta(snps, bps))
+            block_left = np.array([max(0, k - 3) for k in range(n)], dtype=np.int64)
+            annot = rng.uniform(0, 1, size=(n, 3)).astype(np.float32)
+            tiny = ld.ld_score_streaming_from_r2_reader(block_left, annot, reader, chunk_pairs=2)
+            whole = ld.ld_score_streaming_from_r2_reader(block_left, annot, reader, chunk_pairs=10**9)
+            np.testing.assert_allclose(tiny, whole, rtol=0, atol=1e-6)

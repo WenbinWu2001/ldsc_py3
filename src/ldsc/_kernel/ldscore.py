@@ -242,6 +242,8 @@ _LDSCORE_INTERSECTION_DOC = (
     "docs/troubleshooting.md#ldscore-no-annotation-snps-remain-after-reference-panel-intersection"
 )
 _LDSCORE_PARQUET_DOC = "docs/troubleshooting.md#ldscore-parquet-r2-input-is-incompatible"
+# K: stored R2 pairs buffered before one float64 CSR SpMM step (~0.45 GiB/chunk).
+_CSR_CHUNK_PAIRS = 16_000_000
 REQUIRED_ANNOT_COLUMNS = ("CHR", "POS", "SNP", "CM")
 ANNOT_META_COLUMNS = ("CHR", "POS", "SNP", "A1", "A2", "CM", "MAF")
 ANNOTATION_A1_COLUMN_SPEC = ColumnSpec(
@@ -1300,39 +1302,74 @@ def _accumulate_pair_contributions(
     annot: np.ndarray,
     block_left: np.ndarray,
 ) -> None:
-    """Scatter-add one chunk of stored pairs ``(i<j, r2)`` into ``cor_sum``.
+    """Add one chunk of stored pairs ``(i<j, r2)`` to ``cor_sum`` via a float64 CSR SpMM.
 
-    Implements ``cor_sum += R @ annot`` for the off-diagonal pairs of one chunk:
-    each pair contributes ``r2 * annot[j]`` to row ``i`` and ``r2 * annot[i]`` to
-    row ``j`` (R is symmetric). Pairs outside the ldscore window are dropped via
-    ``i >= block_left[j]``. ``np.add.at`` is required because ``i`` (and ``j``)
-    contain repeated indices within a chunk; a buffered ``+=`` would collapse them.
+    Builds the strict-upper-triangular sparse matrix ``U`` of the window-filtered
+    chunk and accumulates ``cor_sum += U @ annot + U.T @ annot`` (R is symmetric).
+    The SpMM is float64 (``U.data`` is float64 and the driver passes a float64
+    ``annot``): scipy accumulates each row sum in the operand dtype, so a float32
+    SpMM would lose ~3e-3 (see ``lessons.md``). Pairs outside the ldscore window are
+    dropped via ``i >= block_left[j]``; the CSR sums repeated row indices natively.
     """
+    from scipy import sparse
+
     keep = i >= block_left[j]
     if not keep.all():
         i, j, r2 = i[keep], j[keep], r2[keep]
     if i.size == 0:
         return
-    np.add.at(cor_sum, i, r2[:, None] * annot[j])
-    np.add.at(cor_sum, j, r2[:, None] * annot[i])
+    m = cor_sum.shape[0]
+    u = sparse.csr_matrix((r2.astype(np.float64, copy=False), (i, j)), shape=(m, m))
+    cor_sum += u @ annot
+    cor_sum += u.T @ annot
 
 
 def ld_score_streaming_from_r2_reader(
     block_left: np.ndarray,
     annot: np.ndarray,
     block_reader: SortedR2BlockReader,
+    chunk_pairs: int = _CSR_CHUNK_PAIRS,
 ) -> np.ndarray:
     """Compute ``cor_sum = R @ annot`` by streaming the parquet's stored R2 pairs.
 
-    The diagonal (R2=1) seeds ``cor_sum`` from ``annot``; each stored within-window
-    pair is then scattered into both endpoints via ``_accumulate_pair_contributions``,
-    restricted to the ldscore window by ``block_left``. Replaces the sliding-block
-    GEMM imitation: each stored pair is touched exactly once (O(nnz * n_a)).
+    The diagonal (R2=1) seeds ``cor_sum`` from ``annot``; stored within-window pairs
+    are buffered into chunks of ~``chunk_pairs`` and accumulated with a float64 CSR
+    SpMM (:func:`_accumulate_pair_contributions`), restricted to the ldscore window
+    by ``block_left``. Each stored pair is touched exactly once (O(nnz * n_a)).
     """
     block_left = np.asarray(block_left, dtype=np.int64)
-    cor_sum = annot.astype(np.float64, copy=True)  # diagonal R2 = 1 for every SNP
+    annot64 = annot.astype(np.float64, copy=False)
+    cor_sum = annot64.copy()  # diagonal R2 = 1 for every SNP
+    buf_i: list[np.ndarray] = []
+    buf_j: list[np.ndarray] = []
+    buf_r2: list[np.ndarray] = []
+    buffered = 0
+
+    def flush() -> None:
+        nonlocal buffered
+        if buffered == 0:
+            return
+        _accumulate_pair_contributions(
+            cor_sum,
+            np.concatenate(buf_i),
+            np.concatenate(buf_j),
+            np.concatenate(buf_r2),
+            annot64,
+            block_left,
+        )
+        buf_i.clear()
+        buf_j.clear()
+        buf_r2.clear()
+        buffered = 0
+
     for i, j, r2 in block_reader.iter_all_pairs():
-        _accumulate_pair_contributions(cor_sum, i, j, r2, annot, block_left)
+        buf_i.append(i)
+        buf_j.append(j)
+        buf_r2.append(r2)
+        buffered += int(i.size)
+        if buffered >= chunk_pairs:
+            flush()
+    flush()
     return np.asarray(cor_sum, dtype=np.float32)
 
 

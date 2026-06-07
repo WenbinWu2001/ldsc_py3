@@ -19,7 +19,7 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from ldsc.config import ConfigMismatchError, GlobalConfig
+from ldsc.config import ConfigMismatchError, GlobalConfig, set_global_config
 from ldsc.errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
 
 try:
@@ -32,7 +32,7 @@ try:
         RefPanelConfig,
     )
     from ldsc import ldscore_calculator as ldscore_workflow
-    from ldsc.ldscore_calculator import build_parser, _ref_panel_from_args, _normalize_run_args
+    from ldsc.ldscore_calculator import build_parser, _ref_panel_from_args, _normalize_run_args, run_ldscore
     from ldsc._kernel import formats as kernel_formats
     from ldsc._kernel import ldscore as kernel_ldscore
     from ldsc._kernel.snp_identity import RestrictionIdentityKeys, empty_identity_drop_frame
@@ -48,6 +48,7 @@ except ImportError:
     build_parser = None
     _ref_panel_from_args = None
     _normalize_run_args = None
+    run_ldscore = None
     kernel_ldscore = None
     RestrictionIdentityKeys = None
     empty_identity_drop_frame = None
@@ -3225,3 +3226,34 @@ def test_ldscore_preset_without_build_rejected():
     normalized, global_config = _normalize_run_args(args)
     with pytest.raises(LDSCConfigError, match="exclude-regions-build"):
         _ref_panel_from_args(normalized, global_config)
+
+
+_CHR22 = Path(__file__).resolve().parent / "fixtures" / "minimal_external_resources" / "plink" / "hm3_chr22_subset"
+
+
+def _chr22_available() -> bool:
+    return all(Path(str(_CHR22) + ext).exists() for ext in (".bed", ".bim", ".fam"))
+
+
+def test_ldscore_end_to_end_drops_user_bed_snp(tmp_path):
+    if not _chr22_available():
+        pytest.skip("chr22 PLINK fixture unavailable; run tests/fixtures/generate_minimal_external_resources.py")
+    set_global_config(GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"))
+
+    # Discover a real emitted POS from a no-exclusion panel load.
+    base_meta = PlinkRefPanel(
+        GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
+        RefPanelConfig(backend="plink", plink_prefix=str(_CHR22)),
+    ).load_metadata("22")
+    target_pos = int(base_meta["POS"].iloc[0])
+
+    bed = tmp_path / "exclude.bed"
+    bed.write_text(f"22\t{target_pos - 1}\t{target_pos}\n", encoding="utf-8")
+
+    result = run_ldscore(
+        plink_prefix=str(_CHR22),
+        output_dir=str(tmp_path / "ld"),
+        ld_wind_snps=10,
+        exclude_regions_bed=(str(bed),),
+    )
+    assert target_pos not in set(result.baseline_table["POS"])

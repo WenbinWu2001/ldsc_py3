@@ -74,10 +74,12 @@ a no-op.
 
 ## 4. Numerics
 
-The accumulation order differs from the blocked GEMM, so results are **not
-bit-identical** — expect ≈1e-6 drift (float32 products accumulated into a float64
-`cor_sum`). This is well within the LD-score tolerances already used by the parity
-tests (`atol≈2e-5` per pair; LD-score deltas ≤~2e-3 from int16 quantization alone).
+The accumulation runs in **float64** (`U.data` and `annot` cast to float64), so it
+matches an exact float64 reference (a float32 SpMM would lose ~3e-3; §7). Results
+are **not bit-identical** to the legacy genotype-block path (that path used float32
+GEMM) — they differ by ~5e-4 (float rounding, observed on chr22), well within the
+LD-score tolerances already used by the parity tests (`atol≈2e-5` per pair;
+LD-score deltas ≤~2e-3 from int16 quantization alone).
 
 Guardrails:
 - **Exact** hand-computed unit tests on tiny fixtures (no float drift at small scale)

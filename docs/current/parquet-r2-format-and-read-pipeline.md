@@ -278,9 +278,10 @@ annotation. `annot` carries the partitioned annotation columns plus the
 regression-weight column, so a single pass yields both the reference and
 regression-universe LD scores.
 
-`cor_sum` accumulates in `float64` from `float32` products, so results are *not
-bit-identical* to the legacy genotype-block path (≈1e-6 drift from accumulation
-order), well within LD-score tolerances.
+`cor_sum` and the SpMMs run in `float64`, so the result matches a float64 reference;
+it is *not bit-identical* to the legacy genotype-block path (which used float32
+GEMM), differing only by ~5e-4 (float rounding), well below the int16 quantization
+floor.
 
 The full step-by-step math, with a glossary defining every symbol, is in
 `docs/current/ldscore-parquet-accumulation.md`.

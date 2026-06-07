@@ -476,7 +476,7 @@ git commit -m "refactor(ldscore): remove block/query/cache machinery for streami
 ## Self-Review Notes
 
 - **Spec coverage:** §2 streaming idea → Tasks 1-3; §3 window filter → Task 2 filter test; §4 numerics (exact small + parity at tolerance) → Tasks 2/4; §5 memory (no cache) → Task 5 deletion; §7 parquet-only → no PLINK file touched; §8 affected modules → Tasks 3/5.
-- **Correctness landmine:** duplicate left indices within a row group require `np.add.at`, not `+=` — locked by `test_accumulate_handles_duplicate_left_index` (Task 2).
+- **Correctness landmine:** repeated left indices within a chunk must accumulate (not overwrite) — the Task 2 `np.add.at` and the Task 6 CSR SpMM both sum shared rows; locked by `test_accumulate_handles_duplicate_left_index`. (Task 6 adds a second landmine: the SpMM must be **float64**, else ~3e-3 precision loss.)
 - **Not bit-identical by design:** Task 3 parity test and Task 4 use tolerance (`rtol/atol ~1e-5`); a *large* diff means a logic bug (window filter / orientation), not drift — Task 4 Step 2 makes this distinction explicit.
 - **Design docs kept current:** Task 5 Step 5 sweeps *all* `docs/current` files + `design_map.md` (not just the two revised in the design phase) with a grep gate that must return no live references to the removed cache/block/query mechanism (`architecture.md`, `layer-structure.md`, `io-argument-inventory.md`, `inference-genome-build.md` are explicitly listed). This enforces "all design docs up to date after the code lands."
 - **`--snp-batch-size` becomes a parquet-read no-op** (Task 5 Step 4): the flag is kept but documented as not affecting parquet LD-score reads (still used by `build-ref-panel`). A later cleanup could deprecate it if desired.

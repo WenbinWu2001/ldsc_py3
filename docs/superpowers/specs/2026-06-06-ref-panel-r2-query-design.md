@@ -38,7 +38,8 @@ This feature adds two user-facing capabilities:
 - Structured-column pair input (CHR/POS/A1/A2 and/or SNP per endpoint), keyed
   through the package's existing identity system in the panel's mode.
 - Allele-order/strand-agnostic **matching** (inherited from the identity system)
-  and **sign harmonization to the query's allele orientation**.
+  and **sign harmonization to the query's allele orientation** in allele-aware
+  modes (base modes return `NA` sign; see §9).
 - Auto-selected lookup strategy (random-access row-group pruning vs. streaming).
 - A `query-r2` CLI subcommand.
 - Validation, error handling, logging, and tests.
@@ -181,6 +182,10 @@ For each pair, each endpoint resolves to `(chrom, row_index)`:
 numeric `r2` (including the diagonal). It carries the cause only for `NaN` rows.
 The status vocabulary is the closed set `{not_in_panel, cross_chromosome, absent}`.
 
+The `sign` column is independent of `status` and is governed solely by the
+identifier mode (§9): determinate `±1` in allele-aware modes, always `NA` in base
+modes. `status` never reports a sign-related cause.
+
 ## 8. Lookup kernel (`_kernel/r2_query.py`)
 
 Same-chromosome, non-diagonal pairs are grouped by chromosome. Each group is
@@ -209,22 +214,30 @@ rows. A legacy `float32` R² column (no `r2_scale`) is read unscaled.
 Overridable via `strategy ∈ {"auto","random","stream"}` and `strategy_threshold`.
 A parity test asserts `random` and `stream` produce identical results.
 
-## 9. Sign harmonization (to query orientation)
+## 9. Sign (allele-aware modes only)
 
-The stored `SIGN` is the sign of Pearson `r` **in the panel's A1/A2 orientation**.
-The returned sign is harmonized to the **query's** allele coding:
+**Sign is produced only in allele-aware modes** (`rsid_allele_aware`,
+`chr_pos_allele_aware`). In base modes (`rsid`, `chr_pos`) **no allele
+information is consulted at all** — not for matching, not for orientation — so
+`sign` is **always `NA`** (direction unknown), while `r2` is returned normally by
+position/rsID matching. Any A1/A2 columns supplied in a base-mode query are
+ignored entirely (so the row-B "no alleles" and row-C "mismatched alleles" cases
+from brainstorming behave identically).
 
-- For each endpoint, classify the query `(A1,A2)` against the panel `(A1,A2)`,
-  allowing strand complement:
+In allele-aware modes the returned sign is harmonized to the **query's** allele
+coding. The stored `SIGN` is the sign of Pearson `r` in the panel's A1/A2
+orientation; we re-orient it to the query's:
+
+- For each endpoint, classify query `(A1,A2)` against panel `(A1,A2)`, allowing
+  strand complement:
   - **aligned** iff query `A1 ∈ {panel A1, complement(panel A1)}`,
   - **swapped** iff query `A1 ∈ {panel A2, complement(panel A2)}`.
-  Exactly one holds for matchable SNPs (strand-ambiguous pairs are already
-  excluded by allele-aware matching).
-- The pair sign multiplier is `(−1)^(number of swapped endpoints)` — parity over
-  the two endpoints (two swaps cancel; strand flip *without* order swap does not
+  Exactly one holds (strand-ambiguous pairs are already excluded from matching).
+- Pair sign multiplier is `(−1)^(number of swapped endpoints)` — parity over the
+  two endpoints (two swaps cancel; a strand flip *without* order swap does not
   flip).
 
-Worked cases (panel: SNP1 `A/G`, SNP2 `C/T`, stored `r = +0.8`):
+Worked cases (allele-aware mode; panel SNP1 `A/G`, SNP2 `C/T`, stored `r = +0.8`):
 
 | query SNP1 | query SNP2 | swapped count | harmonized r |
 |---|---|---|---|
@@ -234,13 +247,11 @@ Worked cases (panel: SNP1 `A/G`, SNP2 `C/T`, stored `r = +0.8`):
 | `T/C` (strand flip) | `C/T` | 0 | `+0.8` |
 | `C/T` (flip+swap) | `C/T` | 1 | `−0.8` |
 
-**Base-mode / missing-allele fallback.** Harmonization needs query A1/A2. In
-allele-aware modes they are mandatory. In base `chr_pos`/`rsid` mode, if a row
-lacks query alleles — or the query alleles do not correspond to the panel
-alleles even after complement — the sign **cannot** be harmonized: `sign` is set
-to `NA` while `r2` stays numeric. (Per §7, a numeric `r2` keeps `status == ""`;
-an `NA` sign alongside a numeric `r2` is the self-documenting signal that the
-sign was not harmonizable.)
+**No `NA` sign on a valid `r2` in allele-aware modes.** Query alleles are
+mandatory there and a matched pair's alleles correspond to the panel by
+construction, so every numeric-`r2` pair gets a determinate `±1`. Therefore an
+`NA` sign on a valid `r2` has exactly one meaning — **base mode** — which is
+fully documented behavior and needs no extra status code or diagnostic column.
 
 ## 10. Output schema
 
@@ -250,7 +261,7 @@ in original row order, plus:
 | Column | Dtype | Meaning |
 |---|---|---|
 | `r2` | `float32` | adjusted (unbiased) R² as stored, dequantized; `NaN` per §7 |
-| `sign` | `Int8` | harmonized sign `+1`/`−1`; `NA` where `r2` is `NaN` or sign unharmonizable (§9) |
+| `sign` | `Int8` | allele-aware modes: harmonized `+1`/`−1` (`NA` only where `r2` is `NaN`). Base modes: always `NA` (§9) |
 | `status` | `string` | `""` for valid `r2`, else the cause (`not_in_panel` / `cross_chromosome` / `absent`) |
 | `r` | `float64` | **only when `with_r=True`** — signed Pearson `r` (§11); `NaN` where `r2` is `NaN` or `sign` is `NA` |
 
@@ -274,6 +285,10 @@ def unbiased_r2_to_pearson_r(r2_adj, n, sign=None):
   feeds `panel.n_samples` and the harmonized `sign` column to add the `r` column.
 - If `n_samples` is absent (legacy panel without `ldsc:n_samples`) and `with_r`
   is requested, raise an actionable `LDSCInputError`.
+- In a **base mode** the `sign` column is all `NA` (§9), so `with_r` yields an
+  all-`NaN` `r` column. This is logged as a warning pointing users to an
+  allele-aware panel/mode for signed `r`; it is not an error (the magnitude is in
+  `r2`).
 
 Inversion derivation: from `r2_adj = r2_raw − (1 − r2_raw)/(n − 2)`,
 `r2_raw = (r2_adj·(n − 2) + 1)/(n − 1)`.
@@ -311,7 +326,8 @@ Actionable errors in the package style (cause + most-likely + fix):
   input still yields real `r`; `sign=None` returns magnitude; scalar & array `n`.
 - **Key resolution:** each of the four identifier modes resolves endpoints to the
   expected rows; allele-order/strand variants collapse to the same row.
-- **Sign harmonization:** the five §9 cases; base-mode fallback → `NA` sign.
+- **Sign:** the five §9 allele-aware cases; base mode → `sign` always `NA`
+  (alleles ignored); `with_r` in base mode → all-`NaN` `r` + warning.
 - **Integration:** build a tiny panel (reuse builder fixtures), query known
   pairs; assert diagonal `= 1.0`, stored pairs match within quantization
   tolerance (`|err| ≤ 1.5e-5`), `absent`/`cross_chromosome`/`not_in_panel` →
@@ -348,5 +364,3 @@ and the sidecar reader used by `ParquetR2RefPanel.load_metadata`.
   added later behind the same API without breaking structured-column callers.
 - Additional query shapes (SNP-set matrix, focal-SNP neighbors) can build on the
   same kernel.
-- A per-row diagnostic for `NA`-sign rows (why harmonization failed) could be
-  added as an opt-in column without changing defaults.

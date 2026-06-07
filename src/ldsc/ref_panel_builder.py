@@ -692,6 +692,8 @@ class ReferencePanelBuilder:
                 f"No {source_build} genetic map was provided; "
                 f"{source_build} metadata CM values will be written as NA."
             )
+        # Mirrors RefPanel._region_intervals in _kernel/ref_panel.py (ldscore layer); the two
+        # are kept separate by the public/kernel boundary. Keep them in sync if loading changes.
         region_groups: list[kernel_regions.RegionIntervals] = []
         if config.exclude_regions:
             region_groups.append(kernel_regions.load_preset_intervals(list(config.exclude_regions), source_build))
@@ -807,6 +809,9 @@ class ReferencePanelBuilder:
             dropped = int((~region_keep).sum())
             if dropped:
                 LOGGER.info(f"Region exclusion dropped {dropped} SNPs on chromosome {chrom} (source build).")
+            # Keep the original PLINK-row index as labels here (no reset_index): downstream
+            # identity cleanup, restriction, and liftover look rows up via
+            # chrom_metadata.loc[keep_snps] and the _plink_row_index column.
             chrom_metadata = chrom_metadata[region_keep]
             keep_snps = chrom_metadata["_plink_row_index"].to_numpy(dtype=int)
             if len(keep_snps) == 0:
@@ -823,6 +828,9 @@ class ReferencePanelBuilder:
                 active_restriction,
                 build_state.restriction_mode,
             )
+            # Use _plink_row_index, not chrom_metadata.index: region exclusion may have
+            # compacted the frame, so the positional index no longer maps to PLINK rows;
+            # the column preserves the original indices keep_mask selects against.
             keep_snps = chrom_metadata["_plink_row_index"].to_numpy(dtype=int)[keep_mask]
             if len(keep_snps) == 0:
                 _write_dropped_sidecar(_empty_unified_drop_frame(), sidecar_path, chrom)

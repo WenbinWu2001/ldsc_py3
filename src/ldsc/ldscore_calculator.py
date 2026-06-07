@@ -874,6 +874,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Restrict the reference-panel universe to the packaged curated HM3 SNP map.",
     )
     parser.add_argument(
+        "--exclude-regions",
+        default=None,
+        help="Comma-separated curated region presets to exclude before LD computation (choices: mhc, centromeres). Requires --exclude-regions-build.",
+    )
+    parser.add_argument(
+        "--exclude-regions-build",
+        choices=("hg19", "hg38"),
+        default=None,
+        help="Genome build of the panel coordinates, used to select preset BEDs. Required whenever --exclude-regions is given.",
+    )
+    parser.add_argument(
+        "--exclude-regions-bed",
+        default=None,
+        help="Comma-separated user BED file path tokens of regions to exclude, applied as-is on panel CHR/POS (0-based half-open).",
+    )
+    parser.add_argument(
         "--regression-snps-file",
         default=None,
         help=(
@@ -1246,6 +1262,9 @@ def _normalize_run_args(args: argparse.Namespace) -> tuple[argparse.Namespace, G
     for attr in ("ref_panel_snps_file", "regression_snps_file"):
         if not hasattr(normalized_args, attr):
             setattr(normalized_args, attr, None)
+    for attr in ("exclude_regions", "exclude_regions_build", "exclude_regions_bed"):
+        if not hasattr(normalized_args, attr):
+            setattr(normalized_args, attr, None)
     for attr in ("use_hm3_ref_panel_snps", "use_hm3_regression_snps"):
         if not hasattr(normalized_args, attr):
             setattr(normalized_args, attr, False)
@@ -1263,6 +1282,9 @@ def _normalize_run_args(args: argparse.Namespace) -> tuple[argparse.Namespace, G
     normalized_args.keep_indivs_file = normalize_optional_path_token(getattr(args, "keep_indivs_file", None))
     normalized_args.ref_panel_snps_file = normalize_optional_path_token(getattr(args, "ref_panel_snps_file", None))
     normalized_args.regression_snps_file = normalize_optional_path_token(getattr(args, "regression_snps_file", None))
+    normalized_args.exclude_regions = getattr(args, "exclude_regions", None)
+    normalized_args.exclude_regions_build = getattr(args, "exclude_regions_build", None)
+    normalized_args.exclude_regions_bed = getattr(args, "exclude_regions_bed", None)
     if normalized_args.ref_panel_snps_file is not None and normalized_args.use_hm3_ref_panel_snps:
         raise LDSCUsageError(
             "ldscore received two reference-panel SNP restrictions: `ref_panel_snps_file` "
@@ -1454,6 +1476,9 @@ def _ref_panel_from_args(args: argparse.Namespace, global_config: GlobalConfig):
             use_hm3_ref_panel_snps=getattr(args, "use_hm3_ref_panel_snps", False),
             maf_min=getattr(args, "maf_min", None),
             keep_indivs_file=getattr(args, "keep_indivs_file", None),
+            exclude_regions=tuple(split_cli_path_tokens(getattr(args, "exclude_regions", None))),
+            exclude_regions_bed=tuple(split_cli_path_tokens(getattr(args, "exclude_regions_bed", None))),
+            exclude_regions_build=getattr(args, "exclude_regions_build", None),
         )
     else:
         spec = RefPanelConfig(
@@ -1463,6 +1488,9 @@ def _ref_panel_from_args(args: argparse.Namespace, global_config: GlobalConfig):
             use_hm3_ref_panel_snps=getattr(args, "use_hm3_ref_panel_snps", False),
             maf_min=getattr(args, "maf_min", None),
             keep_indivs_file=getattr(args, "keep_indivs_file", None),
+            exclude_regions=tuple(split_cli_path_tokens(getattr(args, "exclude_regions", None))),
+            exclude_regions_bed=tuple(split_cli_path_tokens(getattr(args, "exclude_regions_bed", None))),
+            exclude_regions_build=getattr(args, "exclude_regions_build", None),
         )
     return RefPanelLoader(global_config).load(spec)
 

@@ -13,6 +13,7 @@ import warnings
 
 import numpy as np
 import pandas as pd
+import pytest
 
 SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
@@ -31,6 +32,7 @@ try:
         RefPanelConfig,
     )
     from ldsc import ldscore_calculator as ldscore_workflow
+    from ldsc.ldscore_calculator import build_parser, _ref_panel_from_args, _normalize_run_args
     from ldsc._kernel import formats as kernel_formats
     from ldsc._kernel import ldscore as kernel_ldscore
     from ldsc._kernel.snp_identity import RestrictionIdentityKeys, empty_identity_drop_frame
@@ -43,6 +45,9 @@ except ImportError:
     RefPanelConfig = None
     kernel_formats = None
     ldscore_workflow = None
+    build_parser = None
+    _ref_panel_from_args = None
+    _normalize_run_args = None
     kernel_ldscore = None
     RestrictionIdentityKeys = None
     empty_identity_drop_frame = None
@@ -3196,3 +3201,27 @@ class R2DequantizationTest(unittest.TestCase):
             self.assertIsNone(reader._r2_scale)
             decoded = reader._decode_index_row_group(0)
             self.assertAlmostEqual(float(decoded.r2[0]), 0.5, delta=1e-7)
+
+
+def test_ldscore_parser_accepts_region_flags():
+    parser = build_parser()
+    args = parser.parse_args(
+        ["--output-dir", "o", "--plink-prefix", "p", "--ld-wind-cm", "1",
+         "--exclude-regions", "mhc,centromeres", "--exclude-regions-build", "hg19",
+         "--exclude-regions-bed", "/tmp/a.bed,/tmp/b.bed"]
+    )
+    assert args.exclude_regions == "mhc,centromeres"
+    assert args.exclude_regions_build == "hg19"
+    assert args.exclude_regions_bed == "/tmp/a.bed,/tmp/b.bed"
+
+
+def test_ldscore_preset_without_build_rejected():
+    parser = build_parser()
+    args = parser.parse_args(
+        ["--output-dir", "o", "--plink-prefix", "p", "--ld-wind-cm", "1",
+         "--snp-identifier", "chr_pos_allele_aware", "--genome-build", "hg19",
+         "--exclude-regions", "mhc"]
+    )
+    normalized, global_config = _normalize_run_args(args)
+    with pytest.raises(LDSCConfigError, match="exclude-regions-build"):
+        _ref_panel_from_args(normalized, global_config)

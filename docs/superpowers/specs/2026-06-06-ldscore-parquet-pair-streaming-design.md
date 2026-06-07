@@ -89,8 +89,8 @@ Guardrails:
 
 ## 5. Memory
 
-`O(m · n_a)` for `cor_sum` plus one **CSR chunk** (~`K` pairs and its sparse matrix,
-≈`24·K` bytes). The package fixes **`K = 16M` pairs ⇒ ~0.4 GiB chunk**, bounding the
+`O(m · n_a)` for `cor_sum` plus one **CSR chunk** (~`K` pairs and its float64 sparse
+matrix, ≈`28·K` bytes). The package fixes **`K = 16M` pairs ⇒ ~0.45 GiB chunk**, bounding the
 scatter footprint independent of the LD window width **and** the chromosome's total
 pair count. `K` is a fixed constant, independent of `snp_batch_size` and the parquet
 `row_group_size` (chunks accumulate whole decoded row groups until ~`K` pairs), and
@@ -124,8 +124,11 @@ not `K`.)
 `scipy.sparse` CSR SpMM** — `cor_sum = annot + U·annot + Uᵀ·annot`, with `U` (the
 strict-upper-triangular pair matrix) built and multiplied per chunk of ~`K` pairs.
 An initial `np.add.at` implementation was correct but ~10× slower on chr22 (numpy's
-unbuffered scatter), so it was replaced. Chunking keeps the result exact (linearity:
-`(ΣUc)·annot = Σ(Uc·annot)`) while bounding memory. (`scipy` is already a dependency.)
+unbuffered scatter), so it was replaced. The SpMMs run in **float64** (`U.data` and
+`annot` cast to float64) — a float32 SpMM accumulates row sums in float32 and loses
+~3e-3; float64 is exact vs a float64 reference and still ~75× faster than `np.add.at`
+(benchmarked). Chunking keeps the result exact (linearity: `(ΣUc)·annot = Σ(Uc·annot)`)
+while bounding memory. (`scipy` is already a dependency.)
 See `docs/current/ldscore-parquet-accumulation.md` §5 for the math + numeric example.
 
 ## 8. Affected modules

@@ -217,10 +217,12 @@ $K$ (the chunk's target pair count) is a fixed memory-budget constant, **indepen
 of** the PLINK `snp_batch_size` and the parquet `row_group_size`: chunks are formed
 by accumulating whole decoded row groups until $\sim K$ pairs are buffered. $K$ is
 bounded **below** by $m$ (so the size-$(m{+}1)$ `indptr` rebuilt per chunk is
-amortized) and **above** by the per-chunk RAM budget ($\approx 24K$ bytes — buffered
-pairs $12K$ + CSR $8K$ + sort workspace). The package fixes
-$K = 1.6\times10^{7}$ pairs, so the chunk's footprint is $\approx 0.4$ GiB and the
-scatter never dominates peak RSS. Note this caps the *scatter* memory only; the
+amortized) and **above** by the per-chunk RAM budget ($\approx 28K$ bytes — buffered
+pairs $12K$ + CSR $12K$ with float64 `data` + sort workspace). The package fixes
+$K = 1.6\times10^{7}$ pairs, so the chunk's footprint is $\approx 0.45$ GiB and the
+scatter never dominates peak RSS. The SpMMs are computed in **float64** ($U$'s
+`data` and $A$ cast to float64); a float32 SpMM accumulates each row sum in float32
+and loses ~3e-3 (above the quantization floor — see §6.5). Note this caps the *scatter* memory only; the
 window-independent fixed term ($C$, the annotation matrix, the $UA$ SpMM output, the
 sidecar) scales with $m\,n_a$, not $K$ (§7).
 
@@ -257,15 +259,15 @@ Either way the $v_{ij}$ entering §5 is the final R². Possible small negative
 $v_{ij}$ (≈15% of pairs) are preserved, not floored.
 
 ### 6.5 Numerical precision
-$C$ accumulates in `float64` from `float32` products. Two things reorder the
-floating-point sums relative to the legacy genotype-block path: the streaming order
-itself, and the chunk partition (a SNP's neighbours split across chunks are summed
-across chunk boundaries). Both are **reorderings of an exact sum** — no pair is
-dropped, quantized, or thresholded — so results are *not bit-identical* but differ
-only at float rounding (≈1e-6), well within LD-score tolerances (int16 quantization
-alone already perturbs per-SNP LD scores by ≤~2e-3). The chunk size $K$ changes only
-the summation order, not which pairs are summed; different $K$ agree to float
-rounding.
+$C$ and the two SpMMs run in **float64** ($U$'s `data` and $A$ are cast to float64).
+This matters: scipy's CSR·dense product accumulates each row sum in the *operand*
+dtype, so a float32 SpMM sums hundreds of within-window terms in float32 and loses
+~3e-3 — above the int16 quantization floor. In float64 the result matches an exact
+float64 reference, and chunking only **reorders an exact sum** (§5 linearity), so
+different $K$ agree to ~1e-12 — no pair is dropped, quantized, or thresholded.
+Results are *not bit-identical* to the legacy genotype-block path (that path used
+float32 GEMM), but differ only at float rounding (~5e-4), well below the int16
+quantization floor (≤~2e-3).
 
 ---
 

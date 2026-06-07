@@ -272,7 +272,8 @@ narrower than the panel's build window: a stored pair contributes iff
 `i ≥ block_left[j]`. The accumulation is realized as `cor_sum = annot + U·annot +
 Uᵀ·annot`, where `U` is the strict-upper-triangular CSR of the streamed pairs, built
 and multiplied in **chunks** of ~`K` pairs to bound memory (chunked CSR SpMM, not
-element-wise scatter). Cost is `O(nnz · n_a)` — each stored pair is touched once per
+element-wise scatter). The SpMMs run in **float64** (`U.data` and `annot` cast to
+float64); a float32 SpMM accumulates row sums in float32 and loses ~3e-3. Cost is `O(nnz · n_a)` — each stored pair is touched once per
 annotation. `annot` carries the partitioned annotation columns plus the
 regression-weight column, so a single pass yields both the reference and
 regression-universe LD scores.
@@ -297,11 +298,11 @@ Peak reader RSS is bounded by the accumulator plus one CSR chunk (~`K` pairs and
 sparse matrix), and the workflow/import floor:
 
 ```
-RSS ≈ m · n_a · 8 bytes  (cor_sum, float64)  +  ~24·K bytes  (one chunk + its CSR)  +  fixed floor
+RSS ≈ m · n_a · 8 bytes  (cor_sum, float64)  +  ~28·K bytes  (one chunk + its float64 CSR)  +  fixed floor
 ```
 
 For chr6 (`m ≈ 664k`, `n_a ≈ 57`): `cor_sum ≈ 303 MiB`; one chunk at the fixed
-`K = 16M` adds ~0.4 GiB. The chunk size `K` (not the chromosome's total pair count)
+`K = 16M` adds ~0.45 GiB. The chunk size `K` (not the chromosome's total pair count)
 caps the chunk term, so the scatter footprint stays bounded regardless of how dense
 or wide the chromosome is. Two consequences vs. the prior block reader:
 

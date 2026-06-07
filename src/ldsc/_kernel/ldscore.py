@@ -545,6 +545,9 @@ def _load_full_panel_sidecar(r2_path: str) -> pd.DataFrame:
         resolve_required_column(df.columns, A1_COLUMN_SPEC, context=context): "A1",
         resolve_required_column(df.columns, A2_COLUMN_SPEC, context=context): "A2",
     }
+    cm_col = resolve_optional_column(df.columns, REFERENCE_METADATA_SPEC_MAP["CM"], context=context)
+    if cm_col is not None:
+        renamed[cm_col] = "CM"
     return df.rename(columns=renamed)
 
 
@@ -1031,6 +1034,216 @@ def check_whole_chromosome_window(block_left: np.ndarray, args: argparse.Namespa
         )
 
 
+@dataclass(frozen=True)
+class _LDWindowSpec:
+    mode: str
+    value: float
+
+    @property
+    def flag(self) -> str:
+        return {
+            "snps": "--ld-wind-snps",
+            "kb": "--ld-wind-kb",
+            "cm": "--ld-wind-cm",
+        }[self.mode]
+
+
+def _format_ld_window_spec(spec: _LDWindowSpec) -> str:
+    """Return the CLI spelling of one LD-window specification."""
+    return f"{spec.flag} {spec.value}"
+
+
+def _requested_ld_window_spec(args: argparse.Namespace) -> _LDWindowSpec:
+    """Return the user-requested LD-window mode and value from parsed args."""
+    if args.ld_wind_snps is not None:
+        return _LDWindowSpec("snps", float(args.ld_wind_snps))
+    if args.ld_wind_kb is not None:
+        return _LDWindowSpec("kb", float(args.ld_wind_kb))
+    if args.ld_wind_cm is not None:
+        return _LDWindowSpec("cm", float(args.ld_wind_cm))
+    raise LDSCUsageError(
+        "ldscore could not validate the parquet R2 panel LD window because no "
+        "user LD-window option was set. Most likely argument validation was "
+        "bypassed. Specify exactly one of `--ld-wind-snps`, `--ld-wind-kb`, or "
+        "`--ld-wind-cm`."
+    )
+
+
+def _read_r2_panel_ld_window_spec(path: str) -> _LDWindowSpec | None:
+    """Read build-time LD-window metadata from one canonical R2 parquet."""
+    try:
+        import pyarrow.parquet as pq
+    except ImportError as exc:
+        raise LDSCDependencyError(
+            "ldscore could not validate the parquet R2 panel LD window because "
+            "pyarrow is not installed. Most likely parquet reference-panel mode "
+            "was requested in an environment missing pyarrow. Install pyarrow or "
+            "use PLINK reference-panel input instead."
+        ) from exc
+
+    schema_meta = pq.read_schema(str(path)).metadata or {}
+    mode_raw = schema_meta.get(b"ldsc:ld_window_mode")
+    value_raw = schema_meta.get(b"ldsc:ld_window_value")
+    if mode_raw is None and value_raw is None:
+        return None
+    if mode_raw is None or value_raw is None:
+        raise LDSCInputError(
+            f"ldscore could not validate the LD window for R2 parquet '{path}': "
+            "the parquet has incomplete ldsc:ld_window_* schema metadata. Most "
+            "likely the artifact was edited or written by an incompatible "
+            "development version. Regenerate the reference panel with "
+            "`ldsc build-ref-panel`."
+        )
+    mode = mode_raw.decode("utf-8")
+    if mode not in {"snps", "kb", "cm"}:
+        raise LDSCInputError(
+            f"ldscore could not validate the LD window for R2 parquet '{path}': "
+            f"unsupported parquet ldsc:ld_window_mode={mode!r}. Most likely the "
+            "artifact was edited or written by an incompatible development "
+            "version. Regenerate the reference panel with `ldsc build-ref-panel`."
+        )
+    try:
+        value = float(value_raw.decode("utf-8"))
+    except ValueError as exc:
+        raise LDSCInputError(
+            f"ldscore could not validate the LD window for R2 parquet '{path}': "
+            f"parquet ldsc:ld_window_value={value_raw.decode('utf-8', errors='replace')!r} "
+            "is not numeric. Most likely the artifact schema metadata was edited "
+            "or corrupted. Regenerate the reference panel with `ldsc build-ref-panel`."
+        ) from exc
+    if value <= 0:
+        raise LDSCInputError(
+            f"ldscore could not validate the LD window for R2 parquet '{path}': "
+            f"parquet ldsc:ld_window_value={value} is not positive. Most likely "
+            "the artifact schema metadata was edited or corrupted. Regenerate the "
+            "reference panel with `ldsc build-ref-panel`."
+        )
+    return _LDWindowSpec(mode, value)
+
+
+def _r2_panel_ld_window_spec(parquet_paths: Sequence[str]) -> _LDWindowSpec | None:
+    """Return the common recorded LD-window spec for a parquet R2 input set."""
+    panel_spec: _LDWindowSpec | None = None
+    for path in parquet_paths:
+        current = _read_r2_panel_ld_window_spec(path)
+        if current is None:
+            continue
+        if panel_spec is None:
+            panel_spec = current
+            continue
+        if current != panel_spec:
+            raise LDSCInputError(
+                "ldscore could not validate the parquet R2 panel LD window because "
+                "the resolved parquet files record conflicting build windows: "
+                f"`{_format_ld_window_spec(panel_spec)}` and "
+                f"`{_format_ld_window_spec(current)}`. Most likely files from "
+                "different reference-panel builds were mixed in one input. Use a "
+                "single coherent `--r2-dir` or regenerate the panel."
+            )
+    return panel_spec
+
+
+def _block_left_for_window_spec(metadata: pd.DataFrame, spec: _LDWindowSpec, *, context: str) -> np.ndarray:
+    """Compute ``block_left`` for an LD-window spec against one metadata table."""
+    if spec.mode == "snps":
+        coords = np.arange(len(metadata), dtype=float)
+        max_dist = spec.value
+    elif spec.mode == "kb":
+        if "POS" not in metadata.columns:
+            raise LDSCInputError(
+                f"ldscore could not validate the parquet R2 panel LD window for {context}: "
+                "position metadata is missing. Most likely the R2 sidecar is malformed. "
+                "Regenerate the reference panel with `ldsc build-ref-panel`."
+            )
+        coords = metadata["POS"].to_numpy(dtype=float)
+        max_dist = spec.value * 1000.0
+    else:
+        if "CM" not in metadata.columns or metadata["CM"].isna().any():
+            raise LDSCInputError(
+                f"ldscore could not validate the parquet R2 panel LD window for {context}: "
+                "CM metadata is missing for at least one panel SNP, but the parquet "
+                f"records a cM build window `{_format_ld_window_spec(spec)}`. Most "
+                "likely the sidecar is incomplete or was edited. Regenerate the "
+                "reference panel with complete genetic-map metadata."
+            )
+        coords = metadata["CM"].to_numpy(dtype=float)
+        max_dist = spec.value
+    return get_block_lefts(coords, max_dist).astype(np.int64, copy=False)
+
+
+def _raise_ldscore_window_exceeds_panel_window(
+    *,
+    requested: _LDWindowSpec,
+    panel: _LDWindowSpec,
+    chrom: str,
+) -> None:
+    """Raise the user-facing parquet-window mismatch error."""
+    raise LDSCUsageError(
+        f"ldscore cannot compute chromosome {chrom} from the R2 parquet reference "
+        f"panel: the user-requested LD window `{_format_ld_window_spec(requested)}` "
+        f"is wider than the input R2 parquet panel window "
+        f"`{_format_ld_window_spec(panel)}`. Most likely the parquet reference "
+        "panel was built with a smaller LD window, so it does not contain all "
+        "SNP pairs required by this ldscore run. Rebuild the R2 parquet panel "
+        f"with `{_format_ld_window_spec(requested)}` or a wider build window, or "
+        f"rerun ldscore with an LD window no wider than the recorded panel window "
+        f"`{_format_ld_window_spec(panel)}`."
+    )
+
+
+def validate_ldscore_window_within_r2_panel_window(
+    args: argparse.Namespace,
+    *,
+    parquet_paths: Sequence[str],
+    chrom: str,
+    metadata: pd.DataFrame | None = None,
+    requested_block_left: np.ndarray | None = None,
+) -> None:
+    """Reject ldscore windows wider than the recorded R2 parquet build window.
+
+    Old parquet artifacts without ``ldsc:ld_window_*`` metadata cannot be checked
+    reliably, so they retain their previous behavior. When metadata is supplied,
+    the comparison is exact in retained SNP space and supports mixed units.
+    """
+    panel_spec = _r2_panel_ld_window_spec(parquet_paths)
+    if panel_spec is None:
+        return
+    requested_spec = _requested_ld_window_spec(args)
+
+    if metadata is None or requested_block_left is None:
+        if requested_spec.mode == panel_spec.mode and requested_spec.value > panel_spec.value:
+            _raise_ldscore_window_exceeds_panel_window(
+                requested=requested_spec,
+                panel=panel_spec,
+                chrom=chrom,
+            )
+        return
+
+    full_sidecar = _load_full_panel_sidecar(parquet_paths[0])
+    _, retained_build_idx = build_index_remap(
+        full_sidecar,
+        metadata,
+        getattr(args, "snp_identifier", "chr_pos"),
+    )
+    panel_full_block_left = _block_left_for_window_spec(
+        full_sidecar,
+        panel_spec,
+        context=f"chromosome {chrom} panel sidecar",
+    )
+    panel_retained_block_left = np.searchsorted(
+        retained_build_idx,
+        panel_full_block_left[retained_build_idx],
+        side="left",
+    ).astype(np.int64, copy=False)
+    requested_block_left = np.asarray(requested_block_left, dtype=np.int64)
+    if np.any(requested_block_left < panel_retained_block_left):
+        _raise_ldscore_window_exceeds_panel_window(
+            requested=requested_spec,
+            panel=panel_spec,
+            chrom=chrom,
+        )
+
+
 # Parquet R2 adapter.
 @dataclass(frozen=True)
 class _DecodedR2RowGroup:
@@ -1456,12 +1669,20 @@ def compute_chrom_from_parquet(
         coords,
         max_dist,
     )
-    check_whole_chromosome_window(block_left, args, chrom)
     regression_mask = regression_mask_from_keys(metadata, regression_keys, args.snp_identifier).reshape(-1, 1)
     annot_matrix = annotations.to_numpy(dtype=np.float32, copy=True)
     combined_annot = np.c_[annot_matrix, regression_mask]
+    parquet_paths = resolve_parquet_files(args, chrom=chrom)
+    validate_ldscore_window_within_r2_panel_window(
+        args,
+        parquet_paths=parquet_paths,
+        chrom=chrom,
+        metadata=metadata,
+        requested_block_left=block_left,
+    )
+    check_whole_chromosome_window(block_left, args, chrom)
     block_reader = SortedR2BlockReader(
-        paths=resolve_parquet_files(args, chrom=chrom),
+        paths=parquet_paths,
         chrom=chrom,
         metadata=metadata,
         identifier_mode=args.snp_identifier,

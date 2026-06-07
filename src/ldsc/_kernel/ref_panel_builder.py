@@ -646,6 +646,8 @@ def write_r2_parquet(
     batch_size: int = 100_000,
     row_group_size: int = 50_000,
     min_r2: float = 0.0,
+    ld_window_mode: str | None = None,
+    ld_window_value: float | None = None,
 ) -> str:
     """
     Write one canonical 4-column index R2 parquet with LDSC schema metadata.
@@ -666,6 +668,10 @@ def write_r2_parquet(
     emission; it is provenance only and does not itself filter rows here. The
     table is pairwise-complete only when ``ldsc:min_r2`` is ``"0.0"`` (or any
     non-positive value), because the read path treats absent pairs as R2=0.
+
+    ``ld_window_mode`` and ``ld_window_value`` record the build-time LD window
+    that bounded emitted pairs. LD-score calculation uses these fields to reject
+    wider requested windows that would require pairs the parquet does not store.
 
     Column chunks are compressed with zstd level 9 when the codec is available
     (falling back to snappy otherwise). Compression is recorded per column-chunk
@@ -690,6 +696,13 @@ def write_r2_parquet(
             "panel is too large for the current parquet format. Split the panel or reduce "
             "the retained SNP universe."
         )
+    if (ld_window_mode is None) != (ld_window_value is None):
+        raise LDSCInternalError(
+            "build-ref-panel could not write R2 parquet LD-window metadata because "
+            "ld_window_mode and ld_window_value were not provided together. Most likely "
+            "the reference-panel builder passed an incomplete build-window record. "
+            "Re-run with DEBUG logging and report the traceback."
+        )
 
     pa_meta = {
         **{
@@ -710,6 +723,9 @@ def write_r2_parquet(
         b"ldsc:r2_encoding": R2_ENCODING.encode("utf-8"),
         b"ldsc:r2_scale": str(R2_QUANT_SCALE).encode("utf-8"),
     }
+    if ld_window_mode is not None:
+        pa_meta[b"ldsc:ld_window_mode"] = str(ld_window_mode).encode("utf-8")
+        pa_meta[b"ldsc:ld_window_value"] = str(ld_window_value).encode("utf-8")
     schema = pa.schema(
         [
             ("IDX_1", pa.int32()),

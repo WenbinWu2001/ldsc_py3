@@ -3058,6 +3058,56 @@ class IndexReaderDecodeTest(unittest.TestCase):
             self.assertAlmostEqual(seen[(1, 2)], 0.4, delta=2e-5)
 
 
+class R2PanelWindowValidationTest(unittest.TestCase):
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow required")
+    def test_ldscore_rejects_window_wider_than_recorded_r2_panel_window(self):
+        from ldsc._kernel import ref_panel_builder as kb
+        from ldsc._kernel.snp_identity import sidecar_identity_sha256
+
+        panel = pd.DataFrame(
+            {
+                "CHR": ["1"] * 3,
+                "POS": [100, 200, 300],
+                "SNP": ["rs1", "rs2", "rs3"],
+                "A1": ["A", "A", "A"],
+                "A2": ["C", "C", "C"],
+                "CM": [0.0, 0.1, 0.2],
+                "MAF": [0.3, 0.3, 0.3],
+            }
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            meta = _write_index_sidecar(tmp, panel)
+            r2 = meta.with_name("chr1_r2.parquet")
+            kb.write_r2_parquet(
+                pair_chunks=dict_chunks([{"i": 0, "j": 1, "R2": 0.5, "sign": "+"}]),
+                path=r2,
+                genome_build="hg19",
+                n_samples=100,
+                snp_identifier="chr_pos",
+                min_r2=0.0,
+                n_snps=3,
+                sidecar_identity_sha256=sidecar_identity_sha256(panel),
+                ld_window_mode="kb",
+                ld_window_value=0.1,
+            )
+
+            args = Namespace(
+                ld_wind_snps=None,
+                ld_wind_kb=1.0,
+                ld_wind_cm=None,
+                r2_table=str(r2),
+            )
+            with self.assertRaisesRegex(
+                LDSCUsageError,
+                "user-requested LD window `--ld-wind-kb 1.0` is wider than the input R2 parquet panel window `--ld-wind-kb 0.1`",
+            ):
+                kernel_ldscore.validate_ldscore_window_within_r2_panel_window(
+                    args,
+                    parquet_paths=[str(r2)],
+                    chrom="1",
+                )
+
+
 class IndexCrossModeParityTest(unittest.TestCase):
     """One index parquet must produce identical LD scores in all four modes."""
 

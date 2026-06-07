@@ -1012,6 +1012,20 @@ class ReferencePanelBuilder:
                 min_r2=config.min_r2,
                 n_snps=len(runtime_metadata),
                 sidecar_identity_sha256=identity_hash,
+                ld_window_mode=(
+                    "snps"
+                    if config.ld_wind_snps is not None
+                    else "kb"
+                    if config.ld_wind_kb is not None
+                    else "cm"
+                ),
+                ld_window_value=(
+                    config.ld_wind_snps
+                    if config.ld_wind_snps is not None
+                    else config.ld_wind_kb
+                    if config.ld_wind_kb is not None
+                    else config.ld_wind_cm
+                ),
             )
             kernel_builder.write_runtime_metadata_sidecar(
                 runtime_metadata,

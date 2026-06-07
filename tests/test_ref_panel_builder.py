@@ -502,6 +502,28 @@ class StandardTableFormattingTest(unittest.TestCase):
             self.assertEqual(pq.read_schema(str(filtered_path)).metadata[b"ldsc:min_r2"], b"0.3")
 
     @unittest.skipUnless(_HAS_PYARROW, "pyarrow dependency is not installed")
+    def test_write_r2_parquet_records_ld_window_metadata(self):
+        import pyarrow.parquet as pq
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "panel.parquet"
+            kernel_builder.write_r2_parquet(
+                pair_chunks=dict_chunks([]),
+                path=path,
+                genome_build="hg19",
+                n_samples=10,
+                snp_identifier="chr_pos",
+                n_snps=2,
+                sidecar_identity_sha256="0" * 64,
+                ld_window_mode="kb",
+                ld_window_value=1000.0,
+            )
+
+            metadata = pq.read_schema(str(path)).metadata
+            self.assertEqual(metadata[b"ldsc:ld_window_mode"], b"kb")
+            self.assertEqual(metadata[b"ldsc:ld_window_value"], b"1000.0")
+
+    @unittest.skipUnless(_HAS_PYARROW, "pyarrow dependency is not installed")
     def test_write_r2_parquet_uses_zstd_level_9(self):
         import pyarrow as pa
         import pyarrow.parquet as pq

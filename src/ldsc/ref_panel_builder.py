@@ -929,6 +929,7 @@ class ReferencePanelBuilder:
                 bim=bim,
                 kept_snps=geno.kept_snps,
                 maf_values=geno.maf,
+                freq_values=geno.freq,
             )
             if len(metadata) == 0:
                 LOGGER.info(f"Skipping chromosome {chrom} because no SNPs remain after PLINK filtering.")
@@ -996,11 +997,19 @@ class ReferencePanelBuilder:
             )
             identity_hash = kernel_builder.sidecar_identity_sha256(runtime_metadata)
 
+            # Canonical A1=minor orientation: negate standardized columns where the
+            # .bim A2 allele is minor (freq < 0.5) so SIGN is computed in the same
+            # orientation as the swapped meta sidecar. nextSNPs stays orientation-free.
+            flip_sign = kernel_builder.orientation_flip_sign(geno.freq)
+            oriented_snp_getter = kernel_builder.make_oriented_snp_getter(
+                lambda b: geno.nextSNPs(b, dtype=np.float32),
+                flip_sign,
+            )
             kernel_builder.write_r2_parquet(
                 pair_chunks=kernel_builder.yield_pairwise_r2_rows(
                     block_left=block_left,
                     snp_batch_size=config.snp_batch_size,
-                    standardized_snp_getter=lambda b: geno.nextSNPs(b, dtype=np.float32),
+                    standardized_snp_getter=oriented_snp_getter,
                     m=geno.m,
                     n=geno.n,
                     min_r2=config.min_r2,

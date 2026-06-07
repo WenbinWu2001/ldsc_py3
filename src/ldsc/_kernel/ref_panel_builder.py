@@ -207,31 +207,85 @@ def detect_restriction_identifier_mode(path: str | PathLike[str]) -> str:
     )
 
 
+def orientation_flip_sign(freq_values: Sequence[float]) -> np.ndarray:
+    """Per-SNP sign that re-orients genotypes so ``A1`` becomes the minor allele.
+
+    ``freq_values`` is the frequency of the ``.bim`` second allele (the package's
+    ``A2``). A SNP needs flipping when ``A2`` is the minor allele (``freq < 0.5``);
+    at ``freq == 0.5`` PLINK order is kept (no flip), so the enforced invariant is
+    ``freq(A1) <= 0.5``. Returns ``+1.0`` (keep) / ``-1.0`` (flip) as ``float32``
+    so it broadcasts against ``float32`` standardized genotype columns without
+    upcasting.
+    """
+    freq = np.asarray(freq_values, dtype=np.float64)
+    return np.where(freq < 0.5, np.float32(-1.0), np.float32(1.0)).astype(np.float32)
+
+
+def make_oriented_snp_getter(base_getter, flip_sign: np.ndarray):
+    """Wrap a sequential standardized-SNP getter to apply ``flip_sign`` per column.
+
+    The reference-panel windowed builder reads each retained SNP column exactly
+    once, in increasing order, via successive ``base_getter(width)`` calls. This
+    wrapper multiplies each returned batch by the matching slice of ``flip_sign``
+    (``-1`` negates a standardized column, i.e. recodes it to the other allele),
+    tracking the sequential position. Negation flips the correlation sign for
+    pairs that include exactly one flipped SNP and leaves R2 (``sign**2``)
+    unchanged.
+    """
+    flip_sign = np.asarray(flip_sign, dtype=np.float32)
+    state = {"pos": 0}
+
+    def getter(width):
+        columns = base_getter(width)
+        ncols = columns.shape[1]
+        signs = flip_sign[state["pos"]:state["pos"] + ncols]
+        state["pos"] += ncols
+        if signs.size:
+            columns = columns * signs  # (n, ncols) * (ncols,) broadcast over rows
+        return columns
+
+    return getter
+
+
 def build_plink_metadata_frame(
     *,
     bim,
     kept_snps: Sequence[int],
     maf_values: Sequence[float],
+    freq_values: Sequence[float],
 ) -> pd.DataFrame:
-    """Build the retained SNP metadata table after PLINK filtering."""
+    """Build the retained SNP metadata table after PLINK filtering.
+
+    ``A1``/``A2`` are emitted in canonical orientation: ``A1`` is the minor allele
+    (``freq(A1) <= 0.5``). ``freq_values`` is the ``.bim`` ``A2`` allele frequency;
+    rows with ``freq < 0.5`` have ``A1``/``A2`` swapped. ``maf_values`` is the
+    folded ``min(freq, 1-freq)`` and, after the swap, equals ``freq(A1)``.
+    """
 
     kept_snps = np.asarray(kept_snps, dtype=int)
     maf_values = np.asarray(maf_values, dtype=float)
-    if len(kept_snps) != len(maf_values):
+    freq_values = np.asarray(freq_values, dtype=float)
+    if not (len(kept_snps) == len(maf_values) == len(freq_values)):
         raise LDSCInternalError(
-            "build-ref-panel metadata assembly failed: kept_snps and maf_values have "
-            f"different lengths ({len(kept_snps)} vs {len(maf_values)}). Most likely "
-            "PLINK filtering bookkeeping desynchronized. Re-run with DEBUG logging and report the traceback."
+            "build-ref-panel metadata assembly failed: kept_snps, maf_values, and "
+            f"freq_values have different lengths ({len(kept_snps)} vs "
+            f"{len(maf_values)} vs {len(freq_values)}). Most likely PLINK filtering "
+            "bookkeeping desynchronized. Re-run with DEBUG logging and report the traceback."
         )
     kept = bim.df.iloc[kept_snps].reset_index(drop=True).copy()
+    a1 = kept["A1"].astype(str).to_numpy()
+    a2 = kept["A2"].astype(str).to_numpy()
+    flip = orientation_flip_sign(freq_values) < 0
+    canonical_a1 = np.where(flip, a2, a1)
+    canonical_a2 = np.where(flip, a1, a2)
     out = pd.DataFrame(
         {
             "CHR": kept["CHR"].map(_normalize_map_chromosome),
             "SNP": kept["SNP"].astype(str),
             "CM": pd.to_numeric(kept["CM"], errors="coerce"),
             "POS": pd.to_numeric(kept["BP"], errors="raise").astype(np.int64),
-            "A1": kept["A1"].astype(str),
-            "A2": kept["A2"].astype(str),
+            "A1": canonical_a1,
+            "A2": canonical_a2,
             "MAF": maf_values.astype(float),
         }
     )

@@ -77,28 +77,21 @@ def query_r2(
     pairs: pd.DataFrame,
     *,
     panel_dir=None,
-    meta_path=None,
-    parquet_path=None,
     snp_identifier: str | None = None,
     genome_build: str | None = None,
-    with_r: bool = False,
-    strategy: str = "auto",
-    strategy_threshold: int = 50_000,
 ) -> pd.DataFrame:
     """Open a panel, query ``pairs`` once, and return the annotated DataFrame.
 
     Thin one-shot wrapper over :meth:`R2Panel.open` + :meth:`R2Panel.query_pairs`.
+    The returned table always includes the signed Pearson ``r`` column (all-NaN
+    in base/allele-blind modes).
     """
     panel = R2Panel.open(
         panel_dir,
-        meta_path=meta_path,
-        parquet_path=parquet_path,
         snp_identifier=snp_identifier,
         genome_build=genome_build,
     )
-    return panel.query_pairs(
-        pairs, with_r=with_r, strategy=strategy, strategy_threshold=strategy_threshold
-    )
+    return panel.query_pairs(pairs)
 
 
 @dataclass
@@ -136,46 +129,31 @@ class R2Panel:
         cls,
         panel_dir=None,
         *,
-        meta_path=None,
-        parquet_path=None,
         snp_identifier: str | None = None,
         genome_build: str | None = None,
         validate_binding: bool = True,
     ) -> "R2Panel":
-        """Open a panel from a directory or an explicit meta/parquet pair."""
+        """Open a panel from a build-ref-panel output directory."""
         import pyarrow.parquet as pq
 
-        dir_given = panel_dir is not None
-        explicit_given = meta_path is not None or parquet_path is not None
-        if dir_given == explicit_given:
+        if panel_dir is None:
             raise LDSCUsageError(
-                "R2Panel.open requires exactly one input mode: either `panel_dir`, or "
-                "both `meta_path` and `parquet_path`. Most likely neither or both were "
-                "passed. Pass a build-ref-panel directory, or a single chromosome's "
-                "meta+parquet pair."
+                "R2Panel.open requires `panel_dir`. Most likely it was omitted. Pass a "
+                "build-ref-panel output directory containing canonical R2 parquet files."
             )
 
         paths: dict[str, tuple[str, str]] = {}
-        if dir_given:
-            r2_paths = _r2_dir_r2_paths(panel_dir, genome_build=genome_build, chrom=None)
-            for r2 in r2_paths:
-                chrom = _chrom_from_r2_path(r2)
-                meta = _r2_dir_metadata_paths(panel_dir, genome_build=genome_build, chrom=chrom)
-                if not meta:
-                    raise LDSCInputError(
-                        f"R2Panel could not find the metadata sidecar for chromosome {chrom} "
-                        f"next to '{r2}'. Most likely the `chr{chrom}_meta.tsv.gz` sidecar was "
-                        "not copied with the parquet. Restore the sidecar or regenerate the panel."
-                    )
-                paths[chrom] = (meta[0], r2)
-        else:
-            if meta_path is None or parquet_path is None:
-                raise LDSCUsageError(
-                    "R2Panel.open with explicit paths requires both `meta_path` and "
-                    "`parquet_path`. Most likely only one was given. Pass both."
+        r2_paths = _r2_dir_r2_paths(panel_dir, genome_build=genome_build, chrom=None)
+        for r2 in r2_paths:
+            chrom = _chrom_from_r2_path(r2)
+            meta = _r2_dir_metadata_paths(panel_dir, genome_build=genome_build, chrom=chrom)
+            if not meta:
+                raise LDSCInputError(
+                    f"R2Panel could not find the metadata sidecar for chromosome {chrom} "
+                    f"next to '{r2}'. Most likely the `chr{chrom}_meta.tsv.gz` sidecar was "
+                    "not copied with the parquet. Restore the sidecar or regenerate the panel."
                 )
-            chrom = _chrom_from_r2_path(str(parquet_path))
-            paths[chrom] = (str(meta_path), str(parquet_path))
+            paths[chrom] = (meta[0], r2)
 
         if not paths:
             raise LDSCInputError(
@@ -314,13 +292,13 @@ class R2Panel:
         qa2 = endpoint["A2"].to_numpy(dtype=object) if "A2" in endpoint.columns else np.full(len(endpoint), None, dtype=object)
         return chrom, idx, qa1, qa2, pa1, pa2
 
-    def query_pairs(self, pairs: pd.DataFrame, *, with_r: bool = False,
-                    strategy: str = "auto", strategy_threshold: int = 50_000) -> pd.DataFrame:
-        """Return adjusted R², sign, and status for each SNP pair in ``pairs``.
+    def query_pairs(self, pairs: pd.DataFrame) -> pd.DataFrame:
+        """Return adjusted R², sign, signed Pearson r, and status for each pair.
 
         ``pairs`` has per-endpoint columns suffixed ``_1``/``_2``
         (``CHR/POS/A1/A2`` and/or ``SNP``). See the design spec for the full
-        contract. ``with_r=True`` appends a signed Pearson ``r`` column.
+        contract. The output always appends ``r2``, ``sign``, ``r``, and
+        ``status``; ``r`` is all-NaN in base/allele-blind modes.
         """
         ep1 = _endpoint_frame(pairs, "1", self._mode)
         ep2 = _endpoint_frame(pairs, "2", self._mode)
@@ -349,7 +327,6 @@ class R2Panel:
             hi = np.maximum(i1[rows], i2[rows])
             chrom_r2, chrom_sign = lookup_pairs_in_parquet(
                 state.parquet_file, lo, hi, n_snps=state.n_snps, r2_scale=state.r2_scale,
-                strategy=strategy, strategy_threshold=strategy_threshold,
             )
             r2[rows] = chrom_r2
             sign[rows] = chrom_sign
@@ -371,9 +348,8 @@ class R2Panel:
         sign_col = pd.array(sign, dtype="Int8")
         sign_col[sign == 0] = pd.NA
         out["sign"] = sign_col
+        out["r"] = self._signed_r(r2, sign_col)
         out["status"] = pd.array(status, dtype="string")
-        if with_r:
-            out["r"] = self._signed_r(r2, sign_col)
         return out
 
     def _signed_r(self, r2: np.ndarray, sign_col) -> np.ndarray:
@@ -384,17 +360,23 @@ class R2Panel:
         value means the minor alleles co-occur on haplotypes more than chance
         (positive LD between minor alleles). A1 is guaranteed minor by the
         canonical panel (design 2026-06-07 allele-orientation-canonicalization).
+
+        Base/allele-blind modes carry no sign, so ``r`` is all-NaN. Panels
+        lacking ``ldsc:n_samples`` also yield an all-NaN ``r`` because raw R2
+        cannot be recovered without the sample size.
         """
         n_samples = self.n_samples
         if n_samples is None:
-            raise LDSCInputError(
-                "R2Panel cannot compute signed r without `ldsc:n_samples` in the panel "
-                "metadata. Most likely a legacy panel was used. Omit `with_r`."
+            LOGGER.warning(
+                "query-r2 cannot compute signed r: the panel metadata has no "
+                "`ldsc:n_samples`, so r is emitted as all-NaN. Most likely a legacy panel "
+                "was used; rebuild with the current build-ref-panel to record n_samples."
             )
+            return np.full(len(r2), np.nan, dtype=np.float64)
         sign_float = sign_col.to_numpy(dtype="float64", na_value=np.nan)
         if not is_allele_aware_mode(self._mode):
             LOGGER.warning(
-                "query-r2 `with_r` in base mode produces an all-NaN r column because base "
+                "query-r2 in base mode produces an all-NaN r column because base "
                 "modes carry no sign. Use an allele-aware panel/mode for signed r."
             )
         return unbiased_r2_to_pearson_r(r2.astype(np.float64), n_samples, sign=sign_float)
@@ -486,21 +468,11 @@ def build_parser() -> argparse.ArgumentParser:
         description="Query adjusted R2 (and signed r) for SNP pairs from a reference panel.",
         allow_abbrev=False,
     )
-    parser.add_argument("--panel-dir", default=None, help="build-ref-panel output directory.")
-    parser.add_argument("--meta", default=None, help="Explicit chrN_meta.tsv.gz path (with --parquet).")
-    parser.add_argument("--parquet", default=None, help="Explicit chrN_r2.parquet path (with --meta).")
+    parser.add_argument("--panel-dir", required=True, help="build-ref-panel output directory.")
     parser.add_argument("--pairs", required=True, help="TSV/CSV of pairs with _1/_2 endpoint columns ('-' = stdin).")
     parser.add_argument("--out", default=None, help="Output TSV path (default: stdout).")
     parser.add_argument("--snp-identifier", default=None, help="Override panel SNP identifier mode.")
     parser.add_argument("--genome-build", choices=["hg19", "hg38"], default=None, help="Genome build for sub-dir resolution.")
-    parser.add_argument(
-        "--with-r",
-        action="store_true",
-        help="Add a signed Pearson r column (correlation of A1/minor allele dosages; "
-        "positive = positive LD between minor alleles). Allele-aware panels only.",
-    )
-    parser.add_argument("--strategy", choices=["auto", "random", "stream"], default="auto", help="Lookup strategy.")
-    parser.add_argument("--strategy-threshold", type=int, default=50_000, help="Auto-select pair-count threshold.")
     return parser
 
 
@@ -512,13 +484,8 @@ def run_query_r2_from_args(args: argparse.Namespace) -> pd.DataFrame:
     result = query_r2(
         pairs,
         panel_dir=args.panel_dir,
-        meta_path=args.meta,
-        parquet_path=args.parquet,
         snp_identifier=args.snp_identifier,
         genome_build=args.genome_build,
-        with_r=args.with_r,
-        strategy=args.strategy,
-        strategy_threshold=args.strategy_threshold,
     )
     if args.out is None:
         result.to_csv(sys.stdout, sep="\t", index=False)

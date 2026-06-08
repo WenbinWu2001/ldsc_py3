@@ -277,8 +277,9 @@ Requirements:
   contract, with a mandatory paired `chr{chrom}_meta.tsv.gz` sidecar for each
   chromosome (the sidecar defines the index space)
 - package-built R2 parquet files record `ldsc:r2_bias` and `ldsc:n_samples` in
-  schema metadata, so `--r2-bias-mode` and `--r2-sample-size` are only needed
-  for panels that record `ldsc:r2_bias=raw` without a stored `ldsc:n_samples`
+  schema metadata; R2 bias mode and sample size are read solely from this
+  metadata (there are no bias-related flags), so external raw-R2 panels must
+  declare `ldsc:r2_bias=raw` and `ldsc:n_samples` to be corrected
 
 Examples:
 

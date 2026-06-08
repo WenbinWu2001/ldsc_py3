@@ -732,8 +732,10 @@ class SumstatsMunger:
         args.info_list = ",".join(munge_config.info_list_columns) if munge_config.info_list_columns else None
         args.a1_inc = munge_config.a1_inc
         args.keep_maf = munge_config.keep_maf
-        args.daner_old = munge_config.daner_old
-        args.daner_new = munge_config.daner_new
+        # DANER parsing is driven solely by sumstats_format (auto-detection
+        # resolves it to a concrete value during inference; see _apply_raw_sumstats_inference).
+        args.daner_old = munge_config.sumstats_format == "daner-old"
+        args.daner_new = munge_config.sumstats_format == "daner-new"
         args.snp_identifier = global_config.snp_identifier
         args.genome_build = global_config.genome_build
         args._liftover_request = liftover_request or _liftover_request_from_config(munge_config)
@@ -778,7 +780,6 @@ def run_munge_sumstats_from_args(args: argparse.Namespace) -> SumstatsTable | Ra
         false.
     """
     raw_config, munge_config = _munge_configs_from_args(args)
-    _validate_sumstats_format_flags(munge_config)
     if getattr(args, "infer_only", False):
         global_config = _resolve_main_global_config(args)
         source_path = resolve_scalar_path(raw_config.raw_sumstats_file, label="raw sumstats")
@@ -963,8 +964,6 @@ def _munge_configs_from_args(args: argparse.Namespace) -> tuple[MungeConfig, Mun
         sumstats_format=getattr(args, "sumstats_format", "auto"),
         a1_inc=args.a1_inc,
         keep_maf=args.keep_maf,
-        daner_old=args.daner_old,
-        daner_new=args.daner_new,
         overwrite=getattr(args, "overwrite", False),
     )
     return raw_config, munge_config
@@ -1301,16 +1300,18 @@ def _apply_raw_sumstats_inference(
     munge_config: MungeConfig,
 ) -> tuple[MungeConfig, MungeConfig, RawSumstatsInference]:
     """Return configs updated with auto-inferred raw-format hints."""
-    _validate_sumstats_format_flags(munge_config)
     inference = infer_raw_sumstats(source_path, raw_config, munge_config)
     column_hints = {**inference.column_hints, **raw_config.column_hints}
-    daner_old = munge_config.daner_old or inference.detected_format == "daner-old"
-    daner_new = munge_config.daner_new or munge_config.sumstats_format == "daner-new"
+    # Resolve `auto` to a concrete format so downstream DANER selection is
+    # driven solely by sumstats_format. Only old DANER is auto-detected;
+    # new DANER must be requested explicitly via --format daner-new.
+    resolved_format = munge_config.sumstats_format
+    if resolved_format == "auto" and inference.detected_format == "daner-old":
+        resolved_format = "daner-old"
     raw_config = replace(raw_config, column_hints=column_hints)
     munge_config = replace(
         munge_config,
-        daner_old=daner_old,
-        daner_new=daner_new,
+        sumstats_format=resolved_format,
         info_list_columns=tuple(dict.fromkeys([*munge_config.info_list_columns, *inference.info_list_columns])),
         ignore_columns=tuple(dict.fromkeys([*munge_config.ignore_columns, *inference.ignore_columns])),
     )
@@ -1466,24 +1467,6 @@ def _append_suggested_flag(args: list[str], flag: str) -> None:
         args.append(flag)
 
 
-def _validate_sumstats_format_flags(munge_config: MungeConfig) -> None:
-    fmt = munge_config.sumstats_format
-    if fmt == "daner-old" and munge_config.daner_new:
-        raise LDSCUsageError(
-            "munge-sumstats cannot use --format daner-old together with --daner-new. "
-            "Most likely both legacy DANER modes were selected. Keep only --format daner-old or --daner-new."
-        )
-    if fmt == "daner-new" and munge_config.daner_old:
-        raise LDSCUsageError(
-            "munge-sumstats cannot use --format daner-new together with --daner-old. "
-            "Most likely both legacy DANER modes were selected. Keep only --format daner-new or --daner-old."
-        )
-    if fmt == "plain" and (munge_config.daner_old or munge_config.daner_new):
-        raise LDSCUsageError(
-            f"munge-sumstats cannot use --format {fmt} together with DANER-specific flags. "
-            "Most likely a plain-text override was combined with --daner-old/--daner-new. "
-            "Drop the DANER flag or choose the matching DANER format."
-        )
 
 
 def _render_inference_report(inference: RawSumstatsInference, raw_sumstats_file: str) -> str:

@@ -173,7 +173,7 @@ unordered, strand-aware set; orientation is never used for identity (a sumstats
 `A1`=effect and a panel `A1`=minor still match, with any disagreement resolved as
 a sign flip at alignment).
 
-**Signed r (reference panel, `query-r2 --with-r`):** defined in the canonical
+**Signed r (reference panel, `query-r2` `r` column):** defined in the canonical
 orientation as the correlation between the two SNPs' `A1` (minor) allele dosages.
 A **positive** sign means the minor alleles co-occur on haplotypes more than
 chance — positive LD between minor alleles.

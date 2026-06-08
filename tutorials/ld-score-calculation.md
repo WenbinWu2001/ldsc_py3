@@ -12,10 +12,9 @@ row groups. The matching `chr*_meta.tsv.gz` sidecars define the full
 reference-panel SNP universe and supply `MAF`/`CM`; they are required in
 allele-aware modes because reference metadata must carry usable `A1/A2`.
 Package-built R2 parquet files also store `ldsc:r2_bias` and `ldsc:n_samples`
-in Arrow schema metadata, so the examples omit R2 bias and sample-size
-arguments. Pass `r2_bias_mode` / `--r2-bias-mode` and
-`r2_sample_size` / `--r2-sample-size` manually only for legacy or external raw
-six-column R2 parquet files that lack LDSC schema metadata. External raw R2 parquet inputs
+in Arrow schema metadata. R2 bias mode and sample size are read solely from this
+metadata — there are no bias-related flags — so external raw R2 parquet files
+must declare `ldsc:r2_bias=raw` and `ldsc:n_samples` to be corrected. External raw R2 parquet inputs
 are supported only in `rsid` and `chr_pos`; allele-aware modes require
 package-built canonical R2 parquet with endpoint allele columns
 `A1_1/A2_1/A1_2/A2_2`.

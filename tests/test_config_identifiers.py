@@ -234,9 +234,7 @@ class WorkflowConfigTest(unittest.TestCase):
         with self.assertRaises(ldsc.LDSCConfigError):
             RefPanelConfig(backend="bad")
         with self.assertRaises(ldsc.LDSCConfigError):
-            RefPanelConfig(r2_bias_mode="bad")
-        with self.assertRaises(ldsc.LDSCConfigError):
-            RefPanelConfig(r2_sample_size=0)
+            RefPanelConfig(sample_size=0)
 
     def test_ldscore_config_requires_one_window(self):
         config = LDScoreConfig(ld_wind_cm=1.0)

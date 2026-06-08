@@ -32,7 +32,13 @@ try:
         RefPanelConfig,
     )
     from ldsc import ldscore_calculator as ldscore_workflow
-    from ldsc.ldscore_calculator import build_parser, _ref_panel_from_args, _normalize_run_args, run_ldscore
+    from ldsc.ldscore_calculator import (
+        build_parser,
+        _ref_panel_from_args,
+        _normalize_run_args,
+        _resolve_exclude_regions_build,
+        run_ldscore,
+    )
     from ldsc._kernel import formats as kernel_formats
     from ldsc._kernel import ldscore as kernel_ldscore
     from ldsc._kernel.snp_identity import RestrictionIdentityKeys, empty_identity_drop_frame
@@ -318,8 +324,6 @@ class R2AutoLoadCLITest(unittest.TestCase):
             spec = RefPanelConfig(
                 backend="parquet_r2",
                 r2_dir=str(build_dir),
-                r2_bias_mode=None,
-                r2_sample_size=None,
             )
             panel_loader = ParquetR2RefPanel(GlobalConfig(snp_identifier="rsid"), spec)
             reader_meta = pd.DataFrame(
@@ -426,17 +430,16 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 "out",
                 "--r2-dir",
                 "panel/hg38",
-                "--r2-bias-mode",
-                "unbiased",
             ]
         )
 
         self.assertEqual(args.r2_dir, "panel/hg38")
 
-    def test_build_parser_defaults_r2_bias_mode_to_unbiased(self):
-        args = ldscore_workflow.build_parser().parse_args(["--output-dir", "out", "--r2-dir", "panel/hg38"])
-
-        self.assertEqual(args.r2_bias_mode, "unbiased")
+    def test_build_parser_rejects_removed_r2_bias_flags(self):
+        parser = ldscore_workflow.build_parser()
+        for flag in (["--r2-bias-mode", "raw"], ["--r2-sample-size", "100"]):
+            with self.assertRaises(SystemExit):
+                parser.parse_args(["--output-dir", "out", "--r2-dir", "panel/hg38", *flag])
 
     def test_format_ldscore_start_message_describes_synthetic_base(self):
         bundle = SimpleNamespace(
@@ -465,74 +468,6 @@ class LDScoreWorkflowTest(unittest.TestCase):
             message,
             "Starting LD-score calculation for 22 chromosomes with 2 baseline columns and 1 query columns.",
         )
-
-    def test_validate_run_args_accepts_omitted_r2_bias_mode_as_unbiased(self):
-        args = Namespace(
-            output_dir="out",
-            query_annot_sources=None,
-            query_annot_bed_sources=None,
-            baseline_annot_sources="baseline.annot.gz",
-            plink_prefix=None,
-            bfile=None,
-            bfile_chr=None,
-            r2_dir="panel/hg38",
-            r2_table_chr=None,
-            snp_identifier="rsid",
-            genome_build=None,
-            keep_indivs_file=None,
-            r2_bias_mode=None,
-            r2_sample_size=None,
-            ld_wind_snps=10,
-            ld_wind_kb=None,
-            ld_wind_cm=None,
-            maf_min=None,
-            common_maf_min=0.05,
-            snp_batch_size=50,
-        )
-
-        ldscore_workflow._validate_run_args(args)
-        self.assertEqual(args.r2_bias_mode, "unbiased")
-
-    def test_validate_run_args_requires_sample_size_for_raw_r2(self):
-        args = Namespace(
-            output_dir="out",
-            query_annot_sources=None,
-            query_annot_bed_sources=None,
-            baseline_annot_sources="baseline.annot.gz",
-            plink_prefix=None,
-            bfile=None,
-            bfile_chr=None,
-            r2_dir="panel/hg38",
-            r2_table_chr=None,
-            snp_identifier="rsid",
-            genome_build=None,
-            keep_indivs_file=None,
-            r2_bias_mode="raw",
-            r2_sample_size=None,
-            ld_wind_snps=10,
-            ld_wind_kb=None,
-            ld_wind_cm=None,
-            maf_min=None,
-            common_maf_min=0.05,
-            snp_batch_size=50,
-        )
-
-        with self.assertRaisesRegex(LDSCUsageError, "raw R2 bias correction.*r2-sample-size"):
-            ldscore_workflow._validate_run_args(args)
-
-    def test_kernel_build_parser_defaults_r2_bias_mode_to_unbiased(self):
-        args = kernel_ldscore.build_parser().parse_args(
-            [
-                "--out",
-                "out",
-                "--baseline-annot",
-                "baseline.annot.gz",
-                "--r2-table",
-                "panel.@.parquet",
-            ]
-        )
-
-        self.assertEqual(args.r2_bias_mode, "unbiased")
 
     def test_kernel_build_parser_accepts_snp_batch_size_and_rejects_chunk_size(self):
         parser = kernel_ldscore.build_parser()
@@ -3254,28 +3189,50 @@ class R2DequantizationTest(unittest.TestCase):
             self.assertAlmostEqual(float(decoded.r2[0]), 0.5, delta=1e-7)
 
 
-def test_ldscore_parser_accepts_region_flags():
+def test_ldscore_parser_region_flags_and_default():
     parser = build_parser()
+    # Default excludes MHC + centromeres.
+    default_args = parser.parse_args(["--output-dir", "o", "--plink-prefix", "p", "--ld-wind-cm", "1"])
+    assert default_args.exclude_regions == "mhc-and-centromeres"
+    # Single-choice enum; comma lists are rejected.
     args = parser.parse_args(
         ["--output-dir", "o", "--plink-prefix", "p", "--ld-wind-cm", "1",
-         "--exclude-regions", "mhc,centromeres", "--exclude-regions-build", "hg19",
+         "--exclude-regions", "centromeres", "--exclude-regions-build", "hg19",
          "--exclude-regions-bed", "/tmp/a.bed,/tmp/b.bed"]
     )
-    assert args.exclude_regions == "mhc,centromeres"
+    assert args.exclude_regions == "centromeres"
     assert args.exclude_regions_build == "hg19"
-    assert args.exclude_regions_bed == "/tmp/a.bed,/tmp/b.bed"
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--output-dir", "o", "--plink-prefix", "p", "--ld-wind-cm", "1",
+                           "--exclude-regions", "mhc,centromeres"])
 
 
-def test_ldscore_preset_without_build_rejected():
-    parser = build_parser()
-    args = parser.parse_args(
-        ["--output-dir", "o", "--plink-prefix", "p", "--ld-wind-cm", "1",
-         "--snp-identifier", "chr_pos_allele_aware", "--genome-build", "hg19",
-         "--exclude-regions", "mhc"]
-    )
-    normalized, global_config = _normalize_run_args(args)
-    with pytest.raises(LDSCConfigError, match="exclude-regions-build"):
-        _ref_panel_from_args(normalized, global_config)
+def test_ldscore_region_build_inferred_for_chr_pos_required_for_rsid():
+    # chr_pos: build is taken from the panel build ldscore operates in.
+    assert _resolve_exclude_regions_build(
+        Namespace(exclude_regions_build=None),
+        GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg19"),
+        ("mhc", "centromeres"),
+    ) == "hg19"
+    # rsid: no genome build is available, so presets require an explicit build.
+    with pytest.raises(LDSCUsageError, match="exclude-regions-build"):
+        _resolve_exclude_regions_build(
+            Namespace(exclude_regions_build=None),
+            GlobalConfig(snp_identifier="rsid"),
+            ("mhc",),
+        )
+    # An explicit build always wins, even in rsid mode.
+    assert _resolve_exclude_regions_build(
+        Namespace(exclude_regions_build="hg38"),
+        GlobalConfig(snp_identifier="rsid"),
+        ("mhc",),
+    ) == "hg38"
+    # No presets => no build needed.
+    assert _resolve_exclude_regions_build(
+        Namespace(exclude_regions_build=None),
+        GlobalConfig(snp_identifier="rsid"),
+        (),
+    ) is None
 
 
 _CHR22 = Path(__file__).resolve().parent / "fixtures" / "minimal_external_resources" / "plink" / "hm3_chr22_subset"

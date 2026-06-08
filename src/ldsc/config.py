@@ -46,7 +46,6 @@ LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
 LOG_LEVEL_CHOICES: tuple[LogLevel, ...] = ("DEBUG", "INFO", "WARNING", "ERROR")
 RefPanelBackend = Literal["auto", "plink", "parquet_r2"]
 CompressionMode = Literal["auto", "gzip", "bz2", "none"]
-R2BiasMode = Literal["raw", "unbiased"]
 
 
 class ConfigMismatchError(LDSCConfigError, ValueError):
@@ -421,12 +420,6 @@ class RefPanelConfig:
     keep_indivs_file : str or os.PathLike[str] or None, optional
         Optional path to a one-column IID keep file applied in PLINK mode before
         genotype-derived MAF is computed. Default is ``None``.
-    r2_bias_mode : {"raw", "unbiased"} or None, optional
-        Whether parquet R2 values need sample-size correction. Default is
-        ``None``.
-    r2_sample_size : float or None, optional
-        Sample size used when correcting raw parquet R2 values. Default is
-        ``None``.
     use_hm3_ref_panel_snps : bool, optional
         If ``True``, restrict the runtime reference-panel universe to the
         packaged curated HM3 SNP map. Mutually exclusive with
@@ -447,8 +440,6 @@ class RefPanelConfig:
     chromosomes: tuple[str, ...] | list[str] | None = None
     maf_min: float | None = None
     keep_indivs_file: str | PathLike[str] | None = None
-    r2_bias_mode: R2BiasMode | None = None
-    r2_sample_size: float | None = None
     sample_size: int | None = None
     ref_panel_snps_file: str | PathLike[str] | None = None
     use_hm3_ref_panel_snps: bool = False
@@ -460,16 +451,10 @@ class RefPanelConfig:
         """Normalize backend path tokens and validate parquet-R2 settings."""
         if self.backend not in {"auto", "plink", "parquet_r2"}:
             raise LDSCConfigError(_invalid_choice_message("RefPanelConfig", "backend", self.backend, "'auto', 'plink', or 'parquet_r2'"))
-        if self.r2_bias_mode not in {None, "raw", "unbiased"}:
-            raise LDSCConfigError(_invalid_choice_message("RefPanelConfig", "r2_bias_mode", self.r2_bias_mode, "None, 'raw', or 'unbiased'"))
-        if self.r2_sample_size is not None and self.r2_sample_size <= 0:
-            raise LDSCConfigError(_positive_number_message("RefPanelConfig", "r2_sample_size", self.r2_sample_size))
         if self.sample_size is not None and self.sample_size <= 0:
             raise LDSCConfigError(_positive_number_message("RefPanelConfig", "sample_size", self.sample_size))
         if self.maf_min is not None and not 0 <= self.maf_min <= 0.5:
             raise LDSCConfigError(_range_message("RefPanelConfig", "maf_min", self.maf_min, "[0, 0.5]"))
-        if self.sample_size is None and self.r2_sample_size is not None:
-            object.__setattr__(self, "sample_size", int(self.r2_sample_size))
         object.__setattr__(self, "plink_prefix", _normalize_optional_path(self.plink_prefix))
         object.__setattr__(self, "r2_dir", _normalize_optional_path(self.r2_dir))
         object.__setattr__(self, "keep_indivs_file", _normalize_optional_path(self.keep_indivs_file))
@@ -859,9 +844,10 @@ class MungeConfig:
         non-missing tokens, for example ``IMPINFO=0.852,0.113,NA``. Mixed
         nonnumeric tokens are rejected with a repair suggestion. Default is
         ``()``.
-    a1_inc, keep_maf, daner_old, daner_new : bool, optional
+    a1_inc, keep_maf : bool, optional
         Legacy munging switches preserved for behavior compatibility. Defaults
-        are ``False``.
+        are ``False``. (DANER parsing is selected via ``sumstats_format``, e.g.
+        ``"daner-old"`` / ``"daner-new"``.)
     overwrite : bool, optional
         If ``True``, replace current fixed sumstats outputs and remove stale
         owned ``sumstats.*`` siblings after a successful run. If ``False``, any
@@ -894,8 +880,6 @@ class MungeConfig:
     sumstats_format: str = "auto"
     a1_inc: bool = False
     keep_maf: bool = False
-    daner_old: bool = False
-    daner_new: bool = False
     overwrite: bool = False
 
     def __post_init__(self) -> None:

@@ -13,6 +13,11 @@ from __future__ import annotations
 
 import numpy as np
 
+# Auto-strategy crossover: at or below this many queried pairs, prune+random-access
+# row groups; above it, scan every row group sequentially (a large query touches
+# most groups anyway, so the linear scan beats per-group seek + pruning overhead).
+_RANDOM_STRATEGY_MAX_PAIRS = 50_000
+
 
 def _arrow_to_numpy(column):
     """Convert an Arrow column to NumPy across PyArrow versions."""
@@ -55,8 +60,6 @@ def lookup_pairs_in_parquet(
     *,
     n_snps: int,
     r2_scale: float | None,
-    strategy: str = "auto",
-    strategy_threshold: int = 50_000,
 ):
     """Return ``(r2, sign)`` for canonical pairs ``(i, j)`` from one parquet.
 
@@ -79,9 +82,9 @@ def lookup_pairs_in_parquet(
     uniq_r2 = np.full(uniq_key.shape[0], np.nan, dtype=np.float32)
     uniq_sign = np.zeros(uniq_key.shape[0], dtype=np.int8)
 
-    chosen = strategy
-    if strategy == "auto":
-        chosen = "random" if n <= strategy_threshold else "stream"
+    # Auto strategy: prune+random-access row groups for small queries, full
+    # sequential scan once the query is large enough to touch most groups anyway.
+    chosen = "random" if n <= _RANDOM_STRATEGY_MAX_PAIRS else "stream"
 
     idx1_col = _idx1_column_index(parquet_file)
     if chosen == "random":

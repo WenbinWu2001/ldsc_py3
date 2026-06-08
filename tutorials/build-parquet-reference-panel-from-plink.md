@@ -22,9 +22,9 @@ The R2 output is a long pairwise table, not a dense square matrix on disk. That 
 
 Each package-built R2 parquet records the LD reference sample size and R2 bias
 state plus minimal identity provenance in Arrow schema metadata. Downstream
-`ldsc ldscore` runs can therefore read `ldsc:n_samples`, `ldsc:r2_bias`,
-`ldsc:snp_identifier`, and `ldsc:genome_build` directly and do not need
-`--r2-bias-mode` or `--r2-sample-size` for panels built by this workflow.
+`ldsc ldscore` runs therefore read `ldsc:n_samples`, `ldsc:r2_bias`,
+`ldsc:snp_identifier`, and `ldsc:genome_build` directly; R2 bias mode and sample
+size come solely from this metadata (there are no bias-related flags).
 Allele-aware modes require package-built canonical R2 parquet with endpoint
 allele columns `A1_1/A2_1/A1_2/A2_2`.
 

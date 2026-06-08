@@ -1056,12 +1056,6 @@ parser.add_argument('--info-min', default=0.9, type=float,
                     help="Minimum INFO score.")
 parser.add_argument('--maf-min', default=0.01, type=float,
                     help="Minimum MAF.")
-parser.add_argument('--daner-old', default=False, action='store_true',
-                    help="Parse old DANER format with case/control sample sizes encoded in FRQ_A_<Ncas> "
-                    "and FRQ_U_<Ncon> column names.")
-parser.add_argument('--daner-new', default=False, action='store_true',
-                    help="Parse new DANER format with per-SNP case/control sample sizes in exact "
-                    "Nca and Nco columns.")
 parser.add_argument('--n-min', default=None, type=float,
                     help='Minimum N (sample size). Default is (90th percentile N) / 2.')
 parser.add_argument('--chunksize', default=1_000_000, type=int,
@@ -1137,6 +1131,10 @@ def munge_sumstats(args, p=True):
         'genome_build': normalize_genome_build(getattr(args, 'genome_build', None)),
         'genome_build_inferred': False,
     }
+    # DANER mode is resolved by the public workflow from sumstats_format; default
+    # both to False for direct kernel callers that omit them.
+    args.daner_old = getattr(args, 'daner_old', False)
+    args.daner_new = getattr(args, 'daner_new', False)
 
     if args.sumstats is None:
         raise LDSCUserError(

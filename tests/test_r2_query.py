@@ -105,9 +105,7 @@ class TestLookupPairsInParquet:
         pf = self._open(r2_path)
         i = np.array([0, 0, 1], dtype=np.int64)
         j = np.array([1, 2, 2], dtype=np.int64)
-        r2, sign = lookup_pairs_in_parquet(
-            pf, i, j, n_snps=4, r2_scale=32767.0, strategy="stream"
-        )
+        r2, sign = lookup_pairs_in_parquet(pf, i, j, n_snps=4, r2_scale=32767.0)
         np.testing.assert_allclose(r2, [0.64, 0.04, 0.25], atol=1.5e-5)
         np.testing.assert_array_equal(sign, [1, -1, 1])
 
@@ -122,19 +120,20 @@ class TestLookupPairsInParquet:
         assert np.isnan(r2[0])
         assert sign[0] == 0
 
-    def test_random_and_stream_strategies_match(self, tmp_path):
-        from ldsc._kernel.r2_query import lookup_pairs_in_parquet
+    def test_auto_strategy_random_and_stream_paths_match(self, tmp_path, monkeypatch):
+        # The lookup auto-selects the prune+random path vs the streaming scan by
+        # query size; force each path via the crossover constant and assert equal
+        # results. (Strategy is no longer user-selectable; only the internal rule.)
+        from ldsc._kernel import r2_query as kernel_r2
 
         _, _, r2_path = build_test_panel(tmp_path)
         pf = self._open(r2_path)
         i = np.array([0, 0, 1, 0], dtype=np.int64)
         j = np.array([1, 2, 2, 3], dtype=np.int64)
-        rg_r2, rg_sign = lookup_pairs_in_parquet(
-            pf, i, j, n_snps=4, r2_scale=32767.0, strategy="random"
-        )
-        st_r2, st_sign = lookup_pairs_in_parquet(
-            pf, i, j, n_snps=4, r2_scale=32767.0, strategy="stream"
-        )
+        monkeypatch.setattr(kernel_r2, "_RANDOM_STRATEGY_MAX_PAIRS", 100)  # random path
+        rg_r2, rg_sign = kernel_r2.lookup_pairs_in_parquet(pf, i, j, n_snps=4, r2_scale=32767.0)
+        monkeypatch.setattr(kernel_r2, "_RANDOM_STRATEGY_MAX_PAIRS", 0)  # streaming path
+        st_r2, st_sign = kernel_r2.lookup_pairs_in_parquet(pf, i, j, n_snps=4, r2_scale=32767.0)
         np.testing.assert_array_equal(np.nan_to_num(rg_r2, nan=-1), np.nan_to_num(st_r2, nan=-1))
         np.testing.assert_array_equal(rg_sign, st_sign)
 
@@ -149,22 +148,12 @@ class TestR2PanelOpen:
         assert panel.snp_identifier == "chr_pos_allele_aware"
         assert panel.n_samples == 1234
 
-    def test_open_explicit_meta_and_parquet(self, tmp_path):
-        from ldsc.r2_query import R2Panel
-
-        _, meta_path, r2_path = build_test_panel(tmp_path)
-        panel = R2Panel.open(meta_path=meta_path, parquet_path=r2_path)
-        assert panel.chromosomes == ["1"]
-
-    def test_open_requires_exactly_one_input_mode(self, tmp_path):
+    def test_open_requires_panel_dir(self, tmp_path):
         from ldsc.errors import LDSCUsageError
         from ldsc.r2_query import R2Panel
 
         with pytest.raises(LDSCUsageError):
-            R2Panel.open()  # neither
-        _, meta_path, r2_path = build_test_panel(tmp_path)
-        with pytest.raises(LDSCUsageError):
-            R2Panel.open(tmp_path, meta_path=meta_path, parquet_path=r2_path)  # both
+            R2Panel.open()  # panel_dir omitted
 
     def test_binding_mismatch_is_hard_error(self, tmp_path):
         from ldsc.errors import LDSCInputError
@@ -253,6 +242,8 @@ class TestQueryPairs:
         out_b = panel.query_pairs(without)
         assert out_a["r2"].iloc[0] == pytest.approx(out_b["r2"].iloc[0], abs=1.5e-5)
         assert pd.isna(out_a["sign"].iloc[0]) and pd.isna(out_b["sign"].iloc[0])
+        # r is always emitted but all-NaN in base mode (no sign information).
+        assert "r" in out_a.columns and pd.isna(out_a["r"].iloc[0])
 
 
 class TestQueryR2Wrapper:
@@ -268,7 +259,7 @@ class TestQueryR2Wrapper:
         assert out["r2"].iloc[0] == pytest.approx(0.64, abs=1.5e-5)
         assert "status" in out.columns
 
-    def test_with_r_adds_signed_correlation(self, tmp_path):
+    def test_signed_r_always_present(self, tmp_path):
         from ldsc.r2_query import query_r2
 
         build_test_panel(tmp_path, snp_identifier="chr_pos_allele_aware", n_samples=1000)
@@ -276,8 +267,8 @@ class TestQueryR2Wrapper:
             {"CHR_1": [1], "POS_1": [100], "A1_1": ["G"], "A2_1": ["A"],  # swapped -> negative r
              "CHR_2": [1], "POS_2": [200], "A1_2": ["C"], "A2_2": ["T"]}
         )
-        out = query_r2(pairs, panel_dir=tmp_path, genome_build="hg38", with_r=True)
-        assert "r" in out.columns
+        out = query_r2(pairs, panel_dir=tmp_path, genome_build="hg38")
+        assert "r" in out.columns  # always emitted, no --with-r needed
         assert out["r"].iloc[0] < 0
 
 
@@ -294,7 +285,7 @@ class TestQueryR2CLI:
         out_path = tmp_path / "out.tsv"
         cli_main([
             "query-r2", "--panel-dir", str(tmp_path), "--genome-build", "hg38",
-            "--pairs", str(pairs_path), "--out", str(out_path), "--with-r",
+            "--pairs", str(pairs_path), "--out", str(out_path),
         ])
         result = pd.read_csv(out_path, sep="\t")
         assert result["r2"].iloc[0] == pytest.approx(0.64, abs=1e-4)

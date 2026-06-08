@@ -300,7 +300,7 @@ flowchart LR
 
 | File | Example | Notes |
 | --- | --- | --- |
-| annotated pair table | input columns plus `r2`, `sign`, `status`, optional `r` | `status` is blank for found pairs and can report `not_in_panel`, `cross_chromosome`, or `absent`; `--with-r` requires panel sample-size metadata |
+| annotated pair table | input columns plus `r2`, `sign`, `r`, `status` | `status` is blank for found pairs and can report `not_in_panel`, `cross_chromosome`, or `absent`; the always-emitted signed `r` is all-NaN in base modes or when the panel lacks sample-size metadata |
 
 ### Modules used
 
@@ -406,14 +406,22 @@ by the loaders before masking.
 
 ### Build-resolution asymmetry
 
-`ldscore` (`RefPanelConfig`) **requires** `--exclude-regions-build {hg19,hg38}`
-whenever presets are used: the parquet reference panel can represent either
-build, so the caller must declare which build the panel was built from; the
-flag is also required in rsID-family identifier modes because
-`GlobalConfig.genome_build` is `None` in those modes, meaning no build is
-in scope even for the PLINK backend. The flag accepts `hg19`/`hg38` only — there
-is **no `auto` choice** — so on the `ldscore` side the preset build is never
-inferred; the caller always states it explicitly.
+`ldscore` excludes MHC + centromeres by default (`--exclude-regions` defaults to
+`mhc-and-centromeres`; pass `none` to opt out). It resolves the preset build in
+the workflow layer (`_resolve_exclude_regions_build`): in `chr_pos`-family modes
+it reuses the panel build `ldscore` already operates in (the parquet
+`ldsc:genome_build` / PLINK panel / `--genome-build`, i.e.
+`GlobalConfig.genome_build`); in `rsid`-family modes no build is in scope, so
+presets require an explicit `--exclude-regions-build {hg19,hg38}`. An explicit
+`--exclude-regions-build` always wins. The resolved build is passed into
+`RefPanelConfig`, preserving its invariant that presets imply a build.
+
+> **⚠️ The MHC + centromere default applies only to the CLI and the
+> `run_ldscore()` / `run_build_ref_panel()` wrappers.** Direct
+> `RefPanelConfig(...)` / `ReferencePanelBuildConfig(...)` construction defaults
+> `exclude_regions` to `()` — **no exclusion** — and you must pass both
+> `exclude_regions` and `exclude_regions_build` yourself. See
+> `config-design.md` → "Region exclusion default depends on the entry point".
 
 `build-ref-panel` (`ReferencePanelBuildConfig`) has **no** `--exclude-regions-build`
 flag. It reuses the resolved `source_genome_build` automatically, so exclusion
@@ -485,7 +493,7 @@ in `diagnostics/sumstats.log`; row-level drops are written to
 | File | Example | Notes |
 | --- | --- | --- |
 | raw sumstats | `#CHROM POS ID EA NEA PVAL BETA NEFF`<br/>`1 754182 rs3131969 A G 0.46 0.004 829249.58` | leading `##` metadata lines are skipped; header aliases are normalized in the workflow layer; `NEFF` is not inferred as `N` unless the user explicitly passes `--N-col NEFF` |
-| DANER schema modes and VCF-style plain raw sumstats | old DANER: `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` headers<br/>new DANER: exact `Nca` and `Nco` columns<br/>plain VCF-style: leading `##` metadata and `#CHROM` header | `--format auto` detects these profiles; explicit `--format daner-old` or `--format daner-new` overrides DANER auto-detection; VCF-style inputs are `plain`; legacy `--daner-old`/`--daner-new` remain supported |
+| DANER schema modes and VCF-style plain raw sumstats | old DANER: `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` headers<br/>new DANER: exact `Nca` and `Nco` columns<br/>plain VCF-style: leading `##` metadata and `#CHROM` header | `--format auto` detects these profiles; explicit `--format daner-old` or `--format daner-new` overrides DANER auto-detection; VCF-style inputs are `plain`. `--format` is the sole DANER selector (the legacy `--daner-old`/`--daner-new` booleans are removed). |
 | sumstats SNP keep-list, optional | headered `SNP` or `CHR`/`POS` restriction file, or `--use-hm3-snps` | optional row filter loaded once before parsing and applied inside each retained chunk; allele-free restrictions match by base key before later identity cleanup; allele-bearing restrictions, including packaged HM3, match by effective allele-aware key in allele-aware modes; duplicate restriction keys collapse to one retained key and non-identity columns such as `CM` or `MAF` are ignored |
 | sumstats liftover method, optional | `--output-genome-build hg38 --liftover-chain-file hg19ToHg38.over.chain` or `--output-genome-build hg38 --use-hm3-snps --use-hm3-quick-liftover` | valid only in `chr_pos`-family modes; required when source and output builds differ; updates `CHR`/`POS` after SNP restriction and preserves `SNP` labels |
 | column hints, optional | `--snp ID --chr '#CHROM' --pos POS --a1 EA --a2 NEA` | useful when headers are ambiguous; common aliases infer automatically, and `--infer-only` reports the hints it would apply |

@@ -50,6 +50,23 @@ def format_float(value: float) -> str:
     return format(value, _FLOAT_FORMAT)
 
 
+class _LevelPrefixFormatter(logging.Formatter):
+    """Tag non-INFO records with their level for at-a-glance scanning.
+
+    INFO is the normal run narrative and stays unprefixed; DEBUG, WARNING,
+    ERROR, and CRITICAL records are prefixed with ``[LEVEL] `` so they stand out
+    in both the console stream and the per-run log file. Lifecycle audit lines
+    bypass the formatter entirely (see ``_WorkflowLoggingContext._write_line``),
+    so the banner and ``Call:``/``Inputs:``/``Outputs:`` blocks are unaffected.
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
+        message = super().format(record)
+        if record.levelno != logging.INFO:
+            return f"[{record.levelname}] {message}"
+        return message
+
+
 def configure_package_logging(level: str = "INFO") -> None:
     """Set the ``LDSC`` logger threshold for console-style workflow logging."""
     logging.getLogger(_LDSC_LOGGER_NAME).setLevel(_level_number(level))
@@ -68,7 +85,7 @@ def install_cli_console_handler(level: str = "ERROR") -> logging.Handler:
         return _CLI_CONSOLE_HANDLER
     handler = logging.StreamHandler(sys.stderr)
     handler.setLevel(_level_number(level))
-    handler.setFormatter(logging.Formatter("%(message)s"))
+    handler.setFormatter(_LevelPrefixFormatter("%(message)s"))
     logging.getLogger(_LDSC_LOGGER_NAME).addHandler(handler)
     _CLI_CONSOLE_HANDLER = handler
     return handler
@@ -218,7 +235,7 @@ class _WorkflowLoggingContext:
                 self._log_path.parent.mkdir(parents=True, exist_ok=True)
                 self._handler = logging.FileHandler(self._log_path, mode="w", encoding="utf-8")
                 self._handler.setLevel(self._level)
-                self._handler.setFormatter(logging.Formatter("%(message)s"))
+                self._handler.setFormatter(_LevelPrefixFormatter("%(message)s"))
                 logger.addHandler(self._handler)
 
             _CURRENT.context = self

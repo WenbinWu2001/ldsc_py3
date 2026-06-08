@@ -1147,34 +1147,6 @@ def _r2_panel_ld_window_spec(parquet_paths: Sequence[str]) -> _LDWindowSpec | No
     return panel_spec
 
 
-def _block_left_for_window_spec(metadata: pd.DataFrame, spec: _LDWindowSpec, *, context: str) -> np.ndarray:
-    """Compute ``block_left`` for an LD-window spec against one metadata table."""
-    if spec.mode == "snps":
-        coords = np.arange(len(metadata), dtype=float)
-        max_dist = spec.value
-    elif spec.mode == "kb":
-        if "POS" not in metadata.columns:
-            raise LDSCInputError(
-                f"ldscore could not validate the parquet R2 panel LD window for {context}: "
-                "position metadata is missing. Most likely the R2 sidecar is malformed. "
-                "Regenerate the reference panel with `ldsc build-ref-panel`."
-            )
-        coords = metadata["POS"].to_numpy(dtype=float)
-        max_dist = spec.value * 1000.0
-    else:
-        if "CM" not in metadata.columns or metadata["CM"].isna().any():
-            raise LDSCInputError(
-                f"ldscore could not validate the parquet R2 panel LD window for {context}: "
-                "CM metadata is missing for at least one panel SNP, but the parquet "
-                f"records a cM build window `{_format_ld_window_spec(spec)}`. Most "
-                "likely the sidecar is incomplete or was edited. Regenerate the "
-                "reference panel with complete genetic-map metadata."
-            )
-        coords = metadata["CM"].to_numpy(dtype=float)
-        max_dist = spec.value
-    return get_block_lefts(coords, max_dist).astype(np.int64, copy=False)
-
-
 def _raise_ldscore_window_exceeds_panel_window(
     *,
     requested: _LDWindowSpec,
@@ -1200,47 +1172,35 @@ def validate_ldscore_window_within_r2_panel_window(
     *,
     parquet_paths: Sequence[str],
     chrom: str,
-    metadata: pd.DataFrame | None = None,
-    requested_block_left: np.ndarray | None = None,
 ) -> None:
     """Reject ldscore windows wider than the recorded R2 parquet build window.
 
     Old parquet artifacts without ``ldsc:ld_window_*`` metadata cannot be checked
-    reliably, so they retain their previous behavior. When metadata is supplied,
-    the comparison is exact in retained SNP space and supports mixed units.
+    reliably, so they retain their previous behavior. The check is deliberately
+    limited to the recorded parquet LD-window mode and value; it does not infer
+    pair coverage from per-SNP coordinates.
     """
     panel_spec = _r2_panel_ld_window_spec(parquet_paths)
     if panel_spec is None:
         return
     requested_spec = _requested_ld_window_spec(args)
 
-    if metadata is None or requested_block_left is None:
-        if requested_spec.mode == panel_spec.mode and requested_spec.value > panel_spec.value:
-            _raise_ldscore_window_exceeds_panel_window(
-                requested=requested_spec,
-                panel=panel_spec,
-                chrom=chrom,
-            )
+    if requested_spec.mode != panel_spec.mode:
+        LOGGER.warning(
+            f"ldscore cannot directly compare the requested LD window to the R2 parquet "
+            f"panel window because their modes differ: the R2 parquet panel was built "
+            f"with `{_format_ld_window_spec(panel_spec)}`, but this ldscore run requested "
+            f"`{_format_ld_window_spec(requested_spec)}`. Most likely the run is mixing "
+            "a reference panel built under one LD-window coordinate system with an "
+            "ldscore request in another. Continuing, but the requested window may require "
+            "SNP pairs not stored in the parquet, so LD scores may miss some SNP-pair "
+            "contributions. To avoid this risk, rebuild the R2 parquet panel with the "
+            "same LD-window mode as this ldscore run, or rerun ldscore with the panel's "
+            f"recorded mode `{panel_spec.flag}`."
+        )
         return
 
-    full_sidecar = _load_full_panel_sidecar(parquet_paths[0])
-    _, retained_build_idx = build_index_remap(
-        full_sidecar,
-        metadata,
-        getattr(args, "snp_identifier", "chr_pos"),
-    )
-    panel_full_block_left = _block_left_for_window_spec(
-        full_sidecar,
-        panel_spec,
-        context=f"chromosome {chrom} panel sidecar",
-    )
-    panel_retained_block_left = np.searchsorted(
-        retained_build_idx,
-        panel_full_block_left[retained_build_idx],
-        side="left",
-    ).astype(np.int64, copy=False)
-    requested_block_left = np.asarray(requested_block_left, dtype=np.int64)
-    if np.any(requested_block_left < panel_retained_block_left):
+    if requested_spec.value > panel_spec.value:
         _raise_ldscore_window_exceeds_panel_window(
             requested=requested_spec,
             panel=panel_spec,
@@ -1681,8 +1641,6 @@ def compute_chrom_from_parquet(
         args,
         parquet_paths=parquet_paths,
         chrom=chrom,
-        metadata=metadata,
-        requested_block_left=block_left,
     )
     check_whole_chromosome_window(block_left, args, chrom)
     block_reader = SortedR2BlockReader(

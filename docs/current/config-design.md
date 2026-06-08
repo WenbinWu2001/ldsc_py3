@@ -271,10 +271,52 @@ ldscore = ldsc.LDScoreCalculator().run(
 )
 ```
 
-For package-built parquet R2 panels, `RefPanelConfig.r2_bias_mode` and
-`sample_size` can usually stay omitted because the loader reads
-`ldsc:r2_bias` and `ldsc:n_samples` from the parquet schema. Set them explicitly
-only for external files that use `ldsc:r2_bias=raw` and lack `ldsc:n_samples`.
+For parquet R2 panels, R2 bias mode and sample size are read solely from the
+parquet schema (`ldsc:r2_bias` and `ldsc:n_samples`); there are no
+`RefPanelConfig` bias fields. External raw-R2 panels must declare
+`ldsc:r2_bias=raw` and `ldsc:n_samples` in their parquet metadata to be corrected.
+
+### Region exclusion default depends on the entry point
+
+> **⚠️ Direct `RefPanelConfig(...)` / `ReferencePanelBuildConfig(...)` construction
+> applies NO region exclusion by default.** The MHC + centromere default lives at
+> the *CLI and convenience-wrapper* layer, not in the dataclasses.
+
+The default-on behavior is deliberately split so the dataclasses stay pure value
+objects (a default that needs a companion build would otherwise turn "construct
+with no exclusion" into "error unless you also supply a build"):
+
+| Entry point | Default `--exclude-regions` / `exclude_regions` |
+| --- | --- |
+| CLI `ldsc ldscore` / `ldsc build-ref-panel` | `mhc-and-centromeres` (MHC + centromeres excluded) |
+| `run_ldscore(...)` / `run_build_ref_panel(...)` | `mhc-and-centromeres` (inherited from the parser default) |
+| **`RefPanelConfig(...)` / `ReferencePanelBuildConfig(...)`** | **`()` — nothing excluded** |
+
+So a script that builds these dataclasses directly (Way 3) must opt in explicitly
+to exclude regions. The build requirement differs by dataclass:
+
+```python
+# ldscore: RefPanelConfig has an exclude_regions_build field; presets require it.
+RefPanelConfig(
+    backend="parquet_r2",
+    r2_dir="ref_panel/hg38",
+    exclude_regions=("mhc", "centromeres"),
+    exclude_regions_build="hg38",   # required: RefPanelConfig presets imply a build
+)
+
+# build-ref-panel: ReferencePanelBuildConfig has NO exclude_regions_build field;
+# the build comes from source_genome_build (defaults to "auto").
+ReferencePanelBuildConfig(
+    plink_prefix="panel.@",
+    exclude_regions=("mhc", "centromeres"),
+    source_genome_build="hg38",     # or "auto" to infer from the .bim
+)
+```
+
+The CLI/wrapper path resolves the build for you (for `ldscore`: panel build in
+`chr_pos` modes, explicit in `rsid` modes; for `build-ref-panel`: the resolved
+`source_genome_build`). Direct `RefPanelConfig` construction does not, so you
+must pass `exclude_regions_build` whenever `exclude_regions` is non-empty.
 
 ### Artifact contract
 

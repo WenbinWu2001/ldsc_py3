@@ -167,16 +167,14 @@ Removed flags: `--bed-files`, `--baseline-annot`.
 | `--r2-dir` | input | conditional | package-built parquet R2 directory | Selects parquet reference-panel input; defaults to omitted/`None` and is required when `--plink-prefix` is omitted. Use a build-specific directory such as `ref_panel/hg38`. The directory must contain paired `chrN_r2.parquet` (4-column index format) and `chrN_meta.tsv.gz` sidecar files; the sidecar is mandatory. One parquet serves all identifier modes. |
 | `--snp-identifier` | config | no | SNP identity mode | Defines how SNPs are keyed. Defaults to `chr_pos_allele_aware`; valid values are `rsid`, `rsid_allele_aware`, `chr_pos`, and `chr_pos_allele_aware`. |
 | `--genome-build` | config | no | coordinate interpretation | Coordinate build for `chr_pos`-family inputs. Defaults to omitted/`None` and may be `auto`, `hg19`/`GRCh37`, or `hg38`/`GRCh38`. |
-| `--r2-bias-mode` | input metadata | optional | parquet R2 bias declaration | Declares whether parquet R2 values are raw or unbiased. Package-built panels auto-load this from `ldsc:r2_bias`; legacy files without metadata still default to `unbiased`. Choose `raw` only for external raw sample R2 values. |
-| `--r2-sample-size` | input metadata | conditional | parquet R2 sample size | Provides the sample size for correcting raw R2. Package-built raw panels can auto-load this from `ldsc:n_samples`; legacy raw files still require an explicit value with `--r2-bias-mode raw`. |
 | `--ref-panel-snps-file` | input | no | reference-panel SNP universe restriction | Restricts the retained reference-panel SNP universe using identity keys only; duplicate restriction keys collapse to one retained key, and non-identity columns such as `CM` or `MAF` are ignored. Defaults to omitted/`None`, so no additional restriction is applied. |
 | `--use-hm3-ref-panel-snps` | input mode | no | packaged HM3 reference-panel SNP restriction | Restricts the retained reference-panel SNP universe to the packaged curated HM3 map. Mutually exclusive with `--ref-panel-snps-file`. |
 | `--regression-snps-file` | input | no | persisted LD-score row-set restriction | Restricts the written LD-score row set using identity keys only; duplicate restriction keys collapse to one retained key, and non-identity columns such as `CM` or `MAF` are ignored. Defaults to omitted/`None`, so rows are not restricted by a persisted regression SNP set. |
 | `--use-hm3-regression-snps` | input mode | no | packaged HM3 regression SNP restriction | Restricts the persisted LD-score row set to the packaged curated HM3 map. Mutually exclusive with `--regression-snps-file`. |
 | `--keep-indivs-file` | input | no | PLINK individual keep file | Restricts PLINK individuals before LD calculation; defaults to omitted/`None`, so no individual keep filter is applied. PLINK mode only. |
 | `--maf-min` | input metadata | no | retained reference-panel MAF filter | Filters retained reference-panel SNPs by MAF; defaults to omitted/`None`, so no retained-reference MAF filter is applied. |
-| `--exclude-regions` | input transform | no | packaged region presets | Comma-separated region presets, currently `mhc` and `centromeres`, to exclude before LD-score computation. Requires `--exclude-regions-build` because presets are build-specific. |
-| `--exclude-regions-build` | input metadata | conditional | region preset genome build | Concrete build (`hg19` or `hg38`) used to select packaged region BEDs when `--exclude-regions` is supplied. There is no `auto` value for `ldscore`; callers state the panel coordinate build explicitly. |
+| `--exclude-regions` | input transform | no | packaged region presets | Single choice: `none`, `mhc`, `centromeres`, or `mhc-and-centromeres`. **Defaults to `mhc-and-centromeres`** (MHC and centromeres are excluded before LD-score computation unless you pass `none`). |
+| `--exclude-regions-build` | input metadata | conditional | region preset genome build | Concrete build (`hg19` or `hg38`) used to select packaged region BEDs. In `chr_pos`-family modes the build is inferred from the panel build `ldscore` already operates in (parquet `ldsc:genome_build` / PLINK panel / `--genome-build`); in `rsid`-family modes it must be supplied explicitly when presets are excluded. |
 | `--exclude-regions-bed` | input transform | no | custom exclusion BEDs | Comma-separated user BED files whose intervals are excluded before LD-score computation. May be combined with presets. |
 | `--ld-wind-snps` | model | conditional | LD window in SNPs | Selects an LD window measured by SNP count. Exactly one of `--ld-wind-snps`, `--ld-wind-kb`, or `--ld-wind-cm` must be supplied. |
 | `--ld-wind-kb` | model | conditional | LD window in kilobases | Selects an LD window measured by physical distance. Exactly one LD-window flag must be supplied. |
@@ -188,7 +186,9 @@ Removed flags: `--bed-files`, `--baseline-annot`.
 
 Removed flags: `--bfile`, `--r2-table`, `--frqfile`, `--r2-sources`,
 `--metadata-sources`, `--keep`, `--maf`, `--baseline-annot`,
-`--query-annot`, `--query-annot-bed`, `--chunk-size`, legacy `--out`.
+`--query-annot`, `--query-annot-bed`, `--chunk-size`, `--r2-bias-mode`,
+`--r2-sample-size`, legacy `--out`. R2 bias mode and sample size are now read
+solely from parquet schema metadata (`ldsc:r2_bias` / `ldsc:n_samples`).
 
 LD-score output schema:
 
@@ -219,7 +219,7 @@ LD-score output schema:
 | `--snp-identifier` | input metadata | conditional | global SNP identifier mode | Overrides the registered SNP identifier mode for this invocation; defaults to omitted/`None`, so `GlobalConfig.snp_identifier` is used. |
 | `--keep-indivs-file` | input | no | PLINK individual keep file | Restricts PLINK individuals during panel building; defaults to omitted/`None`, so no individual keep filter is applied. |
 | `--maf-min` | input metadata | no | retained SNP MAF filter | Filters retained SNPs by MAF during PLINK loading; defaults to omitted/`None`, so no retained-SNP MAF filter is applied. |
-| `--exclude-regions` | input transform | no | packaged region presets | Comma-separated region presets, currently `mhc` and `centromeres`, excluded from source-build PLINK metadata before identity cleanup, restriction, R2 emission, and any liftover. The build comes from resolved `--source-genome-build`; there is no separate `--exclude-regions-build` flag for this workflow. |
+| `--exclude-regions` | input transform | no | packaged region presets | Single choice: `none`, `mhc`, `centromeres`, or `mhc-and-centromeres`. **Defaults to `mhc-and-centromeres`**; pass `none` to keep all regions. Presets are excluded from source-build PLINK metadata before identity cleanup, restriction, R2 emission, and any liftover. The build comes from resolved `--source-genome-build`; there is no separate `--exclude-regions-build` flag for this workflow. |
 | `--exclude-regions-bed` | input transform | no | custom exclusion BEDs | Comma-separated user BED files whose intervals are excluded from source-build PLINK metadata before panel emission. May be combined with presets. |
 | `--ld-wind-snps` | model | conditional | LD window in SNPs | Selects an LD window measured by SNP count. Exactly one of `--ld-wind-snps`, `--ld-wind-kb`, or `--ld-wind-cm` must be supplied. |
 | `--ld-wind-kb` | model | conditional | LD window in kilobases | Selects an LD window measured by physical distance. Exactly one LD-window flag must be supplied. |
@@ -228,12 +228,12 @@ LD-score output schema:
 | `--overwrite` | output mode | no | collision policy | Controls whether reference-panel artifacts, diagnostic metadata, always-written `diagnostics/dropped_snps/chr{chrom}_dropped.tsv.gz` audit files, and build-ref-panel workflow logs may be replaced; defaults to `False`, so existing owned outputs are refused. Concrete chromosome prefixes own and clean only that chromosome's package. `@` chromosome-suite runs own the full panel package and can remove stale target-build, out-of-scope chromosome, dropped-SNP, metadata, or log siblings after success. |
 | `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger record verbosity; these records go to the build-ref-panel workflow log and the CLI console (stderr) shows only errors. Lifecycle audit lines always appear in the file. |
 | `--snp-batch-size` | performance | no | SNP computation batch size | Number of SNPs decoded per pairwise-R2 computation batch; larger values size the pairwise working set (decoded window and correlation block) and can improve throughput. It does **not** drive peak RSS: the genotype payload is read selectively (restricted builds) or streamed (unrestricted builds), so peak is governed by that bounded read plus the workflow/import floor, not by this batch size. Defaults to `128`. |
-| `--chunk-size` | compatibility/performance | no | SNP computation batch-size alias | Compatibility alias for `--snp-batch-size`; forwards to the same setting. Prefer `--snp-batch-size` in new commands. |
 | `--min-r2` | output mode | no | pair-emission threshold | Optional unbiased-R2 floor for emitted pairs. Defaults to `0.0`, which writes every retained pair. Positive values reduce output size by omitting low-R2 pairs; downstream query and LD-score reads treat absent pairs as zero/absent according to their workflow contract. The threshold is recorded in parquet metadata as `ldsc:min_r2`. |
 
 Removed flags: `--bfile`, `--out`, `--panel-label`, `--keep-indivs`, `--maf`,
 `--genetic-map-hg19`, `--genetic-map-hg38`, old liftover-chain names without
-`_file` / `_sources`, `--duplicate-position-policy`.
+`_file` / `_sources`, `--duplicate-position-policy`, `--chunk-size` (hidden alias;
+use `--snp-batch-size`).
 
 Fixed output names:
 
@@ -252,8 +252,10 @@ Fixed output names:
 Each `chr{chrom}_r2.parquet` stores Arrow schema metadata for
 `ldsc:sorted_by_build`, `ldsc:row_group_size`, `ldsc:n_samples`, and
 `ldsc:r2_bias`. Current package-built panels write unbiased R2 values and record
-the PLINK sample count, so downstream LD-score runs can omit `--r2-bias-mode`
-and `--r2-sample-size` for panels produced by this codebase.
+the PLINK sample count. Downstream LD-score runs read R2 bias mode and sample
+size from this metadata; there are no bias-related flags. External raw-R2 panels
+must declare `ldsc:r2_bias=raw` and `ldsc:n_samples` in their parquet schema to
+be corrected.
 
 When no usable source-to-target liftover method is provided, the builder logs an
 INFO message and emits source-build-only outputs. When a matching liftover chain
@@ -282,7 +284,7 @@ inside the owned package are removed after the successful write.
 | Flag | Direction | Required | Object | Notes |
 |---|---:|---:|---|---|
 | `--raw-sumstats-file` | input | yes | raw summary-statistics file | Exact path or exact-one glob. |
-| `--format` | input metadata | no | raw summary-statistics format profile | One of `auto`, `plain`, `daner-old`, or `daner-new`; defaults to `auto`, which detects common plain text, including VCF-style headers, old DANER, and new DANER. Conflicts with incompatible legacy DANER flags are rejected. |
+| `--format` | input metadata | no | raw summary-statistics format profile | One of `auto`, `plain`, `daner-old`, or `daner-new`; defaults to `auto`, which detects common plain text, including VCF-style headers and old DANER. This is the sole DANER selector (the legacy `--daner-old`/`--daner-new` booleans are removed). |
 | `--infer-only` | diagnostic | no | raw summary-statistics inference report | Reads the raw header and first data row, prints detected format, inferred hints, missing fields, source/output genome-build status, liftover status, notes, and suggested commands. Missing `A1/A2` is reported only in allele-aware modes. Does not require `--output-dir` and writes no artifacts. |
 | `--sumstats-snps-file` | input | no | summary-statistics SNP keep-list | Restricts munged summary-statistics rows using identity keys only; duplicate restriction keys collapse to one retained key, and non-identity columns such as `CM` or `MAF` are ignored. The keep-list is loaded before parsing and applied while chunks are streaming; defaults to omitted/`None`, so no keep-list restriction is applied. |
 | `--use-hm3-snps` | input mode | no | packaged HM3 SNP restriction | Restricts munged summary-statistics rows to the packaged curated HM3 map while chunks are streaming. Mutually exclusive with `--sumstats-snps-file`. |
@@ -313,13 +315,13 @@ inside the owned package are removed after the successful write.
 | `--output-genome-build` | output metadata | yes in coordinate-family modes | final munged coordinate build | Required for `chr_pos`-family normal runs and `--infer-only`; rejected in rsid-family modes. If it differs from the resolved source build, exactly one liftover method is required. |
 | `--liftover-chain-file` | input | no | optional munger liftover chain | Uses a source-to-target chain file for coordinate-only sumstats liftover. Mutually exclusive with `--use-hm3-quick-liftover`. |
 | `--use-hm3-quick-liftover` | input mode | no | packaged HM3 coordinate map | Uses the curated dual-build HM3 map for HM3-only quick liftover. Requires `--use-hm3-snps` and is mutually exclusive with `--liftover-chain-file`. |
-| `--daner-old`, `--daner-new` | input metadata | no | DANER schema interpretation | `--daner-old` parses case/control N from `FRQ_A_<Ncas>` and `FRQ_U_<Ncon>` headers; `--daner-new` parses exact `Nca` and `Nco` columns. |
 | `--snp-identifier` | config | no | provenance | Defaults to `chr_pos_allele_aware`. Coordinate-family munger runs use `--source-genome-build` and `--output-genome-build`; rsid-family munger runs reject genome-build and liftover build flags and store `genome_build=None`. Allele-aware modes require usable `A1/A2`; rerun with `--snp-identifier chr_pos` or `--snp-identifier rsid` to run without allele-aware identity. |
 | `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger record verbosity; these records go to `diagnostics/sumstats.log` and the CLI console (stderr) shows only errors. Lifecycle audit lines always appear in the file. |
 | `--overwrite` | output mode | no | collision policy | Controls whether fixed sumstats outputs may be replaced; defaults to `False`, so any owned `sumstats.*` artifact is refused. With overwrite, stale sibling formats not produced by the current `--output-format` are removed after a successful run. |
 
 Removed flags: `--sumstats`, `--sumstats-file` for raw munge input,
-`--merge-alleles`, `--merge-alleles-file`, `--no-alleles`, `--out`.
+`--merge-alleles`, `--merge-alleles-file`, `--no-alleles`, `--out`,
+`--daner-old`, `--daner-new` (use `--format daner-old` / `--format daner-new`).
 
 Fixed output names:
 
@@ -357,19 +359,21 @@ INFO flags.
 
 | Flag | Direction | Required | Object | Notes |
 |---|---:|---:|---|---|
-| `--panel-dir` | input | conditional | build-ref-panel output directory | Opens a package-built reference panel directory, optionally selecting a build subdirectory with `--genome-build`. Mutually exclusive with explicit `--meta`/`--parquet` paths. |
-| `--meta`, `--parquet` | input | conditional | one chromosome sidecar and R2 parquet | Explicit single-chromosome input mode. Both paths are required together and are mutually exclusive with `--panel-dir`. |
+| `--panel-dir` | input | yes | build-ref-panel output directory | Opens a package-built reference panel directory, optionally selecting a build subdirectory with `--genome-build`. This is the only panel input mode. |
 | `--pairs` | input | yes | SNP-pair table | TSV by default, CSV when the filename ends with `.csv`, or stdin via `-`. Endpoint columns use `_1` and `_2` suffixes, with `SNP`, `CHR`, `POS`, `A1`, and `A2` supplied according to the active identifier mode. |
 | `--out` | output | no | query result TSV | Writes a TSV table when supplied; defaults to stdout. This flag is a concrete table destination, not an artifact prefix. |
 | `--snp-identifier` | input metadata | no | query identity mode | Overrides panel metadata. If omitted, `R2Panel.open()` reads `ldsc:snp_identifier` from parquet metadata. |
 | `--genome-build` | input selector | no | panel build selector | Concrete `hg19`/`hg38` selector for build-ref-panel directory layouts. |
-| `--with-r` | output mode | no | signed Pearson r | Adds signed Pearson `r` by inverting unbiased R2 with panel `ldsc:n_samples`. Meaningful for allele-aware modes; base modes produce no sign information. |
-| `--strategy` | performance | no | lookup algorithm | `auto`, `random`, or `stream`; defaults to `auto`. |
-| `--strategy-threshold` | performance | no | auto strategy threshold | Pair-count threshold for auto-selecting random vs streaming lookup. Defaults to `50000`. |
 
-Output columns append `r2`, nullable `sign`, and `status` to the input pairs.
-`status` is blank for found pairs and may report `not_in_panel`,
-`cross_chromosome`, or `absent`. `--with-r` also appends `r`.
+Removed flags: `--meta`, `--parquet` (explicit single-chromosome input; use
+`--panel-dir`), `--with-r` (signed `r` is now always emitted), `--strategy`,
+`--strategy-threshold` (lookup strategy is fixed to the internal `auto` rule).
+
+Output columns always append `r2`, nullable `sign`, signed Pearson `r`, and
+`status` to the input pairs. `r` is computed by inverting unbiased R2 with panel
+`ldsc:n_samples`; it is all-NaN in base/allele-blind modes (no sign) and in
+panels lacking `ldsc:n_samples`. `status` is blank for found pairs and may report
+`not_in_panel`, `cross_chromosome`, or `absent`.
 
 ### `ldsc h2`
 
@@ -523,7 +527,7 @@ Removed Python names: `plink_path`, `bfile`, `out`, `panel_label`,
 | `MungeConfig` | `raw_sumstats_file` | input | raw summary-statistics file |
 | `MungeConfig` | `trait_name` | input metadata | optional trait label |
 | `MungeConfig` | `column_hints` | input metadata | optional source-column hints |
-| `MungeConfig` | `daner_old`, `daner_new` | input metadata | optional DANER schema interpretation switches |
+| `MungeConfig` | `sumstats_format` | input metadata | `"auto"`/`"plain"`/`"daner-old"`/`"daner-new"`; sole DANER selector (the `daner_old`/`daner_new` boolean fields are removed) |
 | `MungeConfig` | `sumstats_snps_file` | input | summary-statistics SNP keep-list |
 | `MungeConfig` | `use_hm3_snps` | input mode | packaged HM3 summary-statistics SNP restriction |
 | `MungeConfig` | `source_genome_build` | input metadata | raw source build for `chr_pos`-family coordinates; defaults to `"auto"` |
@@ -543,12 +547,10 @@ Removed Python names: legacy separate source-path object field,
 
 | Object/function | Argument | Direction | Object |
 |---|---:|---:|---|
-| `R2Panel.open()` | `panel_dir` | input | package-built reference-panel directory |
-| `R2Panel.open()` | `meta_path`, `parquet_path` | input | explicit single-chromosome sidecar/R2 parquet pair |
+| `R2Panel.open()` | `panel_dir` | input | package-built reference-panel directory (sole input mode) |
 | `R2Panel.open()` | `snp_identifier`, `genome_build` | input metadata | active identity mode and build selector |
-| `R2Panel.query_pairs(pairs, ...)` | `pairs` | input | endpoint-suffixed SNP-pair table |
-| `R2Panel.query_pairs(pairs, with_r=True)` | `with_r` | output mode | optional signed Pearson `r` column |
-| `query_r2(...)` | `pairs`, `panel_dir` or `meta_path`/`parquet_path` | input | one-shot query wrapper around `R2Panel.open()` and `query_pairs()` |
+| `R2Panel.query_pairs(pairs)` | `pairs` | input | endpoint-suffixed SNP-pair table; always appends `r2`, `sign`, `r`, `status` |
+| `query_r2(...)` | `pairs`, `panel_dir` | input | one-shot query wrapper around `R2Panel.open()` and `query_pairs()` |
 | `unbiased_r2_to_pearson_r(r2_adj, n, sign)` | `r2_adj`, `n`, `sign` | transform | converts adjusted R2 plus sign to Pearson `r` |
 
 ### Regression

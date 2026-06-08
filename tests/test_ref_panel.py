@@ -123,10 +123,6 @@ class RefPanelLoaderTest(unittest.TestCase):
         panel = loader.load(spec)
         self.assertIsInstance(panel, PlinkRefPanel)
 
-    def test_ref_panel_config_accepts_r2_bias_mode(self):
-        spec = RefPanelConfig(backend="parquet_r2", r2_bias_mode="unbiased")
-        self.assertEqual(spec.r2_bias_mode, "unbiased")
-
     def test_ref_panel_config_accepts_ref_panel_snps_file(self):
         spec = RefPanelConfig(backend="plink", ref_panel_snps_file="/path/to/snps.txt")
         self.assertEqual(spec.ref_panel_snps_file, "/path/to/snps.txt")

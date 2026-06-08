@@ -1437,18 +1437,18 @@ class SortedR2BlockReader:
         if self.r2_bias_mode == "raw":
             if self.r2_sample_size is None:
                 raise LDSCUsageError(
-                    "ldscore cannot apply raw R2 bias correction without `--r2-sample-size`. "
-                    "Most likely `--r2-bias-mode raw` was selected without the sample size "
-                    "used to estimate R2. Pass `--r2-sample-size <N>`, or use "
-                    "`--r2-bias-mode unbiased` for pre-corrected R2 values."
+                    "ldscore cannot apply raw R2 bias correction without a sample size. "
+                    "Most likely the parquet panel declares `ldsc:r2_bias=raw` but omits "
+                    "`ldsc:n_samples`. Rebuild the panel with the current build-ref-panel, "
+                    "or record `ldsc:n_samples` (and `ldsc:r2_bias`) in the parquet metadata."
                 )
             denom = self.r2_sample_size - 2
             if denom <= 0:
                 raise LDSCConfigError(
-                    f"ldscore received invalid `--r2-sample-size={self.r2_sample_size}` "
-                    "for raw R2 correction. Most likely the sample size is too small "
-                    "for the unbiased correction denominator. Pass a sample size greater "
-                    "than 2, or use `--r2-bias-mode unbiased`."
+                    f"ldscore received invalid R2 sample size ({self.r2_sample_size}) "
+                    "for raw R2 correction. Most likely the panel's `ldsc:n_samples` is too "
+                    "small for the unbiased correction denominator. Use a panel whose sample "
+                    "size exceeds 2, or one that stores pre-corrected (`ldsc:r2_bias=unbiased`) R2."
                 )
             values = values - (1.0 - values) / denom
             # Share the writer's R2<=1 invariant: roundoff/raw inputs can exceed 1.
@@ -1690,8 +1690,8 @@ def compute_chrom_from_parquet(
         chrom=chrom,
         metadata=metadata,
         identifier_mode=args.snp_identifier,
-        r2_bias_mode=args.r2_bias_mode,
-        r2_sample_size=args.r2_sample_size,
+        r2_bias_mode=getattr(args, "r2_bias_mode", "unbiased"),
+        r2_sample_size=getattr(args, "r2_sample_size", None),
         genome_build=args.genome_build,
     )
     combined_scores = ld_score_streaming_from_r2_reader(
@@ -2016,20 +2016,16 @@ def validate_args(args: argparse.Namespace) -> None:
             from . import ref_panel as ref_panel_mod
 
             stored = ref_panel_mod._read_r2_schema_meta(first_r2)
+            # R2 bias mode and sample size come from parquet schema metadata
+            # (ldsc:r2_bias / ldsc:n_samples); there is no CLI override.
             args.r2_bias_mode, args.r2_sample_size = ref_panel_mod._resolve_r2_bias_from_meta(
-                args.r2_bias_mode,
+                getattr(args, "r2_bias_mode", None),
                 getattr(args, "r2_sample_size", None),
                 stored,
             )
-        if args.r2_bias_mode is None:
+        if getattr(args, "r2_bias_mode", None) is None:
             args.r2_bias_mode = "unbiased"
-        if args.r2_bias_mode == "raw" and args.r2_sample_size is None:
-            raise LDSCUsageError(
-                "ldscore cannot apply raw R2 bias correction without `--r2-sample-size`. "
-                "Most likely `--r2-bias-mode raw` was selected for parquet input without "
-                "the sample size used to estimate R2. Pass `--r2-sample-size <N>`, or use "
-                "`--r2-bias-mode unbiased` for pre-corrected R2 values."
-            )
+            args.r2_sample_size = getattr(args, "r2_sample_size", None)
         if identity_mode_family(args.snp_identifier) == "chr_pos" and args.genome_build is None:
             raise LDSCUsageError(
                 "ldscore cannot run parquet R2 mode with chr_pos-family SNP identifiers "
@@ -2098,8 +2094,6 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"),
         help="Genome build assumed for the sorted parquet R2 file and chr_pos-family matching. Use 'auto' to infer hg19/hg38 and 0-based/1-based coordinates.",
     )
-    parser.add_argument("--r2-bias-mode", choices=("raw", "unbiased"), default="unbiased", help="Whether sorted parquet R2 values are raw sample r^2 or already unbiased.")
-    parser.add_argument("--r2-sample-size", default=None, type=float, help="LD reference sample size used to correct raw parquet R2 values.")
     parser.add_argument(
         "--regression-snps-file",
         default=None,

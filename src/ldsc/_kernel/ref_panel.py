@@ -629,7 +629,9 @@ class ParquetR2RefPanel(RefPanel):
         """
         metadata = metadata if metadata is not None else self.load_metadata(chrom)
         paths = self.resolve_r2_paths(chrom)
-        effective_bias = self.spec.r2_bias_mode if r2_bias_mode is None else r2_bias_mode
+        # Bias mode comes from parquet metadata (resolved below); sample size
+        # falls back to any explicit RefPanelConfig.sample_size.
+        effective_bias = r2_bias_mode
         effective_n = r2_sample_size if r2_sample_size is not None else self.spec.sample_size
 
         if paths:

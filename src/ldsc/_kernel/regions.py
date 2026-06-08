@@ -22,6 +22,38 @@ from ..errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsa
 REGION_PRESETS: frozenset[str] = frozenset({"mhc", "centromeres"})
 _PRESET_BUILDS: frozenset[str] = frozenset({"hg19", "hg38"})
 
+# Public single-choice --exclude-regions vocabulary and its preset expansion.
+# ``mhc-and-centromeres`` is the default; ``none`` opts out of preset exclusion.
+EXCLUDE_REGIONS_CHOICES: tuple[str, ...] = ("none", "mhc", "centromeres", "mhc-and-centromeres")
+_EXCLUDE_REGIONS_PRESETS: dict[str, tuple[str, ...]] = {
+    "none": (),
+    "mhc": ("mhc",),
+    "centromeres": ("centromeres",),
+    "mhc-and-centromeres": ("mhc", "centromeres"),
+}
+
+
+def exclude_regions_choice_to_presets(choice: str) -> tuple[str, ...]:
+    """Map a public ``--exclude-regions`` choice to its region-preset name tuple.
+
+    Parameters
+    ----------
+    choice : str
+        One of :data:`EXCLUDE_REGIONS_CHOICES`.
+
+    Returns
+    -------
+    tuple of str
+        The preset names to exclude; ``()`` for ``"none"``.
+    """
+    try:
+        return _EXCLUDE_REGIONS_PRESETS[choice]
+    except KeyError:
+        raise LDSCConfigError(
+            f"Invalid --exclude-regions choice '{choice}'. "
+            f"Most likely a name was misspelled. Valid choices are {list(EXCLUDE_REGIONS_CHOICES)}."
+        ) from None
+
 
 @dataclass(frozen=True)
 class BedIntervalRow:

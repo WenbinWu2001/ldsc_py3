@@ -254,7 +254,8 @@ far more slowly.)
 tagged `ldsc:r2_bias=unbiased`), so the decoded $v_{ij}=q/s$ is the final value and
 no correction is applied. The raw→unbiased map
 $v_{ij}\leftarrow v_{ij}-\tfrac{1-v_{ij}}{N-2}$ is applied **only** for external
-*raw*-R² panels (`--r2-bias-mode raw --r2-sample-size N`), once per pair at decode.
+*raw*-R² panels (those declaring `ldsc:r2_bias=raw` with `ldsc:n_samples=N` in
+parquet schema metadata), once per pair at decode.
 Either way the $v_{ij}$ entering §5 is the final R². Possible small negative
 $v_{ij}$ (≈15% of pairs) are preserved, not floored.
 

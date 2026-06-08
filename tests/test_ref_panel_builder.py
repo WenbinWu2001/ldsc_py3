@@ -834,18 +834,18 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
         self.assertTrue(args.use_hm3_snps)
         self.assertTrue(args.use_hm3_quick_liftover)
 
-    def test_build_parser_keeps_chunk_size_as_hidden_alias(self):
+    def test_build_parser_rejects_removed_chunk_size_alias(self):
         parser = ref_panel_builder.build_parser()
         help_text = parser.format_help()
         self.assertIn("--snp-batch-size", help_text)
         self.assertNotIn("--chunk-size", help_text)
-        args = parser.parse_args([
-            "--plink-prefix", "plink/panel.@",
-            "--output-dir", "out",
-            "--ld-wind-kb", "1",
-            "--chunk-size", "64",
-        ])
-        self.assertEqual(args.snp_batch_size, 64)
+        with self.assertRaises(SystemExit):
+            parser.parse_args([
+                "--plink-prefix", "plink/panel.@",
+                "--output-dir", "out",
+                "--ld-wind-kb", "1",
+                "--chunk-size", "64",
+            ])
 
     def test_config_from_args_passes_snp_batch_size_to_config(self):
         parser = ref_panel_builder.build_parser()
@@ -1051,37 +1051,6 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
             )
 
         self.assertEqual(captured["config"].snp_batch_size, 64)
-
-    def test_run_build_ref_panel_maps_legacy_chunk_size_keyword(self):
-        captured = {}
-
-        def fake_run(self, config):
-            captured["config"] = config
-            return ref_panel_builder.ReferencePanelBuildResult(panel_name="out", chromosomes=[])
-
-        with mock.patch.object(ref_panel_builder.ReferencePanelBuilder, "run", fake_run):
-            ref_panel_builder.run_build_ref_panel(
-                plink_prefix="plink/panel.@",
-                source_genome_build="hg19",
-                genetic_map_hg19_sources="maps/hg19.map",
-                output_dir="out",
-                ld_wind_kb=1,
-                chunk_size=64,
-            )
-
-        self.assertEqual(captured["config"].snp_batch_size, 64)
-
-    def test_run_build_ref_panel_rejects_conflicting_batch_size_keywords(self):
-        with self.assertRaisesRegex(LDSCUsageError, "chunk_size.*snp_batch_size"):
-            ref_panel_builder.run_build_ref_panel(
-                plink_prefix="plink/panel.@",
-                source_genome_build="hg19",
-                genetic_map_hg19_sources="maps/hg19.map",
-                output_dir="out",
-                ld_wind_kb=1,
-                chunk_size=64,
-                snp_batch_size=128,
-            )
 
     def test_run_build_ref_panel_rejects_explicit_genome_build_keyword(self):
         with self.assertRaisesRegex(LDSCUsageError, "set_global_config"):
@@ -3051,8 +3020,6 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
                     output_dir=str(tmpdir / "parquet"),
                     baseline_annot_sources=str(baseline),
                     r2_dir=str(tmpdir / "panel" / "hg38"),
-                    r2_bias_mode="raw",
-                    r2_sample_size=3202,
                     ld_wind_snps=10,
                     snp_batch_size=64,
                 )
@@ -3325,18 +3292,32 @@ def test_build_ref_panel_parser_region_flags():
     parser = ref_panel_builder.build_parser()
     args = parser.parse_args(
         ["--plink-prefix", "p", "--output-dir", "o", "--ld-wind-kb", "1000",
-         "--exclude-regions", "mhc,centromeres", "--exclude-regions-bed", "/tmp/x.bed"]
+         "--exclude-regions", "mhc-and-centromeres", "--exclude-regions-bed", "/tmp/x.bed"]
     )
     build_config, _global = ref_panel_builder.config_from_args(args)
     assert build_config.exclude_regions == ("mhc", "centromeres")
     assert build_config.exclude_regions_bed == ("/tmp/x.bed",)
 
-    empty = ref_panel_builder.build_parser().parse_args(
-        ["--plink-prefix", "p", "--output-dir", "o", "--ld-wind-kb", "1000"]
+    # Default excludes MHC + centromeres; 'none' opts out.
+    default_config, _ = ref_panel_builder.config_from_args(
+        ref_panel_builder.build_parser().parse_args(
+            ["--plink-prefix", "p", "--output-dir", "o", "--ld-wind-kb", "1000"]
+        )
     )
-    empty_config, _ = ref_panel_builder.config_from_args(empty)
-    assert empty_config.exclude_regions == ()
-    assert empty_config.exclude_regions_bed == ()
+    assert default_config.exclude_regions == ("mhc", "centromeres")
+
+    none_config, _ = ref_panel_builder.config_from_args(
+        ref_panel_builder.build_parser().parse_args(
+            ["--plink-prefix", "p", "--output-dir", "o", "--ld-wind-kb", "1000", "--exclude-regions", "none"]
+        )
+    )
+    assert none_config.exclude_regions == ()
+
+    with pytest.raises(SystemExit):
+        ref_panel_builder.build_parser().parse_args(
+            ["--plink-prefix", "p", "--output-dir", "o", "--ld-wind-kb", "1000",
+             "--exclude-regions", "mhc,centromeres"]
+        )
 
 
 # --- Allele orientation canonicalization (A1 = minor allele) ---------------

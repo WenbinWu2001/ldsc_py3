@@ -82,6 +82,7 @@ from ._kernel import identifiers as kernel_identifiers
 from ._kernel import ldscore as kernel_ldscore
 from ._kernel import ref_panel_builder as kernel_builder
 from ._kernel import regions as kernel_regions
+from ._kernel.regions import EXCLUDE_REGIONS_CHOICES, exclude_regions_choice_to_presets
 from ._kernel.liftover import (
     Hm3DualBuildLifter,
     duplicate_coordinate_drop_result,
@@ -1798,8 +1799,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--maf-min", default=None, type=float, help="Optional MAF filter for retained SNPs.")
     parser.add_argument(
         "--exclude-regions",
-        default=None,
-        help="Comma-separated curated region presets to exclude before R2 computation (choices: mhc, centromeres). Resolved in the panel's source build and removed from every emitted build.",
+        choices=EXCLUDE_REGIONS_CHOICES,
+        default="mhc-and-centromeres",
+        help="Curated region presets to exclude before R2 computation. Defaults to "
+        "mhc-and-centromeres; use 'none' to keep all regions. Resolved in the panel's "
+        "source build and removed from every emitted build.",
     )
     parser.add_argument(
         "--exclude-regions-bed",
@@ -1844,12 +1848,6 @@ def build_parser() -> argparse.ArgumentParser:
         default=128,
         type=int,
         help="Number of SNPs loaded per pairwise-R2 computation batch. Larger values may improve throughput but use more memory.",
-    )
-    parser.add_argument(
-        "--chunk-size",
-        dest="snp_batch_size",
-        type=int,
-        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--min-r2",
@@ -1908,7 +1906,7 @@ def config_from_args(args: argparse.Namespace) -> tuple[ReferencePanelBuildConfi
         keep_indivs_file=args.keep_indivs_file,
         snp_batch_size=args.snp_batch_size,
         min_r2=getattr(args, "min_r2", 0.0),
-        exclude_regions=tuple(split_cli_path_tokens(getattr(args, "exclude_regions", None))),
+        exclude_regions=exclude_regions_choice_to_presets(getattr(args, "exclude_regions", None) or "none"),
         exclude_regions_bed=tuple(split_cli_path_tokens(getattr(args, "exclude_regions_bed", None))),
     )
     global_config = GlobalConfig(
@@ -1999,14 +1997,6 @@ def run_build_ref_panel(**kwargs: Any) -> ReferencePanelBuildResult:
     )
     global_config = get_global_config()
     defaults["log_level"] = global_config.log_level
-    if "chunk_size" in kwargs:
-        if "snp_batch_size" in kwargs:
-            raise LDSCUsageError(
-                "Python run_build_ref_panel() received both `chunk_size` and `snp_batch_size`. "
-                "Most likely legacy and current batch-size keyword names were combined. "
-                "Pass only `snp_batch_size`."
-            )
-        kwargs["snp_batch_size"] = kwargs.pop("chunk_size")
     defaults.update(kwargs)
     args = argparse.Namespace(**defaults)
     return run_build_ref_panel_from_args(args)

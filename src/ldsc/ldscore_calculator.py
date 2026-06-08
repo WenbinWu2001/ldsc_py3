@@ -67,6 +67,7 @@ from .path_resolution import (
 )
 from ._logging import log_inputs, log_outputs, workflow_logging
 from ._kernel import ldscore as kernel_ldscore
+from ._kernel.regions import EXCLUDE_REGIONS_CHOICES, exclude_regions_choice_to_presets
 from ._kernel.identifiers import build_snp_id_series, read_snp_restriction_keys
 from ._kernel.snp_identity import RestrictionIdentityKeys, restriction_membership_mask
 from ._row_alignment import assert_same_snp_rows
@@ -877,8 +878,6 @@ def build_parser() -> argparse.ArgumentParser:
             "0-based/1-based coordinates from data. Not used for rsid-family modes."
         ),
     )
-    parser.add_argument("--r2-bias-mode", choices=("raw", "unbiased"), default="unbiased", help="Whether parquet R2 values are raw or already unbiased.")
-    parser.add_argument("--r2-sample-size", default=None, type=float, help="LD reference sample size used to correct raw parquet R2 values.")
     parser.add_argument(
         "--ref-panel-snps-file",
         default=None,
@@ -896,14 +895,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--exclude-regions",
-        default=None,
-        help="Comma-separated curated region presets to exclude before LD computation (choices: mhc, centromeres). Requires --exclude-regions-build.",
+        choices=EXCLUDE_REGIONS_CHOICES,
+        default="mhc-and-centromeres",
+        help="Curated region presets to exclude before LD computation. Defaults to "
+        "mhc-and-centromeres; use 'none' to keep all regions. The region build is taken "
+        "from the panel build (chr_pos modes); rsid modes require --exclude-regions-build.",
     )
     parser.add_argument(
         "--exclude-regions-build",
         choices=("hg19", "hg38"),
         default=None,
-        help="Genome build of the panel coordinates, used to select preset BEDs. Required whenever --exclude-regions is given.",
+        help="Genome build of the panel coordinates, used to select preset BEDs. Inferred "
+        "from the panel build in chr_pos modes; required in rsid modes when presets are excluded.",
     )
     parser.add_argument(
         "--exclude-regions-bed",
@@ -1049,15 +1052,6 @@ def _validate_run_args(args: argparse.Namespace) -> None:
                 "`--keep-indivs-file` was combined with `--r2-dir`, but individual-level "
                 "filtering only exists before PLINK genotype LD calculation. Remove "
                 "`--keep-indivs-file`, or rerun in PLINK mode with `--plink-prefix`."
-            )
-        if args.r2_bias_mode is None:
-            args.r2_bias_mode = "unbiased"
-        if args.r2_bias_mode == "raw" and args.r2_sample_size is None:
-            raise LDSCUsageError(
-                "ldscore cannot apply raw R2 bias correction without `--r2-sample-size`. "
-                "Most likely `--r2-bias-mode raw` was selected for parquet input without "
-                "the sample size used to estimate R2. Pass `--r2-sample-size <N>`, or use "
-                "`--r2-bias-mode unbiased` for pre-corrected R2 values."
             )
         if identity_mode_family(args.snp_identifier) == "chr_pos" and args.genome_build is None:
             raise LDSCUsageError(
@@ -1481,25 +1475,55 @@ def _read_r2_sorted_by_build(path: Path) -> str | None:
     return build if build in {"hg19", "hg38"} else None
 
 
+def _resolve_exclude_regions_build(
+    args: argparse.Namespace, global_config: GlobalConfig, presets: tuple[str, ...]
+) -> str | None:
+    """Resolve the genome build used to select region-exclusion preset BEDs.
+
+    An explicit ``--exclude-regions-build`` always wins. Otherwise, when presets
+    are active, chr_pos-family runs reuse the panel build ``ldscore`` already
+    operates in (inferred from the R2 parquet / PLINK panel); rsid-family runs
+    carry no genome build, so the build must be stated explicitly.
+    """
+    explicit = getattr(args, "exclude_regions_build", None)
+    if explicit is not None or not presets:
+        return explicit
+    if identity_mode_family(global_config.snp_identifier) == "chr_pos":
+        build = global_config.genome_build
+        if build in {"hg19", "hg38"}:
+            return build
+        raise LDSCUsageError(
+            "ldscore could not determine the genome build for region exclusion. Most "
+            "likely the panel coordinate build could not be inferred. Pass "
+            "`--exclude-regions-build hg19`/`hg38`, or `--exclude-regions none` to keep all regions."
+        )
+    raise LDSCUsageError(
+        "ldscore needs an explicit region build to exclude presets in rsid-family modes. "
+        "rsid identifiers carry no genome build, so pass `--exclude-regions-build hg19` or "
+        "`hg38`, or `--exclude-regions none` to keep all regions."
+    )
+
+
 def _ref_panel_from_args(args: argparse.Namespace, global_config: GlobalConfig):
     """Build the reference-panel adapter that owns the ``A -> A'`` restriction."""
     from ._kernel.ref_panel import RefPanelLoader
 
     ref_panel_snps_file = normalize_optional_path_token(getattr(args, "ref_panel_snps_file", None))
+    exclude_regions = exclude_regions_choice_to_presets(getattr(args, "exclude_regions", None) or "none")
+    exclude_regions_build = _resolve_exclude_regions_build(args, global_config, exclude_regions)
+    exclude_regions_bed = tuple(split_cli_path_tokens(getattr(args, "exclude_regions_bed", None)))
     r2_dir = _r2_dir_from_args(args)
     if r2_dir is not None:
         spec = RefPanelConfig(
             backend="parquet_r2",
             r2_dir=r2_dir,
-            r2_bias_mode=getattr(args, "r2_bias_mode", None),
-            sample_size=getattr(args, "r2_sample_size", None),
             ref_panel_snps_file=ref_panel_snps_file,
             use_hm3_ref_panel_snps=getattr(args, "use_hm3_ref_panel_snps", False),
             maf_min=getattr(args, "maf_min", None),
             keep_indivs_file=getattr(args, "keep_indivs_file", None),
-            exclude_regions=tuple(split_cli_path_tokens(getattr(args, "exclude_regions", None))),
-            exclude_regions_bed=tuple(split_cli_path_tokens(getattr(args, "exclude_regions_bed", None))),
-            exclude_regions_build=getattr(args, "exclude_regions_build", None),
+            exclude_regions=exclude_regions,
+            exclude_regions_bed=exclude_regions_bed,
+            exclude_regions_build=exclude_regions_build,
         )
     else:
         spec = RefPanelConfig(
@@ -1509,9 +1533,9 @@ def _ref_panel_from_args(args: argparse.Namespace, global_config: GlobalConfig):
             use_hm3_ref_panel_snps=getattr(args, "use_hm3_ref_panel_snps", False),
             maf_min=getattr(args, "maf_min", None),
             keep_indivs_file=getattr(args, "keep_indivs_file", None),
-            exclude_regions=tuple(split_cli_path_tokens(getattr(args, "exclude_regions", None))),
-            exclude_regions_bed=tuple(split_cli_path_tokens(getattr(args, "exclude_regions_bed", None))),
-            exclude_regions_build=getattr(args, "exclude_regions_build", None),
+            exclude_regions=exclude_regions,
+            exclude_regions_bed=exclude_regions_bed,
+            exclude_regions_build=exclude_regions_build,
         )
     return RefPanelLoader(global_config).load(spec)
 
@@ -1864,7 +1888,7 @@ def _namespace_from_configs(chrom: str, ref_panel, ldscore_config: LDScoreConfig
         r2_table_chr=None,
         snp_identifier=global_config.snp_identifier,
         genome_build=global_config.genome_build,
-        r2_bias_mode=getattr(spec, "r2_bias_mode", None),
+        r2_bias_mode=None,  # resolved from parquet schema metadata in the kernel
         r2_sample_size=getattr(spec, "sample_size", None),
         frqfile=frqfile,
         frqfile_chr=None,

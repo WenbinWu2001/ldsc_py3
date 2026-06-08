@@ -30,9 +30,11 @@ pairs = pd.DataFrame({
     "CHR_1": [1, 1], "POS_1": [752721, 776546], "A1_1": ["A", "G"], "A2_1": ["G", "A"],
     "CHR_2": [1, 1], "POS_2": [777122, 798959], "A1_2": ["A", "T"], "A2_2": ["C", "G"],
 })
-result = query_r2(pairs, panel_dir="ref_panel", genome_build="hg38", with_r=True)
-print(result[["r2", "sign", "status", "r"]])
+result = query_r2(pairs, panel_dir="ref_panel", genome_build="hg38")
+print(result[["r2", "sign", "r", "status"]])
 ```
+
+The signed Pearson `r` column is always included (it is all-NaN in base modes).
 
 For repeated queries against the same panel, keep the handle:
 
@@ -41,18 +43,12 @@ from ldsc import R2Panel
 
 panel = R2Panel.open("ref_panel", genome_build="hg38")
 out1 = panel.query_pairs(pairs_a)
-out2 = panel.query_pairs(pairs_b, with_r=True)
+out2 = panel.query_pairs(pairs_b)
 print(panel.chromosomes, panel.snp_identifier, panel.n_samples)
 ```
 
-A single chromosome can be opened by explicit paths instead of a directory:
-
-```python
-panel = R2Panel.open(meta_path="chr1_meta.tsv.gz", parquet_path="chr1_r2.parquet")
-```
-
-Supplying neither `panel_dir` nor an explicit `meta_path`+`parquet_path` pair —
-or supplying both — is a usage error.
+A build-ref-panel output directory is the only panel input mode; omitting
+`panel_dir` is a usage error.
 
 ## Pair input format
 
@@ -82,7 +78,7 @@ The result echoes the input columns (in input row order) plus:
 | `r2` | adjusted (unbiased) R² as stored, dequantized to float; `NaN` when not available |
 | `sign` | harmonized sign `+1`/`-1` (allele-aware modes); `NA` in base modes or where `r2` is `NaN` |
 | `status` | empty (`""`) for a valid `r2`; otherwise the cause of the `NaN` |
-| `r` | signed Pearson `r` (only when `with_r=True` / `--with-r`); `NaN` where `r2` is `NaN` or `sign` is `NA` |
+| `r` | signed Pearson `r` (always emitted); `NaN` where `r2` is `NaN`, `sign` is `NA`, or the panel lacks `ldsc:n_samples` |
 
 `status` is always present and carries one of a closed vocabulary, only for
 `NaN`-`r2` rows:
@@ -103,47 +99,41 @@ the returned `sign` is harmonized to *your* allele coding: for each endpoint the
 query alleles are classified as aligned or swapped against the panel (allowing
 strand complement), and the pair sign is flipped when an odd number of endpoints
 are swapped. In **base** modes no allele information is consulted, so `sign` is
-always `NA`. Because base modes carry no sign, `--with-r` there yields an
-all-`NaN` `r` column (with a warning); use an allele-aware panel/mode for signed
-`r`.
+always `NA`. Because base modes carry no sign, the always-emitted `r` column is
+all-`NaN` there (with a warning); use an allele-aware panel/mode for signed `r`.
 
 ## R²→r conversion
 
 `unbiased_r2_to_pearson_r` inverts the unbiased correction
 `r2_adj = r2_raw - (1 - r2_raw)/(n - 2)` to recover the biased squared
 correlation, then takes the root and applies the sign. It is vectorized and pure;
-`sign=None` returns the magnitude `|r|`. The handle/`with_r` path supplies the
-panel's `ldsc:n_samples` and the harmonized `sign` automatically.
+`sign=None` returns the magnitude `|r|`. The query path supplies the panel's
+`ldsc:n_samples` and the harmonized `sign` automatically.
 
 ## Lookup strategy
 
-Pairs are matched by an int64 key against the parquet's row groups. Two
-strategies share that primitive:
+Pairs are matched by an int64 key against the parquet's row groups. The lookup
+auto-selects between two internal paths by query size (not user-configurable):
 
-- **random-access** — prune row groups using `IDX_1` footer statistics; best for
-  small/interactive queries.
-- **streaming** — scan every row group once; best for large batches.
+- **random-access** — prune row groups using `IDX_1` footer statistics; used for
+  small/interactive queries (≤ 50 000 pairs).
+- **streaming** — scan every row group once; used for large batches.
 
-`strategy="auto"` (the default) chooses random-access when the query has at most
-`strategy_threshold` pairs (default 50 000), otherwise streaming. Both are
-overridable via `strategy=` / `--strategy` and `strategy_threshold=` /
-`--strategy-threshold`; they produce identical results.
+Both produce identical results.
 
 ## CLI
 
 ```
-ldsc query-r2 (--panel-dir DIR | --meta M --parquet P)
+ldsc query-r2 --panel-dir DIR
               --pairs FILE [--out FILE]
               [--snp-identifier MODE] [--genome-build {hg19,hg38}]
-              [--with-r]
-              [--strategy {auto,random,stream}] [--strategy-threshold N]
 ```
 
 `--pairs` is a TSV/CSV with the `_1`/`_2` endpoint columns (`-` reads stdin). The
-output TSV echoes the input columns plus `r2`, `sign`, `status` (and `r` with
-`--with-r`), written to `--out` or stdout.
+output TSV echoes the input columns plus `r2`, `sign`, `r`, and `status`, written
+to `--out` or stdout.
 
 ```bash
 ldsc query-r2 --panel-dir ref_panel --genome-build hg38 \
-    --pairs pairs.tsv --out pairs_r2.tsv --with-r
+    --pairs pairs.tsv --out pairs_r2.tsv
 ```

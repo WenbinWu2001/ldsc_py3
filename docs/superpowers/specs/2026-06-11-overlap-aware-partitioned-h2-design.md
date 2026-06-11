@@ -97,11 +97,17 @@ reference SNPs). Define:
 - `tau = coef`, `cov(tau) = coef_cov`, `prop`, `prop_cov`, `cat = M⊙tau`,
   `cat_se`, `n_blocks` — all taken from the fitted `Hsq`.
 
-`prop[c] = cat[c]/Σ_k cat[k] = M[c]·tau[c] / h²_tot`.
+`prop[c] = cat[c]/Σ_k cat[k] = M[c]·tau[c] / h²_tot`, where
+`h²_tot = Σ_k cat[k] = hsq.tot` is the model's total heritability.
 
-The overlap-aware summaries (exactly as in `Hsq._overlap_output`,
-`src/ldsc/_kernel/regression.py:471`, which mirrors legacy
-`regressions.py:394`):
+The overlap-aware columns below — `Prop._SNPs`, `Prop._h2` ± SE, `Enrichment`
+± SE, `Enrichment_p`, `Coefficient`, `Coefficient_std_error`, and the z-score —
+are produced verbatim by the ported `Hsq._overlap_output`
+(`src/ldsc/_kernel/regression.py:471`, mirroring legacy `regressions.py:394`).
+The runner then augments that table with columns the ported function does not
+emit: the one-sided `Coefficient_p`, the conditional `Category_h2` /
+`Category_h2_std_error` (from `hsq.cat`/`hsq.cat_se`), and `overlap_aware`.
+Legacy names the z-score `Coefficient_z-score`; LDSC3 renames it `Coefficient_z`.
 
 **Proportion of SNPs.** `Prop._SNPs[i] = M[i] / M_tot`.
 For an all-ones `base` category, `M[base] = M_tot`, so `Prop._SNPs[base] = 1`.
@@ -152,10 +158,13 @@ different quantity from `Prop._h2`: conditional vs marginal.
 
 **Overlap indicator.** `overlap_aware = (max_{i≠j} O[i,j] > 0)` over the
 retained model columns — i.e. some SNP belongs to ≥2 retained categories. For a
-baseline that includes `base`, this is effectively always true. The flag is
-informational: the overlap-aware formula is the correct generalization either
-way (the no-overlap case is just `O` diagonal), so there is **no formula
-branching** — we always compute overlap-aware and report the flag.
+baseline that includes `base`, this is effectively always true. It is a
+per-fitted-model property: in the functional regime one value labels the whole
+table; in the cell-type regime each query is its own model, so it is reported
+per row and may differ across queries. The flag is informational: the
+overlap-aware formula is the correct generalization either way (the no-overlap
+case is just `O` diagonal), so there is **no formula branching** — we always
+compute overlap-aware and report the flag.
 
 ### 3.1 Why marginal and conditional are both reported
 
@@ -204,7 +213,8 @@ quadratic. For `B≈100`, `Q≈10⁴` this is ~1M small rows — trivial.
 
 The annotation matrix `A` is in memory next to `compute_counts`
 (`_kernel/ldscore.py:1637` parquet, `:1780` PLINK), columns ordered
-`baseline + query`. Per chromosome we accumulate, alongside `M`/`M_5_50`:
+`baseline + query` (write `A_B` for the baseline columns of `A`). Per chromosome
+we accumulate, alongside `M`/`M_5_50`:
 
 ```
 G_all      += A_Bᵀ · A                         # (B × (B+Q)) baseline-rows block
@@ -319,14 +329,22 @@ columns have generically nonzero off-diagonal `O`, they always report
 
 ## 7. Output schema
 
-One uniform schema across both regimes. Compact `partitioned_h2.tsv`:
+Two column sets drawn from one vocabulary.
+
+The **compact** set is the cell-type regime's primary `partitioned_h2.tsv`
+(one row per query):
 
 ```
 Category, Prop._SNPs, Prop._h2, Enrichment, Enrichment_p,
-Coefficient, Coefficient_p, overlap_aware
+Coefficient, Coefficient_std_error, Coefficient_p, overlap_aware
 ```
 
-Full per-query / functional-regime table (`partitioned_h2_full.tsv`):
+`Coefficient_std_error` is included because `Coefficient` (+ `Coefficient_p`) is
+the cell-type headline, legacy `cell_type_specific` reports its SE, and the
+cell-type regime writes no full table by default.
+
+The **full** set is the primary `partitioned_h2.tsv` in the functional regime and
+the per-query `partitioned_h2_full.tsv` in the cell-type regime:
 
 ```
 Category, Prop._SNPs,

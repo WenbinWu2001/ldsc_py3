@@ -67,6 +67,7 @@ from .path_resolution import (
 )
 from ._logging import log_inputs, log_outputs, workflow_logging
 from ._kernel import ldscore as kernel_ldscore
+from ._kernel.overlap import OverlapContribution, sum_overlap_contributions
 from ._kernel.regions import EXCLUDE_REGIONS_CHOICES, exclude_regions_choice_to_presets
 from ._kernel.identifiers import build_snp_id_series, read_snp_restriction_keys
 from ._kernel.snp_identity import RestrictionIdentityKeys, restriction_membership_mask
@@ -102,6 +103,7 @@ class _LegacyChromResult:
     ldscore_columns: list[str]
     baseline_columns: list[str]
     query_columns: list[str]
+    overlap: OverlapContribution | None = None
 
 
 @dataclass(frozen=True)
@@ -140,6 +142,7 @@ class ChromLDScoreResult:
     count_config: dict[str, Any] = field(default_factory=dict)
     output_paths: dict[str, str] = field(default_factory=dict)
     config_snapshot: GlobalConfig | None = None
+    overlap: OverlapContribution | None = field(default=None, repr=False)
 
     def validate(self) -> None:
         """Check the normalized public contract for chromosome-level results."""
@@ -226,6 +229,7 @@ class LDScoreResult:
     output_paths: dict[str, str] = field(default_factory=dict)
     count_config: dict[str, Any] = field(default_factory=dict)
     config_snapshot: GlobalConfig | None = None
+    overlap: OverlapContribution | None = field(default=None, repr=False)
 
     def validate(self, *, require_query_alignment: bool = True) -> None:
         """Check the normalized public contract for aggregated results."""
@@ -584,6 +588,7 @@ class LDScoreCalculator:
             snp_count_totals=count_map,
             count_config={},
             config_snapshot=global_config,
+            overlap=getattr(legacy_result, "overlap", None),
         )
         result.validate()
         return result
@@ -615,6 +620,10 @@ class LDScoreCalculator:
             key: np.sum(np.vstack([result.snp_count_totals[key] for result in chromosome_results]), axis=0)
             for key in count_keys
         }
+        overlaps = [result.overlap for result in chromosome_results if result.overlap is not None]
+        aggregated_overlap = (
+            sum_overlap_contributions(overlaps) if len(overlaps) == len(chromosome_results) else None
+        )
         merged_table = pd.concat(
             [
                 _join_split_tables(
@@ -651,6 +660,7 @@ class LDScoreCalculator:
             chromosome_results=list(chromosome_results),
             count_config=dict(count_config or {}),
             config_snapshot=snapshots[0] if snapshots else None,
+            overlap=aggregated_overlap,
         )
         result.validate()
         return result

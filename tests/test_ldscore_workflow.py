@@ -913,6 +913,64 @@ class LDScoreWorkflowTest(unittest.TestCase):
         self.assertEqual(chrom_result.baseline_table["regression_ld_scores"].tolist(), [3.0])
         self.assertEqual(chrom_result.query_table["query"].tolist(), [2.0])
 
+    def test_wrap_legacy_chrom_result_carries_overlap(self):
+        from ldsc._kernel.overlap import OverlapContribution
+
+        contribution = OverlapContribution(np.array([[2.0]]), None, np.array([]), None, 2, None)
+        legacy_result = ldscore_workflow._LegacyChromResult(
+            chrom="1",
+            metadata=pd.DataFrame(
+                {"CHR": ["1", "1"], "SNP": ["rs1", "rs2"], "POS": [10, 20], "CM": [0.1, 0.2], "MAF": [0.2, 0.3]}
+            ),
+            ld_scores=np.array([[1.0], [2.0]], dtype=np.float32),
+            w_ld=np.array([[3.0], [4.0]], dtype=np.float32),
+            M=np.array([2.0]),
+            M_5_50=None,
+            ldscore_columns=["base"],
+            baseline_columns=["base"],
+            query_columns=[],
+            overlap=contribution,
+        )
+        result = ldscore_workflow.LDScoreCalculator()._wrap_legacy_chrom_result(
+            legacy_result, global_config=GlobalConfig(snp_identifier="rsid")
+        )
+        self.assertIs(result.overlap, contribution)
+
+    def test_aggregate_chromosome_results_sums_overlap_blocks(self):
+        from ldsc._kernel.overlap import OverlapContribution
+
+        cfg = GlobalConfig(snp_identifier="rsid")
+
+        def make_chrom(chrom, snp, contribution):
+            return ldscore_workflow.ChromLDScoreResult(
+                chrom=chrom,
+                baseline_table=pd.DataFrame(
+                    {"CHR": [chrom], "SNP": [snp], "POS": [10], "regression_ld_scores": [3.0], "base": [1.0]}
+                ),
+                query_table=pd.DataFrame({"CHR": [chrom], "SNP": [snp], "POS": [10], "query": [2.0]}),
+                count_records=[
+                    {"group": "baseline", "column": "base", "all_reference_snp_count": 10.0},
+                    {"group": "query", "column": "query", "all_reference_snp_count": 11.0},
+                ],
+                baseline_columns=["base"],
+                query_columns=["query"],
+                ld_reference_snps=frozenset(),
+                ld_regression_snps=frozenset({snp}),
+                snp_count_totals={"all_reference_snp_counts": np.array([10.0, 11.0])},
+                overlap=contribution,
+                config_snapshot=cfg,
+            )
+
+        c1 = OverlapContribution(np.array([[10.0, 4.0]]), None, np.array([6.0]), None, 10, None)
+        c2 = OverlapContribution(np.array([[5.0, 3.0]]), None, np.array([4.0]), None, 7, None)
+        result = ldscore_workflow.LDScoreCalculator()._aggregate_chromosome_results(
+            [make_chrom("1", "rs1", c1), make_chrom("2", "rs2", c2)], global_config=cfg
+        )
+        self.assertIsNotNone(result.overlap)
+        np.testing.assert_allclose(result.overlap.baseline_block_all, [[15.0, 7.0]])
+        np.testing.assert_allclose(result.overlap.query_diagonal_all, [10.0])
+        self.assertEqual(result.overlap.n_all, 17)
+
     def test_wrap_legacy_result_derives_allele_aware_regression_ids_before_split(self):
         legacy_result = ldscore_workflow._LegacyChromResult(
             chrom="1",

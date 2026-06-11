@@ -329,22 +329,8 @@ columns have generically nonzero off-diagonal `O`, they always report
 
 ## 7. Output schema
 
-Two column sets drawn from one vocabulary.
-
-The **compact** set is the cell-type regime's primary `partitioned_h2.tsv`
-(one row per query):
-
-```
-Category, Prop._SNPs, Prop._h2, Enrichment, Enrichment_p,
-Coefficient, Coefficient_std_error, Coefficient_p, overlap_aware
-```
-
-`Coefficient_std_error` is included because `Coefficient` (+ `Coefficient_p`) is
-the cell-type headline, legacy `cell_type_specific` reports its SE, and the
-cell-type regime writes no full table by default.
-
-The **full** set is the primary `partitioned_h2.tsv` in the functional regime and
-the per-query `partitioned_h2_full.tsv` in the cell-type regime:
+Both regimes write **one** schema to `partitioned_h2.tsv`; they differ only in
+which rows appear and the default sort, never in columns:
 
 ```
 Category, Prop._SNPs,
@@ -355,21 +341,24 @@ Coefficient, Coefficient_std_error, Coefficient_z, Coefficient_p,
 overlap_aware
 ```
 
+A single schema keeps the artifact self-contained (the headline metric's SE is
+always present, so no `--write-per-query-results` is needed just to read a
+standard error) and keeps both regimes — and the writer code — identical apart
+from rows and sort.
+
 Row meaning, files, and default ordering by regime:
 
-- Functional (no query): one joint fit; rows are **all baseline categories**.
-  The primary `partitioned_h2.tsv` carries the **full** schema by default (the
-  per-category standard errors are the point of enrichment analysis), so no
-  separate `_full` file is written. Headline column is `Enrichment` (+ two-sided
-  `Enrichment_p`); rows are written in baseline-annotation order
-  (`--summary-sort-by` resolves to `category`, matching legacy `.results`).
-- Cell-type (query present): the primary `partitioned_h2.tsv` carries the
-  **compact** schema, one row **per query**; headline column is `Coefficient`
-  (+ one-sided `Coefficient_p`). Rows are sorted by `Coefficient_p` ascending by
-  default (most-significant first), matching legacy `cell_type_specific`
-  (`sumstats.py:310`). `--write-per-query-results` additionally emits, per query
-  under `diagnostics/query_annotations/<q>/`, the full baseline-plus-query table
-  whose baseline rows are the joint functional enrichments.
+- Functional (no query): one joint fit; rows are **all baseline categories**,
+  written in baseline-annotation order (`--summary-sort-by` resolves to
+  `category`, matching legacy `.results`). Headline column is `Enrichment`
+  (+ two-sided `Enrichment_p`).
+- Cell-type (query present): one row **per query**, sorted by `Coefficient_p`
+  ascending by default (most-significant first), matching legacy
+  `cell_type_specific` (`sumstats.py:310`). Headline column is `Coefficient`
+  (+ one-sided `Coefficient_p`). `--write-per-query-results` additionally emits,
+  per query under `diagnostics/query_annotations/<q>/`, the full
+  baseline-plus-query table (all `B+1` model rows), whose baseline rows are the
+  joint functional enrichments conditional on that query.
 
 `--summary-sort-by` defaults to `auto`, which resolves to `category` in the
 functional regime and `coefficient-p` in the cell-type regime; any explicit
@@ -447,7 +436,7 @@ the overlap matrix). No silent fallback to disjoint numbers.
 - **Strict-MAF boundary.** A SNP at exactly `MAF == 0.05` is excluded from common
   counts and the common overlap universe.
 - **Regimes & I/O.** Functional (no-query) end-to-end produces a baseline-category
-  table; cell-type per-query compact/full tables carry the new columns; an
+  table; the cell-type primary and per-query model tables carry the new columns; an
   old directory without the sidecar raises the regenerate error.
 
 ## 11. Touch points (summary; details in the plan)
@@ -457,9 +446,9 @@ the overlap matrix). No silent fallback to disjoint numbers.
 - `ldscore_calculator.py` — carry/sum overlap blocks in `_LegacyChromResult` →
   `ChromLDScoreResult` → `LDScoreResult`; strict-`>` in `count_config`.
 - `outputs.py` — write `ldscore.overlap.parquet`; add `files.overlap` +
-  `overlap_config` to `build_metadata`; let `PartitionedH2DirectoryWriter` emit
-  the **full** schema as the primary `partitioned_h2.tsv` in the functional
-  regime (compact remains primary in the cell-type regime).
+  `overlap_config` to `build_metadata`; `PartitionedH2DirectoryWriter` writes the
+  single schema as the primary `partitioned_h2.tsv` in both regimes, with
+  `--write-per-query-results` adding the per-query model-detail folders.
 - `regression_runner.py` — load overlap sidecar in `load_ldscore_from_dir`;
   assemble `O_R` aligned to retained columns/universe; add the two regimes;
   replace disjoint logic in `summarize_partitioned_h2` with `_overlap_output` +

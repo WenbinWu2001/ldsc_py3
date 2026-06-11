@@ -28,7 +28,7 @@
 **Modified files:**
 - `src/ldsc/_kernel/ldscore.py` — strict-`>` common mask; populate `ChromComputationResult.overlap`.
 - `src/ldsc/ldscore_calculator.py` — carry/sum overlap through `_LegacyChromResult` → `ChromLDScoreResult` → `LDScoreResult`; strict-`>` in `count_config`.
-- `src/ldsc/outputs.py` — write/read `ldscore.overlap.parquet`; `overlap_config` in metadata; functional-regime full primary table; `Coefficient_std_error` in compact.
+- `src/ldsc/outputs.py` — write/read `ldscore.overlap.parquet`; `overlap_config` in metadata; single partitioned-h2 schema for the primary table in both regimes.
 - `src/ldsc/regression_runner.py` — load overlap; two regimes; rewrite `summarize_partitioned_h2`; one-sided `Coefficient_p`; `auto` sort; log banner + metadata fields; collinearity warning; column constants.
 - `tests/test_ldscore_workflow.py`, `tests/test_regression_workflow.py`, `tests/test_output.py` — extend/replace.
 - `docs/current/partitioned-ldsc-workflow.md`, `docs/troubleshooting.md`, `design_map.md` — update.
@@ -972,14 +972,12 @@ git -C "$REPO" add -A && git -C "$REPO" commit -m "feat(regression): assemble pe
 - Modify: `src/ldsc/regression_runner.py` (`summarize_partitioned_h2` ~1213; column constants ~104-139; `_coefficient_p_value` ~1591; delete now-unused `_enrichment_p_value`, `_select_count_key` stays)
 - Test: `tests/test_regression_workflow.py`
 
-- [ ] **Step 1: Update column constants**
+- [ ] **Step 1: Replace the two column constants with one**
+
+Both regimes use a single schema. Replace `PARTITIONED_H2_AGGREGATE_COLUMNS` and `PARTITIONED_H2_FULL_COLUMNS` with:
 
 ```python
-PARTITIONED_H2_AGGREGATE_COLUMNS = [
-    "Category", "Prop._SNPs", "Prop._h2", "Enrichment", "Enrichment_p",
-    "Coefficient", "Coefficient_std_error", "Coefficient_p", "overlap_aware",
-]
-PARTITIONED_H2_FULL_COLUMNS = [
+PARTITIONED_H2_COLUMNS = [
     "Category", "Prop._SNPs",
     "Category_h2", "Category_h2_std_error",
     "Prop._h2", "Prop._h2_std_error",
@@ -989,17 +987,17 @@ PARTITIONED_H2_FULL_COLUMNS = [
 ]
 ```
 
-Add `"overlap_aware"` handling to `PARTITIONED_H2_SUMMARY_SORT_COLUMNS` only if needed (no; leave sort keys as-is).
+Update every reference to the two old names in `regression_runner.py` and `outputs.py` (writer `_select_columns(...)` calls, any `pd.DataFrame(columns=...)` empty-frame construction) to `PARTITIONED_H2_COLUMNS`. Leave `PARTITIONED_H2_SUMMARY_SORT_COLUMNS` unchanged (its columns all still exist).
 
 - [ ] **Step 2: Write the failing test**
 
-In `tests/test_regression_workflow.py`, add a test that fits a baseline+query dataset (reuse `make_ldscore_result` which now must carry `overlap`; build it via `LDScoreOverlap.from_contribution`) and asserts the compact row has the new columns and `Prop._SNPs == M_query / M_tot` (not `M_query/ΣM`):
+In `tests/test_regression_workflow.py`, add a test that fits a baseline+query dataset (reuse `make_ldscore_result` which now must carry `overlap`; build it via `LDScoreOverlap.from_contribution`) and asserts the query row has the single-schema columns and `Prop._SNPs == M_query / M_tot` (not `M_query/ΣM`):
 
 ```python
 def test_summarize_partitioned_h2_is_overlap_aware(self):
     # dataset with baseline=["base"], one query, M_tot from overlap totals
     summary = summarize_partitioned_h2(hsq, dataset, ["query1"])
-    assert list(summary.columns) == PARTITIONED_H2_AGGREGATE_COLUMNS
+    assert list(summary.columns) == PARTITIONED_H2_COLUMNS
     row = summary.iloc[0]
     # Prop._SNPs uses M_tot (universe size), not the sum of M
     assert row["Prop._SNPs"] == pytest.approx(M_query / M_tot)
@@ -1020,10 +1018,10 @@ Replace the body of `summarize_partitioned_h2` so it:
 2. assembles `O_R = assemble_model_overlap(dataset.ldscore_overlap, dataset.retained_ld_columns, use_common)` (the dataset now carries the loaded `LDScoreOverlap` — see Task 11),
 3. takes `m_annot = dataset.reference_snp_count_totals[count_key]` and `m_tot = overlap.total_common_reference_snps if use_common else overlap.total_all_reference_snps`,
 4. builds the full table once via `overlap_aware_category_table(hsq, O_R, m_annot, m_tot, dataset.retained_ld_columns)`,
-5. selects the requested `annotation_columns` rows, returns compact or full columns.
+5. selects the requested `annotation_columns` rows in the single `PARTITIONED_H2_COLUMNS` schema.
 
 ```python
-def summarize_partitioned_h2(hsq, dataset, annotation_columns, *, include_full_columns=False):
+def summarize_partitioned_h2(hsq, dataset, annotation_columns):
     from .overlap_matrix import assemble_model_overlap, overlap_aware_category_table
     use_common = dataset.count_key_used_for_regression == COMMON_COUNT_KEY
     overlap = dataset.ldscore_overlap
@@ -1033,9 +1031,14 @@ def summarize_partitioned_h2(hsq, dataset, annotation_columns, *, include_full_c
     table = overlap_aware_category_table(hsq, O_R, m_annot, float(m_tot), dataset.retained_ld_columns)
     table = table.set_index("Category")
     rows = table.loc[list(annotation_columns)].reset_index()
-    columns = PARTITIONED_H2_FULL_COLUMNS if include_full_columns else PARTITIONED_H2_AGGREGATE_COLUMNS
-    return rows.loc[:, columns].reset_index(drop=True)
+    return rows.loc[:, PARTITIONED_H2_COLUMNS].reset_index(drop=True)
 ```
+
+`estimate_partitioned_h2_batch`'s cell-type loop now calls
+`summarize_partitioned_h2(hsq, dataset, [query_column])` for the per-query primary
+row and `summarize_partitioned_h2(hsq, dataset, dataset.retained_ld_columns)` for
+the optional per-query model table (both yield the single schema; drop the old
+`include_full_columns=` argument at every call site).
 
 Delete the now-dead `_enrichment_p_value`, `_safe_vector_divide`, `_retained_snp_counts`, `_coefficient_covariance_matrix`, and the old disjoint loop if no longer referenced (verify with grep before deleting). Keep `_coefficient_p_value` only if referenced elsewhere; the one-sided p now lives in `overlap_aware_category_table`.
 
@@ -1110,9 +1113,7 @@ Expected: FAIL.
         # Functional regime: one joint fit of all baseline annotations.
         dataset = self.build_dataset(sumstats_table, ldscore_result, config=config, query_columns=[])
         hsq = self.estimate_h2(dataset, config=config)
-        summary = summarize_partitioned_h2(
-            hsq, dataset, dataset.retained_ld_columns, include_full_columns=True
-        )
+        summary = summarize_partitioned_h2(hsq, dataset, dataset.retained_ld_columns)
         if include_full_partitioned_h2:
             return PartitionedH2BatchResult(summary=summary, per_query_category_tables={}, per_query_metadata={})
         return summary
@@ -1176,38 +1177,35 @@ git -C "$REPO" add -A && git -C "$REPO" commit -m "feat(partitioned-h2): regime-
 
 ## Milestone 5 — Output presentation
 
-### Task 13: Functional-regime full primary table in the writer
+### Task 13: Confirm the single schema flows through the writer in both regimes
+
+With one schema (Task 10), `PartitionedH2DirectoryWriter` already writes `PARTITIONED_H2_COLUMNS` to `partitioned_h2.tsv` for both regimes — no `primary_schema` switch is needed. This task verifies the functional regime (a multi-row summary of baseline categories, no queries) flows through the writer's non-per-query path correctly and creates no per-query tree.
 
 **Files:**
-- Modify: `src/ldsc/outputs.py` (`PartitionedH2DirectoryWriter.write` ~495, `_validate_summary` ~611)
-- Modify: `src/ldsc/regression_runner.py` (`run_partitioned_h2_from_args` ~1841 writer call)
 - Test: `tests/test_output.py`
+- Modify (only if a test fails): `src/ldsc/outputs.py`
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the test**
 
 ```python
-def test_partitioned_writer_functional_regime_writes_full_columns(tmp_path):
-    summary = make_full_schema_summary()  # PARTITIONED_H2_FULL_COLUMNS, baseline categories
-    PartitionedH2DirectoryWriter().write(
-        summary,
-        PartitionedH2OutputConfig(output_dir=str(tmp_path)),
-        primary_schema="full",
-    )
+def test_partitioned_writer_functional_regime_writes_all_baseline_rows(tmp_path):
+    summary = make_schema_summary(categories=["base", "catA", "catB"])  # PARTITIONED_H2_COLUMNS
+    PartitionedH2DirectoryWriter().write(summary, PartitionedH2OutputConfig(output_dir=str(tmp_path)))
     written = pd.read_csv(tmp_path / "partitioned_h2.tsv", sep="\t")
-    assert "Category_h2" in written.columns and "Prop._h2_std_error" in written.columns
+    assert list(written.columns) == PARTITIONED_H2_COLUMNS
+    assert set(written["Category"]) == {"base", "catA", "catB"}
+    assert not (tmp_path / "diagnostics" / "query_annotations").exists()
 ```
 
-- [ ] **Step 2: Run red, implement**
+- [ ] **Step 2: Run and fix if needed**
 
-Add `primary_schema: str = "compact"` parameter to `PartitionedH2DirectoryWriter.write`. When `primary_schema == "full"`, select `PARTITIONED_H2_FULL_COLUMNS` for the root `partitioned_h2.tsv` and skip the per-query tree (there are no queries). `_validate_summary` already only checks for `Category`. In `run_partitioned_h2_from_args`, pass `primary_schema="full" if not ldscore_result.query_columns else "compact"`.
+Run: `pytest tests/test_output.py -k functional_regime_writes_all_baseline_rows -v`
+Expected: PASS (the existing non-per-query path writes the full summary as-is). If it fails because the writer still references an old column constant, finish the reference swap from Task 10 Step 1.
 
-- [ ] **Step 3: Run green and commit**
-
-Run: `pytest tests/test_output.py -k functional_regime_writes_full -v`
-Expected: PASS
+- [ ] **Step 3: Commit**
 
 ```bash
-git -C "$REPO" add -A && git -C "$REPO" commit -m "feat(partitioned-h2): functional regime writes full primary table"
+git -C "$REPO" add -A && git -C "$REPO" commit -m "test(partitioned-h2): verify single-schema functional output"
 ```
 
 ### Task 14: Log banner + self-describing `diagnostics/metadata.json`
@@ -1387,7 +1385,7 @@ Expected: all green. Investigate and fix any regression (especially `tests/test_
 
 - [ ] **End-to-end smoke (both regimes)**
 
-Using an existing integration fixture or a tutorial dataset, run `ldsc ldscore` (baseline-only, then baseline+query) and `ldsc partitioned-h2 --output-dir ...`; confirm `ldscore.overlap.parquet` exists, the functional run writes full columns, the cell-type run writes the compact table sorted by `Coefficient_p`, and `diagnostics/metadata.json` records the regime.
+Using an existing integration fixture or a tutorial dataset, run `ldsc ldscore` (baseline-only, then baseline+query) and `ldsc partitioned-h2 --output-dir ...`; confirm `ldscore.overlap.parquet` exists, both runs write the single `PARTITIONED_H2_COLUMNS` schema (functional rows = baseline categories, cell-type rows = queries sorted by `Coefficient_p`), and `diagnostics/metadata.json` records the regime.
 
 ---
 

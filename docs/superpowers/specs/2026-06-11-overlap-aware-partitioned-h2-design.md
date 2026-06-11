@@ -20,7 +20,7 @@ essentially never, because a baseline model almost always contains an all-ones
 `base` annotation that overlaps every category.
 
 What LDSC3 reports correctly today is the **conditional** coefficient family
-(`Coefficient = τ_c`, its SE, its p-value), because those come straight from the
+(`Coefficient = tau_c`, its SE, its p-value), because those come straight from the
 fitted regression and need no overlap matrix.
 
 The only missing ingredient is the overlap matrix `O`. Every other input to the
@@ -34,11 +34,11 @@ already ported verbatim as `Hsq._overlap_output`
 Both analyses share the LDSC model
 
 ```
-E[χ²_j] = N · Σ_c τ_c · ℓ(j,c) + N·a + 1
+E[χ²_j] = N · Σ_c tau_c · ℓ(j,c) + N·a + 1
 ```
 
 where `ℓ(j,c) = Σ_k A[k,c]·r²_{jk}` is SNP `j`'s LD score for annotation `c`,
-`τ_c` is the per-SNP heritability contribution of annotation `c`, and `a` is a
+`tau_c` is the per-SNP heritability contribution of annotation `c`, and `a` is a
 confounding term. They differ in how annotations enter the regression and which
 quantity is the headline.
 
@@ -47,13 +47,13 @@ quantity is the headline.
 | Reference | Finucane et al. 2015 | Finucane et al. 2018 |
 | Legacy entry point | `--overlap-annot` (`ldscore/sumstats.py:estimate_h2`) | `--h2-cts` (`ldscore/sumstats.py:cell_type_specific`) |
 | Regression structure | one **joint** fit of all categories | one fit per cell type: **baseline + one** annotation |
-| `τ_c` conditional on | all other categories | baseline only |
-| Headline | **Enrichment** (+ `Enrichment_p`) | **Coefficient `τ_c`** (+ p) |
-| Headline p-value | two-sided t, df = `n_blocks` (`2·t.sf(|·|, n_blocks)`) | one-sided normal `norm.sf(τ/se)`, H₁: `τ_c > 0` |
+| `tau_c` conditional on | all other categories | baseline only |
+| Headline | **Enrichment** (+ `Enrichment_p`) | **Coefficient `tau_c`** (+ p) |
+| Headline p-value | two-sided t, df = `n_blocks` (`2·t.sf(|·|, n_blocks)`) | one-sided normal `norm.sf(tau/se)`, H₁: `tau_c > 0` |
 
 The two regressions exist for a practical reason, not a mathematical one:
 cell-type annotations are too collinear across tissues to co-fit, so they are
-tested one at a time against a fixed baseline. The estimator `(τ, cov(τ))` is
+tested one at a time against a fixed baseline. The estimator `(tau, cov(tau))` is
 identical in both; only the design matrix and the chosen summary differ.
 
 ### 2.1 Mapping to LDSC3
@@ -94,10 +94,10 @@ reference SNPs). Define:
 - `M ∈ ℝ^K` — marginal counts, `M[c] = Σ_s A[s,c]` (the count vector LDSC3
   already stores). Note `diag(O)[c] = Σ_s A[s,c]²`, which equals `M[c]` only for
   binary annotations.
-- `τ = coef`, `cov(τ) = coef_cov`, `prop`, `prop_cov`, `cat = M⊙τ`,
+- `tau = coef`, `cov(tau) = coef_cov`, `prop`, `prop_cov`, `cat = M⊙tau`,
   `cat_se`, `n_blocks` — all taken from the fitted `Hsq`.
 
-`prop[c] = cat[c]/Σ_k cat[k] = M[c]·τ[c] / h²_tot`.
+`prop[c] = cat[c]/Σ_k cat[k] = M[c]·tau[c] / h²_tot`.
 
 The overlap-aware summaries (exactly as in `Hsq._overlap_output`,
 `src/ldsc/_kernel/regression.py:471`, which mirrors legacy
@@ -110,8 +110,8 @@ For an all-ones `base` category, `M[base] = M_tot`, so `Prop._SNPs[base] = 1`.
 `P[i,j] = O[i,j]/M[j]`,
 
 ```
-Prop._h2[i] = Σ_j P[i,j]·prop[j] = (Σ_j O[i,j]·τ[j]) / h²_tot
-            = (Σ_s A[s,i]·h²_s) / h²_tot,   where h²_s = Σ_j A[s,j]·τ[j].
+Prop._h2[i] = Σ_j P[i,j]·prop[j] = (Σ_j O[i,j]·tau[j]) / h²_tot
+            = (Σ_s A[s,i]·h²_s) / h²_tot,   where h²_s = Σ_j A[s,j]·tau[j].
 ```
 
 This is the fraction of total h² attributable to **SNPs that fall in category
@@ -131,21 +131,21 @@ D[i,:] = O[i,:]/M[i] − (M − O[i,:])/(M_tot − M[i])      if M_tot ≠ M[i]
 D[i,:] = 0                                              if M_tot =  M[i]
 ```
 
-`diff_est = D·τ`, `diff_cov = D·cov(τ)·Dᵀ`, `diff_se = sqrt(diag(diff_cov))`,
+`diff_est = D·tau`, `diff_cov = D·cov(tau)·Dᵀ`, `diff_se = sqrt(diag(diff_cov))`,
 `Enrichment_p[i] = 2·t.sf(|diff_est[i]/diff_se[i]|, n_blocks)`
 (NA if `diff_se[i] = 0`). The contrast `diff_est[i]` is the mean per-SNP h²
 **inside** category `i` minus the mean per-SNP h² **outside** it. The
 `M_tot = M[i]` guard zeroes out a category that contains every SNP (e.g. `base`),
 which therefore has no "outside" and reports `Enrichment_p = NA`.
 
-**Coefficient (conditional).** `Coefficient[i] = τ[i]`,
+**Coefficient (conditional).** `Coefficient[i] = tau[i]`,
 `Coefficient_std_error[i] = coef_se[i]`,
-`Coefficient_z[i] = τ[i]/coef_se[i]`,
-`Coefficient_p[i] = norm.sf(Coefficient_z[i])` — **one-sided**, H₁: `τ_i > 0`,
+`Coefficient_z[i] = tau[i]/coef_se[i]`,
+`Coefficient_p[i] = norm.sf(Coefficient_z[i])` — **one-sided**, H₁: `tau_i > 0`,
 matching legacy `cell_type_specific` (`sumstats.py:302`). The sign is visible
 from `Coefficient` itself.
 
-**Category h² (conditional).** `Category_h2[i] = cat[i] = M[i]·τ[i]`,
+**Category h² (conditional).** `Category_h2[i] = cat[i] = M[i]·tau[i]`,
 `Category_h2_std_error[i] = cat_se[i]`. This is the category's own
 coefficient-weighted contribution and can be negative under overlap. It is a
 different quantity from `Prop._h2`: conditional vs marginal.
@@ -165,7 +165,7 @@ For a query annotation the two views answer different questions:
   disproportionate heritability?" If the annotation's SNPs sit in
   generally-enriched regions (coding, conserved), it looks enriched for that
   reason alone.
-- `Coefficient τ` (conditional on baseline, de-confounded): "does this
+- `Coefficient tau` (conditional on baseline, de-confounded): "does this
   annotation add heritability **beyond** the baseline?" This is the
   cell-type-specific headline.
 
@@ -330,7 +330,7 @@ Full per-query / functional-regime table (`partitioned_h2_full.tsv`):
 
 ```
 Category, Prop._SNPs,
-Category_h2, Category_h2_std_error,          # conditional M_c·τ_c
+Category_h2, Category_h2_std_error,          # conditional M_c·tau_c
 Prop._h2, Prop._h2_std_error,                # marginal, overlap-aware
 Enrichment, Enrichment_std_error, Enrichment_p,
 Coefficient, Coefficient_std_error, Coefficient_z, Coefficient_p,
@@ -369,15 +369,17 @@ its only in-file emphasis. The regime and how to read it are surfaced two ways.
 column to focus on:
 
 - Functional: "Functional-category regime: joint fit of B baseline categories.
-  Focus on `Enrichment` (+ two-sided `Enrichment_p`): `Enrichment > 1` means the
-  category's SNPs explain a larger share of heritability than their share of
-  SNPs, and `Enrichment_p` tests departure from 1 (no enrichment). `Prop._h2` is
-  the underlying heritability share."
+  Focus on `Enrichment` and `Enrichment_p`: `Enrichment > 1` means the category's
+  SNPs explain a larger share of heritability than their share of SNPs (`< 1`
+  means a smaller share); a small `Enrichment_p` indicates the enrichment is
+  significantly different from 1, i.e. significantly larger or smaller."
 - Cell-type: "Cell-type-specific regime: baseline + one query per model
   (N queries). Focus on `Coefficient` together with the one-sided `Coefficient_p`
-  (H1: τ>0): a **positive** coefficient with small p means the query annotation
-  contributes heritability **beyond** the baseline annotations. `Enrichment` here
-  is baseline-confounded; prefer `Coefficient_p` for the conditional question."
+  (H1: tau > 0): a **positive** `Coefficient` with a small `Coefficient_p` means
+  the query annotation contributes heritability **beyond** the baseline
+  annotations. The `Enrichment` column is confounded by the query annotation's
+  overlap with the baseline annotations, so use `Coefficient_p` to judge whether
+  the additional contribution is significant."
 
 **`diagnostics/metadata.json`** (machine-readable, self-describing):
 `analysis_type` (`functional_category` | `cell_type_specific`),

@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import argparse
 from concurrent.futures import ProcessPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace as dataclass_replace
 import logging
 import multiprocessing as mp
 import os
@@ -1597,20 +1597,12 @@ def _ldscore_output_family(output_dir: Path) -> list[Path]:
 
 
 def _replace_result_output_paths(result: LDScoreResult, output_paths: dict[str, str]) -> LDScoreResult:
-    """Return ``result`` with updated artifact-path metadata after writing outputs."""
-    return LDScoreResult(
-        baseline_table=result.baseline_table,
-        query_table=result.query_table,
-        count_records=result.count_records,
-        baseline_columns=result.baseline_columns,
-        query_columns=result.query_columns,
-        ld_reference_snps=result.ld_reference_snps,
-        ld_regression_snps=result.ld_regression_snps,
-        chromosome_results=result.chromosome_results,
-        output_paths=dict(output_paths),
-        count_config=dict(result.count_config),
-        config_snapshot=result.config_snapshot,
-    )
+    """Return ``result`` with updated artifact-path metadata after writing outputs.
+
+    Uses ``dataclasses.replace`` so every other field (including ``overlap``) is
+    carried over; a manual reconstruction silently drops fields added later.
+    """
+    return dataclass_replace(result, output_paths=dict(output_paths))
 
 
 def _available_cpu_count() -> int:

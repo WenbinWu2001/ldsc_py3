@@ -3470,6 +3470,10 @@ def test_ldscore_end_to_end_drops_user_bed_snp(tmp_path):
         exclude_regions_bed=(str(bed),),
     )
     assert target_pos not in set(result.baseline_table["POS"])
+    # Overlap sidecar flows end-to-end: written to disk and present on the result.
+    assert (tmp_path / "ld" / "ldscore.overlap.parquet").exists()
+    assert result.overlap is not None
+    assert list(result.overlap.baseline_block_all.index) == ["base"]
 
 
 def test_ldscore_rejects_non_minor_maf():

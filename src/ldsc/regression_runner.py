@@ -1544,6 +1544,42 @@ def _scalar_or_value(value):
     return value
 
 
+def _resolve_summary_sort(sort_by: str, *, has_queries: bool) -> str:
+    """Resolve the ``auto`` summary sort to a regime-appropriate column key.
+
+    Cell-type runs (query annotations present) surface the most significant query
+    first by ``coefficient-p``; functional runs preserve baseline order with
+    ``category``. Any explicit choice is returned unchanged.
+    """
+    if sort_by != "auto":
+        return sort_by
+    return "coefficient-p" if has_queries else "category"
+
+
+def _log_partitioned_h2_regime(ldscore_result: LDScoreResult, has_queries: bool) -> None:
+    """Log a one-block banner naming the regime and the column to focus on."""
+    if has_queries:
+        LOGGER.info(
+            "Cell-type-specific regime: baseline + one query per model (%d queries). "
+            "Focus on `Coefficient` together with the one-sided `Coefficient_p` "
+            "(a one-sided test of whether `Coefficient` > 0): a positive `Coefficient` with a small "
+            "`Coefficient_p` means the query annotation contributes heritability beyond the baseline "
+            "annotations. The `Enrichment` column is confounded by the query annotation's overlap with "
+            "the baseline annotations, so use `Coefficient_p` to judge whether the additional "
+            "contribution is significant.",
+            len(ldscore_result.query_columns),
+        )
+    else:
+        LOGGER.info(
+            "Functional-category regime: joint fit of %d baseline categories. "
+            "Focus on `Enrichment` and `Enrichment_p`: `Enrichment > 1` means the category's SNPs "
+            "explain a larger share of heritability than their share of SNPs (`< 1` means a smaller "
+            "share); a small `Enrichment_p` indicates the enrichment is significantly different from 1, "
+            "i.e. significantly larger or smaller.",
+            len(ldscore_result.baseline_columns),
+        )
+
+
 def _sort_partitioned_h2_summary(summary: pd.DataFrame, sort_by: str = "category") -> pd.DataFrame:
     """Return ``summary`` ordered by a public partitioned-h2 summary column."""
     if sort_by == "category":
@@ -1598,11 +1634,12 @@ def add_partitioned_h2_arguments(parser) -> None:
     )
     parser.add_argument(
         "--summary-sort-by",
-        default="category",
-        choices=tuple(PARTITIONED_H2_SUMMARY_SORT_COLUMNS),
+        default="auto",
+        choices=("auto", *PARTITIONED_H2_SUMMARY_SORT_COLUMNS),
         help=(
-            "Column used to order partitioned_h2.tsv rows. Default 'category' preserves query annotation input order; "
-            "p-value columns sort ascending and other numeric columns sort descending."
+            "Column used to order partitioned_h2.tsv rows. Default 'auto' resolves to 'coefficient-p' for "
+            "cell-type runs (query annotations present) and 'category' for functional runs; p-value columns "
+            "sort ascending and other numeric columns sort descending."
         ),
     )
 
@@ -1709,6 +1746,8 @@ def run_partitioned_h2_from_args(args):
         query_bundle = SimpleNamespace(
             query_columns=_validate_partitioned_query_columns(ldscore_result, ldscore_result.query_columns)
         )
+        has_queries = bool(ldscore_result.query_columns)
+        _log_partitioned_h2_regime(ldscore_result, has_queries)
         with suppress_global_config_banner():
             result = runner.estimate_partitioned_h2_batch(
                 sumstats_table,
@@ -1725,7 +1764,10 @@ def run_partitioned_h2_from_args(args):
             summary = result
             per_query_category_tables = None
             per_query_metadata = None
-        summary = _sort_partitioned_h2_summary(summary, getattr(args, "summary_sort_by", "category"))
+        sort_by = _resolve_summary_sort(
+            getattr(args, "summary_sort_by", "auto"), has_queries=bool(ldscore_result.query_columns)
+        )
+        summary = _sort_partitioned_h2_summary(summary, sort_by)
         output_dir_arg = getattr(args, "output_dir", None)
         if output_dir_arg:
             written = PartitionedH2DirectoryWriter().write(
@@ -1740,6 +1782,10 @@ def run_partitioned_h2_from_args(args):
                     "trait_name": sumstats_table.trait_name,
                     "count_kind": getattr(args, "count_kind", "common"),
                     "ldscore_dir": getattr(args, "ldscore_dir", None),
+                    "analysis_type": "cell_type_specific" if has_queries else "functional_category",
+                    "headline_metric": "coefficient" if has_queries else "enrichment",
+                    "enrichment_p_test": "two_sided_t",
+                    "coefficient_p_test": "one_sided_greater",
                 },
                 per_query_metadata=per_query_metadata,
             )

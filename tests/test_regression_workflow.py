@@ -1509,6 +1509,13 @@ class RegressionWorkflowTest(unittest.TestCase):
                 self.make_sumstats_table(), ldscore_result, self.make_annotation_bundle(),
             )
 
+    def test_summary_sort_auto_is_regime_aware(self):
+        from ldsc.regression_runner import _resolve_summary_sort
+
+        self.assertEqual(_resolve_summary_sort("auto", has_queries=True), "coefficient-p")
+        self.assertEqual(_resolve_summary_sort("auto", has_queries=False), "category")
+        self.assertEqual(_resolve_summary_sort("enrichment", has_queries=True), "enrichment")
+
     def test_estimate_partitioned_h2_requires_explicit_query_column(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
 
@@ -1965,7 +1972,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             ]
         )
 
-        self.assertEqual(default_args.summary_sort_by, "category")
+        self.assertEqual(default_args.summary_sort_by, "auto")
         self.assertEqual(sorted_args.summary_sort_by, "enrichment-p")
         with self.assertRaises(SystemExit):
             parser.parse_args(
@@ -2692,7 +2699,9 @@ class RegressionWorkflowTest(unittest.TestCase):
             with mock.patch.object(
                 regression_runner.RegressionRunner,
                 "estimate_partitioned_h2_batch",
-                return_value=pd.DataFrame([{"Category": "query", "Coefficient": 1.0}]),
+                return_value=pd.DataFrame([{"Category": "query", "Coefficient": 1.0}]).reindex(
+                    columns=regression_runner.PARTITIONED_H2_COLUMNS
+                ),
             ), mock.patch.object(
                 regression_runner.PartitionedH2DirectoryWriter,
                 "write",
@@ -2798,6 +2807,46 @@ class RegressionWorkflowTest(unittest.TestCase):
             self.assertFalse((output_dir / "metadata.json").exists())
             self.assertFalse((output_dir / "query_annotations").exists())
             self.assertFalse((output_dir / "diagnostics" / "query_annotations").exists())
+
+    def test_run_partitioned_h2_from_args_records_regime_metadata(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            set_global_config(GlobalConfig(snp_identifier="rsid"))
+            with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
+                handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
+            self.write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="trait")
+            ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
+            output_dir = tmpdir / "out"
+            args = type(
+                "Args",
+                (),
+                {
+                    "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
+                    "trait_name": "trait",
+                    "ldscore_dir": str(ldscore_dir),
+                    "count_kind": "common",
+                    "output_dir": str(output_dir),
+                    "overwrite": False,
+                    "n_blocks": 200,
+                    "no_intercept": False,
+                    "intercept_h2": None,
+                    "two_step_cutoff": None,
+                    "chisq_max": None,
+                    "write_per_query_results": False,
+                },
+            )()
+            summary = pd.DataFrame(
+                [{"Category": "query", "Prop._SNPs": 1.0, "Coefficient": 1.0, "Coefficient_p": 0.5}]
+            ).reindex(columns=regression_runner.PARTITIONED_H2_COLUMNS)
+            with mock.patch.object(
+                regression_runner.RegressionRunner, "estimate_partitioned_h2_batch", return_value=summary
+            ):
+                regression_runner.run_partitioned_h2_from_args(args)
+            meta = json.loads((output_dir / "diagnostics" / "metadata.json").read_text(encoding="utf-8"))
+        self.assertEqual(meta["analysis_type"], "cell_type_specific")
+        self.assertEqual(meta["headline_metric"], "coefficient")
+        self.assertEqual(meta["coefficient_p_test"], "one_sided_greater")
+        self.assertEqual(meta["enrichment_p_test"], "two_sided_t")
 
     def test_regression_cli_writes_fixed_result_filename_under_output_dir(self):
         with tempfile.TemporaryDirectory() as tmpdir:

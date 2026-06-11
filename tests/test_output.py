@@ -155,6 +155,41 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
         for name in removed_names:
             self.assertFalse(hasattr(outputs, name), f"{name} should not be exposed by ldsc.outputs")
 
+    def _overlap(self):
+        import numpy as np
+        from ldsc._kernel.overlap import OverlapContribution
+        from ldsc.overlap_matrix import LDScoreOverlap
+
+        contribution = OverlapContribution(
+            baseline_block_all=np.array([[10.0, 4.0]]),     # base x [base, query]
+            baseline_block_common=np.array([[8.0, 3.0]]),
+            query_diagonal_all=np.array([20.0]),
+            query_diagonal_common=np.array([18.0]),
+            n_all=10,
+            n_common=8,
+        )
+        return LDScoreOverlap.from_contribution(contribution, ["base"], ["query"])
+
+    def test_ldscore_writer_emits_overlap_sidecar(self):
+        result = dataclass_replace(make_split_ldscore_result(query=True), overlap=self._overlap())
+        with tempfile.TemporaryDirectory() as tmpdir:
+            LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=tmpdir))
+            self.assertTrue((Path(tmpdir) / "ldscore.overlap.parquet").exists())
+            meta = json.loads((Path(tmpdir) / "metadata.json").read_text())
+            self.assertEqual(meta["files"]["overlap"], "ldscore.overlap.parquet")
+            self.assertEqual(meta["overlap_config"]["common_maf_operator"], ">")
+            self.assertEqual(meta["overlap_config"]["total_all_reference_snps"], 10.0)
+
+    def test_load_ldscore_from_dir_reads_overlap(self):
+        result = dataclass_replace(make_split_ldscore_result(query=True), overlap=self._overlap())
+        with tempfile.TemporaryDirectory() as tmpdir:
+            LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=tmpdir))
+            loaded = load_ldscore_from_dir(tmpdir)
+        self.assertIsNotNone(loaded.overlap)
+        self.assertEqual(loaded.overlap.total_all_reference_snps, 10.0)
+        self.assertEqual(list(loaded.overlap.baseline_block_all.index), ["base"])
+        self.assertEqual(float(loaded.overlap.baseline_block_all.at["base", "query"]), 4.0)
+
     def test_writes_metadata_baseline_and_query_parquet(self):
         result = make_split_ldscore_result(query=True)
         writer = LDScoreDirectoryWriter()

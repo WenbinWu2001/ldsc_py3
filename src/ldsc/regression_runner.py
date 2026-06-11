@@ -2200,6 +2200,18 @@ def load_ldscore_from_dir(
     baseline_columns = [str(column) for column in metadata.get("baseline_columns", [])]
     query_columns = [str(column) for column in metadata.get("query_columns", [])]
     count_records = [dict(record) for record in metadata.get("counts", [])]
+    overlap = None
+    overlap_rel = files.get("overlap")
+    if overlap_rel:
+        from .overlap_matrix import overlap_from_long_frame
+        overlap_config = metadata.get("overlap_config") or {}
+        overlap = overlap_from_long_frame(
+            pd.read_parquet(root / overlap_rel),
+            baseline_columns=baseline_columns,
+            query_columns=query_columns,
+            total_all_reference_snps=overlap_config.get("total_all_reference_snps"),
+            total_common_reference_snps=overlap_config.get("total_common_reference_snps"),
+        )
     metadata_identifier = config_snapshot.snp_identifier if config_snapshot is not None else metadata.get("snp_identifier")
     if snp_identifier is not None:
         requested_identifier = normalize_snp_identifier_mode(snp_identifier)
@@ -2239,6 +2251,7 @@ def load_ldscore_from_dir(
         },
         count_config=dict(metadata.get("count_config", {})),
         config_snapshot=config_snapshot,
+        overlap=overlap,
     )
     result.validate(require_query_alignment=False)
     query_rows = 0 if query_table is None else len(query_table)

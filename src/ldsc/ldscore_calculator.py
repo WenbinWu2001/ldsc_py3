@@ -229,7 +229,7 @@ class LDScoreResult:
     output_paths: dict[str, str] = field(default_factory=dict)
     count_config: dict[str, Any] = field(default_factory=dict)
     config_snapshot: GlobalConfig | None = None
-    overlap: OverlapContribution | None = field(default=None, repr=False)
+    overlap: "LDScoreOverlap | None" = field(default=None, repr=False)
 
     def validate(self, *, require_query_alignment: bool = True) -> None:
         """Check the normalized public contract for aggregated results."""
@@ -620,10 +620,16 @@ class LDScoreCalculator:
             key: np.sum(np.vstack([result.snp_count_totals[key] for result in chromosome_results]), axis=0)
             for key in count_keys
         }
+        from .overlap_matrix import LDScoreOverlap
+
         overlaps = [result.overlap for result in chromosome_results if result.overlap is not None]
-        aggregated_overlap = (
-            sum_overlap_contributions(overlaps) if len(overlaps) == len(chromosome_results) else None
-        )
+        aggregated_overlap = None
+        if len(overlaps) == len(chromosome_results):
+            aggregated_overlap = LDScoreOverlap.from_contribution(
+                sum_overlap_contributions(overlaps),
+                list(chromosome_results[0].baseline_columns),
+                list(chromosome_results[0].query_columns),
+            )
         merged_table = pd.concat(
             [
                 _join_split_tables(

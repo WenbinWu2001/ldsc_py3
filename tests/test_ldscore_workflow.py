@@ -967,9 +967,10 @@ class LDScoreWorkflowTest(unittest.TestCase):
             [make_chrom("1", "rs1", c1), make_chrom("2", "rs2", c2)], global_config=cfg
         )
         self.assertIsNotNone(result.overlap)
-        np.testing.assert_allclose(result.overlap.baseline_block_all, [[15.0, 7.0]])
-        np.testing.assert_allclose(result.overlap.query_diagonal_all, [10.0])
-        self.assertEqual(result.overlap.n_all, 17)
+        np.testing.assert_allclose(result.overlap.baseline_block_all.to_numpy(), [[15.0, 7.0]])
+        np.testing.assert_allclose(result.overlap.query_diagonal_all.to_numpy(), [10.0])
+        self.assertEqual(result.overlap.total_all_reference_snps, 17)
+        self.assertEqual(list(result.overlap.baseline_block_all.columns), ["base", "query"])
 
     def test_wrap_legacy_result_derives_allele_aware_regression_ids_before_split(self):
         legacy_result = ldscore_workflow._LegacyChromResult(

@@ -284,12 +284,15 @@ class LDScoreDirectoryWriter:
             )
         self._validate_tables(result)
 
+        overlap = getattr(result, "overlap", None)
         paths = {
             "metadata": output_dir / "metadata.json",
             "baseline": output_dir / "ldscore.baseline.parquet",
         }
         if query_table is not None:
             paths["query"] = output_dir / "ldscore.query.parquet"
+        if overlap is not None:
+            paths["overlap"] = output_dir / "ldscore.overlap.parquet"
         stale_paths = preflight_output_artifact_family(
             paths.values(),
             _ldscore_output_family(output_dir),
@@ -302,6 +305,9 @@ class LDScoreDirectoryWriter:
         query_rg = None
         if query_table is not None:
             query_rg = _write_chromosome_aligned_parquet(query_table, paths["query"], compression)
+        if overlap is not None:
+            from .overlap_matrix import overlap_to_long_frame
+            overlap_to_long_frame(overlap).to_parquet(paths["overlap"], index=False)
         metadata = self.build_metadata(
             result,
             files={name: path.name for name, path in paths.items() if name != "metadata"},
@@ -342,6 +348,20 @@ class LDScoreDirectoryWriter:
             genome_build=getattr(config_snapshot, "genome_build", None),
         )
         chromosomes = baseline_table["CHR"].astype(str).drop_duplicates().tolist()
+        overlap = getattr(result, "overlap", None)
+        overlap_config = None
+        if overlap is not None:
+            count_config = dict(getattr(result, "count_config", None) or {})
+            overlap_config = {
+                "total_all_reference_snps": float(overlap.total_all_reference_snps),
+                "total_common_reference_snps": (
+                    None if overlap.total_common_reference_snps is None
+                    else float(overlap.total_common_reference_snps)
+                ),
+                "common_maf_min": float(count_config.get("common_reference_snp_maf_min", 0.05)),
+                "common_maf_operator": ">",
+                "stored_block": "baseline_rows_plus_query_diagonal",
+            }
         return {
             **identity_metadata,
             "files": dict(files),
@@ -350,6 +370,7 @@ class LDScoreDirectoryWriter:
             "query_columns": list(getattr(result, "query_columns", [])),
             "counts": list(getattr(result, "count_records", [])),
             "count_config": dict(getattr(result, "count_config", None) or DEFAULT_COUNT_CONFIG),
+            "overlap_config": overlap_config,
             "n_baseline_rows": int(len(baseline_table)),
             "n_query_rows": 0 if query_table is None else int(len(query_table)),
             "row_group_layout": "one_per_chromosome",
@@ -897,6 +918,7 @@ def _ldscore_output_family(output_dir: Path) -> list[Path]:
         output_dir / "metadata.json",
         output_dir / "ldscore.baseline.parquet",
         output_dir / "ldscore.query.parquet",
+        output_dir / "ldscore.overlap.parquet",
     ]
 
 

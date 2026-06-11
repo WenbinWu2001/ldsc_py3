@@ -1214,18 +1214,22 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 ]
             )
 
-    def test_compute_counts_uses_inclusive_common_maf_min(self):
-        metadata = pd.DataFrame({"MAF": [0.1, 0.2, 0.3]})
-        annotations = pd.DataFrame({"base": [1.0, 2.0, 3.0], "query": [0.0, 4.0, 5.0]})
+    def test_compute_counts_common_mask_is_strict_greater_than(self):
+        metadata = pd.DataFrame({"MAF": [0.05, 0.0500001, 0.2, 0.04]})
+        annotations = pd.DataFrame({"base": [1.0, 1.0, 1.0, 1.0], "cat": [1.0, 0.0, 1.0, 1.0]})
 
-        all_counts, common_counts = kernel_ldscore.compute_counts(
-            metadata,
-            annotations,
-            common_maf_min=0.2,
-        )
+        M, M_5_50 = kernel_ldscore.compute_counts(metadata, annotations, common_maf_min=0.05)
 
-        np.testing.assert_allclose(all_counts, [6.0, 9.0])
-        np.testing.assert_allclose(common_counts, [5.0, 9.0])
+        # MAF == 0.05 is excluded (strict >), so only rows 1 and 2 are common.
+        np.testing.assert_allclose(M, [4.0, 3.0])
+        np.testing.assert_allclose(M_5_50, [2.0, 1.0])
+
+    def test_count_config_records_strict_operator(self):
+        from ldsc.ldscore_calculator import _count_config_from_ldscore_config
+        from ldsc.config import LDScoreConfig
+
+        cfg = _count_config_from_ldscore_config(LDScoreConfig(ld_wind_cm=1.0, common_maf_min=0.05))
+        self.assertEqual(cfg["common_reference_snp_maf_operator"], ">")
 
     def test_regression_mask_from_keys_uses_identity_restriction_match_kind(self):
         metadata = pd.DataFrame(

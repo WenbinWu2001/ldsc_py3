@@ -816,7 +816,7 @@ def _count_config_from_ldscore_config(ldscore_config: LDScoreConfig) -> dict[str
     """Return count metadata for common-SNP count vectors."""
     return {
         "common_reference_snp_maf_min": float(ldscore_config.common_maf_min),
-        "common_reference_snp_maf_operator": ">=",
+        "common_reference_snp_maf_operator": ">",
     }
 
 

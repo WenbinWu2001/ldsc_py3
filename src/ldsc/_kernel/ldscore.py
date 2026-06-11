@@ -220,6 +220,7 @@ from ..path_resolution import (
 from .._row_alignment import assert_same_snp_rows
 from . import formats as legacy_parse
 from .identifiers import build_snp_id_series, read_snp_restriction_keys
+from .overlap import OverlapContribution, compute_overlap
 from .plink_bed import __GenotypeArrayInMemory__, PlinkBEDFile  # noqa: F401
 from .snp_identity import (
     RestrictionIdentityKeys,
@@ -290,6 +291,7 @@ class ChromComputationResult:
     ldscore_columns: list[str]
     baseline_columns: list[str]
     query_columns: list[str]
+    overlap: OverlapContribution | None = None
 
 
 # Basic configuration and shared helpers.
@@ -1668,6 +1670,12 @@ def compute_chrom_from_parquet(
         annotations,
         common_maf_min=getattr(args, "common_maf_min", 0.05),
     )
+    overlap = compute_overlap(
+        out_metadata,
+        annotations,
+        n_baseline=len(bundle.baseline_columns),
+        common_maf_min=getattr(args, "common_maf_min", 0.05),
+    )
     return ChromComputationResult(
         chrom=chrom,
         metadata=out_metadata,
@@ -1678,6 +1686,7 @@ def compute_chrom_from_parquet(
         ldscore_columns=bundle.baseline_columns + bundle.query_columns,
         baseline_columns=bundle.baseline_columns,
         query_columns=bundle.query_columns,
+        overlap=overlap,
     )
 
 
@@ -1794,6 +1803,12 @@ def compute_chrom_from_plink(
         annotation_matrix.reset_index(drop=True),
         common_maf_min=getattr(args, "common_maf_min", 0.05),
     )
+    overlap = compute_overlap(
+        out_metadata,
+        annotation_matrix.reset_index(drop=True),
+        n_baseline=len(bundle.baseline_columns),
+        common_maf_min=getattr(args, "common_maf_min", 0.05),
+    )
     return ChromComputationResult(
         chrom=chrom,
         metadata=out_metadata,
@@ -1804,6 +1819,7 @@ def compute_chrom_from_plink(
         ldscore_columns=bundle.baseline_columns + bundle.query_columns,
         baseline_columns=bundle.baseline_columns,
         query_columns=bundle.query_columns,
+        overlap=overlap,
     )
 
 

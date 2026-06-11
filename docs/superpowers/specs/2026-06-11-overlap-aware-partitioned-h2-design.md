@@ -358,8 +358,31 @@ functional regime and `coefficient-p` in the cell-type regime; any explicit
 choice is honored in both.
 
 `Enrichment_p` is two-sided t (df = `n_blocks`) in both regimes; `Coefficient_p`
-is one-sided normal in both. A short "which column answers which question"
-interpretation guide ships in the workflow doc.
+is one-sided normal in both.
+
+### 7.1 Headline signaling and interpretation
+
+The TSV is never decorated (stable, scriptable columns); the default row sort is
+its only in-file emphasis. The regime and how to read it are surfaced two ways.
+
+**Log banner** (human-facing), one block per run, naming the regime and the
+column to focus on:
+
+- Functional: "Functional-category regime: joint fit of B baseline categories.
+  Focus on `Enrichment` (+ two-sided `Enrichment_p`): `Enrichment > 1` means the
+  category's SNPs explain a larger share of heritability than their share of
+  SNPs, and `Enrichment_p` tests departure from 1 (no enrichment). `Prop._h2` is
+  the underlying heritability share."
+- Cell-type: "Cell-type-specific regime: baseline + one query per model
+  (N queries). Focus on `Coefficient` together with the one-sided `Coefficient_p`
+  (H1: τ>0): a **positive** coefficient with small p means the query annotation
+  contributes heritability **beyond** the baseline annotations. `Enrichment` here
+  is baseline-confounded; prefer `Coefficient_p` for the conditional question."
+
+**`diagnostics/metadata.json`** (machine-readable, self-describing):
+`analysis_type` (`functional_category` | `cell_type_specific`),
+`headline_metric` (`enrichment` | `coefficient`),
+`enrichment_p_test` (`two_sided_t`), `coefficient_p_test` (`one_sided_greater`).
 
 ## 8. Collinearity warning
 
@@ -421,7 +444,9 @@ the overlap matrix). No silent fallback to disjoint numbers.
   replace disjoint logic in `summarize_partitioned_h2` with `_overlap_output` +
   augmentation; one-sided `Coefficient_p`; collinearity warning; remove the
   "requires query annotations" rejection; change `--summary-sort-by` default to
-  `auto` (regime-aware: `category` functional, `coefficient-p` cell-type).
+  `auto` (regime-aware: `category` functional, `coefficient-p` cell-type); emit
+  the regime log banner with interpretation guidance and the `analysis_type` /
+  `headline_metric` / p-test fields in `diagnostics/metadata.json`.
 - `docs/current/partitioned-ldsc-workflow.md`, `docs/troubleshooting.md`,
   `design_map.md` — update.
 - `tests/` — per §10.

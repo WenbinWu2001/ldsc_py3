@@ -43,6 +43,25 @@ class Hm3ReferenceBuilderTest(unittest.TestCase):
             written = pd.read_csv(output, sep="\t", dtype={"CHR": "string"})
             pd.testing.assert_frame_equal(written, result)
 
+    def test_filter_reference_candidates_keeps_maf_at_threshold(self):
+        from ldsc.hm3_reference import _filter_reference_candidates
+
+        frame = pd.DataFrame(
+            {
+                "CHR": ["1", "1"],
+                "hg19_POS": [10, 20],
+                "hg38_POS": [110, 120],
+                "SNP": ["rs1", "rs2"],
+                "A1": ["A", "A"],
+                "A2": ["C", "G"],
+                "MAF": [0.2, 0.19],  # 0.2 == min_maf is kept (inclusive >=); 0.19 dropped
+            }
+        )
+
+        filtered = _filter_reference_candidates(frame, min_maf=0.2)
+
+        self.assertEqual(filtered["SNP"].tolist(), ["rs1"])
+
 
 if __name__ == "__main__":
     unittest.main()

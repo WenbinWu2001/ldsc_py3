@@ -47,9 +47,9 @@ def compute_overlap(
     """Compute baseline-rows overlap blocks and query self-overlaps.
 
     ``annotations`` columns are ordered ``baseline + query`` with ``n_baseline``
-    leading baseline columns. The common universe is ``MAF > common_maf_min``
-    (strict, matching the common-count mask); it is omitted when MAF metadata is
-    absent or all-missing.
+    leading baseline columns. The common universe is ``MAF >= common_maf_min``
+    (inclusive, matching the common-count mask); it is omitted when MAF metadata
+    is absent or all-missing.
     """
     A = annotations.to_numpy(dtype=np.float64, copy=False)
     A_baseline = A[:, :n_baseline]
@@ -58,7 +58,7 @@ def compute_overlap(
     n_all = int(A.shape[0])
     if "MAF" not in metadata.columns or metadata["MAF"].isna().all():
         return OverlapContribution(block_all, None, query_diag_all, None, n_all, None)
-    common = (metadata["MAF"] > common_maf_min).to_numpy()
+    common = (metadata["MAF"] >= common_maf_min).to_numpy()
     A_common = A[common]
     block_common = A_common[:, :n_baseline].T @ A_common
     query_diag_common = np.einsum(

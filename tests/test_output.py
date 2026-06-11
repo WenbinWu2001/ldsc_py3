@@ -180,7 +180,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
             self.assertTrue((Path(tmpdir) / "ldscore.overlap.parquet").exists())
             meta = json.loads((Path(tmpdir) / "metadata.json").read_text())
             self.assertEqual(meta["files"]["overlap"], "ldscore.overlap.parquet")
-            self.assertEqual(meta["overlap_config"]["common_maf_operator"], ">")
+            self.assertEqual(meta["overlap_config"]["common_maf_operator"], ">=")
             self.assertEqual(meta["overlap_config"]["total_all_reference_snps"], 10.0)
 
     def test_load_ldscore_from_dir_reads_overlap(self):
@@ -215,7 +215,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
                 metadata["count_config"],
                 {
                     "common_reference_snp_maf_min": 0.05,
-                    "common_reference_snp_maf_operator": ">",
+                    "common_reference_snp_maf_operator": ">=",
                 },
             )
 
@@ -434,7 +434,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
 
         self.assertEqual(metadata["counts"][0]["all_reference_snp_count"], 10.0)
         self.assertNotIn("common_reference_snp_count", metadata["counts"][0])
-        self.assertEqual(metadata["count_config"]["common_reference_snp_maf_operator"], ">")
+        self.assertEqual(metadata["count_config"]["common_reference_snp_maf_operator"], ">=")
 
 
 class H2DirectoryWriterTest(unittest.TestCase):

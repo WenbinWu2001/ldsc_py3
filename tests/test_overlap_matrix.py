@@ -15,7 +15,7 @@ def test_compute_overlap_blocks_binary_and_continuous():
         "q":    [1.0, 0.0, 1.0, 0.0],
         "cont": [0.5, 2.0, 1.0, 0.0],
     })
-    metadata = pd.DataFrame({"MAF": [0.05, 0.06, 0.2, 0.3]})  # row 0 (MAF==0.05) is NOT common
+    metadata = pd.DataFrame({"MAF": [0.05, 0.06, 0.2, 0.3]})  # row 0 (MAF==0.05) IS common (inclusive >=)
     A = annotations.to_numpy(dtype=np.float64)
 
     contribution = compute_overlap(metadata, annotations, n_baseline=2, common_maf_min=0.05)
@@ -24,11 +24,11 @@ def test_compute_overlap_blocks_binary_and_continuous():
     np.testing.assert_allclose(contribution.query_diagonal_all, (A[:, 2:] ** 2).sum(axis=0))
     assert contribution.n_all == 4
 
-    common = np.array([False, True, True, True])
+    common = np.array([True, True, True, True])
     Ac = A[common]
     np.testing.assert_allclose(contribution.baseline_block_common, Ac[:, :2].T @ Ac)
     np.testing.assert_allclose(contribution.query_diagonal_common, (Ac[:, 2:] ** 2).sum(axis=0))
-    assert contribution.n_common == 3
+    assert contribution.n_common == 4
 
 
 def test_compute_overlap_without_maf_has_no_common_universe():

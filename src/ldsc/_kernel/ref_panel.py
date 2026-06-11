@@ -257,10 +257,10 @@ class RefPanel(ABC):
         if "MAF" not in metadata.columns or metadata["MAF"].isna().all():
             LOGGER.warning(f"Cannot apply --maf-min on chromosome {chrom} because MAF metadata is unavailable.")
             return metadata.reset_index(drop=True)
-        keep = metadata["MAF"] > maf_min
+        keep = metadata["MAF"] >= maf_min
         removed = int((~keep).sum())
         if removed:
-            LOGGER.info(f"Removed {removed} reference-panel SNPs with MAF <= {maf_min} on chromosome {chrom}.")
+            LOGGER.info(f"Removed {removed} reference-panel SNPs with MAF < {maf_min} on chromosome {chrom}.")
         return metadata.loc[keep].reset_index(drop=True)
 
     def _apply_snp_restriction(self, metadata: pd.DataFrame) -> pd.DataFrame:

@@ -969,10 +969,10 @@ def apply_maf_filter(
     if "MAF" not in metadata.columns or metadata["MAF"].isna().all():
         LOGGER.warning(f"Cannot apply --maf-min in {context} because MAF metadata is unavailable.")
         return metadata, annotations
-    keep = metadata["MAF"] > maf_min
+    keep = metadata["MAF"] >= maf_min
     removed = int((~keep).sum())
     if removed:
-        LOGGER.info(f"Removed {removed} SNPs with MAF <= {maf_min} in {context}.")
+        LOGGER.info(f"Removed {removed} SNPs with MAF < {maf_min} in {context}.")
     metadata = metadata.loc[keep].reset_index(drop=True)
     annotations = annotations.loc[keep].reset_index(drop=True)
     return metadata, annotations
@@ -1562,14 +1562,15 @@ def compute_counts(
 
     ``M`` is the column-wise sum over the retained reference SNP universe.
     The common-count vector is the same sum restricted to rows with
-    ``MAF > common_maf_min`` (strict, matching legacy ``0.05 < FRQ < 0.95`` on
-    canonical folded MAF) when MAF metadata is available.
+    ``MAF >= common_maf_min`` (inclusive; deviates from legacy LDSC's strict
+    ``0.05 < FRQ < 0.95`` on canonical folded MAF) when MAF metadata is
+    available.
     """
     annot_matrix = annotations.to_numpy(dtype=np.float32, copy=False)
     M = np.asarray(annot_matrix.sum(axis=0), dtype=np.float64)
     if "MAF" not in metadata.columns or metadata["MAF"].isna().all():
         return M, None
-    common = metadata["MAF"] > common_maf_min
+    common = metadata["MAF"] >= common_maf_min
     M_5_50 = np.asarray(annot_matrix[common.to_numpy(), :].sum(axis=0), dtype=np.float64)
     return M, M_5_50
 

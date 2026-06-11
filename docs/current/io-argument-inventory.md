@@ -180,7 +180,7 @@ Removed flags: `--bed-files`, `--baseline-annot`.
 | `--ld-wind-snps` | model | conditional | LD window in SNPs | Selects an LD window measured by SNP count. Exactly one of `--ld-wind-snps`, `--ld-wind-kb`, or `--ld-wind-cm` must be supplied. |
 | `--ld-wind-kb` | model | conditional | LD window in kilobases | Selects an LD window measured by physical distance. Exactly one LD-window flag must be supplied. |
 | `--ld-wind-cm` | model | conditional | LD window in centiMorgans | Selects an LD window measured by genetic distance. Exactly one LD-window flag must be supplied, and cM windows require usable `CM` metadata. |
-| `--common-maf-min` | input metadata | no | common-SNP count threshold | Sets the MAF threshold for common-SNP count vectors and the common-universe overlap matrix; defaults to `0.05` and uses strict `MAF > common_maf_min` (matching legacy `0.05 < FRQ < 0.95`). |
+| `--common-maf-min` | input metadata | no | common-SNP count threshold | Sets the MAF threshold for common-SNP count vectors and the common-universe overlap matrix; defaults to `0.05` and uses inclusive `MAF >= common_maf_min` (deviates from legacy LDSC's strict `0.05 < FRQ < 0.95`). |
 | `--snp-batch-size` | performance | no | LD-score SNP batch size | Genotype batch size for the PLINK reference-panel backend; defaults to `128`. The parquet-R2 backend streams stored pairs and ignores this value. |
 | `--threads` | performance | no | cross-chromosome parallelism | Worker processes for cross-chromosome parallelism (joblib `n_jobs` convention): `1`=sequential (default), `N`=`N` workers, `-1`=all cores, `-2`=all but one. Capped at the chromosome count and CPU affinity. Workers are processes (the LD-score kernel is CPU-bound), each rebuilding its chromosome's panel, so peak RSS scales with the worker count. |
 | `--yes-really` | safety override | no | whole-chromosome LD windows | Allows whole-chromosome LD windows; defaults to `False`, so such windows are rejected unless this flag is supplied. |
@@ -392,8 +392,8 @@ panels lacking `ldsc:n_samples`. `status` is blank for found pairs and may repor
 | `--no-intercept` | model | no | intercept policy | Fixes the LDSC intercept instead of estimating it. |
 | `--allow-identity-downgrade` | model | no | identity compatibility override | Allows same-family allele-aware/base artifact mixes under the base identity mode. |
 | `--intercept-h2` | model | no | fixed h2 intercept | Optional fixed h2 intercept supplied to the regression estimator. |
-| `--two-step-cutoff` | model | no | two-step threshold | Optional cutoff for two-step regression fitting. |
-| `--chisq-max` | QC/model | no | chi-square filter | Optional maximum chi-square value retained for regression fitting. |
+| `--two-step-cutoff` | model | no | two-step threshold | Optional cutoff for two-step regression fitting. Inclusive (`chi^2 <= cutoff` retained for step 1; deviates from legacy LDSC's strict `chi^2 < cutoff`). |
+| `--chisq-max` | QC/model | no | chi-square filter | Optional maximum chi-square retained for regression fitting. Inclusive (`chi^2 <= chisq_max`; deviates from legacy LDSC's strict `chi^2 < chisq_max`). |
 | `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger record verbosity. With `output_dir`, records go to `diagnostics/h2.log` and the console (stderr) shows only errors; without it (console-only run) they print to the console. Lifecycle audit lines always appear in the file when one is created. |
 | `--overwrite` | output mode | no | collision policy | Controls whether `h2.tsv` and diagnostics may be replaced; defaults to `False`, so an existing owned artifact is refused. |
 
@@ -413,8 +413,8 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 | `--no-intercept` | model | no | intercept policy | Fixes the LDSC intercept instead of estimating it. |
 | `--allow-identity-downgrade` | model | no | identity compatibility override | Allows same-family allele-aware/base artifact mixes under the base identity mode. |
 | `--intercept-h2` | model | no | fixed h2 intercept | Optional fixed h2 intercept supplied to the regression estimator. |
-| `--two-step-cutoff` | model | no | two-step threshold | Optional cutoff for two-step regression fitting. |
-| `--chisq-max` | QC/model | no | chi-square filter | Optional maximum chi-square value retained for regression fitting. |
+| `--two-step-cutoff` | model | no | two-step threshold | Optional cutoff for two-step regression fitting. Inclusive (`chi^2 <= cutoff` retained for step 1; deviates from legacy LDSC's strict `chi^2 < cutoff`). |
+| `--chisq-max` | QC/model | no | chi-square filter | Optional maximum chi-square retained for regression fitting. Inclusive (`chi^2 <= chisq_max`; deviates from legacy LDSC's strict `chi^2 < chisq_max`). |
 | `--write-per-query-results` | output mode | no | per-query result tree | Requests per-query output folders under `diagnostics/query_annotations`; defaults to `False`, so only the aggregate table is returned/written. |
 | `--summary-sort-by` | output mode | no | aggregate row sorting | Sort key for the partitioned-h2 table; defaults to `auto`, which resolves to `coefficient-p` in the cell-type regime (query annotations present) and `category` in the functional regime. Explicit choices: `category`, `prop-snps`, `prop-h2`, `enrichment`, `enrichment-p`, `coefficient`, and `coefficient-p`. |
 | `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger record verbosity. With `output_dir`, records go to `diagnostics/partitioned-h2.log` and the console (stderr) shows only errors; without it (console-only run) they print to the console. Lifecycle audit lines always appear in the file when one is created. |
@@ -436,8 +436,8 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 | `--n-blocks` | model | no | block jackknife partitions | Number of jackknife blocks used by each regression estimator; defaults to `200`. |
 | `--no-intercept` | model | no | intercept policy | Fixes LDSC intercepts instead of estimating them. |
 | `--allow-identity-downgrade` | model | no | identity compatibility override | Allows same-family allele-aware/base artifact mixes under the base identity mode. |
-| `--two-step-cutoff` | model | no | two-step threshold | Optional cutoff for two-step regression fitting. |
-| `--chisq-max` | QC/model | no | chi-square filter | Optional maximum chi-square value retained for regression fitting. |
+| `--two-step-cutoff` | model | no | two-step threshold | Optional cutoff for two-step regression fitting. Inclusive (`chi^2 <= cutoff` retained for step 1; deviates from legacy LDSC's strict `chi^2 < cutoff`). |
+| `--chisq-max` | QC/model | no | chi-square filter | Optional maximum chi-square retained for regression fitting. Inclusive (`chi^2 <= chisq_max`; deviates from legacy LDSC's strict `chi^2 < chisq_max`). |
 | `--intercept-h2` | model | no | fixed h2 intercepts | Optional fixed h2 intercept value(s) supplied to per-trait h2 estimators. |
 | `--intercept-gencov` | model | no | fixed genetic-covariance intercepts | Optional fixed intercept value(s) supplied to genetic-covariance estimators. |
 | `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger record verbosity. With `output_dir`, records go to `diagnostics/rg.log` and the console (stderr) shows only errors; without it (console-only run) they print to the console. Lifecycle audit lines always appear in the file when one is created. |

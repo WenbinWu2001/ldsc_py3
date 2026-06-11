@@ -414,7 +414,9 @@ class Hsq(LD_Score_Regression):
         """Fit the single-trait LDSC heritability estimator."""
         step1_ii = None
         if twostep is not None:
-            step1_ii = y < twostep
+            # Inclusive cutoff: paper removes "all SNPs with chi^2 > 30", so chi^2
+            # exactly at the cutoff is retained for step-1 intercept estimation.
+            step1_ii = y <= twostep
 
         LD_Score_Regression.__init__(self, y, x, w, N, M, n_blocks, intercept=intercept,
                                      slow=slow, step1_ii=step1_ii, old_weights=old_weights)
@@ -629,7 +631,9 @@ class Gencov(LD_Score_Regression):
         y = z1 * z2
         step1_ii = None
         if twostep is not None:
-            step1_ii = np.logical_and(z1**2 < twostep, z2**2 < twostep)
+            # Inclusive cutoff: paper removes "all SNPs with chi^2 > 30", so chi^2
+            # exactly at the cutoff is retained for step-1 intercept estimation.
+            step1_ii = np.logical_and(z1**2 <= twostep, z2**2 <= twostep)
 
         LD_Score_Regression.__init__(self, y, x, w, np.sqrt(N1 * N2), M, n_blocks,
                                      intercept=intercept_gencov, slow=slow, step1_ii=step1_ii)

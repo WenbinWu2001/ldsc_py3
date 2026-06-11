@@ -94,7 +94,7 @@ def _write_chromosome_aligned_parquet(
 REGRESSION_LD_SCORE_COLUMN = "regression_ld_scores"
 DEFAULT_COUNT_CONFIG = {
     "common_reference_snp_maf_min": 0.05,
-    "common_reference_snp_maf_operator": ">",
+    "common_reference_snp_maf_operator": ">=",
 }
 # Single partitioned-h2 schema for both regimes. The functional regime fills it
 # with one row per baseline category; the cell-type regime fills it with one row
@@ -354,7 +354,7 @@ class LDScoreDirectoryWriter:
                     else float(overlap.total_common_reference_snps)
                 ),
                 "common_maf_min": float(count_config.get("common_reference_snp_maf_min", 0.05)),
-                "common_maf_operator": ">",
+                "common_maf_operator": ">=",
                 "stored_block": "baseline_rows_plus_query_diagonal",
             }
         return {

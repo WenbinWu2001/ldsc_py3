@@ -19,3 +19,20 @@
   field-by-field reconstruction so future fields carry over automatically. An
   end-to-end test (write to disk + assert the returned result) caught what every
   unit test missed.
+
+## MAF `>` carried an implicit monomorphic-SNP guard in the PLINK reader
+- **Summary:** Flipping the genotype MAF filter from strict `>` to inclusive
+  `>=` (threshold-boundary harmonization) silently broke monomorphic-SNP
+  exclusion and changed golden LD outputs.
+- **Root cause:** `plink_bed.py` used `np.minimum(f, 1 - f) > mafMin` with the
+  default `mafMin=0`. The strict `> 0` did double duty: it applied the user MAF
+  floor *and* dropped monomorphic (folded MAF == 0, zero-variance) SNPs. Pure
+  `>= 0` keeps those invariant SNPs, so polymorphic count `m` and the normalized
+  genotype matrix changed (golden `m`: 4 → 6).
+- **Correction:** Separate the two concerns — keep `maf > 0` as an explicit
+  monomorphic guard and apply the user floor inclusively: `maf > 0 and
+  maf >= mafMin`. Other MAF sites did not need this (their thresholds are
+  skipped when unset, or default to 0.05 which is always > 0).
+- **Takeaway:** Before flipping a comparison operator, check whether the
+  boundary value (here, 0) encodes a second invariant beyond the nominal
+  threshold.

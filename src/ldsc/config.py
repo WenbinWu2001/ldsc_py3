@@ -515,9 +515,10 @@ class LDScoreConfig:
         ``128``.
     common_maf_min : float, optional
         Inclusive MAF threshold used only for common-SNP count vectors
-        (``MAF >= common_maf_min``). It does not change retained reference
-        SNPs, LD-score rows, LD scores, or persisted regression-universe LD
-        scores. Default is ``0.05``.
+        (``MAF >= common_maf_min``; deviates from legacy LDSC's strict
+        ``0.05 < FRQ < 0.95``). It does not change retained reference SNPs,
+        LD-score rows, LD scores, or persisted regression-universe LD scores.
+        Default is ``0.05``.
     whole_chromosome_ok : bool, optional
         Override the guard that rejects windows effectively spanning an entire
         chromosome. Default is ``False``.
@@ -971,11 +972,13 @@ class RegressionConfig:
         multi-trait rg runs, scalar values are broadcast to every pair.
         Defaults are ``None``.
     two_step_cutoff : float or None, optional
-        Threshold for the two-step estimator used by the regression kernel.
-        Default is ``None``.
+        Inclusive chi-square cutoff for the two-step estimator's step-1 SNP set
+        (``chi^2 <= cutoff`` is retained; deviates from legacy LDSC's strict
+        ``chi^2 < cutoff``). Default is ``None``.
     chisq_max : float or None, optional
-        Maximum allowed chi-square statistic before a row is filtered. Default is
-        ``None``.
+        Inclusive maximum chi-square retained for regression fitting
+        (``chi^2 <= chisq_max``; deviates from legacy LDSC's strict
+        ``chi^2 < chisq_max``). Default is ``None``.
     samp_prev, pop_prev : float, list of float, or None, optional
         Liability-scale prevalence inputs. Defaults are ``None``.
     allow_identity_downgrade : bool, optional

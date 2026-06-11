@@ -48,7 +48,7 @@ form (`row_annotation`, `col_annotation`, `overlap_all_snps`,
 self-overlap are stored — enough to reconstruct every baseline-plus-one-query
 model overlap matrix without keeping the full annotation matrix. `partitioned-h2`
 requires this file; `h2` and `rg` ignore it. The common-SNP universe uses
-`MAF > common_maf_min` (strict), matching the `.M_5_50`-style common counts.
+`MAF >= common_maf_min` (inclusive), matching the `.M_5_50`-style common counts.
 
 All paths inside the metadata are relative to `ldscore_dir`.
 

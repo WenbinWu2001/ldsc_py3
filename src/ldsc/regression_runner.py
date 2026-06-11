@@ -604,7 +604,7 @@ class RegressionRunner:
         x = np.asarray(merged[dataset.retained_ld_columns])
         chisq = np.asarray(merged["Z"] ** 2).reshape((n_snp, 1))
         if config.chisq_max is not None:
-            keep = np.ravel(chisq < config.chisq_max)
+            keep = np.ravel(chisq <= config.chisq_max)
             merged = merged.loc[keep].reset_index(drop=True)
             n_snp = len(merged)
             n_blocks = min(n_snp, config.n_blocks)

@@ -314,7 +314,10 @@ if ba is not None:
                 n_nomiss = n_eff - a + c
                 f = major_ct / (2 * n_nomiss) if n_nomiss > 0 else 0
                 het_miss_ct = a + b - 2 * c
-                if np.minimum(f, 1 - f) > mafMin and het_miss_ct < n_eff:
+                maf = np.minimum(f, 1 - f)
+                # Drop monomorphic SNPs (folded MAF == 0; zero variance) always;
+                # apply the user MAF floor inclusively (MAF >= mafMin).
+                if maf > 0 and maf >= mafMin and het_miss_ct < n_eff:
                     freq.append(f)
                     if not self._streaming:
                         y += z

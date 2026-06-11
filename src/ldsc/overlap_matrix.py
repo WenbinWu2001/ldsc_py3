@@ -189,3 +189,30 @@ def assemble_model_overlap(
             else:  # both query -> only the diagonal ca == cb is reachable per model
                 out[a, b] = float(qdiag.at[ca])
     return out
+
+
+def model_collinearity_warning(X, columns, overlap_matrix, threshold: float = 1e5) -> str | None:
+    """Return a warning when the LD-score design matrix is near-collinear.
+
+    Uses the legacy condition-number threshold on the design matrix itself, and
+    names the most correlated annotation pair (from the overlap Gram matrix) as
+    the likely culprit. Returns ``None`` when well conditioned or under-sized.
+    """
+    X = np.asarray(X, dtype=np.float64)
+    if X.shape[1] < 2:
+        return None
+    # cond(X) = sqrt(cond(XᵀX)); the Gram matrix is small (k×k), so this avoids an
+    # SVD of the tall design matrix per fitted model.
+    condition_number = float(np.sqrt(np.linalg.cond(X.T @ X)))
+    if condition_number <= threshold:
+        return None
+    O = np.asarray(overlap_matrix, dtype=np.float64)
+    scale = np.sqrt(np.clip(np.diag(O), 1e-300, None))
+    corr = O / np.outer(scale, scale)
+    np.fill_diagonal(corr, 0.0)
+    i, j = np.unravel_index(int(np.argmax(np.abs(corr))), corr.shape)
+    return (
+        f"LD-score design matrix is nearly collinear (condition number {int(condition_number)} > "
+        f"{int(threshold)}); annotations '{columns[i]}' and '{columns[j]}' overlap almost entirely "
+        f"(r={corr[i, j]:.3f}). Consider dropping one of them or coarsening the annotation."
+    )

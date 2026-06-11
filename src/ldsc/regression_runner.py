@@ -619,6 +619,7 @@ class RegressionRunner:
         if two_step is None and intercept is None and len(dataset.retained_ld_columns) == 1:
             two_step = 30
         old_weights = len(dataset.retained_ld_columns) > 1
+        _warn_model_collinearity(dataset, x)
         return reg.Hsq(
             chisq,
             x,
@@ -1578,6 +1579,27 @@ def _log_partitioned_h2_regime(ldscore_result: LDScoreResult, has_queries: bool)
             "i.e. significantly larger or smaller.",
             len(ldscore_result.baseline_columns),
         )
+
+
+_SEEN_COLLINEARITY_WARNINGS: set[str] = set()
+
+
+def _warn_model_collinearity(dataset: RegressionDataset, x: np.ndarray) -> None:
+    """Emit a de-duplicated collinearity warning for the fitted LD-score model."""
+    overlap = getattr(dataset, "ldscore_overlap", None)
+    if overlap is None or len(dataset.retained_ld_columns) < 2:
+        return
+    from .overlap_matrix import assemble_model_overlap, model_collinearity_warning
+
+    use_common = dataset.count_key_used_for_regression == COMMON_COUNT_KEY
+    try:
+        model_overlap = assemble_model_overlap(overlap, list(dataset.retained_ld_columns), use_common)
+    except (ValueError, KeyError):
+        return
+    warning = model_collinearity_warning(x, list(dataset.retained_ld_columns), model_overlap)
+    if warning and warning not in _SEEN_COLLINEARITY_WARNINGS:
+        _SEEN_COLLINEARITY_WARNINGS.add(warning)
+        LOGGER.warning(warning)
 
 
 def _sort_partitioned_h2_summary(summary: pd.DataFrame, sort_by: str = "category") -> pd.DataFrame:

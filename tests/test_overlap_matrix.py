@@ -59,3 +59,31 @@ def test_sum_overlap_contributions_drops_common_if_any_chrom_lacks_it():
     b = OverlapContribution(np.ones((1, 1)), None, np.array([1.0]), None, 2, None)
     total = sum_overlap_contributions([a, b])
     assert total.baseline_block_common is None and total.n_common is None
+
+
+def test_overlap_long_frame_round_trip():
+    from ldsc._kernel.overlap import OverlapContribution
+    from ldsc.overlap_matrix import (
+        LDScoreOverlap, overlap_to_long_frame, overlap_from_long_frame,
+    )
+    contribution = OverlapContribution(
+        baseline_block_all=np.array([[10.0, 4.0, 3.0]]),       # base x [base, q, cont]
+        baseline_block_common=np.array([[8.0, 3.0, 2.0]]),
+        query_diagonal_all=np.array([6.0, 9.0]),                # q, cont
+        query_diagonal_common=np.array([5.0, 7.0]),
+        n_all=10, n_common=8,
+    )
+    overlap = LDScoreOverlap.from_contribution(
+        contribution, baseline_columns=["base"], query_columns=["q", "cont"]
+    )
+    frame = overlap_to_long_frame(overlap)
+    assert set(frame.columns) == {"row_annotation", "col_annotation", "overlap_all_snps", "overlap_common_snps"}
+    restored = overlap_from_long_frame(
+        frame, baseline_columns=["base"], query_columns=["q", "cont"],
+        total_all_reference_snps=10.0, total_common_reference_snps=8.0,
+    )
+    pd.testing.assert_frame_equal(restored.baseline_block_all, overlap.baseline_block_all)
+    pd.testing.assert_frame_equal(restored.baseline_block_common, overlap.baseline_block_common)
+    pd.testing.assert_series_equal(restored.query_diagonal_all, overlap.query_diagonal_all)
+    pd.testing.assert_series_equal(restored.query_diagonal_common, overlap.query_diagonal_common)
+    assert restored.total_common_reference_snps == 8.0

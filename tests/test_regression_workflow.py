@@ -1364,17 +1364,6 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertEqual(result.rg_full.loc[1, "status"], "ok")
         self.assertEqual(result.rg.loc[1, "rg"], 1.5)
 
-    def test_rg_multiple_testing_ignores_nan_p_values(self):
-        rg = pd.DataFrame({"p": [0.03, np.nan, 0.01, 0.02]})
-        rg_full = pd.DataFrame({"p": [0.03, np.nan, 0.01, 0.02]})
-
-        regression_runner._apply_rg_multiple_testing(rg, rg_full)
-
-        np.testing.assert_allclose(rg["p_fdr_bh"].iloc[[0, 2, 3]], [0.03, 0.03, 0.03])
-        self.assertTrue(np.isnan(rg.loc[1, "p_fdr_bh"]))
-        np.testing.assert_allclose(rg_full["p_bonferroni"].iloc[[0, 2, 3]], [0.09, 0.03, 0.06])
-        self.assertTrue(np.isnan(rg_full.loc[1, "p_bonferroni"]))
-
     def test_build_dataset_raises_on_mismatched_sumstats_and_ldscore_snapshots(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"), RegressionConfig())
         sumstats = replace(
@@ -2088,8 +2077,8 @@ class RegressionWorkflowTest(unittest.TestCase):
                 sumstats_sources.append(str(source))
             ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
             expected = regression_runner.RgResultFamily(
-                rg=pd.DataFrame([{"trait_1": "a", "trait_2": "b", "n_snps_used": 1, "rg": 0.1, "rg_se": 0.01, "p": 0.02, "p_fdr_bh": 0.02, "note": ""}]),
-                rg_full=pd.DataFrame([{"trait_1": "a", "trait_2": "b", "n_snps_used": 1, "rg": 0.1, "rg_se": 0.01, "z": 10.0, "p": 0.02, "p_fdr_bh": 0.02, "p_bonferroni": 0.02, "status": "ok", "error": ""}]),
+                rg=pd.DataFrame([{"trait_1": "a", "trait_2": "b", "n_snps_used": 1, "rg": 0.1, "rg_se": 0.01, "p": 0.02, "note": ""}]),
+                rg_full=pd.DataFrame([{"trait_1": "a", "trait_2": "b", "n_snps_used": 1, "rg": 0.1, "rg_se": 0.01, "z": 10.0, "p": 0.02, "status": "ok", "error": ""}]),
                 h2_per_trait=pd.DataFrame([{"trait_name": "a"}, {"trait_name": "b"}]),
                 per_pair_metadata=[],
             )
@@ -2228,7 +2217,6 @@ class RegressionWorkflowTest(unittest.TestCase):
                             "rg": np.nan,
                             "rg_se": np.nan,
                             "p": np.nan,
-                            "p_fdr_bh": np.nan,
                             "note": "Failed",
                         }
                     ]
@@ -2251,7 +2239,7 @@ class RegressionWorkflowTest(unittest.TestCase):
 
         self.assertIs(result, expected)
         text = stdout.getvalue()
-        self.assertIn("trait_1\ttrait_2\tn_snps_used\trg\trg_se\tp\tp_fdr_bh\tnote", text)
+        self.assertIn("trait_1\ttrait_2\tn_snps_used\trg\trg_se\tp\tnote", text)
         self.assertIn("NaN", text)
 
     def test_cli_does_not_print_rg_table_when_output_dir_is_supplied(self):

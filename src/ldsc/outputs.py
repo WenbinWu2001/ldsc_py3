@@ -120,7 +120,6 @@ RG_CONCISE_COLUMNS = [
     "rg",
     "rg_se",
     "p",
-    "p_fdr_bh",
     "note",
 ]
 RG_FULL_COLUMNS = [
@@ -131,8 +130,6 @@ RG_FULL_COLUMNS = [
     "rg_se",
     "z",
     "p",
-    "p_fdr_bh",
-    "p_bonferroni",
     "h2_1",
     "h2_1_se",
     "h2_2",

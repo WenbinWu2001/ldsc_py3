@@ -209,8 +209,8 @@ class RgResultFamily:
     ----------
     rg : pandas.DataFrame
         Concise one-row-per-pair table with the publication-oriented rg schema:
-        trait names, SNP count, :math:`r_g`, standard error, p-value,
-        BH-adjusted p-value, and a failure note.
+        trait names, SNP count, :math:`r_g`, standard error, nominal p-value,
+        and a failure note.
     rg_full : pandas.DataFrame
         Comprehensive diagnostic table with one row per attempted pair. Failed
         pairs keep their row, set numeric fields to NaN, and store
@@ -899,7 +899,6 @@ class RegressionRunner:
 
         rg_full = pd.DataFrame(rg_full_rows, columns=RG_FULL_COLUMNS)
         rg = pd.DataFrame(rg_rows, columns=RG_CONCISE_COLUMNS)
-        _apply_rg_multiple_testing(rg, rg_full)
         return RgResultFamily(rg=rg, rg_full=rg_full, h2_per_trait=h2_per_trait, per_pair_metadata=per_pair_metadata)
 
 
@@ -1263,8 +1262,6 @@ def _summarize_rg_pair(
         "rg_se": _required_numeric_scalar(getattr(rg_result, "rg_se", None), "rg_se"),
         "z": _required_numeric_scalar(getattr(rg_result, "z", None), "z"),
         "p": _required_numeric_scalar(getattr(rg_result, "p", None), "p"),
-        "p_fdr_bh": math.nan,
-        "p_bonferroni": math.nan,
         "h2_1": _numeric_attr(getattr(rg_result, "hsq1", None), "tot", "h2_1"),
         "h2_1_se": _numeric_attr(getattr(rg_result, "hsq1", None), "tot_se", "h2_1_se"),
         "h2_2": _numeric_attr(getattr(rg_result, "hsq2", None), "tot", "h2_2"),
@@ -1321,50 +1318,8 @@ def _concise_rg_row(full_row: dict[str, object]) -> dict[str, object]:
         "rg": full_row["rg"],
         "rg_se": full_row["rg_se"],
         "p": full_row["p"],
-        "p_fdr_bh": full_row["p_fdr_bh"],
         "note": "" if status == "ok" else FAILED_RG_NOTE,
     }
-
-
-def _apply_rg_multiple_testing(rg: pd.DataFrame, rg_full: pd.DataFrame) -> None:
-    """Apply local BH-FDR and Bonferroni adjustments, ignoring NaN p-values."""
-    p_values = pd.to_numeric(rg_full.get("p", pd.Series(dtype=float)), errors="coerce").to_numpy(dtype=float)
-    fdr = _benjamini_hochberg(p_values)
-    bonferroni = _bonferroni(p_values)
-    for frame in (rg, rg_full):
-        if "p_fdr_bh" not in frame.columns:
-            frame["p_fdr_bh"] = math.nan
-        frame.loc[:, "p_fdr_bh"] = fdr
-    if "p_bonferroni" not in rg_full.columns:
-        rg_full["p_bonferroni"] = math.nan
-    rg_full.loc[:, "p_bonferroni"] = bonferroni
-
-
-def _benjamini_hochberg(p_values: np.ndarray) -> np.ndarray:
-    """Return BH-adjusted p-values with NaNs preserved."""
-    p = np.asarray(p_values, dtype=np.float64)
-    adjusted = np.full(p.shape, math.nan, dtype=np.float64)
-    finite = np.isfinite(p)
-    if not finite.any():
-        return adjusted
-    finite_indices = np.flatnonzero(finite)
-    finite_p = p[finite]
-    order = np.argsort(finite_p)
-    ranked = finite_p[order] * len(finite_p) / np.arange(1, len(finite_p) + 1, dtype=np.float64)
-    ranked = np.minimum.accumulate(ranked[::-1])[::-1]
-    adjusted[finite_indices[order]] = np.clip(ranked, 0.0, 1.0)
-    return adjusted
-
-
-def _bonferroni(p_values: np.ndarray) -> np.ndarray:
-    """Return Bonferroni-adjusted p-values with NaNs preserved."""
-    p = np.asarray(p_values, dtype=np.float64)
-    adjusted = np.full(p.shape, math.nan, dtype=np.float64)
-    finite = np.isfinite(p)
-    if not finite.any():
-        return adjusted
-    adjusted[finite] = np.clip(p[finite] * int(finite.sum()), 0.0, 1.0)
-    return adjusted
 
 
 def _h2_metadata(args, sumstats_table: SumstatsTable, dataset: RegressionDataset) -> dict[str, object]:

@@ -17,7 +17,7 @@ through `--sumstats-1-file` / `--sumstats-2-file` and writes a one-row
 `rg.tsv`. Geneticists who want pairwise genetic correlations across a panel
 of N traits have to drive `ldsc rg` from a shell loop and concatenate
 per-pair outputs. That workflow is error-prone (allele alignment varies
-per pair, file naming conflicts, no consistent multiple-testing column),
+per pair, file naming conflicts, no consistent aggregate output schema),
 and the resulting tables omit the heritability and intercept context that
 non-statistical users need to interpret rg.
 
@@ -28,7 +28,7 @@ allele harmonization + zero-variance drop pipeline. That uniformity is
 what makes the unified multi-trait command straightforward: the workflow
 iterates trait pairs through the existing `estimate_rg`, with the
 orchestration layer handling source resolution, anchor mode,
-multiple-testing adjustment, and output aggregation.
+and output aggregation.
 
 The deliverable is a refactored `ldsc rg` that accepts N≥2 summary
 statistics, computes either all C(N,2) pairs or anchor-vs-rest, and
@@ -49,7 +49,7 @@ Only the workflow and output layers grow.
 | Per-pair SNP support | Per-pair intersection (each pair's `RGRegressionDataset` is built on its own trait_1 ∩ trait_2 ∩ LD-ref SNP set). Matches single-pair `ldsc rg` semantics. |
 | Compute strategy | Pure pairwise loop. `estimate_rg_pairs` builds one `RGRegressionDataset` per pair, then fits it through the same private helper used by public `estimate_rg`. No factor-out of `build_rg_dataset`, no merge caching layer. The 3.5× implementation surface and ~1 GB extra cache memory of a merge-cache design were not justified by the ~10% wall-time savings at N<10. Rejected pending real-workload profiling at N≥20. |
 | Intercept controls | `--intercept-h2 <FLOAT>` is a single scalar broadcast across all traits; `--intercept-gencov <FLOAT>` is a single scalar broadcast across all pairs. `--no-intercept` constrains h2 to 1 and gencov to 0, and is rejected if combined with either fixed-intercept flag. The pre-refactor `nargs=2` form is removed; the `RegressionConfig.intercept_h2` field becomes `float | None` (the `list[float]` branch is dropped). |
-| Output dual-table | `rg.tsv` is the concise, publication-ready 8-column table; `rg_full.tsv` is the 32-column diagnostic. Mirrors `partitioned_h2.tsv` / `partitioned_h2_full.tsv`. |
+| Output dual-table | `rg.tsv` is the concise, publication-ready 7-column table; `rg_full.tsv` is the 30-column diagnostic. Mirrors `partitioned_h2.tsv` / `partitioned_h2_full.tsv`. |
 | Per-pair detail | Opt-in `--write-per-pair-detail`. Requires `--output-dir`; reject otherwise because the flag explicitly requests filesystem artifacts. Writes optional diagnostic directories at `diagnostics/pairs/{idx:04d}_{safe_trait_a}_vs_{safe_trait_b}/{rg_full.tsv, metadata.json}`. The root tables are complete without this tree. |
 | Per-trait h2 | Always emit `h2_per_trait.tsv` from `summarize_total_h2`. Fit on each trait's full LD-ref intersection (matches `ldsc h2`); independent of the per-pair Hsq inside `RG`. |
 | Self-pairs | Skipped. |
@@ -57,7 +57,7 @@ Only the workflow and output layers grow.
 | Trait-name UX TODO | Keep filename-derived names for v1. Future design should propagate scientific trait labels from sumstats munging metadata or a manifest-style input; `--anchor-trait-file` naming is kept for now and can be revisited with that broader trait-label design. |
 | Per-pair failure | Caught in `estimate_rg_pairs` with `except Exception`; `BaseException` subclasses such as `KeyboardInterrupt` and `SystemExit` still stop the process. Emits a NaN row with `n_snps_used=0`, `status="failed"`, an `error` message formatted as `<ExceptionClass>: <message>` in `rg_full.tsv`, a concise `note` in `rg.tsv`, logs WARNING with traceback, and pair iteration continues. |
 | Whole-trait failure | Hard-fail at trait load / per-trait h2 fitting time. Traits that cannot be analyzed are not silently dropped. |
-| Multiple-testing columns | `p_fdr_bh` (Benjamini-Hochberg over finite p-values only) in both tables; `p_bonferroni = min(1.0, p * n_valid_pairs)` only in `rg_full.tsv`. Failed/NaN rows stay NaN in adjusted columns. |
+| P-value policy | Report only the nominal two-sided p-value from each rg fit. Downstream users choose any correction method appropriate for their analysis. |
 | Result object | `RgResultFamily` has explicit fields: `rg`, `rg_full`, `h2_per_trait`, and `per_pair_metadata`. Python callers should not have to slice one ambiguous full table to recover the public output family. |
 | Stdout boundary | `run_rg_from_args` returns `RgResultFamily` and does not print. `cli.py` prints `result.rg` to stdout only for CLI invocations without `--output-dir`. |
 | Missing-value rendering | All TSV and stdout table writes use `na_rep="NaN"` so failed or unavailable numeric values are visible and round-trip through pandas/R readers. |
@@ -150,7 +150,7 @@ tree, so the workflow rejects that argument combination before loading inputs.
   is handled by `src/ldsc/cli.py`. `diagnostics/rg.log` remains owned by the workflow
   logging context rather than the writer.
 - **`RgResultFamily`** (new dataclass; mirrors `PartitionedH2BatchResult` at
-  `regression_runner.py:145-157`). Fields: `rg` (the concise 8-column
+  `regression_runner.py:145-157`). Fields: `rg` (the concise 7-column
   table), `rg_full` (the full diagnostic table), `h2_per_trait` (one row per
   input trait), and `per_pair_metadata` (ordered records for the optional
   `diagnostics/pairs/` tree).
@@ -255,8 +255,8 @@ When `--output-dir` is supplied:
 
 ```
 <output-dir>/
-  rg.tsv             # concise, publication-ready (8 cols)
-  rg_full.tsv        # comprehensive diagnostic (32 cols)
+  rg.tsv             # concise, publication-ready (7 cols)
+  rg_full.tsv        # comprehensive diagnostic (30 cols)
   h2_per_trait.tsv   # one row per input trait
   diagnostics/
     metadata.json    # provenance only
@@ -291,7 +291,7 @@ All table writes, including stdout, render missing values with literal `NaN`
 
 ## `rg.tsv` Schema (Concise, Publication-Ready)
 
-8 columns, one row per pair:
+7 columns, one row per pair:
 
 | Column | Meaning |
 |---|---|
@@ -301,23 +301,22 @@ All table writes, including stdout, render missing values with literal `NaN`
 | `rg` | Genetic correlation point estimate. |
 | `rg_se` | Block-jackknife SE of `rg`. |
 | `p` | Two-sided normal p-value from `rg / rg_se`. |
-| `p_fdr_bh` | Benjamini–Hochberg adjusted p-value over the rows of this file. |
 | `note` | Empty for successful pairs; for failed pairs, a short pointer such as `Failed; see rg_full.tsv error column; use --output-dir for diagnostics/rg.log`. |
 
 This file is what users will paste into manuscripts. It mirrors what most
 genetic-correlation papers report verbatim (e.g. "rg = 0.68, SE = 0.04,
-P_FDR = 4.4e-9").
+P = 4.4e-9").
 
 ---
 
 ## `rg_full.tsv` Schema (Comprehensive Diagnostic)
 
-32 columns, one row per pair, in this order:
+30 columns, one row per pair, in this order:
 
 | Group | Columns |
 |---|---|
 | Identifiers + size | `trait_1`, `trait_2`, `n_snps_used` |
-| Headline rg | `rg`, `rg_se`, `z`, `p`, `p_fdr_bh`, `p_bonferroni` |
+| Headline rg | `rg`, `rg_se`, `z`, `p` |
 | Per-pair h2 | `h2_1`, `h2_1_se`, `h2_2`, `h2_2_se` |
 | Genetic covariance | `gencov`, `gencov_se` |
 | Intercepts | `intercept_h2_1`, `intercept_h2_1_se`, `intercept_h2_2`, `intercept_h2_2_se`, `intercept_gencov`, `intercept_gencov_se` |
@@ -327,14 +326,8 @@ P_FDR = 4.4e-9").
 | Failure status | `status` ∈ {`ok`, `failed`}, `error` |
 
 Notes:
-- `p_bonferroni = min(1.0, p * n_valid_pairs)` where
-  `n_valid_pairs` is the number of finite p-values being adjusted.
-- `p_fdr_bh` is identical to the value in `rg.tsv` for the same row.
-- Benjamini-Hochberg is implemented locally with NumPy. Sort finite p-values
-  ascending, compute `p_sorted * m / rank`, apply reverse cumulative minima
-  to enforce monotonic adjusted values, clip to `[0, 1]`, and scatter back to
-  original row order. NaN or non-finite p-values are ignored during adjustment
-  and remain NaN in both adjusted-p columns.
+- `p` is the nominal two-sided p-value from each rg fit. No corrected
+  p-value columns are emitted.
 - `h2_1` / `h2_2` here are fit on the **per-pair intersection** (so they
   match the Hsq used inside `reg.RG`). They will differ from the
   corresponding rows in `h2_per_trait.tsv`, which are fit on the full
@@ -483,11 +476,9 @@ who open the per-pair directory are already in diagnostic mode.
 8c. Kernel `NA` values → failed NaN row; numeric out-of-range rg values are
     preserved.
 9. `h2_per_trait.tsv` matches running `ldsc h2` separately on each input.
-10. Multiple-testing columns: local NumPy Benjamini-Hochberg implementation
-   matches hand-computed expected values, ignores NaN/non-finite p-values,
-   leaves adjusted values as NaN for failed pairs, and keeps `p_fdr_bh`
-   identical between `rg.tsv` and `rg_full.tsv` for the same row.
-11. Concise vs full schema parity: the eight concise columns in `rg.tsv`
+10. P-value policy: only the nominal `p` column is emitted in `rg.tsv`,
+   `rg_full.tsv`, and optional per-pair detail tables.
+11. Concise vs full schema parity: the seven concise columns in `rg.tsv`
     are byte-identical to the same columns sliced from `rg_full.tsv`.
 12. `RgDirectoryWriter` + per-pair detail tree (staged-then-`os.replace`;
     no partial subtree on forced failure).

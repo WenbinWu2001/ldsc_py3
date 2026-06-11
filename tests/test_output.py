@@ -24,6 +24,8 @@ from ldsc.outputs import (
     LDScoreDirectoryWriter,
     LDScoreOutputConfig,
     PARTITIONED_H2_COLUMNS,
+    RG_CONCISE_COLUMNS,
+    RG_FULL_COLUMNS,
     PartitionedH2DirectoryWriter,
     PartitionedH2OutputConfig,
     RgDirectoryWriter,
@@ -776,7 +778,6 @@ class RgDirectoryWriterTest(unittest.TestCase):
                     "rg": 0.25,
                     "rg_se": 0.05,
                     "p": 0.01,
-                    "p_fdr_bh": 0.02,
                     "note": "",
                 },
                 {
@@ -786,7 +787,6 @@ class RgDirectoryWriterTest(unittest.TestCase):
                     "rg": float("nan"),
                     "rg_se": float("nan"),
                     "p": float("nan"),
-                    "p_fdr_bh": float("nan"),
                     "note": "Failed; see rg_full.tsv error column.",
                 },
             ]
@@ -801,8 +801,6 @@ class RgDirectoryWriterTest(unittest.TestCase):
                     "rg_se": 0.05,
                     "z": 5.0,
                     "p": 0.01,
-                    "p_fdr_bh": 0.02,
-                    "p_bonferroni": 0.02,
                     "h2_1": 0.2,
                     "h2_1_se": 0.02,
                     "h2_2": 0.3,
@@ -835,8 +833,6 @@ class RgDirectoryWriterTest(unittest.TestCase):
                     "rg_se": float("nan"),
                     "z": float("nan"),
                     "p": float("nan"),
-                    "p_fdr_bh": float("nan"),
-                    "p_bonferroni": float("nan"),
                     "h2_1": float("nan"),
                     "h2_1_se": float("nan"),
                     "h2_2": float("nan"),
@@ -903,7 +899,10 @@ class RgDirectoryWriterTest(unittest.TestCase):
             )
             rg_text = (output_dir / "rg.tsv").read_text(encoding="utf-8")
             self.assertIn("NaN", rg_text)
-            self.assertTrue((output_dir / "rg_full.tsv").exists())
+            rg_full_path = output_dir / "rg_full.tsv"
+            self.assertTrue(rg_full_path.exists())
+            self.assertEqual(pd.read_csv(output_dir / "rg.tsv", sep="\t").columns.tolist(), RG_CONCISE_COLUMNS)
+            self.assertEqual(pd.read_csv(rg_full_path, sep="\t").columns.tolist(), RG_FULL_COLUMNS)
             self.assertTrue((output_dir / "h2_per_trait.tsv").exists())
             self.assertFalse((output_dir / "metadata.json").exists())
             self.assertFalse((output_dir / "pairs").exists())
@@ -922,7 +921,9 @@ class RgDirectoryWriterTest(unittest.TestCase):
             self.assertEqual(metadata["artifact_type"], "rg_pair_result")
             self.assertEqual(metadata["files"], {"rg_full": "diagnostics/pairs/0001_trait_a_vs_trait_b/rg_full.tsv"})
             self.assertEqual(metadata["status"], "ok")
-            self.assertTrue((output_dir / "diagnostics" / "pairs" / "0001_trait_a_vs_trait_b" / "rg_full.tsv").exists())
+            pair_full_path = output_dir / "diagnostics" / "pairs" / "0001_trait_a_vs_trait_b" / "rg_full.tsv"
+            self.assertTrue(pair_full_path.exists())
+            self.assertEqual(pd.read_csv(pair_full_path, sep="\t").columns.tolist(), RG_FULL_COLUMNS)
 
     def test_aggregate_only_overwrite_removes_stale_pair_tree(self):
         with tempfile.TemporaryDirectory() as tmpdir:

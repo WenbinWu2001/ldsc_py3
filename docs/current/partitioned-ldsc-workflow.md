@@ -196,7 +196,7 @@ Root `metadata.json` also records the threshold used to compute common counts:
 {
   "count_config": {
     "common_reference_snp_maf_min": 0.05,
-    "common_reference_snp_maf_operator": ">="
+    "common_reference_snp_maf_operator": ">"
   }
 }
 ```
@@ -261,7 +261,7 @@ owned output family. Without `--overwrite`, any
 existing owned sibling rejects the run. With `--overwrite`, a successful
 aggregate-only run removes a stale `diagnostics/query_annotations/` tree from a
 previous per-query configuration. If `--output-dir` is omitted, the CLI prints
-the compact `partitioned_h2.tsv` schema to stdout and writes no diagnostics.
+the `partitioned_h2.tsv` schema to stdout and writes no diagnostics.
 
 ## 7. CLI Examples
 

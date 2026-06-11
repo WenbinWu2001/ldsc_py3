@@ -310,11 +310,12 @@ flowchart LR
 ## 4. `ldscore`: Reference Panel And Optional Annotations To LDSC Artifacts
 
 The canonical LD-score workflow preflights root `metadata.json`,
-`ldscore.baseline.parquet`, `ldscore.query.parquet`, and `diagnostics/ldscore.log` as one
-owned family before writing any of them. Use `--overwrite` or
-`LDScoreOutputConfig(overwrite=True)` only for intentional reruns. With
-overwrite enabled, a successful baseline-only run removes stale
-`ldscore.query.parquet`.
+`ldscore.baseline.parquet`, `ldscore.query.parquet`, `ldscore.overlap.parquet`,
+and `diagnostics/ldscore.log` as one owned family before writing any of them. Use
+`--overwrite` or `LDScoreOutputConfig(overwrite=True)` only for intentional
+reruns. With overwrite enabled, a successful baseline-only run removes stale
+`ldscore.query.parquet`. `ldscore.overlap.parquet` carries the annotation overlap
+matrix consumed by `partitioned-h2`.
 The parquet payloads remain single flat files, but each row group contains rows
 from exactly one chromosome. Root `metadata.json` records the row-group layout and
 per-chromosome offsets so readers can load one chromosome without scanning the
@@ -378,6 +379,7 @@ flowchart LR
 | --- | --- | --- |
 | baseline LD-score table | `CHR POS SNP regression_ld_scores base`<br/>`1 10 rs1 1.7 1.2` | `ldscore.baseline.parquet` inside `output_dir`; `regression_ld_scores` is historical `w_ld`, not the final h2/rg regression weight; one row group per chromosome |
 | query LD-score table | `CHR POS SNP enhancer_A`<br/>`1 10 rs1 0.4` | `ldscore.query.parquet` inside `output_dir`; one row group per chromosome; omitted when no query annotations exist |
+| annotation overlap matrix | `row_annotation col_annotation overlap_all_snps overlap_common_snps`<br/>`base enhancer_A 9000 7500` | `ldscore.overlap.parquet` inside `output_dir`; long-form `AᵀA` baseline-rows block + query self-overlaps; consumed by `partitioned-h2` |
 | metadata | JSON metadata with files, columns, counts, chromosomes, config, row counts, and row-group metadata | `metadata.json` inside `output_dir`; consumed by downstream regression |
 | workflow log | plain-text lifecycle and package records | `diagnostics/ldscore.log` inside `output_dir`; not included in `LDScoreResult.output_paths` |
 
@@ -555,8 +557,10 @@ Regression summary commands write fixed result artifacts when `output_dir` is
 supplied. `h2` writes root `h2.tsv` plus diagnostics; `partitioned-h2` writes
 root `partitioned_h2.tsv` plus diagnostics; `rg` writes root `rg.tsv`,
 `rg_full.tsv`, `h2_per_trait.tsv`, and optional diagnostics under
-`diagnostics/pairs/`. Existing owned TSVs, optional trees, or logs raise before
-the new table is written unless the command includes `--overwrite`. For
+`diagnostics/pairs/`. RG result tables report nominal p-values only; corrected
+p-value columns are left to downstream analysis. Existing owned TSVs, optional
+trees, or logs raise before the new table is written unless the command includes
+`--overwrite`. For
 `partitioned-h2`, `partitioned_h2.tsv`, `diagnostics/query_annotations/`, and
 `diagnostics/partitioned-h2.log` are treated as one owned family;
 aggregate-only overwrites remove stale `diagnostics/query_annotations/` after
@@ -584,7 +588,7 @@ merge. rsID-family and coordinate-family modes never mix.
 | File | Example | Notes |
 | --- | --- | --- |
 | munged sumstats | `SNP CHR POS A1 A2 Z N`<br/>`rs1 1 754182 A G 1.96 1000` | one file for `h2` and `partitioned-h2`, two or more files for `rg`; the `sumstats.parquet` footer recovers config provenance and `trait_name` when present, otherwise the identifier mode is inferred from the LD-score panel |
-| LD-score directory | `metadata.json`, `ldscore.baseline.parquet`, optional `ldscore.query.parquet` | produced by the LD-score workflow and supplied as `ldscore_dir`; `partitioned-h2` requires `ldscore.query.parquet` and non-empty `query_columns`; current parquet files have chromosome-aligned row groups; package-written directories without current metadata identity provenance are rejected and must be regenerated |
+| LD-score directory | `metadata.json`, `ldscore.baseline.parquet`, optional `ldscore.query.parquet`, `ldscore.overlap.parquet` | produced by the LD-score workflow and supplied as `ldscore_dir`; `partitioned-h2` requires `ldscore.overlap.parquet` (baseline-only = functional regime, query columns = cell-type regime); current parquet files have chromosome-aligned row groups; package-written directories without current metadata identity provenance or the overlap sidecar are rejected and must be regenerated |
 
 ### Flow
 
@@ -623,7 +627,7 @@ flowchart LR
 | Subcommand | Output columns | Example |
 | --- | --- | --- |
 | `h2` | `trait_name`, `n_snps`, `total_h2`, `total_h2_se`, `intercept`, `intercept_se`, `mean_chisq`, `lambda_gc`, `ratio`, `ratio_se` | `trait 105234 0.18 0.03 1.02 0.01 1.11 1.05 0.08 0.03` |
-| `partitioned-h2` | `Category`, `Prop._SNPs`, `Prop._h2`, `Enrichment`, `Enrichment_p`, `Coefficient`, `Coefficient_p` | `enhancer_A 0.02 0.14 7.0 0.003 0.012 0.001` |
+| `partitioned-h2` | `Category`, `Prop._SNPs`, `Category_h2`, `Category_h2_std_error`, `Prop._h2`, `Prop._h2_std_error`, `Enrichment`, `Enrichment_std_error`, `Enrichment_p`, `Coefficient`, `Coefficient_std_error`, `Coefficient_z`, `Coefficient_p`, `overlap_aware` (overlap-aware; one schema for both regimes) | `enhancer_A 0.02 0.003 0.001 0.14 0.04 7.0 2.0 0.003 0.012 0.004 3.0 0.001 True` |
 | `rg` | `trait_1`, `trait_2`, `rg`, `rg_se`, `z`, `p` | `trait_a trait_b 0.42 0.09 4.7 2.6e-06` |
 
 When `output_dir` is supplied, the same directory also receives the matching

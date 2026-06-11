@@ -49,7 +49,8 @@ independent optional files:
   `diagnostics/sumstats.log`
   for CLI/workflow runs
 - `ldscore`: `metadata.json`, `ldscore.baseline.parquet`,
-  `ldscore.query.parquet`, and `diagnostics/ldscore.log` for CLI/workflow runs
+  `ldscore.query.parquet`, `ldscore.overlap.parquet`, and
+  `diagnostics/ldscore.log` for CLI/workflow runs
 - `build-ref-panel`: `{hg19,hg38}/chr*_r2.parquet`,
   `{hg19,hg38}/chr*_meta.tsv.gz`,
   `diagnostics/metadata.json`, `diagnostics/metadata.chr*.json`,
@@ -64,7 +65,8 @@ independent optional files:
   metadata, dropped-SNP audit, and `annotate.log` under `diagnostics/`
 - `rg`: `rg.tsv`, `rg_full.tsv`, `h2_per_trait.tsv`,
   `diagnostics/metadata.json`, optional `diagnostics/pairs/`, and
-  `diagnostics/rg.log` for CLI/workflow runs
+  `diagnostics/rg.log` for CLI/workflow runs; rg tables report nominal
+  p-values only and do not include package-computed corrected p-value columns
 
 Without overwrite, any existing current-contract owned sibling in the family
 rejects the run, even if that sibling is not selected by the current output
@@ -304,8 +306,8 @@ Output:
 
 - `--output-dir` is a literal directory destination.
 - LD-score calculation writes `metadata.json`, `ldscore.baseline.parquet`,
-  optional `ldscore.query.parquet`, and `diagnostics/ldscore.log` inside that
-  directory.
+  optional `ldscore.query.parquet`, `ldscore.overlap.parquet`, and
+  `diagnostics/ldscore.log` inside that directory.
 - `ldscore.baseline.parquet` and `ldscore.query.parquet` remain flat parquet files, but each
   row group contains exactly one chromosome. Root `metadata.json` records
   `row_group_layout`, `baseline_row_groups`, and `query_row_groups`.
@@ -466,11 +468,11 @@ Output:
   family is `h2.tsv`, `diagnostics/metadata.json`, and workflow-owned
   `diagnostics/h2.log`. For rg, that family is `rg.tsv`, `rg_full.tsv`,
   `h2_per_trait.tsv`, optional `diagnostics/pairs/`, and workflow-owned
-  `diagnostics/rg.log`; existing owned artifacts are refused unless
-  `--overwrite` is supplied.
+  `diagnostics/rg.log`; rg outputs carry nominal p-values only; existing owned
+  artifacts are refused unless `--overwrite` is supplied.
 - `ldsc partitioned-h2` requires the LD-score directory to include
-  `ldscore.query.parquet` and non-empty `query_columns`; baseline-only LD-score
-  directories are valid for `h2` and `rg`.
+  `ldscore.overlap.parquet`. Baseline-only directories run the functional-category
+  regime; directories with query columns run the cell-type-specific regime.
 - `ldsc partitioned-h2 --write-per-query-results` also writes a staged
   `diagnostics/query_annotations/` tree under `output_dir`. The tree contains
   `manifest.tsv` and one folder per query annotation, with per-query

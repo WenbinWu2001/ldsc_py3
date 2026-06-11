@@ -75,7 +75,8 @@ only fills missing values from the annotation side.
 `MAF` is available when present in the sidecar (package builds always write it).
 
 - `--maf-min` filtering works normally.
-- Common-SNP count vectors use `MAF >= common_maf_min` from the sidecar.
+- Common-SNP count vectors (and the common-universe overlap matrix) use strict
+  `MAF > common_maf_min` from the sidecar.
 - All-SNP count vectors are computed from retained annotation rows.
 
 ## Memory

@@ -1,8 +1,10 @@
 """Output writers for the refactored LDSC workflows.
 
 The public LD-score workflow writes one canonical result directory containing
-``metadata.json``, ``ldscore.baseline.parquet``, and optional
-``ldscore.query.parquet``. Run identity comes from the chosen directory name;
+``metadata.json``, ``ldscore.baseline.parquet``, optional
+``ldscore.query.parquet``, and ``ldscore.overlap.parquet`` (the annotation
+overlap matrix consumed by partitioned-h2). Run identity comes from the chosen
+directory name;
 output filenames inside that directory are fixed. The parquet payloads are
 written with one row group per chromosome and matching metadata so
 downstream readers can load a single chromosome without scanning the whole
@@ -15,10 +17,10 @@ metadata emitted by this module is diagnostic provenance and is written below
 ``diagnostics/`` without legacy top-level ``format`` discriminators.
 
 Partitioned-h2 regression summaries use the same directory-oriented output
-policy. ``PartitionedH2DirectoryWriter`` always writes the compact aggregate
-``partitioned_h2.tsv`` and can optionally stage a per-query
-``diagnostics/query_annotations`` tree with ``manifest.tsv``, one-row
-``partitioned_h2.tsv`` summaries, full ``partitioned_h2_full.tsv`` category
+policy. ``PartitionedH2DirectoryWriter`` writes the aggregate ``partitioned_h2.tsv``
+(one ``PARTITIONED_H2_COLUMNS`` schema for both regimes) and can optionally stage a
+per-query ``diagnostics/query_annotations`` tree with ``manifest.tsv``, one-row
+``partitioned_h2.tsv`` summaries, full ``partitioned_h2_full.tsv`` model
 tables, and ``metadata.json`` files before moving it into place. ``RgDirectoryWriter``
 uses the same whole-tree staging and replacement policy for optional
 ``diagnostics/pairs`` details.

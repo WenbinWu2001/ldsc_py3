@@ -87,3 +87,87 @@ def test_overlap_long_frame_round_trip():
     pd.testing.assert_series_equal(restored.query_diagonal_all, overlap.query_diagonal_all)
     pd.testing.assert_series_equal(restored.query_diagonal_common, overlap.query_diagonal_common)
     assert restored.total_common_reference_snps == 8.0
+
+
+def _legacy_overlap_reference(prop, prop_cov, coef, coef_cov, n_blocks, O, M, M_tot):
+    """Transcription of legacy ``Hsq._overlap_output`` math (pure-NumPy oracle)."""
+    from scipy.stats import t as tdist
+    K = O.shape[0]
+    P = np.zeros((K, K))
+    for i in range(K):
+        P[i, :] = O[i, :] / M
+    prop_h2 = (P @ prop.reshape(-1)).reshape(K)
+    prop_h2_se = np.sqrt(np.maximum(0, np.diag(P @ prop_cov @ P.T)))
+    prop_snps = (M / M_tot).reshape(K)
+    enrich = prop_h2 / prop_snps
+    enrich_se = prop_h2_se / prop_snps
+    D = np.zeros((K, K))
+    for i in range(K):
+        if M_tot != M[i]:
+            D[i, :] = O[i, :] / M[i] - (M - O[i, :]) / (M_tot - M[i])
+    diff_est = D @ coef
+    diff_se = np.sqrt(np.diag(D @ coef_cov @ D.T))
+    enr_p = [np.nan if diff_se[i] == 0 else 2 * tdist.sf(abs(diff_est[i] / diff_se[i]), n_blocks) for i in range(K)]
+    return prop_snps, prop_h2, prop_h2_se, enrich, enrich_se, enr_p
+
+
+def test_overlap_aware_category_table_matches_legacy_and_augments():
+    from types import SimpleNamespace
+    from scipy import stats
+    from ldsc.overlap_matrix import overlap_aware_category_table
+
+    names = ["base", "catA", "q"]
+    M = np.array([10.0, 4.0, 6.0])
+    M_tot = 10.0
+    # base overlaps everything fully; catA & q share 2 SNPs.
+    O = np.array([[10.0, 4.0, 6.0],
+                  [4.0, 4.0, 2.0],
+                  [6.0, 2.0, 6.0]])
+    coef = np.array([1e-7, 3e-7, 5e-7])
+    coef_cov = np.diag([1e-15, 2e-15, 3e-15])
+    prop = np.array([[0.5, 0.2, 0.3]])
+    prop_cov = np.diag([1e-3, 2e-3, 3e-3])
+    cat = M * coef
+    cat_se = np.array([1e-7, 1e-7, 1e-7])
+    hsq = SimpleNamespace(
+        n_annot=3, prop=prop, prop_cov=prop_cov, coef=coef, coef_cov=coef_cov,
+        coef_se=np.sqrt(np.diag(coef_cov)), n_blocks=200, cat=cat, cat_se=cat_se,
+    )
+    table = overlap_aware_category_table(hsq, O, M, M_tot, names)
+
+    ps, ph, phse, en, ense, enp = _legacy_overlap_reference(prop, prop_cov, coef, coef_cov, 200, O, M, M_tot)
+    np.testing.assert_allclose(table["Prop._SNPs"], ps)
+    np.testing.assert_allclose(table["Prop._h2"], ph)
+    np.testing.assert_allclose(table["Prop._h2_std_error"], phse)
+    np.testing.assert_allclose(table["Enrichment"], en)
+    np.testing.assert_allclose(table["Enrichment_std_error"], ense)
+    np.testing.assert_allclose(np.asarray(table["Enrichment_p"], float), np.asarray(enp, float))
+    assert np.isnan(float(table.loc[0, "Enrichment_p"]))  # base contains all SNPs
+    np.testing.assert_allclose(table["Coefficient_p"], stats.norm.sf(coef / np.sqrt(np.diag(coef_cov))))
+    np.testing.assert_allclose(table["Category_h2"], cat)
+    assert table["overlap_aware"].all()
+    assert "Coefficient_z" in table.columns and "Coefficient_z-score" not in table.columns
+
+
+def test_overlap_aware_hand_example_disjoint_plus_base():
+    from types import SimpleNamespace
+    from ldsc.overlap_matrix import overlap_aware_category_table
+    # base = all 6 SNPs; A = first 3; Bcat = last 3 (disjoint A,B but both overlap base)
+    names = ["base", "A", "Bcat"]
+    M = np.array([6.0, 3.0, 3.0]); M_tot = 6.0
+    O = np.array([[6.0, 3.0, 3.0],
+                  [3.0, 3.0, 0.0],
+                  [3.0, 0.0, 3.0]])
+    coef = np.array([0.0, 1.0, 2.0]); cat = M * coef
+    hsq = SimpleNamespace(
+        n_annot=3, prop=np.array([[0.0, 1 / 3, 2 / 3]]), prop_cov=np.eye(3) * 1e-6,
+        coef=coef, coef_cov=np.eye(3) * 1e-6, coef_se=np.full(3, 1e-3),
+        n_blocks=200, cat=cat, cat_se=np.full(3, 1e-3),
+    )
+    table = overlap_aware_category_table(hsq, O, M, M_tot, names).set_index("Category")
+    # h2_tot = sum M*coef = 3*1 + 3*2 = 9 ; Prop._h2[A] = (3*0 + 3*1 + 0*2)/9 = 3/9
+    assert abs(float(table.loc["A", "Prop._h2"]) - (3 / 9)) < 1e-9
+    assert abs(float(table.loc["Bcat", "Prop._h2"]) - (6 / 9)) < 1e-9
+    assert abs(float(table.loc["base", "Prop._h2"]) - 1.0) < 1e-9
+    assert abs(float(table.loc["A", "Prop._SNPs"]) - 0.5) < 1e-12
+    assert abs(float(table.loc["A", "Enrichment"]) - (3 / 9) / 0.5) < 1e-9

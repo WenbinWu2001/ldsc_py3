@@ -11,7 +11,9 @@ from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
+from scipy import stats
 
+from ._kernel import regression as reg
 from ._kernel.overlap import OverlapContribution
 
 
@@ -126,3 +128,37 @@ def overlap_from_long_frame(
         float(total_all_reference_snps),
         None if total_common_reference_snps is None else float(total_common_reference_snps),
     )
+
+
+def overlap_aware_category_table(hsq, overlap_matrix, m_annot, m_tot, category_names) -> pd.DataFrame:
+    """Legacy overlap-aware category table plus LDSC3 augmentation columns.
+
+    The overlap-aware columns are produced verbatim by the ported
+    ``Hsq._overlap_output``. This function then renames the z-score column,
+    appends the one-sided ``Coefficient_p`` (``H1: coefficient > 0``), the
+    conditional ``Category_h2`` / ``Category_h2_std_error`` (from ``hsq.cat`` /
+    ``hsq.cat_se``), and a per-model ``overlap_aware`` flag.
+    """
+    overlap_matrix = np.asarray(overlap_matrix, dtype=np.float64)
+    table = reg.Hsq._overlap_output(
+        hsq,
+        list(category_names),
+        overlap_matrix,
+        np.asarray(m_annot, dtype=np.float64).reshape(1, -1),
+        float(m_tot),
+        True,
+    ).reset_index(drop=True)
+    table = table.rename(columns={"Coefficient_z-score": "Coefficient_z"})
+    # Legacy emits the string 'NA' for a category that contains every SNP; use a numeric NaN.
+    table["Enrichment_p"] = pd.to_numeric(table["Enrichment_p"], errors="coerce")
+    coef = np.ravel(hsq.coef).astype(np.float64)
+    coef_se = np.ravel(hsq.coef_se).astype(np.float64)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        z = np.where(coef_se > 0, coef / coef_se, np.nan)
+    table["Coefficient_p"] = stats.norm.sf(z)
+    table["Category_h2"] = np.ravel(hsq.cat).astype(np.float64)
+    table["Category_h2_std_error"] = np.ravel(hsq.cat_se).astype(np.float64)
+    off_diagonal = overlap_matrix.copy()
+    np.fill_diagonal(off_diagonal, 0.0)
+    table["overlap_aware"] = bool(np.any(off_diagonal > 0))
+    return table

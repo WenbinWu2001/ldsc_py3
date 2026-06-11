@@ -85,6 +85,7 @@ from .ldscore_calculator import LDScoreResult
 from .outputs import (
     H2DirectoryWriter,
     H2OutputConfig,
+    PARTITIONED_H2_COLUMNS,
     PartitionedH2DirectoryWriter,
     PartitionedH2OutputConfig,
     REGRESSION_LD_SCORE_COLUMN,
@@ -101,15 +102,6 @@ from .errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsag
 COMMON_COUNT_KEY = "common_reference_snp_counts"
 ALL_COUNT_KEY = "all_reference_snp_counts"
 LOGGER = logging.getLogger("LDSC.regression_runner")
-PARTITIONED_H2_AGGREGATE_COLUMNS = [
-    "Category",
-    "Prop._SNPs",
-    "Prop._h2",
-    "Enrichment",
-    "Enrichment_p",
-    "Coefficient",
-    "Coefficient_p",
-]
 PARTITIONED_H2_SUMMARY_SORT_COLUMNS = {
     "category": "Category",
     "prop-snps": "Prop._SNPs",
@@ -123,25 +115,11 @@ PARTITIONED_H2_SUMMARY_ASCENDING_SORTS = {
     "enrichment-p",
     "coefficient-p",
 }
-PARTITIONED_H2_FULL_COLUMNS = [
-    "Category",
-    "Prop._SNPs",
-    "Category_h2",
-    "Category_h2_std_error",
-    "Prop._h2",
-    "Prop._h2_std_error",
-    "Enrichment",
-    "Enrichment_std_error",
-    "Enrichment_p",
-    "Coefficient",
-    "Coefficient_std_error",
-    "Coefficient_p",
-]
-PARTITIONED_H2_REQUIRES_QUERY_ANNOTATIONS_MESSAGE = (
-    "partitioned-h2 cannot run because the LD-score directory has no query annotation columns. "
-    "Most likely `ldsc ldscore` was run with baseline annotations only. Rerun `ldsc ldscore` "
-    "with `--query-annot-sources` or `--query-annot-bed-sources` plus explicit baseline annotations. "
-    "Other causes & fixes: docs/troubleshooting.md#regression-partitioned-h2-ld-score-directory-has-no-query-annotations"
+PARTITIONED_H2_REQUIRES_OVERLAP_MESSAGE = (
+    "partitioned-h2 needs the annotation overlap matrix, but the LD-score directory has no "
+    "ldscore.overlap.parquet. Most likely it was produced by an older `ldsc ldscore`. "
+    "Regenerate the LD-score directory with the current version. "
+    "Other causes & fixes: docs/troubleshooting.md#partitioned-h2-missing-overlap-matrix"
 )
 FAILED_RG_NOTE = "Failed; see rg_full.tsv error column; use --output-dir for diagnostics/rg.log."
 REGRESSION_IDENTITY_KEY_COLUMN = "_ldsc_regression_identity_key"
@@ -166,6 +144,7 @@ class RegressionDataset:
     config_snapshot: GlobalConfig | None = None
     effective_snp_identifier: str = "chr_pos_allele_aware"
     identity_downgrade_applied: bool = False
+    ldscore_overlap: "LDScoreOverlap | None" = None
 
     def validate(self) -> None:
         """Validate that the merged table contains the required LDSC columns."""
@@ -418,6 +397,7 @@ class RegressionRunner:
             config_snapshot=ldscore_result.config_snapshot,
             effective_snp_identifier=identifier_mode,
             identity_downgrade_applied=identity.downgrade_applied,
+            ldscore_overlap=ldscore_result.overlap,
         )
         dataset.validate()
         return dataset
@@ -737,22 +717,31 @@ class RegressionRunner:
         """
         if include_model_categories is not None:
             include_full_partitioned_h2 = include_model_categories
+        if ldscore_result.overlap is None:
+            raise LDSCInputError(PARTITIONED_H2_REQUIRES_OVERLAP_MESSAGE)
 
-        query_columns = _validate_partitioned_query_columns(ldscore_result, annotation_bundle.query_columns)
+        requested_queries = list(getattr(annotation_bundle, "query_columns", []) or [])
+        if not requested_queries:
+            # Functional regime: one joint fit of all baseline annotations.
+            dataset = self.build_dataset(sumstats_table, ldscore_result, config=config, query_columns=[])
+            hsq = self.estimate_h2(dataset, config=config)
+            summary = summarize_partitioned_h2(hsq, dataset, dataset.retained_ld_columns)
+            if include_full_partitioned_h2:
+                return PartitionedH2BatchResult(summary=summary, per_query_category_tables={}, per_query_metadata={})
+            return summary
+
+        # Cell-type regime: baseline + one query per model.
+        query_columns = _validate_partitioned_query_columns(ldscore_result, requested_queries)
         rows = []
         per_query_category_tables: dict[str, pd.DataFrame] = {}
         per_query_metadata: dict[str, dict[str, object]] = {}
         for query_column in query_columns:
             dataset = self.build_dataset(sumstats_table, ldscore_result, config=config, query_columns=[query_column])
             hsq = self.estimate_h2(dataset, config=config)
-            query_row = summarize_partitioned_h2(hsq, dataset, [query_column])
-            rows.append(query_row)
+            rows.append(summarize_partitioned_h2(hsq, dataset, [query_column]))
             if include_full_partitioned_h2:
                 per_query_category_tables[query_column] = summarize_partitioned_h2(
-                    hsq,
-                    dataset,
-                    dataset.retained_ld_columns,
-                    include_full_columns=True,
+                    hsq, dataset, dataset.retained_ld_columns
                 )
                 per_query_metadata[query_column] = {
                     "dropped_zero_variance_ld_columns": list(dataset.dropped_zero_variance_ld_columns),
@@ -762,7 +751,7 @@ class RegressionRunner:
                     "identity_downgrade_applied": dataset.identity_downgrade_applied,
                 }
         if not rows:
-            summary = pd.DataFrame(columns=PARTITIONED_H2_AGGREGATE_COLUMNS)
+            summary = pd.DataFrame(columns=PARTITIONED_H2_COLUMNS)
         else:
             summary = pd.concat(rows, axis=0, ignore_index=True)
         if include_full_partitioned_h2:
@@ -1126,10 +1115,13 @@ def _select_count_key(count_totals: dict[str, np.ndarray], use_common_counts: bo
 
 
 def _validate_partitioned_query_columns(ldscore_result: LDScoreResult, query_columns: Sequence[str]) -> list[str]:
-    """Return requested query columns after enforcing the partitioned-h2 contract."""
+    """Validate that requested cell-type query columns exist in the LD-score result.
+
+    The functional regime (no query columns) is decided by the caller; this
+    helper is only used on the cell-type path, so it just checks that every
+    requested query column is available.
+    """
     requested = list(query_columns)
-    if not ldscore_result.query_columns or not requested:
-        raise LDSCInputError(PARTITIONED_H2_REQUIRES_QUERY_ANNOTATIONS_MESSAGE)
     available = list(ldscore_result.query_columns)
     missing = [column for column in requested if column not in available]
     if missing:
@@ -1152,7 +1144,11 @@ def _assemble_regression_ldscore_table(
     if not query_columns:
         return baseline_table.copy()
     if ldscore_result.query_table is None:
-        raise LDSCInputError(PARTITIONED_H2_REQUIRES_QUERY_ANNOTATIONS_MESSAGE)
+        raise LDSCInputError(
+            "partitioned-h2 requested query LD-score columns but the LD-score directory has no query table. "
+            "Most likely the query parquet is missing or the metadata is out of sync. "
+            "Regenerate the LD-score directory with the current `ldsc ldscore`."
+        )
     missing = [column for column in query_columns if column not in ldscore_result.query_columns]
     if missing:
         raise LDSCInputError(
@@ -1214,58 +1210,32 @@ def summarize_partitioned_h2(
     hsq,
     dataset: RegressionDataset,
     annotation_columns: Sequence[str],
-    *,
-    include_full_columns: bool = False,
 ) -> pd.DataFrame:
-    """Build public partitioned-h2 rows from a fitted ``Hsq`` result.
+    """Build overlap-aware partitioned-h2 rows from a fitted ``Hsq`` result.
 
-    ``annotation_columns`` must be a subset of ``dataset.retained_ld_columns``.
-    Returned rows use legacy-style public column names. By default the result is
-    the compact query-summary schema; ``include_full_columns=True`` also emits
-    category h2 estimates and standard errors for full per-query model tables.
+    Assembles the model overlap matrix for the retained LD-score columns, runs
+    the ported legacy ``_overlap_output`` (augmented with one-sided
+    ``Coefficient_p``, conditional ``Category_h2``, and the ``overlap_aware``
+    flag), and returns the requested ``annotation_columns`` rows in the single
+    ``PARTITIONED_H2_COLUMNS`` schema. ``annotation_columns`` must be a subset of
+    ``dataset.retained_ld_columns``.
     """
-    rows = []
-    coefficients = np.ravel(hsq.coef)
-    coefficient_covariance = _coefficient_covariance_matrix(hsq, coefficients)
-    coefficient_ses = np.ravel(hsq.coef_se)
-    category_h2 = np.ravel(hsq.cat)
-    category_h2_ses = np.ravel(hsq.cat_se)
-    proportions = np.ravel(hsq.prop)
-    proportion_ses = np.ravel(hsq.prop_se)
-    enrichments = np.ravel(hsq.enrichment) if getattr(hsq, "enrichment", None) is not None else None
-    snp_counts = _retained_snp_counts(dataset)
-    snp_proportions = _safe_vector_divide(snp_counts, float(np.sum(snp_counts)))
-    n_blocks = getattr(hsq, "n_blocks", None)
-    for annotation_column in annotation_columns:
-        annotation_index = dataset.retained_ld_columns.index(annotation_column)
-        coefficient = float(coefficients[annotation_index])
-        coefficient_se = float(coefficient_ses[annotation_index])
-        proportion_snps = float(snp_proportions[annotation_index])
-        proportion_h2_se = float(proportion_ses[annotation_index])
-        rows.append(
-            {
-                "Category": annotation_column,
-                "Prop._SNPs": proportion_snps,
-                "Category_h2": float(category_h2[annotation_index]),
-                "Category_h2_std_error": float(category_h2_ses[annotation_index]),
-                "Prop._h2": float(proportions[annotation_index]),
-                "Prop._h2_std_error": proportion_h2_se,
-                "Enrichment": math.nan if enrichments is None else float(enrichments[annotation_index]),
-                "Enrichment_std_error": _safe_divide(proportion_h2_se, proportion_snps),
-                "Enrichment_p": _enrichment_p_value(
-                    annotation_index,
-                    coefficients,
-                    coefficient_covariance,
-                    snp_counts,
-                    n_blocks,
-                ),
-                "Coefficient": coefficient,
-                "Coefficient_std_error": coefficient_se,
-                "Coefficient_p": _coefficient_p_value(coefficient, coefficient_se),
-            }
-        )
-    columns = PARTITIONED_H2_FULL_COLUMNS if include_full_columns else PARTITIONED_H2_AGGREGATE_COLUMNS
-    return pd.DataFrame(rows, columns=columns)
+    from .overlap_matrix import assemble_model_overlap, overlap_aware_category_table
+
+    overlap = dataset.ldscore_overlap
+    if overlap is None:
+        raise LDSCInputError(PARTITIONED_H2_REQUIRES_OVERLAP_MESSAGE)
+    use_common = dataset.count_key_used_for_regression == COMMON_COUNT_KEY
+    model_overlap = assemble_model_overlap(overlap, list(dataset.retained_ld_columns), use_common)
+    m_annot = np.asarray(
+        dataset.reference_snp_count_totals[dataset.count_key_used_for_regression], dtype=np.float64
+    )
+    m_tot = overlap.total_common_reference_snps if use_common else overlap.total_all_reference_snps
+    table = overlap_aware_category_table(
+        hsq, model_overlap, m_annot, float(m_tot), dataset.retained_ld_columns
+    )
+    rows = table.set_index("Category").loc[list(annotation_columns)].reset_index()
+    return rows.loc[:, PARTITIONED_H2_COLUMNS].reset_index(drop=True)
 
 
 def _iter_rg_pairs(n_traits: int, anchor_index: int | None) -> list[tuple[int, int]]:
@@ -1560,87 +1530,6 @@ def _format_exception(exc: Exception) -> str:
     """Return compact user-facing error text for a pair failure."""
     message = str(exc).strip()
     return f"{exc.__class__.__name__}: {message}" if message else exc.__class__.__name__
-
-
-def _retained_snp_counts(dataset: RegressionDataset) -> np.ndarray:
-    """Return reference SNP counts aligned to retained LD-score columns."""
-    counts = np.asarray(
-        dataset.reference_snp_count_totals[dataset.count_key_used_for_regression],
-        dtype=np.float64,
-    ).reshape(-1)
-    if len(counts) != len(dataset.retained_ld_columns):
-        raise LDSCInternalError(
-            "Regression summary could not align reference SNP counts to retained LD-score columns. "
-            "Most likely zero-variance column dropping desynchronized the count vector. "
-            "Re-run with `--log-level DEBUG` and report the traceback."
-        )
-    return counts
-
-
-def _coefficient_covariance_matrix(hsq, coefficients: np.ndarray) -> np.ndarray:
-    """Return a coefficient covariance matrix, falling back to diagonal SEs."""
-    covariance = getattr(hsq, "coef_cov", None)
-    if covariance is not None:
-        covariance = np.asarray(covariance, dtype=np.float64)
-        if covariance.shape == (len(coefficients), len(coefficients)):
-            return covariance
-    coefficient_ses = np.ravel(getattr(hsq, "coef_se", np.full(len(coefficients), math.nan)))
-    return np.diag(np.square(coefficient_ses))
-
-
-def _coefficient_p_value(coefficient: float, coefficient_se: float) -> float:
-    """Return a two-sided normal p-value for a coefficient estimate."""
-    if not np.isfinite(coefficient) or not np.isfinite(coefficient_se) or coefficient_se == 0:
-        return math.nan
-    return float(2 * stats.norm.sf(abs(coefficient / coefficient_se)))
-
-
-def _enrichment_p_value(
-    annotation_index: int,
-    coefficients: np.ndarray,
-    coefficient_covariance: np.ndarray,
-    snp_counts: np.ndarray,
-    n_blocks,
-) -> float:
-    """Return the legacy-style category-vs-complement enrichment p-value.
-
-    The contrast compares the selected coefficient with the SNP-count-weighted
-    mean coefficient of all remaining retained categories. A missing complement,
-    unavailable jackknife block count, or non-positive variance yields NaN.
-    """
-    total_count = float(np.sum(snp_counts))
-    category_count = float(snp_counts[annotation_index])
-    complement_count = total_count - category_count
-    if (
-        total_count <= 0
-        or category_count <= 0
-        or complement_count <= 0
-        or n_blocks is None
-        or int(n_blocks) <= 0
-    ):
-        return math.nan
-    contrast = -snp_counts / complement_count
-    contrast[annotation_index] = 1.0
-    contrast_estimate = float(np.dot(contrast, coefficients))
-    contrast_variance = float(np.dot(np.dot(contrast, coefficient_covariance), contrast.T))
-    if not np.isfinite(contrast_variance) or contrast_variance <= 0:
-        return math.nan
-    contrast_se = math.sqrt(contrast_variance)
-    return float(2 * stats.t.sf(abs(contrast_estimate / contrast_se), int(n_blocks)))
-
-
-def _safe_divide(numerator: float, denominator: float) -> float:
-    """Return ``numerator / denominator`` or NaN for invalid ratios."""
-    if not np.isfinite(numerator) or not np.isfinite(denominator) or denominator == 0:
-        return math.nan
-    return float(numerator / denominator)
-
-
-def _safe_vector_divide(numerator: np.ndarray, denominator: float) -> np.ndarray:
-    """Vectorized safe division for scalar denominators."""
-    if not np.isfinite(denominator) or denominator == 0:
-        return np.full_like(numerator, math.nan, dtype=np.float64)
-    return numerator / denominator
 
 
 def _scalar(value) -> float:

@@ -92,18 +92,12 @@ def _write_chromosome_aligned_parquet(
 REGRESSION_LD_SCORE_COLUMN = "regression_ld_scores"
 DEFAULT_COUNT_CONFIG = {
     "common_reference_snp_maf_min": 0.05,
-    "common_reference_snp_maf_operator": ">=",
+    "common_reference_snp_maf_operator": ">",
 }
-PARTITIONED_H2_AGGREGATE_COLUMNS = [
-    "Category",
-    "Prop._SNPs",
-    "Prop._h2",
-    "Enrichment",
-    "Enrichment_p",
-    "Coefficient",
-    "Coefficient_p",
-]
-PARTITIONED_H2_FULL_COLUMNS = [
+# Single partitioned-h2 schema for both regimes. The functional regime fills it
+# with one row per baseline category; the cell-type regime fills it with one row
+# per query annotation. Differs only in rows and default sort, never in columns.
+PARTITIONED_H2_COLUMNS = [
     "Category",
     "Prop._SNPs",
     "Category_h2",
@@ -115,7 +109,9 @@ PARTITIONED_H2_FULL_COLUMNS = [
     "Enrichment_p",
     "Coefficient",
     "Coefficient_std_error",
+    "Coefficient_z",
     "Coefficient_p",
+    "overlap_aware",
 ]
 RG_CONCISE_COLUMNS = [
     "trait_1",
@@ -527,13 +523,13 @@ class PartitionedH2DirectoryWriter:
         ----------
         summary : pandas.DataFrame
             Aggregate partitioned-h2 table with the compact public columns in
-            ``PARTITIONED_H2_AGGREGATE_COLUMNS``.
+            ``PARTITIONED_H2_COLUMNS``.
         output_config : PartitionedH2OutputConfig
             Output directory, overwrite policy, and per-query mode.
         per_query_category_tables : dict of str to pandas.DataFrame, optional
             Optional full baseline-plus-query category tables keyed by
             original query annotation name. Tables must follow
-            ``PARTITIONED_H2_FULL_COLUMNS``; missing keys write empty
+            ``PARTITIONED_H2_COLUMNS``; missing keys write empty
             ``partitioned_h2_full.tsv`` files.
         metadata : dict, optional
             Run-level metadata copied into every per-query ``metadata.json``.
@@ -578,7 +574,7 @@ class PartitionedH2DirectoryWriter:
         diagnostics_dir.mkdir(parents=True, exist_ok=True)
         if not output_config.write_per_query_results:
             _atomic_write_dataframe(
-                _select_columns(summary, PARTITIONED_H2_AGGREGATE_COLUMNS, label="partitioned-h2 summary"),
+                _select_columns(summary, PARTITIONED_H2_COLUMNS, label="partitioned-h2 summary"),
                 summary_path,
             )
             _atomic_write_json(
@@ -602,7 +598,7 @@ class PartitionedH2DirectoryWriter:
             )
             _atomic_write_dataframe(pd.DataFrame(manifest_rows), staging_dir / "manifest.tsv")
             _atomic_write_dataframe(
-                _select_columns(summary, PARTITIONED_H2_AGGREGATE_COLUMNS, label="partitioned-h2 summary"),
+                _select_columns(summary, PARTITIONED_H2_COLUMNS, label="partitioned-h2 summary"),
                 summary_path,
             )
             _atomic_write_json(
@@ -676,14 +672,14 @@ class PartitionedH2DirectoryWriter:
             full_rel = f"diagnostics/query_annotations/{folder}/partitioned_h2_full.tsv"
             metadata_rel = f"diagnostics/query_annotations/{folder}/metadata.json"
             _atomic_write_dataframe(
-                _select_columns(query_summary, PARTITIONED_H2_AGGREGATE_COLUMNS, label="query summary"),
+                _select_columns(query_summary, PARTITIONED_H2_COLUMNS, label="query summary"),
                 query_dir / "partitioned_h2.tsv",
             )
             category_table = per_query_category_tables.get(query_name)
             if category_table is None:
                 category_table = pd.DataFrame()
             _atomic_write_dataframe(
-                _select_columns(category_table, PARTITIONED_H2_FULL_COLUMNS, label="full partitioned-h2 summary"),
+                _select_columns(category_table, PARTITIONED_H2_COLUMNS, label="full partitioned-h2 summary"),
                 query_dir / "partitioned_h2_full.tsv",
             )
             payload = {

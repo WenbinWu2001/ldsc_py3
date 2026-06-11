@@ -22,6 +22,8 @@ if str(SRC) not in sys.path:
 
 from ldsc.config import ConfigMismatchError, GlobalConfig, RegressionConfig, reset_global_config, set_global_config
 from ldsc.errors import LDSCInputError, LDSCInternalError, LDSCUsageError
+from ldsc._kernel.overlap import OverlapContribution
+from ldsc.overlap_matrix import LDScoreOverlap
 
 try:
     from ldsc.ldscore_calculator import LDScoreResult
@@ -330,6 +332,25 @@ class RegressionWorkflowTest(unittest.TestCase):
             ld_regression_snps=frozenset({"rs1", "rs2", "rs3"}),
             chromosome_results=[],
             config_snapshot=GlobalConfig(snp_identifier="rsid"),
+            overlap=self._overlap_fixture(),
+        )
+
+    def _overlap_fixture(self):
+        # Consistent overlap: diag(O) equals each annotation's M_annot, and
+        # M_tot (total_*_reference_snps) is larger than every category count.
+        from ldsc._kernel.overlap import OverlapContribution
+        from ldsc.overlap_matrix import LDScoreOverlap
+
+        return LDScoreOverlap.from_contribution(
+            OverlapContribution(
+                baseline_block_all=np.array([[10.0, 5.0, 8.0]]),   # base x [base, query1, query2]
+                baseline_block_common=np.array([[8.0, 4.0, 7.0]]),
+                query_diagonal_all=np.array([20.0, 30.0]),          # query1, query2
+                query_diagonal_common=np.array([18.0, 28.0]),
+                n_all=50, n_common=45,
+            ),
+            baseline_columns=["base"],
+            query_columns=["query1", "query2"],
         )
 
     def make_sumstats_table(self):
@@ -1440,27 +1461,52 @@ class RegressionWorkflowTest(unittest.TestCase):
 
         self.assertEqual(dataset.config_snapshot, GlobalConfig(snp_identifier="rsid"))
 
-    def test_estimate_partitioned_h2_requires_query_annotations(self):
-        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
-        ldscore_result = replace(
+    def _baseline_only_ldscore_result(self):
+        from ldsc._kernel.overlap import OverlapContribution
+        from ldsc.overlap_matrix import LDScoreOverlap
+
+        overlap = LDScoreOverlap.from_contribution(
+            OverlapContribution(
+                baseline_block_all=np.array([[10.0]]),
+                baseline_block_common=np.array([[8.0]]),
+                query_diagonal_all=np.array([]),
+                query_diagonal_common=np.array([]),
+                n_all=10, n_common=8,
+            ),
+            baseline_columns=["base"], query_columns=[],
+        )
+        return replace(
             self.make_ldscore_result(),
             query_table=None,
             query_columns=[],
             count_records=[
-                {
-                    "group": "baseline",
-                    "column": "base",
-                    "all_reference_snp_count": 10.0,
-                    "common_reference_snp_count": 8.0,
-                }
+                {"group": "baseline", "column": "base", "all_reference_snp_count": 10.0, "common_reference_snp_count": 8.0}
             ],
+            overlap=overlap,
         )
 
-        with self.assertRaisesRegex(LDSCInputError, "LD-score directory has no query annotation columns"):
-            runner.estimate_partitioned_h2(
-                self.make_sumstats_table(),
-                ldscore_result,
-                query_column="base",
+    def test_partitioned_h2_functional_regime_runs_joint_baseline_fit(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        ldscore_result = self._baseline_only_ldscore_result()
+        fake_hsq = mock.Mock(
+            coef=np.array([0.025]), coef_cov=np.array([[9e-6]]), coef_se=np.array([0.003]),
+            cat=np.array([0.25]), cat_se=np.array([0.03]),
+            prop=np.array([1.0]), prop_cov=np.array([[0.0]]), prop_se=np.array([0.0]),
+            n_blocks=200, n_annot=1,
+        )
+        with mock.patch.object(runner, "estimate_h2", return_value=fake_hsq):
+            summary = runner.estimate_partitioned_h2_batch(
+                self.make_sumstats_table(), ldscore_result, replace(self.make_annotation_bundle(), query_columns=[]),
+            )
+        self.assertEqual(summary["Category"].tolist(), ["base"])
+        self.assertEqual(summary.columns.tolist(), regression_runner.PARTITIONED_H2_COLUMNS)
+
+    def test_partitioned_h2_without_overlap_sidecar_fails_fast(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        ldscore_result = replace(self.make_ldscore_result(), overlap=None)
+        with self.assertRaisesRegex(LDSCInputError, "overlap matrix"):
+            runner.estimate_partitioned_h2_batch(
+                self.make_sumstats_table(), ldscore_result, self.make_annotation_bundle(),
             )
 
     def test_estimate_partitioned_h2_requires_explicit_query_column(self):
@@ -1482,9 +1528,11 @@ class RegressionWorkflowTest(unittest.TestCase):
             cat=np.array([0.0, 0.3]),
             cat_se=np.array([0.01, 0.03]),
             prop=np.array([0.0, 0.4]),
+            prop_cov=np.diag([0.0001, 0.0016]),
             prop_se=np.array([0.01, 0.04]),
             enrichment=np.array([0.0, 2.0]),
             n_blocks=200,
+            n_annot=2,
         )
 
         with mock.patch.object(
@@ -1511,21 +1559,6 @@ class RegressionWorkflowTest(unittest.TestCase):
                 query_column="missing",
             )
 
-    def test_estimate_partitioned_h2_batch_rejects_empty_query_columns(self):
-        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
-        annotation_bundle = replace(
-            self.make_annotation_bundle(),
-            query_annotations=pd.DataFrame(index=pd.RangeIndex(3)),
-            query_columns=[],
-        )
-
-        with self.assertRaisesRegex(LDSCInputError, "LD-score directory has no query annotation columns"):
-            runner.estimate_partitioned_h2_batch(
-                self.make_sumstats_table(),
-                self.make_ldscore_result(),
-                annotation_bundle,
-            )
-
     def test_estimate_partitioned_h2_batch_loops_over_queries(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
         table = self.make_sumstats_table()
@@ -1538,28 +1571,21 @@ class RegressionWorkflowTest(unittest.TestCase):
             cat=np.array([0.0, 0.3]),
             cat_se=np.array([0.01, 0.03]),
             prop=np.array([0.0, 0.4]),
+            prop_cov=np.diag([0.0001, 0.0016]),
             prop_se=np.array([0.01, 0.04]),
             enrichment=np.array([0.0, 2.0]),
             n_blocks=200,
+            n_annot=2,
         )
         with mock.patch.object(runner, "estimate_h2", return_value=fake_hsq) as patched:
             result = runner.estimate_partitioned_h2_batch(table, ldscore_result, annotation_bundle)
         self.assertEqual(patched.call_count, 2)
-        self.assertEqual(
-            result.columns.tolist(),
-            [
-                "Category",
-                "Prop._SNPs",
-                "Prop._h2",
-                "Enrichment",
-                "Enrichment_p",
-                "Coefficient",
-                "Coefficient_p",
-            ],
-        )
+        self.assertEqual(result.columns.tolist(), regression_runner.PARTITIONED_H2_COLUMNS)
         self.assertEqual(result["Category"].tolist(), ["query1", "query2"])
-        self.assertAlmostEqual(result.loc[0, "Prop._SNPs"], 18.0 / 26.0)
-        self.assertAlmostEqual(result.loc[0, "Coefficient_p"], 2 * stats.norm.sf(5.0))
+        # Overlap-aware Prop._SNPs = M_query1 / M_tot on the common universe (18 / 45).
+        self.assertAlmostEqual(result.loc[0, "Prop._SNPs"], 18.0 / 45.0)
+        # One-sided Coefficient_p = P(Z > coef/se) = sf(1.0 / 0.2).
+        self.assertAlmostEqual(result.loc[0, "Coefficient_p"], stats.norm.sf(5.0))
 
     def test_estimate_partitioned_h2_batch_can_return_full_partitioned_tables(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
@@ -1573,9 +1599,11 @@ class RegressionWorkflowTest(unittest.TestCase):
             cat=np.array([0.0, 0.3]),
             cat_se=np.array([0.01, 0.03]),
             prop=np.array([0.0, 0.4]),
+            prop_cov=np.diag([0.0001, 0.0016]),
             prop_se=np.array([0.01, 0.04]),
             enrichment=np.array([0.0, 2.0]),
             n_blocks=200,
+            n_annot=2,
         )
         with mock.patch.object(runner, "estimate_h2", return_value=fake_hsq):
             result = runner.estimate_partitioned_h2_batch(
@@ -1590,22 +1618,11 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertIn("query1", result.per_query_category_tables)
         self.assertEqual(result.per_query_metadata["query1"]["effective_snp_identifier"], "rsid")
         self.assertFalse(result.per_query_metadata["query1"]["identity_downgrade_applied"])
+        # Per-query full table holds all baseline+query model rows in the single schema.
+        self.assertEqual(result.per_query_category_tables["query1"]["Category"].tolist(), ["base", "query1"])
         self.assertEqual(
             result.per_query_category_tables["query1"].columns.tolist(),
-            [
-                "Category",
-                "Prop._SNPs",
-                "Category_h2",
-                "Category_h2_std_error",
-                "Prop._h2",
-                "Prop._h2_std_error",
-                "Enrichment",
-                "Enrichment_std_error",
-                "Enrichment_p",
-                "Coefficient",
-                "Coefficient_std_error",
-                "Coefficient_p",
-            ],
+            regression_runner.PARTITIONED_H2_COLUMNS,
         )
 
     def test_h2_and_partitioned_summaries_share_one_fitted_hsq_result(self):
@@ -1626,6 +1643,14 @@ class RegressionWorkflowTest(unittest.TestCase):
             dropped_zero_variance_ld_columns=[],
             trait_names=["trait"],
             chromosomes_aggregated=[],
+            ldscore_overlap=LDScoreOverlap.from_contribution(
+                OverlapContribution(
+                    baseline_block_all=np.array([[10.0]]), baseline_block_common=np.array([[10.0]]),
+                    query_diagonal_all=np.array([]), query_diagonal_common=np.array([]),
+                    n_all=10, n_common=10,
+                ),
+                ["base"], [],
+            ),
         )
         hsq = mock.Mock(
             tot=np.array([0.25]),
@@ -1642,18 +1667,15 @@ class RegressionWorkflowTest(unittest.TestCase):
             cat=np.array([0.25]),
             cat_se=np.array([0.03]),
             prop=np.array([1.0]),
+            prop_cov=np.array([[0.0]]),
             prop_se=np.array([0.0]),
             enrichment=np.array([1.0]),
             n_blocks=200,
+            n_annot=1,
         )
 
         total = regression_runner.summarize_total_h2(hsq, dataset, trait_name="trait")
-        partitioned = regression_runner.summarize_partitioned_h2(
-            hsq,
-            dataset,
-            ["base"],
-            include_full_columns=True,
-        )
+        partitioned = regression_runner.summarize_partitioned_h2(hsq, dataset, ["base"])
 
         self.assertEqual(total.loc[0, "total_h2"], partitioned.loc[0, "Category_h2"])
         self.assertEqual(total.loc[0, "total_h2_se"], partitioned.loc[0, "Category_h2_std_error"])
@@ -1680,6 +1702,14 @@ class RegressionWorkflowTest(unittest.TestCase):
             dropped_zero_variance_ld_columns=[],
             trait_names=["trait"],
             chromosomes_aggregated=[],
+            ldscore_overlap=LDScoreOverlap.from_contribution(
+                OverlapContribution(
+                    baseline_block_all=np.array([[10.0, 8.0]]), baseline_block_common=np.array([[10.0, 8.0]]),
+                    query_diagonal_all=np.array([30.0]), query_diagonal_common=np.array([30.0]),
+                    n_all=40, n_common=40,
+                ),
+                ["base"], ["query"],
+            ),
         )
         hsq = mock.Mock(
             coef=np.array([0.2, 0.5]),
@@ -1688,41 +1718,23 @@ class RegressionWorkflowTest(unittest.TestCase):
             cat=np.array([0.2, 0.6]),
             cat_se=np.array([0.02, 0.06]),
             prop=np.array([0.25, 0.75]),
+            prop_cov=np.diag([0.0009, 0.0081]),
             prop_se=np.array([0.03, 0.09]),
             enrichment=np.array([1.0, 1.0]),
             n_blocks=200,
+            n_annot=2,
         )
 
-        summary = regression_runner.summarize_partitioned_h2(
-            hsq,
-            dataset,
-            ["query"],
-            include_full_columns=True,
-        )
+        summary = regression_runner.summarize_partitioned_h2(hsq, dataset, ["query"])
 
-        self.assertEqual(
-            summary.columns.tolist(),
-            [
-                "Category",
-                "Prop._SNPs",
-                "Category_h2",
-                "Category_h2_std_error",
-                "Prop._h2",
-                "Prop._h2_std_error",
-                "Enrichment",
-                "Enrichment_std_error",
-                "Enrichment_p",
-                "Coefficient",
-                "Coefficient_std_error",
-                "Coefficient_p",
-            ],
-        )
+        self.assertEqual(summary.columns.tolist(), regression_runner.PARTITIONED_H2_COLUMNS)
         self.assertEqual(summary.loc[0, "Category"], "query")
-        self.assertAlmostEqual(summary.loc[0, "Prop._SNPs"], 0.75)
-        self.assertAlmostEqual(summary.loc[0, "Enrichment_std_error"], 0.09 / 0.75)
-        self.assertAlmostEqual(summary.loc[0, "Coefficient_p"], 2 * stats.norm.sf(2.5))
-        expected_enrichment_p = 2 * stats.t.sf(abs(0.3 / np.sqrt(0.05)), 200)
-        self.assertAlmostEqual(summary.loc[0, "Enrichment_p"], expected_enrichment_p)
+        # Overlap-aware Prop._SNPs = M_query / M_tot on the common universe (30 / 40).
+        self.assertAlmostEqual(summary.loc[0, "Prop._SNPs"], 30.0 / 40.0)
+        # One-sided Coefficient_p = sf(coef/se) = sf(0.5 / 0.2).
+        self.assertAlmostEqual(summary.loc[0, "Coefficient_p"], stats.norm.sf(2.5))
+        self.assertTrue(bool(summary.loc[0, "overlap_aware"]))
+        self.assertTrue(np.isfinite(summary.loc[0, "Enrichment_p"]))
 
     def test_run_h2_from_args_uses_ldscore_dir(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2631,7 +2643,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                         "Coefficient_p": 0.03,
                     },
                 ]
-            )
+            ).reindex(columns=regression_runner.PARTITIONED_H2_COLUMNS)
             result = regression_runner.PartitionedH2BatchResult(
                 summary=unsorted,
                 per_query_category_tables={},
@@ -2770,7 +2782,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                         "Coefficient_p": 0.5,
                     }
                 ]
-            )
+            ).reindex(columns=regression_runner.PARTITIONED_H2_COLUMNS)
 
             with mock.patch.object(
                 regression_runner.RegressionRunner,

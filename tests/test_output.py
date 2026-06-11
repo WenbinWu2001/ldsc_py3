@@ -23,6 +23,7 @@ from ldsc.outputs import (
     H2OutputConfig,
     LDScoreDirectoryWriter,
     LDScoreOutputConfig,
+    PARTITIONED_H2_COLUMNS,
     PartitionedH2DirectoryWriter,
     PartitionedH2OutputConfig,
     RgDirectoryWriter,
@@ -212,7 +213,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
                 metadata["count_config"],
                 {
                     "common_reference_snp_maf_min": 0.05,
-                    "common_reference_snp_maf_operator": ">=",
+                    "common_reference_snp_maf_operator": ">",
                 },
             )
 
@@ -431,7 +432,7 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
 
         self.assertEqual(metadata["counts"][0]["all_reference_snp_count"], 10.0)
         self.assertNotIn("common_reference_snp_count", metadata["counts"][0])
-        self.assertEqual(metadata["count_config"]["common_reference_snp_maf_operator"], ">=")
+        self.assertEqual(metadata["count_config"]["common_reference_snp_maf_operator"], ">")
 
 
 class H2DirectoryWriterTest(unittest.TestCase):
@@ -553,11 +554,18 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
             {
                 "Category": ["IL-6/JAK STAT (Hallmark)", "IL 6 JAK STAT Hallmark"],
                 "Prop._SNPs": [0.1, 0.2],
+                "Category_h2": [0.3, 0.4],
+                "Category_h2_std_error": [0.03, 0.04],
                 "Prop._h2": [0.3, 0.4],
+                "Prop._h2_std_error": [0.03, 0.04],
                 "Enrichment": [3.0, 2.0],
+                "Enrichment_std_error": [0.3, 0.2],
                 "Enrichment_p": [0.01, 0.02],
                 "Coefficient": [1.0, 2.0],
+                "Coefficient_std_error": [0.1, 0.2],
+                "Coefficient_z": [10.0, 10.0],
                 "Coefficient_p": [0.03, 0.04],
+                "overlap_aware": [True, True],
             }
         )
 
@@ -576,7 +584,9 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
                     "Enrichment_p": [0.2, 0.01],
                     "Coefficient": [0.5, 1.0],
                     "Coefficient_std_error": [0.05, 0.1],
+                    "Coefficient_z": [10.0, 10.0],
                     "Coefficient_p": [0.04, 0.03],
+                    "overlap_aware": [True, True],
                 }
             ),
             "IL 6 JAK STAT Hallmark": pd.DataFrame(
@@ -592,7 +602,9 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
                     "Enrichment_p": [0.3, 0.02],
                     "Coefficient": [0.6, 2.0],
                     "Coefficient_std_error": [0.06, 0.2],
+                    "Coefficient_z": [10.0, 10.0],
                     "Coefficient_p": [0.05, 0.04],
+                    "overlap_aware": [True, True],
                 }
             ),
         }
@@ -607,18 +619,7 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
 
             self.assertTrue((output_dir / "partitioned_h2.tsv").exists())
             summary = pd.read_csv(output_dir / "partitioned_h2.tsv", sep="\t")
-            self.assertEqual(
-                summary.columns.tolist(),
-                [
-                    "Category",
-                    "Prop._SNPs",
-                    "Prop._h2",
-                    "Enrichment",
-                    "Enrichment_p",
-                    "Coefficient",
-                    "Coefficient_p",
-                ],
-            )
+            self.assertEqual(summary.columns.tolist(), PARTITIONED_H2_COLUMNS)
             self.assertFalse((output_dir / "query_annotations").exists())
             self.assertEqual(
                 paths,
@@ -680,35 +681,8 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
                     "full": "diagnostics/query_annotations/0001_il-6_jak_stat_hallmark/partitioned_h2_full.tsv",
                 },
             )
-            self.assertEqual(
-                query_summary.columns.tolist(),
-                [
-                    "Category",
-                    "Prop._SNPs",
-                    "Prop._h2",
-                    "Enrichment",
-                    "Enrichment_p",
-                    "Coefficient",
-                    "Coefficient_p",
-                ],
-            )
-            self.assertEqual(
-                categories.columns.tolist(),
-                [
-                    "Category",
-                    "Prop._SNPs",
-                    "Category_h2",
-                    "Category_h2_std_error",
-                    "Prop._h2",
-                    "Prop._h2_std_error",
-                    "Enrichment",
-                    "Enrichment_std_error",
-                    "Enrichment_p",
-                    "Coefficient",
-                    "Coefficient_std_error",
-                    "Coefficient_p",
-                ],
-            )
+            self.assertEqual(query_summary.columns.tolist(), PARTITIONED_H2_COLUMNS)
+            self.assertEqual(categories.columns.tolist(), PARTITIONED_H2_COLUMNS)
             self.assertEqual(categories["Category"].tolist(), ["base", "IL-6/JAK STAT (Hallmark)"])
             self.assertEqual(paths["per_query_root"], str(query_root))
 

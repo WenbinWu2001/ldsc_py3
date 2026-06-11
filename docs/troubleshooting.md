@@ -404,25 +404,28 @@ restriction build/column readers · **Exception:** `LDSCInputError`
 3. Broaden or rebuild the regression SNP universe so the traits and LD-score
    directory share retained SNPs.
 
-### regression: partitioned-h2 LD-score directory has no query annotations
+### partitioned-h2: missing overlap matrix
 
-**Raised by:** `regression_runner._validate_partitioned_query_columns()` and
-`regression_runner._assemble_regression_ldscore_table()` · **Exception:** `LDSCInputError`
-**Symptom:** `partitioned-h2 cannot run because the LD-score directory has no query annotation columns...`
+**Raised by:** `regression_runner.estimate_partitioned_h2_batch()` /
+`summarize_partitioned_h2()` · **Exception:** `LDSCInputError`
+**Symptom:** `partitioned-h2 needs the annotation overlap matrix, but the LD-score directory has no ldscore.overlap.parquet...`
+
+Overlap-aware partitioned heritability (both the functional and cell-type
+regimes) needs `ldscore.overlap.parquet`, written by current `ldsc ldscore`
+alongside the baseline/query parquet files. A baseline-only directory is **not**
+an error — it runs the functional-category regime — but a directory without the
+overlap sidecar cannot be used.
 
 **Likely causes & how to check** (most probable first):
 
 | # | Likely cause | How to check |
 |---|--------------|--------------|
-| 1 | `ldsc ldscore` was run with baseline annotations only | Inspect `metadata.json` for an empty `query_columns` list |
-| 2 | Query BED or annotation sources were passed to the wrong command/run | Check the LD-score run log under `diagnostics/ldscore.log` |
-| 3 | Query annotations were omitted because only the unpartitioned h2 workflow was planned | Confirm whether the intended command is `h2` or `partitioned-h2` |
-| 4 | The LD-score directory was copied from an older or partial run | Confirm `ldscore.query.parquet` exists when `metadata.json` lists query files |
+| 1 | The LD-score directory was produced by an older `ldsc ldscore` | Inspect `metadata.json` for a missing `files.overlap` / `overlap_config` |
+| 2 | The directory was copied without `ldscore.overlap.parquet` | Confirm the file exists next to `ldscore.baseline.parquet` |
 
 **Remedies:**
 
-1. Rerun `ldsc ldscore` with explicit baseline annotations plus
-   `--query-annot-sources` or `--query-annot-bed-sources`.
-2. Use `ldsc h2` for baseline-only LD-score directories.
-3. Keep `metadata.json`, baseline parquet, and query parquet files from the same
-   LD-score run together.
+1. Regenerate the LD-score directory with the current `ldsc ldscore`.
+2. Keep `metadata.json`, the baseline/query parquet, and `ldscore.overlap.parquet`
+   from the same run together.
+3. `h2` and `rg` do not need the overlap matrix and run on older directories.

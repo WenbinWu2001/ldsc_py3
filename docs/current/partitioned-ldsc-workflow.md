@@ -25,6 +25,7 @@ An LD-score run writes:
   metadata.json
   ldscore.baseline.parquet
   ldscore.query.parquet        # omitted when no query annotations were supplied
+  ldscore.overlap.parquet      # annotation overlap matrix; consumed by partitioned-h2
   diagnostics/
     ldscore.log
 ```
@@ -32,12 +33,22 @@ An LD-score run writes:
 `metadata.json` is the downstream metadata contract. It contains:
 
 - `artifact_type: "ldscore"`
-- relative file paths for `baseline` and optional `query`
+- relative file paths for `baseline`, optional `query`, and `overlap`
 - `snp_identifier`, `genome_build`, and processed `chromosomes`
 - ordered `baseline_columns` and `query_columns`
 - one count record per LD-score annotation column
+- `count_config` and `overlap_config` (total SNP-universe sizes and the
+  common-MAF threshold/operator used for the overlap matrix)
 - `config_snapshot`
 - basic row counts
+
+`ldscore.overlap.parquet` stores the annotation overlap matrix `O = AᵀA` in long
+form (`row_annotation`, `col_annotation`, `overlap_all_snps`,
+`overlap_common_snps`). Only the baseline-rows block `A_Bᵀ·A` plus each query's
+self-overlap are stored — enough to reconstruct every baseline-plus-one-query
+model overlap matrix without keeping the full annotation matrix. `partitioned-h2`
+requires this file; `h2` and `rg` ignore it. The common-SNP universe uses
+`MAF > common_maf_min` (strict), matching the `.M_5_50`-style common counts.
 
 All paths inside the metadata are relative to `ldscore_dir`.
 
@@ -208,24 +219,41 @@ affect base-mode identity, duplicate filtering, retention, or drop reasons.
 allele-aware/base mixes to run under the base mode. rsID-family and
 coordinate-family modes never mix.
 
-`partitioned-h2` requires `ldscore.query.parquet` and a non-empty `query_columns` list in
-the LD-score root metadata. Baseline-only LD-score directories are valid inputs for
-`h2` and `rg`, but `partitioned-h2` rejects them instead of treating the
-baseline as a query annotation. For each query column, it builds a regression
-dataset with:
+`partitioned-h2` produces **overlap-aware** category summaries (legacy
+`--overlap-annot` math) and auto-detects one of two regimes from the LD-score
+directory, with no user flag. It requires `ldscore.overlap.parquet`; a directory
+produced by an older `ldsc ldscore` is rejected with a regenerate message.
+
+- **Functional-category regime** — the directory has **no** query columns. A
+  single joint fit of all baseline annotations yields one row per baseline
+  category; the headline is `Enrichment` (+ two-sided `Enrichment_p`). This
+  reproduces Finucane-2015 / legacy `--overlap-annot`.
+- **Cell-type-specific regime** — the directory **has** query columns. For each
+  query, a `baseline + one query` model is fit, yielding one row per query; the
+  headline is `Coefficient` (the conditional `tau`, + one-sided `Coefficient_p`
+  testing `Coefficient > 0`). `--write-per-query-results` additionally writes a
+  staged `diagnostics/query_annotations/` tree (`manifest.tsv` plus one sanitized
+  folder per query with a one-row `partitioned_h2.tsv`, the full
+  baseline-plus-query `partitioned_h2_full.tsv`, and `metadata.json`).
+
+Both regimes write **one** column schema to `partitioned_h2.tsv`, differing only
+in rows and the default sort:
 
 ```text
-baseline LD-score columns + one query LD-score column
+Category, Prop._SNPs, Category_h2, Category_h2_std_error, Prop._h2,
+Prop._h2_std_error, Enrichment, Enrichment_std_error, Enrichment_p, Coefficient,
+Coefficient_std_error, Coefficient_z, Coefficient_p, overlap_aware
 ```
 
-This keeps baseline annotations fixed while estimating one query annotation at a
-time. By default the CLI writes the compact aggregate `partitioned_h2.tsv` table
-plus diagnostic files under `diagnostics/`. With `--write-per-query-results`,
-it also writes a staged `diagnostics/query_annotations/` tree containing
-`manifest.tsv` and one sanitized folder per query annotation. Each query folder contains a one-row
-`partitioned_h2.tsv`, the full fitted-model `partitioned_h2_full.tsv`, and
-`metadata.json`. The log is preflighted with the table outputs, but it is not
-part of returned `output_paths`.
+Interpretation. `Enrichment = Prop._h2 / Prop._SNPs` is the **marginal**
+heritability of the SNPs in a category (overlap-aware, baseline-confounded for a
+query); `Coefficient` is the **conditional** per-SNP contribution beyond the
+baseline. `Category_h2 = M_c·tau_c` is the conditional category contribution and
+can be negative under overlap. `overlap_aware` flags whether the fitted model's
+annotations overlap. `--summary-sort-by` defaults to `auto` (→ `coefficient-p`
+for cell-type, `category` for functional); the run logs a regime banner and
+records `analysis_type` / `headline_metric` / `enrichment_p_test` /
+`coefficient_p_test` in `diagnostics/metadata.json`.
 
 `partitioned-h2` treats `partitioned_h2.tsv`, `diagnostics/metadata.json`,
 `diagnostics/query_annotations/`, and `diagnostics/partitioned-h2.log` as one

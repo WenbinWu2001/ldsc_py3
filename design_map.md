@@ -79,6 +79,17 @@ contracts move.
 | `docs/superpowers/specs/2026-05-09-batch-rg-design.md` | final multi-trait rg design decisions and output schemas |
 | `docs/superpowers/plans/2026-05-09-batch-rg-implementation-plan.md` | implemented rg refactor checklist and verification plan |
 
+## Overlap-Aware Partitioned Heritability
+
+| Design document | Implementation |
+| --- | --- |
+| `docs/superpowers/specs/2026-06-11-overlap-aware-partitioned-h2-design.md` | overlap matrix math, `A_Bᵀ·A` baseline-rows block reuse, parquet-sidecar storage, two regimes, strict common-MAF filter, continuous-annotation handling |
+| `docs/superpowers/plans/2026-06-11-overlap-aware-partitioned-h2-plan.md` | TDD implementation checklist for the overlap-aware partitioned-h2 feature |
+| `docs/current/partitioned-ldsc-workflow.md` | `ldscore.overlap.parquet` artifact, `overlap_config`, two-regime `partitioned-h2`, single output schema, regime banner/metadata |
+| overlap computation | `src/ldsc/_kernel/overlap.py` (`OverlapContribution`, `compute_overlap`, `sum_overlap_contributions`); attached in `_kernel/ldscore.py` and aggregated in `ldscore_calculator.py` |
+| overlap container, serde, assembly, summary math, collinearity warning | `src/ldsc/overlap_matrix.py` (`LDScoreOverlap`, `overlap_to_long_frame`/`overlap_from_long_frame`, `assemble_model_overlap`, `overlap_aware_category_table`, `model_collinearity_warning`) |
+| sidecar write/load + overlap-aware regimes/sort/banner | `outputs.py` (`LDScoreDirectoryWriter`, `PARTITIONED_H2_COLUMNS`), `regression_runner.py` (`summarize_partitioned_h2`, `estimate_partitioned_h2_batch`, `_resolve_summary_sort`, `_log_partitioned_h2_regime`, `load_ldscore_from_dir`) |
+
 ## Regression Tutorials
 
 | Tutorial | Covered implementation path |

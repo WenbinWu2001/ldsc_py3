@@ -162,3 +162,30 @@ def overlap_aware_category_table(hsq, overlap_matrix, m_annot, m_tot, category_n
     np.fill_diagonal(off_diagonal, 0.0)
     table["overlap_aware"] = bool(np.any(off_diagonal > 0))
     return table
+
+
+def assemble_model_overlap(
+    overlap: LDScoreOverlap, retained_columns: list[str], use_common: bool
+) -> np.ndarray:
+    """Build the ``K×K`` model overlap matrix for ``retained_columns`` by name.
+
+    Baseline-baseline and baseline-query entries come from the baseline-rows
+    block (using symmetry for query-baseline); the query-query diagonal comes
+    from the stored self-overlap. ``use_common`` selects the common-SNP universe.
+    """
+    block = overlap.baseline_block_common if use_common else overlap.baseline_block_all
+    qdiag = overlap.query_diagonal_common if use_common else overlap.query_diagonal_all
+    if block is None:
+        raise ValueError("common-universe overlap requested but not stored")
+    baseline_index = set(block.index)
+    k = len(retained_columns)
+    out = np.zeros((k, k), dtype=np.float64)
+    for a, ca in enumerate(retained_columns):
+        for b, cb in enumerate(retained_columns):
+            if ca in baseline_index:
+                out[a, b] = float(block.at[ca, cb])
+            elif cb in baseline_index:
+                out[a, b] = float(block.at[cb, ca])
+            else:  # both query -> only the diagonal ca == cb is reachable per model
+                out[a, b] = float(qdiag.at[ca])
+    return out

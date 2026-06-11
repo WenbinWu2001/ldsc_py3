@@ -171,3 +171,28 @@ def test_overlap_aware_hand_example_disjoint_plus_base():
     assert abs(float(table.loc["base", "Prop._h2"]) - 1.0) < 1e-9
     assert abs(float(table.loc["A", "Prop._SNPs"]) - 0.5) < 1e-12
     assert abs(float(table.loc["A", "Enrichment"]) - (3 / 9) / 0.5) < 1e-9
+
+
+def test_assemble_model_overlap_reconstructs_submatrix():
+    from ldsc._kernel.overlap import OverlapContribution
+    from ldsc.overlap_matrix import LDScoreOverlap, assemble_model_overlap
+    # Full A: baseline=[base, catA], query=[q1, q2]
+    A = np.array([
+        [1, 1, 1, 0],
+        [1, 1, 0, 1],
+        [1, 0, 1, 0],
+        [1, 0, 0, 1],
+    ], dtype=float)
+    O_full = A.T @ A
+    contribution = OverlapContribution(
+        baseline_block_all=A[:, :2].T @ A,
+        baseline_block_common=None,
+        query_diagonal_all=(A[:, 2:] ** 2).sum(axis=0),
+        query_diagonal_common=None,
+        n_all=4, n_common=None,
+    )
+    overlap = LDScoreOverlap.from_contribution(contribution, ["base", "catA"], ["q1", "q2"])
+    # model for q1: retained = [base, catA, q1] -> rows/cols 0,1,2 of O_full
+    O_R = assemble_model_overlap(overlap, ["base", "catA", "q1"], use_common=False)
+    np.testing.assert_allclose(O_R, O_full[np.ix_([0, 1, 2], [0, 1, 2])])
+    np.testing.assert_allclose(O_R[2, :], O_R[:, 2])  # assembled query row/col symmetric

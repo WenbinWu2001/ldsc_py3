@@ -1,4 +1,5 @@
 from pathlib import Path
+from datetime import datetime, timedelta
 import logging
 import sys
 import tempfile
@@ -94,6 +95,43 @@ class LoggingRefactorTest(unittest.TestCase):
 
         self.assertIn("Elapsed time: 2.0min:12s", text)
         self.assertNotIn("Elapsed: 2:12", text)
+
+    def test_workflow_logging_pairs_wall_timepoints_with_elapsed_timer(self):
+        from ldsc._logging import workflow_logging
+
+        wall_start = datetime(2026, 1, 2, 3, 4, 5)
+        clock = {"offset": 0.0, "monotonic_calls": 0}
+        original_mkdir = Path.mkdir
+
+        def fake_datetime_now():
+            return wall_start + timedelta(seconds=clock["offset"])
+
+        def fake_monotonic():
+            clock["monotonic_calls"] += 1
+            if clock["monotonic_calls"] == 2:
+                clock["offset"] += 5.0
+            return 100.0 + clock["offset"]
+
+        def slow_mkdir(path, *args, **kwargs):
+            clock["offset"] += 5.0
+            return original_mkdir(path, *args, **kwargs)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = Path(tmpdir) / "workflow.log"
+            with (
+                mock.patch("ldsc._logging.datetime") as datetime_mock,
+                mock.patch("ldsc._logging.time.monotonic", side_effect=fake_monotonic),
+                mock.patch("ldsc._logging.Path.mkdir", autospec=True, side_effect=slow_mkdir),
+            ):
+                datetime_mock.now.side_effect = fake_datetime_now
+                with workflow_logging("unit", log_path, log_level="INFO"):
+                    clock["offset"] += 65.0
+
+            text = log_path.read_text(encoding="utf-8")
+
+        self.assertIn("LDSC unit Started 2026-01-02 03:04:05", text)
+        self.assertIn("Finished 2026-01-02 03:05:20", text)
+        self.assertIn("Elapsed time: 1.0min:15s", text)
 
     def test_workflow_logging_keeps_audit_lines_at_error_level(self):
         from ldsc._logging import workflow_logging

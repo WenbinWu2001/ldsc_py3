@@ -375,7 +375,8 @@ column to focus on:
   significantly different from 1, i.e. significantly larger or smaller."
 - Cell-type: "Cell-type-specific regime: baseline + one query per model
   (N queries). Focus on `Coefficient` together with the one-sided `Coefficient_p`
-  (H1: tau > 0): a **positive** `Coefficient` with a small `Coefficient_p` means
+  (a one-sided test of whether `Coefficient` > 0): a **positive** `Coefficient`
+  with a small `Coefficient_p` means
   the query annotation contributes heritability **beyond** the baseline
   annotations. The `Enrichment` column is confounded by the query annotation's
   overlap with the baseline annotations, so use `Coefficient_p` to judge whether

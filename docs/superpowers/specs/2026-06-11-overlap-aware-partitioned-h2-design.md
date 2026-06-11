@@ -337,18 +337,25 @@ Coefficient, Coefficient_std_error, Coefficient_z, Coefficient_p,
 overlap_aware
 ```
 
-Row meaning and files by regime:
+Row meaning, files, and default ordering by regime:
 
 - Functional (no query): one joint fit; rows are **all baseline categories**.
-  Writes the compact `partitioned_h2.tsv` and, because the per-category standard
-  errors are essential to enrichment analysis and the table is small, the full
-  `partitioned_h2_full.tsv` at the output root by default. Headline column is
-  `Enrichment` (+ two-sided `Enrichment_p`).
-- Cell-type (query present): compact `partitioned_h2.tsv` has one row **per
-  query**; headline column is `Coefficient` (+ one-sided `Coefficient_p`).
-  `--write-per-query-results` additionally emits, per query under
-  `diagnostics/query_annotations/<q>/`, the full baseline-plus-query table whose
-  baseline rows are the joint functional enrichments.
+  The primary `partitioned_h2.tsv` carries the **full** schema by default (the
+  per-category standard errors are the point of enrichment analysis), so no
+  separate `_full` file is written. Headline column is `Enrichment` (+ two-sided
+  `Enrichment_p`); rows are written in baseline-annotation order
+  (`--summary-sort-by` resolves to `category`, matching legacy `.results`).
+- Cell-type (query present): the primary `partitioned_h2.tsv` carries the
+  **compact** schema, one row **per query**; headline column is `Coefficient`
+  (+ one-sided `Coefficient_p`). Rows are sorted by `Coefficient_p` ascending by
+  default (most-significant first), matching legacy `cell_type_specific`
+  (`sumstats.py:310`). `--write-per-query-results` additionally emits, per query
+  under `diagnostics/query_annotations/<q>/`, the full baseline-plus-query table
+  whose baseline rows are the joint functional enrichments.
+
+`--summary-sort-by` defaults to `auto`, which resolves to `category` in the
+functional regime and `coefficient-p` in the cell-type regime; any explicit
+choice is honored in both.
 
 `Enrichment_p` is two-sided t (df = `n_blocks`) in both regimes; `Coefficient_p`
 is one-sided normal in both. A short "which column answers which question"
@@ -406,12 +413,15 @@ the overlap matrix). No silent fallback to disjoint numbers.
 - `ldscore_calculator.py` — carry/sum overlap blocks in `_LegacyChromResult` →
   `ChromLDScoreResult` → `LDScoreResult`; strict-`>` in `count_config`.
 - `outputs.py` — write `ldscore.overlap.parquet`; add `files.overlap` +
-  `overlap_config` to `build_metadata`.
+  `overlap_config` to `build_metadata`; let `PartitionedH2DirectoryWriter` emit
+  the **full** schema as the primary `partitioned_h2.tsv` in the functional
+  regime (compact remains primary in the cell-type regime).
 - `regression_runner.py` — load overlap sidecar in `load_ldscore_from_dir`;
   assemble `O_R` aligned to retained columns/universe; add the two regimes;
   replace disjoint logic in `summarize_partitioned_h2` with `_overlap_output` +
   augmentation; one-sided `Coefficient_p`; collinearity warning; remove the
-  "requires query annotations" rejection.
+  "requires query annotations" rejection; change `--summary-sort-by` default to
+  `auto` (regime-aware: `category` functional, `coefficient-p` cell-type).
 - `docs/current/partitioned-ldsc-workflow.md`, `docs/troubleshooting.md`,
   `design_map.md` — update.
 - `tests/` — per §10.

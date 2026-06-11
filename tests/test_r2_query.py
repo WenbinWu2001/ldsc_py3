@@ -245,6 +245,61 @@ class TestQueryPairs:
         # r is always emitted but all-NaN in base mode (no sign information).
         assert "r" in out_a.columns and pd.isna(out_a["r"].iloc[0])
 
+    def test_rsid_endpoint_aliases_match_canonical_snp_columns(self, tmp_path):
+        canonical_panel = self._panel(tmp_path, mode="rsid")
+        canonical_pairs = pd.DataFrame({"SNP_1": ["rs1"], "SNP_2": ["rs2"]})
+        alias_pairs = pd.DataFrame({"rsID_1": ["rs1"], "rsID_2": ["rs2"]})
+
+        canonical = canonical_panel.query_pairs(canonical_pairs)
+        alias = canonical_panel.query_pairs(alias_pairs)
+
+        assert alias["r2"].iloc[0] == pytest.approx(canonical["r2"].iloc[0], abs=1.5e-5)
+        assert alias["status"].iloc[0] == canonical["status"].iloc[0]
+
+    def test_uppercase_rsid_endpoint_aliases_are_accepted(self, tmp_path):
+        panel = self._panel(tmp_path, mode="rsid")
+        pairs = pd.DataFrame({"RSID_1": ["rs1"], "RSID_2": ["rs2"]})
+
+        out = panel.query_pairs(pairs)
+
+        assert out["r2"].iloc[0] == pytest.approx(0.64, abs=1.5e-5)
+        assert out["status"].iloc[0] == ""
+
+    def test_chr_pos_endpoint_aliases_are_accepted(self, tmp_path):
+        panel = self._panel(tmp_path, mode="chr_pos")
+        pairs = pd.DataFrame({"chr_1": [1], "bp_1": [100], "chr_2": [1], "bp_2": [200]})
+
+        out = panel.query_pairs(pairs)
+
+        assert out["r2"].iloc[0] == pytest.approx(0.64, abs=1.5e-5)
+        assert out["status"].iloc[0] == ""
+
+    def test_alias_input_columns_are_preserved_before_result_columns(self, tmp_path):
+        panel = self._panel(tmp_path, mode="rsid")
+        pairs = pd.DataFrame(
+            {
+                "rsID_1": ["rs1"],
+                "rsID_2": ["rs2"],
+                "note": ["keep-me"],
+            }
+        )
+
+        out = panel.query_pairs(pairs)
+
+        assert out.columns.tolist() == ["rsID_1", "rsID_2", "note", "r2", "sign", "r", "status"]
+        assert out["rsID_1"].iloc[0] == "rs1"
+        assert out["rsID_2"].iloc[0] == "rs2"
+        assert out["note"].iloc[0] == "keep-me"
+
+    def test_duplicate_endpoint_aliases_are_ambiguous(self, tmp_path):
+        from ldsc.errors import LDSCInputError
+
+        panel = self._panel(tmp_path, mode="rsid")
+        pairs = pd.DataFrame({"SNP_1": ["rs1"], "rsID_1": ["rs1"], "SNP_2": ["rs2"]})
+
+        with pytest.raises(LDSCInputError, match="multiple columns match canonical field 'SNP'"):
+            panel.query_pairs(pairs)
+
 
 class TestQueryR2Wrapper:
     def test_query_r2_one_shot_matches_handle(self, tmp_path):

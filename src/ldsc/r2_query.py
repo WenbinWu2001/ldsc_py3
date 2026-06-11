@@ -35,6 +35,16 @@ from ._kernel.snp_identity import (
     normalize_snp_identifier_mode,
 )
 from .chromosome_inference import normalize_chromosome
+from .column_inference import (
+    A1_COLUMN_SPEC,
+    A2_COLUMN_SPEC,
+    CHR_COLUMN_SPEC,
+    ColumnSpec,
+    POS_COLUMN_SPEC,
+    SNP_COLUMN_SPEC,
+    normalize_column_token,
+    resolve_optional_column,
+)
 from .errors import LDSCInputError, LDSCUsageError
 
 LOGGER = logging.getLogger("LDSC.r2_query")
@@ -411,23 +421,49 @@ def _query_keys(endpoint: pd.DataFrame, mode: str) -> np.ndarray:
     return keys.to_numpy(dtype=object)
 
 
-_ENDPOINT_COLUMNS = ("CHR", "POS", "SNP", "A1", "A2")
+_ENDPOINT_COLUMN_SPECS = {
+    "CHR": CHR_COLUMN_SPEC,
+    "POS": POS_COLUMN_SPEC,
+    "SNP": SNP_COLUMN_SPEC,
+    "A1": A1_COLUMN_SPEC,
+    "A2": A2_COLUMN_SPEC,
+}
+_ENDPOINT_COLUMNS = tuple(_ENDPOINT_COLUMN_SPECS)
+
+
+def _endpoint_column_spec(base: ColumnSpec, suffix: str) -> ColumnSpec:
+    """Return a ``query-r2`` endpoint spec for aliases suffixed by endpoint."""
+    aliases: list[str] = []
+    for alias in base.aliases:
+        aliases.extend((f"{alias}_{suffix}", f"{alias}{suffix}"))
+    return ColumnSpec(
+        base.canonical,
+        tuple(aliases),
+        f"endpoint-{suffix} {base.label}",
+        allow_suffix_match=False,
+    )
 
 
 def _endpoint_frame(pairs: pd.DataFrame, suffix: str, mode: str) -> pd.DataFrame:
     """Extract one endpoint's canonical columns from suffixed pair columns.
 
-    Reads ``<NAME>_<suffix>`` columns and renames to canonical ``CHR/POS/SNP/A1/A2``.
-    In base modes (``rsid``/``chr_pos``) allele columns are dropped before use, so
-    a base-mode query behaves identically with or without alleles supplied.
+    Resolves ``<NAME>_<suffix>`` or ``<alias>_<suffix>`` input columns and returns
+    canonical ``CHR/POS/SNP/A1/A2`` fields for matching. In base modes
+    (``rsid``/``chr_pos``) allele columns are dropped before use, so a base-mode
+    query behaves identically with or without alleles supplied.
     """
     allele_aware = is_allele_aware_mode(mode)
+    suffix_token = normalize_column_token(suffix)
+    suffixed_columns = [
+        column for column in pairs.columns if normalize_column_token(column).endswith(suffix_token)
+    ]
     out = {}
     for canonical in _ENDPOINT_COLUMNS:
         if canonical in ("A1", "A2") and not allele_aware:
             continue
-        col = f"{canonical}_{suffix}"
-        if col in pairs.columns:
+        spec = _endpoint_column_spec(_ENDPOINT_COLUMN_SPECS[canonical], suffix)
+        col = resolve_optional_column(suffixed_columns, spec, context=f"query-r2 endpoint {suffix}")
+        if col is not None:
             out[canonical] = pairs[col].to_numpy()
     if not out:
         raise LDSCInputError(

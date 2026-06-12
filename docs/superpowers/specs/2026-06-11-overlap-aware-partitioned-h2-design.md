@@ -224,7 +224,7 @@ dq_common  += Σ_{s∈c} A[s,q]²
 n_all      += rows;   n_common += c.sum()       # M_tot per universe
 ```
 
-where the common mask `c` is `MAF > common_maf_min` (strict; see §5). These are
+where the common mask `c` is `MAF >= common_maf_min` (inclusive; see §5). These are
 summed across chromosomes in `_aggregate_chromosome_results` exactly like the
 count vectors. The cost is one extra matrix product on data already resident in
 memory, negligible against the LD-score (R²) computation.
@@ -250,7 +250,7 @@ Rows: `(baseline_i, c)` for every baseline `i` and every column `c`
   "total_all_reference_snps": 9997231,
   "total_common_reference_snps": 5821004,
   "common_maf_min": 0.05,
-  "common_maf_operator": ">",
+  "common_maf_operator": ">=",
   "stored_block": "baseline_rows_plus_query_diagonal"
 }
 ```
@@ -285,16 +285,17 @@ Counts and the overlap matrix are computed over the reference SNP universe
 re-reads `.annot`, never the regression subset). Two universes:
 
 - **all** — every retained reference SNP. `M_tot = total_all_reference_snps`.
-- **common** — `MAF > common_maf_min` (default 0.05).
+- **common** — `MAF >= common_maf_min` (default 0.05).
   `M_tot = total_common_reference_snps`.
 
-The common filter changes from `MAF >= common_maf_min` to **strict `>`**
-(`_kernel/ldscore.py:1569`) to align with legacy's `0.05 < FRQ < 0.95`
-(`parse.py:130`); on canonical folded MAF (≤0.5) the upper bound is automatic,
-so legacy reduces to `MAF > 0.05`. The `count_config.common_reference_snp_maf_operator`
-string changes `">="` → `">"`. This affects existing `M_5_50` values only at the
-exact boundary `MAF == 0.05`. The overlap common mask reuses this same mask so
-its diagonal stays equal to `M_5_50`.
+The common filter uses **inclusive `MAF >= common_maf_min`** (`_kernel/ldscore.py`),
+following the project convention that `-min` thresholds are inclusive (`>=`) and
+`-max` thresholds inclusive (`<=`); the exact boundary `MAF == 0.05` is therefore
+included. The `count_config.common_reference_snp_maf_operator` string is `">="`.
+The overlap common mask reuses this same mask, so its diagonal stays equal to the
+common-count vector `M_5_50`. (An earlier draft of this spec used strict `>` to
+mirror legacy's `0.05 < FRQ`; that was reconsidered in favor of the inclusive
+convention — see `docs/superpowers/specs/2026-06-11-cm-maf-source-of-truth-design.md`.)
 
 Regression continues to default to common counts when available and fall back to
 all counts otherwise (`--count-kind`), and the overlap universe follows that
@@ -394,19 +395,21 @@ column to focus on:
 `headline_metric` (`enrichment` | `coefficient`),
 `enrichment_p_test` (`two_sided_t`), `coefficient_p_test` (`one_sided_greater`).
 
-## 8. Collinearity warning
+## 8. Collinearity hard error
 
 Restore legacy's condition-number guard (`_check_ld_condnum`, `sumstats.py:175`),
-which LDSC3 dropped, as a **warning** (not an error, per requirement). At
-regression time, after the retained LD-score design matrix `X` is assembled, if
-`cond(X) > 1e5` (legacy's threshold on the LD-score design matrix itself) emit a
-warning naming the most collinear annotation pair —
-derived from the overlap matrix as `O[i,j]/sqrt(O[i,i]·O[j,j])` — with a
-suggested action (drop one of the pair, or coarsen the annotation). Checked once
-for the functional joint fit; checked per model in the cell-type regime with
-warnings de-duplicated so large query panels do not spam the log. Location: the
-regression workflow layer (`regression_runner.py`), where `X` and the overlap
-matrix are both available.
+which LDSC3 dropped, as a **hard error** (legacy's behavior). At regression time,
+after the retained LD-score design matrix `X` is assembled, if `cond(X) > 1e5`
+(legacy's threshold on the LD-score design matrix itself) raise `LDSCInputError`
+naming the most collinear annotation pair — derived from the overlap matrix as
+`O[i,j]/sqrt(O[i,i]·O[j,j])` — with a suggested action (drop one of the pair, or
+coarsen the annotation). Aborting (rather than warning) keeps every emitted
+partition trustworthy: collinear annotations cannot be separated, so the run
+stops instead of asking a non-statistician user to adjudicate a warning. Checked
+once for the functional joint fit; checked per model in the cell-type regime,
+where the first collinear model aborts the batch. Location: the regression
+workflow layer (`regression_runner.py`), where `X` and the overlap matrix are
+both available.
 
 ## 9. Backward compatibility
 
@@ -441,10 +444,10 @@ the overlap matrix). No silent fallback to disjoint numbers.
 
 ## 11. Touch points (summary; details in the plan)
 
-- `_kernel/ldscore.py` — compute overlap blocks beside `compute_counts`; flip
-  common mask to strict `>`; thread blocks through `ChromComputationResult`.
+- `_kernel/ldscore.py` — compute overlap blocks beside `compute_counts`; keep the
+  inclusive `MAF >= common_maf_min` common mask; thread blocks through `ChromComputationResult`.
 - `ldscore_calculator.py` — carry/sum overlap blocks in `_LegacyChromResult` →
-  `ChromLDScoreResult` → `LDScoreResult`; strict-`>` in `count_config`.
+  `ChromLDScoreResult` → `LDScoreResult`; inclusive `>=` operator in `count_config`.
 - `outputs.py` — write `ldscore.overlap.parquet`; add `files.overlap` +
   `overlap_config` to `build_metadata`; `PartitionedH2DirectoryWriter` writes the
   single schema as the primary `partitioned_h2.tsv` in both regimes, with
@@ -452,7 +455,7 @@ the overlap matrix). No silent fallback to disjoint numbers.
 - `regression_runner.py` — load overlap sidecar in `load_ldscore_from_dir`;
   assemble `O_R` aligned to retained columns/universe; add the two regimes;
   replace disjoint logic in `summarize_partitioned_h2` with `_overlap_output` +
-  augmentation; one-sided `Coefficient_p`; collinearity warning; remove the
+  augmentation; one-sided `Coefficient_p`; collinearity hard error; remove the
   "requires query annotations" rejection; change `--summary-sort-by` default to
   `auto` (regime-aware: `category` functional, `coefficient-p` cell-type); emit
   the regime log banner with interpretation guidance and the `analysis_type` /

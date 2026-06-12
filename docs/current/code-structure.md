@@ -60,7 +60,7 @@ ldsc_py3_Jerry/
 | `ldsc.ldscore_calculator` | LD-score orchestration, optional synthetic `base` annotation construction, aggregation, and output routing |
 | `ldsc.sumstats_munger` | raw-sumstats CLI/API orchestration, `--format auto` / `--infer-only` header inference, Parquet/TSV curated output writing, self-describing `sumstats.parquet` footer identity metadata, diagnostics under `diagnostics/`, canonical `CHR`/`POS` sumstats output, and curated sumstats loader |
 | `ldsc.regression_runner` | file-driven regression dataset assembly, active effective identity-key merging (`SNP`, `SNP:<allele_set>`, `CHR:POS`, or `CHR:POS:<allele_set>`), h2/partitioned-h2/rg estimator dispatch (including the two overlap-aware partitioned-h2 regimes), and rg result-family writing |
-| `ldsc.overlap_matrix` | public-layer overlap container (`LDScoreOverlap`), long-form parquet (de)serialization, per-model overlap assembly, the overlap-aware category table (ported `_overlap_output` + augmentation), and the collinearity warning |
+| `ldsc.overlap_matrix` | public-layer overlap container (`LDScoreOverlap`), long-form parquet (de)serialization, per-model overlap assembly, the overlap-aware category table (ported `_overlap_output` + augmentation), and the collinearity hard-error check (`model_collinearity_error`) |
 | `ldsc.outputs` | artifact naming, LD-score parquet layout (including `ldscore.overlap.parquet`), partitioned-h2 per-query layout, rg result-family layout, metadata JSON payloads, and serialization |
 | `ldsc._kernel.overlap` | low-level annotation overlap-block computation (`OverlapContribution`, `compute_overlap`, `sum_overlap_contributions`) |
 | `ldsc._kernel.annotation` | low-level annotation table reading and BED intersection helpers |

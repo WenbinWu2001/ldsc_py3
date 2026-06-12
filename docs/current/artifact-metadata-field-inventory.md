@@ -192,7 +192,7 @@ that `partitioned-h2` requires.
 | `baseline_columns` | Ordered baseline annotation LD-score columns. | Required to assemble regression covariates. |
 | `query_columns` | Ordered query annotation LD-score columns. | Required for partitioned h2 query selection. |
 | `counts` | Per-annotation count records. | Required for regression count vectors. |
-| `count_config` | Common-SNP count settings (`common_reference_snp_maf_min`, `common_reference_snp_maf_operator: ">"`). | Reporting/context. |
+| `count_config` | Common-SNP count settings (`common_reference_snp_maf_min`, `common_reference_snp_maf_operator: ">="`). | Reporting/context. |
 | `overlap_config` | Overlap-matrix provenance: `total_all_reference_snps`, `total_common_reference_snps`, `common_maf_min`, `common_maf_operator`, `stored_block`. | Provides `M_tot` and the universe definition for overlap-aware partitioned-h2. |
 | `n_baseline_rows` | Number of rows in the baseline parquet table. | Reporting. |
 | `n_query_rows` | Number of rows in the query parquet table, or zero. | Reporting. |

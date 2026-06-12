@@ -26,8 +26,8 @@
 - `tests/test_overlap_matrix.py` — unit tests for the two modules above.
 
 **Modified files:**
-- `src/ldsc/_kernel/ldscore.py` — strict-`>` common mask; populate `ChromComputationResult.overlap`.
-- `src/ldsc/ldscore_calculator.py` — carry/sum overlap through `_LegacyChromResult` → `ChromLDScoreResult` → `LDScoreResult`; strict-`>` in `count_config`.
+- `src/ldsc/_kernel/ldscore.py` — inclusive `MAF >= common_maf_min` common mask; populate `ChromComputationResult.overlap`.
+- `src/ldsc/ldscore_calculator.py` — carry/sum overlap through `_LegacyChromResult` → `ChromLDScoreResult` → `LDScoreResult`; inclusive `>=` operator in `count_config`.
 - `src/ldsc/outputs.py` — write/read `ldscore.overlap.parquet`; `overlap_config` in metadata; single partitioned-h2 schema for the primary table in both regimes.
 - `src/ldsc/regression_runner.py` — load overlap; two regimes; rewrite `summarize_partitioned_h2`; one-sided `Coefficient_p`; `auto` sort; log banner + metadata fields; collinearity warning; column constants.
 - `tests/test_ldscore_workflow.py`, `tests/test_regression_workflow.py`, `tests/test_output.py` — extend/replace.
@@ -37,73 +37,17 @@
 
 ## Milestone 0 — Strict common-MAF filter
 
-### Task 1: Switch the common-SNP mask to strict `>`
+### Task 1: Keep the common-SNP mask inclusive (`MAF >= common_maf_min`)
 
-**Files:**
-- Modify: `src/ldsc/_kernel/ldscore.py` (`compute_counts`, ~line 1553-1571)
-- Modify: `src/ldsc/ldscore_calculator.py` (`_count_config_from_ldscore_config`, ~line 815-820)
-- Test: `tests/test_ldscore_workflow.py`
-
-- [ ] **Step 1: Write the failing test**
-
-Add to `tests/test_ldscore_workflow.py`:
-
-```python
-def test_compute_counts_common_mask_is_strict_greater_than():
-    from ldsc._kernel.ldscore import compute_counts
-    metadata = pd.DataFrame({"MAF": [0.05, 0.0500001, 0.2, 0.04]})
-    annotations = pd.DataFrame({"base": [1.0, 1.0, 1.0, 1.0], "cat": [1.0, 0.0, 1.0, 1.0]})
-    M, M_5_50 = compute_counts(metadata, annotations, common_maf_min=0.05)
-    # MAF == 0.05 is excluded (strict >), so only rows 1 and 2 are common.
-    assert list(M) == [4.0, 3.0]
-    assert list(M_5_50) == [2.0, 1.0]
-
-
-def test_count_config_records_strict_operator():
-    from ldsc.ldscore_calculator import _count_config_from_ldscore_config
-    from ldsc.config import LDScoreConfig
-    cfg = _count_config_from_ldscore_config(LDScoreConfig(common_maf_min=0.05))
-    assert cfg["common_reference_snp_maf_operator"] == ">"
-```
-
-- [ ] **Step 2: Run to verify failure**
-
-Run: `pytest tests/test_ldscore_workflow.py -k "strict" -v`
-Expected: FAIL — current mask is `>=`, so `M_5_50` is `[3.0, 2.0]` and operator is `">="`.
-
-- [ ] **Step 3: Implement**
-
-In `src/ldsc/_kernel/ldscore.py` `compute_counts`, change the mask and docstring:
-
-```python
-    # docstring: "...restricted to rows with ``MAF > common_maf_min``..."
-    common = metadata["MAF"] > common_maf_min
-```
-
-In `src/ldsc/ldscore_calculator.py` `_count_config_from_ldscore_config`:
-
-```python
-    return {
-        "common_reference_snp_maf_min": float(ldscore_config.common_maf_min),
-        "common_reference_snp_maf_operator": ">",
-    }
-```
-
-- [ ] **Step 4: Run to verify pass**
-
-Run: `pytest tests/test_ldscore_workflow.py -k "strict" -v`
-Expected: PASS
-
-- [ ] **Step 5: Fix any existing tests asserting `>=`**
-
-Run: `pytest tests/test_ldscore_workflow.py tests/test_output.py -k "common or maf or M_5_50" -v`
-Update any test that hard-coded the inclusive boundary or the `">="` operator string to the strict form. Show each change.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git -C "$REPO" add -A && git -C "$REPO" commit -m "feat(ldscore): use strict MAF > common-maf-min for common counts"
-```
+> **Superseded — no code change.** An earlier draft of this plan switched the
+> common-SNP mask to strict `>`. That was reversed: the project convention is
+> that `-min` thresholds are inclusive (`>=`) and `-max` thresholds inclusive
+> (`<=`). The common mask therefore stays `MAF >= common_maf_min`
+> (`src/ldsc/_kernel/ldscore.py` `compute_counts`), and
+> `count_config.common_reference_snp_maf_operator` stays `">="`. The exact
+> boundary `MAF == 0.05` is included, and `M_5_50` is unchanged. The overlap
+> blocks in the tasks below reuse this same inclusive common mask. See
+> `docs/superpowers/specs/2026-06-11-cm-maf-source-of-truth-design.md`.
 
 ---
 
@@ -219,7 +163,7 @@ def compute_overlap(
     """Compute baseline-rows overlap blocks and query self-overlaps.
 
     ``annotations`` columns are ordered ``baseline + query`` with ``n_baseline``
-    leading baseline columns. The common universe is ``MAF > common_maf_min``
+    leading baseline columns. The common universe is ``MAF >= common_maf_min``
     (strict, matching the common-count mask); it is omitted when MAF metadata is
     absent or all-missing.
     """
@@ -230,7 +174,7 @@ def compute_overlap(
     n_all = int(A.shape[0])
     if "MAF" not in metadata.columns or metadata["MAF"].isna().all():
         return OverlapContribution(block_all, None, query_diag_all, None, n_all, None)
-    common = (metadata["MAF"] > common_maf_min).to_numpy()
+    common = (metadata["MAF"] >= common_maf_min).to_numpy()
     A_common = A[common]
     block_common = A_common[:, :n_baseline].T @ A_common
     query_diag_common = np.einsum(
@@ -631,7 +575,7 @@ def test_ldscore_writer_emits_overlap_sidecar(tmp_path):
     assert overlap_path.exists()
     meta = json.loads((tmp_path / "metadata.json").read_text())
     assert meta["files"]["overlap"] == "ldscore.overlap.parquet"
-    assert meta["overlap_config"]["common_reference_snp_maf_operator"] == ">"
+    assert meta["overlap_config"]["common_reference_snp_maf_operator"] == ">="
     assert meta["overlap_config"]["total_all_reference_snps"] == result.overlap.total_all_reference_snps
 ```
 
@@ -668,7 +612,7 @@ In `build_metadata`, add the overlap pointer + config:
                     else float(overlap.total_common_reference_snps)
                 ),
                 "common_maf_min": float(dict(getattr(result, "count_config", {})).get("common_reference_snp_maf_min", 0.05)),
-                "common_maf_operator": ">",
+                "common_maf_operator": ">=",
                 "stored_block": "baseline_rows_plus_query_diagonal",
             }
 ```

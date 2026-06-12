@@ -196,7 +196,7 @@ Root `metadata.json` also records the threshold used to compute common counts:
 {
   "count_config": {
     "common_reference_snp_maf_min": 0.05,
-    "common_reference_snp_maf_operator": ">"
+    "common_reference_snp_maf_operator": ">="
   }
 }
 ```

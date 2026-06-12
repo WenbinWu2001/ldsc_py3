@@ -610,20 +610,39 @@ class RegressionRunner:
         dataset: RegressionDataset,
         config: RegressionConfig | None = None,
     ):
-        """Estimate single-trait heritability from a prepared dataset."""
+        """Estimate single-trait heritability from a prepared dataset.
+
+        Partitioned (multi-annotation) datasets apply the legacy default
+        chi-square cap ``max(0.001 * N.max(), 80)`` when ``chisq_max`` is unset,
+        down-weighting outlier SNPs. Single-annotation datasets stay uncapped and
+        default the two-step cutoff to ``30`` instead. See
+        :func:`_resolve_default_chisq_max`.
+        """
         config = config or self.regression_config
         merged = dataset.merged
         n_snp = len(merged)
         n_blocks = min(n_snp, config.n_blocks)
         x = np.asarray(merged[dataset.retained_ld_columns])
         chisq = np.asarray(merged["Z"] ** 2).reshape((n_snp, 1))
-        if config.chisq_max is not None:
-            keep = np.ravel(chisq <= config.chisq_max)
+        # N.max() is read pre-filter so the partitioned default cap matches legacy.
+        chisq_max = _resolve_default_chisq_max(
+            config.chisq_max, len(dataset.retained_ld_columns), merged["N"].max()
+        )
+        if chisq_max is not None:
+            keep = np.ravel(chisq <= chisq_max)
+            n_removed = n_snp - int(keep.sum())
             merged = merged.loc[keep].reset_index(drop=True)
             n_snp = len(merged)
             n_blocks = min(n_snp, config.n_blocks)
             x = np.asarray(merged[dataset.retained_ld_columns])
             chisq = np.asarray(merged["Z"] ** 2).reshape((n_snp, 1))
+            if n_removed:
+                LOGGER.info(
+                    "Removed %d SNPs with chi^2 > %g (%d SNPs remain).",
+                    n_removed,
+                    chisq_max,
+                    n_snp,
+                )
         intercept = None
         if not config.use_intercept:
             intercept = 1
@@ -817,6 +836,11 @@ class RegressionRunner:
             use_intercept=config.use_intercept,
             default_when_disabled=0,
         )
+        # Legacy estimate_rg defaults two-step to 30 for a single-annotation fit
+        # with a free h2 intercept and no explicit cutoff (sumstats.py:400).
+        two_step = config.two_step_cutoff
+        if two_step is None and intercept_hsq is None and len(dataset.retained_ld_columns) == 1:
+            two_step = 30
         return reg.RG(
             np.asarray(merged[["Z1"]]),
             np.asarray(merged[["Z2"]]),
@@ -829,7 +853,7 @@ class RegressionRunner:
             intercept_hsq2=intercept_hsq,
             intercept_gencov=intercept_gencov,
             n_blocks=n_blocks,
-            twostep=config.two_step_cutoff,
+            twostep=two_step,
         )
 
     def estimate_rg_pairs(
@@ -1611,6 +1635,23 @@ def _select_intercept(value: float | None, use_intercept: bool, default_when_dis
     if value is None:
         return None
     return float(value)
+
+
+def _resolve_default_chisq_max(chisq_max: float | None, n_annot: int, n_max: float) -> float | None:
+    """Effective chi-square ceiling for an h2 fit, matching legacy ``estimate_h2``.
+
+    Legacy LDSC (``ldscore/sumstats.py`` ``estimate_h2``) caps multi-annotation
+    (partitioned) models at ``max(0.001 * N.max(), 80)`` when ``--chisq-max`` is
+    unset, to down-weight outlier SNPs whose extreme chi-square would otherwise
+    dominate the regression. Single-annotation models stay uncapped and rely on
+    the two-step estimator instead. An explicit ``chisq_max`` always takes
+    precedence over the default.
+    """
+    if chisq_max is not None:
+        return float(chisq_max)
+    if n_annot > 1:
+        return max(0.001 * float(n_max), 80.0)
+    return None
 
 
 def add_h2_arguments(parser) -> None:

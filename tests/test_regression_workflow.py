@@ -1003,6 +1003,77 @@ class RegressionWorkflowTest(unittest.TestCase):
         z1_arg = patched.call_args.args[0]
         self.assertEqual(z1_arg.shape[0], 2)
 
+    def test_partitioned_h2_applies_default_chisq_cap_when_unset(self):
+        # Legacy estimate_h2 (sumstats.py:340) caps multi-annotation models at
+        # max(0.001*N.max(), 80) when --chisq-max is unset, to stop extreme-chi^2
+        # SNPs dominating the partitioned regression. N.max()=100000 -> cap=100.
+        # Z=[12,10,2] -> chi^2=[144,100,4]: 144 dropped, 100 kept (inclusive <=),
+        # 4 kept -> 2 SNPs reach the kernel.
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        sumstats = self.make_sumstats_table_from_frame(
+            pd.DataFrame(
+                {
+                    "SNP": ["rs1", "rs2", "rs3"],
+                    "Z": [12.0, 10.0, 2.0],
+                    "N": [100000.0, 100000.0, 100000.0],
+                    "A1": ["A", "C", "G"],
+                    "A2": ["G", "T", "A"],
+                }
+            )
+        )
+        dataset = runner.build_dataset(sumstats, self.make_ldscore_result(), query_columns=["query2"])
+        with mock.patch.object(regression_runner, "_raise_on_model_collinearity"), mock.patch.object(
+            regression_runner.reg, "Hsq", return_value=mock.sentinel.hsq
+        ) as patched, self.assertLogs("LDSC.regression_runner", level="INFO") as logs:
+            runner.estimate_h2(dataset)
+        chisq_arg = patched.call_args.args[0]
+        self.assertEqual(chisq_arg.shape[0], 2)
+        self.assertAlmostEqual(float(chisq_arg.max()), 100.0)
+        self.assertTrue(any("Removed 1 SNPs with chi^2 > 100" in m for m in logs.output))
+
+    def test_single_annotation_h2_applies_no_default_chisq_cap(self):
+        # Legacy estimate_h2 leaves single-annotation h2 uncapped (relies on the
+        # two-step estimator). All three SNPs must reach the kernel even though
+        # rs1 has chi^2=144, which the partitioned default cap would have dropped.
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        sumstats = self.make_sumstats_table_from_frame(
+            pd.DataFrame(
+                {
+                    "SNP": ["rs1", "rs2", "rs3"],
+                    "Z": [12.0, 10.0, 2.0],
+                    "N": [100000.0, 100000.0, 100000.0],
+                    "A1": ["A", "C", "G"],
+                    "A2": ["G", "T", "A"],
+                }
+            )
+        )
+        dataset = runner.build_dataset(sumstats, self.make_ldscore_result())
+        with mock.patch.object(regression_runner.reg, "Hsq", return_value=mock.sentinel.hsq) as patched:
+            runner.estimate_h2(dataset)
+        chisq_arg = patched.call_args.args[0]
+        self.assertEqual(chisq_arg.shape[0], 3)
+
+    def test_rg_applies_default_two_step_when_single_annotation_and_unset(self):
+        # Legacy estimate_rg (sumstats.py:400) sets two_step=30 for the rg fit
+        # when there is a single annotation, no explicit cutoff, and a free h2
+        # intercept. The restructured rg fit must pass the same default through.
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        sumstats_1 = self.make_sumstats_table()
+        sumstats_2 = replace(self.make_sumstats_table(), trait_name="trait2")
+        with mock.patch.object(regression_runner.reg, "RG", return_value=mock.sentinel.rg) as patched:
+            runner.estimate_rg(sumstats_1, sumstats_2, self.make_ldscore_result())
+        self.assertEqual(patched.call_args.kwargs["twostep"], 30)
+
+    def test_rg_default_two_step_suppressed_when_h2_intercept_fixed(self):
+        # Legacy gates the rg default two-step on a free h2 intercept: a fixed
+        # intercept_h2 leaves the cutoff unset (no two-step).
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig(intercept_h2=1.0))
+        sumstats_1 = self.make_sumstats_table()
+        sumstats_2 = replace(self.make_sumstats_table(), trait_name="trait2")
+        with mock.patch.object(regression_runner.reg, "RG", return_value=mock.sentinel.rg) as patched:
+            runner.estimate_rg(sumstats_1, sumstats_2, self.make_ldscore_result())
+        self.assertIsNone(patched.call_args.kwargs["twostep"])
+
     def test_build_rg_dataset_uses_final_three_way_snp_intersection(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
         sumstats_1 = self.make_sumstats_table()

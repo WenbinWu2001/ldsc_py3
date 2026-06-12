@@ -979,13 +979,18 @@ class RegressionConfig:
     two_step_cutoff : float or None, optional
         Inclusive chi-square cutoff for the two-step estimator's step-1 SNP set
         (``chi^2 <= cutoff`` is retained; deviates from legacy LDSC's strict
-        ``chi^2 < cutoff``). Default is ``None``.
+        ``chi^2 < cutoff``). Default is ``None``, in which case single-annotation
+        h2 and single-annotation rg with a free h2 intercept fall back to the
+        legacy default cutoff of ``30``.
     chisq_max : float or None, optional
         Inclusive maximum chi-square retained for regression fitting. For h2 and
         partitioned-h2 this keeps ``chi^2 <= chisq_max``; for rg it keeps
         ``Z1^2 * Z2^2 <= chisq_max^2`` (legacy's opt-in rg filter). Both retain
         the boundary inclusively, deviating from legacy LDSC's strict ``<``.
-        Default is ``None``.
+        Default is ``None``. When unset, partitioned-h2 (multi-annotation)
+        applies the legacy default outlier cap ``max(0.001 * N.max(), 80)`` to
+        down-weight extreme-chi-square SNPs; single-annotation h2 stays uncapped
+        and relies on the two-step estimator instead.
     samp_prev, pop_prev : float, list of float, or None, optional
         Liability-scale prevalence inputs. Defaults are ``None``.
     allow_identity_downgrade : bool, optional

@@ -219,6 +219,17 @@ affect base-mode identity, duplicate filtering, retention, or drop reasons.
 allele-aware/base mixes to run under the base mode. rsID-family and
 coordinate-family modes never mix.
 
+**Outlier handling.** Extreme-chi-square SNPs are controlled differently by
+annotation count, matching legacy LDSC. A **single-annotation** fit (plain `h2`
+and `rg`) applies no chi-square cap and instead defaults the two-step cutoff to
+`30` (when `--two-step-cutoff` is unset and the h2 intercept is free). A
+**multi-annotation** fit (`partitioned-h2`, where the two-step estimator does
+not apply) instead applies a default outlier cap of `max(0.001 · N.max(), 80)`
+when `--chisq-max` is unset, dropping SNPs above it so a few extreme statistics
+cannot dominate the regression. An explicit `--chisq-max` overrides the default
+in either case. The cap is inclusive (`chi^2 <= cap`, per the `-max`
+convention), and any drop is logged as `Removed N SNPs with chi^2 > C (...)`.
+
 `partitioned-h2` produces **overlap-aware** category summaries (legacy
 `--overlap-annot` math) and auto-detects one of two regimes from the LD-score
 directory, with no user flag. It requires `ldscore.overlap.parquet`; a directory

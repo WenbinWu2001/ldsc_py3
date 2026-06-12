@@ -22,14 +22,14 @@
 
 **New files:**
 - `src/ldsc/_kernel/overlap.py` — `OverlapContribution` dataclass, `compute_overlap()`, `sum_overlap_contributions()`. Pure-NumPy overlap-block math, no I/O.
-- `src/ldsc/overlap_matrix.py` — public-layer `LDScoreOverlap` dataclass (labeled in-memory blocks), `overlap_to_long_frame()` / `overlap_from_long_frame()` (parquet (de)serialization), `assemble_model_overlap()` (build `O_R` for one model), `overlap_aware_category_table()` (call ported `_overlap_output` + augment), `model_collinearity_warning()`.
+- `src/ldsc/overlap_matrix.py` — public-layer `LDScoreOverlap` dataclass (labeled in-memory blocks), `overlap_to_long_frame()` / `overlap_from_long_frame()` (parquet (de)serialization), `assemble_model_overlap()` (build `O_R` for one model), `overlap_aware_category_table()` (call ported `_overlap_output` + augment), `model_collinearity_error()`.
 - `tests/test_overlap_matrix.py` — unit tests for the two modules above.
 
 **Modified files:**
 - `src/ldsc/_kernel/ldscore.py` — inclusive `MAF >= common_maf_min` common mask; populate `ChromComputationResult.overlap`.
 - `src/ldsc/ldscore_calculator.py` — carry/sum overlap through `_LegacyChromResult` → `ChromLDScoreResult` → `LDScoreResult`; inclusive `>=` operator in `count_config`.
 - `src/ldsc/outputs.py` — write/read `ldscore.overlap.parquet`; `overlap_config` in metadata; single partitioned-h2 schema for the primary table in both regimes.
-- `src/ldsc/regression_runner.py` — load overlap; two regimes; rewrite `summarize_partitioned_h2`; one-sided `Coefficient_p`; `auto` sort; log banner + metadata fields; collinearity warning; column constants.
+- `src/ldsc/regression_runner.py` — load overlap; two regimes; rewrite `summarize_partitioned_h2`; one-sided `Coefficient_p`; `auto` sort; log banner + metadata fields; collinearity hard error; column constants.
 - `tests/test_ldscore_workflow.py`, `tests/test_regression_workflow.py`, `tests/test_output.py` — extend/replace.
 - `docs/current/partitioned-ldsc-workflow.md`, `docs/troubleshooting.md`, `design_map.md` — update.
 
@@ -1214,85 +1214,80 @@ git -C "$REPO" add -A && git -C "$REPO" commit -m "feat(partitioned-h2): regime 
 
 ---
 
-## Milestone 6 — Collinearity warning and docs
+## Milestone 6 — Collinearity hard error and docs
 
-### Task 15: Collinearity warning at regression time
+### Task 15: Collinearity hard error at regression time
+
+Restore legacy's condition-number guard as a **hard error** (legacy's behavior),
+not a warning: collinear annotations cannot be separated, so the run aborts
+rather than emit a partition the user must second-guess.
 
 **Files:**
-- Modify: `src/ldsc/overlap_matrix.py` (`model_collinearity_warning`)
-- Modify: `src/ldsc/regression_runner.py` (`estimate_h2` ~614 or `build_dataset`, call site)
-- Test: `tests/test_overlap_matrix.py`
+- Modify: `src/ldsc/overlap_matrix.py` (`model_collinearity_error`)
+- Modify: `src/ldsc/regression_runner.py` (`estimate_h2`, `_raise_on_model_collinearity` call site)
+- Test: `tests/test_overlap_matrix.py`, `tests/test_regression_workflow.py`
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing tests**
 
 ```python
-def test_model_collinearity_warning_names_worst_pair():
-    from ldsc.overlap_matrix import model_collinearity_warning
+def test_model_collinearity_error_names_worst_pair():
+    from ldsc.overlap_matrix import model_collinearity_error
     # near-duplicate LD-score columns -> high condition number
     X = np.array([[1.0, 1.0001, 2.0], [2.0, 2.0001, 1.0], [3.0, 3.0001, 0.5], [4.0, 4.0002, 0.1]])
     columns = ["catA", "catA_dup", "other"]
     O = np.array([[10.0, 9.99, 1.0], [9.99, 10.0, 1.0], [1.0, 1.0, 10.0]])
-    msg = model_collinearity_warning(X, columns, O, threshold=1e5)
+    msg = model_collinearity_error(X, columns, O, threshold=1e5)
     assert msg is not None and "catA" in msg and "catA_dup" in msg
 
-def test_model_collinearity_warning_none_when_well_conditioned():
-    from ldsc.overlap_matrix import model_collinearity_warning
+def test_model_collinearity_error_none_when_well_conditioned():
+    from ldsc.overlap_matrix import model_collinearity_error
     X = np.array([[1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])
-    assert model_collinearity_warning(X, ["a", "b"], np.eye(2), threshold=1e5) is None
+    assert model_collinearity_error(X, ["a", "b"], np.eye(2), threshold=1e5) is None
 ```
+
+Plus an integration test that `regression_runner._raise_on_model_collinearity`
+raises `LDSCInputError` for a collinear `RegressionDataset`.
 
 - [ ] **Step 2: Run red, implement (append to `overlap_matrix.py`)**
 
-```python
-def model_collinearity_warning(X, columns, overlap_matrix, threshold=1e5):
-    """Return a warning string when the LD-score design matrix is ill-conditioned.
+`model_collinearity_error(X, columns, overlap_matrix, threshold=1e5)` returns the
+fatal-error message (or `None` when well conditioned / under-sized): it computes
+`cond(X) = sqrt(cond(XᵀX))` on the small Gram matrix, and names the most
+correlated annotation pair via `O[i,j]/sqrt(O[i,i]·O[j,j])`. The message is an
+abort message ("LD-score regression aborted: ... Drop one of them or coarsen the
+annotation, then re-run.").
 
-    Uses the legacy condition-number threshold on the design matrix, and names the
-    most correlated annotation pair (from the overlap Gram matrix) as the likely
-    culprit. Returns ``None`` when well conditioned.
-    """
-    X = np.asarray(X, dtype=np.float64)
-    if X.shape[1] < 2 or np.linalg.cond(X) <= threshold:
-        return None
-    O = np.asarray(overlap_matrix, dtype=np.float64)
-    d = np.sqrt(np.clip(np.diag(O), 1e-300, None))
-    corr = O / np.outer(d, d)
-    np.fill_diagonal(corr, 0.0)
-    i, j = np.unravel_index(np.argmax(np.abs(corr)), corr.shape)
-    return (
-        f"LD-score design matrix is nearly collinear (condition number "
-        f"{int(np.linalg.cond(X))} > {int(threshold)}); annotations '{columns[i]}' and "
-        f"'{columns[j]}' overlap almost entirely (r={corr[i, j]:.3f}). Consider dropping "
-        f"one of them or coarsening the annotation."
-    )
-```
+- [ ] **Step 3: Raise from the regression path**
 
-- [ ] **Step 3: Call it from the regression path (deduplicated)**
-
-In `estimate_h2`, after `x = np.asarray(merged[dataset.retained_ld_columns])` and before fitting, when `dataset.ldscore_overlap is not None and len(dataset.retained_ld_columns) > 1`:
+In `estimate_h2`, after `x = np.asarray(merged[dataset.retained_ld_columns])` and
+before fitting, call `_raise_on_model_collinearity(dataset, x)`:
 
 ```python
-        from .overlap_matrix import assemble_model_overlap, model_collinearity_warning
-        use_common = dataset.count_key_used_for_regression == COMMON_COUNT_KEY
-        try:
-            O_R = assemble_model_overlap(dataset.ldscore_overlap, dataset.retained_ld_columns, use_common)
-            warning = model_collinearity_warning(x, dataset.retained_ld_columns, O_R)
-        except (ValueError, KeyError):
-            warning = None
-        if warning and warning not in _SEEN_COLLINEARITY_WARNINGS:
-            _SEEN_COLLINEARITY_WARNINGS.add(warning)
-            LOGGER.warning(warning)
+def _raise_on_model_collinearity(dataset, x):
+    overlap = getattr(dataset, "ldscore_overlap", None)
+    if overlap is None or len(dataset.retained_ld_columns) < 2:
+        return
+    from .overlap_matrix import assemble_model_overlap, model_collinearity_error
+    use_common = dataset.count_key_used_for_regression == COMMON_COUNT_KEY
+    try:
+        model_overlap = assemble_model_overlap(overlap, list(dataset.retained_ld_columns), use_common)
+    except (ValueError, KeyError):
+        return
+    message = model_collinearity_error(x, list(dataset.retained_ld_columns), model_overlap)
+    if message:
+        raise LDSCInputError(message)
 ```
 
-Add a module-level `_SEEN_COLLINEARITY_WARNINGS: set[str] = set()` for per-run de-duplication.
+No de-duplication set is needed: the first collinear model raises and aborts the
+run (in the cell-type regime this stops the batch at the first collinear query).
 
 - [ ] **Step 4: Run green and commit**
 
-Run: `pytest tests/test_overlap_matrix.py -k collinearity -v`
+Run: `pytest tests/test_overlap_matrix.py -k collinearity tests/test_regression_workflow.py -k collinear -v`
 Expected: PASS
 
 ```bash
-git -C "$REPO" add -A && git -C "$REPO" commit -m "feat(partitioned-h2): warn on collinear annotations at regression time"
+git -C "$REPO" add -A && git -C "$REPO" commit -m "feat(partitioned-h2): hard-error on collinear annotations at regression time"
 ```
 
 ### Task 16: Documentation + design map

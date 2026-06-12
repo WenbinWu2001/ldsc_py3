@@ -48,6 +48,18 @@ panels, exposed as `PLINK_FIXTURES` in `tests/test_ldscore_workflow.py`),
 
 ## Phase 1 — Annotation files become population-agnostic
 
+> **REVISION (2026-06-11, during execution):** `CM`/`MAF` are **kept-but-ignored**,
+> not stripped. The reader (`parse_annotation_file`) keeps a `CM` column
+> (placeholder `NaN` when the input omits it) so `_merge_missing_metadata`
+> (`annotation_builder.py:777`) and the BED-query projection (`_kernel/annotation.py:160`,
+> `row.CM`) keep working and `annotate` keeps emitting the legacy `CHR BP SNP CM`
+> layout. `CM` becomes optional and `SNP` optional in `chr_pos` modes; `CM`/`MAF`
+> are still excluded from annotation *value* columns. The "ldscore ignores
+> annotation `CM`/`MAF`" guarantee is enforced at the *consumer*: Task 4 makes the
+> reference-panel sidecar **authoritative** in `merge_frequency_metadata`
+> (overwrite, not backfill). This matches legacy ldsc2 (keep the column, ignore
+> the value). Tasks 1, 2, and 4 below are interpreted under this revision.
+
 ### Task 1: Annotation reader stops reading `CM`/`MAF`; `CM` no longer required
 
 **Files:**

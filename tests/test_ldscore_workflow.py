@@ -3539,3 +3539,15 @@ def test_require_reference_maf_raises_when_all_missing():
 
 def test_require_reference_maf_passes_with_any_value():
     kernel_ldscore.require_reference_maf(pd.DataFrame({"MAF": [0.1, np.nan]}), chrom="1")  # no raise
+
+
+def test_namespace_from_configs_propagates_plink_maf_min():
+    """--maf-min reaches the kernel for PLINK (previously hardcoded to None)."""
+    spec = SimpleNamespace(
+        backend="plink", plink_prefix=None, maf_min=0.4, keep_indivs_file=None, sample_size=None
+    )
+    ref_panel = SimpleNamespace(spec=spec)
+    ns = ldscore_workflow._namespace_from_configs(
+        "1", ref_panel, LDScoreConfig(ld_wind_snps=10), GlobalConfig(snp_identifier="rsid")
+    )
+    assert ns.maf_min == 0.4

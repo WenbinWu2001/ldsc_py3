@@ -1905,7 +1905,11 @@ def _namespace_from_configs(chrom: str, ref_panel, ldscore_config: LDScoreConfig
         ld_wind_kb=ldscore_config.ld_wind_kb,
         ld_wind_cm=ldscore_config.ld_wind_cm,
         maf=None,
-        maf_min=None,
+        # Apply the reference-panel MAF filter in the kernel for both backends. For
+        # PLINK this is the only place --maf-min takes effect (the PLINK adapter cannot
+        # filter MAF before the genotype read); for parquet it is idempotent with the
+        # adapter's already-applied filter.
+        maf_min=getattr(spec, "maf_min", None),
         common_maf_min=ldscore_config.common_maf_min,
         snp_batch_size=ldscore_config.snp_batch_size,
         per_chr_output=False,

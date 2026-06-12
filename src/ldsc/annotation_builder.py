@@ -1054,6 +1054,12 @@ def _configure_logging(level: str) -> None:
 
 def _write_bundle_query_as_annot_files(bundle: AnnotationBundle, output_dir: Path) -> list[Path]:
     """Write one ``query.<chrom>.annot.gz`` file per chromosome from ``bundle``."""
+    LOGGER.info(
+        "Writing .annot output with the legacy CHR/BP/SNP/CM positional layout; the CM "
+        "column is an empty placeholder and no MAF column is written. CM/MAF are "
+        "population-specific and not used downstream (ldscore sources them from the "
+        "reference panel)."
+    )
     output_paths: list[Path] = []
     for chrom, out_path in zip(bundle.chromosomes, _bundle_query_annot_output_paths(bundle, output_dir)):
         chrom_mask = bundle.metadata["CHR"].astype(str) == str(chrom)

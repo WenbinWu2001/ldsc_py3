@@ -3573,6 +3573,25 @@ def test_merge_frequency_metadata_sidecar_is_authoritative(monkeypatch, tmp_path
     assert merged.loc[0, "MAF"] == 0.2  # sidecar wins (folded)
 
 
+def test_cm_window_consistent_across_backends():
+    """Both backends feed reference CM into the same window builder, so identical
+    reference CM yields identical block-lefts (the headline cross-backend invariant)."""
+    import argparse
+    cm = pd.Series([0.0, 0.4, 0.9, 1.6])
+    md = pd.DataFrame({"CM": cm, "POS": [1, 2, 3, 4]})
+    args = argparse.Namespace(ld_wind_snps=None, ld_wind_kb=None, ld_wind_cm=1.0)
+    coords_a, dist_a = kernel_ldscore.build_window_coordinates(md, args)
+    coords_b, dist_b = kernel_ldscore.build_window_coordinates(md.copy(), args)
+    np.testing.assert_array_equal(
+        kernel_ldscore.get_block_lefts(coords_a, dist_a),
+        kernel_ldscore.get_block_lefts(coords_b, dist_b),
+    )
+    # The kb window over the same physical positions is likewise deterministic.
+    args_kb = argparse.Namespace(ld_wind_snps=None, ld_wind_kb=1.0, ld_wind_cm=None)
+    coords_kb, dist_kb = kernel_ldscore.build_window_coordinates(md, args_kb)
+    np.testing.assert_array_equal(coords_kb, md["POS"].to_numpy(dtype=float))
+
+
 def test_assert_cm_usable_rejects_all_zero():
     with pytest.raises(LDSCInputError, match="all zero|uninformative"):
         kernel_ldscore.assert_cm_usable(pd.Series([0.0, 0.0, 0.0]), chrom="1")

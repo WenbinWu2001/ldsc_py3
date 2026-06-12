@@ -446,6 +446,8 @@ class RefPanelConfig:
     exclude_regions: tuple[str, ...] = ()
     exclude_regions_bed: tuple[str, ...] = ()
     exclude_regions_build: Literal["hg19", "hg38"] | None = None
+    genetic_map_hg19_sources: str | PathLike[str] | None = None
+    genetic_map_hg38_sources: str | PathLike[str] | None = None
 
     def __post_init__(self) -> None:
         """Normalize backend path tokens and validate parquet-R2 settings."""
@@ -459,6 +461,8 @@ class RefPanelConfig:
         object.__setattr__(self, "r2_dir", _normalize_optional_path(self.r2_dir))
         object.__setattr__(self, "keep_indivs_file", _normalize_optional_path(self.keep_indivs_file))
         object.__setattr__(self, "ref_panel_snps_file", _normalize_optional_path(self.ref_panel_snps_file))
+        object.__setattr__(self, "genetic_map_hg19_sources", _normalize_optional_path(self.genetic_map_hg19_sources))
+        object.__setattr__(self, "genetic_map_hg38_sources", _normalize_optional_path(self.genetic_map_hg38_sources))
         if self.ref_panel_snps_file is not None and self.use_hm3_ref_panel_snps:
             raise LDSCConfigError(_mutually_exclusive_message("RefPanelConfig", "ref_panel_snps_file", "use_hm3_ref_panel_snps"))
         if self.chromosomes is not None:
@@ -540,6 +544,7 @@ class LDScoreConfig:
     snp_batch_size: int = 128
     common_maf_min: float = 0.05
     whole_chromosome_ok: bool = False
+    export_ref_metadata: bool = False
     threads: int = 1
 
     def __post_init__(self) -> None:

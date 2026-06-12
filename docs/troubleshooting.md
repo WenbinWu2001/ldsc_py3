@@ -285,6 +285,31 @@ and parquet row decoders · **Exception:** `LDSCInputError`
 2. Regenerate annotation and R2 reference-panel artifacts on the same genome build.
 3. Keep only one build's R2 parquet files in a given `--r2-dir`.
 
+### ldscore: unusable CM for `--ld-wind-cm`
+
+`--ld-wind-cm` needs a genetic-map coordinate (`CM`) that orders SNPs along a
+chromosome. The run aborts when the reference panel's `CM` is all zero, constant,
+or missing — it cannot define a genetic-distance window, and `--yes-really` does
+**not** override this (it only authorizes whole-chromosome windows from *valid*
+`CM`).
+
+| Likely cause | Check |
+|---|---|
+| PLINK `.bim` has an all-zero `CM` column (the common PLINK default) | Inspect the third `.bim` column; it is `0` for every SNP |
+| Parquet panel built without a genetic map (sidecar `CM=NA`) | Inspect `chr*_meta.tsv.gz` `CM` column |
+| Genome build for the genetic map could not be determined (rsID modes) | Confirm whether `--genome-build` was passed |
+
+**Remedies:**
+
+1. Add a genetic map for the panel's build:
+   `--genetic-map-hg38-sources <file>` or `--genetic-map-hg19-sources <file>`.
+   ldscore interpolates `CM` at the `.bim` positions (PLINK backend).
+2. Provide a `.bim` whose third column carries real genetic-map positions, or a
+   parquet panel built with `ldsc build-ref-panel --genetic-map-<build>-sources`.
+3. Use a physical-distance window instead: `--ld-wind-kb 1000` or `--ld-wind-snps`.
+4. In rsID identifier modes, pass `--genome-build hg19` / `--genome-build hg38`
+   so the matching genetic map can be selected.
+
 ## build-ref-panel
 
 ### build-ref-panel: no reference-panel artifacts were produced

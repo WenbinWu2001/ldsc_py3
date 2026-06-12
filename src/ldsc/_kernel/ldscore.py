@@ -1023,7 +1023,8 @@ def assert_cm_usable(cm: pd.Series, chrom: str) -> None:
             "values), so it cannot define a genetic-distance window. Provide real "
             "genetic-map positions: pass a PLINK `.bim` with informative CM, add "
             "`--genetic-map-hg38-sources` / `--genetic-map-hg19-sources` for the panel's "
-            "build, or use `--ld-wind-kb` / `--ld-wind-snps`."
+            "build, or use `--ld-wind-kb` / `--ld-wind-snps`. "
+            "See docs/troubleshooting.md#ldscore-unusable-cm-for-ld-wind-cm."
         )
 
 
@@ -1839,7 +1840,19 @@ def compute_chrom_from_plink(
         )
     require_reference_maf(geno_meta, chrom)
     if args.ld_wind_cm is not None:
-        assert_cm_usable(geno_meta["CM"], chrom)
+        genetic_map = getattr(args, "genetic_map", None)
+        if genetic_map is not None:
+            # An explicit genetic map always wins: interpolate CM at the .bim positions
+            # for all chromosomes, ignoring any (often all-zero) .bim CM column.
+            from .ref_panel_builder import interpolate_genetic_map_cm
+
+            geno_meta["CM"] = interpolate_genetic_map_cm(
+                normalize_chromosome(chrom, context=prefix + ".bim"),
+                geno_meta["POS"].to_numpy(dtype=np.int64),
+                genetic_map,
+            )
+        else:
+            assert_cm_usable(geno_meta["CM"], chrom)
     coords, max_dist = build_window_coordinates(geno_meta.drop(columns="_key"), args)
     block_left = legacy_ld.getBlockLefts(coords, max_dist)
     check_whole_chromosome_window(block_left, args, chrom)

@@ -953,6 +953,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ld-wind-cm", default=None, type=float, help="LD window size in centiMorgans.")
     parser.add_argument("--maf-min", default=None, type=float, help="Optional MAF filter for retained reference-panel SNPs when MAF is available.")
     parser.add_argument("--common-maf-min", default=0.05, type=float, help="MAF threshold used only for common-SNP annotation count vectors.")
+    parser.add_argument("--genetic-map-hg19-sources", default=None, help="Genetic map (hg19) used to derive CM for cM windows when a PLINK .bim CM column is uninformative.")
+    parser.add_argument("--genetic-map-hg38-sources", default=None, help="Genetic map (hg38) used to derive CM for cM windows when a PLINK .bim CM column is uninformative.")
+    parser.add_argument("--export-ref-metadata", default=False, action="store_true", help="Write a chrN_meta.tsv.gz reference-metadata sidecar next to the LD-score output (PLINK backend only).")
     parser.add_argument("--snp-batch-size", default=128, type=int, help="Genotype batch size for the PLINK reference-panel backend; ignored by the parquet-R2 backend, which streams stored pairs. Defaults to 128.")
     parser.add_argument("--threads", default=1, type=int, help="Worker processes for cross-chromosome parallelism (joblib n_jobs convention): 1=sequential (default), N=N workers, -1=all cores, -2=all but one. Respects CPU affinity; capped at the chromosome count.")
     parser.add_argument("--yes-really", default=False, action="store_true", help="Allow whole-chromosome LD windows.")
@@ -1540,6 +1543,8 @@ def _ref_panel_from_args(args: argparse.Namespace, global_config: GlobalConfig):
             exclude_regions=exclude_regions,
             exclude_regions_bed=exclude_regions_bed,
             exclude_regions_build=exclude_regions_build,
+            genetic_map_hg19_sources=getattr(args, "genetic_map_hg19_sources", None),
+            genetic_map_hg38_sources=getattr(args, "genetic_map_hg38_sources", None),
         )
     else:
         spec = RefPanelConfig(
@@ -1552,6 +1557,8 @@ def _ref_panel_from_args(args: argparse.Namespace, global_config: GlobalConfig):
             exclude_regions=exclude_regions,
             exclude_regions_bed=exclude_regions_bed,
             exclude_regions_build=exclude_regions_build,
+            genetic_map_hg19_sources=getattr(args, "genetic_map_hg19_sources", None),
+            genetic_map_hg38_sources=getattr(args, "genetic_map_hg38_sources", None),
         )
     return RefPanelLoader(global_config).load(spec)
 
@@ -1567,6 +1574,7 @@ def _ldscore_config_from_args(args: argparse.Namespace) -> LDScoreConfig:
         snp_batch_size=getattr(args, "snp_batch_size", 128),
         common_maf_min=getattr(args, "common_maf_min", 0.05),
         whole_chromosome_ok=getattr(args, "yes_really", False),
+        export_ref_metadata=getattr(args, "export_ref_metadata", False),
         threads=getattr(args, "threads", 1),
     )
 
@@ -1870,6 +1878,54 @@ def _init_worker(regression_snps, log_level: str) -> None:
     configure_package_logging(log_level)
 
 
+def _resolve_build_for_ldscore_genetic_map(ref_panel, global_config: GlobalConfig, chrom: str) -> str:
+    """Resolve hg19/hg38 for selecting a PLINK genetic-map source.
+
+    Uses the explicit ``--genome-build`` when given, otherwise infers from the
+    panel positions when ``genome_build='auto'`` (chr_pos-family only). Raises if
+    the build cannot be determined, since the map must match the ``.bim`` build.
+    """
+    build = normalize_genome_build(global_config.genome_build)
+    if build == "auto":
+        build = resolve_genome_build(
+            global_config.genome_build,
+            global_config.snp_identifier,
+            ref_panel.load_metadata(chrom)[["CHR", "POS"]],
+            context=f"PLINK panel chromosome {chrom} for genetic-map build selection",
+        )
+    if build not in ("hg19", "hg38"):
+        raise LDSCInputError(
+            "ldscore could not determine the genome build needed to select a genetic map for the "
+            "PLINK panel. Pass `--genome-build hg19` or `--genome-build hg38` (automatic inference "
+            "returns None in rsID identifier modes and needs sufficient HM3 overlap in chr_pos modes)."
+        )
+    return build
+
+
+def _resolve_ldscore_genetic_map(ref_panel, spec, backend, global_config: GlobalConfig, chrom: str):
+    """Load the genetic map for a PLINK cM-window run, or warn and ignore for parquet."""
+    hg19 = getattr(spec, "genetic_map_hg19_sources", None)
+    hg38 = getattr(spec, "genetic_map_hg38_sources", None)
+    if not (hg19 or hg38):
+        return None
+    if backend != "plink":
+        LOGGER.warning(
+            "Ignoring --genetic-map-*-sources for the parquet R2 reference panel: CM is taken from "
+            "the panel metadata sidecar (authoritative). Genetic-map flags apply only to PLINK panels."
+        )
+        return None
+    from ._kernel.ref_panel_builder import load_genetic_map_group
+
+    build = _resolve_build_for_ldscore_genetic_map(ref_panel, global_config, chrom)
+    sources = hg38 if build == "hg38" else hg19
+    if sources is None:
+        raise LDSCInputError(
+            f"ldscore needs a `--genetic-map-{build}-sources` file to derive CM for the PLINK panel "
+            f"(resolved build {build}), but it was not supplied."
+        )
+    return load_genetic_map_group(split_cli_path_tokens(sources))
+
+
 def _namespace_from_configs(chrom: str, ref_panel, ldscore_config: LDScoreConfig, global_config: GlobalConfig) -> argparse.Namespace:
     """Build the legacy-kernel namespace expected by the chromosome backends."""
     spec = getattr(ref_panel, "spec", None)
@@ -1884,6 +1940,9 @@ def _namespace_from_configs(chrom: str, ref_panel, ldscore_config: LDScoreConfig
             r2_table = ",".join(ref_panel.resolve_r2_paths(chrom, required=False)) or None
     if hasattr(ref_panel, "resolve_metadata_paths"):
         frqfile = ",".join(ref_panel.resolve_metadata_paths(chrom)) or None
+    genetic_map = None
+    if ldscore_config.ld_wind_cm is not None:
+        genetic_map = _resolve_ldscore_genetic_map(ref_panel, spec, backend, global_config, chrom)
     return argparse.Namespace(
         out=None,
         query_annot=None,
@@ -1911,6 +1970,8 @@ def _namespace_from_configs(chrom: str, ref_panel, ldscore_config: LDScoreConfig
         # adapter's already-applied filter.
         maf_min=getattr(spec, "maf_min", None),
         common_maf_min=ldscore_config.common_maf_min,
+        genetic_map=genetic_map,
+        export_ref_metadata=ldscore_config.export_ref_metadata,
         snp_batch_size=ldscore_config.snp_batch_size,
         per_chr_output=False,
         yes_really=ldscore_config.whole_chromosome_ok,

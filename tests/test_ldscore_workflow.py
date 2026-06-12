@@ -1485,6 +1485,41 @@ class LDScoreWorkflowTest(unittest.TestCase):
             self.assertGreater(len(result.metadata), 0)
             self.assertEqual(result.w_ld.shape[0], len(result.metadata))
 
+    def _plink_cm_args(self, prefix: Path, genetic_map) -> Namespace:
+        return Namespace(
+            bfile=str(prefix), keep=None, maf_min=None, maf=None,
+            ld_wind_snps=None, ld_wind_kb=None, ld_wind_cm=1.0,
+            yes_really=True, snp_batch_size=50, common_maf_min=0.05,
+            snp_identifier="rsid", genetic_map=genetic_map,
+        )
+
+    def test_plink_cm_window_rejects_all_zero_bim_cm_without_map(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            prefix = self._copy_plink_fixture_with_distinct_fids(Path(tmpdir))
+            wb = self._build_annotation_bundle(prefix)
+            bundle = kernel_ldscore.AnnotationBundle(
+                metadata=wb.metadata, annotations=wb.baseline_annotations,
+                baseline_columns=wb.baseline_columns, query_columns=wb.query_columns,
+            )
+            # The fixture .bim CM is all zero; without a map this must error even under
+            # --yes-really (yes_really=True below).
+            with self.assertRaisesRegex(LDSCInputError, "uninformative|all zero"):
+                kernel_ldscore.compute_chrom_from_plink("1", bundle, self._plink_cm_args(prefix, None), None)
+
+    def test_plink_cm_window_uses_genetic_map(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            prefix = self._copy_plink_fixture_with_distinct_fids(Path(tmpdir))
+            wb = self._build_annotation_bundle(prefix)
+            bundle = kernel_ldscore.AnnotationBundle(
+                metadata=wb.metadata, annotations=wb.baseline_annotations,
+                baseline_columns=wb.baseline_columns, query_columns=wb.query_columns,
+            )
+            gmap = pd.DataFrame({"CHR": ["1", "1"], "POS": [1, 8], "CM": [0.0, 4.0]})
+            result = kernel_ldscore.compute_chrom_from_plink("1", bundle, self._plink_cm_args(prefix, gmap), None)
+            self.assertGreater(len(result.metadata), 0)
+            # interpolated CM is non-degenerate -> a real cM window, not whole-chromosome
+            self.assertGreaterEqual(result.metadata["CM"].nunique(), 2)
+
     def test_run_rejects_annotation_bundle_snapshot_mismatch(self):
         calc = ldscore_workflow.LDScoreCalculator()
         annotation_bundle = AnnotationBundle(
@@ -3551,3 +3586,29 @@ def test_namespace_from_configs_propagates_plink_maf_min():
         "1", ref_panel, LDScoreConfig(ld_wind_snps=10), GlobalConfig(snp_identifier="rsid")
     )
     assert ns.maf_min == 0.4
+
+
+def test_build_parser_accepts_genetic_map_and_export_flags():
+    parser = ldscore_workflow.build_parser()
+    args = parser.parse_args([
+        "--output-dir", "out", "--plink-prefix", "panel", "--ld-wind-cm", "1.0",
+        "--genetic-map-hg38-sources", "map_hg38.txt", "--export-ref-metadata",
+    ])
+    assert args.genetic_map_hg38_sources == "map_hg38.txt"
+    assert args.export_ref_metadata is True
+
+
+def test_genetic_map_ignored_for_parquet_with_warning(caplog):
+    import logging
+    spec = SimpleNamespace(
+        backend="parquet_r2", plink_prefix=None, maf_min=None, keep_indivs_file=None,
+        sample_size=None, genetic_map_hg19_sources="m19", genetic_map_hg38_sources=None,
+    )
+    ref_panel = SimpleNamespace(spec=spec)
+    with caplog.at_level(logging.WARNING):
+        ns = ldscore_workflow._namespace_from_configs(
+            "1", ref_panel, LDScoreConfig(ld_wind_cm=1.0),
+            GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+        )
+    assert ns.genetic_map is None  # flags ignored; sidecar CM is authoritative
+    assert any("Ignoring --genetic-map" in r.message for r in caplog.records)

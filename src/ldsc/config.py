@@ -981,9 +981,11 @@ class RegressionConfig:
         (``chi^2 <= cutoff`` is retained; deviates from legacy LDSC's strict
         ``chi^2 < cutoff``). Default is ``None``.
     chisq_max : float or None, optional
-        Inclusive maximum chi-square retained for regression fitting
-        (``chi^2 <= chisq_max``; deviates from legacy LDSC's strict
-        ``chi^2 < chisq_max``). Default is ``None``.
+        Inclusive maximum chi-square retained for regression fitting. For h2 and
+        partitioned-h2 this keeps ``chi^2 <= chisq_max``; for rg it keeps
+        ``Z1^2 * Z2^2 <= chisq_max^2`` (legacy's opt-in rg filter). Both retain
+        the boundary inclusively, deviating from legacy LDSC's strict ``<``.
+        Default is ``None``.
     samp_prev, pop_prev : float, list of float, or None, optional
         Liability-scale prevalence inputs. Defaults are ``None``.
     allow_identity_downgrade : bool, optional

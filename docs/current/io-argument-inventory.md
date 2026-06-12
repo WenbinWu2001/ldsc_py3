@@ -440,7 +440,7 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 | `--no-intercept` | model | no | intercept policy | Fixes LDSC intercepts instead of estimating them. |
 | `--allow-identity-downgrade` | model | no | identity compatibility override | Allows same-family allele-aware/base artifact mixes under the base identity mode. |
 | `--two-step-cutoff` | model | no | two-step threshold | Optional cutoff for two-step regression fitting. Inclusive (`chi^2 <= cutoff` retained for step 1; deviates from legacy LDSC's strict `chi^2 < cutoff`). |
-| `--chisq-max` | QC/model | no | chi-square filter | Optional maximum chi-square retained for regression fitting. Inclusive (`chi^2 <= chisq_max`; deviates from legacy LDSC's strict `chi^2 < chisq_max`). |
+| `--chisq-max` | QC/model | no | chi-square filter | Optional opt-in rg filter on the product of statistics. Inclusive (`Z1^2 * Z2^2 <= chisq_max^2`; deviates from legacy LDSC's strict `Z1^2 * Z2^2 < chisq_max^2`). |
 | `--intercept-h2` | model | no | fixed h2 intercepts | Optional fixed h2 intercept value(s) supplied to per-trait h2 estimators. |
 | `--intercept-gencov` | model | no | fixed genetic-covariance intercepts | Optional fixed intercept value(s) supplied to genetic-covariance estimators. |
 | `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger record verbosity. With `output_dir`, records go to `diagnostics/rg.log` and the console (stderr) shows only errors; without it (console-only run) they print to the console. Lifecycle audit lines always appear in the file when one is created. |

@@ -989,6 +989,20 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertIs(result, mock.sentinel.rg_result)
         self.assertEqual(patched.call_args.args[2].shape[1], 1)
 
+    def test_estimate_rg_applies_inclusive_chisq_max_product_filter(self):
+        # Legacy rg drops SNPs with Z1^2 * Z2^2 < chisq_max^2; we keep the same
+        # opt-in filter but inclusive (<=) per the -max convention. Both traits
+        # have Z=[2.0, 1.0, 0.5], so products are [16, 1, 0.0625]. With
+        # chisq_max=1.0 (threshold 1.0): rs1 (16) is dropped, rs2 (==1.0, the
+        # boundary) is kept by <=, and rs3 (0.0625) is kept -> 2 SNPs.
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig(chisq_max=1.0))
+        sumstats_1 = self.make_sumstats_table()
+        sumstats_2 = replace(self.make_sumstats_table(), trait_name="trait2")
+        with mock.patch.object(regression_runner.reg, "RG", return_value=mock.sentinel.rg_result) as patched:
+            runner.estimate_rg(sumstats_1, sumstats_2, self.make_ldscore_result())
+        z1_arg = patched.call_args.args[0]
+        self.assertEqual(z1_arg.shape[0], 2)
+
     def test_build_rg_dataset_uses_final_three_way_snp_intersection(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
         sumstats_1 = self.make_sumstats_table()

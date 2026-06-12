@@ -804,6 +804,12 @@ class RegressionRunner:
         config = config or self.regression_config
         merged = dataset.merged
         n_snp = len(merged)
+        if config.chisq_max is not None:
+            # Legacy rg filter (sumstats.py `_rg`): drop SNPs with
+            # Z1^2 * Z2^2 > chisq_max^2, kept inclusive (<=) per the -max convention.
+            keep = np.ravel((merged["Z1"] ** 2) * (merged["Z2"] ** 2) <= config.chisq_max ** 2)
+            merged = merged.loc[keep].reset_index(drop=True)
+            n_snp = len(merged)
         n_blocks = min(n_snp, config.n_blocks)
         intercept_hsq = _select_intercept(config.intercept_h2, use_intercept=config.use_intercept, default_when_disabled=1)
         intercept_gencov = _select_intercept(

@@ -352,6 +352,13 @@ Numerical/behavioral tests against constructed fixtures:
 - Persisting per-SNP `CM`/`MAF` inside `baseline.parquet` (kept lean).
 - Unifying `--common-maf-min` with legacy strict `>` (explicitly rejected:
   inclusive `>=` is the project convention).
+- **Deferred (decision 2026-06-12):** a strict *end-to-end* cross-backend test
+  that builds bit-matched PLINK + parquet panels from the same genotypes and
+  asserts identical `M`/`M_5_50`. Not implemented — disproportionately fragile
+  (binary `.bed` synthesis, parquet R2-panel window validation, exact
+  A1/A2-orientation matching). The invariant is instead guarded by composition:
+  the shared-window-builder consistency test, the sidecar-authoritative + require-MAF
+  tests, the unusable-CM / genetic-map tests, and the `--maf-min` parity test.
 
 ## Resolved decisions (brainstorm record)
 

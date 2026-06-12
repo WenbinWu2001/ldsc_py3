@@ -627,17 +627,20 @@ class AnnotationBuilder:
         metadata["POS"] = pd.to_numeric(metadata["POS"], errors="raise").astype(np.int64)
         if "SNP" in metadata.columns:
             metadata["SNP"] = metadata["SNP"].astype(str)
-        metadata["CM"] = pd.to_numeric(df[cm_col], errors="coerce") if cm_col is not None else np.nan
+        # CM is a population-agnostic placeholder (always NaN): ldscore sources CM from
+        # the reference panel, and the legacy .annot layout only needs the column present.
+        # Any CM value in the input is intentionally discarded.
+        metadata["CM"] = np.nan
         if a1_col is not None and a2_col is not None:
             metadata["A1"] = df[a1_col]
             metadata["A2"] = df[a2_col]
+        # MAF is population-specific and never carried into annotation metadata: resolve
+        # the column only to keep it out of the annotation value columns.
         maf_col = resolve_optional_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["MAF"], context=context)
-        if maf_col is not None:
-            metadata["MAF"] = pd.to_numeric(df[maf_col], errors="coerce")
         if cm_col is not None or maf_col is not None:
             LOGGER.info(
-                f"Annotation file '{path}' contains CM/MAF columns; these are ignored for "
-                "LD-score calculation (the reference panel is authoritative for CM and MAF)."
+                f"Annotation file '{path}' contains CM/MAF columns; these are ignored "
+                "(the reference panel is authoritative for CM and MAF)."
             )
         if chrom is not None:
             keep = metadata["CHR"] == normalize_chromosome(chrom, context=context)
@@ -774,20 +777,16 @@ class AnnotationBuilder:
         )
 
     def _merge_missing_metadata(self, reference: pd.DataFrame, current: pd.DataFrame) -> pd.DataFrame:
-        """Backfill metadata from another already-aligned annotation table."""
+        """Backfill alleles from another already-aligned annotation table.
+
+        Only ``A1``/``A2`` are backfilled. ``CM``/``MAF`` are population-specific
+        and never propagated across annotation files; the reference panel is
+        authoritative for both.
+        """
         merged = reference.copy()
         if {"A1", "A2"}.issubset(current.columns) and not {"A1", "A2"}.issubset(merged.columns):
             merged["A1"] = current["A1"].to_numpy()
             merged["A2"] = current["A2"].to_numpy()
-        if "MAF" in current.columns:
-            if "MAF" not in merged.columns:
-                merged["MAF"] = np.nan
-            missing_maf = merged["MAF"].isna() & current["MAF"].notna()
-            if missing_maf.any():
-                merged.loc[missing_maf, "MAF"] = current.loc[missing_maf, "MAF"].to_numpy()
-        missing_cm = merged["CM"].isna() & current["CM"].notna()
-        if missing_cm.any():
-            merged.loc[missing_cm, "CM"] = current.loc[missing_cm, "CM"].to_numpy()
         return merged
 
     def _concat_or_empty(self, frames: list[pd.DataFrame], index: pd.Index) -> pd.DataFrame:

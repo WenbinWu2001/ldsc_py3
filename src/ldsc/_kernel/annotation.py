@@ -25,12 +25,15 @@ from . import regions as kernel_regions
 
 @dataclass(frozen=True)
 class _BaselineRow:
-    """Minimal metadata for one baseline SNP row during BED projection."""
+    """Minimal metadata for one baseline SNP row during BED projection.
+
+    BED overlap depends only on genomic position; CM (genetic-map distance) is
+    population-specific and never used here.
+    """
 
     chrom: str
     pos: int
     snp: str
-    cm: str
 
 
 def _get_pybedtools():
@@ -157,7 +160,6 @@ def _compute_bed_query_columns(
             chrom=str(row.CHR),
             pos=int(row.POS),
             snp=str(row.SNP),
-            cm=str(row.CM),
         )
         for row in metadata.itertuples(index=False)
     ]

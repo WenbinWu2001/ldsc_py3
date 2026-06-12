@@ -697,6 +697,28 @@ class AnnotationBuilderTest(unittest.TestCase):
             self.assertEqual(dropped["reason"].tolist(), ["duplicate_identity", "duplicate_identity"])
             self.assertEqual(set(dropped["SNP"]), {"rs1", "rs2"})
 
+    def test_annotate_output_has_empty_cm_and_no_maf(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            base = tmpdir / "base.annot"
+            bed = tmpdir / "query.bed"
+            output_dir = tmpdir / "out"
+            _write_annot(base, [("1", 10, "rs1", 0.1), ("1", 30, "rs3", 0.3)], {"base_a": [1, 1]})
+            bed.write_text("chr1\t9\t11\n", encoding="utf-8")
+            builder = AnnotationBuilder(
+                GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+                AnnotationBuildConfig(),
+            )
+            builder.project_bed_annotations(
+                query_annot_bed_sources=(str(bed),),
+                baseline_annot_sources=(str(base),),
+                output_dir=output_dir,
+            )
+            out = pd.read_csv(output_dir / "query.1.annot.gz", sep="\t", compression="gzip")
+            self.assertIn("CM", out.columns)  # legacy CHR/BP/SNP/CM layout column present
+            self.assertTrue(out["CM"].isna().all())  # CM is empty/NaN placeholder
+            self.assertNotIn("MAF", out.columns)  # MAF is never written
+
     def test_identity_cleanup_sidecar_is_header_only_when_no_rows_drop(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -851,9 +873,10 @@ class AnnotationBuilderTest(unittest.TestCase):
             path = Path(tmpdir) / "cm_maf.annot"
             path.write_text("CHR\tBP\tSNP\tCM\tMAF\tcoding\n1\t10\trs1\t0.5\t0.3\t1\n", encoding="utf-8")
             metadata, annotations = builder.parse_annotation_file(path)
-            self.assertEqual(list(annotations.columns), ["coding"])  # CM/MAF are metadata, not values
-            self.assertIn("CM", metadata.columns)
-            self.assertIn("MAF", metadata.columns)
+            self.assertEqual(list(annotations.columns), ["coding"])  # CM/MAF excluded from values
+            self.assertIn("CM", metadata.columns)  # CM kept as NaN placeholder
+            self.assertTrue(metadata["CM"].isna().all())  # input CM value discarded
+            self.assertNotIn("MAF", metadata.columns)  # MAF never carried
 
     def test_parse_annotation_file_snp_optional_in_chr_pos_mode(self):
         builder = AnnotationBuilder(

@@ -30,8 +30,8 @@ Commits; no AI-tool names in messages or comments. Keep docstrings current
 
 | File | Responsibility in this change |
 |---|---|
-| `src/ldsc/annotation_builder.py` | Stop reading `CM`/`MAF` into annotation metadata; make `CM` optional; make `SNP` required only in rsID-family modes. |
-| `src/ldsc/_kernel/ldscore.py` | New shared `CM` resolver + unusable-`CM` guard; require `MAF`; drop annotation-`CM`/`MAF` reliance; sharpen errors; PLINK genetic-map interpolation. |
+| `src/ldsc/annotation_builder.py` | `AnnotationBuilder.parse_annotation_file`: stop reading `CM`/`MAF` into annotation metadata; make `CM` optional; make `SNP` required only in rsID-family modes. |
+| `src/ldsc/_kernel/ldscore.py` | Apply the same annotation-reader change to the kernel `parse_annotation_file` (`:636`); new shared `CM` resolver + unusable-`CM` guard; require `MAF`; sharpen errors; PLINK genetic-map interpolation. |
 | `src/ldsc/_kernel/ref_panel.py` | Apply `--maf-min` for PLINK; make sidecar `MAF` requirement unconditional. |
 | `src/ldsc/config.py` | `RefPanelConfig.genetic_map_hg19_sources`/`genetic_map_hg38_sources`; `LDScoreConfig.export_ref_metadata`. |
 | `src/ldsc/ldscore_calculator.py` | CLI flags; resolve genome build + load genetic map; pass primitives to the kernel namespace; provenance + export wiring. |
@@ -51,7 +51,7 @@ panels, exposed as `PLINK_FIXTURES` in `tests/test_ldscore_workflow.py`),
 ### Task 1: Annotation reader stops reading `CM`/`MAF`; `CM` no longer required
 
 **Files:**
-- Modify: `src/ldsc/annotation_builder.py:602-648` (`_read_annotation_file`)
+- Modify: `src/ldsc/annotation_builder.py:602-648` (`parse_annotation_file`)
 - Test: `tests/test_annotation.py`
 
 The current reader (`annotation_builder.py:602-648`) calls
@@ -72,7 +72,7 @@ def test_annotation_reader_ignores_cm_and_maf_columns(tmp_path):
         "1\t1000\trs1\t0.5\t0.30\t1\n"
         "1\t2000\trs2\t0.9\t0.10\t0\n"
     )
-    metadata, annotations = AnnotationBuilder()._read_annotation_file(path, chrom="1")
+    metadata, annotations = AnnotationBuilder().parse_annotation_file(path, chrom="1")
     # CM/MAF must NOT be carried as annotation metadata
     assert "CM" not in metadata.columns
     assert "MAF" not in metadata.columns
@@ -85,7 +85,7 @@ def test_annotation_reader_accepts_file_without_cm(tmp_path):
     from ldsc.annotation_builder import AnnotationBuilder
     path = tmp_path / "chr1.annot"
     path.write_text("CHR\tPOS\tSNP\tcoding\n1\t1000\trs1\t1\n")
-    metadata, annotations = AnnotationBuilder()._read_annotation_file(path, chrom="1")
+    metadata, annotations = AnnotationBuilder().parse_annotation_file(path, chrom="1")
     assert "CM" not in metadata.columns
     assert list(annotations.columns) == ["coding"]
 ```
@@ -97,7 +97,7 @@ Expected: FAIL — today `CM` is required (raises) and/or appears in `metadata`.
 
 - [ ] **Step 3: Implement — make `CM` optional and drop `CM`/`MAF` from metadata**
 
-In `_read_annotation_file`, replace the required-CM read and metadata assembly.
+In `parse_annotation_file`, replace the required-CM read and metadata assembly.
 Current (`annotation_builder.py:605` and `:613-630`):
 
 ```python
@@ -178,14 +178,14 @@ git -C <repo> commit -m "feat(annotate): ignore annotation CM/MAF; CM no longer 
 ### Task 2: `SNP` required only in rsID-family identifier modes
 
 **Files:**
-- Modify: `src/ldsc/annotation_builder.py` (`_read_annotation_file`, and the call site that knows the identifier mode)
+- Modify: `src/ldsc/annotation_builder.py` (`parse_annotation_file`, and the call site that knows the identifier mode)
 - Test: `tests/test_annotation.py`
 
 - [ ] **Step 1: Confirm the reader's access to the identifier mode**
 
-Run: `grep -n "snp_identifier\|identity_mode_family\|_read_annotation_file" src/ldsc/annotation_builder.py`
+Run: `grep -n "snp_identifier\|identity_mode_family\|parse_annotation_file" src/ldsc/annotation_builder.py`
 Expected: find whether `AnnotationBuilder` stores the snp_identifier (e.g., via
-`global_config`) or whether `_read_annotation_file` must receive it as a
+`global_config`) or whether `parse_annotation_file` must receive it as a
 parameter. If the mode is not available in the reader, thread it down from the
 public `build_*` entry point as a keyword argument `snp_identifier: str`.
 
@@ -197,7 +197,7 @@ def test_annotation_snp_optional_in_chr_pos_mode(tmp_path):
     from ldsc.annotation_builder import AnnotationBuilder
     path = tmp_path / "chr1.annot"
     path.write_text("CHR\tPOS\tcoding\n1\t1000\t1\n")
-    metadata, annotations = AnnotationBuilder()._read_annotation_file(
+    metadata, annotations = AnnotationBuilder().parse_annotation_file(
         path, chrom="1", snp_identifier="chr_pos"
     )
     assert "SNP" not in metadata.columns
@@ -210,7 +210,7 @@ def test_annotation_snp_required_in_rsid_mode(tmp_path):
     path = tmp_path / "chr1.annot"
     path.write_text("CHR\tPOS\tcoding\n1\t1000\t1\n")
     with pytest.raises(LDSCInputError):
-        AnnotationBuilder()._read_annotation_file(path, chrom="1", snp_identifier="rsid")
+        AnnotationBuilder().parse_annotation_file(path, chrom="1", snp_identifier="rsid")
 ```
 
 - [ ] **Step 3: Run tests to verify they fail**
@@ -220,7 +220,7 @@ Expected: FAIL — `SNP` is currently always required.
 
 - [ ] **Step 4: Implement — make `SNP` resolution mode-dependent**
 
-Add `snp_identifier: str` to `_read_annotation_file` (and pass it from the public
+Add `snp_identifier: str` to `parse_annotation_file` (and pass it from the public
 entry point found in Step 1). Replace the unconditional `SNP` resolution:
 
 ```python
@@ -261,6 +261,67 @@ Expected: PASS.
 ```bash
 git -C <repo> add src/ldsc/annotation_builder.py tests/test_annotation.py
 git -C <repo> commit -m "feat(annotate): require SNP only in rsID identifier modes"
+```
+
+### Task 2b: Mirror the contract in the kernel annotation reader
+
+**Files:**
+- Modify: `src/ldsc/_kernel/ldscore.py:636-698` (`parse_annotation_file`) and the
+  `REQUIRED_ANNOT_COLUMNS` / `ANNOT_META_COLUMNS` constants (`:248-249`)
+- Test: `tests/test_ldscore_workflow.py`
+
+The kernel has its own `parse_annotation_file` (`ldscore.py:636`, called at
+`:752` by the kernel bundle builder) that **also** requires `CM` via
+`resolve_required_column`. It must get the same contract so all annotation entry
+points agree.
+
+- [ ] **Step 1: Check whether the kernel reader is reachable (deadness check)**
+
+Run: `grep -rn "parse_annotation_file\|load_annotation\|AnnotationBundle(" src/ldsc/_kernel/ldscore.py`
+and trace whether `ldscore.py:752`'s caller is reached from any supported CLI /
+`run_ldscore` path, or only from kernel-direct/legacy code. Record the finding in
+the commit message. Update the reader regardless (cheap consistency); if it is
+fully dead, note it as a candidate for separate removal — do not remove here.
+
+- [ ] **Step 2: Write the failing test**
+
+```python
+# tests/test_ldscore_workflow.py
+def test_kernel_parse_annotation_file_ignores_cm(tmp_path):
+    from ldsc._kernel import ldscore as k
+    path = tmp_path / "chr1.annot"
+    path.write_text("CHR\tPOS\tSNP\tCM\tcoding\n1\t1000\trs1\t0.5\t1\n")
+    metadata, annotations = k.parse_annotation_file(str(path))
+    assert "CM" not in metadata.columns
+    assert list(annotations.columns) == ["coding"]
+```
+
+- [ ] **Step 3: Run test to verify it fails**
+
+Run: `pytest tests/test_ldscore_workflow.py -k kernel_parse_annotation_file_ignores_cm -v`
+Expected: FAIL — kernel reader requires `CM` and copies it into metadata.
+
+- [ ] **Step 4: Implement**
+
+In `parse_annotation_file` (`ldscore.py:651`), change the `CM` resolution from
+required to optional and stop copying `CM`/`MAF` into the returned metadata,
+mirroring Task 1. Update `REQUIRED_ANNOT_COLUMNS` to `("CHR", "POS", "SNP")` (or
+delete it if the deadness check shows it is unused — the earlier grep found only
+its definition). Leave `ANNOT_META_COLUMNS` (`:249`) intact: it is used for
+output column ordering at `ldscore.py:1860` and must keep `CM`/`MAF` so present
+columns sort correctly.
+
+- [ ] **Step 5: Run tests to verify they pass**
+
+Run: `pytest tests/test_ldscore_workflow.py -k kernel_parse_annotation_file -v`
+Expected: PASS. Update any existing kernel-reader test that asserted `CM` in
+metadata (e.g. `test_kernel_parse_annotation_file_preserves_optional_alleles_as_metadata`).
+
+- [ ] **Step 6: Commit**
+
+```bash
+git -C <repo> add src/ldsc/_kernel/ldscore.py tests/test_ldscore_workflow.py
+git -C <repo> commit -m "feat(ldscore): kernel annotation reader ignores CM/MAF"
 ```
 
 ---
@@ -670,22 +731,26 @@ def _resolve_build_for_ldscore_genetic_map(ref_panel, global_config, chrom) -> s
     cannot be determined.
     """
     build = resolve_genome_build(
-        global_config.genome_build,
-        reference_positions=ref_panel.load_metadata(chrom)["POS"].to_numpy(),
-        snp_identifier=global_config.snp_identifier,
+        global_config.genome_build,            # hint ("auto" | "hg19" | "hg38" | None)
+        global_config.snp_identifier,          # already-normalized mode
+        ref_panel.load_metadata(chrom)[["CHR", "POS"]],  # sample_frame for auto inference
+        context=f"PLINK panel chromosome {chrom} for genetic-map build selection",
     )
     if build not in ("hg19", "hg38"):
         raise LDSCInputError(
             "ldscore could not determine the genome build needed to select a genetic map "
             "for the PLINK panel. Pass `--genome-build hg19` or `--genome-build hg38` "
-            "(automatic build inference is unavailable in rsID identifier modes)."
+            "(automatic build inference returns None in rsID identifier modes, and needs "
+            "sufficient overlap with the packaged HM3 reference in chr_pos modes)."
         )
     return build
 ```
 
-Confirm `resolve_genome_build`'s exact signature first:
-Run: `grep -n "def resolve_genome_build" src/ldsc/genome_build_inference.py` and
-adapt the keyword names accordingly.
+The real signature (verified) is
+`resolve_genome_build(hint, snp_identifier, sample_frame, *, context, logger=None, reference_table=None)`
+in `src/ldsc/genome_build_inference.py:113`; it returns `"hg19"`, `"hg38"`, or
+`None` (always `None` for rsID-family modes), and raises if `hint="auto"` has
+insufficient HM3 overlap.
 
 - [ ] **Step 3b: Resolve + load the genetic map in the namespace builder**
 
@@ -1038,9 +1103,15 @@ Then, in the workflow chromosome loop:
         )
 ```
 
-Adapt the column source to the actual per-chromosome result object exposed by the
-workflow (the metadata frame that includes `CM`/`MAF`), and adapt the writer call
-to its real signature.
+**Plumbing note (important):** the public `ChromLDScoreResult` drops per-SNP
+`MAF` (its tables keep only `CHR/SNP/POS/A1/A2` + scores), so it cannot feed the
+export by itself. The kernel `ChromComputationResult.metadata` *does* carry
+`CM`/`MAF` and is visible in `_wrap_legacy_chrom_result` as `reference_metadata`
+(`ldscore_calculator.py:533`). Thread that frame to the workflow: either add a
+`reference_metadata: pd.DataFrame | None` field to `ChromLDScoreResult` populated
+in `_wrap_legacy_chrom_result`, or perform the export at that wrap point where
+`reference_metadata` is in scope. Then adapt the writer call to the real
+`write_runtime_metadata_sidecar` signature.
 
 - [ ] **Step 4: Run tests to verify they pass**
 

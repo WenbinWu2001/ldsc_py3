@@ -275,6 +275,16 @@ artifacts); PLINK mode is "bring-your-own-panel, compute on the fly."
   with `MAF`. New panels always include `MAF`.
 - **PLINK runs are unchanged for `MAF`** and gain the genetic-map remedy plus
   the unusable-`CM` guard for `--ld-wind-cm`.
+- **`annotate` output keeps the `CM` column.** This is a *read*-side change for
+  `ldscore`; the `annotate` *write* format is unchanged. Legacy ldsc2 reads
+  full-annot files **positionally** — `np.array(annot.df.iloc[:, 4:])` assuming
+  columns `CHR BP SNP CM` precede the annotations (ldsc2 `ldsc.py:153`). To stay
+  consumable by legacy ldsc2, `annotate` must keep emitting
+  `CHR BP SNP CM <annotations…>`. The `CM` value is a placeholder (legacy skips
+  it positionally; our reader ignores it by name), so `annotate` needs no genetic
+  map. Both annotation readers in this package (`AnnotationBuilder.parse_annotation_file`
+  and the kernel `parse_annotation_file`) select columns **by name**, so they
+  ignore the placeholder `CM` regardless.
 
 ## Alignment with legacy ldsc2
 
@@ -345,3 +355,10 @@ Numerical/behavioral tests against constructed fixtures:
 10. `--maf-min` is applied as a **reference-panel filter in both backends**
     (fixes the PLINK gap where `--maf-min` was silently ignored), with a
     cross-backend test asserting identical retained universes.
+11. **Both** annotation readers adopt the new contract: the public
+    `AnnotationBuilder.parse_annotation_file` and the kernel
+    `parse_annotation_file` (`_kernel/ldscore.py:636`). The kernel reader is also
+    checked for reachability; if dead, it is flagged for separate removal.
+12. **`annotate` keeps writing `CM`** (placeholder) to preserve legacy ldsc2
+    full-annot positional compatibility (`iloc[:, 4:]`). `annotate`'s write
+    format is otherwise unchanged and out of scope here.

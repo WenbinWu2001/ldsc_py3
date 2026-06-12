@@ -360,6 +360,14 @@ class LDScoreCalculator:
         chromosomes = _chromosomes_from_bundle(annotation_bundle)
         LOGGER.info(_format_ldscore_start_message(annotation_bundle, len(chromosomes)))
         worker_count = _resolve_worker_count(ldscore_config.threads, len(chromosomes))
+        cm_source, maf_source = _reference_metadata_sources(ref_panel)
+        LOGGER.info(
+            f"Reference-panel CM source: {cm_source}; MAF source: {maf_source} "
+            "(annotation CM/MAF are ignored)."
+        )
+        export_dir = None
+        if output_config is not None and ldscore_config.export_ref_metadata and cm_source != "parquet_sidecar":
+            export_dir = str(output_config.output_dir)
         outcomes = self._run_chromosomes(
             chromosomes=chromosomes,
             annotation_bundle=annotation_bundle,
@@ -368,6 +376,7 @@ class LDScoreCalculator:
             global_config=global_config,
             regression_snps=regression_snps,
             worker_count=worker_count,
+            export_dir=export_dir,
         )
         chromosome_results: list[ChromLDScoreResult] = []
         for chrom in chromosomes:
@@ -409,6 +418,7 @@ class LDScoreCalculator:
         global_config: GlobalConfig,
         regression_snps,
         worker_count: int,
+        export_dir: str | None = None,
     ) -> dict[str, _ChromOutcome]:
         """Compute every chromosome, sequentially or via a spawn process pool.
 
@@ -432,6 +442,7 @@ class LDScoreCalculator:
                         ldscore_config=ldscore_config,
                         global_config=global_config,
                         regression_snps=regression_snps,
+                        export_dir=export_dir,
                     )
                 except (ValueError, LDSCInputError) as exc:
                     if _is_empty_intersection(exc, chrom):
@@ -458,6 +469,7 @@ class LDScoreCalculator:
                     ref_panel_spec,
                     ldscore_config,
                     global_config,
+                    export_dir,
                 ): chrom
                 for chrom in chromosomes
             }
@@ -482,6 +494,7 @@ class LDScoreCalculator:
         ldscore_config: LDScoreConfig,
         global_config: GlobalConfig,
         regression_snps: set[str] | RestrictionIdentityKeys | None = None,
+        export_dir: str | None = None,
     ) -> ChromLDScoreResult:
         """Compute normalized LD-score outputs for one chromosome.
 
@@ -519,6 +532,8 @@ class LDScoreCalculator:
             legacy_result = kernel_ldscore.compute_chrom_from_parquet(chrom, legacy_bundle, args, regression_snps)
         else:
             legacy_result = kernel_ldscore.compute_chrom_from_plink(chrom, legacy_bundle, args, regression_snps)
+        if export_dir is not None:
+            _write_one_ref_metadata_sidecar(legacy_result.metadata, chrom, export_dir)
         result = self._wrap_legacy_chrom_result(legacy_result, global_config=global_config, regression_snps=regression_snps)
         LOGGER.info(f"Finished chromosome {chrom} with {len(result.baseline_table)} retained SNP rows.")
         return result
@@ -1579,6 +1594,32 @@ def _ldscore_config_from_args(args: argparse.Namespace) -> LDScoreConfig:
     )
 
 
+def _reference_metadata_sources(ref_panel) -> tuple[str, str]:
+    """Return ``(cm_source, maf_source)`` provenance labels for the reference panel."""
+    spec = getattr(ref_panel, "spec", None)
+    backend = getattr(spec, "backend", None)
+    if backend == "parquet_r2":
+        return "parquet_sidecar", "parquet_sidecar"
+    has_map = bool(getattr(spec, "genetic_map_hg19_sources", None) or getattr(spec, "genetic_map_hg38_sources", None))
+    return ("genetic_map" if has_map else "plink_bim"), "plink_genotypes"
+
+
+def _write_one_ref_metadata_sidecar(metadata: pd.DataFrame, chrom: str, output_dir: str) -> None:
+    """Write one opt-in reference-metadata sidecar (PLINK backend).
+
+    The format matches the parquet panel sidecar: a gzip TSV with
+    ``CHR POS SNP A1 A2 CM MAF`` columns, so an exported sidecar can seed a future
+    ``build-ref-panel`` or a QC diff. Written from inside the per-chromosome
+    worker so the lean cross-process result does not carry per-SNP metadata.
+    """
+    columns = [c for c in ("CHR", "POS", "SNP", "A1", "A2", "CM", "MAF") if c in metadata.columns]
+    export_dir = Path(output_dir) / "ref_metadata"
+    export_dir.mkdir(parents=True, exist_ok=True)
+    path = export_dir / f"chr{chrom}_meta.tsv.gz"
+    metadata[columns].to_csv(path, sep="\t", index=False, na_rep="NA", float_format="%.6g", compression="gzip")
+    LOGGER.info(f"Wrote reference-metadata sidecar '{path}'.")
+
+
 def _output_config_from_args(args: argparse.Namespace) -> LDScoreOutputConfig:
     """Translate LD-score CLI arguments into the canonical directory output config."""
     return LDScoreOutputConfig(
@@ -1832,6 +1873,7 @@ def _compute_one_chromosome(
     ref_panel_spec,
     ldscore_config: LDScoreConfig,
     global_config: GlobalConfig,
+    export_dir: str | None = None,
     regression_snps=_WORKER_UNSET,
 ) -> _ChromOutcome:
     """Compute one chromosome end-to-end and return a tagged outcome.
@@ -1856,6 +1898,7 @@ def _compute_one_chromosome(
             ldscore_config=ldscore_config,
             global_config=global_config,
             regression_snps=regression_snps,
+            export_dir=export_dir,
         )
     except (ValueError, LDSCInputError) as exc:
         if _is_empty_intersection(exc, chrom):

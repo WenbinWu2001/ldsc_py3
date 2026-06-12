@@ -1520,6 +1520,26 @@ class LDScoreWorkflowTest(unittest.TestCase):
             # interpolated CM is non-degenerate -> a real cM window, not whole-chromosome
             self.assertGreaterEqual(result.metadata["CM"].nunique(), 2)
 
+    def test_compute_chromosome_writes_ref_metadata_sidecar(self):
+        from ldsc._kernel.ref_panel import RefPanelLoader
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            prefix = self._copy_plink_fixture_with_distinct_fids(tmpdir)
+            wb = self._build_annotation_bundle(prefix)
+            gc = GlobalConfig(snp_identifier="rsid")
+            ref_panel = RefPanelLoader(gc).load(RefPanelConfig(backend="plink", plink_prefix=str(prefix)))
+            out = tmpdir / "out"
+            ldscore_workflow.LDScoreCalculator().compute_chromosome(
+                chrom="1", annotation_bundle=wb, ref_panel=ref_panel,
+                ldscore_config=LDScoreConfig(ld_wind_snps=10, export_ref_metadata=True, whole_chromosome_ok=True),
+                global_config=gc, regression_snps=None, export_dir=str(out),
+            )
+            sidecar = out / "ref_metadata" / "chr1_meta.tsv.gz"
+            self.assertTrue(sidecar.exists())
+            df = pd.read_csv(sidecar, sep="\t")
+            self.assertEqual(list(df.columns), ["CHR", "POS", "SNP", "A1", "A2", "CM", "MAF"])
+            self.assertTrue(df["MAF"].notna().any())  # genotype-derived MAF present
+
     def test_run_rejects_annotation_bundle_snapshot_mismatch(self):
         calc = ldscore_workflow.LDScoreCalculator()
         annotation_bundle = AnnotationBundle(
@@ -1641,7 +1661,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             )
             ref_panel = self.make_ref_panel_stub(backend="plink", metadata=ref_metadata)
 
-            def _compute(_self, chrom, annotation_bundle, ref_panel, ldscore_config, global_config, regression_snps=None):
+            def _compute(_self, chrom, annotation_bundle, ref_panel, ldscore_config, global_config, regression_snps=None, export_dir=None):
                 self.assertEqual(chrom, "1")
                 self.assertEqual(annotation_bundle.metadata["SNP"].tolist(), ["rs1", "rs2"])
                 self.assertEqual(annotation_bundle.baseline_columns, ["base"])
@@ -1947,7 +1967,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 log_level="INFO",
             )
 
-            def _compute(_self, chrom, annotation_bundle, ref_panel, ldscore_config, global_config, regression_snps=None):
+            def _compute(_self, chrom, annotation_bundle, ref_panel, ldscore_config, global_config, regression_snps=None, export_dir=None):
                 self.assertEqual(chrom, "1")
                 self.assertEqual(regression_snps.keys, {"rs2"})
                 self.assertEqual(regression_snps.match_kind, "base")
@@ -2346,7 +2366,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 log_level="INFO",
             )
 
-            def _compute_side_effect(_self, chrom, annotation_bundle, ref_panel, ldscore_config, global_config, regression_snps=None):
+            def _compute_side_effect(_self, chrom, annotation_bundle, ref_panel, ldscore_config, global_config, regression_snps=None, export_dir=None):
                 if chrom == "1":
                     raise ValueError("No retained annotation SNPs remain on chromosome 1 after parquet intersection.")
                 return ldscore_workflow.ChromLDScoreResult(

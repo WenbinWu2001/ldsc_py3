@@ -57,7 +57,7 @@ dropped and both quantities come exclusively from the reference panel
 ## Non-goals
 
 - No change to the R2/LD-score numerical kernels, parquet R2 storage, or the
-  public LD-score output layout (`manifest.json`, `baseline.parquet`,
+  public LD-score output layout (`metadata.json`, `baseline.parquet`,
   `query.parquet`) beyond an additive provenance record and an opt-in sidecar.
 - No change to `--ld-wind-kb` / `--ld-wind-snps` semantics (they never use `CM`).
 - No change to regression (`h2`, `partitioned-h2`, `rg`) consumption of the
@@ -228,7 +228,7 @@ identical inputs. Locked as an invariant with a cross-backend regression test.
 Because PLINK `CM`/`MAF` are otherwise transient (recomputed each run, not
 persisted per-SNP in the output), the design adds:
 
-- **Run provenance (always, additive).** `manifest.json` and the log record the
+- **Run provenance (always, additive).** the LD-score root `metadata.json` and the log record the
   `CM` source (`.bim` vs genetic-map file(s) + resolved genome build) and the
   `MAF` source (genotype-derived for PLINK; sidecar for parquet).
 
@@ -311,7 +311,7 @@ Numerical/behavioral tests against constructed fixtures:
    exactly `common_maf_min` is counted as common.
 9. **Identity-mode required columns.** `rsid`-mode annotation without `SNP`
    errors; `chr_pos`-mode annotation without `SNP` works.
-10. **Provenance + export.** `manifest.json` records `CM`/`MAF` sources;
+10. **Provenance + export.** the root `metadata.json` records `CM`/`MAF` sources;
     `--export-ref-metadata` writes a sidecar matching the parquet schema.
 11. **Cross-backend `--maf-min`.** `--maf-min t` drops the same SNPs (and yields
     the same `M`/`M_5_50`) in parquet and PLINK for identical inputs.

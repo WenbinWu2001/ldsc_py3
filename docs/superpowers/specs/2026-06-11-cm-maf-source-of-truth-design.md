@@ -198,6 +198,15 @@ so cM windows work even when the `.bim` `CM` is uninformative. This reuses the
   partitions the *retained* SNPs into the common-count `M_5_50` and the common
   overlap; it does not drop SNPs.
 
+- **`--maf-min` applies identically in both backends.** Today `--maf-min` is
+  applied as a reference-panel filter only for parquet (in
+  `ref_panel.load_metadata` → `_apply_maf_filter`); the PLINK path passes
+  `maf_min=None` to the kernel, so `--maf-min` is silently *not* applied for
+  PLINK. This design makes `--maf-min` a reference-panel filter for **both**
+  backends so the retained reference universe is identical given the same
+  `--maf-min`. (The kernel's now-dead `apply_maf_filter` path is removed or made
+  consistent as part of the cleanup.)
+
 ### 6. Counts and overlap consistency
 
 `M`, `M_5_50`, the total overlap matrix, and the common overlap matrix are
@@ -250,6 +259,7 @@ artifacts); PLINK mode is "bring-your-own-panel, compute on the fly."
 | Genetic map supplied but build unresolved (`rsid` mode, no `--genome-build`) | Error asking for explicit `--genome-build`. |
 | Reference panel lacks `MAF` | Hard error (always required). |
 | SNP with `MAF == maf_min` / `MAF == common_maf_min` | Kept / counted (inclusive `>=`). |
+| `--maf-min` with a PLINK panel | Drops `MAF < maf_min` SNPs (same as parquet); previously silently ignored. |
 
 ## Backward compatibility and migration
 
@@ -303,6 +313,8 @@ Numerical/behavioral tests against constructed fixtures:
    errors; `chr_pos`-mode annotation without `SNP` works.
 10. **Provenance + export.** `manifest.json` records `CM`/`MAF` sources;
     `--export-ref-metadata` writes a sidecar matching the parquet schema.
+11. **Cross-backend `--maf-min`.** `--maf-min t` drops the same SNPs (and yields
+    the same `M`/`M_5_50`) in parquet and PLINK for identical inputs.
 
 ## Out of scope / future work
 
@@ -330,3 +342,6 @@ Numerical/behavioral tests against constructed fixtures:
    `MAF` (already implemented; locked as invariant).
 9. Persistence: **manifest provenance + opt-in `--export-ref-metadata`**
    (default `false`), sidecar in the unified `chrN_meta.tsv.gz` schema.
+10. `--maf-min` is applied as a **reference-panel filter in both backends**
+    (fixes the PLINK gap where `--maf-min` was silently ignored), with a
+    cross-backend test asserting identical retained universes.

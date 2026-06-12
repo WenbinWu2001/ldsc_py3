@@ -3486,3 +3486,23 @@ def test_ldscore_rejects_non_minor_maf():
 def test_assert_canonical_maf_passes_for_minor():
     ok = pd.DataFrame({"MAF": [0.0, 0.2, 0.5]})
     ldscore_workflow._assert_canonical_maf(ok)  # no raise
+
+
+def test_merge_frequency_metadata_sidecar_is_authoritative(monkeypatch, tmp_path):
+    """Reference-panel sidecar CM/MAF overwrite annotation-provided values."""
+    metadata = pd.DataFrame(
+        {"CHR": ["1"], "POS": [10], "SNP": ["rs1"], "CM": [99.0], "MAF": [0.99]}
+    )
+    sidecar = tmp_path / "chr1_meta.tsv.gz"
+    pd.DataFrame(
+        {"CHR": ["1"], "POS": [10], "SNP": ["rs1"], "CM": [0.5], "MAF": [0.2]}
+    ).to_csv(sidecar, sep="\t", index=False)
+    monkeypatch.setattr(
+        kernel_ldscore, "resolve_frequency_files", lambda args, chrom=None: [str(sidecar)]
+    )
+    args = Namespace(frqfile=str(sidecar), frqfile_chr=None)
+    merged = kernel_ldscore.merge_frequency_metadata(
+        metadata, args, chrom="1", identifier_mode="rsid"
+    )
+    assert merged.loc[0, "CM"] == 0.5  # sidecar wins, not annotation 99.0
+    assert merged.loc[0, "MAF"] == 0.2  # sidecar wins (folded)

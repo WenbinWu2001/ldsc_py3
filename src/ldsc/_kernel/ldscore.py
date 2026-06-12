@@ -914,15 +914,16 @@ def merge_frequency_metadata(
     identifier_mode: str,
 ) -> pd.DataFrame:
     """
-    Merge optional sidecar ``CM`` and ``MAF`` onto retained SNP metadata.
+    Merge reference-panel sidecar ``CM`` and ``MAF`` onto retained SNP metadata.
 
-    For LD-score calculation, the annotation file's ``CM`` is the first source.
-    The sidecar metadata only fills missing ``CM`` values. ``MAF`` is filled by
-    the same missing-value rule so annotation-provided metadata remains
-    authoritative when present. Frequency sidecars are metadata providers, not
-    SNP filters: when multiple sidecar rows share the active effective identity
-    key, the whole duplicate-key cluster is ignored and a warning is logged, so
-    ``CM``/``MAF`` stay missing unless already supplied by annotation metadata.
+    The reference-panel sidecar is **authoritative** for ``CM`` and ``MAF``: for
+    every SNP the sidecar covers, its ``CM``/``MAF`` overwrite any
+    annotation-provided values. ``CM``/``MAF`` are population-specific and belong
+    to the reference panel, not the annotation. Frequency sidecars are metadata
+    providers, not SNP filters: when multiple sidecar rows share the active
+    effective identity key, the whole duplicate-key cluster is ignored and a
+    warning is logged, so those SNPs keep whatever ``CM``/``MAF`` they already had
+    (typically missing, which `--ld-wind-cm` then rejects).
     """
     files = resolve_frequency_files(args, chrom=chrom)
     if not files:
@@ -944,16 +945,19 @@ def merge_frequency_metadata(
     for key_mode, freq_part in freq_df.groupby("_key_mode", sort=False):
         merged_keys = build_snp_id_series(merged, str(key_mode))
         freq_part = freq_part.set_index("_key")
+        # The reference-panel sidecar is authoritative for CM/MAF: overwrite any
+        # annotation-provided values for every SNP the sidecar covers, so the
+        # reference panel (not the annotation) determines CM and MAF.
         if "CM" in freq_part.columns:
             if "CM" not in merged.columns:
                 merged["CM"] = np.nan
-            missing_cm = merged["CM"].isna() & merged_keys.isin(freq_part.index)
-            merged.loc[missing_cm, "CM"] = freq_part.loc[merged_keys.loc[missing_cm], "CM"].to_numpy()
+            present_cm = merged_keys.isin(freq_part.index)
+            merged.loc[present_cm, "CM"] = freq_part.loc[merged_keys.loc[present_cm], "CM"].to_numpy()
         if "MAF" in freq_part.columns:
             if "MAF" not in merged.columns:
                 merged["MAF"] = np.nan
-            missing_maf = merged["MAF"].isna() & merged_keys.isin(freq_part.index)
-            merged.loc[missing_maf, "MAF"] = freq_part.loc[merged_keys.loc[missing_maf], "MAF"].to_numpy()
+            present_maf = merged_keys.isin(freq_part.index)
+            merged.loc[present_maf, "MAF"] = freq_part.loc[merged_keys.loc[present_maf], "MAF"].to_numpy()
     return merged
 
 

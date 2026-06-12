@@ -54,9 +54,23 @@ _CENTROMERE_PROVENANCE = {
     ("padded", "hg38"): "Pericentromeric +/-3 cM (LDSC, Bulik-Sullivan 2015 Nat Genet): hg38 centromere padded via Alkes-group genetic_map_hg38_withX; active 'centromeres' exclusion; 0-based half-open",
 }
 
-MHC = {
+# Active `mhc` preset: broad GWAS exclusion window, build-consistent (chr6:25-35 Mb
+# in both builds; hg19 25-35 Mb lifts to hg38 ~25.00-35.03 Mb, so the same numeric
+# window covers the same biology). `mhc_core` is the narrow classical-HLA core,
+# kept for reference only and not wired to any CLI choice.
+MHC_BROAD = {
     "hg19": [("6", 25_000_000, 35_000_000)],
-    "hg38": [("6", 28_477_797, 33_448_354)],
+    "hg38": [("6", 25_000_000, 35_000_000)],
+}
+MHC_CORE = {
+    "hg38": [("6", 28_477_797, 33_448_354)],   # pinned hg38 classical-HLA core
+    "hg19": [("6", 28_445_574, 33_416_131)],   # liftOver of the hg38 core
+}
+_MHC_PROVENANCE = {
+    ("broad", "hg19"): "MHC broad GWAS exclusion window, hg19 chr6:25-35Mb, pinned; active 'mhc' exclusion; 0-based half-open",
+    ("broad", "hg38"): "MHC broad GWAS exclusion window, hg38 chr6:25-35Mb, pinned (hg19 25-35Mb lifts here); active 'mhc' exclusion; 0-based half-open",
+    ("core", "hg38"): "MHC core (classical HLA), hg38 chr6:28477797-33448354, pinned; reference only, NOT the active 'mhc' exclusion; 0-based half-open",
+    ("core", "hg19"): "MHC core (classical HLA), hg19 chr6:28445574-33416131, liftOver of the hg38 core; reference only, NOT the active 'mhc' exclusion; 0-based half-open",
 }
 
 
@@ -173,8 +187,9 @@ def write_bed(path: Path, rows: list[tuple[str, int, int]], provenance: str) -> 
 
 def main() -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    write_bed(OUT_DIR / "mhc.hg19.bed", MHC["hg19"], "MHC broad exclusion window, hg19 (chr6:25-35Mb), pinned constant; 0-based half-open")
-    write_bed(OUT_DIR / "mhc.hg38.bed", MHC["hg38"], "MHC core exclusion window, hg38 (chr6:28477797-33448354), pinned constant; 0-based half-open")
+    for build in ("hg19", "hg38"):
+        write_bed(OUT_DIR / f"mhc.{build}.bed", MHC_BROAD[build], _MHC_PROVENANCE[("broad", build)])
+        write_bed(OUT_DIR / f"mhc_core.{build}.bed", MHC_CORE[build], _MHC_PROVENANCE[("core", build)])
     for build, fetch in (("hg19", centromeres_hg19), ("hg38", centromeres_hg38)):
         core = fetch()
         # Raw gap kept for reference; the active `centromeres` preset is the +/-3 cM padded region.

@@ -395,11 +395,16 @@ flowchart LR
 Region exclusion filters SNPs by genomic coordinates before LD computation or
 panel emission. Two input sources are supported and may be combined.
 
-**Preset regions** (`--exclude-regions {mhc,centromeres}`) read packaged BED
-files under `src/ldsc/data/regions/` keyed by name and genome build (e.g.
-`mhc.hg19.bed`). **User BEDs** (`--exclude-regions-bed <file>`) read any
-standard 0-based half-open BED file and apply intervals as-is against panel
-`CHR/POS`.
+**Preset regions** (`--exclude-regions`) are selected from a fixed single-choice
+vocabulary `EXCLUDE_REGIONS_CHOICES` = `none | mhc | centromeres |
+mhc-and-centromeres`, **defaulting to `mhc-and-centromeres`** (exclusion is on by
+default; `none` opts out). Each choice maps to packaged BED files under
+`src/ldsc/data/regions/` keyed by preset name and genome build (e.g.
+`mhc.hg19.bed`). The active **`centromeres`** preset ships the **pericentromeric
+±3 cM** region (LDSC parity, Bulik-Sullivan 2015); the raw centromere gap is
+preserved as **`centromeres_core`** (loadable via the Python API, not wired to
+the CLI). **User BEDs** (`--exclude-regions-bed <file>`) read any standard
+0-based half-open BED file and apply intervals as-is against panel `CHR/POS`.
 
 The keep rule in `region_exclusion_keep_mask` (`src/ldsc/_kernel/regions.py`)
 is: a 1-based SNP position `p` is excluded iff `start < p <= end` for some

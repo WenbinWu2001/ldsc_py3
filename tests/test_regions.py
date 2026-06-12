@@ -236,3 +236,35 @@ def test_exclude_regions_choice_to_presets_maps_all_choices():
 def test_exclude_regions_choice_rejects_unknown_token():
     with pytest.raises(LDSCConfigError, match="Invalid --exclude-regions choice"):
         regions.exclude_regions_choice_to_presets("mhc,centromeres")
+
+
+@pytest.mark.parametrize("build", ["hg19", "hg38"])
+def test_centromeres_core_bed_covers_all_autosomes(build):
+    rows = _read_bed(f"centromeres_core.{build}.bed")
+    chroms = {chrom for chrom, _, _ in rows}
+    assert {str(i) for i in range(1, 23)}.issubset(chroms)
+    for chrom, start, end in rows:
+        assert start < end, f"{chrom}: start {start} not < end {end}"
+
+
+def test_centromeres_core_in_preset_menu():
+    assert "centromeres_core" in regions.REGION_PRESETS
+    result = regions.load_preset_intervals(["centromeres_core"], "hg38")
+    assert result.source_labels == ("preset:centromeres_core[hg38]",)
+    assert "1" in result.intervals
+
+
+@pytest.mark.parametrize("build", ["hg19", "hg38"])
+def test_centromeres_preset_is_pericentromeric_superset_of_core(build):
+    # The active `centromeres` preset ships the pericentromeric (+/-3 cM) region,
+    # which must always contain the raw `centromeres_core` span -- including on
+    # acrocentric chromosomes (13/14/15/21/22) whose p-arm is absent from the map.
+    core = regions.load_preset_intervals(["centromeres_core"], build)
+    active = regions.load_preset_intervals(["centromeres"], build)
+    for chrom, core_bounds in core.intervals.items():
+        assert chrom in active.intervals, chrom
+        active_bounds = active.intervals[chrom].tolist()
+        for cstart, cend in core_bounds.tolist():
+            covered = any(astart <= cstart and aend >= cend for astart, aend in active_bounds)
+            assert covered, f"chr{chrom} core centromere {cstart}-{cend} not within the padded 'centromeres' region"
+    assert active.source_labels == (f"preset:centromeres[{build}]",)

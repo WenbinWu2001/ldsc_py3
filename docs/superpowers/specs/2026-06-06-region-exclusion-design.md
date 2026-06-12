@@ -1,9 +1,22 @@
 # Chromosome-Region Exclusion for `build-ref-panel` and `ldscore`
 
 **Date:** 2026-06-06
-**Status:** Approved design (pre-implementation)
+**Status:** Implemented, then partly superseded — see the note below.
 **Topic:** `region-exclusion`
-**Companion plan:** `docs/superpowers/plans/2026-06-06-region-exclusion-plan.md` (to be written)
+**Companion plan:** `docs/superpowers/plans/2026-06-06-region-exclusion-plan.md`
+
+> **⚠ Superseded sections.** Later changes reshaped two parts of this design;
+> §6 (build-resolution rules) and §8 (CLI changes) below describe the *original*
+> contract and no longer match the code:
+> - `--exclude-regions` is now a fixed single-choice enum
+>   (`none`, `mhc`, `centromeres`, `mhc-and-centromeres`) via
+>   `EXCLUDE_REGIONS_CHOICES`, **defaulting to `mhc-and-centromeres` (exclusion ON
+>   by default)** — not a free comma list.
+> - `--exclude-regions-build` is now **inferred** from the panel build in
+>   chr_pos modes and required only in rsID modes — not "always required".
+> - The `centromeres` preset now ships the **pericentromeric ±3 cM** region
+>   (LDSC parity); the raw gap is preserved as `centromeres_core` (see §4.3).
+> §4 (region data) and §5 (kernel engine) remain accurate.
 
 ---
 
@@ -79,8 +92,10 @@ Standard 3-column BED, one file **per preset per build**, under
 ```
 src/ldsc/data/regions/mhc.hg19.bed
 src/ldsc/data/regions/mhc.hg38.bed
-src/ldsc/data/regions/centromeres.hg19.bed
-src/ldsc/data/regions/centromeres.hg38.bed
+src/ldsc/data/regions/centromeres.hg19.bed          # active: pericentromeric +/-3 cM
+src/ldsc/data/regions/centromeres.hg38.bed          # active: pericentromeric +/-3 cM
+src/ldsc/data/regions/centromeres_core.hg19.bed     # raw gap, kept for reference
+src/ldsc/data/regions/centromeres_core.hg38.bed     # raw gap, kept for reference
 ```
 
 Rationale for four standard BEDs over two files with a `build` column: a `build`
@@ -106,15 +121,26 @@ rather than silently dropping a build. The cost is two extra ~1 KB files.
   - hg19: `6  25000000  35000000` (the conventional broad MHC exclusion window).
   - hg38: `6  28477797  33448354` (lifted MHC core; final exact bounds fixed
     during implementation against the curation source).
-- **`centromeres.*.bed`** — one interval per chromosome (autosomes + X),
-  sourced from the UCSC `gap` table (`type = centromere`) for the matching build
-  (~24 rows). Exact rows are materialized during implementation from UCSC and
-  recorded with their provenance in a comment block at the top of each file.
+- **`centromeres.*.bed`** (the **active** `centromeres` preset) — one interval
+  per chromosome (autosomes + X), the **pericentromeric region: each centromere
+  span padded by ±3 cM**, matching the LD Score regression exclusion of
+  Bulik-Sullivan et al. 2015 Nat Genet (Online Methods). Padding is computed at
+  curation time: cM at the centromere endpoints is read from the Alkes-group
+  recombination map (`genetic_map_{build}_withX`), extended ±3 cM, and inverted
+  back to base pairs. The padded interval is **unioned with the centromere span**
+  so it always contains it — this also gives the correct conservative behavior on
+  the acrocentric chromosomes (13/14/15/21/22), whose p-arm is absent from the
+  genetic map. The genetic maps are a curation-time input only (workspace
+  `resources/`, overridable via `LDSC_GENETIC_MAP_DIR`), not bundled.
+- **`centromeres_core.*.bed`** — the **raw** UCSC centromere span (hg19 `gap`
+  track `type = centromere`; hg38 `centromeres` track merged per chromosome).
+  Kept for reference and loadable via the `centromeres_core` preset (Python API),
+  but **not wired to any CLI choice**. Retained for later expert review of the
+  centromere-vs-pericentromere definition.
 
-> **Implementation note:** the precise centromere/MHC coordinates and their
-> UCSC source URLs/dates are pinned in the implementation plan and embedded as
-> `#`-comment provenance headers in each BED file so future curators can
-> reproduce them.
+> **Provenance.** Each BED's first `#` line records its source (UCSC track or the
+> Alkes-group map + the 3 cM parameter). All four are regenerable by
+> `tools/regions/build_region_beds.py`.
 
 ### 4.4 Packaging
 

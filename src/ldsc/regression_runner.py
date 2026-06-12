@@ -368,6 +368,13 @@ class RegressionRunner:
             retained_ld_columns = [column for column in retained_ld_columns if column not in dropped_ld_columns]
             if retained_ld_columns:
                 merged = merged.loc[:, [column for column in merged.columns if column not in dropped_ld_columns]]
+                if dropped_ld_columns:
+                    LOGGER.warning(
+                        "Dropped %d zero-variance LD-score column(s) after merging with sumstats: %s. "
+                        "These annotations are constant on the regression SNP set and receive no coefficient.",
+                        len(dropped_ld_columns),
+                        ", ".join(dropped_ld_columns),
+                    )
             else:
                 raise LDSCInputError(
                     "h2 regression cannot run because all retained LD-score columns have zero variance "
@@ -558,6 +565,13 @@ class RegressionRunner:
             retained_ld_columns = [column for column in retained_ld_columns if column not in dropped_ld_columns]
             if retained_ld_columns:
                 merged = merged.loc[:, [column for column in merged.columns if column not in dropped_ld_columns]]
+                if dropped_ld_columns:
+                    LOGGER.warning(
+                        "Dropped %d zero-variance LD-score column(s) after merging with sumstats: %s. "
+                        "These annotations are constant on the regression SNP set and receive no coefficient.",
+                        len(dropped_ld_columns),
+                        ", ".join(dropped_ld_columns),
+                    )
             else:
                 raise LDSCInputError(
                     "rg regression cannot run because all retained LD-score columns have zero variance "
@@ -619,7 +633,7 @@ class RegressionRunner:
         if two_step is None and intercept is None and len(dataset.retained_ld_columns) == 1:
             two_step = 30
         old_weights = len(dataset.retained_ld_columns) > 1
-        _warn_model_collinearity(dataset, x)
+        _raise_on_model_collinearity(dataset, x)
         return reg.Hsq(
             chisq,
             x,
@@ -1536,25 +1550,27 @@ def _log_partitioned_h2_regime(ldscore_result: LDScoreResult, has_queries: bool)
         )
 
 
-_SEEN_COLLINEARITY_WARNINGS: set[str] = set()
+def _raise_on_model_collinearity(dataset: RegressionDataset, x: np.ndarray) -> None:
+    """Abort the fit when the LD-score design matrix is near-collinear.
 
-
-def _warn_model_collinearity(dataset: RegressionDataset, x: np.ndarray) -> None:
-    """Emit a de-duplicated collinearity warning for the fitted LD-score model."""
+    Matches legacy LDSC's hard stop on an ill-conditioned design matrix: rather
+    than warn and emit a partition the user must second-guess, collinear
+    annotations raise ``LDSCInputError`` so the only results produced are
+    trustworthy ones.
+    """
     overlap = getattr(dataset, "ldscore_overlap", None)
     if overlap is None or len(dataset.retained_ld_columns) < 2:
         return
-    from .overlap_matrix import assemble_model_overlap, model_collinearity_warning
+    from .overlap_matrix import assemble_model_overlap, model_collinearity_error
 
     use_common = dataset.count_key_used_for_regression == COMMON_COUNT_KEY
     try:
         model_overlap = assemble_model_overlap(overlap, list(dataset.retained_ld_columns), use_common)
     except (ValueError, KeyError):
         return
-    warning = model_collinearity_warning(x, list(dataset.retained_ld_columns), model_overlap)
-    if warning and warning not in _SEEN_COLLINEARITY_WARNINGS:
-        _SEEN_COLLINEARITY_WARNINGS.add(warning)
-        LOGGER.warning(warning)
+    message = model_collinearity_error(x, list(dataset.retained_ld_columns), model_overlap)
+    if message:
+        raise LDSCInputError(message)
 
 
 def _sort_partitioned_h2_summary(summary: pd.DataFrame, sort_by: str = "category") -> pd.DataFrame:

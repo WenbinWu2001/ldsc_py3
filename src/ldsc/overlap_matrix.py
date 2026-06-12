@@ -191,12 +191,15 @@ def assemble_model_overlap(
     return out
 
 
-def model_collinearity_warning(X, columns, overlap_matrix, threshold: float = 1e5) -> str | None:
-    """Return a warning when the LD-score design matrix is near-collinear.
+def model_collinearity_error(X, columns, overlap_matrix, threshold: float = 1e5) -> str | None:
+    """Return a fatal-error message when the LD-score design matrix is near-collinear.
 
     Uses the legacy condition-number threshold on the design matrix itself, and
     names the most correlated annotation pair (from the overlap Gram matrix) as
     the likely culprit. Returns ``None`` when well conditioned or under-sized.
+    The caller raises on a non-``None`` message: collinear annotations cannot be
+    separated, so the partition would be untrustworthy and the run must abort
+    rather than emit results the user has to second-guess.
     """
     X = np.asarray(X, dtype=np.float64)
     if X.shape[1] < 2:
@@ -212,7 +215,8 @@ def model_collinearity_warning(X, columns, overlap_matrix, threshold: float = 1e
     np.fill_diagonal(corr, 0.0)
     i, j = np.unravel_index(int(np.argmax(np.abs(corr))), corr.shape)
     return (
-        f"LD-score design matrix is nearly collinear (condition number {int(condition_number)} > "
-        f"{int(threshold)}); annotations '{columns[i]}' and '{columns[j]}' overlap almost entirely "
-        f"(r={corr[i, j]:.3f}). Consider dropping one of them or coarsening the annotation."
+        f"LD-score regression aborted: the design matrix is collinear (condition number "
+        f"{int(condition_number)} > {int(threshold)}). Annotations '{columns[i]}' and "
+        f"'{columns[j]}' overlap almost entirely (r={corr[i, j]:.3f}); their coefficients "
+        f"cannot be separated. Drop one of them or coarsen the annotation, then re-run."
     )

@@ -198,17 +198,17 @@ def test_assemble_model_overlap_reconstructs_submatrix():
     np.testing.assert_allclose(O_R[2, :], O_R[:, 2])  # assembled query row/col symmetric
 
 
-def test_model_collinearity_warning_names_worst_pair():
-    from ldsc.overlap_matrix import model_collinearity_warning
+def test_model_collinearity_error_names_worst_pair():
+    from ldsc.overlap_matrix import model_collinearity_error
     # near-duplicate LD-score columns -> high condition number
     X = np.array([[1.0, 1.0001, 2.0], [2.0, 2.0001, 1.0], [3.0, 3.0001, 0.5], [4.0, 4.0002, 0.1]])
     columns = ["catA", "catA_dup", "other"]
     O = np.array([[10.0, 9.99, 1.0], [9.99, 10.0, 1.0], [1.0, 1.0, 10.0]])
-    msg = model_collinearity_warning(X, columns, O, threshold=1e5)
+    msg = model_collinearity_error(X, columns, O, threshold=1e5)
     assert msg is not None and "catA" in msg and "catA_dup" in msg
 
 
-def test_model_collinearity_warning_none_when_well_conditioned():
-    from ldsc.overlap_matrix import model_collinearity_warning
+def test_model_collinearity_error_none_when_well_conditioned():
+    from ldsc.overlap_matrix import model_collinearity_error
     X = np.array([[1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])
-    assert model_collinearity_warning(X, ["a", "b"], np.eye(2), threshold=1e5) is None
+    assert model_collinearity_error(X, ["a", "b"], np.eye(2), threshold=1e5) is None

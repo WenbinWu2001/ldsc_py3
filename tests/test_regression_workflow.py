@@ -1107,6 +1107,36 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertFalse({"A1", "A2", "A1x", "A2x"} & set(dataset.merged.columns))
         np.testing.assert_allclose(dataset.merged["Z2"], [1.0, 2.0, 3.0])
 
+    def test_build_dataset_warns_when_dropping_zero_variance_ld_columns(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        base_result = self.make_ldscore_result()
+        n_rows = len(base_result.baseline_table)
+        ldscore_result = replace(
+            base_result,
+            baseline_table=base_result.baseline_table.assign(flat=[1.0] * n_rows),
+            baseline_columns=["base", "flat"],
+            count_records=[
+                {
+                    "group": "baseline",
+                    "column": "base",
+                    "all_reference_snp_count": 10.0,
+                    "common_reference_snp_count": 8.0,
+                },
+                {
+                    "group": "baseline",
+                    "column": "flat",
+                    "all_reference_snp_count": 30.0,
+                    "common_reference_snp_count": 28.0,
+                },
+            ],
+        )
+        with self.assertLogs("LDSC.regression_runner", level="WARNING") as captured:
+            dataset = runner.build_dataset(self.make_sumstats_table(), ldscore_result)
+
+        self.assertEqual(dataset.dropped_zero_variance_ld_columns, ["flat"])
+        self.assertEqual(dataset.retained_ld_columns, ["base"])
+        self.assertTrue(any("flat" in message for message in captured.output))
+
     def test_build_rg_dataset_drops_zero_variance_ld_columns_after_final_merge(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
         ldscore_result = replace(
@@ -1679,6 +1709,39 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertEqual(partitioned.loc[0, "Prop._h2"], 1.0)
         self.assertEqual(partitioned.loc[0, "Enrichment"], 1.0)
         self.assertTrue(np.isnan(partitioned.loc[0, "Enrichment_p"]))
+
+    def test_collinear_partitioned_model_raises_input_error(self):
+        # Two near-duplicate baseline annotations produce a singular design
+        # matrix; the fit must abort (legacy hard stop), not warn-and-proceed.
+        overlap = LDScoreOverlap.from_contribution(
+            OverlapContribution(
+                baseline_block_all=np.array([[10.0, 9.999], [9.999, 10.0]]),
+                baseline_block_common=np.array([[10.0, 9.999], [9.999, 10.0]]),
+                query_diagonal_all=np.array([]),
+                query_diagonal_common=np.array([]),
+                n_all=10,
+                n_common=10,
+            ),
+            ["catA", "catA_dup"],
+            [],
+        )
+        dataset = regression_runner.RegressionDataset(
+            merged=pd.DataFrame(
+                {"SNP": ["rs1"], "Z": [1.0], "N": [1000.0], "regression_ld_scores": [1.0]}
+            ),
+            ref_ld_columns=["catA", "catA_dup"],
+            weight_column="regression_ld_scores",
+            reference_snp_count_totals={"common_reference_snp_counts": np.array([10.0, 10.0])},
+            count_key_used_for_regression="common_reference_snp_counts",
+            retained_ld_columns=["catA", "catA_dup"],
+            dropped_zero_variance_ld_columns=[],
+            trait_names=["trait"],
+            chromosomes_aggregated=[],
+            ldscore_overlap=overlap,
+        )
+        x = np.array([[1.0, 1.0001], [2.0, 2.0001], [3.0, 3.0001], [4.0, 4.0002]])
+        with self.assertRaises(LDSCInputError):
+            regression_runner._raise_on_model_collinearity(dataset, x)
 
     def test_partitioned_full_summary_uses_legacy_column_order_and_enrichment_p(self):
         dataset = regression_runner.RegressionDataset(

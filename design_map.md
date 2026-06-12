@@ -131,3 +131,13 @@ contracts move.
 | --- | --- |
 | `docs/superpowers/specs/2026-06-05-ldscore-chromosome-parallelism-design.md` | single-machine cross-chromosome process-pool parallelism via one `LDScoreConfig.threads` knob / `--threads` flag (joblib `n_jobs`: `1`=sequential default, `-1`=all cores, `-2`=all but one), affinity-aware core detection (`_available_cpu_count` via `os.sched_getaffinity`), `_resolve_worker_count`, `LDScoreCalculator._run_chromosomes` (inline vs spawn `ProcessPoolExecutor`), module-level `_compute_one_chromosome` worker, `_ChromOutcome`, `_init_worker` BLAS-thread guard, deterministic chromosome-ordered aggregation. Output contract unchanged. All in `src/ldsc/ldscore_calculator.py` |
 | `docs/superpowers/plans/2026-06-05-ldscore-chromosome-parallelism-plan.md` | TDD implementation checklist and the two-chromosome canonical index-panel fixture in `tests/test_ldscore_parallelism.py` |
+
+## CM/MAF Source-of-Truth Across LD-Score Backends
+
+| Design document | Implementation |
+| --- | --- |
+| `docs/superpowers/specs/2026-06-11-cm-maf-source-of-truth-design.md` | Population-agnostic annotation contract: `AnnotationBuilder.parse_annotation_file` and kernel `parse_annotation_file` (`src/ldsc/annotation_builder.py`, `src/ldsc/_kernel/ldscore.py`) — optional `CM`→NaN placeholder, `MAF` not carried, `SNP` required only in rsID modes; BED-projection dead `CM` removed (`_BaselineRow` in `src/ldsc/_kernel/annotation.py`); `_merge_missing_metadata` backfills only `A1`/`A2`; `_write_bundle_query_as_annot_files` writes empty `CM`, no `MAF` |
+| `docs/superpowers/specs/2026-06-11-cm-maf-source-of-truth-design.md` | Reference panel authoritative: `merge_frequency_metadata` (sidecar overwrite), `require_reference_maf`, `assert_cm_usable`, PLINK genetic-map interpolation + empty-chromosome guard in `compute_chrom_from_plink` (`src/ldsc/_kernel/ldscore.py`); unconditional sidecar-`MAF` requirement in `src/ldsc/_kernel/ref_panel.py` |
+| `docs/superpowers/specs/2026-06-11-cm-maf-source-of-truth-design.md` | Workflow wiring: `RefPanelConfig.genetic_map_hg19/hg38_sources`, `LDScoreConfig.export_ref_metadata` (`src/ldsc/config.py`); CLI flags + `_resolve_build_for_ldscore_genetic_map`, `_resolve_ldscore_genetic_map`, `_reference_metadata_sources`, `_write_one_ref_metadata_sidecar`, and `--maf-min`/`genetic_map`/`export_dir` threading (`src/ldsc/ldscore_calculator.py`) |
+| `docs/superpowers/plans/2026-06-11-cm-maf-source-of-truth-plan.md` | TDD task checklist; tests in `tests/test_annotation.py` and `tests/test_ldscore_workflow.py` |
+| `docs/troubleshooting.md#ldscore-unusable-cm-for-ld-wind-cm` | unusable-`CM` error guidance (genetic map / real `.bim` CM / kb-snps remedies) |

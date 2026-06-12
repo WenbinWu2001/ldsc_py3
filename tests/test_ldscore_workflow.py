@@ -1046,6 +1046,16 @@ class LDScoreWorkflowTest(unittest.TestCase):
         self.assertEqual(metadata["A2"].tolist(), ["C"])
         self.assertEqual(list(annotations.columns), ["base_a"])
 
+    def test_kernel_parse_annotation_file_accepts_file_without_cm_and_ignores_maf(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "no_cm.annot"
+            path.write_text("CHR\tBP\tSNP\tMAF\tbase_a\n1\t10\trs1\t0.3\t1\n", encoding="utf-8")
+            metadata, annotations = kernel_ldscore.parse_annotation_file(str(path))
+        self.assertIn("CM", metadata.columns)  # placeholder retained
+        self.assertTrue(metadata["CM"].isna().all())
+        self.assertNotIn("MAF", metadata.columns)  # MAF never carried
+        self.assertEqual(list(annotations.columns), ["base_a"])
+
     def test_kernel_parse_annotation_file_rejects_single_allele_column(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "one_allele.annot"

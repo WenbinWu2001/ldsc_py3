@@ -245,7 +245,7 @@ _LDSCORE_INTERSECTION_DOC = (
 _LDSCORE_PARQUET_DOC = "docs/troubleshooting.md#ldscore-parquet-r2-input-is-incompatible"
 # K: stored R2 pairs buffered before one float64 CSR SpMM step (~0.45 GiB/chunk).
 _CSR_CHUNK_PAIRS = 16_000_000
-REQUIRED_ANNOT_COLUMNS = ("CHR", "POS", "SNP", "CM")
+REQUIRED_ANNOT_COLUMNS = ("CHR", "POS", "SNP")
 ANNOT_META_COLUMNS = ("CHR", "POS", "SNP", "A1", "A2", "CM", "MAF")
 ANNOTATION_A1_COLUMN_SPEC = ColumnSpec(
     A1_COLUMN_SPEC.canonical,
@@ -649,7 +649,9 @@ def parse_annotation_file(path: str, chrom: str | None = None) -> tuple[pd.DataF
     chr_col = resolve_required_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["CHR"], context=context)
     pos_col = resolve_required_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["POS"], context=context)
     snp_col = resolve_required_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["SNP"], context=context)
-    cm_col = resolve_required_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["CM"], context=context)
+    # CM/MAF are population-specific; the reference panel is authoritative. They are
+    # resolved only to exclude them from annotation value columns, never used as values.
+    cm_col = resolve_optional_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["CM"], context=context)
     maf_col = resolve_optional_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["MAF"], context=context)
     a1_col = resolve_optional_column(df.columns, ANNOTATION_A1_COLUMN_SPEC, context=context)
     a2_col = resolve_optional_column(df.columns, ANNOTATION_A2_COLUMN_SPEC, context=context)
@@ -665,18 +667,16 @@ def parse_annotation_file(path: str, chrom: str | None = None) -> tuple[pd.DataF
             "CHR": df[chr_col],
             "POS": df[pos_col],
             "SNP": df[snp_col],
-            "CM": df[cm_col],
         }
     )
     meta["CHR"] = meta["CHR"].map(lambda value: normalize_chromosome(value, context=path))
     meta["POS"] = pd.to_numeric(meta["POS"], errors="raise").astype(np.int64)
     meta["SNP"] = meta["SNP"].astype(str)
-    meta["CM"] = pd.to_numeric(meta["CM"], errors="coerce")
+    # CM is a population-agnostic placeholder (NaN); any input value is discarded.
+    meta["CM"] = np.nan
     if a1_col is not None and a2_col is not None:
         meta["A1"] = df[a1_col]
         meta["A2"] = df[a2_col]
-    if maf_col is not None:
-        meta["MAF"] = pd.to_numeric(df[maf_col], errors="coerce")
 
     if chrom is not None:
         keep = meta["CHR"] == normalize_chromosome(chrom, context=path)

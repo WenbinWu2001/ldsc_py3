@@ -1007,6 +1007,41 @@ def chromosome_set_from_annotation_inputs(args: argparse.Namespace) -> list[str]
     return sorted(chromosomes, key=chrom_sort_key)
 
 
+def assert_cm_usable(cm: pd.Series, chrom: str) -> None:
+    """Reject a CM column that cannot order SNPs on a chromosome.
+
+    Unusable means fewer than two distinct finite values (all zero, all identical,
+    or all missing): every SNP collapses to one coordinate, so any positive cM
+    window spans the whole chromosome -- a meaningless result, not an intentional
+    choice. This check is unconditional; ``--yes-really`` does not bypass it.
+    """
+    finite = pd.to_numeric(cm, errors="coerce").dropna().unique()
+    if len(finite) < 2:
+        raise LDSCInputError(
+            f"ldscore cannot use `--ld-wind-cm` on chromosome {chrom}: the reference panel "
+            "CM column is all zero or otherwise uninformative (fewer than two distinct "
+            "values), so it cannot define a genetic-distance window. Provide real "
+            "genetic-map positions: pass a PLINK `.bim` with informative CM, add "
+            "`--genetic-map-hg38-sources` / `--genetic-map-hg19-sources` for the panel's "
+            "build, or use `--ld-wind-kb` / `--ld-wind-snps`."
+        )
+
+
+def require_reference_maf(metadata: pd.DataFrame, chrom: str) -> None:
+    """Raise when the reference panel supplies no usable MAF for a chromosome.
+
+    MAF is mandatory: M_5_50 common-SNP counts, the partitioned-h2 common-overlap
+    correction, and any ``--maf-min`` filter are meaningless without it.
+    """
+    if "MAF" not in metadata.columns or metadata["MAF"].isna().all():
+        raise LDSCInputError(
+            f"ldscore requires MAF for the reference panel but none is available on "
+            f"chromosome {chrom}. Most likely a parquet panel was built without allele "
+            "frequencies (sidecar MAF=NA). Rebuild the reference panel with MAF, or use a "
+            "PLINK panel (MAF is computed from genotypes)."
+        )
+
+
 def build_window_coordinates(metadata: pd.DataFrame, args: argparse.Namespace) -> tuple[np.ndarray, float]:
     """Build the coordinate array and maximum distance for the active LD window mode."""
     selectors = np.array([args.ld_wind_snps is not None, args.ld_wind_kb is not None, args.ld_wind_cm is not None], dtype=bool)
@@ -1636,6 +1671,7 @@ def compute_chrom_from_parquet(
         )
 
     validate_retained_identifier_uniqueness(metadata, args.snp_identifier, chrom)
+    require_reference_maf(metadata, chrom)
     coords, max_dist = build_window_coordinates(metadata, args)
     block_left = get_block_lefts(
         coords,
@@ -1794,6 +1830,16 @@ def compute_chrom_from_plink(
 
     annotation_matrix = annotations.set_index(metadata["_key"]).loc[geno_meta["_key"]]
 
+    if len(geno_meta) == 0:
+        raise LDSCInputError(
+            f"ldscore retained no PLINK reference SNPs on chromosome {chrom} after genotype "
+            "filtering. Most likely every candidate SNP is monomorphic, --maf-min is too high, "
+            "or no annotation SNPs overlap the panel. Lower --maf-min, or check the SNP "
+            "overlap and genome build."
+        )
+    require_reference_maf(geno_meta, chrom)
+    if args.ld_wind_cm is not None:
+        assert_cm_usable(geno_meta["CM"], chrom)
     coords, max_dist = build_window_coordinates(geno_meta.drop(columns="_key"), args)
     block_left = legacy_ld.getBlockLefts(coords, max_dist)
     check_whole_chromosome_window(block_left, args, chrom)

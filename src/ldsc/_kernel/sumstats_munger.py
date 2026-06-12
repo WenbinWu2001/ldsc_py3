@@ -390,7 +390,7 @@ def parse_dat(dat_gen, convert_colname, args, restriction=None):
     msg = (
         f"Read {tot_snps} SNPs from --sumstats file.\n"
         f"Removed {drops['NA']} SNPs with missing values.\n"
-        f"Removed {drops['INFO']} SNPs with INFO <= {args.info_min}.\n"
+        f"Removed {drops['INFO']} SNPs with INFO < {args.info_min}.\n"
         f"Removed {drops['FRQ']} SNPs with MAF < {args.maf_min}.\n"
         f"Removed {drops['P']} SNPs with out-of-bounds p-values.\n"
         f"Removed {drops['A']} variants that were not SNPs or were strand-ambiguous.\n"

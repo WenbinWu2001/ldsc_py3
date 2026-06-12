@@ -237,6 +237,20 @@ ignored. Annotation files may omit alleles even in allele-aware modes because
 they describe genomic membership; if annotation files include alleles, those
 alleles participate in allele-aware matching.
 
+### Annotation `CM`/`MAF` are population-agnostic (reference panel is authoritative)
+
+`CM` (genetic-map distance) and `MAF` (allele frequency) are population-specific
+and belong to the reference panel, not the annotation. Annotation files carry
+only `CHR`/`POS` (+ optional `SNP`, `A1`, `A2`); `SNP` is required only in
+rsID-family identifier modes. `CM` is optional on read and any input `CM`/`MAF`
+values are **ignored** (the reader reduces `CM` to a NaN placeholder and never
+carries `MAF`). For LD-score calculation, `CM` and `MAF` come exclusively from
+the reference panel: the parquet sidecar (`chrN_meta.tsv.gz`) for the parquet
+backend, and the `.bim`/genotypes (or an interpolated genetic map) for the PLINK
+backend. `annotate` output keeps the legacy positional `CHR BP SNP CM` layout but
+writes an **empty** `CM` placeholder and **no** `MAF` column, so the artifacts
+stay population-agnostic and remain consumable by legacy ldsc2 (`iloc[:, 4:]`).
+
 ### `CHR` format
 `normalize_chromosome` (in `chromosome_inference.py`) strips the `chr` prefix on
 read. All Python-written artifacts store bare labels: `"1"`, `"22"`, `"X"`,

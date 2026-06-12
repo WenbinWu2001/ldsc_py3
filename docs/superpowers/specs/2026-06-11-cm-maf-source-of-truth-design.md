@@ -1,9 +1,26 @@
 # CM/MAF Source-of-Truth Across LD-Score Backends Design
 
 **Date:** 2026-06-11
-**Implementation status:** not yet implemented (design approved; plan to follow).
-**Documentation status:** to be updated on implementation — `docs/current/`,
-`tutorials/`, and `docs/troubleshooting.md`.
+**Implementation status:** implemented on `restructure` (2026-06-12). During
+execution the "keep-but-ignore" approach was refined to **population-agnostic**
+(see the revision note below): annotation `CM` is reduced to a NaN placeholder,
+`MAF` is never carried, the BED projection's dead `CM` field was removed, the
+metadata merge backfills only `A1`/`A2`, and `annotate` output writes an empty
+`CM` column and no `MAF` column.
+**Documentation status:** `docs/troubleshooting.md` updated; `docs/current/`
+updated on implementation.
+
+### Revision (2026-06-12): population-agnostic CM/MAF (supersedes keep-but-ignore)
+
+The design originally kept annotation `CM`/`MAF` in metadata but ignored their
+*values* at the ldscore consumer. Implementation found the cleaner, fully
+legacy-faithful form: annotation `CM`/`MAF` do not propagate through the
+pipeline at all. The reader resolves `CM`/`MAF` columns only to exclude them from
+annotation *value* columns; `CM` becomes a NaN placeholder (any input value
+discarded) and `MAF` is dropped. The reference panel is the sole source of `CM`
+(parquet sidecar; PLINK `.bim`/genetic-map) and `MAF` (parquet sidecar; PLINK
+genotypes). The `annotate` output keeps the legacy `CHR BP SNP CM` positional
+layout with an **empty** `CM` placeholder and writes no `MAF` column.
 **Scope:** `src/ldsc/annotation_builder.py`, `src/ldsc/_kernel/ldscore.py`,
 `src/ldsc/_kernel/ref_panel.py`, `src/ldsc/ref_panel_builder.py`,
 `src/ldsc/ldscore_calculator.py`, `src/ldsc/cli.py`, `src/ldsc/config.py`,

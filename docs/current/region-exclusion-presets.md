@@ -1,0 +1,107 @@
+# Region-Exclusion Presets (bundled reference data)
+
+> Generated from the packaged BED files under `src/ldsc/data/regions/`. For review of the exclusion regions used by `ldscore` and `build-ref-panel`.
+
+A SNP at 1-based position `p` is excluded iff `start < p <= end` for some packaged BED interval `[start, end)` (0-based half-open). Exclusion is applied before LD-score computation / reference-panel R2 emission.
+
+## CLI choices (`--exclude-regions`)
+
+Single-choice enum; **default `mhc-and-centromeres`** (exclusion is ON by default; `none` opts out).
+
+| Choice | Excludes presets | Default |
+|---|---|---|
+| `none` | — | |
+| `mhc` | `mhc` | |
+| `centromeres` | `centromeres` | |
+| `mhc-and-centromeres` | `mhc` + `centromeres` | ✅ **default** |
+
+`mhc_core` and `centromeres_core` are **not** CLI choices — they are reference definitions loadable only via the Python API (e.g. `exclude_regions=("mhc_core",)`).
+
+## Presets at a glance
+
+| Preset | On CLI? | Builds | Region | Intervals/build | Coordinate source |
+|---|---|---|---|---|---|
+| `mhc` | ✅ (in default) | hg19, hg38 | broad GWAS MHC window, chr6:25–35 Mb | 1 | conventional broad MHC exclusion window (pinned); build-consistent |
+| `centromeres` | ✅ (in default) | hg19, hg38 | pericentromeric: centromere ±3 cM | 23 | UCSC centromere + Alkes-group recombination map ±3 cM (LDSC, Bulik-Sullivan 2015) |
+| `mhc_core` | ❌ API only | hg19, hg38 | classical-HLA core | 1 | hg38 pinned; hg19 = liftOver of hg38 core |
+| `centromeres_core` | ❌ API only | hg19, hg38 | raw centromere assembly gap | 23 | UCSC `gap`/`centromeres` tracks |
+
+## MHC coordinates (chr6, single interval)
+
+| Preset | Build | start | end | width (Mb) |
+|---|---|---|---|---|
+| `mhc` | hg19 | 25,000,000 | 35,000,000 | 10.00 |
+| `mhc` | hg38 | 25,000,000 | 35,000,000 | 10.00 |
+| `mhc_core` | hg19 | 28,445,574 | 33,416,131 | 4.97 |
+| `mhc_core` | hg38 | 28,477,797 | 33,448,354 | 4.97 |
+
+## Centromeres — hg19: core (raw gap) vs active (pericentromeric ±3 cM)
+
+| chr | core start | core end | core Mb | active start | active end | active Mb |
+|---|---|---|---|---|---|---|
+| 1 | 121,535,434 | 124,535,434 | 3.00 | 117,592,839 | 146,214,367 | 28.62 |
+| 2 | 92,326,171 | 95,326,171 | 3.00 | 88,205,884 | 102,803,438 | 14.60 |
+| 3 | 90,504,854 | 93,504,854 | 3.00 | 80,623,371 | 100,550,538 | 19.93 |
+| 4 | 49,660,117 | 52,660,117 | 3.00 | 42,554,324 | 55,933,989 | 13.38 |
+| 5 | 46,405,641 | 49,405,641 | 3.00 | 38,719,981 | 53,899,167 | 15.18 |
+| 6 | 58,830,166 | 61,830,166 | 3.00 | 53,420,564 | 68,364,242 | 14.94 |
+| 7 | 58,054,331 | 61,054,331 | 3.00 | 53,356,215 | 68,233,816 | 14.88 |
+| 8 | 43,838,887 | 46,838,887 | 3.00 | 40,055,562 | 54,293,928 | 14.24 |
+| 9 | 47,367,679 | 50,367,679 | 3.00 | 42,259,321 | 65,862,968 | 23.60 |
+| 10 | 39,254,935 | 42,254,935 | 3.00 | 34,238,636 | 47,677,107 | 13.44 |
+| 11 | 51,644,205 | 54,644,205 | 3.00 | 44,546,964 | 60,723,926 | 16.18 |
+| 12 | 34,856,694 | 37,856,694 | 3.00 | 31,083,305 | 43,908,377 | 12.83 |
+| 13 | 16,000,000 | 19,000,000 | 3.00 | 16,000,000 | 21,030,674 | 5.03 |
+| 14 | 16,000,000 | 19,000,000 | 3.00 | 16,000,000 | 21,046,303 | 5.05 |
+| 15 | 17,000,000 | 20,000,000 | 3.00 | 17,000,000 | 20,754,319 | 3.75 |
+| 16 | 35,335,801 | 38,335,801 | 3.00 | 27,878,823 | 50,701,100 | 22.82 |
+| 17 | 22,263,006 | 25,263,006 | 3.00 | 18,451,628 | 30,015,558 | 11.56 |
+| 18 | 15,460,898 | 18,460,898 | 3.00 | 12,923,978 | 22,118,058 | 9.19 |
+| 19 | 24,681,782 | 27,681,782 | 3.00 | 19,352,838 | 30,926,497 | 11.57 |
+| 20 | 26,369,569 | 29,369,569 | 3.00 | 22,485,995 | 35,962,849 | 13.48 |
+| 21 | 11,288,129 | 14,288,129 | 3.00 | 10,865,933 | 16,328,289 | 5.46 |
+| 22 | 13,000,000 | 16,000,000 | 3.00 | 13,000,000 | 17,387,891 | 4.39 |
+| X | 58,632,012 | 61,632,012 | 3.00 | 50,396,847 | 68,443,913 | 18.05 |
+
+## Centromeres — hg38: core (raw gap) vs active (pericentromeric ±3 cM)
+
+| chr | core start | core end | core Mb | active start | active end | active Mb |
+|---|---|---|---|---|---|---|
+| 1 | 122,026,459 | 124,932,724 | 2.91 | 117,992,202 | 145,539,648 | 27.55 |
+| 2 | 92,188,145 | 94,090,557 | 1.90 | 88,086,511 | 102,047,052 | 13.96 |
+| 3 | 90,772,458 | 93,655,574 | 2.88 | 80,574,221 | 100,831,694 | 20.26 |
+| 4 | 49,712,061 | 51,743,951 | 2.03 | 42,638,681 | 55,063,530 | 12.42 |
+| 5 | 46,485,900 | 50,059,807 | 3.57 | 38,720,393 | 54,583,743 | 15.86 |
+| 6 | 58,553,888 | 59,829,934 | 1.28 | 53,678,753 | 66,780,127 | 13.10 |
+| 7 | 58,169,653 | 61,528,020 | 3.36 | 53,324,990 | 68,146,861 | 14.82 |
+| 8 | 44,033,744 | 45,877,265 | 1.84 | 40,317,002 | 53,239,067 | 12.92 |
+| 9 | 43,389,635 | 45,518,558 | 2.13 | 39,707,515 | 63,366,520 | 23.66 |
+| 10 | 39,686,682 | 41,593,521 | 1.91 | 33,949,772 | 46,417,338 | 12.47 |
+| 11 | 51,078,348 | 54,425,074 | 3.35 | 44,617,763 | 60,780,033 | 16.16 |
+| 12 | 34,769,407 | 37,185,252 | 2.42 | 30,930,371 | 43,514,574 | 12.58 |
+| 13 | 16,000,000 | 18,051,248 | 2.05 | 16,000,000 | 20,456,535 | 4.46 |
+| 14 | 16,000,000 | 18,173,523 | 2.17 | 16,000,000 | 20,496,371 | 4.50 |
+| 15 | 17,083,673 | 19,725,254 | 2.64 | 17,083,673 | 20,549,038 | 3.47 |
+| 16 | 36,311,158 | 38,265,669 | 1.95 | 29,021,621 | 50,667,189 | 21.65 |
+| 17 | 22,813,679 | 26,616,164 | 3.80 | 18,949,682 | 31,606,200 | 12.66 |
+| 18 | 15,460,899 | 20,861,206 | 5.40 | 12,924,558 | 24,530,746 | 11.61 |
+| 19 | 24,498,980 | 27,190,874 | 2.69 | 19,200,511 | 30,435,590 | 11.24 |
+| 20 | 26,436,232 | 30,038,348 | 3.60 | 22,506,139 | 36,060,247 | 13.55 |
+| 21 | 10,864,560 | 12,915,808 | 2.05 | 10,326,676 | 14,945,549 | 4.62 |
+| 22 | 12,954,788 | 15,054,318 | 2.10 | 12,954,788 | 16,709,892 | 3.76 |
+| X | 58,605,579 | 62,412,542 | 3.81 | 50,694,005 | 69,193,777 | 18.50 |
+
+## Where the coordinates come from
+
+- **`mhc` (broad, both builds `chr6:25,000,000–35,000,000`)** — the conventional broad MHC exclusion window used in GWAS / LD-score work (the long-range LD of the MHC makes a broad exclusion the standard, conservative choice). **Pinned constant**, not a database query. Build-consistent: hg19 25 Mb → hg38 24,999,772 and hg19 35 Mb → hg38 35,032,223 (UCSC `hg19ToHg38` liftOver), so the same numeric window covers the same biology in both builds.
+- **`mhc_core`** — the narrow classical-HLA core. hg38 `chr6:28,477,797–33,448,354` is a **pinned** core-MHC window (close to standard core-MHC definitions, e.g. GENCODE/Horton ≈ chr6:28.5–33.4 Mb). hg19 `chr6:28,445,574–33,416,131` is the UCSC `hg38ToHg19` liftOver of that core.
+- **`centromeres_core` (raw gap)** — UCSC REST API. hg19: the `gap` track filtered to `type == centromere`. hg38: the `centromeres` track (multiple models per chromosome) merged to one `[min(start), max(end))` span per chromosome.
+- **`centromeres` (active, pericentromeric ±3 cM)** — each `centromeres_core` span padded by ±3 cM, matching the LD Score regression pericentromeric exclusion of Bulik-Sullivan et al. 2015 *Nat Genet* (Online Methods). cM at the core endpoints is read from the **Alkes-group recombination map** (`genetic_map_{build}_withX`), extended ±3 cM, and inverted back to base pairs. The padded interval is **unioned with the core span** so it always contains it — this also gives correct behavior on acrocentric chromosomes (13/14/15/21/22), whose p-arm is absent from the map.
+
+All four presets are regenerable with `python tools/regions/build_region_beds.py` (a dev-only tool; not shipped). The genetic maps are a curation-time input (workspace `resources/genetic_maps/genetic_map_alkesgroup/`, overridable via `LDSC_GENETIC_MAP_DIR`), not bundled in the package.
+
+## Notes for the reviewer
+
+- The **MHC broad window (25–35 Mb)** is a *convention*, not a canonical database region; alternatives in the literature include 26–34 Mb and the extended MHC (xMHC, ~25.7–33.4 Mb). Flag if a different window is preferred.
+- The **`mhc_core` hg38 bounds are a pinned constant**; if you want a citable core-MHC definition (e.g. GENCODE/IMGT-HLA), substitute it and the hg19 file can be re-lifted.
+- The **±3 cM padding** depends on the chosen recombination map; we use the Alkes-group map. A different map would shift the pericentromeric bounds.

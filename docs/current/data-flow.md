@@ -400,11 +400,15 @@ vocabulary `EXCLUDE_REGIONS_CHOICES` = `none | mhc | centromeres |
 mhc-and-centromeres`, **defaulting to `mhc-and-centromeres`** (exclusion is on by
 default; `none` opts out). Each choice maps to packaged BED files under
 `src/ldsc/data/regions/` keyed by preset name and genome build (e.g.
-`mhc.hg19.bed`). The active **`centromeres`** preset ships the **pericentromeric
-±3 cM** region (LDSC parity, Bulik-Sullivan 2015); the raw centromere gap is
-preserved as **`centromeres_core`** (loadable via the Python API, not wired to
-the CLI). **User BEDs** (`--exclude-regions-bed <file>`) read any standard
-0-based half-open BED file and apply intervals as-is against panel `CHR/POS`.
+`mhc.hg19.bed`). The active **`mhc`** preset is the broad `chr6:25-35Mb` window
+(build-consistent) and the active **`centromeres`** preset is the
+**pericentromeric ±3 cM** region (LDSC parity, Bulik-Sullivan 2015). The
+narrower reference definitions — **`mhc_core`** (classical HLA core) and
+**`centromeres_core`** (raw centromere gap) — are loadable via the Python API
+but not wired to the CLI. **User BEDs** (`--exclude-regions-bed <file>`) read any
+standard 0-based half-open BED file and apply intervals as-is against panel
+`CHR/POS`. The full preset/build/coordinate/provenance table is at
+[`region-exclusion-presets.md`](region-exclusion-presets.md).
 
 The keep rule in `region_exclusion_keep_mask` (`src/ldsc/_kernel/regions.py`)
 is: a 1-based SNP position `p` is excluded iff `start < p <= end` for some

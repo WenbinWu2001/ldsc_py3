@@ -324,6 +324,58 @@ git -C <repo> add src/ldsc/_kernel/ldscore.py tests/test_ldscore_workflow.py
 git -C <repo> commit -m "feat(ldscore): kernel annotation reader ignores CM/MAF"
 ```
 
+### Task 2c: Log the `CM`-placeholder caveat in `annotate` output
+
+**Files:**
+- Modify: the `annotate` write path in `src/ldsc/annotation_builder.py`
+- Test: `tests/test_annotation.py`
+
+`annotate` keeps the legacy `CHR BP SNP CM <annotations…>` layout (positional
+compatibility with ldsc2's `iloc[:, 4:]`), but the `CM` value is a placeholder
+that nothing downstream consumes. Emit a one-time log so users understand this.
+
+- [ ] **Step 1: Locate the `annotate` write path**
+
+Run: `grep -n "def .*write\|to_csv\|\.annot\|CM" src/ldsc/annotation_builder.py | head`
+to find where the `.annot` table (with the `CM` column) is written.
+
+- [ ] **Step 2: Write the failing test**
+
+```python
+# tests/test_annotation.py
+def test_annotate_logs_cm_placeholder_caveat(tmp_path, caplog):
+    import logging
+    # Drive the annotate write path that produces a .annot file (use the public
+    # entry point the other annotate tests use), then assert the caveat is logged.
+    with caplog.at_level(logging.INFO, logger="ldsc"):
+        ...  # run annotate to write a .annot file
+    assert any("CM" in r.message and "not used" in r.message for r in caplog.records)
+```
+
+- [ ] **Step 3: Implement — log once at write time**
+
+At the `.annot` write site, add:
+
+```python
+    LOGGER.info(
+        "Writing a placeholder CM column in the .annot output for legacy LDSC "
+        "positional compatibility (CHR BP SNP CM <annotations>). The CM value is "
+        "not used downstream: ldscore sources CM from the reference panel."
+    )
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `pytest tests/test_annotation.py -k logs_cm_placeholder -v`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git -C <repo> add src/ldsc/annotation_builder.py tests/test_annotation.py
+git -C <repo> commit -m "docs(annotate): log that the .annot CM column is an unused placeholder"
+```
+
 ---
 
 ## Phase 2 — Reference panel is the CM/MAF authority; MAF always required
@@ -400,11 +452,24 @@ finalized (after `merge_frequency_metadata` + `apply_maf_filter`, before
 ```
 
 Call it in `compute_chrom_from_plink` after `geno_meta["MAF"]` is set
-(after `ldscore.py:1781`):
+(after `ldscore.py:1781`), guarding the empty-universe case first so an
+all-monomorphic / fully-filtered chromosome gets a precise message instead of the
+misleading "panel lacks MAF" one (`empty["MAF"].isna().all()` is vacuously
+`True`):
 
 ```python
+    if len(geno_meta) == 0:
+        raise LDSCInputError(
+            f"ldscore retained no PLINK reference SNPs on chromosome {chrom} after genotype "
+            "filtering. Most likely every candidate SNP is monomorphic, --maf-min is too high, "
+            "or no annotation SNPs overlap the panel. Lower --maf-min, or check the SNP "
+            "overlap and genome build."
+        )
     require_reference_maf(geno_meta, chrom)
 ```
+
+Add a matching unit test asserting the empty-`geno_meta` path raises the
+"retained no PLINK reference SNPs" message (not the MAF message).
 
 Then make the parquet sidecar loader's MAF requirement unconditional. In
 `src/ldsc/_kernel/ref_panel.py:1029-1038`, replace:
@@ -770,10 +835,18 @@ In `_namespace_from_configs` (`ldscore_calculator.py:1887`), replace the
                 f"PLINK panel (resolved build {resolved_build}), but it was not supplied."
             )
         genetic_map = load_genetic_map_group(split_cli_path_tokens(sources))
+    elif backend == "parquet_r2" and (getattr(spec, "genetic_map_hg19_sources", None) or getattr(spec, "genetic_map_hg38_sources", None)):
+        LOGGER.warning(
+            "Ignoring --genetic-map-*-sources for the parquet R2 reference panel: CM is taken "
+            "from the panel metadata sidecar (authoritative). Genetic-map flags apply only to "
+            "PLINK panels."
+        )
 ```
 
 Set `genetic_map=genetic_map` in the namespace kwargs. Confirm `split_cli_path_tokens`
 is imported in `ldscore_calculator.py` (it is used elsewhere); otherwise import it.
+Add a test asserting the warning is logged when `--genetic-map-*-sources` is
+passed with a parquet panel (use `caplog`).
 
 - [ ] **Step 4: Implement kernel CM resolution (map wins, then usable bim CM, else guard)**
 
@@ -1196,10 +1269,19 @@ git -C <repo> commit -m "test(ldscore): cross-backend CM-window and counts consi
 
 - [ ] **Step 1: Update the design docs**
 
-Document: annotations carry only `CHR/POS` (+ optional `SNP/A1/A2`); reference
-panel is authoritative for `CM`/`MAF`; the `--genetic-map-*-sources`,
-`--export-ref-metadata` flags; the unusable-`CM` rule and `--yes-really`
-interaction; `--maf-min` now applies in both backends.
+Document in `docs/current/` (data-flow and class-and-features): annotations carry
+only `CHR/POS` (+ optional `SNP/A1/A2`); reference panel is authoritative for
+`CM`/`MAF`; the `--genetic-map-*-sources`, `--export-ref-metadata` flags; the
+unusable-`CM` rule and `--yes-really` interaction; `--maf-min` now applies in both
+backends; and `--genetic-map-*-sources` is ignored (with a warning) in parquet
+mode (sidecar `CM` authoritative).
+
+Add an explicit **`CM` caveat** subsection: `CM` is population-specific and used
+only by `--ld-wind-cm`, sourced from the reference panel. The `CM` column written
+by `annotate` is a legacy-positional-compatibility placeholder (`CHR BP SNP CM
+<annotations>`) and is **not used anywhere downstream** — neither legacy ldsc2
+(which skips it via `iloc[:, 4:]`) nor this package's ldscore (which sources `CM`
+from the reference panel and selects annotation columns by name).
 
 - [ ] **Step 2: Update the tutorial**
 

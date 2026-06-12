@@ -260,6 +260,8 @@ artifacts); PLINK mode is "bring-your-own-panel, compute on the fly."
 | Reference panel lacks `MAF` | Hard error (always required). |
 | SNP with `MAF == maf_min` / `MAF == common_maf_min` | Kept / counted (inclusive `>=`). |
 | `--maf-min` with a PLINK panel | Drops `MAF < maf_min` SNPs (same as parquet); previously silently ignored. |
+| `--genetic-map-*-sources` with a parquet panel | Warning; flags ignored. CM comes from the sidecar (authoritative); genetic-map flags apply only to PLINK. |
+| PLINK chromosome with no SNPs left after genotype filtering | Distinct "retained no PLINK reference SNPs" error (all monomorphic / `--maf-min` too high / no overlap) — not the missing-`MAF` error. |
 
 ## Backward compatibility and migration
 
@@ -362,3 +364,9 @@ Numerical/behavioral tests against constructed fixtures:
 12. **`annotate` keeps writing `CM`** (placeholder) to preserve legacy ldsc2
     full-annot positional compatibility (`iloc[:, 4:]`). `annotate`'s write
     format is otherwise unchanged and out of scope here.
+13. The **`CM`-not-used-downstream caveat** is documented both in a log message
+    (when `annotate` writes the placeholder column) and in `docs/current/`.
+14. **`--genetic-map-*-sources` is ignored in parquet mode** with a warning
+    (sidecar `CM` is authoritative).
+15. A PLINK chromosome left with **no SNPs after genotype filtering** raises a
+    distinct empty-universe error, separate from the missing-`MAF` error.

@@ -36,3 +36,26 @@
 - **Takeaway:** Before flipping a comparison operator, check whether the
   boundary value (here, 0) encodes a second invariant beyond the nominal
   threshold.
+
+## Key/row alignment is not genomic ordering — verify order at the boundary
+- **Summary:** While auditing CHR:POS sort dependencies, I claimed legacy `.bed`
+  ldscore mode was an unguarded gap (raw `.bim` order flowing into the
+  forward-only `get_block_lefts` window) and that the regression merge would put
+  sumstats into LD-score order. Both were wrong on mechanism.
+- **Root cause:** I reasoned about *upstream* order instead of tracing it. (1)
+  `compute_chrom_from_plink` discards `.bim` order: `keep_snps` is built from the
+  already-sorted annotation metadata, `PlinkBEDFile.__filter_snps_maf__` preserves
+  `keep_snps` order, and the panel merge is `sort=False` — so `geno_meta` is sorted
+  by construction. (2) `pd.merge(left, right, how="inner", sort=False)` aligns
+  *values* by key but keeps the *left* frame's row order; a key match never adopts
+  the right frame's order.
+- **Correction:** For the window precondition, add a boundary tripwire
+  (`validate_window_positions_sorted`, raises `LDSCInternalError`) rather than
+  trusting upstream sorts. For jackknife block order (Gap C), make the
+  genomically-sorted LD-score frame the *left* side of the merge so the result
+  inherits its order — in every identifier mode, since the order originates from
+  the LD-score artifact, not the sumstats.
+- **Takeaway:** "Aligned" ≠ "ordered." When a downstream step needs genomic order
+  (two-pointer windows, contiguous jackknife blocks), assert it at the boundary or
+  establish it by construction at the point of use; do not infer it from an
+  upstream sort you did not trace.

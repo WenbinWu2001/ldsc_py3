@@ -363,6 +363,34 @@ def getBlockLefts(coords, max_dist):
     return get_block_lefts(coords, max_dist)
 
 
+def validate_window_positions_sorted(metadata: pd.DataFrame, chrom: str) -> None:
+    """Tripwire: base-pair positions must be non-decreasing within a chromosome.
+
+    :func:`get_block_lefts` is a forward-only two-pointer scan whose ``coords``
+    must be non-decreasing, or the LD-window blocks are silently wrong. Every
+    caller already supplies coordinate-sorted rows by construction: annotation
+    metadata is sorted in :func:`parse_annotation_file`, and the PLINK path
+    inherits that order through ``keep_snps`` (the ``.bim`` file order is
+    discarded). This guard makes that implicit invariant explicit so a future
+    change that breaks the upstream sort fails loudly here instead of producing
+    wrong LD scores. Position drops across chromosome boundaries are expected
+    (the window is per chromosome) and are not flagged.
+    """
+    pos = pd.to_numeric(metadata["POS"], errors="raise").to_numpy()
+    chrom_vals = metadata["CHR"].to_numpy()
+    same_chrom = chrom_vals[1:] == chrom_vals[:-1]
+    out_of_order = (np.diff(pos) < 0) & same_chrom
+    if out_of_order.any():
+        first = int(np.flatnonzero(out_of_order)[0])
+        raise LDSCInternalError(
+            f"ldscore LD-window construction failed on chromosome {chrom}: reference "
+            f"SNP positions are not in non-decreasing order (POS {int(pos[first + 1])} "
+            f"follows POS {int(pos[first])}). Callers supply coordinate-sorted rows by "
+            "construction, so most likely an upstream sorting step was removed or "
+            "bypassed. Re-run with DEBUG logging and report the traceback."
+        )
+
+
 def block_left_to_right(block_left):
     """Convert block-left coordinates to block-right coordinates."""
     M = len(block_left)
@@ -688,7 +716,6 @@ def parse_annotation_file(path: str, chrom: str | None = None) -> tuple[pd.DataF
     if len(meta) == 0:
         return meta, pd.DataFrame(index=meta.index)
 
-    meta = sort_frame_by_genomic_position(meta)
     metadata_source_columns = {chr_col, pos_col, snp_col, cm_col, maf_col, a1_col, a2_col}
     annotation_columns = [col for col in df.columns if col not in metadata_source_columns]
     if not annotation_columns:
@@ -699,21 +726,14 @@ def parse_annotation_file(path: str, chrom: str | None = None) -> tuple[pd.DataF
             "as metadata aliases. Add at least one annotation column with numeric values."
         )
 
-    sorted_df = df.copy()
-    sorted_df["_CHR"] = sorted_df[chr_col].map(lambda value: normalize_chromosome(value, context=path))
-    sorted_df["_POS"] = pd.to_numeric(sorted_df[pos_col], errors="raise").astype(np.int64)
-    sorted_df["_SNP"] = sorted_df[snp_col].astype(str)
-    sorted_df["_chrom_key"] = sorted_df["_CHR"].map(chrom_sort_key)
-    sorted_df = sorted_df.sort_values(by=["_chrom_key", "_POS", "_SNP"], kind="mergesort").drop(columns="_chrom_key")
-    annotations = sorted_df.loc[:, annotation_columns].astype(np.float32).reset_index(drop=True)
-    meta = meta.reset_index(drop=True)
-    if len(meta) != len(annotations):
-        raise LDSCInternalError(
-            f"LD-score annotation parsing failed for '{path}': metadata and annotation "
-            "lengths diverged after sorting. Most likely an internal sorting step was "
-            "applied inconsistently. Re-run with DEBUG logging and report the traceback."
-        )
-
+    # Sort metadata and annotation values together through the one shared genomic
+    # sort, then split the result. A single permutation keeps the two tables
+    # aligned by construction -- there is no second, hand-rolled sort that could
+    # silently diverge from the metadata order.
+    combined = pd.concat([meta, df.loc[:, annotation_columns].reset_index(drop=True)], axis=1)
+    combined = sort_frame_by_genomic_position(combined)
+    annotations = combined.loc[:, annotation_columns].astype(np.float32).reset_index(drop=True)
+    meta = combined.drop(columns=annotation_columns).reset_index(drop=True)
     return meta, annotations
 
 
@@ -1673,6 +1693,7 @@ def compute_chrom_from_parquet(
 
     validate_retained_identifier_uniqueness(metadata, args.snp_identifier, chrom)
     require_reference_maf(metadata, chrom)
+    validate_window_positions_sorted(metadata, chrom)
     coords, max_dist = build_window_coordinates(metadata, args)
     block_left = get_block_lefts(
         coords,
@@ -1853,6 +1874,7 @@ def compute_chrom_from_plink(
             )
         else:
             assert_cm_usable(geno_meta["CM"], chrom)
+    validate_window_positions_sorted(geno_meta, chrom)
     coords, max_dist = build_window_coordinates(geno_meta.drop(columns="_key"), args)
     block_left = legacy_ld.getBlockLefts(coords, max_dist)
     check_whole_chromosome_window(block_left, args, chrom)

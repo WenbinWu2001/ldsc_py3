@@ -1068,6 +1068,25 @@ class LDScoreWorkflowTest(unittest.TestCase):
             with self.assertRaisesRegex(LDSCInputError, "only one allele column"):
                 kernel_ldscore.parse_annotation_file(str(path))
 
+    def test_kernel_parse_annotation_file_sorts_and_keeps_values_aligned(self):
+        # Rows are intentionally out of genomic order; the parser must sort by
+        # position AND keep each SNP glued to its own annotation value. The
+        # annotation value equals the SNP's numeric suffix, so a misalignment
+        # between metadata and values would be visible.
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "shuffled.annot"
+            path.write_text(
+                "CHR\tBP\tSNP\tbase_a\n"
+                "1\t30\trs3\t3\n"
+                "1\t10\trs1\t1\n"
+                "1\t20\trs2\t2\n",
+                encoding="utf-8",
+            )
+            metadata, annotations = kernel_ldscore.parse_annotation_file(str(path))
+        self.assertEqual(metadata["SNP"].tolist(), ["rs1", "rs2", "rs3"])
+        self.assertEqual(metadata["POS"].tolist(), [10, 20, 30])
+        self.assertEqual(annotations["base_a"].tolist(), [1.0, 2.0, 3.0])
+
     def test_kernel_combine_annotation_groups_aligns_allele_free_annotations_in_allele_aware_mode(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -1484,6 +1503,29 @@ class LDScoreWorkflowTest(unittest.TestCase):
             self.assertEqual(result.chrom, "1")
             self.assertGreater(len(result.metadata), 0)
             self.assertEqual(result.w_ld.shape[0], len(result.metadata))
+
+    def test_plink_compute_rejects_unsorted_window_positions(self):
+        # geno_meta inherits the annotation bundle's row order via keep_snps, so a
+        # bundle whose positions are not coordinate-sorted must trip the window-sort
+        # guard before get_block_lefts runs (otherwise LD windows are silently wrong).
+        with tempfile.TemporaryDirectory() as tmpdir:
+            prefix = self._copy_plink_fixture_with_distinct_fids(Path(tmpdir))
+            wb = self._build_annotation_bundle(prefix)
+            order = np.argsort(wb.metadata["POS"].to_numpy(), kind="mergesort")[::-1]
+            bundle = kernel_ldscore.AnnotationBundle(
+                metadata=wb.metadata.iloc[order].reset_index(drop=True),
+                annotations=wb.baseline_annotations.iloc[order].reset_index(drop=True),
+                baseline_columns=wb.baseline_columns,
+                query_columns=wb.query_columns,
+            )
+            args = Namespace(
+                bfile=str(prefix), keep=None, maf_min=None, maf=None,
+                ld_wind_snps=10, ld_wind_kb=None, ld_wind_cm=None,
+                yes_really=True, snp_batch_size=50, common_maf_min=0.05,
+                snp_identifier="rsid",
+            )
+            with self.assertRaisesRegex(LDSCInternalError, "non-decreasing order"):
+                kernel_ldscore.compute_chrom_from_plink("1", bundle, args, None)
 
     def _plink_cm_args(self, prefix: Path, genetic_map) -> Namespace:
         return Namespace(
@@ -3651,3 +3693,22 @@ def test_genetic_map_ignored_for_parquet_with_warning(caplog):
         )
     assert ns.genetic_map is None  # flags ignored; sidecar CM is authoritative
     assert any("Ignoring --genetic-map" in r.message for r in caplog.records)
+
+
+def test_validate_window_positions_sorted_accepts_non_decreasing():
+    metadata = pd.DataFrame({"CHR": ["1", "1", "1"], "POS": [100, 100, 250]})
+    # Non-decreasing (including a tie) must pass without raising.
+    kernel_ldscore.validate_window_positions_sorted(metadata, chrom="1")
+
+
+def test_validate_window_positions_sorted_rejects_unsorted_metadata():
+    metadata = pd.DataFrame({"CHR": ["1", "1", "1"], "POS": [100, 300, 250]})
+    with pytest.raises(LDSCInternalError, match="non-decreasing order"):
+        kernel_ldscore.validate_window_positions_sorted(metadata, chrom="1")
+
+
+def test_validate_window_positions_sorted_ignores_chromosome_boundary_drop():
+    # A position drop across a chromosome boundary is expected, not an error:
+    # the window is computed per chromosome.
+    metadata = pd.DataFrame({"CHR": ["1", "1", "2"], "POS": [100, 999, 1]})
+    kernel_ldscore.validate_window_positions_sorted(metadata, chrom="1")

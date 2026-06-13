@@ -324,9 +324,13 @@ class RegressionRunner:
             if {"A1", "A2"}.issubset(ldscore_keyed.columns):
                 ldscore_payload["A1_ld"] = ldscore_keyed["A1"]
                 ldscore_payload["A2_ld"] = ldscore_keyed["A2"]
+            # LD-score is the left frame so the inner merge inherits its genomic
+            # order; the block jackknife needs genomically contiguous rows for valid
+            # SEs, and the sumstats order alone (legacy .sumstats.gz is unsorted) does
+            # not guarantee that. Values still align by key regardless of side.
             merged = pd.merge(
-                sumstats_keyed,
                 ldscore_payload.reset_index(drop=True),
+                sumstats_keyed,
                 how="inner",
                 on=REGRESSION_IDENTITY_KEY_COLUMN,
                 sort=False,
@@ -335,8 +339,8 @@ class RegressionRunner:
                 merged = _orient_sumstats_z_to_reference_alleles(merged)
         elif identity_mode_family(identifier_mode) == "rsid":
             merged = pd.merge(
-                sumstats_frame,
                 ldscore_frame.loc[:, ["SNP", *ref_ld_columns, weight_column]].reset_index(drop=True),
+                sumstats_frame,
                 how="inner",
                 on="SNP",
                 sort=False,
@@ -345,8 +349,8 @@ class RegressionRunner:
             sumstats_keyed = _with_chr_pos_key(sumstats_frame, context=sumstats_table.source_path or "sumstats")
             ldscore_keyed = _with_chr_pos_key(ldscore_frame, context="LD-score table")
             merged = pd.merge(
-                sumstats_keyed,
                 ldscore_keyed.loc[:, [CHR_POS_KEY_COLUMN, *ref_ld_columns, weight_column]].reset_index(drop=True),
+                sumstats_keyed,
                 how="inner",
                 on=CHR_POS_KEY_COLUMN,
                 sort=False,
@@ -487,9 +491,11 @@ class RegressionRunner:
             right = right_keyed.rename(columns={"A1": "A1x", "A2": "A2x", "N": "N2", "Z": "Z2"})
             right_payload = [column for column in ["A1x", "A2x", "N2", "Z2"] if column in right.columns]
             ldscore_keyed = _with_effective_identity_key(ldscore_frame, identifier_mode, context="LD-score table")
+            # LD-score leads the first merge so the result (and the final merge below)
+            # inherits its genomic order for valid jackknife block SEs. See build_dataset.
             left_with_ld = pd.merge(
-                left,
                 ldscore_keyed.loc[:, [REGRESSION_IDENTITY_KEY_COLUMN, *ref_ld_columns, weight_column]].reset_index(drop=True),
+                left,
                 how="inner",
                 on=REGRESSION_IDENTITY_KEY_COLUMN,
                 sort=False,
@@ -503,8 +509,8 @@ class RegressionRunner:
             )
         elif identity_mode_family(identifier_mode) == "rsid":
             left_with_ld = pd.merge(
-                left,
                 ldscore_frame.loc[:, ["SNP", *ref_ld_columns, weight_column]].reset_index(drop=True),
+                left,
                 how="inner",
                 on="SNP",
                 sort=False,
@@ -521,8 +527,8 @@ class RegressionRunner:
             right_keyed = _with_chr_pos_key(right, context=sumstats_table_2.source_path or "sumstats")
             ldscore_keyed = _with_chr_pos_key(ldscore_frame, context="LD-score table")
             left_with_ld = pd.merge(
-                left_keyed,
                 ldscore_keyed.loc[:, [CHR_POS_KEY_COLUMN, *ref_ld_columns, weight_column]].reset_index(drop=True),
+                left_keyed,
                 how="inner",
                 on=CHR_POS_KEY_COLUMN,
                 sort=False,

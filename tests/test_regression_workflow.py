@@ -545,6 +545,33 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertEqual(dataset.retained_ld_columns, ["base"])
         self.assertEqual(dataset.merged["SNP"].tolist(), ["rs1", "rs2", "rs3"])
 
+    def test_build_dataset_orders_merged_rows_by_ld_score_genomic_order(self):
+        # Gap C: jackknife block contiguity depends on the merged row order. The
+        # LD-score artifact is genomically sorted, so merged rows must follow the
+        # LD-score order even when the sumstats rows are shuffled (e.g. an unsorted
+        # legacy .sumstats.gz). The order originates entirely from the LD-score side.
+        ld_frame = pd.DataFrame(
+            {
+                "CHR": ["1", "1", "1"],
+                "SNP": ["rs_a", "rs_b", "rs_c"],
+                "POS": [10, 20, 30],
+                "regression_ld_scores": [2.0, 2.0, 2.0],
+                "base": [1.0, 2.0, 3.0],
+            }
+        )
+        sumstats = self.make_sumstats_table_from_frame(
+            pd.DataFrame(
+                {
+                    "SNP": ["rs_c", "rs_a", "rs_b"],  # deliberately not genomic order
+                    "Z": [0.5, 2.0, 1.0],
+                    "N": [1000.0, 1000.0, 1000.0],
+                }
+            )
+        )
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        dataset = runner.build_dataset(sumstats, self.make_ldscore_result_from_frame(ld_frame))
+        self.assertEqual(dataset.merged["SNP"].tolist(), ["rs_a", "rs_b", "rs_c"])
+
     def test_build_dataset_can_include_one_query_annotation_for_partitioned_h2(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
         dataset = runner.build_dataset(self.make_sumstats_table(), self.make_ldscore_result(), query_columns=["query2"])

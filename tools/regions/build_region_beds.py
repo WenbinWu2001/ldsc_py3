@@ -63,14 +63,14 @@ MHC_BROAD = {
     "hg38": [("6", 25_000_000, 35_000_000)],
 }
 MHC_CORE = {
-    "hg38": [("6", 28_477_797, 33_448_354)],   # pinned hg38 classical-HLA core
-    "hg19": [("6", 28_445_574, 33_416_131)],   # liftOver of the hg38 core
+    "hg19": [("6", 28_477_797, 33_448_354)],   # classical MHC core, hg19 (GRC / GWAS-Catalog)
+    "hg38": [("6", 28_510_120, 33_480_577)],   # classical MHC core, GRCh38 (GWAS-Catalog)
 }
 _MHC_PROVENANCE = {
     ("broad", "hg19"): "MHC broad GWAS exclusion window, hg19 chr6:25-35Mb, pinned; active 'mhc' exclusion; 0-based half-open",
     ("broad", "hg38"): "MHC broad GWAS exclusion window, hg38 chr6:25-35Mb, pinned (hg19 25-35Mb lifts here); active 'mhc' exclusion; 0-based half-open",
-    ("core", "hg38"): "MHC core (classical HLA), hg38 chr6:28477797-33448354, pinned; reference only, NOT the active 'mhc' exclusion; 0-based half-open",
-    ("core", "hg19"): "MHC core (classical HLA), hg19 chr6:28445574-33416131, liftOver of the hg38 core; reference only, NOT the active 'mhc' exclusion; 0-based half-open",
+    ("core", "hg19"): "MHC core (classical HLA), hg19 chr6:28477797-33448354 (GRC / GWAS-Catalog MHC); reference only, NOT the active 'mhc' exclusion; 0-based half-open",
+    ("core", "hg38"): "MHC core (classical HLA), GRCh38 chr6:28510120-33480577 (GWAS-Catalog MHC); reference only, NOT the active 'mhc' exclusion; 0-based half-open",
 }
 
 

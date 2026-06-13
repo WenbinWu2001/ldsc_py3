@@ -129,8 +129,9 @@ rather than silently dropping a build. The cost is two extra ~1 KB files.
   builds (hg19 25-35Mb lifts to hg38 ~25.00-35.03Mb, so the same numeric window
   covers the same biology). Pinned constant.
 - **`mhc_core.*.bed`** — the narrow **classical-HLA core**, reference only (not
-  wired to any CLI choice): hg38 `6  28477797  33448354` (pinned); hg19
-  `6  28445574  33416131` (liftOver of the hg38 core).
+  wired to any CLI choice): the GWAS-Catalog / GRC MHC region in each build's
+  native coordinates — hg19 `6  28477797  33448354`, GRCh38
+  `6  28510120  33480577`.
 - **`centromeres.*.bed`** (the **active** `centromeres` preset) — one interval
   per chromosome (autosomes + X), the **pericentromeric region: each centromere
   span padded by ±3 cM**, matching the LD Score regression exclusion of

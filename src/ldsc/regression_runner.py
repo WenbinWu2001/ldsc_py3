@@ -703,7 +703,8 @@ class RegressionRunner:
         selected_queries = _validate_partitioned_query_columns(ldscore_result, [query_column])
         dataset = self.build_dataset(sumstats_table, ldscore_result, config=config, query_columns=selected_queries)
         hsq = self.estimate_h2(dataset, config=config)
-        return summarize_partitioned_h2(hsq, dataset, selected_queries)
+        samp_prev, pop_prev = _config_prevalence(config or self.regression_config)
+        return summarize_partitioned_h2(hsq, dataset, selected_queries, samp_prev=samp_prev, pop_prev=pop_prev)
 
     def estimate_partitioned_h2_batch(
         self,
@@ -755,6 +756,7 @@ class RegressionRunner:
         config = config or self.regression_config
         if ldscore_result.overlap is None:
             raise LDSCInputError(PARTITIONED_H2_REQUIRES_OVERLAP_MESSAGE)
+        samp_prev, pop_prev = _config_prevalence(config)
 
         requested_queries = list(getattr(annotation_bundle, "query_columns", []) or [])
         if not requested_queries:
@@ -769,7 +771,9 @@ class RegressionRunner:
                     dataset.retained_ld_columns[0],
                 )
             hsq = self.estimate_h2(dataset, config=config)
-            summary = summarize_partitioned_h2(hsq, dataset, dataset.retained_ld_columns)
+            summary = summarize_partitioned_h2(
+                hsq, dataset, dataset.retained_ld_columns, samp_prev=samp_prev, pop_prev=pop_prev
+            )
             effective_chisq_max, n_snps_used = _effective_regression_filter(dataset, config)
             return PartitionedH2BatchResult(
                 summary=summary,
@@ -786,10 +790,12 @@ class RegressionRunner:
         for query_column in query_columns:
             dataset = self.build_dataset(sumstats_table, ldscore_result, config=config, query_columns=[query_column])
             hsq = self.estimate_h2(dataset, config=config)
-            rows.append(summarize_partitioned_h2(hsq, dataset, [query_column]))
+            rows.append(
+                summarize_partitioned_h2(hsq, dataset, [query_column], samp_prev=samp_prev, pop_prev=pop_prev)
+            )
             if include_full_partitioned_h2:
                 per_query_category_tables[query_column] = summarize_partitioned_h2(
-                    hsq, dataset, dataset.retained_ld_columns
+                    hsq, dataset, dataset.retained_ld_columns, samp_prev=samp_prev, pop_prev=pop_prev
                 )
                 effective_chisq_max, n_snps_used = _effective_regression_filter(dataset, config)
                 per_query_metadata[query_column] = {
@@ -1284,6 +1290,23 @@ def _prev_cell(value):
     return float("nan") if value is None else float(value)
 
 
+def _config_prevalence(config: "RegressionConfig | None") -> tuple[float | None, float | None]:
+    """Scalar (samp_prev, pop_prev) from a regression config, or (None, None)."""
+    if config is None:
+        return None, None
+    return getattr(config, "samp_prev", None), getattr(config, "pop_prev", None)
+
+
+def _nan_to_none(value):
+    """Map a NaN prevalence cell back to None for clean JSON metadata."""
+    return None if (isinstance(value, float) and math.isnan(value)) else value
+
+
+def _scale_label(*prevalences) -> str:
+    """Return 'liability' if any supplied prevalence is finite, else 'observed'."""
+    return "liability" if any(p is not None for p in prevalences) else "observed"
+
+
 def summarize_total_h2(
     hsq,
     dataset: RegressionDataset,
@@ -1507,13 +1530,17 @@ def _h2_metadata(
     dataset: RegressionDataset,
     n_snps_used: int | None = None,
     effective_chisq_max: float | None = None,
+    samp_prev: float | None = None,
+    pop_prev: float | None = None,
 ) -> dict[str, object]:
     """Build the metadata sidecar for one unpartitioned h2 output.
 
     ``n_snps_used`` is the post-chi-square-filter SNP count and
     ``effective_chisq_max`` is the cap actually applied (the legacy default for
     partitioned models, the explicit ``--chisq-max`` value, or ``None`` when
-    uncapped); both come from :func:`_effective_regression_filter`.
+    uncapped); both come from :func:`_effective_regression_filter`. ``samp_prev``
+    / ``pop_prev`` are the validated scalar prevalences applied (``None`` for an
+    observed-scale run), which also set the reported ``scale``.
     """
     config_snapshot = dataset.config_snapshot
     return {
@@ -1529,7 +1556,19 @@ def _h2_metadata(
         "dropped_zero_variance_ld_columns": list(dataset.dropped_zero_variance_ld_columns),
         "n_snps": int(n_snps_used) if n_snps_used is not None else int(len(dataset.merged)),
         "effective_chisq_max": effective_chisq_max,
+        "samp_prev": samp_prev,
+        "pop_prev": pop_prev,
+        "scale": _scale_label(samp_prev, pop_prev),
     }
+
+
+def _rg_prevalence_metadata(full_row: dict[str, object]) -> dict[str, object]:
+    """Per-pair prevalence + scale provenance pulled from a full rg row."""
+    prev = {
+        key: _nan_to_none(full_row.get(key))
+        for key in ("samp_prev_1", "pop_prev_1", "samp_prev_2", "pop_prev_2")
+    }
+    return {**prev, "scale": _scale_label(*prev.values())}
 
 
 def _rg_pair_metadata(
@@ -1556,6 +1595,7 @@ def _rg_pair_metadata(
         "n_snps_used": n_snps,
         "n_blocks_used": min(n_snps, int(config.n_blocks)),
         "effective_chisq_max": config.chisq_max,
+        **_rg_prevalence_metadata(full_row),
         "count_key_used_for_regression": dataset.count_key_used_for_regression,
         "retained_ld_columns": list(dataset.retained_ld_columns),
         "dropped_zero_variance_ld_columns": list(dataset.dropped_zero_variance_ld_columns),
@@ -1589,6 +1629,7 @@ def _failed_rg_pair_metadata(
         "n_snps_used": 0,
         "n_blocks_used": 0,
         "effective_chisq_max": config.chisq_max,
+        **_rg_prevalence_metadata(full_row),
         "intercept_h2_policy": _intercept_policy(config.intercept_h2, config.use_intercept, default_when_disabled=1),
         "intercept_gencov_policy": _intercept_policy(
             config.intercept_gencov,
@@ -1840,11 +1881,30 @@ def _effective_rg_filter(dataset, config) -> tuple[float | None, int]:
     return chisq_max, int((products <= chisq_max ** 2).sum())
 
 
+def _add_scalar_prevalence_arguments(parser) -> None:
+    """Add the scalar binary-trait prevalence flags shared by h2 and partitioned-h2."""
+    parser.add_argument(
+        "--samp-prev",
+        type=float,
+        default=None,
+        help="Sample (case) prevalence for liability-scale conversion: a probability in (0, 1). "
+        "Requires --pop-prev; omit both for observed scale only.",
+    )
+    parser.add_argument(
+        "--pop-prev",
+        type=float,
+        default=None,
+        help="Population prevalence for liability-scale conversion: a probability in (0, 1). "
+        "Requires --samp-prev; omit both for observed scale only.",
+    )
+
+
 def add_h2_arguments(parser) -> None:
     """Register heritability CLI arguments on ``parser``."""
     _add_common_regression_arguments(parser, include_h2_intercept=True)
     parser.add_argument("--sumstats-file", required=True, help="Munged .sumstats(.gz) file.")
     parser.add_argument("--trait-name", default=None, help="Optional trait label for summaries.")
+    _add_scalar_prevalence_arguments(parser)
 
 
 def add_partitioned_h2_arguments(parser) -> None:
@@ -1852,6 +1912,7 @@ def add_partitioned_h2_arguments(parser) -> None:
     _add_common_regression_arguments(parser, include_h2_intercept=True)
     parser.add_argument("--sumstats-file", required=True, help="Munged .sumstats(.gz) file.")
     parser.add_argument("--trait-name", default=None, help="Optional trait label for summaries.")
+    _add_scalar_prevalence_arguments(parser)
     parser.add_argument(
         "--write-per-query-results",
         action="store_true",
@@ -1895,6 +1956,27 @@ def add_rg_arguments(parser) -> None:
     )
     parser.add_argument("--intercept-h2", type=float, default=None, help="Fixed h2 intercept broadcast to every rg pair.")
     parser.add_argument("--intercept-gencov", type=float, default=None, help="Fixed genetic-covariance intercept for every rg pair.")
+    parser.add_argument(
+        "--samp-prev",
+        default=None,
+        help="Comma-separated sample prevalences aligned to resolved --sumstats-sources order, one per "
+        "trait; each a probability in (0, 1) or `nan` for a quantitative trait. Requires --pop-prev. "
+        "Mutually exclusive with --prevalence-manifest.",
+    )
+    parser.add_argument(
+        "--pop-prev",
+        default=None,
+        help="Comma-separated population prevalences aligned to resolved --sumstats-sources order, one per "
+        "trait; each a probability in (0, 1) or `nan`. Requires --samp-prev. Mutually exclusive with "
+        "--prevalence-manifest.",
+    )
+    parser.add_argument(
+        "--prevalence-manifest",
+        default=None,
+        help="Whitespace/tab-delimited TSV with columns trait_name, samp_prev, pop_prev (`#` comments "
+        "ignored). Looked up by exact munged trait name; may contain extra traits. Mutually exclusive "
+        "with --samp-prev/--pop-prev.",
+    )
 
 
 def run_h2_from_args(args):
@@ -1923,7 +2005,8 @@ def run_h2_from_args(args):
         hsq = runner.estimate_h2(dataset, config=config)
         effective_chisq_max, n_snps_used = _effective_regression_filter(dataset, config)
         summary = summarize_total_h2(
-            hsq, dataset, trait_name=sumstats_table.trait_name, n_snps_used=n_snps_used
+            hsq, dataset, trait_name=sumstats_table.trait_name, n_snps_used=n_snps_used,
+            samp_prev=config.samp_prev, pop_prev=config.pop_prev,
         )
         output_dir_arg = getattr(args, "output_dir", None)
         if output_dir_arg:
@@ -1939,6 +2022,8 @@ def run_h2_from_args(args):
                     dataset,
                     n_snps_used=n_snps_used,
                     effective_chisq_max=effective_chisq_max,
+                    samp_prev=config.samp_prev,
+                    pop_prev=config.pop_prev,
                 ),
             )
             log_outputs(**written)
@@ -2065,6 +2150,8 @@ def run_rg_from_args(args):
         without an output directory, or fixed-intercept flags conflict with
         ``--no-intercept``.
     """
+    from .prevalence import resolve_rg_prevalences
+
     _validate_intercept_conflicts(args)
     if getattr(args, "write_per_pair_detail", False) and not getattr(args, "output_dir", None):
         raise LDSCUsageError(
@@ -2107,7 +2194,24 @@ def run_rg_from_args(args):
             f"using LD-score directory '{args.ldscore_dir}'."
         )
         sumstats_tables = [_load_sumstats_table(str(path), None) for path in sumstats_paths]
+        # Resolve prevalence against the original munged names so the manifest
+        # duplicate-name guard fires before disambiguation renames collisions.
+        prevalences = resolve_rg_prevalences(
+            samp_prev=getattr(args, "samp_prev", None),
+            pop_prev=getattr(args, "pop_prev", None),
+            manifest_path=getattr(args, "prevalence_manifest", None),
+            trait_names=[_trait_label(table) for table in sumstats_tables],
+            trait_paths=[str(path) for path in sumstats_paths],
+        )
         sumstats_tables = _disambiguate_trait_names(sumstats_tables)
+        if prevalences is not None:
+            LOGGER.info(
+                "Liability-scale prevalences applied: "
+                + ", ".join(
+                    f"{_trait_label(table)}=(P={sp}, K={pp})"
+                    for table, (sp, pp) in zip(sumstats_tables, prevalences)
+                )
+            )
         anchor_index = _resolve_anchor_index(getattr(args, "anchor_trait", None), sumstats_paths, sumstats_tables)
         ldscore_result = load_ldscore_from_dir(args.ldscore_dir)
         with suppress_global_config_banner():
@@ -2116,6 +2220,7 @@ def run_rg_from_args(args):
                 ldscore_result,
                 anchor_index=anchor_index,
                 config=config,
+                prevalences=prevalences,
             )
         output_dir_arg = getattr(args, "output_dir", None)
         if output_dir_arg:
@@ -2290,9 +2395,23 @@ def _resolve_anchor_index(
 
 
 def _runner_from_args(args) -> tuple[RegressionRunner, RegressionConfig]:
-    """Build the regression workflow objects from parsed CLI arguments."""
+    """Build the regression workflow objects from parsed CLI arguments.
+
+    For ``h2`` / ``partitioned-h2`` the scalar ``--samp-prev`` / ``--pop-prev``
+    floats are validated and stored on the config. For ``rg`` these arguments are
+    comma-separated strings resolved later in :func:`run_rg_from_args` against the
+    resolved trait list, so they are left off the (per-run) config here.
+    """
+    from .prevalence import parse_scalar_prevalence
+
     _validate_intercept_conflicts(args)
     count_kind = getattr(args, "count_kind", "common")
+    samp_prev = getattr(args, "samp_prev", None)
+    pop_prev = getattr(args, "pop_prev", None)
+    if isinstance(samp_prev, str) or isinstance(pop_prev, str):
+        scalar_samp, scalar_pop = None, None  # rg comma-lists: resolved in run_rg_from_args
+    else:
+        scalar_samp, scalar_pop = parse_scalar_prevalence(samp_prev, pop_prev)
     config = RegressionConfig(
         n_blocks=args.n_blocks,
         use_common_counts=(count_kind == "common"),
@@ -2301,6 +2420,8 @@ def _runner_from_args(args) -> tuple[RegressionRunner, RegressionConfig]:
         intercept_gencov=getattr(args, "intercept_gencov", None),
         two_step_cutoff=args.two_step_cutoff,
         chisq_max=args.chisq_max,
+        samp_prev=scalar_samp,
+        pop_prev=scalar_pop,
         allow_identity_downgrade=getattr(args, "allow_identity_downgrade", False),
     )
     runner = RegressionRunner(get_global_config(), config)

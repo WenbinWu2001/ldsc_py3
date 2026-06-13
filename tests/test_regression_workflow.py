@@ -2242,9 +2242,81 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "dropped_zero_variance_ld_columns": [],
                     "n_snps": 1,
                     "effective_chisq_max": None,
+                    "samp_prev": None,
+                    "pop_prev": None,
+                    "scale": "observed",
                 },
             )
             self.assertTrue((tmpdir / "h2_out" / "diagnostics" / "h2.log").exists())
+
+    def _h2_args(self, tmpdir, ldscore_dir, *, samp_prev=None, pop_prev=None):
+        return type(
+            "Args",
+            (),
+            {
+                "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
+                "trait_name": "trait",
+                "ldscore_dir": str(ldscore_dir),
+                "count_kind": "common",
+                "output_dir": None,
+                "overwrite": False,
+                "log_level": "INFO",
+                "n_blocks": 200,
+                "no_intercept": False,
+                "intercept_h2": None,
+                "two_step_cutoff": None,
+                "chisq_max": None,
+                "samp_prev": samp_prev,
+                "pop_prev": pop_prev,
+            },
+        )()
+
+    def _write_h2_inputs(self, tmpdir):
+        set_global_config(GlobalConfig(snp_identifier="rsid"))
+        with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
+            handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
+        self.write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="trait")
+        return self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
+
+    def _patched_h2(self):
+        return mock.patch.object(
+            regression_runner.RegressionRunner,
+            "estimate_h2",
+            return_value=mock.Mock(
+                tot=np.array([0.2]),
+                tot_se=np.array([0.03]),
+                intercept=np.array([1.0]),
+                intercept_se=0.01,
+                mean_chisq=np.array([1.1]),
+                lambda_gc=np.array([1.0]),
+                ratio=0.0,
+                ratio_se=0.0,
+            ),
+        )
+
+    def test_run_h2_from_args_liability_scale(self):
+        from ldsc._kernel.regression import liability_conversion_factor
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            ldscore_dir = self._write_h2_inputs(tmpdir)
+            args = self._h2_args(tmpdir, ldscore_dir, samp_prev=0.5, pop_prev=0.01)
+            with self._patched_h2():
+                summary = regression_runner.run_h2_from_args(args)
+        c = liability_conversion_factor(0.5, 0.01)
+        row = summary.iloc[0]
+        self.assertAlmostEqual(row["total_h2_liab"], 0.2 * c, places=12)
+        self.assertEqual(row["total_h2_obs"], 0.2)
+        self.assertEqual(row["samp_prev"], 0.5)
+        self.assertEqual(row["pop_prev"], 0.01)
+
+    def test_run_h2_from_args_half_specified_prevalence_raises(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            ldscore_dir = self._write_h2_inputs(tmpdir)
+            args = self._h2_args(tmpdir, ldscore_dir, samp_prev=0.5, pop_prev=None)
+            with self._patched_h2(), self.assertRaises(LDSCUsageError):
+                regression_runner.run_h2_from_args(args)
 
     def test_run_h2_from_args_without_output_dir_creates_no_log_file(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2554,6 +2626,50 @@ class RegressionWorkflowTest(unittest.TestCase):
 
         self.assertIs(result, expected)
         self.assertEqual(stdout.getvalue(), "")
+
+    def test_run_rg_from_args_threads_positional_prevalences(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            set_global_config(GlobalConfig(snp_identifier="rsid"))
+            sumstats_sources = []
+            for name in ("a", "b"):
+                trait_dir = tmpdir / name
+                trait_dir.mkdir()
+                source = trait_dir / "sumstats.sumstats.gz"
+                with gzip.open(source, "wt", encoding="utf-8") as handle:
+                    handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
+                self.write_sumstats_sidecar(trait_dir / "metadata.json", trait_name=name)
+                sumstats_sources.append(str(source))
+            ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
+            expected = regression_runner.RgResultFamily(
+                rg=pd.DataFrame(), rg_full=pd.DataFrame(), h2_per_trait=pd.DataFrame(), per_pair_metadata=[]
+            )
+            args = type(
+                "Args",
+                (),
+                {
+                    "sumstats_sources": sumstats_sources,
+                    "anchor_trait": None,
+                    "ldscore_dir": str(ldscore_dir),
+                    "count_kind": "common",
+                    "output_dir": None,
+                    "overwrite": False,
+                    "write_per_pair_detail": False,
+                    "n_blocks": 200,
+                    "no_intercept": False,
+                    "intercept_h2": None,
+                    "intercept_gencov": None,
+                    "two_step_cutoff": None,
+                    "chisq_max": None,
+                    "log_level": "INFO",
+                    "samp_prev": "0.5,0.5",
+                    "pop_prev": "0.01,0.02",
+                    "prevalence_manifest": None,
+                },
+            )()
+            with mock.patch.object(RegressionRunner, "estimate_rg_pairs", return_value=expected) as patched:
+                regression_runner.run_rg_from_args(args)
+        self.assertEqual(patched.call_args.kwargs["prevalences"], [(0.5, 0.01), (0.5, 0.02)])
 
     def test_run_rg_from_args_recovers_metadata_labels_and_resolves_anchor_by_trait_name(self):
         with tempfile.TemporaryDirectory() as tmpdir:

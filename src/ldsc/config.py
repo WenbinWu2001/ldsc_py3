@@ -992,7 +992,12 @@ class RegressionConfig:
         down-weight extreme-chi-square SNPs; single-annotation h2 stays uncapped
         and relies on the two-step estimator instead.
     samp_prev, pop_prev : float, list of float, or None, optional
-        Liability-scale prevalence inputs. Defaults are ``None``.
+        Liability-scale prevalence inputs for binary traits: each a probability
+        in the open interval ``(0, 1)``, or NaN/None for a quantitative trait.
+        For ``h2`` / ``partitioned-h2`` these are scalars stored here; for ``rg``
+        the resolved per-trait list is passed to ``estimate_rg_pairs`` rather than
+        stored on this (per-run) config. Both must be supplied together. Defaults
+        are ``None`` (observed scale).
     allow_identity_downgrade : bool, optional
         If ``True``, same-family allele-aware/base regression inputs may run
         under the base identity mode. Cross-family mixes remain rejected.

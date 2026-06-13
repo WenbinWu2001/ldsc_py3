@@ -1321,6 +1321,8 @@ def summarize_partitioned_h2(
     hsq,
     dataset: RegressionDataset,
     annotation_columns: Sequence[str],
+    samp_prev: float | None = None,
+    pop_prev: float | None = None,
 ) -> pd.DataFrame:
     """Build overlap-aware partitioned-h2 rows from a fitted ``Hsq`` result.
 
@@ -1328,8 +1330,12 @@ def summarize_partitioned_h2(
     the ported legacy ``_overlap_output`` (augmented with one-sided
     ``Coefficient_p``, conditional ``Category_h2``, and the ``overlap_aware``
     flag), and returns the requested ``annotation_columns`` rows in the single
-    ``PARTITIONED_H2_COLUMNS`` schema. ``annotation_columns`` must be a subset of
-    ``dataset.retained_ld_columns``.
+    ``PARTITIONED_H2_COLUMNS`` schema. Per-category absolute heritability is
+    reported on both the observed (``Category_h2_obs``) and liability
+    (``Category_h2_liab``) scales; liability columns are NaN unless both
+    prevalences are finite probabilities in (0, 1). Proportions, enrichment, and
+    coefficients are scale-invariant and unchanged. ``annotation_columns`` must
+    be a subset of ``dataset.retained_ld_columns``.
     """
     from .overlap_matrix import assemble_model_overlap, overlap_aware_category_table
 
@@ -1345,6 +1351,21 @@ def summarize_partitioned_h2(
     table = overlap_aware_category_table(
         hsq, model_overlap, m_annot, float(m_tot), dataset.retained_ld_columns
     )
+    table = table.rename(
+        columns={
+            "Category_h2": "Category_h2_obs",
+            "Category_h2_std_error": "Category_h2_obs_std_error",
+        }
+    )
+    c = (
+        float(reg.liability_conversion_factor(samp_prev, pop_prev))
+        if not _is_missing_prevalence(samp_prev) and not _is_missing_prevalence(pop_prev)
+        else float("nan")
+    )
+    table["Category_h2_liab"] = table["Category_h2_obs"] * c
+    table["Category_h2_liab_std_error"] = table["Category_h2_obs_std_error"] * c
+    table["samp_prev"] = _prev_cell(samp_prev)
+    table["pop_prev"] = _prev_cell(pop_prev)
     rows = table.set_index("Category").loc[list(annotation_columns)].reset_index()
     return rows.loc[:, PARTITIONED_H2_COLUMNS].reset_index(drop=True)
 

@@ -1971,7 +1971,8 @@ class RegressionWorkflowTest(unittest.TestCase):
             regression_runner.PARTITIONED_H2_COLUMNS,
         )
 
-    def test_h2_and_partitioned_summaries_share_one_fitted_hsq_result(self):
+    def _base_only_partitioned_fixture(self):
+        """Single-base-annotation dataset + fitted-Hsq mock for partitioned tests."""
         dataset = regression_runner.RegressionDataset(
             merged=pd.DataFrame(
                 {
@@ -2019,16 +2020,44 @@ class RegressionWorkflowTest(unittest.TestCase):
             n_blocks=200,
             n_annot=1,
         )
+        return dataset, hsq
+
+    def test_h2_and_partitioned_summaries_share_one_fitted_hsq_result(self):
+        dataset, hsq = self._base_only_partitioned_fixture()
 
         total = regression_runner.summarize_total_h2(hsq, dataset, trait_name="trait")
         partitioned = regression_runner.summarize_partitioned_h2(hsq, dataset, ["base"])
 
-        self.assertEqual(total.loc[0, "total_h2"], partitioned.loc[0, "Category_h2"])
-        self.assertEqual(total.loc[0, "total_h2_se"], partitioned.loc[0, "Category_h2_std_error"])
+        self.assertEqual(total.loc[0, "total_h2_obs"], partitioned.loc[0, "Category_h2_obs"])
+        self.assertEqual(total.loc[0, "total_h2_obs_se"], partitioned.loc[0, "Category_h2_obs_std_error"])
         self.assertEqual(partitioned.loc[0, "Category"], "base")
         self.assertEqual(partitioned.loc[0, "Prop._h2"], 1.0)
         self.assertEqual(partitioned.loc[0, "Enrichment"], 1.0)
         self.assertTrue(np.isnan(partitioned.loc[0, "Enrichment_p"]))
+
+    def test_summarize_partitioned_h2_both_scales(self):
+        from ldsc._kernel.regression import liability_conversion_factor
+
+        dataset, hsq = self._base_only_partitioned_fixture()
+        obs = regression_runner.summarize_partitioned_h2(hsq, dataset, ["base"])
+        liab = regression_runner.summarize_partitioned_h2(
+            hsq, dataset, ["base"], samp_prev=0.5, pop_prev=0.01
+        )
+        c = liability_conversion_factor(0.5, 0.01)
+        # Observed preserved; liability is c * observed; proportions are scale-invariant.
+        self.assertEqual(liab.loc[0, "Category_h2_obs"], obs.loc[0, "Category_h2_obs"])
+        self.assertAlmostEqual(
+            liab.loc[0, "Category_h2_liab"], obs.loc[0, "Category_h2_obs"] * c, places=12
+        )
+        self.assertAlmostEqual(
+            liab.loc[0, "Category_h2_liab_std_error"],
+            obs.loc[0, "Category_h2_obs_std_error"] * c,
+            places=12,
+        )
+        self.assertEqual(liab.loc[0, "Prop._h2"], obs.loc[0, "Prop._h2"])
+        self.assertTrue(math.isnan(obs.loc[0, "Category_h2_liab"]))
+        self.assertEqual(liab.loc[0, "samp_prev"], 0.5)
+        self.assertEqual(liab.loc[0, "pop_prev"], 0.01)
 
     def test_collinear_partitioned_model_raises_input_error(self):
         # Two near-duplicate baseline annotations produce a singular design
@@ -2648,7 +2677,7 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertEqual(stdout.getvalue(), "")
 
     def test_cli_prints_concise_h2_table_only_without_output_dir(self):
-        expected = pd.DataFrame([{"trait_name": "trait", "total_h2": 0.1, "total_h2_se": np.nan}])
+        expected = pd.DataFrame([{"trait_name": "trait", "total_h2_obs": 0.1, "total_h2_obs_se": np.nan}])
 
         stdout = io.StringIO()
         with mock.patch.object(regression_runner, "run_h2_from_args", return_value=expected), contextlib.redirect_stdout(stdout):
@@ -2664,7 +2693,7 @@ class RegressionWorkflowTest(unittest.TestCase):
 
         self.assertIs(result, expected)
         text = stdout.getvalue()
-        self.assertIn("trait_name\ttotal_h2\ttotal_h2_se", text)
+        self.assertIn("trait_name\ttotal_h2_obs\ttotal_h2_obs_se", text)
         self.assertIn("NaN", text)
 
     def test_cli_prints_concise_partitioned_h2_table_only_without_output_dir(self):

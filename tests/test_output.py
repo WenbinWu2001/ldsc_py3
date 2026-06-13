@@ -444,8 +444,12 @@ class H2DirectoryWriterTest(unittest.TestCase):
                 {
                     "trait_name": "trait",
                     "n_snps": 100,
-                    "total_h2": 0.2,
-                    "total_h2_se": 0.03,
+                    "total_h2_obs": 0.2,
+                    "total_h2_obs_se": 0.03,
+                    "total_h2_liab": float("nan"),
+                    "total_h2_liab_se": float("nan"),
+                    "samp_prev": float("nan"),
+                    "pop_prev": float("nan"),
                     "intercept": 1.01,
                     "intercept_se": 0.02,
                     "mean_chisq": 1.2,
@@ -527,7 +531,7 @@ class H2DirectoryWriterTest(unittest.TestCase):
                 metadata=self.make_metadata(),
             )
 
-            self.assertIn("total_h2", (output_dir / "h2.tsv").read_text(encoding="utf-8"))
+            self.assertIn("total_h2_obs", (output_dir / "h2.tsv").read_text(encoding="utf-8"))
             self.assertFalse((output_dir / "metadata.json").exists())
             metadata = json.loads((output_dir / "diagnostics" / "metadata.json").read_text(encoding="utf-8"))
             self.assertNotIn("old", metadata)
@@ -861,9 +865,9 @@ class RgDirectoryWriterTest(unittest.TestCase):
         )
         h2_per_trait = pd.DataFrame(
             [
-                {"trait_name": "Trait A", "total_h2": 0.2},
-                {"trait_name": "Trait/B", "total_h2": 0.3},
-                {"trait_name": "Trait C", "total_h2": 0.4},
+                {"trait_name": "Trait A", "total_h2_obs": 0.2},
+                {"trait_name": "Trait/B", "total_h2_obs": 0.3},
+                {"trait_name": "Trait C", "total_h2_obs": 0.4},
             ]
         )
         metadata = [

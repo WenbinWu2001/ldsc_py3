@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import gzip
 import io
 import json
+import math
 from pathlib import Path
 import sys
 import tempfile
@@ -1132,6 +1133,49 @@ class RegressionWorkflowTest(unittest.TestCase):
         )
         summary = regression_runner.summarize_total_h2(hsq, dataset, trait_name="trait", n_snps_used=2)
         self.assertEqual(int(summary.loc[0, "n_snps"]), 2)
+
+    def _fake_total_h2_hsq(self, tot=0.2, tot_se=0.03):
+        return mock.Mock(
+            tot=np.array([tot]),
+            tot_se=np.array([tot_se]),
+            intercept=np.array([1.0]),
+            intercept_se=0.01,
+            mean_chisq=np.array([1.1]),
+            lambda_gc=np.array([1.0]),
+            ratio=0.0,
+            ratio_se=0.0,
+        )
+
+    def test_summarize_total_h2_observed_when_no_prevalence(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        dataset = runner.build_dataset(self._high_chisq_sumstats(), self.make_ldscore_result())
+        summary = regression_runner.summarize_total_h2(
+            self._fake_total_h2_hsq(), dataset, trait_name="t", n_snps_used=3
+        )
+        row = summary.iloc[0]
+        self.assertEqual(row["total_h2_obs"], 0.2)
+        self.assertEqual(row["total_h2_obs_se"], 0.03)
+        self.assertTrue(math.isnan(row["total_h2_liab"]))
+        self.assertTrue(math.isnan(row["total_h2_liab_se"]))
+        self.assertTrue(math.isnan(row["samp_prev"]))
+        self.assertTrue(math.isnan(row["pop_prev"]))
+
+    def test_summarize_total_h2_liability_scaled(self):
+        from ldsc._kernel.regression import liability_conversion_factor
+
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        dataset = runner.build_dataset(self._high_chisq_sumstats(), self.make_ldscore_result())
+        summary = regression_runner.summarize_total_h2(
+            self._fake_total_h2_hsq(), dataset, trait_name="t", n_snps_used=3,
+            samp_prev=0.5, pop_prev=0.01,
+        )
+        c = liability_conversion_factor(0.5, 0.01)
+        row = summary.iloc[0]
+        self.assertAlmostEqual(row["total_h2_liab"], 0.2 * c, places=12)
+        self.assertAlmostEqual(row["total_h2_liab_se"], 0.03 * c, places=12)
+        self.assertEqual(row["total_h2_obs"], 0.2)
+        self.assertEqual(row["samp_prev"], 0.5)
+        self.assertEqual(row["pop_prev"], 0.01)
 
     def test_h2_metadata_records_post_filter_count_and_effective_chisq_max(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())

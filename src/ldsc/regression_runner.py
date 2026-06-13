@@ -1252,25 +1252,60 @@ def _count_totals_for_columns(count_records: Sequence[dict[str, Any]], columns: 
     return count_totals
 
 
+def _is_missing_prevalence(value) -> bool:
+    """True when a prevalence is unset (None) or a NaN quantitative-trait marker."""
+    return value is None or (isinstance(value, float) and math.isnan(value))
+
+
+def _liability_pair(obs, obs_se, samp_prev, pop_prev):
+    """Return (liab, liab_se) for an absolute h2 estimate, or (nan, nan).
+
+    Liability is defined only when both prevalences are finite probabilities;
+    a quantitative trait (None/NaN) or unset prevalence yields NaN. ``obs`` and
+    ``obs_se`` are the observed-scale point estimate and standard error.
+    """
+    if _is_missing_prevalence(samp_prev) or _is_missing_prevalence(pop_prev):
+        return float("nan"), float("nan")
+    c = float(reg.liability_conversion_factor(samp_prev, pop_prev))
+    return obs * c, obs_se * c
+
+
+def _prev_cell(value):
+    """Normalize a prevalence for a table cell: None -> NaN, else float."""
+    return float("nan") if value is None else float(value)
+
+
 def summarize_total_h2(
     hsq,
     dataset: RegressionDataset,
     trait_name: str | None = None,
     n_snps_used: int | None = None,
+    samp_prev: float | None = None,
+    pop_prev: float | None = None,
 ) -> pd.DataFrame:
     """Build the one-row total-heritability summary from a fitted ``Hsq`` result.
 
-    ``n_snps_used`` is the post-chi-square-filter SNP count from
-    :func:`_effective_regression_filter`; when omitted it falls back to the full
-    merged SNP count (correct only when no cap was applied).
+    Reports total heritability on both the observed (``total_h2_obs``) and
+    liability (``total_h2_liab``) scales, plus the prevalences applied. Liability
+    columns are NaN unless both ``samp_prev`` and ``pop_prev`` are finite
+    probabilities in (0, 1). ``n_snps_used`` is the post-chi-square-filter SNP
+    count from :func:`_effective_regression_filter`; when omitted it falls back
+    to the full merged SNP count (correct only when no cap was applied).
     """
+    obs = _scalar(hsq.tot)
+    obs_se = _scalar(hsq.tot_se)
+    liab, liab_se = _liability_pair(obs, obs_se, samp_prev, pop_prev)
     return pd.DataFrame(
         [
             {
                 "trait_name": trait_name,
                 "n_snps": int(n_snps_used) if n_snps_used is not None else len(dataset.merged),
-                "total_h2": _scalar(hsq.tot),
-                "total_h2_se": _scalar(hsq.tot_se),
+                "total_h2_obs": obs,
+                "total_h2_obs_se": obs_se,
+                "total_h2_liab": liab,
+                "total_h2_liab_se": liab_se,
+                "samp_prev": _prev_cell(samp_prev),
+                "pop_prev": _prev_cell(pop_prev),
                 "intercept": _scalar_or_value(hsq.intercept),
                 "intercept_se": getattr(hsq, "intercept_se", None),
                 "mean_chisq": _scalar_or_value(hsq.mean_chisq),

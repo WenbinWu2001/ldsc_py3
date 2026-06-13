@@ -403,9 +403,8 @@ default; `none` opts out). Each choice maps to packaged BED files under
 `mhc.hg19.bed`). The active **`mhc`** preset is the broad `chr6:25-35Mb` window
 (build-consistent) and the active **`centromeres`** preset is the
 **pericentromeric ±3 cM** region (LDSC parity, Bulik-Sullivan 2015). The
-narrower reference definitions — **`mhc_core`** (classical HLA core) and
-**`centromeres_core`** (raw centromere gap) — are loadable via the Python API
-but not wired to the CLI. **User BEDs** (`--exclude-regions-bed <file>`) read any
+raw-gap reference definition **`centromeres_core`** is loadable via the Python
+API but not wired to the CLI. **User BEDs** (`--exclude-regions-bed <file>`) read any
 standard 0-based half-open BED file and apply intervals as-is against panel
 `CHR/POS`. The full preset/build/coordinate/provenance table is at
 [`region-exclusion-presets.md`](region-exclusion-presets.md).

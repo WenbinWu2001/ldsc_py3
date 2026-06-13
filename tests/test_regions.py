@@ -274,18 +274,3 @@ def test_centromeres_preset_is_pericentromeric_superset_of_core(build):
 def test_mhc_active_is_broad_window(build):
     # The active `mhc` preset is the broad chr6:25-35Mb window, consistent across builds.
     assert _read_bed(f"mhc.{build}.bed") == [("6", 25_000_000, 35_000_000)]
-
-
-def test_mhc_core_in_preset_menu():
-    assert "mhc_core" in regions.REGION_PRESETS
-    result = regions.load_preset_intervals(["mhc_core"], "hg38")
-    assert result.source_labels == ("preset:mhc_core[hg38]",)
-    assert set(result.intervals) == {"6"}
-
-
-@pytest.mark.parametrize("build", ["hg19", "hg38"])
-def test_mhc_broad_contains_core(build):
-    # The active broad `mhc` window must contain the narrow `mhc_core` region.
-    broad_start, broad_end = regions.load_preset_intervals(["mhc"], build).intervals["6"][0]
-    for cstart, cend in regions.load_preset_intervals(["mhc_core"], build).intervals["6"].tolist():
-        assert broad_start <= cstart and broad_end >= cend, f"{build}: broad MHC missing core {cstart}-{cend}"

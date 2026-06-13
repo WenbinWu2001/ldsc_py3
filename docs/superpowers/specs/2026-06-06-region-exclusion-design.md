@@ -15,8 +15,8 @@
 >   modes and required only in rsID modes — not "always required" (§6).
 > - The active `mhc` preset is the **broad chr6:25-35Mb** window and the
 >   `centromeres` preset is the **pericentromeric ±3 cM** region (LDSC parity);
->   the narrower `mhc_core` / `centromeres_core` definitions are preserved as
->   Python-API-only reference presets (§4.3). See also
+>   the raw-gap `centromeres_core` definition is preserved as a
+>   Python-API-only reference preset (§4.3). See also
 >   `docs/current/region-exclusion-presets.md` for the full preset/coordinate
 >   table.
 
@@ -94,8 +94,6 @@ Standard 3-column BED, one file **per preset per build**, under
 ```
 src/ldsc/data/regions/mhc.hg19.bed                  # active: broad chr6:25-35Mb
 src/ldsc/data/regions/mhc.hg38.bed                  # active: broad chr6:25-35Mb
-src/ldsc/data/regions/mhc_core.hg19.bed             # classical-HLA core, reference
-src/ldsc/data/regions/mhc_core.hg38.bed             # classical-HLA core, reference
 src/ldsc/data/regions/centromeres.hg19.bed          # active: pericentromeric +/-3 cM
 src/ldsc/data/regions/centromeres.hg38.bed          # active: pericentromeric +/-3 cM
 src/ldsc/data/regions/centromeres_core.hg19.bed     # raw gap, reference
@@ -128,10 +126,6 @@ rather than silently dropping a build. The cost is two extra ~1 KB files.
   window on chr6, **build-consistent**: `6  25000000  35000000` in **both**
   builds (hg19 25-35Mb lifts to hg38 ~25.00-35.03Mb, so the same numeric window
   covers the same biology). Pinned constant.
-- **`mhc_core.*.bed`** — the narrow **classical-HLA core**, reference only (not
-  wired to any CLI choice): the GWAS-Catalog / GRC MHC region in each build's
-  native coordinates — hg19 `6  28477797  33448354`, GRCh38
-  `6  28510120  33480577`.
 - **`centromeres.*.bed`** (the **active** `centromeres` preset) — one interval
   per chromosome (autosomes + X), the **pericentromeric region: each centromere
   span padded by ±3 cM**, matching the LD Score regression exclusion of
@@ -346,8 +340,8 @@ The vocabulary is shared by both modules:
     Curated regions to exclude before LD computation / R2 emission.
     Default: mhc-and-centromeres. Use 'none' to keep all regions.
     `mhc` is the broad chr6:25-35Mb window; `centromeres` is the
-    pericentromeric +/-3 cM region (LDSC). The `*_core` reference presets
-    (mhc_core, centromeres_core) are Python-API only and not offered here.
+    pericentromeric +/-3 cM region (LDSC). The `centromeres_core` reference
+    preset (raw gap) is Python-API only and not offered here.
 --exclude-regions-bed PATH[,PATH...]
     User BED file(s) to exclude, applied as-is on panel/source CHR/POS
     (0-based half-open). No build translation.

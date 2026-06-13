@@ -16,23 +16,18 @@ Single-choice enum; **default `mhc-and-centromeres`** (exclusion is ON by defaul
 | `mhc` | chr6:25–35 Mb | conventional broad MHC exclusion window |
 | `centromeres` | centromere ±3 cM for 23 chroms | `centromeres_core` below + Alkes-group recombination map ±3 cM |
 | `mhc-and-centromeres` **(default)** | `mhc` and `centromeres` |  |
-| `mhc_core` (bookkeeping) | classical MHC core on chr6 | GWAS-Catalog / GRC MHC region, each build's native coords |
 | `centromeres_core` (bookkeeping) | raw centromere assembly gap for 23 chroms | UCSC `gap`/`centromeres` tracks |
 
-- **Source of `mhc_core`:** the classical MHC ("core" HLA) region from the GWAS-Catalog / Genome Reference Consortium. hg19 `chr6:28,477,797–33,448,354` and GRCh38 `chr6:28,510,120–33,480,577` are the canonical core-MHC bounds in each build's native coordinates (the hg19 end `33,448,354` lifts to the GRCh38 end `33,480,577` exactly, confirming both name the same region). Pinned reference constants; confirm against your preferred core-MHC definition if needed.
-- `mhc_core` and `centromeres_core` are reference definitions loadable only via the Python API (e.g. `exclude_regions=("mhc_core",)`).
+- `centromeres_core` is included as bookkeeping purpose for now. We consider keeping only one of `centromeres` and `centromeres_core`. Currently, it is loadable only via the Python API (e.g. `exclude_regions=("centromeres_core",)`).
 - All four presets are regenerable with `python tools/regions/build_region_beds.py` (a dev-only tool; not shipped). The genetic maps are a curation-time input (workspace `resources/genetic_maps/genetic_map_alkesgroup/`, overridable via `LDSC_GENETIC_MAP_DIR`), not bundled in the package.
 
 
 
 ## Source of the coordinates
 
-- **`mhc` (both builds `chr6:25,000,000–35,000,000`)** — the conventional broad MHC exclusion window used in GWAS / LD-score work. Manually pinned constants, same for hg19 and hg38.
-- **`mhc_core`** — the narrow classical-HLA core, the GWAS-Catalog / GRC MHC region in each build's native coordinates: hg19 `chr6:28,477,797–33,448,354` and GRCh38 `chr6:28,510,120–33,480,577`. Pinned reference constants (the hg19 end lifts to the GRCh38 end exactly, confirming both name the same region).
+- **`mhc` (both builds `chr6:25 - 35Mb`)** — the conventional broad MHC exclusion window used in GWAS / LD-score work (e.g, supplement of cross-trait ldsc paper). Manually pinned constants, same for hg19 and hg38.
 - **`centromeres_core` (raw gap)** — UCSC REST API. hg19: the `gap` track filtered to `type == centromere`. hg38: the `centromeres` track (multiple models per chromosome) merged to one `[min(start), max(end))` span per chromosome.
 - **`centromeres` (active, `centromeres_core` ±3 cM)** — each `centromeres_core` span padded by ±3 cM, matching the LD Score regression pericentromeric exclusion of Bulik-Sullivan et al. 2015 *Nat Genet* (Online Methods). cM at the core endpoints is read from the **Alkes-group recombination map** (`genetic_map_{build}_withX`), extended ±3 cM, and inverted back to base pairs. The padded interval is unioned with the core span so it always contains it — this also gives correct behavior on acrocentric chromosomes (13/14/15/21/22), whose p-arm is absent from the map.
-
-- **`mhc_core`** uses the GWAS-Catalog / GRC classical-MHC region; if you prefer a different core-MHC definition (e.g. GENCODE or IMGT/HLA gene bounds), substitute it in `build_region_beds.py`.
 
 ## MHC coordinates (chr6, single interval)
 
@@ -40,8 +35,6 @@ Single-choice enum; **default `mhc-and-centromeres`** (exclusion is ON by defaul
 |---|---|---|---|---|
 | `mhc` | hg19 | 25,000,000 | 35,000,000 | 10.00 |
 | `mhc` | hg38 | 25,000,000 | 35,000,000 | 10.00 |
-| `mhc_core` | hg19 | 28,477,797 | 33,448,354 | 4.97 |
-| `mhc_core` | hg38 | 28,510,120 | 33,480,577 | 4.97 |
 
 ## Centromeres — hg19: core (raw gap) vs active (core ±3 cM)
 

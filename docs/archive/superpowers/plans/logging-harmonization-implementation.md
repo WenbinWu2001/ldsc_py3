@@ -673,39 +673,39 @@ decorator on `LDScoreCalculator.run` detects the active context (via
 `_active_context()`) and calls through. Result: one `ldscore.log` per run,
 one header/footer pair. Direct Python API calls to `LDScoreCalculator().run(...)`
 hit only the inner decorator, which opens its own context. Same logic for
-`build-ref-panel`. ✓
+`build-ref-panel`. [done]
 
 ### No `output_dir` for regression
 `run_h2_from_args`, `run_rg_from_args`, `run_partitioned_h2_from_args` have optional
 `--output-dir`. When `None`, `output_dir` extracted by the decorator is `None`, so no
-FileHandler is attached and no log file is written. Console logging continues normally. ✓
+FileHandler is attached and no log file is written. Console logging continues normally. [done]
 
 ### `SumstatsMunger.run` with single config argument
 When called as `munger.run(MungeConfig(raw_sumstats_file=..., output_dir=...))`, the
 `munge_config` kwarg is `None`. The lambda falls back to `a[1]` (the `raw_sumstats_config`)
-which holds `output_dir`. ✓
+which holds `output_dir`. [done]
 
 ### Python API logger level
 Python API users may not have called `logging.basicConfig`. Without it, the
 root logger defaults to WARNING and INFO records would be silently dropped,
 producing an empty log file. `WorkflowRunContext.__enter__` lifts the LDSC
 logger level to INFO when `getEffectiveLevel()` is above INFO, and restores
-it on exit. ✓
+it on exit. [done]
 
 ### Failed runs
 When the wrapped function raises, `WorkflowRunContext.__exit__` writes
 `Failed <datetime>` (instead of `Finished`) before re-raising the exception
 (the context returns `False`, never suppressing). The handler is still
-removed and the level still restored. ✓
+removed and the level still restored. [done]
 
 ### `sys.argv` quoting
 The `Call:` line uses `shlex.join(sys.argv)`, which preserves quoting for
 arguments containing whitespace and produces a shell-reproducible command
-string. ✓
+string. [done]
 
 ### Annotation subcommand
 `ldsc annotate` / `annotation_builder.py` is entirely excluded from this task.
-The `_kernel/annotation.py` is not modified. ✓
+The `_kernel/annotation.py` is not modified. [done]
 
 ---
 

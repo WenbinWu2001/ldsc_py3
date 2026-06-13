@@ -16,16 +16,16 @@ lookup, and int16 R² quantization + BYTE_STREAM_SPLIT; full suite green, 864 pa
 
 | # | Refactor | Commit | Status |
 |---|---|---|---|
-| 1 | `--min-r2` unbiased-R² floor (opt-in, default off) | `b80c3a8` | ✅ implemented |
-| 2 | Compact numpy pair buffers | `3a636bc` | ✅ implemented |
-| 3 | Vectorized pair extraction | `3a636bc` | ✅ implemented |
-| 4 | float32 genotypes (builder-scoped) | `338837f` | ✅ implemented |
-| 5 | Direct PyArrow record-batch writes | `d4b6194` | ✅ implemented |
-| 6 | Early pre-filter BED bitarray release (MAF filter) | `1dc9ad7` | ✅ implemented |
-| 8 | Per-build BED release across emitted genome builds | `1bf1452` | ✅ implemented |
-| 9 | zstd compression (raised to **level 9**) | `1bf1452`, `45f0ec0` | ✅ implemented |
-| 10 | Vectorized canonical decode endpoint-index lookup (read path) | `b112013` | ✅ implemented |
-| 11 | int16 R² quantization + BYTE_STREAM_SPLIT (lossy, ~63% smaller) | `8cbcad3`…`0c27652` | ✅ implemented |
+| 1 | `--min-r2` unbiased-R² floor (opt-in, default off) | `b80c3a8` | implemented |
+| 2 | Compact numpy pair buffers | `3a636bc` | implemented |
+| 3 | Vectorized pair extraction | `3a636bc` | implemented |
+| 4 | float32 genotypes (builder-scoped) | `338837f` | implemented |
+| 5 | Direct PyArrow record-batch writes | `d4b6194` | implemented |
+| 6 | Early pre-filter BED bitarray release (MAF filter) | `1dc9ad7` | implemented |
+| 8 | Per-build BED release across emitted genome builds | `1bf1452` | implemented |
+| 9 | zstd compression (raised to **level 9**) | `1bf1452`, `45f0ec0` | implemented |
+| 10 | Vectorized canonical decode endpoint-index lookup (read path) | `b112013` | implemented |
+| 11 | int16 R² quantization + BYTE_STREAM_SPLIT (lossy, ~63% smaller) | `8cbcad3`…`0c27652` | implemented |
 | 7 | Streaming BED reads | — | ⏸ deferred |
 
 Refactors #1–#6 are detailed below; the session additions #8–#10 follow in

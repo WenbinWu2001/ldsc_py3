@@ -280,7 +280,7 @@ parquet schema (`ldsc:r2_bias` and `ldsc:n_samples`); there are no
 
 ### Region exclusion default depends on the entry point
 
-> **⚠️ Direct `RefPanelConfig(...)` / `ReferencePanelBuildConfig(...)` construction
+> **Note: Direct `RefPanelConfig(...)` / `ReferencePanelBuildConfig(...)` construction
 > applies NO region exclusion by default.** The MHC + centromere default lives at
 > the *CLI and convenience-wrapper* layer, not in the dataclasses.
 

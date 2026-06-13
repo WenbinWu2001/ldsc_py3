@@ -16,18 +16,15 @@ Single-choice enum; **default `mhc-and-centromeres`** (exclusion is ON by defaul
 | `mhc` | chr6:25–35 Mb | conventional broad MHC exclusion window |
 | `centromeres` | centromere ±3 cM for 23 chroms | `centromeres_core` below + Alkes-group recombination map ±3 cM |
 | `mhc-and-centromeres` **(default)** | `mhc` and `centromeres` |  |
-| `centromeres_core` (bookkeeping) | raw centromere assembly gap for 23 chroms | UCSC `gap`/`centromeres` tracks |
 
-- `centromeres_core` is included as bookkeeping purpose for now. We consider keeping only one of `centromeres` and `centromeres_core`. Currently, it is loadable only via the Python API (e.g. `exclude_regions=("centromeres_core",)`).
-- All four presets are regenerable with `python tools/regions/build_region_beds.py` (a dev-only tool; not shipped). The genetic maps are a curation-time input (workspace `resources/genetic_maps/genetic_map_alkesgroup/`, overridable via `LDSC_GENETIC_MAP_DIR`), not bundled in the package.
-
-
+- There is an additional option not exposed publicly:`centromeres_core` (raw centromere assembly gap, UCSC `gap`/`centromeres` tracks); it is bookkeeping-only and loadable via the Python API (e.g. `exclude_regions=("centromeres_core",)`). We consider keeping only one of `centromeres` and `centromeres_core`.
+- All three presets are regenerable with `python tools/regions/build_region_beds.py` (a dev-only tool; not shipped). The genetic maps are a curation-time input (workspace `resources/genetic_maps/genetic_map_alkesgroup/`, overridable via `LDSC_GENETIC_MAP_DIR`), not bundled in the package.
 
 ## Source of the coordinates
 
-- **`mhc` (both builds `chr6:25 - 35Mb`)** — the conventional broad MHC exclusion window used in GWAS / LD-score work (e.g, supplement of cross-trait ldsc paper). Manually pinned constants, same for hg19 and hg38.
+- **`mhc` (both builds `chr6:25–35 Mb`)** — the conventional broad MHC exclusion window used in GWAS / LD-score work (e.g., supplement of cross-trait ldsc paper). Manually pinned constants, same for hg19 and hg38.
 - **`centromeres_core` (raw gap)** — UCSC REST API. hg19: the `gap` track filtered to `type == centromere`. hg38: the `centromeres` track (multiple models per chromosome) merged to one `[min(start), max(end))` span per chromosome.
-- **`centromeres` (active, `centromeres_core` ±3 cM)** — each `centromeres_core` span padded by ±3 cM, matching the LD Score regression pericentromeric exclusion of Bulik-Sullivan et al. 2015 *Nat Genet* (Online Methods). cM at the core endpoints is read from the **Alkes-group recombination map** (`genetic_map_{build}_withX`), extended ±3 cM, and inverted back to base pairs. The padded interval is unioned with the core span so it always contains it — this also gives correct behavior on acrocentric chromosomes (13/14/15/21/22), whose p-arm is absent from the map.
+- **`centromeres` (`centromeres_core` ±3 cM)** — each `centromeres_core` span padded by ±3 cM, matching the LD Score regression pericentromeric exclusion of Bulik-Sullivan et al. 2015 *Nat Genet* (Online Methods). cM at the core endpoints is read from the **Alkes-group recombination map** (`genetic_map_{build}_withX`), extended ±3 cM, and inverted back to base pairs. The padded interval is unioned with the core span so it always contains it — this also gives correct behavior on acrocentric chromosomes (13/14/15/21/22), whose p-arm is absent from the map.
 
 ## MHC coordinates (chr6, single interval)
 
@@ -36,9 +33,9 @@ Single-choice enum; **default `mhc-and-centromeres`** (exclusion is ON by defaul
 | `mhc` | hg19 | 25,000,000 | 35,000,000 | 10.00 |
 | `mhc` | hg38 | 25,000,000 | 35,000,000 | 10.00 |
 
-## Centromeres — hg19: core (raw gap) vs active (core ±3 cM)
+## Centromeres — hg19: core (raw gap) vs pericentromeric (core ±3 cM)
 
-| chr | core start | core end | core Mb | active start | active end | active Mb |
+| chr | core start | core end | core Mb | pericentromeric start | pericentromeric end | pericentromeric Mb |
 |---|---|---|---|---|---|---|
 | 1 | 121,535,434 | 124,535,434 | 3.00 | 117,592,839 | 146,214,367 | 28.62 |
 | 2 | 92,326,171 | 95,326,171 | 3.00 | 88,205,884 | 102,803,438 | 14.60 |
@@ -64,9 +61,9 @@ Single-choice enum; **default `mhc-and-centromeres`** (exclusion is ON by defaul
 | 22 | 13,000,000 | 16,000,000 | 3.00 | 13,000,000 | 17,387,891 | 4.39 |
 | X | 58,632,012 | 61,632,012 | 3.00 | 50,396,847 | 68,443,913 | 18.05 |
 
-## Centromeres — hg38: core (raw gap) vs active (pericentromeric ±3 cM)
+## Centromeres — hg38: core (raw gap) vs pericentromeric (core ±3 cM)
 
-| chr | core start | core end | core Mb | active start | active end | active Mb |
+| chr | core start | core end | core Mb | pericentromeric start | pericentromeric end | pericentromeric Mb |
 |---|---|---|---|---|---|---|
 | 1 | 122,026,459 | 124,932,724 | 2.91 | 117,992,202 | 145,539,648 | 27.55 |
 | 2 | 92,188,145 | 94,090,557 | 1.90 | 88,086,511 | 102,047,052 | 13.96 |

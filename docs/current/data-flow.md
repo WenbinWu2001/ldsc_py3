@@ -115,7 +115,7 @@ the namespace created by the unified `ldsc` CLI without reparsing.
 | File | Example | Notes |
 | --- | --- | --- |
 | baseline annotation shard | `CHR POS SNP CM base`<br/>`1 10583 rs58108140 0.0 1` | used as the SNP template; one shard per chromosome is typical |
-| BED file | `chr1 10000 10100 enhancer_A` | one or more region files; BED basenames become query annotation column names |
+| BED file | `chr1 10000 10100 enhancer_A` | one or more region files; each resolved BED file stem (`Path.stem`) becomes a query annotation column name; duplicate stems are rejected |
 
 ### Flow
 
@@ -263,9 +263,10 @@ tie at exactly 0.5 keeps PLINK order. See
 It opens either a build-ref-panel output directory or one explicit
 `chrN_meta.tsv.gz` plus `chrN_r2.parquet` pair, validates the sidecar binding
 against parquet metadata, resolves each endpoint under the active SNP
-identifier mode, and looks up stored pair rows. It writes one annotated pair
-table to stdout or to the explicit `--out` path; it does not create an artifact
-directory or workflow log.
+identifier mode, and looks up stored pair rows. Without `--output-dir` it
+streams one annotated pair table as a clean TSV to stdout; with `--output-dir`
+it writes the canonical result directory (`query_r2.tsv` plus
+`diagnostics/metadata.json` and `diagnostics/query-r2.log`).
 
 ### Required inputs
 

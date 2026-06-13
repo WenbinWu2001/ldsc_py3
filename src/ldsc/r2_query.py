@@ -21,6 +21,9 @@ import pandas as pd
 from ._kernel.identifiers import build_snp_id_series
 from ._kernel.ldscore import _load_full_panel_sidecar, _validate_index_binding
 from ._kernel.r2_query import lookup_pairs_in_parquet
+from ._logging import log_inputs, log_outputs, workflow_logging
+from .outputs import QueryR2DirectoryWriter, QueryR2OutputConfig
+from .path_resolution import ensure_output_directory, preflight_output_artifact_family
 from ._kernel.ref_panel import (
     _r2_dir_metadata_paths,
     _r2_dir_r2_paths,
@@ -506,28 +509,71 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--panel-dir", required=True, help="build-ref-panel output directory.")
     parser.add_argument("--pairs", required=True, help="TSV/CSV of pairs with _1/_2 endpoint columns ('-' = stdin).")
-    parser.add_argument("--out", default=None, help="Output TSV path (default: stdout).")
+    parser.add_argument("--output-dir", default=None, help="Output directory for the result table and diagnostics; default streams TSV to stdout.")
+    parser.add_argument("--overwrite", action="store_true", default=False, help="Replace existing query-r2 output artifacts.")
     parser.add_argument("--snp-identifier", default=None, help="Override panel SNP identifier mode.")
     parser.add_argument("--genome-build", choices=["hg19", "hg38"], default=None, help="Genome build for sub-dir resolution.")
+    parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"), help="Verbosity of the directory-mode diagnostics log.")
     return parser
 
 
 def run_query_r2_from_args(args: argparse.Namespace) -> pd.DataFrame:
-    """Run ``query-r2`` from parsed CLI arguments and write the output table."""
+    """Run ``query-r2`` from parsed CLI arguments and emit the result table.
+
+    Without ``--output-dir`` the result streams as a clean TSV to stdout
+    (pipe-able). With ``--output-dir`` it writes the canonical result directory:
+    ``query_r2.tsv`` plus ``diagnostics/metadata.json`` and
+    ``diagnostics/query-r2.log``, matching the other workflow commands.
+    """
     pairs_handle = sys.stdin if args.pairs == "-" else args.pairs
     sep = "," if str(args.pairs).endswith(".csv") else "\t"
     pairs = pd.read_csv(pairs_handle, sep=sep)
-    result = query_r2(
-        pairs,
-        panel_dir=args.panel_dir,
-        snp_identifier=args.snp_identifier,
-        genome_build=args.genome_build,
-    )
-    if args.out is None:
+
+    if args.output_dir is None:
+        panel = R2Panel.open(args.panel_dir, snp_identifier=args.snp_identifier, genome_build=args.genome_build)
+        result = panel.query_pairs(pairs)
         result.to_csv(sys.stdout, sep="\t", index=False)
-    else:
-        result.to_csv(args.out, sep="\t", index=False)
+        return result
+
+    return _write_query_r2_directory(args, pairs)
+
+
+def _write_query_r2_directory(args: argparse.Namespace, pairs: pd.DataFrame) -> pd.DataFrame:
+    """Query against the panel and write the canonical result directory."""
+    output_dir = ensure_output_directory(args.output_dir, label="output directory")
+    diagnostics_dir = output_dir / "diagnostics"
+    result_path = output_dir / "query_r2.tsv"
+    metadata_path = diagnostics_dir / "metadata.json"
+    log_path = diagnostics_dir / "query-r2.log"
+    family = [result_path, metadata_path, log_path]
+    preflight_output_artifact_family(family, family, overwrite=args.overwrite, label="query-r2 output artifact")
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    with workflow_logging("query-r2", log_path, log_level=args.log_level):
+        log_inputs(panel_dir=args.panel_dir, pairs=args.pairs, output_dir=str(output_dir))
+        LOGGER.info(f"Querying R2 for pairs from '{args.pairs}' against panel '{args.panel_dir}'.")
+        panel = R2Panel.open(args.panel_dir, snp_identifier=args.snp_identifier, genome_build=args.genome_build)
+        result = panel.query_pairs(pairs)
+        written = QueryR2DirectoryWriter().write(
+            result,
+            QueryR2OutputConfig(output_dir=output_dir, overwrite=args.overwrite),
+            metadata=_query_r2_metadata(args, panel, result),
+        )
+        log_outputs(**written)
     return result
+
+
+def _query_r2_metadata(args: argparse.Namespace, panel: "R2Panel", result: pd.DataFrame) -> dict[str, object]:
+    """Build the diagnostic metadata payload for one query-r2 run."""
+    counts = result["status"].value_counts(dropna=False)
+    status_counts = {(str(label) or "resolved"): int(count) for label, count in counts.items()}
+    return {
+        "panel_dir": str(args.panel_dir),
+        "snp_identifier": panel.snp_identifier,
+        "genome_build": args.genome_build,
+        "n_samples": panel.n_samples,
+        "n_pairs": int(len(result)),
+        "status_counts": status_counts,
+    }
 
 
 def main(argv: Sequence[str] | None = None) -> pd.DataFrame:

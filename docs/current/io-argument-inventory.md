@@ -109,9 +109,10 @@ Removed from artifact-writing workflow surfaces:
   outputs
 
 Users customize run identity by choosing the `output_dir` name. Output filenames
-inside that directory are fixed and workflow-specific.
-`ldsc query-r2 --out` is the exception: it is an explicit destination for one
-tabular query result, not a run identity, output prefix, or artifact directory.
+inside that directory are fixed and workflow-specific. `ldsc query-r2` follows
+the same `output_dir` model (`query_r2.tsv` plus the `diagnostics/` sidecar); it
+additionally streams the result table to stdout when `--output-dir` is omitted,
+for pipe-able interactive use.
 
 Workflow logs are fixed audit files under `output_dir`, preflighted with the
 scientific outputs before they are opened. They are not included in workflow
@@ -142,7 +143,7 @@ are written.
 
 | Flag | Direction | Required | Object | Notes |
 |---|---:|---:|---|---|
-| `--query-annot-bed-sources` | input | yes | BED interval files | Accepts exact files, globs, comma-separated tokens, and source-token lists. BED basenames become query annotation names. |
+| `--query-annot-bed-sources` | input | yes | BED interval files | Accepts exact files, globs, comma-separated tokens, and source-token lists. Each resolved BED file stem (`Path.stem`) becomes a query annotation name; duplicate stems are rejected. |
 | `--baseline-annot-sources` | input | yes | baseline `.annot[.gz]` templates | Accepts exact files, globs, and `@` chromosome-suite tokens. |
 | `--output-dir` | output | yes | generated query annotation directory | Writes combined root `query.<chrom>.annot.gz` files, with all BED inputs represented as query columns, plus diagnostic `metadata.json`, `dropped_snps/dropped.tsv.gz`, and `annotate.log` under `diagnostics/`. |
 | `--bed-padding-bp` | input transform | no | BED interval expansion | Adds this many base pairs to both sides of each BED interval before SNP projection; starts are clipped at zero. Defaults to `0`, so BED intervals are used as provided. |
@@ -368,11 +369,14 @@ INFO flags.
 |---|---:|---:|---|---|
 | `--panel-dir` | input | yes | build-ref-panel output directory | Opens a package-built reference panel directory, optionally selecting a build subdirectory with `--genome-build`. This is the only panel input mode. |
 | `--pairs` | input | yes | SNP-pair table | TSV by default, CSV when the filename ends with `.csv`, or stdin via `-`. Endpoint columns use `_1` and `_2` suffixes, with `SNP`, `CHR`, `POS`, `A1`, and `A2` supplied according to the active identifier mode. |
-| `--out` | output | no | query result TSV | Writes a TSV table when supplied; defaults to stdout. This flag is a concrete table destination, not an artifact prefix. |
+| `--output-dir` | output | no | result directory | Writes the canonical result directory (`query_r2.tsv` plus `diagnostics/metadata.json` and `diagnostics/query-r2.log`). When omitted, the result table streams as a clean TSV to stdout. |
+| `--overwrite` | output control | no | overwrite toggle | Replaces existing query-r2 output artifacts in `--output-dir`. No effect in stdout mode. |
+| `--log-level` | output control | no | log verbosity | Verbosity of the directory-mode `diagnostics/query-r2.log`. No effect in stdout mode. |
 | `--snp-identifier` | input metadata | no | query identity mode | Overrides panel metadata. If omitted, `R2Panel.open()` reads `ldsc:snp_identifier` from parquet metadata. |
 | `--genome-build` | input selector | no | panel build selector | Concrete `hg19`/`hg38` selector for build-ref-panel directory layouts. |
 
-Removed flags: `--meta`, `--parquet` (explicit single-chromosome input; use
+Removed flags: `--out` (replaced by the `--output-dir` result directory with a
+stdout fallback), `--meta`, `--parquet` (explicit single-chromosome input; use
 `--panel-dir`), `--with-r` (signed `r` is now always emitted), `--strategy`,
 `--strategy-threshold` (lookup strategy is fixed to the internal `auto` rule).
 

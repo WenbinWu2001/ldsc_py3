@@ -111,7 +111,7 @@ contracts move.
 
 | Design document | Implementation |
 | --- | --- |
-| `docs/superpowers/specs/2026-06-06-ref-panel-r2-query-design.md` | public surface `src/ldsc/r2_query.py`: `R2Panel` handle (`open`, lazy `_chrom_state`, `_resolve_endpoint`, `query_pairs`), one-shot `query_r2`, pure `unbiased_r2_to_pearson_r`, and `build_parser`/`run_query_r2_from_args`/`main`; `query-r2` registration + dispatch in `src/ldsc/cli.py`; exports in `src/ldsc/__init__.py` |
+| `docs/superpowers/specs/2026-06-06-ref-panel-r2-query-design.md` | public surface `src/ldsc/r2_query.py`: `R2Panel` handle (`open`, lazy `_chrom_state`, `_resolve_endpoint`, `query_pairs`), one-shot `query_r2`, pure `unbiased_r2_to_pearson_r`, and `build_parser`/`run_query_r2_from_args`/`main`; canonical `--output-dir` result directory via `_write_query_r2_directory`/`_query_r2_metadata` with `QueryR2DirectoryWriter`/`QueryR2OutputConfig` in `src/ldsc/outputs.py` (stdout fallback when omitted); `query-r2` registration + dispatch in `src/ldsc/cli.py`; exports in `src/ldsc/__init__.py` |
 | `docs/superpowers/specs/2026-06-06-ref-panel-r2-query-design.md` | point-lookup kernel `src/ldsc/_kernel/r2_query.py`: `lookup_pairs_in_parquet` (int64-key match, random-access row-group pruning vs. streaming, int16→float32 dequant), `_prune_row_groups`, `_arrow_to_numpy` |
 | `docs/superpowers/plans/2026-06-06-ref-panel-r2-query-plan.md` | TDD checklist and the binding-valid panel fixture `build_test_panel` in `tests/test_r2_query.py` |
 | `docs/current/ref-panel-r2-query.md` | user-facing API + `ldsc query-r2` CLI reference (input columns, output schema, status vocabulary, sign rule, strategies) |

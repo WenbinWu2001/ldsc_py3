@@ -780,8 +780,10 @@ class MungeConfig:
     ----------
     output_dir : str or os.PathLike[str]
         Directory that receives workflow-owned ``sumstats.parquet`` and/or
-        ``sumstats.sumstats.gz``, root ``metadata.json``, and
-        ``diagnostics/sumstats.log`` artifacts.
+        ``sumstats.sumstats.gz`` artifacts. Identity provenance is embedded in
+        the self-describing ``sumstats.parquet`` footer rather than a separate
+        ``metadata.json`` sidecar; the only ``diagnostics/`` artifacts are
+        ``diagnostics/sumstats.log`` and ``diagnostics/dropped_snps/``.
     raw_sumstats_file : str or os.PathLike[str] or None, optional
         Raw summary-statistics file to munge. Exact-one glob patterns are
         resolved by the workflow before entering the legacy kernel. Default is

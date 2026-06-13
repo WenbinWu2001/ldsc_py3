@@ -328,23 +328,84 @@ class TestQueryR2Wrapper:
 
 
 class TestQueryR2CLI:
-    def test_cli_reads_tsv_and_writes_tsv(self, tmp_path):
-        from ldsc.cli import main as cli_main
-
+    def _write_pairs(self, tmp_path):
         build_test_panel(tmp_path, snp_identifier="chr_pos_allele_aware")
         pairs_path = tmp_path / "pairs.tsv"
         pd.DataFrame(
             {"CHR_1": [1], "POS_1": [100], "A1_1": ["A"], "A2_1": ["G"],
              "CHR_2": [1], "POS_2": [200], "A1_2": ["C"], "A2_2": ["T"]}
         ).to_csv(pairs_path, sep="\t", index=False)
-        out_path = tmp_path / "out.tsv"
-        cli_main([
+        return pairs_path
+
+    def _argv(self, tmp_path, pairs_path, *extra):
+        return [
             "query-r2", "--panel-dir", str(tmp_path), "--genome-build", "hg38",
-            "--pairs", str(pairs_path), "--out", str(out_path),
-        ])
-        result = pd.read_csv(out_path, sep="\t")
+            "--pairs", str(pairs_path), *extra,
+        ]
+
+    def test_streams_tsv_to_stdout_when_no_output_dir(self, tmp_path, capsys):
+        import io
+
+        from ldsc.cli import main as cli_main
+
+        pairs_path = self._write_pairs(tmp_path)
+        cli_main(self._argv(tmp_path, pairs_path))
+        captured = capsys.readouterr().out
+        # stdout must be a clean, parseable TSV (pipe-able), nothing else.
+        streamed = pd.read_csv(io.StringIO(captured), sep="\t")
+        assert streamed["r2"].iloc[0] == pytest.approx(0.64, abs=1e-4)
+        assert {"status", "r"}.issubset(streamed.columns)
+        assert not (tmp_path / "query_r2.tsv").exists()
+
+    def test_output_dir_writes_result_metadata_and_log(self, tmp_path):
+        import json
+
+        from ldsc.cli import main as cli_main
+
+        pairs_path = self._write_pairs(tmp_path)
+        out_dir = tmp_path / "result"
+        cli_main(self._argv(tmp_path, pairs_path, "--output-dir", str(out_dir)))
+
+        result = pd.read_csv(out_dir / "query_r2.tsv", sep="\t")
         assert result["r2"].iloc[0] == pytest.approx(0.64, abs=1e-4)
-        assert "status" in result.columns and "r" in result.columns
+        assert {"status", "r"}.issubset(result.columns)
+
+        metadata_path = out_dir / "diagnostics" / "metadata.json"
+        log_path = out_dir / "diagnostics" / "query-r2.log"
+        assert log_path.read_text().strip()  # non-empty workflow audit log
+        meta = json.loads(metadata_path.read_text())
+        assert meta["artifact_type"] == "query_r2_result"
+        assert meta["files"]["result"] == "query_r2.tsv"
+        assert meta["snp_identifier"] == "chr_pos_allele_aware"
+        assert meta["n_samples"] == 1000
+        assert meta["n_pairs"] == 1
+        assert meta["status_counts"]["resolved"] == 1
+
+    def test_output_dir_refuses_overwrite_without_flag(self, tmp_path):
+        from ldsc.cli import main as cli_main
+
+        pairs_path = self._write_pairs(tmp_path)
+        out_dir = tmp_path / "result"
+        cli_main(self._argv(tmp_path, pairs_path, "--output-dir", str(out_dir)))
+        with pytest.raises(FileExistsError):
+            cli_main(self._argv(tmp_path, pairs_path, "--output-dir", str(out_dir)))
+
+    def test_output_dir_overwrite_flag_replaces(self, tmp_path):
+        from ldsc.cli import main as cli_main
+
+        pairs_path = self._write_pairs(tmp_path)
+        out_dir = tmp_path / "result"
+        cli_main(self._argv(tmp_path, pairs_path, "--output-dir", str(out_dir)))
+        cli_main(self._argv(tmp_path, pairs_path, "--output-dir", str(out_dir), "--overwrite"))
+        result = pd.read_csv(out_dir / "query_r2.tsv", sep="\t")
+        assert result["r2"].iloc[0] == pytest.approx(0.64, abs=1e-4)
+
+    def test_out_flag_is_removed(self, tmp_path):
+        from ldsc.cli import main as cli_main
+
+        pairs_path = self._write_pairs(tmp_path)
+        with pytest.raises(SystemExit):
+            cli_main(self._argv(tmp_path, pairs_path, "--out", str(tmp_path / "x.tsv")))
 
 
 class TestPackageExports:

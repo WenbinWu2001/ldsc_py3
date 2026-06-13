@@ -230,6 +230,63 @@ class H2DirectoryWriter:
 
 
 @dataclass(frozen=True)
+class QueryR2OutputConfig:
+    """Directory-oriented output config for query-r2 pair results.
+
+    Parameters
+    ----------
+    output_dir : str or os.PathLike[str]
+        Directory that receives ``query_r2.tsv`` and ``diagnostics/metadata.json``.
+    overwrite : bool, optional
+        If ``True``, replace existing query-r2 outputs. Default is ``False``.
+    """
+
+    output_dir: str | PathLike[str]
+    overwrite: bool = False
+
+    def __post_init__(self) -> None:
+        """Normalize the output directory."""
+        object.__setattr__(self, "output_dir", _normalize_required_path(self.output_dir))
+
+
+class QueryR2DirectoryWriter:
+    """Write the query-r2 pair table and its diagnostic metadata sidecar."""
+
+    def write(
+        self,
+        result: pd.DataFrame,
+        output_config: QueryR2OutputConfig,
+        *,
+        metadata: dict[str, object],
+    ) -> dict[str, str]:
+        """Write ``query_r2.tsv`` and ``diagnostics/metadata.json`` to a result directory.
+
+        Existing fixed query-r2 artifacts are checked before any output file is
+        written. Replacement requires ``output_config.overwrite=True``.
+        """
+        output_dir = ensure_output_directory(output_config.output_dir, label="output directory")
+        result_path = output_dir / "query_r2.tsv"
+        diagnostics_dir = output_dir / "diagnostics"
+        metadata_path = diagnostics_dir / "metadata.json"
+        preflight_output_artifact_family(
+            [result_path, metadata_path],
+            [result_path, metadata_path],
+            overwrite=output_config.overwrite,
+            label="query-r2 output artifact",
+        )
+        diagnostics_dir.mkdir(parents=True, exist_ok=True)
+        _atomic_write_dataframe(result, result_path)
+        _atomic_write_json(
+            _result_metadata(metadata, artifact_type="query_r2_result", files={"result": "query_r2.tsv"}),
+            metadata_path,
+        )
+        return {
+            "result": str(result_path),
+            "metadata": str(metadata_path),
+        }
+
+
+@dataclass(frozen=True)
 class LDScoreOutputConfig:
     """Directory-oriented output config for canonical LD-score results.
 

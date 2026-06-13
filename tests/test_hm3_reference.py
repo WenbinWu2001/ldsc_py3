@@ -9,13 +9,15 @@ import unittest
 import pandas as pd
 
 SRC = Path(__file__).resolve().parents[1] / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
+TOOL_DIR = Path(__file__).resolve().parents[1] / "tools" / "hm3"
+for _path in (SRC, TOOL_DIR):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
 
 
 class Hm3ReferenceBuilderTest(unittest.TestCase):
     def test_build_hm3_chr_pos_reference_filters_and_caps_rows(self):
-        from ldsc.hm3_reference import build_hm3_chr_pos_reference
+        from build_hm3_chr_pos_reference import build_hm3_chr_pos_reference
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -44,7 +46,7 @@ class Hm3ReferenceBuilderTest(unittest.TestCase):
             pd.testing.assert_frame_equal(written, result)
 
     def test_filter_reference_candidates_keeps_maf_at_threshold(self):
-        from ldsc.hm3_reference import _filter_reference_candidates
+        from build_hm3_chr_pos_reference import _filter_reference_candidates
 
         frame = pd.DataFrame(
             {

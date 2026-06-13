@@ -634,9 +634,9 @@ flowchart LR
 
 | Subcommand | Output columns | Example |
 | --- | --- | --- |
-| `h2` | `trait_name`, `n_snps`, `total_h2`, `total_h2_se`, `intercept`, `intercept_se`, `mean_chisq`, `lambda_gc`, `ratio`, `ratio_se` | `trait 105234 0.18 0.03 1.02 0.01 1.11 1.05 0.08 0.03` |
-| `partitioned-h2` | `Category`, `Prop._SNPs`, `Category_h2`, `Category_h2_std_error`, `Prop._h2`, `Prop._h2_std_error`, `Enrichment`, `Enrichment_std_error`, `Enrichment_p`, `Coefficient`, `Coefficient_std_error`, `Coefficient_z`, `Coefficient_p`, `overlap_aware` (overlap-aware; one schema for both regimes) | `enhancer_A 0.02 0.003 0.001 0.14 0.04 7.0 2.0 0.003 0.012 0.004 3.0 0.001 True` |
-| `rg` | `trait_1`, `trait_2`, `rg`, `rg_se`, `z`, `p` | `trait_a trait_b 0.42 0.09 4.7 2.6e-06` |
+| `h2` | `trait_name`, `n_snps`, `total_h2_obs`, `total_h2_obs_se`, `total_h2_liab`, `total_h2_liab_se`, `samp_prev`, `pop_prev`, `intercept`, `intercept_se`, `mean_chisq`, `lambda_gc`, `ratio`, `ratio_se` (the `*_liab`/`samp_prev`/`pop_prev` columns are `NaN` unless `--samp-prev`/`--pop-prev` are given) | `trait 105234 0.18 0.03 NaN NaN NaN NaN 1.02 0.01 1.11 1.05 0.08 0.03` |
+| `partitioned-h2` | `Category`, `Prop._SNPs`, `Category_h2_obs`, `Category_h2_obs_std_error`, `Category_h2_liab`, `Category_h2_liab_std_error`, `samp_prev`, `pop_prev`, `Prop._h2`, `Prop._h2_std_error`, `Enrichment`, `Enrichment_std_error`, `Enrichment_p`, `Coefficient`, `Coefficient_std_error`, `Coefficient_z`, `Coefficient_p`, `overlap_aware` (overlap-aware; one schema for both regimes; `Category_h2_liab`/prevalence columns are `NaN` without prevalences) | `enhancer_A 0.02 0.003 0.001 NaN NaN NaN NaN 0.14 0.04 7.0 2.0 0.003 0.012 0.004 3.0 0.001 True` |
+| `rg` | concise `rg.tsv`: `trait_1`, `trait_2`, `n_snps_used`, `rg`, `rg_se`, `p`, `note`. `rg_full.tsv` adds per-trait `h2_1_obs`/`h2_1_liab`/`h2_2_obs`/`h2_2_liab` (+ `_se`), `gencov_obs`/`gencov_liab` (+ `_se`), and `samp_prev_1`/`pop_prev_1`/`samp_prev_2`/`pop_prev_2`; the `rg` ratio is scale-invariant. | `trait_a trait_b 152334 0.42 0.09 2.6e-06 ` |
 
 When `output_dir` is supplied, the same directory also receives the matching
 workflow log. The log is not part of any returned result `output_paths` mapping.

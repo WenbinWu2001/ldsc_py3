@@ -263,7 +263,8 @@ Both regimes write **one** column schema to `partitioned_h2.tsv`, differing only
 in rows and the default sort:
 
 ```text
-Category, Prop._SNPs, Category_h2, Category_h2_std_error, Prop._h2,
+Category, Prop._SNPs, Category_h2_obs, Category_h2_obs_std_error,
+Category_h2_liab, Category_h2_liab_std_error, samp_prev, pop_prev, Prop._h2,
 Prop._h2_std_error, Enrichment, Enrichment_std_error, Enrichment_p, Coefficient,
 Coefficient_std_error, Coefficient_z, Coefficient_p, overlap_aware
 ```
@@ -271,8 +272,10 @@ Coefficient_std_error, Coefficient_z, Coefficient_p, overlap_aware
 Interpretation. `Enrichment = Prop._h2 / Prop._SNPs` is the **marginal**
 heritability of the SNPs in a category (overlap-aware, baseline-confounded for a
 query); `Coefficient` is the **conditional** per-SNP contribution beyond the
-baseline. `Category_h2 = M_c·tau_c` is the conditional category contribution and
-can be negative under overlap. `overlap_aware` flags whether the fitted model's
+baseline. `Category_h2_obs = M_c·tau_c` is the conditional category contribution
+(observed scale) and can be negative under overlap; `Category_h2_liab` is its
+liability-scale counterpart (`= Category_h2_obs · c(samp_prev, pop_prev)`, `NaN`
+without `--samp-prev`/`--pop-prev`). `overlap_aware` flags whether the fitted model's
 annotations overlap. `--summary-sort-by` defaults to `auto` (→ `coefficient-p`
 for cell-type, `category` for functional); the run logs a regime banner and
 records `analysis_type` / `headline_metric` / `enrichment_p_test` /

@@ -225,7 +225,11 @@ the CLI prints compact TSV output to stdout and writes no diagnostics.
 | `count_key_used_for_regression` | Count vector used for regression. | None. |
 | `retained_ld_columns` | LD-score columns retained in the fitted h2 model. | None. |
 | `dropped_zero_variance_ld_columns` | LD-score columns removed before fitting. | None. |
-| `n_snps` | Number of SNPs in the fitted regression dataset. | None. |
+| `n_snps` | Number of SNPs retained after the effective chi-square filter. | None. |
+| `effective_chisq_max` | Chi-square cap actually applied (`null` when uncapped). | None. |
+| `samp_prev` | Sample (case) prevalence applied for liability conversion, or `null` for an observed-scale run. | None. |
+| `pop_prev` | Population prevalence applied, or `null`. | None. |
+| `scale` | `observed` or `liability` (the latter when both prevalences are supplied). | None. |
 
 ### `partitioned-h2`
 
@@ -275,7 +279,10 @@ two-sided p-values from each genetic-correlation fit. They do not include
 package-computed corrected p-value columns; downstream users choose any
 multiple-testing correction appropriate for their analysis.
 
-Root and per-pair `diagnostics/metadata.json` files are provenance only.
+Root and per-pair `diagnostics/metadata.json` files are provenance only. Per-pair
+metadata records the prevalences applied to each trait (`samp_prev_1`, `pop_prev_1`,
+`samp_prev_2`, `pop_prev_2`, each `null` when unset) and a `scale`
+(`observed` | `liability`) field; the rg ratio itself is scale-invariant.
 
 ## Regression No-Output Rule
 

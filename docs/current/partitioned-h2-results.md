@@ -35,8 +35,12 @@ One uniform schema, written in this column order:
 | --- | --- |
 | `Category` | Baseline category (functional regime) or query annotation (cell-type regime). |
 | `Prop._SNPs` | `M_c / M_tot`: the category's share of the reference SNP universe. |
-| `Category_h2` | **Conditional** category heritability `M_c · tau_c` (this category's own coefficient times its SNPs). Can be negative under overlap. |
-| `Category_h2_std_error` | Jackknife standard error for `Category_h2`. |
+| `Category_h2_obs` | **Observed-scale conditional** category heritability `M_c · tau_c` (this category's own coefficient times its SNPs). Can be negative under overlap. |
+| `Category_h2_obs_std_error` | Jackknife standard error for `Category_h2_obs`. |
+| `Category_h2_liab` | **Liability-scale** conditional category heritability: `Category_h2_obs` times the observed-to-liability factor `c(samp_prev, pop_prev)`. `NaN` unless both `--samp-prev` and `--pop-prev` are supplied. |
+| `Category_h2_liab_std_error` | Jackknife standard error for `Category_h2_liab` (the observed SE scaled by the same `c`). |
+| `samp_prev` | Sample (case) prevalence applied for liability conversion, or `NaN` for an observed-scale run. |
+| `pop_prev` | Population prevalence applied for liability conversion, or `NaN`. |
 | `Prop._h2` | **Marginal**, overlap-aware proportion of total heritability explained by the SNPs in this category: `Σⱼ (O[c,j]/Mⱼ)·propⱼ`. Folds in every category those SNPs also belong to. |
 | `Prop._h2_std_error` | Jackknife standard error for `Prop._h2`. |
 | `Enrichment` | `Prop._h2 / Prop._SNPs`. The headline of the functional regime. |
@@ -98,10 +102,12 @@ added query.
 
 ## Notes For Interpretation
 
-`Prop._h2`, `Category_h2`, and `Enrichment` are regression estimates and can be
-negative or greater than one when estimates are noisy or annotations are
-correlated; `Category_h2` is especially prone to this under overlap because it is
-the conditional `M_c · tau_c`. P-values and standard errors may be missing when a
+`Prop._h2`, `Category_h2_obs` (and its liability counterpart `Category_h2_liab`),
+and `Enrichment` are regression estimates and can be negative or greater than one
+when estimates are noisy or annotations are correlated; `Category_h2_obs` is
+especially prone to this under overlap because it is the conditional `M_c · tau_c`.
+Only the `Category_h2_*` columns differ between scales; `Prop._SNPs`, `Prop._h2`,
+`Enrichment`, and the coefficients are scale-invariant. P-values and standard errors may be missing when a
 valid comparison cannot be formed — for example `Enrichment_p` is `NaN` for a
 category that contains every SNP, and `Coefficient_p` is `NaN` when the
 coefficient standard error is zero.

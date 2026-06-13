@@ -155,7 +155,8 @@ annotate/
 `diagnostics/metadata.json` is provenance only.
 
 | Field | Explanation | Downstream usage |
-| --- | --- | --- || `artifact_type` | Must be `annotation_projection`. | None. |
+| --- | --- | --- |
+| `artifact_type` | Must be `annotation_projection`. | None. |
 | `files` | Relative map of query annotation shards and diagnostics. | None. |
 | `snp_identifier` | SNP identity mode used when writing projected annotations. | None for diagnostic JSON. Query shard columns are runtime data. |
 | `genome_build` | Genome-build assumption for projected annotations. | None for diagnostic JSON. |
@@ -163,6 +164,9 @@ annotate/
 | `query_annot_bed_sources` | Source BED paths/tokens. | None. |
 | `chromosomes` | Chromosomes written. | None. |
 | `query_columns` | Projected query annotation columns. | None. |
+| `baseline_columns` | Baseline annotation columns used as the SNP template. | None. |
+| `n_snps` | Number of retained SNP rows after annotation identity cleanup. | None. |
+| `bed_padding_bp` | BED interval padding applied before projection. | None. |
 
 ### `ldscore`
 

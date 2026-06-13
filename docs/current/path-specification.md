@@ -191,6 +191,9 @@ Accepted path forms:
 How files are handled:
 
 - every resolved BED file becomes one annotation column
+- the annotation column name is the resolved BED file basename with the final
+  suffix removed (`pathlib.Path.stem`); directory names are ignored, so
+  `/path1/annot.bed` and `/path2/annot.bed` both become `annot`
 - every resolved baseline annotation file is used as a SNP template
 - `bed_padding_bp` / `--bed-padding-bp` expands each BED interval on both
   sides before projection and clips starts at zero; the default `0` leaves
@@ -200,7 +203,9 @@ How files are handled:
 
 Requirements:
 
-- BED basenames must be unique because they become annotation names
+- BED stems must be unique because they become annotation names; duplicate
+  stems and clashes with existing annotation columns raise before projection or
+  output writing
 - baseline templates must be `.annot` or `.annot.gz` files
 
 Example:

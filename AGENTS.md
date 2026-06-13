@@ -71,6 +71,8 @@ source /Users/wenbinwu/miniforge3/etc/profile.d/conda.sh && conda activate ldsc3
 
 - Avoid AI tools name (like Codex, Claude, Grok, Gemini, ...) in code comments or git commit message (including authorship) or PR body.
 
+- Do not use emojis in documents (Markdown docs under `docs/`, design docs, READMEs, etc.). Use plain-text markers instead (e.g., `yes`/`no`, `default`, `Note:`).
+
 - When a significant or recurring mistake occurs (same class of error seen 2+ times, or a non-obvious bug whose fix required real investigation), append an entry to `lessons.md` at the repo root. Each entry: one-line summary, root cause, and the correction. Skip one-off typos and trivial slips. Create `lessons.md` on the first such entry if it does not exist yet.
 
 ## Planning & Ambiguities

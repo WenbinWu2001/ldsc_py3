@@ -13,7 +13,7 @@ Single-choice enum; **default `mhc-and-centromeres`** (exclusion is ON by defaul
 | `none` | — | |
 | `mhc` | `mhc` | |
 | `centromeres` | `centromeres` | |
-| `mhc-and-centromeres` | `mhc` + `centromeres` | ✅ **default** |
+| `mhc-and-centromeres` | `mhc` + `centromeres` | **default** |
 
 `mhc_core` and `centromeres_core` are **not** CLI choices — they are reference definitions loadable only via the Python API (e.g. `exclude_regions=("mhc_core",)`).
 
@@ -21,10 +21,10 @@ Single-choice enum; **default `mhc-and-centromeres`** (exclusion is ON by defaul
 
 | Preset | On CLI? | Builds | Region | Intervals/build | Coordinate source |
 |---|---|---|---|---|---|
-| `mhc` | ✅ (in default) | hg19, hg38 | broad GWAS MHC window, chr6:25–35 Mb | 1 | conventional broad MHC exclusion window (pinned); build-consistent |
-| `centromeres` | ✅ (in default) | hg19, hg38 | pericentromeric: centromere ±3 cM | 23 | UCSC centromere + Alkes-group recombination map ±3 cM (LDSC, Bulik-Sullivan 2015) |
-| `mhc_core` | ❌ API only | hg19, hg38 | classical-HLA core | 1 | hg38 pinned; hg19 = liftOver of hg38 core |
-| `centromeres_core` | ❌ API only | hg19, hg38 | raw centromere assembly gap | 23 | UCSC `gap`/`centromeres` tracks |
+| `mhc` | yes (in default) | hg19, hg38 | broad GWAS MHC window, chr6:25–35 Mb | 1 | conventional broad MHC exclusion window (pinned); build-consistent |
+| `centromeres` | yes (in default) | hg19, hg38 | pericentromeric: centromere ±3 cM | 23 | UCSC centromere + Alkes-group recombination map ±3 cM (LDSC, Bulik-Sullivan 2015) |
+| `mhc_core` | no (API only) | hg19, hg38 | classical-HLA core | 1 | hg38 pinned; hg19 = liftOver of hg38 core |
+| `centromeres_core` | no (API only) | hg19, hg38 | raw centromere assembly gap | 23 | UCSC `gap`/`centromeres` tracks |
 
 ## MHC coordinates (chr6, single interval)
 

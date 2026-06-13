@@ -427,7 +427,7 @@ presets require an explicit `--exclude-regions-build {hg19,hg38}`. An explicit
 `--exclude-regions-build` always wins. The resolved build is passed into
 `RefPanelConfig`, preserving its invariant that presets imply a build.
 
-> **⚠️ The MHC + centromere default applies only to the CLI and the
+> **Note: the MHC + centromere default applies only to the CLI and the
 > `run_ldscore()` / `run_build_ref_panel()` wrappers.** Direct
 > `RefPanelConfig(...)` / `ReferencePanelBuildConfig(...)` construction defaults
 > `exclude_regions` to `()` — **no exclusion** — and you must pass both

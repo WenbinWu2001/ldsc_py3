@@ -206,6 +206,10 @@ unavailable. Regression falls back to `all_reference_snp_count` in that case.
 
 ## 6. Regression Behavior
 
+For the tunable estimator parameters (intercept policy, two-step cutoff,
+`chisq_max`, jackknife blocks, counts) and the per-command defaults, see
+[`regression-configuration.md`](regression-configuration.md).
+
 `h2` and `rg` use baseline LD scores only, even when `ldscore.query.parquet` exists.
 They also use the embedded `regression_ld_scores` column from
 `ldscore.baseline.parquet`; this is the historical `w_ld` LD score over the
@@ -229,6 +233,10 @@ when `--chisq-max` is unset, dropping SNPs above it so a few extreme statistics
 cannot dominate the regression. An explicit `--chisq-max` overrides the default
 in either case. The cap is inclusive (`chi^2 <= cap`, per the `-max`
 convention), and any drop is logged as `Removed N SNPs with chi^2 > C (...)`.
+The diagnostics metadata records the **post-filter** SNP count (`n_snps`) and
+the `effective_chisq_max` actually applied (the default for a partitioned model,
+the explicit value, or `null` when uncapped), so the reported SNP set matches
+the fitted set.
 
 `partitioned-h2` produces **overlap-aware** category summaries (legacy
 `--overlap-annot` math) and auto-detects one of two regimes from the LD-score
@@ -238,7 +246,11 @@ produced by an older `ldsc ldscore` is rejected with a regenerate message.
 - **Functional-category regime** — the directory has **no** query columns. A
   single joint fit of all baseline annotations yields one row per baseline
   category; the headline is `Enrichment` (+ two-sided `Enrichment_p`). This
-  reproduces Finucane-2015 / legacy `--overlap-annot`.
+  reproduces Finucane-2015 / legacy `--overlap-annot`. If only a single
+  annotation is retained (e.g. a one-annotation baseline directory), the fit is
+  degenerate and collapses to single-annotation `h2` behavior (two-step
+  estimator, no default chi-square cap); the run logs a `WARNING` and you should
+  supply multiple baseline annotations for a meaningful partitioned analysis.
 - **Cell-type-specific regime** — the directory **has** query columns. For each
   query, a `baseline + one query` model is fit, yielding one row per query; the
   headline is `Coefficient` (the conditional `tau`, + one-sided `Coefficient_p`

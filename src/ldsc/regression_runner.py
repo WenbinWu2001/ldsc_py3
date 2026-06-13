@@ -199,6 +199,7 @@ class PartitionedH2BatchResult:
     summary: pd.DataFrame
     per_query_category_tables: dict[str, pd.DataFrame]
     per_query_metadata: dict[str, dict[str, object]]
+    aggregate_metadata: dict[str, object] | None = None
 
 
 @dataclass(frozen=True)
@@ -751,6 +752,7 @@ class RegressionRunner:
         """
         if include_model_categories is not None:
             include_full_partitioned_h2 = include_model_categories
+        config = config or self.regression_config
         if ldscore_result.overlap is None:
             raise LDSCInputError(PARTITIONED_H2_REQUIRES_OVERLAP_MESSAGE)
 
@@ -758,11 +760,23 @@ class RegressionRunner:
         if not requested_queries:
             # Functional regime: one joint fit of all baseline annotations.
             dataset = self.build_dataset(sumstats_table, ldscore_result, config=config, query_columns=[])
+            if len(dataset.retained_ld_columns) == 1:
+                LOGGER.warning(
+                    "partitioned-h2 functional regime retained a single annotation (%s); the fit is "
+                    "degenerate and collapses to single-annotation h2 behavior (two-step estimator, no "
+                    "default chi-square cap). Most likely the LD-score directory has only one baseline "
+                    "annotation. Provide multiple baseline annotations for a meaningful partitioned analysis.",
+                    dataset.retained_ld_columns[0],
+                )
             hsq = self.estimate_h2(dataset, config=config)
             summary = summarize_partitioned_h2(hsq, dataset, dataset.retained_ld_columns)
-            if include_full_partitioned_h2:
-                return PartitionedH2BatchResult(summary=summary, per_query_category_tables={}, per_query_metadata={})
-            return summary
+            effective_chisq_max, n_snps_used = _effective_regression_filter(dataset, config)
+            return PartitionedH2BatchResult(
+                summary=summary,
+                per_query_category_tables={},
+                per_query_metadata={},
+                aggregate_metadata={"n_snps": n_snps_used, "effective_chisq_max": effective_chisq_max},
+            )
 
         # Cell-type regime: baseline + one query per model.
         query_columns = _validate_partitioned_query_columns(ldscore_result, requested_queries)
@@ -777,10 +791,12 @@ class RegressionRunner:
                 per_query_category_tables[query_column] = summarize_partitioned_h2(
                     hsq, dataset, dataset.retained_ld_columns
                 )
+                effective_chisq_max, n_snps_used = _effective_regression_filter(dataset, config)
                 per_query_metadata[query_column] = {
                     "dropped_zero_variance_ld_columns": list(dataset.dropped_zero_variance_ld_columns),
                     "retained_ld_columns": list(dataset.retained_ld_columns),
-                    "n_snps": len(dataset.merged),
+                    "n_snps": n_snps_used,
+                    "effective_chisq_max": effective_chisq_max,
                     "effective_snp_identifier": dataset.effective_snp_identifier,
                     "identity_downgrade_applied": dataset.identity_downgrade_applied,
                 }
@@ -917,7 +933,10 @@ class RegressionRunner:
         for table in tables:
             h2_dataset = self.build_dataset(table, ldscore_result, config=config)
             hsq = self.estimate_h2(h2_dataset, config=config)
-            h2_rows.append(summarize_total_h2(hsq, h2_dataset, trait_name=_trait_label(table)))
+            _, n_snps_used = _effective_regression_filter(h2_dataset, config)
+            h2_rows.append(
+                summarize_total_h2(hsq, h2_dataset, trait_name=_trait_label(table), n_snps_used=n_snps_used)
+            )
         h2_per_trait = pd.concat(h2_rows, axis=0, ignore_index=True) if h2_rows else pd.DataFrame()
 
         rg_full_rows: list[dict[str, object]] = []
@@ -930,7 +949,10 @@ class RegressionRunner:
             try:
                 dataset = self.build_rg_dataset(tables[i], tables[j], ldscore_result, config=config)
                 fitted = self._fit_rg_dataset(dataset, config=config)
-                full_row = _summarize_rg_pair(fitted, dataset, trait_1=trait_1, trait_2=trait_2, pair_kind=pair_kind)
+                _, n_snps_used = _effective_rg_filter(dataset, config)
+                full_row = _summarize_rg_pair(
+                    fitted, dataset, trait_1=trait_1, trait_2=trait_2, pair_kind=pair_kind, n_snps_used=n_snps_used
+                )
                 metadata = _rg_pair_metadata(tables[i], tables[j], dataset, full_row, config, pair_kind)
             except Exception as exc:
                 error = _format_exception(exc)
@@ -1230,13 +1252,23 @@ def _count_totals_for_columns(count_records: Sequence[dict[str, Any]], columns: 
     return count_totals
 
 
-def summarize_total_h2(hsq, dataset: RegressionDataset, trait_name: str | None = None) -> pd.DataFrame:
-    """Build the one-row total-heritability summary from a fitted ``Hsq`` result."""
+def summarize_total_h2(
+    hsq,
+    dataset: RegressionDataset,
+    trait_name: str | None = None,
+    n_snps_used: int | None = None,
+) -> pd.DataFrame:
+    """Build the one-row total-heritability summary from a fitted ``Hsq`` result.
+
+    ``n_snps_used`` is the post-chi-square-filter SNP count from
+    :func:`_effective_regression_filter`; when omitted it falls back to the full
+    merged SNP count (correct only when no cap was applied).
+    """
     return pd.DataFrame(
         [
             {
                 "trait_name": trait_name,
-                "n_snps": len(dataset.merged),
+                "n_snps": int(n_snps_used) if n_snps_used is not None else len(dataset.merged),
                 "total_h2": _scalar(hsq.tot),
                 "total_h2_se": _scalar(hsq.tot_se),
                 "intercept": _scalar_or_value(hsq.intercept),
@@ -1296,12 +1328,18 @@ def _summarize_rg_pair(
     trait_1: str,
     trait_2: str,
     pair_kind: str,
+    n_snps_used: int | None = None,
 ) -> dict[str, object]:
-    """Build the full public rg row from one fitted kernel result."""
+    """Build the full public rg row from one fitted kernel result.
+
+    ``n_snps_used`` is the post-product-filter SNP count from
+    :func:`_effective_rg_filter`; it falls back to the full merged count, which
+    is correct only when no ``--chisq-max`` was supplied.
+    """
     return {
         "trait_1": trait_1,
         "trait_2": trait_2,
-        "n_snps_used": int(len(dataset.merged)),
+        "n_snps_used": int(n_snps_used) if n_snps_used is not None else int(len(dataset.merged)),
         "rg": _required_numeric_scalar(getattr(rg_result, "rg_ratio", None), "rg"),
         "rg_se": _required_numeric_scalar(getattr(rg_result, "rg_se", None), "rg_se"),
         "z": _required_numeric_scalar(getattr(rg_result, "z", None), "z"),
@@ -1366,8 +1404,20 @@ def _concise_rg_row(full_row: dict[str, object]) -> dict[str, object]:
     }
 
 
-def _h2_metadata(args, sumstats_table: SumstatsTable, dataset: RegressionDataset) -> dict[str, object]:
-    """Build the metadata sidecar for one unpartitioned h2 output."""
+def _h2_metadata(
+    args,
+    sumstats_table: SumstatsTable,
+    dataset: RegressionDataset,
+    n_snps_used: int | None = None,
+    effective_chisq_max: float | None = None,
+) -> dict[str, object]:
+    """Build the metadata sidecar for one unpartitioned h2 output.
+
+    ``n_snps_used`` is the post-chi-square-filter SNP count and
+    ``effective_chisq_max`` is the cap actually applied (the legacy default for
+    partitioned models, the explicit ``--chisq-max`` value, or ``None`` when
+    uncapped); both come from :func:`_effective_regression_filter`.
+    """
     config_snapshot = dataset.config_snapshot
     return {
         "artifact_type": "h2_result",
@@ -1380,7 +1430,8 @@ def _h2_metadata(args, sumstats_table: SumstatsTable, dataset: RegressionDataset
         "count_key_used_for_regression": dataset.count_key_used_for_regression,
         "retained_ld_columns": list(dataset.retained_ld_columns),
         "dropped_zero_variance_ld_columns": list(dataset.dropped_zero_variance_ld_columns),
-        "n_snps": int(len(dataset.merged)),
+        "n_snps": int(n_snps_used) if n_snps_used is not None else int(len(dataset.merged)),
+        "effective_chisq_max": effective_chisq_max,
     }
 
 
@@ -1393,7 +1444,10 @@ def _rg_pair_metadata(
     pair_kind: str,
 ) -> dict[str, object]:
     """Build per-pair metadata for an estimated rg pair."""
-    n_snps = int(len(dataset.merged))
+    # Reuse the post-product-filter count from the rg row so the table and the
+    # metadata agree. ``effective_chisq_max`` simply echoes config.chisq_max:
+    # rg has no default cap (legacy ldsc2 ``_rg`` only filters when given one).
+    n_snps = int(full_row["n_snps_used"])
     return {
         "trait_1": full_row["trait_1"],
         "trait_2": full_row["trait_2"],
@@ -1404,6 +1458,7 @@ def _rg_pair_metadata(
         "error": full_row["error"],
         "n_snps_used": n_snps,
         "n_blocks_used": min(n_snps, int(config.n_blocks)),
+        "effective_chisq_max": config.chisq_max,
         "count_key_used_for_regression": dataset.count_key_used_for_regression,
         "retained_ld_columns": list(dataset.retained_ld_columns),
         "dropped_zero_variance_ld_columns": list(dataset.dropped_zero_variance_ld_columns),
@@ -1436,6 +1491,7 @@ def _failed_rg_pair_metadata(
         "error": full_row["error"],
         "n_snps_used": 0,
         "n_blocks_used": 0,
+        "effective_chisq_max": config.chisq_max,
         "intercept_h2_policy": _intercept_policy(config.intercept_h2, config.use_intercept, default_when_disabled=1),
         "intercept_gencov_policy": _intercept_policy(
             config.intercept_gencov,
@@ -1654,6 +1710,39 @@ def _resolve_default_chisq_max(chisq_max: float | None, n_annot: int, n_max: flo
     return None
 
 
+def _effective_regression_filter(dataset, config) -> tuple[float | None, int]:
+    """Return the effective chi-square cap and post-filter SNP count for an h2 fit.
+
+    Mirrors the filter :meth:`RegressionRunner.estimate_h2` applies, recomputed
+    from the same pre-filter inputs so reporting matches the fit exactly: the cap
+    from :func:`_resolve_default_chisq_max` (``None`` for an uncapped single-
+    annotation model) and the number of SNPs retained at ``chi^2 <= cap``.
+    """
+    chisq_max = _resolve_default_chisq_max(
+        config.chisq_max, len(dataset.retained_ld_columns), dataset.merged["N"].max()
+    )
+    if chisq_max is None:
+        return None, len(dataset.merged)
+    n_used = int(((dataset.merged["Z"] ** 2) <= chisq_max).sum())
+    return chisq_max, n_used
+
+
+def _effective_rg_filter(dataset, config) -> tuple[float | None, int]:
+    """Return the effective cap and post-filter SNP count for an rg pair fit.
+
+    rg has no default cap: legacy ldsc2 ``_rg`` filters only when ``--chisq-max``
+    is supplied, so the effective cap simply echoes ``config.chisq_max`` (``None``
+    when unset). The retained count applies the legacy product form
+    ``Z1^2 * Z2^2 <= chisq_max^2`` (inclusive per the -max convention), matching
+    :meth:`RegressionRunner._fit_rg_dataset`.
+    """
+    chisq_max = config.chisq_max
+    if chisq_max is None:
+        return None, len(dataset.merged)
+    products = (dataset.merged["Z1"] ** 2) * (dataset.merged["Z2"] ** 2)
+    return chisq_max, int((products <= chisq_max ** 2).sum())
+
+
 def add_h2_arguments(parser) -> None:
     """Register heritability CLI arguments on ``parser``."""
     _add_common_regression_arguments(parser, include_h2_intercept=True)
@@ -1735,7 +1824,10 @@ def run_h2_from_args(args):
         with suppress_global_config_banner():
             dataset = runner.build_dataset(sumstats_table, ldscore_result, config=config)
         hsq = runner.estimate_h2(dataset, config=config)
-        summary = summarize_total_h2(hsq, dataset, trait_name=sumstats_table.trait_name)
+        effective_chisq_max, n_snps_used = _effective_regression_filter(dataset, config)
+        summary = summarize_total_h2(
+            hsq, dataset, trait_name=sumstats_table.trait_name, n_snps_used=n_snps_used
+        )
         output_dir_arg = getattr(args, "output_dir", None)
         if output_dir_arg:
             written = H2DirectoryWriter().write(
@@ -1744,10 +1836,16 @@ def run_h2_from_args(args):
                     output_dir=output_dir_arg,
                     overwrite=getattr(args, "overwrite", False),
                 ),
-                metadata=_h2_metadata(args, sumstats_table, dataset),
+                metadata=_h2_metadata(
+                    args,
+                    sumstats_table,
+                    dataset,
+                    n_snps_used=n_snps_used,
+                    effective_chisq_max=effective_chisq_max,
+                ),
             )
             log_outputs(**written)
-        LOGGER.info(f"Finished h2 regression with {len(dataset.merged)} regression SNPs.")
+        LOGGER.info(f"Finished h2 regression with {n_snps_used} regression SNPs.")
     return summary
 
 
@@ -1796,10 +1894,12 @@ def run_partitioned_h2_from_args(args):
                 config=config,
                 include_full_partitioned_h2=getattr(args, "write_per_query_results", False),
             )
+        aggregate_metadata: dict[str, object] = {}
         if isinstance(result, PartitionedH2BatchResult):
             summary = result.summary
             per_query_category_tables = result.per_query_category_tables
             per_query_metadata = result.per_query_metadata
+            aggregate_metadata = result.aggregate_metadata or {}
         else:
             summary = result
             per_query_category_tables = None
@@ -1826,6 +1926,7 @@ def run_partitioned_h2_from_args(args):
                     "headline_metric": "coefficient" if has_queries else "enrichment",
                     "enrichment_p_test": "two_sided_t",
                     "coefficient_p_test": "one_sided_greater",
+                    **aggregate_metadata,
                 },
                 per_query_metadata=per_query_metadata,
             )

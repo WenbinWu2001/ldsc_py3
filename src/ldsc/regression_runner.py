@@ -879,6 +879,7 @@ class RegressionRunner:
         *,
         anchor_index: int | None = None,
         config: RegressionConfig | None = None,
+        prevalences: Sequence[tuple[float | None, float | None]] | None = None,
     ) -> RgResultFamily:
         """Estimate genetic correlations for all requested trait pairs.
 
@@ -929,13 +930,18 @@ class RegressionRunner:
                 "Pass an anchor trait name or path that belongs to the current `--sumstats-sources` list."
             )
 
+        prev = list(prevalences) if prevalences is not None else [(None, None)] * len(tables)
+
         h2_rows = []
-        for table in tables:
+        for table, (samp_prev, pop_prev) in zip(tables, prev):
             h2_dataset = self.build_dataset(table, ldscore_result, config=config)
             hsq = self.estimate_h2(h2_dataset, config=config)
             _, n_snps_used = _effective_regression_filter(h2_dataset, config)
             h2_rows.append(
-                summarize_total_h2(hsq, h2_dataset, trait_name=_trait_label(table), n_snps_used=n_snps_used)
+                summarize_total_h2(
+                    hsq, h2_dataset, trait_name=_trait_label(table), n_snps_used=n_snps_used,
+                    samp_prev=samp_prev, pop_prev=pop_prev,
+                )
             )
         h2_per_trait = pd.concat(h2_rows, axis=0, ignore_index=True) if h2_rows else pd.DataFrame()
 
@@ -951,7 +957,10 @@ class RegressionRunner:
                 fitted = self._fit_rg_dataset(dataset, config=config)
                 _, n_snps_used = _effective_rg_filter(dataset, config)
                 full_row = _summarize_rg_pair(
-                    fitted, dataset, trait_1=trait_1, trait_2=trait_2, pair_kind=pair_kind, n_snps_used=n_snps_used
+                    fitted, dataset, trait_1=trait_1, trait_2=trait_2, pair_kind=pair_kind,
+                    n_snps_used=n_snps_used,
+                    samp_prev_1=prev[i][0], pop_prev_1=prev[i][1],
+                    samp_prev_2=prev[j][0], pop_prev_2=prev[j][1],
                 )
                 metadata = _rg_pair_metadata(tables[i], tables[j], dataset, full_row, config, pair_kind)
             except Exception as exc:
@@ -1385,13 +1394,35 @@ def _summarize_rg_pair(
     trait_2: str,
     pair_kind: str,
     n_snps_used: int | None = None,
+    samp_prev_1: float | None = None,
+    pop_prev_1: float | None = None,
+    samp_prev_2: float | None = None,
+    pop_prev_2: float | None = None,
 ) -> dict[str, object]:
     """Build the full public rg row from one fitted kernel result.
 
-    ``n_snps_used`` is the post-product-filter SNP count from
-    :func:`_effective_rg_filter`; it falls back to the full merged count, which
-    is correct only when no ``--chisq-max`` was supplied.
+    Per-trait heritability and the pair's genetic covariance are reported on both
+    the observed (``*_obs``) and liability (``*_liab``) scales. The rg ratio
+    (``rg``/``rg_se``/``z``/``p``) is scale-invariant and unconverted. A trait's
+    ``h2_*_liab`` is NaN unless its prevalence is finite; ``gencov_liab`` is NaN
+    only when no prevalence was supplied for the run. ``n_snps_used`` is the
+    post-product-filter SNP count from :func:`_effective_rg_filter`; it falls
+    back to the full merged count, which is correct only when no ``--chisq-max``
+    was supplied.
     """
+    h2_1_obs = _numeric_attr(getattr(rg_result, "hsq1", None), "tot", "h2_1_obs")
+    h2_1_obs_se = _numeric_attr(getattr(rg_result, "hsq1", None), "tot_se", "h2_1_obs_se")
+    h2_2_obs = _numeric_attr(getattr(rg_result, "hsq2", None), "tot", "h2_2_obs")
+    h2_2_obs_se = _numeric_attr(getattr(rg_result, "hsq2", None), "tot_se", "h2_2_obs_se")
+    gencov_obs = _numeric_attr(getattr(rg_result, "gencov", None), "tot", "gencov_obs")
+    gencov_obs_se = _numeric_attr(getattr(rg_result, "gencov", None), "tot_se", "gencov_obs_se")
+    h2_1_liab, h2_1_liab_se = _liability_pair(h2_1_obs, h2_1_obs_se, samp_prev_1, pop_prev_1)
+    h2_2_liab, h2_2_liab_se = _liability_pair(h2_2_obs, h2_2_obs_se, samp_prev_2, pop_prev_2)
+    if any(v is not None for v in (samp_prev_1, pop_prev_1, samp_prev_2, pop_prev_2)):
+        gfac = reg.gencov_obs_to_liab(1.0, samp_prev_1, samp_prev_2, pop_prev_1, pop_prev_2)
+        gencov_liab, gencov_liab_se = gencov_obs * gfac, gencov_obs_se * gfac
+    else:
+        gencov_liab, gencov_liab_se = float("nan"), float("nan")
     return {
         "trait_1": trait_1,
         "trait_2": trait_2,
@@ -1400,12 +1431,22 @@ def _summarize_rg_pair(
         "rg_se": _required_numeric_scalar(getattr(rg_result, "rg_se", None), "rg_se"),
         "z": _required_numeric_scalar(getattr(rg_result, "z", None), "z"),
         "p": _required_numeric_scalar(getattr(rg_result, "p", None), "p"),
-        "h2_1": _numeric_attr(getattr(rg_result, "hsq1", None), "tot", "h2_1"),
-        "h2_1_se": _numeric_attr(getattr(rg_result, "hsq1", None), "tot_se", "h2_1_se"),
-        "h2_2": _numeric_attr(getattr(rg_result, "hsq2", None), "tot", "h2_2"),
-        "h2_2_se": _numeric_attr(getattr(rg_result, "hsq2", None), "tot_se", "h2_2_se"),
-        "gencov": _numeric_attr(getattr(rg_result, "gencov", None), "tot", "gencov"),
-        "gencov_se": _numeric_attr(getattr(rg_result, "gencov", None), "tot_se", "gencov_se"),
+        "h2_1_obs": h2_1_obs,
+        "h2_1_obs_se": h2_1_obs_se,
+        "h2_1_liab": h2_1_liab,
+        "h2_1_liab_se": h2_1_liab_se,
+        "h2_2_obs": h2_2_obs,
+        "h2_2_obs_se": h2_2_obs_se,
+        "h2_2_liab": h2_2_liab,
+        "h2_2_liab_se": h2_2_liab_se,
+        "gencov_obs": gencov_obs,
+        "gencov_obs_se": gencov_obs_se,
+        "gencov_liab": gencov_liab,
+        "gencov_liab_se": gencov_liab_se,
+        "samp_prev_1": _prev_cell(samp_prev_1),
+        "pop_prev_1": _prev_cell(pop_prev_1),
+        "samp_prev_2": _prev_cell(samp_prev_2),
+        "pop_prev_2": _prev_cell(pop_prev_2),
         "intercept_h2_1": _numeric_attr(getattr(rg_result, "hsq1", None), "intercept", "intercept_h2_1"),
         "intercept_h2_1_se": _numeric_attr(getattr(rg_result, "hsq1", None), "intercept_se", "intercept_h2_1_se"),
         "intercept_h2_2": _numeric_attr(getattr(rg_result, "hsq2", None), "intercept", "intercept_h2_2"),

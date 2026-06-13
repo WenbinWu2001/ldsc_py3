@@ -2059,6 +2059,38 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertEqual(liab.loc[0, "samp_prev"], 0.5)
         self.assertEqual(liab.loc[0, "pop_prev"], 0.01)
 
+    def test_summarize_rg_pair_liability_and_invariant_ratio(self):
+        from ldsc._kernel.regression import liability_conversion_factor, gencov_obs_to_liab
+
+        rg_result = self.make_rg_kernel_result(rg=0.4, rg_se=0.05)
+        dataset = SimpleNamespace(merged=[0, 1, 2])
+        obs_row = regression_runner._summarize_rg_pair(
+            rg_result, dataset, trait_1="A", trait_2="B", pair_kind="all_pairs"
+        )
+        liab_row = regression_runner._summarize_rg_pair(
+            rg_result, dataset, trait_1="A", trait_2="B", pair_kind="all_pairs",
+            samp_prev_1=0.5, pop_prev_1=0.01, samp_prev_2=0.5, pop_prev_2=0.02,
+        )
+        c1 = liability_conversion_factor(0.5, 0.01)
+        c2 = liability_conversion_factor(0.5, 0.02)
+        # rg ratio (and its SE/z/p) is scale-invariant.
+        self.assertEqual(liab_row["rg"], obs_row["rg"])
+        self.assertEqual(liab_row["rg_se"], obs_row["rg_se"])
+        # Per-trait h2 and the pair's gencov go to the liability scale.
+        self.assertAlmostEqual(liab_row["h2_1_liab"], 0.20 * c1, places=12)
+        self.assertAlmostEqual(liab_row["h2_1_liab_se"], 0.02 * c1, places=12)
+        self.assertAlmostEqual(liab_row["h2_2_liab"], 0.30 * c2, places=12)
+        self.assertAlmostEqual(
+            liab_row["gencov_liab"], gencov_obs_to_liab(0.10, 0.5, 0.5, 0.01, 0.02), places=12
+        )
+        self.assertEqual(liab_row["h2_1_obs"], 0.20)
+        self.assertEqual(liab_row["gencov_obs"], 0.10)
+        # Observed-only row leaves liability columns NaN.
+        self.assertTrue(math.isnan(obs_row["h2_1_liab"]))
+        self.assertTrue(math.isnan(obs_row["gencov_liab"]))
+        self.assertEqual(liab_row["samp_prev_1"], 0.5)
+        self.assertEqual(liab_row["pop_prev_2"], 0.02)
+
     def test_collinear_partitioned_model_raises_input_error(self):
         # Two near-duplicate baseline annotations produce a singular design
         # matrix; the fit must abort (legacy hard stop), not warn-and-proceed.

@@ -103,13 +103,13 @@ COMMON_COUNT_KEY = "common_reference_snp_counts"
 ALL_COUNT_KEY = "all_reference_snp_counts"
 LOGGER = logging.getLogger("LDSC.regression_runner")
 PARTITIONED_H2_SUMMARY_SORT_COLUMNS = {
-    "category": "Category",
-    "prop-snps": "Prop._SNPs",
-    "prop-h2": "Prop._h2",
-    "enrichment": "Enrichment",
-    "enrichment-p": "Enrichment_p",
-    "coefficient": "Coefficient",
-    "coefficient-p": "Coefficient_p",
+    "category": "category",
+    "prop-snps": "prop_snps",
+    "prop-h2": "prop_h2",
+    "enrichment": "enrichment",
+    "enrichment-p": "enrichment_p",
+    "coefficient": "coefficient",
+    "coefficient-p": "coefficient_p",
 }
 PARTITIONED_H2_SUMMARY_ASCENDING_SORTS = {
     "enrichment-p",
@@ -1365,15 +1365,17 @@ def summarize_partitioned_h2(
     """Build overlap-aware partitioned-h2 rows from a fitted ``Hsq`` result.
 
     Assembles the model overlap matrix for the retained LD-score columns, runs
-    the ported legacy ``_overlap_output`` (augmented with one-sided
-    ``Coefficient_p``, conditional ``Category_h2``, and the ``overlap_aware``
+    the ported legacy ``_overlap_output`` (augmented with the one-sided
+    coefficient p-value, conditional category heritability, and the overlap
     flag), and returns the requested ``annotation_columns`` rows in the single
-    ``PARTITIONED_H2_COLUMNS`` schema. Per-category absolute heritability is
-    reported on both the observed (``Category_h2_obs``) and liability
-    (``Category_h2_liab``) scales; liability columns are NaN unless both
-    prevalences are finite probabilities in (0, 1). Proportions, enrichment, and
-    coefficients are scale-invariant and unchanged. ``annotation_columns`` must
-    be a subset of ``dataset.retained_ld_columns``.
+    lowercase ``PARTITIONED_H2_COLUMNS`` schema. The whole-model total heritability
+    is carried on every row (``total_h2_obs``, constant across one fitted model)
+    so each row's ``category_h2_obs`` can be read against it. Per-category and
+    total heritability are reported on both the observed (``*_obs``) and liability
+    (``*_liab``) scales; liability columns are NaN unless both prevalences are
+    finite probabilities in (0, 1). Proportions, enrichment, and coefficients are
+    scale-invariant. ``annotation_columns`` must be a subset of
+    ``dataset.retained_ld_columns``.
     """
     from .overlap_matrix import assemble_model_overlap, overlap_aware_category_table
 
@@ -1391,8 +1393,20 @@ def summarize_partitioned_h2(
     )
     table = table.rename(
         columns={
-            "Category_h2": "Category_h2_obs",
-            "Category_h2_std_error": "Category_h2_obs_std_error",
+            "Category": "category",
+            "Prop._SNPs": "prop_snps",
+            "Prop._h2": "prop_h2",
+            "Prop._h2_std_error": "prop_h2_se",
+            "Enrichment": "enrichment",
+            "Enrichment_std_error": "enrichment_se",
+            "Enrichment_p": "enrichment_p",
+            "Coefficient": "coefficient",
+            "Coefficient_std_error": "coefficient_se",
+            "Coefficient_z": "coefficient_z",
+            "Coefficient_p": "coefficient_p",
+            "overlap_aware": "overlap_annot",
+            "Category_h2": "category_h2_obs",
+            "Category_h2_std_error": "category_h2_obs_se",
         }
     )
     c = (
@@ -1400,11 +1414,20 @@ def summarize_partitioned_h2(
         if not _is_missing_prevalence(samp_prev) and not _is_missing_prevalence(pop_prev)
         else float("nan")
     )
-    table["Category_h2_liab"] = table["Category_h2_obs"] * c
-    table["Category_h2_liab_std_error"] = table["Category_h2_obs_std_error"] * c
+    table["category_h2_liab"] = table["category_h2_obs"] * c
+    table["category_h2_liab_se"] = table["category_h2_obs_se"] * c
+    # Whole-model total heritability: a single scalar broadcast to every row of one
+    # fitted model (constant across the functional regime; each query's own model
+    # total in the cell-type regime).
+    total_obs = _scalar(hsq.tot)
+    total_obs_se = _scalar(hsq.tot_se)
+    table["total_h2_obs"] = total_obs
+    table["total_h2_obs_se"] = total_obs_se
+    table["total_h2_liab"] = total_obs * c
+    table["total_h2_liab_se"] = total_obs_se * c
     table["samp_prev"] = _prev_cell(samp_prev)
     table["pop_prev"] = _prev_cell(pop_prev)
-    rows = table.set_index("Category").loc[list(annotation_columns)].reset_index()
+    rows = table.set_index("category").loc[list(annotation_columns)].reset_index()
     return rows.loc[:, PARTITIONED_H2_COLUMNS].reset_index(drop=True)
 
 
@@ -1761,20 +1784,20 @@ def _log_partitioned_h2_regime(ldscore_result: LDScoreResult, has_queries: bool)
     if has_queries:
         LOGGER.info(
             "Cell-type-specific regime: baseline + one query per model (%d queries). "
-            "Focus on `Coefficient` together with the one-sided `Coefficient_p` "
-            "(a one-sided test of whether `Coefficient` > 0): a positive `Coefficient` with a small "
-            "`Coefficient_p` means the query annotation contributes heritability beyond the baseline "
-            "annotations. The `Enrichment` column is confounded by the query annotation's overlap with "
-            "the baseline annotations, so use `Coefficient_p` to judge whether the additional "
+            "Focus on `coefficient` together with the one-sided `coefficient_p` "
+            "(a one-sided test of whether `coefficient` > 0): a positive `coefficient` with a small "
+            "`coefficient_p` means the query annotation contributes heritability beyond the baseline "
+            "annotations. The `enrichment` column is confounded by the query annotation's overlap with "
+            "the baseline annotations, so use `coefficient_p` to judge whether the additional "
             "contribution is significant.",
             len(ldscore_result.query_columns),
         )
     else:
         LOGGER.info(
             "Functional-category regime: joint fit of %d baseline categories. "
-            "Focus on `Enrichment` and `Enrichment_p`: `Enrichment > 1` means the category's SNPs "
+            "Focus on `enrichment` and `enrichment_p`: `enrichment > 1` means the category's SNPs "
             "explain a larger share of heritability than their share of SNPs (`< 1` means a smaller "
-            "share); a small `Enrichment_p` indicates the enrichment is significantly different from 1, "
+            "share); a small `enrichment_p` indicates the enrichment is significantly different from 1, "
             "i.e. significantly larger or smaller.",
             len(ldscore_result.baseline_columns),
         )

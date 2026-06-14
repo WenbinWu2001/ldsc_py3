@@ -558,24 +558,28 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
     def make_summary(self) -> pd.DataFrame:
         return pd.DataFrame(
             {
-                "Category": ["IL-6/JAK STAT (Hallmark)", "IL 6 JAK STAT Hallmark"],
-                "Prop._SNPs": [0.1, 0.2],
-                "Category_h2_obs": [0.3, 0.4],
-                "Category_h2_obs_std_error": [0.03, 0.04],
-                "Category_h2_liab": [float("nan"), float("nan")],
-                "Category_h2_liab_std_error": [float("nan"), float("nan")],
+                "category": ["IL-6/JAK STAT (Hallmark)", "IL 6 JAK STAT Hallmark"],
+                "prop_snps": [0.1, 0.2],
+                "total_h2_obs": [0.5, 0.5],
+                "total_h2_obs_se": [0.05, 0.05],
+                "total_h2_liab": [float("nan"), float("nan")],
+                "total_h2_liab_se": [float("nan"), float("nan")],
+                "category_h2_obs": [0.3, 0.4],
+                "category_h2_obs_se": [0.03, 0.04],
+                "category_h2_liab": [float("nan"), float("nan")],
+                "category_h2_liab_se": [float("nan"), float("nan")],
                 "samp_prev": [float("nan"), float("nan")],
                 "pop_prev": [float("nan"), float("nan")],
-                "Prop._h2": [0.3, 0.4],
-                "Prop._h2_std_error": [0.03, 0.04],
-                "Enrichment": [3.0, 2.0],
-                "Enrichment_std_error": [0.3, 0.2],
-                "Enrichment_p": [0.01, 0.02],
-                "Coefficient": [1.0, 2.0],
-                "Coefficient_std_error": [0.1, 0.2],
-                "Coefficient_z": [10.0, 10.0],
-                "Coefficient_p": [0.03, 0.04],
-                "overlap_aware": [True, True],
+                "prop_h2": [0.3, 0.4],
+                "prop_h2_se": [0.03, 0.04],
+                "enrichment": [3.0, 2.0],
+                "enrichment_se": [0.3, 0.2],
+                "enrichment_p": [0.01, 0.02],
+                "coefficient": [1.0, 2.0],
+                "coefficient_se": [0.1, 0.2],
+                "coefficient_z": [10.0, 10.0],
+                "coefficient_p": [0.03, 0.04],
+                "overlap_annot": [True, True],
             }
         )
 
@@ -583,46 +587,54 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
         return {
             "IL-6/JAK STAT (Hallmark)": pd.DataFrame(
                 {
-                    "Category": ["base", "IL-6/JAK STAT (Hallmark)"],
-                    "Prop._SNPs": [0.9, 0.1],
-                    "Category_h2_obs": [0.2, 0.3],
-                    "Category_h2_obs_std_error": [0.02, 0.03],
-                    "Category_h2_liab": [float("nan"), float("nan")],
-                    "Category_h2_liab_std_error": [float("nan"), float("nan")],
+                    "category": ["base", "IL-6/JAK STAT (Hallmark)"],
+                    "prop_snps": [0.9, 0.1],
+                    "total_h2_obs": [0.5, 0.5],
+                    "total_h2_obs_se": [0.05, 0.05],
+                    "total_h2_liab": [float("nan"), float("nan")],
+                    "total_h2_liab_se": [float("nan"), float("nan")],
+                    "category_h2_obs": [0.2, 0.3],
+                    "category_h2_obs_se": [0.02, 0.03],
+                    "category_h2_liab": [float("nan"), float("nan")],
+                    "category_h2_liab_se": [float("nan"), float("nan")],
                     "samp_prev": [float("nan"), float("nan")],
                     "pop_prev": [float("nan"), float("nan")],
-                    "Prop._h2": [0.7, 0.3],
-                    "Prop._h2_std_error": [0.07, 0.03],
-                    "Enrichment": [0.78, 3.0],
-                    "Enrichment_std_error": [0.08, 0.3],
-                    "Enrichment_p": [0.2, 0.01],
-                    "Coefficient": [0.5, 1.0],
-                    "Coefficient_std_error": [0.05, 0.1],
-                    "Coefficient_z": [10.0, 10.0],
-                    "Coefficient_p": [0.04, 0.03],
-                    "overlap_aware": [True, True],
+                    "prop_h2": [0.7, 0.3],
+                    "prop_h2_se": [0.07, 0.03],
+                    "enrichment": [0.78, 3.0],
+                    "enrichment_se": [0.08, 0.3],
+                    "enrichment_p": [0.2, 0.01],
+                    "coefficient": [0.5, 1.0],
+                    "coefficient_se": [0.05, 0.1],
+                    "coefficient_z": [10.0, 10.0],
+                    "coefficient_p": [0.04, 0.03],
+                    "overlap_annot": [True, True],
                 }
             ),
             "IL 6 JAK STAT Hallmark": pd.DataFrame(
                 {
-                    "Category": ["base", "IL 6 JAK STAT Hallmark"],
-                    "Prop._SNPs": [0.8, 0.2],
-                    "Category_h2_obs": [0.25, 0.4],
-                    "Category_h2_obs_std_error": [0.025, 0.04],
-                    "Category_h2_liab": [float("nan"), float("nan")],
-                    "Category_h2_liab_std_error": [float("nan"), float("nan")],
+                    "category": ["base", "IL 6 JAK STAT Hallmark"],
+                    "prop_snps": [0.8, 0.2],
+                    "total_h2_obs": [0.55, 0.55],
+                    "total_h2_obs_se": [0.055, 0.055],
+                    "total_h2_liab": [float("nan"), float("nan")],
+                    "total_h2_liab_se": [float("nan"), float("nan")],
+                    "category_h2_obs": [0.25, 0.4],
+                    "category_h2_obs_se": [0.025, 0.04],
+                    "category_h2_liab": [float("nan"), float("nan")],
+                    "category_h2_liab_se": [float("nan"), float("nan")],
                     "samp_prev": [float("nan"), float("nan")],
                     "pop_prev": [float("nan"), float("nan")],
-                    "Prop._h2": [0.6, 0.4],
-                    "Prop._h2_std_error": [0.06, 0.04],
-                    "Enrichment": [0.75, 2.0],
-                    "Enrichment_std_error": [0.075, 0.2],
-                    "Enrichment_p": [0.3, 0.02],
-                    "Coefficient": [0.6, 2.0],
-                    "Coefficient_std_error": [0.06, 0.2],
-                    "Coefficient_z": [10.0, 10.0],
-                    "Coefficient_p": [0.05, 0.04],
-                    "overlap_aware": [True, True],
+                    "prop_h2": [0.6, 0.4],
+                    "prop_h2_se": [0.06, 0.04],
+                    "enrichment": [0.75, 2.0],
+                    "enrichment_se": [0.075, 0.2],
+                    "enrichment_p": [0.3, 0.02],
+                    "coefficient": [0.6, 2.0],
+                    "coefficient_se": [0.06, 0.2],
+                    "coefficient_z": [10.0, 10.0],
+                    "coefficient_p": [0.05, 0.04],
+                    "overlap_annot": [True, True],
                 }
             ),
         }
@@ -701,7 +713,7 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
             )
             self.assertEqual(query_summary.columns.tolist(), PARTITIONED_H2_COLUMNS)
             self.assertEqual(categories.columns.tolist(), PARTITIONED_H2_COLUMNS)
-            self.assertEqual(categories["Category"].tolist(), ["base", "IL-6/JAK STAT (Hallmark)"])
+            self.assertEqual(categories["category"].tolist(), ["base", "IL-6/JAK STAT (Hallmark)"])
             self.assertEqual(paths["per_query_root"], str(query_root))
 
     def test_refuses_existing_outputs_before_writing(self):
@@ -743,7 +755,7 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
             self.assertTrue((output_dir / "diagnostics" / "query_annotations" / "manifest.tsv").exists())
             self.assertTrue((output_dir / "diagnostics" / "metadata.json").exists())
             self.assertFalse((output_dir / "metadata.json").exists())
-            self.assertIn("Coefficient", (output_dir / "partitioned_h2.tsv").read_text(encoding="utf-8"))
+            self.assertIn("coefficient", (output_dir / "partitioned_h2.tsv").read_text(encoding="utf-8"))
 
     def test_aggregate_only_refuses_stale_per_query_tree_without_overwrite(self):
         with tempfile.TemporaryDirectory() as tmpdir:

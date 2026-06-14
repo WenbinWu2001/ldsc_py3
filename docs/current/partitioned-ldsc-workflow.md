@@ -245,7 +245,7 @@ produced by an older `ldsc ldscore` is rejected with a regenerate message.
 
 - **Functional-category regime** — the directory has **no** query columns. A
   single joint fit of all baseline annotations yields one row per baseline
-  category; the headline is `Enrichment` (+ two-sided `Enrichment_p`). This
+  category; the headline is `enrichment` (+ two-sided `enrichment_p`). This
   reproduces Finucane-2015 / legacy `--overlap-annot`. If only a single
   annotation is retained (e.g. a one-annotation baseline directory), the fit is
   degenerate and collapses to single-annotation `h2` behavior (two-step
@@ -253,8 +253,8 @@ produced by an older `ldsc ldscore` is rejected with a regenerate message.
   supply multiple baseline annotations for a meaningful partitioned analysis.
 - **Cell-type-specific regime** — the directory **has** query columns. For each
   query, a `baseline + one query` model is fit, yielding one row per query; the
-  headline is `Coefficient` (the conditional `tau`, + one-sided `Coefficient_p`
-  testing `Coefficient > 0`). `--write-per-query-results` additionally writes a
+  headline is `coefficient` (the conditional `tau`, + one-sided `coefficient_p`
+  testing `coefficient > 0`). `--write-per-query-results` additionally writes a
   staged `diagnostics/query_annotations/` tree (`manifest.tsv` plus one sanitized
   folder per query with a one-row `partitioned_h2.tsv`, the full
   baseline-plus-query `partitioned_h2_full.tsv`, and `metadata.json`).
@@ -263,19 +263,27 @@ Both regimes write **one** column schema to `partitioned_h2.tsv`, differing only
 in rows and the default sort:
 
 ```text
-Category, Prop._SNPs, Category_h2_obs, Category_h2_obs_std_error,
-Category_h2_liab, Category_h2_liab_std_error, samp_prev, pop_prev, Prop._h2,
-Prop._h2_std_error, Enrichment, Enrichment_std_error, Enrichment_p, Coefficient,
-Coefficient_std_error, Coefficient_z, Coefficient_p, overlap_aware
+category, prop_snps, prop_h2, prop_h2_se, enrichment, enrichment_se,
+enrichment_p, coefficient, coefficient_se, coefficient_z, coefficient_p,
+overlap_annot, total_h2_obs, total_h2_obs_se, total_h2_liab, total_h2_liab_se,
+category_h2_obs, category_h2_obs_se, category_h2_liab, category_h2_liab_se,
+samp_prev, pop_prev
 ```
 
-Interpretation. `Enrichment = Prop._h2 / Prop._SNPs` is the **marginal**
+All columns are lowercase snake_case, consistent with `h2` and `rg`.
+
+Interpretation. `enrichment = prop_h2 / prop_snps` is the **marginal**
 heritability of the SNPs in a category (overlap-aware, baseline-confounded for a
-query); `Coefficient` is the **conditional** per-SNP contribution beyond the
-baseline. `Category_h2_obs = M_c·tau_c` is the conditional category contribution
-(observed scale) and can be negative under overlap; `Category_h2_liab` is its
-liability-scale counterpart (`= Category_h2_obs · c(samp_prev, pop_prev)`, `NaN`
-without `--samp-prev`/`--pop-prev`). `overlap_aware` flags whether the fitted model's
+query); `coefficient` is the **conditional** per-SNP contribution beyond the
+baseline. `total_h2_obs` is the fitted model's total heritability (constant across
+one model's rows; per-query in the cell-type regime) and is the reference total
+for the category-level absolute heritabilities. `category_h2_obs = M_c·tau_c` is
+the conditional category contribution (observed scale) and can be negative under
+overlap; `category_h2_liab` is its liability-scale counterpart
+(`= category_h2_obs · c(samp_prev, pop_prev)`, `NaN` without
+`--samp-prev`/`--pop-prev`). Note that under overlap (almost always), `prop_h2` is
+**not** `category_h2_obs / total_h2_obs` -- see the overlap caveat in
+`partitioned-h2-results.md`. `overlap_annot` flags whether the fitted model's
 annotations overlap. `--summary-sort-by` defaults to `auto` (→ `coefficient-p`
 for cell-type, `category` for functional); the run logs a regime banner and
 records `analysis_type` / `headline_metric` / `enrichment_p_test` /

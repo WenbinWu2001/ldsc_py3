@@ -90,7 +90,7 @@ E[χ²_j]  =  N · Σ_C τ_C · ℓ(j, C)  +  intercept
 |---|---|
 | `ℓ(j, C)` | LD score of SNP *j* to category *C* (`Σ_{k∈C} r²_jk`) |
 | `τ_C` | per-SNP heritability contribution of category *C* — the **coefficient** |
-| `Enrichment` | `(proportion of h² in C) / (proportion of SNPs in C)`, overlap-aware |
+| `enrichment` | `(proportion of h² in C) / (proportion of SNPs in C)`, overlap-aware |
 
 Multi-annotation models always use the "old" (legacy) regression weights, and
 the two-step estimator is **not applicable** (the kernel rejects it for
@@ -172,12 +172,12 @@ auto-detected from the LD-score directory (no user flag):
 ### 4.1 Functional-category regime (no query columns)
 
 One joint fit of all baseline annotations; one output row per baseline category,
-headline metric `Enrichment`. Reproduces Finucane-2015 / legacy `--overlap-annot`.
+headline metric `enrichment`. Reproduces Finucane-2015 / legacy `--overlap-annot`.
 
 ### 4.2 Cell-type-specific regime (query columns present)
 
 For each query annotation, a `baseline + one query` model is fit; one output row
-per query, headline metric `Coefficient` (the conditional `τ`).
+per query, headline metric `coefficient` (the conditional `τ`).
 
 ### Defaults (both regimes)
 

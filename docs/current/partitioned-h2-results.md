@@ -15,12 +15,12 @@ with no user flag:
 
 - **Functional-category regime** — the directory has **no** query columns. A
   single joint fit of all baseline annotations yields one row per baseline
-  category. The headline is `Enrichment` (with two-sided `Enrichment_p`). This
+  category. The headline is `enrichment` (with two-sided `enrichment_p`). This
   reproduces the joint functional-enrichment analysis (Finucane et al. 2015 /
   legacy `--overlap-annot`).
 - **Cell-type-specific regime** — the directory **has** query columns. For each
   query annotation a `baseline + one query` model is fit, yielding one row per
-  query. The headline is `Coefficient` (with one-sided `Coefficient_p`). This is
+  query. The headline is `coefficient` (with one-sided `coefficient_p`). This is
   the cell-type-specific analysis (Finucane et al. 2018): the query's conditional
   contribution beyond the baseline.
 
@@ -31,26 +31,33 @@ only in which rows appear (baseline categories vs. queries) and the default sort
 
 One uniform schema, written in this column order:
 
+All columns are lowercase `snake_case`, consistent with the `h2` and `rg`
+regression outputs (so `total_h2_obs`/`samp_prev`/`*_se` match across commands).
+
 | Column | Meaning |
 | --- | --- |
-| `Category` | Baseline category (functional regime) or query annotation (cell-type regime). |
-| `Prop._SNPs` | `M_c / M_tot`: the category's share of the reference SNP universe. |
-| `Category_h2_obs` | **Observed-scale conditional** category heritability `M_c · tau_c` (this category's own coefficient times its SNPs). Can be negative under overlap. |
-| `Category_h2_obs_std_error` | Jackknife standard error for `Category_h2_obs`. |
-| `Category_h2_liab` | **Liability-scale** conditional category heritability: `Category_h2_obs` times the observed-to-liability factor `c(samp_prev, pop_prev)`. `NaN` unless both `--samp-prev` and `--pop-prev` are supplied. |
-| `Category_h2_liab_std_error` | Jackknife standard error for `Category_h2_liab` (the observed SE scaled by the same `c`). |
+| `category` | Baseline category (functional regime) or query annotation (cell-type regime). |
+| `prop_snps` | `M_c / M_tot`: the category's share of the reference SNP universe. |
+| `prop_h2` | **Marginal**, overlap-aware proportion of total heritability tagged by the SNPs in this category: `Σⱼ (O[c,j]/Mⱼ)·propⱼ`. Folds in every category those SNPs also belong to. See the overlap caveat in Notes For Interpretation: this is **not** `category_h2_obs / total_h2_obs`. |
+| `prop_h2_se` | Jackknife standard error for `prop_h2`. |
+| `enrichment` | `prop_h2 / prop_snps`. The headline of the functional regime. |
+| `enrichment_se` | Standard error of `enrichment`. |
+| `enrichment_p` | **Two-sided** t-test (df = `n_blocks`) of whether the category's mean per-SNP heritability differs from the rest of the model (the legacy overlap contrast). `NaN` for a category that contains every SNP (e.g. `base`). |
+| `coefficient` | Conditional per-SNP contribution `tau_c` (controls for the other model annotations). The headline of the cell-type regime. |
+| `coefficient_se` | Jackknife standard error for `coefficient`. |
+| `coefficient_z` | `coefficient / coefficient_se`. |
+| `coefficient_p` | **One-sided** normal p-value testing `coefficient > 0` (does this annotation add heritability beyond the baseline?). |
+| `overlap_annot` | Whether the fitted model's annotations overlap (any off-diagonal of `O` > 0). With a `base` (all-ones) category this is effectively always true. |
+| `total_h2_obs` | **Observed-scale total** heritability of the fitted model. Constant across one model's rows: in the functional regime every row shares the single joint fit; in the cell-type regime each query row carries its own `baseline + query` model's total. This is the reference denominator for reading the `category_h2_*` columns. Matches the `h2` command's `total_h2_obs`. |
+| `total_h2_obs_se` | Jackknife standard error for `total_h2_obs`. |
+| `total_h2_liab` | **Liability-scale** total heritability: `total_h2_obs` times the observed-to-liability factor `c(samp_prev, pop_prev)`. `NaN` unless both `--samp-prev` and `--pop-prev` are supplied. |
+| `total_h2_liab_se` | Jackknife standard error for `total_h2_liab`. |
+| `category_h2_obs` | **Observed-scale conditional** category heritability `M_c · tau_c` (this category's own coefficient times its SNPs). Can be negative under overlap. |
+| `category_h2_obs_se` | Jackknife standard error for `category_h2_obs`. |
+| `category_h2_liab` | **Liability-scale** conditional category heritability: `category_h2_obs` times the observed-to-liability factor `c(samp_prev, pop_prev)`. `NaN` unless both `--samp-prev` and `--pop-prev` are supplied. |
+| `category_h2_liab_se` | Jackknife standard error for `category_h2_liab` (the observed SE scaled by the same `c`). |
 | `samp_prev` | Sample (case) prevalence applied for liability conversion, or `NaN` for an observed-scale run. |
 | `pop_prev` | Population prevalence applied for liability conversion, or `NaN`. |
-| `Prop._h2` | **Marginal**, overlap-aware proportion of total heritability explained by the SNPs in this category: `Σⱼ (O[c,j]/Mⱼ)·propⱼ`. Folds in every category those SNPs also belong to. |
-| `Prop._h2_std_error` | Jackknife standard error for `Prop._h2`. |
-| `Enrichment` | `Prop._h2 / Prop._SNPs`. The headline of the functional regime. |
-| `Enrichment_std_error` | Standard error of `Enrichment`. |
-| `Enrichment_p` | **Two-sided** t-test (df = `n_blocks`) of whether the category's mean per-SNP heritability differs from the rest of the model (the legacy overlap contrast). `NaN` for a category that contains every SNP (e.g. `base`). |
-| `Coefficient` | Conditional per-SNP contribution `tau_c` (controls for the other model annotations). The headline of the cell-type regime. |
-| `Coefficient_std_error` | Jackknife standard error for `Coefficient`. |
-| `Coefficient_z` | `Coefficient / Coefficient_std_error`. |
-| `Coefficient_p` | **One-sided** normal p-value testing `Coefficient > 0` (does this annotation add heritability beyond the baseline?). |
-| `overlap_aware` | Whether the fitted model's annotations overlap (any off-diagonal of `O` > 0). With a `base` (all-ones) category this is effectively always true. |
 
 The same schema is used for each one-row
 `diagnostics/query_annotations/<folder>/partitioned_h2.tsv` file.
@@ -58,14 +65,14 @@ The same schema is used for each one-row
 ### Choosing the right column
 
 - **Functional enrichment** ("are this category's SNPs enriched for
-  heritability?"): read `Enrichment` and `Enrichment_p`. `Enrichment > 1` means
+  heritability?"): read `enrichment` and `enrichment_p`. `enrichment > 1` means
   the category's SNPs carry a larger heritability share than their SNP share; a
-  small `Enrichment_p` means the enrichment is significantly different from 1.
+  small `enrichment_p` means the enrichment is significantly different from 1.
 - **Cell-type-specific contribution** ("does this annotation add heritability
-  beyond the baseline?"): read `Coefficient` together with the one-sided
-  `Coefficient_p`. A positive `Coefficient` with a small `Coefficient_p` is the
-  de-confounded signal. The `Enrichment` of a query is confounded by its overlap
-  with generally-enriched baseline categories, so prefer `Coefficient_p` here.
+  beyond the baseline?"): read `coefficient` together with the one-sided
+  `coefficient_p`. A positive `coefficient` with a small `coefficient_p` is the
+  de-confounded signal. The `enrichment` of a query is confounded by its overlap
+  with generally-enriched baseline categories, so prefer `coefficient_p` here.
 
 ### Sorting and signaling
 
@@ -102,15 +109,27 @@ added query.
 
 ## Notes For Interpretation
 
-`Prop._h2`, `Category_h2_obs` (and its liability counterpart `Category_h2_liab`),
-and `Enrichment` are regression estimates and can be negative or greater than one
-when estimates are noisy or annotations are correlated; `Category_h2_obs` is
+`prop_h2`, `category_h2_obs` (and its liability counterpart `category_h2_liab`),
+and `enrichment` are regression estimates and can be negative or greater than one
+when estimates are noisy or annotations are correlated; `category_h2_obs` is
 especially prone to this under overlap because it is the conditional `M_c · tau_c`.
-Only the `Category_h2_*` columns differ between scales; `Prop._SNPs`, `Prop._h2`,
-`Enrichment`, and the coefficients are scale-invariant. P-values and standard errors may be missing when a
-valid comparison cannot be formed — for example `Enrichment_p` is `NaN` for a
-category that contains every SNP, and `Coefficient_p` is `NaN` when the
+Only the `*_obs`/`*_liab` columns differ between scales; `prop_snps`, `prop_h2`,
+`enrichment`, and the coefficients are scale-invariant. P-values and standard errors may be missing when a
+valid comparison cannot be formed — for example `enrichment_p` is `NaN` for a
+category that contains every SNP, and `coefficient_p` is `NaN` when the
 coefficient standard error is zero.
+
+**Caveat -- overlap:** When annotations overlap (almost always the case: a `base`
+all-ones category plus broad functional annotations make the off-diagonal of `O`
+nonzero, so `overlap_annot` is effectively always `True`), `prop_h2` is **not**
+`category_h2_obs / total_h2_obs`. `category_h2_obs = M_c · tau_c` is the category's
+*own conditional* contribution -- its coefficient alone -- whereas `prop_h2` is the
+*overlap-aware (marginal) attributable* share: the heritability tagged by every SNP
+in the category, **including the heritability those SNPs carry through the other
+annotations they also belong to** (`Σⱼ (O[c,j]/Mⱼ)·propⱼ`), divided by the total.
+The two coincide only for a category disjoint from all others (the off-diagonal of
+`O` for that category is zero). Use `total_h2_obs`/`total_h2_liab` as the reference
+total when reading the absolute `category_h2_*` values.
 
 The `diagnostics/query_annotations/manifest.tsv` file is an index for the
 per-query result tree. It records each original query annotation name, the

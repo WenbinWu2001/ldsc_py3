@@ -46,8 +46,9 @@ ldsc partitioned-h2 \
   --pop-prev 0.01
 ```
 
-`partitioned_h2.tsv` reports `Category_h2_obs` and `Category_h2_liab` per
-category. Proportions, enrichment, and coefficients are scale-invariant.
+`partitioned_h2.tsv` reports `category_h2_obs` and `category_h2_liab` per
+category, plus the whole-model `total_h2_obs`/`total_h2_liab`. Proportions,
+enrichment, and coefficients are scale-invariant.
 
 ## rg: two binary traits (ordered list)
 

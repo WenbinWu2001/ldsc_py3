@@ -104,9 +104,9 @@ metadata, `--infer-only`, HM3, and liftover guide, see
 - `bed_padding_bp` / `--bed-padding-bp` defaults to `0`; when set, it expands query BED intervals on both sides before projection and clips starts at zero.
 - `ldsc partitioned-h2` produces overlap-aware category summaries and
   auto-detects two regimes: baseline-only directories run the functional-category
-  joint fit (one row per baseline category, `Enrichment` headline), and
+  joint fit (one row per baseline category, `enrichment` headline), and
   directories with `query_columns` run the cell-type-specific baseline-plus-query
-  loop (one row per query, `Coefficient` headline). It requires
+  loop (one row per query, `coefficient` headline). It requires
   `ldscore.overlap.parquet`; older directories without it are rejected with a
   regenerate message. `h2` and `rg` ignore the overlap matrix.
 - Public outputs use fixed workflow filenames under `output_dir`; run identity comes from the directory name.

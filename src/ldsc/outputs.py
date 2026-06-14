@@ -100,24 +100,28 @@ DEFAULT_COUNT_CONFIG = {
 # with one row per baseline category; the cell-type regime fills it with one row
 # per query annotation. Differs only in rows and default sort, never in columns.
 PARTITIONED_H2_COLUMNS = [
-    "Category",
-    "Prop._SNPs",
-    "Category_h2_obs",
-    "Category_h2_obs_std_error",
-    "Category_h2_liab",
-    "Category_h2_liab_std_error",
+    "category",
+    "prop_snps",
+    "prop_h2",
+    "prop_h2_se",
+    "enrichment",
+    "enrichment_se",
+    "enrichment_p",
+    "coefficient",
+    "coefficient_se",
+    "coefficient_z",
+    "coefficient_p",
+    "overlap_annot",
+    "total_h2_obs",
+    "total_h2_obs_se",
+    "total_h2_liab",
+    "total_h2_liab_se",
+    "category_h2_obs",
+    "category_h2_obs_se",
+    "category_h2_liab",
+    "category_h2_liab_se",
     "samp_prev",
     "pop_prev",
-    "Prop._h2",
-    "Prop._h2_std_error",
-    "Enrichment",
-    "Enrichment_std_error",
-    "Enrichment_p",
-    "Coefficient",
-    "Coefficient_std_error",
-    "Coefficient_z",
-    "Coefficient_p",
-    "overlap_aware",
 ]
 RG_CONCISE_COLUMNS = [
     "trait_1",
@@ -697,10 +701,10 @@ class PartitionedH2DirectoryWriter:
 
     def _validate_summary(self, summary: pd.DataFrame) -> None:
         """Validate the aggregate summary before writing any final files."""
-        if "Category" not in summary.columns:
+        if "category" not in summary.columns:
             raise LDSCInternalError(
                 "partitioned-h2 output writer could not validate the aggregate summary because the required "
-                "'Category' column is missing. Most likely the regression workflow returned a result table with "
+                "'category' column is missing. Most likely the regression workflow returned a result table with "
                 "the wrong schema. Re-run with DEBUG logging and report the traceback."
             )
 
@@ -708,7 +712,7 @@ class PartitionedH2DirectoryWriter:
         """Return ordered query records with deterministic safe folder names."""
         records: list[dict[str, object]] = []
         width = max(4, len(str(len(summary))))
-        for idx, query_name in enumerate(summary["Category"].astype(str).tolist(), start=1):
+        for idx, query_name in enumerate(summary["category"].astype(str).tolist(), start=1):
             slug = _slugify_query_name(query_name)
             folder = f"{idx:0{width}d}_{slug}"
             records.append(
@@ -737,7 +741,7 @@ class PartitionedH2DirectoryWriter:
             folder = str(record["folder"])
             query_dir = staging_dir / folder
             query_dir.mkdir(parents=True, exist_ok=False)
-            query_summary = summary.loc[summary["Category"].astype(str) == query_name].reset_index(drop=True)
+            query_summary = summary.loc[summary["category"].astype(str) == query_name].reset_index(drop=True)
             summary_rel = f"diagnostics/query_annotations/{folder}/partitioned_h2.tsv"
             full_rel = f"diagnostics/query_annotations/{folder}/partitioned_h2_full.tsv"
             metadata_rel = f"diagnostics/query_annotations/{folder}/metadata.json"

@@ -227,7 +227,7 @@ class H2DirectoryWriter:
             label="h2 output artifact",
         )
         diagnostics_dir.mkdir(parents=True, exist_ok=True)
-        _atomic_write_dataframe(summary, summary_path)
+        _atomic_write_dataframe(summary, summary_path, na_rep="NaN")
         _atomic_write_json(
             _result_metadata(metadata, artifact_type="h2_result", files={"summary": "h2.tsv"}),
             metadata_path,
@@ -655,6 +655,7 @@ class PartitionedH2DirectoryWriter:
             _atomic_write_dataframe(
                 _select_columns(summary, PARTITIONED_H2_COLUMNS, label="partitioned-h2 summary"),
                 summary_path,
+                na_rep="NaN",
             )
             _atomic_write_json(
                 _result_metadata(metadata, artifact_type="partitioned_h2_result", files=root_files),
@@ -675,10 +676,11 @@ class PartitionedH2DirectoryWriter:
                 metadata or {},
                 per_query_metadata or {},
             )
-            _atomic_write_dataframe(pd.DataFrame(manifest_rows), staging_dir / "manifest.tsv")
+            _atomic_write_dataframe(pd.DataFrame(manifest_rows), staging_dir / "manifest.tsv", na_rep="NaN")
             _atomic_write_dataframe(
                 _select_columns(summary, PARTITIONED_H2_COLUMNS, label="partitioned-h2 summary"),
                 summary_path,
+                na_rep="NaN",
             )
             _atomic_write_json(
                 _result_metadata(metadata, artifact_type="partitioned_h2_result", files=root_files),
@@ -753,6 +755,7 @@ class PartitionedH2DirectoryWriter:
             _atomic_write_dataframe(
                 _select_columns(query_summary, PARTITIONED_H2_COLUMNS, label="query summary"),
                 query_dir / "partitioned_h2.tsv",
+                na_rep="NaN",
             )
             category_table = per_query_category_tables.get(query_name)
             if category_table is None:
@@ -760,6 +763,7 @@ class PartitionedH2DirectoryWriter:
             _atomic_write_dataframe(
                 _select_columns(category_table, PARTITIONED_H2_COLUMNS, label="full partitioned-h2 summary"),
                 query_dir / "partitioned_h2_full.tsv",
+                na_rep="NaN",
             )
             payload = {
                 **metadata,

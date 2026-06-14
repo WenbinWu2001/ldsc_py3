@@ -521,6 +521,19 @@ class H2DirectoryWriterTest(unittest.TestCase):
             self.assertEqual(metadata["files"], {"summary": "h2.tsv"})
             self.assertEqual(metadata["retained_ld_columns"], ["base"])
 
+    def test_writes_nan_literal_for_missing_values(self):
+        # Missing values (e.g. liability columns on an observed-scale run) render
+        # as the explicit literal "NaN", consistent with the rg output family.
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "h2"
+            H2DirectoryWriter().write(
+                self.make_summary(),
+                H2OutputConfig(output_dir=output_dir),
+                metadata=self.make_metadata(),
+            )
+            text = (output_dir / "h2.tsv").read_text(encoding="utf-8")
+            self.assertIn("NaN", text)
+
     def test_refuses_existing_metadata_without_overwrite(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "h2"
@@ -659,6 +672,18 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
                 }
             ),
         }
+
+    def test_writes_nan_literal_for_missing_values(self):
+        # Missing values (e.g. liability columns on an observed-scale run) render
+        # as the explicit literal "NaN", consistent with the rg output family.
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "partitioned"
+            PartitionedH2DirectoryWriter().write(
+                self.make_summary(),
+                PartitionedH2OutputConfig(output_dir=output_dir),
+            )
+            text = (output_dir / "partitioned_h2.tsv").read_text(encoding="utf-8")
+            self.assertIn("NaN", text)
 
     def test_writes_aggregate_only_by_default(self):
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -614,7 +614,13 @@ class LDScoreCalculator:
         global_config: GlobalConfig,
         count_config: dict[str, Any] | None = None,
     ) -> LDScoreResult:
-        """Concatenate and sum per-chromosome results into one aggregate object."""
+        """Concatenate and sum per-chromosome results into one aggregate object.
+
+        The annotation overlap matrix is aggregated only for partitioned runs (two
+        or more LD-score columns). Single-annotation runs (e.g. the synthetic
+        unpartitioned ``base``) leave ``LDScoreResult.overlap`` as ``None`` so the
+        downstream writer emits no redundant overlap artifact.
+        """
         if not chromosome_results:
             raise LDSCInternalError(
                 "LD-score aggregation failed in LDScoreCalculator._aggregate_chromosome_results(): "
@@ -637,9 +643,15 @@ class LDScoreCalculator:
         }
         from .overlap_matrix import LDScoreOverlap
 
+        # The overlap (Gram) matrix is only consumed by partitioned-h2 and the
+        # design-matrix collinearity check, both of which need >=2 LD-score
+        # columns. A single-column run (e.g. the synthetic unpartitioned `base`)
+        # yields a degenerate 1x1 overlap equal to a SNP count already in
+        # metadata, so the artifact is suppressed rather than written redundantly.
+        n_ld_columns = len(chromosome_results[0].baseline_columns) + len(chromosome_results[0].query_columns)
         overlaps = [result.overlap for result in chromosome_results if result.overlap is not None]
         aggregated_overlap = None
-        if len(overlaps) == len(chromosome_results):
+        if n_ld_columns >= 2 and len(overlaps) == len(chromosome_results):
             aggregated_overlap = LDScoreOverlap.from_contribution(
                 sum_overlap_contributions(overlaps),
                 list(chromosome_results[0].baseline_columns),

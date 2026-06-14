@@ -11,7 +11,7 @@ result directory as the baseline design:
   metadata.json
   ldscore.baseline.parquet
   ldscore.query.parquet        # omitted when no query annotations exist
-  ldscore.overlap.parquet      # annotation overlap matrix; required by partitioned-h2
+  ldscore.overlap.parquet      # overlap matrix; omitted for single-annotation (e.g. base-only) runs; required by partitioned-h2
   diagnostics/
     ldscore.log
 ```
@@ -66,7 +66,7 @@ Logs are audit files and should not be treated as output results.
 Adapted public paths:
 
 - `ldsc ldscore` writes `ldscore.baseline.parquet`, optional
-  `ldscore.query.parquet`, and `ldscore.overlap.parquet`.
+  `ldscore.query.parquet`, and optional `ldscore.overlap.parquet`.
 - `ldsc munge-sumstats` writes `sumstats.parquet` by default.
 - `ldsc h2`, `ldsc partitioned-h2`, and `ldsc rg` write result tables as TSV
   when an `output_dir` is supplied.
@@ -158,7 +158,7 @@ Removed flags: `--bed-files`, `--baseline-annot`.
 
 | Flag | Direction | Required | Object | Notes |
 |---|---:|---:|---|---|
-| `--output-dir` | output | yes | canonical LD-score result directory | Writes root `metadata.json`, `ldscore.baseline.parquet`, optional `ldscore.query.parquet`, `ldscore.overlap.parquet`, and `diagnostics/ldscore.log`; parquet row groups are chromosome-aligned. |
+| `--output-dir` | output | yes | canonical LD-score result directory | Writes root `metadata.json`, `ldscore.baseline.parquet`, optional `ldscore.query.parquet`, optional `ldscore.overlap.parquet` (only for runs with >=2 annotation columns), and `diagnostics/ldscore.log`; parquet row groups are chromosome-aligned. |
 | `--overwrite` | output mode | no | collision policy | Controls whether fixed LD-score files and `diagnostics/ldscore.log` may be replaced; defaults to `False`, so any existing owned LD-score artifact in `output_dir` is refused. With overwrite, stale `ldscore.query.parquet` is removed after successful baseline-only runs. |
 | `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger record verbosity; these records go to `diagnostics/ldscore.log` and the CLI console (stderr) shows only errors. Lifecycle audit lines always appear in the file. |
 | `--baseline-annot-sources` | input | no | baseline annotation files | Supplies baseline annotation files; defaults to omitted/`None`, and if no query inputs are supplied `ldscore` synthesizes an all-ones `base` column. |
@@ -204,9 +204,9 @@ LD-score output schema:
   when there are no query annotations.
 - `ldscore.overlap.parquet`: `row_annotation`, `col_annotation`,
   `overlap_all_snps`, `overlap_common_snps` (long-form annotation overlap matrix
-  consumed by partitioned-h2).
+  consumed by partitioned-h2); omitted for single-annotation (e.g. base-only) runs.
 - `metadata.json`: `artifact_type`, relative file paths (`baseline`, optional
-  `query`, `overlap`), baseline/query column names, count records, `count_config`,
+  `query`, optional `overlap`), baseline/query column names, count records, `count_config`,
   `overlap_config`, config metadata, chromosomes, row
   counts, `row_group_layout`, `baseline_row_groups`, and
   `query_row_groups`.

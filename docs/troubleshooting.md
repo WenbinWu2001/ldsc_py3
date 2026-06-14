@@ -436,21 +436,30 @@ restriction build/column readers · **Exception:** `LDSCInputError`
 **Symptom:** `partitioned-h2 needs the annotation overlap matrix, but the LD-score directory has no ldscore.overlap.parquet...`
 
 Overlap-aware partitioned heritability (both the functional and cell-type
-regimes) needs `ldscore.overlap.parquet`, written by current `ldsc ldscore`
-alongside the baseline/query parquet files. A baseline-only directory is **not**
-an error — it runs the functional-category regime — but a directory without the
-overlap sidecar cannot be used.
+regimes) needs `ldscore.overlap.parquet`, written by `ldsc ldscore` alongside
+the baseline/query parquet files whenever the run has **two or more** annotation
+columns. A baseline-only directory (multiple baseline annotations, no query) is
+**not** an error — it runs the functional-category regime. An unpartitioned,
+single-annotation run (e.g. the synthetic `base`) deliberately omits the sidecar
+because its overlap collapses to a SNP count already in `metadata.json`, and
+such a directory cannot be partitioned.
 
 **Likely causes & how to check** (most probable first):
 
 | # | Likely cause | How to check |
 |---|--------------|--------------|
-| 1 | The LD-score directory was produced by an older `ldsc ldscore` | Inspect `metadata.json` for a missing `files.overlap` / `overlap_config` |
-| 2 | The directory was copied without `ldscore.overlap.parquet` | Confirm the file exists next to `ldscore.baseline.parquet` |
+| 1 | The directory is an unpartitioned single-annotation run (e.g. base-only) | Inspect `metadata.json`: `baseline_columns` + `query_columns` total fewer than 2 |
+| 2 | The LD-score directory predates the overlap sidecar (older `ldsc ldscore`) | Inspect `metadata.json` for a missing `files.overlap` / `overlap_config` despite >=2 annotation columns |
+| 3 | The directory was copied without `ldscore.overlap.parquet` | Confirm the file exists next to `ldscore.baseline.parquet` |
 
 **Remedies:**
 
-1. Regenerate the LD-score directory with the current `ldsc ldscore`.
-2. Keep `metadata.json`, the baseline/query parquet, and `ldscore.overlap.parquet`
+1. Partitioned-h2 requires >=2 annotation columns; regenerate the LD-score
+   directory with explicit baseline (and optional query) annotations, not the
+   synthetic `base`.
+2. If the directory predates the sidecar, regenerate it with the current
+   `ldsc ldscore`.
+3. Keep `metadata.json`, the baseline/query parquet, and `ldscore.overlap.parquet`
    from the same run together.
-3. `h2` and `rg` do not need the overlap matrix and run on older directories.
+4. `h2` and `rg` do not need the overlap matrix and run on unpartitioned or older
+   directories.

@@ -117,8 +117,10 @@ PARTITIONED_H2_SUMMARY_ASCENDING_SORTS = {
 }
 PARTITIONED_H2_REQUIRES_OVERLAP_MESSAGE = (
     "partitioned-h2 needs the annotation overlap matrix, but the LD-score directory has no "
-    "ldscore.overlap.parquet. Most likely it was produced by an older `ldsc ldscore`. "
-    "Regenerate the LD-score directory with the current version. "
+    "ldscore.overlap.parquet. Most likely it is an unpartitioned LD-score directory (a single "
+    "annotation such as the synthetic `base`), which has no overlap matrix and cannot be "
+    "partitioned -- regenerate it with two or more annotation columns. It may also predate the "
+    "overlap sidecar; if so, regenerate with the current `ldsc ldscore`. "
     "Other causes & fixes: docs/troubleshooting.md#partitioned-h2-missing-overlap-matrix"
 )
 FAILED_RG_NOTE = "Failed; see rg_full.tsv error column; use --output-dir for diagnostics/rg.log."

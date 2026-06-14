@@ -972,6 +972,39 @@ class LDScoreWorkflowTest(unittest.TestCase):
         self.assertEqual(result.overlap.total_all_reference_snps, 17)
         self.assertEqual(list(result.overlap.baseline_block_all.columns), ["base", "query"])
 
+    def test_aggregate_chromosome_results_skips_overlap_for_base_only(self):
+        from ldsc._kernel.overlap import OverlapContribution
+
+        cfg = GlobalConfig(snp_identifier="rsid")
+
+        def make_chrom(chrom, snp, contribution):
+            return ldscore_workflow.ChromLDScoreResult(
+                chrom=chrom,
+                baseline_table=pd.DataFrame(
+                    {"CHR": [chrom], "SNP": [snp], "POS": [10], "regression_ld_scores": [3.0], "base": [1.0]}
+                ),
+                query_table=None,
+                count_records=[
+                    {"group": "baseline", "column": "base", "all_reference_snp_count": 10.0},
+                ],
+                baseline_columns=["base"],
+                query_columns=[],
+                ld_reference_snps=frozenset(),
+                ld_regression_snps=frozenset({snp}),
+                snp_count_totals={"all_reference_snp_counts": np.array([10.0])},
+                overlap=contribution,
+                config_snapshot=cfg,
+            )
+
+        # A single all-ones base column makes the overlap a degenerate 1x1 (the SNP
+        # count, already in metadata) that no downstream regression consumes.
+        c1 = OverlapContribution(np.array([[10.0]]), None, np.array([]), None, 10, None)
+        c2 = OverlapContribution(np.array([[7.0]]), None, np.array([]), None, 7, None)
+        result = ldscore_workflow.LDScoreCalculator()._aggregate_chromosome_results(
+            [make_chrom("1", "rs1", c1), make_chrom("2", "rs2", c2)], global_config=cfg
+        )
+        self.assertIsNone(result.overlap)
+
     def test_wrap_legacy_result_derives_allele_aware_regression_ids_before_split(self):
         legacy_result = ldscore_workflow._LegacyChromResult(
             chrom="1",
@@ -3577,10 +3610,10 @@ def test_ldscore_end_to_end_drops_user_bed_snp(tmp_path):
         exclude_regions_bed=(str(bed),),
     )
     assert target_pos not in set(result.baseline_table["POS"])
-    # Overlap sidecar flows end-to-end: written to disk and present on the result.
-    assert (tmp_path / "ld" / "ldscore.overlap.parquet").exists()
-    assert result.overlap is not None
-    assert list(result.overlap.baseline_block_all.index) == ["base"]
+    # Unpartitioned (synthetic base-only) runs have a degenerate 1x1 overlap that
+    # no regression consumes, so the sidecar is suppressed end-to-end.
+    assert not (tmp_path / "ld" / "ldscore.overlap.parquet").exists()
+    assert result.overlap is None
 
 
 def test_ldscore_rejects_non_minor_maf():

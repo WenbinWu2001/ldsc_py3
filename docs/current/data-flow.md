@@ -311,12 +311,15 @@ flowchart LR
 ## 4. `ldscore`: Reference Panel And Optional Annotations To LDSC Artifacts
 
 The canonical LD-score workflow preflights root `metadata.json`,
-`ldscore.baseline.parquet`, `ldscore.query.parquet`, `ldscore.overlap.parquet`,
-and `diagnostics/ldscore.log` as one owned family before writing any of them. Use
+`ldscore.baseline.parquet`, optional `ldscore.query.parquet`, optional
+`ldscore.overlap.parquet`, and `diagnostics/ldscore.log` as one owned family
+before writing any of them. Use
 `--overwrite` or `LDScoreOutputConfig(overwrite=True)` only for intentional
 reruns. With overwrite enabled, a successful baseline-only run removes stale
 `ldscore.query.parquet`. `ldscore.overlap.parquet` carries the annotation overlap
-matrix consumed by `partitioned-h2`.
+matrix consumed by `partitioned-h2`; it is written only when the run has two or
+more annotation columns, so an unpartitioned single-annotation run (e.g. the
+synthetic `base`) omits it.
 The parquet payloads remain single flat files, but each row group contains rows
 from exactly one chromosome. Root `metadata.json` records the row-group layout and
 per-chromosome offsets so readers can load one chromosome without scanning the
@@ -597,7 +600,7 @@ merge. rsID-family and coordinate-family modes never mix.
 | File | Example | Notes |
 | --- | --- | --- |
 | munged sumstats | `SNP CHR POS A1 A2 Z N`<br/>`rs1 1 754182 A G 1.96 1000` | one file for `h2` and `partitioned-h2`, two or more files for `rg`; the `sumstats.parquet` footer recovers config provenance and `trait_name` when present, otherwise the identifier mode is inferred from the LD-score panel |
-| LD-score directory | `metadata.json`, `ldscore.baseline.parquet`, optional `ldscore.query.parquet`, `ldscore.overlap.parquet` | produced by the LD-score workflow and supplied as `ldscore_dir`; `partitioned-h2` requires `ldscore.overlap.parquet` (baseline-only = functional regime, query columns = cell-type regime); current parquet files have chromosome-aligned row groups; package-written directories without current metadata identity provenance or the overlap sidecar are rejected and must be regenerated |
+| LD-score directory | `metadata.json`, `ldscore.baseline.parquet`, optional `ldscore.query.parquet`, optional `ldscore.overlap.parquet` | produced by the LD-score workflow and supplied as `ldscore_dir`; the overlap sidecar is written only for runs with >=2 annotation columns; `partitioned-h2` requires `ldscore.overlap.parquet` (baseline-only = functional regime, query columns = cell-type regime) and rejects directories that lack it; current parquet files have chromosome-aligned row groups; package-written directories without current metadata identity provenance are rejected and must be regenerated |
 
 ### Flow
 

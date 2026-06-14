@@ -183,7 +183,8 @@ ldscore/
 `ldscore.query.parquet` is present only when query LD scores are written.
 `ldscore.overlap.parquet` holds the annotation overlap matrix (long form:
 `row_annotation`, `col_annotation`, `overlap_all_snps`, `overlap_common_snps`)
-that `partitioned-h2` requires.
+that `partitioned-h2` requires. It is written only for runs with two or more
+annotation columns; a single-annotation (e.g. base-only) run omits it.
 
 `metadata.json` is downstream-required.
 
@@ -197,7 +198,7 @@ that `partitioned-h2` requires.
 | `query_columns` | Ordered query annotation LD-score columns. | Required for partitioned h2 query selection. |
 | `counts` | Per-annotation count records. | Required for regression count vectors. |
 | `count_config` | Common-SNP count settings (`common_reference_snp_maf_min`, `common_reference_snp_maf_operator: ">="`). | Reporting/context. |
-| `overlap_config` | Overlap-matrix provenance: `total_all_reference_snps`, `total_common_reference_snps`, `common_maf_min`, `common_maf_operator`, `stored_block`. | Provides `M_tot` and the universe definition for overlap-aware partitioned-h2. |
+| `overlap_config` | Overlap-matrix provenance: `total_all_reference_snps`, `total_common_reference_snps`, `common_maf_min`, `common_maf_operator`, `stored_block`. `null` for single-annotation runs that write no overlap matrix. | Provides `M_tot` and the universe definition for overlap-aware partitioned-h2. |
 | `n_baseline_rows` | Number of rows in the baseline parquet table. | Reporting. |
 | `n_query_rows` | Number of rows in the query parquet table, or zero. | Reporting. |
 | `row_group_layout` | Row-group strategy. | Reporting/technical provenance. |

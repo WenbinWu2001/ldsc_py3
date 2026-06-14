@@ -378,6 +378,27 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
             self.assertIsNone(loaded.query_table)
             self.assertNotIn("query", loaded.output_paths)
 
+    def test_overwrite_removes_stale_overlap_parquet_for_unpartitioned_result(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "ldscores"
+            partitioned = dataclass_replace(make_split_ldscore_result(query=True), overlap=self._overlap())
+            LDScoreDirectoryWriter().write(partitioned, LDScoreOutputConfig(output_dir=output_dir))
+            self.assertTrue((output_dir / "ldscore.overlap.parquet").exists())
+
+            # Re-running the directory as an unpartitioned (overlap-free) result must
+            # clear the now-stale overlap sidecar via the canonical output family.
+            LDScoreDirectoryWriter().write(
+                make_split_ldscore_result(query=False),
+                LDScoreOutputConfig(output_dir=output_dir, overwrite=True),
+            )
+
+            metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
+            loaded = load_ldscore_from_dir(str(output_dir))
+            self.assertFalse((output_dir / "ldscore.overlap.parquet").exists())
+            self.assertNotIn("overlap", metadata["files"])
+            self.assertIsNone(metadata["overlap_config"])
+            self.assertIsNone(loaded.overlap)
+
     def test_rejects_query_table_with_mismatched_row_keys(self):
         result = make_split_ldscore_result(query=True)
         bad_query = result.query_table.copy()

@@ -25,7 +25,7 @@ An LD-score run writes:
   metadata.json
   ldscore.baseline.parquet
   ldscore.query.parquet        # omitted when no query annotations were supplied
-  ldscore.overlap.parquet      # annotation overlap matrix; consumed by partitioned-h2
+  ldscore.overlap.parquet      # overlap matrix; omitted for single-annotation (e.g. base-only) runs; consumed by partitioned-h2
   diagnostics/
     ldscore.log
 ```
@@ -33,7 +33,7 @@ An LD-score run writes:
 `metadata.json` is the downstream metadata contract. It contains:
 
 - `artifact_type: "ldscore"`
-- relative file paths for `baseline`, optional `query`, and `overlap`
+- relative file paths for `baseline`, optional `query`, and optional `overlap`
 - `snp_identifier`, `genome_build`, and processed `chromosomes`
 - ordered `baseline_columns` and `query_columns`
 - one count record per LD-score annotation column

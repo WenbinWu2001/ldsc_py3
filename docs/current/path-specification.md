@@ -48,8 +48,8 @@ independent optional files:
   `sumstats.sumstats.gz`, `diagnostics/dropped_snps/dropped.tsv.gz`, and
   `diagnostics/sumstats.log`
   for CLI/workflow runs
-- `ldscore`: `metadata.json`, `ldscore.baseline.parquet`,
-  `ldscore.query.parquet`, `ldscore.overlap.parquet`, and
+- `ldscore`: `metadata.json`, `ldscore.baseline.parquet`, optional
+  `ldscore.query.parquet`, optional `ldscore.overlap.parquet`, and
   `diagnostics/ldscore.log` for CLI/workflow runs
 - `build-ref-panel`: `{hg19,hg38}/chr*_r2.parquet`,
   `{hg19,hg38}/chr*_meta.tsv.gz`,
@@ -311,7 +311,7 @@ Output:
 
 - `--output-dir` is a literal directory destination.
 - LD-score calculation writes `metadata.json`, `ldscore.baseline.parquet`,
-  optional `ldscore.query.parquet`, `ldscore.overlap.parquet`, and
+  optional `ldscore.query.parquet`, optional `ldscore.overlap.parquet`, and
   `diagnostics/ldscore.log` inside that directory.
 - `ldscore.baseline.parquet` and `ldscore.query.parquet` remain flat parquet files, but each
   row group contains exactly one chromosome. Root `metadata.json` records

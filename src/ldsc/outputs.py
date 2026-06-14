@@ -1,10 +1,13 @@
 """Output writers for the refactored LDSC workflows.
 
 The public LD-score workflow writes one canonical result directory containing
-``metadata.json``, ``ldscore.baseline.parquet``, optional
-``ldscore.query.parquet``, and ``ldscore.overlap.parquet`` (the annotation
-overlap matrix consumed by partitioned-h2). Run identity comes from the chosen
-directory name;
+``metadata.json``, ``ldscore.baseline.parquet``, an optional
+``ldscore.query.parquet``, and an optional ``ldscore.overlap.parquet`` (the
+annotation overlap matrix consumed by partitioned-h2). The overlap sidecar is
+written only when the run has two or more annotation columns; an unpartitioned
+single-annotation run (e.g. the synthetic ``base``) omits it because the matrix
+would collapse to a SNP count already in ``metadata.json``. Run identity comes
+from the chosen directory name;
 output filenames inside that directory are fixed. The parquet payloads are
 written with one row group per chromosome and matching metadata so
 downstream readers can load a single chromosome without scanning the whole

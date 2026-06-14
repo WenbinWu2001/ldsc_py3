@@ -138,8 +138,9 @@ This module rebuilds an `LDScoreResult` from on-disk artifacts, merges it with m
 
 This is the canonical LD-score and regression result writer. For LD-score
 results it owns fixed files inside `output_dir`: `metadata.json`,
-`ldscore.baseline.parquet`, optional `ldscore.query.parquet`, and
-`ldscore.overlap.parquet` (the long-form annotation overlap matrix). The LD-score
+`ldscore.baseline.parquet`, optional `ldscore.query.parquet`, and an optional
+`ldscore.overlap.parquet` (the long-form annotation overlap matrix, written only
+for runs with two or more annotation columns). The LD-score
 parquet files stay flat for compatibility, but are written with one row group per
 chromosome; root `metadata.json` records row-group layout and per-chromosome
 offsets for chromosome-scoped reads. For h2, it owns root `h2.tsv` plus diagnostic

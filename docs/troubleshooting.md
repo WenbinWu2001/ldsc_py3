@@ -461,5 +461,6 @@ such a directory cannot be partitioned.
    `ldsc ldscore`.
 3. Keep `metadata.json`, the baseline/query parquet, and `ldscore.overlap.parquet`
    from the same run together.
-4. `h2` and `rg` do not need the overlap matrix and run on unpartitioned or older
+4. `h2` and `rg` do not require the overlap matrix (the shared `h2` collinearity
+   guard uses it only when present), so they run on unpartitioned or older
    directories.

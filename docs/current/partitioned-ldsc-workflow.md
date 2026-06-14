@@ -47,7 +47,9 @@ form (`row_annotation`, `col_annotation`, `overlap_all_snps`,
 `overlap_common_snps`). Only the baseline-rows block `A_Bᵀ·A` plus each query's
 self-overlap are stored — enough to reconstruct every baseline-plus-one-query
 model overlap matrix without keeping the full annotation matrix. `partitioned-h2`
-requires this file; `h2` and `rg` ignore it. The common-SNP universe uses
+requires this file; the shared `h2` collinearity guard reads it when present
+(two or more LD-score columns) but does not require it; `rg` ignores it. The
+common-SNP universe uses
 `MAF >= common_maf_min` (inclusive), matching the `.M_5_50`-style common counts.
 
 All paths inside the metadata are relative to `ldscore_dir`.

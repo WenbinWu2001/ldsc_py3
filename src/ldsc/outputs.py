@@ -3,7 +3,9 @@
 The public LD-score workflow writes one canonical result directory containing
 ``metadata.json``, ``ldscore.baseline.parquet``, an optional
 ``ldscore.query.parquet``, and an optional ``ldscore.overlap.parquet`` (the
-annotation overlap matrix consumed by partitioned-h2). The overlap sidecar is
+annotation overlap matrix required by partitioned-h2's overlap-aware category
+tables and read by the shared h2 collinearity guard when there are two or more
+LD-score columns; ``rg`` does not use it). The overlap sidecar is
 written only when the run has two or more annotation columns; an unpartitioned
 single-annotation run (e.g. the synthetic ``base``) omits it because the matrix
 would collapse to a SNP count already in ``metadata.json``. Run identity comes

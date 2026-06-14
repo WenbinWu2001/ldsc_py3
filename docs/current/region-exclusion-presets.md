@@ -22,6 +22,12 @@ Single-choice enum; **default `mhc-and-centromeres`** (exclusion is ON by defaul
 - There is an additional option not exposed publicly:`centromeres_core` (raw centromere assembly gap, UCSC `gap`/`centromeres` tracks); it is bookkeeping-only and loadable via the Python API (e.g. `exclude_regions=("centromeres_core",)`). We consider keeping only one of `centromeres` and `centromeres_core`.
 - All three presets are regenerable with `python tools/regions/build_region_beds.py` (a dev-only tool; not shipped). The genetic maps are a curation-time input (workspace `resources/genetic_maps/genetic_map_alkesgroup/`, overridable via `LDSC_GENETIC_MAP_DIR`), not bundled in the package.
 
+## Command scope (which commands honor `--exclude-regions`)
+
+`--exclude-regions` is a per-command flag on **`build-ref-panel` and `ldscore`**. When you pass it there, those SNPs are dropped from the reference panel and (therefore) from LD scores and the regression weights. The regression commands (`h2`/`rg`/`partitioned-h2`) have **no** `--exclude-regions` flag — they **inherit** the exclusion baked into the LD-score directory they read. `munge-sumstats` never excludes regions.
+
+Note: because regression inherits rather than enforces exclusion, region masking must be applied upstream (at `build-ref-panel` or `ldscore`); there is no late escape hatch on the regression side. Whether MHC/centromeres were excluded is a property of the LD-score artifact, recorded in its `manifest.json`/metadata, not the `h2` command line.
+
 ## Source of the coordinates
 
 - **`mhc` (both builds `chr6:25–35 Mb`)** — the conventional broad MHC exclusion window used in GWAS / LD-score work (e.g., supplement of cross-trait ldsc paper). Manually pinned constants, same for hg19 and hg38.

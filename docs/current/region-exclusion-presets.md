@@ -6,6 +6,8 @@
 
 A SNP at 1-based position `p` is excluded iff `start < p <= end` for some packaged BED interval `[start, end)` (0-based half-open). Exclusion is applied before LD-score computation / reference-panel R2 emission.
 
+Region coordinates are stored in `src/ldsc/data/regions/` as standard UCSC BED3 files, with two cosmetic deviations. Each is tab-separated with three columns—`chrom`, `chromStart`, `chromEnd`—using the UCSC 0-based, half-open convention (start inclusive, end exclusive), as the header comments note. The deviations: (1) chromosomes omit the `chr` prefix (`1`, `6` rather than `chr1`, `chr6`), matching the GRCh-style naming of the underlying GWAS/genetic-map data; and (2) each file opens with a `#` comment line documenting provenance and coordinate system—tolerated by tools like bedtools, but not part of the formal UCSC spec (which reserves `track`/`browser` lines for headers).
+
 ## CLI choices (`--exclude-regions`)
 
 Single-choice enum; **default `mhc-and-centromeres`** (exclusion is ON by default; `none` opts out).

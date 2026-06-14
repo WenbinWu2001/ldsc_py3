@@ -284,7 +284,7 @@ class QueryR2DirectoryWriter:
             label="query-r2 output artifact",
         )
         diagnostics_dir.mkdir(parents=True, exist_ok=True)
-        _atomic_write_dataframe(result, result_path)
+        _atomic_write_dataframe(result, result_path, na_rep="NaN")
         _atomic_write_json(
             _result_metadata(metadata, artifact_type="query_r2_result", files={"result": "query_r2.tsv"}),
             metadata_path,

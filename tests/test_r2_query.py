@@ -408,6 +408,28 @@ class TestQueryR2CLI:
             cli_main(self._argv(tmp_path, pairs_path, "--out", str(tmp_path / "x.tsv")))
 
 
+class TestQueryR2Writer:
+    def test_writes_nan_literal_for_missing_values(self, tmp_path):
+        # Missing numeric r2/r render as the explicit literal "NaN", consistent
+        # with the other result writers; the string `status` "" marker is unaffected.
+        from ldsc.outputs import QueryR2DirectoryWriter, QueryR2OutputConfig
+
+        result = pd.DataFrame(
+            {
+                "r2": [0.64, float("nan")],
+                "sign": ["+", "NA"],
+                "r": [0.8, float("nan")],
+                "status": ["", "not_found"],
+            }
+        )
+        out_dir = tmp_path / "result"
+        QueryR2DirectoryWriter().write(
+            result, QueryR2OutputConfig(output_dir=out_dir), metadata={}
+        )
+        text = (out_dir / "query_r2.tsv").read_text(encoding="utf-8")
+        assert "NaN" in text
+
+
 class TestPackageExports:
     def test_public_symbols_importable_from_ldsc(self):
         import ldsc

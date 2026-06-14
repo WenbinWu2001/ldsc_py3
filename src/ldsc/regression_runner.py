@@ -1805,6 +1805,90 @@ def _log_partitioned_h2_regime(ldscore_result: LDScoreResult, has_queries: bool)
         )
 
 
+def _log_effective_regression_identity(
+    sumstats_tables: Sequence[SumstatsTable],
+    ldscore_result: LDScoreResult,
+    runner_config: GlobalConfig,
+    regression_config: RegressionConfig,
+) -> None:
+    """Log the SNP-identity mode regression will actually use, and its source.
+
+    The GlobalConfig banner reports ``snp_identifier`` as a CLI-level default.
+    Regression instead derives the effective mode from each input artifact's
+    recorded provenance and only falls back to that default when an artifact
+    omits it. This line names the resolved mode, the per-input sources, and any
+    allele-awareness downgrade so the banner default is not mistaken for the
+    mode in force. It is informational only: incompatible inputs are left for
+    the estimation step to reject with its authoritative error.
+    """
+    default_mode = normalize_snp_identifier_mode(runner_config.snp_identifier)
+    used_default = False
+
+    def describe(label: str, snapshot: GlobalConfig | None) -> tuple[str, str]:
+        nonlocal used_default
+        recorded = _snapshot_identity_mode(snapshot)
+        if recorded is None:
+            used_default = True
+            return default_mode, f"{label}={default_mode} (no provenance recorded; using GlobalConfig default)"
+        return recorded, f"{label}={recorded} (from provenance)"
+
+    modes: list[str] = []
+    sources: list[str] = []
+    ld_mode, ld_source = describe("LD-score", ldscore_result.config_snapshot)
+    modes.append(ld_mode)
+    sources.append(ld_source)
+    for table in sumstats_tables:
+        mode, source = describe(_trait_label(table), table.config_snapshot)
+        modes.append(mode)
+        sources.append(source)
+
+    effective = modes[0]
+    downgrade = False
+    try:
+        for mode in modes[1:]:
+            compat = resolve_regression_identity_mode(
+                effective, mode, allow_identity_downgrade=regression_config.allow_identity_downgrade
+            )
+            effective = compat.effective_mode
+            downgrade = downgrade or compat.downgrade_applied
+    except LDSCUsageError:
+        # Inputs are incompatible; the estimation step raises the authoritative
+        # error. Still surface per-input modes so the conflict is visible early.
+        LOGGER.info(
+            "Regression SNP identifier could not be resolved: the inputs disagree. "
+            "Per-input modes: %s. The GlobalConfig snp_identifier %r shown above is "
+            "applied only to inputs that have no recorded provenance.",
+            "; ".join(sources),
+            default_mode,
+        )
+        return
+
+    # The GlobalConfig snp_identifier in the banner above is only a fallback. State
+    # plainly whether it was used at all, so it is never mistaken for the mode in force.
+    if used_default:
+        default_clause = (
+            f"The GlobalConfig snp_identifier {default_mode!r} shown above was used only as a "
+            f"fallback for inputs without recorded provenance"
+        )
+    else:
+        default_clause = (
+            f"The GlobalConfig snp_identifier {default_mode!r} shown above was NOT used; "
+            f"this mode comes entirely from input provenance"
+        )
+    downgrade_clause = (
+        " An allele-awareness downgrade was applied to reach this shared base mode."
+        if downgrade
+        else ""
+    )
+    LOGGER.info(
+        "SNP identifier used for this regression: %s.%s %s. Per-input modes: %s.",
+        effective,
+        downgrade_clause,
+        default_clause,
+        "; ".join(sources),
+    )
+
+
 def _raise_on_model_collinearity(dataset: RegressionDataset, x: np.ndarray) -> None:
     """Abort the fit when the LD-score design matrix is near-collinear.
 
@@ -2031,6 +2115,7 @@ def run_h2_from_args(args):
         LOGGER.info(f"Starting h2 regression for '{args.sumstats_file}' using LD-score directory '{args.ldscore_dir}'.")
         sumstats_table = _load_sumstats_table(args.sumstats_file, getattr(args, "trait_name", None))
         ldscore_result = load_ldscore_from_dir(args.ldscore_dir)
+        _log_effective_regression_identity([sumstats_table], ldscore_result, runner.global_config, config)
         with suppress_global_config_banner():
             dataset = runner.build_dataset(sumstats_table, ldscore_result, config=config)
         hsq = runner.estimate_h2(dataset, config=config)
@@ -2098,6 +2183,7 @@ def run_partitioned_h2_from_args(args):
             query_columns=_validate_partitioned_query_columns(ldscore_result, ldscore_result.query_columns)
         )
         has_queries = bool(ldscore_result.query_columns)
+        _log_effective_regression_identity([sumstats_table], ldscore_result, runner.global_config, config)
         _log_partitioned_h2_regime(ldscore_result, has_queries)
         with suppress_global_config_banner():
             result = runner.estimate_partitioned_h2_batch(
@@ -2245,6 +2331,7 @@ def run_rg_from_args(args):
             )
         anchor_index = _resolve_anchor_index(getattr(args, "anchor_trait", None), sumstats_paths, sumstats_tables)
         ldscore_result = load_ldscore_from_dir(args.ldscore_dir)
+        _log_effective_regression_identity(sumstats_tables, ldscore_result, runner.global_config, config)
         with suppress_global_config_banner():
             result = runner.estimate_rg_pairs(
                 sumstats_tables,

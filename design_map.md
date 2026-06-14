@@ -79,6 +79,17 @@ contracts move.
 | `docs/superpowers/specs/2026-05-09-batch-rg-design.md` | final multi-trait rg design decisions and output schemas |
 | `docs/superpowers/plans/2026-05-09-batch-rg-implementation-plan.md` | implemented rg refactor checklist and verification plan |
 
+## Overlap-Aware Partitioned Heritability
+
+| Design document | Implementation |
+| --- | --- |
+| `docs/superpowers/specs/2026-06-11-overlap-aware-partitioned-h2-design.md` | overlap matrix math, `A_Bᵀ·A` baseline-rows block reuse, parquet-sidecar storage, two regimes, strict common-MAF filter, continuous-annotation handling |
+| `docs/superpowers/plans/2026-06-11-overlap-aware-partitioned-h2-plan.md` | TDD implementation checklist for the overlap-aware partitioned-h2 feature |
+| `docs/current/partitioned-ldsc-workflow.md` | `ldscore.overlap.parquet` artifact, `overlap_config`, two-regime `partitioned-h2`, single output schema, regime banner/metadata |
+| overlap computation | `src/ldsc/_kernel/overlap.py` (`OverlapContribution`, `compute_overlap`, `sum_overlap_contributions`); attached in `_kernel/ldscore.py` and aggregated in `ldscore_calculator.py` |
+| overlap container, serde, assembly, summary math, collinearity hard error | `src/ldsc/overlap_matrix.py` (`LDScoreOverlap`, `overlap_to_long_frame`/`overlap_from_long_frame`, `assemble_model_overlap`, `overlap_aware_category_table`, `model_collinearity_error`) |
+| sidecar write/load + overlap-aware regimes/sort/banner | `outputs.py` (`LDScoreDirectoryWriter`, `PARTITIONED_H2_COLUMNS`), `regression_runner.py` (`summarize_partitioned_h2`, `estimate_partitioned_h2_batch`, `_resolve_summary_sort`, `_log_partitioned_h2_regime`, `load_ldscore_from_dir`) |
+
 ## Regression Tutorials
 
 | Tutorial | Covered implementation path |
@@ -100,7 +111,7 @@ contracts move.
 
 | Design document | Implementation |
 | --- | --- |
-| `docs/superpowers/specs/2026-06-06-ref-panel-r2-query-design.md` | public surface `src/ldsc/r2_query.py`: `R2Panel` handle (`open`, lazy `_chrom_state`, `_resolve_endpoint`, `query_pairs`), one-shot `query_r2`, pure `unbiased_r2_to_pearson_r`, and `build_parser`/`run_query_r2_from_args`/`main`; `query-r2` registration + dispatch in `src/ldsc/cli.py`; exports in `src/ldsc/__init__.py` |
+| `docs/superpowers/specs/2026-06-06-ref-panel-r2-query-design.md` | public surface `src/ldsc/r2_query.py`: `R2Panel` handle (`open`, lazy `_chrom_state`, `_resolve_endpoint`, `query_pairs`), one-shot `query_r2`, pure `unbiased_r2_to_pearson_r`, and `build_parser`/`run_query_r2_from_args`/`main`; canonical `--output-dir` result directory via `_write_query_r2_directory`/`_query_r2_metadata` with `QueryR2DirectoryWriter`/`QueryR2OutputConfig` in `src/ldsc/outputs.py` (stdout fallback when omitted); `query-r2` registration + dispatch in `src/ldsc/cli.py`; exports in `src/ldsc/__init__.py` |
 | `docs/superpowers/specs/2026-06-06-ref-panel-r2-query-design.md` | point-lookup kernel `src/ldsc/_kernel/r2_query.py`: `lookup_pairs_in_parquet` (int64-key match, random-access row-group pruning vs. streaming, int16→float32 dequant), `_prune_row_groups`, `_arrow_to_numpy` |
 | `docs/superpowers/plans/2026-06-06-ref-panel-r2-query-plan.md` | TDD checklist and the binding-valid panel fixture `build_test_panel` in `tests/test_r2_query.py` |
 | `docs/current/ref-panel-r2-query.md` | user-facing API + `ldsc query-r2` CLI reference (input columns, output schema, status vocabulary, sign rule, strategies) |
@@ -120,3 +131,13 @@ contracts move.
 | --- | --- |
 | `docs/superpowers/specs/2026-06-05-ldscore-chromosome-parallelism-design.md` | single-machine cross-chromosome process-pool parallelism via one `LDScoreConfig.threads` knob / `--threads` flag (joblib `n_jobs`: `1`=sequential default, `-1`=all cores, `-2`=all but one), affinity-aware core detection (`_available_cpu_count` via `os.sched_getaffinity`), `_resolve_worker_count`, `LDScoreCalculator._run_chromosomes` (inline vs spawn `ProcessPoolExecutor`), module-level `_compute_one_chromosome` worker, `_ChromOutcome`, `_init_worker` BLAS-thread guard, deterministic chromosome-ordered aggregation. Output contract unchanged. All in `src/ldsc/ldscore_calculator.py` |
 | `docs/superpowers/plans/2026-06-05-ldscore-chromosome-parallelism-plan.md` | TDD implementation checklist and the two-chromosome canonical index-panel fixture in `tests/test_ldscore_parallelism.py` |
+
+## CM/MAF Source-of-Truth Across LD-Score Backends
+
+| Design document | Implementation |
+| --- | --- |
+| `docs/superpowers/specs/2026-06-11-cm-maf-source-of-truth-design.md` | Population-agnostic annotation contract: `AnnotationBuilder.parse_annotation_file` and kernel `parse_annotation_file` (`src/ldsc/annotation_builder.py`, `src/ldsc/_kernel/ldscore.py`) — optional `CM`→NaN placeholder, `MAF` not carried, `SNP` required only in rsID modes; BED-projection dead `CM` removed (`_BaselineRow` in `src/ldsc/_kernel/annotation.py`); `_merge_missing_metadata` backfills only `A1`/`A2`; `_write_bundle_query_as_annot_files` writes empty `CM`, no `MAF` |
+| `docs/superpowers/specs/2026-06-11-cm-maf-source-of-truth-design.md` | Reference panel authoritative: `merge_frequency_metadata` (sidecar overwrite), `require_reference_maf`, `assert_cm_usable`, PLINK genetic-map interpolation + empty-chromosome guard in `compute_chrom_from_plink` (`src/ldsc/_kernel/ldscore.py`); unconditional sidecar-`MAF` requirement in `src/ldsc/_kernel/ref_panel.py` |
+| `docs/superpowers/specs/2026-06-11-cm-maf-source-of-truth-design.md` | Workflow wiring: `RefPanelConfig.genetic_map_hg19/hg38_sources`, `LDScoreConfig.export_ref_metadata` (`src/ldsc/config.py`); CLI flags + `_resolve_build_for_ldscore_genetic_map`, `_resolve_ldscore_genetic_map`, `_reference_metadata_sources`, `_write_one_ref_metadata_sidecar`, and `--maf-min`/`genetic_map`/`export_dir` threading (`src/ldsc/ldscore_calculator.py`) |
+| `docs/superpowers/plans/2026-06-11-cm-maf-source-of-truth-plan.md` | TDD task checklist; tests in `tests/test_annotation.py` and `tests/test_ldscore_workflow.py` |
+| `docs/troubleshooting.md#ldscore-unusable-cm-for-ld-wind-cm` | unusable-`CM` error guidance (genetic map / real `.bim` CM / kb-snps remedies) |

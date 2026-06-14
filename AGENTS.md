@@ -43,6 +43,17 @@ source /Users/wenbinwu/miniforge3/etc/profile.d/conda.sh && conda activate ldsc3
   `LDScoreDirectoryWriter`: `manifest.json`, `baseline.parquet`, and optional
   `query.parquet`. Regression consumes that aggregated directory and must not
   recompute LD scores.
+- Canonical output style for any new artifact-writing module: take an
+  `--output-dir` (not a single `--out` file), plus `--overwrite` and
+  `--log-level`. Write the headline result file(s) at the directory root and a
+  `diagnostics/` sidecar holding `metadata.json` (provenance + run summary) and
+  `<command>.log` (workflow audit log via `workflow_logging`). Reuse the shared
+  `*DirectoryWriter` classes in `outputs.py` together with
+  `ensure_output_directory` and `preflight_output_artifact_family`. A command
+  may stream a clean, pipe-able TSV to stdout when `--output-dir` is omitted
+  (e.g. `query-r2`). Exception: a self-describing parquet result embeds
+  provenance in its footer instead of writing `metadata.json` (e.g.
+  `munge-sumstats`).
 - Legacy LDSC formats remain compatibility boundaries, not the public LD-score
   writer layout: annotation workflows read/write `.annot(.gz)`, munging writes
   `.sumstats.gz`, and `_kernel` keeps low-level support for `.l2.ldscore(.gz)`,
@@ -70,6 +81,8 @@ source /Users/wenbinwu/miniforge3/etc/profile.d/conda.sh && conda activate ldsc3
 - After each major change, commit with a meaningful message, or remind the user to commit with a suggested one-line message. Use Conventional Commits: `<type>(<scope>): <description>`. Subject <= 50 chars; body lines <= 72 chars. Body explains *what* and *why*, not *how*. Footer for issue refs (`Fixes #123`) or breaking changes. Common types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`.
 
 - Avoid AI tools name (like Codex, Claude, Grok, Gemini, ...) in code comments or git commit message (including authorship) or PR body.
+
+- Do not use emojis in documents (Markdown docs under `docs/`, design docs, READMEs, etc.). Use plain-text markers instead (e.g., `yes`/`no`, `default`, `Note:`).
 
 - When a significant or recurring mistake occurs (same class of error seen 2+ times, or a non-obvious bug whose fix required real investigation), append an entry to `lessons.md` at the repo root. Each entry: one-line summary, root cause, and the correction. Skip one-off typos and trivial slips. Create `lessons.md` on the first such entry if it does not exist yet.
 

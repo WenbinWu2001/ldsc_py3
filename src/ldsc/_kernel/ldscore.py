@@ -220,6 +220,7 @@ from ..path_resolution import (
 from .._row_alignment import assert_same_snp_rows
 from . import formats as legacy_parse
 from .identifiers import build_snp_id_series, read_snp_restriction_keys
+from .overlap import OverlapContribution, compute_overlap
 from .plink_bed import __GenotypeArrayInMemory__, PlinkBEDFile  # noqa: F401
 from .snp_identity import (
     RestrictionIdentityKeys,
@@ -244,7 +245,7 @@ _LDSCORE_INTERSECTION_DOC = (
 _LDSCORE_PARQUET_DOC = "docs/troubleshooting.md#ldscore-parquet-r2-input-is-incompatible"
 # K: stored R2 pairs buffered before one float64 CSR SpMM step (~0.45 GiB/chunk).
 _CSR_CHUNK_PAIRS = 16_000_000
-REQUIRED_ANNOT_COLUMNS = ("CHR", "POS", "SNP", "CM")
+REQUIRED_ANNOT_COLUMNS = ("CHR", "POS", "SNP")
 ANNOT_META_COLUMNS = ("CHR", "POS", "SNP", "A1", "A2", "CM", "MAF")
 ANNOTATION_A1_COLUMN_SPEC = ColumnSpec(
     A1_COLUMN_SPEC.canonical,
@@ -290,6 +291,7 @@ class ChromComputationResult:
     ldscore_columns: list[str]
     baseline_columns: list[str]
     query_columns: list[str]
+    overlap: OverlapContribution | None = None
 
 
 # Basic configuration and shared helpers.
@@ -359,6 +361,34 @@ def get_block_lefts(coords: np.ndarray, max_dist: float) -> np.ndarray:
 def getBlockLefts(coords, max_dist):
     """Backward-compatible alias for :func:`get_block_lefts`."""
     return get_block_lefts(coords, max_dist)
+
+
+def validate_window_positions_sorted(metadata: pd.DataFrame, chrom: str) -> None:
+    """Tripwire: base-pair positions must be non-decreasing within a chromosome.
+
+    :func:`get_block_lefts` is a forward-only two-pointer scan whose ``coords``
+    must be non-decreasing, or the LD-window blocks are silently wrong. Every
+    caller already supplies coordinate-sorted rows by construction: annotation
+    metadata is sorted in :func:`parse_annotation_file`, and the PLINK path
+    inherits that order through ``keep_snps`` (the ``.bim`` file order is
+    discarded). This guard makes that implicit invariant explicit so a future
+    change that breaks the upstream sort fails loudly here instead of producing
+    wrong LD scores. Position drops across chromosome boundaries are expected
+    (the window is per chromosome) and are not flagged.
+    """
+    pos = pd.to_numeric(metadata["POS"], errors="raise").to_numpy()
+    chrom_vals = metadata["CHR"].to_numpy()
+    same_chrom = chrom_vals[1:] == chrom_vals[:-1]
+    out_of_order = (np.diff(pos) < 0) & same_chrom
+    if out_of_order.any():
+        first = int(np.flatnonzero(out_of_order)[0])
+        raise LDSCInternalError(
+            f"ldscore LD-window construction failed on chromosome {chrom}: reference "
+            f"SNP positions are not in non-decreasing order (POS {int(pos[first + 1])} "
+            f"follows POS {int(pos[first])}). Callers supply coordinate-sorted rows by "
+            "construction, so most likely an upstream sorting step was removed or "
+            "bypassed. Re-run with DEBUG logging and report the traceback."
+        )
 
 
 def block_left_to_right(block_left):
@@ -647,7 +677,9 @@ def parse_annotation_file(path: str, chrom: str | None = None) -> tuple[pd.DataF
     chr_col = resolve_required_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["CHR"], context=context)
     pos_col = resolve_required_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["POS"], context=context)
     snp_col = resolve_required_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["SNP"], context=context)
-    cm_col = resolve_required_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["CM"], context=context)
+    # CM/MAF are population-specific; the reference panel is authoritative. They are
+    # resolved only to exclude them from annotation value columns, never used as values.
+    cm_col = resolve_optional_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["CM"], context=context)
     maf_col = resolve_optional_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["MAF"], context=context)
     a1_col = resolve_optional_column(df.columns, ANNOTATION_A1_COLUMN_SPEC, context=context)
     a2_col = resolve_optional_column(df.columns, ANNOTATION_A2_COLUMN_SPEC, context=context)
@@ -663,18 +695,16 @@ def parse_annotation_file(path: str, chrom: str | None = None) -> tuple[pd.DataF
             "CHR": df[chr_col],
             "POS": df[pos_col],
             "SNP": df[snp_col],
-            "CM": df[cm_col],
         }
     )
     meta["CHR"] = meta["CHR"].map(lambda value: normalize_chromosome(value, context=path))
     meta["POS"] = pd.to_numeric(meta["POS"], errors="raise").astype(np.int64)
     meta["SNP"] = meta["SNP"].astype(str)
-    meta["CM"] = pd.to_numeric(meta["CM"], errors="coerce")
+    # CM is a population-agnostic placeholder (NaN); any input value is discarded.
+    meta["CM"] = np.nan
     if a1_col is not None and a2_col is not None:
         meta["A1"] = df[a1_col]
         meta["A2"] = df[a2_col]
-    if maf_col is not None:
-        meta["MAF"] = pd.to_numeric(df[maf_col], errors="coerce")
 
     if chrom is not None:
         keep = meta["CHR"] == normalize_chromosome(chrom, context=path)
@@ -686,7 +716,6 @@ def parse_annotation_file(path: str, chrom: str | None = None) -> tuple[pd.DataF
     if len(meta) == 0:
         return meta, pd.DataFrame(index=meta.index)
 
-    meta = sort_frame_by_genomic_position(meta)
     metadata_source_columns = {chr_col, pos_col, snp_col, cm_col, maf_col, a1_col, a2_col}
     annotation_columns = [col for col in df.columns if col not in metadata_source_columns]
     if not annotation_columns:
@@ -697,21 +726,14 @@ def parse_annotation_file(path: str, chrom: str | None = None) -> tuple[pd.DataF
             "as metadata aliases. Add at least one annotation column with numeric values."
         )
 
-    sorted_df = df.copy()
-    sorted_df["_CHR"] = sorted_df[chr_col].map(lambda value: normalize_chromosome(value, context=path))
-    sorted_df["_POS"] = pd.to_numeric(sorted_df[pos_col], errors="raise").astype(np.int64)
-    sorted_df["_SNP"] = sorted_df[snp_col].astype(str)
-    sorted_df["_chrom_key"] = sorted_df["_CHR"].map(chrom_sort_key)
-    sorted_df = sorted_df.sort_values(by=["_chrom_key", "_POS", "_SNP"], kind="mergesort").drop(columns="_chrom_key")
-    annotations = sorted_df.loc[:, annotation_columns].astype(np.float32).reset_index(drop=True)
-    meta = meta.reset_index(drop=True)
-    if len(meta) != len(annotations):
-        raise LDSCInternalError(
-            f"LD-score annotation parsing failed for '{path}': metadata and annotation "
-            "lengths diverged after sorting. Most likely an internal sorting step was "
-            "applied inconsistently. Re-run with DEBUG logging and report the traceback."
-        )
-
+    # Sort metadata and annotation values together through the one shared genomic
+    # sort, then split the result. A single permutation keeps the two tables
+    # aligned by construction -- there is no second, hand-rolled sort that could
+    # silently diverge from the metadata order.
+    combined = pd.concat([meta, df.loc[:, annotation_columns].reset_index(drop=True)], axis=1)
+    combined = sort_frame_by_genomic_position(combined)
+    annotations = combined.loc[:, annotation_columns].astype(np.float32).reset_index(drop=True)
+    meta = combined.drop(columns=annotation_columns).reset_index(drop=True)
     return meta, annotations
 
 
@@ -912,15 +934,16 @@ def merge_frequency_metadata(
     identifier_mode: str,
 ) -> pd.DataFrame:
     """
-    Merge optional sidecar ``CM`` and ``MAF`` onto retained SNP metadata.
+    Merge reference-panel sidecar ``CM`` and ``MAF`` onto retained SNP metadata.
 
-    For LD-score calculation, the annotation file's ``CM`` is the first source.
-    The sidecar metadata only fills missing ``CM`` values. ``MAF`` is filled by
-    the same missing-value rule so annotation-provided metadata remains
-    authoritative when present. Frequency sidecars are metadata providers, not
-    SNP filters: when multiple sidecar rows share the active effective identity
-    key, the whole duplicate-key cluster is ignored and a warning is logged, so
-    ``CM``/``MAF`` stay missing unless already supplied by annotation metadata.
+    The reference-panel sidecar is **authoritative** for ``CM`` and ``MAF``: for
+    every SNP the sidecar covers, its ``CM``/``MAF`` overwrite any
+    annotation-provided values. ``CM``/``MAF`` are population-specific and belong
+    to the reference panel, not the annotation. Frequency sidecars are metadata
+    providers, not SNP filters: when multiple sidecar rows share the active
+    effective identity key, the whole duplicate-key cluster is ignored and a
+    warning is logged, so those SNPs keep whatever ``CM``/``MAF`` they already had
+    (typically missing, which `--ld-wind-cm` then rejects).
     """
     files = resolve_frequency_files(args, chrom=chrom)
     if not files:
@@ -942,16 +965,19 @@ def merge_frequency_metadata(
     for key_mode, freq_part in freq_df.groupby("_key_mode", sort=False):
         merged_keys = build_snp_id_series(merged, str(key_mode))
         freq_part = freq_part.set_index("_key")
+        # The reference-panel sidecar is authoritative for CM/MAF: overwrite any
+        # annotation-provided values for every SNP the sidecar covers, so the
+        # reference panel (not the annotation) determines CM and MAF.
         if "CM" in freq_part.columns:
             if "CM" not in merged.columns:
                 merged["CM"] = np.nan
-            missing_cm = merged["CM"].isna() & merged_keys.isin(freq_part.index)
-            merged.loc[missing_cm, "CM"] = freq_part.loc[merged_keys.loc[missing_cm], "CM"].to_numpy()
+            present_cm = merged_keys.isin(freq_part.index)
+            merged.loc[present_cm, "CM"] = freq_part.loc[merged_keys.loc[present_cm], "CM"].to_numpy()
         if "MAF" in freq_part.columns:
             if "MAF" not in merged.columns:
                 merged["MAF"] = np.nan
-            missing_maf = merged["MAF"].isna() & merged_keys.isin(freq_part.index)
-            merged.loc[missing_maf, "MAF"] = freq_part.loc[merged_keys.loc[missing_maf], "MAF"].to_numpy()
+            present_maf = merged_keys.isin(freq_part.index)
+            merged.loc[present_maf, "MAF"] = freq_part.loc[merged_keys.loc[present_maf], "MAF"].to_numpy()
     return merged
 
 
@@ -967,10 +993,10 @@ def apply_maf_filter(
     if "MAF" not in metadata.columns or metadata["MAF"].isna().all():
         LOGGER.warning(f"Cannot apply --maf-min in {context} because MAF metadata is unavailable.")
         return metadata, annotations
-    keep = metadata["MAF"] > maf_min
+    keep = metadata["MAF"] >= maf_min
     removed = int((~keep).sum())
     if removed:
-        LOGGER.info(f"Removed {removed} SNPs with MAF <= {maf_min} in {context}.")
+        LOGGER.info(f"Removed {removed} SNPs with MAF < {maf_min} in {context}.")
     metadata = metadata.loc[keep].reset_index(drop=True)
     annotations = annotations.loc[keep].reset_index(drop=True)
     return metadata, annotations
@@ -999,6 +1025,42 @@ def chromosome_set_from_annotation_inputs(args: argparse.Namespace) -> list[str]
             "chromosome rows."
         )
     return sorted(chromosomes, key=chrom_sort_key)
+
+
+def assert_cm_usable(cm: pd.Series, chrom: str) -> None:
+    """Reject a CM column that cannot order SNPs on a chromosome.
+
+    Unusable means fewer than two distinct finite values (all zero, all identical,
+    or all missing): every SNP collapses to one coordinate, so any positive cM
+    window spans the whole chromosome -- a meaningless result, not an intentional
+    choice. This check is unconditional; ``--yes-really`` does not bypass it.
+    """
+    finite = pd.to_numeric(cm, errors="coerce").dropna().unique()
+    if len(finite) < 2:
+        raise LDSCInputError(
+            f"ldscore cannot use `--ld-wind-cm` on chromosome {chrom}: the reference panel "
+            "CM column is all zero or otherwise uninformative (fewer than two distinct "
+            "values), so it cannot define a genetic-distance window. Provide real "
+            "genetic-map positions: pass a PLINK `.bim` with informative CM, add "
+            "`--genetic-map-hg38-sources` / `--genetic-map-hg19-sources` for the panel's "
+            "build, or use `--ld-wind-kb` / `--ld-wind-snps`. "
+            "See docs/troubleshooting.md#ldscore-unusable-cm-for-ld-wind-cm."
+        )
+
+
+def require_reference_maf(metadata: pd.DataFrame, chrom: str) -> None:
+    """Raise when the reference panel supplies no usable MAF for a chromosome.
+
+    MAF is mandatory: M_5_50 common-SNP counts, the partitioned-h2 common-overlap
+    correction, and any ``--maf-min`` filter are meaningless without it.
+    """
+    if "MAF" not in metadata.columns or metadata["MAF"].isna().all():
+        raise LDSCInputError(
+            f"ldscore requires MAF for the reference panel but none is available on "
+            f"chromosome {chrom}. Most likely a parquet panel was built without allele "
+            "frequencies (sidecar MAF=NA). Rebuild the reference panel with MAF, or use a "
+            "PLINK panel (MAF is computed from genotypes)."
+        )
 
 
 def build_window_coordinates(metadata: pd.DataFrame, args: argparse.Namespace) -> tuple[np.ndarray, float]:
@@ -1560,7 +1622,9 @@ def compute_counts(
 
     ``M`` is the column-wise sum over the retained reference SNP universe.
     The common-count vector is the same sum restricted to rows with
-    ``MAF >= common_maf_min`` when MAF metadata is available.
+    ``MAF >= common_maf_min`` (inclusive; deviates from legacy LDSC's strict
+    ``0.05 < FRQ < 0.95`` on canonical folded MAF) when MAF metadata is
+    available.
     """
     annot_matrix = annotations.to_numpy(dtype=np.float32, copy=False)
     M = np.asarray(annot_matrix.sum(axis=0), dtype=np.float64)
@@ -1628,6 +1692,8 @@ def compute_chrom_from_parquet(
         )
 
     validate_retained_identifier_uniqueness(metadata, args.snp_identifier, chrom)
+    require_reference_maf(metadata, chrom)
+    validate_window_positions_sorted(metadata, chrom)
     coords, max_dist = build_window_coordinates(metadata, args)
     block_left = get_block_lefts(
         coords,
@@ -1667,6 +1733,12 @@ def compute_chrom_from_parquet(
         annotations,
         common_maf_min=getattr(args, "common_maf_min", 0.05),
     )
+    overlap = compute_overlap(
+        out_metadata,
+        annotations,
+        n_baseline=len(bundle.baseline_columns),
+        common_maf_min=getattr(args, "common_maf_min", 0.05),
+    )
     return ChromComputationResult(
         chrom=chrom,
         metadata=out_metadata,
@@ -1677,6 +1749,7 @@ def compute_chrom_from_parquet(
         ldscore_columns=bundle.baseline_columns + bundle.query_columns,
         baseline_columns=bundle.baseline_columns,
         query_columns=bundle.query_columns,
+        overlap=overlap,
     )
 
 
@@ -1779,6 +1852,29 @@ def compute_chrom_from_plink(
 
     annotation_matrix = annotations.set_index(metadata["_key"]).loc[geno_meta["_key"]]
 
+    if len(geno_meta) == 0:
+        raise LDSCInputError(
+            f"ldscore retained no PLINK reference SNPs on chromosome {chrom} after genotype "
+            "filtering. Most likely every candidate SNP is monomorphic, --maf-min is too high, "
+            "or no annotation SNPs overlap the panel. Lower --maf-min, or check the SNP "
+            "overlap and genome build."
+        )
+    require_reference_maf(geno_meta, chrom)
+    if args.ld_wind_cm is not None:
+        genetic_map = getattr(args, "genetic_map", None)
+        if genetic_map is not None:
+            # An explicit genetic map always wins: interpolate CM at the .bim positions
+            # for all chromosomes, ignoring any (often all-zero) .bim CM column.
+            from .ref_panel_builder import interpolate_genetic_map_cm
+
+            geno_meta["CM"] = interpolate_genetic_map_cm(
+                normalize_chromosome(chrom, context=prefix + ".bim"),
+                geno_meta["POS"].to_numpy(dtype=np.int64),
+                genetic_map,
+            )
+        else:
+            assert_cm_usable(geno_meta["CM"], chrom)
+    validate_window_positions_sorted(geno_meta, chrom)
     coords, max_dist = build_window_coordinates(geno_meta.drop(columns="_key"), args)
     block_left = legacy_ld.getBlockLefts(coords, max_dist)
     check_whole_chromosome_window(block_left, args, chrom)
@@ -1793,6 +1889,12 @@ def compute_chrom_from_plink(
         annotation_matrix.reset_index(drop=True),
         common_maf_min=getattr(args, "common_maf_min", 0.05),
     )
+    overlap = compute_overlap(
+        out_metadata,
+        annotation_matrix.reset_index(drop=True),
+        n_baseline=len(bundle.baseline_columns),
+        common_maf_min=getattr(args, "common_maf_min", 0.05),
+    )
     return ChromComputationResult(
         chrom=chrom,
         metadata=out_metadata,
@@ -1803,6 +1905,7 @@ def compute_chrom_from_plink(
         ldscore_columns=bundle.baseline_columns + bundle.query_columns,
         baseline_columns=bundle.baseline_columns,
         query_columns=bundle.query_columns,
+        overlap=overlap,
     )
 
 

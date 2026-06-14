@@ -30,10 +30,17 @@ Output directories stay literal; only input fields are expanded.
 SNP restriction files used for the reference-panel or regression universes are
 identity-only filters. Duplicate restriction keys collapse to one retained key,
 and non-identity columns such as `CM` or `MAF` are ignored rather than carried
-into LD-score metadata. Optional frequency metadata inputs fill missing
-`CM`/`MAF`; when a frequency file has duplicate effective SNP identity keys, the
-whole duplicate cluster is dropped with a warning, leaving those metadata values
-missing unless annotation metadata already supplied them.
+into LD-score metadata.
+
+`CM` and `MAF` are population-specific and always come from the **reference
+panel**, never the annotation: annotation `CM`/`MAF` are ignored. For the parquet
+backend the `chr*_meta.tsv.gz` sidecar is authoritative; for the PLINK backend
+`CM` comes from the `.bim` (or an interpolated genetic map via
+`--genetic-map-hg19-sources` / `--genetic-map-hg38-sources`) and `MAF` from the
+genotypes. `--ld-wind-cm` requires usable reference-panel `CM`; an all-zero /
+constant / missing `CM` raises a dedicated error (not bypassable by
+`--yes-really`). `--maf-min` (inclusive `MAF >= maf_min`) applies in both
+backends.
 
 Resolution behavior:
 

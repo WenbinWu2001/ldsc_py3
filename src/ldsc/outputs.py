@@ -1,8 +1,15 @@
 """Output writers for the refactored LDSC workflows.
 
 The public LD-score workflow writes one canonical result directory containing
-``metadata.json``, ``ldscore.baseline.parquet``, and optional
-``ldscore.query.parquet``. Run identity comes from the chosen directory name;
+``metadata.json``, ``ldscore.baseline.parquet``, an optional
+``ldscore.query.parquet``, and an optional ``ldscore.overlap.parquet`` (the
+annotation overlap matrix required by partitioned-h2's overlap-aware category
+tables and read by the shared h2 collinearity guard when there are two or more
+LD-score columns; ``rg`` does not use it). The overlap sidecar is
+written only when the run has two or more annotation columns; an unpartitioned
+single-annotation run (e.g. the synthetic ``base``) omits it because the matrix
+would collapse to a SNP count already in ``metadata.json``. Run identity comes
+from the chosen directory name;
 output filenames inside that directory are fixed. The parquet payloads are
 written with one row group per chromosome and matching metadata so
 downstream readers can load a single chromosome without scanning the whole
@@ -15,10 +22,10 @@ metadata emitted by this module is diagnostic provenance and is written below
 ``diagnostics/`` without legacy top-level ``format`` discriminators.
 
 Partitioned-h2 regression summaries use the same directory-oriented output
-policy. ``PartitionedH2DirectoryWriter`` always writes the compact aggregate
-``partitioned_h2.tsv`` and can optionally stage a per-query
-``diagnostics/query_annotations`` tree with ``manifest.tsv``, one-row
-``partitioned_h2.tsv`` summaries, full ``partitioned_h2_full.tsv`` category
+policy. ``PartitionedH2DirectoryWriter`` writes the aggregate ``partitioned_h2.tsv``
+(one ``PARTITIONED_H2_COLUMNS`` schema for both regimes) and can optionally stage a
+per-query ``diagnostics/query_annotations`` tree with ``manifest.tsv``, one-row
+``partitioned_h2.tsv`` summaries, full ``partitioned_h2_full.tsv`` model
 tables, and ``metadata.json`` files before moving it into place. ``RgDirectoryWriter``
 uses the same whole-tree staging and replacement policy for optional
 ``diagnostics/pairs`` details.
@@ -94,28 +101,32 @@ DEFAULT_COUNT_CONFIG = {
     "common_reference_snp_maf_min": 0.05,
     "common_reference_snp_maf_operator": ">=",
 }
-PARTITIONED_H2_AGGREGATE_COLUMNS = [
-    "Category",
-    "Prop._SNPs",
-    "Prop._h2",
-    "Enrichment",
-    "Enrichment_p",
-    "Coefficient",
-    "Coefficient_p",
-]
-PARTITIONED_H2_FULL_COLUMNS = [
-    "Category",
-    "Prop._SNPs",
-    "Category_h2",
-    "Category_h2_std_error",
-    "Prop._h2",
-    "Prop._h2_std_error",
-    "Enrichment",
-    "Enrichment_std_error",
-    "Enrichment_p",
-    "Coefficient",
-    "Coefficient_std_error",
-    "Coefficient_p",
+# Single partitioned-h2 schema for both regimes. The functional regime fills it
+# with one row per baseline category; the cell-type regime fills it with one row
+# per query annotation. Differs only in rows and default sort, never in columns.
+PARTITIONED_H2_COLUMNS = [
+    "category",
+    "prop_snps",
+    "prop_h2",
+    "prop_h2_se",
+    "enrichment",
+    "enrichment_se",
+    "enrichment_p",
+    "coefficient",
+    "coefficient_se",
+    "coefficient_z",
+    "coefficient_p",
+    "overlap_annot",
+    "total_h2_obs",
+    "total_h2_obs_se",
+    "total_h2_liab",
+    "total_h2_liab_se",
+    "category_h2_obs",
+    "category_h2_obs_se",
+    "category_h2_liab",
+    "category_h2_liab_se",
+    "samp_prev",
+    "pop_prev",
 ]
 RG_CONCISE_COLUMNS = [
     "trait_1",
@@ -124,7 +135,6 @@ RG_CONCISE_COLUMNS = [
     "rg",
     "rg_se",
     "p",
-    "p_fdr_bh",
     "note",
 ]
 RG_FULL_COLUMNS = [
@@ -135,14 +145,22 @@ RG_FULL_COLUMNS = [
     "rg_se",
     "z",
     "p",
-    "p_fdr_bh",
-    "p_bonferroni",
-    "h2_1",
-    "h2_1_se",
-    "h2_2",
-    "h2_2_se",
-    "gencov",
-    "gencov_se",
+    "h2_1_obs",
+    "h2_1_obs_se",
+    "h2_1_liab",
+    "h2_1_liab_se",
+    "h2_2_obs",
+    "h2_2_obs_se",
+    "h2_2_liab",
+    "h2_2_liab_se",
+    "gencov_obs",
+    "gencov_obs_se",
+    "gencov_liab",
+    "gencov_liab_se",
+    "samp_prev_1",
+    "pop_prev_1",
+    "samp_prev_2",
+    "pop_prev_2",
     "intercept_h2_1",
     "intercept_h2_1_se",
     "intercept_h2_2",
@@ -209,13 +227,70 @@ class H2DirectoryWriter:
             label="h2 output artifact",
         )
         diagnostics_dir.mkdir(parents=True, exist_ok=True)
-        _atomic_write_dataframe(summary, summary_path)
+        _atomic_write_dataframe(summary, summary_path, na_rep="NaN")
         _atomic_write_json(
             _result_metadata(metadata, artifact_type="h2_result", files={"summary": "h2.tsv"}),
             metadata_path,
         )
         return {
             "summary": str(summary_path),
+            "metadata": str(metadata_path),
+        }
+
+
+@dataclass(frozen=True)
+class QueryR2OutputConfig:
+    """Directory-oriented output config for query-r2 pair results.
+
+    Parameters
+    ----------
+    output_dir : str or os.PathLike[str]
+        Directory that receives ``query_r2.tsv`` and ``diagnostics/metadata.json``.
+    overwrite : bool, optional
+        If ``True``, replace existing query-r2 outputs. Default is ``False``.
+    """
+
+    output_dir: str | PathLike[str]
+    overwrite: bool = False
+
+    def __post_init__(self) -> None:
+        """Normalize the output directory."""
+        object.__setattr__(self, "output_dir", _normalize_required_path(self.output_dir))
+
+
+class QueryR2DirectoryWriter:
+    """Write the query-r2 pair table and its diagnostic metadata sidecar."""
+
+    def write(
+        self,
+        result: pd.DataFrame,
+        output_config: QueryR2OutputConfig,
+        *,
+        metadata: dict[str, object],
+    ) -> dict[str, str]:
+        """Write ``query_r2.tsv`` and ``diagnostics/metadata.json`` to a result directory.
+
+        Existing fixed query-r2 artifacts are checked before any output file is
+        written. Replacement requires ``output_config.overwrite=True``.
+        """
+        output_dir = ensure_output_directory(output_config.output_dir, label="output directory")
+        result_path = output_dir / "query_r2.tsv"
+        diagnostics_dir = output_dir / "diagnostics"
+        metadata_path = diagnostics_dir / "metadata.json"
+        preflight_output_artifact_family(
+            [result_path, metadata_path],
+            [result_path, metadata_path],
+            overwrite=output_config.overwrite,
+            label="query-r2 output artifact",
+        )
+        diagnostics_dir.mkdir(parents=True, exist_ok=True)
+        _atomic_write_dataframe(result, result_path, na_rep="NaN")
+        _atomic_write_json(
+            _result_metadata(metadata, artifact_type="query_r2_result", files={"result": "query_r2.tsv"}),
+            metadata_path,
+        )
+        return {
+            "result": str(result_path),
             "metadata": str(metadata_path),
         }
 
@@ -284,12 +359,15 @@ class LDScoreDirectoryWriter:
             )
         self._validate_tables(result)
 
+        overlap = getattr(result, "overlap", None)
         paths = {
             "metadata": output_dir / "metadata.json",
             "baseline": output_dir / "ldscore.baseline.parquet",
         }
         if query_table is not None:
             paths["query"] = output_dir / "ldscore.query.parquet"
+        if overlap is not None:
+            paths["overlap"] = output_dir / "ldscore.overlap.parquet"
         stale_paths = preflight_output_artifact_family(
             paths.values(),
             _ldscore_output_family(output_dir),
@@ -302,6 +380,9 @@ class LDScoreDirectoryWriter:
         query_rg = None
         if query_table is not None:
             query_rg = _write_chromosome_aligned_parquet(query_table, paths["query"], compression)
+        if overlap is not None:
+            from .overlap_matrix import overlap_to_long_frame
+            overlap_to_long_frame(overlap).to_parquet(paths["overlap"], index=False)
         metadata = self.build_metadata(
             result,
             files={name: path.name for name, path in paths.items() if name != "metadata"},
@@ -342,6 +423,20 @@ class LDScoreDirectoryWriter:
             genome_build=getattr(config_snapshot, "genome_build", None),
         )
         chromosomes = baseline_table["CHR"].astype(str).drop_duplicates().tolist()
+        overlap = getattr(result, "overlap", None)
+        overlap_config = None
+        if overlap is not None:
+            count_config = dict(getattr(result, "count_config", None) or {})
+            overlap_config = {
+                "total_all_reference_snps": float(overlap.total_all_reference_snps),
+                "total_common_reference_snps": (
+                    None if overlap.total_common_reference_snps is None
+                    else float(overlap.total_common_reference_snps)
+                ),
+                "common_maf_min": float(count_config.get("common_reference_snp_maf_min", 0.05)),
+                "common_maf_operator": ">=",
+                "stored_block": "baseline_rows_plus_query_diagonal",
+            }
         return {
             **identity_metadata,
             "files": dict(files),
@@ -350,6 +445,7 @@ class LDScoreDirectoryWriter:
             "query_columns": list(getattr(result, "query_columns", [])),
             "counts": list(getattr(result, "count_records", [])),
             "count_config": dict(getattr(result, "count_config", None) or DEFAULT_COUNT_CONFIG),
+            "overlap_config": overlap_config,
             "n_baseline_rows": int(len(baseline_table)),
             "n_query_rows": 0 if query_table is None else int(len(query_table)),
             "row_group_layout": "one_per_chromosome",
@@ -506,13 +602,13 @@ class PartitionedH2DirectoryWriter:
         ----------
         summary : pandas.DataFrame
             Aggregate partitioned-h2 table with the compact public columns in
-            ``PARTITIONED_H2_AGGREGATE_COLUMNS``.
+            ``PARTITIONED_H2_COLUMNS``.
         output_config : PartitionedH2OutputConfig
             Output directory, overwrite policy, and per-query mode.
         per_query_category_tables : dict of str to pandas.DataFrame, optional
             Optional full baseline-plus-query category tables keyed by
             original query annotation name. Tables must follow
-            ``PARTITIONED_H2_FULL_COLUMNS``; missing keys write empty
+            ``PARTITIONED_H2_COLUMNS``; missing keys write empty
             ``partitioned_h2_full.tsv`` files.
         metadata : dict, optional
             Run-level metadata copied into every per-query ``metadata.json``.
@@ -557,8 +653,9 @@ class PartitionedH2DirectoryWriter:
         diagnostics_dir.mkdir(parents=True, exist_ok=True)
         if not output_config.write_per_query_results:
             _atomic_write_dataframe(
-                _select_columns(summary, PARTITIONED_H2_AGGREGATE_COLUMNS, label="partitioned-h2 summary"),
+                _select_columns(summary, PARTITIONED_H2_COLUMNS, label="partitioned-h2 summary"),
                 summary_path,
+                na_rep="NaN",
             )
             _atomic_write_json(
                 _result_metadata(metadata, artifact_type="partitioned_h2_result", files=root_files),
@@ -579,10 +676,11 @@ class PartitionedH2DirectoryWriter:
                 metadata or {},
                 per_query_metadata or {},
             )
-            _atomic_write_dataframe(pd.DataFrame(manifest_rows), staging_dir / "manifest.tsv")
+            _atomic_write_dataframe(pd.DataFrame(manifest_rows), staging_dir / "manifest.tsv", na_rep="NaN")
             _atomic_write_dataframe(
-                _select_columns(summary, PARTITIONED_H2_AGGREGATE_COLUMNS, label="partitioned-h2 summary"),
+                _select_columns(summary, PARTITIONED_H2_COLUMNS, label="partitioned-h2 summary"),
                 summary_path,
+                na_rep="NaN",
             )
             _atomic_write_json(
                 _result_metadata(metadata, artifact_type="partitioned_h2_result", files=root_files),
@@ -610,10 +708,10 @@ class PartitionedH2DirectoryWriter:
 
     def _validate_summary(self, summary: pd.DataFrame) -> None:
         """Validate the aggregate summary before writing any final files."""
-        if "Category" not in summary.columns:
+        if "category" not in summary.columns:
             raise LDSCInternalError(
                 "partitioned-h2 output writer could not validate the aggregate summary because the required "
-                "'Category' column is missing. Most likely the regression workflow returned a result table with "
+                "'category' column is missing. Most likely the regression workflow returned a result table with "
                 "the wrong schema. Re-run with DEBUG logging and report the traceback."
             )
 
@@ -621,7 +719,7 @@ class PartitionedH2DirectoryWriter:
         """Return ordered query records with deterministic safe folder names."""
         records: list[dict[str, object]] = []
         width = max(4, len(str(len(summary))))
-        for idx, query_name in enumerate(summary["Category"].astype(str).tolist(), start=1):
+        for idx, query_name in enumerate(summary["category"].astype(str).tolist(), start=1):
             slug = _slugify_query_name(query_name)
             folder = f"{idx:0{width}d}_{slug}"
             records.append(
@@ -650,20 +748,22 @@ class PartitionedH2DirectoryWriter:
             folder = str(record["folder"])
             query_dir = staging_dir / folder
             query_dir.mkdir(parents=True, exist_ok=False)
-            query_summary = summary.loc[summary["Category"].astype(str) == query_name].reset_index(drop=True)
+            query_summary = summary.loc[summary["category"].astype(str) == query_name].reset_index(drop=True)
             summary_rel = f"diagnostics/query_annotations/{folder}/partitioned_h2.tsv"
             full_rel = f"diagnostics/query_annotations/{folder}/partitioned_h2_full.tsv"
             metadata_rel = f"diagnostics/query_annotations/{folder}/metadata.json"
             _atomic_write_dataframe(
-                _select_columns(query_summary, PARTITIONED_H2_AGGREGATE_COLUMNS, label="query summary"),
+                _select_columns(query_summary, PARTITIONED_H2_COLUMNS, label="query summary"),
                 query_dir / "partitioned_h2.tsv",
+                na_rep="NaN",
             )
             category_table = per_query_category_tables.get(query_name)
             if category_table is None:
                 category_table = pd.DataFrame()
             _atomic_write_dataframe(
-                _select_columns(category_table, PARTITIONED_H2_FULL_COLUMNS, label="full partitioned-h2 summary"),
+                _select_columns(category_table, PARTITIONED_H2_COLUMNS, label="full partitioned-h2 summary"),
                 query_dir / "partitioned_h2_full.tsv",
+                na_rep="NaN",
             )
             payload = {
                 **metadata,
@@ -897,6 +997,7 @@ def _ldscore_output_family(output_dir: Path) -> list[Path]:
         output_dir / "metadata.json",
         output_dir / "ldscore.baseline.parquet",
         output_dir / "ldscore.query.parquet",
+        output_dir / "ldscore.overlap.parquet",
     ]
 
 

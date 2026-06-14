@@ -1,2 +1,2 @@
-# MHC broad exclusion window, hg19 (chr6:25-35Mb), pinned constant; 0-based half-open
+# MHC broad GWAS exclusion window, hg19 chr6:25-35Mb, pinned; active 'mhc' exclusion; 0-based half-open
 6	25000000	35000000

@@ -599,7 +599,7 @@ Expected: `R2 dtype: int16`, encodings include `BYTE_STREAM_SPLIT`, `scale meta:
 
 - [ ] **Step 3: Update the design status table**
 
-In `docs/superpowers/specs/2026-06-01-build-ref-panel-memory-optimization-design.md`, change refactor #11 status from `🔜 planned` to `✅ implemented` with the merge commit once merged. (Do this on `restructure` after merge, not on the feature branch.)
+In `docs/superpowers/specs/2026-06-01-build-ref-panel-memory-optimization-design.md`, change refactor #11 status from `planned` to `implemented` with the merge commit once merged. (Do this on `restructure` after merge, not on the feature branch.)
 
 - [ ] **Step 4: Finish the branch**
 

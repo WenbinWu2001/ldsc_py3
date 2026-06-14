@@ -1,9 +1,24 @@
 # Chromosome-Region Exclusion for `build-ref-panel` and `ldscore`
 
-**Date:** 2026-06-06
-**Status:** Approved design (pre-implementation)
+**Date:** 2026-06-06 (revised post-implementation)
+**Status:** Implemented; §6 and §8 revised to match the shipped behavior.
 **Topic:** `region-exclusion`
-**Companion plan:** `docs/superpowers/plans/2026-06-06-region-exclusion-plan.md` (to be written)
+**Companion plan:** `docs/superpowers/plans/2026-06-06-region-exclusion-plan.md`
+
+> **Evolution since the original design.** Three things changed after the first
+> implementation; the sections below reflect the current code:
+> - `--exclude-regions` is a **fixed single-choice enum**
+>   (`none`, `mhc`, `centromeres`, `mhc-and-centromeres`) via
+>   `EXCLUDE_REGIONS_CHOICES`, **defaulting to `mhc-and-centromeres` (exclusion ON
+>   by default)** — not a free comma list (§8).
+> - `--exclude-regions-build` is **inferred** from the panel build in chr_pos
+>   modes and required only in rsID modes — not "always required" (§6).
+> - The active `mhc` preset is the **broad chr6:25-35Mb** window and the
+>   `centromeres` preset is the **pericentromeric ±3 cM** region (LDSC parity);
+>   the raw-gap `centromeres_core` definition is preserved as a
+>   Python-API-only reference preset (§4.3). See also
+>   `docs/current/region-exclusion-presets.md` for the full preset/coordinate
+>   table.
 
 ---
 
@@ -77,11 +92,16 @@ Standard 3-column BED, one file **per preset per build**, under
 `src/ldsc/data/regions/`:
 
 ```
-src/ldsc/data/regions/mhc.hg19.bed
-src/ldsc/data/regions/mhc.hg38.bed
-src/ldsc/data/regions/centromeres.hg19.bed
-src/ldsc/data/regions/centromeres.hg38.bed
+src/ldsc/data/regions/mhc.hg19.bed                  # active: broad chr6:25-35Mb
+src/ldsc/data/regions/mhc.hg38.bed                  # active: broad chr6:25-35Mb
+src/ldsc/data/regions/centromeres.hg19.bed          # active: pericentromeric +/-3 cM
+src/ldsc/data/regions/centromeres.hg38.bed          # active: pericentromeric +/-3 cM
+src/ldsc/data/regions/centromeres_core.hg19.bed     # raw gap, reference
+src/ldsc/data/regions/centromeres_core.hg38.bed     # raw gap, reference
 ```
+
+> The full preset/build/coordinate/provenance table is maintained at
+> `docs/current/region-exclusion-presets.md`.
 
 Rationale for four standard BEDs over two files with a `build` column: a `build`
 column produces a bespoke schema only our loader understands, whereas plain BED
@@ -102,19 +122,30 @@ rather than silently dropping a build. The cost is two extra ~1 KB files.
 
 ### 4.3 Contents
 
-- **`mhc.*.bed`** — single MHC interval on chr6. Coordinates differ by build:
-  - hg19: `6  25000000  35000000` (the conventional broad MHC exclusion window).
-  - hg38: `6  28477797  33448354` (lifted MHC core; final exact bounds fixed
-    during implementation against the curation source).
-- **`centromeres.*.bed`** — one interval per chromosome (autosomes + X),
-  sourced from the UCSC `gap` table (`type = centromere`) for the matching build
-  (~24 rows). Exact rows are materialized during implementation from UCSC and
-  recorded with their provenance in a comment block at the top of each file.
+- **`mhc.*.bed`** (the **active** `mhc` preset) — single broad GWAS exclusion
+  window on chr6, **build-consistent**: `6  25000000  35000000` in **both**
+  builds (hg19 25-35Mb lifts to hg38 ~25.00-35.03Mb, so the same numeric window
+  covers the same biology). Pinned constant.
+- **`centromeres.*.bed`** (the **active** `centromeres` preset) — one interval
+  per chromosome (autosomes + X), the **pericentromeric region: each centromere
+  span padded by ±3 cM**, matching the LD Score regression exclusion of
+  Bulik-Sullivan et al. 2015 Nat Genet (Online Methods). Padding is computed at
+  curation time: cM at the centromere endpoints is read from the Alkes-group
+  recombination map (`genetic_map_{build}_withX`), extended ±3 cM, and inverted
+  back to base pairs. The padded interval is **unioned with the centromere span**
+  so it always contains it — this also gives the correct conservative behavior on
+  the acrocentric chromosomes (13/14/15/21/22), whose p-arm is absent from the
+  genetic map. The genetic maps are a curation-time input only (workspace
+  `resources/`, overridable via `LDSC_GENETIC_MAP_DIR`), not bundled.
+- **`centromeres_core.*.bed`** — the **raw** UCSC centromere span (hg19 `gap`
+  track `type = centromere`; hg38 `centromeres` track merged per chromosome).
+  Kept for reference and loadable via the `centromeres_core` preset (Python API),
+  but **not wired to any CLI choice**. Retained for later expert review of the
+  centromere-vs-pericentromere definition.
 
-> **Implementation note:** the precise centromere/MHC coordinates and their
-> UCSC source URLs/dates are pinned in the implementation plan and embedded as
-> `#`-comment provenance headers in each BED file so future curators can
-> reproduce them.
+> **Provenance.** Each BED's first `#` line records its source (UCSC track or the
+> Alkes-group map + the 3 cM parameter). All four are regenerable by
+> `tools/regions/build_region_beds.py`.
 
 ### 4.4 Packaging
 
@@ -208,56 +239,57 @@ start <= (p - 1) < end      ⟺      start < p <= end
 must be covered by explicit boundary tests (a SNP exactly at `start`, at
 `start+1`, at `end`, at `end+1`).
 
-## 6. Build-resolution rules (the core asymmetry)
+## 6. Build-resolution rules
+
+> **Updated to current behavior.** The original design required
+> `--exclude-regions-build` whenever a preset was named. The shipped behavior
+> *infers* it where possible; this section documents what the code does.
 
 Presets are build-specific; user BEDs are build-agnostic. Each module resolves
-the **preset** build differently, and this asymmetry is intentional and safe.
+the **preset** build differently.
 
 | Module | Preset build source | User-BED build |
 |---|---|---|
 | `build-ref-panel` | The already-resolved `source_genome_build` (concrete `hg19`/`hg38` by the filter point). **No build flag.** | Applied as-is on source-build CHR/POS. |
-| `ldscore` | An explicit `--exclude-regions-build {hg19,hg38}`, **required whenever any preset is named.** | Applied as-is on panel CHR/POS. |
+| `ldscore` | `--exclude-regions-build` if given; otherwise **inferred** from the panel build in chr_pos modes; **required** in rsID modes. | Applied as-is on panel CHR/POS. |
 
-### Why `build-ref-panel` needs no `--exclude-regions-build`
+### `ldscore` — `--exclude-regions-build` is optional, resolved by `_resolve_exclude_regions_build`
 
-`ReferencePanelBuilder._run` calls `_resolve_source_genome_build`
-(`ref_panel_builder.py:425`) *before* `_prepare_build_state`
-(`ref_panel_builder.py:426`), so `source_genome_build` is always a concrete
-`hg19`/`hg38` when intervals load. That resolved build **is** the coordinate
-system every panel SNP is addressed in at the filter point, so it is the only
-correct preset build — there is no second build to disambiguate. Adding a flag
-would *introduce* a contradiction state (`--source-genome-build hg19
---exclude-regions-build hg38`) we would then have to detect and reject. Omitting
-it makes that state unrepresentable.
+`ldscore_calculator._resolve_exclude_regions_build(args, global_config, presets)`
+fills the build *before* `RefPanelConfig` is constructed, in this order:
 
-**Where auto-build resolution happens.** The preset build *can* be auto-resolved,
-but only as a side effect of the panel's own source-build inference — the preset
-itself performs no inference. When `--source-genome-build auto` (the default),
-`_resolve_source_genome_build` infers `hg19`/`hg38` from the PLINK `.bim`
-coordinates (HM3-overlap coordinate inference). Because that runs before
-`_prepare_build_state`, `load_preset_intervals(..., source_build)`
-(`ref_panel_builder.py:700`) always receives a concrete build. So
-`build-ref-panel` is the *only* place an auto-inferred build selects a preset
-BED, and it inherits whatever the panel resolved to — there is no separate
-region-build inference step.
+1. **Explicit flag wins** — if `--exclude-regions-build` is passed, use it.
+2. **No presets active** (`--exclude-regions none`, or only a user BED) — build
+   stays `None`; nothing to resolve.
+3. **chr_pos-family identifier modes** — reuse `global_config.genome_build` (the
+   build `ldscore` already operates the panel in). If that is not a concrete
+   `hg19`/`hg38`, raise `LDSCUsageError` asking for an explicit
+   `--exclude-regions-build` or `--exclude-regions none`.
+4. **rsID-family modes** — `global_config.genome_build` is `None` (rsID
+   identifiers carry no build), so an explicit `--exclude-regions-build` is
+   required; otherwise raise `LDSCUsageError`.
 
-### Why `ldscore` does need it
+`RefPanelConfig` still records a concrete build for presets (its `__post_init__`
+rejects presets with a `None` build), but the *workflow* supplies that build, so
+the user only has to type the flag when it cannot be inferred (rsID modes, or an
+unresolved panel build). `load_preset_intervals` enforces the final
+`{hg19, hg38}` domain, raising `LDSCConfigError` otherwise.
 
-`ldscore` may address the panel by rsID (`rsid` / `rsid_allele_aware`
-identifier modes), in which case `GlobalConfig.genome_build` is `None` and no
-build is in scope — yet the panel's `POS` column is still in *some* build. A
-coordinate preset cannot know which packaged BED to apply without being told.
-We therefore **always require** `--exclude-regions-build` when a preset is named
-(even in `chr_pos` modes where a build is otherwise known), so the safe,
-explicit path is the only path and we never silently rely on an auto-inferred
-build that might disagree with the panel. The flag accepts `hg19`/`hg38` only —
-there is deliberately **no `auto` choice** — so on the `ldscore` side the preset
-build is never inferred; the caller always states it. `load_preset_intervals`
-enforces this, raising `LDSCConfigError` for any build outside `{hg19, hg38}`.
+### `build-ref-panel` — no `--exclude-regions-build`
 
-User BEDs are exempt: the user owns those coordinates and supplies them in the
-panel's build, the same trust model as `--ref-panel-snps-file`. The `-build`
-flag governs **preset selection only**.
+`ReferencePanelBuilder._run` calls `_resolve_source_genome_build` *before*
+`_prepare_build_state`, so `source_genome_build` is always a concrete
+`hg19`/`hg38` when intervals load — and that resolved build is the coordinate
+system every panel SNP is addressed in at the filter point. The preset performs
+no inference of its own: when `--source-genome-build auto` (the default), the
+panel's own `.bim`-based inference produces the concrete build that
+`load_preset_intervals(..., source_build)` then receives. Adding a separate
+region-build flag could only *introduce* a contradiction
+(`--source-genome-build hg19 --exclude-regions-build hg38`), so it is omitted.
+
+User BEDs are exempt in both modules: the user owns those coordinates and
+supplies them in the panel's build, the same trust model as
+`--ref-panel-snps-file`. The build resolution governs **preset selection only**.
 
 ## 7. Configuration changes (`src/ldsc/config.py`)
 
@@ -296,43 +328,38 @@ exclude_regions_build: Literal["hg19", "hg38"] | None = None
 
 ## 8. CLI changes
 
-Both parsers gain `--exclude-regions` and `--exclude-regions-bed`; only
-`ldscore` gains `--exclude-regions-build`. Multi-valued flags accept a
-comma-separated list, reusing the existing `split_cli_path_tokens` idiom for
-BED paths.
+> **Updated to current behavior.** `--exclude-regions` is a single-choice enum
+> (not a free comma list) and **defaults to `mhc-and-centromeres` — exclusion is
+> ON by default**. The choice → preset-name expansion lives in
+> `regions.EXCLUDE_REGIONS_CHOICES` / `exclude_regions_choice_to_presets`.
 
-### 8.1 `build-ref-panel` (`ref_panel_builder.py` `build_parser`)
+The vocabulary is shared by both modules:
 
 ```
---exclude-regions {mhc,centromeres}[,...]
-    Named curated regions to exclude (drop all SNPs inside them) before R2 is
-    computed. Resolved in the panel's source genome build; the same SNPs are
-    removed from every emitted build.
+--exclude-regions {none,mhc,centromeres,mhc-and-centromeres}
+    Curated regions to exclude before LD computation / R2 emission.
+    Default: mhc-and-centromeres. Use 'none' to keep all regions.
+    `mhc` is the broad chr6:25-35Mb window; `centromeres` is the
+    pericentromeric +/-3 cM region (LDSC). The `centromeres_core` reference
+    preset (raw gap) is Python-API only and not offered here.
 --exclude-regions-bed PATH[,PATH...]
-    User BED file(s) of regions to exclude, applied as-is on source-build
-    CHR/POS (0-based half-open). No build translation is performed.
+    User BED file(s) to exclude, applied as-is on panel/source CHR/POS
+    (0-based half-open). No build translation.
 ```
-Mapped in `config_from_args` (`ref_panel_builder.py:1798`) into the two new
-fields.
 
-### 8.2 `ldscore` (`ldscore_calculator.py` `build_parser`)
+### 8.1 `build-ref-panel`
 
-```
---exclude-regions {mhc,centromeres}[,...]
-    Named curated regions to exclude before LD scores are computed. Requires
-    --exclude-regions-build.
---exclude-regions-build {hg19,hg38}
-    Genome build of the panel coordinates, used to select the preset BEDs.
-    Required whenever --exclude-regions is given.
---exclude-regions-bed PATH[,PATH...]
-    User BED file(s) of regions to exclude, applied as-is on panel CHR/POS
-    (0-based half-open).
-```
-Mapped through `_normalize_run_args` / `_ref_panel_from_args`
-(`ldscore_calculator.py:1432`) into `RefPanelConfig`.
+`--exclude-regions` + `--exclude-regions-bed`; **no `--exclude-regions-build`**
+(reuses `source_genome_build`). `config_from_args` maps the choice via
+`exclude_regions_choice_to_presets` and `split_cli_path_tokens`.
 
-`choices` validation in argparse enumerates the preset menu in `--help`,
-covering the discoverability gap of a single menu flag versus separate booleans.
+### 8.2 `ldscore`
+
+`--exclude-regions` + `--exclude-regions-bed`, plus an **optional**
+`--exclude-regions-build {hg19,hg38}` (see §6: inferred in chr_pos modes,
+required in rsID modes when presets are active). `_ref_panel_from_args` maps the
+choice and calls `_resolve_exclude_regions_build` before constructing
+`RefPanelConfig`.
 
 ## 9. Wiring (the two chokepoints)
 

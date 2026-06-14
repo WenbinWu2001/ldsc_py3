@@ -599,10 +599,19 @@ class AnnotationBuilder:
         """Read one SNP-level annotation file into normalized metadata and values."""
         df = kernel_annotation._read_text_table(str(path))
         context = str(path)
+        snp_identifier = self.global_config.snp_identifier
         chr_col = resolve_required_column(df.columns, CHR_COLUMN_SPEC, context=context)
         pos_col = resolve_required_column(df.columns, POS_COLUMN_SPEC, context=context)
-        snp_col = resolve_required_column(df.columns, SNP_COLUMN_SPEC, context=context)
-        cm_col = resolve_required_column(df.columns, CM_COLUMN_SPEC, context=context)
+        # SNP is the identity key only in rsID-family modes; coordinate-family modes
+        # key on CHR/POS, so SNP is optional there.
+        if identity_mode_family(snp_identifier) == "rsid":
+            snp_col = resolve_required_column(df.columns, SNP_COLUMN_SPEC, context=context)
+        else:
+            snp_col = resolve_optional_column(df.columns, SNP_COLUMN_SPEC, context=context)
+        # CM/MAF are population-specific; the reference panel is authoritative. CM is
+        # optional here and kept only as a placeholder for the legacy .annot layout
+        # and the BED-query projection; ldscore ignores annotation CM/MAF.
+        cm_col = resolve_optional_column(df.columns, CM_COLUMN_SPEC, context=context)
         a1_col = resolve_optional_column(df.columns, _ANNOTATION_A1_COLUMN_SPEC, context=context)
         a2_col = resolve_optional_column(df.columns, _ANNOTATION_A2_COLUMN_SPEC, context=context)
         if (a1_col is None) ^ (a2_col is None):
@@ -610,24 +619,29 @@ class AnnotationBuilder:
                 f"annotate could not read annotation file '{path}': exactly one allele column was found. "
                 "Most likely the file has A1 without A2 or A2 without A1. Provide both allele columns or neither."
             )
-        metadata = pd.DataFrame(
-            {
-                "CHR": df[chr_col],
-                "POS": df[pos_col],
-                "SNP": df[snp_col],
-                "CM": df[cm_col],
-            }
-        )
+        columns = {"CHR": df[chr_col], "POS": df[pos_col]}
+        if snp_col is not None:
+            columns["SNP"] = df[snp_col]
+        metadata = pd.DataFrame(columns)
         metadata["CHR"] = metadata["CHR"].map(lambda value: normalize_chromosome(value, context=context))
         metadata["POS"] = pd.to_numeric(metadata["POS"], errors="raise").astype(np.int64)
-        metadata["SNP"] = metadata["SNP"].astype(str)
-        metadata["CM"] = pd.to_numeric(metadata["CM"], errors="coerce")
+        if "SNP" in metadata.columns:
+            metadata["SNP"] = metadata["SNP"].astype(str)
+        # CM is a population-agnostic placeholder (always NaN): ldscore sources CM from
+        # the reference panel, and the legacy .annot layout only needs the column present.
+        # Any CM value in the input is intentionally discarded.
+        metadata["CM"] = np.nan
         if a1_col is not None and a2_col is not None:
             metadata["A1"] = df[a1_col]
             metadata["A2"] = df[a2_col]
+        # MAF is population-specific and never carried into annotation metadata: resolve
+        # the column only to keep it out of the annotation value columns.
         maf_col = resolve_optional_column(df.columns, ANNOTATION_METADATA_SPEC_MAP["MAF"], context=context)
-        if maf_col is not None:
-            metadata["MAF"] = pd.to_numeric(df[maf_col], errors="coerce")
+        if cm_col is not None or maf_col is not None:
+            LOGGER.info(
+                f"Annotation file '{path}' contains CM/MAF columns; these are ignored "
+                "(the reference panel is authoritative for CM and MAF)."
+            )
         if chrom is not None:
             keep = metadata["CHR"] == normalize_chromosome(chrom, context=context)
             metadata = metadata.loc[keep].reset_index(drop=True)
@@ -763,20 +777,16 @@ class AnnotationBuilder:
         )
 
     def _merge_missing_metadata(self, reference: pd.DataFrame, current: pd.DataFrame) -> pd.DataFrame:
-        """Backfill metadata from another already-aligned annotation table."""
+        """Backfill alleles from another already-aligned annotation table.
+
+        Only ``A1``/``A2`` are backfilled. ``CM``/``MAF`` are population-specific
+        and never propagated across annotation files; the reference panel is
+        authoritative for both.
+        """
         merged = reference.copy()
         if {"A1", "A2"}.issubset(current.columns) and not {"A1", "A2"}.issubset(merged.columns):
             merged["A1"] = current["A1"].to_numpy()
             merged["A2"] = current["A2"].to_numpy()
-        if "MAF" in current.columns:
-            if "MAF" not in merged.columns:
-                merged["MAF"] = np.nan
-            missing_maf = merged["MAF"].isna() & current["MAF"].notna()
-            if missing_maf.any():
-                merged.loc[missing_maf, "MAF"] = current.loc[missing_maf, "MAF"].to_numpy()
-        missing_cm = merged["CM"].isna() & current["CM"].notna()
-        if missing_cm.any():
-            merged.loc[missing_cm, "CM"] = current.loc[missing_cm, "CM"].to_numpy()
         return merged
 
     def _concat_or_empty(self, frames: list[pd.DataFrame], index: pd.Index) -> pd.DataFrame:
@@ -1044,6 +1054,12 @@ def _configure_logging(level: str) -> None:
 
 def _write_bundle_query_as_annot_files(bundle: AnnotationBundle, output_dir: Path) -> list[Path]:
     """Write one ``query.<chrom>.annot.gz`` file per chromosome from ``bundle``."""
+    LOGGER.info(
+        "Writing .annot output with the legacy CHR/BP/SNP/CM positional layout; the CM "
+        "column is an empty placeholder and no MAF column is written. CM/MAF are "
+        "population-specific and not used downstream (ldscore sources them from the "
+        "reference panel)."
+    )
     output_paths: list[Path] = []
     for chrom, out_path in zip(bundle.chromosomes, _bundle_query_annot_output_paths(bundle, output_dir)):
         chrom_mask = bundle.metadata["CHR"].astype(str) == str(chrom)

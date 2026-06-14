@@ -209,6 +209,7 @@ class _WorkflowLoggingContext:
         self._handler: logging.FileHandler | None = None
         self._saved_level: int | None = None
         self._start_time: float | None = None
+        self._start_dt: datetime | None = None
         self._nested = False
         self._console_handler: logging.Handler | None = None
         self._saved_console_level: int | None = None
@@ -221,7 +222,7 @@ class _WorkflowLoggingContext:
         logger = logging.getLogger(_LDSC_LOGGER_NAME)
         self._saved_level = logger.level
         logger.setLevel(self._level)
-        self._start_time = time.monotonic()
+        self._start_time, self._start_dt = _timepoint()
         _CURRENT.last_log_path = str(self._log_path) if self._log_path is not None else None
         if self._log_path is None:
             handler = cli_console_handler()
@@ -284,7 +285,7 @@ class _WorkflowLoggingContext:
         self._write_items("Outputs", items, leading_blank=True)
 
     def _write_header(self) -> None:
-        start_dt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        start_dt = (self._start_dt or datetime.now()).strftime("%Y-%m-%d %H:%M:%S")
         self._write_line(_BORDER)
         self._write_line(f"LDSC {self._workflow_name} Started {start_dt}")
         self._write_line(_BORDER)
@@ -299,8 +300,9 @@ class _WorkflowLoggingContext:
         exc_value: BaseException | None = None,
         exc_tb: TracebackType | None = None,
     ) -> None:
-        end_dt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        elapsed = 0.0 if self._start_time is None else time.monotonic() - self._start_time
+        end_time, end_dt_value = _timepoint()
+        end_dt = end_dt_value.strftime("%Y-%m-%d %H:%M:%S")
+        elapsed = 0.0 if self._start_time is None else end_time - self._start_time
         minutes = int(elapsed // 60)
         seconds = int(round(elapsed - minutes * 60))
         if seconds == 60:
@@ -338,6 +340,13 @@ class _WorkflowLoggingContext:
             self._handler.flush()
         finally:
             self._handler.release()
+
+
+def _timepoint() -> tuple[float, datetime]:
+    """Return paired elapsed-timer and wall-clock samples."""
+    monotonic_time = time.monotonic()
+    wall_time = datetime.now()
+    return monotonic_time, wall_time
 
 
 def _format_call_lines(argv: list[str]) -> list[str]:

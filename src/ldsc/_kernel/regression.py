@@ -103,6 +103,77 @@ def remove_intercept(x):
     return x[:, 0:n_col - 1]
 
 
+def liability_conversion_factor(samp_prev, pop_prev):
+    r"""Observed-to-liability heritability conversion factor :math:`c(P, K)`.
+
+    Computes the multiplicative factor that rescales an observed-scale
+    heritability (estimated in an ascertained case-control sample) to the
+    liability scale in the population, following Lee et al. 2011 as used by
+    legacy LDSC:
+
+    .. math::
+        c(P, K) = \frac{K^2 (1 - K)^2}{P (1 - P)\, \phi\!\big(\Phi^{-1}(1 - K)\big)^2}
+
+    where :math:`P` is the sample (case) prevalence, :math:`K` the population
+    prevalence, :math:`\phi` the standard normal pdf, and :math:`\Phi^{-1}` the
+    inverse CDF (``scipy.stats.norm.isf``). The computation is vectorized:
+    ``samp_prev`` and ``pop_prev`` broadcast, so a fixed ``P`` against an array of
+    ``K`` yields the liability-h2 curve used by sensitivity analyses.
+
+    Parameters
+    ----------
+    samp_prev, pop_prev : float or array_like
+        Sample and population prevalences, each a probability in the open
+        interval ``(0, 1)`` for a binary trait, or NaN for a quantitative trait
+        (which yields a factor of ``1.0``). Element-wise, both must be finite or
+        both NaN.
+
+    Returns
+    -------
+    float or numpy.ndarray
+        The factor :math:`c`; ``1.0`` where both inputs are NaN. Scalar inputs
+        return a Python float; array inputs return an array of the broadcast
+        shape.
+
+    Raises
+    ------
+    LDSCConfigError
+        If any element of ``samp_prev`` or ``pop_prev`` is outside ``(0, 1)`` and
+        not NaN, or if a single element has exactly one of ``P``/``K`` NaN.
+    """
+    P = np.asarray(samp_prev, dtype=np.float64)
+    K = np.asarray(pop_prev, dtype=np.float64)
+    P_b, K_b = np.broadcast_arrays(P, K)
+    nan_P, nan_K = np.isnan(P_b), np.isnan(K_b)
+    if np.any(nan_P != nan_K):
+        raise LDSCConfigError(
+            "Liability-scale conversion received a trait with exactly one of sample/population "
+            f"prevalence missing (samp_prev={samp_prev!r}, pop_prev={pop_prev!r}). "
+            "Most likely a `nan` was placed in only one of `--samp-prev`/`--pop-prev`. "
+            "Set both to numbers in (0, 1) for a binary trait, or both to `nan` for a quantitative trait."
+        )
+    finite = ~nan_P
+    bad = finite & (((P_b <= 0) | (P_b >= 1)) | ((K_b <= 0) | (K_b >= 1)))
+    if np.any(bad):
+        raise LDSCConfigError(
+            "Liability-scale conversion received a prevalence outside the open interval (0, 1) "
+            f"(samp_prev={samp_prev!r}, pop_prev={pop_prev!r}). "
+            "Most likely `--samp-prev`/`--pop-prev` was given a value <= 0 or >= 1. "
+            "Pass a probability strictly between 0 and 1, or `nan` for a quantitative trait."
+        )
+    # Substitute a harmless in-range value where the trait is quantitative so the
+    # vectorized formula never evaluates NaN (np.seterr is invalid='raise'); the
+    # substituted entries are discarded by the final np.where.
+    K_safe = np.where(finite, K_b, 0.5)
+    P_safe = np.where(finite, P_b, 0.5)
+    thresh = norm.isf(K_safe)
+    factor = K_safe ** 2 * (1 - K_safe) ** 2 / (P_safe * (1 - P_safe) * norm.pdf(thresh) ** 2)
+    out = np.where(finite, factor, 1.0)
+    if np.ndim(samp_prev) == 0 and np.ndim(pop_prev) == 0:
+        return float(out)
+    return out
+
+
 def gencov_obs_to_liab(gencov_obs, P1, P2, K1, K2):
     '''
     Converts genetic covariance on the observed scale in an ascertained sample to genetic
@@ -136,44 +207,27 @@ def gencov_obs_to_liab(gencov_obs, P1, P2, K1, K2):
 
 
 def h2_obs_to_liab(h2_obs, P, K):
-    '''
-    Converts heritability on the observed scale in an ascertained sample to heritability
-    on the liability scale in the population.
+    """Convert observed-scale heritability to the liability scale.
+
+    Thin wrapper over :func:`liability_conversion_factor` preserving the legacy
+    LDSC signature: ``h2_liab = h2_obs * c(P, K)``. When both ``P`` and ``K`` are
+    NaN the observed value is returned unchanged (the factor is ``1.0``).
 
     Parameters
     ----------
     h2_obs : float
-        Heritability on the observed scale in an ascertained sample.
-    P : float in (0,1)
-        Prevalence of the phenotype in the sample.
-    K : float in (0,1)
-        Prevalence of the phenotype in the population.
+        Observed-scale heritability in an ascertained sample.
+    P : float in (0, 1)
+        Sample (case) prevalence, or NaN for a quantitative trait.
+    K : float in (0, 1)
+        Population prevalence, or NaN for a quantitative trait.
 
     Returns
     -------
-    h2_liab : float
-        Heritability of liability in the population.
-
-    '''
-    if np.isnan(P) and np.isnan(K):
-        return h2_obs
-    if K <= 0 or K >= 1:
-        raise LDSCConfigError(
-            f"Regression liability-scale conversion received invalid population prevalence K={K}. "
-            "Most likely `pop_prev` was set outside the open interval (0, 1). "
-            "Pass a prevalence strictly between 0 and 1, or omit liability-scale conversion."
-        )
-    if P <= 0 or P >= 1:
-        raise LDSCConfigError(
-            f"Regression liability-scale conversion received invalid sample prevalence P={P}. "
-            "Most likely `samp_prev` was set outside the open interval (0, 1). "
-            "Pass a prevalence strictly between 0 and 1, or omit liability-scale conversion."
-        )
-
-    thresh = norm.isf(K)
-    conversion_factor = K ** 2 * \
-        (1 - K) ** 2 / (P * (1 - P) * norm.pdf(thresh) ** 2)
-    return h2_obs * conversion_factor
+    float
+        Liability-scale heritability.
+    """
+    return h2_obs * liability_conversion_factor(P, K)
 
 
 class LD_Score_Regression(object):
@@ -414,7 +468,9 @@ class Hsq(LD_Score_Regression):
         """Fit the single-trait LDSC heritability estimator."""
         step1_ii = None
         if twostep is not None:
-            step1_ii = y < twostep
+            # Inclusive cutoff: paper removes "all SNPs with chi^2 > 30", so chi^2
+            # exactly at the cutoff is retained for step-1 intercept estimation.
+            step1_ii = y <= twostep
 
         LD_Score_Regression.__init__(self, y, x, w, N, M, n_blocks, intercept=intercept,
                                      slow=slow, step1_ii=step1_ii, old_weights=old_weights)
@@ -629,7 +685,9 @@ class Gencov(LD_Score_Regression):
         y = z1 * z2
         step1_ii = None
         if twostep is not None:
-            step1_ii = np.logical_and(z1**2 < twostep, z2**2 < twostep)
+            # Inclusive cutoff: paper removes "all SNPs with chi^2 > 30", so chi^2
+            # exactly at the cutoff is retained for step-1 intercept estimation.
+            step1_ii = np.logical_and(z1**2 <= twostep, z2**2 <= twostep)
 
         LD_Score_Regression.__init__(self, y, x, w, np.sqrt(N1 * N2), M, n_blocks,
                                      intercept=intercept_gencov, slow=slow, step1_ii=step1_ii)

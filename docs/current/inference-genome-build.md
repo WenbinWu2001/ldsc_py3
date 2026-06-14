@@ -33,7 +33,7 @@ The reference has 500 SNPs per autosome. SNPs were selected after filtering to
 common, non-strand-ambiguous `A1/A2` sites that are unique in both `(CHR,
 hg19_POS)` and `(CHR, hg38_POS)`, have different hg19 and hg38 positions, and
 are evenly spaced by position after filtering. Rebuild it from the curated map
-with `python -m ldsc.hm3_reference --curated-map src/ldsc/data/hm3_curated_map.tsv.gz --output src/ldsc/data/hm3_chr_pos_reference.tsv.gz`.
+with `python tools/hm3/build_hm3_chr_pos_reference.py --curated-map src/ldsc/data/hm3_curated_map.tsv.gz --output src/ldsc/data/hm3_chr_pos_reference.tsv.gz`.
 
 The reference is loaded by `load_packaged_reference_table()` and cached once
 per Python process with `lru_cache`.

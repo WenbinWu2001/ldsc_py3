@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import argparse
 from concurrent.futures import ProcessPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace as dataclass_replace
 import logging
 import multiprocessing as mp
 import os
@@ -67,6 +67,7 @@ from .path_resolution import (
 )
 from ._logging import log_inputs, log_outputs, workflow_logging
 from ._kernel import ldscore as kernel_ldscore
+from ._kernel.overlap import OverlapContribution, sum_overlap_contributions
 from ._kernel.regions import EXCLUDE_REGIONS_CHOICES, exclude_regions_choice_to_presets
 from ._kernel.identifiers import build_snp_id_series, read_snp_restriction_keys
 from ._kernel.snp_identity import RestrictionIdentityKeys, restriction_membership_mask
@@ -102,6 +103,7 @@ class _LegacyChromResult:
     ldscore_columns: list[str]
     baseline_columns: list[str]
     query_columns: list[str]
+    overlap: OverlapContribution | None = None
 
 
 @dataclass(frozen=True)
@@ -140,6 +142,7 @@ class ChromLDScoreResult:
     count_config: dict[str, Any] = field(default_factory=dict)
     output_paths: dict[str, str] = field(default_factory=dict)
     config_snapshot: GlobalConfig | None = None
+    overlap: OverlapContribution | None = field(default=None, repr=False)
 
     def validate(self) -> None:
         """Check the normalized public contract for chromosome-level results."""
@@ -226,6 +229,7 @@ class LDScoreResult:
     output_paths: dict[str, str] = field(default_factory=dict)
     count_config: dict[str, Any] = field(default_factory=dict)
     config_snapshot: GlobalConfig | None = None
+    overlap: "LDScoreOverlap | None" = field(default=None, repr=False)
 
     def validate(self, *, require_query_alignment: bool = True) -> None:
         """Check the normalized public contract for aggregated results."""
@@ -356,6 +360,14 @@ class LDScoreCalculator:
         chromosomes = _chromosomes_from_bundle(annotation_bundle)
         LOGGER.info(_format_ldscore_start_message(annotation_bundle, len(chromosomes)))
         worker_count = _resolve_worker_count(ldscore_config.threads, len(chromosomes))
+        cm_source, maf_source = _reference_metadata_sources(ref_panel)
+        LOGGER.info(
+            f"Reference-panel CM source: {cm_source}; MAF source: {maf_source} "
+            "(annotation CM/MAF are ignored)."
+        )
+        export_dir = None
+        if output_config is not None and ldscore_config.export_ref_metadata and cm_source != "parquet_sidecar":
+            export_dir = str(output_config.output_dir)
         outcomes = self._run_chromosomes(
             chromosomes=chromosomes,
             annotation_bundle=annotation_bundle,
@@ -364,6 +376,7 @@ class LDScoreCalculator:
             global_config=global_config,
             regression_snps=regression_snps,
             worker_count=worker_count,
+            export_dir=export_dir,
         )
         chromosome_results: list[ChromLDScoreResult] = []
         for chrom in chromosomes:
@@ -405,6 +418,7 @@ class LDScoreCalculator:
         global_config: GlobalConfig,
         regression_snps,
         worker_count: int,
+        export_dir: str | None = None,
     ) -> dict[str, _ChromOutcome]:
         """Compute every chromosome, sequentially or via a spawn process pool.
 
@@ -428,6 +442,7 @@ class LDScoreCalculator:
                         ldscore_config=ldscore_config,
                         global_config=global_config,
                         regression_snps=regression_snps,
+                        export_dir=export_dir,
                     )
                 except (ValueError, LDSCInputError) as exc:
                     if _is_empty_intersection(exc, chrom):
@@ -454,6 +469,7 @@ class LDScoreCalculator:
                     ref_panel_spec,
                     ldscore_config,
                     global_config,
+                    export_dir,
                 ): chrom
                 for chrom in chromosomes
             }
@@ -478,6 +494,7 @@ class LDScoreCalculator:
         ldscore_config: LDScoreConfig,
         global_config: GlobalConfig,
         regression_snps: set[str] | RestrictionIdentityKeys | None = None,
+        export_dir: str | None = None,
     ) -> ChromLDScoreResult:
         """Compute normalized LD-score outputs for one chromosome.
 
@@ -515,6 +532,8 @@ class LDScoreCalculator:
             legacy_result = kernel_ldscore.compute_chrom_from_parquet(chrom, legacy_bundle, args, regression_snps)
         else:
             legacy_result = kernel_ldscore.compute_chrom_from_plink(chrom, legacy_bundle, args, regression_snps)
+        if export_dir is not None:
+            _write_one_ref_metadata_sidecar(legacy_result.metadata, chrom, export_dir)
         result = self._wrap_legacy_chrom_result(legacy_result, global_config=global_config, regression_snps=regression_snps)
         LOGGER.info(f"Finished chromosome {chrom} with {len(result.baseline_table)} retained SNP rows.")
         return result
@@ -584,6 +603,7 @@ class LDScoreCalculator:
             snp_count_totals=count_map,
             count_config={},
             config_snapshot=global_config,
+            overlap=getattr(legacy_result, "overlap", None),
         )
         result.validate()
         return result
@@ -594,7 +614,13 @@ class LDScoreCalculator:
         global_config: GlobalConfig,
         count_config: dict[str, Any] | None = None,
     ) -> LDScoreResult:
-        """Concatenate and sum per-chromosome results into one aggregate object."""
+        """Concatenate and sum per-chromosome results into one aggregate object.
+
+        The annotation overlap matrix is aggregated only for partitioned runs (two
+        or more LD-score columns). Single-annotation runs (e.g. the synthetic
+        unpartitioned ``base``) leave ``LDScoreResult.overlap`` as ``None`` so the
+        downstream writer emits no redundant overlap artifact.
+        """
         if not chromosome_results:
             raise LDSCInternalError(
                 "LD-score aggregation failed in LDScoreCalculator._aggregate_chromosome_results(): "
@@ -615,6 +641,22 @@ class LDScoreCalculator:
             key: np.sum(np.vstack([result.snp_count_totals[key] for result in chromosome_results]), axis=0)
             for key in count_keys
         }
+        from .overlap_matrix import LDScoreOverlap
+
+        # The overlap (Gram) matrix is only consumed by partitioned-h2 and the
+        # design-matrix collinearity check, both of which need >=2 LD-score
+        # columns. A single-column run (e.g. the synthetic unpartitioned `base`)
+        # yields a degenerate 1x1 overlap equal to a SNP count already in
+        # metadata, so the artifact is suppressed rather than written redundantly.
+        n_ld_columns = len(chromosome_results[0].baseline_columns) + len(chromosome_results[0].query_columns)
+        overlaps = [result.overlap for result in chromosome_results if result.overlap is not None]
+        aggregated_overlap = None
+        if n_ld_columns >= 2 and len(overlaps) == len(chromosome_results):
+            aggregated_overlap = LDScoreOverlap.from_contribution(
+                sum_overlap_contributions(overlaps),
+                list(chromosome_results[0].baseline_columns),
+                list(chromosome_results[0].query_columns),
+            )
         merged_table = pd.concat(
             [
                 _join_split_tables(
@@ -651,6 +693,7 @@ class LDScoreCalculator:
             chromosome_results=list(chromosome_results),
             count_config=dict(count_config or {}),
             config_snapshot=snapshots[0] if snapshots else None,
+            overlap=aggregated_overlap,
         )
         result.validate()
         return result
@@ -937,6 +980,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ld-wind-cm", default=None, type=float, help="LD window size in centiMorgans.")
     parser.add_argument("--maf-min", default=None, type=float, help="Optional MAF filter for retained reference-panel SNPs when MAF is available.")
     parser.add_argument("--common-maf-min", default=0.05, type=float, help="MAF threshold used only for common-SNP annotation count vectors.")
+    parser.add_argument("--genetic-map-hg19-sources", default=None, help="Genetic map (hg19) used to derive CM for cM windows when a PLINK .bim CM column is uninformative.")
+    parser.add_argument("--genetic-map-hg38-sources", default=None, help="Genetic map (hg38) used to derive CM for cM windows when a PLINK .bim CM column is uninformative.")
+    parser.add_argument("--export-ref-metadata", default=False, action="store_true", help="Write a chrN_meta.tsv.gz reference-metadata sidecar next to the LD-score output (PLINK backend only).")
     parser.add_argument("--snp-batch-size", default=128, type=int, help="Genotype batch size for the PLINK reference-panel backend; ignored by the parquet-R2 backend, which streams stored pairs. Defaults to 128.")
     parser.add_argument("--threads", default=1, type=int, help="Worker processes for cross-chromosome parallelism (joblib n_jobs convention): 1=sequential (default), N=N workers, -1=all cores, -2=all but one. Respects CPU affinity; capped at the chromosome count.")
     parser.add_argument("--yes-really", default=False, action="store_true", help="Allow whole-chromosome LD windows.")
@@ -1524,6 +1570,8 @@ def _ref_panel_from_args(args: argparse.Namespace, global_config: GlobalConfig):
             exclude_regions=exclude_regions,
             exclude_regions_bed=exclude_regions_bed,
             exclude_regions_build=exclude_regions_build,
+            genetic_map_hg19_sources=getattr(args, "genetic_map_hg19_sources", None),
+            genetic_map_hg38_sources=getattr(args, "genetic_map_hg38_sources", None),
         )
     else:
         spec = RefPanelConfig(
@@ -1536,6 +1584,8 @@ def _ref_panel_from_args(args: argparse.Namespace, global_config: GlobalConfig):
             exclude_regions=exclude_regions,
             exclude_regions_bed=exclude_regions_bed,
             exclude_regions_build=exclude_regions_build,
+            genetic_map_hg19_sources=getattr(args, "genetic_map_hg19_sources", None),
+            genetic_map_hg38_sources=getattr(args, "genetic_map_hg38_sources", None),
         )
     return RefPanelLoader(global_config).load(spec)
 
@@ -1551,8 +1601,35 @@ def _ldscore_config_from_args(args: argparse.Namespace) -> LDScoreConfig:
         snp_batch_size=getattr(args, "snp_batch_size", 128),
         common_maf_min=getattr(args, "common_maf_min", 0.05),
         whole_chromosome_ok=getattr(args, "yes_really", False),
+        export_ref_metadata=getattr(args, "export_ref_metadata", False),
         threads=getattr(args, "threads", 1),
     )
+
+
+def _reference_metadata_sources(ref_panel) -> tuple[str, str]:
+    """Return ``(cm_source, maf_source)`` provenance labels for the reference panel."""
+    spec = getattr(ref_panel, "spec", None)
+    backend = getattr(spec, "backend", None)
+    if backend == "parquet_r2":
+        return "parquet_sidecar", "parquet_sidecar"
+    has_map = bool(getattr(spec, "genetic_map_hg19_sources", None) or getattr(spec, "genetic_map_hg38_sources", None))
+    return ("genetic_map" if has_map else "plink_bim"), "plink_genotypes"
+
+
+def _write_one_ref_metadata_sidecar(metadata: pd.DataFrame, chrom: str, output_dir: str) -> None:
+    """Write one opt-in reference-metadata sidecar (PLINK backend).
+
+    The format matches the parquet panel sidecar: a gzip TSV with
+    ``CHR POS SNP A1 A2 CM MAF`` columns, so an exported sidecar can seed a future
+    ``build-ref-panel`` or a QC diff. Written from inside the per-chromosome
+    worker so the lean cross-process result does not carry per-SNP metadata.
+    """
+    columns = [c for c in ("CHR", "POS", "SNP", "A1", "A2", "CM", "MAF") if c in metadata.columns]
+    export_dir = Path(output_dir) / "ref_metadata"
+    export_dir.mkdir(parents=True, exist_ok=True)
+    path = export_dir / f"chr{chrom}_meta.tsv.gz"
+    metadata[columns].to_csv(path, sep="\t", index=False, na_rep="NA", float_format="%.6g", compression="gzip")
+    LOGGER.info(f"Wrote reference-metadata sidecar '{path}'.")
 
 
 def _output_config_from_args(args: argparse.Namespace) -> LDScoreOutputConfig:
@@ -1581,20 +1658,12 @@ def _ldscore_output_family(output_dir: Path) -> list[Path]:
 
 
 def _replace_result_output_paths(result: LDScoreResult, output_paths: dict[str, str]) -> LDScoreResult:
-    """Return ``result`` with updated artifact-path metadata after writing outputs."""
-    return LDScoreResult(
-        baseline_table=result.baseline_table,
-        query_table=result.query_table,
-        count_records=result.count_records,
-        baseline_columns=result.baseline_columns,
-        query_columns=result.query_columns,
-        ld_reference_snps=result.ld_reference_snps,
-        ld_regression_snps=result.ld_regression_snps,
-        chromosome_results=result.chromosome_results,
-        output_paths=dict(output_paths),
-        count_config=dict(result.count_config),
-        config_snapshot=result.config_snapshot,
-    )
+    """Return ``result`` with updated artifact-path metadata after writing outputs.
+
+    Uses ``dataclasses.replace`` so every other field (including ``overlap``) is
+    carried over; a manual reconstruction silently drops fields added later.
+    """
+    return dataclass_replace(result, output_paths=dict(output_paths))
 
 
 def _available_cpu_count() -> int:
@@ -1816,6 +1885,7 @@ def _compute_one_chromosome(
     ref_panel_spec,
     ldscore_config: LDScoreConfig,
     global_config: GlobalConfig,
+    export_dir: str | None = None,
     regression_snps=_WORKER_UNSET,
 ) -> _ChromOutcome:
     """Compute one chromosome end-to-end and return a tagged outcome.
@@ -1840,6 +1910,7 @@ def _compute_one_chromosome(
             ldscore_config=ldscore_config,
             global_config=global_config,
             regression_snps=regression_snps,
+            export_dir=export_dir,
         )
     except (ValueError, LDSCInputError) as exc:
         if _is_empty_intersection(exc, chrom):
@@ -1862,6 +1933,54 @@ def _init_worker(regression_snps, log_level: str) -> None:
     configure_package_logging(log_level)
 
 
+def _resolve_build_for_ldscore_genetic_map(ref_panel, global_config: GlobalConfig, chrom: str) -> str:
+    """Resolve hg19/hg38 for selecting a PLINK genetic-map source.
+
+    Uses the explicit ``--genome-build`` when given, otherwise infers from the
+    panel positions when ``genome_build='auto'`` (chr_pos-family only). Raises if
+    the build cannot be determined, since the map must match the ``.bim`` build.
+    """
+    build = normalize_genome_build(global_config.genome_build)
+    if build == "auto":
+        build = resolve_genome_build(
+            global_config.genome_build,
+            global_config.snp_identifier,
+            ref_panel.load_metadata(chrom)[["CHR", "POS"]],
+            context=f"PLINK panel chromosome {chrom} for genetic-map build selection",
+        )
+    if build not in ("hg19", "hg38"):
+        raise LDSCInputError(
+            "ldscore could not determine the genome build needed to select a genetic map for the "
+            "PLINK panel. Pass `--genome-build hg19` or `--genome-build hg38` (automatic inference "
+            "returns None in rsID identifier modes and needs sufficient HM3 overlap in chr_pos modes)."
+        )
+    return build
+
+
+def _resolve_ldscore_genetic_map(ref_panel, spec, backend, global_config: GlobalConfig, chrom: str):
+    """Load the genetic map for a PLINK cM-window run, or warn and ignore for parquet."""
+    hg19 = getattr(spec, "genetic_map_hg19_sources", None)
+    hg38 = getattr(spec, "genetic_map_hg38_sources", None)
+    if not (hg19 or hg38):
+        return None
+    if backend != "plink":
+        LOGGER.warning(
+            "Ignoring --genetic-map-*-sources for the parquet R2 reference panel: CM is taken from "
+            "the panel metadata sidecar (authoritative). Genetic-map flags apply only to PLINK panels."
+        )
+        return None
+    from ._kernel.ref_panel_builder import load_genetic_map_group
+
+    build = _resolve_build_for_ldscore_genetic_map(ref_panel, global_config, chrom)
+    sources = hg38 if build == "hg38" else hg19
+    if sources is None:
+        raise LDSCInputError(
+            f"ldscore needs a `--genetic-map-{build}-sources` file to derive CM for the PLINK panel "
+            f"(resolved build {build}), but it was not supplied."
+        )
+    return load_genetic_map_group(split_cli_path_tokens(sources))
+
+
 def _namespace_from_configs(chrom: str, ref_panel, ldscore_config: LDScoreConfig, global_config: GlobalConfig) -> argparse.Namespace:
     """Build the legacy-kernel namespace expected by the chromosome backends."""
     spec = getattr(ref_panel, "spec", None)
@@ -1876,6 +1995,9 @@ def _namespace_from_configs(chrom: str, ref_panel, ldscore_config: LDScoreConfig
             r2_table = ",".join(ref_panel.resolve_r2_paths(chrom, required=False)) or None
     if hasattr(ref_panel, "resolve_metadata_paths"):
         frqfile = ",".join(ref_panel.resolve_metadata_paths(chrom)) or None
+    genetic_map = None
+    if ldscore_config.ld_wind_cm is not None:
+        genetic_map = _resolve_ldscore_genetic_map(ref_panel, spec, backend, global_config, chrom)
     return argparse.Namespace(
         out=None,
         query_annot=None,
@@ -1897,8 +2019,14 @@ def _namespace_from_configs(chrom: str, ref_panel, ldscore_config: LDScoreConfig
         ld_wind_kb=ldscore_config.ld_wind_kb,
         ld_wind_cm=ldscore_config.ld_wind_cm,
         maf=None,
-        maf_min=None,
+        # Apply the reference-panel MAF filter in the kernel for both backends. For
+        # PLINK this is the only place --maf-min takes effect (the PLINK adapter cannot
+        # filter MAF before the genotype read); for parquet it is idempotent with the
+        # adapter's already-applied filter.
+        maf_min=getattr(spec, "maf_min", None),
         common_maf_min=ldscore_config.common_maf_min,
+        genetic_map=genetic_map,
+        export_ref_metadata=ldscore_config.export_ref_metadata,
         snp_batch_size=ldscore_config.snp_batch_size,
         per_chr_output=False,
         yes_really=ldscore_config.whole_chromosome_ok,

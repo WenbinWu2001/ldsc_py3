@@ -11,6 +11,7 @@ result directory as the baseline design:
   metadata.json
   ldscore.baseline.parquet
   ldscore.query.parquet        # omitted when no query annotations exist
+  ldscore.overlap.parquet      # overlap matrix; omitted for single-annotation (e.g. base-only) runs; required by partitioned-h2
   diagnostics/
     ldscore.log
 ```
@@ -64,8 +65,8 @@ Logs are audit files and should not be treated as output results.
 
 Adapted public paths:
 
-- `ldsc ldscore` writes `ldscore.baseline.parquet` and optional
-  `ldscore.query.parquet`.
+- `ldsc ldscore` writes `ldscore.baseline.parquet`, optional
+  `ldscore.query.parquet`, and optional `ldscore.overlap.parquet`.
 - `ldsc munge-sumstats` writes `sumstats.parquet` by default.
 - `ldsc h2`, `ldsc partitioned-h2`, and `ldsc rg` write result tables as TSV
   when an `output_dir` is supplied.
@@ -108,9 +109,10 @@ Removed from artifact-writing workflow surfaces:
   outputs
 
 Users customize run identity by choosing the `output_dir` name. Output filenames
-inside that directory are fixed and workflow-specific.
-`ldsc query-r2 --out` is the exception: it is an explicit destination for one
-tabular query result, not a run identity, output prefix, or artifact directory.
+inside that directory are fixed and workflow-specific. `ldsc query-r2` follows
+the same `output_dir` model (`query_r2.tsv` plus the `diagnostics/` sidecar); it
+additionally streams the result table to stdout when `--output-dir` is omitted,
+for pipe-able interactive use.
 
 Workflow logs are fixed audit files under `output_dir`, preflighted with the
 scientific outputs before they are opened. They are not included in workflow
@@ -141,7 +143,7 @@ are written.
 
 | Flag | Direction | Required | Object | Notes |
 |---|---:|---:|---|---|
-| `--query-annot-bed-sources` | input | yes | BED interval files | Accepts exact files, globs, comma-separated tokens, and source-token lists. BED basenames become query annotation names. |
+| `--query-annot-bed-sources` | input | yes | BED interval files | Accepts exact files, globs, comma-separated tokens, and source-token lists. Each resolved BED file stem (`Path.stem`) becomes a query annotation name; duplicate stems are rejected. |
 | `--baseline-annot-sources` | input | yes | baseline `.annot[.gz]` templates | Accepts exact files, globs, and `@` chromosome-suite tokens. |
 | `--output-dir` | output | yes | generated query annotation directory | Writes combined root `query.<chrom>.annot.gz` files, with all BED inputs represented as query columns, plus diagnostic `metadata.json`, `dropped_snps/dropped.tsv.gz`, and `annotate.log` under `diagnostics/`. |
 | `--bed-padding-bp` | input transform | no | BED interval expansion | Adds this many base pairs to both sides of each BED interval before SNP projection; starts are clipped at zero. Defaults to `0`, so BED intervals are used as provided. |
@@ -156,7 +158,7 @@ Removed flags: `--bed-files`, `--baseline-annot`.
 
 | Flag | Direction | Required | Object | Notes |
 |---|---:|---:|---|---|
-| `--output-dir` | output | yes | canonical LD-score result directory | Writes root `metadata.json`, `ldscore.baseline.parquet`, optional `ldscore.query.parquet`, and `diagnostics/ldscore.log`; parquet row groups are chromosome-aligned. |
+| `--output-dir` | output | yes | canonical LD-score result directory | Writes root `metadata.json`, `ldscore.baseline.parquet`, optional `ldscore.query.parquet`, optional `ldscore.overlap.parquet` (only for runs with >=2 annotation columns), and `diagnostics/ldscore.log`; parquet row groups are chromosome-aligned. |
 | `--overwrite` | output mode | no | collision policy | Controls whether fixed LD-score files and `diagnostics/ldscore.log` may be replaced; defaults to `False`, so any existing owned LD-score artifact in `output_dir` is refused. With overwrite, stale `ldscore.query.parquet` is removed after successful baseline-only runs. |
 | `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger record verbosity; these records go to `diagnostics/ldscore.log` and the CLI console (stderr) shows only errors. Lifecycle audit lines always appear in the file. |
 | `--baseline-annot-sources` | input | no | baseline annotation files | Supplies baseline annotation files; defaults to omitted/`None`, and if no query inputs are supplied `ldscore` synthesizes an all-ones `base` column. |
@@ -172,14 +174,17 @@ Removed flags: `--bed-files`, `--baseline-annot`.
 | `--regression-snps-file` | input | no | persisted LD-score row-set restriction | Restricts the written LD-score row set using identity keys only; duplicate restriction keys collapse to one retained key, and non-identity columns such as `CM` or `MAF` are ignored. Defaults to omitted/`None`, so rows are not restricted by a persisted regression SNP set. |
 | `--use-hm3-regression-snps` | input mode | no | packaged HM3 regression SNP restriction | Restricts the persisted LD-score row set to the packaged curated HM3 map. Mutually exclusive with `--regression-snps-file`. |
 | `--keep-indivs-file` | input | no | PLINK individual keep file | Restricts PLINK individuals before LD calculation; defaults to omitted/`None`, so no individual keep filter is applied. PLINK mode only. |
-| `--maf-min` | input metadata | no | retained reference-panel MAF filter | Filters retained reference-panel SNPs by MAF; defaults to omitted/`None`, so no retained-reference MAF filter is applied. |
+| `--maf-min` | input metadata | no | retained reference-panel MAF filter | Filters retained reference-panel SNPs by inclusive `MAF >= maf_min`; defaults to omitted/`None`. Applied identically in **both** backends (parquet via the sidecar MAF; PLINK via genotype-derived MAF). |
 | `--exclude-regions` | input transform | no | packaged region presets | Single choice: `none`, `mhc`, `centromeres`, or `mhc-and-centromeres`. **Defaults to `mhc-and-centromeres`** (MHC and centromeres are excluded before LD-score computation unless you pass `none`). |
 | `--exclude-regions-build` | input metadata | conditional | region preset genome build | Concrete build (`hg19` or `hg38`) used to select packaged region BEDs. In `chr_pos`-family modes the build is inferred from the panel build `ldscore` already operates in (parquet `ldsc:genome_build` / PLINK panel / `--genome-build`); in `rsid`-family modes it must be supplied explicitly when presets are excluded. |
 | `--exclude-regions-bed` | input transform | no | custom exclusion BEDs | Comma-separated user BED files whose intervals are excluded before LD-score computation. May be combined with presets. |
 | `--ld-wind-snps` | model | conditional | LD window in SNPs | Selects an LD window measured by SNP count. Exactly one of `--ld-wind-snps`, `--ld-wind-kb`, or `--ld-wind-cm` must be supplied. |
 | `--ld-wind-kb` | model | conditional | LD window in kilobases | Selects an LD window measured by physical distance. Exactly one LD-window flag must be supplied. |
-| `--ld-wind-cm` | model | conditional | LD window in centiMorgans | Selects an LD window measured by genetic distance. Exactly one LD-window flag must be supplied, and cM windows require usable `CM` metadata. |
-| `--common-maf-min` | input metadata | no | common-SNP count threshold | Sets the MAF threshold for common-SNP count vectors; defaults to `0.05` and uses `MAF >= common_maf_min`. |
+| `--ld-wind-cm` | model | conditional | LD window in centiMorgans | Selects an LD window measured by genetic distance. Exactly one LD-window flag must be supplied. Requires usable reference-panel `CM` (≥2 distinct finite values per chromosome); an all-zero/constant/missing `CM` raises a dedicated error that `--yes-really` does **not** bypass. PLINK panels with uninformative `.bim` `CM` can supply a genetic map (see below). |
+| `--genetic-map-hg19-sources` | input | no | hg19 genetic map for PLINK cM windows | Genetic map (hg19) used to derive `CM` at `.bim` positions when the PLINK `.bim` `CM` column is uninformative. An explicit map always wins (used for all chromosomes). Ignored with a warning for the parquet backend (sidecar `CM` is authoritative). |
+| `--genetic-map-hg38-sources` | input | no | hg38 genetic map for PLINK cM windows | As above, for hg38. The map build is selected from `--genome-build` or inferred (chr_pos modes); rsID modes require an explicit `--genome-build`. |
+| `--export-ref-metadata` | output | no | opt-in reference-metadata sidecar | When set (PLINK backend), writes `ref_metadata/chrN_meta.tsv.gz` (`CHR POS SNP A1 A2 CM MAF`, matching the parquet panel sidecar) next to the LD-score output. Default `False`. Parquet panels already ship this sidecar. |
+| `--common-maf-min` | input metadata | no | common-SNP count threshold | Sets the MAF threshold for common-SNP count vectors and the common-universe overlap matrix; defaults to `0.05` and uses inclusive `MAF >= common_maf_min` (deviates from legacy LDSC's strict `0.05 < FRQ < 0.95`). |
 | `--snp-batch-size` | performance | no | LD-score SNP batch size | Genotype batch size for the PLINK reference-panel backend; defaults to `128`. The parquet-R2 backend streams stored pairs and ignores this value. |
 | `--threads` | performance | no | cross-chromosome parallelism | Worker processes for cross-chromosome parallelism (joblib `n_jobs` convention): `1`=sequential (default), `N`=`N` workers, `-1`=all cores, `-2`=all but one. Capped at the chromosome count and CPU affinity. Workers are processes (the LD-score kernel is CPU-bound), each rebuilding its chromosome's panel, so peak RSS scales with the worker count. |
 | `--yes-really` | safety override | no | whole-chromosome LD windows | Allows whole-chromosome LD windows; defaults to `False`, so such windows are rejected unless this flag is supplied. |
@@ -197,9 +202,12 @@ LD-score output schema:
   list is exactly `base`.
 - `ldscore.query.parquet`: `CHR`, `POS`, `SNP`, then query LD-score columns; omitted
   when there are no query annotations.
-- `metadata.json`: `artifact_type`, relative file paths,
-  baseline/query column names, count records, `count_config`, config metadata,
-  chromosomes, row
+- `ldscore.overlap.parquet`: `row_annotation`, `col_annotation`,
+  `overlap_all_snps`, `overlap_common_snps` (long-form annotation overlap matrix
+  consumed by partitioned-h2); omitted for single-annotation (e.g. base-only) runs.
+- `metadata.json`: `artifact_type`, relative file paths (`baseline`, optional
+  `query`, optional `overlap`), baseline/query column names, count records, `count_config`,
+  `overlap_config`, config metadata, chromosomes, row
   counts, `row_group_layout`, `baseline_row_groups`, and
   `query_row_groups`.
 
@@ -361,11 +369,14 @@ INFO flags.
 |---|---:|---:|---|---|
 | `--panel-dir` | input | yes | build-ref-panel output directory | Opens a package-built reference panel directory, optionally selecting a build subdirectory with `--genome-build`. This is the only panel input mode. |
 | `--pairs` | input | yes | SNP-pair table | TSV by default, CSV when the filename ends with `.csv`, or stdin via `-`. Endpoint columns use `_1` and `_2` suffixes, with `SNP`, `CHR`, `POS`, `A1`, and `A2` supplied according to the active identifier mode. |
-| `--out` | output | no | query result TSV | Writes a TSV table when supplied; defaults to stdout. This flag is a concrete table destination, not an artifact prefix. |
+| `--output-dir` | output | no | result directory | Writes the canonical result directory (`query_r2.tsv` plus `diagnostics/metadata.json` and `diagnostics/query-r2.log`). When omitted, the result table streams as a clean TSV to stdout. |
+| `--overwrite` | output control | no | overwrite toggle | Replaces existing query-r2 output artifacts in `--output-dir`. No effect in stdout mode. |
+| `--log-level` | output control | no | log verbosity | Verbosity of the directory-mode `diagnostics/query-r2.log`. No effect in stdout mode. |
 | `--snp-identifier` | input metadata | no | query identity mode | Overrides panel metadata. If omitted, `R2Panel.open()` reads `ldsc:snp_identifier` from parquet metadata. |
 | `--genome-build` | input selector | no | panel build selector | Concrete `hg19`/`hg38` selector for build-ref-panel directory layouts. |
 
-Removed flags: `--meta`, `--parquet` (explicit single-chromosome input; use
+Removed flags: `--out` (replaced by the `--output-dir` result directory with a
+stdout fallback), `--meta`, `--parquet` (explicit single-chromosome input; use
 `--panel-dir`), `--with-r` (signed `r` is now always emitted), `--strategy`,
 `--strategy-threshold` (lookup strategy is fixed to the internal `auto` rule).
 
@@ -388,8 +399,10 @@ panels lacking `ldsc:n_samples`. `status` is blank for found pairs and may repor
 | `--no-intercept` | model | no | intercept policy | Fixes the LDSC intercept instead of estimating it. |
 | `--allow-identity-downgrade` | model | no | identity compatibility override | Allows same-family allele-aware/base artifact mixes under the base identity mode. |
 | `--intercept-h2` | model | no | fixed h2 intercept | Optional fixed h2 intercept supplied to the regression estimator. |
-| `--two-step-cutoff` | model | no | two-step threshold | Optional cutoff for two-step regression fitting. |
-| `--chisq-max` | QC/model | no | chi-square filter | Optional maximum chi-square value retained for regression fitting. |
+| `--two-step-cutoff` | model | no | two-step threshold | Optional cutoff for two-step regression fitting. Inclusive (`chi^2 <= cutoff` retained for step 1; deviates from legacy LDSC's strict `chi^2 < cutoff`). When unset, a single-annotation fit with a free intercept defaults to the legacy cutoff `30`. |
+| `--chisq-max` | QC/model | no | chi-square filter | Optional maximum chi-square retained for regression fitting. Inclusive (`chi^2 <= chisq_max`; deviates from legacy LDSC's strict `chi^2 < chisq_max`). When unset, a single-annotation fit stays uncapped (outliers handled by the two-step estimator); a multi-annotation fit applies the legacy default cap `max(0.001 * N.max(), 80)`. |
+| `--samp-prev` | model | no | sample (case) prevalence | Scalar sample prevalence `P` for liability-scale conversion of binary-trait h2. A probability in `(0, 1)`, or `nan` for a quantitative trait. Requires `--pop-prev`; omit both for observed scale. Output adds `total_h2_liab`/`total_h2_liab_se` and the applied prevalence columns. |
+| `--pop-prev` | model | no | population prevalence | Scalar population prevalence `K` for liability-scale conversion. A probability in `(0, 1)`, or `nan`. Requires `--samp-prev`. Validated before inputs load. |
 | `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger record verbosity. With `output_dir`, records go to `diagnostics/h2.log` and the console (stderr) shows only errors; without it (console-only run) they print to the console. Lifecycle audit lines always appear in the file when one is created. |
 | `--overwrite` | output mode | no | collision policy | Controls whether `h2.tsv` and diagnostics may be replaced; defaults to `False`, so an existing owned artifact is refused. |
 
@@ -403,16 +416,18 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 | `--ldscore-dir` | input | yes | canonical LD-score result directory | Must contain baseline plus query LD scores; baseline-only directories are rejected. |
 | `--sumstats-file` | input | yes | munged summary-statistics file | Exact path or exact-one glob. |
 | `--trait-name` | input metadata | no | output trait label | Optional label override. If omitted, regression uses the sumstats parquet footer `ldsc:trait_name` when present, then the filename fallback. |
-| `--output-dir` | output | no | result output directory | Selects where to write partitioned-h2 results; defaults to omitted/`None`, so the CLI prints the compact `partitioned_h2.tsv` schema to stdout and writes no files. |
+| `--output-dir` | output | no | result output directory | Selects where to write partitioned-h2 results; defaults to omitted/`None`, so the CLI prints the `partitioned_h2.tsv` schema to stdout and writes no files. |
 | `--count-kind` | model | no | count vector choice | Selects the count vector used by regression; defaults to `common`, while `all` uses all-SNP counts. |
 | `--n-blocks` | model | no | block jackknife partitions | Number of jackknife blocks used by the regression estimator; defaults to `200`. |
 | `--no-intercept` | model | no | intercept policy | Fixes the LDSC intercept instead of estimating it. |
 | `--allow-identity-downgrade` | model | no | identity compatibility override | Allows same-family allele-aware/base artifact mixes under the base identity mode. |
 | `--intercept-h2` | model | no | fixed h2 intercept | Optional fixed h2 intercept supplied to the regression estimator. |
-| `--two-step-cutoff` | model | no | two-step threshold | Optional cutoff for two-step regression fitting. |
-| `--chisq-max` | QC/model | no | chi-square filter | Optional maximum chi-square value retained for regression fitting. |
+| `--two-step-cutoff` | model | no | two-step threshold | Optional cutoff for two-step regression fitting. Inclusive (`chi^2 <= cutoff` retained for step 1). Not applied to partitioned (multi-annotation) models, which use the chi-square cap below instead. |
+| `--chisq-max` | QC/model | no | chi-square filter | Optional maximum chi-square retained for regression fitting. Inclusive (`chi^2 <= chisq_max`; deviates from legacy LDSC's strict `chi^2 < chisq_max`). When unset, partitioned (multi-annotation) models apply the legacy default outlier cap `max(0.001 * N.max(), 80)` to keep extreme-chi-square SNPs from dominating the regression. |
+| `--samp-prev` | model | no | sample (case) prevalence | Scalar sample prevalence `P` for liability-scale conversion. A probability in `(0, 1)`, or `nan` for a quantitative trait. Requires `--pop-prev`; omit both for observed scale. Adds the `*_liab` heritability columns (e.g. `category_h2_liab`/`category_h2_liab_se` and `total_h2_liab`/`total_h2_liab_se`) and the applied prevalence columns (proportions, enrichment, and coefficients are scale-invariant). |
+| `--pop-prev` | model | no | population prevalence | Scalar population prevalence `K` for liability-scale conversion. A probability in `(0, 1)`, or `nan`. Requires `--samp-prev`. Validated before inputs load. |
 | `--write-per-query-results` | output mode | no | per-query result tree | Requests per-query output folders under `diagnostics/query_annotations`; defaults to `False`, so only the aggregate table is returned/written. |
-| `--summary-sort-by` | output mode | no | aggregate row sorting | Sort key for the aggregate partitioned-h2 table; defaults to `category`. Choices include `category`, `prop-snps`, `prop-h2`, `enrichment`, `enrichment-p`, `coefficient`, and `coefficient-p`. |
+| `--summary-sort-by` | output mode | no | aggregate row sorting | Sort key for the partitioned-h2 table; defaults to `auto`, which resolves to `coefficient-p` in the cell-type regime (query annotations present) and `category` in the functional regime. Explicit choices: `category`, `prop-snps`, `prop-h2`, `enrichment`, `enrichment-p`, `coefficient`, and `coefficient-p`. |
 | `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger record verbosity. With `output_dir`, records go to `diagnostics/partitioned-h2.log` and the console (stderr) shows only errors; without it (console-only run) they print to the console. Lifecycle audit lines always appear in the file when one is created. |
 | `--overwrite` | output mode | no | collision policy | Controls whether aggregate/per-query outputs and diagnostics may be replaced; defaults to `False`, so any owned partitioned-h2 artifact is refused. With overwrite, aggregate-only runs remove stale `diagnostics/query_annotations/` trees after successful writes. |
 
@@ -426,16 +441,19 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 | `--ldscore-dir` | input | yes | canonical LD-score result directory | Reads baseline LD scores and embedded `regression_ld_scores`, the historical `w_ld` component used when final rg/gencov weights are computed. |
 | `--sumstats-sources` | input | yes | two or more munged summary-statistics files | Accepts exact paths and glob patterns. With two files, computes one pair; with three or more files and no anchor, computes all unordered pairs in input order. |
 | `--anchor-trait` | input selector | no | anchor trait label or path | When supplied, first matches a resolved trait name, then a resolved input path; computes anchor-vs-rest pairs only. |
-| `--output-dir` | output | no | result output directory | Selects where to write the rg output family. Without it, Python returns `RgResultFamily` and the CLI prints only the concise `rg.tsv` schema to stdout. |
+| `--output-dir` | output | no | result output directory | Selects where to write the rg output family. RG tables include nominal p-values only. Without it, Python returns `RgResultFamily` and the CLI prints only the concise `rg.tsv` schema to stdout. |
 | `--write-per-pair-detail` | output mode | no | optional pair result tree | Requires `--output-dir`; writes `diagnostics/pairs/manifest.tsv` plus one `rg_full.tsv` and `metadata.json` per attempted pair. |
 | `--count-kind` | model | no | count vector choice | Selects the count vector used by regression; defaults to `common`, while `all` uses all-SNP counts. |
 | `--n-blocks` | model | no | block jackknife partitions | Number of jackknife blocks used by each regression estimator; defaults to `200`. |
 | `--no-intercept` | model | no | intercept policy | Fixes LDSC intercepts instead of estimating them. |
 | `--allow-identity-downgrade` | model | no | identity compatibility override | Allows same-family allele-aware/base artifact mixes under the base identity mode. |
-| `--two-step-cutoff` | model | no | two-step threshold | Optional cutoff for two-step regression fitting. |
-| `--chisq-max` | QC/model | no | chi-square filter | Optional maximum chi-square value retained for regression fitting. |
+| `--two-step-cutoff` | model | no | two-step threshold | Optional cutoff for two-step regression fitting. Inclusive (`chi^2 <= cutoff` retained for step 1; deviates from legacy LDSC's strict `chi^2 < cutoff`). When unset, a single-annotation rg fit with a free h2 intercept defaults to the legacy cutoff `30`. |
+| `--chisq-max` | QC/model | no | chi-square filter | Optional opt-in rg filter on the product of statistics. Inclusive (`Z1^2 * Z2^2 <= chisq_max^2`; deviates from legacy LDSC's strict `Z1^2 * Z2^2 < chisq_max^2`). No default cap is applied. |
 | `--intercept-h2` | model | no | fixed h2 intercepts | Optional fixed h2 intercept value(s) supplied to per-trait h2 estimators. |
 | `--intercept-gencov` | model | no | fixed genetic-covariance intercepts | Optional fixed intercept value(s) supplied to genetic-covariance estimators. |
+| `--samp-prev` | model | no | per-trait sample prevalences | Comma-separated sample prevalences aligned to the resolved `--sumstats-sources` order, one per trait; each a probability in `(0, 1)` or `nan` for a quantitative trait. Requires `--pop-prev`. Mutually exclusive with `--prevalence-manifest`. Adds `*_liab` and per-trait prevalence columns to `rg_full.tsv`/`h2_per_trait.tsv`; the `rg` ratio is unchanged. |
+| `--pop-prev` | model | no | per-trait population prevalences | Comma-separated population prevalences aligned to the resolved order, one per trait; each in `(0, 1)` or `nan`. Requires `--samp-prev`. Mutually exclusive with `--prevalence-manifest`. |
+| `--prevalence-manifest` | model | no | prevalence lookup table | Whitespace/tab-delimited TSV with columns `trait_name`, `samp_prev`, `pop_prev` (`#` comment lines ignored). Looked up by exact munged trait name; may contain extra traits (every resolved trait must be present). Mutually exclusive with `--samp-prev`/`--pop-prev`. Duplicate resolved munged names abort the run. |
 | `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger record verbosity. With `output_dir`, records go to `diagnostics/rg.log` and the console (stderr) shows only errors; without it (console-only run) they print to the console. Lifecycle audit lines always appear in the file when one is created. |
 | `--overwrite` | output mode | no | collision policy | Controls whether `rg.tsv`, `rg_full.tsv`, `h2_per_trait.tsv`, optional `diagnostics/pairs/`, and diagnostics may be replaced; defaults to `False`, so an existing owned artifact is refused. |
 
@@ -567,7 +585,7 @@ Removed Python names: legacy separate source-path object field,
 | `run_rg_from_args(args)` | `ldscore_dir` | input | LD-score result directory |
 | `run_rg_from_args(args)` | `sumstats_sources` | input | two or more munged summary-statistics files or glob patterns |
 | `run_rg_from_args(args)` | `anchor_trait` | input selector | optional anchor trait label or path for anchor-vs-rest output |
-| `run_rg_from_args(args)` | `output_dir` | output | writes `rg.tsv`, `rg_full.tsv`, `h2_per_trait.tsv`, and diagnostics when supplied; otherwise prints compact `rg.tsv` to stdout |
+| `run_rg_from_args(args)` | `output_dir` | output | writes `rg.tsv`, `rg_full.tsv`, `h2_per_trait.tsv`, and diagnostics when supplied; otherwise prints compact `rg.tsv` to stdout; rg tables include nominal p-values only |
 | `run_rg_from_args(args)` | `write_per_pair_detail` | output mode | optionally writes `diagnostics/pairs/manifest.tsv` and per-pair diagnostic folders when `output_dir` is supplied |
 
 Removed Python/public argparse names: `sumstats`, `sumstats_1`, `sumstats_2`,

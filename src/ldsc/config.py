@@ -446,6 +446,8 @@ class RefPanelConfig:
     exclude_regions: tuple[str, ...] = ()
     exclude_regions_bed: tuple[str, ...] = ()
     exclude_regions_build: Literal["hg19", "hg38"] | None = None
+    genetic_map_hg19_sources: str | PathLike[str] | None = None
+    genetic_map_hg38_sources: str | PathLike[str] | None = None
 
     def __post_init__(self) -> None:
         """Normalize backend path tokens and validate parquet-R2 settings."""
@@ -459,6 +461,8 @@ class RefPanelConfig:
         object.__setattr__(self, "r2_dir", _normalize_optional_path(self.r2_dir))
         object.__setattr__(self, "keep_indivs_file", _normalize_optional_path(self.keep_indivs_file))
         object.__setattr__(self, "ref_panel_snps_file", _normalize_optional_path(self.ref_panel_snps_file))
+        object.__setattr__(self, "genetic_map_hg19_sources", _normalize_optional_path(self.genetic_map_hg19_sources))
+        object.__setattr__(self, "genetic_map_hg38_sources", _normalize_optional_path(self.genetic_map_hg38_sources))
         if self.ref_panel_snps_file is not None and self.use_hm3_ref_panel_snps:
             raise LDSCConfigError(_mutually_exclusive_message("RefPanelConfig", "ref_panel_snps_file", "use_hm3_ref_panel_snps"))
         if self.chromosomes is not None:
@@ -515,9 +519,10 @@ class LDScoreConfig:
         ``128``.
     common_maf_min : float, optional
         Inclusive MAF threshold used only for common-SNP count vectors
-        (``MAF >= common_maf_min``). It does not change retained reference
-        SNPs, LD-score rows, LD scores, or persisted regression-universe LD
-        scores. Default is ``0.05``.
+        (``MAF >= common_maf_min``; deviates from legacy LDSC's strict
+        ``0.05 < FRQ < 0.95``). It does not change retained reference SNPs,
+        LD-score rows, LD scores, or persisted regression-universe LD scores.
+        Default is ``0.05``.
     whole_chromosome_ok : bool, optional
         Override the guard that rejects windows effectively spanning an entire
         chromosome. Default is ``False``.
@@ -539,6 +544,7 @@ class LDScoreConfig:
     snp_batch_size: int = 128
     common_maf_min: float = 0.05
     whole_chromosome_ok: bool = False
+    export_ref_metadata: bool = False
     threads: int = 1
 
     def __post_init__(self) -> None:
@@ -774,8 +780,10 @@ class MungeConfig:
     ----------
     output_dir : str or os.PathLike[str]
         Directory that receives workflow-owned ``sumstats.parquet`` and/or
-        ``sumstats.sumstats.gz``, root ``metadata.json``, and
-        ``diagnostics/sumstats.log`` artifacts.
+        ``sumstats.sumstats.gz`` artifacts. Identity provenance is embedded in
+        the self-describing ``sumstats.parquet`` footer rather than a separate
+        ``metadata.json`` sidecar; the only ``diagnostics/`` artifacts are
+        ``diagnostics/sumstats.log`` and ``diagnostics/dropped_snps/``.
     raw_sumstats_file : str or os.PathLike[str] or None, optional
         Raw summary-statistics file to munge. Exact-one glob patterns are
         resolved by the workflow before entering the legacy kernel. Default is
@@ -971,13 +979,27 @@ class RegressionConfig:
         multi-trait rg runs, scalar values are broadcast to every pair.
         Defaults are ``None``.
     two_step_cutoff : float or None, optional
-        Threshold for the two-step estimator used by the regression kernel.
-        Default is ``None``.
+        Inclusive chi-square cutoff for the two-step estimator's step-1 SNP set
+        (``chi^2 <= cutoff`` is retained; deviates from legacy LDSC's strict
+        ``chi^2 < cutoff``). Default is ``None``, in which case single-annotation
+        h2 and single-annotation rg with a free h2 intercept fall back to the
+        legacy default cutoff of ``30``.
     chisq_max : float or None, optional
-        Maximum allowed chi-square statistic before a row is filtered. Default is
-        ``None``.
+        Inclusive maximum chi-square retained for regression fitting. For h2 and
+        partitioned-h2 this keeps ``chi^2 <= chisq_max``; for rg it keeps
+        ``Z1^2 * Z2^2 <= chisq_max^2`` (legacy's opt-in rg filter). Both retain
+        the boundary inclusively, deviating from legacy LDSC's strict ``<``.
+        Default is ``None``. When unset, partitioned-h2 (multi-annotation)
+        applies the legacy default outlier cap ``max(0.001 * N.max(), 80)`` to
+        down-weight extreme-chi-square SNPs; single-annotation h2 stays uncapped
+        and relies on the two-step estimator instead.
     samp_prev, pop_prev : float, list of float, or None, optional
-        Liability-scale prevalence inputs. Defaults are ``None``.
+        Liability-scale prevalence inputs for binary traits: each a probability
+        in the open interval ``(0, 1)``, or NaN/None for a quantitative trait.
+        For ``h2`` / ``partitioned-h2`` these are scalars stored here; for ``rg``
+        the resolved per-trait list is passed to ``estimate_rg_pairs`` rather than
+        stored on this (per-run) config. Both must be supplied together. Defaults
+        are ``None`` (observed scale).
     allow_identity_downgrade : bool, optional
         If ``True``, same-family allele-aware/base regression inputs may run
         under the base identity mode. Cross-family mixes remain rejected.

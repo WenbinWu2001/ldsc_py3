@@ -245,6 +245,61 @@ class TestQueryPairs:
         # r is always emitted but all-NaN in base mode (no sign information).
         assert "r" in out_a.columns and pd.isna(out_a["r"].iloc[0])
 
+    def test_rsid_endpoint_aliases_match_canonical_snp_columns(self, tmp_path):
+        canonical_panel = self._panel(tmp_path, mode="rsid")
+        canonical_pairs = pd.DataFrame({"SNP_1": ["rs1"], "SNP_2": ["rs2"]})
+        alias_pairs = pd.DataFrame({"rsID_1": ["rs1"], "rsID_2": ["rs2"]})
+
+        canonical = canonical_panel.query_pairs(canonical_pairs)
+        alias = canonical_panel.query_pairs(alias_pairs)
+
+        assert alias["r2"].iloc[0] == pytest.approx(canonical["r2"].iloc[0], abs=1.5e-5)
+        assert alias["status"].iloc[0] == canonical["status"].iloc[0]
+
+    def test_uppercase_rsid_endpoint_aliases_are_accepted(self, tmp_path):
+        panel = self._panel(tmp_path, mode="rsid")
+        pairs = pd.DataFrame({"RSID_1": ["rs1"], "RSID_2": ["rs2"]})
+
+        out = panel.query_pairs(pairs)
+
+        assert out["r2"].iloc[0] == pytest.approx(0.64, abs=1.5e-5)
+        assert out["status"].iloc[0] == ""
+
+    def test_chr_pos_endpoint_aliases_are_accepted(self, tmp_path):
+        panel = self._panel(tmp_path, mode="chr_pos")
+        pairs = pd.DataFrame({"chr_1": [1], "bp_1": [100], "chr_2": [1], "bp_2": [200]})
+
+        out = panel.query_pairs(pairs)
+
+        assert out["r2"].iloc[0] == pytest.approx(0.64, abs=1.5e-5)
+        assert out["status"].iloc[0] == ""
+
+    def test_alias_input_columns_are_preserved_before_result_columns(self, tmp_path):
+        panel = self._panel(tmp_path, mode="rsid")
+        pairs = pd.DataFrame(
+            {
+                "rsID_1": ["rs1"],
+                "rsID_2": ["rs2"],
+                "note": ["keep-me"],
+            }
+        )
+
+        out = panel.query_pairs(pairs)
+
+        assert out.columns.tolist() == ["rsID_1", "rsID_2", "note", "r2", "sign", "r", "status"]
+        assert out["rsID_1"].iloc[0] == "rs1"
+        assert out["rsID_2"].iloc[0] == "rs2"
+        assert out["note"].iloc[0] == "keep-me"
+
+    def test_duplicate_endpoint_aliases_are_ambiguous(self, tmp_path):
+        from ldsc.errors import LDSCInputError
+
+        panel = self._panel(tmp_path, mode="rsid")
+        pairs = pd.DataFrame({"SNP_1": ["rs1"], "rsID_1": ["rs1"], "SNP_2": ["rs2"]})
+
+        with pytest.raises(LDSCInputError, match="multiple columns match canonical field 'SNP'"):
+            panel.query_pairs(pairs)
+
 
 class TestQueryR2Wrapper:
     def test_query_r2_one_shot_matches_handle(self, tmp_path):
@@ -273,23 +328,106 @@ class TestQueryR2Wrapper:
 
 
 class TestQueryR2CLI:
-    def test_cli_reads_tsv_and_writes_tsv(self, tmp_path):
-        from ldsc.cli import main as cli_main
-
+    def _write_pairs(self, tmp_path):
         build_test_panel(tmp_path, snp_identifier="chr_pos_allele_aware")
         pairs_path = tmp_path / "pairs.tsv"
         pd.DataFrame(
             {"CHR_1": [1], "POS_1": [100], "A1_1": ["A"], "A2_1": ["G"],
              "CHR_2": [1], "POS_2": [200], "A1_2": ["C"], "A2_2": ["T"]}
         ).to_csv(pairs_path, sep="\t", index=False)
-        out_path = tmp_path / "out.tsv"
-        cli_main([
+        return pairs_path
+
+    def _argv(self, tmp_path, pairs_path, *extra):
+        return [
             "query-r2", "--panel-dir", str(tmp_path), "--genome-build", "hg38",
-            "--pairs", str(pairs_path), "--out", str(out_path),
-        ])
-        result = pd.read_csv(out_path, sep="\t")
+            "--pairs", str(pairs_path), *extra,
+        ]
+
+    def test_streams_tsv_to_stdout_when_no_output_dir(self, tmp_path, capsys):
+        import io
+
+        from ldsc.cli import main as cli_main
+
+        pairs_path = self._write_pairs(tmp_path)
+        cli_main(self._argv(tmp_path, pairs_path))
+        captured = capsys.readouterr().out
+        # stdout must be a clean, parseable TSV (pipe-able), nothing else.
+        streamed = pd.read_csv(io.StringIO(captured), sep="\t")
+        assert streamed["r2"].iloc[0] == pytest.approx(0.64, abs=1e-4)
+        assert {"status", "r"}.issubset(streamed.columns)
+        assert not (tmp_path / "query_r2.tsv").exists()
+
+    def test_output_dir_writes_result_metadata_and_log(self, tmp_path):
+        import json
+
+        from ldsc.cli import main as cli_main
+
+        pairs_path = self._write_pairs(tmp_path)
+        out_dir = tmp_path / "result"
+        cli_main(self._argv(tmp_path, pairs_path, "--output-dir", str(out_dir)))
+
+        result = pd.read_csv(out_dir / "query_r2.tsv", sep="\t")
         assert result["r2"].iloc[0] == pytest.approx(0.64, abs=1e-4)
-        assert "status" in result.columns and "r" in result.columns
+        assert {"status", "r"}.issubset(result.columns)
+
+        metadata_path = out_dir / "diagnostics" / "metadata.json"
+        log_path = out_dir / "diagnostics" / "query-r2.log"
+        assert log_path.read_text().strip()  # non-empty workflow audit log
+        meta = json.loads(metadata_path.read_text())
+        assert meta["artifact_type"] == "query_r2_result"
+        assert meta["files"]["result"] == "query_r2.tsv"
+        assert meta["snp_identifier"] == "chr_pos_allele_aware"
+        assert meta["n_samples"] == 1000
+        assert meta["n_pairs"] == 1
+        assert meta["status_counts"]["resolved"] == 1
+
+    def test_output_dir_refuses_overwrite_without_flag(self, tmp_path):
+        from ldsc.cli import main as cli_main
+
+        pairs_path = self._write_pairs(tmp_path)
+        out_dir = tmp_path / "result"
+        cli_main(self._argv(tmp_path, pairs_path, "--output-dir", str(out_dir)))
+        with pytest.raises(FileExistsError):
+            cli_main(self._argv(tmp_path, pairs_path, "--output-dir", str(out_dir)))
+
+    def test_output_dir_overwrite_flag_replaces(self, tmp_path):
+        from ldsc.cli import main as cli_main
+
+        pairs_path = self._write_pairs(tmp_path)
+        out_dir = tmp_path / "result"
+        cli_main(self._argv(tmp_path, pairs_path, "--output-dir", str(out_dir)))
+        cli_main(self._argv(tmp_path, pairs_path, "--output-dir", str(out_dir), "--overwrite"))
+        result = pd.read_csv(out_dir / "query_r2.tsv", sep="\t")
+        assert result["r2"].iloc[0] == pytest.approx(0.64, abs=1e-4)
+
+    def test_out_flag_is_removed(self, tmp_path):
+        from ldsc.cli import main as cli_main
+
+        pairs_path = self._write_pairs(tmp_path)
+        with pytest.raises(SystemExit):
+            cli_main(self._argv(tmp_path, pairs_path, "--out", str(tmp_path / "x.tsv")))
+
+
+class TestQueryR2Writer:
+    def test_writes_nan_literal_for_missing_values(self, tmp_path):
+        # Missing numeric r2/r render as the explicit literal "NaN", consistent
+        # with the other result writers; the string `status` "" marker is unaffected.
+        from ldsc.outputs import QueryR2DirectoryWriter, QueryR2OutputConfig
+
+        result = pd.DataFrame(
+            {
+                "r2": [0.64, float("nan")],
+                "sign": ["+", "NA"],
+                "r": [0.8, float("nan")],
+                "status": ["", "not_found"],
+            }
+        )
+        out_dir = tmp_path / "result"
+        QueryR2DirectoryWriter().write(
+            result, QueryR2OutputConfig(output_dir=out_dir), metadata={}
+        )
+        text = (out_dir / "query_r2.tsv").read_text(encoding="utf-8")
+        assert "NaN" in text
 
 
 class TestPackageExports:

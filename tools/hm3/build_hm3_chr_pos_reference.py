@@ -1,4 +1,16 @@
-"""Build the compact HapMap3 chromosome-position inference reference."""
+"""One-time curation tool: rebuild the compact HM3 chromosome-position reference.
+
+Run manually from the repo root (requires an editable install of the package):
+    python tools/hm3/build_hm3_chr_pos_reference.py \
+        --curated-map src/ldsc/data/hm3_curated_map.tsv.gz \
+        --output src/ldsc/data/hm3_chr_pos_reference.tsv.gz
+
+Writes a gzipped TSV (CHR, hg19_POS, hg38_POS) of autosomal, common,
+non-strand-ambiguous SNPs with unique, build-discordant coordinates, evenly
+sampled by hg38 position within each chromosome. Consumed by genome-build
+inference; the generated artifact ships with the package but this builder does
+not.
+"""
 
 from __future__ import annotations
 
@@ -9,9 +21,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from ._kernel.snp_identity import allele_set_series
-from .errors import LDSCUsageError
-from .hm3 import _load_hm3_curated_map_from_path, packaged_hm3_curated_map_path
+from ldsc._kernel.snp_identity import allele_set_series
+from ldsc.errors import LDSCUsageError
+from ldsc.hm3 import _load_hm3_curated_map_from_path, packaged_hm3_curated_map_path
 
 REFERENCE_COLUMNS = ["CHR", "hg19_POS", "hg38_POS"]
 

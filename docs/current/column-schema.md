@@ -72,6 +72,7 @@ decimal digits printed, not numpy dtype.
 | --- | --- | --- |
 | `sumstats.parquet` | none | `CHR` (str), `POS` (int64 when complete), `SNP` (str), alleles (str), `Z`/`N`/`FRQ` (numeric precision preserved) |
 | `ldscore.baseline.parquet`, `ldscore.query.parquet` | `regression_ld_scores`, all LD-score / annotation columns | `CHR` (str), `POS` (int64), `SNP` (str) |
+| `ldscore.overlap.parquet` | none (written directly, not through the chromosome-aligned writer) | `row_annotation` (str), `col_annotation` (str), `overlap_all_snps` / `overlap_common_snps` (`float64`, kept precise because overlap counts can exceed float32's exact-integer range) |
 | Pairwise R² parquet | `SIGN` (bool) | `IDX_1`, `IDX_2` (int32 sidecar-row indices); `R2` (int16 on-disk, symmetric quantization scale 32767, dequantized to float32 on read) |
 
 Pairwise R² parquet schema metadata also stores `ldsc:sorted_by_build`,
@@ -236,6 +237,20 @@ ignored. Annotation files may omit alleles even in allele-aware modes because
 they describe genomic membership; if annotation files include alleles, those
 alleles participate in allele-aware matching.
 
+### Annotation `CM`/`MAF` are population-agnostic (reference panel is authoritative)
+
+`CM` (genetic-map distance) and `MAF` (allele frequency) are population-specific
+and belong to the reference panel, not the annotation. Annotation files carry
+only `CHR`/`POS` (+ optional `SNP`, `A1`, `A2`); `SNP` is required only in
+rsID-family identifier modes. `CM` is optional on read and any input `CM`/`MAF`
+values are **ignored** (the reader reduces `CM` to a NaN placeholder and never
+carries `MAF`). For LD-score calculation, `CM` and `MAF` come exclusively from
+the reference panel: the parquet sidecar (`chrN_meta.tsv.gz`) for the parquet
+backend, and the `.bim`/genotypes (or an interpolated genetic map) for the PLINK
+backend. `annotate` output keeps the legacy positional `CHR BP SNP CM` layout but
+writes an **empty** `CM` placeholder and **no** `MAF` column, so the artifacts
+stay population-agnostic and remain consumable by legacy ldsc2 (`iloc[:, 4:]`).
+
 ### `CHR` format
 `normalize_chromosome` (in `chromosome_inference.py`) strips the `chr` prefix on
 read. All Python-written artifacts store bare labels: `"1"`, `"22"`, `"X"`,
@@ -275,6 +290,7 @@ CM`) follow the annotation rule unconditionally. The annotation-specific columns
 | Annotation (`.annot.gz`) | `CHR, POS, SNP, CM` | annotation columns (input order preserved) |
 | LD-score output (`ldscore.baseline.parquet`) | `CHR, SNP, POS, regression_ld_scores` | baseline LD-score columns |
 | LD-score output (`ldscore.query.parquet`) | `CHR, SNP, POS` | query LD-score columns |
+| LD-score overlap (`ldscore.overlap.parquet`) | `row_annotation, col_annotation` | `overlap_all_snps, overlap_common_snps` (long-form annotation overlap matrix) |
 | Munged sumstats (`sumstats.parquet` or `.sumstats.gz`) | `SNP, CHR, POS, A1, A2` | `Z, N, FRQ` |
 | Canonical pairwise R² parquet | `IDX_1, IDX_2, R2, SIGN` | index-only format; SNP identity lives in the paired `chrN_meta.tsv.gz` sidecar, not in the parquet |
 | Dropped-SNP audit sidecar (`diagnostics/dropped_snps/*.tsv.gz`) | `CHR, SNP, source_pos, target_pos, reason, base_key, identity_key, allele_set, stage` | |

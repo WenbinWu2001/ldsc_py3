@@ -155,7 +155,8 @@ annotate/
 `diagnostics/metadata.json` is provenance only.
 
 | Field | Explanation | Downstream usage |
-| --- | --- | --- || `artifact_type` | Must be `annotation_projection`. | None. |
+| --- | --- | --- |
+| `artifact_type` | Must be `annotation_projection`. | None. |
 | `files` | Relative map of query annotation shards and diagnostics. | None. |
 | `snp_identifier` | SNP identity mode used when writing projected annotations. | None for diagnostic JSON. Query shard columns are runtime data. |
 | `genome_build` | Genome-build assumption for projected annotations. | None for diagnostic JSON. |
@@ -163,6 +164,9 @@ annotate/
 | `query_annot_bed_sources` | Source BED paths/tokens. | None. |
 | `chromosomes` | Chromosomes written. | None. |
 | `query_columns` | Projected query annotation columns. | None. |
+| `baseline_columns` | Baseline annotation columns used as the SNP template. | None. |
+| `n_snps` | Number of retained SNP rows after annotation identity cleanup. | None. |
+| `bed_padding_bp` | BED interval padding applied before projection. | None. |
 
 ### `ldscore`
 
@@ -171,24 +175,30 @@ ldscore/
   metadata.json
   ldscore.baseline.parquet
   ldscore.query.parquet
+  ldscore.overlap.parquet
   diagnostics/
     ldscore.log
 ```
 
 `ldscore.query.parquet` is present only when query LD scores are written.
+`ldscore.overlap.parquet` holds the annotation overlap matrix (long form:
+`row_annotation`, `col_annotation`, `overlap_all_snps`, `overlap_common_snps`)
+that `partitioned-h2` requires. It is written only for runs with two or more
+annotation columns; a single-annotation (e.g. base-only) run omits it.
 
 `metadata.json` is downstream-required.
 
 | Field | Explanation | Downstream usage |
 | --- | --- | --- || `artifact_type` | Must be `ldscore`. | Required and validated. |
-| `files` | Relative data-file map with required `baseline` and optional `query`. | Required to locate parquet data. |
+| `files` | Relative data-file map with required `baseline` and optional `query` and `overlap`. | Required to locate parquet data; `overlap` is required by `partitioned-h2`. |
 | `snp_identifier` | SNP identity mode used for LD-score rows. | Required for regression compatibility checks. |
 | `genome_build` | Genome build associated with LD-score identity metadata. | Required for regression compatibility checks when known. |
 | `chromosomes` | Chromosome labels represented in the output. | Reporting/navigation. |
 | `baseline_columns` | Ordered baseline annotation LD-score columns. | Required to assemble regression covariates. |
 | `query_columns` | Ordered query annotation LD-score columns. | Required for partitioned h2 query selection. |
 | `counts` | Per-annotation count records. | Required for regression count vectors. |
-| `count_config` | Common-SNP count settings. | Reporting/context. |
+| `count_config` | Common-SNP count settings (`common_reference_snp_maf_min`, `common_reference_snp_maf_operator: ">="`). | Reporting/context. |
+| `overlap_config` | Overlap-matrix provenance: `total_all_reference_snps`, `total_common_reference_snps`, `common_maf_min`, `common_maf_operator`, `stored_block`. `null` for single-annotation runs that write no overlap matrix. | Provides `M_tot` and the universe definition for overlap-aware partitioned-h2. |
 | `n_baseline_rows` | Number of rows in the baseline parquet table. | Reporting. |
 | `n_query_rows` | Number of rows in the query parquet table, or zero. | Reporting. |
 | `row_group_layout` | Row-group strategy. | Reporting/technical provenance. |
@@ -220,7 +230,11 @@ the CLI prints compact TSV output to stdout and writes no diagnostics.
 | `count_key_used_for_regression` | Count vector used for regression. | None. |
 | `retained_ld_columns` | LD-score columns retained in the fitted h2 model. | None. |
 | `dropped_zero_variance_ld_columns` | LD-score columns removed before fitting. | None. |
-| `n_snps` | Number of SNPs in the fitted regression dataset. | None. |
+| `n_snps` | Number of SNPs retained after the effective chi-square filter. | None. |
+| `effective_chisq_max` | Chi-square cap actually applied (`null` when uncapped). | None. |
+| `samp_prev` | Sample (case) prevalence applied for liability conversion, or `null` for an observed-scale run. | None. |
+| `pop_prev` | Population prevalence applied, or `null`. | None. |
+| `scale` | `observed` or `liability` (the latter when both prevalences are supplied). | None. |
 
 ### `partitioned-h2`
 
@@ -240,7 +254,11 @@ The `diagnostics/query_annotations/` tree is present only when per-query detail
 output is requested. If `--output-dir` is omitted, the CLI prints compact TSV
 output to stdout and writes no diagnostics.
 
-Root and per-query `diagnostics/metadata.json` files are provenance only.
+Root and per-query `diagnostics/metadata.json` files are provenance only. The
+root file is self-describing about the analysis: `analysis_type`
+(`functional_category` | `cell_type_specific`), `headline_metric` (`enrichment` |
+`coefficient`), `enrichment_p_test` (`two_sided_t`), and `coefficient_p_test`
+(`one_sided_greater`).
 
 ### `rg`
 
@@ -261,7 +279,15 @@ The `diagnostics/pairs/` tree is present only when per-pair detail output is
 requested. If `--output-dir` is omitted, the CLI prints compact `rg.tsv` output
 to stdout and writes no diagnostics.
 
-Root and per-pair `diagnostics/metadata.json` files are provenance only.
+`rg.tsv`, `rg_full.tsv`, and per-pair `rg_full.tsv` report only nominal
+two-sided p-values from each genetic-correlation fit. They do not include
+package-computed corrected p-value columns; downstream users choose any
+multiple-testing correction appropriate for their analysis.
+
+Root and per-pair `diagnostics/metadata.json` files are provenance only. Per-pair
+metadata records the prevalences applied to each trait (`samp_prev_1`, `pop_prev_1`,
+`samp_prev_2`, `pop_prev_2`, each `null` when unset) and a `scale`
+(`observed` | `liability`) field; the rg ratio itself is scale-invariant.
 
 ## Regression No-Output Rule
 

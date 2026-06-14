@@ -169,8 +169,8 @@ chromosome-aligned row groups, and the metadata lists those row groups for
 targeted chromosome reads. The output file is
 `tutorial_outputs/cell_specific_ldsc/partitioned_h2.tsv`, with
 `diagnostics/partitioned-h2.log` under the same directory. Its key columns are
-`Category`, `Prop._SNPs`, `Prop._h2`, `Enrichment`, `Enrichment_p`,
-`Coefficient`, and `Coefficient_p`.
+`category`, `prop_snps`, `prop_h2`, `enrichment`, `enrichment_p`,
+`coefficient`, and `coefficient_p`.
 For full column definitions, see
 [partitioned-h2-results.md](../docs/current/partitioned-h2-results.md).
 With `--write-per-query-results`, the command also writes

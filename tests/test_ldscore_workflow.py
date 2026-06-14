@@ -913,6 +913,98 @@ class LDScoreWorkflowTest(unittest.TestCase):
         self.assertEqual(chrom_result.baseline_table["regression_ld_scores"].tolist(), [3.0])
         self.assertEqual(chrom_result.query_table["query"].tolist(), [2.0])
 
+    def test_wrap_legacy_chrom_result_carries_overlap(self):
+        from ldsc._kernel.overlap import OverlapContribution
+
+        contribution = OverlapContribution(np.array([[2.0]]), None, np.array([]), None, 2, None)
+        legacy_result = ldscore_workflow._LegacyChromResult(
+            chrom="1",
+            metadata=pd.DataFrame(
+                {"CHR": ["1", "1"], "SNP": ["rs1", "rs2"], "POS": [10, 20], "CM": [0.1, 0.2], "MAF": [0.2, 0.3]}
+            ),
+            ld_scores=np.array([[1.0], [2.0]], dtype=np.float32),
+            w_ld=np.array([[3.0], [4.0]], dtype=np.float32),
+            M=np.array([2.0]),
+            M_5_50=None,
+            ldscore_columns=["base"],
+            baseline_columns=["base"],
+            query_columns=[],
+            overlap=contribution,
+        )
+        result = ldscore_workflow.LDScoreCalculator()._wrap_legacy_chrom_result(
+            legacy_result, global_config=GlobalConfig(snp_identifier="rsid")
+        )
+        self.assertIs(result.overlap, contribution)
+
+    def test_aggregate_chromosome_results_sums_overlap_blocks(self):
+        from ldsc._kernel.overlap import OverlapContribution
+
+        cfg = GlobalConfig(snp_identifier="rsid")
+
+        def make_chrom(chrom, snp, contribution):
+            return ldscore_workflow.ChromLDScoreResult(
+                chrom=chrom,
+                baseline_table=pd.DataFrame(
+                    {"CHR": [chrom], "SNP": [snp], "POS": [10], "regression_ld_scores": [3.0], "base": [1.0]}
+                ),
+                query_table=pd.DataFrame({"CHR": [chrom], "SNP": [snp], "POS": [10], "query": [2.0]}),
+                count_records=[
+                    {"group": "baseline", "column": "base", "all_reference_snp_count": 10.0},
+                    {"group": "query", "column": "query", "all_reference_snp_count": 11.0},
+                ],
+                baseline_columns=["base"],
+                query_columns=["query"],
+                ld_reference_snps=frozenset(),
+                ld_regression_snps=frozenset({snp}),
+                snp_count_totals={"all_reference_snp_counts": np.array([10.0, 11.0])},
+                overlap=contribution,
+                config_snapshot=cfg,
+            )
+
+        c1 = OverlapContribution(np.array([[10.0, 4.0]]), None, np.array([6.0]), None, 10, None)
+        c2 = OverlapContribution(np.array([[5.0, 3.0]]), None, np.array([4.0]), None, 7, None)
+        result = ldscore_workflow.LDScoreCalculator()._aggregate_chromosome_results(
+            [make_chrom("1", "rs1", c1), make_chrom("2", "rs2", c2)], global_config=cfg
+        )
+        self.assertIsNotNone(result.overlap)
+        np.testing.assert_allclose(result.overlap.baseline_block_all.to_numpy(), [[15.0, 7.0]])
+        np.testing.assert_allclose(result.overlap.query_diagonal_all.to_numpy(), [10.0])
+        self.assertEqual(result.overlap.total_all_reference_snps, 17)
+        self.assertEqual(list(result.overlap.baseline_block_all.columns), ["base", "query"])
+
+    def test_aggregate_chromosome_results_skips_overlap_for_base_only(self):
+        from ldsc._kernel.overlap import OverlapContribution
+
+        cfg = GlobalConfig(snp_identifier="rsid")
+
+        def make_chrom(chrom, snp, contribution):
+            return ldscore_workflow.ChromLDScoreResult(
+                chrom=chrom,
+                baseline_table=pd.DataFrame(
+                    {"CHR": [chrom], "SNP": [snp], "POS": [10], "regression_ld_scores": [3.0], "base": [1.0]}
+                ),
+                query_table=None,
+                count_records=[
+                    {"group": "baseline", "column": "base", "all_reference_snp_count": 10.0},
+                ],
+                baseline_columns=["base"],
+                query_columns=[],
+                ld_reference_snps=frozenset(),
+                ld_regression_snps=frozenset({snp}),
+                snp_count_totals={"all_reference_snp_counts": np.array([10.0])},
+                overlap=contribution,
+                config_snapshot=cfg,
+            )
+
+        # A single all-ones base column makes the overlap a degenerate 1x1 (the SNP
+        # count, already in metadata) that no downstream regression consumes.
+        c1 = OverlapContribution(np.array([[10.0]]), None, np.array([]), None, 10, None)
+        c2 = OverlapContribution(np.array([[7.0]]), None, np.array([]), None, 7, None)
+        result = ldscore_workflow.LDScoreCalculator()._aggregate_chromosome_results(
+            [make_chrom("1", "rs1", c1), make_chrom("2", "rs2", c2)], global_config=cfg
+        )
+        self.assertIsNone(result.overlap)
+
     def test_wrap_legacy_result_derives_allele_aware_regression_ids_before_split(self):
         legacy_result = ldscore_workflow._LegacyChromResult(
             chrom="1",
@@ -987,6 +1079,16 @@ class LDScoreWorkflowTest(unittest.TestCase):
         self.assertEqual(metadata["A2"].tolist(), ["C"])
         self.assertEqual(list(annotations.columns), ["base_a"])
 
+    def test_kernel_parse_annotation_file_accepts_file_without_cm_and_ignores_maf(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "no_cm.annot"
+            path.write_text("CHR\tBP\tSNP\tMAF\tbase_a\n1\t10\trs1\t0.3\t1\n", encoding="utf-8")
+            metadata, annotations = kernel_ldscore.parse_annotation_file(str(path))
+        self.assertIn("CM", metadata.columns)  # placeholder retained
+        self.assertTrue(metadata["CM"].isna().all())
+        self.assertNotIn("MAF", metadata.columns)  # MAF never carried
+        self.assertEqual(list(annotations.columns), ["base_a"])
+
     def test_kernel_parse_annotation_file_rejects_single_allele_column(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "one_allele.annot"
@@ -998,6 +1100,25 @@ class LDScoreWorkflowTest(unittest.TestCase):
 
             with self.assertRaisesRegex(LDSCInputError, "only one allele column"):
                 kernel_ldscore.parse_annotation_file(str(path))
+
+    def test_kernel_parse_annotation_file_sorts_and_keeps_values_aligned(self):
+        # Rows are intentionally out of genomic order; the parser must sort by
+        # position AND keep each SNP glued to its own annotation value. The
+        # annotation value equals the SNP's numeric suffix, so a misalignment
+        # between metadata and values would be visible.
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "shuffled.annot"
+            path.write_text(
+                "CHR\tBP\tSNP\tbase_a\n"
+                "1\t30\trs3\t3\n"
+                "1\t10\trs1\t1\n"
+                "1\t20\trs2\t2\n",
+                encoding="utf-8",
+            )
+            metadata, annotations = kernel_ldscore.parse_annotation_file(str(path))
+        self.assertEqual(metadata["SNP"].tolist(), ["rs1", "rs2", "rs3"])
+        self.assertEqual(metadata["POS"].tolist(), [10, 20, 30])
+        self.assertEqual(annotations["base_a"].tolist(), [1.0, 2.0, 3.0])
 
     def test_kernel_combine_annotation_groups_aligns_allele_free_annotations_in_allele_aware_mode(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1214,18 +1335,22 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 ]
             )
 
-    def test_compute_counts_uses_inclusive_common_maf_min(self):
-        metadata = pd.DataFrame({"MAF": [0.1, 0.2, 0.3]})
-        annotations = pd.DataFrame({"base": [1.0, 2.0, 3.0], "query": [0.0, 4.0, 5.0]})
+    def test_compute_counts_common_mask_is_inclusive_greater_equal(self):
+        metadata = pd.DataFrame({"MAF": [0.05, 0.0500001, 0.2, 0.04]})
+        annotations = pd.DataFrame({"base": [1.0, 1.0, 1.0, 1.0], "cat": [1.0, 0.0, 1.0, 1.0]})
 
-        all_counts, common_counts = kernel_ldscore.compute_counts(
-            metadata,
-            annotations,
-            common_maf_min=0.2,
-        )
+        M, M_5_50 = kernel_ldscore.compute_counts(metadata, annotations, common_maf_min=0.05)
 
-        np.testing.assert_allclose(all_counts, [6.0, 9.0])
-        np.testing.assert_allclose(common_counts, [5.0, 9.0])
+        # MAF == 0.05 is included (inclusive >=), so rows 0, 1 and 2 are common.
+        np.testing.assert_allclose(M, [4.0, 3.0])
+        np.testing.assert_allclose(M_5_50, [3.0, 2.0])
+
+    def test_count_config_records_inclusive_operator(self):
+        from ldsc.ldscore_calculator import _count_config_from_ldscore_config
+        from ldsc.config import LDScoreConfig
+
+        cfg = _count_config_from_ldscore_config(LDScoreConfig(ld_wind_cm=1.0, common_maf_min=0.05))
+        self.assertEqual(cfg["common_reference_snp_maf_operator"], ">=")
 
     def test_regression_mask_from_keys_uses_identity_restriction_match_kind(self):
         metadata = pd.DataFrame(
@@ -1412,6 +1537,84 @@ class LDScoreWorkflowTest(unittest.TestCase):
             self.assertGreater(len(result.metadata), 0)
             self.assertEqual(result.w_ld.shape[0], len(result.metadata))
 
+    def test_plink_compute_rejects_unsorted_window_positions(self):
+        # geno_meta inherits the annotation bundle's row order via keep_snps, so a
+        # bundle whose positions are not coordinate-sorted must trip the window-sort
+        # guard before get_block_lefts runs (otherwise LD windows are silently wrong).
+        with tempfile.TemporaryDirectory() as tmpdir:
+            prefix = self._copy_plink_fixture_with_distinct_fids(Path(tmpdir))
+            wb = self._build_annotation_bundle(prefix)
+            order = np.argsort(wb.metadata["POS"].to_numpy(), kind="mergesort")[::-1]
+            bundle = kernel_ldscore.AnnotationBundle(
+                metadata=wb.metadata.iloc[order].reset_index(drop=True),
+                annotations=wb.baseline_annotations.iloc[order].reset_index(drop=True),
+                baseline_columns=wb.baseline_columns,
+                query_columns=wb.query_columns,
+            )
+            args = Namespace(
+                bfile=str(prefix), keep=None, maf_min=None, maf=None,
+                ld_wind_snps=10, ld_wind_kb=None, ld_wind_cm=None,
+                yes_really=True, snp_batch_size=50, common_maf_min=0.05,
+                snp_identifier="rsid",
+            )
+            with self.assertRaisesRegex(LDSCInternalError, "non-decreasing order"):
+                kernel_ldscore.compute_chrom_from_plink("1", bundle, args, None)
+
+    def _plink_cm_args(self, prefix: Path, genetic_map) -> Namespace:
+        return Namespace(
+            bfile=str(prefix), keep=None, maf_min=None, maf=None,
+            ld_wind_snps=None, ld_wind_kb=None, ld_wind_cm=1.0,
+            yes_really=True, snp_batch_size=50, common_maf_min=0.05,
+            snp_identifier="rsid", genetic_map=genetic_map,
+        )
+
+    def test_plink_cm_window_rejects_all_zero_bim_cm_without_map(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            prefix = self._copy_plink_fixture_with_distinct_fids(Path(tmpdir))
+            wb = self._build_annotation_bundle(prefix)
+            bundle = kernel_ldscore.AnnotationBundle(
+                metadata=wb.metadata, annotations=wb.baseline_annotations,
+                baseline_columns=wb.baseline_columns, query_columns=wb.query_columns,
+            )
+            # The fixture .bim CM is all zero; without a map this must error even under
+            # --yes-really (yes_really=True below).
+            with self.assertRaisesRegex(LDSCInputError, "uninformative|all zero"):
+                kernel_ldscore.compute_chrom_from_plink("1", bundle, self._plink_cm_args(prefix, None), None)
+
+    def test_plink_cm_window_uses_genetic_map(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            prefix = self._copy_plink_fixture_with_distinct_fids(Path(tmpdir))
+            wb = self._build_annotation_bundle(prefix)
+            bundle = kernel_ldscore.AnnotationBundle(
+                metadata=wb.metadata, annotations=wb.baseline_annotations,
+                baseline_columns=wb.baseline_columns, query_columns=wb.query_columns,
+            )
+            gmap = pd.DataFrame({"CHR": ["1", "1"], "POS": [1, 8], "CM": [0.0, 4.0]})
+            result = kernel_ldscore.compute_chrom_from_plink("1", bundle, self._plink_cm_args(prefix, gmap), None)
+            self.assertGreater(len(result.metadata), 0)
+            # interpolated CM is non-degenerate -> a real cM window, not whole-chromosome
+            self.assertGreaterEqual(result.metadata["CM"].nunique(), 2)
+
+    def test_compute_chromosome_writes_ref_metadata_sidecar(self):
+        from ldsc._kernel.ref_panel import RefPanelLoader
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            prefix = self._copy_plink_fixture_with_distinct_fids(tmpdir)
+            wb = self._build_annotation_bundle(prefix)
+            gc = GlobalConfig(snp_identifier="rsid")
+            ref_panel = RefPanelLoader(gc).load(RefPanelConfig(backend="plink", plink_prefix=str(prefix)))
+            out = tmpdir / "out"
+            ldscore_workflow.LDScoreCalculator().compute_chromosome(
+                chrom="1", annotation_bundle=wb, ref_panel=ref_panel,
+                ldscore_config=LDScoreConfig(ld_wind_snps=10, export_ref_metadata=True, whole_chromosome_ok=True),
+                global_config=gc, regression_snps=None, export_dir=str(out),
+            )
+            sidecar = out / "ref_metadata" / "chr1_meta.tsv.gz"
+            self.assertTrue(sidecar.exists())
+            df = pd.read_csv(sidecar, sep="\t")
+            self.assertEqual(list(df.columns), ["CHR", "POS", "SNP", "A1", "A2", "CM", "MAF"])
+            self.assertTrue(df["MAF"].notna().any())  # genotype-derived MAF present
+
     def test_run_rejects_annotation_bundle_snapshot_mismatch(self):
         calc = ldscore_workflow.LDScoreCalculator()
         annotation_bundle = AnnotationBundle(
@@ -1533,7 +1736,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
             )
             ref_panel = self.make_ref_panel_stub(backend="plink", metadata=ref_metadata)
 
-            def _compute(_self, chrom, annotation_bundle, ref_panel, ldscore_config, global_config, regression_snps=None):
+            def _compute(_self, chrom, annotation_bundle, ref_panel, ldscore_config, global_config, regression_snps=None, export_dir=None):
                 self.assertEqual(chrom, "1")
                 self.assertEqual(annotation_bundle.metadata["SNP"].tolist(), ["rs1", "rs2"])
                 self.assertEqual(annotation_bundle.baseline_columns, ["base"])
@@ -1839,7 +2042,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 log_level="INFO",
             )
 
-            def _compute(_self, chrom, annotation_bundle, ref_panel, ldscore_config, global_config, regression_snps=None):
+            def _compute(_self, chrom, annotation_bundle, ref_panel, ldscore_config, global_config, regression_snps=None, export_dir=None):
                 self.assertEqual(chrom, "1")
                 self.assertEqual(regression_snps.keys, {"rs2"})
                 self.assertEqual(regression_snps.match_kind, "base")
@@ -2238,7 +2441,7 @@ class LDScoreWorkflowTest(unittest.TestCase):
                 log_level="INFO",
             )
 
-            def _compute_side_effect(_self, chrom, annotation_bundle, ref_panel, ldscore_config, global_config, regression_snps=None):
+            def _compute_side_effect(_self, chrom, annotation_bundle, ref_panel, ldscore_config, global_config, regression_snps=None, export_dir=None):
                 if chrom == "1":
                     raise ValueError("No retained annotation SNPs remain on chromosome 1 after parquet intersection.")
                 return ldscore_workflow.ChromLDScoreResult(
@@ -3407,6 +3610,10 @@ def test_ldscore_end_to_end_drops_user_bed_snp(tmp_path):
         exclude_regions_bed=(str(bed),),
     )
     assert target_pos not in set(result.baseline_table["POS"])
+    # Unpartitioned (synthetic base-only) runs have a degenerate 1x1 overlap that
+    # no regression consumes, so the sidecar is suppressed end-to-end.
+    assert not (tmp_path / "ld" / "ldscore.overlap.parquet").exists()
+    assert result.overlap is None
 
 
 def test_ldscore_rejects_non_minor_maf():
@@ -3419,3 +3626,122 @@ def test_ldscore_rejects_non_minor_maf():
 def test_assert_canonical_maf_passes_for_minor():
     ok = pd.DataFrame({"MAF": [0.0, 0.2, 0.5]})
     ldscore_workflow._assert_canonical_maf(ok)  # no raise
+
+
+def test_merge_frequency_metadata_sidecar_is_authoritative(monkeypatch, tmp_path):
+    """Reference-panel sidecar CM/MAF overwrite annotation-provided values."""
+    metadata = pd.DataFrame(
+        {"CHR": ["1"], "POS": [10], "SNP": ["rs1"], "CM": [99.0], "MAF": [0.99]}
+    )
+    sidecar = tmp_path / "chr1_meta.tsv.gz"
+    pd.DataFrame(
+        {"CHR": ["1"], "POS": [10], "SNP": ["rs1"], "CM": [0.5], "MAF": [0.2]}
+    ).to_csv(sidecar, sep="\t", index=False)
+    monkeypatch.setattr(
+        kernel_ldscore, "resolve_frequency_files", lambda args, chrom=None: [str(sidecar)]
+    )
+    args = Namespace(frqfile=str(sidecar), frqfile_chr=None)
+    merged = kernel_ldscore.merge_frequency_metadata(
+        metadata, args, chrom="1", identifier_mode="rsid"
+    )
+    assert merged.loc[0, "CM"] == 0.5  # sidecar wins, not annotation 99.0
+    assert merged.loc[0, "MAF"] == 0.2  # sidecar wins (folded)
+
+
+def test_cm_window_consistent_across_backends():
+    """Both backends feed reference CM into the same window builder, so identical
+    reference CM yields identical block-lefts (the headline cross-backend invariant)."""
+    import argparse
+    cm = pd.Series([0.0, 0.4, 0.9, 1.6])
+    md = pd.DataFrame({"CM": cm, "POS": [1, 2, 3, 4]})
+    args = argparse.Namespace(ld_wind_snps=None, ld_wind_kb=None, ld_wind_cm=1.0)
+    coords_a, dist_a = kernel_ldscore.build_window_coordinates(md, args)
+    coords_b, dist_b = kernel_ldscore.build_window_coordinates(md.copy(), args)
+    np.testing.assert_array_equal(
+        kernel_ldscore.get_block_lefts(coords_a, dist_a),
+        kernel_ldscore.get_block_lefts(coords_b, dist_b),
+    )
+    # The kb window over the same physical positions is likewise deterministic.
+    args_kb = argparse.Namespace(ld_wind_snps=None, ld_wind_kb=1.0, ld_wind_cm=None)
+    coords_kb, dist_kb = kernel_ldscore.build_window_coordinates(md, args_kb)
+    np.testing.assert_array_equal(coords_kb, md["POS"].to_numpy(dtype=float))
+
+
+def test_assert_cm_usable_rejects_all_zero():
+    with pytest.raises(LDSCInputError, match="all zero|uninformative"):
+        kernel_ldscore.assert_cm_usable(pd.Series([0.0, 0.0, 0.0]), chrom="1")
+
+
+def test_assert_cm_usable_rejects_constant():
+    with pytest.raises(LDSCInputError):
+        kernel_ldscore.assert_cm_usable(pd.Series([2.5, 2.5, 2.5]), chrom="1")
+
+
+def test_assert_cm_usable_accepts_two_distinct_values():
+    kernel_ldscore.assert_cm_usable(pd.Series([0.0, 0.1, 0.1]), chrom="1")  # no raise
+
+
+def test_require_reference_maf_raises_when_all_missing():
+    with pytest.raises(LDSCInputError, match="MAF"):
+        kernel_ldscore.require_reference_maf(pd.DataFrame({"MAF": [np.nan, np.nan]}), chrom="1")
+
+
+def test_require_reference_maf_passes_with_any_value():
+    kernel_ldscore.require_reference_maf(pd.DataFrame({"MAF": [0.1, np.nan]}), chrom="1")  # no raise
+
+
+def test_namespace_from_configs_propagates_plink_maf_min():
+    """--maf-min reaches the kernel for PLINK (previously hardcoded to None)."""
+    spec = SimpleNamespace(
+        backend="plink", plink_prefix=None, maf_min=0.4, keep_indivs_file=None, sample_size=None
+    )
+    ref_panel = SimpleNamespace(spec=spec)
+    ns = ldscore_workflow._namespace_from_configs(
+        "1", ref_panel, LDScoreConfig(ld_wind_snps=10), GlobalConfig(snp_identifier="rsid")
+    )
+    assert ns.maf_min == 0.4
+
+
+def test_build_parser_accepts_genetic_map_and_export_flags():
+    parser = ldscore_workflow.build_parser()
+    args = parser.parse_args([
+        "--output-dir", "out", "--plink-prefix", "panel", "--ld-wind-cm", "1.0",
+        "--genetic-map-hg38-sources", "map_hg38.txt", "--export-ref-metadata",
+    ])
+    assert args.genetic_map_hg38_sources == "map_hg38.txt"
+    assert args.export_ref_metadata is True
+
+
+def test_genetic_map_ignored_for_parquet_with_warning(caplog):
+    import logging
+    spec = SimpleNamespace(
+        backend="parquet_r2", plink_prefix=None, maf_min=None, keep_indivs_file=None,
+        sample_size=None, genetic_map_hg19_sources="m19", genetic_map_hg38_sources=None,
+    )
+    ref_panel = SimpleNamespace(spec=spec)
+    with caplog.at_level(logging.WARNING):
+        ns = ldscore_workflow._namespace_from_configs(
+            "1", ref_panel, LDScoreConfig(ld_wind_cm=1.0),
+            GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+        )
+    assert ns.genetic_map is None  # flags ignored; sidecar CM is authoritative
+    assert any("Ignoring --genetic-map" in r.message for r in caplog.records)
+
+
+def test_validate_window_positions_sorted_accepts_non_decreasing():
+    metadata = pd.DataFrame({"CHR": ["1", "1", "1"], "POS": [100, 100, 250]})
+    # Non-decreasing (including a tie) must pass without raising.
+    kernel_ldscore.validate_window_positions_sorted(metadata, chrom="1")
+
+
+def test_validate_window_positions_sorted_rejects_unsorted_metadata():
+    metadata = pd.DataFrame({"CHR": ["1", "1", "1"], "POS": [100, 300, 250]})
+    with pytest.raises(LDSCInternalError, match="non-decreasing order"):
+        kernel_ldscore.validate_window_positions_sorted(metadata, chrom="1")
+
+
+def test_validate_window_positions_sorted_ignores_chromosome_boundary_drop():
+    # A position drop across a chromosome boundary is expected, not an error:
+    # the window is computed per chromosome.
+    metadata = pd.DataFrame({"CHR": ["1", "1", "2"], "POS": [100, 999, 1]})
+    kernel_ldscore.validate_window_positions_sorted(metadata, chrom="1")

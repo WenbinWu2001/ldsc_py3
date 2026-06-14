@@ -1357,24 +1357,24 @@ git commit -m "docs(r2-query): document R2 pair query API and CLI"
 ## Self-Review
 
 **1. Spec coverage:**
-- §4 module layout → Tasks 1–8 create exactly the listed files. ✓
-- §5 `R2Panel.open`, two input modes, lazy load, binding, attributes → Task 3. ✓
-- §6 `_1`/`_2` input, base-mode drops alleles → Task 4 (`_endpoint_frame`). ✓
-- §7 routing + status vocabulary (diagonal/stored/absent/cross/not-in-panel) → Task 4 test `test_stored_diagonal_absent_cross_and_missing`. ✓
-- §8 int64-key match, random/stream/auto, row-group pruning → Task 2. ✓
-- §9 sign harmonization allele-aware only, base → `NA`, parity rule → Task 4 tests. ✓
-- §10 output schema (`r2`/`sign`/`status`/optional `r`) → Task 4/5. ✓
-- §11 converter + `with_r` + base-mode warning + missing-`n_samples` error → Tasks 1, 5, and `_signed_r`. ✓
-- §12 CLI → Task 6. ✓
-- §13 errors (both/neither mode, binding, key collapse, missing alleles, `with_r` no `n_samples`) → Tasks 3/4 (`_chrom_state`, `_endpoint_frame`, `_signed_r`). ✓
-- §14 tests (converter, key resolution, sign, integration, parity, CLI) → Tasks 1–6. ✓
-- §16 reused helpers → imported in Task 3. ✓
+- §4 module layout → Tasks 1–8 create exactly the listed files. [done]
+- §5 `R2Panel.open`, two input modes, lazy load, binding, attributes → Task 3. [done]
+- §6 `_1`/`_2` input, base-mode drops alleles → Task 4 (`_endpoint_frame`). [done]
+- §7 routing + status vocabulary (diagonal/stored/absent/cross/not-in-panel) → Task 4 test `test_stored_diagonal_absent_cross_and_missing`. [done]
+- §8 int64-key match, random/stream/auto, row-group pruning → Task 2. [done]
+- §9 sign harmonization allele-aware only, base → `NA`, parity rule → Task 4 tests. [done]
+- §10 output schema (`r2`/`sign`/`status`/optional `r`) → Task 4/5. [done]
+- §11 converter + `with_r` + base-mode warning + missing-`n_samples` error → Tasks 1, 5, and `_signed_r`. [done]
+- §12 CLI → Task 6. [done]
+- §13 errors (both/neither mode, binding, key collapse, missing alleles, `with_r` no `n_samples`) → Tasks 3/4 (`_chrom_state`, `_endpoint_frame`, `_signed_r`). [done]
+- §14 tests (converter, key resolution, sign, integration, parity, CLI) → Tasks 1–6. [done]
+- §16 reused helpers → imported in Task 3. [done]
 
 **2. Placeholder scan:** No TBD/TODO; every code step contains complete code; the
 doc task (Task 8) lists exact sections + a verbatim snippet rather than "write
-docs". ✓
+docs". [done]
 
-**3. Type consistency:** `lookup_pairs_in_parquet(pf, i, j, *, n_snps, r2_scale, strategy, strategy_threshold)` is called with the same keywords in Tasks 2 and 4. `R2Panel.open` / `query_pairs` / `query_r2` signatures match across Tasks 3–6. `_orientation_multiplier(query_a1, panel_a1, panel_a2)` returns int16 ±1/0, consumed as `mult1`/`mult2` in Task 4. `sign` sentinel `0`→`pd.NA` is consistent (kernel returns 0 for absent; handle maps 0→NA). ✓
+**3. Type consistency:** `lookup_pairs_in_parquet(pf, i, j, *, n_snps, r2_scale, strategy, strategy_threshold)` is called with the same keywords in Tasks 2 and 4. `R2Panel.open` / `query_pairs` / `query_r2` signatures match across Tasks 3–6. `_orientation_multiplier(query_a1, panel_a1, panel_a2)` returns int16 ±1/0, consumed as `mult1`/`mult2` in Task 4. `sign` sentinel `0`→`pd.NA` is consistent (kernel returns 0 for absent; handle maps 0→NA). [done]
 
 **Note on task ordering:** Task 3's `test_binding_mismatch_is_hard_error` calls
 `query_pairs`, implemented in Task 4. When executing in order, implement Task 4

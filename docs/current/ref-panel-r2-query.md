@@ -125,15 +125,25 @@ Both produce identical results.
 
 ```
 ldsc query-r2 --panel-dir DIR
-              --pairs FILE [--out FILE]
+              --pairs FILE [--output-dir DIR] [--overwrite] [--log-level LEVEL]
               [--snp-identifier MODE] [--genome-build {hg19,hg38}]
 ```
 
 `--pairs` is a TSV/CSV with the `_1`/`_2` endpoint columns (`-` reads stdin). The
-output TSV echoes the input columns plus `r2`, `sign`, `r`, and `status`, written
-to `--out` or stdout.
+result echoes the input columns plus `r2`, `sign`, `r`, and `status`.
+
+Without `--output-dir`, the result streams as a clean TSV to stdout (pipe-able).
+With `--output-dir`, `query-r2` follows the canonical result-directory layout
+shared by the other commands: `query_r2.tsv` at the root, plus
+`diagnostics/metadata.json` (provenance and per-run status counts) and
+`diagnostics/query-r2.log` (workflow audit log). `--overwrite` replaces an
+existing result directory; `--log-level` sets the diagnostics-log verbosity.
 
 ```bash
+# Stream to stdout
+ldsc query-r2 --panel-dir ref_panel --genome-build hg38 --pairs pairs.tsv
+
+# Canonical result directory
 ldsc query-r2 --panel-dir ref_panel --genome-build hg38 \
-    --pairs pairs.tsv --out pairs_r2.tsv
+    --pairs pairs.tsv --output-dir pairs_r2
 ```

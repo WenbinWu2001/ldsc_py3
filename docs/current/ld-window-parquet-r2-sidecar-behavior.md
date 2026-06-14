@@ -48,6 +48,15 @@ parquet + sidecar.
 The shared LD-window resolver requires exactly one of `--ld-wind-snps`,
 `--ld-wind-kb`, or `--ld-wind-cm`.
 
+**`CM`/`MAF` are always reference-panel-sourced.** Annotation `CM`/`MAF` are
+ignored; for the parquet backend the sidecar is authoritative, and the PLINK
+backend uses `.bim` `CM` (or an interpolated genetic map) and genotype `MAF`.
+For PLINK, `--ld-wind-cm` additionally rejects an *unusable* `.bim` `CM` (fewer
+than two distinct finite values per chromosome) with a dedicated error that
+`--yes-really` does not bypass; supply `--genetic-map-hg19-sources` /
+`--genetic-map-hg38-sources` to interpolate `CM` at the `.bim` positions. See
+`docs/troubleshooting.md#ldscore-unusable-cm-for-ld-wind-cm`.
+
 For `--ld-wind-cm`, the check is strict: every retained SNP must have a
 non-missing `CM`. If any retained row has missing `CM`, chromosome computation
 raises:
@@ -67,15 +76,19 @@ When no baseline annotations are supplied, `ldscore` synthesizes an all-ones
 
 When baseline annotations are supplied, the reference-panel metadata is used to
 intersect annotation rows with the retained reference-panel universe. For
-LD-score calculation, annotation-provided `CM` is the first source; sidecar `CM`
-only fills missing values from the annotation side.
+LD-score calculation, the **sidecar is authoritative** for `CM` (and `MAF`):
+annotation-provided `CM`/`MAF` are ignored, and `merge_frequency_metadata`
+overwrites them with the sidecar values for every covered SNP. (Annotation files
+no longer carry meaningful `CM`/`MAF` — `CM` is a NaN placeholder and `MAF` is
+not carried — so in practice the sidecar is the only source.)
 
 ## MAF and counts
 
 `MAF` is available when present in the sidecar (package builds always write it).
 
 - `--maf-min` filtering works normally.
-- Common-SNP count vectors use `MAF >= common_maf_min` from the sidecar.
+- Common-SNP count vectors (and the common-universe overlap matrix) use
+  inclusive `MAF >= common_maf_min` from the sidecar.
 - All-SNP count vectors are computed from retained annotation rows.
 
 ## Memory

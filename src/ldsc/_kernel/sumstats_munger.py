@@ -253,7 +253,7 @@ def filter_frq(frq, args):
     # below is a local mask for the --maf-min threshold only; never reorient
     # A1/A2 or overwrite FRQ here (FRQ stays freq(A1), may exceed 0.5).
     frq = np.minimum(frq, 1 - frq)
-    ii = frq > args.maf_min
+    ii = frq >= args.maf_min
     return ii & ~jj
 
 
@@ -390,8 +390,8 @@ def parse_dat(dat_gen, convert_colname, args, restriction=None):
     msg = (
         f"Read {tot_snps} SNPs from --sumstats file.\n"
         f"Removed {drops['NA']} SNPs with missing values.\n"
-        f"Removed {drops['INFO']} SNPs with INFO <= {args.info_min}.\n"
-        f"Removed {drops['FRQ']} SNPs with MAF <= {args.maf_min}.\n"
+        f"Removed {drops['INFO']} SNPs with INFO < {args.info_min}.\n"
+        f"Removed {drops['FRQ']} SNPs with MAF < {args.maf_min}.\n"
         f"Removed {drops['P']} SNPs with out-of-bounds p-values.\n"
         f"Removed {drops['A']} variants that were not SNPs or were strand-ambiguous.\n"
         f"{len(dat)} SNPs remain."

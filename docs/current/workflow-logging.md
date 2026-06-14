@@ -86,6 +86,13 @@ Finished 2026-05-02 22:07:50
 Elapsed time: 2.0min:12s
 ```
 
+The `Started` timestamp and elapsed timer are captured as one paired timepoint
+when the workflow context is entered. The `Finished` or `Failed` timestamp and
+elapsed timer are likewise captured as one paired timepoint when the context
+exits. This keeps the wall-clock timepoints and `Elapsed time` footer aligned
+with the actual interval covered by the workflow log, including setup before the
+header is written and final work before the footer is written.
+
 ## Log Names
 
 | Workflow | Log path |

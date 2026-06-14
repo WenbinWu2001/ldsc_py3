@@ -85,6 +85,7 @@ from .ldscore_calculator import LDScoreResult
 from .outputs import (
     H2DirectoryWriter,
     H2OutputConfig,
+    PARTITIONED_H2_COLUMNS,
     PartitionedH2DirectoryWriter,
     PartitionedH2OutputConfig,
     REGRESSION_LD_SCORE_COLUMN,
@@ -101,47 +102,26 @@ from .errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsag
 COMMON_COUNT_KEY = "common_reference_snp_counts"
 ALL_COUNT_KEY = "all_reference_snp_counts"
 LOGGER = logging.getLogger("LDSC.regression_runner")
-PARTITIONED_H2_AGGREGATE_COLUMNS = [
-    "Category",
-    "Prop._SNPs",
-    "Prop._h2",
-    "Enrichment",
-    "Enrichment_p",
-    "Coefficient",
-    "Coefficient_p",
-]
 PARTITIONED_H2_SUMMARY_SORT_COLUMNS = {
-    "category": "Category",
-    "prop-snps": "Prop._SNPs",
-    "prop-h2": "Prop._h2",
-    "enrichment": "Enrichment",
-    "enrichment-p": "Enrichment_p",
-    "coefficient": "Coefficient",
-    "coefficient-p": "Coefficient_p",
+    "category": "category",
+    "prop-snps": "prop_snps",
+    "prop-h2": "prop_h2",
+    "enrichment": "enrichment",
+    "enrichment-p": "enrichment_p",
+    "coefficient": "coefficient",
+    "coefficient-p": "coefficient_p",
 }
 PARTITIONED_H2_SUMMARY_ASCENDING_SORTS = {
     "enrichment-p",
     "coefficient-p",
 }
-PARTITIONED_H2_FULL_COLUMNS = [
-    "Category",
-    "Prop._SNPs",
-    "Category_h2",
-    "Category_h2_std_error",
-    "Prop._h2",
-    "Prop._h2_std_error",
-    "Enrichment",
-    "Enrichment_std_error",
-    "Enrichment_p",
-    "Coefficient",
-    "Coefficient_std_error",
-    "Coefficient_p",
-]
-PARTITIONED_H2_REQUIRES_QUERY_ANNOTATIONS_MESSAGE = (
-    "partitioned-h2 cannot run because the LD-score directory has no query annotation columns. "
-    "Most likely `ldsc ldscore` was run with baseline annotations only. Rerun `ldsc ldscore` "
-    "with `--query-annot-sources` or `--query-annot-bed-sources` plus explicit baseline annotations. "
-    "Other causes & fixes: docs/troubleshooting.md#regression-partitioned-h2-ld-score-directory-has-no-query-annotations"
+PARTITIONED_H2_REQUIRES_OVERLAP_MESSAGE = (
+    "partitioned-h2 needs the annotation overlap matrix, but the LD-score directory has no "
+    "ldscore.overlap.parquet. Most likely it is an unpartitioned LD-score directory (a single "
+    "annotation such as the synthetic `base`), which has no overlap matrix and cannot be "
+    "partitioned -- regenerate it with two or more annotation columns. It may also predate the "
+    "overlap sidecar; if so, regenerate with the current `ldsc ldscore`. "
+    "Other causes & fixes: docs/troubleshooting.md#partitioned-h2-missing-overlap-matrix"
 )
 FAILED_RG_NOTE = "Failed; see rg_full.tsv error column; use --output-dir for diagnostics/rg.log."
 REGRESSION_IDENTITY_KEY_COLUMN = "_ldsc_regression_identity_key"
@@ -166,6 +146,7 @@ class RegressionDataset:
     config_snapshot: GlobalConfig | None = None
     effective_snp_identifier: str = "chr_pos_allele_aware"
     identity_downgrade_applied: bool = False
+    ldscore_overlap: "LDScoreOverlap | None" = None
 
     def validate(self) -> None:
         """Validate that the merged table contains the required LDSC columns."""
@@ -220,6 +201,7 @@ class PartitionedH2BatchResult:
     summary: pd.DataFrame
     per_query_category_tables: dict[str, pd.DataFrame]
     per_query_metadata: dict[str, dict[str, object]]
+    aggregate_metadata: dict[str, object] | None = None
 
 
 @dataclass(frozen=True)
@@ -230,8 +212,8 @@ class RgResultFamily:
     ----------
     rg : pandas.DataFrame
         Concise one-row-per-pair table with the publication-oriented rg schema:
-        trait names, SNP count, :math:`r_g`, standard error, p-value,
-        BH-adjusted p-value, and a failure note.
+        trait names, SNP count, :math:`r_g`, standard error, nominal p-value,
+        and a failure note.
     rg_full : pandas.DataFrame
         Comprehensive diagnostic table with one row per attempted pair. Failed
         pairs keep their row, set numeric fields to NaN, and store
@@ -344,9 +326,13 @@ class RegressionRunner:
             if {"A1", "A2"}.issubset(ldscore_keyed.columns):
                 ldscore_payload["A1_ld"] = ldscore_keyed["A1"]
                 ldscore_payload["A2_ld"] = ldscore_keyed["A2"]
+            # LD-score is the left frame so the inner merge inherits its genomic
+            # order; the block jackknife needs genomically contiguous rows for valid
+            # SEs, and the sumstats order alone (legacy .sumstats.gz is unsorted) does
+            # not guarantee that. Values still align by key regardless of side.
             merged = pd.merge(
-                sumstats_keyed,
                 ldscore_payload.reset_index(drop=True),
+                sumstats_keyed,
                 how="inner",
                 on=REGRESSION_IDENTITY_KEY_COLUMN,
                 sort=False,
@@ -355,8 +341,8 @@ class RegressionRunner:
                 merged = _orient_sumstats_z_to_reference_alleles(merged)
         elif identity_mode_family(identifier_mode) == "rsid":
             merged = pd.merge(
-                sumstats_frame,
                 ldscore_frame.loc[:, ["SNP", *ref_ld_columns, weight_column]].reset_index(drop=True),
+                sumstats_frame,
                 how="inner",
                 on="SNP",
                 sort=False,
@@ -365,8 +351,8 @@ class RegressionRunner:
             sumstats_keyed = _with_chr_pos_key(sumstats_frame, context=sumstats_table.source_path or "sumstats")
             ldscore_keyed = _with_chr_pos_key(ldscore_frame, context="LD-score table")
             merged = pd.merge(
-                sumstats_keyed,
                 ldscore_keyed.loc[:, [CHR_POS_KEY_COLUMN, *ref_ld_columns, weight_column]].reset_index(drop=True),
+                sumstats_keyed,
                 how="inner",
                 on=CHR_POS_KEY_COLUMN,
                 sort=False,
@@ -389,6 +375,13 @@ class RegressionRunner:
             retained_ld_columns = [column for column in retained_ld_columns if column not in dropped_ld_columns]
             if retained_ld_columns:
                 merged = merged.loc[:, [column for column in merged.columns if column not in dropped_ld_columns]]
+                if dropped_ld_columns:
+                    LOGGER.warning(
+                        "Dropped %d zero-variance LD-score column(s) after merging with sumstats: %s. "
+                        "These annotations are constant on the regression SNP set and receive no coefficient.",
+                        len(dropped_ld_columns),
+                        ", ".join(dropped_ld_columns),
+                    )
             else:
                 raise LDSCInputError(
                     "h2 regression cannot run because all retained LD-score columns have zero variance "
@@ -418,6 +411,7 @@ class RegressionRunner:
             config_snapshot=ldscore_result.config_snapshot,
             effective_snp_identifier=identifier_mode,
             identity_downgrade_applied=identity.downgrade_applied,
+            ldscore_overlap=ldscore_result.overlap,
         )
         dataset.validate()
         return dataset
@@ -499,9 +493,11 @@ class RegressionRunner:
             right = right_keyed.rename(columns={"A1": "A1x", "A2": "A2x", "N": "N2", "Z": "Z2"})
             right_payload = [column for column in ["A1x", "A2x", "N2", "Z2"] if column in right.columns]
             ldscore_keyed = _with_effective_identity_key(ldscore_frame, identifier_mode, context="LD-score table")
+            # LD-score leads the first merge so the result (and the final merge below)
+            # inherits its genomic order for valid jackknife block SEs. See build_dataset.
             left_with_ld = pd.merge(
-                left,
                 ldscore_keyed.loc[:, [REGRESSION_IDENTITY_KEY_COLUMN, *ref_ld_columns, weight_column]].reset_index(drop=True),
+                left,
                 how="inner",
                 on=REGRESSION_IDENTITY_KEY_COLUMN,
                 sort=False,
@@ -515,8 +511,8 @@ class RegressionRunner:
             )
         elif identity_mode_family(identifier_mode) == "rsid":
             left_with_ld = pd.merge(
-                left,
                 ldscore_frame.loc[:, ["SNP", *ref_ld_columns, weight_column]].reset_index(drop=True),
+                left,
                 how="inner",
                 on="SNP",
                 sort=False,
@@ -533,8 +529,8 @@ class RegressionRunner:
             right_keyed = _with_chr_pos_key(right, context=sumstats_table_2.source_path or "sumstats")
             ldscore_keyed = _with_chr_pos_key(ldscore_frame, context="LD-score table")
             left_with_ld = pd.merge(
-                left_keyed,
                 ldscore_keyed.loc[:, [CHR_POS_KEY_COLUMN, *ref_ld_columns, weight_column]].reset_index(drop=True),
+                left_keyed,
                 how="inner",
                 on=CHR_POS_KEY_COLUMN,
                 sort=False,
@@ -578,6 +574,13 @@ class RegressionRunner:
             retained_ld_columns = [column for column in retained_ld_columns if column not in dropped_ld_columns]
             if retained_ld_columns:
                 merged = merged.loc[:, [column for column in merged.columns if column not in dropped_ld_columns]]
+                if dropped_ld_columns:
+                    LOGGER.warning(
+                        "Dropped %d zero-variance LD-score column(s) after merging with sumstats: %s. "
+                        "These annotations are constant on the regression SNP set and receive no coefficient.",
+                        len(dropped_ld_columns),
+                        ", ".join(dropped_ld_columns),
+                    )
             else:
                 raise LDSCInputError(
                     "rg regression cannot run because all retained LD-score columns have zero variance "
@@ -616,20 +619,39 @@ class RegressionRunner:
         dataset: RegressionDataset,
         config: RegressionConfig | None = None,
     ):
-        """Estimate single-trait heritability from a prepared dataset."""
+        """Estimate single-trait heritability from a prepared dataset.
+
+        Partitioned (multi-annotation) datasets apply the legacy default
+        chi-square cap ``max(0.001 * N.max(), 80)`` when ``chisq_max`` is unset,
+        down-weighting outlier SNPs. Single-annotation datasets stay uncapped and
+        default the two-step cutoff to ``30`` instead. See
+        :func:`_resolve_default_chisq_max`.
+        """
         config = config or self.regression_config
         merged = dataset.merged
         n_snp = len(merged)
         n_blocks = min(n_snp, config.n_blocks)
         x = np.asarray(merged[dataset.retained_ld_columns])
         chisq = np.asarray(merged["Z"] ** 2).reshape((n_snp, 1))
-        if config.chisq_max is not None:
-            keep = np.ravel(chisq < config.chisq_max)
+        # N.max() is read pre-filter so the partitioned default cap matches legacy.
+        chisq_max = _resolve_default_chisq_max(
+            config.chisq_max, len(dataset.retained_ld_columns), merged["N"].max()
+        )
+        if chisq_max is not None:
+            keep = np.ravel(chisq <= chisq_max)
+            n_removed = n_snp - int(keep.sum())
             merged = merged.loc[keep].reset_index(drop=True)
             n_snp = len(merged)
             n_blocks = min(n_snp, config.n_blocks)
             x = np.asarray(merged[dataset.retained_ld_columns])
             chisq = np.asarray(merged["Z"] ** 2).reshape((n_snp, 1))
+            if n_removed:
+                LOGGER.info(
+                    "Removed %d SNPs with chi^2 > %g (%d SNPs remain).",
+                    n_removed,
+                    chisq_max,
+                    n_snp,
+                )
         intercept = None
         if not config.use_intercept:
             intercept = 1
@@ -639,6 +661,7 @@ class RegressionRunner:
         if two_step is None and intercept is None and len(dataset.retained_ld_columns) == 1:
             two_step = 30
         old_weights = len(dataset.retained_ld_columns) > 1
+        _raise_on_model_collinearity(dataset, x)
         return reg.Hsq(
             chisq,
             x,
@@ -688,7 +711,8 @@ class RegressionRunner:
         selected_queries = _validate_partitioned_query_columns(ldscore_result, [query_column])
         dataset = self.build_dataset(sumstats_table, ldscore_result, config=config, query_columns=selected_queries)
         hsq = self.estimate_h2(dataset, config=config)
-        return summarize_partitioned_h2(hsq, dataset, selected_queries)
+        samp_prev, pop_prev = _config_prevalence(config or self.regression_config)
+        return summarize_partitioned_h2(hsq, dataset, selected_queries, samp_prev=samp_prev, pop_prev=pop_prev)
 
     def estimate_partitioned_h2_batch(
         self,
@@ -737,32 +761,61 @@ class RegressionRunner:
         """
         if include_model_categories is not None:
             include_full_partitioned_h2 = include_model_categories
+        config = config or self.regression_config
+        if ldscore_result.overlap is None:
+            raise LDSCInputError(PARTITIONED_H2_REQUIRES_OVERLAP_MESSAGE)
+        samp_prev, pop_prev = _config_prevalence(config)
 
-        query_columns = _validate_partitioned_query_columns(ldscore_result, annotation_bundle.query_columns)
+        requested_queries = list(getattr(annotation_bundle, "query_columns", []) or [])
+        if not requested_queries:
+            # Functional regime: one joint fit of all baseline annotations.
+            dataset = self.build_dataset(sumstats_table, ldscore_result, config=config, query_columns=[])
+            if len(dataset.retained_ld_columns) == 1:
+                LOGGER.warning(
+                    "partitioned-h2 functional regime retained a single annotation (%s); the fit is "
+                    "degenerate and collapses to single-annotation h2 behavior (two-step estimator, no "
+                    "default chi-square cap). Most likely the LD-score directory has only one baseline "
+                    "annotation. Provide multiple baseline annotations for a meaningful partitioned analysis.",
+                    dataset.retained_ld_columns[0],
+                )
+            hsq = self.estimate_h2(dataset, config=config)
+            summary = summarize_partitioned_h2(
+                hsq, dataset, dataset.retained_ld_columns, samp_prev=samp_prev, pop_prev=pop_prev
+            )
+            effective_chisq_max, n_snps_used = _effective_regression_filter(dataset, config)
+            return PartitionedH2BatchResult(
+                summary=summary,
+                per_query_category_tables={},
+                per_query_metadata={},
+                aggregate_metadata={"n_snps": n_snps_used, "effective_chisq_max": effective_chisq_max},
+            )
+
+        # Cell-type regime: baseline + one query per model.
+        query_columns = _validate_partitioned_query_columns(ldscore_result, requested_queries)
         rows = []
         per_query_category_tables: dict[str, pd.DataFrame] = {}
         per_query_metadata: dict[str, dict[str, object]] = {}
         for query_column in query_columns:
             dataset = self.build_dataset(sumstats_table, ldscore_result, config=config, query_columns=[query_column])
             hsq = self.estimate_h2(dataset, config=config)
-            query_row = summarize_partitioned_h2(hsq, dataset, [query_column])
-            rows.append(query_row)
+            rows.append(
+                summarize_partitioned_h2(hsq, dataset, [query_column], samp_prev=samp_prev, pop_prev=pop_prev)
+            )
             if include_full_partitioned_h2:
                 per_query_category_tables[query_column] = summarize_partitioned_h2(
-                    hsq,
-                    dataset,
-                    dataset.retained_ld_columns,
-                    include_full_columns=True,
+                    hsq, dataset, dataset.retained_ld_columns, samp_prev=samp_prev, pop_prev=pop_prev
                 )
+                effective_chisq_max, n_snps_used = _effective_regression_filter(dataset, config)
                 per_query_metadata[query_column] = {
                     "dropped_zero_variance_ld_columns": list(dataset.dropped_zero_variance_ld_columns),
                     "retained_ld_columns": list(dataset.retained_ld_columns),
-                    "n_snps": len(dataset.merged),
+                    "n_snps": n_snps_used,
+                    "effective_chisq_max": effective_chisq_max,
                     "effective_snp_identifier": dataset.effective_snp_identifier,
                     "identity_downgrade_applied": dataset.identity_downgrade_applied,
                 }
         if not rows:
-            summary = pd.DataFrame(columns=PARTITIONED_H2_AGGREGATE_COLUMNS)
+            summary = pd.DataFrame(columns=PARTITIONED_H2_COLUMNS)
         else:
             summary = pd.concat(rows, axis=0, ignore_index=True)
         if include_full_partitioned_h2:
@@ -800,6 +853,12 @@ class RegressionRunner:
         config = config or self.regression_config
         merged = dataset.merged
         n_snp = len(merged)
+        if config.chisq_max is not None:
+            # Legacy rg filter (sumstats.py `_rg`): drop SNPs with
+            # Z1^2 * Z2^2 > chisq_max^2, kept inclusive (<=) per the -max convention.
+            keep = np.ravel((merged["Z1"] ** 2) * (merged["Z2"] ** 2) <= config.chisq_max ** 2)
+            merged = merged.loc[keep].reset_index(drop=True)
+            n_snp = len(merged)
         n_blocks = min(n_snp, config.n_blocks)
         intercept_hsq = _select_intercept(config.intercept_h2, use_intercept=config.use_intercept, default_when_disabled=1)
         intercept_gencov = _select_intercept(
@@ -807,6 +866,11 @@ class RegressionRunner:
             use_intercept=config.use_intercept,
             default_when_disabled=0,
         )
+        # Legacy estimate_rg defaults two-step to 30 for a single-annotation fit
+        # with a free h2 intercept and no explicit cutoff (sumstats.py:400).
+        two_step = config.two_step_cutoff
+        if two_step is None and intercept_hsq is None and len(dataset.retained_ld_columns) == 1:
+            two_step = 30
         return reg.RG(
             np.asarray(merged[["Z1"]]),
             np.asarray(merged[["Z2"]]),
@@ -819,7 +883,7 @@ class RegressionRunner:
             intercept_hsq2=intercept_hsq,
             intercept_gencov=intercept_gencov,
             n_blocks=n_blocks,
-            twostep=config.two_step_cutoff,
+            twostep=two_step,
         )
 
     def estimate_rg_pairs(
@@ -829,6 +893,7 @@ class RegressionRunner:
         *,
         anchor_index: int | None = None,
         config: RegressionConfig | None = None,
+        prevalences: Sequence[tuple[float | None, float | None]] | None = None,
     ) -> RgResultFamily:
         """Estimate genetic correlations for all requested trait pairs.
 
@@ -879,11 +944,19 @@ class RegressionRunner:
                 "Pass an anchor trait name or path that belongs to the current `--sumstats-sources` list."
             )
 
+        prev = list(prevalences) if prevalences is not None else [(None, None)] * len(tables)
+
         h2_rows = []
-        for table in tables:
+        for table, (samp_prev, pop_prev) in zip(tables, prev):
             h2_dataset = self.build_dataset(table, ldscore_result, config=config)
             hsq = self.estimate_h2(h2_dataset, config=config)
-            h2_rows.append(summarize_total_h2(hsq, h2_dataset, trait_name=_trait_label(table)))
+            _, n_snps_used = _effective_regression_filter(h2_dataset, config)
+            h2_rows.append(
+                summarize_total_h2(
+                    hsq, h2_dataset, trait_name=_trait_label(table), n_snps_used=n_snps_used,
+                    samp_prev=samp_prev, pop_prev=pop_prev,
+                )
+            )
         h2_per_trait = pd.concat(h2_rows, axis=0, ignore_index=True) if h2_rows else pd.DataFrame()
 
         rg_full_rows: list[dict[str, object]] = []
@@ -896,7 +969,13 @@ class RegressionRunner:
             try:
                 dataset = self.build_rg_dataset(tables[i], tables[j], ldscore_result, config=config)
                 fitted = self._fit_rg_dataset(dataset, config=config)
-                full_row = _summarize_rg_pair(fitted, dataset, trait_1=trait_1, trait_2=trait_2, pair_kind=pair_kind)
+                _, n_snps_used = _effective_rg_filter(dataset, config)
+                full_row = _summarize_rg_pair(
+                    fitted, dataset, trait_1=trait_1, trait_2=trait_2, pair_kind=pair_kind,
+                    n_snps_used=n_snps_used,
+                    samp_prev_1=prev[i][0], pop_prev_1=prev[i][1],
+                    samp_prev_2=prev[j][0], pop_prev_2=prev[j][1],
+                )
                 metadata = _rg_pair_metadata(tables[i], tables[j], dataset, full_row, config, pair_kind)
             except Exception as exc:
                 error = _format_exception(exc)
@@ -909,7 +988,6 @@ class RegressionRunner:
 
         rg_full = pd.DataFrame(rg_full_rows, columns=RG_FULL_COLUMNS)
         rg = pd.DataFrame(rg_rows, columns=RG_CONCISE_COLUMNS)
-        _apply_rg_multiple_testing(rg, rg_full)
         return RgResultFamily(rg=rg, rg_full=rg_full, h2_per_trait=h2_per_trait, per_pair_metadata=per_pair_metadata)
 
 
@@ -1126,10 +1204,13 @@ def _select_count_key(count_totals: dict[str, np.ndarray], use_common_counts: bo
 
 
 def _validate_partitioned_query_columns(ldscore_result: LDScoreResult, query_columns: Sequence[str]) -> list[str]:
-    """Return requested query columns after enforcing the partitioned-h2 contract."""
+    """Validate that requested cell-type query columns exist in the LD-score result.
+
+    The functional regime (no query columns) is decided by the caller; this
+    helper is only used on the cell-type path, so it just checks that every
+    requested query column is available.
+    """
     requested = list(query_columns)
-    if not ldscore_result.query_columns or not requested:
-        raise LDSCInputError(PARTITIONED_H2_REQUIRES_QUERY_ANNOTATIONS_MESSAGE)
     available = list(ldscore_result.query_columns)
     missing = [column for column in requested if column not in available]
     if missing:
@@ -1152,7 +1233,11 @@ def _assemble_regression_ldscore_table(
     if not query_columns:
         return baseline_table.copy()
     if ldscore_result.query_table is None:
-        raise LDSCInputError(PARTITIONED_H2_REQUIRES_QUERY_ANNOTATIONS_MESSAGE)
+        raise LDSCInputError(
+            "partitioned-h2 requested query LD-score columns but the LD-score directory has no query table. "
+            "Most likely the query parquet is missing or the metadata is out of sync. "
+            "Regenerate the LD-score directory with the current `ldsc ldscore`."
+        )
     missing = [column for column in query_columns if column not in ldscore_result.query_columns]
     if missing:
         raise LDSCInputError(
@@ -1190,15 +1275,77 @@ def _count_totals_for_columns(count_records: Sequence[dict[str, Any]], columns: 
     return count_totals
 
 
-def summarize_total_h2(hsq, dataset: RegressionDataset, trait_name: str | None = None) -> pd.DataFrame:
-    """Build the one-row total-heritability summary from a fitted ``Hsq`` result."""
+def _is_missing_prevalence(value) -> bool:
+    """True when a prevalence is unset (None) or a NaN quantitative-trait marker."""
+    return value is None or (isinstance(value, float) and math.isnan(value))
+
+
+def _liability_pair(obs, obs_se, samp_prev, pop_prev):
+    """Return (liab, liab_se) for an absolute h2 estimate, or (nan, nan).
+
+    Liability is defined only when both prevalences are finite probabilities;
+    a quantitative trait (None/NaN) or unset prevalence yields NaN. ``obs`` and
+    ``obs_se`` are the observed-scale point estimate and standard error.
+    """
+    if _is_missing_prevalence(samp_prev) or _is_missing_prevalence(pop_prev):
+        return float("nan"), float("nan")
+    c = float(reg.liability_conversion_factor(samp_prev, pop_prev))
+    return obs * c, obs_se * c
+
+
+def _prev_cell(value):
+    """Normalize a prevalence for a table cell: None -> NaN, else float."""
+    return float("nan") if value is None else float(value)
+
+
+def _config_prevalence(config: "RegressionConfig | None") -> tuple[float | None, float | None]:
+    """Scalar (samp_prev, pop_prev) from a regression config, or (None, None)."""
+    if config is None:
+        return None, None
+    return getattr(config, "samp_prev", None), getattr(config, "pop_prev", None)
+
+
+def _nan_to_none(value):
+    """Map a NaN prevalence cell back to None for clean JSON metadata."""
+    return None if (isinstance(value, float) and math.isnan(value)) else value
+
+
+def _scale_label(*prevalences) -> str:
+    """Return 'liability' if any supplied prevalence is finite, else 'observed'."""
+    return "liability" if any(p is not None for p in prevalences) else "observed"
+
+
+def summarize_total_h2(
+    hsq,
+    dataset: RegressionDataset,
+    trait_name: str | None = None,
+    n_snps_used: int | None = None,
+    samp_prev: float | None = None,
+    pop_prev: float | None = None,
+) -> pd.DataFrame:
+    """Build the one-row total-heritability summary from a fitted ``Hsq`` result.
+
+    Reports total heritability on both the observed (``total_h2_obs``) and
+    liability (``total_h2_liab``) scales, plus the prevalences applied. Liability
+    columns are NaN unless both ``samp_prev`` and ``pop_prev`` are finite
+    probabilities in (0, 1). ``n_snps_used`` is the post-chi-square-filter SNP
+    count from :func:`_effective_regression_filter`; when omitted it falls back
+    to the full merged SNP count (correct only when no cap was applied).
+    """
+    obs = _scalar(hsq.tot)
+    obs_se = _scalar(hsq.tot_se)
+    liab, liab_se = _liability_pair(obs, obs_se, samp_prev, pop_prev)
     return pd.DataFrame(
         [
             {
                 "trait_name": trait_name,
-                "n_snps": len(dataset.merged),
-                "total_h2": _scalar(hsq.tot),
-                "total_h2_se": _scalar(hsq.tot_se),
+                "n_snps": int(n_snps_used) if n_snps_used is not None else len(dataset.merged),
+                "total_h2_obs": obs,
+                "total_h2_obs_se": obs_se,
+                "total_h2_liab": liab,
+                "total_h2_liab_se": liab_se,
+                "samp_prev": _prev_cell(samp_prev),
+                "pop_prev": _prev_cell(pop_prev),
                 "intercept": _scalar_or_value(hsq.intercept),
                 "intercept_se": getattr(hsq, "intercept_se", None),
                 "mean_chisq": _scalar_or_value(hsq.mean_chisq),
@@ -1214,58 +1361,76 @@ def summarize_partitioned_h2(
     hsq,
     dataset: RegressionDataset,
     annotation_columns: Sequence[str],
-    *,
-    include_full_columns: bool = False,
+    samp_prev: float | None = None,
+    pop_prev: float | None = None,
 ) -> pd.DataFrame:
-    """Build public partitioned-h2 rows from a fitted ``Hsq`` result.
+    """Build overlap-aware partitioned-h2 rows from a fitted ``Hsq`` result.
 
-    ``annotation_columns`` must be a subset of ``dataset.retained_ld_columns``.
-    Returned rows use legacy-style public column names. By default the result is
-    the compact query-summary schema; ``include_full_columns=True`` also emits
-    category h2 estimates and standard errors for full per-query model tables.
+    Assembles the model overlap matrix for the retained LD-score columns, runs
+    the ported legacy ``_overlap_output`` (augmented with the one-sided
+    coefficient p-value, conditional category heritability, and the overlap
+    flag), and returns the requested ``annotation_columns`` rows in the single
+    lowercase ``PARTITIONED_H2_COLUMNS`` schema. The whole-model total heritability
+    is carried on every row (``total_h2_obs``, constant across one fitted model)
+    so each row's ``category_h2_obs`` can be read against it. Per-category and
+    total heritability are reported on both the observed (``*_obs``) and liability
+    (``*_liab``) scales; liability columns are NaN unless both prevalences are
+    finite probabilities in (0, 1). Proportions, enrichment, and coefficients are
+    scale-invariant. ``annotation_columns`` must be a subset of
+    ``dataset.retained_ld_columns``.
     """
-    rows = []
-    coefficients = np.ravel(hsq.coef)
-    coefficient_covariance = _coefficient_covariance_matrix(hsq, coefficients)
-    coefficient_ses = np.ravel(hsq.coef_se)
-    category_h2 = np.ravel(hsq.cat)
-    category_h2_ses = np.ravel(hsq.cat_se)
-    proportions = np.ravel(hsq.prop)
-    proportion_ses = np.ravel(hsq.prop_se)
-    enrichments = np.ravel(hsq.enrichment) if getattr(hsq, "enrichment", None) is not None else None
-    snp_counts = _retained_snp_counts(dataset)
-    snp_proportions = _safe_vector_divide(snp_counts, float(np.sum(snp_counts)))
-    n_blocks = getattr(hsq, "n_blocks", None)
-    for annotation_column in annotation_columns:
-        annotation_index = dataset.retained_ld_columns.index(annotation_column)
-        coefficient = float(coefficients[annotation_index])
-        coefficient_se = float(coefficient_ses[annotation_index])
-        proportion_snps = float(snp_proportions[annotation_index])
-        proportion_h2_se = float(proportion_ses[annotation_index])
-        rows.append(
-            {
-                "Category": annotation_column,
-                "Prop._SNPs": proportion_snps,
-                "Category_h2": float(category_h2[annotation_index]),
-                "Category_h2_std_error": float(category_h2_ses[annotation_index]),
-                "Prop._h2": float(proportions[annotation_index]),
-                "Prop._h2_std_error": proportion_h2_se,
-                "Enrichment": math.nan if enrichments is None else float(enrichments[annotation_index]),
-                "Enrichment_std_error": _safe_divide(proportion_h2_se, proportion_snps),
-                "Enrichment_p": _enrichment_p_value(
-                    annotation_index,
-                    coefficients,
-                    coefficient_covariance,
-                    snp_counts,
-                    n_blocks,
-                ),
-                "Coefficient": coefficient,
-                "Coefficient_std_error": coefficient_se,
-                "Coefficient_p": _coefficient_p_value(coefficient, coefficient_se),
-            }
-        )
-    columns = PARTITIONED_H2_FULL_COLUMNS if include_full_columns else PARTITIONED_H2_AGGREGATE_COLUMNS
-    return pd.DataFrame(rows, columns=columns)
+    from .overlap_matrix import assemble_model_overlap, overlap_aware_category_table
+
+    overlap = dataset.ldscore_overlap
+    if overlap is None:
+        raise LDSCInputError(PARTITIONED_H2_REQUIRES_OVERLAP_MESSAGE)
+    use_common = dataset.count_key_used_for_regression == COMMON_COUNT_KEY
+    model_overlap = assemble_model_overlap(overlap, list(dataset.retained_ld_columns), use_common)
+    m_annot = np.asarray(
+        dataset.reference_snp_count_totals[dataset.count_key_used_for_regression], dtype=np.float64
+    )
+    m_tot = overlap.total_common_reference_snps if use_common else overlap.total_all_reference_snps
+    table = overlap_aware_category_table(
+        hsq, model_overlap, m_annot, float(m_tot), dataset.retained_ld_columns
+    )
+    table = table.rename(
+        columns={
+            "Category": "category",
+            "Prop._SNPs": "prop_snps",
+            "Prop._h2": "prop_h2",
+            "Prop._h2_std_error": "prop_h2_se",
+            "Enrichment": "enrichment",
+            "Enrichment_std_error": "enrichment_se",
+            "Enrichment_p": "enrichment_p",
+            "Coefficient": "coefficient",
+            "Coefficient_std_error": "coefficient_se",
+            "Coefficient_z": "coefficient_z",
+            "Coefficient_p": "coefficient_p",
+            "overlap_aware": "overlap_annot",
+            "Category_h2": "category_h2_obs",
+            "Category_h2_std_error": "category_h2_obs_se",
+        }
+    )
+    c = (
+        float(reg.liability_conversion_factor(samp_prev, pop_prev))
+        if not _is_missing_prevalence(samp_prev) and not _is_missing_prevalence(pop_prev)
+        else float("nan")
+    )
+    table["category_h2_liab"] = table["category_h2_obs"] * c
+    table["category_h2_liab_se"] = table["category_h2_obs_se"] * c
+    # Whole-model total heritability: a single scalar broadcast to every row of one
+    # fitted model (constant across the functional regime; each query's own model
+    # total in the cell-type regime).
+    total_obs = _scalar(hsq.tot)
+    total_obs_se = _scalar(hsq.tot_se)
+    table["total_h2_obs"] = total_obs
+    table["total_h2_obs_se"] = total_obs_se
+    table["total_h2_liab"] = total_obs * c
+    table["total_h2_liab_se"] = total_obs_se * c
+    table["samp_prev"] = _prev_cell(samp_prev)
+    table["pop_prev"] = _prev_cell(pop_prev)
+    rows = table.set_index("category").loc[list(annotation_columns)].reset_index()
+    return rows.loc[:, PARTITIONED_H2_COLUMNS].reset_index(drop=True)
 
 
 def _iter_rg_pairs(n_traits: int, anchor_index: int | None) -> list[tuple[int, int]]:
@@ -1282,24 +1447,60 @@ def _summarize_rg_pair(
     trait_1: str,
     trait_2: str,
     pair_kind: str,
+    n_snps_used: int | None = None,
+    samp_prev_1: float | None = None,
+    pop_prev_1: float | None = None,
+    samp_prev_2: float | None = None,
+    pop_prev_2: float | None = None,
 ) -> dict[str, object]:
-    """Build the full public rg row from one fitted kernel result."""
+    """Build the full public rg row from one fitted kernel result.
+
+    Per-trait heritability and the pair's genetic covariance are reported on both
+    the observed (``*_obs``) and liability (``*_liab``) scales. The rg ratio
+    (``rg``/``rg_se``/``z``/``p``) is scale-invariant and unconverted. A trait's
+    ``h2_*_liab`` is NaN unless its prevalence is finite; ``gencov_liab`` is NaN
+    only when no prevalence was supplied for the run. ``n_snps_used`` is the
+    post-product-filter SNP count from :func:`_effective_rg_filter`; it falls
+    back to the full merged count, which is correct only when no ``--chisq-max``
+    was supplied.
+    """
+    h2_1_obs = _numeric_attr(getattr(rg_result, "hsq1", None), "tot", "h2_1_obs")
+    h2_1_obs_se = _numeric_attr(getattr(rg_result, "hsq1", None), "tot_se", "h2_1_obs_se")
+    h2_2_obs = _numeric_attr(getattr(rg_result, "hsq2", None), "tot", "h2_2_obs")
+    h2_2_obs_se = _numeric_attr(getattr(rg_result, "hsq2", None), "tot_se", "h2_2_obs_se")
+    gencov_obs = _numeric_attr(getattr(rg_result, "gencov", None), "tot", "gencov_obs")
+    gencov_obs_se = _numeric_attr(getattr(rg_result, "gencov", None), "tot_se", "gencov_obs_se")
+    h2_1_liab, h2_1_liab_se = _liability_pair(h2_1_obs, h2_1_obs_se, samp_prev_1, pop_prev_1)
+    h2_2_liab, h2_2_liab_se = _liability_pair(h2_2_obs, h2_2_obs_se, samp_prev_2, pop_prev_2)
+    if any(v is not None for v in (samp_prev_1, pop_prev_1, samp_prev_2, pop_prev_2)):
+        gfac = reg.gencov_obs_to_liab(1.0, samp_prev_1, samp_prev_2, pop_prev_1, pop_prev_2)
+        gencov_liab, gencov_liab_se = gencov_obs * gfac, gencov_obs_se * gfac
+    else:
+        gencov_liab, gencov_liab_se = float("nan"), float("nan")
     return {
         "trait_1": trait_1,
         "trait_2": trait_2,
-        "n_snps_used": int(len(dataset.merged)),
+        "n_snps_used": int(n_snps_used) if n_snps_used is not None else int(len(dataset.merged)),
         "rg": _required_numeric_scalar(getattr(rg_result, "rg_ratio", None), "rg"),
         "rg_se": _required_numeric_scalar(getattr(rg_result, "rg_se", None), "rg_se"),
         "z": _required_numeric_scalar(getattr(rg_result, "z", None), "z"),
         "p": _required_numeric_scalar(getattr(rg_result, "p", None), "p"),
-        "p_fdr_bh": math.nan,
-        "p_bonferroni": math.nan,
-        "h2_1": _numeric_attr(getattr(rg_result, "hsq1", None), "tot", "h2_1"),
-        "h2_1_se": _numeric_attr(getattr(rg_result, "hsq1", None), "tot_se", "h2_1_se"),
-        "h2_2": _numeric_attr(getattr(rg_result, "hsq2", None), "tot", "h2_2"),
-        "h2_2_se": _numeric_attr(getattr(rg_result, "hsq2", None), "tot_se", "h2_2_se"),
-        "gencov": _numeric_attr(getattr(rg_result, "gencov", None), "tot", "gencov"),
-        "gencov_se": _numeric_attr(getattr(rg_result, "gencov", None), "tot_se", "gencov_se"),
+        "h2_1_obs": h2_1_obs,
+        "h2_1_obs_se": h2_1_obs_se,
+        "h2_1_liab": h2_1_liab,
+        "h2_1_liab_se": h2_1_liab_se,
+        "h2_2_obs": h2_2_obs,
+        "h2_2_obs_se": h2_2_obs_se,
+        "h2_2_liab": h2_2_liab,
+        "h2_2_liab_se": h2_2_liab_se,
+        "gencov_obs": gencov_obs,
+        "gencov_obs_se": gencov_obs_se,
+        "gencov_liab": gencov_liab,
+        "gencov_liab_se": gencov_liab_se,
+        "samp_prev_1": _prev_cell(samp_prev_1),
+        "pop_prev_1": _prev_cell(pop_prev_1),
+        "samp_prev_2": _prev_cell(samp_prev_2),
+        "pop_prev_2": _prev_cell(pop_prev_2),
         "intercept_h2_1": _numeric_attr(getattr(rg_result, "hsq1", None), "intercept", "intercept_h2_1"),
         "intercept_h2_1_se": _numeric_attr(getattr(rg_result, "hsq1", None), "intercept_se", "intercept_h2_1_se"),
         "intercept_h2_2": _numeric_attr(getattr(rg_result, "hsq2", None), "intercept", "intercept_h2_2"),
@@ -1350,54 +1551,28 @@ def _concise_rg_row(full_row: dict[str, object]) -> dict[str, object]:
         "rg": full_row["rg"],
         "rg_se": full_row["rg_se"],
         "p": full_row["p"],
-        "p_fdr_bh": full_row["p_fdr_bh"],
         "note": "" if status == "ok" else FAILED_RG_NOTE,
     }
 
 
-def _apply_rg_multiple_testing(rg: pd.DataFrame, rg_full: pd.DataFrame) -> None:
-    """Apply local BH-FDR and Bonferroni adjustments, ignoring NaN p-values."""
-    p_values = pd.to_numeric(rg_full.get("p", pd.Series(dtype=float)), errors="coerce").to_numpy(dtype=float)
-    fdr = _benjamini_hochberg(p_values)
-    bonferroni = _bonferroni(p_values)
-    for frame in (rg, rg_full):
-        if "p_fdr_bh" not in frame.columns:
-            frame["p_fdr_bh"] = math.nan
-        frame.loc[:, "p_fdr_bh"] = fdr
-    if "p_bonferroni" not in rg_full.columns:
-        rg_full["p_bonferroni"] = math.nan
-    rg_full.loc[:, "p_bonferroni"] = bonferroni
+def _h2_metadata(
+    args,
+    sumstats_table: SumstatsTable,
+    dataset: RegressionDataset,
+    n_snps_used: int | None = None,
+    effective_chisq_max: float | None = None,
+    samp_prev: float | None = None,
+    pop_prev: float | None = None,
+) -> dict[str, object]:
+    """Build the metadata sidecar for one unpartitioned h2 output.
 
-
-def _benjamini_hochberg(p_values: np.ndarray) -> np.ndarray:
-    """Return BH-adjusted p-values with NaNs preserved."""
-    p = np.asarray(p_values, dtype=np.float64)
-    adjusted = np.full(p.shape, math.nan, dtype=np.float64)
-    finite = np.isfinite(p)
-    if not finite.any():
-        return adjusted
-    finite_indices = np.flatnonzero(finite)
-    finite_p = p[finite]
-    order = np.argsort(finite_p)
-    ranked = finite_p[order] * len(finite_p) / np.arange(1, len(finite_p) + 1, dtype=np.float64)
-    ranked = np.minimum.accumulate(ranked[::-1])[::-1]
-    adjusted[finite_indices[order]] = np.clip(ranked, 0.0, 1.0)
-    return adjusted
-
-
-def _bonferroni(p_values: np.ndarray) -> np.ndarray:
-    """Return Bonferroni-adjusted p-values with NaNs preserved."""
-    p = np.asarray(p_values, dtype=np.float64)
-    adjusted = np.full(p.shape, math.nan, dtype=np.float64)
-    finite = np.isfinite(p)
-    if not finite.any():
-        return adjusted
-    adjusted[finite] = np.clip(p[finite] * int(finite.sum()), 0.0, 1.0)
-    return adjusted
-
-
-def _h2_metadata(args, sumstats_table: SumstatsTable, dataset: RegressionDataset) -> dict[str, object]:
-    """Build the metadata sidecar for one unpartitioned h2 output."""
+    ``n_snps_used`` is the post-chi-square-filter SNP count and
+    ``effective_chisq_max`` is the cap actually applied (the legacy default for
+    partitioned models, the explicit ``--chisq-max`` value, or ``None`` when
+    uncapped); both come from :func:`_effective_regression_filter`. ``samp_prev``
+    / ``pop_prev`` are the validated scalar prevalences applied (``None`` for an
+    observed-scale run), which also set the reported ``scale``.
+    """
     config_snapshot = dataset.config_snapshot
     return {
         "artifact_type": "h2_result",
@@ -1410,8 +1585,21 @@ def _h2_metadata(args, sumstats_table: SumstatsTable, dataset: RegressionDataset
         "count_key_used_for_regression": dataset.count_key_used_for_regression,
         "retained_ld_columns": list(dataset.retained_ld_columns),
         "dropped_zero_variance_ld_columns": list(dataset.dropped_zero_variance_ld_columns),
-        "n_snps": int(len(dataset.merged)),
+        "n_snps": int(n_snps_used) if n_snps_used is not None else int(len(dataset.merged)),
+        "effective_chisq_max": effective_chisq_max,
+        "samp_prev": samp_prev,
+        "pop_prev": pop_prev,
+        "scale": _scale_label(samp_prev, pop_prev),
     }
+
+
+def _rg_prevalence_metadata(full_row: dict[str, object]) -> dict[str, object]:
+    """Per-pair prevalence + scale provenance pulled from a full rg row."""
+    prev = {
+        key: _nan_to_none(full_row.get(key))
+        for key in ("samp_prev_1", "pop_prev_1", "samp_prev_2", "pop_prev_2")
+    }
+    return {**prev, "scale": _scale_label(*prev.values())}
 
 
 def _rg_pair_metadata(
@@ -1423,7 +1611,10 @@ def _rg_pair_metadata(
     pair_kind: str,
 ) -> dict[str, object]:
     """Build per-pair metadata for an estimated rg pair."""
-    n_snps = int(len(dataset.merged))
+    # Reuse the post-product-filter count from the rg row so the table and the
+    # metadata agree. ``effective_chisq_max`` simply echoes config.chisq_max:
+    # rg has no default cap (legacy ldsc2 ``_rg`` only filters when given one).
+    n_snps = int(full_row["n_snps_used"])
     return {
         "trait_1": full_row["trait_1"],
         "trait_2": full_row["trait_2"],
@@ -1434,6 +1625,8 @@ def _rg_pair_metadata(
         "error": full_row["error"],
         "n_snps_used": n_snps,
         "n_blocks_used": min(n_snps, int(config.n_blocks)),
+        "effective_chisq_max": config.chisq_max,
+        **_rg_prevalence_metadata(full_row),
         "count_key_used_for_regression": dataset.count_key_used_for_regression,
         "retained_ld_columns": list(dataset.retained_ld_columns),
         "dropped_zero_variance_ld_columns": list(dataset.dropped_zero_variance_ld_columns),
@@ -1466,6 +1659,8 @@ def _failed_rg_pair_metadata(
         "error": full_row["error"],
         "n_snps_used": 0,
         "n_blocks_used": 0,
+        "effective_chisq_max": config.chisq_max,
+        **_rg_prevalence_metadata(full_row),
         "intercept_h2_policy": _intercept_policy(config.intercept_h2, config.use_intercept, default_when_disabled=1),
         "intercept_gencov_policy": _intercept_policy(
             config.intercept_gencov,
@@ -1562,87 +1757,6 @@ def _format_exception(exc: Exception) -> str:
     return f"{exc.__class__.__name__}: {message}" if message else exc.__class__.__name__
 
 
-def _retained_snp_counts(dataset: RegressionDataset) -> np.ndarray:
-    """Return reference SNP counts aligned to retained LD-score columns."""
-    counts = np.asarray(
-        dataset.reference_snp_count_totals[dataset.count_key_used_for_regression],
-        dtype=np.float64,
-    ).reshape(-1)
-    if len(counts) != len(dataset.retained_ld_columns):
-        raise LDSCInternalError(
-            "Regression summary could not align reference SNP counts to retained LD-score columns. "
-            "Most likely zero-variance column dropping desynchronized the count vector. "
-            "Re-run with `--log-level DEBUG` and report the traceback."
-        )
-    return counts
-
-
-def _coefficient_covariance_matrix(hsq, coefficients: np.ndarray) -> np.ndarray:
-    """Return a coefficient covariance matrix, falling back to diagonal SEs."""
-    covariance = getattr(hsq, "coef_cov", None)
-    if covariance is not None:
-        covariance = np.asarray(covariance, dtype=np.float64)
-        if covariance.shape == (len(coefficients), len(coefficients)):
-            return covariance
-    coefficient_ses = np.ravel(getattr(hsq, "coef_se", np.full(len(coefficients), math.nan)))
-    return np.diag(np.square(coefficient_ses))
-
-
-def _coefficient_p_value(coefficient: float, coefficient_se: float) -> float:
-    """Return a two-sided normal p-value for a coefficient estimate."""
-    if not np.isfinite(coefficient) or not np.isfinite(coefficient_se) or coefficient_se == 0:
-        return math.nan
-    return float(2 * stats.norm.sf(abs(coefficient / coefficient_se)))
-
-
-def _enrichment_p_value(
-    annotation_index: int,
-    coefficients: np.ndarray,
-    coefficient_covariance: np.ndarray,
-    snp_counts: np.ndarray,
-    n_blocks,
-) -> float:
-    """Return the legacy-style category-vs-complement enrichment p-value.
-
-    The contrast compares the selected coefficient with the SNP-count-weighted
-    mean coefficient of all remaining retained categories. A missing complement,
-    unavailable jackknife block count, or non-positive variance yields NaN.
-    """
-    total_count = float(np.sum(snp_counts))
-    category_count = float(snp_counts[annotation_index])
-    complement_count = total_count - category_count
-    if (
-        total_count <= 0
-        or category_count <= 0
-        or complement_count <= 0
-        or n_blocks is None
-        or int(n_blocks) <= 0
-    ):
-        return math.nan
-    contrast = -snp_counts / complement_count
-    contrast[annotation_index] = 1.0
-    contrast_estimate = float(np.dot(contrast, coefficients))
-    contrast_variance = float(np.dot(np.dot(contrast, coefficient_covariance), contrast.T))
-    if not np.isfinite(contrast_variance) or contrast_variance <= 0:
-        return math.nan
-    contrast_se = math.sqrt(contrast_variance)
-    return float(2 * stats.t.sf(abs(contrast_estimate / contrast_se), int(n_blocks)))
-
-
-def _safe_divide(numerator: float, denominator: float) -> float:
-    """Return ``numerator / denominator`` or NaN for invalid ratios."""
-    if not np.isfinite(numerator) or not np.isfinite(denominator) or denominator == 0:
-        return math.nan
-    return float(numerator / denominator)
-
-
-def _safe_vector_divide(numerator: np.ndarray, denominator: float) -> np.ndarray:
-    """Vectorized safe division for scalar denominators."""
-    if not np.isfinite(denominator) or denominator == 0:
-        return np.full_like(numerator, math.nan, dtype=np.float64)
-    return numerator / denominator
-
-
 def _scalar(value) -> float:
     """Return the first scalar numeric value from a possibly array-like object."""
     return float(np.ravel(value)[0])
@@ -1653,6 +1767,65 @@ def _scalar_or_value(value):
     if hasattr(value, "__array__") or isinstance(value, (list, tuple)):
         return _scalar(value)
     return value
+
+
+def _resolve_summary_sort(sort_by: str, *, has_queries: bool) -> str:
+    """Resolve the ``auto`` summary sort to a regime-appropriate column key.
+
+    Cell-type runs (query annotations present) surface the most significant query
+    first by ``coefficient-p``; functional runs preserve baseline order with
+    ``category``. Any explicit choice is returned unchanged.
+    """
+    if sort_by != "auto":
+        return sort_by
+    return "coefficient-p" if has_queries else "category"
+
+
+def _log_partitioned_h2_regime(ldscore_result: LDScoreResult, has_queries: bool) -> None:
+    """Log a one-block banner naming the regime and the column to focus on."""
+    if has_queries:
+        LOGGER.info(
+            "Cell-type-specific regime: baseline + one query per model (%d queries). "
+            "Focus on `coefficient` together with the one-sided `coefficient_p` "
+            "(a one-sided test of whether `coefficient` > 0): a positive `coefficient` with a small "
+            "`coefficient_p` means the query annotation contributes heritability beyond the baseline "
+            "annotations. The `enrichment` column is confounded by the query annotation's overlap with "
+            "the baseline annotations, so use `coefficient_p` to judge whether the additional "
+            "contribution is significant.",
+            len(ldscore_result.query_columns),
+        )
+    else:
+        LOGGER.info(
+            "Functional-category regime: joint fit of %d baseline categories. "
+            "Focus on `enrichment` and `enrichment_p`: `enrichment > 1` means the category's SNPs "
+            "explain a larger share of heritability than their share of SNPs (`< 1` means a smaller "
+            "share); a small `enrichment_p` indicates the enrichment is significantly different from 1, "
+            "i.e. significantly larger or smaller.",
+            len(ldscore_result.baseline_columns),
+        )
+
+
+def _raise_on_model_collinearity(dataset: RegressionDataset, x: np.ndarray) -> None:
+    """Abort the fit when the LD-score design matrix is near-collinear.
+
+    Matches legacy LDSC's hard stop on an ill-conditioned design matrix: rather
+    than warn and emit a partition the user must second-guess, collinear
+    annotations raise ``LDSCInputError`` so the only results produced are
+    trustworthy ones.
+    """
+    overlap = getattr(dataset, "ldscore_overlap", None)
+    if overlap is None or len(dataset.retained_ld_columns) < 2:
+        return
+    from .overlap_matrix import assemble_model_overlap, model_collinearity_error
+
+    use_common = dataset.count_key_used_for_regression == COMMON_COUNT_KEY
+    try:
+        model_overlap = assemble_model_overlap(overlap, list(dataset.retained_ld_columns), use_common)
+    except (ValueError, KeyError):
+        return
+    message = model_collinearity_error(x, list(dataset.retained_ld_columns), model_overlap)
+    if message:
+        raise LDSCInputError(message)
 
 
 def _sort_partitioned_h2_summary(summary: pd.DataFrame, sort_by: str = "category") -> pd.DataFrame:
@@ -1689,11 +1862,80 @@ def _select_intercept(value: float | None, use_intercept: bool, default_when_dis
     return float(value)
 
 
+def _resolve_default_chisq_max(chisq_max: float | None, n_annot: int, n_max: float) -> float | None:
+    """Effective chi-square ceiling for an h2 fit, matching legacy ``estimate_h2``.
+
+    Legacy LDSC (``ldscore/sumstats.py`` ``estimate_h2``) caps multi-annotation
+    (partitioned) models at ``max(0.001 * N.max(), 80)`` when ``--chisq-max`` is
+    unset, to down-weight outlier SNPs whose extreme chi-square would otherwise
+    dominate the regression. Single-annotation models stay uncapped and rely on
+    the two-step estimator instead. An explicit ``chisq_max`` always takes
+    precedence over the default.
+    """
+    if chisq_max is not None:
+        return float(chisq_max)
+    if n_annot > 1:
+        return max(0.001 * float(n_max), 80.0)
+    return None
+
+
+def _effective_regression_filter(dataset, config) -> tuple[float | None, int]:
+    """Return the effective chi-square cap and post-filter SNP count for an h2 fit.
+
+    Mirrors the filter :meth:`RegressionRunner.estimate_h2` applies, recomputed
+    from the same pre-filter inputs so reporting matches the fit exactly: the cap
+    from :func:`_resolve_default_chisq_max` (``None`` for an uncapped single-
+    annotation model) and the number of SNPs retained at ``chi^2 <= cap``.
+    """
+    chisq_max = _resolve_default_chisq_max(
+        config.chisq_max, len(dataset.retained_ld_columns), dataset.merged["N"].max()
+    )
+    if chisq_max is None:
+        return None, len(dataset.merged)
+    n_used = int(((dataset.merged["Z"] ** 2) <= chisq_max).sum())
+    return chisq_max, n_used
+
+
+def _effective_rg_filter(dataset, config) -> tuple[float | None, int]:
+    """Return the effective cap and post-filter SNP count for an rg pair fit.
+
+    rg has no default cap: legacy ldsc2 ``_rg`` filters only when ``--chisq-max``
+    is supplied, so the effective cap simply echoes ``config.chisq_max`` (``None``
+    when unset). The retained count applies the legacy product form
+    ``Z1^2 * Z2^2 <= chisq_max^2`` (inclusive per the -max convention), matching
+    :meth:`RegressionRunner._fit_rg_dataset`.
+    """
+    chisq_max = config.chisq_max
+    if chisq_max is None:
+        return None, len(dataset.merged)
+    products = (dataset.merged["Z1"] ** 2) * (dataset.merged["Z2"] ** 2)
+    return chisq_max, int((products <= chisq_max ** 2).sum())
+
+
+def _add_scalar_prevalence_arguments(parser) -> None:
+    """Add the scalar binary-trait prevalence flags shared by h2 and partitioned-h2."""
+    parser.add_argument(
+        "--samp-prev",
+        type=float,
+        default=None,
+        help="Sample (case) prevalence for liability-scale conversion: a probability in (0, 1). "
+        "Requires --pop-prev; omit both for observed scale only.",
+    )
+    parser.add_argument(
+        "--pop-prev",
+        type=float,
+        default=None,
+        help="Population prevalence for liability-scale conversion: a probability in (0, 1). "
+        "Requires --samp-prev; omit both for observed scale only.",
+    )
+
+
 def add_h2_arguments(parser) -> None:
     """Register heritability CLI arguments on ``parser``."""
     _add_common_regression_arguments(parser, include_h2_intercept=True)
     parser.add_argument("--sumstats-file", required=True, help="Munged .sumstats(.gz) file.")
     parser.add_argument("--trait-name", default=None, help="Optional trait label for summaries.")
+    _add_scalar_prevalence_arguments(parser)
 
 
 def add_partitioned_h2_arguments(parser) -> None:
@@ -1701,6 +1943,7 @@ def add_partitioned_h2_arguments(parser) -> None:
     _add_common_regression_arguments(parser, include_h2_intercept=True)
     parser.add_argument("--sumstats-file", required=True, help="Munged .sumstats(.gz) file.")
     parser.add_argument("--trait-name", default=None, help="Optional trait label for summaries.")
+    _add_scalar_prevalence_arguments(parser)
     parser.add_argument(
         "--write-per-query-results",
         action="store_true",
@@ -1709,11 +1952,12 @@ def add_partitioned_h2_arguments(parser) -> None:
     )
     parser.add_argument(
         "--summary-sort-by",
-        default="category",
-        choices=tuple(PARTITIONED_H2_SUMMARY_SORT_COLUMNS),
+        default="auto",
+        choices=("auto", *PARTITIONED_H2_SUMMARY_SORT_COLUMNS),
         help=(
-            "Column used to order partitioned_h2.tsv rows. Default 'category' preserves query annotation input order; "
-            "p-value columns sort ascending and other numeric columns sort descending."
+            "Column used to order partitioned_h2.tsv rows. Default 'auto' resolves to 'coefficient-p' for "
+            "cell-type runs (query annotations present) and 'category' for functional runs; p-value columns "
+            "sort ascending and other numeric columns sort descending."
         ),
     )
 
@@ -1743,6 +1987,27 @@ def add_rg_arguments(parser) -> None:
     )
     parser.add_argument("--intercept-h2", type=float, default=None, help="Fixed h2 intercept broadcast to every rg pair.")
     parser.add_argument("--intercept-gencov", type=float, default=None, help="Fixed genetic-covariance intercept for every rg pair.")
+    parser.add_argument(
+        "--samp-prev",
+        default=None,
+        help="Comma-separated sample prevalences aligned to resolved --sumstats-sources order, one per "
+        "trait; each a probability in (0, 1) or `nan` for a quantitative trait. Requires --pop-prev. "
+        "Mutually exclusive with --prevalence-manifest.",
+    )
+    parser.add_argument(
+        "--pop-prev",
+        default=None,
+        help="Comma-separated population prevalences aligned to resolved --sumstats-sources order, one per "
+        "trait; each a probability in (0, 1) or `nan`. Requires --samp-prev. Mutually exclusive with "
+        "--prevalence-manifest.",
+    )
+    parser.add_argument(
+        "--prevalence-manifest",
+        default=None,
+        help="Whitespace/tab-delimited TSV with columns trait_name, samp_prev, pop_prev (`#` comments "
+        "ignored). Looked up by exact munged trait name; may contain extra traits. Mutually exclusive "
+        "with --samp-prev/--pop-prev.",
+    )
 
 
 def run_h2_from_args(args):
@@ -1769,7 +2034,11 @@ def run_h2_from_args(args):
         with suppress_global_config_banner():
             dataset = runner.build_dataset(sumstats_table, ldscore_result, config=config)
         hsq = runner.estimate_h2(dataset, config=config)
-        summary = summarize_total_h2(hsq, dataset, trait_name=sumstats_table.trait_name)
+        effective_chisq_max, n_snps_used = _effective_regression_filter(dataset, config)
+        summary = summarize_total_h2(
+            hsq, dataset, trait_name=sumstats_table.trait_name, n_snps_used=n_snps_used,
+            samp_prev=config.samp_prev, pop_prev=config.pop_prev,
+        )
         output_dir_arg = getattr(args, "output_dir", None)
         if output_dir_arg:
             written = H2DirectoryWriter().write(
@@ -1778,10 +2047,18 @@ def run_h2_from_args(args):
                     output_dir=output_dir_arg,
                     overwrite=getattr(args, "overwrite", False),
                 ),
-                metadata=_h2_metadata(args, sumstats_table, dataset),
+                metadata=_h2_metadata(
+                    args,
+                    sumstats_table,
+                    dataset,
+                    n_snps_used=n_snps_used,
+                    effective_chisq_max=effective_chisq_max,
+                    samp_prev=config.samp_prev,
+                    pop_prev=config.pop_prev,
+                ),
             )
             log_outputs(**written)
-        LOGGER.info(f"Finished h2 regression with {len(dataset.merged)} regression SNPs.")
+        LOGGER.info(f"Finished h2 regression with {n_snps_used} regression SNPs.")
     return summary
 
 
@@ -1820,6 +2097,8 @@ def run_partitioned_h2_from_args(args):
         query_bundle = SimpleNamespace(
             query_columns=_validate_partitioned_query_columns(ldscore_result, ldscore_result.query_columns)
         )
+        has_queries = bool(ldscore_result.query_columns)
+        _log_partitioned_h2_regime(ldscore_result, has_queries)
         with suppress_global_config_banner():
             result = runner.estimate_partitioned_h2_batch(
                 sumstats_table,
@@ -1828,15 +2107,20 @@ def run_partitioned_h2_from_args(args):
                 config=config,
                 include_full_partitioned_h2=getattr(args, "write_per_query_results", False),
             )
+        aggregate_metadata: dict[str, object] = {}
         if isinstance(result, PartitionedH2BatchResult):
             summary = result.summary
             per_query_category_tables = result.per_query_category_tables
             per_query_metadata = result.per_query_metadata
+            aggregate_metadata = result.aggregate_metadata or {}
         else:
             summary = result
             per_query_category_tables = None
             per_query_metadata = None
-        summary = _sort_partitioned_h2_summary(summary, getattr(args, "summary_sort_by", "category"))
+        sort_by = _resolve_summary_sort(
+            getattr(args, "summary_sort_by", "auto"), has_queries=bool(ldscore_result.query_columns)
+        )
+        summary = _sort_partitioned_h2_summary(summary, sort_by)
         output_dir_arg = getattr(args, "output_dir", None)
         if output_dir_arg:
             written = PartitionedH2DirectoryWriter().write(
@@ -1851,6 +2135,11 @@ def run_partitioned_h2_from_args(args):
                     "trait_name": sumstats_table.trait_name,
                     "count_kind": getattr(args, "count_kind", "common"),
                     "ldscore_dir": getattr(args, "ldscore_dir", None),
+                    "analysis_type": "cell_type_specific" if has_queries else "functional_category",
+                    "headline_metric": "coefficient" if has_queries else "enrichment",
+                    "enrichment_p_test": "two_sided_t",
+                    "coefficient_p_test": "one_sided_greater",
+                    **aggregate_metadata,
                 },
                 per_query_metadata=per_query_metadata,
             )
@@ -1892,6 +2181,8 @@ def run_rg_from_args(args):
         without an output directory, or fixed-intercept flags conflict with
         ``--no-intercept``.
     """
+    from .prevalence import resolve_rg_prevalences
+
     _validate_intercept_conflicts(args)
     if getattr(args, "write_per_pair_detail", False) and not getattr(args, "output_dir", None):
         raise LDSCUsageError(
@@ -1934,7 +2225,24 @@ def run_rg_from_args(args):
             f"using LD-score directory '{args.ldscore_dir}'."
         )
         sumstats_tables = [_load_sumstats_table(str(path), None) for path in sumstats_paths]
+        # Resolve prevalence against the original munged names so the manifest
+        # duplicate-name guard fires before disambiguation renames collisions.
+        prevalences = resolve_rg_prevalences(
+            samp_prev=getattr(args, "samp_prev", None),
+            pop_prev=getattr(args, "pop_prev", None),
+            manifest_path=getattr(args, "prevalence_manifest", None),
+            trait_names=[_trait_label(table) for table in sumstats_tables],
+            trait_paths=[str(path) for path in sumstats_paths],
+        )
         sumstats_tables = _disambiguate_trait_names(sumstats_tables)
+        if prevalences is not None:
+            LOGGER.info(
+                "Liability-scale prevalences applied: "
+                + ", ".join(
+                    f"{_trait_label(table)}=(P={sp}, K={pp})"
+                    for table, (sp, pp) in zip(sumstats_tables, prevalences)
+                )
+            )
         anchor_index = _resolve_anchor_index(getattr(args, "anchor_trait", None), sumstats_paths, sumstats_tables)
         ldscore_result = load_ldscore_from_dir(args.ldscore_dir)
         with suppress_global_config_banner():
@@ -1943,6 +2251,7 @@ def run_rg_from_args(args):
                 ldscore_result,
                 anchor_index=anchor_index,
                 config=config,
+                prevalences=prevalences,
             )
         output_dir_arg = getattr(args, "output_dir", None)
         if output_dir_arg:
@@ -2117,9 +2426,23 @@ def _resolve_anchor_index(
 
 
 def _runner_from_args(args) -> tuple[RegressionRunner, RegressionConfig]:
-    """Build the regression workflow objects from parsed CLI arguments."""
+    """Build the regression workflow objects from parsed CLI arguments.
+
+    For ``h2`` / ``partitioned-h2`` the scalar ``--samp-prev`` / ``--pop-prev``
+    floats are validated and stored on the config. For ``rg`` these arguments are
+    comma-separated strings resolved later in :func:`run_rg_from_args` against the
+    resolved trait list, so they are left off the (per-run) config here.
+    """
+    from .prevalence import parse_scalar_prevalence
+
     _validate_intercept_conflicts(args)
     count_kind = getattr(args, "count_kind", "common")
+    samp_prev = getattr(args, "samp_prev", None)
+    pop_prev = getattr(args, "pop_prev", None)
+    if isinstance(samp_prev, str) or isinstance(pop_prev, str):
+        scalar_samp, scalar_pop = None, None  # rg comma-lists: resolved in run_rg_from_args
+    else:
+        scalar_samp, scalar_pop = parse_scalar_prevalence(samp_prev, pop_prev)
     config = RegressionConfig(
         n_blocks=args.n_blocks,
         use_common_counts=(count_kind == "common"),
@@ -2128,6 +2451,8 @@ def _runner_from_args(args) -> tuple[RegressionRunner, RegressionConfig]:
         intercept_gencov=getattr(args, "intercept_gencov", None),
         two_step_cutoff=args.two_step_cutoff,
         chisq_max=args.chisq_max,
+        samp_prev=scalar_samp,
+        pop_prev=scalar_pop,
         allow_identity_downgrade=getattr(args, "allow_identity_downgrade", False),
     )
     runner = RegressionRunner(get_global_config(), config)
@@ -2200,6 +2525,18 @@ def load_ldscore_from_dir(
     baseline_columns = [str(column) for column in metadata.get("baseline_columns", [])]
     query_columns = [str(column) for column in metadata.get("query_columns", [])]
     count_records = [dict(record) for record in metadata.get("counts", [])]
+    overlap = None
+    overlap_rel = files.get("overlap")
+    if overlap_rel:
+        from .overlap_matrix import overlap_from_long_frame
+        overlap_config = metadata.get("overlap_config") or {}
+        overlap = overlap_from_long_frame(
+            pd.read_parquet(root / overlap_rel),
+            baseline_columns=baseline_columns,
+            query_columns=query_columns,
+            total_all_reference_snps=overlap_config.get("total_all_reference_snps"),
+            total_common_reference_snps=overlap_config.get("total_common_reference_snps"),
+        )
     metadata_identifier = config_snapshot.snp_identifier if config_snapshot is not None else metadata.get("snp_identifier")
     if snp_identifier is not None:
         requested_identifier = normalize_snp_identifier_mode(snp_identifier)
@@ -2239,6 +2576,7 @@ def load_ldscore_from_dir(
         },
         count_config=dict(metadata.get("count_config", {})),
         config_snapshot=config_snapshot,
+        overlap=overlap,
     )
     result.validate(require_query_alignment=False)
     query_rows = 0 if query_table is None else len(query_table)

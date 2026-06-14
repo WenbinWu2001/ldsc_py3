@@ -25,6 +25,7 @@ An LD-score run writes:
   metadata.json
   ldscore.baseline.parquet
   ldscore.query.parquet        # omitted when no query annotations were supplied
+  ldscore.overlap.parquet      # overlap matrix; omitted for single-annotation (e.g. base-only) runs; consumed by partitioned-h2
   diagnostics/
     ldscore.log
 ```
@@ -32,12 +33,24 @@ An LD-score run writes:
 `metadata.json` is the downstream metadata contract. It contains:
 
 - `artifact_type: "ldscore"`
-- relative file paths for `baseline` and optional `query`
+- relative file paths for `baseline`, optional `query`, and optional `overlap`
 - `snp_identifier`, `genome_build`, and processed `chromosomes`
 - ordered `baseline_columns` and `query_columns`
 - one count record per LD-score annotation column
+- `count_config` and `overlap_config` (total SNP-universe sizes and the
+  common-MAF threshold/operator used for the overlap matrix)
 - `config_snapshot`
 - basic row counts
+
+`ldscore.overlap.parquet` stores the annotation overlap matrix `O = AᵀA` in long
+form (`row_annotation`, `col_annotation`, `overlap_all_snps`,
+`overlap_common_snps`). Only the baseline-rows block `A_Bᵀ·A` plus each query's
+self-overlap are stored — enough to reconstruct every baseline-plus-one-query
+model overlap matrix without keeping the full annotation matrix. `partitioned-h2`
+requires this file; the shared `h2` collinearity guard reads it when present
+(two or more LD-score columns) but does not require it; `rg` ignores it. The
+common-SNP universe uses
+`MAF >= common_maf_min` (inclusive), matching the `.M_5_50`-style common counts.
 
 All paths inside the metadata are relative to `ldscore_dir`.
 
@@ -195,6 +208,10 @@ unavailable. Regression falls back to `all_reference_snp_count` in that case.
 
 ## 6. Regression Behavior
 
+For the tunable estimator parameters (intercept policy, two-step cutoff,
+`chisq_max`, jackknife blocks, counts) and the per-command defaults, see
+[`regression-configuration.md`](regression-configuration.md).
+
 `h2` and `rg` use baseline LD scores only, even when `ldscore.query.parquet` exists.
 They also use the embedded `regression_ld_scores` column from
 `ldscore.baseline.parquet`; this is the historical `w_ld` LD score over the
@@ -208,24 +225,71 @@ affect base-mode identity, duplicate filtering, retention, or drop reasons.
 allele-aware/base mixes to run under the base mode. rsID-family and
 coordinate-family modes never mix.
 
-`partitioned-h2` requires `ldscore.query.parquet` and a non-empty `query_columns` list in
-the LD-score root metadata. Baseline-only LD-score directories are valid inputs for
-`h2` and `rg`, but `partitioned-h2` rejects them instead of treating the
-baseline as a query annotation. For each query column, it builds a regression
-dataset with:
+**Outlier handling.** Extreme-chi-square SNPs are controlled differently by
+annotation count, matching legacy LDSC. A **single-annotation** fit (plain `h2`
+and `rg`) applies no chi-square cap and instead defaults the two-step cutoff to
+`30` (when `--two-step-cutoff` is unset and the h2 intercept is free). A
+**multi-annotation** fit (`partitioned-h2`, where the two-step estimator does
+not apply) instead applies a default outlier cap of `max(0.001 · N.max(), 80)`
+when `--chisq-max` is unset, dropping SNPs above it so a few extreme statistics
+cannot dominate the regression. An explicit `--chisq-max` overrides the default
+in either case. The cap is inclusive (`chi^2 <= cap`, per the `-max`
+convention), and any drop is logged as `Removed N SNPs with chi^2 > C (...)`.
+The diagnostics metadata records the **post-filter** SNP count (`n_snps`) and
+the `effective_chisq_max` actually applied (the default for a partitioned model,
+the explicit value, or `null` when uncapped), so the reported SNP set matches
+the fitted set.
+
+`partitioned-h2` produces **overlap-aware** category summaries (legacy
+`--overlap-annot` math) and auto-detects one of two regimes from the LD-score
+directory, with no user flag. It requires `ldscore.overlap.parquet`; a directory
+produced by an older `ldsc ldscore` is rejected with a regenerate message.
+
+- **Functional-category regime** — the directory has **no** query columns. A
+  single joint fit of all baseline annotations yields one row per baseline
+  category; the headline is `enrichment` (+ two-sided `enrichment_p`). This
+  reproduces Finucane-2015 / legacy `--overlap-annot`. If only a single
+  annotation is retained (e.g. a one-annotation baseline directory), the fit is
+  degenerate and collapses to single-annotation `h2` behavior (two-step
+  estimator, no default chi-square cap); the run logs a `WARNING` and you should
+  supply multiple baseline annotations for a meaningful partitioned analysis.
+- **Cell-type-specific regime** — the directory **has** query columns. For each
+  query, a `baseline + one query` model is fit, yielding one row per query; the
+  headline is `coefficient` (the conditional `tau`, + one-sided `coefficient_p`
+  testing `coefficient > 0`). `--write-per-query-results` additionally writes a
+  staged `diagnostics/query_annotations/` tree (`manifest.tsv` plus one sanitized
+  folder per query with a one-row `partitioned_h2.tsv`, the full
+  baseline-plus-query `partitioned_h2_full.tsv`, and `metadata.json`).
+
+Both regimes write **one** column schema to `partitioned_h2.tsv`, differing only
+in rows and the default sort:
 
 ```text
-baseline LD-score columns + one query LD-score column
+category, prop_snps, prop_h2, prop_h2_se, enrichment, enrichment_se,
+enrichment_p, coefficient, coefficient_se, coefficient_z, coefficient_p,
+overlap_annot, total_h2_obs, total_h2_obs_se, total_h2_liab, total_h2_liab_se,
+category_h2_obs, category_h2_obs_se, category_h2_liab, category_h2_liab_se,
+samp_prev, pop_prev
 ```
 
-This keeps baseline annotations fixed while estimating one query annotation at a
-time. By default the CLI writes the compact aggregate `partitioned_h2.tsv` table
-plus diagnostic files under `diagnostics/`. With `--write-per-query-results`,
-it also writes a staged `diagnostics/query_annotations/` tree containing
-`manifest.tsv` and one sanitized folder per query annotation. Each query folder contains a one-row
-`partitioned_h2.tsv`, the full fitted-model `partitioned_h2_full.tsv`, and
-`metadata.json`. The log is preflighted with the table outputs, but it is not
-part of returned `output_paths`.
+All columns are lowercase snake_case, consistent with `h2` and `rg`.
+
+Interpretation. `enrichment = prop_h2 / prop_snps` is the **marginal**
+heritability of the SNPs in a category (overlap-aware, baseline-confounded for a
+query); `coefficient` is the **conditional** per-SNP contribution beyond the
+baseline. `total_h2_obs` is the fitted model's total heritability (constant across
+one model's rows; per-query in the cell-type regime) and is the reference total
+for the category-level absolute heritabilities. `category_h2_obs = M_c·tau_c` is
+the conditional category contribution (observed scale) and can be negative under
+overlap; `category_h2_liab` is its liability-scale counterpart
+(`= category_h2_obs · c(samp_prev, pop_prev)`, `NaN` without
+`--samp-prev`/`--pop-prev`). Note that under overlap (almost always), `prop_h2` is
+**not** `category_h2_obs / total_h2_obs` -- see the overlap caveat in
+`partitioned-h2-results.md`. `overlap_annot` flags whether the fitted model's
+annotations overlap. `--summary-sort-by` defaults to `auto` (→ `coefficient-p`
+for cell-type, `category` for functional); the run logs a regime banner and
+records `analysis_type` / `headline_metric` / `enrichment_p_test` /
+`coefficient_p_test` in `diagnostics/metadata.json`.
 
 `partitioned-h2` treats `partitioned_h2.tsv`, `diagnostics/metadata.json`,
 `diagnostics/query_annotations/`, and `diagnostics/partitioned-h2.log` as one
@@ -233,7 +297,7 @@ owned output family. Without `--overwrite`, any
 existing owned sibling rejects the run. With `--overwrite`, a successful
 aggregate-only run removes a stale `diagnostics/query_annotations/` tree from a
 previous per-query configuration. If `--output-dir` is omitted, the CLI prints
-the compact `partitioned_h2.tsv` schema to stdout and writes no diagnostics.
+the `partitioned_h2.tsv` schema to stdout and writes no diagnostics.
 
 ## 7. CLI Examples
 

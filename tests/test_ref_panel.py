@@ -596,6 +596,24 @@ class ParquetRefPanelTest(unittest.TestCase):
             self.assertEqual(metadata["SNP"].tolist(), ["rs2", "rs3"])
             self.assertTrue((metadata["MAF"] > 0.25).all())
 
+    def test_sidecar_metadata_maf_min_is_inclusive_at_threshold(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            build_dir = Path(tmpdir) / "panel" / "hg38"
+            _write_canonical_r2_parquet(build_dir / "chr1_r2.parquet")
+            _write_meta_sidecar(
+                build_dir / "chr1_meta.tsv.gz",
+                "CHR\tBP\tSNP\tCM\tMAF\n1\t10\trs1\t0.1\t0.24\n1\t20\trs2\t0.2\t0.25\n1\t30\trs3\t0.3\t0.4\n",
+            )
+            panel = ParquetR2RefPanel(
+                GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"),
+                RefPanelConfig(backend="parquet_r2", r2_dir=str(build_dir), maf_min=0.25),
+            )
+
+            metadata = panel.load_metadata("1")
+
+            # MAF == 0.25 is retained (inclusive >=); 0.24 dropped.
+            self.assertEqual(metadata["SNP"].tolist(), ["rs2", "rs3"])
+
     def test_sidecar_metadata_loading_normalizes_float_chromosomes(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             build_dir = Path(tmpdir) / "panel" / "hg38"

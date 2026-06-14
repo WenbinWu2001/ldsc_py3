@@ -257,10 +257,10 @@ class RefPanel(ABC):
         if "MAF" not in metadata.columns or metadata["MAF"].isna().all():
             LOGGER.warning(f"Cannot apply --maf-min on chromosome {chrom} because MAF metadata is unavailable.")
             return metadata.reset_index(drop=True)
-        keep = metadata["MAF"] > maf_min
+        keep = metadata["MAF"] >= maf_min
         removed = int((~keep).sum())
         if removed:
-            LOGGER.info(f"Removed {removed} reference-panel SNPs with MAF <= {maf_min} on chromosome {chrom}.")
+            LOGGER.info(f"Removed {removed} reference-panel SNPs with MAF < {maf_min} on chromosome {chrom}.")
         return metadata.loc[keep].reset_index(drop=True)
 
     def _apply_snp_restriction(self, metadata: pd.DataFrame) -> pd.DataFrame:
@@ -1026,16 +1026,14 @@ def _read_metadata_table(
         out["CM"] = pd.to_numeric(df[cm_col], errors="coerce")
     else:
         out["CM"] = pd.NA
-    if maf_col is not None:
-        maf = pd.to_numeric(df[maf_col], errors="coerce").astype(float)
-        out["MAF"] = pd.Series(maf).map(lambda value: value if pd.isna(value) else min(value, 1.0 - value))
-    elif global_config.fail_on_missing_metadata:
+    if maf_col is None:
         raise LDSCInputError(
-            f"Reference-panel metadata sidecar '{path}' is missing MAF metadata. Most "
-            "likely the sidecar was produced without allele-frequency values, but the "
-            "active configuration requires complete metadata. Regenerate the panel with "
-            "MAF metadata or disable strict missing-metadata checks."
+            f"Reference-panel metadata sidecar '{path}' is missing MAF metadata. MAF is "
+            "required for LD-score calculation. Most likely the sidecar was produced "
+            "without allele-frequency values. Regenerate the panel with MAF metadata."
         )
+    maf = pd.to_numeric(df[maf_col], errors="coerce").astype(float)
+    out["MAF"] = pd.Series(maf).map(lambda value: value if pd.isna(value) else min(value, 1.0 - value))
 
     a1_col = resolve_optional_column(df.columns, A1_COLUMN_SPEC, context=context)
     a2_col = resolve_optional_column(df.columns, A2_COLUMN_SPEC, context=context)

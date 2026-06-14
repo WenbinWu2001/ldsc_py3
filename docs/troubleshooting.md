@@ -285,6 +285,31 @@ and parquet row decoders · **Exception:** `LDSCInputError`
 2. Regenerate annotation and R2 reference-panel artifacts on the same genome build.
 3. Keep only one build's R2 parquet files in a given `--r2-dir`.
 
+### ldscore: unusable CM for `--ld-wind-cm`
+
+`--ld-wind-cm` needs a genetic-map coordinate (`CM`) that orders SNPs along a
+chromosome. The run aborts when the reference panel's `CM` is all zero, constant,
+or missing — it cannot define a genetic-distance window, and `--yes-really` does
+**not** override this (it only authorizes whole-chromosome windows from *valid*
+`CM`).
+
+| Likely cause | Check |
+|---|---|
+| PLINK `.bim` has an all-zero `CM` column (the common PLINK default) | Inspect the third `.bim` column; it is `0` for every SNP |
+| Parquet panel built without a genetic map (sidecar `CM=NA`) | Inspect `chr*_meta.tsv.gz` `CM` column |
+| Genome build for the genetic map could not be determined (rsID modes) | Confirm whether `--genome-build` was passed |
+
+**Remedies:**
+
+1. Add a genetic map for the panel's build:
+   `--genetic-map-hg38-sources <file>` or `--genetic-map-hg19-sources <file>`.
+   ldscore interpolates `CM` at the `.bim` positions (PLINK backend).
+2. Provide a `.bim` whose third column carries real genetic-map positions, or a
+   parquet panel built with `ldsc build-ref-panel --genetic-map-<build>-sources`.
+3. Use a physical-distance window instead: `--ld-wind-kb 1000` or `--ld-wind-snps`.
+4. In rsID identifier modes, pass `--genome-build hg19` / `--genome-build hg38`
+   so the matching genetic map can be selected.
+
 ## build-ref-panel
 
 ### build-ref-panel: no reference-panel artifacts were produced
@@ -404,25 +429,38 @@ restriction build/column readers · **Exception:** `LDSCInputError`
 3. Broaden or rebuild the regression SNP universe so the traits and LD-score
    directory share retained SNPs.
 
-### regression: partitioned-h2 LD-score directory has no query annotations
+### partitioned-h2: missing overlap matrix
 
-**Raised by:** `regression_runner._validate_partitioned_query_columns()` and
-`regression_runner._assemble_regression_ldscore_table()` · **Exception:** `LDSCInputError`
-**Symptom:** `partitioned-h2 cannot run because the LD-score directory has no query annotation columns...`
+**Raised by:** `regression_runner.estimate_partitioned_h2_batch()` /
+`summarize_partitioned_h2()` · **Exception:** `LDSCInputError`
+**Symptom:** `partitioned-h2 needs the annotation overlap matrix, but the LD-score directory has no ldscore.overlap.parquet...`
+
+Overlap-aware partitioned heritability (both the functional and cell-type
+regimes) needs `ldscore.overlap.parquet`, written by `ldsc ldscore` alongside
+the baseline/query parquet files whenever the run has **two or more** annotation
+columns. A baseline-only directory (multiple baseline annotations, no query) is
+**not** an error — it runs the functional-category regime. An unpartitioned,
+single-annotation run (e.g. the synthetic `base`) deliberately omits the sidecar
+because its overlap collapses to a SNP count already in `metadata.json`, and
+such a directory cannot be partitioned.
 
 **Likely causes & how to check** (most probable first):
 
 | # | Likely cause | How to check |
 |---|--------------|--------------|
-| 1 | `ldsc ldscore` was run with baseline annotations only | Inspect `metadata.json` for an empty `query_columns` list |
-| 2 | Query BED or annotation sources were passed to the wrong command/run | Check the LD-score run log under `diagnostics/ldscore.log` |
-| 3 | Query annotations were omitted because only the unpartitioned h2 workflow was planned | Confirm whether the intended command is `h2` or `partitioned-h2` |
-| 4 | The LD-score directory was copied from an older or partial run | Confirm `ldscore.query.parquet` exists when `metadata.json` lists query files |
+| 1 | The directory is an unpartitioned single-annotation run (e.g. base-only) | Inspect `metadata.json`: `baseline_columns` + `query_columns` total fewer than 2 |
+| 2 | The LD-score directory predates the overlap sidecar (older `ldsc ldscore`) | Inspect `metadata.json` for a missing `files.overlap` / `overlap_config` despite >=2 annotation columns |
+| 3 | The directory was copied without `ldscore.overlap.parquet` | Confirm the file exists next to `ldscore.baseline.parquet` |
 
 **Remedies:**
 
-1. Rerun `ldsc ldscore` with explicit baseline annotations plus
-   `--query-annot-sources` or `--query-annot-bed-sources`.
-2. Use `ldsc h2` for baseline-only LD-score directories.
-3. Keep `metadata.json`, baseline parquet, and query parquet files from the same
-   LD-score run together.
+1. Partitioned-h2 requires >=2 annotation columns; regenerate the LD-score
+   directory with explicit baseline (and optional query) annotations, not the
+   synthetic `base`.
+2. If the directory predates the sidecar, regenerate it with the current
+   `ldsc ldscore`.
+3. Keep `metadata.json`, the baseline/query parquet, and `ldscore.overlap.parquet`
+   from the same run together.
+4. `h2` and `rg` do not require the overlap matrix (the shared `h2` collinearity
+   guard uses it only when present), so they run on unpartitioned or older
+   directories.

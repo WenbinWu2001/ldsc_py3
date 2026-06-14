@@ -104,11 +104,21 @@ workflow-specific transforms still happen after parsing:
 
 - query annotation BEDs may be expanded by `bed_padding_bp` /
   `--bed-padding-bp`; starts are clipped at zero after padding
+- query annotation BED column names are derived from the resolved file basename
+  with the final suffix removed (`pathlib.Path.stem`); directory names are not
+  included, so `/path1/annot.bed` and `/path2/annot.bed` both map to `annot`
 - region-exclusion BEDs are coalesced by chromosome before masking reference
   panel SNPs
 - preset region exclusions (`--exclude-regions mhc,centromeres`) load packaged
   BED files under `src/ldsc/data/regions/` and should obey the same syntax
   rules
+
+Query annotation BED stems must be unique because they become annotation column
+names. If two resolved BED inputs have the same stem, or if a BED stem clashes
+with an already-loaded baseline/query annotation column, `annotate` raises a
+user-facing input error before projection or output writing. Under the current
+`Path.stem` rule, only the final suffix is removed: `annot.bed.gz` maps to
+`annot.bed`.
 
 ## Compression
 

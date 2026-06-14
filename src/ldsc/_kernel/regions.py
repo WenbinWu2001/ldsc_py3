@@ -19,7 +19,11 @@ import pandas as pd
 from ..chromosome_inference import normalize_chromosome
 from ..errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
 
-REGION_PRESETS: frozenset[str] = frozenset({"mhc", "centromeres"})
+# Active CLI presets: ``mhc`` (broad chr6:25-35Mb window) and ``centromeres``
+# (pericentromeric +/-3 cM region used by the LD Score regression).
+# ``centromeres_core`` is the raw centromere gap, kept for reference and loadable
+# via the Python API but not wired to any CLI choice.
+REGION_PRESETS: frozenset[str] = frozenset({"mhc", "centromeres", "centromeres_core"})
 _PRESET_BUILDS: frozenset[str] = frozenset({"hg19", "hg38"})
 
 # Public single-choice --exclude-regions vocabulary and its preset expansion.

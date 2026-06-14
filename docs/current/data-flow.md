@@ -115,7 +115,7 @@ the namespace created by the unified `ldsc` CLI without reparsing.
 | File | Example | Notes |
 | --- | --- | --- |
 | baseline annotation shard | `CHR POS SNP CM base`<br/>`1 10583 rs58108140 0.0 1` | used as the SNP template; one shard per chromosome is typical |
-| BED file | `chr1 10000 10100 enhancer_A` | one or more region files; BED basenames become query annotation column names |
+| BED file | `chr1 10000 10100 enhancer_A` | one or more region files; each resolved BED file stem (`Path.stem`) becomes a query annotation column name; duplicate stems are rejected |
 
 ### Flow
 
@@ -263,9 +263,10 @@ tie at exactly 0.5 keeps PLINK order. See
 It opens either a build-ref-panel output directory or one explicit
 `chrN_meta.tsv.gz` plus `chrN_r2.parquet` pair, validates the sidecar binding
 against parquet metadata, resolves each endpoint under the active SNP
-identifier mode, and looks up stored pair rows. It writes one annotated pair
-table to stdout or to the explicit `--out` path; it does not create an artifact
-directory or workflow log.
+identifier mode, and looks up stored pair rows. Without `--output-dir` it
+streams one annotated pair table as a clean TSV to stdout; with `--output-dir`
+it writes the canonical result directory (`query_r2.tsv` plus
+`diagnostics/metadata.json` and `diagnostics/query-r2.log`).
 
 ### Required inputs
 
@@ -310,11 +311,15 @@ flowchart LR
 ## 4. `ldscore`: Reference Panel And Optional Annotations To LDSC Artifacts
 
 The canonical LD-score workflow preflights root `metadata.json`,
-`ldscore.baseline.parquet`, `ldscore.query.parquet`, and `diagnostics/ldscore.log` as one
-owned family before writing any of them. Use `--overwrite` or
-`LDScoreOutputConfig(overwrite=True)` only for intentional reruns. With
-overwrite enabled, a successful baseline-only run removes stale
-`ldscore.query.parquet`.
+`ldscore.baseline.parquet`, optional `ldscore.query.parquet`, optional
+`ldscore.overlap.parquet`, and `diagnostics/ldscore.log` as one owned family
+before writing any of them. Use
+`--overwrite` or `LDScoreOutputConfig(overwrite=True)` only for intentional
+reruns. With overwrite enabled, a successful baseline-only run removes stale
+`ldscore.query.parquet`. `ldscore.overlap.parquet` carries the annotation overlap
+matrix consumed by `partitioned-h2`; it is written only when the run has two or
+more annotation columns, so an unpartitioned single-annotation run (e.g. the
+synthetic `base`) omits it.
 The parquet payloads remain single flat files, but each row group contains rows
 from exactly one chromosome. Root `metadata.json` records the row-group layout and
 per-chromosome offsets so readers can load one chromosome without scanning the
@@ -378,6 +383,7 @@ flowchart LR
 | --- | --- | --- |
 | baseline LD-score table | `CHR POS SNP regression_ld_scores base`<br/>`1 10 rs1 1.7 1.2` | `ldscore.baseline.parquet` inside `output_dir`; `regression_ld_scores` is historical `w_ld`, not the final h2/rg regression weight; one row group per chromosome |
 | query LD-score table | `CHR POS SNP enhancer_A`<br/>`1 10 rs1 0.4` | `ldscore.query.parquet` inside `output_dir`; one row group per chromosome; omitted when no query annotations exist |
+| annotation overlap matrix | `row_annotation col_annotation overlap_all_snps overlap_common_snps`<br/>`base enhancer_A 9000 7500` | `ldscore.overlap.parquet` inside `output_dir`; long-form `AᵀA` baseline-rows block + query self-overlaps; consumed by `partitioned-h2` |
 | metadata | JSON metadata with files, columns, counts, chromosomes, config, row counts, and row-group metadata | `metadata.json` inside `output_dir`; consumed by downstream regression |
 | workflow log | plain-text lifecycle and package records | `diagnostics/ldscore.log` inside `output_dir`; not included in `LDScoreResult.output_paths` |
 
@@ -393,11 +399,19 @@ flowchart LR
 Region exclusion filters SNPs by genomic coordinates before LD computation or
 panel emission. Two input sources are supported and may be combined.
 
-**Preset regions** (`--exclude-regions {mhc,centromeres}`) read packaged BED
-files under `src/ldsc/data/regions/` keyed by name and genome build (e.g.
-`mhc.hg19.bed`). **User BEDs** (`--exclude-regions-bed <file>`) read any
+**Preset regions** (`--exclude-regions`) are selected from a fixed single-choice
+vocabulary `EXCLUDE_REGIONS_CHOICES` = `none | mhc | centromeres |
+mhc-and-centromeres`, **defaulting to `mhc-and-centromeres`** (exclusion is on by
+default; `none` opts out). Each choice maps to packaged BED files under
+`src/ldsc/data/regions/` keyed by preset name and genome build (e.g.
+`mhc.hg19.bed`). The active **`mhc`** preset is the broad `chr6:25-35Mb` window
+(build-consistent) and the active **`centromeres`** preset is the
+**pericentromeric ±3 cM** region (LDSC parity, Bulik-Sullivan 2015). The
+raw-gap reference definition **`centromeres_core`** is loadable via the Python
+API but not wired to the CLI. **User BEDs** (`--exclude-regions-bed <file>`) read any
 standard 0-based half-open BED file and apply intervals as-is against panel
-`CHR/POS`.
+`CHR/POS`. The full preset/build/coordinate/provenance table is at
+[`region-exclusion-presets.md`](region-exclusion-presets.md).
 
 The keep rule in `region_exclusion_keep_mask` (`src/ldsc/_kernel/regions.py`)
 is: a 1-based SNP position `p` is excluded iff `start < p <= end` for some
@@ -416,7 +430,7 @@ presets require an explicit `--exclude-regions-build {hg19,hg38}`. An explicit
 `--exclude-regions-build` always wins. The resolved build is passed into
 `RefPanelConfig`, preserving its invariant that presets imply a build.
 
-> **⚠️ The MHC + centromere default applies only to the CLI and the
+> **Note: the MHC + centromere default applies only to the CLI and the
 > `run_ldscore()` / `run_build_ref_panel()` wrappers.** Direct
 > `RefPanelConfig(...)` / `ReferencePanelBuildConfig(...)` construction defaults
 > `exclude_regions` to `()` — **no exclusion** — and you must pass both
@@ -555,8 +569,10 @@ Regression summary commands write fixed result artifacts when `output_dir` is
 supplied. `h2` writes root `h2.tsv` plus diagnostics; `partitioned-h2` writes
 root `partitioned_h2.tsv` plus diagnostics; `rg` writes root `rg.tsv`,
 `rg_full.tsv`, `h2_per_trait.tsv`, and optional diagnostics under
-`diagnostics/pairs/`. Existing owned TSVs, optional trees, or logs raise before
-the new table is written unless the command includes `--overwrite`. For
+`diagnostics/pairs/`. RG result tables report nominal p-values only; corrected
+p-value columns are left to downstream analysis. Existing owned TSVs, optional
+trees, or logs raise before the new table is written unless the command includes
+`--overwrite`. For
 `partitioned-h2`, `partitioned_h2.tsv`, `diagnostics/query_annotations/`, and
 `diagnostics/partitioned-h2.log` are treated as one owned family;
 aggregate-only overwrites remove stale `diagnostics/query_annotations/` after
@@ -584,7 +600,7 @@ merge. rsID-family and coordinate-family modes never mix.
 | File | Example | Notes |
 | --- | --- | --- |
 | munged sumstats | `SNP CHR POS A1 A2 Z N`<br/>`rs1 1 754182 A G 1.96 1000` | one file for `h2` and `partitioned-h2`, two or more files for `rg`; the `sumstats.parquet` footer recovers config provenance and `trait_name` when present, otherwise the identifier mode is inferred from the LD-score panel |
-| LD-score directory | `metadata.json`, `ldscore.baseline.parquet`, optional `ldscore.query.parquet` | produced by the LD-score workflow and supplied as `ldscore_dir`; `partitioned-h2` requires `ldscore.query.parquet` and non-empty `query_columns`; current parquet files have chromosome-aligned row groups; package-written directories without current metadata identity provenance are rejected and must be regenerated |
+| LD-score directory | `metadata.json`, `ldscore.baseline.parquet`, optional `ldscore.query.parquet`, optional `ldscore.overlap.parquet` | produced by the LD-score workflow and supplied as `ldscore_dir`; the overlap sidecar is written only for runs with >=2 annotation columns; `partitioned-h2` requires `ldscore.overlap.parquet` (baseline-only = functional regime, query columns = cell-type regime) and rejects directories that lack it; current parquet files have chromosome-aligned row groups; package-written directories without current metadata identity provenance are rejected and must be regenerated |
 
 ### Flow
 
@@ -622,9 +638,9 @@ flowchart LR
 
 | Subcommand | Output columns | Example |
 | --- | --- | --- |
-| `h2` | `trait_name`, `n_snps`, `total_h2`, `total_h2_se`, `intercept`, `intercept_se`, `mean_chisq`, `lambda_gc`, `ratio`, `ratio_se` | `trait 105234 0.18 0.03 1.02 0.01 1.11 1.05 0.08 0.03` |
-| `partitioned-h2` | `Category`, `Prop._SNPs`, `Prop._h2`, `Enrichment`, `Enrichment_p`, `Coefficient`, `Coefficient_p` | `enhancer_A 0.02 0.14 7.0 0.003 0.012 0.001` |
-| `rg` | `trait_1`, `trait_2`, `rg`, `rg_se`, `z`, `p` | `trait_a trait_b 0.42 0.09 4.7 2.6e-06` |
+| `h2` | `trait_name`, `n_snps`, `total_h2_obs`, `total_h2_obs_se`, `total_h2_liab`, `total_h2_liab_se`, `samp_prev`, `pop_prev`, `intercept`, `intercept_se`, `mean_chisq`, `lambda_gc`, `ratio`, `ratio_se` (the `*_liab`/`samp_prev`/`pop_prev` columns are `NaN` unless `--samp-prev`/`--pop-prev` are given) | `trait 105234 0.18 0.03 NaN NaN NaN NaN 1.02 0.01 1.11 1.05 0.08 0.03` |
+| `partitioned-h2` | `category`, `prop_snps`, `prop_h2`, `prop_h2_se`, `enrichment`, `enrichment_se`, `enrichment_p`, `coefficient`, `coefficient_se`, `coefficient_z`, `coefficient_p`, `overlap_annot`, `total_h2_obs`, `total_h2_obs_se`, `total_h2_liab`, `total_h2_liab_se`, `category_h2_obs`, `category_h2_obs_se`, `category_h2_liab`, `category_h2_liab_se`, `samp_prev`, `pop_prev` (overlap-aware; lowercase snake_case like `h2`/`rg`; one schema for both regimes; `total_h2` is the per-model total; `*_liab`/prevalence columns are `NaN` without prevalences) | `enhancer_A 0.02 0.14 0.04 7.0 2.0 0.003 0.012 0.004 3.0 0.001 True 0.18 0.03 NaN NaN 0.003 0.001 NaN NaN NaN NaN` |
+| `rg` | concise `rg.tsv`: `trait_1`, `trait_2`, `n_snps_used`, `rg`, `rg_se`, `p`, `note`. `rg_full.tsv` adds per-trait `h2_1_obs`/`h2_1_liab`/`h2_2_obs`/`h2_2_liab` (+ `_se`), `gencov_obs`/`gencov_liab` (+ `_se`), and `samp_prev_1`/`pop_prev_1`/`samp_prev_2`/`pop_prev_2`; the `rg` ratio is scale-invariant. | `trait_a trait_b 152334 0.42 0.09 2.6e-06 ` |
 
 When `output_dir` is supplied, the same directory also receives the matching
 workflow log. The log is not part of any returned result `output_paths` mapping.

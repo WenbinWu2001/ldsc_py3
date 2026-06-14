@@ -358,6 +358,15 @@ class SumstatsMungerTest(unittest.TestCase):
             pd.Series([True, True, False, False, False]),
         )
 
+    def test_kernel_filter_frq_is_inclusive_at_maf_min(self):
+        args = kernel_munge.parser.parse_args("")
+        args.maf_min = 0.01
+        # Folded MAF exactly at the floor is kept (inclusive >=); just below is dropped.
+        assert_series_equal(
+            kernel_munge.filter_frq(pd.Series([0.0099, 0.01, 0.9901]), args),
+            pd.Series([False, True, False]),
+        )
+
     def test_run_filters_sumstats_snps_file_by_rsid_before_process_n(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)

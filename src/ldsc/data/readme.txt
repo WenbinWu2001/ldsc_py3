@@ -6,7 +6,7 @@ TSV with full packaged columns. Public loading normalizes `CHR`, `hg19_POS`,
 `hm3_chr_pos_reference.tsv.gz` is the compact test/inference reference. Rebuild
 it after replacing the curated map with:
 
-python -m ldsc.hm3_reference --curated-map src/ldsc/data/hm3_curated_map.tsv.gz --output src/ldsc/data/hm3_chr_pos_reference.tsv.gz
+python tools/hm3/build_hm3_chr_pos_reference.py --curated-map src/ldsc/data/hm3_curated_map.tsv.gz --output src/ldsc/data/hm3_chr_pos_reference.tsv.gz
 
 It is built as:
 

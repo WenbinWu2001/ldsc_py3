@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import gzip
 import io
 import json
+import math
 from pathlib import Path
 import sys
 import tempfile
@@ -22,6 +23,8 @@ if str(SRC) not in sys.path:
 
 from ldsc.config import ConfigMismatchError, GlobalConfig, RegressionConfig, reset_global_config, set_global_config
 from ldsc.errors import LDSCInputError, LDSCInternalError, LDSCUsageError
+from ldsc._kernel.overlap import OverlapContribution
+from ldsc.overlap_matrix import LDScoreOverlap
 
 try:
     from ldsc.ldscore_calculator import LDScoreResult
@@ -330,6 +333,25 @@ class RegressionWorkflowTest(unittest.TestCase):
             ld_regression_snps=frozenset({"rs1", "rs2", "rs3"}),
             chromosome_results=[],
             config_snapshot=GlobalConfig(snp_identifier="rsid"),
+            overlap=self._overlap_fixture(),
+        )
+
+    def _overlap_fixture(self):
+        # Consistent overlap: diag(O) equals each annotation's M_annot, and
+        # M_tot (total_*_reference_snps) is larger than every category count.
+        from ldsc._kernel.overlap import OverlapContribution
+        from ldsc.overlap_matrix import LDScoreOverlap
+
+        return LDScoreOverlap.from_contribution(
+            OverlapContribution(
+                baseline_block_all=np.array([[10.0, 5.0, 8.0]]),   # base x [base, query1, query2]
+                baseline_block_common=np.array([[8.0, 4.0, 7.0]]),
+                query_diagonal_all=np.array([20.0, 30.0]),          # query1, query2
+                query_diagonal_common=np.array([18.0, 28.0]),
+                n_all=50, n_common=45,
+            ),
+            baseline_columns=["base"],
+            query_columns=["query1", "query2"],
         )
 
     def make_sumstats_table(self):
@@ -522,6 +544,33 @@ class RegressionWorkflowTest(unittest.TestCase):
 
         self.assertEqual(dataset.retained_ld_columns, ["base"])
         self.assertEqual(dataset.merged["SNP"].tolist(), ["rs1", "rs2", "rs3"])
+
+    def test_build_dataset_orders_merged_rows_by_ld_score_genomic_order(self):
+        # Gap C: jackknife block contiguity depends on the merged row order. The
+        # LD-score artifact is genomically sorted, so merged rows must follow the
+        # LD-score order even when the sumstats rows are shuffled (e.g. an unsorted
+        # legacy .sumstats.gz). The order originates entirely from the LD-score side.
+        ld_frame = pd.DataFrame(
+            {
+                "CHR": ["1", "1", "1"],
+                "SNP": ["rs_a", "rs_b", "rs_c"],
+                "POS": [10, 20, 30],
+                "regression_ld_scores": [2.0, 2.0, 2.0],
+                "base": [1.0, 2.0, 3.0],
+            }
+        )
+        sumstats = self.make_sumstats_table_from_frame(
+            pd.DataFrame(
+                {
+                    "SNP": ["rs_c", "rs_a", "rs_b"],  # deliberately not genomic order
+                    "Z": [0.5, 2.0, 1.0],
+                    "N": [1000.0, 1000.0, 1000.0],
+                }
+            )
+        )
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        dataset = runner.build_dataset(sumstats, self.make_ldscore_result_from_frame(ld_frame))
+        self.assertEqual(dataset.merged["SNP"].tolist(), ["rs_a", "rs_b", "rs_c"])
 
     def test_build_dataset_can_include_one_query_annotation_for_partitioned_h2(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
@@ -968,6 +1017,329 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertIs(result, mock.sentinel.rg_result)
         self.assertEqual(patched.call_args.args[2].shape[1], 1)
 
+    def test_estimate_rg_applies_inclusive_chisq_max_product_filter(self):
+        # Legacy rg drops SNPs with Z1^2 * Z2^2 < chisq_max^2; we keep the same
+        # opt-in filter but inclusive (<=) per the -max convention. Both traits
+        # have Z=[2.0, 1.0, 0.5], so products are [16, 1, 0.0625]. With
+        # chisq_max=1.0 (threshold 1.0): rs1 (16) is dropped, rs2 (==1.0, the
+        # boundary) is kept by <=, and rs3 (0.0625) is kept -> 2 SNPs.
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig(chisq_max=1.0))
+        sumstats_1 = self.make_sumstats_table()
+        sumstats_2 = replace(self.make_sumstats_table(), trait_name="trait2")
+        with mock.patch.object(regression_runner.reg, "RG", return_value=mock.sentinel.rg_result) as patched:
+            runner.estimate_rg(sumstats_1, sumstats_2, self.make_ldscore_result())
+        z1_arg = patched.call_args.args[0]
+        self.assertEqual(z1_arg.shape[0], 2)
+
+    def test_partitioned_h2_applies_default_chisq_cap_when_unset(self):
+        # Legacy estimate_h2 (sumstats.py:340) caps multi-annotation models at
+        # max(0.001*N.max(), 80) when --chisq-max is unset, to stop extreme-chi^2
+        # SNPs dominating the partitioned regression. N.max()=100000 -> cap=100.
+        # Z=[12,10,2] -> chi^2=[144,100,4]: 144 dropped, 100 kept (inclusive <=),
+        # 4 kept -> 2 SNPs reach the kernel.
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        sumstats = self.make_sumstats_table_from_frame(
+            pd.DataFrame(
+                {
+                    "SNP": ["rs1", "rs2", "rs3"],
+                    "Z": [12.0, 10.0, 2.0],
+                    "N": [100000.0, 100000.0, 100000.0],
+                    "A1": ["A", "C", "G"],
+                    "A2": ["G", "T", "A"],
+                }
+            )
+        )
+        dataset = runner.build_dataset(sumstats, self.make_ldscore_result(), query_columns=["query2"])
+        with mock.patch.object(regression_runner, "_raise_on_model_collinearity"), mock.patch.object(
+            regression_runner.reg, "Hsq", return_value=mock.sentinel.hsq
+        ) as patched, self.assertLogs("LDSC.regression_runner", level="INFO") as logs:
+            runner.estimate_h2(dataset)
+        chisq_arg = patched.call_args.args[0]
+        self.assertEqual(chisq_arg.shape[0], 2)
+        self.assertAlmostEqual(float(chisq_arg.max()), 100.0)
+        self.assertTrue(any("Removed 1 SNPs with chi^2 > 100" in m for m in logs.output))
+
+    def test_single_annotation_h2_applies_no_default_chisq_cap(self):
+        # Legacy estimate_h2 leaves single-annotation h2 uncapped (relies on the
+        # two-step estimator). All three SNPs must reach the kernel even though
+        # rs1 has chi^2=144, which the partitioned default cap would have dropped.
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        sumstats = self.make_sumstats_table_from_frame(
+            pd.DataFrame(
+                {
+                    "SNP": ["rs1", "rs2", "rs3"],
+                    "Z": [12.0, 10.0, 2.0],
+                    "N": [100000.0, 100000.0, 100000.0],
+                    "A1": ["A", "C", "G"],
+                    "A2": ["G", "T", "A"],
+                }
+            )
+        )
+        dataset = runner.build_dataset(sumstats, self.make_ldscore_result())
+        with mock.patch.object(regression_runner.reg, "Hsq", return_value=mock.sentinel.hsq) as patched:
+            runner.estimate_h2(dataset)
+        chisq_arg = patched.call_args.args[0]
+        self.assertEqual(chisq_arg.shape[0], 3)
+
+    def test_rg_applies_default_two_step_when_single_annotation_and_unset(self):
+        # Legacy estimate_rg (sumstats.py:400) sets two_step=30 for the rg fit
+        # when there is a single annotation, no explicit cutoff, and a free h2
+        # intercept. The restructured rg fit must pass the same default through.
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        sumstats_1 = self.make_sumstats_table()
+        sumstats_2 = replace(self.make_sumstats_table(), trait_name="trait2")
+        with mock.patch.object(regression_runner.reg, "RG", return_value=mock.sentinel.rg) as patched:
+            runner.estimate_rg(sumstats_1, sumstats_2, self.make_ldscore_result())
+        self.assertEqual(patched.call_args.kwargs["twostep"], 30)
+
+    def test_rg_default_two_step_suppressed_when_h2_intercept_fixed(self):
+        # Legacy gates the rg default two-step on a free h2 intercept: a fixed
+        # intercept_h2 leaves the cutoff unset (no two-step).
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig(intercept_h2=1.0))
+        sumstats_1 = self.make_sumstats_table()
+        sumstats_2 = replace(self.make_sumstats_table(), trait_name="trait2")
+        with mock.patch.object(regression_runner.reg, "RG", return_value=mock.sentinel.rg) as patched:
+            runner.estimate_rg(sumstats_1, sumstats_2, self.make_ldscore_result())
+        self.assertIsNone(patched.call_args.kwargs["twostep"])
+
+    def _high_chisq_sumstats(self):
+        # Z=[12,10,2] -> chi^2=[144,100,4]; N.max()=100000 -> default cap=100.
+        return self.make_sumstats_table_from_frame(
+            pd.DataFrame(
+                {
+                    "SNP": ["rs1", "rs2", "rs3"],
+                    "Z": [12.0, 10.0, 2.0],
+                    "N": [100000.0, 100000.0, 100000.0],
+                    "A1": ["A", "C", "G"],
+                    "A2": ["G", "T", "A"],
+                }
+            )
+        )
+
+    def test_effective_regression_filter_partitioned_default_cap(self):
+        # Multi-annotation, --chisq-max unset: cap is the legacy default 100 and
+        # the retained count reflects the inclusive (<=) filter (144 dropped).
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        dataset = runner.build_dataset(
+            self._high_chisq_sumstats(), self.make_ldscore_result(), query_columns=["query2"]
+        )
+        cap, n_used = regression_runner._effective_regression_filter(dataset, RegressionConfig())
+        self.assertAlmostEqual(cap, 100.0)
+        self.assertEqual(n_used, 2)
+
+    def test_effective_regression_filter_single_annotation_uncapped(self):
+        # Single annotation, --chisq-max unset: no cap, all SNPs retained.
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        dataset = runner.build_dataset(self._high_chisq_sumstats(), self.make_ldscore_result())
+        cap, n_used = regression_runner._effective_regression_filter(dataset, RegressionConfig())
+        self.assertIsNone(cap)
+        self.assertEqual(n_used, 3)
+
+    def test_effective_regression_filter_explicit_chisq_max_single_annotation(self):
+        # Explicit --chisq-max is reported and applied even for single annotation:
+        # cap=4 keeps only rs3 (chi^2=4, inclusive).
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        config = RegressionConfig(chisq_max=4.0)
+        dataset = runner.build_dataset(self._high_chisq_sumstats(), self.make_ldscore_result(), config=config)
+        cap, n_used = regression_runner._effective_regression_filter(dataset, config)
+        self.assertAlmostEqual(cap, 4.0)
+        self.assertEqual(n_used, 1)
+
+    def test_summarize_total_h2_reports_post_filter_count(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        dataset = runner.build_dataset(self._high_chisq_sumstats(), self.make_ldscore_result())
+        hsq = mock.Mock(
+            tot=np.array([0.1]),
+            tot_se=np.array([0.01]),
+            intercept=np.array([1.0]),
+            intercept_se=0.01,
+            mean_chisq=np.array([1.1]),
+            lambda_gc=np.array([1.0]),
+            ratio=0.0,
+            ratio_se=0.0,
+        )
+        summary = regression_runner.summarize_total_h2(hsq, dataset, trait_name="trait", n_snps_used=2)
+        self.assertEqual(int(summary.loc[0, "n_snps"]), 2)
+
+    def _fake_total_h2_hsq(self, tot=0.2, tot_se=0.03):
+        return mock.Mock(
+            tot=np.array([tot]),
+            tot_se=np.array([tot_se]),
+            intercept=np.array([1.0]),
+            intercept_se=0.01,
+            mean_chisq=np.array([1.1]),
+            lambda_gc=np.array([1.0]),
+            ratio=0.0,
+            ratio_se=0.0,
+        )
+
+    def test_summarize_total_h2_observed_when_no_prevalence(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        dataset = runner.build_dataset(self._high_chisq_sumstats(), self.make_ldscore_result())
+        summary = regression_runner.summarize_total_h2(
+            self._fake_total_h2_hsq(), dataset, trait_name="t", n_snps_used=3
+        )
+        row = summary.iloc[0]
+        self.assertEqual(row["total_h2_obs"], 0.2)
+        self.assertEqual(row["total_h2_obs_se"], 0.03)
+        self.assertTrue(math.isnan(row["total_h2_liab"]))
+        self.assertTrue(math.isnan(row["total_h2_liab_se"]))
+        self.assertTrue(math.isnan(row["samp_prev"]))
+        self.assertTrue(math.isnan(row["pop_prev"]))
+
+    def test_summarize_total_h2_liability_scaled(self):
+        from ldsc._kernel.regression import liability_conversion_factor
+
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        dataset = runner.build_dataset(self._high_chisq_sumstats(), self.make_ldscore_result())
+        summary = regression_runner.summarize_total_h2(
+            self._fake_total_h2_hsq(), dataset, trait_name="t", n_snps_used=3,
+            samp_prev=0.5, pop_prev=0.01,
+        )
+        c = liability_conversion_factor(0.5, 0.01)
+        row = summary.iloc[0]
+        self.assertAlmostEqual(row["total_h2_liab"], 0.2 * c, places=12)
+        self.assertAlmostEqual(row["total_h2_liab_se"], 0.03 * c, places=12)
+        self.assertEqual(row["total_h2_obs"], 0.2)
+        self.assertEqual(row["samp_prev"], 0.5)
+        self.assertEqual(row["pop_prev"], 0.01)
+
+    def test_h2_metadata_records_post_filter_count_and_effective_chisq_max(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        dataset = runner.build_dataset(self._high_chisq_sumstats(), self.make_ldscore_result())
+        args = type("Args", (), {"sumstats_file": "trait.sumstats.gz", "ldscore_dir": "ld"})()
+        metadata = regression_runner._h2_metadata(
+            args, self._high_chisq_sumstats(), dataset, n_snps_used=2, effective_chisq_max=100.0
+        )
+        self.assertEqual(metadata["n_snps"], 2)
+        self.assertAlmostEqual(metadata["effective_chisq_max"], 100.0)
+
+    def test_partitioned_per_query_metadata_reports_post_filter_count_and_cap(self):
+        # The per-query count is recomputed from the dataset and config, so an
+        # explicit cap that drops a SNP is reflected even with estimate_h2 mocked.
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig(chisq_max=100.0))
+        ldscore_result = self.make_ldscore_result()
+        annotation_bundle = self.make_annotation_bundle()
+        fake_hsq = mock.Mock(
+            tot=np.array([0.3]),
+            tot_se=np.array([0.03]),
+            coef=np.array([0.0, 1.0]),
+            coef_cov=np.diag([0.01, 0.04]),
+            coef_se=np.array([0.1, 0.2]),
+            cat=np.array([0.0, 0.3]),
+            cat_se=np.array([0.01, 0.03]),
+            prop=np.array([0.0, 0.4]),
+            prop_cov=np.diag([0.0001, 0.0016]),
+            prop_se=np.array([0.01, 0.04]),
+            enrichment=np.array([0.0, 2.0]),
+            n_blocks=200,
+            n_annot=2,
+        )
+        with mock.patch.object(runner, "estimate_h2", return_value=fake_hsq):
+            result = runner.estimate_partitioned_h2_batch(
+                self._high_chisq_sumstats(),
+                ldscore_result,
+                annotation_bundle,
+                include_full_partitioned_h2=True,
+            )
+        meta = result.per_query_metadata["query1"]
+        self.assertEqual(meta["n_snps"], 2)
+        self.assertAlmostEqual(meta["effective_chisq_max"], 100.0)
+
+    def test_effective_rg_filter_uses_product_form_and_echoes_explicit_cap(self):
+        # rg has no default cap; the cap echoes config.chisq_max and the count
+        # uses the legacy product filter Z1^2 * Z2^2 <= chisq_max^2 (inclusive).
+        # Z1=Z2=[2,1,0.5] -> products [16,1,0.0625]; chisq_max=1 keeps rs2,rs3.
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        config = RegressionConfig(chisq_max=1.0)
+        dataset = runner.build_rg_dataset(
+            self.make_sumstats_table(),
+            replace(self.make_sumstats_table(), trait_name="trait2"),
+            self.make_ldscore_result(),
+            config=config,
+        )
+        cap, n_used = regression_runner._effective_rg_filter(dataset, config)
+        self.assertAlmostEqual(cap, 1.0)
+        self.assertEqual(n_used, 2)
+        # No cap -> echoes None, all SNPs retained.
+        cap0, n0 = regression_runner._effective_rg_filter(dataset, RegressionConfig())
+        self.assertIsNone(cap0)
+        self.assertEqual(n0, 3)
+
+    def test_rg_pair_count_and_metadata_reflect_product_filter(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig(chisq_max=1.0))
+        t1 = self.make_sumstats_table()
+        t2 = replace(self.make_sumstats_table(), trait_name="trait2")
+        with mock.patch.object(
+            runner, "estimate_h2", return_value=self.make_rg_kernel_result().hsq1
+        ), mock.patch.object(regression_runner.reg, "RG", return_value=self.make_rg_kernel_result()):
+            result = runner.estimate_rg_pairs([t1, t2], self.make_ldscore_result())
+        meta = result.per_pair_metadata[0]
+        self.assertEqual(meta["n_snps_used"], 2)
+        self.assertEqual(meta["n_blocks_used"], 2)
+        self.assertAlmostEqual(meta["effective_chisq_max"], 1.0)
+        self.assertEqual(int(result.rg_full.loc[0, "n_snps_used"]), 2)
+
+    def test_partitioned_functional_regime_reports_aggregate_count_and_cap(self):
+        # Functional regime applies the same chi-square filter as h2; record the
+        # post-filter count and effective cap in the aggregate metadata.
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig(chisq_max=4.0))
+        ldscore_result = self._baseline_only_ldscore_result()
+        fake_hsq = mock.Mock(
+            tot=np.array([0.25]), tot_se=np.array([0.03]),
+            coef=np.array([0.025]), coef_cov=np.array([[9e-6]]), coef_se=np.array([0.003]),
+            cat=np.array([0.25]), cat_se=np.array([0.03]),
+            prop=np.array([1.0]), prop_cov=np.array([[0.0]]), prop_se=np.array([0.0]),
+            enrichment=np.array([1.0]), n_blocks=200, n_annot=1,
+        )
+        with mock.patch.object(runner, "estimate_h2", return_value=fake_hsq):
+            result = runner.estimate_partitioned_h2_batch(
+                self._high_chisq_sumstats(),
+                ldscore_result,
+                replace(self.make_annotation_bundle(), query_columns=[]),
+            )
+        self.assertEqual(result.aggregate_metadata["n_snps"], 1)
+        self.assertAlmostEqual(result.aggregate_metadata["effective_chisq_max"], 4.0)
+
+    def test_partitioned_functional_single_annotation_warns_degenerate(self):
+        # A functional fit over a single baseline annotation is degenerate; warn.
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        ldscore_result = self._baseline_only_ldscore_result()
+        fake_hsq = mock.Mock(
+            tot=np.array([0.25]), tot_se=np.array([0.03]),
+            coef=np.array([0.025]), coef_cov=np.array([[9e-6]]), coef_se=np.array([0.003]),
+            cat=np.array([0.25]), cat_se=np.array([0.03]),
+            prop=np.array([1.0]), prop_cov=np.array([[0.0]]), prop_se=np.array([0.0]),
+            enrichment=np.array([1.0]), n_blocks=200, n_annot=1,
+        )
+        with mock.patch.object(runner, "estimate_h2", return_value=fake_hsq), self.assertLogs(
+            "LDSC.regression_runner", level="WARNING"
+        ) as logs:
+            runner.estimate_partitioned_h2_batch(
+                self.make_sumstats_table(),
+                ldscore_result,
+                replace(self.make_annotation_bundle(), query_columns=[]),
+            )
+        self.assertTrue(any("degenerate" in m.lower() for m in logs.output))
+
+    def test_partitioned_cell_type_regime_does_not_warn_degenerate(self):
+        # Cell-type models always fit baseline + one query (n_annot >= 2); no warning.
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        fake_hsq = mock.Mock(
+            tot=np.array([0.3]), tot_se=np.array([0.03]),
+            coef=np.array([0.0, 1.0]), coef_cov=np.diag([0.01, 0.04]), coef_se=np.array([0.1, 0.2]),
+            cat=np.array([0.0, 0.3]), cat_se=np.array([0.01, 0.03]),
+            prop=np.array([0.0, 0.4]), prop_cov=np.diag([0.0001, 0.0016]), prop_se=np.array([0.01, 0.04]),
+            enrichment=np.array([0.0, 2.0]), n_blocks=200, n_annot=2,
+        )
+        with mock.patch.object(regression_runner.LOGGER, "warning") as warn, mock.patch.object(
+            runner, "estimate_h2", return_value=fake_hsq
+        ):
+            runner.estimate_partitioned_h2_batch(
+                self.make_sumstats_table(), self.make_ldscore_result(), self.make_annotation_bundle()
+            )
+        self.assertFalse(any("degenerate" in str(call).lower() for call in warn.call_args_list))
+
     def test_build_rg_dataset_uses_final_three_way_snp_intersection(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
         sumstats_1 = self.make_sumstats_table()
@@ -1085,6 +1457,36 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertEqual(dataset.merged["SNP"].tolist(), ["rs1", "rs2", "rs3"])
         self.assertFalse({"A1", "A2", "A1x", "A2x"} & set(dataset.merged.columns))
         np.testing.assert_allclose(dataset.merged["Z2"], [1.0, 2.0, 3.0])
+
+    def test_build_dataset_warns_when_dropping_zero_variance_ld_columns(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        base_result = self.make_ldscore_result()
+        n_rows = len(base_result.baseline_table)
+        ldscore_result = replace(
+            base_result,
+            baseline_table=base_result.baseline_table.assign(flat=[1.0] * n_rows),
+            baseline_columns=["base", "flat"],
+            count_records=[
+                {
+                    "group": "baseline",
+                    "column": "base",
+                    "all_reference_snp_count": 10.0,
+                    "common_reference_snp_count": 8.0,
+                },
+                {
+                    "group": "baseline",
+                    "column": "flat",
+                    "all_reference_snp_count": 30.0,
+                    "common_reference_snp_count": 28.0,
+                },
+            ],
+        )
+        with self.assertLogs("LDSC.regression_runner", level="WARNING") as captured:
+            dataset = runner.build_dataset(self.make_sumstats_table(), ldscore_result)
+
+        self.assertEqual(dataset.dropped_zero_variance_ld_columns, ["flat"])
+        self.assertEqual(dataset.retained_ld_columns, ["base"])
+        self.assertTrue(any("flat" in message for message in captured.output))
 
     def test_build_rg_dataset_drops_zero_variance_ld_columns_after_final_merge(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
@@ -1343,17 +1745,6 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertEqual(result.rg_full.loc[1, "status"], "ok")
         self.assertEqual(result.rg.loc[1, "rg"], 1.5)
 
-    def test_rg_multiple_testing_ignores_nan_p_values(self):
-        rg = pd.DataFrame({"p": [0.03, np.nan, 0.01, 0.02]})
-        rg_full = pd.DataFrame({"p": [0.03, np.nan, 0.01, 0.02]})
-
-        regression_runner._apply_rg_multiple_testing(rg, rg_full)
-
-        np.testing.assert_allclose(rg["p_fdr_bh"].iloc[[0, 2, 3]], [0.03, 0.03, 0.03])
-        self.assertTrue(np.isnan(rg.loc[1, "p_fdr_bh"]))
-        np.testing.assert_allclose(rg_full["p_bonferroni"].iloc[[0, 2, 3]], [0.09, 0.03, 0.06])
-        self.assertTrue(np.isnan(rg_full.loc[1, "p_bonferroni"]))
-
     def test_build_dataset_raises_on_mismatched_sumstats_and_ldscore_snapshots(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"), RegressionConfig())
         sumstats = replace(
@@ -1440,28 +1831,62 @@ class RegressionWorkflowTest(unittest.TestCase):
 
         self.assertEqual(dataset.config_snapshot, GlobalConfig(snp_identifier="rsid"))
 
-    def test_estimate_partitioned_h2_requires_query_annotations(self):
-        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
-        ldscore_result = replace(
+    def _baseline_only_ldscore_result(self):
+        from ldsc._kernel.overlap import OverlapContribution
+        from ldsc.overlap_matrix import LDScoreOverlap
+
+        overlap = LDScoreOverlap.from_contribution(
+            OverlapContribution(
+                baseline_block_all=np.array([[10.0]]),
+                baseline_block_common=np.array([[8.0]]),
+                query_diagonal_all=np.array([]),
+                query_diagonal_common=np.array([]),
+                n_all=10, n_common=8,
+            ),
+            baseline_columns=["base"], query_columns=[],
+        )
+        return replace(
             self.make_ldscore_result(),
             query_table=None,
             query_columns=[],
             count_records=[
-                {
-                    "group": "baseline",
-                    "column": "base",
-                    "all_reference_snp_count": 10.0,
-                    "common_reference_snp_count": 8.0,
-                }
+                {"group": "baseline", "column": "base", "all_reference_snp_count": 10.0, "common_reference_snp_count": 8.0}
             ],
+            overlap=overlap,
         )
 
-        with self.assertRaisesRegex(LDSCInputError, "LD-score directory has no query annotation columns"):
-            runner.estimate_partitioned_h2(
-                self.make_sumstats_table(),
-                ldscore_result,
-                query_column="base",
+    def test_partitioned_h2_functional_regime_runs_joint_baseline_fit(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        ldscore_result = self._baseline_only_ldscore_result()
+        fake_hsq = mock.Mock(
+            tot=np.array([0.25]), tot_se=np.array([0.03]),
+            coef=np.array([0.025]), coef_cov=np.array([[9e-6]]), coef_se=np.array([0.003]),
+            cat=np.array([0.25]), cat_se=np.array([0.03]),
+            prop=np.array([1.0]), prop_cov=np.array([[0.0]]), prop_se=np.array([0.0]),
+            n_blocks=200, n_annot=1,
+        )
+        with mock.patch.object(runner, "estimate_h2", return_value=fake_hsq):
+            result = runner.estimate_partitioned_h2_batch(
+                self.make_sumstats_table(), ldscore_result, replace(self.make_annotation_bundle(), query_columns=[]),
             )
+        summary = result.summary
+        self.assertEqual(summary["category"].tolist(), ["base"])
+        self.assertEqual(summary.columns.tolist(), regression_runner.PARTITIONED_H2_COLUMNS)
+
+    def test_partitioned_h2_without_overlap_sidecar_fails_fast(self):
+        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
+        ldscore_result = replace(self.make_ldscore_result(), overlap=None)
+        with self.assertRaisesRegex(LDSCInputError, "overlap matrix"):
+            runner.estimate_partitioned_h2_batch(
+                self.make_sumstats_table(), ldscore_result, self.make_annotation_bundle(),
+            )
+
+    def test_summary_sort_auto_is_regime_aware(self):
+        from ldsc.regression_runner import _resolve_summary_sort
+
+        self.assertEqual(_resolve_summary_sort("auto", has_queries=True), "coefficient-p")
+        self.assertEqual(_resolve_summary_sort("auto", has_queries=False), "category")
+        self.assertEqual(_resolve_summary_sort("enrichment", has_queries=True), "enrichment")
 
     def test_estimate_partitioned_h2_requires_explicit_query_column(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
@@ -1476,15 +1901,19 @@ class RegressionWorkflowTest(unittest.TestCase):
     def test_estimate_partitioned_h2_uses_requested_query_column(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
         fake_hsq = mock.Mock(
+            tot=np.array([0.3]),
+            tot_se=np.array([0.03]),
             coef=np.array([0.0, 1.0]),
             coef_cov=np.diag([0.01, 0.04]),
             coef_se=np.array([0.1, 0.2]),
             cat=np.array([0.0, 0.3]),
             cat_se=np.array([0.01, 0.03]),
             prop=np.array([0.0, 0.4]),
+            prop_cov=np.diag([0.0001, 0.0016]),
             prop_se=np.array([0.01, 0.04]),
             enrichment=np.array([0.0, 2.0]),
             n_blocks=200,
+            n_annot=2,
         )
 
         with mock.patch.object(
@@ -1499,7 +1928,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             )
 
         self.assertEqual(build_dataset.call_args.kwargs["query_columns"], ["query1"])
-        self.assertEqual(result["Category"].tolist(), ["query1"])
+        self.assertEqual(result["category"].tolist(), ["query1"])
 
     def test_estimate_partitioned_h2_rejects_unknown_query_column(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
@@ -1511,55 +1940,35 @@ class RegressionWorkflowTest(unittest.TestCase):
                 query_column="missing",
             )
 
-    def test_estimate_partitioned_h2_batch_rejects_empty_query_columns(self):
-        runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
-        annotation_bundle = replace(
-            self.make_annotation_bundle(),
-            query_annotations=pd.DataFrame(index=pd.RangeIndex(3)),
-            query_columns=[],
-        )
-
-        with self.assertRaisesRegex(LDSCInputError, "LD-score directory has no query annotation columns"):
-            runner.estimate_partitioned_h2_batch(
-                self.make_sumstats_table(),
-                self.make_ldscore_result(),
-                annotation_bundle,
-            )
-
     def test_estimate_partitioned_h2_batch_loops_over_queries(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
         table = self.make_sumstats_table()
         ldscore_result = self.make_ldscore_result()
         annotation_bundle = self.make_annotation_bundle()
         fake_hsq = mock.Mock(
+            tot=np.array([0.3]),
+            tot_se=np.array([0.03]),
             coef=np.array([0.0, 1.0]),
             coef_cov=np.diag([0.01, 0.04]),
             coef_se=np.array([0.1, 0.2]),
             cat=np.array([0.0, 0.3]),
             cat_se=np.array([0.01, 0.03]),
             prop=np.array([0.0, 0.4]),
+            prop_cov=np.diag([0.0001, 0.0016]),
             prop_se=np.array([0.01, 0.04]),
             enrichment=np.array([0.0, 2.0]),
             n_blocks=200,
+            n_annot=2,
         )
         with mock.patch.object(runner, "estimate_h2", return_value=fake_hsq) as patched:
             result = runner.estimate_partitioned_h2_batch(table, ldscore_result, annotation_bundle)
         self.assertEqual(patched.call_count, 2)
-        self.assertEqual(
-            result.columns.tolist(),
-            [
-                "Category",
-                "Prop._SNPs",
-                "Prop._h2",
-                "Enrichment",
-                "Enrichment_p",
-                "Coefficient",
-                "Coefficient_p",
-            ],
-        )
-        self.assertEqual(result["Category"].tolist(), ["query1", "query2"])
-        self.assertAlmostEqual(result.loc[0, "Prop._SNPs"], 18.0 / 26.0)
-        self.assertAlmostEqual(result.loc[0, "Coefficient_p"], 2 * stats.norm.sf(5.0))
+        self.assertEqual(result.columns.tolist(), regression_runner.PARTITIONED_H2_COLUMNS)
+        self.assertEqual(result["category"].tolist(), ["query1", "query2"])
+        # Overlap-aware Prop._SNPs = M_query1 / M_tot on the common universe (18 / 45).
+        self.assertAlmostEqual(result.loc[0, "prop_snps"], 18.0 / 45.0)
+        # One-sided Coefficient_p = P(Z > coef/se) = sf(1.0 / 0.2).
+        self.assertAlmostEqual(result.loc[0, "coefficient_p"], stats.norm.sf(5.0))
 
     def test_estimate_partitioned_h2_batch_can_return_full_partitioned_tables(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid"), RegressionConfig())
@@ -1567,15 +1976,19 @@ class RegressionWorkflowTest(unittest.TestCase):
         ldscore_result = self.make_ldscore_result()
         annotation_bundle = self.make_annotation_bundle()
         fake_hsq = mock.Mock(
+            tot=np.array([0.3]),
+            tot_se=np.array([0.03]),
             coef=np.array([0.0, 1.0]),
             coef_cov=np.diag([0.01, 0.04]),
             coef_se=np.array([0.1, 0.2]),
             cat=np.array([0.0, 0.3]),
             cat_se=np.array([0.01, 0.03]),
             prop=np.array([0.0, 0.4]),
+            prop_cov=np.diag([0.0001, 0.0016]),
             prop_se=np.array([0.01, 0.04]),
             enrichment=np.array([0.0, 2.0]),
             n_blocks=200,
+            n_annot=2,
         )
         with mock.patch.object(runner, "estimate_h2", return_value=fake_hsq):
             result = runner.estimate_partitioned_h2_batch(
@@ -1586,29 +1999,21 @@ class RegressionWorkflowTest(unittest.TestCase):
             )
 
         self.assertIsInstance(result, regression_runner.PartitionedH2BatchResult)
-        self.assertEqual(result.summary["Category"].tolist(), ["query1", "query2"])
+        self.assertEqual(result.summary["category"].tolist(), ["query1", "query2"])
         self.assertIn("query1", result.per_query_category_tables)
         self.assertEqual(result.per_query_metadata["query1"]["effective_snp_identifier"], "rsid")
         self.assertFalse(result.per_query_metadata["query1"]["identity_downgrade_applied"])
+        # Per-query full table holds all baseline+query model rows in the single schema.
+        self.assertEqual(result.per_query_category_tables["query1"]["category"].tolist(), ["base", "query1"])
         self.assertEqual(
             result.per_query_category_tables["query1"].columns.tolist(),
-            [
-                "Category",
-                "Prop._SNPs",
-                "Category_h2",
-                "Category_h2_std_error",
-                "Prop._h2",
-                "Prop._h2_std_error",
-                "Enrichment",
-                "Enrichment_std_error",
-                "Enrichment_p",
-                "Coefficient",
-                "Coefficient_std_error",
-                "Coefficient_p",
-            ],
+            regression_runner.PARTITIONED_H2_COLUMNS,
         )
+        # One fitted model -> one total h2, broadcast across that model's rows.
+        self.assertEqual(result.per_query_category_tables["query1"]["total_h2_obs"].tolist(), [0.3, 0.3])
 
-    def test_h2_and_partitioned_summaries_share_one_fitted_hsq_result(self):
+    def _base_only_partitioned_fixture(self):
+        """Single-base-annotation dataset + fitted-Hsq mock for partitioned tests."""
         dataset = regression_runner.RegressionDataset(
             merged=pd.DataFrame(
                 {
@@ -1626,6 +2031,14 @@ class RegressionWorkflowTest(unittest.TestCase):
             dropped_zero_variance_ld_columns=[],
             trait_names=["trait"],
             chromosomes_aggregated=[],
+            ldscore_overlap=LDScoreOverlap.from_contribution(
+                OverlapContribution(
+                    baseline_block_all=np.array([[10.0]]), baseline_block_common=np.array([[10.0]]),
+                    query_diagonal_all=np.array([]), query_diagonal_common=np.array([]),
+                    n_all=10, n_common=10,
+                ),
+                ["base"], [],
+            ),
         )
         hsq = mock.Mock(
             tot=np.array([0.25]),
@@ -1642,27 +2055,138 @@ class RegressionWorkflowTest(unittest.TestCase):
             cat=np.array([0.25]),
             cat_se=np.array([0.03]),
             prop=np.array([1.0]),
+            prop_cov=np.array([[0.0]]),
             prop_se=np.array([0.0]),
             enrichment=np.array([1.0]),
             n_blocks=200,
+            n_annot=1,
         )
+        return dataset, hsq
+
+    def test_h2_and_partitioned_summaries_share_one_fitted_hsq_result(self):
+        dataset, hsq = self._base_only_partitioned_fixture()
 
         total = regression_runner.summarize_total_h2(hsq, dataset, trait_name="trait")
-        partitioned = regression_runner.summarize_partitioned_h2(
-            hsq,
-            dataset,
-            ["base"],
-            include_full_columns=True,
+        partitioned = regression_runner.summarize_partitioned_h2(hsq, dataset, ["base"])
+
+        self.assertEqual(total.loc[0, "total_h2_obs"], partitioned.loc[0, "category_h2_obs"])
+        self.assertEqual(total.loc[0, "total_h2_obs_se"], partitioned.loc[0, "category_h2_obs_se"])
+        # The partitioned table also carries the whole-model total, equal to the h2 summary's.
+        self.assertEqual(partitioned.loc[0, "total_h2_obs"], total.loc[0, "total_h2_obs"])
+        self.assertEqual(partitioned.loc[0, "total_h2_obs_se"], total.loc[0, "total_h2_obs_se"])
+        self.assertEqual(partitioned.loc[0, "category"], "base")
+        self.assertEqual(partitioned.loc[0, "prop_h2"], 1.0)
+        self.assertEqual(partitioned.loc[0, "enrichment"], 1.0)
+        self.assertTrue(np.isnan(partitioned.loc[0, "enrichment_p"]))
+
+    def test_summarize_partitioned_h2_both_scales(self):
+        from ldsc._kernel.regression import liability_conversion_factor
+
+        dataset, hsq = self._base_only_partitioned_fixture()
+        obs = regression_runner.summarize_partitioned_h2(hsq, dataset, ["base"])
+        liab = regression_runner.summarize_partitioned_h2(
+            hsq, dataset, ["base"], samp_prev=0.5, pop_prev=0.01
         )
+        c = liability_conversion_factor(0.5, 0.01)
+        # Observed preserved; liability is c * observed; proportions are scale-invariant.
+        self.assertEqual(liab.loc[0, "category_h2_obs"], obs.loc[0, "category_h2_obs"])
+        self.assertAlmostEqual(
+            liab.loc[0, "category_h2_liab"], obs.loc[0, "category_h2_obs"] * c, places=12
+        )
+        self.assertAlmostEqual(
+            liab.loc[0, "category_h2_liab_se"],
+            obs.loc[0, "category_h2_obs_se"] * c,
+            places=12,
+        )
+        self.assertEqual(liab.loc[0, "prop_h2"], obs.loc[0, "prop_h2"])
+        self.assertTrue(math.isnan(obs.loc[0, "category_h2_liab"]))
+        self.assertEqual(liab.loc[0, "samp_prev"], 0.5)
+        self.assertEqual(liab.loc[0, "pop_prev"], 0.01)
 
-        self.assertEqual(total.loc[0, "total_h2"], partitioned.loc[0, "Category_h2"])
-        self.assertEqual(total.loc[0, "total_h2_se"], partitioned.loc[0, "Category_h2_std_error"])
-        self.assertEqual(partitioned.loc[0, "Category"], "base")
-        self.assertEqual(partitioned.loc[0, "Prop._h2"], 1.0)
-        self.assertEqual(partitioned.loc[0, "Enrichment"], 1.0)
-        self.assertTrue(np.isnan(partitioned.loc[0, "Enrichment_p"]))
+    def test_summarize_partitioned_h2_reports_total_h2(self):
+        from ldsc._kernel.regression import liability_conversion_factor
 
-    def test_partitioned_full_summary_uses_legacy_column_order_and_enrichment_p(self):
+        dataset, hsq = self._base_only_partitioned_fixture()  # tot=0.25, tot_se=0.03
+        obs = regression_runner.summarize_partitioned_h2(hsq, dataset, ["base"])
+        # Observed-scale total mirrors the fitted Hsq; liability is NaN without prevalences.
+        self.assertEqual(obs.loc[0, "total_h2_obs"], 0.25)
+        self.assertEqual(obs.loc[0, "total_h2_obs_se"], 0.03)
+        self.assertTrue(math.isnan(obs.loc[0, "total_h2_liab"]))
+        self.assertTrue(math.isnan(obs.loc[0, "total_h2_liab_se"]))
+        # Liability total uses the same conversion factor as the category columns.
+        liab = regression_runner.summarize_partitioned_h2(
+            hsq, dataset, ["base"], samp_prev=0.5, pop_prev=0.01
+        )
+        c = liability_conversion_factor(0.5, 0.01)
+        self.assertAlmostEqual(liab.loc[0, "total_h2_liab"], 0.25 * c, places=12)
+        self.assertAlmostEqual(liab.loc[0, "total_h2_liab_se"], 0.03 * c, places=12)
+
+    def test_summarize_rg_pair_liability_and_invariant_ratio(self):
+        from ldsc._kernel.regression import liability_conversion_factor, gencov_obs_to_liab
+
+        rg_result = self.make_rg_kernel_result(rg=0.4, rg_se=0.05)
+        dataset = SimpleNamespace(merged=[0, 1, 2])
+        obs_row = regression_runner._summarize_rg_pair(
+            rg_result, dataset, trait_1="A", trait_2="B", pair_kind="all_pairs"
+        )
+        liab_row = regression_runner._summarize_rg_pair(
+            rg_result, dataset, trait_1="A", trait_2="B", pair_kind="all_pairs",
+            samp_prev_1=0.5, pop_prev_1=0.01, samp_prev_2=0.5, pop_prev_2=0.02,
+        )
+        c1 = liability_conversion_factor(0.5, 0.01)
+        c2 = liability_conversion_factor(0.5, 0.02)
+        # rg ratio (and its SE/z/p) is scale-invariant.
+        self.assertEqual(liab_row["rg"], obs_row["rg"])
+        self.assertEqual(liab_row["rg_se"], obs_row["rg_se"])
+        # Per-trait h2 and the pair's gencov go to the liability scale.
+        self.assertAlmostEqual(liab_row["h2_1_liab"], 0.20 * c1, places=12)
+        self.assertAlmostEqual(liab_row["h2_1_liab_se"], 0.02 * c1, places=12)
+        self.assertAlmostEqual(liab_row["h2_2_liab"], 0.30 * c2, places=12)
+        self.assertAlmostEqual(
+            liab_row["gencov_liab"], gencov_obs_to_liab(0.10, 0.5, 0.5, 0.01, 0.02), places=12
+        )
+        self.assertEqual(liab_row["h2_1_obs"], 0.20)
+        self.assertEqual(liab_row["gencov_obs"], 0.10)
+        # Observed-only row leaves liability columns NaN.
+        self.assertTrue(math.isnan(obs_row["h2_1_liab"]))
+        self.assertTrue(math.isnan(obs_row["gencov_liab"]))
+        self.assertEqual(liab_row["samp_prev_1"], 0.5)
+        self.assertEqual(liab_row["pop_prev_2"], 0.02)
+
+    def test_collinear_partitioned_model_raises_input_error(self):
+        # Two near-duplicate baseline annotations produce a singular design
+        # matrix; the fit must abort (legacy hard stop), not warn-and-proceed.
+        overlap = LDScoreOverlap.from_contribution(
+            OverlapContribution(
+                baseline_block_all=np.array([[10.0, 9.999], [9.999, 10.0]]),
+                baseline_block_common=np.array([[10.0, 9.999], [9.999, 10.0]]),
+                query_diagonal_all=np.array([]),
+                query_diagonal_common=np.array([]),
+                n_all=10,
+                n_common=10,
+            ),
+            ["catA", "catA_dup"],
+            [],
+        )
+        dataset = regression_runner.RegressionDataset(
+            merged=pd.DataFrame(
+                {"SNP": ["rs1"], "Z": [1.0], "N": [1000.0], "regression_ld_scores": [1.0]}
+            ),
+            ref_ld_columns=["catA", "catA_dup"],
+            weight_column="regression_ld_scores",
+            reference_snp_count_totals={"common_reference_snp_counts": np.array([10.0, 10.0])},
+            count_key_used_for_regression="common_reference_snp_counts",
+            retained_ld_columns=["catA", "catA_dup"],
+            dropped_zero_variance_ld_columns=[],
+            trait_names=["trait"],
+            chromosomes_aggregated=[],
+            ldscore_overlap=overlap,
+        )
+        x = np.array([[1.0, 1.0001], [2.0, 2.0001], [3.0, 3.0001], [4.0, 4.0002]])
+        with self.assertRaises(LDSCInputError):
+            regression_runner._raise_on_model_collinearity(dataset, x)
+
+    def test_partitioned_full_summary_uses_canonical_column_order_and_enrichment_p(self):
         dataset = regression_runner.RegressionDataset(
             merged=pd.DataFrame(
                 {
@@ -1680,49 +2204,41 @@ class RegressionWorkflowTest(unittest.TestCase):
             dropped_zero_variance_ld_columns=[],
             trait_names=["trait"],
             chromosomes_aggregated=[],
+            ldscore_overlap=LDScoreOverlap.from_contribution(
+                OverlapContribution(
+                    baseline_block_all=np.array([[10.0, 8.0]]), baseline_block_common=np.array([[10.0, 8.0]]),
+                    query_diagonal_all=np.array([30.0]), query_diagonal_common=np.array([30.0]),
+                    n_all=40, n_common=40,
+                ),
+                ["base"], ["query"],
+            ),
         )
         hsq = mock.Mock(
+            tot=np.array([0.8]),
+            tot_se=np.array([0.08]),
             coef=np.array([0.2, 0.5]),
             coef_cov=np.diag([0.01, 0.04]),
             coef_se=np.array([0.1, 0.2]),
             cat=np.array([0.2, 0.6]),
             cat_se=np.array([0.02, 0.06]),
             prop=np.array([0.25, 0.75]),
+            prop_cov=np.diag([0.0009, 0.0081]),
             prop_se=np.array([0.03, 0.09]),
             enrichment=np.array([1.0, 1.0]),
             n_blocks=200,
+            n_annot=2,
         )
 
-        summary = regression_runner.summarize_partitioned_h2(
-            hsq,
-            dataset,
-            ["query"],
-            include_full_columns=True,
-        )
+        summary = regression_runner.summarize_partitioned_h2(hsq, dataset, ["query"])
 
-        self.assertEqual(
-            summary.columns.tolist(),
-            [
-                "Category",
-                "Prop._SNPs",
-                "Category_h2",
-                "Category_h2_std_error",
-                "Prop._h2",
-                "Prop._h2_std_error",
-                "Enrichment",
-                "Enrichment_std_error",
-                "Enrichment_p",
-                "Coefficient",
-                "Coefficient_std_error",
-                "Coefficient_p",
-            ],
-        )
-        self.assertEqual(summary.loc[0, "Category"], "query")
-        self.assertAlmostEqual(summary.loc[0, "Prop._SNPs"], 0.75)
-        self.assertAlmostEqual(summary.loc[0, "Enrichment_std_error"], 0.09 / 0.75)
-        self.assertAlmostEqual(summary.loc[0, "Coefficient_p"], 2 * stats.norm.sf(2.5))
-        expected_enrichment_p = 2 * stats.t.sf(abs(0.3 / np.sqrt(0.05)), 200)
-        self.assertAlmostEqual(summary.loc[0, "Enrichment_p"], expected_enrichment_p)
+        self.assertEqual(summary.columns.tolist(), regression_runner.PARTITIONED_H2_COLUMNS)
+        self.assertEqual(summary.loc[0, "category"], "query")
+        # Overlap-aware Prop._SNPs = M_query / M_tot on the common universe (30 / 40).
+        self.assertAlmostEqual(summary.loc[0, "prop_snps"], 30.0 / 40.0)
+        # One-sided Coefficient_p = sf(coef/se) = sf(0.5 / 0.2).
+        self.assertAlmostEqual(summary.loc[0, "coefficient_p"], stats.norm.sf(2.5))
+        self.assertTrue(bool(summary.loc[0, "overlap_annot"]))
+        self.assertTrue(np.isfinite(summary.loc[0, "enrichment_p"]))
 
     def test_run_h2_from_args_uses_ldscore_dir(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1789,9 +2305,82 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "retained_ld_columns": ["base"],
                     "dropped_zero_variance_ld_columns": [],
                     "n_snps": 1,
+                    "effective_chisq_max": None,
+                    "samp_prev": None,
+                    "pop_prev": None,
+                    "scale": "observed",
                 },
             )
             self.assertTrue((tmpdir / "h2_out" / "diagnostics" / "h2.log").exists())
+
+    def _h2_args(self, tmpdir, ldscore_dir, *, samp_prev=None, pop_prev=None):
+        return type(
+            "Args",
+            (),
+            {
+                "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
+                "trait_name": "trait",
+                "ldscore_dir": str(ldscore_dir),
+                "count_kind": "common",
+                "output_dir": None,
+                "overwrite": False,
+                "log_level": "INFO",
+                "n_blocks": 200,
+                "no_intercept": False,
+                "intercept_h2": None,
+                "two_step_cutoff": None,
+                "chisq_max": None,
+                "samp_prev": samp_prev,
+                "pop_prev": pop_prev,
+            },
+        )()
+
+    def _write_h2_inputs(self, tmpdir):
+        set_global_config(GlobalConfig(snp_identifier="rsid"))
+        with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
+            handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
+        self.write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="trait")
+        return self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
+
+    def _patched_h2(self):
+        return mock.patch.object(
+            regression_runner.RegressionRunner,
+            "estimate_h2",
+            return_value=mock.Mock(
+                tot=np.array([0.2]),
+                tot_se=np.array([0.03]),
+                intercept=np.array([1.0]),
+                intercept_se=0.01,
+                mean_chisq=np.array([1.1]),
+                lambda_gc=np.array([1.0]),
+                ratio=0.0,
+                ratio_se=0.0,
+            ),
+        )
+
+    def test_run_h2_from_args_liability_scale(self):
+        from ldsc._kernel.regression import liability_conversion_factor
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            ldscore_dir = self._write_h2_inputs(tmpdir)
+            args = self._h2_args(tmpdir, ldscore_dir, samp_prev=0.5, pop_prev=0.01)
+            with self._patched_h2():
+                summary = regression_runner.run_h2_from_args(args)
+        c = liability_conversion_factor(0.5, 0.01)
+        row = summary.iloc[0]
+        self.assertAlmostEqual(row["total_h2_liab"], 0.2 * c, places=12)
+        self.assertEqual(row["total_h2_obs"], 0.2)
+        self.assertEqual(row["samp_prev"], 0.5)
+        self.assertEqual(row["pop_prev"], 0.01)
+
+    def test_run_h2_from_args_half_specified_prevalence_raises(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            ldscore_dir = self._write_h2_inputs(tmpdir)
+            args = self._h2_args(tmpdir, ldscore_dir, samp_prev=0.5, pop_prev=None)
+            with self._patched_h2(), self.assertRaises(LDSCUsageError):
+                regression_runner.run_h2_from_args(args)
 
     def test_run_h2_from_args_without_output_dir_creates_no_log_file(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1953,7 +2542,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             ]
         )
 
-        self.assertEqual(default_args.summary_sort_by, "category")
+        self.assertEqual(default_args.summary_sort_by, "auto")
         self.assertEqual(sorted_args.summary_sort_by, "enrichment-p")
         with self.assertRaises(SystemExit):
             parser.parse_args(
@@ -1963,7 +2552,7 @@ class RegressionWorkflowTest(unittest.TestCase):
                     "--sumstats-file",
                     "trait.sumstats.gz",
                     "--summary-sort-by",
-                    "Prop._h2",
+                    "prop_h2",
                 ]
             )
 
@@ -2069,8 +2658,8 @@ class RegressionWorkflowTest(unittest.TestCase):
                 sumstats_sources.append(str(source))
             ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
             expected = regression_runner.RgResultFamily(
-                rg=pd.DataFrame([{"trait_1": "a", "trait_2": "b", "n_snps_used": 1, "rg": 0.1, "rg_se": 0.01, "p": 0.02, "p_fdr_bh": 0.02, "note": ""}]),
-                rg_full=pd.DataFrame([{"trait_1": "a", "trait_2": "b", "n_snps_used": 1, "rg": 0.1, "rg_se": 0.01, "z": 10.0, "p": 0.02, "p_fdr_bh": 0.02, "p_bonferroni": 0.02, "status": "ok", "error": ""}]),
+                rg=pd.DataFrame([{"trait_1": "a", "trait_2": "b", "n_snps_used": 1, "rg": 0.1, "rg_se": 0.01, "p": 0.02, "note": ""}]),
+                rg_full=pd.DataFrame([{"trait_1": "a", "trait_2": "b", "n_snps_used": 1, "rg": 0.1, "rg_se": 0.01, "z": 10.0, "p": 0.02, "status": "ok", "error": ""}]),
                 h2_per_trait=pd.DataFrame([{"trait_name": "a"}, {"trait_name": "b"}]),
                 per_pair_metadata=[],
             )
@@ -2101,6 +2690,50 @@ class RegressionWorkflowTest(unittest.TestCase):
 
         self.assertIs(result, expected)
         self.assertEqual(stdout.getvalue(), "")
+
+    def test_run_rg_from_args_threads_positional_prevalences(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            set_global_config(GlobalConfig(snp_identifier="rsid"))
+            sumstats_sources = []
+            for name in ("a", "b"):
+                trait_dir = tmpdir / name
+                trait_dir.mkdir()
+                source = trait_dir / "sumstats.sumstats.gz"
+                with gzip.open(source, "wt", encoding="utf-8") as handle:
+                    handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
+                self.write_sumstats_sidecar(trait_dir / "metadata.json", trait_name=name)
+                sumstats_sources.append(str(source))
+            ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
+            expected = regression_runner.RgResultFamily(
+                rg=pd.DataFrame(), rg_full=pd.DataFrame(), h2_per_trait=pd.DataFrame(), per_pair_metadata=[]
+            )
+            args = type(
+                "Args",
+                (),
+                {
+                    "sumstats_sources": sumstats_sources,
+                    "anchor_trait": None,
+                    "ldscore_dir": str(ldscore_dir),
+                    "count_kind": "common",
+                    "output_dir": None,
+                    "overwrite": False,
+                    "write_per_pair_detail": False,
+                    "n_blocks": 200,
+                    "no_intercept": False,
+                    "intercept_h2": None,
+                    "intercept_gencov": None,
+                    "two_step_cutoff": None,
+                    "chisq_max": None,
+                    "log_level": "INFO",
+                    "samp_prev": "0.5,0.5",
+                    "pop_prev": "0.01,0.02",
+                    "prevalence_manifest": None,
+                },
+            )()
+            with mock.patch.object(RegressionRunner, "estimate_rg_pairs", return_value=expected) as patched:
+                regression_runner.run_rg_from_args(args)
+        self.assertEqual(patched.call_args.kwargs["prevalences"], [(0.5, 0.01), (0.5, 0.02)])
 
     def test_run_rg_from_args_recovers_metadata_labels_and_resolves_anchor_by_trait_name(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2209,7 +2842,6 @@ class RegressionWorkflowTest(unittest.TestCase):
                             "rg": np.nan,
                             "rg_se": np.nan,
                             "p": np.nan,
-                            "p_fdr_bh": np.nan,
                             "note": "Failed",
                         }
                     ]
@@ -2232,7 +2864,7 @@ class RegressionWorkflowTest(unittest.TestCase):
 
         self.assertIs(result, expected)
         text = stdout.getvalue()
-        self.assertIn("trait_1\ttrait_2\tn_snps_used\trg\trg_se\tp\tp_fdr_bh\tnote", text)
+        self.assertIn("trait_1\ttrait_2\tn_snps_used\trg\trg_se\tp\tnote", text)
         self.assertIn("NaN", text)
 
     def test_cli_does_not_print_rg_table_when_output_dir_is_supplied(self):
@@ -2257,7 +2889,7 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertEqual(stdout.getvalue(), "")
 
     def test_cli_prints_concise_h2_table_only_without_output_dir(self):
-        expected = pd.DataFrame([{"trait_name": "trait", "total_h2": 0.1, "total_h2_se": np.nan}])
+        expected = pd.DataFrame([{"trait_name": "trait", "total_h2_obs": 0.1, "total_h2_obs_se": np.nan}])
 
         stdout = io.StringIO()
         with mock.patch.object(regression_runner, "run_h2_from_args", return_value=expected), contextlib.redirect_stdout(stdout):
@@ -2273,11 +2905,11 @@ class RegressionWorkflowTest(unittest.TestCase):
 
         self.assertIs(result, expected)
         text = stdout.getvalue()
-        self.assertIn("trait_name\ttotal_h2\ttotal_h2_se", text)
+        self.assertIn("trait_name\ttotal_h2_obs\ttotal_h2_obs_se", text)
         self.assertIn("NaN", text)
 
     def test_cli_prints_concise_partitioned_h2_table_only_without_output_dir(self):
-        expected = pd.DataFrame([{"Category": "query", "Prop._SNPs": 1.0, "Coefficient": np.nan}])
+        expected = pd.DataFrame([{"category": "query", "prop_snps": 1.0, "coefficient": np.nan}])
 
         stdout = io.StringIO()
         with mock.patch.object(
@@ -2297,51 +2929,51 @@ class RegressionWorkflowTest(unittest.TestCase):
 
         self.assertIs(result, expected)
         text = stdout.getvalue()
-        self.assertIn("Category\tProp._SNPs\tCoefficient", text)
+        self.assertIn("category\tprop_snps\tcoefficient", text)
         self.assertIn("NaN", text)
 
     def test_sort_partitioned_h2_summary_preserves_category_order(self):
         summary = pd.DataFrame(
             [
-                {"Category": "query_b", "Enrichment": 1.0},
-                {"Category": "query_a", "Enrichment": 5.0},
-                {"Category": "query_c", "Enrichment": 2.0},
+                {"category": "query_b", "enrichment": 1.0},
+                {"category": "query_a", "enrichment": 5.0},
+                {"category": "query_c", "enrichment": 2.0},
             ]
         )
 
         sorted_summary = regression_runner._sort_partitioned_h2_summary(summary, "category")
 
-        self.assertEqual(sorted_summary["Category"].tolist(), ["query_b", "query_a", "query_c"])
+        self.assertEqual(sorted_summary["category"].tolist(), ["query_b", "query_a", "query_c"])
 
     def test_sort_partitioned_h2_summary_sorts_p_values_ascending_with_nan_last(self):
         summary = pd.DataFrame(
             [
-                {"Category": "query_b", "Enrichment_p": 0.20},
-                {"Category": "query_a", "Enrichment_p": np.nan},
-                {"Category": "query_c", "Enrichment_p": 0.01},
-                {"Category": "query_d", "Enrichment_p": 0.20},
+                {"category": "query_b", "enrichment_p": 0.20},
+                {"category": "query_a", "enrichment_p": np.nan},
+                {"category": "query_c", "enrichment_p": 0.01},
+                {"category": "query_d", "enrichment_p": 0.20},
             ]
         )
 
         sorted_summary = regression_runner._sort_partitioned_h2_summary(summary, "enrichment-p")
 
-        self.assertEqual(sorted_summary["Category"].tolist(), ["query_c", "query_b", "query_d", "query_a"])
+        self.assertEqual(sorted_summary["category"].tolist(), ["query_c", "query_b", "query_d", "query_a"])
 
     def test_sort_partitioned_h2_summary_sorts_effects_descending_with_nan_last(self):
         summary = pd.DataFrame(
             [
-                {"Category": "query_b", "Enrichment": 1.0, "Coefficient": 0.3},
-                {"Category": "query_a", "Enrichment": np.nan, "Coefficient": 0.8},
-                {"Category": "query_c", "Enrichment": 5.0, "Coefficient": np.nan},
-                {"Category": "query_d", "Enrichment": 5.0, "Coefficient": 0.8},
+                {"category": "query_b", "enrichment": 1.0, "coefficient": 0.3},
+                {"category": "query_a", "enrichment": np.nan, "coefficient": 0.8},
+                {"category": "query_c", "enrichment": 5.0, "coefficient": np.nan},
+                {"category": "query_d", "enrichment": 5.0, "coefficient": 0.8},
             ]
         )
 
         enrichment = regression_runner._sort_partitioned_h2_summary(summary, "enrichment")
         coefficient = regression_runner._sort_partitioned_h2_summary(summary, "coefficient")
 
-        self.assertEqual(enrichment["Category"].tolist(), ["query_c", "query_d", "query_b", "query_a"])
-        self.assertEqual(coefficient["Category"].tolist(), ["query_a", "query_d", "query_b", "query_c"])
+        self.assertEqual(enrichment["category"].tolist(), ["query_c", "query_d", "query_b", "query_a"])
+        self.assertEqual(coefficient["category"].tolist(), ["query_a", "query_d", "query_b", "query_c"])
 
     def test_run_partitioned_h2_from_args_uses_query_columns_from_ldscore_dir(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2375,13 +3007,13 @@ class RegressionWorkflowTest(unittest.TestCase):
                 return_value=pd.DataFrame(
                     [
                         {
-                            "Category": "query",
-                            "Prop._SNPs": 1.0,
-                            "Prop._h2": 0.5,
-                            "Enrichment": 1.0,
-                            "Enrichment_p": 0.2,
-                            "Coefficient": 1.0,
-                            "Coefficient_p": 0.03,
+                            "category": "query",
+                            "prop_snps": 1.0,
+                            "prop_h2": 0.5,
+                            "enrichment": 1.0,
+                            "enrichment_p": 0.2,
+                            "coefficient": 1.0,
+                            "coefficient_p": 0.03,
                         }
                     ]
                 ),
@@ -2390,7 +3022,7 @@ class RegressionWorkflowTest(unittest.TestCase):
 
         patched.assert_called_once()
         self.assertEqual(patched.call_args.args[2].query_columns, ["query"])
-        self.assertEqual(summary.loc[0, "Category"], "query")
+        self.assertEqual(summary.loc[0, "category"], "query")
 
     def test_run_partitioned_h2_from_args_writes_with_partitioned_writer(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2426,22 +3058,22 @@ class RegressionWorkflowTest(unittest.TestCase):
                 return_value=pd.DataFrame(
                     [
                         {
-                            "Category": "low",
-                            "Prop._SNPs": 0.5,
-                            "Prop._h2": 0.2,
-                            "Enrichment": 1.0,
-                            "Enrichment_p": 0.2,
-                            "Coefficient": 1.0,
-                            "Coefficient_p": 0.03,
+                            "category": "low",
+                            "prop_snps": 0.5,
+                            "prop_h2": 0.2,
+                            "enrichment": 1.0,
+                            "enrichment_p": 0.2,
+                            "coefficient": 1.0,
+                            "coefficient_p": 0.03,
                         },
                         {
-                            "Category": "high",
-                            "Prop._SNPs": 0.5,
-                            "Prop._h2": 0.8,
-                            "Enrichment": 3.0,
-                            "Enrichment_p": 0.01,
-                            "Coefficient": 2.0,
-                            "Coefficient_p": 0.05,
+                            "category": "high",
+                            "prop_snps": 0.5,
+                            "prop_h2": 0.8,
+                            "enrichment": 3.0,
+                            "enrichment_p": 0.01,
+                            "coefficient": 2.0,
+                            "coefficient_p": 0.05,
                         },
                     ]
                 ),
@@ -2457,7 +3089,7 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertTrue(output_config.write_per_query_results)
         self.assertEqual(writer.call_args.kwargs["metadata"]["count_kind"], "common")
         self.assertEqual(writer.call_args.kwargs["metadata"]["trait_name"], "trait")
-        self.assertEqual(summary["Category"].tolist(), ["low", "high"])
+        self.assertEqual(summary["category"].tolist(), ["low", "high"])
 
     def test_run_partitioned_h2_from_args_sorts_summary_before_writing(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2490,22 +3122,22 @@ class RegressionWorkflowTest(unittest.TestCase):
             unsorted = pd.DataFrame(
                 [
                     {
-                        "Category": "later",
-                        "Prop._SNPs": 0.5,
-                        "Prop._h2": 0.4,
-                        "Enrichment": 1.2,
-                        "Enrichment_p": 0.20,
-                        "Coefficient": 1.0,
-                        "Coefficient_p": 0.05,
+                        "category": "later",
+                        "prop_snps": 0.5,
+                        "prop_h2": 0.4,
+                        "enrichment": 1.2,
+                        "enrichment_p": 0.20,
+                        "coefficient": 1.0,
+                        "coefficient_p": 0.05,
                     },
                     {
-                        "Category": "first",
-                        "Prop._SNPs": 0.5,
-                        "Prop._h2": 0.6,
-                        "Enrichment": 1.8,
-                        "Enrichment_p": 0.01,
-                        "Coefficient": 1.5,
-                        "Coefficient_p": 0.03,
+                        "category": "first",
+                        "prop_snps": 0.5,
+                        "prop_h2": 0.6,
+                        "enrichment": 1.8,
+                        "enrichment_p": 0.01,
+                        "coefficient": 1.5,
+                        "coefficient_p": 0.03,
                     },
                 ]
             )
@@ -2521,8 +3153,8 @@ class RegressionWorkflowTest(unittest.TestCase):
                 summary = regression_runner.run_partitioned_h2_from_args(args)
 
         written_summary = writer.call_args.args[0]
-        self.assertEqual(summary["Category"].tolist(), ["first", "later"])
-        self.assertEqual(written_summary["Category"].tolist(), ["first", "later"])
+        self.assertEqual(summary["category"].tolist(), ["first", "later"])
+        self.assertEqual(written_summary["category"].tolist(), ["first", "later"])
 
     def test_run_partitioned_h2_from_args_sorts_stdout_only_summary(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2553,22 +3185,22 @@ class RegressionWorkflowTest(unittest.TestCase):
             unsorted = pd.DataFrame(
                 [
                     {
-                        "Category": "low",
-                        "Prop._SNPs": 0.5,
-                        "Prop._h2": 0.4,
-                        "Enrichment": 1.2,
-                        "Enrichment_p": 0.20,
-                        "Coefficient": 1.0,
-                        "Coefficient_p": 0.05,
+                        "category": "low",
+                        "prop_snps": 0.5,
+                        "prop_h2": 0.4,
+                        "enrichment": 1.2,
+                        "enrichment_p": 0.20,
+                        "coefficient": 1.0,
+                        "coefficient_p": 0.05,
                     },
                     {
-                        "Category": "high",
-                        "Prop._SNPs": 0.5,
-                        "Prop._h2": 0.6,
-                        "Enrichment": 1.8,
-                        "Enrichment_p": 0.01,
-                        "Coefficient": 1.5,
-                        "Coefficient_p": 0.03,
+                        "category": "high",
+                        "prop_snps": 0.5,
+                        "prop_h2": 0.6,
+                        "enrichment": 1.8,
+                        "enrichment_p": 0.01,
+                        "coefficient": 1.5,
+                        "coefficient_p": 0.03,
                     },
                 ]
             )
@@ -2580,7 +3212,7 @@ class RegressionWorkflowTest(unittest.TestCase):
             ):
                 summary = regression_runner.run_partitioned_h2_from_args(args)
 
-        self.assertEqual(summary["Category"].tolist(), ["high", "low"])
+        self.assertEqual(summary["category"].tolist(), ["high", "low"])
 
     def test_run_partitioned_h2_from_args_sorted_summary_drives_per_query_manifest_order(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2613,25 +3245,25 @@ class RegressionWorkflowTest(unittest.TestCase):
             unsorted = pd.DataFrame(
                 [
                     {
-                        "Category": "later",
-                        "Prop._SNPs": 0.5,
-                        "Prop._h2": 0.4,
-                        "Enrichment": 1.2,
-                        "Enrichment_p": 0.20,
-                        "Coefficient": 1.0,
-                        "Coefficient_p": 0.05,
+                        "category": "later",
+                        "prop_snps": 0.5,
+                        "prop_h2": 0.4,
+                        "enrichment": 1.2,
+                        "enrichment_p": 0.20,
+                        "coefficient": 1.0,
+                        "coefficient_p": 0.05,
                     },
                     {
-                        "Category": "first",
-                        "Prop._SNPs": 0.5,
-                        "Prop._h2": 0.6,
-                        "Enrichment": 1.8,
-                        "Enrichment_p": 0.01,
-                        "Coefficient": 1.5,
-                        "Coefficient_p": 0.03,
+                        "category": "first",
+                        "prop_snps": 0.5,
+                        "prop_h2": 0.6,
+                        "enrichment": 1.8,
+                        "enrichment_p": 0.01,
+                        "coefficient": 1.5,
+                        "coefficient_p": 0.03,
                     },
                 ]
-            )
+            ).reindex(columns=regression_runner.PARTITIONED_H2_COLUMNS)
             result = regression_runner.PartitionedH2BatchResult(
                 summary=unsorted,
                 per_query_category_tables={},
@@ -2647,7 +3279,7 @@ class RegressionWorkflowTest(unittest.TestCase):
 
             manifest = pd.read_csv(output_dir / "diagnostics" / "query_annotations" / "manifest.tsv", sep="\t")
 
-        self.assertEqual(summary["Category"].tolist(), ["first", "later"])
+        self.assertEqual(summary["category"].tolist(), ["first", "later"])
         self.assertEqual(manifest["query_annotation"].tolist(), ["first", "later"])
         self.assertEqual(manifest["folder"].tolist(), ["0001_first", "0002_later"])
 
@@ -2680,7 +3312,9 @@ class RegressionWorkflowTest(unittest.TestCase):
             with mock.patch.object(
                 regression_runner.RegressionRunner,
                 "estimate_partitioned_h2_batch",
-                return_value=pd.DataFrame([{"Category": "query", "Coefficient": 1.0}]),
+                return_value=pd.DataFrame([{"category": "query", "coefficient": 1.0}]).reindex(
+                    columns=regression_runner.PARTITIONED_H2_COLUMNS
+                ),
             ), mock.patch.object(
                 regression_runner.PartitionedH2DirectoryWriter,
                 "write",
@@ -2761,16 +3395,16 @@ class RegressionWorkflowTest(unittest.TestCase):
             partitioned_summary = pd.DataFrame(
                 [
                     {
-                        "Category": "query",
-                        "Prop._SNPs": 1.0,
-                        "Prop._h2": 1.0,
-                        "Enrichment": 1.0,
-                        "Enrichment_p": 0.5,
-                        "Coefficient": 1.0,
-                        "Coefficient_p": 0.5,
+                        "category": "query",
+                        "prop_snps": 1.0,
+                        "prop_h2": 1.0,
+                        "enrichment": 1.0,
+                        "enrichment_p": 0.5,
+                        "coefficient": 1.0,
+                        "coefficient_p": 0.5,
                     }
                 ]
-            )
+            ).reindex(columns=regression_runner.PARTITIONED_H2_COLUMNS)
 
             with mock.patch.object(
                 regression_runner.RegressionRunner,
@@ -2779,13 +3413,53 @@ class RegressionWorkflowTest(unittest.TestCase):
             ):
                 summary = regression_runner.run_partitioned_h2_from_args(args)
 
-            self.assertEqual(summary.loc[0, "Category"], "query")
+            self.assertEqual(summary.loc[0, "category"], "query")
             self.assertTrue((output_dir / "partitioned_h2.tsv").exists())
             self.assertTrue((output_dir / "diagnostics" / "partitioned-h2.log").exists())
             self.assertTrue((output_dir / "diagnostics" / "metadata.json").exists())
             self.assertFalse((output_dir / "metadata.json").exists())
             self.assertFalse((output_dir / "query_annotations").exists())
             self.assertFalse((output_dir / "diagnostics" / "query_annotations").exists())
+
+    def test_run_partitioned_h2_from_args_records_regime_metadata(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            set_global_config(GlobalConfig(snp_identifier="rsid"))
+            with gzip.open(tmpdir / "trait.sumstats.gz", "wt", encoding="utf-8") as handle:
+                handle.write("SNP\tZ\tN\nrs1\t1.0\t1000\n")
+            self.write_sumstats_sidecar(tmpdir / "metadata.json", trait_name="trait")
+            ldscore_dir = self.write_ldscore_dir(tmpdir / "ldscores", include_query=True)
+            output_dir = tmpdir / "out"
+            args = type(
+                "Args",
+                (),
+                {
+                    "sumstats_file": str(tmpdir / "trait.sumstats.gz"),
+                    "trait_name": "trait",
+                    "ldscore_dir": str(ldscore_dir),
+                    "count_kind": "common",
+                    "output_dir": str(output_dir),
+                    "overwrite": False,
+                    "n_blocks": 200,
+                    "no_intercept": False,
+                    "intercept_h2": None,
+                    "two_step_cutoff": None,
+                    "chisq_max": None,
+                    "write_per_query_results": False,
+                },
+            )()
+            summary = pd.DataFrame(
+                [{"category": "query", "prop_snps": 1.0, "coefficient": 1.0, "coefficient_p": 0.5}]
+            ).reindex(columns=regression_runner.PARTITIONED_H2_COLUMNS)
+            with mock.patch.object(
+                regression_runner.RegressionRunner, "estimate_partitioned_h2_batch", return_value=summary
+            ):
+                regression_runner.run_partitioned_h2_from_args(args)
+            meta = json.loads((output_dir / "diagnostics" / "metadata.json").read_text(encoding="utf-8"))
+        self.assertEqual(meta["analysis_type"], "cell_type_specific")
+        self.assertEqual(meta["headline_metric"], "coefficient")
+        self.assertEqual(meta["coefficient_p_test"], "one_sided_greater")
+        self.assertEqual(meta["enrichment_p_test"], "two_sided_t")
 
     def test_regression_cli_writes_fixed_result_filename_under_output_dir(self):
         with tempfile.TemporaryDirectory() as tmpdir:

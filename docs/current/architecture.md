@@ -64,8 +64,10 @@ ldsc_py3_Jerry/
 │   ├── ldscore_calculator.py
 │   ├── sumstats_munger.py
 │   ├── regression_runner.py
+│   ├── overlap_matrix.py    # overlap container, serde, assembly, overlap-aware summary
 │   ├── outputs.py           # LD-score and partitioned-h2 artifact writers
 │   └── _kernel/
+│       ├── overlap.py       # low-level annotation overlap-block computation
 │       ├── annotation.py    # low-level annotation table/BED helpers
 │       ├── ref_panel_builder.py
 │       ├── ref_panel.py
@@ -130,22 +132,24 @@ This module wraps the historical munging behavior in typed public objects such a
 
 ### `ldsc.regression_runner`
 
-This module rebuilds an `LDScoreResult` from on-disk artifacts, merges it with munged sumstats, drops zero-variance LD-score columns, writes per-command logs under `diagnostics/` when `output_dir` is supplied, and dispatches to the regression kernel for `h2`, partitioned `h2`, and `rg`. Without `output_dir`, regression CLI commands print their compact TSV table to stdout and write no diagnostics. Regression merges by the effective key for the active mode: `SNP` in `rsid`, `SNP:<allele_set>` in `rsid_allele_aware`, `CHR:POS` in `chr_pos`, and `CHR:POS:<allele_set>` in `chr_pos_allele_aware`. Regression labels traits from explicit CLI overrides, then the sumstats parquet footer `ldsc:trait_name`, then filenames; rg anchor selection uses `--anchor-trait`, matching trait labels before source paths. Partitioned-h2 requires non-empty query LD-score columns and assembles one baseline-plus-query model per query annotation into the compact public schema, with optional full diagnostic per-query category tables for the output writer. `--allow-identity-downgrade` is regression-only and permits same-family allele-aware/base mixes to run under the base mode; rsID-family and coordinate-family modes never mix. Architecture invariant: regression only consumes aggregated LD-score artifacts; it does not recompute LD scores.
+This module rebuilds an `LDScoreResult` from on-disk artifacts, merges it with munged sumstats, drops zero-variance LD-score columns, writes per-command logs under `diagnostics/` when `output_dir` is supplied, and dispatches to the regression kernel for `h2`, partitioned `h2`, and `rg`. Without `output_dir`, regression CLI commands print their compact TSV table to stdout and write no diagnostics. Regression merges by the effective key for the active mode: `SNP` in `rsid`, `SNP:<allele_set>` in `rsid_allele_aware`, `CHR:POS` in `chr_pos`, and `CHR:POS:<allele_set>` in `chr_pos_allele_aware`. Regression labels traits from explicit CLI overrides, then the sumstats parquet footer `ldsc:trait_name`, then filenames; rg anchor selection uses `--anchor-trait`, matching trait labels before source paths. Partitioned-h2 produces overlap-aware category summaries (legacy `--overlap-annot` math) and auto-detects two regimes from the LD-score directory: a functional-category joint baseline fit when there are no query columns, and a cell-type-specific baseline-plus-query model per query when there are. It requires `ldscore.overlap.parquet` (assembled per model from the stored overlap matrix via `ldsc.overlap_matrix`); both regimes share one public schema. It also restores legacy's regression-time collinearity guard as a hard error (`LDSCInputError` when the LD-score design matrix's condition number exceeds 1e5), and logs a WARNING naming any zero-variance LD-score columns it drops before fitting. `--allow-identity-downgrade` is regression-only and permits same-family allele-aware/base mixes to run under the base mode; rsID-family and coordinate-family modes never mix. Architecture invariant: regression only consumes aggregated LD-score artifacts; it does not recompute LD scores.
 
 ### `ldsc.outputs`
 
 This is the canonical LD-score and regression result writer. For LD-score
 results it owns fixed files inside `output_dir`: `metadata.json`,
-`ldscore.baseline.parquet`, and optional `ldscore.query.parquet`. The parquet files stay flat
-for compatibility, but are written with one row group per chromosome;
-root `metadata.json` records row-group layout and per-chromosome offsets for
-chromosome-scoped reads. For h2, it owns root `h2.tsv` plus diagnostic
-metadata. For partitioned-h2, it owns compact root `partitioned_h2.tsv` plus
+`ldscore.baseline.parquet`, optional `ldscore.query.parquet`, and an optional
+`ldscore.overlap.parquet` (the long-form annotation overlap matrix, written only
+for runs with two or more annotation columns). The LD-score
+parquet files stay flat for compatibility, but are written with one row group per
+chromosome; root `metadata.json` records row-group layout and per-chromosome
+offsets for chromosome-scoped reads. For h2, it owns root `h2.tsv` plus diagnostic
+metadata. For partitioned-h2, it owns root `partitioned_h2.tsv` plus
 the optional diagnostic `diagnostics/query_annotations/` tree containing
 `manifest.tsv`, per-query `partitioned_h2.tsv`,
 `partitioned_h2_full.tsv`, and `metadata.json`. For rg, it owns `rg.tsv`,
 `rg_full.tsv`, `h2_per_trait.tsv`, and the optional diagnostic
-`diagnostics/pairs/` detail tree. It
+`diagnostics/pairs/` detail tree; rg tables report nominal p-values only. It
 reuses existing directories but refuses existing canonical files unless
 overwrite is supplied. Architecture invariant: public output customization
 chooses the directory name and explicit overwrite policy, not per-run filename
@@ -179,8 +183,10 @@ The kernel layer contains the actual numerical methods and low-level readers. It
   for deliverable command output. Logs are audit files, not scientific outputs,
   so result `output_paths` mappings exclude them. Lifecycle sections use a
   multi-line `Call:` block, separated `Inputs:`/`Outputs:` audit blocks, and an
-  explicit elapsed-time footer such as `Elapsed time: 2.0min:12s`; a failed run
-  also records the full traceback before the footer.
+  explicit elapsed-time footer such as `Elapsed time: 2.0min:12s`. Start/end
+  timestamps and elapsed duration are derived from paired entry/exit timepoints
+  so the footer reflects the interval covered by the log. A failed run also
+  records the full traceback before the footer.
 - **Dependency split**: base package dependencies cover core pandas/numpy/SciPy
   workflows and parquet I/O. PLINK-backed LD computation requires the
   `plink` extra (`bitarray`), BED projection requires the `bed` extra

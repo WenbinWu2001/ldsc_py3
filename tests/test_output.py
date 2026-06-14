@@ -23,6 +23,9 @@ from ldsc.outputs import (
     H2OutputConfig,
     LDScoreDirectoryWriter,
     LDScoreOutputConfig,
+    PARTITIONED_H2_COLUMNS,
+    RG_CONCISE_COLUMNS,
+    RG_FULL_COLUMNS,
     PartitionedH2DirectoryWriter,
     PartitionedH2OutputConfig,
     RgDirectoryWriter,
@@ -154,6 +157,41 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
         ]
         for name in removed_names:
             self.assertFalse(hasattr(outputs, name), f"{name} should not be exposed by ldsc.outputs")
+
+    def _overlap(self):
+        import numpy as np
+        from ldsc._kernel.overlap import OverlapContribution
+        from ldsc.overlap_matrix import LDScoreOverlap
+
+        contribution = OverlapContribution(
+            baseline_block_all=np.array([[10.0, 4.0]]),     # base x [base, query]
+            baseline_block_common=np.array([[8.0, 3.0]]),
+            query_diagonal_all=np.array([20.0]),
+            query_diagonal_common=np.array([18.0]),
+            n_all=10,
+            n_common=8,
+        )
+        return LDScoreOverlap.from_contribution(contribution, ["base"], ["query"])
+
+    def test_ldscore_writer_emits_overlap_sidecar(self):
+        result = dataclass_replace(make_split_ldscore_result(query=True), overlap=self._overlap())
+        with tempfile.TemporaryDirectory() as tmpdir:
+            LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=tmpdir))
+            self.assertTrue((Path(tmpdir) / "ldscore.overlap.parquet").exists())
+            meta = json.loads((Path(tmpdir) / "metadata.json").read_text())
+            self.assertEqual(meta["files"]["overlap"], "ldscore.overlap.parquet")
+            self.assertEqual(meta["overlap_config"]["common_maf_operator"], ">=")
+            self.assertEqual(meta["overlap_config"]["total_all_reference_snps"], 10.0)
+
+    def test_load_ldscore_from_dir_reads_overlap(self):
+        result = dataclass_replace(make_split_ldscore_result(query=True), overlap=self._overlap())
+        with tempfile.TemporaryDirectory() as tmpdir:
+            LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=tmpdir))
+            loaded = load_ldscore_from_dir(tmpdir)
+        self.assertIsNotNone(loaded.overlap)
+        self.assertEqual(loaded.overlap.total_all_reference_snps, 10.0)
+        self.assertEqual(list(loaded.overlap.baseline_block_all.index), ["base"])
+        self.assertEqual(float(loaded.overlap.baseline_block_all.at["base", "query"]), 4.0)
 
     def test_writes_metadata_baseline_and_query_parquet(self):
         result = make_split_ldscore_result(query=True)
@@ -340,6 +378,27 @@ class LDScoreDirectoryWriterTest(unittest.TestCase):
             self.assertIsNone(loaded.query_table)
             self.assertNotIn("query", loaded.output_paths)
 
+    def test_overwrite_removes_stale_overlap_parquet_for_unpartitioned_result(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "ldscores"
+            partitioned = dataclass_replace(make_split_ldscore_result(query=True), overlap=self._overlap())
+            LDScoreDirectoryWriter().write(partitioned, LDScoreOutputConfig(output_dir=output_dir))
+            self.assertTrue((output_dir / "ldscore.overlap.parquet").exists())
+
+            # Re-running the directory as an unpartitioned (overlap-free) result must
+            # clear the now-stale overlap sidecar via the canonical output family.
+            LDScoreDirectoryWriter().write(
+                make_split_ldscore_result(query=False),
+                LDScoreOutputConfig(output_dir=output_dir, overwrite=True),
+            )
+
+            metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
+            loaded = load_ldscore_from_dir(str(output_dir))
+            self.assertFalse((output_dir / "ldscore.overlap.parquet").exists())
+            self.assertNotIn("overlap", metadata["files"])
+            self.assertIsNone(metadata["overlap_config"])
+            self.assertIsNone(loaded.overlap)
+
     def test_rejects_query_table_with_mismatched_row_keys(self):
         result = make_split_ldscore_result(query=True)
         bad_query = result.query_table.copy()
@@ -406,8 +465,12 @@ class H2DirectoryWriterTest(unittest.TestCase):
                 {
                     "trait_name": "trait",
                     "n_snps": 100,
-                    "total_h2": 0.2,
-                    "total_h2_se": 0.03,
+                    "total_h2_obs": 0.2,
+                    "total_h2_obs_se": 0.03,
+                    "total_h2_liab": float("nan"),
+                    "total_h2_liab_se": float("nan"),
+                    "samp_prev": float("nan"),
+                    "pop_prev": float("nan"),
                     "intercept": 1.01,
                     "intercept_se": 0.02,
                     "mean_chisq": 1.2,
@@ -458,6 +521,19 @@ class H2DirectoryWriterTest(unittest.TestCase):
             self.assertEqual(metadata["files"], {"summary": "h2.tsv"})
             self.assertEqual(metadata["retained_ld_columns"], ["base"])
 
+    def test_writes_nan_literal_for_missing_values(self):
+        # Missing values (e.g. liability columns on an observed-scale run) render
+        # as the explicit literal "NaN", consistent with the rg output family.
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "h2"
+            H2DirectoryWriter().write(
+                self.make_summary(),
+                H2OutputConfig(output_dir=output_dir),
+                metadata=self.make_metadata(),
+            )
+            text = (output_dir / "h2.tsv").read_text(encoding="utf-8")
+            self.assertIn("NaN", text)
+
     def test_refuses_existing_metadata_without_overwrite(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "h2"
@@ -489,7 +565,7 @@ class H2DirectoryWriterTest(unittest.TestCase):
                 metadata=self.make_metadata(),
             )
 
-            self.assertIn("total_h2", (output_dir / "h2.tsv").read_text(encoding="utf-8"))
+            self.assertIn("total_h2_obs", (output_dir / "h2.tsv").read_text(encoding="utf-8"))
             self.assertFalse((output_dir / "metadata.json").exists())
             metadata = json.loads((output_dir / "diagnostics" / "metadata.json").read_text(encoding="utf-8"))
             self.assertNotIn("old", metadata)
@@ -516,13 +592,28 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
     def make_summary(self) -> pd.DataFrame:
         return pd.DataFrame(
             {
-                "Category": ["IL-6/JAK STAT (Hallmark)", "IL 6 JAK STAT Hallmark"],
-                "Prop._SNPs": [0.1, 0.2],
-                "Prop._h2": [0.3, 0.4],
-                "Enrichment": [3.0, 2.0],
-                "Enrichment_p": [0.01, 0.02],
-                "Coefficient": [1.0, 2.0],
-                "Coefficient_p": [0.03, 0.04],
+                "category": ["IL-6/JAK STAT (Hallmark)", "IL 6 JAK STAT Hallmark"],
+                "prop_snps": [0.1, 0.2],
+                "total_h2_obs": [0.5, 0.5],
+                "total_h2_obs_se": [0.05, 0.05],
+                "total_h2_liab": [float("nan"), float("nan")],
+                "total_h2_liab_se": [float("nan"), float("nan")],
+                "category_h2_obs": [0.3, 0.4],
+                "category_h2_obs_se": [0.03, 0.04],
+                "category_h2_liab": [float("nan"), float("nan")],
+                "category_h2_liab_se": [float("nan"), float("nan")],
+                "samp_prev": [float("nan"), float("nan")],
+                "pop_prev": [float("nan"), float("nan")],
+                "prop_h2": [0.3, 0.4],
+                "prop_h2_se": [0.03, 0.04],
+                "enrichment": [3.0, 2.0],
+                "enrichment_se": [0.3, 0.2],
+                "enrichment_p": [0.01, 0.02],
+                "coefficient": [1.0, 2.0],
+                "coefficient_se": [0.1, 0.2],
+                "coefficient_z": [10.0, 10.0],
+                "coefficient_p": [0.03, 0.04],
+                "overlap_annot": [True, True],
             }
         )
 
@@ -530,37 +621,69 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
         return {
             "IL-6/JAK STAT (Hallmark)": pd.DataFrame(
                 {
-                    "Category": ["base", "IL-6/JAK STAT (Hallmark)"],
-                    "Prop._SNPs": [0.9, 0.1],
-                    "Category_h2": [0.2, 0.3],
-                    "Category_h2_std_error": [0.02, 0.03],
-                    "Prop._h2": [0.7, 0.3],
-                    "Prop._h2_std_error": [0.07, 0.03],
-                    "Enrichment": [0.78, 3.0],
-                    "Enrichment_std_error": [0.08, 0.3],
-                    "Enrichment_p": [0.2, 0.01],
-                    "Coefficient": [0.5, 1.0],
-                    "Coefficient_std_error": [0.05, 0.1],
-                    "Coefficient_p": [0.04, 0.03],
+                    "category": ["base", "IL-6/JAK STAT (Hallmark)"],
+                    "prop_snps": [0.9, 0.1],
+                    "total_h2_obs": [0.5, 0.5],
+                    "total_h2_obs_se": [0.05, 0.05],
+                    "total_h2_liab": [float("nan"), float("nan")],
+                    "total_h2_liab_se": [float("nan"), float("nan")],
+                    "category_h2_obs": [0.2, 0.3],
+                    "category_h2_obs_se": [0.02, 0.03],
+                    "category_h2_liab": [float("nan"), float("nan")],
+                    "category_h2_liab_se": [float("nan"), float("nan")],
+                    "samp_prev": [float("nan"), float("nan")],
+                    "pop_prev": [float("nan"), float("nan")],
+                    "prop_h2": [0.7, 0.3],
+                    "prop_h2_se": [0.07, 0.03],
+                    "enrichment": [0.78, 3.0],
+                    "enrichment_se": [0.08, 0.3],
+                    "enrichment_p": [0.2, 0.01],
+                    "coefficient": [0.5, 1.0],
+                    "coefficient_se": [0.05, 0.1],
+                    "coefficient_z": [10.0, 10.0],
+                    "coefficient_p": [0.04, 0.03],
+                    "overlap_annot": [True, True],
                 }
             ),
             "IL 6 JAK STAT Hallmark": pd.DataFrame(
                 {
-                    "Category": ["base", "IL 6 JAK STAT Hallmark"],
-                    "Prop._SNPs": [0.8, 0.2],
-                    "Category_h2": [0.25, 0.4],
-                    "Category_h2_std_error": [0.025, 0.04],
-                    "Prop._h2": [0.6, 0.4],
-                    "Prop._h2_std_error": [0.06, 0.04],
-                    "Enrichment": [0.75, 2.0],
-                    "Enrichment_std_error": [0.075, 0.2],
-                    "Enrichment_p": [0.3, 0.02],
-                    "Coefficient": [0.6, 2.0],
-                    "Coefficient_std_error": [0.06, 0.2],
-                    "Coefficient_p": [0.05, 0.04],
+                    "category": ["base", "IL 6 JAK STAT Hallmark"],
+                    "prop_snps": [0.8, 0.2],
+                    "total_h2_obs": [0.55, 0.55],
+                    "total_h2_obs_se": [0.055, 0.055],
+                    "total_h2_liab": [float("nan"), float("nan")],
+                    "total_h2_liab_se": [float("nan"), float("nan")],
+                    "category_h2_obs": [0.25, 0.4],
+                    "category_h2_obs_se": [0.025, 0.04],
+                    "category_h2_liab": [float("nan"), float("nan")],
+                    "category_h2_liab_se": [float("nan"), float("nan")],
+                    "samp_prev": [float("nan"), float("nan")],
+                    "pop_prev": [float("nan"), float("nan")],
+                    "prop_h2": [0.6, 0.4],
+                    "prop_h2_se": [0.06, 0.04],
+                    "enrichment": [0.75, 2.0],
+                    "enrichment_se": [0.075, 0.2],
+                    "enrichment_p": [0.3, 0.02],
+                    "coefficient": [0.6, 2.0],
+                    "coefficient_se": [0.06, 0.2],
+                    "coefficient_z": [10.0, 10.0],
+                    "coefficient_p": [0.05, 0.04],
+                    "overlap_annot": [True, True],
                 }
             ),
         }
+
+    def test_writes_nan_literal_for_missing_values(self):
+        # Missing values (e.g. liability columns on an observed-scale run) render
+        # as the explicit literal "NaN", consistent with the rg output family.
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "partitioned"
+            PartitionedH2DirectoryWriter().write(
+                self.make_summary(),
+                PartitionedH2OutputConfig(output_dir=output_dir),
+            )
+            text = (output_dir / "partitioned_h2.tsv").read_text(encoding="utf-8")
+            self.assertIn("NaN", text)
 
     def test_writes_aggregate_only_by_default(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -572,18 +695,7 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
 
             self.assertTrue((output_dir / "partitioned_h2.tsv").exists())
             summary = pd.read_csv(output_dir / "partitioned_h2.tsv", sep="\t")
-            self.assertEqual(
-                summary.columns.tolist(),
-                [
-                    "Category",
-                    "Prop._SNPs",
-                    "Prop._h2",
-                    "Enrichment",
-                    "Enrichment_p",
-                    "Coefficient",
-                    "Coefficient_p",
-                ],
-            )
+            self.assertEqual(summary.columns.tolist(), PARTITIONED_H2_COLUMNS)
             self.assertFalse((output_dir / "query_annotations").exists())
             self.assertEqual(
                 paths,
@@ -645,36 +757,9 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
                     "full": "diagnostics/query_annotations/0001_il-6_jak_stat_hallmark/partitioned_h2_full.tsv",
                 },
             )
-            self.assertEqual(
-                query_summary.columns.tolist(),
-                [
-                    "Category",
-                    "Prop._SNPs",
-                    "Prop._h2",
-                    "Enrichment",
-                    "Enrichment_p",
-                    "Coefficient",
-                    "Coefficient_p",
-                ],
-            )
-            self.assertEqual(
-                categories.columns.tolist(),
-                [
-                    "Category",
-                    "Prop._SNPs",
-                    "Category_h2",
-                    "Category_h2_std_error",
-                    "Prop._h2",
-                    "Prop._h2_std_error",
-                    "Enrichment",
-                    "Enrichment_std_error",
-                    "Enrichment_p",
-                    "Coefficient",
-                    "Coefficient_std_error",
-                    "Coefficient_p",
-                ],
-            )
-            self.assertEqual(categories["Category"].tolist(), ["base", "IL-6/JAK STAT (Hallmark)"])
+            self.assertEqual(query_summary.columns.tolist(), PARTITIONED_H2_COLUMNS)
+            self.assertEqual(categories.columns.tolist(), PARTITIONED_H2_COLUMNS)
+            self.assertEqual(categories["category"].tolist(), ["base", "IL-6/JAK STAT (Hallmark)"])
             self.assertEqual(paths["per_query_root"], str(query_root))
 
     def test_refuses_existing_outputs_before_writing(self):
@@ -716,7 +801,7 @@ class PartitionedH2DirectoryWriterTest(unittest.TestCase):
             self.assertTrue((output_dir / "diagnostics" / "query_annotations" / "manifest.tsv").exists())
             self.assertTrue((output_dir / "diagnostics" / "metadata.json").exists())
             self.assertFalse((output_dir / "metadata.json").exists())
-            self.assertIn("Coefficient", (output_dir / "partitioned_h2.tsv").read_text(encoding="utf-8"))
+            self.assertIn("coefficient", (output_dir / "partitioned_h2.tsv").read_text(encoding="utf-8"))
 
     def test_aggregate_only_refuses_stale_per_query_tree_without_overwrite(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -767,7 +852,6 @@ class RgDirectoryWriterTest(unittest.TestCase):
                     "rg": 0.25,
                     "rg_se": 0.05,
                     "p": 0.01,
-                    "p_fdr_bh": 0.02,
                     "note": "",
                 },
                 {
@@ -777,7 +861,6 @@ class RgDirectoryWriterTest(unittest.TestCase):
                     "rg": float("nan"),
                     "rg_se": float("nan"),
                     "p": float("nan"),
-                    "p_fdr_bh": float("nan"),
                     "note": "Failed; see rg_full.tsv error column.",
                 },
             ]
@@ -792,14 +875,22 @@ class RgDirectoryWriterTest(unittest.TestCase):
                     "rg_se": 0.05,
                     "z": 5.0,
                     "p": 0.01,
-                    "p_fdr_bh": 0.02,
-                    "p_bonferroni": 0.02,
-                    "h2_1": 0.2,
-                    "h2_1_se": 0.02,
-                    "h2_2": 0.3,
-                    "h2_2_se": 0.03,
-                    "gencov": 0.1,
-                    "gencov_se": 0.01,
+                    "h2_1_obs": 0.2,
+                    "h2_1_obs_se": 0.02,
+                    "h2_1_liab": float("nan"),
+                    "h2_1_liab_se": float("nan"),
+                    "h2_2_obs": 0.3,
+                    "h2_2_obs_se": 0.03,
+                    "h2_2_liab": float("nan"),
+                    "h2_2_liab_se": float("nan"),
+                    "gencov_obs": 0.1,
+                    "gencov_obs_se": 0.01,
+                    "gencov_liab": float("nan"),
+                    "gencov_liab_se": float("nan"),
+                    "samp_prev_1": float("nan"),
+                    "pop_prev_1": float("nan"),
+                    "samp_prev_2": float("nan"),
+                    "pop_prev_2": float("nan"),
                     "intercept_h2_1": 1.01,
                     "intercept_h2_1_se": 0.01,
                     "intercept_h2_2": 1.02,
@@ -826,14 +917,22 @@ class RgDirectoryWriterTest(unittest.TestCase):
                     "rg_se": float("nan"),
                     "z": float("nan"),
                     "p": float("nan"),
-                    "p_fdr_bh": float("nan"),
-                    "p_bonferroni": float("nan"),
-                    "h2_1": float("nan"),
-                    "h2_1_se": float("nan"),
-                    "h2_2": float("nan"),
-                    "h2_2_se": float("nan"),
-                    "gencov": float("nan"),
-                    "gencov_se": float("nan"),
+                    "h2_1_obs": float("nan"),
+                    "h2_1_obs_se": float("nan"),
+                    "h2_1_liab": float("nan"),
+                    "h2_1_liab_se": float("nan"),
+                    "h2_2_obs": float("nan"),
+                    "h2_2_obs_se": float("nan"),
+                    "h2_2_liab": float("nan"),
+                    "h2_2_liab_se": float("nan"),
+                    "gencov_obs": float("nan"),
+                    "gencov_obs_se": float("nan"),
+                    "gencov_liab": float("nan"),
+                    "gencov_liab_se": float("nan"),
+                    "samp_prev_1": float("nan"),
+                    "pop_prev_1": float("nan"),
+                    "samp_prev_2": float("nan"),
+                    "pop_prev_2": float("nan"),
                     "intercept_h2_1": float("nan"),
                     "intercept_h2_1_se": float("nan"),
                     "intercept_h2_2": float("nan"),
@@ -856,9 +955,9 @@ class RgDirectoryWriterTest(unittest.TestCase):
         )
         h2_per_trait = pd.DataFrame(
             [
-                {"trait_name": "Trait A", "total_h2": 0.2},
-                {"trait_name": "Trait/B", "total_h2": 0.3},
-                {"trait_name": "Trait C", "total_h2": 0.4},
+                {"trait_name": "Trait A", "total_h2_obs": 0.2},
+                {"trait_name": "Trait/B", "total_h2_obs": 0.3},
+                {"trait_name": "Trait C", "total_h2_obs": 0.4},
             ]
         )
         metadata = [
@@ -894,7 +993,10 @@ class RgDirectoryWriterTest(unittest.TestCase):
             )
             rg_text = (output_dir / "rg.tsv").read_text(encoding="utf-8")
             self.assertIn("NaN", rg_text)
-            self.assertTrue((output_dir / "rg_full.tsv").exists())
+            rg_full_path = output_dir / "rg_full.tsv"
+            self.assertTrue(rg_full_path.exists())
+            self.assertEqual(pd.read_csv(output_dir / "rg.tsv", sep="\t").columns.tolist(), RG_CONCISE_COLUMNS)
+            self.assertEqual(pd.read_csv(rg_full_path, sep="\t").columns.tolist(), RG_FULL_COLUMNS)
             self.assertTrue((output_dir / "h2_per_trait.tsv").exists())
             self.assertFalse((output_dir / "metadata.json").exists())
             self.assertFalse((output_dir / "pairs").exists())
@@ -913,7 +1015,9 @@ class RgDirectoryWriterTest(unittest.TestCase):
             self.assertEqual(metadata["artifact_type"], "rg_pair_result")
             self.assertEqual(metadata["files"], {"rg_full": "diagnostics/pairs/0001_trait_a_vs_trait_b/rg_full.tsv"})
             self.assertEqual(metadata["status"], "ok")
-            self.assertTrue((output_dir / "diagnostics" / "pairs" / "0001_trait_a_vs_trait_b" / "rg_full.tsv").exists())
+            pair_full_path = output_dir / "diagnostics" / "pairs" / "0001_trait_a_vs_trait_b" / "rg_full.tsv"
+            self.assertTrue(pair_full_path.exists())
+            self.assertEqual(pd.read_csv(pair_full_path, sep="\t").columns.tolist(), RG_FULL_COLUMNS)
 
     def test_aggregate_only_overwrite_removes_stale_pair_tree(self):
         with tempfile.TemporaryDirectory() as tmpdir:

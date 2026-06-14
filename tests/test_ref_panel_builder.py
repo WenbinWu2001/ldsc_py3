@@ -3030,8 +3030,10 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
                 direct.baseline_table["SNP"].tolist(),
                 parquet.baseline_table["SNP"].tolist(),
             )
-            self.assertEqual(len(direct.baseline_table), 32)
-            self.assertEqual(len(parquet.baseline_table), 32)
+            # 31 (not 32): the default `centromeres` exclusion is the pericentromeric
+            # +/-3 cM region, which drops one extra chr22 SNP in the padded flank.
+            self.assertEqual(len(direct.baseline_table), 31)
+            self.assertEqual(len(parquet.baseline_table), 31)
             self.assertTrue(np.all(np.isfinite(direct.baseline_table["base"].to_numpy(dtype=float))))
             self.assertTrue(np.all(np.isfinite(parquet.baseline_table["base"].to_numpy(dtype=float))))
             self.assertGreater(float(direct.baseline_table["base"].max()), 1.0)

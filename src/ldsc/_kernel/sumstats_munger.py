@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """Legacy-compatible summary-statistics munging kernel.
 
 Core functionality:

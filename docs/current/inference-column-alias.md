@@ -86,9 +86,8 @@ written schema for compatibility. Their semantics are:
 
 Do not add genome-oriented allele aliases to the global A1/A2 registry unless
 their signed-statistic semantics are known. `REF`/`ALT` are handled only through
-format-aware inference in the plain profile for VCF-style inputs. `ALT_ALLELE` is not
-an accepted alias. `BEAA` is not an accepted alias because it is a privacy-masked
-form of `BETA`, not a public header convention.
+format-aware inference in the plain profile for VCF-style inputs. `ALT_ALLELE` is
+not an accepted alias.
 
 `NEFF` is intentionally not an alias for `N`. Effective sample size and total
 sample size are different quantities. If a user decides a particular analysis

@@ -28,7 +28,7 @@ from ._logging import (
     remove_cli_console_handler,
     reset_workflow_log_path,
 )
-from .errors import LDSCError, LDSCUsageError, LDSCUserError
+from .errors import LDSCError, LDSCUserError
 
 LOGGER = logging.getLogger("LDSC.cli")
 _USER_ERROR_TYPES = (
@@ -39,6 +39,19 @@ _USER_ERROR_TYPES = (
     NotADirectoryError,
     ImportError,
 )
+
+# Single source of truth for the subcommand list shown in `ldsc --help`. Used by
+# both the full parser and the lightweight help parser so the two cannot drift.
+_SUBCOMMAND_HELP = {
+    "annotate": "Project BED files to SNP-level query annotations.",
+    "ldscore": "Compute LD scores.",
+    "build-ref-panel": "Build standard parquet reference panels.",
+    "munge-sumstats": "Munge GWAS summary statistics.",
+    "h2": "Estimate heritability from munged sumstats and LD scores.",
+    "partitioned-h2": "Estimate partitioned heritability by looping over query annotations.",
+    "rg": "Estimate genetic correlation.",
+    "query-r2": "Query R2 for SNP pairs from a reference panel.",
+}
 
 
 class _NoAbbrevArgumentParser(argparse.ArgumentParser):
@@ -60,34 +73,50 @@ def build_parser() -> argparse.ArgumentParser:
     parser = _NoAbbrevArgumentParser(prog="ldsc", description="LDSC command line interface.")
     subparsers = parser.add_subparsers(dest="command", required=True, parser_class=_NoAbbrevArgumentParser)
 
-    annotate_parser = subparsers.add_parser("annotate", help="Project BED files to SNP-level query annotations.")
+    annotate_parser = subparsers.add_parser("annotate", help=_SUBCOMMAND_HELP["annotate"])
     annotation_builder.add_annotate_arguments(annotate_parser)
 
-    ldscore_parser = subparsers.add_parser("ldscore", help="Compute LD scores.")
+    ldscore_parser = subparsers.add_parser("ldscore", help=_SUBCOMMAND_HELP["ldscore"])
     _copy_actions(ldscore_parser, ldscore_calculator.build_parser())
 
-    ref_panel_parser = subparsers.add_parser("build-ref-panel", help="Build standard parquet reference panels.")
+    ref_panel_parser = subparsers.add_parser("build-ref-panel", help=_SUBCOMMAND_HELP["build-ref-panel"])
     _copy_actions(ref_panel_parser, ref_panel_builder.build_parser())
 
     sumstats_munger = _load_sumstats_munger()
-    munge_parser = subparsers.add_parser("munge-sumstats", help="Munge GWAS summary statistics.")
+    munge_parser = subparsers.add_parser("munge-sumstats", help=_SUBCOMMAND_HELP["munge-sumstats"])
     _copy_actions(munge_parser, sumstats_munger.kernel_parser())
 
     regression_runner = _load_regression_runner()
-    h2_parser = subparsers.add_parser("h2", help="Estimate heritability from munged sumstats and LD scores.")
+    h2_parser = subparsers.add_parser("h2", help=_SUBCOMMAND_HELP["h2"])
     regression_runner.add_h2_arguments(h2_parser)
 
-    partitioned_parser = subparsers.add_parser(
-        "partitioned-h2",
-        help="Estimate partitioned heritability by looping over query annotations.",
-    )
+    partitioned_parser = subparsers.add_parser("partitioned-h2", help=_SUBCOMMAND_HELP["partitioned-h2"])
     regression_runner.add_partitioned_h2_arguments(partitioned_parser)
 
-    rg_parser = subparsers.add_parser("rg", help="Estimate genetic correlation.")
+    rg_parser = subparsers.add_parser("rg", help=_SUBCOMMAND_HELP["rg"])
     regression_runner.add_rg_arguments(rg_parser)
 
-    query_r2_parser = subparsers.add_parser("query-r2", help="Query R2 for SNP pairs from a reference panel.")
+    query_r2_parser = subparsers.add_parser("query-r2", help=_SUBCOMMAND_HELP["query-r2"])
     _copy_actions(query_r2_parser, r2_query.build_parser())
+    return parser
+
+
+def _build_top_level_parser() -> argparse.ArgumentParser:
+    """Build a parser that only lists subcommands, for help and usage messages.
+
+    The runtime help, no-argument, and unknown-command paths use this instead of
+    :func:`build_parser` so that ``ldsc --help`` does not import the SciPy-heavy
+    regression and munging workflows just to print the subcommand list.
+
+    Returns
+    -------
+    argparse.ArgumentParser
+        Parser exposing the subcommand names and one-line help only.
+    """
+    parser = _NoAbbrevArgumentParser(prog="ldsc", description="LDSC command line interface.")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    for name, help_text in _SUBCOMMAND_HELP.items():
+        subparsers.add_parser(name, help=help_text)
     return parser
 
 
@@ -147,34 +176,11 @@ def main(argv: Sequence[str] | None = None):
             result = regression_runner.run_rg_from_args(parsed)
             _print_rg_stdout_if_needed(parsed, result)
             return result
-    parser = build_parser()
-    args = parser.parse_args(argv)
-    if args.command == "annotate":
-        return _run_annotate(args)
-    if args.command == "ldscore":
-        return ldscore_calculator.run_ldscore_from_args(args)
-    if args.command == "build-ref-panel":
-        return ref_panel_builder.run_build_ref_panel_from_args(args)
-    if args.command == "query-r2":
-        return r2_query.run_query_r2_from_args(args)
-    if args.command == "munge-sumstats":
-        return _load_sumstats_munger().run_munge_sumstats_from_args(args)
-    if args.command == "h2":
-        result = _load_regression_runner().run_h2_from_args(args)
-        _print_table_stdout_if_needed(args, result)
-        return result
-    if args.command == "partitioned-h2":
-        result = _load_regression_runner().run_partitioned_h2_from_args(args)
-        _print_table_stdout_if_needed(args, result)
-        return result
-    if args.command == "rg":
-        result = _load_regression_runner().run_rg_from_args(args)
-        _print_rg_stdout_if_needed(args, result)
-        return result
-    raise LDSCUsageError(
-        f"ldsc could not dispatch command {args.command!r}. Most likely the command name is misspelled "
-        "or the parser and dispatcher are out of sync. Run `ldsc --help` and choose one of the listed commands."
-    )
+    # Only top-level help, no arguments, or an unknown command reach this point;
+    # every valid subcommand is dispatched above without importing the heavy
+    # workflow modules. The lightweight parser keeps this path fast: it always
+    # exits here, printing help or an argparse error.
+    _build_top_level_parser().parse_args(argv)
 
 
 def run_cli(argv: Sequence[str] | None = None) -> int:

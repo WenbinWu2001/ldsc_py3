@@ -481,7 +481,7 @@ class LDScoreCalculator:
                 raise LDSCInternalError(
                     "ldscore parallel chromosome computation aborted: a worker process "
                     "crashed (most likely out-of-memory or a native library fault). "
-                    "Re-run with a lower `--num-workers`, or `--num-workers 1` to isolate "
+                    "Re-run with a lower `--threads`, or `--threads 1` to isolate "
                     "the failing chromosome."
                 ) from exc
         return outcomes

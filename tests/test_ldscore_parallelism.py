@@ -1,4 +1,4 @@
-"""Tests for cross-chromosome LD-score parallelism (`num_workers`).
+"""Tests for cross-chromosome LD-score parallelism (`threads`).
 
 The fixtures here build a minimal but faithful two-chromosome canonical
 index-format reference panel (the same `IDX_1/IDX_2/R2/SIGN` parquet + sidecar
@@ -299,6 +299,51 @@ def test_sequential_threads_does_not_construct_pool(run_minimal_ldscore, monkeyp
     monkeypatch.setattr(mod, "ProcessPoolExecutor", _spy)
     run_minimal_ldscore(threads=1, out_subdir="seq_spy")
     assert calls["n"] == 0
+
+
+def test_parallel_worker_crash_message_names_threads_flag(two_chrom_panel, monkeypatch):
+    import multiprocessing as mp
+
+    import ldsc.ldscore_calculator as mod
+    from ldsc._kernel.ref_panel import RefPanelLoader
+    from ldsc.errors import LDSCInternalError
+
+    chrom, bundle, _spec, ldcfg, gcfg, reg = _chrom1_inputs(two_chrom_panel)
+    ref_panel = RefPanelLoader(gcfg).load(_spec)
+
+    class CrashingFuture:
+        def result(self):
+            raise mp.ProcessError("simulated worker crash")
+
+    class CrashingPool:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def submit(self, *args, **kwargs):
+            return CrashingFuture()
+
+    monkeypatch.setattr(mod, "ProcessPoolExecutor", CrashingPool)
+
+    with pytest.raises(LDSCInternalError) as excinfo:
+        mod.LDScoreCalculator()._run_chromosomes(
+            chromosomes=[chrom],
+            annotation_bundle=bundle,
+            ref_panel=ref_panel,
+            ldscore_config=ldcfg,
+            global_config=gcfg,
+            regression_snps=reg,
+            worker_count=2,
+        )
+
+    message = str(excinfo.value)
+    assert "`--threads`" in message
+    assert "`--num-workers`" not in message
 
 
 def test_parallel_output_matches_sequential(run_minimal_ldscore):

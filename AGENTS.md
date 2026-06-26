@@ -182,6 +182,11 @@ No need to invoke skills for trivial tasks (simple typo fixes, obvious one-liner
 
 This policy takes highest priority and overrides any default skill invocation behavior.
 
+# Release
+
+Squash-merging `restructure` into `main` follows a specific procedure (apply the
+diff, do NOT `git merge --squash`). See `docs/release.md`.
+
 # Resources
 
 - code repos: `/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/ldsc_py3_restructured`

@@ -59,3 +59,19 @@
   (two-pointer windows, contiguous jackknife blocks), assert it at the boundary or
   establish it by construction at the point of use; do not infer it from an
   upstream sort you did not trace.
+
+## Squash-merging `restructure` into `main`: apply the diff, not `git merge --squash`
+- **Summary:** A plain `git merge --squash restructure` onto `main` produced
+  spurious conflicts and resurrected files that `restructure` had deleted.
+- **Root cause:** `main` is a chain of independent squash commits, so it shares
+  no real ancestry with `restructure`. The 3-way merge base is stale, so git
+  treats `restructure`'s deletions as `main`-side additions and re-adds them
+  (e.g. `misc/generate_pgc_top50_munge_commands.py`).
+- **Correction:** Reset `main` to `origin/main`, then make its tree exactly equal
+  the authoritative `restructure` tip via
+  `git diff --binary origin/main restructure | git apply --index`, verify
+  `git diff restructure` is empty, and commit one `Squash merge restructure`.
+  Full runbook in `docs/release.md`.
+- **Takeaway:** When two branches share content but not history (squash/rebase
+  workflows), do not rely on 3-way merge; reconstruct the target tree
+  deterministically from the authoritative side and assert tree-equality.

@@ -805,6 +805,82 @@ class RegressionWorkflowTest(unittest.TestCase):
         self.assertIn("effective snp_identifier='chr_pos'", log_text)
         self.assertIn("Dropped 4 duplicate effective-key rows", log_text)
 
+    def test_log_effective_regression_identity_reports_provenance_over_default(self):
+        # GlobalConfig default differs from what the artifacts actually recorded;
+        # the log must show the provenance-derived effective mode, not the default.
+        runner_config = GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38")
+        ldscore_result = self.make_ldscore_result_from_frame(
+            pd.DataFrame(
+                {
+                    "CHR": ["1"],
+                    "SNP": ["rs1"],
+                    "POS": [10],
+                    "regression_ld_scores": [2.0],
+                    "base": [1.0],
+                }
+            ),
+            snp_identifier="chr_pos",
+        )
+        sumstats = self.make_sumstats_table_from_frame(
+            pd.DataFrame(
+                {
+                    "CHR": ["1"],
+                    "SNP": ["rs1"],
+                    "POS": [10],
+                    "A1": ["A"],
+                    "A2": ["C"],
+                    "Z": [2.0],
+                    "N": [1000.0],
+                }
+            ),
+            snp_identifier="chr_pos",
+        )
+        with self.assertLogs("LDSC.regression_runner", level="INFO") as caught:
+            regression_runner._log_effective_regression_identity(
+                [sumstats], ldscore_result, runner_config, RegressionConfig()
+            )
+        log_text = "\n".join(caught.output)
+        self.assertIn("SNP identifier used for this regression: chr_pos", log_text)
+        self.assertIn("'chr_pos_allele_aware' shown above was NOT used", log_text)
+        self.assertIn("LD-score=chr_pos (from provenance)", log_text)
+        self.assertNotIn("downgrade", log_text.lower())
+
+    def test_log_effective_regression_identity_notes_allele_downgrade(self):
+        runner_config = GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38")
+        ldscore_result = self.make_ldscore_result_from_frame(
+            pd.DataFrame(
+                {
+                    "CHR": ["1"],
+                    "SNP": ["rs1"],
+                    "POS": [10],
+                    "regression_ld_scores": [2.0],
+                    "base": [1.0],
+                }
+            ),
+            snp_identifier="chr_pos",
+        )
+        sumstats = self.make_sumstats_table_from_frame(
+            pd.DataFrame(
+                {
+                    "CHR": ["1"],
+                    "SNP": ["rs1"],
+                    "POS": [10],
+                    "A1": ["A"],
+                    "A2": ["C"],
+                    "Z": [2.0],
+                    "N": [1000.0],
+                }
+            ),
+            snp_identifier="chr_pos_allele_aware",
+        )
+        with self.assertLogs("LDSC.regression_runner", level="INFO") as caught:
+            regression_runner._log_effective_regression_identity(
+                [sumstats], ldscore_result, runner_config, RegressionConfig(allow_identity_downgrade=True)
+            )
+        log_text = "\n".join(caught.output)
+        self.assertIn("SNP identifier used for this regression: chr_pos", log_text)
+        self.assertIn("allele-awareness downgrade", log_text)
+
     def test_h2_allele_aware_mode_orients_sumstats_z_to_ldscore_alleles(self):
         runner = RegressionRunner(GlobalConfig(snp_identifier="rsid_allele_aware"), RegressionConfig())
         sumstats = self.make_sumstats_table_from_frame(

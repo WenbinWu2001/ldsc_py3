@@ -114,6 +114,44 @@ class PackageLayoutTest(unittest.TestCase):
         )
         self.assertNotIn("infer-build", subparsers_action.choices)
 
+    def test_top_level_help_does_not_import_heavy_workflows(self):
+        import subprocess
+        import textwrap
+
+        # `ldsc --help` only lists subcommands, so it must not import the
+        # SciPy-heavy regression and munging workflows. Run in a clean
+        # subprocess so an unrelated import in this process cannot mask a
+        # regression.
+        probe = textwrap.dedent(
+            """
+            import sys
+            from ldsc import cli
+            try:
+                cli.main(["--help"])
+            except SystemExit:
+                pass
+            heavy = [
+                name
+                for name in ("ldsc.regression_runner", "ldsc.sumstats_munger", "scipy.stats._stats_py")
+                if name in sys.modules
+            ]
+            print(",".join(heavy))
+            """
+        )
+        completed = subprocess.run(
+            [sys.executable, "-c", probe],
+            capture_output=True,
+            text=True,
+            cwd=str(SRC),
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        imported_heavy = completed.stdout.splitlines()[-1].strip()
+        self.assertEqual(
+            imported_heavy,
+            "",
+            f"`ldsc --help` should not import heavy workflows, but imported: {imported_heavy}",
+        )
+
     def test_annotation_builder_owns_public_workflow_entrypoints(self):
         from ldsc import annotation_builder
 

@@ -1,0 +1,1 @@
+Add a table with two columns: flag, feature (option on / off and meaning).

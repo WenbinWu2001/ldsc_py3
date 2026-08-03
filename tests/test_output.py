@@ -143,6 +143,79 @@ def make_multi_chrom_result(chromosomes: list[str] | None = None) -> LDScoreResu
 
 
 class LDScoreDirectoryWriterTest(unittest.TestCase):
+    def test_ldscore_writer_emits_query_status_gene_audit_and_concise_provenance(self):
+        from ldsc.gene_list_resolver import GeneCatalog, resolve_gene_list
+        from ldsc.query_annotations import QueryAnnotationStatus
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "out"
+            source = Path(tmpdir) / "query.txt"
+            source.write_text("OR4F5\nNOT_A_GENE\n", encoding="utf-8")
+            catalog = GeneCatalog.load()
+            resolution = resolve_gene_list(source, catalog, genome_build="hg38")
+            status = QueryAnnotationStatus(
+                "query",
+                "query.txt",
+                "gene_list",
+                "warning",
+                "partial_resolution",
+                1.0,
+                "diagnostics/gene_list_unresolved.tsv.gz",
+            )
+            result = dataclass_replace(
+                make_split_ldscore_result(query=True),
+                query_statuses=(status,),
+                gene_list_resolutions=(resolution,),
+                gene_catalog_provenance=catalog.provenance("hg38"),
+            )
+
+            LDScoreDirectoryWriter().write(result, LDScoreOutputConfig(output_dir=output_dir))
+
+            status_table = pd.read_csv(output_dir / "diagnostics" / "query_annotation_status.tsv", sep="\t")
+            unresolved = pd.read_csv(output_dir / "diagnostics" / "gene_list_unresolved.tsv.gz", sep="\t")
+            metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
+            self.assertEqual(status_table.loc[0, "reason"], "partial_resolution")
+            self.assertEqual(unresolved["input_gene"].tolist(), ["NOT_A_GENE"])
+            self.assertEqual(metadata["gene_catalog"]["release"], "GENCODE v49")
+            self.assertEqual(metadata["query_provenance"][0]["source"], "query.txt")
+            self.assertEqual(
+                metadata["query_diagnostics"],
+                {
+                    "status": "diagnostics/query_annotation_status.tsv",
+                    "gene_list_unresolved": "diagnostics/gene_list_unresolved.tsv.gz",
+                },
+            )
+            self.assertNotIn(str(Path(tmpdir)), json.dumps(metadata))
+
+    def test_ldscore_writer_can_commit_diagnostics_only_for_all_skipped_batch(self):
+        from ldsc.query_annotations import QueryAnnotationStatus
+
+        result = dataclass_replace(
+            make_split_ldscore_result(query=False),
+            query_statuses=(
+                QueryAnnotationStatus(
+                    "bad",
+                    "bad.bed",
+                    "bed",
+                    "skipped",
+                    "malformed_input",
+                    details="BED line 1 is malformed",
+                ),
+            ),
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "out"
+
+            paths = LDScoreDirectoryWriter().write_query_diagnostics(
+                result,
+                LDScoreOutputConfig(output_dir=output_dir),
+            )
+
+            self.assertEqual(set(paths), {"query_status"})
+            self.assertTrue((output_dir / "diagnostics" / "query_annotation_status.tsv").exists())
+            self.assertFalse((output_dir / "metadata.json").exists())
+            self.assertFalse((output_dir / "ldscore.baseline.parquet").exists())
+
     def test_outputs_module_does_not_expose_prefix_based_artifact_pipeline(self):
         import ldsc.outputs as outputs
 

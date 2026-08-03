@@ -1,5 +1,7 @@
 # Architecture 
 
+Last updated on: 2026-08-03
+
 `ldsc_py3_Jerry` is the refactored Python 3 LDSC package. It reads optional SNP-level annotations, PLINK or parquet R2 references, and GWAS summary statistics; resolves user-facing path and header conventions in the public workflow layer; delegates numerical work to `ldsc._kernel`; and writes LDSC-compatible artifacts that can be chained into later runs.
 
 Related docs:
@@ -8,6 +10,7 @@ Related docs:
 - [class-and-features.md](class-and-features.md): public API surface and major types
 - [code-structure.md](code-structure.md): module map and change guide
 - [workflow-logging.md](workflow-logging.md): per-run log naming, preflight, and API boundaries
+- [gene-list-input-format.md](gene-list-input-format.md): gene-list parsing, catalog, projection, and diagnostics
 - [ref-panel-r2-query.md](ref-panel-r2-query.md): pairwise R2 lookup contract for package-built panels
 - [liftover-harmonization-decisions.md](liftover-harmonization-decisions.md): current liftover contracts and follow-up handoff prompt
 - [partitioned-h2-results.md](partitioned-h2-results.md): partitioned-h2 result columns and interpretation
@@ -18,7 +21,7 @@ Related docs:
 
 ## Bird's-Eye View
 
-- **Build query annotations**: project BED intervals onto a baseline SNP grid. Entry points: `ldsc annotate`, `ldsc.AnnotationBuilder`
+- **Build query annotations**: project BED or resolved gene intervals onto a baseline SNP grid. Entry points: `ldsc annotate`, `ldsc ldscore`, `ldsc.AnnotationBuilder`
 - **Build parquet reference panels**: convert PLINK genotype panels into standard parquet R2 artifacts. Entry points: `ldsc build-ref-panel`, `ldsc.ReferencePanelBuilder`
 - **Query reference-panel R2**: look up adjusted R2, sign, and optional signed Pearson `r` for SNP pairs in package-built index-format panels. Entry points: `ldsc query-r2`, `ldsc.R2Panel`, `ldsc.query_r2()`
 - **Compute LD scores**: align annotations to a reference panel and emit LDSC-compatible LD-score artifacts; ordinary unpartitioned runs may omit annotations and receive a synthetic all-ones `base` annotation. Entry points: `ldsc ldscore`, `ldsc.run_ldscore()`, `ldsc.LDScoreCalculator`
@@ -31,7 +34,7 @@ Related docs:
 ## Layer Structure
 
 - **CLI Layer**: public command dispatch in `ldsc.cli`
-- **Workflow And Preprocessing Layer**: public services in `ldsc.annotation_builder`, `ldsc.ref_panel_builder`, `ldsc.r2_query`, `ldsc.ldscore_calculator`, `ldsc.sumstats_munger`, and `ldsc.regression_runner`, plus shared normalization in `ldsc.config`, `ldsc.path_resolution`, `ldsc.column_inference`, `ldsc.chromosome_inference`, and `ldsc.genome_build_inference`
+- **Workflow And Preprocessing Layer**: public services in `ldsc.annotation_builder`, `ldsc.ref_panel_builder`, `ldsc.r2_query`, `ldsc.ldscore_calculator`, `ldsc.sumstats_munger`, and `ldsc.regression_runner`, plus shared normalization in `ldsc.config`, `ldsc.path_resolution`, `ldsc.column_inference`, `ldsc.chromosome_inference`, `ldsc.genome_build_inference`, and the internal `ldsc.gene_list_resolver`
 - **Compute Kernel**: private file-format and numerical code in `ldsc._kernel.*`
 - **Output Layer**: canonical LD-score, partitioned-h2, and rg artifact writing
   in `ldsc.outputs`, plus the fixed h2 summary writer in
@@ -58,6 +61,8 @@ ldsc_py3_Jerry/
 │   ├── column_inference.py  # header and identifier normalization
 │   ├── chromosome_inference.py
 │   ├── genome_build_inference.py
+│   ├── gene_list_resolver.py
+│   ├── query_annotations.py
 │   ├── annotation_builder.py
 │   ├── ref_panel_builder.py
 │   ├── r2_query.py
@@ -112,7 +117,15 @@ log path with scientific outputs before entering the context, and result
 
 ### `ldsc.annotation_builder`
 
-This is the public interface and workflow implementation for annotation loading and BED projection. It owns `AnnotationBuilder`, `AnnotationBundle`, `run_bed_to_annot()`, `run_annotate_from_args()`, `main()`, parser construction, path-token resolution, genome-build inference for `--genome-build auto`, optional BED interval expansion through `bed_padding_bp` / `--bed-padding-bp`, annotation identity cleanup, output preflight, root `query.<chrom>.annot.gz` writing, and annotation diagnostics under `diagnostics/`. It delegates only low-level text-table and BED intersection primitives to `ldsc._kernel.annotation`. Public interface: users should start here rather than importing the kernel directly.
+This is the public interface and workflow implementation for annotation loading and interval projection. It owns `AnnotationBuilder`, `AnnotationBundle`, `run_bed_to_annot()`, `run_annotate_from_args()`, `main()`, parser construction, path-token resolution, genome-build inference for `--genome-build auto`, optional interval expansion through `bed_padding_bp` / `--bed-padding-bp`, annotation identity cleanup, output preflight, root `query.<chrom>.annot.gz` writing, and annotation diagnostics under `diagnostics/`. During `ldscore`, it also projects already-resolved gene intervals and isolates failures per concrete BED/gene-list source. It delegates low-level text-table and BED intersection primitives to `ldsc._kernel.annotation` and catalog resolution to `ldsc.gene_list_resolver`.
+
+### `ldsc.gene_list_resolver`, `ldsc.query_annotations`
+
+These internal workflow helpers validate and index the packaged GENCODE v49
+protein-coding catalog, resolve exact Ensembl IDs and gene-name aliases, and
+carry ordered query status records. They do not write files or enter the
+numerical kernel. Catalog-build selection, logging, scientific-query pruning,
+and diagnostic ownership remain with LD-score orchestration.
 
 ### `ldsc.ref_panel_builder`
 
@@ -124,7 +137,7 @@ This module is the public pair-query surface for package-built index-format R2 p
 
 ### `ldsc.ldscore_calculator`
 
-This module orchestrates chromosome-wise LD-score computation. It resolves annotation and reference-panel inputs, synthesizes the all-ones `base` annotation when an unpartitioned run omits baseline/query inputs, builds per-chromosome runs, aggregates them into `LDScoreResult`, routes artifact writing through `ldsc.outputs`, and writes `diagnostics/ldscore.log` for parsed workflow runs. The index-format parquet backend streams every stored R2 pair once (`iter_all_pairs`) and accumulates `cor_sum = R · annot` directly (no block tiling, no decoded-row-group cache); read-side peak RSS is bounded by `cor_sum`, not the LD window. Architecture invariant: computation stays chromosome-wise; the aggregate result is assembled only after all chromosome runs finish.
+This module orchestrates chromosome-wise LD-score computation. It resolves annotation and reference-panel inputs, selects the gene-catalog projection build, synthesizes the all-ones `base` annotation when an unpartitioned run omits baseline/query inputs, builds per-chromosome runs, prunes zero-hit or zero-variance queries, aggregates them into `LDScoreResult`, routes artifact writing through `ldsc.outputs`, and writes `diagnostics/ldscore.log` for parsed workflow runs. Query-local BED/gene failures are status records; a run continues when at least one query is usable. Architecture invariant: computation stays chromosome-wise; the aggregate result is assembled only after all chromosome runs finish.
 
 ### `ldsc.sumstats_munger`
 
@@ -213,6 +226,9 @@ The kernel layer contains the actual numerical methods and low-level readers. It
 - Query annotations are valid only with explicit baseline annotations; the
   synthetic `base` path is for ordinary unpartitioned LD-score generation and
   downstream `h2`/`rg`, not for `partitioned-h2`.
+- BED and gene-list queries use one partial-success contract. Only usable query
+  columns enter scientific artifacts; skipped inputs remain visible in
+  `diagnostics/query_annotation_status.tsv`.
 - BED projection uses input intervals as provided unless `bed_padding_bp` /
   `--bed-padding-bp` is set. Padding expands both interval ends in base pairs
   before projection and clips starts at zero; it should not be applied again to

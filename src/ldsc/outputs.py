@@ -8,8 +8,10 @@ tables and read by the shared h2 collinearity guard when there are two or more
 LD-score columns; ``rg`` does not use it). The overlap sidecar is
 written only when the run has two or more annotation columns; an unpartitioned
 single-annotation run (e.g. the synthetic ``base``) omits it because the matrix
-would collapse to a SNP count already in ``metadata.json``. Run identity comes
-from the chosen directory name;
+would collapse to a SNP count already in ``metadata.json``. Query runs also
+write ``diagnostics/query_annotation_status.tsv`` and gene-list runs write
+``diagnostics/gene_list_unresolved.tsv.gz``. Run identity comes from the chosen
+directory name;
 output filenames inside that directory are fixed. The parquet payloads are
 written with one row group per chromosome and matching metadata so
 downstream readers can load a single chromosome without scanning the whole
@@ -97,6 +99,16 @@ def _write_chromosome_aligned_parquet(
 
 
 REGRESSION_LD_SCORE_COLUMN = "regression_ld_scores"
+QUERY_STATUS_COLUMNS = ["query", "source", "input_type", "status", "reason", "n_annotation_snps", "details"]
+GENE_UNRESOLVED_COLUMNS = [
+    "query",
+    "source",
+    "line",
+    "input_gene",
+    "reason",
+    "canonical_ensembl_id",
+    "details",
+]
 DEFAULT_COUNT_CONFIG = {
     "common_reference_snp_maf_min": 0.05,
     "common_reference_snp_maf_operator": ">=",
@@ -339,6 +351,29 @@ class LDScoreDirectoryWriter:
     row groups are chromosome-aligned and described in root metadata.
     """
 
+    def write_query_diagnostics(
+        self,
+        result: Any,
+        output_config: LDScoreOutputConfig,
+    ) -> dict[str, str]:
+        """Write only query-status/audit artifacts for an all-skipped batch."""
+        output_dir = ensure_output_directory(output_config.output_dir, label="LD-score output directory")
+        paths = self._query_diagnostic_paths(result, output_dir)
+        if "query_status" not in paths:
+            raise LDSCInternalError(
+                "LD-score diagnostics-only writing requires query-status records. "
+                "Re-run with DEBUG logging and report the traceback."
+            )
+        stale_paths = preflight_output_artifact_family(
+            paths.values(),
+            _ldscore_output_family(output_dir),
+            overwrite=output_config.overwrite,
+            label="LD-score output artifact",
+        )
+        self._write_query_diagnostic_files(result, paths)
+        remove_output_artifacts(stale_paths)
+        return {name: str(path) for name, path in paths.items()}
+
     def write(self, result: Any, output_config: LDScoreOutputConfig) -> dict[str, str]:
         """Write ``metadata.json`` and canonical LD-score parquet files.
 
@@ -368,6 +403,7 @@ class LDScoreDirectoryWriter:
             paths["query"] = output_dir / "ldscore.query.parquet"
         if overlap is not None:
             paths["overlap"] = output_dir / "ldscore.overlap.parquet"
+        paths.update(self._query_diagnostic_paths(result, output_dir))
         stale_paths = preflight_output_artifact_family(
             paths.values(),
             _ldscore_output_family(output_dir),
@@ -383,15 +419,55 @@ class LDScoreDirectoryWriter:
         if overlap is not None:
             from .overlap_matrix import overlap_to_long_frame
             overlap_to_long_frame(overlap).to_parquet(paths["overlap"], index=False)
+        self._write_query_diagnostic_files(result, paths)
         metadata = self.build_metadata(
             result,
-            files={name: path.name for name, path in paths.items() if name != "metadata"},
+            files={
+                name: path.name
+                for name, path in paths.items()
+                if name not in {"metadata", "query_status", "gene_list_unresolved"}
+            },
             baseline_rg=baseline_rg,
             query_rg=query_rg,
         )
         paths["metadata"].write_text(json.dumps(_to_serializable(metadata), indent=2, sort_keys=True), encoding="utf-8")
         remove_output_artifacts(stale_paths)
         return {name: str(path) for name, path in paths.items()}
+
+    @staticmethod
+    def _query_diagnostic_paths(result: Any, output_dir: Path) -> dict[str, Path]:
+        """Return conditional diagnostic paths for one result."""
+        paths: dict[str, Path] = {}
+        if tuple(getattr(result, "query_statuses", ())):
+            paths["query_status"] = output_dir / "diagnostics" / "query_annotation_status.tsv"
+        if tuple(getattr(result, "gene_list_resolutions", ())):
+            paths["gene_list_unresolved"] = output_dir / "diagnostics" / "gene_list_unresolved.tsv.gz"
+        return paths
+
+    @staticmethod
+    def _write_query_diagnostic_files(result: Any, paths: dict[str, Path]) -> None:
+        """Serialize fixed query diagnostics after family preflight."""
+        query_statuses = tuple(getattr(result, "query_statuses", ()))
+        gene_resolutions = tuple(getattr(result, "gene_list_resolutions", ()))
+        if "query_status" in paths:
+            paths["query_status"].parent.mkdir(parents=True, exist_ok=True)
+            pd.DataFrame([record.as_dict() for record in query_statuses], columns=QUERY_STATUS_COLUMNS).to_csv(
+                paths["query_status"], sep="\t", index=False, na_rep=""
+            )
+        if "gene_list_unresolved" in paths:
+            paths["gene_list_unresolved"].parent.mkdir(parents=True, exist_ok=True)
+            unresolved_rows = [
+                record.as_dict()
+                for resolution in gene_resolutions
+                for record in resolution.unresolved
+            ]
+            pd.DataFrame(unresolved_rows, columns=GENE_UNRESOLVED_COLUMNS).to_csv(
+                paths["gene_list_unresolved"],
+                sep="\t",
+                index=False,
+                na_rep="",
+                compression={"method": "gzip", "mtime": 0},
+            )
 
     def build_metadata(
         self,
@@ -437,7 +513,7 @@ class LDScoreDirectoryWriter:
                 "common_maf_operator": ">=",
                 "stored_block": "baseline_rows_plus_query_diagonal",
             }
-        return {
+        payload = {
             **identity_metadata,
             "files": dict(files),
             "chromosomes": chromosomes,
@@ -452,6 +528,17 @@ class LDScoreDirectoryWriter:
             "baseline_row_groups": baseline_rg or [],
             "query_row_groups": query_rg,
         }
+        query_statuses = tuple(getattr(result, "query_statuses", ()))
+        gene_resolutions = tuple(getattr(result, "gene_list_resolutions", ()))
+        if query_statuses:
+            payload["query_diagnostics"] = {"status": "diagnostics/query_annotation_status.tsv"}
+        if gene_resolutions:
+            payload["gene_catalog"] = dict(getattr(result, "gene_catalog_provenance", None) or {})
+            payload["query_provenance"] = [resolution.provenance() for resolution in gene_resolutions]
+            payload.setdefault("query_diagnostics", {})["gene_list_unresolved"] = (
+                "diagnostics/gene_list_unresolved.tsv.gz"
+            )
+        return payload
 
     def _validate_tables(self, result: Any) -> None:
         """Validate baseline/query table shape before any files are written."""
@@ -998,6 +1085,8 @@ def _ldscore_output_family(output_dir: Path) -> list[Path]:
         output_dir / "ldscore.baseline.parquet",
         output_dir / "ldscore.query.parquet",
         output_dir / "ldscore.overlap.parquet",
+        output_dir / "diagnostics" / "query_annotation_status.tsv",
+        output_dir / "diagnostics" / "gene_list_unresolved.tsv.gz",
     ]
 
 

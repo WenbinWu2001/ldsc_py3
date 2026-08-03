@@ -1,5 +1,7 @@
 # Config Design: Immutable Config + Provenance-Carrying Results
 
+Last updated on: 2026-08-03
+
 ## Implementation Status
 
 This design is now implemented in the package. The shipped behavior matches the
@@ -27,6 +29,11 @@ Three implementation details are important to know:
 - `load_ldscore_from_dir()` keeps strict metadata checks and rejects missing or
   invalid package-written root metadata identity provenance with a regeneration
   message.
+- `AnnotationBuildConfig` normalizes three mutually exclusive LD-score query
+  source groups: prebuilt annotations, BED files, and gene lists. BED/gene runs
+  carry query statuses through `AnnotationBundle` and `LDScoreResult`; the
+  catalog projection build stays separate from `GlobalConfig.genome_build` in
+  rsID modes.
 
 ## The Problem This Design Solves
 
@@ -324,7 +331,8 @@ must pass `exclude_regions_build` whenever `exclude_regions` is non-empty.
 
 - Materialized query `.annot.gz` files and in-memory `AnnotationBundle` objects stay on the annotation universe `B`.
 - Ordinary unpartitioned `run_ldscore()` calls may omit baseline/query annotation inputs; the workflow creates a synthetic all-ones `base` annotation after the reference panel has applied any explicit or HM3 reference-panel restriction.
-- Query annotations are valid only with explicit baseline annotations, so the synthetic `base` path is not used for partitioned/query LDSC.
+- Prebuilt, BED, and gene-list query annotations are valid only with explicit baseline annotations, so the synthetic `base` path is not used for partitioned/query LDSC.
+- BED and gene-list sources are query-local failure units. Only `ok`/`warning` queries enter scientific result objects; every source remains represented in diagnostic status records.
 - Reference-panel SNP restrictions become visible only during LD-score calculation, when the workflow aligns `B_chrom` to `ref_panel.load_metadata(chrom)`.
 - Count records are accumulated over `ld_reference_snps = B ∩ A'` and stored in LD-score root `metadata.json`.
 - Public `ldscore.baseline.parquet` and optional `ldscore.query.parquet` rows are `ld_regression_snps = B ∩ A' ∩ C`.

@@ -3,11 +3,13 @@
 Overview
 --------
 This module owns the supported annotation workflow: path-token resolution,
-annotation bundle loading, BED-to-SNP projection, CLI argument parsing, genome
-build resolution, output preflight, and fixed ``query.<chrom>.annot.gz``
-writing. Parsed workflow entry points also write ``diagnostics/annotate.log``;
-direct in-memory calls stay log-file free. Use this module for
-public annotation API calls; use
+annotation bundle loading, BED/gene-interval-to-SNP projection, CLI argument
+parsing, genome-build resolution, output preflight, and fixed
+``query.<chrom>.annot.gz`` writing. Gene-list resolution itself lives in
+``ldsc.gene_list_resolver`` and is used only by the LD-score workflow; the
+standalone ``annotate`` command remains BED-only. Parsed workflow entry points
+also write ``diagnostics/annotate.log``; direct in-memory calls stay log-file
+free. Use this module for public annotation API calls; use
 ``ldsc._kernel.annotation`` only for low-level table and BED primitives.
 
 Key Functions
@@ -84,6 +86,7 @@ from .config import (
 )
 from .errors import LDSCInputError, LDSCInternalError, LDSCUsageError, LDSCUserError
 from .genome_build_inference import resolve_genome_build
+from .gene_list_resolver import GeneCatalog, GeneListResolution, resolve_gene_list
 from .path_resolution import (
     ANNOTATION_SUFFIXES,
     ensure_output_directory,
@@ -93,6 +96,7 @@ from .path_resolution import (
     split_cli_path_tokens,
 )
 from ._logging import configure_package_logging, log_inputs, log_outputs, workflow_logging
+from .query_annotations import QueryAnnotationStatus
 
 
 LOGGER = logging.getLogger("LDSC.annotation")
@@ -109,6 +113,56 @@ _ANNOTATION_A2_COLUMN_SPEC = ColumnSpec(
     allow_suffix_match=False,
 )
 _ANNOTATE_NO_ROWS_DOC = "docs/troubleshooting.md#annotate-no-annotation-snp-rows-remain"
+
+
+def _project_intervals_to_metadata(
+    metadata: pd.DataFrame,
+    intervals: Sequence[tuple[str, int, int]],
+    *,
+    bed_padding_bp: int,
+) -> np.ndarray:
+    """Project a union of 0-based half-open intervals onto 1-based SNP positions.
+
+    Intervals are padded, sorted, and merged per chromosome. SNP positions are
+    sorted only within each chromosome, then interval membership is assigned by
+    binary-search bounds. Runtime therefore scales with SNP and interval counts
+    rather than their product.
+    """
+    chrom = metadata["CHR"].map(normalize_chromosome).astype(str).to_numpy()
+    pos0 = pd.to_numeric(metadata["POS"], errors="raise").astype(np.int64).to_numpy() - 1
+    values = np.zeros(len(metadata), dtype=np.float32)
+    intervals_by_chrom: dict[str, list[tuple[int, int]]] = {}
+    for interval_chrom, start0, end in intervals:
+        padded_start = max(0, int(start0) - bed_padding_bp)
+        padded_end = int(end) + bed_padding_bp
+        normalized_chrom = normalize_chromosome(interval_chrom)
+        intervals_by_chrom.setdefault(normalized_chrom, []).append((padded_start, padded_end))
+    for interval_chrom, chrom_intervals in intervals_by_chrom.items():
+        row_indices = np.flatnonzero(chrom == interval_chrom)
+        if not len(row_indices):
+            continue
+        order = np.argsort(pos0[row_indices], kind="stable")
+        sorted_indices = row_indices[order]
+        sorted_pos = pos0[sorted_indices]
+        difference = np.zeros(len(sorted_pos) + 1, dtype=np.int32)
+        for start, end in _merge_intervals(chrom_intervals):
+            left = int(np.searchsorted(sorted_pos, start, side="left"))
+            right = int(np.searchsorted(sorted_pos, end, side="left"))
+            difference[left] += 1
+            difference[right] -= 1
+        values[sorted_indices[np.cumsum(difference[:-1]) > 0]] = 1.0
+    return values
+
+
+def _merge_intervals(intervals: Sequence[tuple[int, int]]) -> list[tuple[int, int]]:
+    """Return a sorted union of half-open intervals, joining touching bounds."""
+    merged: list[tuple[int, int]] = []
+    for start, end in sorted(intervals):
+        if not merged or start > merged[-1][1]:
+            merged.append((start, end))
+        else:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+    return merged
 
 
 @dataclass(frozen=True)
@@ -141,6 +195,15 @@ class AnnotationBundle:
     config_snapshot : GlobalConfig, optional
         Shared identifier/genome-build assumptions active when the bundle was
         built.
+    query_statuses : tuple of QueryAnnotationStatus, optional
+        Ordered status records for requested BED or gene-list queries. Usable
+        records align with ``query_columns``; skipped records remain for audit.
+    gene_list_resolutions : tuple of GeneListResolution, optional
+        Compact canonical gene identities, intervals, counts, and unresolved
+        rows retained for LD-score provenance and diagnostics.
+    gene_catalog_provenance : dict, optional
+        Packaged catalog resource, release, selected projection build, and
+        decompressed-content checksum.
     """
 
     metadata: pd.DataFrame
@@ -151,6 +214,9 @@ class AnnotationBundle:
     chromosomes: list[str]
     source_summary: dict[str, object]
     config_snapshot: GlobalConfig | None = None
+    query_statuses: tuple[QueryAnnotationStatus, ...] = ()
+    gene_list_resolutions: tuple[GeneListResolution, ...] = ()
+    gene_catalog_provenance: dict[str, str] | None = None
 
     def validate(self, snp_identifier: str = "chr_pos_allele_aware") -> None:
         """Validate row alignment assumptions for the bundle.
@@ -185,6 +251,14 @@ class AnnotationBundle:
                 "Most likely annotation bundle construction recorded columns out of order. "
                 "Re-run with `--log-level DEBUG` and report the traceback."
             )
+        if self.query_statuses:
+            usable_names = [record.query for record in self.query_statuses if record.status in {"ok", "warning"}]
+            if usable_names != list(self.query_columns):
+                raise LDSCInternalError(
+                    "AnnotationBundle validation failed: usable query-status records do not match query columns. "
+                    f"Statuses name {usable_names}, but columns are {list(self.query_columns)}. "
+                    "Re-run with `--log-level DEBUG` and report the traceback."
+                )
 
     def reference_snps(self, snp_identifier: str = "chr_pos_allele_aware") -> set[str]:
         """Return the retained reference SNP universe for this bundle.
@@ -232,12 +306,14 @@ class AnnotationBundle:
 
 
 class AnnotationBuilder:
-    """Service object for loading SNP-level annotations and BED projections.
+    """Service object for loading SNP-level annotations and interval projections.
 
     The builder keeps annotation-side workflow rules in one place: resolving
     input paths, enforcing row alignment across baseline and query tables,
     aggregating chromosome-sharded annotation files, projecting optional BED
-    inputs, and returning validated ``AnnotationBundle`` objects.
+    or resolved gene intervals, and returning validated ``AnnotationBundle``
+    objects. Gene intervals and BED intervals both use 0-based half-open
+    coordinates and produce binary union annotations on the 1-based SNP grid.
 
     Parameters
     ----------
@@ -247,9 +323,18 @@ class AnnotationBuilder:
         ``"hg38"``.
     build_config : AnnotationBuildConfig, optional
         Default annotation source configuration for ``run()``.
+    projection_genome_build : {"hg19", "hg38"} or None, optional
+        Concrete build used only for gene-catalog interval selection. It may be
+        set in rsID workflows without changing rsID artifact identity metadata.
     """
 
-    def __init__(self, global_config: GlobalConfig, build_config: AnnotationBuildConfig | None = None) -> None:
+    def __init__(
+        self,
+        global_config: GlobalConfig,
+        build_config: AnnotationBuildConfig | None = None,
+        *,
+        projection_genome_build: str | None = None,
+    ) -> None:
         """Store shared configuration for bundle loading and BED projection."""
         assert global_config.genome_build in {"auto", "hg19", "hg38", None}, (
             f"genome_build reached AnnotationBuilder as {global_config.genome_build!r}; "
@@ -257,6 +342,7 @@ class AnnotationBuilder:
         )
         self.global_config = global_config
         self.build_config = build_config or AnnotationBuildConfig()
+        self.projection_genome_build = projection_genome_build or global_config.genome_build
         self._workflow_log_path: Path | None = None
         self._identity_drop_frame = empty_identity_drop_frame()
 
@@ -307,6 +393,30 @@ class AnnotationBuilder:
                 allow_chromosome_suite=True,
             )
         )
+        gene_resolutions: tuple[GeneListResolution, ...] = ()
+        catalog_provenance: dict[str, str] | None = None
+        if source_spec.query_annot_gene_list_sources:
+            if self.projection_genome_build not in {"hg19", "hg38"}:
+                raise LDSCInputError(
+                    "annotate could not project gene-list queries because no concrete catalog build was selected. "
+                    "Resolve --genome-build to hg19 or hg38 before annotation construction."
+                )
+            gene_paths = resolve_file_group(
+                source_spec.query_annot_gene_list_sources,
+                label="gene-list file",
+                allow_chromosome_suite=False,
+            )
+            catalog = GeneCatalog.load()
+            gene_resolutions = tuple(
+                resolve_gene_list(
+                    path,
+                    catalog,
+                    genome_build=self.projection_genome_build,
+                    source_ordinal=index,
+                )
+                for index, path in enumerate(gene_paths, start=1)
+            )
+            catalog_provenance = catalog.provenance(self.projection_genome_build)
 
         sharded_baseline = self._detect_chromosome_shards(baseline_files, group_name="baseline")
         if sharded_baseline is not None:
@@ -323,9 +433,18 @@ class AnnotationBuilder:
                 sharded_query,
                 chrom=chrom,
                 has_query_inputs=bool(query_files),
+                gene_resolutions=gene_resolutions,
+                catalog_provenance=catalog_provenance,
             )
 
-        return self._run_single_universe(source_spec, baseline_files, query_files, chrom=chrom)
+        return self._run_single_universe(
+            source_spec,
+            baseline_files,
+            query_files,
+            chrom=chrom,
+            gene_resolutions=gene_resolutions,
+            catalog_provenance=catalog_provenance,
+        )
 
     def _run_single_universe(
         self,
@@ -333,6 +452,8 @@ class AnnotationBuilder:
         baseline_files: Sequence[str],
         query_files: Sequence[str],
         chrom: str | None = None,
+        gene_resolutions: Sequence[GeneListResolution] = (),
+        catalog_provenance: dict[str, str] | None = None,
     ) -> AnnotationBundle:
         """Build one bundle when all inputs should share one SNP row universe."""
         metadata: pd.DataFrame | None = None
@@ -382,6 +503,49 @@ class AnnotationBuilder:
             query_blocks,
         )
 
+        query_statuses: list[QueryAnnotationStatus] = []
+        if gene_resolutions:
+            names = [resolution.query for resolution in gene_resolutions]
+            duplicate_names = sorted({name for name in names if names.count(name) > 1})
+            if duplicate_names:
+                raise LDSCInputError(
+                    "Gene-list basenames must be unique because they become annotation column names. "
+                    f"Duplicate names: {', '.join(duplicate_names)}. Rename the source files before rerunning."
+                )
+            duplicate_columns = sorted(set(names) & seen_columns)
+            if duplicate_columns:
+                raise LDSCInputError(
+                    "Gene-list query names clash with loaded annotation columns: "
+                    f"{duplicate_columns}. Rename the gene-list files or annotation columns."
+                )
+            for resolution in gene_resolutions:
+                query_statuses.append(
+                    QueryAnnotationStatus(
+                        query=resolution.query,
+                        source=resolution.source,
+                        input_type="gene_list",
+                        status=resolution.status,
+                        reason=resolution.reason,
+                        details=resolution.details,
+                    )
+                )
+                if resolution.status not in {"ok", "warning"}:
+                    continue
+                query_blocks.append(
+                    pd.DataFrame(
+                        {
+                            resolution.query: _project_intervals_to_metadata(
+                                metadata,
+                                resolution.intervals,
+                                bed_padding_bp=source_spec.bed_padding_bp,
+                            )
+                        },
+                        index=metadata.index,
+                    )
+                )
+                query_columns.append(resolution.query)
+                seen_columns.add(resolution.query)
+
         if source_spec.query_annot_bed_sources:
             resolved_bed_paths = [
                 Path(path) for path in resolve_file_group(source_spec.query_annot_bed_sources, label="BED file")
@@ -403,19 +567,62 @@ class AnnotationBuilder:
                 )
             with tempfile.TemporaryDirectory(prefix="bed2annot_") as tmpdir:
                 tempdir = Path(tmpdir)
-                normalized_beds: list[Path] = []
                 for bed_path in resolved_bed_paths:
                     normalized_path = tempdir / bed_path.name
-                    kernel_annotation._write_normalized_bed(
-                        bed_path,
-                        normalized_path,
-                        bed_padding_bp=source_spec.bed_padding_bp,
+                    try:
+                        kernel_annotation._write_normalized_bed(
+                            bed_path,
+                            normalized_path,
+                            bed_padding_bp=source_spec.bed_padding_bp,
+                        )
+                    except LDSCInputError as exc:
+                        query_statuses.append(
+                            QueryAnnotationStatus(
+                                query=bed_path.stem,
+                                source=bed_path.name,
+                                input_type="bed",
+                                status="skipped",
+                                reason="malformed_input",
+                                details=str(exc).replace(str(bed_path), bed_path.name),
+                            )
+                        )
+                        continue
+                    except (OSError, UnicodeError) as exc:
+                        query_statuses.append(
+                            QueryAnnotationStatus(
+                                query=bed_path.stem,
+                                source=bed_path.name,
+                                input_type="bed",
+                                status="skipped",
+                                reason="unreadable_source",
+                                details=str(exc).replace(str(bed_path), bed_path.name),
+                            )
+                        )
+                        continue
+                    if normalized_path.stat().st_size == 0:
+                        query_statuses.append(
+                            QueryAnnotationStatus(
+                                query=bed_path.stem,
+                                source=bed_path.name,
+                                input_type="bed",
+                                status="skipped",
+                                reason="empty_input",
+                                details="BED source contains no intervals",
+                            )
+                        )
+                        continue
+                    bed_df = kernel_annotation._compute_bed_query_columns(metadata, [normalized_path], tempdir)
+                    query_blocks.append(bed_df)
+                    query_columns.extend(bed_df.columns.tolist())
+                    seen_columns.update(bed_df.columns)
+                    query_statuses.append(
+                        QueryAnnotationStatus(
+                            query=bed_path.stem,
+                            source=bed_path.name,
+                            input_type="bed",
+                            status="ok",
+                        )
                     )
-                    normalized_beds.append(normalized_path)
-                bed_df = kernel_annotation._compute_bed_query_columns(metadata, normalized_beds, tempdir)
-            query_blocks.append(bed_df)
-            query_columns.extend(bed_df.columns.tolist())
-            seen_columns.update(bed_df.columns)
 
         baseline_df = self._concat_or_empty(baseline_blocks, index=metadata.index)
         query_df = self._concat_or_empty(query_blocks, index=metadata.index)
@@ -431,6 +638,9 @@ class AnnotationBuilder:
             query_columns=query_columns,
             chromosomes=chromosomes,
             source_spec=source_spec,
+            query_statuses=tuple(query_statuses),
+            gene_resolutions=tuple(gene_resolutions),
+            catalog_provenance=catalog_provenance,
         )
 
     def _run_sharded_inputs(
@@ -440,6 +650,8 @@ class AnnotationBuilder:
         query_by_chrom: dict[str, str],
         chrom: str | None,
         has_query_inputs: bool,
+        gene_resolutions: Sequence[GeneListResolution] = (),
+        catalog_provenance: dict[str, str] | None = None,
     ) -> AnnotationBundle:
         """Build and aggregate one bundle per chromosome shard."""
         if chrom is not None:
@@ -466,6 +678,7 @@ class AnnotationBuilder:
                 baseline_annot_sources=(baseline_by_chrom[chrom_key],),
                 query_annot_sources=(() if not has_query_inputs else (query_by_chrom[chrom_key],)),
                 query_annot_bed_sources=source_spec.query_annot_bed_sources,
+                query_annot_gene_list_sources=source_spec.query_annot_gene_list_sources,
                 bed_padding_bp=source_spec.bed_padding_bp,
                 allow_missing_query=source_spec.allow_missing_query,
             )
@@ -475,6 +688,8 @@ class AnnotationBuilder:
                     (baseline_by_chrom[chrom_key],),
                     (() if not has_query_inputs else (query_by_chrom[chrom_key],)),
                     chrom=chrom_key,
+                    gene_resolutions=gene_resolutions,
+                    catalog_provenance=catalog_provenance,
                 )
             )
 
@@ -500,6 +715,9 @@ class AnnotationBuilder:
             query_columns=query_columns,
             chromosomes=chromosomes,
             source_spec=source_spec,
+            query_statuses=bundles[0].query_statuses,
+            gene_resolutions=tuple(gene_resolutions),
+            catalog_provenance=catalog_provenance,
         )
 
     def _apply_identity_cleanup(
@@ -545,6 +763,9 @@ class AnnotationBuilder:
         query_columns: list[str],
         chromosomes: list[str],
         source_spec: AnnotationBuildConfig,
+        query_statuses: tuple[QueryAnnotationStatus, ...] = (),
+        gene_resolutions: tuple[GeneListResolution, ...] = (),
+        catalog_provenance: dict[str, str] | None = None,
     ) -> AnnotationBundle:
         """Construct, validate, and return an ``AnnotationBundle``."""
         bundle = AnnotationBundle(
@@ -558,9 +779,13 @@ class AnnotationBuilder:
                 "baseline_annot_sources": list(source_spec.baseline_annot_sources),
                 "query_annot_sources": list(source_spec.query_annot_sources),
                 "query_annot_bed_sources": list(source_spec.query_annot_bed_sources),
+                "query_annot_gene_list_sources": [Path(path).name for path in source_spec.query_annot_gene_list_sources],
                 "bed_padding_bp": source_spec.bed_padding_bp,
             },
             config_snapshot=self.global_config,
+            query_statuses=query_statuses,
+            gene_list_resolutions=gene_resolutions,
+            gene_catalog_provenance=catalog_provenance,
         )
         bundle.validate(self.global_config.snp_identifier)
         return bundle

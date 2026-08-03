@@ -1,5 +1,7 @@
 # Workflow Logging
 
+Last updated on: 2026-08-03
+
 Public workflow entry points share one logging policy:
 
 - Per-run file handlers attach to the `LDSC` logger, so workflow and kernel
@@ -16,6 +18,9 @@ Public workflow entry points share one logging policy:
   always appear in the file. Supported levels are `DEBUG`, `INFO`, `WARNING`, and
   `ERROR`.
 - Workflow result objects and `output_paths` mappings do not include log files.
+- LD-score BED/gene-list runs log the effective catalog projection build, one
+  warning for every non-`ok` query, and a final query-status summary. Row-level
+  unresolved genes remain in the compressed audit rather than the log.
 
 ## Console vs File Routing
 

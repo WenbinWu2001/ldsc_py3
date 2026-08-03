@@ -1,5 +1,7 @@
 # Artifact Metadata Field Inventory
 
+Last updated on: 2026-08-03
+
 Downstream identity metadata lives in the `sumstats.parquet` footer (for munged
 sumstats) and in `ldscore/metadata.json` (for LD scores). Any metadata emitted by
 annotate, ref-panel, h2, partitioned-h2, rg, query-level, or pair-level outputs is
@@ -178,9 +180,14 @@ ldscore/
   ldscore.overlap.parquet
   diagnostics/
     ldscore.log
+    query_annotation_status.tsv
+    gene_list_unresolved.tsv.gz
 ```
 
 `ldscore.query.parquet` is present only when query LD scores are written.
+`query_annotation_status.tsv` is present for BED/gene-list query runs;
+`gene_list_unresolved.tsv.gz` is present only for gene-list runs and is
+header-only when every gene resolves cleanly.
 `ldscore.overlap.parquet` holds the annotation overlap matrix (long form:
 `row_annotation`, `col_annotation`, `overlap_all_snps`, `overlap_common_snps`)
 that `partitioned-h2` requires. It is written only for runs with two or more
@@ -204,6 +211,15 @@ annotation columns; a single-annotation (e.g. base-only) run omits it.
 | `row_group_layout` | Row-group strategy. | Reporting/technical provenance. |
 | `baseline_row_groups` | Row-group metadata for `ldscore.baseline.parquet`. | Reporting/technical provenance. |
 | `query_row_groups` | Row-group metadata for `ldscore.query.parquet`, or `null`. | Reporting/technical provenance. |
+| `gene_catalog` | Packaged resource, release, selected projection build, and decompressed-content checksum. Present only for gene-list runs. | Reproducibility/diagnostics; ignored by regression. |
+| `query_provenance` | Ordered compact gene-list source records with basename, ordinal, input checksum, and resolution counts. | Reproducibility/diagnostics; ignored by regression. |
+| `query_diagnostics` | Relative paths to the query-status manifest and, for gene runs, unresolved-gene audit. | Troubleshooting/navigation; ignored by regression. |
+
+`diagnostics/query_annotation_status.tsv` has fixed columns `query`, `source`,
+`input_type`, `status`, `reason`, `n_annotation_snps`, and `details`.
+`diagnostics/gene_list_unresolved.tsv.gz` has fixed columns `query`, `source`,
+`line`, `input_gene`, `reason`, `canonical_ensembl_id`, and `details`. Both use
+source basenames rather than absolute paths.
 
 ### `h2`
 

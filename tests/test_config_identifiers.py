@@ -195,14 +195,25 @@ class WorkflowConfigTest(unittest.TestCase):
         self.assertTrue(config.overwrite)
 
     def test_annotation_config_accepts_single_string_tokens_for_plural_fields(self):
-        config = AnnotationBuildConfig(
+        prebuilt = AnnotationBuildConfig(
             baseline_annot_sources="baseline.@.annot.gz",
             query_annot_sources="query.*.annot.gz",
+        )
+        bed = AnnotationBuildConfig(
             query_annot_bed_sources="beds/*.bed",
         )
-        self.assertEqual(config.baseline_annot_sources, ("baseline.@.annot.gz",))
-        self.assertEqual(config.query_annot_sources, ("query.*.annot.gz",))
-        self.assertEqual(config.query_annot_bed_sources, ("beds/*.bed",))
+        gene = AnnotationBuildConfig(query_annot_gene_list_sources="genes/*.txt.gz")
+        self.assertEqual(prebuilt.baseline_annot_sources, ("baseline.@.annot.gz",))
+        self.assertEqual(prebuilt.query_annot_sources, ("query.*.annot.gz",))
+        self.assertEqual(bed.query_annot_bed_sources, ("beds/*.bed",))
+        self.assertEqual(gene.query_annot_gene_list_sources, ("genes/*.txt.gz",))
+
+    def test_annotation_config_rejects_mixed_query_source_types(self):
+        with self.assertRaisesRegex(ldsc.LDSCConfigError, "mutually exclusive"):
+            AnnotationBuildConfig(
+                query_annot_sources="query.*.annot.gz",
+                query_annot_bed_sources="beds/*.bed",
+            )
 
     def test_removed_compatibility_aliases_are_not_exported(self):
         removed_names_by_module = {
@@ -517,8 +528,7 @@ class WorkflowConfigTest(unittest.TestCase):
         raw = MungeConfig(raw_sumstats_file=Path("sumstats") / "trait.tsv.gz")
         annot = AnnotationBuildConfig(
             baseline_annot_sources=(Path("baseline") / "base.1.annot.gz",),
-            query_annot_sources=(Path("query") / "custom.1.annot.gz",),
-            query_annot_bed_sources=(Path("beds") / "enhancer.bed",),
+            query_annot_gene_list_sources=(Path("genes") / "immune.txt.gz",),
         )
         ref = RefPanelConfig(
             backend="parquet_r2",
@@ -527,8 +537,7 @@ class WorkflowConfigTest(unittest.TestCase):
         )
         self.assertEqual(raw.raw_sumstats_file, "sumstats/trait.tsv.gz")
         self.assertEqual(annot.baseline_annot_sources, ("baseline/base.1.annot.gz",))
-        self.assertEqual(annot.query_annot_sources, ("query/custom.1.annot.gz",))
-        self.assertEqual(annot.query_annot_bed_sources, ("beds/enhancer.bed",))
+        self.assertEqual(annot.query_annot_gene_list_sources, ("genes/immune.txt.gz",))
         self.assertEqual(ref.plink_prefix, "plink/panel")
         self.assertEqual(ref.r2_dir, "r2_panel/hg38")
 
@@ -541,13 +550,11 @@ class WorkflowConfigTest(unittest.TestCase):
     def test_public_configs_accept_single_string_tokens_for_plural_fields(self):
         annot = AnnotationBuildConfig(
             baseline_annot_sources="baseline.@.annot.gz",
-            query_annot_sources="query.*.annot.gz",
-            query_annot_bed_sources="beds/*.bed",
+            query_annot_gene_list_sources="genes/*.txt.gz",
         )
         ref = RefPanelConfig(backend="parquet_r2", r2_dir="r2_panel/hg38")
         self.assertEqual(annot.baseline_annot_sources, ("baseline.@.annot.gz",))
-        self.assertEqual(annot.query_annot_sources, ("query.*.annot.gz",))
-        self.assertEqual(annot.query_annot_bed_sources, ("beds/*.bed",))
+        self.assertEqual(annot.query_annot_gene_list_sources, ("genes/*.txt.gz",))
         self.assertEqual(ref.r2_dir, "r2_panel/hg38")
 
     def test_removed_public_config_fields_are_rejected(self):

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from argparse import Namespace
+from dataclasses import replace as dataclass_replace
 import gzip
 import importlib.util
+import json
 from pathlib import Path
 from types import SimpleNamespace
 import sys
@@ -21,6 +23,7 @@ if str(SRC) not in sys.path:
 
 from ldsc.config import ConfigMismatchError, GlobalConfig, set_global_config
 from ldsc.errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
+from ldsc.query_annotations import QueryAnnotationStatus
 
 try:
     from ldsc import (
@@ -1247,6 +1250,46 @@ class LDScoreWorkflowTest(unittest.TestCase):
         self.assertEqual(result.count_records[0]["all_reference_snp_count"], 30.0)
         self.assertEqual(result.count_records[1]["common_reference_snp_count"], 30.0)
 
+    def test_finalize_query_statuses_prunes_zero_hit_and_zero_variance_queries(self):
+        metadata = pd.DataFrame({"CHR": ["1", "1"], "SNP": ["rs1", "rs2"], "POS": [10, 20]})
+        result = ldscore_workflow.LDScoreResult(
+            baseline_table=metadata.assign(regression_ld_scores=[1.0, 1.5], base=[1.0, 1.0]),
+            query_table=metadata.assign(q_zero=[0.0, 0.0], q_constant=[2.0, 2.0], q_good=[1.0, 3.0]),
+            count_records=[
+                {"group": "baseline", "column": "base", "all_reference_snp_count": 2.0},
+                {"group": "query", "column": "q_zero", "all_reference_snp_count": 0.0},
+                {"group": "query", "column": "q_constant", "all_reference_snp_count": 1.0},
+                {"group": "query", "column": "q_good", "all_reference_snp_count": 1.0},
+            ],
+            baseline_columns=["base"],
+            query_columns=["q_zero", "q_constant", "q_good"],
+            ld_reference_snps=frozenset({"rs1", "rs2"}),
+            ld_regression_snps=frozenset({"rs1", "rs2"}),
+            chromosome_results=[],
+            config_snapshot=GlobalConfig(snp_identifier="rsid"),
+        )
+        statuses = (
+            QueryAnnotationStatus("q_zero", "zero.bed", "bed", "ok"),
+            QueryAnnotationStatus("q_constant", "constant.bed", "bed", "ok"),
+            QueryAnnotationStatus("q_good", "good.bed", "bed", "ok"),
+            QueryAnnotationStatus("q_bad", "bad.bed", "bed", "skipped", "malformed_input"),
+        )
+
+        finalized = ldscore_workflow.LDScoreCalculator()._finalize_query_statuses(result, statuses)
+
+        self.assertEqual(finalized.query_columns, ["q_good"])
+        self.assertEqual(finalized.query_table.columns.tolist(), ["CHR", "SNP", "POS", "q_good"])
+        self.assertEqual([record["column"] for record in finalized.count_records], ["base", "q_good"])
+        self.assertEqual(
+            [(row.query, row.status, row.reason, row.n_annotation_snps) for row in finalized.query_statuses],
+            [
+                ("q_zero", "skipped", "zero_annotation_snps", 0.0),
+                ("q_constant", "skipped", "zero_variance_ld_scores", 1.0),
+                ("q_good", "ok", "", 1.0),
+                ("q_bad", "skipped", "malformed_input", None),
+            ],
+        )
+
     def test_build_parser_accepts_query_annot_bed(self):
         parser = ldscore_workflow.build_parser()
         args = parser.parse_args(
@@ -1267,6 +1310,89 @@ class LDScoreWorkflowTest(unittest.TestCase):
         )
         self.assertEqual(args.query_annot_bed_sources, "query.bed")
         self.assertEqual(args.bed_padding_bp, 50000)
+
+    def test_build_parser_accepts_gene_lists_and_keeps_query_routes_mutually_exclusive(self):
+        parser = ldscore_workflow.build_parser()
+        args = parser.parse_args(
+            [
+                "--output-dir",
+                "out/example",
+                "--baseline-annot-sources",
+                "baseline.annot.gz",
+                "--query-annot-gene-list-sources",
+                "immune.txt.gz,brain.list",
+            ]
+        )
+
+        self.assertEqual(args.query_annot_gene_list_sources, "immune.txt.gz,brain.list")
+        with self.assertRaises(SystemExit):
+            parser.parse_args(
+                [
+                    "--output-dir",
+                    "out/example",
+                    "--query-annot-bed-sources",
+                    "query.bed",
+                    "--query-annot-gene-list-sources",
+                    "immune.txt",
+                ]
+            )
+
+    def test_annotation_build_config_normalizes_gene_list_sources(self):
+        spec = AnnotationBuildConfig(query_annot_gene_list_sources="immune.txt,brain.list")
+
+        self.assertEqual(spec.query_annot_gene_list_sources, ("immune.txt,brain.list",))
+
+    def test_gene_list_auto_build_is_separate_from_rsid_identity_metadata(self):
+        args = ldscore_workflow.build_parser().parse_args(
+            [
+                "--output-dir",
+                "out/example",
+                "--baseline-annot-sources",
+                "baseline.annot.gz",
+                "--query-annot-gene-list-sources",
+                "immune.txt",
+                "--snp-identifier",
+                "rsid",
+                "--genome-build",
+                "auto",
+            ]
+        )
+
+        with mock.patch.object(
+            ldscore_workflow,
+            "_resolve_ldscore_chr_pos_genome_build",
+            return_value="hg38",
+        ) as resolve_build:
+            normalized, global_config = _normalize_run_args(args)
+
+        self.assertEqual(normalized.gene_catalog_build, "hg38")
+        self.assertIsNone(global_config.genome_build)
+        resolve_build.assert_called_once_with(normalized, "auto")
+
+    def test_gene_list_omitted_build_defaults_to_auto_for_chr_pos(self):
+        args = ldscore_workflow.build_parser().parse_args(
+            [
+                "--output-dir",
+                "out/example",
+                "--baseline-annot-sources",
+                "baseline.annot.gz",
+                "--query-annot-gene-list-sources",
+                "immune.txt",
+                "--snp-identifier",
+                "chr_pos",
+            ]
+        )
+
+        with mock.patch.object(
+            ldscore_workflow,
+            "_resolve_ldscore_chr_pos_genome_build",
+            return_value="hg19",
+        ) as resolve_build:
+            normalized, global_config = _normalize_run_args(args)
+
+        self.assertEqual(normalized.gene_catalog_build, "hg19")
+        self.assertEqual(global_config.genome_build, "hg19")
+        resolve_build.assert_called_once_with(normalized, "auto")
 
     def test_build_parser_defaults_snp_batch_size_to_128(self):
         parser = ldscore_workflow.build_parser()
@@ -1695,6 +1821,164 @@ class LDScoreWorkflowTest(unittest.TestCase):
             self.assertTrue((tmpdir / "ldscore_result" / "diagnostics" / "ldscore.log").exists())
             self.assertFalse(list((tmpdir / "ldscore_result").glob("*.l2.ldscore.gz")))
             self.assertFalse(list((tmpdir / "ldscore_result").glob("*.M*")))
+
+    def test_run_ldscore_from_args_all_skipped_writes_diagnostics_then_raises(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "ldscore_result"
+            args = build_parser().parse_args(
+                [
+                    "--output-dir",
+                    str(output_dir),
+                    "--baseline-annot-sources",
+                    "baseline.annot",
+                    "--query-annot-bed-sources",
+                    "bad.bed",
+                    "--plink-prefix",
+                    "panel",
+                    "--ld-wind-snps",
+                    "10",
+                    "--snp-identifier",
+                    "rsid",
+                    "--exclude-regions",
+                    "none",
+                ]
+            )
+            annotation_bundle = self.make_annotation_bundle([("1", "rs1", 10)])
+            status = QueryAnnotationStatus(
+                "bad",
+                "bad.bed",
+                "bed",
+                "skipped",
+                "malformed_input",
+                details="BED line 1 is malformed",
+            )
+            annotation_bundle = dataclass_replace(annotation_bundle, query_statuses=(status,))
+            result = ldscore_workflow.LDScoreResult(
+                baseline_table=pd.DataFrame(
+                    {
+                        "CHR": ["1"],
+                        "SNP": ["rs1"],
+                        "POS": [10],
+                        "regression_ld_scores": [1.0],
+                        "base": [1.0],
+                    }
+                ),
+                query_table=None,
+                count_records=[{"group": "baseline", "column": "base", "all_reference_snp_count": 1.0}],
+                baseline_columns=["base"],
+                query_columns=[],
+                ld_reference_snps=frozenset({"rs1"}),
+                ld_regression_snps=frozenset({"rs1"}),
+                chromosome_results=[],
+                config_snapshot=GlobalConfig(snp_identifier="rsid"),
+                query_statuses=(status,),
+            )
+
+            with mock.patch(
+                "ldsc.annotation_builder.AnnotationBuilder.run",
+                autospec=True,
+                return_value=annotation_bundle,
+            ), mock.patch(
+                "ldsc._kernel.ref_panel.RefPanelLoader.load",
+                autospec=True,
+                return_value=self.make_ref_panel_stub(backend="plink"),
+            ), mock.patch.object(
+                ldscore_workflow.LDScoreCalculator,
+                "run",
+                autospec=True,
+                return_value=result,
+            ):
+                with self.assertRaisesRegex(LDSCInputError, "all 1 requested query annotations were skipped"):
+                    ldscore_workflow.run_ldscore_from_args(args)
+
+            self.assertTrue((output_dir / "diagnostics" / "query_annotation_status.tsv").exists())
+            self.assertTrue((output_dir / "diagnostics" / "ldscore.log").exists())
+            self.assertFalse((output_dir / "metadata.json").exists())
+            self.assertIn("malformed_input", (output_dir / "diagnostics" / "ldscore.log").read_text(encoding="utf-8"))
+
+    def test_run_ldscore_from_args_gene_list_writes_query_and_resolution_diagnostics(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            output_dir = tmpdir / "ldscore_result"
+            baseline = tmpdir / "baseline.annot"
+            genes = tmpdir / "immune.txt"
+            baseline.write_text(
+                "CHR\tPOS\tSNP\tCM\tbase\n"
+                "1\t65419\trs1\t0\t1\n"
+                "1\t80000\trs2\t0\t1\n",
+                encoding="utf-8",
+            )
+            genes.write_text("OR4F5\nNOT_A_GENE\n", encoding="utf-8")
+            args = build_parser().parse_args(
+                [
+                    "--output-dir",
+                    str(output_dir),
+                    "--baseline-annot-sources",
+                    str(baseline),
+                    "--query-annot-gene-list-sources",
+                    str(genes),
+                    "--plink-prefix",
+                    "panel",
+                    "--ld-wind-snps",
+                    "10",
+                    "--snp-identifier",
+                    "rsid",
+                    "--genome-build",
+                    "hg38",
+                    "--exclude-regions",
+                    "none",
+                ]
+            )
+            chrom_result = ldscore_workflow.ChromLDScoreResult(
+                chrom="1",
+                baseline_table=pd.DataFrame(
+                    {
+                        "CHR": ["1", "1"],
+                        "SNP": ["rs1", "rs2"],
+                        "POS": [65419, 80000],
+                        "regression_ld_scores": [2.0, 2.5],
+                        "base": [1.0, 1.5],
+                    }
+                ),
+                query_table=pd.DataFrame(
+                    {"CHR": ["1", "1"], "SNP": ["rs1", "rs2"], "POS": [65419, 80000], "immune": [1.0, 2.0]}
+                ),
+                count_records=[
+                    {"group": "baseline", "column": "base", "all_reference_snp_count": 2.0},
+                    {"group": "query", "column": "immune", "all_reference_snp_count": 1.0},
+                ],
+                baseline_columns=["base"],
+                query_columns=["immune"],
+                ld_reference_snps=frozenset({"rs1", "rs2"}),
+                ld_regression_snps=frozenset({"rs1", "rs2"}),
+                snp_count_totals={"all_reference_snp_counts": np.array([2.0, 1.0])},
+                config_snapshot=GlobalConfig(snp_identifier="rsid"),
+            )
+
+            with mock.patch(
+                "ldsc._kernel.ref_panel.RefPanelLoader.load",
+                autospec=True,
+                return_value=self.make_ref_panel_stub(backend="plink"),
+            ), mock.patch.object(
+                ldscore_workflow.LDScoreCalculator,
+                "compute_chromosome",
+                autospec=True,
+                return_value=chrom_result,
+            ):
+                result = ldscore_workflow.run_ldscore_from_args(args)
+
+            self.assertEqual(result.query_columns, ["immune"])
+            self.assertEqual(result.query_statuses[0].status, "warning")
+            self.assertTrue((output_dir / "ldscore.query.parquet").exists())
+            self.assertEqual(
+                pd.read_csv(output_dir / "diagnostics" / "gene_list_unresolved.tsv.gz", sep="\t")["input_gene"].tolist(),
+                ["NOT_A_GENE"],
+            )
+            metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
+            self.assertEqual(metadata["gene_catalog"]["genome_build"], "hg38")
+            log_text = (output_dir / "diagnostics" / "ldscore.log").read_text(encoding="utf-8")
+            self.assertIn("Gene-list catalog projection build: hg38", log_text)
+            self.assertIn("status=warning, reason=partial_resolution", log_text)
 
     def test_run_ldscore_from_args_synthesizes_base_when_baseline_and_query_are_omitted(self):
         with tempfile.TemporaryDirectory() as tmpdir:

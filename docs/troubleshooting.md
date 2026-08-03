@@ -1,5 +1,7 @@
 # Troubleshooting
 
+Last updated on: 2026-08-03
+
 This reference explains `ldsc` errors that can **abort a run** and have more than
 one likely cause. It is organized by command. Each entry lists the likely causes
 (ranked most-probable first), how to confirm each, and how to fix it.
@@ -214,6 +216,27 @@ bad provenance / missing A1-A2 / duplicate identity rows)
 3. Match `--snp-identifier` and `--genome-build` to the annotation identity columns, then rerun.
 
 ## ldscore
+
+### ldscore: a BED or gene-list query is missing from results
+
+**Raised by:** query annotation status handling · **Symptom:** one requested
+query is absent from `ldscore.query.parquet` or downstream partitioned-h2 rows,
+or the run reports that every query was skipped.
+
+This is intentional batch behavior. A bad concrete BED or gene list does not
+interrupt valid siblings. Inspect
+`diagnostics/query_annotation_status.tsv`; its `reason` distinguishes empty,
+malformed, unreadable, ambiguous, fully unresolved, zero-annotation-SNP, and
+zero-variance queries. For gene lists,
+`diagnostics/gene_list_unresolved.tsv.gz` names each problematic input gene and
+line. `diagnostics/ldscore.log` contains the corresponding warnings and the
+effective catalog projection build.
+
+For a `warning/partial_resolution`, correct the listed genes if completeness is
+required; the resolved subset was used. For `skipped`, fix the source/build or
+broaden the retained reference/regression SNP universes, then rerun with
+`--overwrite` because the diagnostics are owned artifacts. When all queries are
+skipped, no root metadata or canonical parquet result is written.
 
 ### ldscore: no annotation SNPs remain after reference-panel intersection
 

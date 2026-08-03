@@ -1,5 +1,7 @@
 # Data Flow
 
+Last updated on: 2026-08-03
+
 This document summarizes the user-visible file streams for each public workflow. The diagrams use Mermaid `flowchart LR` because it maps cleanly onto the package's left-to-right data movement and layered module boundaries.
 
 ## Layer Legend
@@ -16,7 +18,7 @@ This document summarizes the user-visible file streams for each public workflow.
 
 ```mermaid
 flowchart LR
-  IN1[BED intervals]
+  IN1[BED intervals or gene lists]
   IN2[PLINK or parquet R2 reference]
   IN3[Raw GWAS sumstats]
 
@@ -329,10 +331,11 @@ For ordinary unpartitioned LD scores, callers may omit both baseline and query
 inputs. The workflow then creates a synthetic baseline annotation named exactly
 `base`, with value `1.0` for every row returned by the retained reference-panel
 metadata. Query annotations are partitioned-LDSC inputs and require explicit
-baseline annotations. Query BED inputs are projected to the baseline SNP
-universe as supplied unless `bed_padding_bp` / `--bed-padding-bp` is set; that
-option expands each interval on both sides in base pairs before overlap
-projection and clips starts at zero.
+baseline annotations. Query BED inputs and packaged-catalog gene intervals are
+projected to the same baseline SNP universe. `bed_padding_bp` /
+`--bed-padding-bp` expands either interval type on both sides before overlap
+projection and clips starts at zero. Each concrete BED or gene list receives a
+status; unusable queries are omitted while usable siblings continue.
 
 ### Required inputs
 
@@ -340,6 +343,7 @@ projection and clips starts at zero.
 | --- | --- | --- |
 | baseline annotation shard, optional | `CHR POS SNP CM base`<br/>`1 10583 rs58108140 0.0 1` | optional for unpartitioned runs; required when query annotations are supplied |
 | query annotation shard, optional | `CHR POS SNP CM enhancer_A`<br/>`1 10583 rs58108140 0.0 1` | optional extra annotation columns; valid only with explicit baseline annotations |
+| query BED or gene list, optional | `chr1 1000 2000` or `ENSG00000141510` | mutually exclusive query source routes projected in memory; valid only with explicit baseline annotations |
 | PLINK prefix or parquet R2 panel | `panel_chr@` or build directory `ref_panel/hg38` | choose one backend |
 | frequency / metadata sidecar, optional | `CHR POS SNP CM MAF A1 A2` | used for MAF and runtime metadata; `A1/A2` are required for allele-aware modes |
 | regression SNP list, optional | `rs123` or `CHR POS` table | restricts the weight-table SNP set using identity keys only; allele columns may be omitted and then match by base key; allele-bearing restrictions in allele-aware modes match by effective allele-aware key; duplicate restriction keys collapse to one retained key and non-identity columns such as `CM` or `MAF` are ignored |
@@ -348,7 +352,7 @@ projection and clips starts at zero.
 
 ```mermaid
 flowchart LR
-  I1[Optional .annot(.gz) shards]
+  I1[Optional .annot shards, BEDs, or gene lists]
   I2[PLINK or parquet R2 reference]
   I3[Metadata / restriction files]
 
@@ -358,7 +362,7 @@ flowchart LR
   end
 
   subgraph W3[Workflow (public)<br/>ldsc.ldscore_calculator]
-    C3[Bundle annotations or synthesize base]
+    C3[Resolve/project queries or synthesize base]
     C4[Select backend]
     C5[Aggregate chromosome results]
   end
@@ -386,6 +390,8 @@ flowchart LR
 | annotation overlap matrix | `row_annotation col_annotation overlap_all_snps overlap_common_snps`<br/>`base enhancer_A 9000 7500` | `ldscore.overlap.parquet` inside `output_dir`; long-form `AᵀA` baseline-rows block + query self-overlaps; consumed by `partitioned-h2` |
 | metadata | JSON metadata with files, columns, counts, chromosomes, config, row counts, and row-group metadata | `metadata.json` inside `output_dir`; consumed by downstream regression |
 | workflow log | plain-text lifecycle and package records | `diagnostics/ldscore.log` inside `output_dir`; not included in `LDScoreResult.output_paths` |
+| query status | `query source input_type status reason n_annotation_snps details` | `diagnostics/query_annotation_status.tsv`; written for BED/gene-list runs, including skipped inputs |
+| unresolved genes | problematic input gene rows and reasons | `diagnostics/gene_list_unresolved.tsv.gz`; written for gene-list runs and header-only when clean |
 
 ### Modules used
 

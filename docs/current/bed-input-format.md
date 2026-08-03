@@ -1,5 +1,10 @@
 # BED Input Format
 
+Last updated on: 2026-08-03
+
+Gene-list queries use the same interval projection and padding semantics after
+resolution; see [gene-list-input-format.md](gene-list-input-format.md).
+
 This document defines the package contract for text BED interval inputs. It
 applies to user-supplied query annotation BEDs and region-exclusion BEDs:
 
@@ -94,8 +99,11 @@ requirements:
 - non-negative `start`
 - `start < end`
 
-Files that violate these requirements should raise a user-facing input error
-that identifies the file and line where parsing failed.
+Files that violate these requirements identify the file and line where parsing
+failed. In `ldsc annotate`, the problem raises a user-facing input error. In a
+multi-query `ldsc ldscore` run, the concrete BED query is instead marked
+`skipped/malformed_input` in `diagnostics/query_annotation_status.tsv` so valid
+siblings can continue. An all-skipped run writes diagnostics and then fails.
 
 ## Workflow-Specific Handling
 

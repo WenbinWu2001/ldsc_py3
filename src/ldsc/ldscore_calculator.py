@@ -73,13 +73,14 @@ from ._kernel.identifiers import build_snp_id_series, read_snp_restriction_keys
 from ._kernel.snp_identity import RestrictionIdentityKeys, restriction_membership_mask
 from ._row_alignment import assert_same_snp_rows
 from .errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
+from .query_annotations import QueryAnnotationStatus
 
 
 LOGGER = logging.getLogger("LDSC.ldscore_calculator")
 _LDSCORE_SUFFIX_COLUMNS = ("CHR", "SNP", "POS", "BP", "CM", "MAF")
 _QUERY_REQUIRES_BASELINE_MESSAGE = (
     "ldscore cannot run query annotations without baseline annotations. Most likely "
-    "`--query-annot` or `--query-annot-bed` was supplied without `--baseline-annot`. "
+    "a prebuilt, BED, or gene-list query source was supplied without `--baseline-annot-sources`. "
     "Pass matching baseline annotations, or create an explicit all-ones `base` "
     "baseline annotation over the query annotation universe before running "
     "partitioned LDSC."
@@ -217,6 +218,13 @@ class LDScoreResult:
         Paths written by ``LDScoreDirectoryWriter`` when output was requested.
     config_snapshot : GlobalConfig or None, optional
         Shared configuration active when the result was computed.
+    query_statuses : tuple of QueryAnnotationStatus, optional
+        Ordered per-source outcomes for BED and gene-list query annotations.
+    gene_list_resolutions : tuple, optional
+        Internal compact resolution records used to write gene diagnostics and
+        provenance. Empty for runs without gene-list inputs.
+    gene_catalog_provenance : dict or None, optional
+        Concise packaged-catalog identity and selected projection build.
     """
     baseline_table: pd.DataFrame
     query_table: pd.DataFrame | None
@@ -230,6 +238,9 @@ class LDScoreResult:
     count_config: dict[str, Any] = field(default_factory=dict)
     config_snapshot: GlobalConfig | None = None
     overlap: "LDScoreOverlap | None" = field(default=None, repr=False)
+    query_statuses: tuple[QueryAnnotationStatus, ...] = ()
+    gene_list_resolutions: tuple[Any, ...] = field(default_factory=tuple, repr=False)
+    gene_catalog_provenance: dict[str, str] | None = None
 
     def validate(self, *, require_query_alignment: bool = True) -> None:
         """Check the normalized public contract for aggregated results."""
@@ -399,6 +410,15 @@ class LDScoreCalculator:
             global_config=global_config,
             count_config=_count_config_from_ldscore_config(ldscore_config),
         )
+        result = dataclass_replace(
+            result,
+            gene_list_resolutions=tuple(getattr(annotation_bundle, "gene_list_resolutions", ())),
+            gene_catalog_provenance=getattr(annotation_bundle, "gene_catalog_provenance", None),
+        )
+        result = self._finalize_query_statuses(
+            result,
+            tuple(getattr(annotation_bundle, "query_statuses", ())),
+        )
         if output_config is not None:
             output_paths = self.output_writer.write(result, output_config)
             result = _replace_result_output_paths(result, output_paths)
@@ -408,6 +428,84 @@ class LDScoreCalculator:
             f"and {len(result.baseline_table)} retained SNP rows."
         )
         return result
+
+    def _finalize_query_statuses(
+        self,
+        result: LDScoreResult,
+        statuses: Sequence[QueryAnnotationStatus],
+    ) -> LDScoreResult:
+        """Attach final counts and prune zero-hit or constant query LD scores."""
+        if not statuses:
+            return result
+        count_by_column = {
+            str(record["column"]): float(record["all_reference_snp_count"])
+            for record in result.count_records
+            if record.get("group") == "query"
+        }
+        finalized: list[QueryAnnotationStatus] = []
+        retained_queries: list[str] = []
+        for status in statuses:
+            if status.status not in {"ok", "warning"}:
+                finalized.append(status)
+                continue
+            if status.query not in count_by_column or result.query_table is None:
+                raise LDSCInternalError(
+                    "LD-score query-status finalization could not find the scientific column for "
+                    f"usable query {status.query!r}. Re-run with DEBUG logging and report the traceback."
+                )
+            count = count_by_column[status.query]
+            if count <= 0:
+                finalized.append(
+                    status.updated(
+                        status="skipped",
+                        reason="zero_annotation_snps",
+                        n_annotation_snps=count,
+                        details="query overlaps no retained LD-reference SNPs",
+                    )
+                )
+                continue
+            values = pd.to_numeric(result.query_table[status.query], errors="coerce")
+            if values.nunique(dropna=False) <= 1:
+                finalized.append(
+                    status.updated(
+                        status="skipped",
+                        reason="zero_variance_ld_scores",
+                        n_annotation_snps=count,
+                        details="query LD scores have zero variance on regression SNP rows",
+                    )
+                )
+                continue
+            finalized.append(status.updated(n_annotation_snps=count))
+            retained_queries.append(status.query)
+
+        original_queries = list(result.query_columns)
+        query_table = None
+        if retained_queries:
+            metadata_columns = [column for column in result.query_table.columns if column not in original_queries]
+            query_table = result.query_table.loc[:, [*metadata_columns, *retained_queries]].copy()
+        count_records = [
+            record
+            for record in result.count_records
+            if record.get("group") != "query" or record.get("column") in retained_queries
+        ]
+        overlap = result.overlap
+        if overlap is not None:
+            overlap = overlap.select_queries(retained_queries)
+        chromosome_results = [
+            _select_chromosome_result_queries(chromosome_result, retained_queries)
+            for chromosome_result in result.chromosome_results
+        ]
+        finalized_result = dataclass_replace(
+            result,
+            query_table=query_table,
+            query_columns=retained_queries,
+            count_records=count_records,
+            overlap=overlap,
+            chromosome_results=chromosome_results,
+            query_statuses=tuple(finalized),
+        )
+        finalized_result.validate()
+        return finalized_result
 
     def _run_chromosomes(
         self,
@@ -727,6 +825,57 @@ class LDScoreCalculator:
         return self.output_writer.write(result, output_config)
 
 
+def _select_chromosome_result_queries(
+    result: ChromLDScoreResult,
+    retained_queries: Sequence[str],
+) -> ChromLDScoreResult:
+    """Return one chromosome result restricted to final usable query columns."""
+    retained = list(retained_queries)
+    original = list(result.query_columns)
+    query_positions = [original.index(column) for column in retained]
+    query_table = None
+    if retained and result.query_table is not None:
+        metadata_columns = [column for column in result.query_table.columns if column not in original]
+        query_table = result.query_table.loc[:, [*metadata_columns, *retained]].copy()
+    keep_positions = [*range(len(result.baseline_columns)), *[len(result.baseline_columns) + pos for pos in query_positions]]
+    snp_count_totals = {
+        key: np.asarray(values)[keep_positions]
+        for key, values in result.snp_count_totals.items()
+    }
+    overlap = result.overlap
+    if overlap is not None:
+        overlap = OverlapContribution(
+            baseline_block_all=np.asarray(overlap.baseline_block_all)[:, keep_positions],
+            baseline_block_common=(
+                None
+                if overlap.baseline_block_common is None
+                else np.asarray(overlap.baseline_block_common)[:, keep_positions]
+            ),
+            query_diagonal_all=np.asarray(overlap.query_diagonal_all)[query_positions],
+            query_diagonal_common=(
+                None
+                if overlap.query_diagonal_common is None
+                else np.asarray(overlap.query_diagonal_common)[query_positions]
+            ),
+            n_all=overlap.n_all,
+            n_common=overlap.n_common,
+        )
+    selected = dataclass_replace(
+        result,
+        query_table=query_table,
+        query_columns=retained,
+        count_records=[
+            record
+            for record in result.count_records
+            if record.get("group") != "query" or record.get("column") in retained
+        ],
+        snp_count_totals=snp_count_totals,
+        overlap=overlap,
+    )
+    selected.validate()
+    return selected
+
+
 def _assert_canonical_maf(metadata: pd.DataFrame) -> None:
     """Verify the canonical invariant that MAF = freq(A1) is the minor allele.
 
@@ -887,6 +1036,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Comma-separated BED file path tokens projected in memory as query annotations. Requires --baseline-annot-sources.",
     )
+    query_group.add_argument(
+        "--query-annot-gene-list-sources",
+        default=None,
+        help="Comma-separated one-column gene-list path tokens projected in memory as query annotations. Requires --baseline-annot-sources.",
+    )
     parser.add_argument(
         "--bed-padding-bp",
         type=int,
@@ -916,9 +1070,11 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("auto", "hg19", "hg37", "GRCh37", "hg38", "GRCh38"),
         default=None,
         help=(
-            "Genome build for chr_pos-family inputs. Required when --snp-identifier is "
-            "chr_pos or chr_pos_allele_aware. Use 'auto' to infer hg19/hg38 and "
-            "0-based/1-based coordinates from data. Not used for rsid-family modes."
+            "Genome build for chr_pos-family inputs and gene-list interval projection. "
+            "Required when --snp-identifier is a chr_pos mode; gene-list runs default "
+            "to 'auto'. Use 'auto' to infer hg19/hg38 from baseline/reference-panel "
+            "evidence. Not used for rsid-family modes except to select the projection "
+            "intervals for gene-list queries."
         ),
     )
     parser.add_argument(
@@ -994,12 +1150,12 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
     """Run LD-score calculation from a parsed CLI namespace.
 
     The workflow resolves unified path tokens for baseline annotations, optional
-    query annotations or BED files, and the reference panel. If no baseline or
-    query annotations are supplied, it synthesizes an all-ones ``base``
+    prebuilt, BED, or gene-list queries, and the reference panel. If no baseline
+    or query annotations are supplied, it synthesizes an all-ones ``base``
     annotation over the retained reference-panel metadata. Before calculation
     it preflights ``metadata.json``, ``ldscore.baseline.parquet``, optional
-    ``ldscore.query.parquet``, and ``diagnostics/ldscore.log`` under
-    ``output_dir``. With
+    ``ldscore.query.parquet``, query diagnostics when applicable, and
+    ``diagnostics/ldscore.log`` under ``output_dir``. With
     overwrite enabled, successful baseline-only runs remove stale query parquet
     siblings. For each chromosome it intersects annotation rows with
     ``ref_panel.load_metadata(chrom)`` before calling the kernel, then returns
@@ -1029,9 +1185,15 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
             baseline_annot_sources=tuple(split_cli_path_tokens(normalized_args.baseline_annot_sources)),
             query_annot_sources=tuple(split_cli_path_tokens(normalized_args.query_annot_sources)),
             query_annot_bed_sources=tuple(split_cli_path_tokens(getattr(normalized_args, "query_annot_bed_sources", None))),
+            query_annot_gene_list_sources=tuple(
+                split_cli_path_tokens(getattr(normalized_args, "query_annot_gene_list_sources", None))
+            ),
             bed_padding_bp=normalized_args.bed_padding_bp,
         )
-        annotation_bundle = AnnotationBuilder(global_config).run(source_spec)
+        annotation_bundle = AnnotationBuilder(
+            global_config,
+            projection_genome_build=getattr(normalized_args, "gene_catalog_build", None),
+        ).run(source_spec)
         ref_panel = _ref_panel_from_args(normalized_args, global_config)
     else:
         ref_panel = _ref_panel_from_args(normalized_args, global_config)
@@ -1040,8 +1202,15 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
     output_dir = ensure_output_directory(output_config.output_dir, label="LD-score output directory")
     diagnostics_dir = output_dir / "diagnostics"
     log_path = diagnostics_dir / "ldscore.log"
+    query_status_path = diagnostics_dir / "query_annotation_status.tsv"
+    gene_unresolved_path = diagnostics_dir / "gene_list_unresolved.tsv.gz"
+    expected_paths = [*_expected_ldscore_output_paths(output_dir, bool(annotation_bundle.query_columns)), log_path]
+    if getattr(annotation_bundle, "query_statuses", ()):
+        expected_paths.append(query_status_path)
+    if getattr(annotation_bundle, "gene_list_resolutions", ()):
+        expected_paths.append(gene_unresolved_path)
     stale_paths = preflight_output_artifact_family(
-        [*_expected_ldscore_output_paths(output_dir, bool(annotation_bundle.query_columns)), log_path],
+        expected_paths,
         [*_ldscore_output_family(output_dir), log_path],
         overwrite=output_config.overwrite,
         label="LD-score output artifact",
@@ -1060,14 +1229,36 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
             if getattr(normalized_args, "use_hm3_ref_panel_snps", False) or ldscore_config.use_hm3_regression_snps
             else "none",
         )
+        if getattr(normalized_args, "gene_catalog_build", None) is not None:
+            LOGGER.info(
+                "Gene-list catalog projection build: "
+                f"{normalized_args.gene_catalog_build} "
+                "(selected from --genome-build and available baseline/reference-panel evidence)."
+            )
+        initial_statuses = tuple(getattr(annotation_bundle, "query_statuses", ()))
+        if initial_statuses and not annotation_bundle.query_columns:
+            _log_query_annotation_statuses(initial_statuses)
+            diagnostic_paths = calculator.output_writer.write_query_diagnostics(annotation_bundle, output_config)
+            log_outputs(**diagnostic_paths)
+            remove_output_artifacts(stale_paths)
+            raise LDSCInputError(_all_query_annotations_skipped_message(initial_statuses))
         result = calculator.run(
             annotation_bundle=annotation_bundle,
             ref_panel=ref_panel,
             ldscore_config=ldscore_config,
             global_config=global_config,
-            output_config=output_config,
+            output_config=None,
             regression_snps=regression_snps,
         )
+        _log_query_annotation_statuses(result.query_statuses)
+        if result.query_statuses and not result.query_columns:
+            diagnostic_paths = calculator.output_writer.write_query_diagnostics(result, output_config)
+            result = _replace_result_output_paths(result, diagnostic_paths)
+            log_outputs(**diagnostic_paths)
+            remove_output_artifacts(stale_paths)
+            raise LDSCInputError(_all_query_annotations_skipped_message(result.query_statuses))
+        output_paths = calculator.output_writer.write(result, output_config)
+        result = _replace_result_output_paths(result, output_paths)
         log_outputs(**result.output_paths)
         remove_output_artifacts(stale_paths)
     return result
@@ -1081,7 +1272,9 @@ def _validate_run_args(args: argparse.Namespace) -> None:
     the numerical kernels still receive an explicit annotation bundle.
     """
     if not _has_cli_tokens(args.baseline_annot_sources) and (
-        _has_cli_tokens(args.query_annot_sources) or _has_cli_tokens(getattr(args, "query_annot_bed_sources", None))
+        _has_cli_tokens(args.query_annot_sources)
+        or _has_cli_tokens(getattr(args, "query_annot_bed_sources", None))
+        or _has_cli_tokens(getattr(args, "query_annot_gene_list_sources", None))
     ):
         raise LDSCUsageError(_QUERY_REQUIRES_BASELINE_MESSAGE)
     keep = getattr(args, "keep", None)
@@ -1147,6 +1340,39 @@ def _validate_run_args(args: argparse.Namespace) -> None:
 def _has_cli_tokens(value: str | Sequence[str] | None) -> bool:
     """Return whether a CLI path field contains at least one non-empty token."""
     return bool(split_cli_path_tokens(value))
+
+
+def _log_query_annotation_statuses(statuses: Sequence[QueryAnnotationStatus]) -> None:
+    """Log every non-ok query and one compact batch-status summary."""
+    if not statuses:
+        return
+    counts: dict[str, int] = {"ok": 0, "warning": 0, "skipped": 0}
+    for status in statuses:
+        counts[status.status] = counts.get(status.status, 0) + 1
+        if status.status != "ok":
+            diagnostic = (
+                "diagnostics/gene_list_unresolved.tsv.gz"
+                if status.input_type == "gene_list"
+                else "diagnostics/query_annotation_status.tsv"
+            )
+            LOGGER.warning(
+                f"Query annotation '{status.query}' status={status.status}, reason={status.reason}; "
+                f"see {diagnostic}."
+            )
+    LOGGER.info(
+        "Query annotation status summary: "
+        f"ok={counts.get('ok', 0)}, warning={counts.get('warning', 0)}, skipped={counts.get('skipped', 0)}."
+    )
+
+
+def _all_query_annotations_skipped_message(statuses: Sequence[QueryAnnotationStatus]) -> str:
+    """Return the consolidated user-facing error for an unusable batch."""
+    reasons = ", ".join(f"{status.query}={status.reason}" for status in statuses)
+    return (
+        f"ldscore could not continue because all {len(statuses)} requested query annotations were skipped "
+        f"({reasons}). Check diagnostics/query_annotation_status.tsv for details, correct the inputs, "
+        "and rerun with --overwrite when reusing this output directory."
+    )
 
 
 def _format_ldscore_start_message(annotation_bundle, n_chromosomes: int) -> str:
@@ -1228,7 +1454,7 @@ def run_ldscore(**kwargs) -> LDScoreResult:
 
     Keyword arguments are interpreted as CLI-equivalent option names without
     leading ``--``; for example ``baseline_annot_sources``, ``query_annot_sources``,
-    ``query_annot_bed_sources``, ``plink_prefix``, ``r2_dir``,
+    ``query_annot_bed_sources``, ``query_annot_gene_list_sources``, ``plink_prefix``, ``r2_dir``,
     ``keep_indivs_file``, ``snp_batch_size``, ``common_maf_min``, and
     ``output_dir``. Shared runtime assumptions such as ``snp_identifier`` and
     ``genome_build`` must be supplied through ``set_global_config(...)`` first,
@@ -1238,8 +1464,10 @@ def run_ldscore(**kwargs) -> LDScoreResult:
     When ``baseline_annot_sources`` and query inputs are omitted, the workflow
     builds a synthetic all-ones baseline column named ``base`` from retained
     reference-panel metadata. ``query_annot_sources`` and
-    ``query_annot_bed_sources`` require explicit baseline annotations because
-    query columns are interpreted relative to that baseline SNP universe.
+    ``query_annot_bed_sources`` and ``query_annot_gene_list_sources`` require
+    explicit baseline annotations because query columns are interpreted
+    relative to that baseline SNP universe. Gene-list inputs are projected
+    from the packaged protein-coding catalog using the resolved genome build.
 
     Returns
     -------
@@ -1317,7 +1545,15 @@ def _normalize_run_args(args: argparse.Namespace) -> tuple[argparse.Namespace, G
     for attr in ("query_annot_chr", "baseline_annot_chr", "bfile_chr", "r2_table_chr", "frqfile_chr"):
         if not hasattr(normalized_args, attr):
             setattr(normalized_args, attr, None)
-    for attr in ("query_annot_sources", "baseline_annot_sources", "plink_prefix", "r2_dir", "query_annot_bed_sources", "keep_indivs_file"):
+    for attr in (
+        "query_annot_sources",
+        "baseline_annot_sources",
+        "plink_prefix",
+        "r2_dir",
+        "query_annot_bed_sources",
+        "query_annot_gene_list_sources",
+        "keep_indivs_file",
+    ):
         if not hasattr(normalized_args, attr):
             setattr(normalized_args, attr, None)
     for attr in ("ref_panel_snps_file", "regression_snps_file"):
@@ -1367,19 +1603,42 @@ def _normalize_run_args(args: argparse.Namespace) -> tuple[argparse.Namespace, G
     normalized_args.r2_table = None
     normalized_args.frqfile = None
     normalized_args.keep = normalized_args.keep_indivs_file
+    has_gene_lists = _has_cli_tokens(normalized_args.query_annot_gene_list_sources)
+    normalized_args.gene_catalog_build = None
     if identity_mode_family(normalized_mode) == "rsid":
-        global_config = GlobalConfig(
-            snp_identifier=normalized_mode,
-            genome_build=normalize_genome_build(getattr(args, "genome_build", None)),
-            log_level=getattr(args, "log_level", "INFO"),
-        )
-        normalized_args.genome_build = global_config.genome_build
+        requested_build = normalize_genome_build(getattr(args, "genome_build", None))
+        if has_gene_lists:
+            if requested_build in {None, "auto"}:
+                normalized_args.gene_catalog_build = _resolve_ldscore_chr_pos_genome_build(
+                    normalized_args,
+                    "auto",
+                )
+            else:
+                normalized_args.gene_catalog_build = requested_build
+            global_config = GlobalConfig(
+                snp_identifier=normalized_mode,
+                genome_build=None,
+                log_level=getattr(args, "log_level", "INFO"),
+            )
+            normalized_args.genome_build = None
+        else:
+            global_config = GlobalConfig(
+                snp_identifier=normalized_mode,
+                genome_build=requested_build,
+                log_level=getattr(args, "log_level", "INFO"),
+            )
+            normalized_args.genome_build = global_config.genome_build
     else:
+        requested_build = getattr(args, "genome_build", None)
+        if has_gene_lists and requested_build is None:
+            requested_build = "auto"
         resolved_genome_build = _resolve_ldscore_chr_pos_genome_build(
             normalized_args,
-            getattr(args, "genome_build", None),
+            requested_build,
         )
         normalized_args.genome_build = resolved_genome_build
+        if has_gene_lists:
+            normalized_args.gene_catalog_build = resolved_genome_build
         global_config = GlobalConfig(
             snp_identifier=normalized_mode,
             genome_build=resolved_genome_build,
@@ -1654,6 +1913,9 @@ def _ldscore_output_family(output_dir: Path) -> list[Path]:
         output_dir / "metadata.json",
         output_dir / "ldscore.baseline.parquet",
         output_dir / "ldscore.query.parquet",
+        output_dir / "ldscore.overlap.parquet",
+        output_dir / "diagnostics" / "query_annotation_status.tsv",
+        output_dir / "diagnostics" / "gene_list_unresolved.tsv.gz",
     ]
 
 
@@ -1721,6 +1983,9 @@ def _slice_annotation_bundle(annotation_bundle, chrom: str):
         chromosomes=[str(chrom)],
         source_summary=dict(getattr(annotation_bundle, "source_summary", {})),
         config_snapshot=getattr(annotation_bundle, "config_snapshot", None),
+        query_statuses=tuple(getattr(annotation_bundle, "query_statuses", ())),
+        gene_list_resolutions=tuple(getattr(annotation_bundle, "gene_list_resolutions", ())),
+        gene_catalog_provenance=getattr(annotation_bundle, "gene_catalog_provenance", None),
     )
 
 
@@ -1780,6 +2045,9 @@ def _align_annotation_bundle_to_ref_panel(annotation_bundle, ref_panel, chrom: s
         chromosomes=list(getattr(annotation_bundle, "chromosomes", [str(chrom)])),
         source_summary=dict(getattr(annotation_bundle, "source_summary", {})),
         config_snapshot=getattr(annotation_bundle, "config_snapshot", None),
+        query_statuses=tuple(getattr(annotation_bundle, "query_statuses", ())),
+        gene_list_resolutions=tuple(getattr(annotation_bundle, "gene_list_resolutions", ())),
+        gene_catalog_provenance=getattr(annotation_bundle, "gene_catalog_provenance", None),
     )
 
 

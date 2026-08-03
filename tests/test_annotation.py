@@ -33,6 +33,101 @@ def _write_annot(path: Path, rows: list[tuple], annotation_columns: dict[str, li
 
 
 class AnnotationBuilderTest(unittest.TestCase):
+    def test_gene_list_projection_matches_catalog_intervals_and_retains_resolution_status(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            baseline = tmpdir / "baseline.annot"
+            genes = tmpdir / "immune_genes.txt"
+            baseline.write_text(
+                "CHR\tPOS\tSNP\tCM\tbase\n"
+                "1\t65419\trs1\t0\t1\n"
+                "1\t71586\trs2\t0\t1\n"
+                "1\t70000\trs3\t0\t1\n",
+                encoding="utf-8",
+            )
+            genes.write_text("OR4F5\nNOT_A_GENE\n", encoding="utf-8")
+
+            bundle = AnnotationBuilder(
+                GlobalConfig(snp_identifier="rsid"),
+                projection_genome_build="hg38",
+            ).run(
+                AnnotationBuildConfig(
+                    baseline_annot_sources=(baseline,),
+                    query_annot_gene_list_sources=(genes,),
+                )
+            )
+
+        self.assertEqual(bundle.query_columns, ["immune_genes"])
+        self.assertEqual(bundle.query_annotations["immune_genes"].tolist(), [1.0, 0.0, 1.0])
+        self.assertEqual(len(bundle.query_statuses), 1)
+        self.assertEqual(bundle.query_statuses[0].status, "warning")
+        self.assertEqual(bundle.query_statuses[0].reason, "partial_resolution")
+        self.assertEqual(bundle.gene_list_resolutions[0].canonical_ensembl_ids, ("ENSG00000186092",))
+        self.assertEqual(bundle.gene_list_resolutions[0].unresolved[0].input_gene, "NOT_A_GENE")
+
+    def test_bed_query_local_parse_failure_does_not_abort_valid_sibling(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            baseline = tmpdir / "baseline.annot"
+            valid = tmpdir / "valid.bed"
+            malformed = tmpdir / "malformed.bed"
+            baseline.write_text("CHR\tPOS\tSNP\tCM\tbase\n1\t10\trs1\t0\t1\n", encoding="utf-8")
+            valid.write_text("chr1\t9\t11\n", encoding="utf-8")
+            malformed.write_text("chr1\tbad\t11\n", encoding="utf-8")
+
+            bundle = AnnotationBuilder(GlobalConfig(snp_identifier="rsid")).run(
+                AnnotationBuildConfig(
+                    baseline_annot_sources=(baseline,),
+                    query_annot_bed_sources=(valid, malformed),
+                )
+            )
+
+        self.assertEqual(bundle.query_columns, ["valid"])
+        self.assertEqual(bundle.query_annotations["valid"].tolist(), [1.0])
+        self.assertEqual(
+            [(row.query, row.status, row.reason) for row in bundle.query_statuses],
+            [("valid", "ok", ""), ("malformed", "skipped", "malformed_input")],
+        )
+
+    def test_gene_list_projection_is_identical_to_equivalent_bed_with_padding(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            baseline = tmpdir / "baseline.annot"
+            genes = tmpdir / "or4f5.txt"
+            bed = tmpdir / "or4f5.bed"
+            baseline.write_text(
+                "CHR\tPOS\tSNP\tCM\tbase\n"
+                "1\t65410\trs1\t0\t1\n"
+                "1\t65419\trs2\t0\t1\n"
+                "1\t71590\trs3\t0\t1\n"
+                "1\t71600\trs4\t0\t1\n",
+                encoding="utf-8",
+            )
+            genes.write_text("OR4F5\n", encoding="utf-8")
+            bed.write_text("chr1\t65418\t71585\n", encoding="utf-8")
+            builder = AnnotationBuilder(GlobalConfig(snp_identifier="rsid"), projection_genome_build="hg38")
+
+            gene_bundle = builder.run(
+                AnnotationBuildConfig(
+                    baseline_annot_sources=(baseline,),
+                    query_annot_gene_list_sources=(genes,),
+                    bed_padding_bp=10,
+                )
+            )
+            bed_bundle = builder.run(
+                AnnotationBuildConfig(
+                    baseline_annot_sources=(baseline,),
+                    query_annot_bed_sources=(bed,),
+                    bed_padding_bp=10,
+                )
+            )
+
+        self.assertEqual(gene_bundle.query_annotations["or4f5"].tolist(), [1.0, 1.0, 1.0, 0.0])
+        self.assertEqual(
+            gene_bundle.query_annotations["or4f5"].tolist(),
+            bed_bundle.query_annotations["or4f5"].tolist(),
+        )
+
     def test_bed_to_annot_parser_genome_build_help_documents_chr_pos_requirement(self):
         stdout = io.StringIO()
         with self.assertRaises(SystemExit):

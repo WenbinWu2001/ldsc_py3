@@ -1,6 +1,8 @@
 # LD Score Calculation
 
-Goal: compute LDSC-compatible LD scores from a reference panel alone, from pre-built SNP-level annotation files, or from raw BED intervals plus an explicit baseline.
+Last updated on: 2026-08-03
+
+Goal: compute LDSC-compatible LD scores from a reference panel alone, from pre-built SNP-level annotations, or from raw BED/gene-list queries plus an explicit baseline.
 
 The examples below assume chromosome-pattern annotation inputs such as
 `annotations/baseline.1.annot.gz` and a package-built R2 directory such as
@@ -45,7 +47,7 @@ backends.
 Resolution behavior:
 
 - there is no separate `*_chr` argument anymore; the same public argument now accepts exact paths, globs, or explicit `@` suite tokens
-- group inputs such as `--baseline-annot-sources`, `--query-annot-sources`, and `--query-annot-bed-sources` may resolve to many files; package-built parquet panels are supplied as one build directory with `--r2-dir`
+- group inputs such as `--baseline-annot-sources`, `--query-annot-sources`, `--query-annot-bed-sources`, and `--query-annot-gene-list-sources` may resolve to many files; package-built parquet panels are supplied as one build directory with `--r2-dir`
 - when a group token resolves to chromosome-sharded files, the workflow tries to keep only the files whose names match the active chromosome
 - if filename-based chromosome filtering is not possible, the workflow reads the matched files and filters rows by `CHR` internally
 - scalar inputs still must resolve to exactly one file
@@ -75,7 +77,8 @@ Important output behavior:
 - regression-universe LD scores live in the `regression_ld_scores` column of `ldscore.baseline.parquet`; there is no separate `.w.l2.ldscore.gz` output
 - annotation counts are stored as metadata records, not as separate `.M` files
 - if both baseline and query inputs are omitted, the workflow synthesizes an all-ones baseline column named exactly `base` over retained reference-panel metadata
-- query `.annot` and BED inputs require explicit baseline annotations; create an explicit all-ones `base` baseline annotation yourself if you intentionally want query annotations tested against that universe
+- prebuilt, BED, and gene-list queries are mutually exclusive and require explicit baseline annotations; create an explicit all-ones `base` baseline yourself if you intentionally want that query universe
+- BED/gene runs write `diagnostics/query_annotation_status.tsv`; gene runs also write `diagnostics/gene_list_unresolved.tsv.gz`
 - missing output directories are created and existing directories are reused
 - existing owned LD-score artifacts, including unselected siblings such as a
   stale `ldscore.query.parquet`, fail before writing starts; reruns that should
@@ -232,6 +235,41 @@ ldsc ldscore \
   --common-maf-min 0.05 \
   --ld-wind-cm 1.0
 ```
+
+## Case 4: Use Gene Lists Directly
+
+Gene-list inputs are one-column, headerless plain or gzip files containing exact
+Ensembl gene IDs, exact case-sensitive gene names, or a mixture. The source
+basename becomes the query name: `immune_genes.txt.gz` becomes `immune_genes`.
+
+```bash
+ldsc ldscore \
+  --output-dir tutorial_outputs/gene_list_ldscores \
+  --baseline-annot-sources "annotations/baseline_chr/baseline.@.annot.gz" \
+  --query-annot-gene-list-sources "gene_lists/*.txt.gz" \
+  --r2-dir "r2_ref_panel_1kg30x_1cM_hm3/hg38" \
+  --use-hm3-ref-panel-snps \
+  --use-hm3-regression-snps \
+  --snp-identifier chr_pos_allele_aware \
+  --genome-build auto \
+  --common-maf-min 0.05 \
+  --ld-wind-cm 1.0
+```
+
+The packaged GENCODE v49 protein-coding catalog supplies hg19/hg38 intervals;
+`--genome-build auto` selects the interval set from baseline/reference-panel
+evidence and reports the inferred build in `diagnostics/ldscore.log`.
+
+Each BED or gene-list query is processed independently. If any input query gene
+list or BED file is absent from `ldscore.query.parquet` or downstream results,
+that query hit a failure. Check
+`diagnostics/query_annotation_status.tsv` for the reason. For gene lists, check
+`diagnostics/gene_list_unresolved.tsv.gz` for the exact unresolved or invalid
+gene rows. Valid sibling queries continue; when every query is skipped, only
+diagnostics are written and the command exits with an error.
+
+See [Gene-List Query Input](../docs/current/gene-list-input-format.md) for exact
+resolution, coordinate, naming, and partial-success rules.
 
 ## Optional: Read One Chromosome From A Result Directory
 

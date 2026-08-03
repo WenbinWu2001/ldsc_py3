@@ -1,6 +1,6 @@
 # IO Argument Inventory
 
-Date: 2026-04-28
+Last updated on: 2026-08-03
 
 This document records the current public input/output naming contract after the
 LD-score result-directory refactor. The LD-score workflow uses a canonical
@@ -14,6 +14,8 @@ result directory as the baseline design:
   ldscore.overlap.parquet      # overlap matrix; omitted for single-annotation (e.g. base-only) runs; required by partitioned-h2
   diagnostics/
     ldscore.log
+    query_annotation_status.tsv  # BED/gene-list query runs
+    gene_list_unresolved.tsv.gz  # gene-list runs
 ```
 
 Regression workflows consume this directory with `--ldscore-dir`; fragmented
@@ -97,7 +99,7 @@ Public CLI flags and Python config fields follow these rules:
 | Suffix | Meaning | Examples |
 |---|---|---|
 | `*_file` | one file-like input, exact-one glob allowed where the resolver supports it | `raw_sumstats_file`, `sumstats_file`, `sumstats_snps_file`, `keep_indivs_file` |
-| `*_sources` | one logical input that may resolve to many files via globs, comma lists, or `@` chromosome tokens | `baseline_annot_sources`, `query_annot_bed_sources` |
+| `*_sources` | one logical input that may resolve to many files via globs, comma lists, or supported `@` chromosome tokens | `baseline_annot_sources`, `query_annot_bed_sources`, `query_annot_gene_list_sources` |
 | `*_dir` | directory input or output location | `ldscore_dir`, `output_dir` |
 
 Removed from artifact-writing workflow surfaces:
@@ -158,17 +160,18 @@ Removed flags: `--bed-files`, `--baseline-annot`.
 
 | Flag | Direction | Required | Object | Notes |
 |---|---:|---:|---|---|
-| `--output-dir` | output | yes | canonical LD-score result directory | Writes root `metadata.json`, `ldscore.baseline.parquet`, optional `ldscore.query.parquet`, optional `ldscore.overlap.parquet` (only for runs with >=2 annotation columns), and `diagnostics/ldscore.log`; parquet row groups are chromosome-aligned. |
+| `--output-dir` | output | yes | canonical LD-score result directory | Writes root scientific artifacts and `diagnostics/ldscore.log`; BED/gene runs add `query_annotation_status.tsv`, and gene runs add `gene_list_unresolved.tsv.gz`. Parquet row groups are chromosome-aligned. |
 | `--overwrite` | output mode | no | collision policy | Controls whether fixed LD-score files and `diagnostics/ldscore.log` may be replaced; defaults to `False`, so any existing owned LD-score artifact in `output_dir` is refused. With overwrite, stale `ldscore.query.parquet` is removed after successful baseline-only runs. |
 | `--log-level` | logging | no | workflow log verbosity | Controls ordinary LDSC logger record verbosity; these records go to `diagnostics/ldscore.log` and the CLI console (stderr) shows only errors. Lifecycle audit lines always appear in the file. |
 | `--baseline-annot-sources` | input | no | baseline annotation files | Supplies baseline annotation files; defaults to omitted/`None`, and if no query inputs are supplied `ldscore` synthesizes an all-ones `base` column. |
-| `--query-annot-sources` | input | no | prebuilt query annotation files | Supplies prebuilt query annotation files; defaults to omitted/`None`, so no prebuilt query annotations are used. Mutually exclusive with `--query-annot-bed-sources` and requires `--baseline-annot-sources`. |
-| `--query-annot-bed-sources` | input | no | query BED interval files | Supplies BED intervals to project as query annotations; defaults to omitted/`None`, so no BED query annotations are projected. Requires `--baseline-annot-sources`. |
+| `--query-annot-sources` | input | no | prebuilt query annotation files | Supplies prebuilt query annotations. Mutually exclusive with the BED and gene-list routes and requires `--baseline-annot-sources`. |
+| `--query-annot-bed-sources` | input | no | query BED interval files | Supplies BED intervals projected in memory. Mutually exclusive with the prebuilt and gene-list routes and requires `--baseline-annot-sources`. Concrete-source failures are recorded and skipped while usable siblings continue. |
+| `--query-annot-gene-list-sources` | input | no | one-column gene lists | Supplies exact/glob file groups resolved against the packaged protein-coding catalog; explicit files retain order and globs expand lexically. Mutually exclusive with other query routes, does not use `@`, and requires `--baseline-annot-sources`. |
 | `--bed-padding-bp` | input transform | no | query BED interval expansion | Adds this many base pairs to both sides of each query BED interval before in-memory projection; starts are clipped at zero. Defaults to `0`, so BED intervals are used as provided. |
 | `--plink-prefix` | input | conditional | PLINK reference panel prefix | Selects PLINK reference-panel input; defaults to omitted/`None` and is required when `--r2-dir` is omitted. Supports exact prefix, PLINK-prefix glob, or `@` suite. |
 | `--r2-dir` | input | conditional | package-built parquet R2 directory | Selects parquet reference-panel input; defaults to omitted/`None` and is required when `--plink-prefix` is omitted. Use a build-specific directory such as `ref_panel/hg38`. The directory must contain paired `chrN_r2.parquet` (4-column index format) and `chrN_meta.tsv.gz` sidecar files; the sidecar is mandatory. One parquet serves all identifier modes. |
 | `--snp-identifier` | config | no | SNP identity mode | Defines how SNPs are keyed. Defaults to `chr_pos_allele_aware`; valid values are `rsid`, `rsid_allele_aware`, `chr_pos`, and `chr_pos_allele_aware`. |
-| `--genome-build` | config | no | coordinate interpretation | Coordinate build for `chr_pos`-family inputs. Defaults to omitted/`None` and may be `auto`, `hg19`/`GRCh37`, or `hg38`/`GRCh38`. |
+| `--genome-build` | config | no | coordinate and gene-interval interpretation | Build for `chr_pos` identity and gene-list interval projection. Gene-list omission defaults to `auto`, including rsID modes; rsID artifact identity metadata remains build-independent. Accepted aliases normalize to hg19 or hg38. |
 | `--ref-panel-snps-file` | input | no | reference-panel SNP universe restriction | Restricts the retained reference-panel SNP universe using identity keys only; duplicate restriction keys collapse to one retained key, and non-identity columns such as `CM` or `MAF` are ignored. Defaults to omitted/`None`, so no additional restriction is applied. |
 | `--use-hm3-ref-panel-snps` | input mode | no | packaged HM3 reference-panel SNP restriction | Restricts the retained reference-panel SNP universe to the packaged curated HM3 map. Mutually exclusive with `--ref-panel-snps-file`. |
 | `--regression-snps-file` | input | no | persisted LD-score row-set restriction | Restricts the written LD-score row set using identity keys only; duplicate restriction keys collapse to one retained key, and non-identity columns such as `CM` or `MAF` are ignored. Defaults to omitted/`None`, so rows are not restricted by a persisted regression SNP set. |
@@ -470,6 +473,7 @@ Removed flags: `--ldscore`, `--counts`, `--w-ld`, `--annotation-manifest`,
 | `AnnotationBuildConfig` | `baseline_annot_sources` | input | baseline annotation group |
 | `AnnotationBuildConfig` | `query_annot_sources` | input | prebuilt query annotation group |
 | `AnnotationBuildConfig` | `query_annot_bed_sources` | input | query BED group |
+| `AnnotationBuildConfig` | `query_annot_gene_list_sources` | input | one-column query gene-list group |
 | `AnnotationBuildConfig` | `bed_padding_bp` | input transform | BED interval padding in base pairs; default `0` |
 | `AnnotationBuildConfig` | `output_dir` | output | generated query annotation directory |
 | `AnnotationBuilder.run(config=None, chrom=None)` | `config` | input/output | annotation workflow config; defaults to the builder config |

@@ -337,6 +337,9 @@ class AnnotationBuildConfig:
     query_annot_bed_sources : str, os.PathLike[str], or sequence of those, optional
         BED inputs that should be projected to SNP-level annotations. Default is
         ``()``.
+    query_annot_gene_list_sources : str, os.PathLike[str], or sequence of those, optional
+        One-column gene lists that should be resolved and projected to SNP-level
+        query annotations. Default is ``()``.
     bed_padding_bp : int, optional
         Number of base pairs to add to both sides of each BED interval before
         SNP overlap projection. Starts are clipped at zero. Default is ``0``.
@@ -354,6 +357,7 @@ class AnnotationBuildConfig:
     baseline_annot_sources: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
     query_annot_sources: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
     query_annot_bed_sources: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
+    query_annot_gene_list_sources: str | PathLike[str] | tuple[str | PathLike[str], ...] | list[str | PathLike[str]] = field(default_factory=tuple)
     bed_padding_bp: int = 0
     output_dir: str | PathLike[str] | None = None
     compression: CompressionMode = "gzip"
@@ -365,6 +369,17 @@ class AnnotationBuildConfig:
         object.__setattr__(self, "baseline_annot_sources", _normalize_path_tuple(self.baseline_annot_sources))
         object.__setattr__(self, "query_annot_sources", _normalize_path_tuple(self.query_annot_sources))
         object.__setattr__(self, "query_annot_bed_sources", _normalize_path_tuple(self.query_annot_bed_sources))
+        object.__setattr__(self, "query_annot_gene_list_sources", _normalize_path_tuple(self.query_annot_gene_list_sources))
+        query_groups = (
+            self.query_annot_sources,
+            self.query_annot_bed_sources,
+            self.query_annot_gene_list_sources,
+        )
+        if sum(bool(group) for group in query_groups) > 1:
+            raise LDSCConfigError(
+                "Could not construct AnnotationBuildConfig: prebuilt, BED, and gene-list query sources "
+                "are mutually exclusive. Supply exactly one query source type per run."
+            )
         object.__setattr__(self, "output_dir", _normalize_optional_path(self.output_dir))
         if isinstance(self.bed_padding_bp, bool):
             raise LDSCConfigError(

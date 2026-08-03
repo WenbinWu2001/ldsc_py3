@@ -1,5 +1,7 @@
 # LDSC3 - Guided Analysis Tutorial
 
+Last updated on: 2026-08-03
+
 This tutorial walks through how to use the `ldsc` package for a series of LD score-based heritability analyses.
 
 The analysis pipeline involves:
@@ -20,7 +22,7 @@ The files you will need are:
 - raw GWAS summary statistics files for the traits of interest (or munged sumstats from the legacy ldsc python2 codebase);
 - a reference panel for LD score calculation (either R2 parquets or the PLINK suite);
 - a set of baseline annotations;
-- raw BED files for the pathways / cell types whose h2 contribution you want to test (the "query annotations").
+- raw BED files or one-column gene lists for the pathways / cell types whose h2 contribution you want to test (the "query annotations").
 
 
 As a motivating example, we study the `mdd2025` trait, using 1000 Genomes Phase 3 as the reference panel and `1000G_EUR_Phase3_baseline` as the baseline annotations, with `Hippocampus_PP1.bed`, `Cerebellum_PC16.bed`, `Cerebellum_PP3.bed`, and `Cerebellum_PP1.bed` as the pathways whose heritability contribution we test after controlling for the baseline annotations.
@@ -306,6 +308,14 @@ ldsc ldscore \
 
 - For PLINK input, replace `--r2-dir ...` with `--plink-prefix "${PLINK_PREFIX}"`.
 - For partitioned h2 analysis, `ldsc ldscore` accepts BED files directly, so you do not need to build the annotations yourself to run this analysis. If you do want to generate annotations for other purposes, follow the *Make annotations* section below.
+- Alternatively, pass one-column plain/gzip lists through
+  `--query-annot-gene-list-sources`; exact Ensembl IDs and case-sensitive gene
+  names are resolved against the packaged protein-coding catalog. The BED and
+  gene-list flags are mutually exclusive.
+- If any input query gene list or BED file is not found in the scientific
+  results, that query hit a failure. Check
+  `diagnostics/query_annotation_status.tsv` for the reason. For gene lists,
+  `diagnostics/gene_list_unresolved.tsv.gz` lists the problematic genes.
 
 **Caveat:** if you use `--ld-wind-cm`, make sure your PLINK suite has non-missing genetic coordinates (the third column in the `.bim` file). If they are missing (e.g., all zeros), the program will raise an error.
 

@@ -149,18 +149,6 @@ def _one_ld_window_message(config_name: str) -> str:
     )
 
 
-def _validate_region_presets(class_name: str, names: tuple[str, ...]) -> None:
-    """Raise if any preset name is outside the supported region menu."""
-    from ._kernel.regions import REGION_PRESETS
-
-    unknown = sorted(set(names) - REGION_PRESETS)
-    if unknown:
-        raise LDSCConfigError(
-            f"Could not construct {class_name}: unknown region preset(s) {unknown}. "
-            f"Most likely a name was misspelled. Valid presets are {sorted(REGION_PRESETS)}."
-        )
-
-
 @dataclass(frozen=True, init=False)
 class GlobalConfig:
     """Shared configuration used across the refactored workflows.
@@ -435,19 +423,6 @@ class RefPanelConfig:
     keep_indivs_file : str or os.PathLike[str] or None, optional
         Optional path to a one-column IID keep file applied in PLINK mode before
         genotype-derived MAF is computed. Default is ``None``.
-    use_hm3_ref_panel_snps : bool, optional
-        If ``True``, restrict the runtime reference-panel universe to the
-        packaged curated HM3 SNP map. Mutually exclusive with
-        ``ref_panel_snps_file``. Default is ``False``.
-    exclude_regions : tuple of str, optional
-        Named region presets to exclude (e.g. ``"mhc"``, ``"centromeres"``).
-        Requires ``exclude_regions_build``. Default is ``()``.
-    exclude_regions_bed : tuple of str, optional
-        Paths to user-supplied BED files whose intervals are excluded.
-        Build-agnostic; may be combined with ``exclude_regions``. Default is ``()``.
-    exclude_regions_build : {"hg19", "hg38"} or None, optional
-        Genome build used to resolve preset intervals. Required when
-        ``exclude_regions`` is non-empty. Default is ``None``.
     """
     backend: RefPanelBackend = "auto"
     plink_prefix: str | PathLike[str] | None = None
@@ -457,10 +432,6 @@ class RefPanelConfig:
     keep_indivs_file: str | PathLike[str] | None = None
     sample_size: int | None = None
     ref_panel_snps_file: str | PathLike[str] | None = None
-    use_hm3_ref_panel_snps: bool = False
-    exclude_regions: tuple[str, ...] = ()
-    exclude_regions_bed: tuple[str, ...] = ()
-    exclude_regions_build: Literal["hg19", "hg38"] | None = None
     genetic_map_hg19_sources: str | PathLike[str] | None = None
     genetic_map_hg38_sources: str | PathLike[str] | None = None
 
@@ -478,31 +449,10 @@ class RefPanelConfig:
         object.__setattr__(self, "ref_panel_snps_file", _normalize_optional_path(self.ref_panel_snps_file))
         object.__setattr__(self, "genetic_map_hg19_sources", _normalize_optional_path(self.genetic_map_hg19_sources))
         object.__setattr__(self, "genetic_map_hg38_sources", _normalize_optional_path(self.genetic_map_hg38_sources))
-        if self.ref_panel_snps_file is not None and self.use_hm3_ref_panel_snps:
-            raise LDSCConfigError(_mutually_exclusive_message("RefPanelConfig", "ref_panel_snps_file", "use_hm3_ref_panel_snps"))
         if self.chromosomes is not None:
             from .chromosome_inference import normalize_chromosome
 
             object.__setattr__(self, "chromosomes", tuple(normalize_chromosome(chrom) for chrom in self.chromosomes))
-        object.__setattr__(self, "exclude_regions", tuple(self.exclude_regions))
-        object.__setattr__(
-            self,
-            "exclude_regions_bed",
-            tuple(_normalize_optional_path(token) for token in self.exclude_regions_bed if token),
-        )
-        _validate_region_presets("RefPanelConfig", self.exclude_regions)
-        if self.exclude_regions_build not in {None, "hg19", "hg38"}:
-            raise LDSCConfigError(
-                _invalid_choice_message(
-                    "RefPanelConfig", "exclude_regions_build", self.exclude_regions_build, "None, 'hg19', or 'hg38'"
-                )
-            )
-        if self.exclude_regions and self.exclude_regions_build is None:
-            raise LDSCConfigError(
-                "RefPanelConfig received exclude_regions presets without exclude_regions_build. "
-                "Most likely --exclude-regions was passed without --exclude-regions-build. "
-                "Region presets are build-specific; pass --exclude-regions-build hg19 or hg38."
-            )
 
 
 @dataclass(frozen=True)
@@ -525,10 +475,6 @@ class LDScoreConfig:
         the persisted ``ldscore.baseline.parquet`` row set and, when query
         annotations are present, the aligned ``ldscore.query.parquet`` row set.
         Default is ``None``.
-    use_hm3_regression_snps : bool, optional
-        If ``True``, use the packaged curated HM3 SNP map as the persisted
-        regression SNP set. Mutually exclusive with ``regression_snps_file``.
-        Default is ``False``.
     snp_batch_size : int, optional
         Number of SNPs processed per LD-score sliding batch. Default is
         ``128``.
@@ -555,7 +501,6 @@ class LDScoreConfig:
     ld_wind_kb: float | None = None
     ld_wind_cm: float | None = None
     regression_snps_file: str | PathLike[str] | None = None
-    use_hm3_regression_snps: bool = False
     snp_batch_size: int = 128
     common_maf_min: float = 0.05
     whole_chromosome_ok: bool = False
@@ -585,8 +530,6 @@ class LDScoreConfig:
                 "but one."
             )
         object.__setattr__(self, "regression_snps_file", _normalize_optional_path(self.regression_snps_file))
-        if self.regression_snps_file is not None and self.use_hm3_regression_snps:
-            raise LDSCConfigError(_mutually_exclusive_message("LDScoreConfig", "regression_snps_file", "use_hm3_regression_snps"))
 
 
 @dataclass(frozen=True)
@@ -634,16 +577,6 @@ class ReferencePanelBuildConfig:
         then match by base key. In ``chr_pos``-family modes, the restriction
         file must be aligned to the resolved source reference-panel build; the
         builder never uses ``GlobalConfig.genome_build``.
-    use_hm3_snps : bool, optional
-        If ``True``, restrict the emitted reference-panel universe to the
-        packaged curated HM3 SNP map. Mutually exclusive with
-        ``ref_panel_snps_file``. Default is ``False``.
-    use_hm3_quick_liftover : bool, optional
-        If ``True``, emit the opposite-build reference-panel artifacts for the
-        HM3-restricted coordinate universe using the packaged curated HM3 map.
-        Requires ``use_hm3_snps``, is valid only in ``chr_pos``-family modes,
-        and is mutually exclusive with chain-file liftover. Default is
-        ``False``.
     keep_indivs_file : str or os.PathLike[str] or None, optional
         Optional individual keep-file applied before R2 calculation. Default is
         ``None``.
@@ -663,12 +596,6 @@ class ReferencePanelBuildConfig:
         workflow-owned parquet, metadata, dropped-SNP, or log siblings after a
         successful run. If ``False``, output collisions raise before
         chromosome processing starts. Default is ``False``.
-    exclude_regions : tuple of str, optional
-        Named region presets to exclude. Build is resolved from
-        ``source_genome_build``. Default is ``()``.
-    exclude_regions_bed : tuple of str, optional
-        Paths to user-supplied BED files whose intervals are excluded.
-        Default is ``()``.
     """
 
     plink_prefix: str | PathLike[str]
@@ -683,14 +610,10 @@ class ReferencePanelBuildConfig:
     ld_wind_cm: float | None = None
     maf_min: float | None = None
     ref_panel_snps_file: str | PathLike[str] | None = None
-    use_hm3_snps: bool = False
-    use_hm3_quick_liftover: bool = False
     keep_indivs_file: str | PathLike[str] | None = None
     snp_batch_size: int = 128
     min_r2: float = 0.0
     overwrite: bool = False
-    exclude_regions: tuple[str, ...] = ()
-    exclude_regions_bed: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         """Normalize build paths and validate liftover and LD-window settings."""
@@ -725,23 +648,6 @@ class ReferencePanelBuildConfig:
         object.__setattr__(self, "output_dir", _normalize_required_path(self.output_dir))
         object.__setattr__(self, "ref_panel_snps_file", _normalize_optional_path(self.ref_panel_snps_file))
         object.__setattr__(self, "keep_indivs_file", _normalize_optional_path(self.keep_indivs_file))
-        if self.ref_panel_snps_file is not None and self.use_hm3_snps:
-            raise LDSCConfigError(_mutually_exclusive_message("ReferencePanelBuildConfig", "ref_panel_snps_file", "use_hm3_snps"))
-        if self.use_hm3_quick_liftover and not self.use_hm3_snps:
-            raise LDSCConfigError(
-                "Could not construct ReferencePanelBuildConfig: use_hm3_quick_liftover=True requires use_hm3_snps=True. "
-                "Most likely quick liftover was enabled without selecting the packaged HM3 SNP set. "
-                "Enable use_hm3_snps or use a chain-file liftover option instead."
-            )
-        if self.use_hm3_quick_liftover and (
-            self.liftover_chain_hg19_to_hg38_file is not None
-            or self.liftover_chain_hg38_to_hg19_file is not None
-        ):
-            raise LDSCConfigError(
-                "Could not construct ReferencePanelBuildConfig: chain-file liftover and use_hm3_quick_liftover are mutually exclusive. "
-                "Most likely two liftover methods were selected for the same reference-panel build. "
-                "Choose either the HM3 quick liftover shortcut or chain-file liftover, not both."
-            )
         windows = [self.ld_wind_snps, self.ld_wind_kb, self.ld_wind_cm]
         if sum(value is not None for value in windows) != 1:
             raise LDSCConfigError(_one_ld_window_message("ReferencePanelBuildConfig"))
@@ -772,13 +678,6 @@ class ReferencePanelBuildConfig:
                 "Most likely an R2 percentage or invalid threshold was supplied. "
                 "Use a decimal threshold in [0, 1]."
             )
-        object.__setattr__(self, "exclude_regions", tuple(self.exclude_regions))
-        object.__setattr__(
-            self,
-            "exclude_regions_bed",
-            tuple(_normalize_optional_path(token) for token in self.exclude_regions_bed if token),
-        )
-        _validate_region_presets("ReferencePanelBuildConfig", self.exclude_regions)
 
 
 @dataclass(frozen=True)

@@ -138,11 +138,10 @@ positions are not the row identity there.
 
 `ldsc build-ref-panel` keeps a separate source-build contract for PLINK input:
 provide or infer `--source-genome-build`, and a matching chain file emits the
-opposite build. `--use-hm3-snps` restricts the emitted SNP universe to the
-packaged curated HM3 map, and `--use-hm3-quick-liftover` can emit the opposite
-build for that HM3-restricted coordinate universe without a chain file.
-Chain-file and HM3 quick liftover are invalid when the active `snp_identifier`
-is in the `rsid` family; omit liftover for source-build-only rsID panels. In
+opposite build. Deliberate reference-universe restriction uses an explicit
+`--ref-panel-snps-file`; the builder has no HM3-only restriction or quick-liftover
+mode. Chain-file liftover is invalid when the active
+`snp_identifier` is in the `rsid` family; omit liftover for source-build-only rsID panels. In
 `chr_pos`-family modes,
 duplicate source or target coordinate groups are dropped by default
 (`--duplicate-position-policy drop-all`), with details in `build-ref-panel.log`

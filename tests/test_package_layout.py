@@ -374,29 +374,15 @@ class PackageLayoutTest(unittest.TestCase):
         self.assertEqual(args.command, "ldscore")
         self.assertEqual(args.regression_snps_file, "filters/hm3.txt")
 
-    def test_ldscore_subcommand_accepts_explicit_hm3_flags(self):
+    def test_ldscore_subcommand_rejects_removed_hm3_flags(self):
         from ldsc import cli
 
         parser = cli.build_parser()
-        args = parser.parse_args(
-            [
-                "ldscore",
-                "--output-dir",
-                "out/ldscores",
-                "--baseline-annot-sources",
-                "baseline.annot.gz",
-                "--plink-prefix",
-                "panel",
-                "--ld-wind-snps",
-                "10",
-                "--use-hm3-ref-panel-snps",
-                "--use-hm3-regression-snps",
-            ]
-        )
-
-        self.assertEqual(args.command, "ldscore")
-        self.assertTrue(args.use_hm3_ref_panel_snps)
-        self.assertTrue(args.use_hm3_regression_snps)
+        with self.assertRaises(SystemExit):
+            parser.parse_args(
+                ["ldscore", "--output-dir", "out/ldscores", "--baseline-annot-sources", "baseline.annot.gz",
+                 "--plink-prefix", "panel", "--ld-wind-snps", "10", "--use-hm3-ref-panel-snps"]
+            )
 
     def test_munge_sumstats_subcommand_accepts_sumstats_snps_file(self):
         from ldsc import cli

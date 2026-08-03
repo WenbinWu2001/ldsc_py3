@@ -182,9 +182,8 @@ not produced by the successful run are removed.
 Reference-panel liftover is coordinate behavior: chain-file liftover and HM3
 quick liftover are valid only when the active SNP identifier mode is in the
 `chr_pos` family.
-HM3 quick liftover requires the packaged HM3 SNP restriction flag and emits the
-opposite build only for the retained HM3 coordinate universe. Duplicate-position
-filtering also applies only in `chr_pos`-family modes and always drops all colliding
+Reference-panel liftover requires a matching chain file. Duplicate-position
+filtering applies only in `chr_pos`-family modes and always drops all colliding
 source or target coordinate groups. The sidecar also records unmapped and
 cross-chromosome liftover drops; clean processed chromosomes get a header-only
 sidecar.
@@ -197,8 +196,8 @@ sidecar.
 | `.bim` row | `22 rs123 0.0 16050075 A G` | variant metadata |
 | `.fam` row | `fam1 iid1 0 0 0 -9` | sample metadata |
 | genetic map, conditional | `chr position Genetic_Map(cM)`<br/>`22 16050000 0.42` | required for every emitted build when cM windows are used; optional for SNP/kb windows |
-| liftover method, optional | `hg38ToHg19.over.chain.gz` or `--use-hm3-snps --use-hm3-quick-liftover` | matching source-to-target chain enables cross-build R2 and metadata in chr_pos-family modes (`chr_pos`, `chr_pos_allele_aware`); HM3 quick liftover uses the packaged map and requires HM3 restriction; omitted liftover produces source-build-only output; liftover is rejected in rsID-family modes (`rsid`, `rsid_allele_aware`) |
-| keep or restrict file, optional | one IID per row, a headered SNP table, or `--use-hm3-snps` | filters individuals or variants; SNP restriction matching uses `GlobalConfig.snp_identifier`; `chr_pos`-family restrictions must match the source PLINK build; allele-free restrictions match by base key; allele-bearing restrictions, including packaged HM3, match by effective allele-aware key in allele-aware modes; duplicate restriction keys collapse to one retained key and non-identity columns such as `CM` or `MAF` are ignored |
+| liftover method, optional | `hg38ToHg19.over.chain.gz` | matching source-to-target chain enables cross-build R2 and metadata in chr_pos-family modes (`chr_pos`, `chr_pos_allele_aware`); omitted liftover produces source-build-only output; liftover is rejected in rsID-family modes (`rsid`, `rsid_allele_aware`) |
+| keep or restrict file, optional | one IID per row or a headered SNP table through `--ref-panel-snps-file` | filters individuals or variants; SNP restriction matching uses `GlobalConfig.snp_identifier`; `chr_pos`-family restrictions must match the source PLINK build; allele-free restrictions match by base key; allele-bearing restrictions match by effective allele-aware key in allele-aware modes; duplicate restriction keys collapse to one retained key and non-identity columns such as `CM` or `MAF` are ignored |
 
 ### Flow
 
@@ -402,78 +401,29 @@ flowchart LR
 
 ## Region Exclusion
 
-Region exclusion filters SNPs by genomic coordinates before LD computation or
-panel emission. Two input sources are supported and may be combined.
+`ldscore --exclude-regions {none,mhc,centromeres,mhc-and-centromeres}` selects
+named intervals that are subtracted from the regression SNP set only. The
+default is `mhc-and-centromeres`; `none` opts out. Bundled HM3 is the default
+regression set, and `--regression-snps-file` replaces it before the selected
+intervals are subtracted. The full retained reference panel remains the
+baseline/query LD-score contributor universe and the universe for `M`,
+`M_5_50`, and annotation-overlap counts.
 
-**Preset regions** (`--exclude-regions`) are selected from a fixed single-choice
-vocabulary `EXCLUDE_REGIONS_CHOICES` = `none | mhc | centromeres |
-mhc-and-centromeres`, **defaulting to `mhc-and-centromeres`** (exclusion is on by
-default; `none` opts out). Each choice maps to packaged BED files under
-`src/ldsc/data/regions/` keyed by preset name and genome build (e.g.
-`mhc.hg19.bed`). The active **`mhc`** preset is the broad `chr6:25-35Mb` window
-(build-consistent) and the active **`centromeres`** preset is the
-**pericentromeric ±3 cM** region (LDSC parity, Bulik-Sullivan 2015). The
-raw-gap reference definition **`centromeres_core`** is loadable via the Python
-API but not wired to the CLI. **User BEDs** (`--exclude-regions-bed <file>`) read any
-standard 0-based half-open BED file and apply intervals as-is against panel
-`CHR/POS`. The full preset/build/coordinate/provenance table is at
-[`region-exclusion-presets.md`](region-exclusion-presets.md).
+Preset intervals are packaged BED3 files under `src/ldsc/data/regions/`. The
+`mhc` preset is chr6:25–35 Mb and `centromeres` is the pericentromeric ±3 cM
+mask. A 1-based position `p` is excluded when `start < p <= end` for BED
+interval `[start, end)`. `--genome-build` is the sole build declaration for
+these named intervals; it must be concrete when artifact metadata cannot
+reliably supply a build.
 
-The keep rule in `region_exclusion_keep_mask` (`src/ldsc/_kernel/regions.py`)
-is: a 1-based SNP position `p` is excluded iff `start < p <= end` for some
-BED interval `[start, end)`. Overlapping intervals per chromosome are coalesced
-by the loaders before masking.
-
-### Build-resolution asymmetry
-
-`ldscore` excludes MHC + centromeres by default (`--exclude-regions` defaults to
-`mhc-and-centromeres`; pass `none` to opt out). It resolves the preset build in
-the workflow layer (`_resolve_exclude_regions_build`): in `chr_pos`-family modes
-it reuses the panel build `ldscore` already operates in (the parquet
-`ldsc:genome_build` / PLINK panel / `--genome-build`, i.e.
-`GlobalConfig.genome_build`); in `rsid`-family modes no build is in scope, so
-presets require an explicit `--exclude-regions-build {hg19,hg38}`. An explicit
-`--exclude-regions-build` always wins. The resolved build is passed into
-`RefPanelConfig`, preserving its invariant that presets imply a build.
-
-> **Note: the MHC + centromere default applies only to the CLI and the
-> `run_ldscore()` / `run_build_ref_panel()` wrappers.** Direct
-> `RefPanelConfig(...)` / `ReferencePanelBuildConfig(...)` construction defaults
-> `exclude_regions` to `()` — **no exclusion** — and you must pass both
-> `exclude_regions` and `exclude_regions_build` yourself. See
-> `config-design.md` → "Region exclusion default depends on the entry point".
-
-`build-ref-panel` (`ReferencePanelBuildConfig`) has **no** `--exclude-regions-build`
-flag. It reuses the resolved `source_genome_build` automatically, so exclusion
-always operates on source coordinates before liftover. A SNP excluded from the
-source build is absent from every emitted build artifact. The build *may* be
-auto-resolved, but only via the panel's own inference: when
-`--source-genome-build auto` (the default), `_resolve_source_genome_build`
-infers `hg19`/`hg38` from the PLINK `.bim` coordinates *before*
-`_prepare_build_state` loads the preset, so `load_preset_intervals` always
-receives a concrete build. The preset performs no build inference of its own —
-`build-ref-panel` is the only workflow where an auto-inferred build selects a
-preset BED.
-
-### Chokepoints
-
-| Workflow | Chokepoint | Location |
-| --- | --- | --- |
-| `ldscore` (PLINK and parquet backends) | `RefPanel._apply_region_exclusion` | `src/ldsc/_kernel/ref_panel.py` |
-| `build-ref-panel` | `ReferencePanelBuilder._build_chromosome` | `src/ldsc/ref_panel_builder.py` |
-
-`RefPanel._apply_region_exclusion` is called once per chromosome load inside
-`RefPanel.load_metadata` and covers both the PLINK and parquet ldscore
-backends. `ReferencePanelBuilder._build_chromosome` applies exclusion on the
-source-build metadata frame immediately after PLINK `.bim` loading, before
-identity cleanup, restriction, and liftover.
-
-The build-state object `_BuildState.region_intervals` (a `RegionIntervals`
-instance) is constructed once in `ReferencePanelBuilder._prepare_build_state`
-for the full run and shared across all chromosome invocations.
-
-See `docs/superpowers/specs/2026-06-06-region-exclusion-design.md` for the
-full design rationale and preset catalog.
+There is no public arbitrary-region BED option. To use custom intervals,
+prefilter a custom regression list and pass it with `--regression-snps-file`.
+`build-ref-panel` has no region-exclusion option: deliberate LD-reference
+pruning is expressed only through `--ref-panel-snps-file`. Artifact
+`metadata.json` records the reference-universe policy separately from the
+regression-row/weight policy and its region-removal counts. See
+[`region-exclusion-presets.md`](region-exclusion-presets.md) for coordinates
+and migration guidance.
 
 ## 5. `munge-sumstats`: Raw GWAS Table To Curated Sumstats
 

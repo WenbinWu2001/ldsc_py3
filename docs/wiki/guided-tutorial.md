@@ -144,7 +144,6 @@ ldsc ldscore \
   --snp-identifier chr_pos \
   --genome-build hg19 \
   --r2-dir "${R2_DIR}/hg19" \
-  --use-hm3-regression-snps \
   --output-dir "${LDSCORE_OUTPUT_DIR}" \
   --ld-wind-cm 1.0 \
   --overwrite
@@ -298,7 +297,6 @@ ldsc ldscore \
   --query-annot-bed-sources "${RAW_QUERY_BED_SOURCES}" \
   --baseline-annot-sources "${BASELINE_ANNOT_SOURCES}" \
   --r2-dir "${R2_DIR}/hg19" \
-  --use-hm3-regression-snps \
   --output-dir "${PARTITIONED_LDSCORE_OUTPUT_DIR}" \
   --ld-wind-cm 1.0 \
   --overwrite

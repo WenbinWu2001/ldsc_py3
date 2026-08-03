@@ -196,7 +196,7 @@ def load_preset_intervals(names: Sequence[str], build: str) -> RegionIntervals:
     if build not in _PRESET_BUILDS:
         raise LDSCConfigError(
             f"Region preset loading received unsupported genome build '{build}'. Most likely "
-            "an invalid --exclude-regions-build was passed. Use 'hg19' or 'hg38'."
+            "an invalid genome-build value reached the region loader. Use 'hg19' or 'hg38'."
         )
     unknown = sorted(set(names) - REGION_PRESETS)
     if unknown:

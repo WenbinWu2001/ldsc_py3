@@ -310,8 +310,6 @@ ldsc ldscore \
   --query-annot-bed-sources my_peaks.bed \
   --bed-padding-bp 0 \
   --plink-prefix resources/1kg/1KG_EUR_Phase3_chr@ \
-  --use-hm3-ref-panel-snps \
-  --use-hm3-regression-snps \
   --snp-identifier rsid \
   --common-maf-min 0.05 \
   --ld-wind-cm 1.0
@@ -323,8 +321,6 @@ Compute ordinary unpartitioned LD scores without baseline annotations:
 ldsc ldscore \
   --output-dir results/my_unpartitioned_ldscore \
   --plink-prefix resources/1kg/1KG_EUR_Phase3_chr@ \
-  --use-hm3-ref-panel-snps \
-  --use-hm3-regression-snps \
   --snp-identifier rsid \
   --common-maf-min 0.05 \
   --ld-wind-cm 1.0

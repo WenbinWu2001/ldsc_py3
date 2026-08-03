@@ -39,7 +39,7 @@ try:
         build_parser,
         _ref_panel_from_args,
         _normalize_run_args,
-        _resolve_exclude_regions_build,
+        _resolve_regression_region_build,
         run_ldscore,
     )
     from ldsc._kernel import formats as kernel_formats
@@ -812,72 +812,19 @@ class LDScoreWorkflowTest(unittest.TestCase):
         config = LDScoreConfig(ld_wind_snps=10, regression_snps_file="/path/to/snps.txt")
         self.assertEqual(config.regression_snps_file, "/path/to/snps.txt")
 
-    def test_build_parser_accepts_hm3_ref_panel_and_regression_flags(self):
+    def test_build_parser_does_not_expose_removed_snp_restriction_flags(self):
         parser = ldscore_workflow.build_parser()
-
-        args = parser.parse_args(
-            [
-                "--output-dir",
-                "out",
-                "--baseline-annot-sources",
-                "baseline.annot.gz",
-                "--plink-prefix",
-                "panel",
-                "--ld-wind-snps",
-                "10",
-                "--use-hm3-ref-panel-snps",
-                "--use-hm3-regression-snps",
-            ]
-        )
-
-        self.assertTrue(args.use_hm3_ref_panel_snps)
-        self.assertTrue(args.use_hm3_regression_snps)
-
-    def test_normalize_run_args_rejects_hm3_explicit_file_conflicts(self):
-        parser = ldscore_workflow.build_parser()
-        args = parser.parse_args(
-            [
-                "--output-dir",
-                "out",
-                "--baseline-annot-sources",
-                "baseline.annot.gz",
-                "--plink-prefix",
-                "panel",
-                "--ld-wind-snps",
-                "10",
-                "--snp-identifier",
-                "rsid",
-                "--use-hm3-regression-snps",
-                "--regression-snps-file",
-                "custom.tsv",
-            ]
-        )
-
-        with self.assertRaisesRegex(LDSCUsageError, "two regression SNP restrictions"):
-            ldscore_workflow._normalize_run_args(args)
-
-    def test_ldscore_config_from_args_preserves_hm3_regression_flag(self):
-        parser = ldscore_workflow.build_parser()
-        args = parser.parse_args(
-            [
-                "--output-dir",
-                "out",
-                "--baseline-annot-sources",
-                "baseline.annot.gz",
-                "--plink-prefix",
-                "panel",
-                "--ld-wind-snps",
-                "10",
-                "--snp-identifier",
-                "rsid",
-                "--use-hm3-regression-snps",
-            ]
-        )
-        normalized, _global_config = ldscore_workflow._normalize_run_args(args)
-
-        config = ldscore_workflow._ldscore_config_from_args(normalized)
-
-        self.assertTrue(config.use_hm3_regression_snps)
+        help_text = parser.format_help()
+        for tokens in (
+            ("--use-hm3-ref-panel-snps",),
+            ("--use-hm3-regression-snps",),
+            ("--exclude-regions-bed", "regions.bed"),
+            ("--exclude-regions-build", "hg19"),
+        ):
+            with self.subTest(tokens=tokens):
+                self.assertNotIn(tokens[0], help_text)
+                with self.assertRaises(SystemExit):
+                    parser.parse_args(["--output-dir", "out", "--plink-prefix", "panel", "--ld-wind-snps", "10", *tokens])
 
     def test_chrom_result_uses_split_table_shape(self):
         chrom_result = ldscore_workflow.ChromLDScoreResult(
@@ -1976,6 +1923,10 @@ class LDScoreWorkflowTest(unittest.TestCase):
             )
             metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
             self.assertEqual(metadata["gene_catalog"]["genome_build"], "hg38")
+            self.assertEqual(
+                metadata["snp_universe_policy"]["regression_rows_and_weights"]["weight_contributors"],
+                "same_filtered_regression_set",
+            )
             log_text = (output_dir / "diagnostics" / "ldscore.log").read_text(encoding="utf-8")
             self.assertIn("Gene-list catalog projection build: hg38", log_text)
             self.assertIn("status=warning, reason=partial_resolution", log_text)
@@ -3827,39 +3778,37 @@ def test_ldscore_parser_region_flags_and_default():
     # Single-choice enum; comma lists are rejected.
     args = parser.parse_args(
         ["--output-dir", "o", "--plink-prefix", "p", "--ld-wind-cm", "1",
-         "--exclude-regions", "centromeres", "--exclude-regions-build", "hg19",
-         "--exclude-regions-bed", "/tmp/a.bed,/tmp/b.bed"]
+         "--exclude-regions", "centromeres", "--genome-build", "hg19"]
     )
     assert args.exclude_regions == "centromeres"
-    assert args.exclude_regions_build == "hg19"
     with pytest.raises(SystemExit):
         parser.parse_args(["--output-dir", "o", "--plink-prefix", "p", "--ld-wind-cm", "1",
                            "--exclude-regions", "mhc,centromeres"])
 
 
-def test_ldscore_region_build_inferred_for_chr_pos_required_for_rsid():
+def test_ldscore_region_build_uses_genome_build_and_requires_it_for_rsid():
     # chr_pos: build is taken from the panel build ldscore operates in.
-    assert _resolve_exclude_regions_build(
-        Namespace(exclude_regions_build=None),
+    assert _resolve_regression_region_build(
+        Namespace(),
         GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg19"),
         ("mhc", "centromeres"),
     ) == "hg19"
     # rsid: no genome build is available, so presets require an explicit build.
-    with pytest.raises(LDSCUsageError, match="exclude-regions-build"):
-        _resolve_exclude_regions_build(
-            Namespace(exclude_regions_build=None),
+    with pytest.raises(LDSCUsageError, match="genome-build"):
+        _resolve_regression_region_build(
+            Namespace(),
             GlobalConfig(snp_identifier="rsid"),
             ("mhc",),
         )
-    # An explicit build always wins, even in rsid mode.
-    assert _resolve_exclude_regions_build(
-        Namespace(exclude_regions_build="hg38"),
+    # The sole build declaration is used even in rsid mode.
+    assert _resolve_regression_region_build(
+        Namespace(genome_build="hg38"),
         GlobalConfig(snp_identifier="rsid"),
         ("mhc",),
     ) == "hg38"
     # No presets => no build needed.
-    assert _resolve_exclude_regions_build(
-        Namespace(exclude_regions_build=None),
+    assert _resolve_regression_region_build(
+        Namespace(),
         GlobalConfig(snp_identifier="rsid"),
         (),
     ) is None
@@ -3872,32 +3821,63 @@ def _chr22_available() -> bool:
     return all(Path(str(_CHR22) + ext).exists() for ext in (".bed", ".bim", ".fam"))
 
 
-def test_ldscore_end_to_end_drops_user_bed_snp(tmp_path):
-    if not _chr22_available():
-        pytest.skip("chr22 PLINK fixture unavailable; run tests/fixtures/generate_minimal_external_resources.py")
-    set_global_config(GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"))
+def test_regression_region_mask_leaves_reference_counts_and_ld_contributors_intact():
+    from ldsc._kernel import regions
 
-    # Discover a real emitted POS from a no-exclusion panel load.
-    base_meta = PlinkRefPanel(
-        GlobalConfig(snp_identifier="chr_pos_allele_aware", genome_build="hg38"),
-        RefPanelConfig(backend="plink", plink_prefix=str(_CHR22)),
-    ).load_metadata("22")
-    target_pos = int(base_meta["POS"].iloc[0])
-
-    bed = tmp_path / "exclude.bed"
-    bed.write_text(f"22\t{target_pos - 1}\t{target_pos}\n", encoding="utf-8")
-
-    result = run_ldscore(
-        plink_prefix=str(_CHR22),
-        output_dir=str(tmp_path / "ld"),
-        ld_wind_snps=10,
-        exclude_regions_bed=(str(bed),),
+    metadata = pd.DataFrame(
+        {
+            "CHR": ["6", "6", "6"],
+            "POS": [24_900_000, 25_100_000, 36_000_000],
+            "SNP": ["near_mhc", "in_mhc", "outside"],
+            "MAF": [0.2, 0.2, 0.2],
+        }
     )
-    assert target_pos not in set(result.baseline_table["POS"])
-    # Unpartitioned (synthetic base-only) runs have a degenerate 1x1 overlap that
-    # no regression consumes, so the sidecar is suppressed end-to-end.
-    assert not (tmp_path / "ld" / "ldscore.overlap.parquet").exists()
-    assert result.overlap is None
+    annotations = pd.DataFrame({"base": [1.0, 1.0, 0.0], "query": [0.0, 1.0, 1.0]})
+    intervals = regions.load_preset_intervals(("mhc",), "hg19")
+
+    mask = kernel_ldscore.regression_mask_from_keys(
+        metadata, {"near_mhc", "in_mhc", "outside"}, "rsid", region_intervals=intervals
+    )
+    counts, common_counts = kernel_ldscore.compute_counts(metadata, annotations)
+
+    np.testing.assert_array_equal(mask, np.array([1.0, 0.0, 1.0], dtype=np.float32))
+    np.testing.assert_array_equal(counts, np.array([2.0, 2.0]))
+    np.testing.assert_array_equal(common_counts, np.array([2.0, 2.0]))
+    class PairReader:
+        def iter_all_pairs(self):
+            yield np.array([0]), np.array([1]), np.array([0.5], dtype=np.float32)
+
+    combined = np.c_[annotations.to_numpy(dtype=np.float32), mask]
+    scores = kernel_ldscore.ld_score_streaming_from_r2_reader(
+        np.zeros(3, dtype=np.int64), combined, PairReader()
+    )
+    # The retained SNP near MHC still receives the MHC query annotation, while
+    # w_ld sees only the identically filtered regression set.
+    assert scores[0, 1] == pytest.approx(0.5)
+    np.testing.assert_allclose(scores[:, 2], np.array([1.0, 0.5, 1.0], dtype=np.float32))
+
+    legacy = SimpleNamespace(
+        chrom="6",
+        metadata=metadata,
+        ld_scores=scores[:, :2],
+        w_ld=scores[:, 2:],
+        M=counts,
+        M_5_50=common_counts,
+        ldscore_columns=["base", "query"],
+        baseline_columns=["base"],
+        query_columns=["query"],
+        overlap=None,
+    )
+    wrapped = ldscore_workflow.LDScoreCalculator()._wrap_legacy_chrom_result(
+        legacy,
+        GlobalConfig(snp_identifier="rsid"),
+        {"near_mhc", "in_mhc", "outside"},
+        intervals,
+    )
+    assert wrapped.baseline_table["SNP"].tolist() == ["near_mhc", "outside"]
+    np.testing.assert_allclose(wrapped.baseline_table["regression_ld_scores"], [1.0, 1.0])
+    assert wrapped.count_records[0]["all_reference_snp_count"] == 2.0
+    assert wrapped.regression_region_removed_snp_count == 1
 
 
 def test_ldscore_rejects_non_minor_maf():

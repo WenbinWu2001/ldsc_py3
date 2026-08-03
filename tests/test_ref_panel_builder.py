@@ -725,53 +725,19 @@ class ReferencePanelBuildConfigOptionalLiftoverTest(unittest.TestCase):
         self.assertEqual(config.liftover_chain_hg19_to_hg38_file, "chains/hg19ToHg38.over.chain")
         self.assertIsNone(config.genetic_map_hg38_sources)
 
-    def test_hm3_quick_liftover_emits_source_and_target_builds(self):
+    def test_chain_liftover_emits_source_and_target_builds(self):
         config = ReferencePanelBuildConfig(
-            plink_prefix="plink/panel.@",
-            source_genome_build="hg19",
-            output_dir="out",
-            ld_wind_kb=1.0,
-            use_hm3_snps=True,
-            use_hm3_quick_liftover=True,
+            plink_prefix="plink/panel.@", source_genome_build="hg19", output_dir="out",
+            ld_wind_kb=1.0, liftover_chain_hg19_to_hg38_file="chains/hg19ToHg38.over.chain",
         )
-
         self.assertEqual(ref_panel_builder._emitted_genome_builds(config), ["hg19", "hg38"])
 
-    def test_hm3_quick_liftover_drops_unmapped_rows_with_sidecar_frame(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            hm3_path = tmpdir / "hm3.tsv"
-            hm3_path.write_text("CHR\thg19_POS\thg38_POS\tSNP\n1\t100\t1000\trs1\n", encoding="utf-8")
-            chrom_df = pd.DataFrame(
-                {
-                    "CHR": ["1", "1"],
-                    "SNP": ["rs1", "rs_unmapped"],
-                    "BP": [100, 200],
-                }
+    def test_hm3_quick_liftover_constructor_argument_is_removed(self):
+        with self.assertRaises(TypeError):
+            ReferencePanelBuildConfig(
+                plink_prefix="plink/panel.@", source_genome_build="hg19", output_dir="out",
+                ld_wind_kb=1.0, use_hm3_quick_liftover=True,
             )
-            state = ref_panel_builder._BuildState(
-                genetic_map_hg19=None,
-                genetic_map_hg38=None,
-                use_hm3_quick_liftover=True,
-                hm3_map_file=str(hm3_path),
-            )
-
-            keep, hg19_lookup, hg38_lookup, drop_frame = ref_panel_builder.ReferencePanelBuilder(
-                GlobalConfig(snp_identifier="chr_pos", genome_build="hg19")
-            )._resolve_mappable_snp_positions(
-                build_state=state,
-                chrom="1",
-                source_build="hg19",
-                chrom_df=chrom_df,
-                keep_snps=np.asarray([0, 1], dtype=int),
-                sidecar_path=tmpdir / "dropped.tsv.gz",
-            )
-
-        self.assertEqual(keep.tolist(), [0])
-        self.assertEqual(hg19_lookup, {0: 100})
-        self.assertEqual(hg38_lookup, {0: 1000})
-        self.assertEqual(drop_frame["SNP"].tolist(), ["rs_unmapped"])
-        self.assertEqual(drop_frame["reason"].tolist(), ["unmapped_liftover"])
 
     def test_non_matching_chain_does_not_require_target_map(self):
         config = ReferencePanelBuildConfig(
@@ -821,18 +787,11 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
         ])
         self.assertEqual(args.snp_batch_size, 64)
 
-    def test_build_parser_accepts_hm3_flags(self):
+    def test_build_parser_rejects_removed_hm3_flags(self):
         parser = ref_panel_builder.build_parser()
-        args = parser.parse_args([
-            "--plink-prefix", "plink/panel.@",
-            "--output-dir", "out",
-            "--ld-wind-kb", "1",
-            "--use-hm3-snps",
-            "--use-hm3-quick-liftover",
-        ])
-
-        self.assertTrue(args.use_hm3_snps)
-        self.assertTrue(args.use_hm3_quick_liftover)
+        self.assertNotIn("--use-hm3-snps", parser.format_help())
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["--plink-prefix", "plink/panel.@", "--output-dir", "out", "--ld-wind-kb", "1", "--use-hm3-snps"])
 
     def test_build_parser_rejects_removed_chunk_size_alias(self):
         parser = ref_panel_builder.build_parser()
@@ -858,21 +817,6 @@ class ReferencePanelBuildConfigFromArgsTest(unittest.TestCase):
         build_config, _ = ref_panel_builder.config_from_args(args)
         self.assertEqual(build_config.snp_batch_size, 64)
 
-    def test_config_from_args_passes_hm3_flags_to_config(self):
-        parser = ref_panel_builder.build_parser()
-        args = parser.parse_args([
-            "--plink-prefix", "plink/panel.@",
-            "--source-genome-build", "hg19",
-            "--output-dir", "out",
-            "--ld-wind-kb", "1",
-            "--use-hm3-snps",
-            "--use-hm3-quick-liftover",
-        ])
-
-        build_config, _ = ref_panel_builder.config_from_args(args)
-
-        self.assertTrue(build_config.use_hm3_snps)
-        self.assertTrue(build_config.use_hm3_quick_liftover)
 
     def test_build_parser_help_does_not_include_duplicate_position_policy(self):
         parser = ref_panel_builder.build_parser()
@@ -1563,25 +1507,6 @@ class ReferencePanelBuilderWorkflowTest(unittest.TestCase):
                 "chain liftover.*rsID-family",
             ):
                 builder.run(config)
-
-    def test_prepare_build_state_rejects_hm3_quick_liftover_in_rsid_family_modes(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            config = ReferencePanelBuildConfig(
-                plink_prefix=tmpdir / "panel.@",
-                source_genome_build="hg19",
-                output_dir=tmpdir / "out",
-                ld_wind_kb=1.0,
-                use_hm3_snps=True,
-                use_hm3_quick_liftover=True,
-            )
-            for mode in ("rsid", "rsid_allele_aware"):
-                builder = ref_panel_builder.ReferencePanelBuilder(global_config=GlobalConfig(snp_identifier=mode))
-                with self.assertRaisesRegex(
-                    LDSCUsageError,
-                    "HM3 quick liftover.*rsID-family",
-                ):
-                    builder._prepare_build_state(config)
 
     def test_allele_aware_mode_requires_bim_allele_columns(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -3040,7 +2965,7 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
             self.assertGreater(float(parquet.baseline_table["base"].max()), 1.0)
 
 
-    def test_build_ref_panel_excludes_region_from_both_emitted_builds(self):
+    def test_build_ref_panel_explicit_reference_list_prunes_both_emitted_builds(self):
         resources = _find_resources_root()
         if resources is None:
             self.skipTest("resources directory is not available from this workspace")
@@ -3079,11 +3004,15 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
             pos = int(first_row["POS"])
             snp_id = str(first_row["SNP"])
 
-            # BED that excludes exactly the one source-build SNP.
-            bed_path = tmpdir / "exclude.bed"
-            bed_path.write_text(f"22\t{pos - 1}\t{pos}\n", encoding="utf-8")
+            # Intentional reference pruning must be explicit as a SNP list.
+            restriction_path = tmpdir / "reference_snps.tsv"
+            base_meta_hg38.iloc[1:][["CHR", "POS", "SNP", "A1", "A2"]].rename(
+                columns={"POS": "hg38_POS"}
+            ).to_csv(
+                restriction_path, sep="\t", index=False
+            )
 
-            # Excluded dual-build run.
+            # Explicitly restricted dual-build run.
             excl_result = ref_panel_builder.run_build_ref_panel(
                 plink_prefix=str(prefix),
                 source_genome_build="hg38",
@@ -3094,7 +3023,7 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
                 ld_wind_snps=10,
                 ld_wind_kb=None,
                 snp_batch_size=64,
-                exclude_regions_bed=(str(bed_path),),
+                ref_panel_snps_file=str(restriction_path),
             )
 
             with gzip.open(excl_result.output_paths["meta_hg38"][0], "rt", encoding="utf-8") as handle:
@@ -3103,7 +3032,7 @@ class ReferencePanelBuilderParityTest(unittest.TestCase):
                 excl_meta_hg19 = pd.read_csv(handle, sep="\t", comment="#")
 
         assert snp_id not in set(excl_meta_hg38["SNP"]), (
-            f"SNP {snp_id!r} (hg38 POS={pos}) still present in hg38 sidecar after exclusion"
+            f"SNP {snp_id!r} (hg38 POS={pos}) still present in hg38 sidecar after explicit restriction"
         )
         assert snp_id not in set(excl_meta_hg19["SNP"]), (
             f"SNP {snp_id!r} (hg38 POS={pos}) still present in hg19 sidecar after exclusion"
@@ -3261,64 +3190,16 @@ def _read_meta(path) -> pd.DataFrame:
         return pd.read_csv(handle, sep="\t", comment="#")
 
 
-def test_build_ref_panel_excludes_user_bed_region(tmp_path):
-    if not _chr22_available():
-        pytest.skip("chr22 PLINK fixture unavailable; run tests/fixtures/generate_minimal_external_resources.py")
-    set_global_config(GlobalConfig(snp_identifier="chr_pos", genome_build="hg38"))
-
-    base = ref_panel_builder.run_build_ref_panel(
-        plink_prefix=str(_CHR22), source_genome_build="hg38",
-        genetic_map_hg19_sources=None, genetic_map_hg38_sources=None,
-        output_dir=str(tmp_path / "base"), ld_wind_snps=10, ld_wind_kb=None,
-        snp_batch_size=64,
-    )
-    base_meta = _read_meta(base.output_paths["meta_hg38"][0])
-    target_pos = int(base_meta["POS"].iloc[0])
-
-    bed = tmp_path / "exclude.bed"
-    bed.write_text(f"22\t{target_pos - 1}\t{target_pos}\n", encoding="utf-8")
-
-    excluded = ref_panel_builder.run_build_ref_panel(
-        plink_prefix=str(_CHR22), source_genome_build="hg38",
-        genetic_map_hg19_sources=None, genetic_map_hg38_sources=None,
-        output_dir=str(tmp_path / "excl"), ld_wind_snps=10, ld_wind_kb=None,
-        snp_batch_size=64,
-        exclude_regions_bed=(str(bed),),
-    )
-    excl_meta = _read_meta(excluded.output_paths["meta_hg38"][0])
-    assert target_pos not in set(excl_meta["POS"])
-    assert len(excl_meta) == len(base_meta) - int((base_meta["POS"] == target_pos).sum())
-
-
-def test_build_ref_panel_parser_region_flags():
+def test_build_ref_panel_parser_rejects_region_pruning_flags():
     parser = ref_panel_builder.build_parser()
-    args = parser.parse_args(
-        ["--plink-prefix", "p", "--output-dir", "o", "--ld-wind-kb", "1000",
-         "--exclude-regions", "mhc-and-centromeres", "--exclude-regions-bed", "/tmp/x.bed"]
-    )
-    build_config, _global = ref_panel_builder.config_from_args(args)
-    assert build_config.exclude_regions == ("mhc", "centromeres")
-    assert build_config.exclude_regions_bed == ("/tmp/x.bed",)
-
-    # Default excludes MHC + centromeres; 'none' opts out.
-    default_config, _ = ref_panel_builder.config_from_args(
-        ref_panel_builder.build_parser().parse_args(
-            ["--plink-prefix", "p", "--output-dir", "o", "--ld-wind-kb", "1000"]
-        )
-    )
-    assert default_config.exclude_regions == ("mhc", "centromeres")
-
-    none_config, _ = ref_panel_builder.config_from_args(
-        ref_panel_builder.build_parser().parse_args(
-            ["--plink-prefix", "p", "--output-dir", "o", "--ld-wind-kb", "1000", "--exclude-regions", "none"]
-        )
-    )
-    assert none_config.exclude_regions == ()
-
-    with pytest.raises(SystemExit):
-        ref_panel_builder.build_parser().parse_args(
-            ["--plink-prefix", "p", "--output-dir", "o", "--ld-wind-kb", "1000",
-             "--exclude-regions", "mhc,centromeres"]
+    for tokens in (("--exclude-regions", "mhc-and-centromeres"), ("--exclude-regions-bed", "/tmp/x.bed")):
+        assert tokens[0] not in parser.format_help()
+        with pytest.raises(SystemExit):
+            parser.parse_args(["--plink-prefix", "p", "--output-dir", "o", "--ld-wind-kb", "1000", *tokens])
+    with pytest.raises(TypeError):
+        ReferencePanelBuildConfig(
+            plink_prefix="p", source_genome_build="hg19", output_dir="o", ld_wind_kb=1000,
+            exclude_regions=("mhc",),
         )
 
 

@@ -79,17 +79,15 @@ output, and metadata contracts.
 
 - PLINK reference-panel building keeps its existing UX: the source build is
   explicit or inferred, and a matching chain file emits the opposite build.
-- `--use-hm3-snps` restricts the retained reference-panel universe to the
-  packaged curated HM3 map. `--use-hm3-quick-liftover` requires that restriction
-  and emits the opposite build using the packaged map.
+- An explicit `--ref-panel-snps-file` is the only SNP-list control for a
+  deliberately restricted reference universe.
 - No public reference-panel output-build field exists; reference-panel building
   emits the source build plus the opposite build when a matching liftover method
   is available.
-- Matching chain-file liftover and HM3 quick liftover are coordinate-family
-  behavior, valid when the active `GlobalConfig.snp_identifier` is `chr_pos` or
-  `chr_pos_allele_aware`. They are invalid in rsID-family modes (`rsid` and
-  `rsid_allele_aware`); omit the matching chain or quick-liftover flag and build
-  source-genome coordinates only.
+- Matching chain-file liftover is coordinate-family behavior, valid when the
+  active `GlobalConfig.snp_identifier` is `chr_pos` or `chr_pos_allele_aware`.
+  It is invalid in rsID-family modes (`rsid` and `rsid_allele_aware`); omit the
+  matching chain and build source-genome coordinates only.
 - Coordinate duplicate groups are dropped with `drop-all`. There is no public
   duplicate-position policy knob.
 - Duplicate-position handling applies to chr_pos-family builds.

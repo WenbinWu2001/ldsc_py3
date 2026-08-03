@@ -231,6 +231,7 @@ from .snp_identity import (
     restriction_membership_mask,
     sidecar_identity_sha256,
 )
+from .regions import RegionIntervals, region_exclusion_keep_mask
 
 try:  # pragma: no cover - optional dependency
     import bitarray as ba
@@ -1639,19 +1640,28 @@ def regression_mask_from_keys(
     metadata: pd.DataFrame,
     regression_keys: set[str] | RestrictionIdentityKeys | None,
     identifier_mode: str,
+    region_intervals: RegionIntervals | None = None,
 ) -> np.ndarray:
-    """Build the binary mask column used to compute regression-weight LD scores."""
+    """Build the selected-regression-set mask after named region subtraction.
+
+    This is deliberately separate from the LD-reference universe: callers use
+    the returned mask only for written regression rows and ``w_ld`` contributors.
+    """
     if regression_keys is None:
-        return np.ones(len(metadata), dtype=np.float32)
-    if isinstance(regression_keys, RestrictionIdentityKeys):
-        return restriction_membership_mask(
+        keep = np.ones(len(metadata), dtype=bool)
+    elif isinstance(regression_keys, RestrictionIdentityKeys):
+        keep = restriction_membership_mask(
             metadata,
             regression_keys,
             identifier_mode,
             context="LD-score regression SNP restriction matching",
-        ).to_numpy(dtype=np.float32)
-    keys = identifier_keys(metadata, identifier_mode)
-    return keys.isin(regression_keys).to_numpy(dtype=np.float32)
+        ).to_numpy(dtype=bool)
+    else:
+        keys = identifier_keys(metadata, identifier_mode)
+        keep = keys.isin(regression_keys).to_numpy(dtype=bool)
+    if region_intervals is not None and region_intervals.intervals:
+        keep &= np.asarray(region_exclusion_keep_mask(metadata, region_intervals), dtype=bool)
+    return keep.astype(np.float32)
 
 
 # Per-chromosome compute backends.
@@ -1660,6 +1670,7 @@ def compute_chrom_from_parquet(
     bundle: AnnotationBundle,
     args: argparse.Namespace,
     regression_keys: set[str] | RestrictionIdentityKeys | None,
+    regression_regions: RegionIntervals | None = None,
 ) -> ChromComputationResult:
     """
     Compute all LD-score outputs for one chromosome from sorted parquet R2 input.
@@ -1699,7 +1710,9 @@ def compute_chrom_from_parquet(
         coords,
         max_dist,
     )
-    regression_mask = regression_mask_from_keys(metadata, regression_keys, args.snp_identifier).reshape(-1, 1)
+    regression_mask = regression_mask_from_keys(
+        metadata, regression_keys, args.snp_identifier, region_intervals=regression_regions
+    ).reshape(-1, 1)
     annot_matrix = annotations.to_numpy(dtype=np.float32, copy=True)
     combined_annot = np.c_[annot_matrix, regression_mask]
     parquet_paths = resolve_parquet_files(args, chrom=chrom)
@@ -1758,6 +1771,7 @@ def compute_chrom_from_plink(
     bundle: AnnotationBundle,
     args: argparse.Namespace,
     regression_keys: set[str] | RestrictionIdentityKeys | None,
+    regression_regions: RegionIntervals | None = None,
 ) -> ChromComputationResult:
     """
     Compute all LD-score outputs for one chromosome from a PLINK reference panel.
@@ -1880,7 +1894,9 @@ def compute_chrom_from_plink(
     check_whole_chromosome_window(block_left, args, chrom)
 
     ld_scores = geno.ldScoreVarBlocks(block_left, args.snp_batch_size, annot=annotation_matrix.to_numpy(dtype=np.float32))
-    regression_mask = regression_mask_from_keys(geno_meta.drop(columns="_key"), regression_keys, args.snp_identifier)
+    regression_mask = regression_mask_from_keys(
+        geno_meta.drop(columns="_key"), regression_keys, args.snp_identifier, region_intervals=regression_regions
+    )
     geno._currentSNP = 0
     w_ld = geno.ldScoreVarBlocks(block_left, args.snp_batch_size, annot=regression_mask.reshape(-1, 1))
     out_metadata = geno_meta.drop(columns="_key").reset_index(drop=True)

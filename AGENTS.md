@@ -96,3 +96,4 @@ The package supports Python 3.11 through 3.13. Core dependencies are NumPy, pand
 - `docs/audits/legacy-equivalence/`: evidence and progress records for compatibility with the legacy implementation.
 - `docs/troubleshooting.md`: command-organized remediation reference; `docs/release.md`: release runbook for maintainers.
 - `/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py2_Bulik_workspace/ldsc_py2_Bulik`: legacy LDSC codebase used for numerical and compatibility comparisons.
+- `/Users/wenbinwu/Documents_local/Research/SullivanLab/LDSC/repos/ldsc_py3_Jerry_workspace/docs/ldsc_papers`: main text and supplements of relevant LD score analysis papers.

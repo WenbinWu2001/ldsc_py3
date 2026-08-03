@@ -67,16 +67,19 @@ from .path_resolution import (
 )
 from ._logging import log_inputs, log_outputs, workflow_logging
 from ._kernel import ldscore as kernel_ldscore
+from ._kernel import regions as kernel_regions
 from ._kernel.overlap import OverlapContribution, sum_overlap_contributions
 from ._kernel.regions import EXCLUDE_REGIONS_CHOICES, exclude_regions_choice_to_presets
 from ._kernel.identifiers import build_snp_id_series, read_snp_restriction_keys
-from ._kernel.snp_identity import RestrictionIdentityKeys, restriction_membership_mask
+from ._kernel.snp_identity import RestrictionIdentityKeys
 from ._row_alignment import assert_same_snp_rows
 from .errors import LDSCConfigError, LDSCInputError, LDSCInternalError, LDSCUsageError
 from .query_annotations import QueryAnnotationStatus
 
 
 LOGGER = logging.getLogger("LDSC.ldscore_calculator")
+
+
 _LDSCORE_SUFFIX_COLUMNS = ("CHR", "SNP", "POS", "BP", "CM", "MAF")
 _QUERY_REQUIRES_BASELINE_MESSAGE = (
     "ldscore cannot run query annotations without baseline annotations. Most likely "
@@ -144,6 +147,9 @@ class ChromLDScoreResult:
     output_paths: dict[str, str] = field(default_factory=dict)
     config_snapshot: GlobalConfig | None = None
     overlap: OverlapContribution | None = field(default=None, repr=False)
+    reference_snp_count: int = 0
+    regression_selected_snp_count: int = 0
+    regression_region_removed_snp_count: int = 0
 
     def validate(self) -> None:
         """Check the normalized public contract for chromosome-level results."""
@@ -241,6 +247,7 @@ class LDScoreResult:
     query_statuses: tuple[QueryAnnotationStatus, ...] = ()
     gene_list_resolutions: tuple[Any, ...] = field(default_factory=tuple, repr=False)
     gene_catalog_provenance: dict[str, str] | None = None
+    snp_universe_policy: dict[str, Any] | None = None
 
     def validate(self, *, require_query_alignment: bool = True) -> None:
         """Check the normalized public contract for aggregated results."""
@@ -318,6 +325,7 @@ class LDScoreCalculator:
         global_config: GlobalConfig,
         output_config: LDScoreOutputConfig | None = None,
         regression_snps: set[str] | RestrictionIdentityKeys | None = None,
+        regression_regions: kernel_regions.RegionIntervals | None = None,
         config_snapshot: dict[str, Any] | None = None,
     ) -> LDScoreResult:
         """Compute and aggregate LD scores across all chromosomes.
@@ -349,8 +357,9 @@ class LDScoreCalculator:
             unless ``output_config.overwrite`` is true.
             Default is ``None``, which keeps the result in memory only.
         regression_snps : set of str, RestrictionIdentityKeys, or None, optional
-            Optional regression SNP universe used to define the weight table.
-            Default is ``None``, which uses the retained reference SNP universe.
+            Optional regression SNP universe used to define persisted rows and
+            regression-weight contributions. The CLI always provides its
+            bundled HM3 default; ``None`` is retained for direct API callers.
         config_snapshot : dict or None, optional
             Optional run metadata forwarded to the output layer. Default is
             ``None``.
@@ -386,6 +395,7 @@ class LDScoreCalculator:
             ldscore_config=ldscore_config,
             global_config=global_config,
             regression_snps=regression_snps,
+            regression_regions=regression_regions,
             worker_count=worker_count,
             export_dir=export_dir,
         )
@@ -414,6 +424,12 @@ class LDScoreCalculator:
             result,
             gene_list_resolutions=tuple(getattr(annotation_bundle, "gene_list_resolutions", ())),
             gene_catalog_provenance=getattr(annotation_bundle, "gene_catalog_provenance", None),
+            snp_universe_policy=_snp_universe_policy(
+                ref_panel=ref_panel,
+                ldscore_config=ldscore_config,
+                regression_regions=regression_regions,
+                chromosome_results=chromosome_results,
+            ),
         )
         result = self._finalize_query_statuses(
             result,
@@ -515,6 +531,7 @@ class LDScoreCalculator:
         ldscore_config: LDScoreConfig,
         global_config: GlobalConfig,
         regression_snps,
+        regression_regions: kernel_regions.RegionIntervals | None,
         worker_count: int,
         export_dir: str | None = None,
     ) -> dict[str, _ChromOutcome]:
@@ -533,7 +550,7 @@ class LDScoreCalculator:
             for chrom in chromosomes:
                 chrom_bundle = _slice_annotation_bundle(annotation_bundle, chrom)
                 try:
-                    result = self.compute_chromosome(
+                    compute_kwargs = dict(
                         chrom=chrom,
                         annotation_bundle=chrom_bundle,
                         ref_panel=ref_panel,
@@ -542,6 +559,9 @@ class LDScoreCalculator:
                         regression_snps=regression_snps,
                         export_dir=export_dir,
                     )
+                    if regression_regions is not None:
+                        compute_kwargs["regression_regions"] = regression_regions
+                    result = self.compute_chromosome(**compute_kwargs)
                 except (ValueError, LDSCInputError) as exc:
                     if _is_empty_intersection(exc, chrom):
                         outcomes[chrom] = _ChromOutcome(chrom=chrom, result=None, skipped=True, skip_message=str(exc))
@@ -557,7 +577,7 @@ class LDScoreCalculator:
             max_workers=worker_count,
             mp_context=ctx,
             initializer=_init_worker,
-            initargs=(regression_snps, global_config.log_level),
+            initargs=(regression_snps, regression_regions, global_config.log_level),
         ) as pool:
             futures = {
                 pool.submit(
@@ -592,6 +612,7 @@ class LDScoreCalculator:
         ldscore_config: LDScoreConfig,
         global_config: GlobalConfig,
         regression_snps: set[str] | RestrictionIdentityKeys | None = None,
+        regression_regions: kernel_regions.RegionIntervals | None = None,
         export_dir: str | None = None,
     ) -> ChromLDScoreResult:
         """Compute normalized LD-score outputs for one chromosome.
@@ -627,12 +648,21 @@ class LDScoreCalculator:
             query_columns=list(annotation_bundle.query_columns),
         )
         if getattr(ref_panel.spec, "backend", None) == "parquet_r2":
-            legacy_result = kernel_ldscore.compute_chrom_from_parquet(chrom, legacy_bundle, args, regression_snps)
+            kernel = kernel_ldscore.compute_chrom_from_parquet
         else:
-            legacy_result = kernel_ldscore.compute_chrom_from_plink(chrom, legacy_bundle, args, regression_snps)
+            kernel = kernel_ldscore.compute_chrom_from_plink
+        if regression_regions is None:
+            legacy_result = kernel(chrom, legacy_bundle, args, regression_snps)
+        else:
+            legacy_result = kernel(chrom, legacy_bundle, args, regression_snps, regression_regions)
         if export_dir is not None:
             _write_one_ref_metadata_sidecar(legacy_result.metadata, chrom, export_dir)
-        result = self._wrap_legacy_chrom_result(legacy_result, global_config=global_config, regression_snps=regression_snps)
+        result = self._wrap_legacy_chrom_result(
+            legacy_result,
+            global_config=global_config,
+            regression_snps=regression_snps,
+            regression_regions=regression_regions,
+        )
         LOGGER.info(f"Finished chromosome {chrom} with {len(result.baseline_table)} retained SNP rows.")
         return result
 
@@ -641,23 +671,29 @@ class LDScoreCalculator:
         legacy_result: _LegacyChromResult | Any,
         global_config: GlobalConfig,
         regression_snps: set[str] | RestrictionIdentityKeys | None = None,
+        regression_regions: kernel_regions.RegionIntervals | None = None,
     ) -> ChromLDScoreResult:
         """Convert one kernel chromosome result into the typed public result."""
         reference_metadata = legacy_result.metadata.reset_index(drop=True).copy()
         ld_scores = pd.DataFrame(legacy_result.ld_scores, columns=list(legacy_result.ldscore_columns))
         reference_ids = frozenset(build_snp_id_series(reference_metadata, global_config.snp_identifier))
-        if regression_snps is None:
-            regression_keep = pd.Series(True, index=reference_metadata.index)
-        elif isinstance(regression_snps, RestrictionIdentityKeys):
-            regression_keep = restriction_membership_mask(
+        regression_selected = pd.Series(
+            kernel_ldscore.regression_mask_from_keys(
                 reference_metadata,
                 regression_snps,
                 global_config.snp_identifier,
-                context="LD-score regression SNP restriction matching",
-            )
-        else:
-            retained_regression_snps = frozenset(reference_ids.intersection(regression_snps))
-            regression_keep = build_snp_id_series(reference_metadata, global_config.snp_identifier).isin(retained_regression_snps)
+            ).astype(bool),
+            index=reference_metadata.index,
+        )
+        regression_keep = pd.Series(
+            kernel_ldscore.regression_mask_from_keys(
+                reference_metadata,
+                regression_snps,
+                global_config.snp_identifier,
+                region_intervals=regression_regions,
+            ).astype(bool),
+            index=reference_metadata.index,
+        )
         ld_regression_snps = frozenset(
             build_snp_id_series(
                 reference_metadata.loc[regression_keep],
@@ -702,6 +738,9 @@ class LDScoreCalculator:
             count_config={},
             config_snapshot=global_config,
             overlap=getattr(legacy_result, "overlap", None),
+            reference_snp_count=len(reference_metadata),
+            regression_selected_snp_count=int(regression_selected.sum()),
+            regression_region_removed_snp_count=int((regression_selected & ~regression_keep).sum()),
         )
         result.validate()
         return result
@@ -1087,30 +1126,10 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--use-hm3-ref-panel-snps",
-        action="store_true",
-        default=False,
-        help="Restrict the reference-panel universe to the packaged curated HM3 SNP map.",
-    )
-    parser.add_argument(
         "--exclude-regions",
         choices=EXCLUDE_REGIONS_CHOICES,
         default="mhc-and-centromeres",
-        help="Curated region presets to exclude before LD computation. Defaults to "
-        "mhc-and-centromeres; use 'none' to keep all regions. The region build is taken "
-        "from the panel build (chr_pos modes); rsid modes require --exclude-regions-build.",
-    )
-    parser.add_argument(
-        "--exclude-regions-build",
-        choices=("hg19", "hg38"),
-        default=None,
-        help="Genome build of the panel coordinates, used to select preset BEDs. Inferred "
-        "from the panel build in chr_pos modes; required in rsid modes when presets are excluded.",
-    )
-    parser.add_argument(
-        "--exclude-regions-bed",
-        default=None,
-        help="Comma-separated user BED file path tokens of regions to exclude, applied as-is on panel CHR/POS (0-based half-open).",
+        help="Curated region presets subtracted from regression/output SNPs after selecting bundled HM3 or --regression-snps-file. Baseline/query LD-score contributors and M/overlap counts remain unchanged. Defaults to mhc-and-centromeres; use 'none' to keep all regions.",
     )
     parser.add_argument(
         "--regression-snps-file",
@@ -1119,12 +1138,6 @@ def build_parser() -> argparse.ArgumentParser:
             "Optional identity-only SNP list defining the regression SNP set and the written LD-score row set. "
             "Duplicate restriction keys collapse to one retained key; non-identity columns such as CM or MAF are ignored."
         ),
-    )
-    parser.add_argument(
-        "--use-hm3-regression-snps",
-        action="store_true",
-        default=False,
-        help="Use the packaged curated HM3 SNP map as the regression SNP set.",
     )
     parser.add_argument(
         "--keep-indivs-file",
@@ -1172,8 +1185,9 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
     regression_snps = _load_regression_snps(
         regression_snps_path,
         global_config,
-        label="packaged HM3 regression SNP map" if ldscore_config.use_hm3_regression_snps else "regression SNP list",
+        label="packaged HM3 regression SNP map" if ldscore_config.regression_snps_file is None else "regression SNP list",
     )
+    regression_regions = _regression_region_intervals(normalized_args, global_config)
     ref_mode = "parquet" if _uses_parquet_reference(normalized_args) else "plink"
     LOGGER.info(
         f"Starting LD-score workflow with reference mode '{ref_mode}', "
@@ -1223,11 +1237,9 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
             reference_mode=ref_mode,
             snp_identifier=global_config.snp_identifier,
             genome_build=global_config.genome_build,
-            use_hm3_ref_panel_snps=getattr(normalized_args, "use_hm3_ref_panel_snps", False),
-            use_hm3_regression_snps=ldscore_config.use_hm3_regression_snps,
-            hm3_map_file=packaged_hm3_curated_map_path()
-            if getattr(normalized_args, "use_hm3_ref_panel_snps", False) or ldscore_config.use_hm3_regression_snps
-            else "none",
+            ref_panel_snps_file=normalized_args.ref_panel_snps_file or "none",
+            regression_snps_file=ldscore_config.regression_snps_file or "packaged_hm3_default",
+            regression_region_presets=", ".join(regression_regions.source_labels) if regression_regions else "none",
         )
         if getattr(normalized_args, "gene_catalog_build", None) is not None:
             LOGGER.info(
@@ -1249,6 +1261,7 @@ def run_ldscore_from_args(args: argparse.Namespace) -> LDScoreResult:
             global_config=global_config,
             output_config=None,
             regression_snps=regression_snps,
+            regression_regions=regression_regions,
         )
         _log_query_annotation_statuses(result.query_statuses)
         if result.query_statuses and not result.query_columns:
@@ -1559,12 +1572,9 @@ def _normalize_run_args(args: argparse.Namespace) -> tuple[argparse.Namespace, G
     for attr in ("ref_panel_snps_file", "regression_snps_file"):
         if not hasattr(normalized_args, attr):
             setattr(normalized_args, attr, None)
-    for attr in ("exclude_regions", "exclude_regions_build", "exclude_regions_bed"):
+    for attr in ("exclude_regions",):
         if not hasattr(normalized_args, attr):
             setattr(normalized_args, attr, None)
-    for attr in ("use_hm3_ref_panel_snps", "use_hm3_regression_snps"):
-        if not hasattr(normalized_args, attr):
-            setattr(normalized_args, attr, False)
     if not hasattr(normalized_args, "maf_min"):
         normalized_args.maf_min = None
     if not hasattr(normalized_args, "common_maf_min"):
@@ -1580,22 +1590,6 @@ def _normalize_run_args(args: argparse.Namespace) -> tuple[argparse.Namespace, G
     normalized_args.ref_panel_snps_file = normalize_optional_path_token(getattr(args, "ref_panel_snps_file", None))
     normalized_args.regression_snps_file = normalize_optional_path_token(getattr(args, "regression_snps_file", None))
     normalized_args.exclude_regions = getattr(args, "exclude_regions", None)
-    normalized_args.exclude_regions_build = getattr(args, "exclude_regions_build", None)
-    normalized_args.exclude_regions_bed = getattr(args, "exclude_regions_bed", None)
-    if normalized_args.ref_panel_snps_file is not None and normalized_args.use_hm3_ref_panel_snps:
-        raise LDSCUsageError(
-            "ldscore received two reference-panel SNP restrictions: `ref_panel_snps_file` "
-            "and `use_hm3_ref_panel_snps`. Most likely a custom SNP list was combined "
-            "with the packaged HM3 shortcut. Choose one restriction source: pass the "
-            "custom file or use the HM3 flag, not both."
-        )
-    if normalized_args.regression_snps_file is not None and normalized_args.use_hm3_regression_snps:
-        raise LDSCUsageError(
-            "ldscore received two regression SNP restrictions: `regression_snps_file` "
-            "and `use_hm3_regression_snps`. Most likely a custom regression list was "
-            "combined with the packaged HM3 shortcut. Choose one restriction source: "
-            "pass the custom file or use the HM3 flag, not both."
-        )
     # The numerical kernel still consumes the historical namespace shape.
     normalized_args.query_annot = normalized_args.query_annot_sources
     normalized_args.baseline_annot = normalized_args.baseline_annot_sources
@@ -1722,11 +1716,9 @@ def _load_regression_snps(
     )
 
 
-def _regression_snps_file_from_config(config: LDScoreConfig) -> str | None:
-    """Return the explicit or packaged regression SNP restriction path."""
-    if config.use_hm3_regression_snps:
-        return packaged_hm3_curated_map_path()
-    return config.regression_snps_file
+def _regression_snps_file_from_config(config: LDScoreConfig) -> str:
+    """Return the explicit regression list or the canonical bundled HM3 default."""
+    return config.regression_snps_file or packaged_hm3_curated_map_path()
 
 
 def _infer_r2_dir_genome_build(r2_dir: str) -> str | None:
@@ -1780,33 +1772,38 @@ def _read_r2_sorted_by_build(path: Path) -> str | None:
     return build if build in {"hg19", "hg38"} else None
 
 
-def _resolve_exclude_regions_build(
+def _resolve_regression_region_build(
     args: argparse.Namespace, global_config: GlobalConfig, presets: tuple[str, ...]
 ) -> str | None:
     """Resolve the genome build used to select region-exclusion preset BEDs.
 
-    An explicit ``--exclude-regions-build`` always wins. Otherwise, when presets
-    are active, chr_pos-family runs reuse the panel build ``ldscore`` already
-    operates in (inferred from the R2 parquet / PLINK panel); rsid-family runs
-    carry no genome build, so the build must be stated explicitly.
+    ``--genome-build`` is the sole public build declaration. Coordinate-family
+    runs reuse the resolved panel build; rsid-family runs need an explicit
+    concrete declaration because rsIDs themselves carry no build information.
     """
-    explicit = getattr(args, "exclude_regions_build", None)
-    if explicit is not None or not presets:
-        return explicit
-    if identity_mode_family(global_config.snp_identifier) == "chr_pos":
-        build = global_config.genome_build
-        if build in {"hg19", "hg38"}:
-            return build
-        raise LDSCUsageError(
-            "ldscore could not determine the genome build for region exclusion. Most "
-            "likely the panel coordinate build could not be inferred. Pass "
-            "`--exclude-regions-build hg19`/`hg38`, or `--exclude-regions none` to keep all regions."
-        )
+    if not presets:
+        return None
+    if global_config.genome_build in {"hg19", "hg38"}:
+        return global_config.genome_build
+    requested = normalize_genome_build(getattr(args, "genome_build", None))
+    if requested in {"hg19", "hg38"}:
+        return requested
     raise LDSCUsageError(
-        "ldscore needs an explicit region build to exclude presets in rsid-family modes. "
-        "rsid identifiers carry no genome build, so pass `--exclude-regions-build hg19` or "
-        "`hg38`, or `--exclude-regions none` to keep all regions."
+        "ldscore cannot select named regression exclusion regions without a concrete genome build. "
+        "Pass `--genome-build hg19` or `--genome-build hg38`, or use `--exclude-regions none`."
     )
+
+
+def _regression_region_intervals(
+    args: argparse.Namespace, global_config: GlobalConfig
+) -> kernel_regions.RegionIntervals | None:
+    """Load named intervals applied only after selecting regression SNPs."""
+    presets = exclude_regions_choice_to_presets(getattr(args, "exclude_regions", None) or "none")
+    build = _resolve_regression_region_build(args, global_config, presets)
+    if not presets:
+        return None
+    assert build is not None
+    return kernel_regions.load_preset_intervals(presets, build)
 
 
 def _ref_panel_from_args(args: argparse.Namespace, global_config: GlobalConfig):
@@ -1814,21 +1811,14 @@ def _ref_panel_from_args(args: argparse.Namespace, global_config: GlobalConfig):
     from ._kernel.ref_panel import RefPanelLoader
 
     ref_panel_snps_file = normalize_optional_path_token(getattr(args, "ref_panel_snps_file", None))
-    exclude_regions = exclude_regions_choice_to_presets(getattr(args, "exclude_regions", None) or "none")
-    exclude_regions_build = _resolve_exclude_regions_build(args, global_config, exclude_regions)
-    exclude_regions_bed = tuple(split_cli_path_tokens(getattr(args, "exclude_regions_bed", None)))
     r2_dir = _r2_dir_from_args(args)
     if r2_dir is not None:
         spec = RefPanelConfig(
             backend="parquet_r2",
             r2_dir=r2_dir,
             ref_panel_snps_file=ref_panel_snps_file,
-            use_hm3_ref_panel_snps=getattr(args, "use_hm3_ref_panel_snps", False),
             maf_min=getattr(args, "maf_min", None),
             keep_indivs_file=getattr(args, "keep_indivs_file", None),
-            exclude_regions=exclude_regions,
-            exclude_regions_bed=exclude_regions_bed,
-            exclude_regions_build=exclude_regions_build,
             genetic_map_hg19_sources=getattr(args, "genetic_map_hg19_sources", None),
             genetic_map_hg38_sources=getattr(args, "genetic_map_hg38_sources", None),
         )
@@ -1837,12 +1827,8 @@ def _ref_panel_from_args(args: argparse.Namespace, global_config: GlobalConfig):
             backend="plink",
             plink_prefix=getattr(args, "plink_prefix", None),
             ref_panel_snps_file=ref_panel_snps_file,
-            use_hm3_ref_panel_snps=getattr(args, "use_hm3_ref_panel_snps", False),
             maf_min=getattr(args, "maf_min", None),
             keep_indivs_file=getattr(args, "keep_indivs_file", None),
-            exclude_regions=exclude_regions,
-            exclude_regions_bed=exclude_regions_bed,
-            exclude_regions_build=exclude_regions_build,
             genetic_map_hg19_sources=getattr(args, "genetic_map_hg19_sources", None),
             genetic_map_hg38_sources=getattr(args, "genetic_map_hg38_sources", None),
         )
@@ -1856,7 +1842,6 @@ def _ldscore_config_from_args(args: argparse.Namespace) -> LDScoreConfig:
         ld_wind_kb=getattr(args, "ld_wind_kb", None),
         ld_wind_cm=getattr(args, "ld_wind_cm", None),
         regression_snps_file=getattr(args, "regression_snps_file", None),
-        use_hm3_regression_snps=getattr(args, "use_hm3_regression_snps", False),
         snp_batch_size=getattr(args, "snp_batch_size", 128),
         common_maf_min=getattr(args, "common_maf_min", 0.05),
         whole_chromosome_ok=getattr(args, "yes_really", False),
@@ -1873,6 +1858,46 @@ def _reference_metadata_sources(ref_panel) -> tuple[str, str]:
         return "parquet_sidecar", "parquet_sidecar"
     has_map = bool(getattr(spec, "genetic_map_hg19_sources", None) or getattr(spec, "genetic_map_hg38_sources", None))
     return ("genetic_map" if has_map else "plink_bim"), "plink_genotypes"
+
+
+def _snp_universe_policy(
+    *,
+    ref_panel,
+    ldscore_config: LDScoreConfig,
+    regression_regions: kernel_regions.RegionIntervals | None,
+    chromosome_results: Sequence[ChromLDScoreResult],
+) -> dict[str, Any]:
+    """Describe the independently selected LD-reference and regression universes.
+
+    This is persisted in ``metadata.json`` so an LD-score artifact cannot make
+    a regression-row exclusion look like a change to its LD-reference
+    estimand. Counts are after retained-reference/annotation alignment, before
+    and after the regression-region subtraction respectively.
+    """
+    ref_panel_snps_file = getattr(getattr(ref_panel, "spec", None), "ref_panel_snps_file", None)
+    custom_regression_file = ldscore_config.regression_snps_file
+    return {
+        "ld_reference_universe": {
+            "selection": "full_retained_reference_panel"
+            if ref_panel_snps_file is None
+            else "explicit_ref_panel_snps_file",
+            "ref_panel_snps_file": None if ref_panel_snps_file is None else str(ref_panel_snps_file),
+            "retained_snp_count": int(sum(result.reference_snp_count for result in chromosome_results)),
+        },
+        "regression_rows_and_weights": {
+            "selection": "bundled_hm3_default" if custom_regression_file is None else "explicit_regression_snps_file",
+            "regression_snps_file": None if custom_regression_file is None else str(custom_regression_file),
+            "region_exclusion_sources": [] if regression_regions is None else list(regression_regions.source_labels),
+            "selected_snp_count_before_region_exclusion": int(
+                sum(result.regression_selected_snp_count for result in chromosome_results)
+            ),
+            "region_excluded_snp_count": int(
+                sum(result.regression_region_removed_snp_count for result in chromosome_results)
+            ),
+            "written_snp_count": int(sum(len(result.baseline_table) for result in chromosome_results)),
+            "weight_contributors": "same_filtered_regression_set",
+        },
+    }
 
 
 def _write_one_ref_metadata_sidecar(metadata: pd.DataFrame, chrom: str, output_dir: str) -> None:
@@ -2155,6 +2180,7 @@ def _compute_one_chromosome(
     global_config: GlobalConfig,
     export_dir: str | None = None,
     regression_snps=_WORKER_UNSET,
+    regression_regions=_WORKER_UNSET,
 ) -> _ChromOutcome:
     """Compute one chromosome end-to-end and return a tagged outcome.
 
@@ -2168,6 +2194,8 @@ def _compute_one_chromosome(
 
     if regression_snps == _WORKER_UNSET:
         regression_snps = _WORKER_STATE.get("regression_snps")
+    if regression_regions == _WORKER_UNSET:
+        regression_regions = _WORKER_STATE.get("regression_regions")
     ref_panel = RefPanelLoader(global_config).load(ref_panel_spec)
     calculator = LDScoreCalculator()
     try:
@@ -2178,6 +2206,7 @@ def _compute_one_chromosome(
             ldscore_config=ldscore_config,
             global_config=global_config,
             regression_snps=regression_snps,
+            regression_regions=regression_regions,
             export_dir=export_dir,
         )
     except (ValueError, LDSCInputError) as exc:
@@ -2187,7 +2216,7 @@ def _compute_one_chromosome(
     return _ChromOutcome(chrom=chrom, result=result, skipped=False)
 
 
-def _init_worker(regression_snps, log_level: str) -> None:
+def _init_worker(regression_snps, regression_regions, log_level: str) -> None:
     """Initialize a pool worker: shared regression keys, logging, BLAS threads.
 
     Pins BLAS thread counts to 1 unless the user already set them, so ``W``
@@ -2196,6 +2225,7 @@ def _init_worker(regression_snps, log_level: str) -> None:
     from ._logging import configure_package_logging
 
     _WORKER_STATE["regression_snps"] = regression_snps
+    _WORKER_STATE["regression_regions"] = regression_regions
     for var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
         os.environ.setdefault(var, "1")
     configure_package_logging(log_level)

@@ -538,6 +538,9 @@ class LDScoreDirectoryWriter:
             payload.setdefault("query_diagnostics", {})["gene_list_unresolved"] = (
                 "diagnostics/gene_list_unresolved.tsv.gz"
             )
+        snp_universe_policy = getattr(result, "snp_universe_policy", None)
+        if snp_universe_policy is not None:
+            payload["snp_universe_policy"] = dict(snp_universe_policy)
         return payload
 
     def _validate_tables(self, result: Any) -> None:

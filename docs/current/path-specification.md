@@ -261,10 +261,9 @@ keys for base `chr_pos` keep-lists, but it still keeps the complete restriction
 key set in memory; `ldscore` and reference-panel workflows likewise do not
 lazy-load restriction rows by chromosome.
 
-Packaged HM3 convenience flags:
-
-- `use_hm3_ref_panel_snps`
-- `use_hm3_regression_snps`
+Bundled HM3 is the default `ldscore` regression set. Supply
+`regression_snps_file` only to replace that selected set; it never changes the
+reference-panel universe.
 
 PLINK prefix input:
 
@@ -345,14 +344,11 @@ Accepted path forms:
 - `ref_panel_snps_file`, when provided: scalar file-like token interpreted
   using `GlobalConfig.snp_identifier`; restriction files may omit alleles and
   then match by base key, while allele-bearing restrictions in allele-aware
-  modes match by the effective allele-aware key; packaged HM3 is allele-bearing
-  and participates in allele-aware matching; duplicate restriction keys collapse
+  modes match by the effective allele-aware key; duplicate restriction keys collapse
   to one retained key and non-identity columns such as `CM` or `MAF` are ignored;
   `chr_pos`-family coordinates must be aligned to the PLINK source build; the
   resolved restriction is loaded into an in-memory key set before per-chromosome
   PLINK filtering, so very large custom keep-lists can become a memory input
-- `use_hm3_snps`, when set: uses the packaged curated HM3 map instead of an
-  explicit `ref_panel_snps_file`
 
 How they are handled:
 
@@ -360,9 +356,8 @@ How they are handled:
 - a chromosome suite such as `panel_chr@` is expanded one chromosome at a time
 - liftover chains are optional; the matching source-to-target chain enables
   cross-build R2 and metadata outputs in `chr_pos`-family modes, while no matching
-  chain produces source-build-only outputs; `use_hm3_quick_liftover` also emits
-  the opposite build for the HM3-restricted coordinate universe and requires
-  `use_hm3_snps`; all reference-panel liftover is rejected in `rsid`-family modes
+  chain produces source-build-only outputs; all reference-panel liftover is
+  rejected in `rsid`-family modes
 - genetic maps are required for every emitted build when `--ld-wind-cm` is set;
   SNP- and kb-window builds may omit maps and write emitted metadata `CM` as
   `NA`

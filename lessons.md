@@ -4,6 +4,9 @@
 - Root cause: `schema_version` is the cross-artifact provenance-contract version (sumstats/ldscore/ref-panel share it), enforced equal to the package constant. It is not a per-format layout marker.
 - Correction: Keep `schema_version=1`; identify the index layout structurally (presence of `IDX_1/IDX_2/SIGN` columns + `ldsc:n_snps` + `ldsc:sidecar_identity_sha256`). The build->read parity test missed this because it uses `compute_chrom_from_parquet`, not `build_reader`; the autofill test (build_reader path) caught it.
 
+## Inferred projection builds must reach coordinate-based sibling features
+- Summary/root cause/correction: rsID gene-list runs inferred `gene_catalog_build` but default region exclusions consulted only build-independent identity metadata, so reuse the concrete projection build for named regions and cover the combined path rather than testing normalization and exclusion resolution separately.
+
 ## scipy CSR @ dense accumulates in the operand dtype — use float64 for LD-score scatter
 - Summary: Replacing `np.add.at` with a scipy.sparse CSR `U @ annot` for the parquet LD-score scatter lost ~3e-3 precision (above the int16 quantization floor) when `U.data`/`annot` were float32.
 - Root cause: scipy's CSR·dense SpMM sums each row in the operand dtype; float32 operands accumulate hundreds of within-window terms in float32. `np.add.at` had hidden this by accumulating into a float64 `cor_sum` even from float32 products.

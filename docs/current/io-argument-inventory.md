@@ -490,24 +490,23 @@ Removed Python names: `bed_paths`, `query_bed_paths`, `bed_files`,
 | `RefPanelConfig` | `plink_prefix` | input | PLINK reference-panel prefix token |
 | `RefPanelConfig` | `r2_dir` | input | preferred package-built parquet reference-panel directory |
 | `RefPanelConfig` | `ref_panel_snps_file` | input | reference SNP restriction |
-| `RefPanelConfig` | `use_hm3_ref_panel_snps` | input mode | packaged HM3 reference-panel SNP restriction |
 | `RefPanelConfig` | `keep_indivs_file` | input | PLINK individual keep file |
 | `RefPanelConfig` | `maf_min` | input metadata | retained reference-panel MAF filter |
-| `RefPanelConfig` | `exclude_regions`, `exclude_regions_build`, `exclude_regions_bed` | input transform | packaged or custom region exclusions applied before LD-score computation |
-| `LDScoreConfig` | `regression_snps_file` | input | regression SNP restriction |
-| `LDScoreConfig` | `use_hm3_regression_snps` | input mode | packaged HM3 regression SNP restriction |
+| `LDScoreConfig` | `regression_snps_file` | input | regression SNP override; omitted uses the bundled HM3 map |
 | `LDScoreConfig` | `snp_batch_size` | performance | LD-score SNP batch size |
 | `LDScoreConfig` | `threads` | performance | cross-chromosome worker processes |
 | `LDScoreConfig` | `common_maf_min` | input metadata | common-SNP count threshold only |
 | `LDScoreOutputConfig` | `output_dir` | output | canonical LD-score result directory |
-| `run_ldscore(**kwargs)` | `baseline_annot_sources`, `query_annot_sources`, `query_annot_bed_sources`, `bed_padding_bp` | input | optional annotation sources and BED padding; query inputs require baseline sources, and no-annotation runs synthesize `base` |
+| `run_ldscore(**kwargs)` | `baseline_annot_sources`, `query_annot_sources`, `query_annot_bed_sources`, `query_annot_gene_list_sources`, `bed_padding_bp` | input | optional annotation sources and BED/gene padding; query inputs require baseline sources, and no-annotation runs synthesize `base` |
 | `run_ldscore(**kwargs)` | `plink_prefix`, `r2_dir` | input | reference-panel sources |
+| `run_ldscore(**kwargs)` | `ref_panel_snps_file`, `regression_snps_file`, `exclude_regions` | input | independently selects the retained reference universe, regression rows, and regression-only named region subtraction |
 | `run_ldscore(**kwargs)` | `output_dir` | output | canonical result directory; convenience wrapper writes `diagnostics/ldscore.log` |
 
 Removed Python names: `bfile`, `r2_table`, `frqfile`, `keep`, `maf`,
 `baseline_annot`, `query_annot`, `query_annot_bed`, `out`,
 `r2_ref_panel_dir`, `ref_panel_dir`, `r2_sources`, `metadata_sources`, and
-LD-score `chunk_size`.
+LD-score `chunk_size`; `use_hm3_ref_panel_snps`, `use_hm3_regression_snps`,
+`exclude_regions_build`, and `exclude_regions_bed` are also removed.
 
 ### Reference-panel building
 

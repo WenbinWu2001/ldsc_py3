@@ -98,7 +98,7 @@ The main implementation risk is not gene parsing itself. It is preserving one or
 2. Resolve gene lists once, select unique build intervals, apply symmetric padding once, union intervals, and call the same binary SNP-overlap path used by BED projection. Do not materialize BED or generated annotation files.
 3. Refactor multi-BED loading so a malformed, empty, or unreadable concrete BED can become one skipped status while siblings continue. Preserve existing BED format rules and basename derivation.
 4. Classify empty, malformed, fully unresolved, ambiguous, unreadable, and partially resolved sources. Retain all parsed problem rows. Keep partially resolved gene queries usable with `warning`.
-5. After reference-SNP restrictions and region exclusions, compute `n_annotation_snps` from the exact count universe and skip zero-hit queries before scientific result assembly.
+5. After explicit reference-SNP restriction and ordinary MAF retention, compute `n_annotation_snps` from the retained reference universe and skip zero-hit queries before scientific result assembly. Do not subtract regression-only named region exclusions from this count universe.
 6. Assert that the remaining annotation columns and ordered usable status records agree before chromosome dispatch and after chromosome bundle concatenation.
 
 **Validation checkpoint:**

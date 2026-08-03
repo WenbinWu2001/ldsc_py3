@@ -152,7 +152,7 @@ Gene-derived and BED-derived queries use the same interval-overlap primitive and
 - overlap-matrix entries;
 - retained regression SNP rows.
 
-Existing restrictions and exclusions retain their order and meaning. In particular, `n_annotation_snps` and `M` are evaluated over `ld_reference_snps` after reference-SNP restrictions, MAF filtering, and region exclusions; query LD-score variance is evaluated over the written `ld_regression_snps` rows.
+`n_annotation_snps`, `M`, `M_5_50`, and overlap entries are evaluated over `ld_reference_snps` after any explicit reference-SNP restriction and ordinary MAF retention. Named region exclusions do not remove LD-score contributors or change those counts; they are subtracted only from regression/output rows and `w_ld` contributors. Query LD-score variance is evaluated over the resulting written `ld_regression_snps` rows.
 
 Only usable queries contribute columns to `AnnotationBundle`, `LDScoreResult`, `ldscore.query.parquet`, count records, or `ldscore.overlap.parquet`. Column order follows resolved source order after skipped queries are removed. Baseline columns and ordinary exact LD-score math are unchanged.
 
@@ -201,7 +201,7 @@ Every BED/gene-list run writes `diagnostics/query_annotation_status.tsv` with on
 | `input_type` | `bed` or `gene_list`. |
 | `status` | `ok`, `warning`, or `skipped`. |
 | `reason` | Exact reason above; empty for `ok`. |
-| `n_annotation_snps` | All-reference-SNP annotation count after restrictions/exclusions; null if not computable. |
+| `n_annotation_snps` | Retained-reference-SNP annotation count before regression-region subtraction; null if not computable. |
 | `details` | Concise explanation or relative diagnostic reference; empty for `ok`. |
 
 `n_annotation_snps` is the query's `M_c` over retained `ld_reference_snps`. It is zero for a constructed query that hits no retained SNP and null when parsing/resolution/read failure prevents construction.

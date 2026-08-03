@@ -34,6 +34,13 @@ identity-only filters. Duplicate restriction keys collapse to one retained key,
 and non-identity columns such as `CM` or `MAF` are ignored rather than carried
 into LD-score metadata.
 
+The retained reference panel is the LD-score contributor and annotation-count
+universe unless `--ref-panel-snps-file` explicitly restricts it. Regression
+rows use the bundled HM3 map by default; `--regression-snps-file` replaces that
+selection. Named `--exclude-regions` presets are then subtracted only from the
+regression/output rows and `w_ld` contributors, not from LD-score contributors,
+`M`, `M_5_50`, or overlap counts.
+
 `CM` and `MAF` are population-specific and always come from the **reference
 panel**, never the annotation: annotation `CM`/`MAF` are ignored. For the parquet
 backend the `chr*_meta.tsv.gz` sidecar is authoritative; for the PLINK backend
@@ -115,8 +122,6 @@ set_global_config(
 result = run_ldscore(
     output_dir="tutorial_outputs/unpartitioned_ldscores",
     r2_dir="r2_ref_panel_1kg30x_1cM_hm3/hg38",
-    use_hm3_ref_panel_snps=True,
-    use_hm3_regression_snps=True,
     common_maf_min=0.05,
     ld_wind_cm=1.0,
     # snp_batch_size=128,  # optional; also controls parquet cache sizing
@@ -132,8 +137,6 @@ print(result.baseline_table.loc[:, ["CHR", "SNP", "POS", "regression_ld_scores",
 ldsc ldscore \
   --output-dir tutorial_outputs/unpartitioned_ldscores \
   --r2-dir "r2_ref_panel_1kg30x_1cM_hm3/hg38" \
-  --use-hm3-ref-panel-snps \
-  --use-hm3-regression-snps \
   --snp-identifier chr_pos_allele_aware \
   --genome-build hg38 \
   --common-maf-min 0.05 \
@@ -159,8 +162,6 @@ result = run_ldscore(
     output_dir="tutorial_outputs/r2_ldscores",
     baseline_annot_sources="annotations/baseline.@.annot.gz",
     r2_dir="r2_ref_panel_1kg30x_1cM_hm3/hg38",
-    use_hm3_ref_panel_snps=True,
-    use_hm3_regression_snps=True,
     common_maf_min=0.05,
     ld_wind_cm=1.0,
     # overwrite=True,  # also removes stale LD-score siblings not produced by this run
@@ -180,8 +181,6 @@ ldsc ldscore \
   --output-dir tutorial_outputs/r2_ldscores \
   --baseline-annot-sources "annotations/baseline.@.annot.gz" \
   --r2-dir "r2_ref_panel_1kg30x_1cM_hm3/hg38" \
-  --use-hm3-ref-panel-snps \
-  --use-hm3-regression-snps \
   --snp-identifier chr_pos_allele_aware \
   --genome-build hg38 \
   --common-maf-min 0.05 \
@@ -210,8 +209,6 @@ result = run_ldscore(
     baseline_annot_sources="annotations/baseline_chr/baseline.@.annot.gz",
     query_annot_bed_sources="beds/*.bed",
     r2_dir="r2_ref_panel_1kg30x_1cM_hm3/hg38",
-    use_hm3_ref_panel_snps=True,
-    use_hm3_regression_snps=True,
     common_maf_min=0.05,
     ld_wind_cm=1.0,
 )
@@ -228,8 +225,6 @@ ldsc ldscore \
   --baseline-annot-sources "annotations/baseline_chr/baseline.@.annot.gz" \
   --query-annot-bed-sources "beds/*.bed" \
   --r2-dir "r2_ref_panel_1kg30x_1cM_hm3/hg38" \
-  --use-hm3-ref-panel-snps \
-  --use-hm3-regression-snps \
   --snp-identifier chr_pos_allele_aware \
   --genome-build hg38 \
   --common-maf-min 0.05 \
@@ -248,8 +243,6 @@ ldsc ldscore \
   --baseline-annot-sources "annotations/baseline_chr/baseline.@.annot.gz" \
   --query-annot-gene-list-sources "gene_lists/*.txt.gz" \
   --r2-dir "r2_ref_panel_1kg30x_1cM_hm3/hg38" \
-  --use-hm3-ref-panel-snps \
-  --use-hm3-regression-snps \
   --snp-identifier chr_pos_allele_aware \
   --genome-build auto \
   --common-maf-min 0.05 \
@@ -402,9 +395,9 @@ For Python workflows, `GlobalConfig` now carries only shared runtime settings su
 
 Per-run SNP-universe controls are owned by the workflow-specific configs instead:
 
-- `ref_panel_snps_file` or `use_hm3_ref_panel_snps` belongs to the LD-score reference-panel input and is passed through `run_ldscore(...)` into `RefPanelConfig`
+- `ref_panel_snps_file` optionally restricts the LD-score reference-panel input and is passed through `run_ldscore(...)` into `RefPanelConfig`; without it, the full retained reference panel remains the contributor universe
 - the LD-score workflow intersects each chromosome bundle with `ref_panel.load_metadata(chrom)`, so reference-panel SNP restriction shrinks the sidecar-defined compute-time universe from `B` to `B ∩ A'`; in the no-annotation unpartitioned case, synthetic `B` is the retained reference-panel metadata itself
-- `regression_snps_file` or `use_hm3_regression_snps` belongs to the LD-score calculation config and further restricts the normalized `baseline_table` rows from `B ∩ A'` to `B ∩ A' ∩ C`
+- `regression_snps_file` replaces the bundled HM3 regression-row default; named region exclusions are subsequently subtracted from those rows and from `w_ld` contributors without changing `B ∩ A'` LD-score contributors or annotation counts
 
 Both explicit restriction files are interpreted only through their active SNP
 identity keys. Repeated keys collapse to one retained key, while metadata-like

@@ -68,11 +68,19 @@ default is `auto`. Automatic selection uses available baseline and R2-panel
 evidence, requires the evidence to agree, and reports the inferred build in
 `diagnostics/ldscore.log`.
 
-In rsID modes the selected build controls only which catalog intervals are
-projected. SNP identity remains rsID-based and root LD-score compatibility
-metadata keeps `genome_build: null`; the catalog provenance separately records
-the projection build. If automatic inference has insufficient evidence, pass
-`--genome-build hg19` or `--genome-build hg38` explicitly.
+In rsID modes the selected build controls coordinate-based gene projection and
+named regression-region presets without changing SNP identity. Root LD-score
+compatibility metadata keeps `genome_build: null`; the catalog provenance
+separately records the projection build. A concrete automatically inferred
+projection build is also used to select the default named exclusions. If
+automatic inference has insufficient evidence, pass `--genome-build hg19` or
+`--genome-build hg38` explicitly.
+
+Gene-derived annotations follow the same SNP-universe contract as BED queries.
+Named region exclusions remove only regression/output rows and `w_ld`
+contributors; they do not remove SNPs from query LD-score calculation,
+`n_annotation_snps`, `M`, `M_5_50`, or overlap counts. See
+[LD-score SNP-universe contract](ldscore-snp-universe-contract.md).
 
 ## Example
 

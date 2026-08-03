@@ -424,7 +424,8 @@ class LDScoreWorkflowTest(unittest.TestCase):
         help_text = ldscore_workflow.build_parser().format_help()
 
         self.assertIn("Required when", help_text)
-        self.assertIn("Not used for rsid-family modes", help_text)
+        self.assertIn("rsid-family gene-list runs", help_text)
+        self.assertIn("named regression-region presets", help_text)
 
     def test_build_parser_accepts_r2_dir(self):
         args = ldscore_workflow.build_parser().parse_args(
@@ -1315,6 +1316,34 @@ class LDScoreWorkflowTest(unittest.TestCase):
         self.assertEqual(normalized.gene_catalog_build, "hg38")
         self.assertIsNone(global_config.genome_build)
         resolve_build.assert_called_once_with(normalized, "auto")
+
+    def test_gene_list_auto_build_drives_default_regression_regions_in_rsid_mode(self):
+        args = ldscore_workflow.build_parser().parse_args(
+            [
+                "--output-dir",
+                "out/example",
+                "--baseline-annot-sources",
+                "baseline.annot.gz",
+                "--query-annot-gene-list-sources",
+                "immune.txt",
+                "--snp-identifier",
+                "rsid",
+            ]
+        )
+
+        with mock.patch.object(
+            ldscore_workflow,
+            "_resolve_ldscore_chr_pos_genome_build",
+            return_value="hg38",
+        ):
+            normalized, global_config = _normalize_run_args(args)
+
+        intervals = ldscore_workflow._regression_region_intervals(normalized, global_config)
+
+        self.assertEqual(
+            intervals.source_labels,
+            ("preset:mhc[hg38]", "preset:centromeres[hg38]"),
+        )
 
     def test_gene_list_omitted_build_defaults_to_auto_for_chr_pos(self):
         args = ldscore_workflow.build_parser().parse_args(
@@ -3806,6 +3835,13 @@ def test_ldscore_region_build_uses_genome_build_and_requires_it_for_rsid():
         GlobalConfig(snp_identifier="rsid"),
         ("mhc",),
     ) == "hg38"
+    # Gene-list projection supplies coordinate evidence even though rsID
+    # identity metadata deliberately remains build-independent.
+    assert _resolve_regression_region_build(
+        Namespace(genome_build=None, gene_catalog_build="hg19"),
+        GlobalConfig(snp_identifier="rsid"),
+        ("mhc",),
+    ) == "hg19"
     # No presets => no build needed.
     assert _resolve_regression_region_build(
         Namespace(),
@@ -3878,6 +3914,47 @@ def test_regression_region_mask_leaves_reference_counts_and_ld_contributors_inta
     np.testing.assert_allclose(wrapped.baseline_table["regression_ld_scores"], [1.0, 1.0])
     assert wrapped.count_records[0]["all_reference_snp_count"] == 2.0
     assert wrapped.regression_region_removed_snp_count == 1
+
+
+def test_gene_list_mhc_query_keeps_reference_counts_but_not_regression_row(tmp_path):
+    from ldsc._kernel import regions
+
+    baseline = tmp_path / "baseline.annot"
+    genes = tmp_path / "hla.txt"
+    baseline.write_text(
+        "CHR\tPOS\tSNP\tCM\tbase\n"
+        "6\t24900000\tnear_mhc\t0\t1\n"
+        "6\t29945000\tin_hla_a\t0\t1\n"
+        "6\t36000000\toutside\t0\t1\n",
+        encoding="utf-8",
+    )
+    genes.write_text("HLA-A\n", encoding="utf-8")
+    bundle = AnnotationBuilder(
+        GlobalConfig(snp_identifier="rsid"), projection_genome_build="hg38"
+    ).run(
+        AnnotationBuildConfig(
+            baseline_annot_sources=(baseline,),
+            query_annot_gene_list_sources=(genes,),
+        )
+    )
+    metadata = bundle.metadata.copy()
+    metadata["MAF"] = 0.2
+    annotations = bundle.annotation_matrix(include_query=True)
+    intervals = regions.load_preset_intervals(("mhc",), "hg38")
+    regression_mask = kernel_ldscore.regression_mask_from_keys(
+        metadata,
+        {"near_mhc", "in_hla_a", "outside"},
+        "rsid",
+        region_intervals=intervals,
+    )
+    counts, common_counts = kernel_ldscore.compute_counts(metadata, annotations)
+    overlap = kernel_ldscore.compute_overlap(metadata, annotations, n_baseline=1)
+
+    assert bundle.query_annotations["hla"].tolist() == [0.0, 1.0, 0.0]
+    np.testing.assert_array_equal(regression_mask, np.array([1.0, 0.0, 1.0], dtype=np.float32))
+    np.testing.assert_array_equal(counts, np.array([3.0, 1.0]))
+    np.testing.assert_array_equal(common_counts, np.array([3.0, 1.0]))
+    np.testing.assert_array_equal(overlap.query_diagonal_all, np.array([1.0]))
 
 
 def test_ldscore_rejects_non_minor_maf():

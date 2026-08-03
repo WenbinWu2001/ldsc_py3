@@ -531,8 +531,8 @@ class LDScoreCalculator:
         ldscore_config: LDScoreConfig,
         global_config: GlobalConfig,
         regression_snps,
-        regression_regions: kernel_regions.RegionIntervals | None,
         worker_count: int,
+        regression_regions: kernel_regions.RegionIntervals | None = None,
         export_dir: str | None = None,
     ) -> dict[str, _ChromOutcome]:
         """Compute every chromosome, sequentially or via a spawn process pool.
@@ -1112,8 +1112,8 @@ def build_parser() -> argparse.ArgumentParser:
             "Genome build for chr_pos-family inputs and gene-list interval projection. "
             "Required when --snp-identifier is a chr_pos mode; gene-list runs default "
             "to 'auto'. Use 'auto' to infer hg19/hg38 from baseline/reference-panel "
-            "evidence. Not used for rsid-family modes except to select the projection "
-            "intervals for gene-list queries."
+            "evidence. In rsid-family gene-list runs, the resolved build selects both "
+            "gene projection intervals and named regression-region presets."
         ),
     )
     parser.add_argument(
@@ -1777,9 +1777,10 @@ def _resolve_regression_region_build(
 ) -> str | None:
     """Resolve the genome build used to select region-exclusion preset BEDs.
 
-    ``--genome-build`` is the sole public build declaration. Coordinate-family
-    runs reuse the resolved panel build; rsid-family runs need an explicit
-    concrete declaration because rsIDs themselves carry no build information.
+    Coordinate-family runs reuse the resolved panel build. Gene-list runs may
+    reuse their concrete inferred projection build while keeping rsID identity
+    metadata build-independent. Other rsID-family runs need an explicit build
+    because rsIDs themselves carry no coordinate-build information.
     """
     if not presets:
         return None
@@ -1788,6 +1789,9 @@ def _resolve_regression_region_build(
     requested = normalize_genome_build(getattr(args, "genome_build", None))
     if requested in {"hg19", "hg38"}:
         return requested
+    gene_catalog_build = normalize_genome_build(getattr(args, "gene_catalog_build", None))
+    if gene_catalog_build in {"hg19", "hg38"}:
+        return gene_catalog_build
     raise LDSCUsageError(
         "ldscore cannot select named regression exclusion regions without a concrete genome build. "
         "Pass `--genome-build hg19` or `--genome-build hg38`, or use `--exclude-regions none`."
@@ -2216,7 +2220,7 @@ def _compute_one_chromosome(
     return _ChromOutcome(chrom=chrom, result=result, skipped=False)
 
 
-def _init_worker(regression_snps, regression_regions, log_level: str) -> None:
+def _init_worker(regression_snps, regression_regions=None, log_level: str = "INFO") -> None:
     """Initialize a pool worker: shared regression keys, logging, BLAS threads.
 
     Pins BLAS thread counts to 1 unless the user already set them, so ``W``

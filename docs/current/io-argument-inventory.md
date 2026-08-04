@@ -1,6 +1,6 @@
 # IO Argument Inventory
 
-Last updated on: 2026-08-03
+Last updated on: 2026-08-04
 
 This document records the current public input/output naming contract after the
 LD-score result-directory refactor. The LD-score workflow uses a canonical
@@ -497,7 +497,7 @@ Removed Python names: `bed_paths`, `query_bed_paths`, `bed_files`,
 | `LDScoreConfig` | `threads` | performance | cross-chromosome worker processes |
 | `LDScoreConfig` | `common_maf_min` | input metadata | common-SNP count threshold only |
 | `LDScoreOutputConfig` | `output_dir` | output | canonical LD-score result directory |
-| `run_ldscore(**kwargs)` | `baseline_annot_sources`, `query_annot_sources`, `query_annot_bed_sources`, `query_annot_gene_list_sources`, `padding_bp`, `gene_ldscore_index_dir` | input | direct annotations and padding, or one explicit immutable gene-index profile; no-annotation runs synthesize `base` |
+| `run_ldscore(**kwargs)` | `baseline_annot_sources`, `query_annot_sources`, `query_annot_bed_sources`, `query_annot_gene_list_sources`, `padding_bp`, `gene_ldscore_index_dir` | input | direct annotations and padding, or one explicit complete immutable gene index; no-annotation runs synthesize `base` |
 | `run_ldscore(**kwargs)` | `plink_prefix`, `r2_dir` | input | reference-panel sources |
 | `run_ldscore(**kwargs)` | `ref_panel_snps_file`, `regression_snps_file`, `exclude_regions` | input | independently selects the retained reference universe, regression rows, and regression-only named region subtraction |
 | `run_ldscore(**kwargs)` | `output_dir` | output | canonical result directory; convenience wrapper writes `diagnostics/ldscore.log` |

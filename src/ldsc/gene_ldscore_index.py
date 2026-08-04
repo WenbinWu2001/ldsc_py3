@@ -1,7 +1,7 @@
 """Build, validate, and query exact disjoint-atom gene LD-score indexes.
 
 The offline workflow computes a PLINK-backed LD-score operator for one fixed
-baseline suite, reference panel, and gene-projection profile. The online
+baseline, reference panel, regression-row policy, and gene projection. The online
 workflow resolves gene lists against the embedded catalog, assembles their
 Boolean union from the stored operator, and writes an ordinary self-contained
 LD-score directory. It never discovers an index or silently falls back to live
@@ -12,7 +12,10 @@ from __future__ import annotations
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime, timezone
+import fcntl
 import hashlib
 import json
 import logging
@@ -45,7 +48,7 @@ from ._kernel.regions import RegionIntervals
 from ._kernel.identifiers import read_snp_restriction_keys
 from ._kernel.snp_identity import RestrictionIdentityKeys
 from ._kernel import regions as kernel_regions
-from ._logging import log_inputs, log_outputs, set_workflow_log_path, workflow_logging
+from ._logging import log_inputs, log_outputs, workflow_logging
 from .annotation_builder import AnnotationBuilder
 from .chromosome_inference import normalize_chromosome
 from .config import AnnotationBuildConfig, GeneLDScoreIndexBuildConfig, GlobalConfig
@@ -60,7 +63,7 @@ from .path_resolution import split_cli_path_tokens
 LOGGER = logging.getLogger("LDSC.gene_ldscore_index")
 
 
-_STRICT_IDENTITY_COLUMNS = ["CHR", "POS", "SNP"]
+_IDENTITY_COLUMNS = ["CHR", "POS", "SNP"]
 
 
 def _semantic_sha256(payload: dict) -> str:
@@ -69,14 +72,9 @@ def _semantic_sha256(payload: dict) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def calculate_suite_id(suite_identity: dict) -> str:
-    """Return the immutable common-suite semantic identity."""
-    return _semantic_sha256(suite_identity)
-
-
-def calculate_profile_id(suite_id: str, profile_identity: dict) -> str:
-    """Return the profile identity bound to one exact common suite."""
-    return _semantic_sha256({"suite_id": suite_id, **profile_identity})
+def calculate_index_id(index_identity: dict) -> str:
+    """Return the immutable semantic identity of one complete index."""
+    return _semantic_sha256(index_identity)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -97,6 +95,23 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--maf-min", type=float, default=None)
     parser.add_argument("--common-maf-min", type=float, default=0.05)
     parser.add_argument("--keep-indivs-file", default=None)
+    parser.add_argument(
+        "--regression-snps-file",
+        default=None,
+        help=(
+            "Optional identity-only SNP list defining the persisted regression/output rows. "
+            "Duplicate restriction keys collapse and non-identity columns are ignored."
+        ),
+    )
+    parser.add_argument(
+        "--exclude-regions",
+        choices=kernel_regions.EXCLUDE_REGIONS_CHOICES,
+        default="mhc-and-centromeres",
+        help=(
+            "Curated regions subtracted after selecting bundled HapMap3 or "
+            "--regression-snps-file SNPs."
+        ),
+    )
     parser.add_argument("--genetic-map-hg19-sources", default=None)
     parser.add_argument("--genetic-map-hg38-sources", default=None)
     parser.add_argument("--chromosomes", default="1-22")
@@ -122,7 +137,7 @@ def build_gene_ldscore_index(
     overwrite: bool = False,
     log_level: str = "INFO",
 ) -> Path:
-    """Build and transactionally publish one exact gene LD-score profile.
+    """Build and transactionally publish one complete gene LD-score index.
 
     Parameters
     ----------
@@ -137,25 +152,27 @@ def build_gene_ldscore_index(
         Reserved matching-build argument. V1 rejects hg38 maps because its
         projection build is hg19.
     overwrite : bool, optional
-        Replace only the targeted profile when it already exists. Matching
-        common data and sibling profiles are preserved. Default is ``False``.
+        Rebuild and replace a complete existing valid index. Gene indexes do
+        not support incremental updates or component reuse. Default is
+        ``False``.
     log_level : {"DEBUG", "INFO", "WARNING", "ERROR"}, optional
         Workflow logging threshold. Default is ``"INFO"``.
 
     Returns
     -------
     pathlib.Path
-        Published ``profiles/<profile-name>`` directory.
+        Published index directory.
 
     Raises
     ------
     TypeError
         If ``config`` is not a ``GeneLDScoreIndexBuildConfig``.
     LDSCInputError
-        If an input is missing or incompatible, baseline/BIM identities do not
-        match before genotype QC, or the staged artifact fails validation.
+        If an input is missing or incompatible, the baseline/PLINK identifier
+        intersection is empty or ambiguous, or staged validation fails.
     FileExistsError
-        If the targeted profile exists and ``overwrite`` is false.
+        If a valid index exists and ``overwrite`` is false, or a nonempty
+        unrecognized directory occupies the destination.
 
     Notes
     -----
@@ -178,6 +195,8 @@ def build_gene_ldscore_index(
             maf_min=config.maf_min,
             common_maf_min=config.common_maf_min,
             keep_indivs_file=config.keep_indivs_file,
+            regression_snps_file=config.regression_snps_file,
+            exclude_regions=config.exclude_regions,
             genetic_map_hg19_sources=genetic_map_hg19_sources,
             genetic_map_hg38_sources=genetic_map_hg38_sources,
             chromosomes=",".join(config.chromosomes),
@@ -220,7 +239,7 @@ def _build_embedded_gene_catalog(
     genome_build: str,
     gene_exclude_regions: str,
 ) -> pd.DataFrame:
-    """Build the profile's self-contained ordered catalog and inclusion policy."""
+    """Build the index's self-contained ordered catalog and inclusion policy."""
     eligible = set(
         resolve_all_protein_coding(
             catalog,
@@ -256,7 +275,7 @@ def _build_embedded_gene_catalog(
 
 
 def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
-    """Build, validate, and publish one exact v1 index profile."""
+    """Build, validate, and publish one complete exact v1 index."""
     started = time.perf_counter()
     chromosomes = _parse_chromosomes(args.chromosomes)
     baseline_sources = tuple(split_cli_path_tokens(args.baseline_annot_sources))
@@ -273,26 +292,19 @@ def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
         maf_min=args.maf_min,
         common_maf_min=args.common_maf_min,
         keep_indivs_file=args.keep_indivs_file,
+        regression_snps_file=getattr(args, "regression_snps_file", None),
+        exclude_regions=getattr(args, "exclude_regions", "mhc-and-centromeres"),
         snp_batch_size=args.snp_batch_size,
         atom_batch_size=args.atom_batch_size,
         threads=args.threads,
     )
 
-    profile_name = f"padding-{config.padding_bp}bp-{config.gene_exclude_regions}"
-    final_log_path = (
-        Path(config.output_dir)
-        / "profiles"
-        / profile_name
-        / "diagnostics"
-        / "build-gene-ldscore-index.log"
-    )
-    Path(config.output_dir).parent.mkdir(parents=True, exist_ok=True)
-    log_stage_dir = Path(
-        tempfile.mkdtemp(prefix=f".{Path(config.output_dir).name}.gene-index-log-", dir=Path(config.output_dir).parent)
-    )
-    staged_log_path = log_stage_dir / final_log_path.name
-    try:
-        with workflow_logging("build-gene-ldscore-index", staged_log_path, log_level=args.log_level):
+    index_path = Path(config.output_dir)
+    with _gene_index_build_lock(index_path):
+        _recover_gene_index_publication(index_path)
+        _preflight_gene_index_output(index_path, overwrite=bool(args.overwrite))
+        final_log_path = _prepare_gene_index_log(index_path)
+        with workflow_logging("build-gene-ldscore-index", final_log_path, log_level=args.log_level):
             log_inputs(
                 output_dir=str(config.output_dir),
                 genome_build=config.genome_build,
@@ -307,7 +319,8 @@ def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
                 common_maf_min=config.common_maf_min,
                 keep_indivs_file=config.keep_indivs_file or "all individuals",
                 genetic_map="explicit hg19 map" if getattr(args, "genetic_map_hg19_sources", None) else "BIM cM fallback",
-                regression_policy="bundled HM3 minus MHC and centromeres",
+                regression_snps_file=config.regression_snps_file or "bundled HapMap3",
+                exclude_regions=config.exclude_regions,
                 snp_batch_size=config.snp_batch_size,
                 atom_batch_size=config.atom_batch_size,
                 threads=config.threads,
@@ -320,10 +333,7 @@ def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
                 config,
                 chromosomes,
                 started=started,
-                profile_name=profile_name,
             )
-    finally:
-        _materialize_gene_index_log(staged_log_path, final_log_path, log_stage_dir)
 
 
 def _run_gene_ldscore_index_build(
@@ -332,7 +342,6 @@ def _run_gene_ldscore_index_build(
     chromosomes: tuple[str, ...],
     *,
     started: float,
-    profile_name: str,
 ) -> Path:
     """Run the scientific builder inside its shared workflow log context."""
     catalog = GeneCatalog.load()
@@ -343,9 +352,14 @@ def _run_gene_ldscore_index_build(
     )
     global_config = GlobalConfig(snp_identifier="rsid")
     annotation_spec = AnnotationBuildConfig(baseline_annot_sources=config.baseline_annot_sources)
-    regression_path = Path(packaged_hm3_curated_map_path())
+    regression_path = Path(config.regression_snps_file or packaged_hm3_curated_map_path())
     regression_keys = read_snp_restriction_keys(regression_path, "rsid", genome_build=None)
-    regression_regions = kernel_regions.load_preset_intervals(("mhc", "centromeres"), "hg19")
+    regression_presets = kernel_regions.exclude_regions_choice_to_presets(config.exclude_regions)
+    regression_regions = (
+        None
+        if not regression_presets
+        else kernel_regions.load_preset_intervals(regression_presets, config.genome_build)
+    )
     genetic_map = _load_builder_genetic_map(args)
 
     def build_one(chrom: str) -> tuple[str, IndexChromosomeData, dict]:
@@ -359,12 +373,6 @@ def _run_gene_ldscore_index_build(
             baseline = public_bundle.baseline_annotations.loc[chrom_mask].reset_index(drop=True)
             if metadata.empty:
                 raise LDSCInputError(f"No baseline annotation rows were found for chromosome {chrom}.")
-            kernel_bundle = kernel_ldscore.AnnotationBundle(
-                metadata=metadata,
-                annotations=baseline,
-                baseline_columns=list(public_bundle.baseline_columns),
-                query_columns=[],
-            )
             kernel_args = argparse.Namespace(
                 bfile=config.plink_prefix,
                 keep=config.keep_indivs_file,
@@ -383,8 +391,20 @@ def _run_gene_ldscore_index_build(
             if prefix is None:
                 raise LDSCInputError(f"Could not resolve PLINK prefix for chromosome {chrom}.")
             bim_rows = _read_bim_identity(prefix)
-            phase = "strict baseline/BIM validation"
-            validate_strict_baseline_plink_identity(metadata, bim_rows, chrom=chrom)
+            phase = "baseline/PLINK identifier intersection"
+            intersection = intersect_baseline_plink_by_identifier(
+                metadata,
+                baseline,
+                bim_rows,
+                snp_identifier=config.snp_identifier,
+                chrom=chrom,
+            )
+            kernel_bundle = kernel_ldscore.AnnotationBundle(
+                metadata=intersection.metadata,
+                annotations=intersection.annotations,
+                baseline_columns=list(public_bundle.baseline_columns),
+                query_columns=[],
+            )
             chrom_catalog = embedded_catalog.loc[embedded_catalog["CHR"].astype(str) == chrom].sort_values(
                 "chromosome_gene_row", kind="mergesort"
             )
@@ -414,6 +434,11 @@ def _run_gene_ldscore_index_build(
         maf_removed = int(record.maf_removed)
         evidence = {
             "pre_qc_rows": int(len(bim_rows)),
+            **intersection.diagnostics,
+            "baseline_content_sha256": _canonical_frame_sha256(
+                pd.concat([metadata.reset_index(drop=True), baseline.reset_index(drop=True)], axis=1),
+                sort_by=("CHR", "POS", "SNP"),
+            ),
             "reference_rows_before_genotype_qc": rows_before_genotype_qc,
             "annotation_intersection_removed": int(len(bim_rows) - rows_before_genotype_qc),
             "retained_reference_rows": int(record.total_reference_snps_all),
@@ -422,7 +447,7 @@ def _run_gene_ldscore_index_build(
             "maf_removed": maf_removed,
             "genotype_qc_or_maf_removed": genotype_qc_removed + maf_removed,
             "regression_rows": int(len(record.baseline_rows)),
-            "baseline_bim_identity": "exact",
+            "baseline_plink_identity": "inner_join_by_rsid",
             "protein_coding_genes": protein_coding_genes,
             "genes_with_padded_atoms": genes_with_atoms,
             "atom_count": int(record.atom_model.n_atoms),
@@ -440,6 +465,10 @@ def _run_gene_ldscore_index_build(
             f"regression-rows={evidence['regression_rows']}, atoms={evidence['atom_count']}, "
             f"nnz(Y)={evidence['nnz_Y']}, elapsed={evidence['elapsed_seconds']:.3f}s."
         )
+        if not len(record.baseline_rows):
+            LOGGER.warning(
+                f"Chromosome {chrom} has zero persisted regression SNP rows after restriction and region exclusion."
+            )
         return chrom, record, evidence
 
     if config.threads == 1 or len(chromosomes) == 1:
@@ -452,78 +481,37 @@ def _run_gene_ldscore_index_build(
             built = list(pool.map(build_one, chromosomes))
     chromosome_data = {chrom: record for chrom, record, _evidence in built}
     evidence_by_chrom = {chrom: evidence for chrom, _record, evidence in built}
-    suite_identity = _builder_suite_identity(config, args, chromosome_data, regression_path)
-    profile_identity = {
-        "catalog": {
-            "resource": catalog.resource,
-            "release": catalog.release,
-            "content_sha256": catalog.content_sha256,
-        },
-        "projection_build": config.genome_build,
-        "padding_bp": config.padding_bp,
-        "gene_exclude_regions": config.gene_exclude_regions,
-    }
-    suite_path = Path(config.output_dir)
-    target_profile_path = suite_path / "profiles" / profile_name
-    suite_existed = suite_path.exists()
-    common_existed = (suite_path / "common").exists()
-    target_profile_existed = target_profile_path.exists()
-    sibling_profiles_before = _profile_names(suite_path, exclude=profile_name)
-    suite_id = calculate_suite_id(suite_identity)
-    profile_id = calculate_profile_id(suite_id, profile_identity)
-    try:
-        profile_path = publish_gene_ldscore_index(
-            config.output_dir,
-            profile_name=profile_name,
-            suite_identity=suite_identity,
-            profile_identity=profile_identity,
-            gene_catalog=embedded_catalog,
-            chromosomes=chromosome_data,
-            overwrite=bool(args.overwrite),
+    total_regression_rows = sum(len(record.baseline_rows) for record in chromosome_data.values())
+    if total_regression_rows == 0:
+        raise LDSCInputError(
+            "Gene LD-score index has zero regression SNP rows across all selected chromosomes "
+            "after applying the SNP restriction and --exclude-regions policy."
         )
-    except Exception as exc:
-        LOGGER.error(
-            f"Gene LD-score index build failed during staged validation/publication: "
-            f"{type(exc).__name__}: {exc}"
-        )
-        raise
-    diagnostics = profile_path / "diagnostics"
-    diagnostics.mkdir(exist_ok=True)
+    index_identity = _builder_index_identity(
+        config,
+        args,
+        chromosome_data,
+        regression_keys,
+        genetic_map,
+        catalog,
+        evidence_by_chrom,
+    )
+    index_path = Path(config.output_dir)
+    index_id = calculate_index_id(index_identity)
     elapsed = time.perf_counter() - started
     import resource
 
     peak_rss = int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
     if sys.platform != "darwin":
         peak_rss *= 1024
-    payload_bytes = _scientific_payload_bytes(suite_path)
-    for chrom, values in evidence_by_chrom.items():
-        values["common_payload_bytes"] = _directory_payload_bytes(suite_path / "common" / f"chr{chrom}")
-        values["profile_payload_bytes"] = _directory_payload_bytes(profile_path / f"chr{chrom}")
-    selected_individuals = suite_identity.get("selected_individuals", {})
-    plink_sources = suite_identity.get("plink_sources", [])
-    map_identity = suite_identity.get("genetic_map", "bim_cm")
-    if isinstance(map_identity, dict):
-        map_source = "explicit hg19 map"
-        map_file_count = len(map_identity.get("sources", []))
-    else:
-        map_source = "BIM cM fallback"
-        map_file_count = 0
-    publication = {
-        "suite_existed": suite_existed,
-        "common": "reused" if common_existed else "created",
-        "target_profile_existed": target_profile_existed,
-        "targeted_overwrite": bool(args.overwrite),
-        "staging_reload_validation": "passed",
-        "atomic_publication": "completed",
-        "sibling_profiles_preserved": sibling_profiles_before,
-        "profile_path": str(profile_path),
-    }
+    selected_individuals = index_identity.get("selected_individuals", {})
+    plink_sources = index_identity.get("plink_sources", [])
+    map_identity = index_identity.get("genetic_map", "bim_cm")
+    map_source = "explicit hg19 map" if isinstance(map_identity, dict) else "BIM cM fallback"
     diagnostic_payload = {
-        "suite_id": suite_id,
-        "profile_id": profile_id,
+        "index_id": index_id,
         "elapsed_seconds": elapsed,
         "peak_rss_bytes": peak_rss,
-        "payload_bytes": payload_bytes,
         "snp_batch_size": config.snp_batch_size,
         "atom_batch_size": config.atom_batch_size,
         "threads": config.threads,
@@ -541,68 +529,210 @@ def _run_gene_ldscore_index_build(
             "common_maf_min": config.common_maf_min,
             "keep_individuals": "all" if config.keep_indivs_file is None else "keep_file",
             "genetic_map": map_source,
-            "regression_policy": "bundled HM3 minus MHC and centromeres",
+            "regression_snps": "custom" if config.regression_snps_file else "bundled_hapmap3",
+            "exclude_regions": config.exclude_regions,
         },
         "input_resolution": {
-            "baseline_annotation_files": len(suite_identity.get("baseline_sources", [])),
             "plink_bed_files": sum(source.get("kind") == "bed" for source in plink_sources),
             "plink_bim_files": sum(source.get("kind") == "bim" for source in plink_sources),
-            "plink_fam_files": sum(source.get("kind") == "fam" for source in plink_sources),
             "chromosome_shards": len(chromosomes),
-            "genetic_map_files": map_file_count,
             "selected_individual_count": selected_individuals.get("selected_count"),
-            "keep_individual_source": selected_individuals.get("source", "all"),
-            "strict_baseline_bim_identity": {
-                chrom: values["baseline_bim_identity"] for chrom, values in evidence_by_chrom.items()
+            "keep_individual_source": "all" if config.keep_indivs_file is None else "keep_file",
+            "baseline_plink_intersection": {
+                chrom: {
+                    key: values[key]
+                    for key in (
+                        "baseline_rows", "plink_rows", "matched_rows", "baseline_only_rows",
+                        "plink_only_rows", "coordinate_discordant_rows",
+                    )
+                }
+                for chrom, values in evidence_by_chrom.items()
             },
-            "map_validation": "passed and informative",
         },
-        "publication": publication,
+        "publication": {
+            "overwrite": bool(args.overwrite),
+            "staging_reload_validation": "passed",
+            "atomic_publication": "completed",
+            "index_path": str(index_path),
+        },
         "chromosomes": evidence_by_chrom,
         "totals": {
             "chromosome_count": len(chromosomes),
             "protein_coding_genes": sum(values["protein_coding_genes"] for values in evidence_by_chrom.values()),
             "atom_count": sum(values["atom_count"] for values in evidence_by_chrom.values()),
             "operator_nnz": sum(values["operator_nnz"] for values in evidence_by_chrom.values()),
-            "regression_rows": sum(values["regression_rows"] for values in evidence_by_chrom.values()),
+            "regression_rows": total_regression_rows,
             "retained_reference_rows": sum(values["retained_reference_rows"] for values in evidence_by_chrom.values()),
         },
     }
+    try:
+        published_path = publish_gene_ldscore_index(
+            config.output_dir,
+            index_identity=index_identity,
+            gene_catalog=embedded_catalog,
+            chromosomes=chromosome_data,
+            overwrite=bool(args.overwrite),
+            diagnostic_payload=diagnostic_payload,
+        )
+    except Exception as exc:
+        LOGGER.error(
+            f"Gene LD-score index build failed during staged validation/publication: "
+            f"{type(exc).__name__}: {exc}"
+        )
+        raise
+    diagnostic_payload["payload_bytes"] = _scientific_payload_bytes(published_path)
+    for chrom, values in evidence_by_chrom.items():
+        values["payload_bytes"] = _directory_payload_bytes(
+            published_path / "chromosomes" / f"chr{chrom}"
+        )
     _write_json(
-        diagnostics / "build-gene-ldscore-index.json",
+        published_path / "diagnostics" / "build-gene-ldscore-index.json",
         diagnostic_payload,
     )
     _log_gene_index_summary(diagnostic_payload)
     log_outputs(
-        suite_id=suite_id,
-        profile_id=profile_id,
-        profile=str(profile_path),
-        summary_json=str(diagnostics / "build-gene-ldscore-index.json"),
+        index_id=index_id,
+        index=str(published_path),
+        summary_json=str(published_path / "diagnostics" / "build-gene-ldscore-index.json"),
         publication="staged, reloaded, validated, and atomically replaced",
     )
-    return profile_path
+    return published_path
 
 
-def _materialize_gene_index_log(staged_log_path: Path, final_log_path: Path, stage_dir: Path) -> None:
-    """Copy the live workflow log into the published profile or failure location."""
+@contextmanager
+def _gene_index_build_lock(index_path: Path):
+    """Hold a nonblocking process lock for one absolute index destination."""
+    destination = index_path.expanduser().resolve()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = destination.parent / f".{destination.name}.build-gene-ldscore-index.lock"
+    handle = lock_path.open("a+", encoding="utf-8")
     try:
-        if staged_log_path.exists():
-            final_log_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(staged_log_path, final_log_path)
-            set_workflow_log_path(final_log_path)
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            handle.seek(0)
+            owner = handle.read().strip() or "unknown owner"
+            raise LDSCInputError(
+                f"Another build-gene-ldscore-index process is active for {destination} ({owner}). "
+                f"Monitor {destination / 'diagnostics' / 'build-gene-ldscore-index.log'}."
+            ) from exc
+        handle.seek(0)
+        handle.truncate()
+        handle.write(f"pid={os.getpid()} host={socket.gethostname()} target={destination}\n")
+        handle.flush()
+        yield
     finally:
-        if stage_dir.exists():
-            shutil.rmtree(stage_dir, ignore_errors=True)
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            handle.close()
 
 
-def _profile_names(suite_path: Path, *, exclude: str | None = None) -> list[str]:
-    """Return existing sibling profile names without reading profile payloads."""
-    profiles = suite_path / "profiles"
-    if not profiles.is_dir():
-        return []
-    return sorted(
-        path.name for path in profiles.iterdir() if path.is_dir() and path.name != exclude
-    )
+def _preflight_gene_index_output(index_path: Path, *, overwrite: bool) -> None:
+    """Validate the destination contract before any chromosome computation."""
+    if index_path.exists() and not index_path.is_dir():
+        raise FileExistsError(f"Gene LD-score index output is not a directory: {index_path}")
+    if not index_path.exists():
+        index_path.mkdir(parents=True)
+        return
+    if not any(index_path.iterdir()) or _is_diagnostics_only_gene_index(index_path):
+        return
+    try:
+        load_gene_ldscore_index(index_path)
+    except Exception as exc:
+        raise FileExistsError(
+            f"Gene LD-score index output directory is nonempty but invalid: {index_path}. "
+            "Choose an empty directory; --overwrite does not replace unrecognized contents."
+        ) from exc
+    if not overwrite:
+        raise FileExistsError(
+            f"Gene LD-score index already exists: {index_path}. Pass --overwrite to rebuild it completely."
+        )
+
+
+def _recover_gene_index_publication(index_path: Path) -> None:
+    """Recover or clean recognized interrupted publication transactions."""
+    destination = index_path.expanduser().resolve()
+    candidates: list[Path] = []
+    for path in destination.parent.glob(f".{destination.name}.stage-*"):
+        marker_path = path / ".gene-index-publication.json"
+        try:
+            marker = _read_json(marker_path, "publication marker")
+        except LDSCInputError:
+            continue
+        if (
+            marker.get("artifact_type") == "gene_ldscore_index_publication"
+            and marker.get("target") == str(destination)
+        ):
+            candidates.append(path)
+    if not candidates:
+        return
+
+    target_valid = False
+    if destination.exists():
+        try:
+            load_gene_ldscore_index(destination)
+        except Exception:
+            target_valid = False
+        else:
+            target_valid = True
+    if target_valid:
+        (destination / ".gene-index-publication.json").unlink(missing_ok=True)
+        for candidate in candidates:
+            shutil.rmtree(candidate)
+        return
+
+    valid_backups: list[Path] = []
+    for candidate in candidates:
+        backup = candidate / f"{destination.name}.backup"
+        if not backup.is_dir():
+            continue
+        marker_path = backup / ".gene-index-publication.json"
+        try:
+            marker = _read_json(marker_path, "backup publication marker")
+            load_gene_ldscore_index(backup)
+        except Exception:
+            continue
+        if marker.get("target") == str(destination):
+            valid_backups.append(backup)
+    if len(valid_backups) != 1:
+        listed = ", ".join(str(path) for path in valid_backups) or "none"
+        raise LDSCInputError(
+            "Gene LD-score index publication recovery is ambiguous: the target is missing or invalid "
+            f"and valid matching backups are {listed}. Preserve these paths and resolve them manually."
+        )
+    if destination.exists():
+        target_marker = destination / ".gene-index-publication.json"
+        try:
+            marker = _read_json(target_marker, "target publication marker")
+        except LDSCInputError as exc:
+            raise LDSCInputError(
+                f"Cannot replace invalid unrecognized gene-index target during recovery: {destination}."
+            ) from exc
+        if marker.get("target") != str(destination):
+            raise LDSCInputError(
+                f"Cannot replace invalid unrecognized gene-index target during recovery: {destination}."
+            )
+        shutil.rmtree(destination)
+    backup = valid_backups[0]
+    os.replace(backup, destination)
+    (destination / ".gene-index-publication.json").unlink(missing_ok=True)
+    for candidate in candidates:
+        if candidate.exists():
+            shutil.rmtree(candidate)
+
+
+def _prepare_gene_index_log(index_path: Path) -> Path:
+    """Archive the prior owned log and return the stable live log path."""
+    diagnostics = index_path / "diagnostics"
+    diagnostics.mkdir(parents=True, exist_ok=True)
+    log_path = diagnostics / "build-gene-ldscore-index.log"
+    if log_path.exists():
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+        history = diagnostics / "history"
+        history.mkdir(exist_ok=True)
+        os.replace(log_path, history / f"build-gene-ldscore-index.{timestamp}.log")
+    return log_path
 
 
 def _directory_payload_bytes(path: Path) -> int:
@@ -612,44 +742,28 @@ def _directory_payload_bytes(path: Path) -> int:
     return sum(file.stat().st_size for file in path.rglob("*") if file.is_file())
 
 
-def _scientific_payload_bytes(suite_path: Path) -> int:
-    """Return suite bytes excluding human-readable and JSON diagnostics."""
+def _scientific_payload_bytes(index_path: Path) -> int:
+    """Return index bytes excluding human-readable and JSON diagnostics."""
     total = 0
-    for file in suite_path.rglob("*"):
+    for file in index_path.rglob("*"):
         if not file.is_file() or "diagnostics" in file.parts:
             continue
         total += file.stat().st_size
     return total
 
 
-def _is_abandoned_gene_index_profile(path: Path) -> bool:
-    """Recognize a diagnostics-only profile left by a failed build."""
-    if not path.is_dir() or (path / "metadata.json").exists():
-        return False
-    files = [file for file in path.rglob("*") if file.is_file()]
-    return bool(files) and all(
-        file.relative_to(path).parts == ("diagnostics", "build-gene-ldscore-index.log")
-        for file in files
-    )
-
-
-def _is_abandoned_gene_index_suite(path: Path) -> bool:
-    """Recognize a diagnostics-only suite left by a failed first build."""
+def _is_diagnostics_only_gene_index(path: Path) -> bool:
+    """Recognize a failed-build directory containing only owned diagnostics."""
     if not path.is_dir() or (path / "metadata.json").exists():
         return False
     files = [file for file in path.rglob("*") if file.is_file()]
     if not files:
         return False
-    for file in files:
-        relative = file.relative_to(path)
-        if (
-            len(relative.parts) != 4
-            or relative.parts[0] != "profiles"
-            or relative.parts[2] != "diagnostics"
-            or relative.parts[3] != "build-gene-ldscore-index.log"
-        ):
-            return False
-    return True
+    return all(
+        file.relative_to(path).parts[0] == "diagnostics"
+        and file.name.startswith("build-gene-ldscore-index")
+        for file in files
+    )
 
 
 def _log_gene_index_summary(payload: dict) -> None:
@@ -668,24 +782,25 @@ def _log_gene_index_summary(payload: dict) -> None:
         f"map={config['genetic_map']}."
     )
     LOGGER.info(
-        f"Resolved inputs: baseline-files={inputs['baseline_annotation_files']}, "
-        f"PLINK bed/bim/fam={inputs['plink_bed_files']}/{inputs['plink_bim_files']}/"
-        f"{inputs['plink_fam_files']}, map-files={inputs['genetic_map_files']}, "
+        f"Resolved inputs: PLINK bed/bim={inputs['plink_bed_files']}/{inputs['plink_bim_files']}, "
         f"chromosome-shards={inputs['chromosome_shards']}, "
         f"selected-individuals={inputs['selected_individual_count']} "
         f"({inputs['keep_individual_source']})."
     )
     LOGGER.info(
-        "SNP universe: broad retained PLINK SNPs are LD-score contributors and count/overlap members; "
-        "filtered HM3 SNPs are persisted regression rows; w_ld uses the filtered regression set as rows and contributors."
+        "SNP universe: the baseline/PLINK identifier intersection defines LD-score contributors and "
+        "count/overlap members; the configured regression restriction defines persisted rows."
     )
-    LOGGER.info("Regression-row policy: bundled HM3 minus MHC and centromeres.")
+    LOGGER.info(
+        f"Regression-row policy: {config['regression_snps']} with exclude-regions={config['exclude_regions']}."
+    )
     for chrom in payload["chromosomes"]:
         values = payload["chromosomes"][chrom]
         LOGGER.info(
             f"Chromosome {chrom} metrics: pre-QC={values['pre_qc_rows']}, "
-            f"strict-baseline-BIM={values['baseline_bim_identity']}, "
-            f"annotation-intersection-removed={values['annotation_intersection_removed']}, "
+            f"baseline/PLINK-match={values['matched_rows']}, "
+            f"baseline-only={values['baseline_only_rows']}, PLINK-only={values['plink_only_rows']}, "
+            f"coordinate-discordant={values['coordinate_discordant_rows']}, "
             f"genotype-QC-removed={values['genotype_qc_removed']}, "
             f"MAF-removed={values['maf_removed']} (policy={values['maf_filter_policy']}), "
             f"retained-reference={values['retained_reference_rows']}, "
@@ -695,14 +810,11 @@ def _log_gene_index_summary(payload: dict) -> None:
             f"genes-with-padded-atoms={values['genes_with_padded_atoms']}, "
             f"atoms={values['atom_count']}, nnz(Y)={values['nnz_Y']}, "
             f"operator_nnz={values['operator_nnz']}, "
-            f"common-bytes={values['common_payload_bytes']}, "
-            f"profile-bytes={values['profile_payload_bytes']}, "
+            f"payload-bytes={values['payload_bytes']}, "
             f"elapsed={values['elapsed_seconds']:.3f}s."
         )
     LOGGER.info(
-        f"Publication: suite_id={payload['suite_id']}, profile_id={payload['profile_id']}, "
-        f"common={publication['common']}, target-overwrite={publication['targeted_overwrite']}, "
-        f"sibling-profiles-preserved={len(publication['sibling_profiles_preserved'])}, "
+        f"Publication: index_id={payload['index_id']}, overwrite={publication['overwrite']}, "
         f"staged-reload={publication['staging_reload_validation']}, "
         f"atomic-publication={publication['atomic_publication']}."
     )
@@ -711,7 +823,7 @@ def _log_gene_index_summary(payload: dict) -> None:
         f"protein-coding genes={totals['protein_coding_genes']}, atoms={totals['atom_count']}, "
         f"operator_nnz={totals['operator_nnz']}, payload_bytes={payload['payload_bytes']}, "
         f"peak_rss_bytes={payload['peak_rss_bytes']}, elapsed_seconds={payload['elapsed_seconds']:.6f}, "
-        f"profile={publication['profile_path']}."
+        f"index={publication['index_path']}."
     )
 
 
@@ -722,7 +834,7 @@ def _read_bim_identity(prefix: str) -> pd.DataFrame:
         header=None,
         names=["CHR", "SNP", "CM", "POS", "A1", "A2"],
     )
-    return frame[["CHR", "POS", "SNP"]]
+    return frame[["CHR", "SNP", "CM", "POS", "A1", "A2"]]
 
 
 def _file_sha256(path: str | Path) -> str:
@@ -745,46 +857,71 @@ def _load_builder_genetic_map(args):
     return load_genetic_map_group(split_cli_path_tokens(hg19))
 
 
-def _genetic_map_identity(args) -> str | dict:
+def _canonical_frame_sha256(
+    frame: pd.DataFrame,
+    *,
+    sort_by: Sequence[str] = (),
+) -> str:
+    """Hash a normalized table without path, compression, or text-layout effects."""
+    normalized = frame.copy()
+    if sort_by:
+        normalized = normalized.sort_values(list(sort_by), kind="mergesort").reset_index(drop=True)
+    normalized.columns = [str(column) for column in normalized.columns]
+    for column in normalized.columns:
+        if pd.api.types.is_float_dtype(normalized[column]):
+            normalized[column] = normalized[column].map(
+                lambda value: "<NA>" if pd.isna(value) else format(float(value), ".17g")
+            )
+        elif pd.api.types.is_bool_dtype(normalized[column]):
+            normalized[column] = normalized[column].astype(bool).map({True: "true", False: "false"})
+        else:
+            normalized[column] = normalized[column].map(
+                lambda value: "<NA>" if pd.isna(value) else str(value)
+            )
+    payload = normalized.to_csv(index=False, sep="\t", lineterminator="\n")
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _genetic_map_identity(args, genetic_map: pd.DataFrame | None = None) -> str | dict:
     """Return the content-bound scientific identity of the effective cM map."""
     sources = split_cli_path_tokens(getattr(args, "genetic_map_hg19_sources", None))
     if not sources:
         return "bim_cm"
+    if genetic_map is None:
+        genetic_map = _load_builder_genetic_map(args)
     return {
         "kind": "explicit_hg19",
-        "sources": [
-            {"name": Path(path).name, "sha256": _file_sha256(path)}
-            for path in sources
-        ],
+        "content_sha256": _canonical_frame_sha256(genetic_map, sort_by=("CHR", "POS")),
     }
 
 
-def _builder_suite_identity(config, args, chromosomes, regression_path: Path) -> dict:
-    from .path_resolution import resolve_file_group
-
-    baseline_files = resolve_file_group(
-        config.baseline_annot_sources,
-        label="baseline annotation",
-        allow_chromosome_suite=True,
-    )
+def _builder_index_identity(
+    config,
+    args,
+    chromosomes,
+    regression_keys: set[str] | RestrictionIdentityKeys,
+    genetic_map: pd.DataFrame | None,
+    catalog: GeneCatalog,
+    evidence_by_chrom: dict[str, dict],
+) -> dict:
+    """Build the path-insensitive canonical scientific identity."""
     plink_files = []
-    removal_counts = {}
     first_prefix = None
-    for chrom, record in chromosomes.items():
+    for chrom in chromosomes:
         kernel_args = argparse.Namespace(bfile=config.plink_prefix)
         prefix = kernel_ldscore.resolve_bfile_prefix(kernel_args, chrom=chrom)
         if first_prefix is None:
             first_prefix = prefix
-        for suffix in (".bed", ".bim", ".fam"):
-            path = str(prefix) + suffix
-            plink_files.append({"chromosome": chrom, "kind": suffix[1:], "sha256": _file_sha256(path)})
-        pre_qc = len(_read_bim_identity(str(prefix)))
-        removal_counts[chrom] = {
-            "pre_qc": pre_qc,
-            "retained": int(record.total_reference_snps_all),
-            "genotype_or_maf_removed": pre_qc - int(record.total_reference_snps_all),
-            "regression": int(len(record.baseline_rows)),
-        }
+        plink_files.extend(
+            [
+                {"chromosome": chrom, "kind": "bed", "content_sha256": _file_sha256(str(prefix) + ".bed")},
+                {
+                    "chromosome": chrom,
+                    "kind": "bim",
+                    "content_sha256": _canonical_frame_sha256(_read_bim_identity(str(prefix))),
+                },
+            ]
+        )
     assert first_prefix is not None
     fam = kernel_ldscore.legacy_parse.PlinkFAMFile(str(first_prefix) + ".fam")
     keep_indices = kernel_ldscore.resolve_keep_individuals(config.keep_indivs_file, fam)
@@ -793,26 +930,38 @@ def _builder_suite_identity(config, args, chromosomes, regression_path: Path) ->
     selected_digest = hashlib.sha256(
         json.dumps(selected_ids, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
     ).hexdigest()
+    effective_keys = regression_keys.keys if isinstance(regression_keys, RestrictionIdentityKeys) else regression_keys
+    regression_digest = hashlib.sha256(
+        json.dumps(sorted(map(str, effective_keys)), separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
     return {
-        "baseline_sources": [{"name": Path(path).name, "sha256": _file_sha256(path)} for path in baseline_files],
+        "baseline_by_chromosome": {
+            chrom: evidence_by_chrom[chrom]["baseline_content_sha256"]
+            for chrom in chromosomes
+        },
         "plink_sources": plink_files,
         "chromosomes": list(config.chromosomes),
         "genome_build": config.genome_build,
         "snp_identifier": config.snp_identifier,
-        "plink_suite": "1000G_EUR_Phase3",
         "selected_individuals": {
-            "source": "all" if config.keep_indivs_file is None else "keep_file",
             "selected_content_sha256": selected_digest,
             "selected_count": len(selected_ids),
-            "keep_file_sha256": None if config.keep_indivs_file is None else _file_sha256(config.keep_indivs_file),
         },
         "maf_min": config.maf_min,
         "common_maf_min": config.common_maf_min,
         "ld_window": {"unit": "cm", "value": config.ld_wind_cm},
-        "genetic_map": _genetic_map_identity(args),
-        "regression_snps": {"kind": "bundled_hm3", "sha256": _file_sha256(regression_path)},
-        "snp_exclude_regions": "mhc-and-centromeres",
-        "removal_counts": removal_counts,
+        "genetic_map": _genetic_map_identity(args, genetic_map),
+        "regression_snps": {
+            "kind": "custom" if config.regression_snps_file else "bundled_hapmap3",
+            "canonical_keys_sha256": regression_digest,
+        },
+        "exclude_regions": config.exclude_regions,
+        "catalog": {
+            "content_sha256": _canonical_frame_sha256(catalog.frame, sort_by=("ensgid",)),
+        },
+        "projection_build": config.genome_build,
+        "padding_bp": config.padding_bp,
+        "gene_exclude_regions": config.gene_exclude_regions,
     }
 
 
@@ -826,7 +975,7 @@ def _selected_individual_ids(fam, selected_indices: Sequence[int]) -> list[str]:
 
 @dataclass(frozen=True)
 class IndexChromosomeData:
-    """Validated in-memory common/profile payload for one chromosome."""
+    """Validated in-memory scientific payload for one index chromosome."""
 
     baseline_rows: pd.DataFrame
     baseline_count_all: np.ndarray
@@ -848,120 +997,143 @@ class IndexChromosomeData:
 
 @dataclass(frozen=True)
 class LoadedGeneLDScoreIndex:
-    """A validated profile and its immutable common LD-score layer.
+    """One validated, self-contained gene LD-score index.
 
     Attributes
     ----------
-    suite_id, profile_id : str
-        Content-bound scientific identities for the common suite and selected
-        gene profile.
+    index_id : str
+        Content-bound scientific identity for the complete index.
     chromosomes : tuple of str
         Ordered immutable chromosome coverage.
-    suite_identity, profile_identity : dict
-        Scientific settings used to calculate the semantic identities.
+    index_identity : dict
+        Scientific settings and canonical input-content identities used to
+        calculate ``index_id``.
     gene_catalog : pandas.DataFrame
         Embedded catalog with unpadded 0-based half-open gene coordinates,
         inclusion flags, and chromosome-local row ordering.
-    profile_chromosomes : dict of str to IndexChromosomeData
+    index_chromosomes : dict of str to IndexChromosomeData
         Validated chromosome-local baseline rows, sparse operators, atom
         geometry, and sufficient statistics.
     """
 
-    suite_id: str
-    profile_id: str
+    index_id: str
     chromosomes: tuple[str, ...]
-    suite_identity: dict
-    profile_identity: dict
+    index_identity: dict
     gene_catalog: pd.DataFrame
-    profile_chromosomes: dict[str, IndexChromosomeData]
+    index_chromosomes: dict[str, IndexChromosomeData]
 
 
 def publish_gene_ldscore_index(
-    suite_dir: str | Path,
+    index_dir: str | Path,
     *,
-    profile_name: str,
-    suite_identity: dict,
-    profile_identity: dict,
+    index_identity: dict,
     gene_catalog: pd.DataFrame,
     chromosomes: dict[str, IndexChromosomeData],
     overwrite: bool,
+    diagnostic_payload: dict | None = None,
 ) -> Path:
-    """Stage, validate, and atomically publish one profile without losing siblings."""
-    destination = Path(suite_dir)
+    """Stage, reload, and atomically publish one complete index directory.
+
+    Existing valid indexes require ``overwrite=True`` and are kept loadable
+    until their complete replacement has passed staged reload validation.
+    Nonempty directories that are neither valid indexes nor recognized
+    diagnostics-only failed builds are rejected even with overwrite.
+    """
+    destination = Path(index_dir)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    suite_id = calculate_suite_id(suite_identity)
-    profile_id = calculate_profile_id(suite_id, profile_identity)
-    stage_parent = Path(tempfile.mkdtemp(prefix=f".{destination.name}.stage-", dir=destination.parent))
-    staged_suite = stage_parent / destination.name
-    try:
-        if destination.exists() and not _is_abandoned_gene_index_suite(destination):
-            root = _read_json(destination / "metadata.json", "suite root")
-            _validate_metadata_identity(root, suite_id=suite_id)
-            shutil.copytree(destination, staged_suite)
+    if destination.exists():
+        if not destination.is_dir():
+            raise FileExistsError(f"Gene LD-score index output is not a directory: {destination}")
+        if not any(destination.iterdir()):
+            pass
+        elif _is_diagnostics_only_gene_index(destination):
+            pass
         else:
-            if destination.exists():
-                shutil.rmtree(destination)
-            staged_suite.mkdir()
-            _write_json(
-                staged_suite / "metadata.json",
-                {
-                    "artifact_type": "gene_ldscore_index",
-                    "suite_id": suite_id,
-                    "suite_identity": suite_identity,
-                    "chromosomes": list(chromosomes),
-                },
-            )
-            _write_common_layer(staged_suite, suite_id, suite_identity, chromosomes)
-        profile_dir = staged_suite / "profiles" / profile_name
-        if profile_dir.exists() and not overwrite:
-            if _is_abandoned_gene_index_profile(profile_dir):
-                shutil.rmtree(profile_dir)
-            else:
+            try:
+                load_gene_ldscore_index(destination)
+            except Exception as exc:
                 raise FileExistsError(
-                    f"Gene LD-score index profile already exists: {destination / 'profiles' / profile_name}. "
-                    "Pass --overwrite to replace only this profile."
+                    f"Gene LD-score index output directory is nonempty but invalid: {destination}. "
+                    "Choose an empty directory; --overwrite does not replace unrecognized contents."
+                ) from exc
+            if not overwrite:
+                raise FileExistsError(
+                    f"Gene LD-score index already exists: {destination}. Pass --overwrite to rebuild it completely."
                 )
-        if profile_dir.exists():
-            shutil.rmtree(profile_dir)
-        _write_profile_layer(
-            profile_dir,
-            suite_id=suite_id,
-            profile_id=profile_id,
-            profile_identity=profile_identity,
+    index_id = calculate_index_id(index_identity)
+    stage_parent = Path(tempfile.mkdtemp(prefix=f".{destination.name}.stage-", dir=destination.parent))
+    staged_index = stage_parent / destination.name
+    publication_marker = {
+        "artifact_type": "gene_ldscore_index_publication",
+        "target": str(destination.expanduser().resolve()),
+    }
+    _write_json(stage_parent / ".gene-index-publication.json", publication_marker)
+    try:
+        _write_index_artifact(
+            staged_index,
+            index_id=index_id,
+            index_identity=index_identity,
             gene_catalog=gene_catalog,
             chromosomes=chromosomes,
         )
-        load_gene_ldscore_index(profile_dir)
+        if diagnostic_payload is not None:
+            _write_json(
+                staged_index / "diagnostics" / "build-gene-ldscore-index.json",
+                diagnostic_payload,
+            )
+        if (destination / "diagnostics" / "history").is_dir():
+            shutil.copytree(
+                destination / "diagnostics" / "history",
+                staged_index / "diagnostics" / "history",
+                dirs_exist_ok=True,
+            )
+        live_log = destination / "diagnostics" / "build-gene-ldscore-index.log"
+        if live_log.exists():
+            staged_log = staged_index / "diagnostics" / live_log.name
+            staged_log.parent.mkdir(parents=True, exist_ok=True)
+            os.link(live_log, staged_log)
+        _write_json(staged_index / ".gene-index-publication.json", publication_marker)
+        load_gene_ldscore_index(staged_index)
         backup = stage_parent / f"{destination.name}.backup"
         if destination.exists():
-            os.replace(destination, backup)
+            _write_json(destination / ".gene-index-publication.json", publication_marker)
+            try:
+                os.replace(destination, backup)
+            except Exception:
+                (destination / ".gene-index-publication.json").unlink(missing_ok=True)
+                raise
         try:
-            os.replace(staged_suite, destination)
+            os.replace(staged_index, destination)
+            load_gene_ldscore_index(destination)
         except Exception:
+            if destination.exists():
+                shutil.rmtree(destination)
             if backup.exists():
                 os.replace(backup, destination)
+                (destination / ".gene-index-publication.json").unlink(missing_ok=True)
             raise
         if backup.exists():
             shutil.rmtree(backup)
-        return destination / "profiles" / profile_name
+        (destination / ".gene-index-publication.json").unlink(missing_ok=True)
+        return destination
     finally:
         if stage_parent.exists():
             shutil.rmtree(stage_parent)
 
 
-def load_gene_ldscore_index(profile_dir: str | Path) -> LoadedGeneLDScoreIndex:
-    """Load and fully validate one explicit gene LD-score index profile.
+def load_gene_ldscore_index(index_dir: str | Path) -> LoadedGeneLDScoreIndex:
+    """Load and fully validate one explicit gene LD-score index directory.
 
     Parameters
     ----------
-    profile_dir : path-like
-        Exact ``<suite>/profiles/<profile>`` directory. A suite root is not
-        accepted and no profile discovery is performed.
+    index_dir : path-like
+        Directory containing one complete index. No profile discovery or
+        compatibility migration is performed.
 
     Returns
     -------
     LoadedGeneLDScoreIndex
-        Common and profile components after validating semantic identities,
+        Index components after validating semantic identity,
         chromosome coverage, catalog and row ordering, shapes, dtypes, finite
         values, and CSR invariants.
 
@@ -971,43 +1143,21 @@ def load_gene_ldscore_index(profile_dir: str | Path) -> LoadedGeneLDScoreIndex:
         If any required component is missing, corrupt, structurally invalid,
         or semantically incompatible.
     """
-    profile_path = Path(profile_dir)
-    if profile_path.parent.name != "profiles":
-        raise LDSCInputError(
-            f"Gene LD-score index path must name one profile directory beneath profiles/: {profile_path}"
-        )
-    suite_path = profile_path.parent.parent
-    root = _read_json(suite_path / "metadata.json", "suite root")
+    index_path = Path(index_dir)
+    root = _read_json(index_path / "metadata.json", "root")
     if root.get("artifact_type") != "gene_ldscore_index":
         raise LDSCInputError("Gene LD-score index root has the wrong artifact_type.")
-    suite_identity = root.get("suite_identity")
-    suite_id = root.get("suite_id")
-    if not isinstance(suite_identity, dict) or suite_id != calculate_suite_id(suite_identity):
-        raise LDSCInputError("Gene LD-score index suite_id does not match its scientific identity.")
-    common_meta = _read_json(suite_path / "common" / "metadata.json", "common layer")
-    _validate_metadata_identity(common_meta, suite_id=suite_id)
-    root_chromosomes = tuple(str(chrom) for chrom in root.get("chromosomes", ()))
-    if (
-        common_meta.get("suite_identity") != suite_identity
-        or tuple(str(chrom) for chrom in common_meta.get("chromosomes", ())) != root_chromosomes
-    ):
-        raise LDSCInputError("Gene LD-score index common chromosome coverage or identity is invalid.")
-    profile_meta = _read_json(profile_path / "metadata.json", "profile")
-    profile_identity = profile_meta.get("profile_identity")
-    profile_id = profile_meta.get("profile_id")
-    if (
-        profile_meta.get("artifact_type") != "gene_ldscore_index"
-        or profile_meta.get("suite_id") != suite_id
-        or not isinstance(profile_identity, dict)
-        or profile_id != calculate_profile_id(suite_id, profile_identity)
-    ):
-        raise LDSCInputError("Gene LD-score index profile semantic identity is invalid.")
-    chromosomes = tuple(str(chrom) for chrom in profile_meta.get("chromosomes", ()))
-    if chromosomes != root_chromosomes:
-        raise LDSCInputError("Gene LD-score index profile chromosome coverage does not match the suite.")
-    catalog_path = profile_path / "gene_catalog.parquet"
+    index_identity = root.get("index_identity")
+    index_id = root.get("index_id")
+    if not isinstance(index_identity, dict) or index_id != calculate_index_id(index_identity):
+        raise LDSCInputError("Gene LD-score index semantic identity is invalid.")
+    chromosomes = tuple(str(chrom) for chrom in root.get("chromosomes", ()))
+    expected_coverage = tuple(str(chrom) for chrom in index_identity.get("chromosomes", ()))
+    if not chromosomes or chromosomes != expected_coverage:
+        raise LDSCInputError("Gene LD-score index chromosome coverage is invalid.")
+    catalog_path = index_path / "gene_catalog.parquet"
     if not catalog_path.exists():
-        raise LDSCInputError("Gene LD-score index profile is missing gene_catalog.parquet.")
+        raise LDSCInputError("Gene LD-score index is missing gene_catalog.parquet.")
     catalog = pd.read_parquet(catalog_path)
     required_catalog = [
         "gene_index", "canonical_ensembl_id", "gene_name", "CHR", "start0", "end",
@@ -1033,38 +1183,34 @@ def load_gene_ldscore_index(profile_dir: str | Path) -> LoadedGeneLDScoreIndex:
                 f"Gene LD-score index catalog chromosome_gene_row ordering is invalid for chromosome {chrom}."
             )
         loaded[chrom] = _load_index_chromosome(
-            suite_path,
-            profile_path,
+            index_path,
             chrom,
-            suite_id=suite_id,
-            profile_id=profile_id,
+            index_id=index_id,
             expected_gene_rows=len(chromosome_catalog),
         )
     return LoadedGeneLDScoreIndex(
-        suite_id=suite_id,
-        profile_id=profile_id,
+        index_id=index_id,
         chromosomes=chromosomes,
-        suite_identity=suite_identity,
-        profile_identity=profile_identity,
+        index_identity=index_identity,
         gene_catalog=catalog,
-        profile_chromosomes=loaded,
+        index_chromosomes=loaded,
     )
 
 
 def run_indexed_ldscore(
-    profile_dir: str | Path,
+    index_dir: str | Path,
     *,
     query_gene_list_sources: Sequence[str | Path],
     control_gene_list_source: str | Path = "all-protein-coding",
     output_dir: str | Path,
     overwrite: bool = False,
 ):
-    """Assemble exact gene-list LD scores from an explicit index profile.
+    """Assemble exact gene-list LD scores from one explicit index directory.
 
     Parameters
     ----------
-    profile_dir : path-like
-        Exact validated profile directory beneath ``profiles/``.
+    index_dir : path-like
+        Exact validated single-index directory.
     query_gene_list_sources : sequence of path-like
         One-column gene-list files. Exact Ensembl IDs and case-sensitive gene
         names are resolved against the embedded catalog in source order.
@@ -1085,7 +1231,7 @@ def run_indexed_ldscore(
     Raises
     ------
     LDSCInputError
-        If the profile is invalid, a control is unusable, or every requested
+        If the index is invalid, a control is unusable, or every requested
         focal query is skipped. The all-skipped case writes diagnostics but no
         scientific LD-score tables.
 
@@ -1100,15 +1246,15 @@ def run_indexed_ldscore(
     from .outputs import LDScoreDirectoryWriter, LDScoreOutputConfig
     from .overlap_matrix import LDScoreOverlap
 
-    index = load_gene_ldscore_index(profile_dir)
-    profile_catalog = dict(index.profile_identity.get("catalog", {}))
-    projection_build = str(index.profile_identity.get("projection_build"))
-    gene_policy = str(index.profile_identity.get("gene_exclude_regions", "none"))
+    index = load_gene_ldscore_index(index_dir)
+    catalog_identity = dict(index.index_identity.get("catalog", {}))
+    projection_build = str(index.index_identity.get("projection_build"))
+    gene_policy = str(index.index_identity.get("gene_exclude_regions", "none"))
     catalog = GeneCatalog.from_index_frame(
         index.gene_catalog,
         genome_build=projection_build,
-        release=str(profile_catalog.get("release", "GENCODE v49")),
-        content_sha256=str(profile_catalog.get("content_sha256", "")),
+        release=str(catalog_identity.get("release", "GENCODE v49")),
+        content_sha256=str(catalog_identity.get("content_sha256", "")),
     )
     paths = resolve_file_group(
         query_gene_list_sources,
@@ -1169,7 +1315,7 @@ def run_indexed_ldscore(
     if any(resolution.query == "gene_control" for resolution in usable):
         raise LDSCInputError("Focal query name 'gene_control' collides with the reserved fixed control column.")
 
-    supplied_baseline = _baseline_columns_from_rows(next(iter(index.profile_chromosomes.values())).baseline_rows)
+    supplied_baseline = _baseline_columns_from_rows(next(iter(index.index_chromosomes.values())).baseline_rows)
     if "gene_control" in supplied_baseline:
         raise LDSCInputError("Index supplied baseline columns contain reserved name 'gene_control'.")
     baseline_columns = [*supplied_baseline, *(("gene_control",) if control_resolution is not None else ())]
@@ -1187,7 +1333,7 @@ def run_indexed_ldscore(
     total_all = total_common = 0
 
     for chrom in index.chromosomes:
-        record = index.profile_chromosomes[chrom]
+        record = index.index_chromosomes[chrom]
         selectors = [_selector_for_resolution(index.gene_catalog, record.atom_model, chrom, resolution) for resolution in usable]
         control_selector = (
             None
@@ -1292,7 +1438,7 @@ def run_indexed_ldscore(
             "genome_build": projection_build,
             "content_sha256": catalog.content_sha256,
         },
-        index_provenance={"suite_id": index.suite_id, "profile_id": index.profile_id},
+        index_provenance={"index_id": index.index_id},
     )
     result = LDScoreCalculator()._finalize_query_statuses(result, statuses)
     if not result.query_columns:
@@ -1472,51 +1618,85 @@ def build_plink_index_chromosome(
     )
 
 
-def validate_strict_baseline_plink_identity(
+@dataclass(frozen=True)
+class BaselinePlinkIntersection:
+    """Baseline annotations aligned to the PLINK-authoritative SNP order."""
+
+    metadata: pd.DataFrame
+    annotations: pd.DataFrame
+    diagnostics: dict[str, int]
+
+
+def intersect_baseline_plink_by_identifier(
     baseline_rows: pd.DataFrame,
+    baseline_annotations: pd.DataFrame,
     plink_rows: pd.DataFrame,
     *,
+    snp_identifier: str,
     chrom: str,
-) -> pd.DataFrame:
-    """Require exact pre-genotype-QC ``CHR/POS/SNP`` identity equality.
+) -> BaselinePlinkIntersection:
+    """Inner-join baseline annotations to PLINK by the configured SNP identity.
 
-    Input order may differ. The returned baseline frame is canonically sorted
-    by position and SNP while preserving all baseline columns.
+    PLINK supplies chromosome, position, alleles, cM coordinates, genotype
+    order, and therefore the returned metadata order. Baseline-only and
+    PLINK-only identities are dropped. Duplicate effective identifiers and an
+    empty intersection are rejected because either condition makes scientific
+    matching ambiguous or unusable.
     """
+    if snp_identifier != "rsid":
+        raise LDSCInputError(
+            "The v1 gene LD-score index builder supports only rsid identity."
+        )
+    if len(baseline_rows) != len(baseline_annotations):
+        raise LDSCInputError(
+            "Baseline metadata and annotation row counts differ before PLINK intersection."
+        )
     baseline = _normalize_identity_rows(baseline_rows, label="baseline", chrom=chrom)
     plink = _normalize_identity_rows(plink_rows, label="PLINK BIM", chrom=chrom)
     for label, frame in (("baseline", baseline), ("PLINK BIM", plink)):
-        duplicate = frame.duplicated(_STRICT_IDENTITY_COLUMNS, keep=False)
+        duplicate = frame["SNP"].duplicated(keep=False)
         if duplicate.any():
             raise LDSCInputError(
-                f"Gene LD-score index build found duplicate {label} CHR/POS/SNP identities "
-                f"on chromosome {chrom}. Baseline identities must equal PLINK identities before genotype QC."
+                f"Gene LD-score index build found duplicate {label} effective rsid identifiers "
+                f"on chromosome {chrom}; identifier-key matching would be ambiguous."
             )
-    baseline_sorted = baseline.sort_values(["POS", "SNP"], kind="mergesort").reset_index(drop=True)
-    plink_sorted = plink.sort_values(["POS", "SNP"], kind="mergesort").reset_index(drop=True)
-    baseline_position_keys = set(zip(baseline_sorted["CHR"], baseline_sorted["POS"]))
-    plink_position_keys = set(zip(plink_sorted["CHR"], plink_sorted["POS"]))
-    if baseline_position_keys == plink_position_keys and not baseline_sorted[_STRICT_IDENTITY_COLUMNS].equals(
-        plink_sorted[_STRICT_IDENTITY_COLUMNS]
-    ):
+    baseline_keys = set(baseline["SNP"])
+    plink_keys = set(plink["SNP"])
+    matched = plink["SNP"].isin(baseline_keys)
+    if not matched.any():
         raise LDSCInputError(
-            f"Gene LD-score index build found conflicting SNP identities at matching CHR/POS rows "
-            f"on chromosome {chrom}. Baseline identities must equal PLINK identities before genotype QC."
+            f"Gene LD-score index baseline/PLINK rsid intersection is empty on chromosome {chrom}."
         )
-    baseline_keys = set(map(tuple, baseline_sorted[_STRICT_IDENTITY_COLUMNS].to_numpy()))
-    plink_keys = set(map(tuple, plink_sorted[_STRICT_IDENTITY_COLUMNS].to_numpy()))
-    if baseline_keys != plink_keys:
-        raise LDSCInputError(
-            f"Gene LD-score index build found missing or extra baseline/PLINK identities on chromosome {chrom}: "
-            f"baseline_only={len(baseline_keys - plink_keys)}, plink_only={len(plink_keys - baseline_keys)}. "
-            "Baseline identities must equal PLINK identities before genotype QC."
+    baseline_positions = baseline.set_index("SNP")["POS"]
+    matched_plink = plink.loc[matched].reset_index(drop=True)
+    coordinate_discordant = int(
+        np.count_nonzero(
+            matched_plink["POS"].to_numpy(dtype=np.int64)
+            != matched_plink["SNP"].map(baseline_positions).to_numpy(dtype=np.int64)
         )
-    return baseline_sorted
+    )
+    if coordinate_discordant:
+        LOGGER.warning(
+            f"Baseline/PLINK rsid intersection on chromosome {chrom} has "
+            f"{coordinate_discordant} coordinate disagreement row(s); PLINK coordinates are authoritative."
+        )
+    baseline_index = pd.Series(baseline.index, index=baseline["SNP"])
+    annotation_rows = baseline_index.loc[matched_plink["SNP"]].to_numpy(dtype=np.int64)
+    aligned_annotations = baseline_annotations.iloc[annotation_rows].reset_index(drop=True)
+    diagnostics = {
+        "baseline_rows": int(len(baseline)),
+        "plink_rows": int(len(plink)),
+        "matched_rows": int(len(matched_plink)),
+        "baseline_only_rows": int(len(baseline_keys - plink_keys)),
+        "plink_only_rows": int(len(plink_keys - baseline_keys)),
+        "coordinate_discordant_rows": coordinate_discordant,
+    }
+    return BaselinePlinkIntersection(matched_plink, aligned_annotations, diagnostics)
 
 
 def _normalize_identity_rows(frame: pd.DataFrame, *, label: str, chrom: str) -> pd.DataFrame:
     """Normalize one strict-identity frame without dropping caller columns."""
-    missing = set(_STRICT_IDENTITY_COLUMNS) - set(frame.columns)
+    missing = set(_IDENTITY_COLUMNS) - set(frame.columns)
     if missing:
         raise LDSCInputError(
             f"Gene LD-score index build cannot compare {label} identities because columns {sorted(missing)} are missing."
@@ -1545,11 +1725,9 @@ def _read_json(path: Path, label: str) -> dict:
     return payload
 
 
-def _validate_metadata_identity(metadata: dict, *, suite_id: str, profile_id: str | None = None) -> None:
-    if metadata.get("artifact_type") != "gene_ldscore_index" or metadata.get("suite_id") != suite_id:
-        raise LDSCInputError("Gene LD-score index component suite identity is invalid.")
-    if profile_id is not None and metadata.get("profile_id") != profile_id:
-        raise LDSCInputError("Gene LD-score index component profile identity is invalid.")
+def _validate_metadata_identity(metadata: dict, *, index_id: str) -> None:
+    if metadata.get("artifact_type") != "gene_ldscore_index" or metadata.get("index_id") != index_id:
+        raise LDSCInputError("Gene LD-score index component identity is invalid.")
 
 
 def _cast_index_baseline_rows(frame: pd.DataFrame) -> pd.DataFrame:
@@ -1558,24 +1736,28 @@ def _cast_index_baseline_rows(frame: pd.DataFrame) -> pd.DataFrame:
     return frame.astype({column: np.float32 for column in float64_columns}) if float64_columns else frame
 
 
-def _write_common_layer(
-    suite_path: Path,
-    suite_id: str,
-    suite_identity: dict,
+def _write_index_artifact(
+    index_path: Path,
+    *,
+    index_id: str,
+    index_identity: dict,
+    gene_catalog: pd.DataFrame,
     chromosomes: dict[str, IndexChromosomeData],
 ) -> None:
-    common_path = suite_path / "common"
+    """Write one complete staged index in the canonical single-directory layout."""
+    index_path.mkdir(parents=True)
     _write_json(
-        common_path / "metadata.json",
+        index_path / "metadata.json",
         {
             "artifact_type": "gene_ldscore_index",
-            "suite_id": suite_id,
-            "suite_identity": suite_identity,
+            "index_id": index_id,
+            "index_identity": index_identity,
             "chromosomes": list(chromosomes),
         },
     )
+    gene_catalog.to_parquet(index_path / "gene_catalog.parquet", index=False)
     for chrom, record in chromosomes.items():
-        chrom_path = common_path / f"chr{chrom}"
+        chrom_path = index_path / "chromosomes" / f"chr{chrom}"
         chrom_path.mkdir(parents=True)
         baseline_columns = [
             column
@@ -1586,11 +1768,15 @@ def _write_common_layer(
             chrom_path / "metadata.json",
             {
                 "artifact_type": "gene_ldscore_index",
-                "suite_id": suite_id,
+                "index_id": index_id,
                 "chromosome": str(chrom),
                 "n_rows": len(record.baseline_rows),
                 "n_baseline": len(baseline_columns),
                 "baseline_columns": baseline_columns,
+                "n_genes": record.atom_model.gene_to_atom.shape[0],
+                "n_atoms": record.atom_model.n_atoms,
+                "gene_to_atom_format": "csr_bool_int32",
+                "ldscore_operator_format": "csr_float64_int32",
             },
         )
         _cast_index_baseline_rows(record.baseline_rows).to_parquet(
@@ -1605,32 +1791,6 @@ def _write_common_layer(
             total_reference_snps_all=np.asarray(record.total_reference_snps_all, dtype=np.int64),
             total_reference_snps_common=np.asarray(record.total_reference_snps_common, dtype=np.int64),
         )
-
-
-def _write_profile_layer(
-    profile_path: Path,
-    *,
-    suite_id: str,
-    profile_id: str,
-    profile_identity: dict,
-    gene_catalog: pd.DataFrame,
-    chromosomes: dict[str, IndexChromosomeData],
-) -> None:
-    profile_path.mkdir(parents=True)
-    _write_json(
-        profile_path / "metadata.json",
-        {
-            "artifact_type": "gene_ldscore_index",
-            "suite_id": suite_id,
-            "profile_id": profile_id,
-            "profile_identity": profile_identity,
-            "chromosomes": list(chromosomes),
-        },
-    )
-    gene_catalog.to_parquet(profile_path / "gene_catalog.parquet", index=False)
-    for chrom, record in chromosomes.items():
-        chrom_path = profile_path / f"chr{chrom}"
-        chrom_path.mkdir()
         atoms = pd.DataFrame(
             {
                 "atom_id": np.arange(record.atom_model.n_atoms, dtype=np.int64),
@@ -1638,20 +1798,6 @@ def _write_profile_layer(
                 "start0": record.atom_model.starts,
                 "end": record.atom_model.ends,
             }
-        )
-        _write_json(
-            chrom_path / "metadata.json",
-            {
-                "artifact_type": "gene_ldscore_index",
-                "suite_id": suite_id,
-                "profile_id": profile_id,
-                "chromosome": str(chrom),
-                "n_genes": record.atom_model.gene_to_atom.shape[0],
-                "n_atoms": record.atom_model.n_atoms,
-                "n_rows": record.operator.shape[0],
-                "gene_to_atom_format": "csr_bool_int32",
-                "ldscore_operator_format": "csr_float64_int32",
-            },
         )
         atoms.to_parquet(chrom_path / "atoms.parquet", index=False)
         gene_to_atom = record.atom_model.gene_to_atom.astype(bool).tocsr()
@@ -1683,26 +1829,21 @@ def _load_npz_members(path: Path, required: set[str]) -> dict[str, np.ndarray]:
 
 
 def _load_index_chromosome(
-    suite_path: Path,
-    profile_path: Path,
+    index_path: Path,
     chrom: str,
     *,
-    suite_id: str,
-    profile_id: str,
+    index_id: str,
     expected_gene_rows: int,
 ) -> IndexChromosomeData:
-    common_path = suite_path / "common" / f"chr{chrom}"
-    component_path = profile_path / f"chr{chrom}"
-    common_meta = _read_json(common_path / "metadata.json", f"common chromosome {chrom}")
-    profile_meta = _read_json(component_path / "metadata.json", f"profile chromosome {chrom}")
-    _validate_metadata_identity(common_meta, suite_id=suite_id)
-    _validate_metadata_identity(profile_meta, suite_id=suite_id, profile_id=profile_id)
-    if common_meta.get("chromosome") != str(chrom) or profile_meta.get("chromosome") != str(chrom):
+    component_path = index_path / "chromosomes" / f"chr{chrom}"
+    component_meta = _read_json(component_path / "metadata.json", f"chromosome {chrom}")
+    _validate_metadata_identity(component_meta, index_id=index_id)
+    if component_meta.get("chromosome") != str(chrom):
         raise LDSCInputError("Gene LD-score index component chromosome identity is invalid.")
-    baseline_rows = pd.read_parquet(common_path / "baseline_rows.parquet")
-    if len(baseline_rows) != int(common_meta.get("n_rows", -1)):
+    baseline_rows = pd.read_parquet(component_path / "baseline_rows.parquet")
+    if len(baseline_rows) != int(component_meta.get("n_rows", -1)):
         raise LDSCInputError("Gene LD-score index baseline row count disagrees with component metadata.")
-    baseline_columns = list(common_meta.get("baseline_columns", ()))
+    baseline_columns = list(component_meta.get("baseline_columns", ()))
     allele_columns = [column for column in ("A1", "A2") if column in baseline_rows.columns]
     if allele_columns not in ([], ["A1", "A2"]):
         raise LDSCInputError("Gene LD-score index baseline rows have incomplete allele identity columns.")
@@ -1723,13 +1864,13 @@ def _load_index_chromosome(
     if not baseline_rows.reset_index(drop=True).equals(canonical_rows):
         raise LDSCInputError("Gene LD-score index baseline rows are not in canonical genomic order.")
     stats = _load_npz_members(
-        common_path / "baseline_statistics.npz",
+        component_path / "baseline_statistics.npz",
         {
             "baseline_count_all", "baseline_count_common", "baseline_overlap_all",
             "baseline_overlap_common", "total_reference_snps_all", "total_reference_snps_common",
         },
     )
-    b = int(common_meta.get("n_baseline", -1))
+    b = int(component_meta.get("n_baseline", -1))
     for name in ("baseline_count_all", "baseline_count_common"):
         if stats[name].shape != (b,) or stats[name].dtype != np.float64 or not np.isfinite(stats[name]).all():
             raise LDSCInputError(f"Gene LD-score index {name} has invalid shape, dtype, or values.")
@@ -1756,11 +1897,11 @@ def _load_index_chromosome(
         ends=atoms["end"].to_numpy(dtype=np.int64),
         gene_to_atom=gene_to_atom,
     )
-    n_atoms = int(profile_meta.get("n_atoms", -1))
-    n_rows = int(profile_meta.get("n_rows", -1))
+    n_atoms = int(component_meta.get("n_atoms", -1))
+    n_rows = int(component_meta.get("n_rows", -1))
     if (
         model.n_atoms != n_atoms
-        or model.gene_to_atom.shape[0] != int(profile_meta.get("n_genes", -1))
+        or model.gene_to_atom.shape[0] != int(component_meta.get("n_genes", -1))
         or model.gene_to_atom.shape[0] != expected_gene_rows
     ):
         raise LDSCInputError("Gene LD-score index atom dimensions disagree with metadata.")

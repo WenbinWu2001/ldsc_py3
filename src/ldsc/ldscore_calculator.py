@@ -1064,7 +1064,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--gene-ldscore-index-dir",
         default=None,
-        help="Explicit prebuilt gene LD-score index profile directory. Requires gene-list queries and forbids live reference/baseline inputs.",
+        help="Explicit complete gene LD-score index directory. Requires gene-list queries and forbids live reference/baseline inputs.",
     )
     parser.add_argument(
         "--overwrite",

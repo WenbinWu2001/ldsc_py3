@@ -1,6 +1,6 @@
 # LDSC3 - Guided Analysis Tutorial
 
-Last updated on: 2026-08-03
+Last updated on: 2026-08-04
 
 This tutorial walks through how to use the `ldsc` package for a series of LD score-based heritability analyses.
 
@@ -323,8 +323,8 @@ ldsc ldscore \
   results, that query hit a failure. Check
   `diagnostics/query_annotation_status.tsv` for the reason. For gene lists,
   `diagnostics/gene_list_unresolved.tsv.gz` lists the problematic genes.
-- For a prebuilt exact gene profile, use
-  `--gene-ldscore-index-dir <suite>/profiles/<profile>` with
+- For a prebuilt exact gene index, use
+  `--gene-ldscore-index-dir <index-dir>` with
   `--query-annot-gene-list-sources` and omit live baseline, PLINK/R²,
   genome-build, window, padding, and region arguments. The indexed run writes
   the same canonical output directory and defaults to the fixed

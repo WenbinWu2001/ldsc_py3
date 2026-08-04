@@ -1,6 +1,6 @@
 # Calculate LD scores for gene lists with an index
 
-Last updated on: 2026-08-03
+Last updated on: 2026-08-04
 
 ## Motivation
 
@@ -15,7 +15,7 @@ an all-genes annotation ([Finucane et al., 2018](https://doi.org/10.1038/s41588-
 
 ## Goal
 
-Resolve one or more gene lists against the profile's embedded catalog, assemble
+Resolve one or more gene lists against the index's embedded catalog, assemble
 their exact LD scores, and write the normal self-contained partitioned LD-score
 directory used by `ldsc partitioned-h2`.
 
@@ -23,7 +23,7 @@ directory used by `ldsc partitioned-h2`.
 
 You need:
 
-- an explicit profile built with `ldsc build-gene-ldscore-index`;
+- one explicit complete index built with `ldsc build-gene-ldscore-index`;
 - one or more plain-text or gzip-compressed one-column gene lists;
 - munged GWAS summary statistics for the later `partitioned-h2` step.
 
@@ -42,24 +42,24 @@ Overlapping and nested genes are combined by Boolean union.
 ## Calculate indexed LD scores
 
 ```bash
-PROFILE_DIR="/path/to/gene_ldscore_indexes/1000G_EUR_Phase3_baseline/profiles/padding-100000bp-mhc"
+INDEX_DIR="/path/to/gene_ldscore_indexes/1000G_EUR_Phase3_baseline_100kb"
 GENE_LIST_SOURCES="/path/to/gene_sets/*.txt"
 LDSCORE_OUTPUT_DIR="/path/to/results/gene_set_ldscores"
 
 ldsc ldscore \
-  --gene-ldscore-index-dir "${PROFILE_DIR}" \
+  --gene-ldscore-index-dir "${INDEX_DIR}" \
   --query-annot-gene-list-sources "${GENE_LIST_SOURCES}" \
   --control-gene-list-source all-protein-coding \
   --output-dir "${LDSCORE_OUTPUT_DIR}"
 ```
 
-The explicit profile owns the baseline, reference panel, genome build, SNP
+The explicit index owns the baseline, reference panel, genome build, SNP
 identity, LD window, MAF settings, padding, and region policies. Do not pass
 live `--baseline-annot-sources`, `--plink-prefix`, `--r2-dir`, build/window/map,
 padding, or SNP-filter options in indexed mode.
 
-V1 profiles and their canonical LD-score rows are hg19. Indexed assembly does
-not offer output-build conversion: it reuses the profile's hg19 coordinates,
+V1 indexes and their canonical LD-score rows are hg19. Indexed assembly does
+not offer output-build conversion: it reuses the index's hg19 coordinates,
 gene projection, regression masks, and map/window identity. Use direct mode for
 a supported configuration outside the index compatibility domain; do not treat
 rsID matching as permission to mix coordinate builds.
@@ -108,7 +108,7 @@ gene_set_ldscores/
   in requested source order.
 - `ldscore.overlap.parquet` stores the all-SNP and common-SNP overlap blocks
   needed by partitioned regression.
-- `metadata.json` records annotation counts, profile identities, catalog and
+- `metadata.json` records annotation counts, `index_id`, catalog and
   control provenance, and SNP-universe policies.
 
 The canonical rows are filtered HM3 regression SNPs, but their baseline and
@@ -154,9 +154,9 @@ independent discoveries.
 
 ## When to use direct mode instead
 
-Use direct gene-list mode when no compatible profile exists or when the desired
+Use direct gene-list mode when no compatible index exists or when the desired
 reference, baseline, build, padding, gene-region policy, or control design
-differs from the available profile:
+differs from the available index:
 
 ```bash
 ldsc ldscore \
@@ -184,5 +184,5 @@ dominant cost. Split analyses only when separate output families and separate
 multiple-testing accounting are scientifically acceptable; otherwise allocate
 memory for the complete query table.
 
-To build the profile used here, see
+To build the index used here, see
 [Build an exact gene LD-score index](../utility-functionalities/build-gene-ldscore-index.md).

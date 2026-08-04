@@ -1,6 +1,6 @@
 # Architecture 
 
-Last updated on: 2026-08-03
+Last updated on: 2026-08-04
 
 `ldsc_py3_Jerry` is the refactored Python 3 LDSC package. It reads optional SNP-level annotations, PLINK or parquet R2 references, and GWAS summary statistics; resolves user-facing path and header conventions in the public workflow layer; delegates numerical work to `ldsc._kernel`; and writes LDSC-compatible artifacts that can be chained into later runs.
 
@@ -24,8 +24,8 @@ Related docs:
 - **Build query annotations**: project BED or resolved gene intervals onto a baseline SNP grid. Entry points: `ldsc annotate`, `ldsc ldscore`, `ldsc.AnnotationBuilder`
 - **Build parquet reference panels**: convert PLINK genotype panels into standard parquet R2 artifacts. Entry points: `ldsc build-ref-panel`, `ldsc.ReferencePanelBuilder`
 - **Query reference-panel R2**: look up adjusted R2, sign, and optional signed Pearson `r` for SNP pairs in package-built index-format panels. Entry points: `ldsc query-r2`, `ldsc.R2Panel`, `ldsc.query_r2()`
-- **Build exact gene LD-score indexes**: precompute PLINK-backed disjoint-atom operators for one immutable baseline/profile configuration. Entry point: `ldsc build-gene-ldscore-index`
-- **Compute LD scores**: align annotations to a live reference panel or explicitly assemble gene-list columns from a validated index profile, then emit the same canonical artifacts. Entry points: `ldsc ldscore`, `ldsc.run_ldscore()`, `ldsc.LDScoreCalculator`
+- **Build exact gene LD-score indexes**: precompute PLINK-backed disjoint-atom operators for one complete immutable baseline/reference/gene configuration. Entry point: `ldsc build-gene-ldscore-index`
+- **Compute LD scores**: align annotations to a live reference panel or explicitly assemble gene-list columns from a validated complete index, then emit the same canonical artifacts. Entry points: `ldsc ldscore`, `ldsc.run_ldscore()`, `ldsc.LDScoreCalculator`
 - **Munge raw summary statistics**: normalize raw GWAS tables into curated Parquet-first sumstats artifacts, with optional legacy `.sumstats.gz` output. Entry points: `ldsc munge-sumstats`, `ldsc.SumstatsMunger`
 - **Run LDSC regression**: consume munged sumstats and LD-score artifacts to estimate `h2`, partitioned `h2`, or `rg`. Entry points: `ldsc h2`, `ldsc partitioned-h2`, `ldsc rg`, `ldsc.RegressionRunner`
 - **Audit workflow runs**: artifact-writing workflow wrappers create deterministic
@@ -144,7 +144,7 @@ This module orchestrates chromosome-wise LD-score computation. It resolves annot
 
 ### `ldsc.gene_ldscore_index`, `ldsc._kernel.gene_ldscore_index`
 
-The workflow module owns the `build-gene-ldscore-index` command, strict pre-QC baseline/BIM identity checks, semantic suite/profile identities, staged publication, full-profile loading, and explicit indexed `ldscore` assembly. The private kernel owns disjoint half-open atoms, Boolean gene-to-atom CSR membership, bounded SNP-by-atom blocks, sufficient statistics, and float64 `Y @ z` assembly. Index profiles are separate distribution artifacts; indexed output is still a self-contained canonical LD-score directory written by `LDScoreDirectoryWriter`. Architecture invariant: online assembly uses only the explicitly named embedded profile and never discovers an index or falls back to live computation.
+The workflow module owns the `build-gene-ldscore-index` command, pre-QC baseline/PLINK inner intersection by effective rsID, canonical `index_id`, stable logging and same-target locking, complete staged publication/recovery, full-index loading, and explicit indexed `ldscore` assembly. PLINK metadata is authoritative after intersection; duplicate effective IDs and empty intersections fail. The private kernel owns disjoint half-open atoms, Boolean gene-to-atom CSR membership, bounded SNP-by-atom blocks, sufficient statistics, and float64 `Y @ z` assembly. Each index directory is one immutable distribution artifact with no incremental update or component reuse. Indexed output is still a self-contained canonical LD-score directory written by `LDScoreDirectoryWriter`. Architecture invariant: online assembly uses only the explicitly named complete index and never discovers an index or falls back to live computation.
 
 ### `ldsc.sumstats_munger`
 

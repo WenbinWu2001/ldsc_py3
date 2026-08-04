@@ -1,6 +1,6 @@
 # Gene-List Query Input
 
-Last updated on: 2026-08-03
+Last updated on: 2026-08-04
 
 `ldsc ldscore` accepts one or more gene lists as query annotations through
 `--query-annot-gene-list-sources`. Each list is resolved against the packaged
@@ -127,8 +127,8 @@ disable it or pass one custom control-list path. `--gene-exclude-regions mhc`
 removes genes whose unpadded transcribed intervals overlap the packaged MHC
 interval before padding; it is independent of SNP `--exclude-regions`.
 
-For an installed exact index profile, replace the live baseline/reference
-arguments with `--gene-ldscore-index-dir <profile-dir>`. Resolution then uses
-only the profile's embedded catalog and immutable padding/exclusion policy. See
+For an installed exact index, replace the live baseline/reference arguments
+with `--gene-ldscore-index-dir <index-dir>`. Resolution then uses only the
+index's embedded catalog and immutable padding/exclusion policy. See
 [gene-ldscore-index.md](gene-ldscore-index.md) and the task-oriented
 [indexed gene-list LD-score tutorial](../wiki/main-functionalities/ldscore.md).

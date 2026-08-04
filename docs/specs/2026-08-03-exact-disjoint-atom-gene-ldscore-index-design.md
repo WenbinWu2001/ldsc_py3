@@ -1,14 +1,14 @@
 # Exact disjoint-atom gene LD-score index specification
 
-Last updated on: 2026-08-03
+Last updated on: 2026-08-04
 
-Status: approved specification; design closed
+Status: implemented; refinement design closed
 
 ## Problem and goal
 
-The direct gene-list route in `ldsc ldscore` resolves every requested list, projects its padded gene intervals onto the full retained reference-SNP grid, and recomputes annotation LD scores from PLINK or pairwise-R2 data. This is exact but unnecessarily expensive when many users query the same gene catalog, baseline suite, reference panel, LD window, and regression-row policy.
+The direct gene-list route in `ldsc ldscore` resolves every requested list, projects its padded gene intervals onto the full retained reference-SNP grid, and recomputes annotation LD scores from PLINK or pairwise-R2 data. This is exact but unnecessarily expensive when many users query the same gene catalog, baseline annotations, reference panel, LD window, and regression-row policy.
 
-Design 2 adds an expensive offline command, `ldsc build-gene-ldscore-index`, and an explicit indexed mode on the existing `ldsc ldscore` command. The index represents overlapping padded genes as disjoint genomic atoms and stores the exact linear operator and sufficient statistics needed to assemble focal gene-list annotations. Online queries require only the selected index profile and gene-list files; they do not require the source PLINK, R2, baseline annotation, or genetic-map files.
+Design 2 adds an expensive offline command, `ldsc build-gene-ldscore-index`, and an explicit indexed mode on the existing `ldsc ldscore` command. The index represents overlapping padded genes as disjoint genomic atoms and stores the exact linear operator and sufficient statistics needed to assemble focal gene-list annotations. Online queries require only one complete index directory and gene-list files; they do not require the source PLINK, R2, baseline annotation, or genetic-map files.
 
 Success means that indexed and matching direct runs produce the same binary annotations, retained rows and ordering, annotation counts, overlap entries, query statuses, canonical LD-score artifact structure, and downstream `partitioned-h2` interpretation. Floating-point LD scores and regression results must agree within a tolerance measured by the chromosome-22 validation gate. Approximation, whole-gene LD windows, and summing overlapping per-gene LD scores are outside the contract.
 
@@ -29,8 +29,8 @@ The current corrected SNP-universe behavior in [LD-score SNP-universe contract](
 
 For one chromosome, define:
 
-- \(m\): retained PLINK reference SNPs after genotype usability checks, optional individual selection, and optional MAF filtering;
-- \(r\): persisted regression/output rows, fixed in v1 to bundled HapMap3 SNPs minus the `mhc-and-centromeres` regions and intersected with the retained reference rows;
+- \(m\): the baseline/PLINK identifier-key intersection after genotype usability checks, optional individual selection, and optional MAF filtering;
+- \(r\): persisted regression/output rows selected from bundled HapMap3 by default or from an explicit regression-SNP file, minus the effective regression-region exclusions and intersected with the retained reference rows;
 - \(g\): catalog genes on the chromosome;
 - \(t\): nonempty disjoint atoms induced by retained padded gene intervals;
 - \(R\in\mathbb{R}^{m\times m}\): the exact within-window adjusted-\(r^2\) operator with its unit diagonal;
@@ -81,9 +81,9 @@ Then a selected atom set gives its annotation count \(d^\mathsf{T}z\), baseline-
 
 ### Offline builder
 
-`ldsc build-gene-ldscore-index` builds one profile into a suite directory. Its scientific inputs are baseline annotation sources, a PLINK prefix, SNP identity, genome build, `--padding-bp`, `--gene-exclude-regions`, and a cM LD window (default `--ld-wind-cm 1.0`). It also accepts the existing optional `--maf-min`, `--common-maf-min`, `--keep-indivs-file`, and build-specific genetic-map inputs, plus chromosome selection, SNP/atom construction tuning, threading, output, overwrite, and logging controls.
+`ldsc build-gene-ldscore-index` builds one complete immutable index directory. Its scientific inputs are baseline annotation sources, a PLINK prefix, SNP identity, genome build, `--padding-bp`, `--gene-exclude-regions`, and a cM LD window (default `--ld-wind-cm 1.0`). It also accepts the existing optional `--maf-min`, `--common-maf-min`, `--keep-indivs-file`, and build-specific genetic-map inputs, plus chromosome selection, SNP/atom construction tuning, threading, output, overwrite, and logging controls.
 
-V1 supports only PLINK-backed cM construction. It rejects an R2 backend, explicit reference-panel or regression SNP files, configurable SNP-region policy, SNP-count or kb windows, whole-chromosome override, and reference-metadata export. The regression policy is always bundled HapMap3 minus `mhc-and-centromeres`. Internal atom-column batch sizing is a builder implementation/resource control and is never reused as a public online query-column batch control.
+V1 supports only PLINK-backed cM construction. It rejects an R2 backend, an explicit reference-panel SNP file, SNP-count or kb windows, whole-chromosome override, and reference-metadata export. It accepts `--regression-snps-file` through the same identity-only restriction reader used by ordinary `ldscore`; omission selects the packaged HapMap3 map. Candidate regression SNPs are then subjected to `--exclude-regions {none,mhc,centromeres,mhc-and-centromeres}`, with `mhc-and-centromeres` as the default. Internal atom-column batch sizing is a builder implementation/resource control and is never reused as a public online query-column batch control.
 
 V1 has one coordinate build, hg19, and no liftover or separate output-build concept. Baseline annotation positions, PLINK BIM positions, gene-catalog projection, bundled HM3 and named-region coordinates, and any explicit genetic map must all refer to hg19. Canonical index and assembled LD-score rows inherit that coordinate system. The public `--genome-build` choice is therefore restricted to hg19. The legacy-named `--genetic-map-hg38-sources` argument is rejected when supplied; only an explicit hg19 map or informative BIM cM values are valid.
 
@@ -91,7 +91,7 @@ V1 has one coordinate build, hg19, and no liftover or separate output-build conc
 
 Without `--gene-ldscore-index-dir`, `ldsc ldscore` follows the ordinary Design 1 path. It accepts the normal PLINK or R2 scientific inputs and can represent configurations outside the first index compatibility domain. `--gene-exclude-regions` defaults to `none`.
 
-The direct path must implement the same gene filtering and control-annotation semantics as an otherwise matching index profile. It is the acceptance oracle for indexed computation.
+The direct path must implement the same gene filtering and control-annotation semantics as an otherwise matching index. It is the acceptance oracle for indexed computation.
 
 ### Indexed gene-list mode
 
@@ -99,14 +99,14 @@ Indexed mode is selected only by:
 
 ```text
 ldsc ldscore \
-  --gene-ldscore-index-dir <profile-dir> \
+  --gene-ldscore-index-dir <index-dir> \
   --query-annot-gene-list-sources <sources> \
   --output-dir <ldscore-dir>
 ```
 
-The profile directory, not the containing suite directory, is supplied. One selected profile represents exactly one padding value, catalog/build, gene-region policy, and immutable common suite.
+The supplied directory is one complete index. It represents exactly one baseline/reference configuration, regression-row policy, gene catalog, padding value, and gene-region policy. There is no profile discovery or profile-name selection.
 
-Indexed mode accepts focal gene-list sources, `--control-gene-list-source`, output/overwrite/logging/threading controls, and ordinary diagnostic controls. It rejects live baseline sources, PLINK or R2 inputs, reference or regression restriction files, SNP or gene region settings, LD-window settings, `--padding-bp`, genetic maps, genome build, and SNP-identity settings. Those properties have one authority: the profile and suite metadata.
+Indexed mode accepts focal gene-list sources, `--control-gene-list-source`, output/overwrite/logging/threading controls, and ordinary diagnostic controls. It rejects live baseline sources, PLINK or R2 inputs, reference or regression restriction files, SNP or gene region settings, LD-window settings, `--padding-bp`, genetic maps, genome build, and SNP-identity settings. Those properties have one authority: the index metadata.
 
 An explicitly supplied index never triggers discovery or fallback. A conflicting or unsupported option is an actionable usage error directing the user to remove `--gene-ldscore-index-dir` and use the direct route. Missing, corrupt, structurally invalid, or identity-mismatched components fail before canonical scientific outputs are published.
 
@@ -116,7 +116,7 @@ An explicitly supplied index never triggers discovery or fallback. A conflicting
 
 | Value | Meaning |
 | --- | --- |
-| `all-protein-coding` | Default. Select every profile-included protein-coding gene from the same catalog. |
+| `all-protein-coding` | Default. Select every index-included protein-coding gene from the same catalog. |
 | `none` | Fit the former baseline-plus-focal-query model without a fixed gene control. |
 | path | Resolve a dataset-specific control list through the same catalog, build, gene-region, and padding rules as focal lists. |
 
@@ -128,7 +128,7 @@ An unusable custom control is a run-level error because the requested conditioni
 
 `--gene-exclude-regions {none,mhc}` is separate from SNP `--exclude-regions`. The `mhc` choice removes a gene when its unpadded transcribed interval overlaps the packaged 25-35 Mb MHC interval on chromosome 6; filtering occurs before padding. The HLA genes are located within the broader MHC region, but HLA and MHC are not treated as synonyms.
 
-The generic direct default is `none`. Initial distributed LDSC-SEG profiles use `mhc`. Centromeric genes are not removed: the paper-supported centromere rule is a regression-row exclusion, not a gene-set definition.
+The generic direct default is `none`. Initial distributed LDSC-SEG indexes use `mhc`. Centromeric genes are not removed: the paper-supported centromere rule is a regression-row exclusion, not a gene-set definition.
 
 Excluded genes are recorded at gene level with reason `excluded_gene_region` in the existing gene-list diagnostic audit. Partial exclusion warns and continues. A list with no retained genes is skipped, and an all-skipped batch follows the existing consolidated-error contract. When resolution and region exclusion both affect one list, both conditions remain visible in diagnostic counts/details even though the query-status record has one primary reason.
 
@@ -140,26 +140,27 @@ The first indexed mode fixes the following separation:
 | --- | --- |
 | Baseline and focal LD-score contributors | All retained PLINK reference SNPs, including MHC and pericentromeric SNPs |
 | `M`, `M_5_50`, and annotation overlaps | The same retained reference universe; `M_5_50` additionally uses the common-MAF rule |
-| Persisted baseline/query rows | Bundled HapMap3 rows minus `mhc-and-centromeres`, intersected with retained PLINK rows |
+| Persisted baseline/query rows | Bundled HapMap3 by default, or an explicit regression-SNP file, followed by the effective regression-region exclusions and intersection with retained reference rows |
 | `regression_ld_scores` / `w_ld` contributors and rows | The identical filtered regression set |
 | Final regression observations | Intersection of persisted rows, weights, and munged summary statistics |
 
 A description of v1 as “supporting only HapMap3 SNPs” is scientifically
-incorrect. Only the persisted regression-row policy is fixed to bundled,
+incorrect. Only the default persisted regression-row policy uses bundled,
 region-filtered HapMap3. The reference/contributor universe remains the broad
-retained PLINK set, and non-HapMap3 or excluded-region reference SNPs can
-contribute LD to a persisted HapMap3 row. Implementations and user
-documentation must preserve this distinction.
+retained baseline/PLINK intersection, and SNPs absent from the regression set
+or removed by regression-region exclusions can still contribute LD to a
+persisted row. Implementations and user documentation must preserve this
+distinction.
 
-A custom `--regression-snps-file` or an SNP `--exclude-regions` choice other than `mhc-and-centromeres` is outside the v1 indexed domain and remains available through the direct path. There is no v1 indexed override for the reference universe.
+A custom `--regression-snps-file` and the build-time `--exclude-regions` choice are part of the builder contract and change the immutable index identity. Indexed online runs cannot override either setting because the persisted rows and operator are already fixed. There is no v1 indexed override for the reference universe beyond the baseline/PLINK identifier-key intersection.
 
 ## Initial supported configurations
 
-The first separately distributed suites use:
+The first separately distributed indexes use:
 
 - hg19;
 - `snp_identifier=rsid`, compatible with the allele-free legacy annotation shards;
-- the `1000G_EUR_Phase3` PLINK suite;
+- the `1000G_EUR_Phase3` PLINK reference panel;
 - a 1 cM LD window;
 - bundled HapMap3 regression rows minus `mhc-and-centromeres`;
 - no explicit retained-reference MAF threshold;
@@ -168,73 +169,80 @@ The first separately distributed suites use:
 - informative PLINK `.bim` CM values rather than an external genetic map;
 - 100 kb padding and `gene_exclude_regions=mhc`.
 
-One suite is built for each baseline annotation source:
+One independent index directory is built for each baseline annotation source and gene-region configuration:
 
 1. `1000G_EUR_Phase3_baseline`;
 2. `1000G_Phase3_baselineLD_v2.2_ldscores`.
 
-The 100 kb profile is the historical LDSC-SEG-compatible default. A separate 0 bp gene-body profile is supported but is not a second initially distributed default; 20 kb is not a default. The LDSC-SEG paper extends gene regions by 100 kb, and its supplement reports that 100 kb was chosen from an empirical comparison of 20 kb and 100 kb settings, not from gene-length distribution theory.
+The 100 kb index is the historical LDSC-SEG-compatible default. A separate 0 bp gene-body configuration requires a separate output directory and is supported but is not a second initially distributed default; 20 kb is not a default. The LDSC-SEG paper extends gene regions by 100 kb, and its supplement reports that 100 kb was chosen from an empirical comparison of 20 kb and 100 kb settings, not from gene-length distribution theory.
 
 ### PLINK filtering and genetic maps
 
-No `--maf-min` means no explicit frequency threshold. The existing PLINK reader still removes monomorphic, zero-variance, or unusable genotype rows; it does not apply a special singleton exclusion. Optional `--maf-min` is genotype-derived after `--keep-indivs-file` and is inclusive. The suite identity records the selected-individual content identity, selected sample count, MAF policy and source, and per-chromosome removal counts.
+No `--maf-min` means no explicit frequency threshold. The existing PLINK reader still removes monomorphic, zero-variance, or unusable genotype rows; it does not apply a special singleton exclusion. Optional `--maf-min` is genotype-derived after `--keep-indivs-file` and is inclusive. Index provenance records the selected-individual content identity, selected sample count, MAF policy and source, and per-chromosome removal counts.
 
-An explicit hg19 map is interpolated at PLINK positions and overrides `.bim` CM. V1 rejects a supplied hg38 map. Without an explicit map, informative `.bim` CM is used; an uninformative CM column is an error with guidance to supply an hg19 map. The effective hg19 map/BIM-CM source is part of suite identity.
+An explicit hg19 map is interpolated at PLINK positions and overrides `.bim` CM. V1 rejects a supplied hg38 map. Without an explicit map, informative `.bim` CM is used; an uninformative CM column is an error with guidance to supply an hg19 map. The effective hg19 map/BIM-CM source is part of index identity.
 
-### Strict baseline-to-PLINK alignment
+### Baseline-to-PLINK identifier alignment
 
-All baseline inputs contributing to one chromosome must agree on row identities and ordering after canonical genomic sorting. Before genotype-derived filtering, the baseline identities must equal the PLINK identities for every selected chromosome; reordering is allowed, but missing, extra, duplicated, or conflicting identities are build errors. The initial allele-free suites compare the full `CHR/POS/SNP` triple while using `rsid` as the public matching mode. Only subsequent PLINK genotype usability checks and optional MAF filtering may reduce this common universe.
+All baseline inputs contributing to one chromosome must agree with one another on row identities and ordering after canonical genomic sorting. The builder then takes the inner intersection of baseline and PLINK SNPs using the configured SNP-identifier mode, exactly as ordinary PLINK-backed `ldscore` does. The initial builder supports `rsid`, so rsID is the effective join key. PLINK metadata is authoritative after matching for chromosome, position, alleles, cM, genotype QC, MAF, gene projection, region exclusion, and published coordinates; the baseline contributes annotation values keyed by SNP identity.
 
-This is deliberately stricter than direct `ldscore`, which permits a baseline/PLINK intersection. Builder documentation and troubleshooting must state `baseline identities == PLINK identities` prominently. The supplied chromosome-22 files already satisfy this precondition: both approved baseline suites and the PLINK `.bim` have the same 141,123 `CHR/POS/SNP` rows.
+Duplicate effective identifiers in either baseline or PLINK input are errors because they make the selected identifier-mode join ambiguous. Baseline-only and PLINK-only rows are dropped; an empty intersection is an error. Coordinate differences for a matching identifier do not abort the build, but diagnostics record baseline-only, PLINK-only, matched, and matched-with-coordinate-disagreement counts and warn when coordinate disagreements occur. The supplied chromosome-22 files happen to contain the same 141,123 `CHR/POS/SNP` rows in both approved baseline suites and the PLINK `.bim`, but exact equality is no longer a builder precondition.
 
-Identity equality is a consistency check, not independent genome-build
-inference. Mutually matching baseline and PLINK rows that are both hg38 but
-misdeclared as hg19 could pass equality while receiving hg19 gene intervals,
-HM3 rows, and region masks. The caller must therefore verify the documented
-source build; a matching `CHR/POS/SNP` table alone is insufficient evidence.
+Identifier matching is not independent genome-build inference. In rsID mode,
+the builder intentionally permits coordinates to differ for a matching rsID
+and uses the PLINK hg19 coordinates. This is scientifically valid only when
+rsID is intentionally treated as the variant-identity contract and the
+baseline values describe those identified variants. The caller must still
+verify source provenance: an rsID join cannot detect every stale, reassigned,
+or incorrectly labeled source, and it cannot prove that the PLINK coordinates
+are hg19.
 
 ## Index artifact contract
 
-Indexes are distributed separately from the package. A physical suite holds one shared common layer and one or more selectable profiles:
+Indexes are distributed separately from the package. Each output directory is one complete, immutable index:
 
 ```text
-<suite-dir>/
+<index-dir>/
   metadata.json
-  common/
-    metadata.json
+  gene_catalog.parquet
+  diagnostics/
+    build-gene-ldscore-index.log
+    build-gene-ldscore-index.json
+  chromosomes/
     chr<chrom>/
       metadata.json
       baseline_rows.parquet
       baseline_statistics.npz
-  profiles/
-    padding-100000-mhc/
-      metadata.json
-      gene_catalog.parquet
-      diagnostics/
-        build-gene-ldscore-index.log
-      chr<chrom>/
-        metadata.json
-        atoms.parquet
-        gene_to_atom.npz
-        ldscore_operator.npz
-        atom_statistics.npz
+      atoms.parquet
+      gene_to_atom.npz
+      ldscore_operator.npz
+      atom_statistics.npz
 ```
 
-Root metadata does not maintain a mutable profile list; loaders discover profiles beneath `profiles/`. Human-readable directory names are descriptive only. Semantic identities establish compatibility.
+Baseline and gene-projection components are colocated because they belong to one indivisible artifact. Human-readable directory names are descriptive only; `index_id` establishes semantic identity. Alternative padding, gene-exclusion, baseline, reference-panel, or regression-row configurations use separate index directories and may duplicate payload data. This accepted storage cost removes shared-common compatibility and sibling-profile publication complexity.
 
 ### Identity and publication
 
 - `artifact_type: gene_ldscore_index` is the format guard. The index does not add a generic schema-version or software-version field.
-- `suite_id` is derived from canonical content identities and settings for the ordered baseline suite, PLINK files and selected individuals, chromosome coverage, SNP/build/allele policy, genotype and MAF filters, genetic map, LD window, regression rows, and SNP-region policy.
-- `profile_id` is derived from `suite_id` plus the exact gene-catalog resource/release and decompressed-content SHA-256, projection build, padding, and gene-region policy.
-- Common component metadata repeats `suite_id`; profile components repeat both IDs and declare dimensions, ordering, sparse format, and dtypes.
+- One `index_id` replaces `suite_id` and `profile_id`. It covers every scientific input and setting that can affect interpretation or numerical output, including baseline annotations, PLINK data and selected individuals, regression rows and region policy, chromosome/build/identifier settings, window and MAF policies, genetic map, gene catalog, padding, and gene-region policy.
+- `index_id` uses canonical path-insensitive content identities: copied, renamed, recompressed, or harmlessly reformatted equivalent inputs receive the same identity. Paths and basenames remain provenance only. Canonical baseline data and ordered columns, normalized BIM metadata, PLINK BED content, selected individual IDs, canonical regression restriction keys, normalized genetic-map content, and canonical gene-catalog identifiers, names, aliases, and coordinates participate in identity. Genotype-QC, MAF-removal, intersection, and output-row counts are derived diagnostics and do not.
+- Operational and resource controls do not participate in `index_id`: output path, overwrite, log level, threads, SNP batch size, and atom batch size are diagnostics/provenance only. Verification must establish that changing resource controls does not alter scientific output.
+- Each chromosome metadata file repeats `index_id` and declares its chromosome, row/baseline/gene/atom dimensions, ordered baseline columns, and sparse formats. This single shard record replaces the former separate common/profile component metadata and keeps each chromosome independently checkable.
 - Large payloads do not receive redundant per-file checksums. Structural validation, semantic IDs, and staged publication protect local use; separately distributed archives may use transport checksums.
 
-The builder stages and validates scientific payloads before atomic publication. An existing `common/` layer is reused only when its calculated `suite_id` matches. `--overwrite` replaces only the targeted profile and never changes a shared common layer beneath other profiles. Diagnostics are excluded from semantic identity and may survive a failed build without making the profile loadable.
+The builder stages and validates the complete scientific payload before transactional publication. Output preflight occurs before chromosome computation: a missing output root is created, an empty root is treated as new, a valid existing index requires `--overwrite`, and a nonempty unrecognized root fails even when overwrite is requested. `--overwrite` always constructs and validates a complete replacement, including when the requested canonical `index_id` matches the published index; there is no hidden no-op or in-place update path. Without `--overwrite`, every valid existing index fails preflight before chromosome computation. Replacement affects only that complete index directory and cannot affect another index directory. Diagnostics are excluded from semantic identity and may survive a failed build without making the directory loadable as an index.
 
-Profiles default to chromosomes 1-22. `--chromosomes` may build a prototype subset such as chromosome 22, but that coverage is part of `suite_id` and a published profile's chromosome set is immutable. Indexed output contains only the declared chromosomes; genes that hit no retained SNP in that coverage follow the ordinary zero-annotation query behavior. V1 does not support concurrent shard append or separate finalization; extending a partial profile requires rebuilding the suite/profile under the resulting full-coverage identity.
+Only one builder may target an index directory at a time. The active-builder claim is acquired before output mutation and held through preflight, computation, publication, and log finalization. A simultaneous invocation targeting the same absolute directory fails immediately and identifies the active log rather than waiting. Different index directories are independent and may build concurrently.
 
-### Common payload
+During overwrite, the previously published index remains fully loadable until the staged replacement passes validation. A graceful computation, validation, or publication failure preserves the prior scientific index and its successful `build-gene-ldscore-index.json`, archives the previous successful log, leaves the failed attempt at the stable live-log path with its failure footer, and removes only the incomplete staged replacement. A later attempt still requires `--overwrite` because a valid index remains published.
+
+Publication uses uniquely marked builder-owned staging and backup siblings beside the target directory. The active-builder claim remains held while the prior index is moved to backup, the validated stage is moved into place, and the published target is revalidated. The backup is removed only after that validation succeeds, and graceful failures restore it immediately. After an abrupt termination, the next invocation applies deterministic recovery before ordinary preflight: a valid target remains authoritative and recognized incomplete siblings are cleaned; a missing or invalid target is restored when exactly one valid builder-owned backup exists; ambiguous recovery fails without deleting anything and reports every candidate path. A neighboring path is treated as builder-owned only when both its workflow-specific name and internal publication metadata match; unrecognized paths are never touched.
+
+Builder-owned diagnostics are a recognized retryable state rather than an invalid nonempty index. The stable live log is `<index-dir>/diagnostics/build-gene-ldscore-index.log`; before a retry, an existing live log is moved to a timestamped `diagnostics/history/` entry, so the new fixed path can be monitored while prior failures remain available. The lifecycle log is the status authority; no separate status JSON is written. Failed logs and bounded failure evidence are preserved, while incomplete temporary scientific payloads are cleaned after rollback because retaining them can consume an unbounded amount of storage.
+
+Indexes default to chromosomes 1-22. `--chromosomes` may build a prototype subset such as chromosome 22, but that coverage is part of `index_id` and a published index's chromosome set is immutable. Indexed output contains only the declared chromosomes; genes that hit no retained SNP in that coverage follow the ordinary zero-annotation query behavior. Gene LD-score indexes do not support incremental updates, chromosome append, component reuse, or separate finalization. Any change to inputs, configuration, or chromosome coverage requires constructing, validating, and publishing a complete replacement index; `--overwrite` never mutates an existing index in place.
+
+### Baseline payload
 
 `baseline_rows.parquet` is a chromosome shard with the same identity, `regression_ld_scores`, ordered baseline LD-score columns, and dtypes as the canonical public `ldscore.baseline.parquet`. It has a distinct filename because it is an internal shard, not a public unsharded LD-score result.
 
@@ -249,11 +257,11 @@ Profiles default to chromosomes 1-22. `--chromosomes` may build a prototype subs
 | `total_reference_snps_all` | scalar, int64 |
 | `total_reference_snps_common` | scalar, int64 |
 
-The common layer is produced by the builder; it is not copied byte-for-byte from the legacy baseline LD-score files. Source baseline annotation files are provenance-bearing offline inputs and are not required online.
+The baseline payload is produced by the builder; it is not copied byte-for-byte from the legacy baseline LD-score files. Source baseline annotation files are provenance-bearing offline inputs and are not required online.
 
-### Profile payload
+### Gene-index payload
 
-`gene_catalog.parquet` is self-contained and includes all genes, including region-excluded genes. Its fields are `gene_index`, `canonical_ensembl_id`, `gene_name`, `CHR`, `start0`, `end`, `included`, `exclusion_reason`, and `chromosome_gene_row`. Coordinates are unpadded 0-based half-open intervals in the profile build. No duplicate TSV is written.
+`gene_catalog.parquet` is self-contained and includes all genes, including region-excluded genes. Its fields are `gene_index`, `canonical_ensembl_id`, `gene_name`, `CHR`, `start0`, `end`, `included`, `exclusion_reason`, and `chromosome_gene_row`. Coordinates are unpadded 0-based half-open intervals in the index build. No duplicate TSV is written.
 
 `atoms.parquet` contains deterministic chromosome-local `atom_id`, `CHR`, `start0`, and `end`, ordered by genomic start. `gene_to_atom.npz` is Boolean CSR with rows ordered by `chromosome_gene_row` and columns by `atom_id`; excluded genes have no selected atoms. A chromosome with no retained genes still has valid empty components with declared zero dimensions.
 
@@ -284,7 +292,7 @@ An indexed run materializes the ordinary self-contained output family through th
     gene_list_unresolved.tsv.gz
 ```
 
-The common baseline shards are reused without recomputing baseline LD scores. `gene_control`, when enabled, is assembled from atoms and appended to the baseline table/block. Focal scores are written to `ldscore.query.parquet` in resolved source order after skipped queries are removed. The overlap artifact stores the baseline-rows block, now including the control, plus focal query self-overlaps exactly as expected by `assemble_model_overlap`. Root metadata records `suite_id`, `profile_id`, control provenance, catalog/profile provenance, and the ordinary query diagnostics. A thin result that refers back to the index is outside v1.
+The index baseline shards are reused without recomputing baseline LD scores. `gene_control`, when enabled, is assembled from atoms and appended to the baseline table/block. Focal scores are written to `ldscore.query.parquet` in resolved source order after skipped queries are removed. The overlap artifact stores the baseline-rows block, now including the control, plus focal query self-overlaps exactly as expected by `assemble_model_overlap`. Root metadata records `index_id`, control provenance, catalog/index provenance, and the ordinary query diagnostics. A thin result that refers back to the index is outside v1.
 
 Public Parquet files retain one row group per chromosome. All user-requested focal columns are evaluated together for a chromosome; neither direct nor indexed `ldscore` exposes a query-column batch option or an arbitrary query-count cap. Implementations may stream chromosome payloads into those row groups, while a public in-memory API may still materialize its final `LDScoreResult` to preserve the existing return contract.
 
@@ -307,9 +315,9 @@ These are DataFrame floors, not peak RSS. User documentation must identify the r
 
 ## Diagnostics and operational behavior
 
-The builder uses the package's output preflight, overwrite, staged-publication, and logging conventions. Each successful profile contains `diagnostics/build-gene-ldscore-index.log`, recording resolved inputs, common creation or reuse, suite/profile identities, baseline/PLINK alignment, sample and SNP filtering, per-chromosome dimensions, batching/resources, warnings, publication, and elapsed time. Failures preserve an actionable log without publishing a loadable scientific profile.
+The stable index-root log records resolved inputs, `index_id`, baseline/PLINK intersection counts, sample and SNP filtering, per-chromosome dimensions, batching/resources, warnings, publication, and elapsed time. Failures preserve the stable actionable log and bounded failure evidence without publishing a loadable scientific index or retaining unbounded temporary payloads. A chromosome with zero persisted regression rows is a valid empty shard and produces a warning; the build fails when the aggregate persisted regression-row count across every selected chromosome is zero.
 
-Online query warnings and skips reuse the direct path's `QueryAnnotationStatus` and gene-level audit. The profile catalog, rather than the installed package catalog, is the online resolution authority. Absolute source paths are not persisted as runtime dependencies.
+Online query warnings and skips reuse the direct path's `QueryAnnotationStatus` and gene-level audit. The index catalog, rather than the installed package catalog, is the online resolution authority. Absolute source paths are not persisted as runtime dependencies.
 
 ## Validation strategy and acceptance criteria
 
@@ -318,7 +326,7 @@ Implementation is accepted only after the following evidence exists:
 1. Atomization reproduces direct binary SNP annotations for individual, overlapping, nested, duplicate, alias-selected, padded, MHC-filtered, and chromosome-start-clipped genes.
 2. Synthetic pair tests prove exact LD-window boundaries, one diagonal contribution, symmetric upper-triangle handling, preservation of negative adjusted-\(r^2\), and contributions from non-HapMap3 and excluded-region reference SNPs to retained HapMap3 rows.
 3. \(Yz(a)\), counts, common counts, baseline-query overlaps, control overlaps, query self-overlaps, row keys/order, column grouping/order, statuses, and pruning match the direct oracle.
-4. Compatibility tests reject mismatched catalog, build, padding, gene-region policy, baseline order/content, PLINK content or selected individuals, SNP identity, MAF/common-MAF settings, map/window policy, regression rows, chromosome coverage, shapes, dtypes, and component IDs before output publication.
+4. Compatibility tests reject mismatched catalog, build, padding, gene-region policy, ambiguous duplicate SNP identities, PLINK content or selected individuals, SNP identity, MAF/common-MAF settings, map/window policy, regression rows, chromosome coverage, shapes, dtypes, and component IDs before output publication. Baseline-only and PLINK-only identifiers are valid drops under the intersection policy.
 5. Chromosome 6 tests prove that MHC and centromere SNPs remain LD-score contributors and count/overlap members while being absent from persisted rows and `w_ld`, and that MHC genes are filtered independently before padding.
 6. A chromosome-22 prototype runs both initial baseline suites against the supplied PLINK panel with overlapping/nested genes, excluded-region-adjacent genes, and non-HapMap3 contributors. It measures direct-versus-index accumulation differences after canonical float32 output casting and establishes the acceptance tolerance before whole-genome construction.
 7. Matching direct and indexed canonical directories produce downstream `partitioned-h2` coefficients, standard errors, enrichments, p-values, and query ordering within the measured tolerance.
@@ -344,24 +352,25 @@ Repository seams that the implementation must preserve include `GeneCatalog` and
 ## Out of scope
 
 - R2-Parquet index construction in v1;
-- custom indexed reference or regression SNP sets;
-- indexed SNP exclusion choices other than `mhc-and-centromeres`;
+- custom indexed reference SNP restrictions beyond the baseline/PLINK identifier intersection;
 - SNP-count or kb LD windows, or a whole-chromosome override;
 - automatic index discovery or silent fallback;
 - query-column batching or a public query-batch flag;
-- concurrent profile append or incremental chromosome finalization;
+- concurrent mutation of one index directory or incremental chromosome finalization;
 - shipping indices inside the Python package;
 - thin canonical outputs that depend on the index remaining installed;
 - approximate gene-level LD windows, per-gene LD-score addition, clamping, or epsilon sparsification.
 
 ## Risks and remaining evidence gate
 
-- Strict baseline/PLINK identity equality intentionally rejects inputs that direct `ldscore` would intersect permissively.
-- A profile is scientifically rigid; changing padding, catalog, gene exclusion, sample selection, MAF, map, window, baseline, or row policy requires another compatible profile or suite.
+- Identifier-mode intersection matches ordinary `ldscore` but cannot detect every source-build or stale-identifier mismatch; PLINK coordinate provenance remains an explicit caller responsibility.
+- An index is scientifically rigid; changing padding, catalog, gene exclusion, sample selection, MAF, map, window, baseline, or row policy requires a separately built index directory.
 - Wide focal sets can make canonical output and downstream `partitioned-h2` memory dominate even when indexed score assembly is fast.
 - The initial hg19 catalog coordinates retain the documented upstream provenance limitation from Design 1; the implementation must not claim an unrecorded liftover method.
 - Omitting per-payload checksums trades fine-grained corruption detection for simpler structural validation and archive-level transport checksums.
 
 There are no unresolved product, scientific, or architectural decisions. The
-local chromosome-22 gate has passed; production whole-genome construction and
-full chromosome-6 resource measurement remain separate distribution/HPC work.
+local chromosome-22 gate passed under the original exact-alignment and
+bundled-HM3 configuration; the refined intersection, custom regression-row,
+single-index artifact, and output-publication behavior requires updated
+acceptance evidence before production whole-genome construction.

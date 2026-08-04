@@ -181,13 +181,13 @@ Gene-list LD scores may also use an explicitly installed exact profile:
 
 ```bash
 ldsc ldscore \
-  --gene-ldscore-index-dir indexes/suite/profiles/padding-100000bp-mhc \
+  --gene-ldscore-index-dir indexes/1000G_EUR_baseline_100kb \
   --query-annot-gene-list-sources gene_lists/immune.txt \
   --output-dir gene_ldscores
 ```
 
-Build profiles offline with `ldsc build-gene-ldscore-index`. Indexed mode is
-explicit and fail-closed: it validates the complete profile, accepts no live
+Build complete indexes offline with `ldsc build-gene-ldscore-index`. Indexed mode is
+explicit and fail-closed: it validates the complete index, accepts no live
 baseline/reference/window settings, and writes the same self-contained
 canonical LD-score directory. See
 [the exact gene-index guide](docs/current/gene-ldscore-index.md).

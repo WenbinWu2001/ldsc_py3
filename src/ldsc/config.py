@@ -553,11 +553,12 @@ class GeneLDScoreIndexBuildConfig:
     ----------
     baseline_annot_sources : tuple of str
         Ordered baseline annotation paths or chromosome-suite tokens. Their
-        pre-QC ``CHR/POS/SNP`` identities must equal the selected PLINK BIM.
+        effective rsID keys are inner-joined to the selected PLINK BIM before
+        genotype QC; PLINK metadata is authoritative for matched rows.
     plink_prefix : str
         PLINK BED/BIM/FAM prefix; ``@`` may stand for chromosome number.
     output_dir : str
-        Suite directory containing immutable ``common/`` data and profiles.
+        Directory containing one complete immutable gene LD-score index.
     chromosomes : tuple of str, optional
         Canonical autosome coverage. Default is chromosomes 1 through 22.
     genome_build : {"hg19"}, optional
@@ -579,6 +580,12 @@ class GeneLDScoreIndexBuildConfig:
         Inclusive MAF threshold for common-SNP count statistics. Default 0.05.
     keep_indivs_file : str, optional
         One-IID-per-row PLINK individual restriction.
+    regression_snps_file : str, optional
+        Identity-only output/regression SNP restriction. When omitted, the
+        bundled HapMap3 restriction is used.
+    exclude_regions : {"none", "mhc", "centromeres", "mhc-and-centromeres"}, optional
+        Named regions subtracted after regression-SNP selection. Default is
+        ``"mhc-and-centromeres"``.
     snp_batch_size : int, optional
         Positive PLINK genotype work batch size. Default is 128.
     atom_batch_size : int, optional
@@ -606,6 +613,8 @@ class GeneLDScoreIndexBuildConfig:
     maf_min: float | None = None
     common_maf_min: float = 0.05
     keep_indivs_file: str | None = None
+    regression_snps_file: str | None = None
+    exclude_regions: str = "mhc-and-centromeres"
     snp_batch_size: int = 128
     atom_batch_size: int = 64
     threads: int = 1
@@ -615,12 +624,17 @@ class GeneLDScoreIndexBuildConfig:
         object.__setattr__(self, "plink_prefix", _normalize_required_path(self.plink_prefix))
         object.__setattr__(self, "output_dir", _normalize_required_path(self.output_dir))
         object.__setattr__(self, "keep_indivs_file", _normalize_optional_path(self.keep_indivs_file))
+        object.__setattr__(self, "regression_snps_file", _normalize_optional_path(self.regression_snps_file))
         if not self.baseline_annot_sources:
             raise LDSCConfigError("GeneLDScoreIndexBuildConfig requires baseline_annot_sources.")
         if self.genome_build != "hg19" or self.snp_identifier != "rsid":
             raise LDSCConfigError("The v1 gene LD-score index builder supports only hg19 with rsid identity.")
         if self.gene_exclude_regions not in {"none", "mhc"}:
             raise LDSCConfigError("gene_exclude_regions must be 'none' or 'mhc'.")
+        if self.exclude_regions not in {"none", "mhc", "centromeres", "mhc-and-centromeres"}:
+            raise LDSCConfigError(
+                "exclude_regions must be 'none', 'mhc', 'centromeres', or 'mhc-and-centromeres'."
+            )
         if self.padding_bp < 0:
             raise LDSCConfigError("padding_bp must be nonnegative.")
         if self.ld_wind_cm <= 0 or self.snp_batch_size <= 0 or self.atom_batch_size <= 0:

@@ -1,234 +1,139 @@
 # Build an exact gene LD-score index
 
-Last updated on: 2026-08-03
-
-## Motivation
-
-Many biological hypotheses arrive as gene sets: genes differentially expressed
-in a tissue or cell type, genes prioritized by proteomics, or genes grouped by
-GO or SynGO terms. Stratified LD score regression (S-LDSC) tests whether SNP
-heritability is enriched near those genes while controlling for broader
-functional annotations.
-
-LDSC-SEG established this pattern for gene-expression data: it converted each
-set of specifically expressed genes into a genomic annotation with 100 kb
-windows, then tested that annotation conditional on the baseline model and an
-all-genes annotation. This allowed genome-wide polygenic signal—not only
-genome-wide significant loci—to identify relevant tissues and cell types
-([Finucane et al., 2018](https://doi.org/10.1038/s41588-018-0081-4); [local
-paper](../../../../docs/ldsc_papers/paper_ldsc-seg.pdf)).
-
-The expensive part of repeating this analysis for many gene sets is computing
-LD scores from the same reference panel. An exact gene LD-score index performs
-that PLINK calculation once for a fixed baseline/reference/profile combination.
-Later gene lists reuse the stored operator while preserving the direct S-LDSC
-calculation exactly.
+Last updated on: 2026-08-04
 
 ## Goal
 
-Build a reusable index suite containing:
+Build one complete reusable index that contains the fixed baseline LD scores,
+an embedded protein-coding catalog, exact disjoint-gene atoms, and the sparse
+operator needed to assemble later gene-list annotations. The index is an
+offline artifact; it does not run regression.
 
-- immutable common data for one baseline suite and PLINK reference panel;
-- an embedded protein-coding gene catalog and one projection profile;
-- exact disjoint-atom operators used to assemble arbitrary gene-set unions.
+## Supported scientific contract
 
-This is an offline utility step. It does not run a GWAS regression and it does
-not package the resulting index with the Python distribution.
+- hg19, rsID identity, and a PLINK BED/BIM/FAM reference;
+- a 1 cM window by default;
+- 100 kb gene padding and MHC gene exclusion by default;
+- bundled HapMap3 regression SNP candidates by default, or one custom
+  `--regression-snps-file`;
+- `--exclude-regions mhc-and-centromeres` applied after candidate selection by
+  default.
 
-## Initial supported configuration
+Baseline and PLINK rows need not be identical. The builder inner-joins them by
+the configured effective identifier (rsID in v1), as ordinary PLINK-backed
+`ldscore` does. It fails on duplicate effective IDs or an empty intersection,
+drops and reports rows found on only one side, and uses PLINK metadata and
+genotypes for matched rows. Coordinate disagreement under a shared rsID is a
+warning; PLINK coordinates win. Verify independently that PLINK and gene/map
+inputs are hg19 because rsID matching cannot establish build.
 
-The v1 builder is intentionally strict:
+The intersected baseline/PLINK SNPs are the LD-reference contributor, count,
+and overlap universe. Regression candidates and `--exclude-regions` select
+only persisted output rows and `regression_ld_scores` contributors.
 
-- hg19 coordinates and rsID SNP identity;
-- the `1000G_EUR_Phase3` PLINK suite;
-- a 1 cM LD window;
-- bundled HapMap3 regression rows minus MHC and centromeres;
-- no retained-reference MAF filter by default;
-- common-SNP counts at inclusive MAF 0.05;
-- 100 kb gene padding and MHC gene exclusion by default.
-
-Before genotype QC, every baseline chromosome must contain exactly the same
-`CHR/POS/SNP` identities as the corresponding PLINK BIM. Reordering is allowed;
-missing, extra, duplicate, or conflicting identities stop the build.
-
-## Keep every coordinate-bearing input on hg19
-
-The v1 index has one coordinate build: **hg19**. It does not lift coordinates
-between builds, and it cannot write an hg38 index from hg19 inputs. The
-following components must all use the same hg19 coordinate system:
-
-- baseline annotation `CHR/POS` rows;
-- PLINK BIM positions;
-- the embedded gene-catalog projection;
-- bundled HM3 regression rows and MHC/centromere masks;
-- an explicit genetic map, when supplied.
-
-An explicit map must therefore use `--genetic-map-hg19-sources`; an hg38 map is
-rejected. Without an explicit map, informative BIM cM values are used and must
-correspond to the hg19 BIM positions.
-
-Exact baseline/BIM `CHR/POS/SNP` equality detects mismatched coordinate sets,
-but it cannot prove that two mutually matching files are truly hg19. Confirm
-the documented source build of both suites before construction. Two hg38 files
-misdeclared as hg19 could agree with each other while projecting hg19 genes and
-region masks onto the wrong coordinates.
-
-## Distinguish reference SNPs from regression SNPs
-
-The v1 builder fixes the **written regression rows** to bundled HapMap3 (HM3)
-SNPs minus MHC and centromeric regions. It does **not** build LD scores from
-HM3 SNPs alone.
-
-- LD-score contributors are all retained SNPs in the PLINK reference panel,
-  including non-HM3, MHC, and pericentromeric SNPs.
-- `M`, `M_5_50`, annotation counts, and overlaps use that same broad retained
-  PLINK universe; only the common-MAF rule further restricts `M_5_50`.
-- Canonical baseline/query output rows are the bundled HM3 set minus MHC and
-  centromeres, intersected with retained PLINK SNPs.
-- `regression_ld_scores` (`w_ld`) uses that filtered regression set as both its
-  rows and contributors.
-
-Therefore, “the index supports only HapMap3 SNPs” is incorrect. The precise v1
-restriction is that the regression-row policy is fixed to bundled filtered HM3;
-a custom regression-SNP set is not supported in indexed mode. Use direct mode
-when a different regression-row policy is required.
-
-## Set input paths
+## Prototype chromosome 22
 
 ```bash
 RESOURCE_ROOT="/path/to/ldsc_resources"
-BASELINE_ANNOT_SOURCES="${RESOURCE_ROOT}/1000G_EUR_Phase3_baseline/baseline.@.annot.gz"
-PLINK_PREFIX="${RESOURCE_ROOT}/1000G_EUR_Phase3_plink/1000G.EUR.QC.@"
-
 INDEX_ROOT="/path/to/gene_ldscore_indexes"
-INDEX_SUITE_DIR="${INDEX_ROOT}/1000G_EUR_Phase3_baseline"
-```
-
-`@` is replaced by the chromosome number. The PLINK prefix must resolve matching
-`.bed`, `.bim`, and `.fam` files.
-
-## Run a chromosome-22 prototype first
-
-**Recommended memory allocation:** 8 GB with one worker
-
-**Observed running time:** about 2 minutes for chromosome 22 in the local
-validation; larger chromosomes may take longer and use more memory.
-
-```bash
-INDEX_PROTOTYPE_DIR="${INDEX_ROOT}/prototype_chr22_baseline"
 
 ldsc build-gene-ldscore-index \
-  --baseline-annot-sources "${BASELINE_ANNOT_SOURCES}" \
-  --plink-prefix "${PLINK_PREFIX}" \
-  --output-dir "${INDEX_PROTOTYPE_DIR}" \
+  --baseline-annot-sources "${RESOURCE_ROOT}/baseline/baseline.@.annot.gz" \
+  --plink-prefix "${RESOURCE_ROOT}/plink/1000G.EUR.QC.@" \
+  --output-dir "${INDEX_ROOT}/prototype_chr22" \
   --chromosomes 22 \
   --genome-build hg19 \
   --snp-identifier rsid \
   --ld-wind-cm 1.0 \
   --padding-bp 100000 \
   --gene-exclude-regions mhc \
+  --exclude-regions mhc-and-centromeres \
   --threads 1
 ```
 
-A chromosome subset is a complete suite with its own identity. It cannot later
-be extended in place, so use a separate output directory for the prototype.
-Check:
+The prototype is a complete chromosome-22 index. It cannot be extended in
+place; use a different output directory for the production chromosomes-1–22
+index.
 
-```text
-<prototype>/profiles/padding-100000bp-mhc/diagnostics/
-    build-gene-ldscore-index.log
-    build-gene-ldscore-index.json
-```
-
-The JSON records wall time, peak RSS, batch settings, row counts, atom count,
-operator nonzeros, protein-coding gene counts, SNP-filter counts, component
-bytes, publication state, and payload bytes. The adjacent log is the concise
-human-readable operational record: it uses the shared LDSC lifecycle format,
-reports `Starting chromosome X`/`Finished chromosome X`, and explains that
-broad retained PLINK SNPs contribute to LD scores and counts while filtered HM3
-SNPs are persisted regression rows. It also reports the effective map source,
-keep-individual source, MAF policy, and validated profile path.
-
-On failure, inspect the same log for the failing phase, chromosome, exception,
-and traceback. Scientific metadata is not published; a diagnostics-only failed
-directory can be retried with the same output path.
-
-## Build the chromosomes 1–22 suite
-
-Omit `--chromosomes` to select autosomes 1–22:
+To use custom regression SNPs while retaining the standard region subtraction:
 
 ```bash
 ldsc build-gene-ldscore-index \
-  --baseline-annot-sources "${BASELINE_ANNOT_SOURCES}" \
-  --plink-prefix "${PLINK_PREFIX}" \
-  --output-dir "${INDEX_SUITE_DIR}" \
-  --genome-build hg19 \
-  --snp-identifier rsid \
-  --ld-wind-cm 1.0 \
-  --padding-bp 100000 \
-  --gene-exclude-regions mhc \
-  --threads 1
+  --baseline-annot-sources "${RESOURCE_ROOT}/baseline/baseline.@.annot.gz" \
+  --plink-prefix "${RESOURCE_ROOT}/plink/1000G.EUR.QC.@" \
+  --output-dir "${INDEX_ROOT}/custom_regression_index" \
+  --regression-snps-file custom_regression_snps.tsv \
+  --exclude-regions mhc-and-centromeres
 ```
 
-Keep `--threads 1` for the first production run. Each additional chromosome
-worker can multiply chromosome-local memory. Increase workers only after
-measuring peak RSS on the target system.
+Restriction files are identity-only. Duplicate keys collapse; ordering and
+nonidentity columns do not affect the scientific selection. Use
+`--exclude-regions none` only when intentionally retaining all candidate rows.
 
-If BIM cM coordinates are absent or uninformative, provide an explicit matching
-hg19 map through `--genetic-map-hg19-sources`. To restrict samples, provide a
-one-IID-per-row file through `--keep-indivs-file`. Both choices become part of
-the immutable suite identity.
+## Production build
 
-## Output directory
+Omit `--chromosomes` to build autosomes 1–22. Keep `--threads 1` until the
+target system has been profiled because each chromosome worker can multiply
+peak memory. Use `--keep-indivs-file` for a one-IID-per-row sample restriction,
+and `--genetic-map-hg19-sources` when BIM cM values are uninformative.
+
+## Output and identity
 
 ```text
-1000G_EUR_Phase3_baseline/
+<index-dir>/
     metadata.json
-    common/
-        metadata.json
+    gene_catalog.parquet
+    diagnostics/
+        build-gene-ldscore-index.log
+        build-gene-ldscore-index.json
+        history/
+    chromosomes/
         chr1/ ... chr22/
-    profiles/
-        padding-100000bp-mhc/
-            metadata.json
-            gene_catalog.parquet
-            chr1/ ... chr22/
-            diagnostics/
-                build-gene-ldscore-index.log
-                build-gene-ldscore-index.json
 ```
 
-`suite_id` binds the baseline, PLINK files, selected individuals, map/window,
-SNP policies, and chromosome coverage. `profile_id` additionally binds the gene
-catalog, projection build, padding, and gene-region policy.
+Each chromosome directory contains `baseline_rows.parquet`,
+`baseline_statistics.npz`, `atoms.parquet`, `gene_to_atom.npz`,
+`ldscore_operator.npz`, `atom_statistics.npz`, and component `metadata.json`.
 
-The builder stages and reload-validates scientific payloads before publication.
-`--overwrite` replaces only the named profile, preserves sibling profiles, and
-reuses `common/` only when the suite identity matches. It never converts a
-conflicting suite into a new one.
+One canonical `index_id` binds all scientific content and settings. Paths,
+output names, compression, harmless restriction-file ordering, threads, and
+batch sizes do not define identity. There are no suite or profile IDs.
 
-## Validate a distributed profile
+## Rerun and failure behavior
 
-The indexed LD-score command validates the whole profile automatically. For a
-standalone installation check:
+- missing or empty output: create a new index;
+- diagnostics-only failed output: retry and archive the old log;
+- valid existing index: require `--overwrite` and rebuild everything;
+- nonempty invalid output: fail even with `--overwrite`;
+- same absolute target already building: fail immediately and point to the
+  stable live log.
+
+`--overwrite` never updates components in place. The old valid index remains
+loadable until a complete staged replacement passes reload validation. Failed
+overwrites preserve the old scientific index. The next invocation recovers a
+single recognized valid backup after an interrupted publication, but refuses
+ambiguous recovery evidence.
+
+Monitor a running build with:
 
 ```bash
-python - <<'PY'
-from ldsc import load_gene_ldscore_index
-
-profile = load_gene_ldscore_index(
-    "/path/to/gene_ldscore_indexes/1000G_EUR_Phase3_baseline/"
-    "profiles/padding-100000bp-mhc"
-)
-print(profile.suite_id)
-print(profile.profile_id)
-print(profile.chromosomes)
-PY
+tail -f "${INDEX_ROOT}/production/diagnostics/build-gene-ldscore-index.log"
 ```
 
-A missing, corrupt, or identity-mismatched component is an error. There is no
-automatic profile discovery or direct-mode fallback.
+The log is the lifecycle status authority. The JSON file is written for a
+successful publication summary; no separate status file is needed.
+
+## Validate from Python
+
+```python
+from ldsc import load_gene_ldscore_index
+
+index = load_gene_ldscore_index("/path/to/gene_ldscore_indexes/production")
+print(index.index_id)
+print(index.chromosomes)
+```
 
 ## Next step
 
-Use the explicit profile to calculate LD scores for focal gene sets:
-[Calculate LD scores for gene lists with an index](../main-functionalities/ldscore.md).
+Pass the same directory to `ldsc ldscore --gene-ldscore-index-dir`; see
+[Calculate LD scores](../main-functionalities/ldscore.md).

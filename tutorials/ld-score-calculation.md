@@ -1,6 +1,6 @@
 # LD Score Calculation
 
-Last updated on: 2026-08-03
+Last updated on: 2026-08-04
 
 Goal: compute LDSC-compatible LD scores from a reference panel alone, from pre-built SNP-level annotations, or from raw BED/gene-list queries plus an explicit baseline.
 
@@ -297,6 +297,44 @@ print(baseline_chr22.head())
 If query annotations were supplied, `metadata["query_row_groups"]` has the same
 shape for `ldscore.query.parquet`. It is `None` for baseline-only LD-score
 results.
+
+## Case 5: Reuse an Exact Gene LD-Score Index
+
+For many gene sets under one fixed hg19/rsID/PLINK configuration, build the
+expensive reference calculation once:
+
+```bash
+ldsc build-gene-ldscore-index \
+  --baseline-annot-sources "annotations/baseline.@.annot.gz" \
+  --plink-prefix "reference/1000G.EUR.QC.@" \
+  --output-dir "indexes/baseline_100kb" \
+  --padding-bp 100000 \
+  --gene-exclude-regions mhc \
+  --exclude-regions mhc-and-centromeres
+```
+
+The baseline and PLINK sources are inner-joined by rsID. PLINK coordinates and
+genotypes are authoritative; duplicate rsIDs or an empty intersection fail.
+To replace bundled HapMap3 regression candidates, add
+`--regression-snps-file custom.snplist`. Region subtraction still follows
+`--exclude-regions`.
+
+Then assemble any number of gene-list query columns without the source PLINK or
+baseline files:
+
+```bash
+ldsc ldscore \
+  --gene-ldscore-index-dir "indexes/baseline_100kb" \
+  --query-annot-gene-list-sources "gene_lists/*.txt" \
+  --control-gene-list-source all-protein-coding \
+  --output-dir "tutorial_outputs/indexed_gene_ldscores"
+```
+
+One directory is one complete index. It has a single `index_id` and cannot be
+extended with chromosomes or profiles. Rebuilding any input or setting requires
+a complete replacement with `--overwrite`. The live build log is
+`indexes/baseline_100kb/diagnostics/build-gene-ldscore-index.log`; retries
+archive prior logs in `diagnostics/history/`.
 
 ## Optional: Materialize BED Projections for Reuse
 

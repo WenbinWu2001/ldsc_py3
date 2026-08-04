@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Last updated on: 2026-08-03
+Last updated on: 2026-08-04
 
 This reference explains `ldsc` errors that can **abort a run** and have more than
 one likely cause. It is organized by command. Each entry lists the likely causes
@@ -217,33 +217,32 @@ bad provenance / missing A1-A2 / duplicate identity rows)
 
 ## ldscore
 
-### build-gene-ldscore-index: baseline identities do not equal PLINK BIM
+### build-gene-ldscore-index: baseline/PLINK identifier intersection fails
 
-**Symptom:** the builder reports missing, extra, duplicate, or conflicting
-`CHR/POS/SNP` identities before genotype QC.
+**Symptom:** the builder reports duplicate effective rsIDs or an empty
+baseline/PLINK intersection before genotype QC.
 
-The index builder is intentionally stricter than direct `ldscore`. For every
-selected chromosome, each ordered baseline source and the PLINK BIM must
-contain exactly the same genomic identity rows after canonical sorting.
-Reordering is allowed; intersection is not. Use baseline annotations generated
-for the same PLINK suite, inspect duplicates and position/rsID conflicts, and
-rebuild the mismatched source. Do not work around this check with a looser SNP
-identifier mode. The builder keeps
-`profiles/<profile>/diagnostics/build-gene-ldscore-index.log` with the failed
-phase and traceback, but does not publish a loadable profile. The log also
-distinguishes broad retained-PLINK contributors from filtered HM3 regression
-rows, so a successful log should not describe the index as HM3-only.
+The builder uses the same identifier-key inner intersection as direct
+PLINK-backed `ldscore`. Baseline-only and PLINK-only rows are allowed, dropped,
+and counted. Duplicate effective IDs on either side remain an error because the
+join would be ambiguous; an empty result cannot define an LD universe. Under
+rsID matching, coordinate disagreements warn and use PLINK coordinates. Check
+`<index-dir>/diagnostics/build-gene-ldscore-index.log`, confirm the source
+PLINK panel is hg19, remove duplicate rsIDs, and verify that the two inputs
+actually overlap. A diagnostics-only failed directory can be retried directly;
+the previous log is archived under `diagnostics/history/`.
 
 ### ldscore: an explicit gene index is missing, corrupt, or incompatible
 
 **Symptom:** indexed mode rejects metadata IDs, chromosome coverage, Parquet
 rows, NPZ members, CSR structure/dtypes, or dimensions.
 
-Pass one profile directory beneath `profiles/`, not the suite root. Do not add
+Pass the one complete index directory containing root `metadata.json` and
+`chromosomes/`. Do not add
 live baseline, reference, build, padding, window, map, or region settings: those
-belong to the immutable profile. A failed validation never falls back to direct
+belong to the immutable index. A failed validation never falls back to direct
 mode and is completed before canonical scientific output publication. Restore
-or reinstall the profile, or remove `--gene-ldscore-index-dir` and supply the
+or rebuild the index, or remove `--gene-ldscore-index-dir` and supply the
 full direct-mode inputs explicitly.
 
 ### ldscore: a BED or gene-list query is missing from results

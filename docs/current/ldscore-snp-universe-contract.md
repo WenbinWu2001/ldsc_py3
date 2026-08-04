@@ -1,6 +1,6 @@
 # LD-score SNP-universe contract
 
-Last updated on: 2026-08-03
+Last updated on: 2026-08-04
 
 This table distinguishes the SNP universes used by canonical LD Score
 Regression (LDSC) and stratified LDSC. It is especially important for MHC and
@@ -16,9 +16,11 @@ pericentromeric exclusions.
 
 ## Exact gene LD-score index
 
-The v1 gene index fixes written/regression rows to bundled HapMap3 SNPs minus
-`mhc-and-centromeres`, intersected with retained PLINK rows. This is a fixed
-**regression-row policy**, not an HM3-only reference panel:
+The v1 gene index defaults written/regression rows to bundled HapMap3 SNPs
+minus `mhc-and-centromeres`, intersected with retained reference rows. A custom
+`--regression-snps-file` replaces the HapMap3 candidate set, and the selected
+`--exclude-regions` policy is then subtracted. This is a **regression-row
+policy**, not an HM3-only reference panel:
 
 - baseline and focal LD scores still receive contributions from the broad
   retained PLINK universe;
@@ -27,8 +29,9 @@ The v1 gene index fixes written/regression rows to bundled HapMap3 SNPs minus
 - only `regression_ld_scores`/`w_ld` uses the filtered regression set as both
   rows and contributors.
 
-Indexed mode does not accept a custom regression-SNP file. A different
-regression-row policy requires direct `ldsc ldscore` mode.
+The policy is fixed when the index is built. Indexed `ldscore` does not accept
+an online regression-SNP or region override; build a complete new index for a
+different policy.
 
 ## Consequence for region exclusions
 

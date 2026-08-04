@@ -51,6 +51,28 @@ Before genotype QC, every baseline chromosome must contain exactly the same
 `CHR/POS/SNP` identities as the corresponding PLINK BIM. Reordering is allowed;
 missing, extra, duplicate, or conflicting identities stop the build.
 
+## Keep every coordinate-bearing input on hg19
+
+The v1 index has one coordinate build: **hg19**. It does not lift coordinates
+between builds, and it cannot write an hg38 index from hg19 inputs. The
+following components must all use the same hg19 coordinate system:
+
+- baseline annotation `CHR/POS` rows;
+- PLINK BIM positions;
+- the embedded gene-catalog projection;
+- bundled HM3 regression rows and MHC/centromere masks;
+- an explicit genetic map, when supplied.
+
+An explicit map must therefore use `--genetic-map-hg19-sources`; an hg38 map is
+rejected. Without an explicit map, informative BIM cM values are used and must
+correspond to the hg19 BIM positions.
+
+Exact baseline/BIM `CHR/POS/SNP` equality detects mismatched coordinate sets,
+but it cannot prove that two mutually matching files are truly hg19. Confirm
+the documented source build of both suites before construction. Two hg38 files
+misdeclared as hg19 could agree with each other while projecting hg19 genes and
+region masks onto the wrong coordinates.
+
 ## Set input paths
 
 ```bash
@@ -85,8 +107,6 @@ ldsc build-gene-ldscore-index \
   --ld-wind-cm 1.0 \
   --padding-bp 100000 \
   --gene-exclude-regions mhc \
-  --snp-batch-size 128 \
-  --atom-batch-size 64 \
   --threads 1
 ```
 
@@ -117,8 +137,6 @@ ldsc build-gene-ldscore-index \
   --ld-wind-cm 1.0 \
   --padding-bp 100000 \
   --gene-exclude-regions mhc \
-  --snp-batch-size 128 \
-  --atom-batch-size 64 \
   --threads 1
 ```
 

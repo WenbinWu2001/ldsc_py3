@@ -62,6 +62,12 @@ identity, LD window, MAF settings, padding, and region policies. Do not pass
 live `--baseline-annot-sources`, `--plink-prefix`, `--r2-dir`, build/window/map,
 padding, or SNP-filter options in indexed mode.
 
+V1 profiles and their canonical LD-score rows are hg19. Indexed assembly does
+not offer output-build conversion: it reuses the profile's hg19 coordinates,
+gene projection, regression masks, and map/window identity. Use direct mode for
+a supported configuration outside the index compatibility domain; do not treat
+rsID matching as permission to mix coordinate builds.
+
 Use `--overwrite` to replace an existing output family.
 
 ## Understand the control annotation

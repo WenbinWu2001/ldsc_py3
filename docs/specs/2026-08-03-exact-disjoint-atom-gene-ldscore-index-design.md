@@ -85,6 +85,8 @@ Then a selected atom set gives its annotation count \(d^\mathsf{T}z\), baseline-
 
 V1 supports only PLINK-backed cM construction. It rejects an R2 backend, explicit reference-panel or regression SNP files, configurable SNP-region policy, SNP-count or kb windows, whole-chromosome override, and reference-metadata export. The regression policy is always bundled HapMap3 minus `mhc-and-centromeres`. Internal atom-column batch sizing is a builder implementation/resource control and is never reused as a public online query-column batch control.
 
+V1 has one coordinate build, hg19, and no liftover or separate output-build concept. Baseline annotation positions, PLINK BIM positions, gene-catalog projection, bundled HM3 and named-region coordinates, and any explicit genetic map must all refer to hg19. Canonical index and assembled LD-score rows inherit that coordinate system. The public `--genome-build` choice is therefore restricted to hg19. The legacy-named `--genetic-map-hg38-sources` argument is rejected when supplied; only an explicit hg19 map or informative BIM cM values are valid.
+
 ### Direct gene-list mode
 
 Without `--gene-ldscore-index-dir`, `ldsc ldscore` follows the ordinary Design 1 path. It accepts the normal PLINK or R2 scientific inputs and can represent configurations outside the first index compatibility domain. `--gene-exclude-regions` defaults to `none`.
@@ -170,13 +172,19 @@ The 100 kb profile is the historical LDSC-SEG-compatible default. A separate 0 b
 
 No `--maf-min` means no explicit frequency threshold. The existing PLINK reader still removes monomorphic, zero-variance, or unusable genotype rows; it does not apply a special singleton exclusion. Optional `--maf-min` is genotype-derived after `--keep-indivs-file` and is inclusive. The suite identity records the selected-individual content identity, selected sample count, MAF policy and source, and per-chromosome removal counts.
 
-The builder accepts the existing `--genetic-map-hg19-sources` and `--genetic-map-hg38-sources`. An explicit matching-build map is interpolated at PLINK positions and overrides `.bim` CM. Without one, informative `.bim` CM is used; an uninformative CM column is an error with guidance to supply a map. The resolved map/CM source is suite identity.
+An explicit hg19 map is interpolated at PLINK positions and overrides `.bim` CM. V1 rejects a supplied hg38 map. Without an explicit map, informative `.bim` CM is used; an uninformative CM column is an error with guidance to supply an hg19 map. The effective hg19 map/BIM-CM source is part of suite identity.
 
 ### Strict baseline-to-PLINK alignment
 
 All baseline inputs contributing to one chromosome must agree on row identities and ordering after canonical genomic sorting. Before genotype-derived filtering, the baseline identities must equal the PLINK identities for every selected chromosome; reordering is allowed, but missing, extra, duplicated, or conflicting identities are build errors. The initial allele-free suites compare the full `CHR/POS/SNP` triple while using `rsid` as the public matching mode. Only subsequent PLINK genotype usability checks and optional MAF filtering may reduce this common universe.
 
 This is deliberately stricter than direct `ldscore`, which permits a baseline/PLINK intersection. Builder documentation and troubleshooting must state `baseline identities == PLINK identities` prominently. The supplied chromosome-22 files already satisfy this precondition: both approved baseline suites and the PLINK `.bim` have the same 141,123 `CHR/POS/SNP` rows.
+
+Identity equality is a consistency check, not independent genome-build
+inference. Mutually matching baseline and PLINK rows that are both hg38 but
+misdeclared as hg19 could pass equality while receiving hg19 gene intervals,
+HM3 rows, and region masks. The caller must therefore verify the documented
+source build; a matching `CHR/POS/SNP` table alone is insufficient evidence.
 
 ## Index artifact contract
 

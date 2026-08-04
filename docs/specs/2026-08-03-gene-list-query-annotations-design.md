@@ -124,6 +124,13 @@ When gene-list input is present and `--genome-build` is omitted, its effective d
 
 For rsID-family workflows, the selected build controls interval projection and selection of named regression-region presets. SNP matching remains rsID-based and LD-score compatibility metadata keeps `genome_build=null`. The separately recorded catalog provenance carries the effective projection build. The declared or inferred projection build and the evidence used are reported in `diagnostics/ldscore.log`.
 
+This direct-mode hg19/hg38 flexibility does not extend to the exact indexed
+configuration. The v1 gene LD-score index is hg19-only and performs no
+liftover: its baseline positions, PLINK BIM positions, gene projection,
+regression/mask coordinates, genetic map, and assembled output rows must share
+the hg19 coordinate system. rsID identity does not make coordinate-bearing
+inputs interchangeable across builds.
+
 ## Query naming
 
 Each gene-list query name comes only from its resolved source basename. An optional `.gz` is removed, followed by at most one recognized gene-list suffix: `.txt`, `.tsv`, or `.list`. Other dots are retained.

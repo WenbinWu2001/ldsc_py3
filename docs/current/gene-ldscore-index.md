@@ -40,6 +40,16 @@ The initial supported distributed configuration is hg19, rsID,
 `1000G_EUR_Phase3`, a 1 cM window, no explicit retained-reference MAF filter,
 inclusive `common_maf_min=0.05`, 100 kb padding, and MHC gene exclusion.
 
+V1 performs no liftover and has no independent output-build setting. Baseline
+annotation positions, PLINK BIM positions, gene projection, bundled
+HM3/region-mask coordinates, and any explicit genetic map must all be hg19.
+The published canonical rows inherit those coordinates. Strict baseline/BIM
+`CHR/POS/SNP` equality detects disagreement between the two sources but cannot
+prove that two mutually matching inputs were labeled with their true build;
+source-build verification remains an input precondition. An explicit hg38 map
+is rejected, while omitted maps fall back to informative BIM cM values tied to
+the hg19 BIM positions.
+
 The suite directory has immutable `common/` data and one or more
 `profiles/<profile>/` directories. Semantic `suite_id` and `profile_id` values
 bind scientific inputs. Publication stages and reload-validates all components;

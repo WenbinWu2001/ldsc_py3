@@ -1,4 +1,4 @@
-# ldsc_py3_Jerry
+# ldsc3_Jerry
 
 This repository is the active refactored LDSC package.
 
@@ -18,11 +18,11 @@ local source changes are picked up immediately.
 
 ### Stable version
 
-Clone the default `main` branch:
+Clone the default `main` branch to a directory `ldsc3`:
 
 ```bash
-git clone https://github.com/WenbinWu2001/ldsc_py3.git
-cd ldsc_py3
+git clone https://github.com/WenbinWu2001/ldsc_py3.git ldsc3
+cd ldsc3
 ```
 
 Create the conda environment and install the package with development extras:
@@ -33,20 +33,36 @@ conda activate ldsc3
 python -m pip install -e ".[dev]"
 ```
 
-For later runs, activate the environment before launching LDSC commands or
-scripts:
+**For later runs,** activate the environment before launching LDSC commands or scripts:
 
 ```bash
 conda activate ldsc3
 ```
 
-### Development version
-
-Clone the `restructure` branch:
+To update the package, enter the repository and pull the latest changes from the `main` branch:
 
 ```bash
-git clone --branch restructure https://github.com/WenbinWu2001/ldsc_py3.git
-cd ldsc_py3
+cd ldsc3
+git pull origin main
+conda activate ldsc3
+```
+
+Because the package is installed in editable mode, source-code updates take effect immediately. 
+If `environment.yml` or the package dependencies have changed, also update the environment and reinstall the package:
+
+```bash
+conda env update -f environment.yml --prune
+python -m pip install -e ".[dev]"
+```
+
+
+### Development version
+
+Clone the `restructure` branch to a directory `ldsc3-dev/`:
+
+```bash
+git clone --branch restructure https://github.com/WenbinWu2001/ldsc_py3.git ldsc3-dev
+cd ldsc3-dev
 ```
 
 Create a separate development environment and install the package with
@@ -58,11 +74,26 @@ conda activate ldsc3-dev
 python -m pip install -e ".[dev]"
 ```
 
-For later runs, activate the development environment before launching LDSC
-commands or scripts:
+**For later runs,** activate the environment before launching LDSC commands or scripts:
 
 ```bash
 conda activate ldsc3-dev
+```
+
+To update the development version, enter the repository and pull the latest changes from the `restructure` branch:
+
+```bash
+cd ldsc3-dev
+git pull origin restructure
+conda activate ldsc3-dev
+```
+
+Because the package is installed in editable mode, source-code updates take effect immediately.
+If `environment.yml` or the package dependencies have changed, also update the development environment and reinstall the package:
+
+```bash
+conda env update -f environment.yml -n ldsc3-dev --prune
+python -m pip install -e ".[dev]"
 ```
 
 The package supports Python 3.11 through 3.13. The base install includes the

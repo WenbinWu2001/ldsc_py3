@@ -29,8 +29,10 @@ Related docs:
 - **Munge raw summary statistics**: normalize raw GWAS tables into curated Parquet-first sumstats artifacts, with optional legacy `.sumstats.gz` output. Entry points: `ldsc munge-sumstats`, `ldsc.SumstatsMunger`
 - **Run LDSC regression**: consume munged sumstats and LD-score artifacts to estimate `h2`, partitioned `h2`, or `rg`. Entry points: `ldsc h2`, `ldsc partitioned-h2`, `ldsc rg`, `ldsc.RegressionRunner`
 - **Audit workflow runs**: artifact-writing workflow wrappers create deterministic
-  per-run logs after output preflight. Logs are audit artifacts and are not
-  included in result `output_paths`.
+  per-run logs around their owned work. The gene-index builder writes its log
+  to `<index-dir>.build/` before destination preflight/recovery so failures do
+  not create a partial index. Logs are audit artifacts and are not included in
+  result `output_paths`.
 
 ## Layer Structure
 
@@ -144,7 +146,7 @@ This module orchestrates chromosome-wise LD-score computation. It resolves annot
 
 ### `ldsc.gene_ldscore_index`, `ldsc._kernel.gene_ldscore_index`
 
-The workflow module owns the `build-gene-ldscore-index` command, pre-QC baseline/PLINK inner intersection by effective rsID, canonical `index_id`, stable logging and same-target locking, complete staged publication/recovery, full-index loading, and explicit indexed `ldscore` assembly. PLINK metadata is authoritative after intersection; duplicate effective IDs and empty intersections fail. The private kernel owns disjoint half-open atoms, Boolean gene-to-atom CSR membership, bounded SNP-by-atom blocks, sufficient statistics, and float64 `Y @ z` assembly. Each index directory is one immutable distribution artifact with no incremental update or component reuse. Indexed output is still a self-contained canonical LD-score directory written by `LDScoreDirectoryWriter`. Architecture invariant: online assembly uses only the explicitly named complete index and never discovers an index or falls back to live computation.
+The workflow module owns the `build-gene-ldscore-index` command, pre-QC baseline/PLINK inner intersection by effective rsID, canonical `index_id`, sibling build-state logging, same-target locking, complete staged publication/recovery, full-index loading, and explicit indexed `ldscore` assembly. The live log stays under `<index-dir>.build/`, outside the replaceable artifact; a missing or empty destination is not mutated before commit, and post-commit transaction cleanup is warning-only. PLINK metadata is authoritative after intersection; duplicate effective IDs and empty intersections fail. The private kernel owns disjoint half-open atoms, Boolean gene-to-atom CSR membership, bounded SNP-by-atom blocks, sufficient statistics, and float64 `Y @ z` assembly. Each index directory is one immutable distribution artifact with no incremental update or component reuse. Indexed output is still a self-contained canonical LD-score directory written by `LDScoreDirectoryWriter`. Architecture invariant: online assembly uses only the explicitly named complete index and never discovers an index or falls back to live computation.
 
 ### `ldsc.sumstats_munger`
 
@@ -189,8 +191,10 @@ The kernel layer contains the actual numerical methods and low-level readers. It
 - **Restrictions and annotations**: restriction files may omit alleles. Allele-free restrictions match by base key and can retain multiple candidate rows before later artifact cleanup. Allele-bearing restrictions, including packaged HM3 restrictions, match by the effective allele-aware key in allele-aware modes. Restriction files are identity-only filters: duplicate restriction keys collapse to one retained key, and non-identity columns such as `CM`, `MAF`, or other metadata are not carried into downstream artifacts. Annotation files may omit alleles even in allele-aware modes because annotations describe genomic membership, not variant alleles; if annotation files include alleles, those alleles participate in allele-aware matching.
 - **Artifact compatibility**: Public downstream chaining uses `.annot.gz`, self-describing Parquet munged sumstats (identity in the footer) with optional `.sumstats.gz` compatibility output, canonical package-built R2 panels, and canonical LD-score result directories with root `metadata.json`. The forward format rule is parquet for internal artifacts and TSV for science-facing result tables. LD-score and sumstats parquet payloads use chromosome-aligned row groups where useful, so full-file readers still work while chromosome-specific readers can skip unrelated row groups. Legacy `.l2.ldscore(.gz)`, `.l2.M`, `.l2.M_5_50`, and separate `.w.l2.ldscore(.gz)` files remain internal/legacy file-format concerns, not the public LD-score writer contract.
 - **Output collision handling**: output directories are literal destinations.
-  Missing directories are created, existing directories are reused, and fixed
-  output files, including workflow logs, are checked before writing. By
+  Most workflows create missing directories and reuse existing ones while
+  checking fixed output files, including workflow logs, before writing. The
+  gene-index builder instead leaves a missing or empty publication destination
+  untouched until commit and writes mutable diagnostics to `<index-dir>.build/`. By
   default an existing artifact raises `FileExistsError`; `--overwrite` or
   `overwrite=True` makes replacement explicit without deleting unrelated files
   or cleaning the directory. Sharded workflows may narrow ownership to the
@@ -206,7 +210,9 @@ The kernel layer contains the actual numerical methods and low-level readers. It
   explicit elapsed-time footer such as `Elapsed time: 2.0min:12s`. Start/end
   timestamps and elapsed duration are derived from paired entry/exit timepoints
   so the footer reflects the interval covered by the log. A failed run also
-  records the full traceback before the footer.
+  records the full traceback before the footer. Gene-index publication keeps
+  its open handler outside the replaceable tree and treats cleanup after
+  destination reload validation as warning-only garbage collection.
 - **Dependency split**: base package dependencies cover core pandas/numpy/SciPy
   workflows and parquet I/O. PLINK-backed LD computation requires the
   `plink` extra (`bitarray`), BED projection requires the `bed` extra

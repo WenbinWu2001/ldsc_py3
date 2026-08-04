@@ -3,6 +3,7 @@ from __future__ import annotations
 from argparse import Namespace
 import json
 from pathlib import Path
+import shutil
 from types import SimpleNamespace
 
 import numpy as np
@@ -404,7 +405,7 @@ def test_build_index_writes_shared_operational_log_and_chromosome_metrics(tmp_pa
 
     index_dir = gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
 
-    log_path = index_dir / "diagnostics" / "build-gene-ldscore-index.log"
+    log_path = index_dir.with_name(f"{index_dir.name}.build") / "build-gene-ldscore-index.log"
     json_path = index_dir / "diagnostics" / "build-gene-ldscore-index.json"
     log_text = log_path.read_text(encoding="utf-8")
     diagnostics = json.loads(json_path.read_text(encoding="utf-8"))
@@ -423,6 +424,7 @@ def test_build_index_writes_shared_operational_log_and_chromosome_metrics(tmp_pa
     assert diagnostics["chromosomes"]["22"]["operator_nnz"] == chromosome.operator.nnz
     assert f"operator_nnz={chromosome.operator.nnz}" in log_text
     assert captured_restriction["path"] == Path("custom-regression.tsv")
+    assert not (index_dir / "diagnostics" / "build-gene-ldscore-index.log").exists()
 
 
 def test_build_index_failure_keeps_stable_log_without_publishing_index(tmp_path, monkeypatch):
@@ -486,20 +488,25 @@ def test_build_index_failure_keeps_stable_log_without_publishing_index(tmp_path,
     with pytest.raises(LDSCInputError, match="identifier intersection failure"):
         gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
 
-    log_path = tmp_path / "suite" / "diagnostics" / "build-gene-ldscore-index.log"
+    index_path = tmp_path / "suite"
+    log_path = tmp_path / "suite.build" / "build-gene-ldscore-index.log"
     log_text = log_path.read_text(encoding="utf-8")
     assert "LDSC build-gene-ldscore-index Started" in log_text
     assert "Chromosome 22 failed during baseline/PLINK identifier intersection" in log_text
     assert "LDSCInputError" in log_text
     assert "Failed " in log_text
-    assert not (tmp_path / "suite" / "metadata.json").exists()
-    assert not (tmp_path / "suite" / "gene_catalog.parquet").exists()
+    assert not index_path.exists()
+
+    index_path.mkdir()
+    with pytest.raises(LDSCInputError, match="identifier intersection failure"):
+        gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
+    assert list(index_path.iterdir()) == []
 
     monkeypatch.setattr(gene_ldscore_index, "intersect_baseline_plink_by_identifier", original_intersection)
     monkeypatch.setattr(gene_ldscore_index, "build_plink_index_chromosome", lambda *args, **kwargs: chromosome)
     index_dir = gene_ldscore_index.run_build_gene_ldscore_index_from_args(args)
     assert (index_dir / "metadata.json").exists()
-    assert any((index_dir / "diagnostics" / "history").glob("*.log"))
+    assert any((tmp_path / "suite.build" / "history").glob("*.log"))
 
 
 def test_plink_operator_matches_independent_dense_adjusted_r2_reference():
@@ -686,6 +693,44 @@ def test_index_publication_requires_overwrite_and_replaces_complete_index(tmp_pa
         chromosomes={"22": chromosome}, overwrite=True,
     )
     assert load_gene_ldscore_index(index_dir).index_id == calculate_index_id(replacement_identity)
+
+
+def test_post_commit_cleanup_failure_warns_but_published_index_succeeds(
+    tmp_path, monkeypatch, caplog
+):
+    chromosome, catalog, index_identity = _artifact_payload()
+    index_dir = tmp_path / "index"
+    publish_gene_ldscore_index(
+        index_dir, index_identity=index_identity, gene_catalog=catalog,
+        chromosomes={"22": chromosome}, overwrite=False,
+    )
+    replacement_identity = {**index_identity, "padding_bp": 0}
+    real_rmtree = shutil.rmtree
+
+    def fail_transaction_cleanup(path, *args, **kwargs):
+        candidate = Path(path)
+        if candidate.parent == tmp_path and candidate.name.startswith(".index.stage-"):
+            raise OSError(16, "injected device or resource busy", str(candidate))
+        return real_rmtree(path, *args, **kwargs)
+
+    with monkeypatch.context() as patcher, caplog.at_level(
+        "WARNING", logger="LDSC.gene_ldscore_index"
+    ):
+        patcher.setattr(gene_ldscore_index.shutil, "rmtree", fail_transaction_cleanup)
+        published = publish_gene_ldscore_index(
+            index_dir, index_identity=replacement_identity, gene_catalog=catalog,
+            chromosomes={"22": chromosome}, overwrite=True,
+        )
+
+    assert published == index_dir
+    assert load_gene_ldscore_index(index_dir).index_id == calculate_index_id(replacement_identity)
+    leftovers = list(tmp_path.glob(".index.stage-*"))
+    assert len(leftovers) == 1
+    assert str(leftovers[0]) in caplog.text
+    assert "published index is valid" in caplog.text
+
+    gene_ldscore_index._recover_gene_index_publication(index_dir)
+    assert not leftovers[0].exists()
 
 
 def test_index_preflight_rejects_nonempty_invalid_directory_even_with_overwrite(tmp_path):

@@ -227,10 +227,25 @@ PLINK-backed `ldscore`. Baseline-only and PLINK-only rows are allowed, dropped,
 and counted. Duplicate effective IDs on either side remain an error because the
 join would be ambiguous; an empty result cannot define an LD universe. Under
 rsID matching, coordinate disagreements warn and use PLINK coordinates. Check
-`<index-dir>/diagnostics/build-gene-ldscore-index.log`, confirm the source
+`<index-dir>.build/build-gene-ldscore-index.log`, confirm the source
 PLINK panel is hg19, remove duplicate rsIDs, and verify that the two inputs
-actually overlap. A diagnostics-only failed directory can be retried directly;
-the previous log is archived under `diagnostics/history/`.
+actually overlap. A failed first build leaves the index destination absent or
+empty and can be retried directly; the previous log is archived under
+`<index-dir>.build/history/`.
+
+### build-gene-ldscore-index: transaction cleanup remains after success
+
+**Symptom:** the command finishes successfully but warns that a builder-owned
+`.stage-*` transaction path could not be removed, commonly with `Directory not
+empty` or `Device or resource busy` on a shared filesystem.
+
+The destination was already replaced and reload-validated. It is a successful,
+loadable index; cleanup is garbage collection and the warning reports the exact
+retained path. Do not rerun the expensive build solely for this warning. After
+confirming no build for the same destination is active, remove the reported
+builder-owned path manually or let the next invocation retry recognized
+cleanup. Never delete an unmarked neighboring directory based only on a similar
+name.
 
 ### ldscore: an explicit gene index is missing, corrupt, or incompatible
 

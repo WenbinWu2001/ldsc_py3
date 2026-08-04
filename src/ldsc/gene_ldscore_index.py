@@ -156,7 +156,9 @@ def build_gene_ldscore_index(
         not support incremental updates or component reuse. Default is
         ``False``.
     log_level : {"DEBUG", "INFO", "WARNING", "ERROR"}, optional
-        Workflow logging threshold. Default is ``"INFO"``.
+        Workflow logging threshold. The live log is written to the sibling
+        ``<output_dir>.build/build-gene-ldscore-index.log`` path so it is never
+        part of the replaceable index transaction. Default is ``"INFO"``.
 
     Returns
     -------
@@ -178,7 +180,10 @@ def build_gene_ldscore_index(
     -----
     Construction uses float64 adjusted-r-squared accumulation, retains
     negative values, and batches internal atom columns. ``threads`` controls
-    chromosome workers and can multiply chromosome-local peak memory.
+    chromosome workers and can multiply chromosome-local peak memory. A missing
+    or empty destination is not mutated before commit. After destination reload
+    validation succeeds, failure to remove builder-owned staging/backup data is
+    warned with its retained path and does not change publication success.
     """
     if not isinstance(config, GeneLDScoreIndexBuildConfig):
         raise TypeError("build_gene_ldscore_index requires GeneLDScoreIndexBuildConfig.")
@@ -301,10 +306,10 @@ def run_build_gene_ldscore_index_from_args(args: argparse.Namespace) -> Path:
 
     index_path = Path(config.output_dir)
     with _gene_index_build_lock(index_path):
-        _recover_gene_index_publication(index_path)
-        _preflight_gene_index_output(index_path, overwrite=bool(args.overwrite))
-        final_log_path = _prepare_gene_index_log(index_path)
-        with workflow_logging("build-gene-ldscore-index", final_log_path, log_level=args.log_level):
+        live_log_path = _prepare_gene_index_log(index_path)
+        with workflow_logging("build-gene-ldscore-index", live_log_path, log_level=args.log_level):
+            _recover_gene_index_publication(index_path)
+            _preflight_gene_index_output(index_path, overwrite=bool(args.overwrite))
             log_inputs(
                 output_dir=str(config.output_dir),
                 genome_build=config.genome_build,
@@ -580,15 +585,6 @@ def _run_gene_ldscore_index_build(
             f"{type(exc).__name__}: {exc}"
         )
         raise
-    diagnostic_payload["payload_bytes"] = _scientific_payload_bytes(published_path)
-    for chrom, values in evidence_by_chrom.items():
-        values["payload_bytes"] = _directory_payload_bytes(
-            published_path / "chromosomes" / f"chr{chrom}"
-        )
-    _write_json(
-        published_path / "diagnostics" / "build-gene-ldscore-index.json",
-        diagnostic_payload,
-    )
     _log_gene_index_summary(diagnostic_payload)
     log_outputs(
         index_id=index_id,
@@ -614,7 +610,7 @@ def _gene_index_build_lock(index_path: Path):
             owner = handle.read().strip() or "unknown owner"
             raise LDSCInputError(
                 f"Another build-gene-ldscore-index process is active for {destination} ({owner}). "
-                f"Monitor {destination / 'diagnostics' / 'build-gene-ldscore-index.log'}."
+                f"Monitor {_gene_index_build_state_dir(destination) / 'build-gene-ldscore-index.log'}."
             ) from exc
         handle.seek(0)
         handle.truncate()
@@ -629,11 +625,10 @@ def _gene_index_build_lock(index_path: Path):
 
 
 def _preflight_gene_index_output(index_path: Path, *, overwrite: bool) -> None:
-    """Validate the destination contract before any chromosome computation."""
+    """Validate the publication destination without creating or mutating it."""
     if index_path.exists() and not index_path.is_dir():
         raise FileExistsError(f"Gene LD-score index output is not a directory: {index_path}")
     if not index_path.exists():
-        index_path.mkdir(parents=True)
         return
     if not any(index_path.iterdir()) or _is_diagnostics_only_gene_index(index_path):
         return
@@ -677,9 +672,16 @@ def _recover_gene_index_publication(index_path: Path) -> None:
         else:
             target_valid = True
     if target_valid:
-        (destination / ".gene-index-publication.json").unlink(missing_ok=True)
+        try:
+            (destination / ".gene-index-publication.json").unlink(missing_ok=True)
+        except Exception as exc:
+            LOGGER.warning(
+                "The published gene LD-score index is valid, but its completed-publication marker "
+                f"could not be removed: {destination / '.gene-index-publication.json'} "
+                f"({type(exc).__name__}: {exc}). The marker is safe to remove after this build."
+            )
         for candidate in candidates:
-            shutil.rmtree(candidate)
+            _remove_gene_index_transaction(candidate, published=True)
         return
 
     valid_backups: list[Path] = []
@@ -716,23 +718,65 @@ def _recover_gene_index_publication(index_path: Path) -> None:
         shutil.rmtree(destination)
     backup = valid_backups[0]
     os.replace(backup, destination)
-    (destination / ".gene-index-publication.json").unlink(missing_ok=True)
+    try:
+        (destination / ".gene-index-publication.json").unlink(missing_ok=True)
+    except Exception as exc:
+        LOGGER.warning(
+            "The recovered gene LD-score index is valid, but its publication marker could not be "
+            f"removed: {destination / '.gene-index-publication.json'} "
+            f"({type(exc).__name__}: {exc})."
+        )
     for candidate in candidates:
         if candidate.exists():
-            shutil.rmtree(candidate)
+            _remove_gene_index_transaction(candidate, published=True)
+
+
+def _gene_index_build_state_dir(index_path: Path) -> Path:
+    """Return the stable sibling directory for mutable build diagnostics."""
+    destination = index_path.expanduser()
+    return destination.with_name(f"{destination.name}.build")
 
 
 def _prepare_gene_index_log(index_path: Path) -> Path:
-    """Archive the prior owned log and return the stable live log path."""
-    diagnostics = index_path / "diagnostics"
-    diagnostics.mkdir(parents=True, exist_ok=True)
-    log_path = diagnostics / "build-gene-ldscore-index.log"
+    """Archive the prior sidecar log and return the stable live log path."""
+    build_state = _gene_index_build_state_dir(index_path)
+    build_state.mkdir(parents=True, exist_ok=True)
+    log_path = build_state / "build-gene-ldscore-index.log"
     if log_path.exists():
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
-        history = diagnostics / "history"
+        history = build_state / "history"
         history.mkdir(exist_ok=True)
         os.replace(log_path, history / f"build-gene-ldscore-index.{timestamp}.log")
     return log_path
+
+
+def _remove_gene_index_transaction(path: Path, *, published: bool) -> bool:
+    """Best-effort removal for builder-owned staging and backup data.
+
+    Cleanup after a reload-validated destination is garbage collection and
+    cannot change the successful publication outcome. Before commit, cleanup
+    errors likewise must not replace the primary build or rollback exception.
+    """
+    if not path.exists():
+        return True
+    try:
+        shutil.rmtree(path)
+    except Exception as exc:
+        if published:
+            LOGGER.warning(
+                "The gene LD-score index was published and reload-validated, but transaction "
+                f"cleanup failed ({type(exc).__name__}: {exc}). The published index is valid. "
+                f"Retained builder-owned cleanup path: {path}. Remove it after confirming no "
+                "build is active for this destination."
+            )
+        else:
+            LOGGER.warning(
+                "Gene LD-score index transaction cleanup also failed after an earlier build or "
+                f"publication error ({type(exc).__name__}: {exc}). Retained builder-owned path: "
+                f"{path}. The earlier exception remains the build failure."
+            )
+        return False
+    return True
 
 
 def _directory_payload_bytes(path: Path) -> int:
@@ -753,7 +797,7 @@ def _scientific_payload_bytes(index_path: Path) -> int:
 
 
 def _is_diagnostics_only_gene_index(path: Path) -> bool:
-    """Recognize a failed-build directory containing only owned diagnostics."""
+    """Recognize a legacy failed-build directory containing only owned diagnostics."""
     if not path.is_dir() or (path / "metadata.json").exists():
         return False
     files = [file for file in path.rglob("*") if file.is_file()]
@@ -1037,7 +1081,11 @@ def publish_gene_ldscore_index(
     Existing valid indexes require ``overwrite=True`` and are kept loadable
     until their complete replacement has passed staged reload validation.
     Nonempty directories that are neither valid indexes nor recognized
-    diagnostics-only failed builds are rejected even with overwrite.
+    legacy diagnostics-only failed builds are rejected even with overwrite.
+    Mutable live logs are stored in a sibling build-state directory and never
+    enter the replaceable transaction. Once the destination has been replaced
+    and reload-validated, failure to remove the builder-owned transaction tree
+    is reported as a warning and does not change publication success.
     """
     destination = Path(index_dir)
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -1068,6 +1116,7 @@ def publish_gene_ldscore_index(
         "target": str(destination.expanduser().resolve()),
     }
     _write_json(stage_parent / ".gene-index-publication.json", publication_marker)
+    committed = False
     try:
         _write_index_artifact(
             staged_index,
@@ -1077,21 +1126,18 @@ def publish_gene_ldscore_index(
             chromosomes=chromosomes,
         )
         if diagnostic_payload is not None:
+            diagnostic_payload["payload_bytes"] = _scientific_payload_bytes(staged_index)
+            chromosome_diagnostics = diagnostic_payload.get("chromosomes", {})
+            for chrom in chromosomes:
+                values = chromosome_diagnostics.get(chrom)
+                if isinstance(values, dict):
+                    values["payload_bytes"] = _directory_payload_bytes(
+                        staged_index / "chromosomes" / f"chr{chrom}"
+                    )
             _write_json(
                 staged_index / "diagnostics" / "build-gene-ldscore-index.json",
                 diagnostic_payload,
             )
-        if (destination / "diagnostics" / "history").is_dir():
-            shutil.copytree(
-                destination / "diagnostics" / "history",
-                staged_index / "diagnostics" / "history",
-                dirs_exist_ok=True,
-            )
-        live_log = destination / "diagnostics" / "build-gene-ldscore-index.log"
-        if live_log.exists():
-            staged_log = staged_index / "diagnostics" / live_log.name
-            staged_log.parent.mkdir(parents=True, exist_ok=True)
-            os.link(live_log, staged_log)
         _write_json(staged_index / ".gene-index-publication.json", publication_marker)
         load_gene_ldscore_index(staged_index)
         backup = stage_parent / f"{destination.name}.backup"
@@ -1112,13 +1158,20 @@ def publish_gene_ldscore_index(
                 os.replace(backup, destination)
                 (destination / ".gene-index-publication.json").unlink(missing_ok=True)
             raise
-        if backup.exists():
-            shutil.rmtree(backup)
-        (destination / ".gene-index-publication.json").unlink(missing_ok=True)
-        return destination
-    finally:
-        if stage_parent.exists():
-            shutil.rmtree(stage_parent)
+        committed = True
+        try:
+            (destination / ".gene-index-publication.json").unlink(missing_ok=True)
+        except Exception as exc:
+            LOGGER.warning(
+                "The gene LD-score index was published and reload-validated, but its publication "
+                f"marker could not be removed ({type(exc).__name__}: {exc}): "
+                f"{destination / '.gene-index-publication.json'}. The published index is valid."
+            )
+    except Exception:
+        _remove_gene_index_transaction(stage_parent, published=False)
+        raise
+    _remove_gene_index_transaction(stage_parent, published=committed)
+    return destination
 
 
 def load_gene_ldscore_index(index_dir: str | Path) -> LoadedGeneLDScoreIndex:

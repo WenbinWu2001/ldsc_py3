@@ -333,8 +333,9 @@ ldsc ldscore \
 One directory is one complete index. It has a single `index_id` and cannot be
 extended with chromosomes or profiles. Rebuilding any input or setting requires
 a complete replacement with `--overwrite`. The live build log is
-`indexes/baseline_100kb/diagnostics/build-gene-ldscore-index.log`; retries
-archive prior logs in `diagnostics/history/`.
+`indexes/baseline_100kb.build/build-gene-ldscore-index.log`; retries archive
+prior logs in `indexes/baseline_100kb.build/history/`. The sidecar location
+keeps the destination absent or empty until a complete index is published.
 
 ## Optional: Materialize BED Projections for Reuse
 

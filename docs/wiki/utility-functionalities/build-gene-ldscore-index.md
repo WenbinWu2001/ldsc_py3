@@ -84,11 +84,13 @@ and `--genetic-map-hg19-sources` when BIM cM values are uninformative.
     metadata.json
     gene_catalog.parquet
     diagnostics/
-        build-gene-ldscore-index.log
         build-gene-ldscore-index.json
-        history/
     chromosomes/
         chr1/ ... chr22/
+
+<index-dir>.build/
+    build-gene-ldscore-index.log
+    history/
 ```
 
 Each chromosome directory contains `baseline_rows.parquet`,
@@ -101,8 +103,9 @@ batch sizes do not define identity. There are no suite or profile IDs.
 
 ## Rerun and failure behavior
 
-- missing or empty output: create a new index;
-- diagnostics-only failed output: retry and archive the old log;
+- missing output: leave it absent until a complete index is published;
+- empty output: leave it empty until a complete index is published;
+- failed build: preserve the sidecar log without creating a partial index;
 - valid existing index: require `--overwrite` and rebuild everything;
 - nonempty invalid output: fail even with `--overwrite`;
 - same absolute target already building: fail immediately and point to the
@@ -112,12 +115,14 @@ batch sizes do not define identity. There are no suite or profile IDs.
 loadable until a complete staged replacement passes reload validation. Failed
 overwrites preserve the old scientific index. The next invocation recovers a
 single recognized valid backup after an interrupted publication, but refuses
-ambiguous recovery evidence.
+ambiguous recovery evidence. Once a replacement has been reload-validated,
+failure to remove its transaction directory is a warning rather than a build
+failure; the warning reports the retained path for later cleanup.
 
 Monitor a running build with:
 
 ```bash
-tail -f "${INDEX_ROOT}/production/diagnostics/build-gene-ldscore-index.log"
+tail -f "${INDEX_ROOT}/production.build/build-gene-ldscore-index.log"
 ```
 
 The log is the lifecycle status authority. The JSON file is written for a

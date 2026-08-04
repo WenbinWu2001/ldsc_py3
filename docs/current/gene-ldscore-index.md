@@ -53,9 +53,7 @@ One output directory contains one complete immutable index:
     metadata.json
     gene_catalog.parquet
     diagnostics/
-        build-gene-ldscore-index.log
         build-gene-ldscore-index.json
-        history/
     chromosomes/
         chrN/
             metadata.json
@@ -65,6 +63,10 @@ One output directory contains one complete immutable index:
             gene_to_atom.npz
             ldscore_operator.npz
             atom_statistics.npz
+
+<index-dir>.build/
+    build-gene-ldscore-index.log
+    history/
 ```
 
 `index_id` is a canonical SHA-256 identity over scientific content and settings,
@@ -82,19 +84,21 @@ a different output directory from a chromosomes-1–22 production index.
 
 ## Output preflight, logging, and replacement
 
-- A missing or empty directory starts a new build.
+- A missing destination stays absent, and an existing empty destination stays
+  empty, until successful publication.
 - A valid existing index requires `--overwrite`, even if its `index_id` would
   be unchanged.
 - A nonempty invalid directory fails before chromosome computation, including
   with `--overwrite`.
-- A diagnostics-only failed build is a controlled retry state and does not
-  require `--overwrite`.
+- A failed build writes only to the sibling build-state directory and does not
+  create a partial or diagnostics-only index.
 - Two builders cannot target the same absolute directory concurrently.
 
 The stable live log is
-`<index-dir>/diagnostics/build-gene-ldscore-index.log`, so `tail -f` works while
-chromosomes are running. A retry archives the prior log under
-`diagnostics/history/`. The lifecycle footer is the status authority: `Started`
+`<index-dir>.build/build-gene-ldscore-index.log`, so `tail -f` works while
+chromosomes are running without placing an open file inside the replaceable
+artifact. A retry archives the prior log under `<index-dir>.build/history/`.
+The lifecycle footer is the status authority: `Started`
 without a terminal `Finished` or `Failed` line indicates abrupt termination;
 there is no separate status file. The JSON diagnostic is a successful-build
 summary, not a live status record.
@@ -102,9 +106,12 @@ summary, not a live status record.
 Publication writes and reload-validates a complete sibling stage. During
 overwrite, the old valid index remains loadable until the replacement passes
 validation. A graceful failure keeps the old scientific index and its prior
-success JSON while leaving the failed attempt in the stable log. Recognized
-interrupted publication transactions are recovered on the next invocation;
-ambiguous backup evidence fails rather than guessing.
+success JSON while leaving the failed attempt in the sidecar log. After the
+replacement is reload-validated, transaction cleanup is best-effort garbage
+collection: a cleanup error warns with the retained builder-owned path but does
+not turn the completed publication into a failed command. Recognized interrupted
+publication transactions are retried on the next invocation; ambiguous backup
+evidence fails rather than guessing.
 
 ## Assemble gene-list LD scores
 

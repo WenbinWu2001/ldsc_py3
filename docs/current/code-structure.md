@@ -138,7 +138,9 @@ ldsc_py3_Jerry/
   `annotate`, and summary-table regression commands.
 - Treat workflow logs as audit artifacts. Do not include log paths in
   `output_paths` mappings or thin metadata sidecars that downstream code
-  interprets as scientific data artifacts.
+  interprets as scientific data artifacts. Whole-directory transactional
+  publishers must keep open workflow logs outside the replaceable tree; the
+  gene-index builder uses sibling `<index-dir>.build/` state.
 - Keep regression file-driven: it should be able to rebuild state from written artifacts without recomputing LD scores.
 - Prefer extending shared helpers or the workflow-owned writer over duplicating local parsing or writing logic.
 

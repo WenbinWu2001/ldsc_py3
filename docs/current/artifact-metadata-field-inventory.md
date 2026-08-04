@@ -46,7 +46,10 @@ Directory artifacts are owned as whole trees. Optional
 under `diagnostics/` and then moved into final position as a unit; reruns that
 omit those optional details remove the old tree after a successful overwrite.
 Always-written audit sidecars such as workflow logs and dropped-SNP tables are
-included in the owned family.
+included in the owned family for ordinary result-directory workflows. The
+gene-index builder is the deliberate exception: its mutable log/history family
+lives in sibling `<index-dir>.build/` state and never enters the atomically
+replaceable index artifact.
 
 ## Public Output Layouts
 

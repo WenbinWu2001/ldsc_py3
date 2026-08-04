@@ -106,7 +106,7 @@ header is written and final work before the footer is written.
 | `annotate` | `<output_dir>/diagnostics/annotate.log` |
 | `ldscore` | `<output_dir>/diagnostics/ldscore.log` |
 | `build-ref-panel` | `<output_dir>/diagnostics/build-ref-panel.log`, or `<output_dir>/diagnostics/build-ref-panel.chr<chrom>.log` for concrete single-chromosome PLINK-prefix runs |
-| `build-gene-ldscore-index` | `<index_dir>/diagnostics/build-gene-ldscore-index.log`; prior attempts move to `diagnostics/history/` |
+| `build-gene-ldscore-index` | `<index_dir>.build/build-gene-ldscore-index.log`; prior attempts move to `<index_dir>.build/history/` |
 | `h2` | `<output_dir>/diagnostics/h2.log` |
 | `partitioned-h2` | `<output_dir>/diagnostics/partitioned-h2.log` |
 | `rg` | `<output_dir>/diagnostics/rg.log` |
@@ -130,9 +130,12 @@ same per-chromosome and aggregate measurements rather than recomputing them.
 For a successful run, the final lines identify `index_id`, staged reload
 validation, complete atomic replacement, payload bytes, peak RSS, and the
 validated index path. A failure keeps the `Failed` footer and traceback at the
-same stable path. A diagnostics-only failed directory is safe for retry; a
-failed overwrite leaves the old scientific index loadable. The lifecycle log
-is the status authority, so no separate status JSON is written.
+same stable sidecar path without creating or modifying an index destination; a
+failed overwrite leaves the old scientific index loadable. Once replacement
+and reload validation complete, cleanup failures are warnings that name the
+retained transaction directory and do not change the successful exit status.
+The lifecycle log is the status authority, so no separate status JSON is
+written.
 
 ## API Boundary
 
